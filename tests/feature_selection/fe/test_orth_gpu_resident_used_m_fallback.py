@@ -22,12 +22,14 @@ from mlframe.feature_selection.filters._fe_resident_operands import clear_fe_res
 
 @pytest.fixture(autouse=True)
 def _clear_cache():
+    """Clear cache."""
     clear_fe_resident_operands()
     yield
     clear_fe_resident_operands()
 
 
 def _make_frame(n=4000, seed=0):
+    """Make frame."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(-2.0, 2.0, n)
     b = rng.normal(0.0, 1.0, n)
@@ -56,6 +58,7 @@ def test_used_m_fallback_dedups_raw_column_upload_across_calls(monkeypatch):
     orig_asarray = cp.asarray
 
     def _counting_asarray(arr, *a, **kw):
+        """Counting asarray."""
         if isinstance(arr, np.ndarray) and arr.shape == a64.shape and arr.dtype == np.float64 and np.array_equal(arr, a64):
             upload_calls["n"] += 1
         return orig_asarray(arr, *a, **kw)

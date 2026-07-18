@@ -45,7 +45,6 @@ from mlframe.feature_selection.filters._unified_fe_gate import (
     raw_mi_noise_floor,
 )
 
-
 # ===========================================================================
 # W2 -- provenance self-audit accessor
 # ===========================================================================
@@ -56,12 +55,14 @@ class _ProvStub:
 
 
 class _Recipe:
+    """Groups tests covering Recipe."""
     def __init__(self, name, kind):
         self.name = name
         self.kind = kind
 
 
 def _make_prov(rows):
+    """Make prov."""
     return pd.DataFrame(
         rows,
         columns=["feature_name", "origin", "mechanism_details", "mrmr_gain", "support_rank"],
@@ -129,6 +130,7 @@ def test_w2_accessor_excludes_screened_out_nonsurvivors():
 
 
 def test_w2_accessor_empty_on_unfitted():
+    """W2 accessor empty on unfitted."""
     s = _ProvStub()
     assert get_unlabeled_recipe_kinds(s) == {}
 

@@ -19,6 +19,7 @@ warnings.filterwarnings("ignore")
 
 
 def _gen_redundant_and_noise(n, seed, n_redundant=4, n_noise=4):
+    """Gen redundant and noise."""
     rng = np.random.default_rng(seed)
     a = rng.normal(size=n)
     b = rng.normal(size=n)
@@ -30,6 +31,7 @@ def _gen_redundant_and_noise(n, seed, n_redundant=4, n_noise=4):
 
 
 def test_biz_val_lasso_meta_stacker_zeroes_redundant_and_noise_components():
+    """Biz val lasso meta stacker zeroes redundant and noise components."""
     X, y = _gen_redundant_and_noise(n=2000, seed=0)
     n_components = X.shape[1]
 
@@ -48,6 +50,7 @@ def test_biz_val_lasso_meta_stacker_zeroes_redundant_and_noise_components():
 
 
 def test_biz_val_lasso_meta_stacker_holdout_rmse_not_worse_than_ridge():
+    """Biz val lasso meta stacker holdout rmse not worse than ridge."""
     X_train, y_train = _gen_redundant_and_noise(n=2000, seed=0)
     X_test, y_test = _gen_redundant_and_noise(n=2000, seed=1)
     n_components = X_train.shape[1]
@@ -58,6 +61,6 @@ def test_biz_val_lasso_meta_stacker_holdout_rmse_not_worse_than_ridge():
     rmse_lasso = float(np.sqrt(np.mean((lasso.predict(X_test) - y_test) ** 2)))
     rmse_ridge = float(np.sqrt(np.mean((ridge.predict(X_test) - y_test) ** 2)))
 
-    assert rmse_lasso <= rmse_ridge * 1.10, (
-        f"expected Lasso holdout RMSE to be within 10% of Ridge despite sparsity, got lasso={rmse_lasso:.4f} ridge={rmse_ridge:.4f}"
-    )
+    assert (
+        rmse_lasso <= rmse_ridge * 1.10
+    ), f"expected Lasso holdout RMSE to be within 10% of Ridge despite sparsity, got lasso={rmse_lasso:.4f} ridge={rmse_ridge:.4f}"

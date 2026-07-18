@@ -24,6 +24,7 @@ from mlframe.training.baselines._dummy_baseline_compute import _per_target_seed
 
 
 class _LtrCfg:
+    """Groups tests covering ltr cfg."""
     random_state = 7
     random_within_query_n_repeats = 10
     stratified_n_repeats = 5
@@ -43,6 +44,7 @@ def _legacy_first_run(seed: int, n_val: int, n_test: int, n_repeats: int):
 
 
 def test_random_within_query_matches_legacy_first_run():
+    """Random within query matches legacy first run."""
     from mlframe.training.baselines.dummy import _compute_ltr_baselines
 
     rng = np.random.default_rng(0)
@@ -85,6 +87,7 @@ def test_random_within_query_matches_legacy_first_run():
 
 
 def test_random_within_query_handles_empty_splits():
+    """Random within query handles empty splits."""
     from mlframe.training.baselines.dummy import _compute_ltr_baselines
 
     rng = np.random.default_rng(0)

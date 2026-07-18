@@ -36,7 +36,6 @@ import pytest
 from mlframe.feature_selection.filters._mrmr_fit_impl import _helpers as _h
 from mlframe.feature_selection.filters.mrmr import MRMR
 
-
 # ---------------------------------------------------------------------------
 # DIRECT: _prune_engineered_continuous_store against controlled before/after state.
 # ---------------------------------------------------------------------------
@@ -50,6 +49,7 @@ class _FakeMRMRState:
 
 
 def test_prune_drops_entries_not_in_selected_vars():
+    """Prune drops entries not in selected vars."""
     n = 500
     cols = ["raw_a", "raw_b", "eng_survivor", "eng_dropped_1", "eng_dropped_2"]
     store = {
@@ -67,6 +67,7 @@ def test_prune_drops_entries_not_in_selected_vars():
 
 
 def test_prune_keeps_everything_when_all_survive():
+    """Prune keeps everything when all survive."""
     n = 200
     cols = ["raw_a", "eng_1", "eng_2"]
     store = {"eng_1": np.zeros(n), "eng_2": np.zeros(n)}
@@ -78,6 +79,7 @@ def test_prune_keeps_everything_when_all_survive():
 
 
 def test_prune_drops_everything_when_none_survive():
+    """Prune drops everything when none survive."""
     n = 200
     cols = ["raw_a", "eng_1", "eng_2"]
     store = {"eng_1": np.zeros(n), "eng_2": np.zeros(n)}
@@ -89,10 +91,12 @@ def test_prune_drops_everything_when_none_survive():
 
 
 def test_prune_is_noop_on_empty_or_absent_store():
+    """Prune is noop on empty or absent store."""
     inst_empty = _FakeMRMRState({})
     assert _h._prune_engineered_continuous_store(inst_empty, ["a", "b"], [0, 1]) == 0
 
     class _NoStore:
+        """Groups tests covering NoStore."""
         pass
 
     assert _h._prune_engineered_continuous_store(_NoStore(), ["a", "b"], [0, 1]) == 0
@@ -127,9 +131,9 @@ def test_prune_bounds_peak_store_size_across_simulated_rounds():
         peak_with_pruning = max(peak_with_pruning, len(store))
 
     assert total_ever_created == 20, "fixture sanity: 5 rounds x 4 candidates"
-    assert peak_with_pruning < total_ever_created, (
-        f"pruning must bound the store below the cumulative candidate count: peak={peak_with_pruning} vs total_ever_created={total_ever_created}"
-    )
+    assert (
+        peak_with_pruning < total_ever_created
+    ), f"pruning must bound the store below the cumulative candidate count: peak={peak_with_pruning} vs total_ever_created={total_ever_created}"
     # With pruning each round keeps at most ~2 entries alive (1 new + 1 carried survivor).
     assert peak_with_pruning <= 3, f"expected pruning to keep the store small across rounds; peak={peak_with_pruning}"
 
@@ -165,6 +169,7 @@ def test_prune_hook_fires_during_real_multi_round_fit():
     orig = _h._prune_engineered_continuous_store
 
     def spy(instance, cols, selected_vars):
+        """Helper that spy."""
         calls.append((len(cols), len(getattr(instance, "_engineered_continuous_", None) or {})))
         return orig(instance, cols, selected_vars)
 
@@ -174,9 +179,9 @@ def test_prune_hook_fires_during_real_multi_round_fit():
         m.fit(df, y)
 
     assert calls, "expected the prune hook to run at least once during a multi-round FE fit"
-    assert any(store_len > 0 for _cols_len, store_len in calls), (
-        f"expected at least one prune-hook call to see a populated _engineered_continuous_ store; calls={calls}"
-    )
+    assert any(
+        store_len > 0 for _cols_len, store_len in calls
+    ), f"expected at least one prune-hook call to see a populated _engineered_continuous_ store; calls={calls}"
 
 
 @pytest.mark.slow

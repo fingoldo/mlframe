@@ -39,6 +39,7 @@ def _synthetic_frame(seed: int = 0, n: int = 400, p: int = 30):
 
 
 def _make_rfecv():
+    """Make rfecv."""
     fi = FIConfig(importance_getter="permutation", n_features_selection_rule="one_se_min")
     sc = SearchConfig(max_refits=8, max_runtime_mins=2)
     return RFECV(
@@ -53,6 +54,7 @@ def _make_rfecv():
 
 
 def _fit_get(force_pandas: bool, seed: int = 0):
+    """Fit get."""
     X, y = _synthetic_frame(seed=seed)
     r = _make_rfecv()
     if force_pandas:

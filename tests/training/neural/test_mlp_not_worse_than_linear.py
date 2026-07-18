@@ -49,6 +49,7 @@ def _make_dominant_feature_dataset(
 
 
 def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Rmse."""
     return float(np.sqrt(np.mean((np.asarray(y_pred).reshape(-1) - y_true) ** 2)))
 
 
@@ -229,7 +230,9 @@ def _build_production_mlp_wrapper(n_features: int):
     )
 
     class _TTRWithEvalSetScaling(TransformedTargetRegressor):
+        """Groups tests covering t t r with eval set scaling."""
         def fit(self, X, y, **fit_params):
+            """Fit."""
             from sklearn.base import clone as _clone
 
             y_arr = np.asarray(y, dtype=np.float64)
@@ -372,7 +375,9 @@ def _build_suite_default_mlp_wrapper(n_features: int, max_epochs: int):
     )
 
     class _TTRWithEvalSetScaling(TransformedTargetRegressor):
+        """Groups tests covering t t r with eval set scaling."""
         def fit(self, X, y, **fit_params):
+            """Fit."""
             from sklearn.base import clone as _clone
 
             y_arr = np.asarray(y, dtype=np.float64)

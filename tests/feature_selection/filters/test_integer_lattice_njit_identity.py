@@ -15,6 +15,7 @@ from mlframe.feature_selection.filters._integer_lattice_fe import (
 
 
 def _numpy_ref(a, b, ops):
+    """Numpy ref."""
     from mlframe.feature_selection.filters._integer_lattice_fe import _nonfinite_mask, _to_int
 
     bad = _nonfinite_mask(a, b)
@@ -35,6 +36,7 @@ def _numpy_ref(a, b, ops):
 
 
 def test_njit_default_ops_bit_identical_incl_nan():
+    """Njit default ops bit identical incl nan."""
     rng = np.random.default_rng(0)
     for n in (500, 2000, 20000):
         a = rng.integers(0, 5000, n).astype(np.float64)
@@ -47,6 +49,7 @@ def test_njit_default_ops_bit_identical_incl_nan():
 
 
 def test_non_default_ops_take_numpy_path():
+    """Non default ops take numpy path."""
     rng = np.random.default_rng(1)
     a = rng.integers(0, 100, 1000).astype(np.float64)
     b = rng.integers(1, 100, 1000).astype(np.float64)
@@ -57,6 +60,7 @@ def test_non_default_ops_take_numpy_path():
 
 
 def test_kernel_gcd_lcm_correct():
+    """Kernel gcd lcm correct."""
     a = np.array([12.0, 0.0, 7.0], dtype=np.float64)
     b = np.array([18.0, 5.0, 1.0], dtype=np.float64)
     out = _lattice_gcd_lcm_and_njit(a, b)

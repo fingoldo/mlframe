@@ -19,6 +19,7 @@ from mlframe.training.neural.group_causal_attention_mask import group_causal_att
 
 
 def test_group_causal_attention_mask_values():
+    """Group causal attention mask values."""
     group_ids = torch.tensor([0, 0, 1, 2])
     mask = group_causal_attention_mask(group_ids)
     assert mask.shape == (4, 4)
@@ -37,6 +38,7 @@ def test_group_causal_attention_mask_values():
 
 
 def test_group_causal_attention_mask_rejects_bad_ndim():
+    """Group causal attention mask rejects bad ndim."""
     import pytest
 
     with pytest.raises(ValueError):
@@ -44,6 +46,7 @@ def test_group_causal_attention_mask_rejects_bad_ndim():
 
 
 def test_biz_val_group_causal_mask_blocks_future_group_leakage_at_attention_level():
+    """Biz val group causal mask blocks future group leakage at attention level."""
     torch.manual_seed(0)
     d_model = 8
     mha = nn.MultiheadAttention(embed_dim=d_model, num_heads=2, batch_first=True)
@@ -69,9 +72,9 @@ def test_biz_val_group_causal_mask_blocks_future_group_leakage_at_attention_leve
 
     # No future-group leakage: positions 0, 1, 2 (all earlier-or-equal groups than 3) must be UNCHANGED when
     # only position 3's input changes.
-    assert torch.allclose(out1[:, :3, :], out_future_changed[:, :3, :], atol=1e-6), (
-        "changing the latest-group position leaked into an earlier-group position's attention output"
-    )
+    assert torch.allclose(
+        out1[:, :3, :], out_future_changed[:, :3, :], atol=1e-6
+    ), "changing the latest-group position leaked into an earlier-group position's attention output"
     # Position 3 itself must change (it attends to itself).
     assert not torch.allclose(out1[:, 3, :], out_future_changed[:, 3, :], atol=1e-6)
 
@@ -81,6 +84,7 @@ def test_biz_val_group_causal_mask_blocks_future_group_leakage_at_attention_leve
 
 
 def test_transformer_sequence_encoder_accepts_optional_attn_mask_without_regression():
+    """Transformer sequence encoder accepts optional attn mask without regression."""
     torch.manual_seed(0)
     encoder = TransformerSequenceEncoder(input_size=6, hidden_size=16, num_layers=1, n_heads=2, dim_feedforward=32)
     encoder.eval()
@@ -146,6 +150,7 @@ def _causal_leakage_forward(encoder: TransformerSequenceEncoder, head: nn.Linear
 def _causal_leakage_train(
     attn_mask: torch.Tensor | None, seed: int, n_feat: int, num_steps: int = 100, batch: int = 32
 ) -> tuple[TransformerSequenceEncoder, nn.Linear]:
+    """Causal leakage train."""
     torch.manual_seed(seed)
     rng = torch.Generator().manual_seed(seed + 1)
     encoder = TransformerSequenceEncoder(input_size=n_feat, hidden_size=12, num_layers=1, n_heads=2, dim_feedforward=24)
@@ -179,6 +184,7 @@ def test_biz_val_group_causal_mask_prevents_trained_model_from_relying_on_future
     encoder_unmasked, head_unmasked = _causal_leakage_train(None, seed=0, n_feat=n_feat)
 
     def eval_mse(encoder: TransformerSequenceEncoder, head: nn.Linear, attn_mask: torch.Tensor | None, ood: bool) -> float:
+        """Eval mse."""
         rng = torch.Generator().manual_seed(1999)
         sequences, target = _causal_leakage_make_batch(256, ood=ood, rng=rng, n_feat=n_feat)
         with torch.no_grad():
@@ -209,6 +215,7 @@ def test_biz_val_group_causal_mask_prevents_trained_model_from_relying_on_future
 
 
 def test_transformer_sequence_encoder_with_group_causal_mask_produces_finite_output():
+    """Transformer sequence encoder with group causal mask produces finite output."""
     import torch.nn.functional as F
 
     torch.manual_seed(0)

@@ -20,7 +20,9 @@ import pytest
 # SA-P0-2: knockoff W must be sign-symmetric under the global null.
 # ----------------------------------------------------------------------------
 class TestKnockoffNullSignSymmetry:
+    """Groups tests covering TestKnockoffNullSignSymmetry."""
     def _null_W_samples(self, n_seeds: int = 40):
+        """Null W samples."""
         from sklearn.ensemble import RandomForestRegressor
 
         from mlframe.feature_selection.wrappers import knockoff_importance
@@ -32,6 +34,7 @@ class TestKnockoffNullSignSymmetry:
             y = rng.standard_normal(150)  # y independent of all X -> global null
 
             def factory():
+                """Helper that factory."""
                 return RandomForestRegressor(n_estimators=40, random_state=seed)  # noqa: B023 -- factory invoked immediately below, same iteration, never stored
 
             W = knockoff_importance(factory, X, y, random_state=seed, w_statistic="gain")
@@ -63,6 +66,7 @@ class TestKnockoffNullSignSymmetry:
             y = rng.standard_normal(150)
 
             def factory():
+                """Helper that factory."""
                 return RandomForestRegressor(n_estimators=40, random_state=seed)  # noqa: B023 -- factory invoked immediately below, same iteration, never stored
 
             W = knockoff_importance(factory, X, y, random_state=seed, w_statistic="gain")
@@ -76,7 +80,9 @@ class TestKnockoffNullSignSymmetry:
 # SA8: tie-corrected Kendall variance.
 # ----------------------------------------------------------------------------
 class TestKendallTieCorrectedVariance:
+    """Groups tests covering TestKendallTieCorrectedVariance."""
     def test_tied_p_matches_scipy(self):
+        """Tied p matches scipy."""
         from scipy.stats import kendalltau
 
         from mlframe.feature_selection.wrappers._univariate_ht import _kendall_tau_z, _normal_two_sided_p
@@ -112,6 +118,7 @@ class TestKendallTieCorrectedVariance:
 # SA9: full-n Kendall (no subsample to 2000).
 # ----------------------------------------------------------------------------
 class TestKendallFullN:
+    """Groups tests covering TestKendallFullN."""
     def test_large_n_not_subsampled(self):
         """Two calls with different random_state on a >2000-row feature must return the SAME p-value: pre-fix each drew a
         different 2000-row subsample (seed-dependent p), post-fix the full-n p-value is seed-invariant."""
@@ -125,6 +132,7 @@ class TestKendallFullN:
         assert p0 == pytest.approx(p1, abs=1e-9), "p-value depends on subsample seed -> heterogeneous effective-n family"
 
     def test_full_n_matches_scipy(self):
+        """Full n matches scipy."""
         from scipy.stats import kendalltau
 
         from mlframe.feature_selection.wrappers._univariate_ht import _kendall_p_numeric_continuous
@@ -147,13 +155,16 @@ class _DummySelector:
         self.k = k
 
     def get_params(self, deep=True):
+        """Get params."""
         return {"k": self.k}
 
     def set_params(self, **p):
+        """Set params."""
         self.k = p.get("k", self.k)
         return self
 
     def fit(self, X, y):
+        """Helper that fit."""
         import numpy as _np
 
         # Pick the k columns most correlated with y -- deterministic given the subsample.
@@ -168,13 +179,16 @@ class _DummySelector:
 
 
 class TestStabilityMRMRPFER:
+    """Groups tests covering TestStabilityMRMRPFER."""
     def test_default_sample_fraction_is_half(self):
+        """Default sample fraction is half."""
         from mlframe.feature_selection.filters.stability import StabilityMRMR
 
         sel = StabilityMRMR(estimator=_DummySelector())
         assert sel.sample_fraction == 0.5, "MB-canonical complementary-pairs default must be 0.5, not 0.75"
 
     def test_pfer_bound_matches_mb_formula(self):
+        """Pfer bound matches mb formula."""
         import pandas as pd
 
         from mlframe.feature_selection.filters.stability import StabilityMRMR
@@ -195,6 +209,7 @@ class TestStabilityMRMRPFER:
         assert sel.pfer_bound_ == pytest.approx(expected, rel=1e-9)
 
     def test_pfer_bound_nan_when_fraction_not_half(self):
+        """Pfer bound nan when fraction not half."""
         import pandas as pd
 
         from mlframe.feature_selection.filters.stability import StabilityMRMR
@@ -211,7 +226,9 @@ class TestStabilityMRMRPFER:
 # SA5: RFECV stability selection exposes the PFER bound.
 # ----------------------------------------------------------------------------
 class TestRFECVStabilityPFER:
+    """Groups tests covering TestRFECVStabilityPFER."""
     def test_pfer_bound_exposed_and_matches_formula(self):
+        """Pfer bound exposed and matches formula."""
         import pandas as pd
         from sklearn.ensemble import RandomForestClassifier
 
@@ -242,6 +259,7 @@ class TestRFECVStabilityPFER:
 # SA7: BorutaShap binomial null hit probability derived from percentile, not 0.5.
 # ----------------------------------------------------------------------------
 class TestBorutaNullHitCalibration:
+    """Groups tests covering TestBorutaNullHitCalibration."""
     def test_test_features_uses_percentile_derived_null_p(self):
         """Drive ``test_features`` directly with a null-consistent hit history and assert the calibrated p=(100-percentile)/100
         keeps the accept rate near nominal, whereas p=0.5 would (anti-conservatively) accept pure-noise features."""
@@ -260,8 +278,8 @@ class TestBorutaNullHitCalibration:
         rng = _np.random.default_rng(0)
         hits = rng.binomial(n_trials, null_p, size=n_features).astype(float)
 
-
         def _binom(array, n, p, alternative):
+            """Helper that binom."""
             from scipy.stats import binomtest
 
             return [binomtest(int(x), n, p, alternative=alternative).pvalue for x in array]

@@ -1,5 +1,3 @@
-from mlframe.training import OutputConfig
-
 """End-to-end LGB tests with realistic prod-like Polars input.
 
 Why this file exists: production LGB crashes on 2026-04-22 with
@@ -19,6 +17,9 @@ These tests construct exactly that minimal scenario so any future regression
 in the Polars→pandas→LGB chain is caught locally instead of on the 9M-row
 prod dataset 30 minutes into a run.
 """
+
+from mlframe.training import OutputConfig
+
 
 import numpy as np
 import pandas as pd
@@ -89,6 +90,7 @@ def test_lgb_after_passthrough_wrapper_handles_numpy_inner_fn():
 
     # Simulate a transformer that returns numpy (selects only numeric cols).
     def numpy_returning_selector(sub_df):
+        """Selects three numeric columns and returns a raw ndarray, simulating a transformer that drops the pandas wrapper."""
         return sub_df[["num_feat_1", "num_feat_2", "num_feat_3"]].to_numpy()
 
     out = _passthrough_cols_fit_transform(

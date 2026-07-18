@@ -48,7 +48,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-
 # --------------------------------------------------------------------------- render helper
 
 
@@ -742,7 +741,7 @@ def test_residual_vs_time_degenerate(case):
 
 
 def _mot_case(name):
-    """Helper: Mot case."""
+    """Helper: Not case."""
     rng = np.random.default_rng(13)
     if name == "empty":
         return np.array([], dtype=int), np.array([], dtype=float), np.array([], dtype="datetime64[D]")

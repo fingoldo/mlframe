@@ -33,7 +33,6 @@ from tests.feature_selection._selector_factories import (
     spec_params,
 )
 
-
 # --- shared data (built once) ----------------------------------------------
 
 
@@ -42,6 +41,7 @@ def _binary_frame(n=400, p=10, seed=0):
     # the column-order / index-alignment invariance contracts test reproducibility
     # of the selection, not robustness to a noisy near-tie (a flip on noisy data
     # is a power artefact, not an invariance violation).
+    """Binary frame."""
     from sklearn.datasets import make_classification
 
     X, y = make_classification(n_samples=n, n_features=p, n_informative=5, n_redundant=0, n_classes=2, random_state=seed, shuffle=False, class_sep=2.5)
@@ -58,6 +58,7 @@ def _fit(selector, X, y, **fit_params):
     # selector that LEAKS global RNG is caught separately by TestGlobalRngHygiene;
     # any selector that DEPENDS on global RNG is made deterministic here, so a
     # column-order flip that survives this reset is a genuine order-sensitivity.
+    """Helper that fit."""
     np.random.seed(0)
     random.seed(0)
     with warnings.catch_warnings():
@@ -72,6 +73,7 @@ _FIT_CACHE: dict[str, object] = {}
 
 
 def fitted_binary(spec):
+    """Fitted binary."""
     if spec.name not in _FIT_CACHE:
         # Fit on a COPY so a (hypothetical future) frame-mutation regression in one
         # selector cannot corrupt the shared module frame and cascade into unrelated
@@ -91,18 +93,22 @@ _SPECS = spec_params()
 
 @pytest.mark.parametrize("spec", _SPECS)
 class TestUniversalContract:
+    """Groups tests covering TestUniversalContract."""
     def test_n_features_in_matches_input(self, spec):
+        """N features in matches input."""
         sel = fitted_binary(spec)
         # Selectors may drop degenerate columns at fit entry, so allow <=.
         assert 1 <= int(getattr(sel, "n_features_in_", -1)) <= _BINARY_X.shape[1]
 
     def test_feature_names_in_recorded(self, spec):
+        """Feature names in recorded."""
         sel = fitted_binary(spec)
         names = list(getattr(sel, "feature_names_in_", []))
         assert names, f"{spec.name}: feature_names_in_ not recorded"
         assert set(names) <= set(_BINARY_X.columns)
 
     def test_support_mask_well_formed(self, spec):
+        """Support mask well formed."""
         sel = fitted_binary(spec)
         mask = selected_mask(sel)
         assert mask.dtype == bool
@@ -110,6 +116,7 @@ class TestUniversalContract:
         assert int(mask.sum()) >= 1, f"{spec.name}: selected zero features"
 
     def test_transform_row_count_and_width(self, spec):
+        """Transform row count and width."""
         sel = fitted_binary(spec)
         Xt = sel.transform(_BINARY_X)
         assert Xt.shape[0] == _BINARY_X.shape[0]
@@ -117,6 +124,7 @@ class TestUniversalContract:
         assert Xt.shape[1] == int(selected_mask(sel).sum()) + n_eng
 
     def test_not_fitted_before_fit_raises(self, spec):
+        """Not fitted before fit raises."""
         sel = spec.make("binary")
         with pytest.raises((NotFittedError, AttributeError, ValueError)):
             sel.transform(_BINARY_X)
@@ -127,6 +135,7 @@ class TestUniversalContract:
         # frame is both a memory leak and a silent schema corruption). MRMR's
         # hinge / cat-cross FE used to materialise legs into the caller's X in
         # place (``X[leg] = ...``) -- this pins that fit leaves X identical.
+        """Fit does not mutate input frame."""
         X = _BINARY_X.copy()
         cols_before = list(X.columns)
         _fit(spec.make("binary"), X, _BINARY_Y)
@@ -137,6 +146,7 @@ class TestUniversalContract:
         )
 
     def test_get_feature_names_out_capability(self, spec):
+        """Get feature names out capability."""
         sel = fitted_binary(spec)
         has = callable(getattr(sel, "get_feature_names_out", None))
         if spec.has_gfno:
@@ -147,6 +157,7 @@ class TestUniversalContract:
             pytest.xfail(f"{spec.name}: no get_feature_names_out (declared sklearn-parity gap)")
 
     def test_get_support_capability(self, spec):
+        """Get support capability."""
         sel = fitted_binary(spec)
         gs = getattr(sel, "get_support", None)
         if spec.has_get_support:
@@ -159,6 +170,7 @@ class TestUniversalContract:
 
 
 def _as_bool(mask, sel):
+    """As bool."""
     mask = np.asarray(mask)
     if mask.dtype == bool:
         return mask
@@ -191,7 +203,9 @@ def test_every_registered_selector_has_contract_spec():
 
 @pytest.mark.parametrize("spec", _SPECS)
 class TestPicklePersistence:
+    """Groups tests covering TestPicklePersistence."""
     def test_pickle_roundtrip_preserves_transform(self, spec):
+        """Pickle roundtrip preserves transform."""
         sel = fitted_binary(spec)
         if not spec.pickle_safe:
             with pytest.raises(Exception):  # noqa: B017 -- pickling an unpicklable selector may raise PicklingError/TypeError/AttributeError depending on what is unpicklable; the contract is only "must not silently succeed"
@@ -212,7 +226,9 @@ class TestPicklePersistence:
 
 @pytest.mark.parametrize("spec", _SPECS)
 class TestTransformWidthValidation:
+    """Groups tests covering TestTransformWidthValidation."""
     def test_wrong_ndarray_width_raises(self, spec):
+        """Wrong ndarray width raises."""
         sel = fitted_binary(spec)
         if not spec.accepts_ndarray:
             pytest.xfail(f"{spec.name}: DataFrame-only (declared)")
@@ -224,6 +240,7 @@ class TestTransformWidthValidation:
             sel.transform(bad)
 
     def test_extra_dataframe_columns_realign_by_name(self, spec):
+        """Extra dataframe columns realign by name."""
         sel = fitted_binary(spec)
         Xplus = _BINARY_X.copy()
         Xplus.insert(0, "ID_PREPENDED", np.arange(len(Xplus)))  # ETL prepends an id col
@@ -239,7 +256,9 @@ class TestTransformWidthValidation:
 
 @pytest.mark.parametrize("spec", _SPECS)
 class TestColumnOrderInvariance:
+    """Groups tests covering TestColumnOrderInvariance."""
     def test_reversed_columns_select_same_names(self, spec):
+        """Reversed columns select same names."""
         if not spec.column_order_invariant:
             pytest.xfail(f"{spec.name}: selection depends on input column order (positional tie-break / shadow ordering -- reproducibility gap)")
         rev = list(_BINARY_X.columns)[::-1]
@@ -261,6 +280,7 @@ class TestColumnOrderInvariance:
 
 @pytest.mark.parametrize("spec", _SPECS)
 class TestIndexAlignment:
+    """Groups tests covering TestIndexAlignment."""
     def test_nondefault_index_recovers_signal_without_crash(self, spec):
         # A non-default / shuffled pandas index (X rows + y Series carrying the
         # SAME shuffled index, values aligned) is the classic CV-split / df.sample
@@ -271,6 +291,7 @@ class TestIndexAlignment:
         # legitimately depend on row order; that is reproducibility-under-row-order,
         # not index handling. Column-order invariance (TestColumnOrderInvariance)
         # is the bit-identity contract; this one guards silent index MISalignment.
+        """Nondefault index recovers signal without crash."""
         rng = np.random.default_rng(1)
         perm = rng.permutation(len(_BINARY_X))
         Xs = _BINARY_X.iloc[perm].copy()
@@ -280,9 +301,9 @@ class TestIndexAlignment:
         informative = {f"f{i}" for i in range(5)}
         # If the selector silently aligned y by pandas index instead of positionally,
         # the labels would be scrambled and signal recovery collapses to ~noise.
-        assert names & informative, (
-            f"{spec.name}: non-default-index fit recovered no informative feature (selected {sorted(names)}) -- possible silent index misalignment"
-        )
+        assert (
+            names & informative
+        ), f"{spec.name}: non-default-index fit recovered no informative feature (selected {sorted(names)}) -- possible silent index misalignment"
 
 
 # ===========================================================================
@@ -292,7 +313,9 @@ class TestIndexAlignment:
 
 @pytest.mark.parametrize("spec", _SPECS)
 class TestSampleWeight:
+    """Groups tests covering TestSampleWeight."""
     def test_uniform_weight_equals_unweighted(self, spec):
+        """Uniform weight equals unweighted."""
         if not spec.supports_sample_weight:
             # A weight-incapable selector must reject the kwarg LOUDLY -- pin it so
             # the training-suite marker stamping on such a selector is a visible
@@ -308,6 +331,7 @@ class TestSampleWeight:
 
 
 def _fit_with_weight(spec, w):
+    """Fit with weight."""
     return _fit(spec.make("binary"), _BINARY_X, _BINARY_Y, sample_weight=w)
 
 
@@ -318,7 +342,9 @@ def _fit_with_weight(spec, w):
 
 @pytest.mark.parametrize("spec", _SPECS)
 class TestDuplicateColumnNames:
+    """Groups tests covering TestDuplicateColumnNames."""
     def test_duplicate_names_rejected(self, spec):
+        """Duplicate names rejected."""
         Xdup = pd.concat([_BINARY_X, _BINARY_X[["f0"]]], axis=1)  # two cols named f0
         sel = spec.make("binary")
         if not spec.rejects_duplicate_names:
@@ -334,9 +360,11 @@ class TestDuplicateColumnNames:
 
 @pytest.mark.parametrize("spec", _SPECS)
 class TestGlobalRngHygiene:
+    """Groups tests covering TestGlobalRngHygiene."""
     def test_fit_does_not_touch_global_numpy_rng(self, spec):
         # Measure the SELECTOR's effect on the global RNG -- call fit directly,
         # NOT via the harness ``_fit`` (which reseeds for comparison hygiene).
+        """Fit does not touch global numpy rng."""
         np.random.seed(12345)
         before = np.random.get_state()
         with warnings.catch_warnings():
@@ -355,7 +383,9 @@ class TestGlobalRngHygiene:
 
 @pytest.mark.parametrize("spec", _SPECS)
 class TestNanInXPolicy:
+    """Groups tests covering TestNanInXPolicy."""
     def test_nan_in_X_declared_policy(self, spec):
+        """Nan in X declared policy."""
         if spec.nan_in_X_policy == "unknown":
             pytest.skip(f"{spec.name}: NaN-in-X policy not yet pinned (measure-then-pin backlog)")
         X = _BINARY_X.copy()

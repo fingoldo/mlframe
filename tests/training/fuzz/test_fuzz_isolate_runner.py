@@ -21,15 +21,18 @@ import tests.training.run_fuzz_10k as R
 
 
 def test_classify_native_crash_windows_access_violation():
+    """Classify native crash windows access violation."""
     assert R._classify_native_crash(3221225477) is True  # 0xC0000005 unsigned
     assert R._classify_native_crash(-1073741819) is True  # signed two's complement
 
 
 def test_classify_native_crash_posix_signal():
+    """Classify native crash posix signal."""
     assert R._classify_native_crash(-11) is True  # SIGSEGV
 
 
 def test_classify_native_crash_clean_pytest_exits():
+    """Classify native crash clean pytest exits."""
     assert R._classify_native_crash(0) is False  # all passed
     assert R._classify_native_crash(1) is False  # tests failed
     assert R._classify_native_crash(5) is False  # no tests collected
@@ -75,6 +78,7 @@ def test_reap_bounded_returns_false_for_undead_process_within_timeout():
 
 
 def test_reap_bounded_returns_true_for_exited_process():
+    """Reap bounded returns true for exited process."""
     p = subprocess.Popen([sys.executable, "-c", "pass"])  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     assert R._reap_bounded(p, 10) is True
 
@@ -102,6 +106,7 @@ def test_run_one_combo_does_not_wedge_on_child_holding_pipe_open_after_kill(monk
     real_popen = subprocess.Popen
 
     def fake_popen(cmd, **kwargs):
+        """Fake popen."""
         return real_popen([sys.executable, "-c", child_code], **kwargs)
 
     monkeypatch.setattr(R.subprocess, "Popen", fake_popen)

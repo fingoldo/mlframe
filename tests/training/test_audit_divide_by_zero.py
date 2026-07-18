@@ -29,7 +29,6 @@ from pathlib import Path
 
 import numpy as np
 
-
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
@@ -38,6 +37,7 @@ def _read(rel: str) -> str:
     # empty-factors guard now lives in a submodule (``_batch_kernels.py``).
     # Concat every submodule so the source-grep sensor matches the relocated
     # guard regardless of which submodule owns it now.
+    """Read."""
     pkg_dir = MLFRAME_ROOT / "feature_selection" / "filters" / "info_theory"
     if rel == "feature_selection/filters/info_theory.py" and pkg_dir.is_dir():
         return "\n".join(p.read_text(encoding="utf-8") for p in sorted(pkg_dir.glob("*.py")))
@@ -63,12 +63,14 @@ def test_numerical_weighted_arithmetic_mean_guards_zero_sum() -> None:
 def test_metrics_fast_r2_guards_zero_wsum() -> None:
     # ``fast_r2_score`` was moved to ``_regression_metrics.py`` when
     # ``metrics/core.py`` was split into siblings.
+    """Metrics fast r2 guards zero wsum."""
     src = _read("metrics/regression/_regression_metrics.py")
     # The fix introduces an explicit `if wsum <= 0.0: ss_tots[j] = 0.0; continue`.
     assert "if wsum <= 0.0:" in src and "ss_tots[j] = 0.0" in src and "continue" in src
 
 
 def test_target_encoders_woe_clips_p_and_q() -> None:
+    """Target encoders woe clips p and q."""
     src = _read("training/feature_handling/target_encoders.py")
     # The fix clips p, q with the same Laplace cushion (1e-12) the kfold path uses.
     assert "p_safe = float(min(max(p, 1e-12), 1.0 - 1e-12))" in src
@@ -76,28 +78,33 @@ def test_target_encoders_woe_clips_p_and_q() -> None:
 
 
 def test_calibration_quality_guards_empty_pit() -> None:
+    """Calibration quality guards empty pit."""
     src = _read("calibration/quality.py")
     # The fix early-returns nan on empty PIT.
     assert "if n == 0:" in src and 'return float("nan")' in src
 
 
 def test_mi_grok_guards_empty_data() -> None:
+    """Mi grok guards empty data."""
     src = _read("feature_selection/mi.py")
     # The fix returns the zero mi_results early.
     assert "if n_samples == 0:\n        return mi_results" in src
 
 
 def test_info_theory_guards_empty_factors_data() -> None:
+    """Info theory guards empty factors data."""
     src = _read("feature_selection/filters/info_theory.py")
     assert "if n_samples == 0:\n        out[:] = 0.0\n        return out" in src
 
 
 def test_batch_pair_mi_gpu_host_guards_empty() -> None:
+    """Batch pair mi gpu host guards empty."""
     src = _read("feature_selection/filters/batch_pair_mi_gpu.py")
     assert "if n_samples == 0:\n        return np.zeros(n_pairs, dtype=np.float64)" in src
 
 
 def test_kernels_njit_softmax_temp_guarded() -> None:
+    """Kernels njit softmax temp guarded."""
     src = _read("feature_engineering/transformer/_kernels_njit.py")
     # The fix mirrors the sibling kernel's pattern: temp > eps else 1.0.
     assert "1.0 / softmax_temp if softmax_temp > 1e-12 else 1.0" in src
@@ -109,6 +116,7 @@ def test_kernels_njit_softmax_temp_guarded() -> None:
 
 
 def test_anderson_darling_empty_pit_returns_nan() -> None:
+    """Anderson darling empty pit returns nan."""
     from mlframe.calibration.quality import anderson_darling_statistic
 
     result = anderson_darling_statistic(np.array([], dtype=np.float64))
@@ -116,6 +124,7 @@ def test_anderson_darling_empty_pit_returns_nan() -> None:
 
 
 def test_grok_mi_empty_data_returns_zero_matrix() -> None:
+    """Grok mi empty data returns zero matrix."""
     from mlframe.feature_selection.mi import grok_compute_mutual_information
 
     empty = np.empty((0, 3), dtype=np.int8)

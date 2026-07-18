@@ -33,11 +33,13 @@ NBINS = 10
 
 
 def _discretize(x, nbins=NBINS):
+    """Helper that discretize."""
     ranks = np.argsort(np.argsort(x))
     return (ranks * nbins // len(x)).astype(np.int64)
 
 
 def _mi_plugin(xc, yc, kx, ky):
+    """Mi plugin."""
     n = len(xc)
     joint = np.zeros((kx, ky), dtype=np.float64)
     for i in range(n):
@@ -61,6 +63,7 @@ def _mi_plugin(xc, yc, kx, ky):
 # ---------------------------------------------------------------------------
 def test_mm_bias_formula_and_edges():
     # (Kx-1)(Ky-1)/2n
+    """Mm bias formula and edges."""
     assert _mm_bias(10, 5, 1000) == pytest.approx((9 * 4) / 2000.0)
     # degenerate cardinalities / n -> 0 (no negative bias)
     assert _mm_bias(1, 5, 1000) == 0.0
@@ -90,6 +93,7 @@ def test_ii_mm_corrects_all_three_terms():
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_ii_sign_synergy_redundancy_additive(seed):
+    """Ii sign synergy redundancy additive."""
     n = 3000
     rng = np.random.default_rng(seed)
 
@@ -195,6 +199,7 @@ def test_null_floor_rejects_chance_positive_noise_ii():
 
 
 def test_null_floor_degenerate_returns_zero():
+    """Null floor degenerate returns zero."""
     n = 3000
     rng = np.random.default_rng(0)
     factors = np.zeros((n, 3), dtype=np.int64)
@@ -237,9 +242,11 @@ def test_routing_demotes_additive_crossmix_keeps_synergy():
     fy = np.bincount(yc).astype(float) / n
 
     def jmi(i, j):
+        """Helper that jmi."""
         return _mi_plugin(fa[:, i] * NBINS + fa[:, j], yc, NBINS * NBINS, ky)
 
     def mmi(i):
+        """Helper that mmi."""
         return _mi_plugin(fa[:, i], yc, NBINS, ky)
 
     cached = {(i,): mmi(i) for i in range(NCOL)}
@@ -301,9 +308,11 @@ def test_routing_keeps_redundant_and_selected_pairs():
     fy = np.bincount(yc).astype(float) / n
 
     def jmi(i, j):
+        """Helper that jmi."""
         return _mi_plugin(fa[:, i] * NBINS + fa[:, j], yc, NBINS * NBINS, ky)
 
     def mmi(i):
+        """Helper that mmi."""
         return _mi_plugin(fa[:, i], yc, NBINS, ky)
 
     cached = {(i,): mmi(i) for i in range(3)}

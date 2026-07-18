@@ -60,20 +60,23 @@ def _three_dups_plus_strong_frame(n: int = 1500, seed: int = 0):
 
 
 class TestSwapNullKnobExists:
+    """Groups tests covering TestSwapNullKnobExists."""
     def test_dcd_swap_npermutations_in_signature_default_199(self):
+        """Dcd swap npermutations in signature default 199."""
         import inspect
 
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         sig = inspect.signature(MRMR.__init__)
-        assert "dcd_swap_npermutations" in sig.parameters, (
-            "dcd_swap_npermutations must be a public MRMR constructor param so the swap null is tunable and decoupled from full_npermutations."
-        )
+        assert (
+            "dcd_swap_npermutations" in sig.parameters
+        ), "dcd_swap_npermutations must be a public MRMR constructor param so the swap null is tunable and decoupled from full_npermutations."
         assert sig.parameters["dcd_swap_npermutations"].default == 199
         # store_params_in_object must persist it onto the instance.
         assert int(MRMR().dcd_swap_npermutations) == 199
 
     def test_clone_round_trips_the_knob(self):
+        """Clone round trips the knob."""
         from sklearn.base import clone
 
         from mlframe.feature_selection.filters.mrmr import MRMR
@@ -83,6 +86,7 @@ class TestSwapNullKnobExists:
 
 
 class TestSwapFiresAtDefaultNpermutations:
+    """Groups tests covering TestSwapFiresAtDefaultNpermutations."""
     def test_swap_fires_at_default_full_npermutations(self):
         """The headline regression: with DEFAULT full_npermutations (=3) and
         the opt-in dcd_cluster_size_threshold=2, a swap must fire on the
@@ -125,9 +129,9 @@ class TestSwapFiresAtDefaultNpermutations:
             verbose=0,
             random_seed=0,
         ).fit(X, y)
-        assert int(m.dcd_["n_swaps"]) >= 1, (
-            f"The auto-raise backstop must lift B to ceil(1/0.05)=20 so a swap can fire even with dcd_swap_npermutations=3; got n_swaps={m.dcd_['n_swaps']}."
-        )
+        assert (
+            int(m.dcd_["n_swaps"]) >= 1
+        ), f"The auto-raise backstop must lift B to ceil(1/0.05)=20 so a swap can fire even with dcd_swap_npermutations=3; got n_swaps={m.dcd_['n_swaps']}."
 
     def test_full_npermutations_zero_still_skips_swap_null(self):
         """The on/off semantics are preserved: full_npermutations=0 means the
@@ -147,6 +151,6 @@ class TestSwapFiresAtDefaultNpermutations:
             random_seed=0,
         ).fit(X, y)
         # Deterministic gate alone still accepts the denoising swap on perfect dups.
-        assert int(m.dcd_["n_swaps"]) >= 1, (
-            f"full_npermutations=0 must still allow swaps via the deterministic gate (no null requested); got n_swaps={m.dcd_['n_swaps']}."
-        )
+        assert (
+            int(m.dcd_["n_swaps"]) >= 1
+        ), f"full_npermutations=0 must still allow swaps via the deterministic gate (no null requested); got n_swaps={m.dcd_['n_swaps']}."

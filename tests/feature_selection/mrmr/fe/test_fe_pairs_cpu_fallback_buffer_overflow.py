@@ -21,6 +21,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _xy(n: int = 240, seed: int = 0):
+    """Build a 6-column frame with pairwise structure (a*b+c-d) that drives the FE pair-search engine to materialise candidates."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame({name: rng.standard_normal(n) for name in ("a", "b", "c", "d", "e", "f")})
     # A target with pairwise structure so the FE pair-search engine actually materialises candidate columns.

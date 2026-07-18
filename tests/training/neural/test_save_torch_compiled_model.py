@@ -30,11 +30,13 @@ def test_save_unwraps_torch_compile_wrapper_for_pickle(tmp_path, monkeypatch):
     from mlframe.training.io import save_mlframe_model
 
     class _Net(nn.Module):
+        """Groups tests covering net."""
         def __init__(self):
             super().__init__()
             self.fc = nn.Linear(4, 1)
 
         def forward(self, x):
+            """Forward."""
             return self.fc(x)
 
     inner = _Net()
@@ -47,6 +49,7 @@ def test_save_unwraps_torch_compile_wrapper_for_pickle(tmp_path, monkeypatch):
     assert hasattr(compiled, "_orig_mod"), "torch.compile should expose _orig_mod"
 
     class _ModelHolder:
+        """Groups tests covering model holder."""
         def __init__(self, net):
             self.network = net
 

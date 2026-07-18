@@ -14,6 +14,7 @@ from mlframe.feature_selection.filters.hermite_fe import (
 
 
 def test_perm_null_bin_once_is_bit_identical_to_rebinning():
+    """Perm null bin once is bit identical to rebinning."""
     rng = np.random.default_rng(0)
     n, bins = 20000, 20
     mismatches = 0

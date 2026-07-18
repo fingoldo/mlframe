@@ -235,9 +235,9 @@ class TestSupportIsFitTimeDecision:
         X_test = _build_numeric_test(seed) + 2.0  # mean shift
         _transform_quiet(sel, X_test)
 
-        assert np.array_equal(np.array(sel.support_), support_before), (
-            f"support_ mutated by transform on shifted data; seed={seed}. fit-time decision must be frozen across transform calls."
-        )
+        assert np.array_equal(
+            np.array(sel.support_), support_before
+        ), f"support_ mutated by transform on shifted data; seed={seed}. fit-time decision must be frozen across transform calls."
         assert list(sel.feature_names_in_) == names_before, f"feature_names_in_ mutated by transform on shifted data; seed={seed}."
         assert sel.n_features_in_ == n_in_before, f"n_features_in_ mutated by transform on shifted data; seed={seed}."
 
@@ -263,9 +263,9 @@ class TestMeanShiftTransform:
         X_test = _build_numeric_test(seed) + 2.0
         out = _transform_quiet(sel, X_test)
         assert isinstance(out, pd.DataFrame), f"transform should return a DataFrame for DataFrame input; seed={seed}, got {type(out).__name__}"
-        assert list(out.columns) == selected, (
-            f"mean-shift transform returned different columns than get_feature_names_out; seed={seed}. got={list(out.columns)}, expected={selected}"
-        )
+        assert (
+            list(out.columns) == selected
+        ), f"mean-shift transform returned different columns than get_feature_names_out; seed={seed}. got={list(out.columns)}, expected={selected}"
         assert out.shape[0] == X_test.shape[0], f"transform row count {out.shape[0]} != input {X_test.shape[0]}; seed={seed}"
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -280,9 +280,9 @@ class TestMeanShiftTransform:
             if col not in X_test.columns:
                 # engineered recipe column, skip value comparison
                 continue
-            assert np.array_equal(out[col].to_numpy(), X_test[col].to_numpy()), (
-                f"mean-shift transform mutated values of column {col!r}; seed={seed}. transform should be a pure column selector."
-            )
+            assert np.array_equal(
+                out[col].to_numpy(), X_test[col].to_numpy()
+            ), f"mean-shift transform mutated values of column {col!r}; seed={seed}. transform should be a pure column selector."
 
 
 # ---------------------------------------------------------------------------
@@ -467,15 +467,15 @@ class TestDataFrameColumnReorderRealignByName:
         out_rev = _transform_quiet(sel, X_test_rev)
 
         assert list(out_orig.columns) == selected
-        assert list(out_rev.columns) == selected, (
-            f"reordered DataFrame transform produced different column set than original; seed={seed}. reorder={list(out_rev.columns)}, orig={selected}"
-        )
+        assert (
+            list(out_rev.columns) == selected
+        ), f"reordered DataFrame transform produced different column set than original; seed={seed}. reorder={list(out_rev.columns)}, orig={selected}"
         for col in selected:
             if col not in X_test.columns:
                 continue  # engineered
-            assert np.array_equal(out_orig[col].to_numpy(), out_rev[col].to_numpy()), (
-                f"reordered DataFrame produced different values at col {col!r} -- positional selection bug. seed={seed}"
-            )
+            assert np.array_equal(
+                out_orig[col].to_numpy(), out_rev[col].to_numpy()
+            ), f"reordered DataFrame produced different values at col {col!r} -- positional selection bug. seed={seed}"
 
 
 # ---------------------------------------------------------------------------
@@ -501,9 +501,9 @@ class TestNdarrayShapeMismatch:
             _transform_quiet(sel, X_test_bad)
         msg = str(exc_info.value).lower()
         assert "features" in msg, f"ValueError message missing 'features'; seed={seed}, got: {exc_info.value!r}"
-        assert str(X_arr.shape[1]) in str(exc_info.value), (
-            f"ValueError message should mention expected feature count ({X_arr.shape[1]}); seed={seed}, got: {exc_info.value!r}"
-        )
+        assert str(X_arr.shape[1]) in str(
+            exc_info.value
+        ), f"ValueError message should mention expected feature count ({X_arr.shape[1]}); seed={seed}, got: {exc_info.value!r}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_more_cols_raises_valueerror(self, seed):
@@ -555,9 +555,9 @@ class TestNdarraySameShapeReorderedIsPositional:
         # out_rev[:, k] == X_test_rev[:, support_idx[k]]
         for k, j in enumerate(support_idx):
             assert np.array_equal(out_orig[:, k], X_test[:, j]), f"unreordered ndarray transform did not select position {j} at output slot {k}; seed={seed}"
-            assert np.array_equal(out_rev[:, k], X_test_rev[:, j]), (
-                f"reordered ndarray transform did not select position {j} at output slot {k} -- positional contract broken. seed={seed}"
-            )
+            assert np.array_equal(
+                out_rev[:, k], X_test_rev[:, j]
+            ), f"reordered ndarray transform did not select position {j} at output slot {k} -- positional contract broken. seed={seed}"
 
 
 # ---------------------------------------------------------------------------

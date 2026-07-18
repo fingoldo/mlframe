@@ -15,13 +15,13 @@ import os
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Operator preset surface
 # ---------------------------------------------------------------------------
 
 
 def test_valid_presets_exposes_three_names():
+    """Valid presets exposes three names."""
     from mlframe.feature_engineering.pysr_operators import VALID_PRESETS
 
     assert set(VALID_PRESETS) == {"minimal", "standard", "physics"}
@@ -79,6 +79,7 @@ def test_standard_preset_includes_tabular_fe_operators():
 
 
 def test_physics_preset_includes_trig_and_power():
+    """Physics preset includes trig and power."""
     pytest.importorskip("sympy")
     from mlframe.feature_engineering.pysr_operators import get_preset_kwargs
 
@@ -90,6 +91,7 @@ def test_physics_preset_includes_trig_and_power():
 
 
 def test_unknown_preset_raises():
+    """Unknown preset raises."""
     from mlframe.feature_engineering.pysr_operators import get_preset_kwargs
 
     with pytest.raises(ValueError, match="Unknown pysr_operator_preset"):
@@ -128,6 +130,7 @@ def test_nested_constraints_block_self_nesting(preset):
 
 
 def test_config_accepts_each_valid_preset():
+    """Config accepts each valid preset."""
     from mlframe.training.configs import PreprocessingExtensionsConfig
 
     for preset in ("minimal", "standard", "physics"):
@@ -136,6 +139,7 @@ def test_config_accepts_each_valid_preset():
 
 
 def test_config_rejects_unknown_preset():
+    """Config rejects unknown preset."""
     from mlframe.training.configs import PreprocessingExtensionsConfig
 
     with pytest.raises(ValueError, match="pysr_operator_preset must be one of"):

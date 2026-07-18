@@ -100,9 +100,9 @@ def test_generate_modelling_data_labels_in_range_smoke(feature_noise, timeseries
             max_cardinality=max_cardinality,
         )
         assert y.min() >= 0 and y.max() <= n_classes - 1, f"seed {seed}: label out of range {y.min()}..{y.max()}"
-        assert np.isfinite(X).all(), (
-            f"seed {seed}: non-finite feature value under feature_noise={feature_noise}, timeseries={timeseries}, max_cardinality={max_cardinality}"
-        )
+        assert np.isfinite(
+            X
+        ).all(), f"seed {seed}: non-finite feature value under feature_noise={feature_noise}, timeseries={timeseries}, max_cardinality={max_cardinality}"
 
 
 def _generate(feature_noise=0.0, timeseries=False, max_cardinality=None, seed=0):

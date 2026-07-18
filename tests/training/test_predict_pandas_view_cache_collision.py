@@ -20,6 +20,7 @@ import mlframe.training.core.predict as P
 
 
 def _deep_copy_view(df, *args, **kwargs):
+    """Returns an independently-owned pandas copy (no shared Arrow buffers), isolating cache-key collisions from view-sharing."""
     # Independent (non-zero-copy) view per call so the test isolates the CACHE
     # key collision from polars' shared-Arrow-buffer reuse on a freed frame.
     return df.to_pandas().copy(deep=True)
@@ -69,6 +70,7 @@ def test_tc10_same_live_frame_is_cache_hit(monkeypatch) -> None:
     calls = {"n": 0}
 
     def _counting_view(df, *args, **kwargs):
+        """Counts calls to the pandas-view converter, to prove repeated calls on the same live frame hit the cache."""
         calls["n"] += 1
         return df.to_pandas()
 

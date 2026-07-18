@@ -13,6 +13,7 @@ import pytest
 
 @pytest.fixture(scope="module")
 def parent_module():
+    """Parent module."""
     from mlframe.training.neural import base
 
     return base
@@ -20,6 +21,7 @@ def parent_module():
 
 @pytest.fixture(scope="module")
 def siblings():
+    """Siblings."""
     from mlframe.training.neural import (
         _base_callbacks,
         _base_logging,
@@ -34,6 +36,7 @@ def siblings():
 
 
 def test_logging_identity(parent_module, siblings):
+    """Logging identity."""
     lg = siblings["logging"]
     assert parent_module.MetricSpec is lg.MetricSpec
     assert parent_module._LightningRankZeroNoiseFilter is lg._LightningRankZeroNoiseFilter
@@ -42,6 +45,7 @@ def test_logging_identity(parent_module, siblings):
 
 
 def test_tensor_helpers_identity(parent_module, siblings):
+    """Tensor helpers identity."""
     th = siblings["tensors"]
     assert parent_module.custom_collate_fn is th.custom_collate_fn
     assert parent_module.to_tensor_any is th.to_tensor_any
@@ -50,6 +54,7 @@ def test_tensor_helpers_identity(parent_module, siblings):
 
 
 def test_callback_identity(parent_module, siblings):
+    """Callback identity."""
     cb = siblings["callbacks"]
     assert parent_module.NetworkGraphLoggingCallback is cb.NetworkGraphLoggingCallback
     assert parent_module.AggregatingValidationCallback is cb.AggregatingValidationCallback
@@ -71,6 +76,7 @@ def test_isinstance_callbacks_preserved(parent_module):
 
 
 def test_facade_loc_budget(parent_module):
+    """Facade loc budget."""
     path = Path(parent_module.__file__)
     n_lines = len(path.read_text(encoding="utf-8").splitlines())
     # Budget raised 1000 -> 1200 (MLP-iter-3 burst) -> 1500 (binary_sigmoid_head,
@@ -98,6 +104,7 @@ def test_tensor_helpers_smoke_round_trip(parent_module):
 
 
 def test_metric_spec_construct(parent_module):
+    """Metric spec construct."""
     spec = parent_module.MetricSpec(name="rmse", fcn=parent_module._rmse_metric)
     assert spec.name == "rmse"
     assert spec.requires_cpu is True

@@ -13,13 +13,13 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # SKEW-COL-ORDER
 # ---------------------------------------------------------------------------
 
 
 def test_validate_input_columns_prefers_raw_input_columns():
+    """Validate input columns prefers raw input columns."""
     pl = pytest.importorskip("polars")
     from mlframe.training.core._misc_helpers import _validate_input_columns_against_metadata
 
@@ -36,6 +36,7 @@ def test_validate_input_columns_prefers_raw_input_columns():
 
 
 def test_validate_input_columns_falls_back_to_legacy_keys():
+    """Validate input columns falls back to legacy keys."""
     pl = pytest.importorskip("polars")
     from mlframe.training.core._misc_helpers import _validate_input_columns_against_metadata
 
@@ -95,6 +96,7 @@ def test_apply_recurrent_to_ensemble_is_importable_and_idempotent_on_empty():
 
 
 def test_dataset_reuse_cache_key_distinguishes_pp_names():
+    """Dataset reuse cache key distinguishes pp names."""
     from mlframe.training.core._phase_train_one_target import _dataset_reuse_cache_key
 
     k_a = _dataset_reuse_cache_key("xgb", "MRMR")
@@ -105,6 +107,7 @@ def test_dataset_reuse_cache_key_distinguishes_pp_names():
 
 
 def test_dataset_reuse_capture_and_restore_round_trip():
+    """Dataset reuse capture and restore round trip."""
     from mlframe.training.core._phase_train_one_target import (
         _capture_dataset_reuse_cache,
         _restore_dataset_reuse_cache,
@@ -113,6 +116,7 @@ def test_dataset_reuse_capture_and_restore_round_trip():
     ctx = SimpleNamespace(artifacts={})
 
     class _Tpl:
+        """Groups tests covering tpl."""
         _cached_train_dmatrix = object()
 
     tpl_a = _Tpl()

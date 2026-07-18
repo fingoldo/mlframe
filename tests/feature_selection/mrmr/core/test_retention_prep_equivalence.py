@@ -33,6 +33,7 @@ def _build_wide(n=5000, p=16, seed=0):
 
 
 class _Stub:
+    """Groups tests covering Stub."""
     def __init__(self, feature_names, seed=0):
         self.feature_names_in_ = list(feature_names)
         self._engineered_recipes_ = []
@@ -43,6 +44,7 @@ class _Stub:
 
 
 def test_retention_prep_pure_forms_equivalence():
+    """Retention prep pure forms equivalence."""
     from mlframe.feature_selection.filters._fe_pure_form_retention import (
         retain_usable_pure_forms,
         _retention_prep,
@@ -66,6 +68,7 @@ def test_retention_prep_pure_forms_equivalence():
 
 
 def test_retention_prep_raw_columns_equivalence():
+    """Retention prep raw columns equivalence."""
     from mlframe.feature_selection.filters._fe_pure_form_retention import (
         retain_usable_raw_columns,
         _retention_prep,

@@ -16,6 +16,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _fit(df, y):
+    """Helper that fit."""
     sel = MRMR(
         fe_hybrid_orth_triplet_enable=True,
         fe_hybrid_orth_triplet_max_degree=1,
@@ -27,10 +28,12 @@ def _fit(df, y):
 
 
 def _triplet_cols(sel):
+    """Triplet cols."""
     return sorted(c for c in (getattr(sel, "hybrid_orth_features_", None) or []) if c.split("__", 1)[0].count("*") == 2)
 
 
 def test_triplet_fe_runs_on_polars_and_matches_pandas():
+    """Triplet fe runs on polars and matches pandas."""
     pl = pytest.importorskip("polars")
     rng = np.random.default_rng(0)
     n = 1500
@@ -57,10 +60,12 @@ def test_triplet_fe_runs_on_polars_and_matches_pandas():
 
 
 def _quad_cols(sel):
+    """Quad cols."""
     return sorted(c for c in (getattr(sel, "hybrid_orth_features_", None) or []) if c.split("__", 1)[0].count("*") == 3)
 
 
 def test_quadruplet_fe_runs_on_polars_and_matches_pandas():
+    """Quadruplet fe runs on polars and matches pandas."""
     pl = pytest.importorskip("polars")
     rng = np.random.default_rng(1)
     n = 1500
@@ -71,6 +76,7 @@ def test_quadruplet_fe_runs_on_polars_and_matches_pandas():
     X_pd, X_pl = pd.DataFrame(data), pl.DataFrame(data)
 
     def _fit_q(df):
+        """Fit q."""
         s = MRMR(fe_hybrid_orth_quadruplet_enable=True, fe_hybrid_orth_quadruplet_max_degree=1, verbose=0, random_seed=1)
         s.fit(df, pd.Series(y))
         return s

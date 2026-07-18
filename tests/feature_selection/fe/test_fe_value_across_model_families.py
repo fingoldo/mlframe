@@ -135,6 +135,7 @@ def _split(df, y, frac: float = 0.7):
 
 
 def _select_transform(kwargs, df_tr, y_tr, df_te):
+    """Select transform."""
     fs = MRMR(verbose=0, random_seed=42, **kwargs)
     fs.fit(df_tr, y_tr)
     Xtr = np.nan_to_num(np.asarray(fs.transform(df_tr), float), nan=0.0, posinf=0.0, neginf=0.0)
@@ -143,12 +144,14 @@ def _select_transform(kwargs, df_tr, y_tr, df_te):
 
 
 def _logreg_auc(Xtr, Xte, y_tr, y_te):
+    """Logreg auc."""
     m = make_pipeline(StandardScaler(), LogisticRegression(max_iter=400))
     m.fit(Xtr, y_tr.values)
     return float(roc_auc_score(y_te.values, m.predict_proba(Xte)[:, 1]))
 
 
 def _lgbm_auc(Xtr, Xte, y_tr, y_te):
+    """Lgbm auc."""
     m = lgb.LGBMClassifier(n_estimators=80, random_state=42, verbose=-1)
     m.fit(np.asarray(Xtr), y_tr.values)
     return float(roc_auc_score(y_te.values, m.predict_proba(np.asarray(Xte))[:, 1]))
@@ -171,6 +174,7 @@ def _cross_family_deltas(mkdata, n):
 
 
 def _has_engineered(names):
+    """Has engineered."""
     return [n for n in names if ("(" in n) or ("__" in n)]
 
 
@@ -178,6 +182,7 @@ _TREE_NO_HARM_TOL = 0.02  # the contract's tree no-harm floor: auc_fe >= auc_raw
 
 
 def _assert_two_sided_contract(label, lr_fe, lr_raw, gb_fe, gb_raw, names_fe, lin_floor):
+    """Assert two sided contract."""
     eng = _has_engineered(names_fe)
     assert eng, f"[{label}] FE-on recovered NO engineered hermite/orth column: {names_fe}"
     lin_delta = lr_fe - lr_raw

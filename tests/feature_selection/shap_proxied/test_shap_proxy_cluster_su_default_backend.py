@@ -21,6 +21,7 @@ import pytest
 
 
 def _make_regime(n_samples=1500, n_informative=5, n_redundant=5, n_noise=70, seed=0):
+    """Make regime."""
     from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import (
         make_regime_dataset,
     )
@@ -38,6 +39,7 @@ def _make_regime(n_samples=1500, n_informative=5, n_redundant=5, n_noise=70, see
 
 
 def _common_kwargs():
+    """Common kwargs."""
     return dict(
         random_state=0,
         verbose=False,
@@ -183,6 +185,6 @@ def test_biz_value_recall_conservation_auto_vs_pearson():
     recall_su = _recall(sel_su, roles)
     recall_p = _recall(sel_p, roles)
 
-    assert recall_su >= recall_p - 1e-9, (
-        f"iter75 recall regression: SU auto={recall_su:.3f} < Pearson={recall_p:.3f}\n  selected_su={sorted(sel_su)}\n  selected_p={sorted(sel_p)}"
-    )
+    assert (
+        recall_su >= recall_p - 1e-9
+    ), f"iter75 recall regression: SU auto={recall_su:.3f} < Pearson={recall_p:.3f}\n  selected_su={sorted(sel_su)}\n  selected_p={sorted(sel_p)}"

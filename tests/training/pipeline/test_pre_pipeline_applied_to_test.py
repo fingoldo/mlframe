@@ -16,7 +16,6 @@ from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. Sanity: Pipeline.predict handles NaN via SimpleImputer
 # ═══════════════════════════════════════════════════════════════════════════
@@ -215,7 +214,9 @@ def test_mlp_predict_returns_nan_silently_on_nan_input():
 
     # Wrap in TTR so we match production wiring
     class _TTR(TransformedTargetRegressor):
+        """Groups tests covering t t r."""
         def fit(self, X, y, **fit_params):
+            """Fit."""
             from sklearn.base import clone as _clone
 
             y_arr = np.asarray(y, dtype=np.float64)

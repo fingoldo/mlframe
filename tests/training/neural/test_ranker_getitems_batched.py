@@ -28,6 +28,7 @@ from mlframe.training.neural.ranker import _RankerDataset, _ranker_passthrough_c
 
 
 def test_getitem_vs_getitems_equivalence():
+    """Getitem vs getitems equivalence."""
     rng = np.random.default_rng(20260520)
     X = rng.random((1000, 16), dtype=np.float32)
     y = rng.random(1000, dtype=np.float32)
@@ -42,9 +43,9 @@ def test_getitem_vs_getitems_equivalence():
 
     # Batched __getitems__ path
     batched = ds.__getitems__(indices)
-    assert isinstance(batched, list) and len(batched) == 1, (
-        f"__getitems__ must return [(X_batch, y_batch)], got {type(batched).__name__} of len {len(batched) if hasattr(batched, '__len__') else '?'}"
-    )
+    assert (
+        isinstance(batched, list) and len(batched) == 1
+    ), f"__getitems__ must return [(X_batch, y_batch)], got {type(batched).__name__} of len {len(batched) if hasattr(batched, '__len__') else '?'}"
     bx_batched, by_batched = batched[0]
 
     assert torch.allclose(bx_per_row, bx_batched, atol=0, rtol=0)
@@ -52,6 +53,7 @@ def test_getitem_vs_getitems_equivalence():
 
 
 def test_passthrough_collate_unwraps_batched_singleton():
+    """Passthrough collate unwraps batched singleton."""
     rng = np.random.default_rng(20260520)
     X = rng.random((100, 8), dtype=np.float32)
     y = rng.random(100, dtype=np.float32)
@@ -96,11 +98,13 @@ def test_biz_value_batched_path_faster_than_per_row():
     batches = [rng.choice(n_rows, 11, replace=False).tolist() for _ in range(50)]
 
     def per_row(batches):
+        """Per row."""
         for indices in batches:
             rows = [ds[i] for i in indices]
             default_collate(rows)
 
     def batched(batches):
+        """Batched."""
         for indices in batches:
             _ranker_passthrough_collate(ds.__getitems__(indices))
 
@@ -121,6 +125,6 @@ def test_biz_value_batched_path_faster_than_per_row():
     t_bat = time.perf_counter() - t0
 
     speedup = t_per / t_bat
-    assert speedup >= 2.0, (
-        f"batched __getitems__+passthrough not delivering: speedup={speedup:.2f}x (per_row={t_per * 1000 / iters:.2f}ms, batched={t_bat * 1000 / iters:.2f}ms)"
-    )
+    assert (
+        speedup >= 2.0
+    ), f"batched __getitems__+passthrough not delivering: speedup={speedup:.2f}x (per_row={t_per * 1000 / iters:.2f}ms, batched={t_bat * 1000 / iters:.2f}ms)"

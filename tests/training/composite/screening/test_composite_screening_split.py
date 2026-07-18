@@ -18,6 +18,7 @@ from pathlib import Path
 
 
 def test_tiny_model_symbols_still_importable_from_facade() -> None:
+    """The tiny-model CV-scoring helpers stay importable from the screening facade after the module split."""
     from mlframe.training.composite.discovery.screening import (
         _silence_tiny_model_output,
         _build_tiny_model,
@@ -77,6 +78,7 @@ def test_mi_symbols_still_in_parent_module() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
+    """The screening facade's __init__.py stays under the 1k-LOC monolith-split threshold."""
     root = Path(__file__).resolve().parents[4] / "src" / "mlframe" / "training" / "composite" / "discovery"
     facade = root / "screening.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())

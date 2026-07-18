@@ -74,6 +74,7 @@ def test_full_y_content_hash_distinguishes_collision_targets():
 
 
 def test_target_name_signature_uses_series_name():
+    """Target name signature uses series name."""
     s = pd.Series([0, 1, 0], name="my_target")
     assert _target_name_signature(s) == ("my_target",)
     assert _target_name_signature(pd.Series([0, 1, 0])) == ()

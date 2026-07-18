@@ -16,20 +16,26 @@ from mlframe.training.composite.extremes import TailCompositeEstimator
 
 
 class _ZeroBase:
+    """Groups tests covering zero base."""
     def fit(self, X, y):
+        """Fit."""
         return self
 
     def predict(self, X):
+        """Predict."""
         return np.zeros(X.shape[0], dtype=float)
 
     def get_params(self, deep=True):
+        """Get params."""
         return {}
 
     def set_params(self, **kw):
+        """Set params."""
         return self
 
 
 def _frame(n):
+    """Frame."""
     return pd.DataFrame({"f0": np.linspace(0, 1, n), "base": np.zeros(n)})
 
 

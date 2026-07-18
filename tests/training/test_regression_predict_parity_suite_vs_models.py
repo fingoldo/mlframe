@@ -40,6 +40,7 @@ def test_quantile_alphas_recovered_only_when_model_arg_passed():
 
 
 def test_rrf_k_threaded_and_actually_changes_combine_output():
+    """Rrf k threaded and actually changes combine output."""
     metadata = {"ensembles_chosen_params": {"binary": {"y": {"rrf_k": 7}}}}
     params = _resolve_chosen_ensemble_params(metadata, "binary", "y")
     assert int(params.get("rrf_k", 60)) == 7

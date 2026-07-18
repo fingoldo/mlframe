@@ -23,6 +23,7 @@ _gpu_only = pytest.mark.skipif(not _HAS_GPU, reason="no CUDA/cupy GPU available"
 
 
 def _make_case(seed, n, p, nbx, nby, nbz):
+    """Build a discrete (candidates, y, z) factor matrix with the given cardinalities for the CMI kernel gate."""
     rng = np.random.RandomState(seed)
     cols = [rng.randint(0, nbx, n) for _ in range(p)]
     nbins = [nbx] * p
@@ -34,6 +35,7 @@ def _make_case(seed, n, p, nbx, nby, nbz):
 
 
 def _cpu_ref(fd, fb, p):
+    """Per-candidate CPU reference I(X;Y|Z), computed via the direct conditional_mi loop."""
     yi, zi = p, p + 1
     return np.array([conditional_mi(fd, np.array([c]), np.array([yi]), np.array([zi]), None, fb) for c in range(p)])
 
@@ -42,6 +44,7 @@ def _cpu_ref(fd, fb, p):
 @pytest.mark.parametrize("seed", [0, 1, 2, 3])
 @pytest.mark.parametrize("nbins", [(2, 2, 2), (4, 3, 5), (7, 2, 4), (3, 3, 3)])
 def test_cuda_cmi_bit_parity(seed, nbins):
+    """The batched CUDA CMI kernel matches the CPU conditional_mi reference to <1e-9 across seeds and per-variable cardinalities."""
     nbx, nby, nbz = nbins
     fd, fb, p = _make_case(seed, n=3000, p=20, nbx=nbx, nby=nby, nbz=nbz)
     gpu = conditional_mi_batched_dispatch(fd, np.arange(p), p, p + 1, fb, force="cuda")

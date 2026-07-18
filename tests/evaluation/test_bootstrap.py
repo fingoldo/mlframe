@@ -16,7 +16,6 @@ from sklearn.metrics import roc_auc_score, mean_squared_error
 
 from mlframe.evaluation.bootstrap import bootstrap_metric, bootstrap_metrics, delong_test
 
-
 # Every test in this module exercises only synthetic data at n<=4000 with default bootstrap n=200-300; wall-time
 # stays well under 2s per test. Marking as ``fast`` so the ``pytest -m fast`` smoke run keeps these in scope per the
 # B2 #6 audit observation that ``@pytest.mark.fast`` had unrealistically narrow adoption.

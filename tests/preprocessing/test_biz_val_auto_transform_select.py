@@ -32,9 +32,9 @@ def test_biz_val_auto_transform_select_prefers_robust_transform_for_outlier_cont
     assert "outlier_col" in result
     col_result = result["outlier_col"]
     assert col_result["best_transform"] != "identity", f"identity should not be picked for a heavy-outlier column: {col_result['all_scores']}"
-    assert col_result["all_scores"]["identity"] < col_result["best_score"] - 0.1, (
-        f"the selected transform should clearly beat identity's collapsed AUC: {col_result['all_scores']}"
-    )
+    assert (
+        col_result["all_scores"]["identity"] < col_result["best_score"] - 0.1
+    ), f"the selected transform should clearly beat identity's collapsed AUC: {col_result['all_scores']}"
     assert col_result["best_score"] > 0.8
 
 

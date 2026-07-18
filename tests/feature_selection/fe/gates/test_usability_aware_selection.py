@@ -42,6 +42,7 @@ def test_usability_greedy_tiny_n_does_not_crash_on_empty_folds():
 
 
 def _case2(n: int, seed: int = 0):
+    """Helper that case2."""
     rng = np.random.default_rng(seed)
     a, b, c, d, e, f = (rng.random(n) for _ in range(6))
     y = 0.2 * a**2 / b + f / 5.0 + np.log(c * 2.0) * np.sin(d / 3.0)
@@ -78,6 +79,7 @@ def test_usability_aware_reaches_linear_floor_with_replayable_recipes():
     greedy_kwargs = dict(shortlist=14, n_folds=3)  # lighter CV than the defaults; still reaches the floor
 
     def _matrix(selected, Xframe):
+        """Helper that matrix."""
         cols = []
         for s in selected:
             if s.recipe is None:

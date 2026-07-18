@@ -28,7 +28,7 @@ from ._internals import NMAX_NONPARALLEL_ITERS
 # ``state >> np.uint64(..)`` arithmetic) without a function call in the signature default.
 _DEFAULT_BASE_SEED = np.uint64(0)
 from .info_theory import (
-    merge_vars, compute_relevance_score, use_su_normalization, use_mi_miller_madow,
+    merge_vars, compute_relevance_score, use_su_normalization, use_mi_miller_madow, use_mi_chao_shen,
 )
 
 logger = logging.getLogger(__name__)
@@ -417,14 +417,17 @@ def parallel_mi_prange_with_null(
     dtype: type = np.int32,
     use_su: bool = False,
     use_mm: bool = False,
+    use_cs: bool = False,
 ) -> tuple:
     """Null-mean-accumulating twin of :func:`parallel_mi_prange`.
 
-    ``use_mm`` (critique N-F1): the permutation null MUST use the SAME estimator as the observed relevance it is
-    tested against. The observed MI is computed with Miller-Madow when ``mi_correction='miller_madow'`` is active,
-    so each shuffle's MI is computed with MM too -- otherwise the exceedance test compares plug-in shuffles against
-    an MM-lowered observed (over-rejection) AND ``observed_mm - null_mean_plugin`` subtracts a mismatched bias
-    (double correction). No-op when ``use_mm`` is False (the default), so the plug-in path is unchanged.
+    ``use_mm``/``use_cs`` (critique N-F1, extended to Chao-Shen at finding #7): the permutation null
+    MUST use the SAME estimator as the observed relevance it is tested against. The observed MI is
+    computed with Miller-Madow or Chao-Shen when the corresponding ``mi_correction`` is active, so each
+    shuffle's MI is computed with the same correction too -- otherwise the exceedance test compares
+    plug-in shuffles against a corrected observed value (over-rejection) AND
+    ``observed_corrected - null_mean_plugin`` subtracts a mismatched bias (double correction). No-op
+    when both are False (the default), so the plug-in path is unchanged.
 
     Bit-identical ``(nfailed, npermutations)`` to the legacy prange kernel (same per-iter LCG seeding, same exceedance count) but ALSO returns the sum of the
     per-permutation MIs as a third element ``(nfailed, npermutations, sum_perm_mi)``. The mean permutation-null MI is ``sum_perm_mi / npermutations``; subtracting it
@@ -450,7 +453,7 @@ def parallel_mi_prange_with_null(
             local[k] = tmp
 
         mi_perm = compute_relevance_score(
-            use_su, classes_x, freqs_x, local, freqs_y, dtype=dtype, use_mm=use_mm,
+            use_su, classes_x, freqs_x, local, freqs_y, dtype=dtype, use_mm=use_mm, use_cs=use_cs,
         )
         mi_perm_arr[i] = mi_perm
         if mi_perm >= original_mi:
@@ -711,6 +714,24 @@ def mi_direct(
         except Exception:
             _gpu_ok = False
         if _gpu_ok:
+            # Proactive VRAM headroom check (07_memory_scalability.md finding #4): before this,
+            # ``mi_direct``'s GPU fastpath had no upfront capacity guard -- unlike the CMI path
+            # (``_cmi_cuda._should_use_cuda``), which already probes ``memGetInfo`` + calls this SAME
+            # ``fe_gpu_has_vram_cushion`` helper before launching. The dominant device buffer here is the
+            # batched-permutation y-matrix (``max(npermutations, 64)`` int32 rows of length ``n``, per the
+            # ``mi_direct_gpu_batched`` delegation above); a near-full card (another process sharing the
+            # GPU, or VRAM eaten by a prior stage) would otherwise only be caught reactively by the
+            # circuit breaker AFTER an actual launch fault. Permissive on probe failure/no-cupy (see the
+            # helper's own docstring), so this can only DECLINE an already-risky launch, never block a
+            # healthy one.
+            try:
+                _n = int(np.asarray(x).shape[0])
+                _bytes_needed = _n * max(int(npermutations), 64) * 4 + _n * 8
+                from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
+                _gpu_ok = fe_gpu_has_vram_cushion(_bytes_needed)
+            except Exception:
+                _gpu_ok = True  # probe failure must not block an otherwise-eligible launch
+        if _gpu_ok:
             try:
                 from mlframe.feature_selection.filters.gpu import mi_direct_gpu
                 return mi_direct_gpu(
@@ -758,6 +779,7 @@ def mi_direct(
     original_mi = compute_relevance_score(
         _use_su, classes_x, freqs_x, classes_y, freqs_y, dtype=dtype,
         use_mm=(use_mi_miller_madow() and not _use_su),
+        use_cs=(use_mi_chao_shen() and not _use_su),
     )
 
     if return_null_mean:
@@ -785,6 +807,7 @@ def mi_direct(
                 dtype=dtype,
                 use_su=_use_su,
                 use_mm=(use_mi_miller_madow() and not _use_su),  # N-F1: null uses the SAME estimator as original_mi
+                use_cs=(use_mi_chao_shen() and not _use_su),
             )
             if n_checked > 0:
                 null_mean = sum_perm_mi / float(n_checked)

@@ -18,6 +18,7 @@ from mlframe.training.configs import DummyBaselinesConfig
 
 
 def _ci_bounds(y, p, B, seed):
+    """Bootstraps B RMSE samples at the given seed and returns the 95% CI bounds (2.5th/97.5th percentile)."""
     s = _numba_bootstrap_rmse_samples(
         np.ascontiguousarray(y, np.float64),
         np.ascontiguousarray(p, np.float64),
@@ -45,6 +46,7 @@ def test_biz_val_n_resamples_2000_lowers_ci_jitter_vs_1000():
     n_seeds = 40
 
     def jitter(B):
+        """Measures seed-to-seed spread of CI bounds at resample count B, as a proxy for CI stability."""
         los = np.empty(n_seeds)
         his = np.empty(n_seeds)
         for k in range(n_seeds):

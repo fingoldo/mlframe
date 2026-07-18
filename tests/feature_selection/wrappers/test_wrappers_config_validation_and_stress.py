@@ -39,7 +39,9 @@ from mlframe.feature_selection.wrappers import (
 # B6: duplicate columns get auto-dropped at fit entry
 # ----------------------------------------------------------------------------
 class TestB6_DuplicateColumns:
+    """Groups tests covering TestB6_DuplicateColumns."""
     def test_exact_duplicates_dropped(self):
+        """Exact duplicates dropped."""
         rng = np.random.default_rng(0)
         n = 200
         base = rng.standard_normal(n)
@@ -134,6 +136,7 @@ class TestB6_DuplicateColumns:
 # G33: random_state=None deterministic on re-fit on the same input
 # ----------------------------------------------------------------------------
 class TestRfecvRamAwareCleanup:
+    """Groups tests covering TestRfecvRamAwareCleanup."""
     def test_no_gc_collect_when_rss_does_not_grow(self, monkeypatch):
         """The previous ``if nsteps % 5 == 0: clean_ram()`` fired gc.collect every 5th iter regardless of whether anything accumulated; on small problems this was pure ~290ms overhead per call. Route through ``maybe_clean_ram_and_gpu`` instead so a fixed RSS profile skips gc.collect entirely. Mock ``should_clean_ram`` -> False so the helper short-circuits, and assert the inner RFECV loop did NOT trigger the pyutilz ``clean_ram`` (the old call site)."""
         from mlframe.feature_selection.wrappers import rfecv as _rfecv_mod
@@ -150,6 +153,7 @@ class TestRfecvRamAwareCleanup:
         if hasattr(_rfecv_mod, "clean_ram"):
 
             def _spy_pre_fix(*a, **k):
+                """Spy pre fix."""
                 pre_fix_calls["n"] += 1
 
             monkeypatch.setattr(_rfecv_mod, "clean_ram", _spy_pre_fix)
@@ -159,6 +163,7 @@ class TestRfecvRamAwareCleanup:
         post_fix_calls = {"n": 0}
 
         def _spy_post_fix(*a, **k):
+            """Spy post fix."""
             post_fix_calls["n"] += 1
 
         monkeypatch.setattr(_rh, "clean_ram_and_gpu", _spy_post_fix)
@@ -172,15 +177,16 @@ class TestRfecvRamAwareCleanup:
         )
         rfecv.fit(X, y)
         # Under the post-fix routing both spies should see zero calls; under the pre-fix routing ``pre_fix_calls["n"]`` would have been >0.
-        assert pre_fix_calls["n"] == 0, (
-            f"pyutilz clean_ram invoked {pre_fix_calls['n']} times from RFECV inner loop -- the iter-mod-5 unconditional trigger has regressed."
-        )
-        assert post_fix_calls["n"] == 0, (
-            f"maybe_clean_ram_and_gpu invoked clean_ram_and_gpu {post_fix_calls['n']} times despite should_clean_ram=False -- routing regressed."
-        )
+        assert (
+            pre_fix_calls["n"] == 0
+        ), f"pyutilz clean_ram invoked {pre_fix_calls['n']} times from RFECV inner loop -- the iter-mod-5 unconditional trigger has regressed."
+        assert (
+            post_fix_calls["n"] == 0
+        ), f"maybe_clean_ram_and_gpu invoked clean_ram_and_gpu {post_fix_calls['n']} times despite should_clean_ram=False -- routing regressed."
 
 
 class TestSkipRetrainingYContent:
+    """Groups tests covering TestSkipRetrainingYContent."""
     def test_skip_retraining_refits_when_y_changes_at_same_shape(self):
         """``skip_retraining_on_same_shape`` previously fingerprinted only ``(X.shape, y.shape, columns)``; two semantically different targets of the same length silently replayed whichever support_ was set first. Folding a y-content hash into the signature forces a refit when y changes."""
         rng = np.random.default_rng(0)
@@ -215,13 +221,15 @@ class TestSkipRetrainingYContent:
         rfecv.fit(X, y_b)
         support_b = rfecv.support_.copy()
         # Without the y-content fingerprint these two arrays would be identical (same signature -> early return).
-        assert not np.array_equal(support_a, support_b), (
-            "RFECV.skip_retraining_on_same_shape must distinguish two semantically different targets at the same shape; got identical support_ across fits"
-        )
+        assert not np.array_equal(
+            support_a, support_b
+        ), "RFECV.skip_retraining_on_same_shape must distinguish two semantically different targets at the same shape; got identical support_ across fits"
 
 
 class TestG33_RandomStateDeterminism:
+    """Groups tests covering TestG33_RandomStateDeterminism."""
     def test_same_input_same_support_random_state_none(self):
+        """Same input same support random state none."""
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((150, 6)), columns=list("abcdef"))
         y = (X["a"] > 0).astype(int).values
@@ -244,39 +252,51 @@ class TestG33_RandomStateDeterminism:
 # F25/F27/F31/F32/C18b/N3b: parameter validation
 # ----------------------------------------------------------------------------
 class TestF25_MaxRefitsValidation:
+    """Groups tests covering TestF25_MaxRefitsValidation."""
     def test_max_refits_zero_raises(self):
+        """Max refits zero raises."""
         with pytest.raises(ValueError, match="max_refits"):
             RFECV(estimator=LogisticRegression(), max_refits=0)
 
 
 class TestF27_CvOneValidation:
+    """Groups tests covering TestF27_CvOneValidation."""
     def test_cv_one_raises(self):
+        """Cv one raises."""
         with pytest.raises(ValueError, match="cv"):
             RFECV(estimator=LogisticRegression(), cv=1)
 
 
 class TestF31F32_StabilityValidation:
+    """Groups tests covering TestF31F32_StabilityValidation."""
     def test_threshold_zero_raises(self):
+        """Threshold zero raises."""
         with pytest.raises(ValueError, match="stability_threshold"):
             RFECV(estimator=LogisticRegression(), stability_selection=True, stability_threshold=0.0)
 
     def test_threshold_above_one_raises(self):
+        """Threshold above one raises."""
         with pytest.raises(ValueError, match="stability_threshold"):
             RFECV(estimator=LogisticRegression(), stability_selection=True, stability_threshold=1.5)
 
     def test_n_bootstrap_zero_raises(self):
+        """N bootstrap zero raises."""
         with pytest.raises(ValueError, match="stability_n_bootstrap"):
             RFECV(estimator=LogisticRegression(), stability_selection=True, stability_n_bootstrap=0)
 
 
 class TestC18b_LeakageActionEnum:
+    """Groups tests covering TestC18b_LeakageActionEnum."""
     def test_invalid_action_raises(self):
+        """Invalid action raises."""
         with pytest.raises(ValueError, match="leakage_action"):
             RFECV(estimator=LogisticRegression(), leakage_action="bogus")
 
 
 class TestN3b_RuleEnum:
+    """Groups tests covering TestN3b_RuleEnum."""
     def test_unknown_rule_raises_at_init(self):
+        """Unknown rule raises at init."""
         with pytest.raises(ValueError, match="n_features_selection_rule"):
             RFECV(estimator=LogisticRegression(), n_features_selection_rule="bogus")
 
@@ -285,7 +305,9 @@ class TestN3b_RuleEnum:
 # H39: MRMR fallback when all MI ~= 0
 # ----------------------------------------------------------------------------
 class TestH39_MRMRFallback:
+    """Groups tests covering TestH39_MRMRFallback."""
     def test_min_features_fallback_keeps_top_k_when_screen_empty(self):
+        """Min features fallback keeps top k when screen empty."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         # Force the fallback path by setting ``min_relevance_gain`` to a value larger than any plausible MI; with all-noise features and random labels
@@ -311,8 +333,10 @@ class TestH39_MRMRFallback:
 # FDR helper: select_features_fdr behaves correctly
 # ----------------------------------------------------------------------------
 class TestFDR_Helper:
+    """Groups tests covering TestFDR_Helper."""
     def test_strong_signal_selects_real(self):
         # 10 real with W in 0.5-1.4, 10 noise with W in {-0.05, +0.05}
+        """Strong signal selects real."""
         W = {f"real_{i}": 0.5 + 0.1 * i for i in range(10)}
         W.update({f"noise_{i}": 0.05 * ((-1) ** i) for i in range(10)})
         sel = select_features_fdr(W, q=0.1)
@@ -322,6 +346,7 @@ class TestFDR_Helper:
 
     def test_no_signal_selects_nothing(self):
         # All W around 0 - no clear separation
+        """No signal selects nothing."""
         rng = np.random.default_rng(0)
         W = {f"f_{i}": float(rng.standard_normal() * 0.1) for i in range(20)}
         sel = select_features_fdr(W, q=0.1)
@@ -329,6 +354,7 @@ class TestFDR_Helper:
         assert len(sel) <= 10
 
     def test_invalid_q_raises(self):
+        """Invalid q raises."""
         W = {"a": 1.0, "b": -0.1}
         with pytest.raises(ValueError, match="q must be in"):
             select_features_fdr(W, q=0.0)
@@ -341,6 +367,7 @@ class TestFDR_Helper:
 # ----------------------------------------------------------------------------
 @pytest.mark.slow
 class TestS1_RecallVariance:
+    """Groups tests covering TestS1_RecallVariance."""
     def test_baseline_recall_distribution(self):
         """50 random seeds -> recall distribution. Expect mean >= 0.7 and
         std <= 0.2 on a well-conditioned synthetic problem."""
@@ -377,6 +404,7 @@ class TestS1_RecallVariance:
 # ----------------------------------------------------------------------------
 @pytest.mark.slow
 class TestS2_StabilityConvergence:
+    """Groups tests covering TestS2_StabilityConvergence."""
     def test_higher_b_more_stable(self):
         """As bootstrap count grows, support_ should stabilise. Pairwise
         Jaccard between B=20 and B=80 should be >= 0.7."""
@@ -412,6 +440,7 @@ class TestS2_StabilityConvergence:
 # S4 stress: tied-importance ordering does not affect SET selected
 # ----------------------------------------------------------------------------
 class TestS4_TiedImportanceOrdering:
+    """Groups tests covering TestS4_TiedImportanceOrdering."""
     def test_column_shuffle_preserves_informative_class(self):
         """Build X with 5 features carrying identical signal + small noise.
         Run RFECV with shuffled column order; selection should pick from
@@ -448,16 +477,18 @@ class TestS4_TiedImportanceOrdering:
         sig_names = {f"sig{i}" for i in range(5)}
         sig_in_s1 = len(s1 & sig_names)
         sig_in_s2 = len(s2 & sig_names)
-        assert sig_in_s1 >= 1 and sig_in_s2 >= 1, (
-            f"S4: each ordering should pick at least one sig feature; r1 sig count={sig_in_s1}, r2 sig count={sig_in_s2}: s1={s1}, s2={s2}"
-        )
+        assert (
+            sig_in_s1 >= 1 and sig_in_s2 >= 1
+        ), f"S4: each ordering should pick at least one sig feature; r1 sig count={sig_in_s1}, r2 sig count={sig_in_s2}: s1={s1}, s2={s2}"
 
 
 # ----------------------------------------------------------------------------
 # S5 stress: cross-estimator multi-estimator min-aggregation contract
 # ----------------------------------------------------------------------------
 class TestB9_InfInX:
+    """Groups tests covering TestB9_InfInX."""
     def test_inf_in_X_raises(self):
+        """Inf in X raises."""
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((100, 5)), columns=list("abcde"))
         X.iloc[5, 2] = np.inf
@@ -473,9 +504,11 @@ class TestB9_InfInX:
 
 
 class TestB11_SmallSample:
+    """Groups tests covering TestB11_SmallSample."""
     def test_n_lt_2cv_raises(self):
         # n=4, cv=3 -> 2*cv=6 > n. Even before A5 catches it via class
         # imbalance, the b11 check should reject.
+        """N lt 2cv raises."""
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((4, 5)), columns=list("abcde"))
         y = np.array([0, 1, 0, 1])
@@ -490,7 +523,9 @@ class TestB11_SmallSample:
 
 
 class TestF26_RuntimeMins:
+    """Groups tests covering TestF26_RuntimeMins."""
     def test_negative_runtime_raises(self):
+        """Negative runtime raises."""
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((100, 4)), columns=list("abcd"))
         y = (X["a"] > 0).astype(int).values
@@ -505,7 +540,9 @@ class TestF26_RuntimeMins:
 
 
 class TestH37_MRMRConstantY:
+    """Groups tests covering TestH37_MRMRConstantY."""
     def test_constant_y_raises_value_error(self):
+        """Constant y raises value error."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         rng = np.random.default_rng(0)
@@ -519,6 +556,7 @@ class TestH37_MRMRConstantY:
 
 
 class TestS5_CrossEstimator:
+    """Groups tests covering TestS5_CrossEstimator."""
     def test_multi_estimator_score_le_each_estimator_alone(self):
         """The min-aggregation rule means multi-estimator's per-fold score
         is the WORST across estimators. So the multi-estimator's CV mean

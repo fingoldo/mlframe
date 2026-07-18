@@ -33,6 +33,7 @@ from mlframe.feature_selection.wrappers._helpers import (
 
 @pytest.fixture(scope="module")
 def small_clf_data():
+    """Small clf data."""
     Xdf, y, _ = make_sklearn_classification_df(
         n_samples=200,
         n_features=10,
@@ -51,21 +52,26 @@ def small_clf_data():
 # N3: Multi-thread detection helpers
 # ----------------------------------------------------------------------------
 class TestN3_MultithreadDetection:
+    """Groups tests covering TestN3_MultithreadDetection."""
     def test_detects_random_forest(self):
+        """Detects random forest."""
         rf = RandomForestClassifier(n_estimators=10, n_jobs=-1)
         assert _detect_multithreaded(rf) is True
 
     def test_does_not_flag_logistic_regression(self):
+        """Does not flag logistic regression."""
         lr = LogisticRegression()
         assert _detect_multithreaded(lr) is False
 
     def test_pin_threads_zeroes_n_jobs_on_rf(self):
+        """Pin threads zeroes n jobs on rf."""
         rf = RandomForestClassifier(n_estimators=10, n_jobs=-1)
         _pin_threads_to_one(rf)
         assert rf.get_params()["n_jobs"] == 1
 
     def test_pin_threads_no_op_on_lr_without_threading_param(self):
         # LR doesn't have any thread-count constructor param; pin should no-op.
+        """Pin threads no op on lr without threading param."""
         lr = LogisticRegression()
         _pin_threads_to_one(lr)
         # Expect no exception, no change in object.
@@ -76,6 +82,7 @@ class TestN3_MultithreadDetection:
 # N3: Parallel CV folds produce same selection as sequential (correctness)
 # ----------------------------------------------------------------------------
 class TestN3_ParallelEquivalence:
+    """Groups tests covering TestN3_ParallelEquivalence."""
     @pytest.mark.skipif(
         COVERAGE_ACTIVE,
         reason="joblib.Parallel + coverage's sys.settrace deadlocks Windows thread spawn (RuntimeError + DummyProcess.terminate AttributeError). Test is correct - skip only when measuring coverage; runs under standard pytest.",
@@ -85,6 +92,7 @@ class TestN3_ParallelEquivalence:
         reason="macOS GitHub-hosted runner: joblib.Parallel(n_jobs=2) inside RFECV crashes gw2 worker (verified 2026-05-26 run 26463488829). Same libomp + numba concurrent-JIT class as the existing prewarm + MRMR Darwin skips. Linux + Windows cover the parallel-equivalence contract.",
     )
     def test_n_jobs_2_matches_n_jobs_1_for_single_thread_estimator(self, small_clf_data):
+        """N jobs 2 matches n jobs 1 for single thread estimator."""
         X, y = small_clf_data
         common = dict(
             estimator=LogisticRegression(max_iter=200, random_state=0),
@@ -96,9 +104,9 @@ class TestN3_ParallelEquivalence:
         seq = RFECV(n_jobs=1, **common).fit(X, y)
         par = RFECV(n_jobs=2, **common).fit(X, y)
         # Same selection on the same problem with the same seed.
-        assert set(seq.get_feature_names_out()) == set(par.get_feature_names_out()), (
-            f"Parallel and sequential RFECV diverged on the same input + seed. seq={list(seq.get_feature_names_out())} par={list(par.get_feature_names_out())}"
-        )
+        assert set(seq.get_feature_names_out()) == set(
+            par.get_feature_names_out()
+        ), f"Parallel and sequential RFECV diverged on the same input + seed. seq={list(seq.get_feature_names_out())} par={list(par.get_feature_names_out())}"
 
     @pytest.mark.skipif(
         sys.platform == "darwin",
@@ -106,6 +114,7 @@ class TestN3_ParallelEquivalence:
     )
     def test_n_jobs_negative_one_resolves_to_cpu_count(self, small_clf_data):
         # n_jobs=-1 should resolve to all cores; ensure it doesn't crash.
+        """N jobs negative one resolves to cpu count."""
         X, y = small_clf_data
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=200, random_state=0),
@@ -122,6 +131,7 @@ class TestN3_ParallelEquivalence:
 # N3: Auto-fallback on multi-threaded estimators
 # ----------------------------------------------------------------------------
 class TestN3_AutoFallback:
+    """Groups tests covering TestN3_AutoFallback."""
     @pytest.mark.skipif(
         COVERAGE_ACTIVE,
         reason="joblib.Parallel + coverage's sys.settrace deadlocks Windows thread spawn (RuntimeError + DummyProcess.terminate AttributeError). Test is correct - skip only when measuring coverage; runs under standard pytest.",
@@ -151,7 +161,9 @@ class TestN3_AutoFallback:
 # N6: permutation importance dispatch
 # ----------------------------------------------------------------------------
 class TestN6_PermutationImportance:
+    """Groups tests covering TestN6_PermutationImportance."""
     def test_permutation_returns_per_feature_dict(self):
+        """Permutation returns per feature dict."""
         Xdf, y, cols = make_sklearn_classification_df(
             n_samples=120,
             n_features=6,
@@ -193,6 +205,7 @@ class TestN6_PermutationImportance:
 
 
 class TestN6_ShapImportance:
+    """Groups tests covering TestN6_ShapImportance."""
     def test_shap_either_works_or_raises_clear_error(self):
         """Run SHAP if available, else assert the ImportError is informative."""
         rng = np.random.default_rng(0)
@@ -231,7 +244,9 @@ class TestN6_ShapImportance:
 # Incremental Leaderboard: borda no longer builds majority_graph
 # ----------------------------------------------------------------------------
 class TestLeaderboard_LazyMajorityGraph:
+    """Groups tests covering TestLeaderboard_LazyMajorityGraph."""
     def test_borda_skips_majority_graph(self):
+        """Borda skips majority graph."""
         from mlframe.votenrank import Leaderboard
 
         df = pd.DataFrame({"r1": [10, 20, 5, 15], "r2": [12, 18, 6, 14]}, index=["f0", "f1", "f2", "f3"])
@@ -239,11 +254,12 @@ class TestLeaderboard_LazyMajorityGraph:
         # Before any graph-using method is called: graph not built.
         assert lb.majority_graph is None
         _ = lb.borda_ranking()
-        assert lb.majority_graph is None, (
-            "borda_ranking() must not trigger majority_graph construction; the graph is the n^2 hot path that was making RFECV slow."
-        )
+        assert (
+            lb.majority_graph is None
+        ), "borda_ranking() must not trigger majority_graph construction; the graph is the n^2 hot path that was making RFECV slow."
 
     def test_copeland_builds_majority_graph_on_demand(self):
+        """Copeland builds majority graph on demand."""
         from mlframe.votenrank import Leaderboard
 
         df = pd.DataFrame({"r1": [10, 20, 5, 15], "r2": [12, 18, 6, 14]}, index=["f0", "f1", "f2", "f3"])
@@ -273,6 +289,7 @@ class TestLeaderboard_LazyMajorityGraph:
 # a shallow tree X_{-j} -> X_j, preserving P(X_j | X_{-j}).
 # ----------------------------------------------------------------------------
 class TestPhase7_ConditionalPermutationImportance:
+    """Groups tests covering TestPhase7_ConditionalPermutationImportance."""
     def test_cpi_returns_per_feature_dict(self):
         """Basic shape contract: one importance per feature, informative > noise."""
         Xdf, y, cols = make_sklearn_classification_df(

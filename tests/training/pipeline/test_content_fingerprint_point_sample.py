@@ -18,6 +18,7 @@ from mlframe.training.pipeline._pipeline_helpers import _content_fingerprint_for
 
 
 def _make_polars(n_rows: int, n_cols: int, seed: int = 1) -> pl.DataFrame:
+    """Make polars."""
     rng = np.random.default_rng(seed)
     data = {f"c{i}": rng.normal(size=n_rows).astype(np.float64) for i in range(n_cols)}
     return pl.DataFrame(data)
@@ -45,24 +46,28 @@ def test_last_row_change_invalidates_fingerprint_polars():
 
 
 def test_column_rename_invalidates_fingerprint_polars():
+    """Column rename invalidates fingerprint polars."""
     base = _make_polars(100, 5, seed=1)
     renamed = base.rename({"c0": "renamed"})
     assert _content_fingerprint_for_cache(base) != _content_fingerprint_for_cache(renamed)
 
 
 def test_row_count_change_invalidates_fingerprint_polars():
+    """Row count change invalidates fingerprint polars."""
     a = _make_polars(100, 5, seed=1)
     b = _make_polars(101, 5, seed=1)
     assert _content_fingerprint_for_cache(a) != _content_fingerprint_for_cache(b)
 
 
 def test_dtype_change_invalidates_fingerprint_polars():
+    """Dtype change invalidates fingerprint polars."""
     base = _make_polars(100, 5, seed=1)
     cast = base.with_columns(pl.col("c0").cast(pl.Float32))
     assert _content_fingerprint_for_cache(base) != _content_fingerprint_for_cache(cast)
 
 
 def test_pandas_path_basic_identity_and_drift():
+    """Pandas path basic identity and drift."""
     a = pd.DataFrame({"x": np.arange(500, dtype=np.float64), "y": np.arange(500, dtype=np.float64)})
     b = pd.DataFrame({"x": np.arange(500, dtype=np.float64), "y": np.arange(500, dtype=np.float64)})
     assert _content_fingerprint_for_cache(a) == _content_fingerprint_for_cache(b)
@@ -72,6 +77,7 @@ def test_pandas_path_basic_identity_and_drift():
 
 
 def test_numpy_path_unchanged_behaviour():
+    """Numpy path unchanged behaviour."""
     a = np.arange(1000, dtype=np.float64)
     b = np.arange(1000, dtype=np.float64)
     assert _content_fingerprint_for_cache(a) == _content_fingerprint_for_cache(b)
@@ -81,6 +87,7 @@ def test_numpy_path_unchanged_behaviour():
 
 
 def test_none_and_empty_handled():
+    """None and empty handled."""
     assert _content_fingerprint_for_cache(None) == ("none",)
     empty_pl = pl.DataFrame({"c0": []})
     fp = _content_fingerprint_for_cache(empty_pl)

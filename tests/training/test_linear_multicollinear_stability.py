@@ -61,11 +61,14 @@ def _make_multicollinear_data(
 
 
 def _config() -> LinearModelConfig:
+    """Config."""
     return LinearModelConfig()
 
 
 class TestMulticollinearStability:
+    """Groups tests covering multicollinear stability."""
     def test_coefficients_stay_bounded(self) -> None:
+        """Coefficients stay bounded."""
         X_train, y_train, _, _ = _make_multicollinear_data()
         model = create_linear_model("linear", _config(), use_regression=True)
         model.fit(X_train, y_train)
@@ -76,15 +79,16 @@ class TestMulticollinearStability:
         assert max_coef < 100.0 * feat_std_max, f"Coefficient blow-up: max |coef|={max_coef:.2f} vs feature std max={feat_std_max:.2f}"
 
     def test_test_mae_within_5x_train_mae(self) -> None:
+        """Test mae within 5x train mae."""
         X_train, y_train, X_test, y_test = _make_multicollinear_data()
         model = create_linear_model("linear", _config(), use_regression=True)
         model.fit(X_train, y_train)
         train_mae = float(np.mean(np.abs(model.predict(X_train) - y_train)))
         test_mae = float(np.mean(np.abs(model.predict(X_test) - y_test)))
         # Pre-fix this ratio was ~40x on the production data (MAE 515 dummy -> 20191 LinReg). Post-fix Ridge(alpha=1e-3) keeps the ratio bounded.
-        assert test_mae < 5.0 * train_mae + 1.0, (
-            f"Out-of-distribution blow-up: train MAE={train_mae:.4f}, test MAE={test_mae:.4f} (ratio={test_mae / max(train_mae, 1e-9):.1f}x; threshold=5x)"
-        )
+        assert (
+            test_mae < 5.0 * train_mae + 1.0
+        ), f"Out-of-distribution blow-up: train MAE={train_mae:.4f}, test MAE={test_mae:.4f} (ratio={test_mae / max(train_mae, 1e-9):.1f}x; threshold=5x)"
 
     def test_well_conditioned_matches_ols(self) -> None:
         """Flip MUST NOT regress well-conditioned cases.
@@ -103,6 +107,6 @@ class TestMulticollinearStability:
         # Compare on relative scale -- predictions are O(1) so abs and rel are comparable.
         max_abs_delta = float(np.max(np.abs(ridge_pred - ols_pred)))
         y_range = float(y.max() - y.min())
-        assert max_abs_delta < 1e-3 * y_range, (
-            f"Ridge(alpha=1e-3) diverged from OLS on well-conditioned features: max |delta|={max_abs_delta:.6f} vs y-range={y_range:.4f}"
-        )
+        assert (
+            max_abs_delta < 1e-3 * y_range
+        ), f"Ridge(alpha=1e-3) diverged from OLS on well-conditioned features: max |delta|={max_abs_delta:.6f} vs y-range={y_range:.4f}"

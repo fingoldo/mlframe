@@ -34,7 +34,6 @@ from mlframe.training.strategies import (
     XGBoostStrategy,
 )
 
-
 # ----------------------------------------------------------------------------
 # Fixtures
 # ----------------------------------------------------------------------------
@@ -87,16 +86,20 @@ class TestNativeRankingFlag:
     """``supports_native_ranking`` lights up only for CB/XGB/LGB."""
 
     def test_cb_supports_ranking(self):
+        """Cb supports ranking."""
         assert CatBoostStrategy().supports_native_ranking is True
 
     def test_xgb_supports_ranking(self):
+        """Xgb supports ranking."""
         assert XGBoostStrategy().supports_native_ranking is True
 
     def test_lgb_via_tree_model_supports_ranking(self):
         # LightGBM uses TreeModelStrategy as its base (no separate LGB class).
+        """Lgb via tree model supports ranking."""
         assert TreeModelStrategy().supports_native_ranking is True
 
     def test_hgb_does_not_support_ranking(self):
+        """Hgb does not support ranking."""
         assert HGBStrategy().supports_native_ranking is False
 
 
@@ -106,18 +109,22 @@ class TestNativeRankingFlag:
 
 
 class TestRankerObjectiveKwargs:
+    """Groups tests covering ranker objective kwargs."""
     def test_cb_default_loss_is_yetirank_pairwise(self):
+        """Cb default loss is yetirank pairwise."""
         cfg = LearningToRankConfig()
         out = CatBoostStrategy().get_ranker_objective_kwargs(cfg)
         assert out["loss_function"] == "YetiRankPairwise"
         assert out["eval_metric"] == "NDCG"
 
     def test_cb_loss_overridable_via_config(self):
+        """Cb loss overridable via config."""
         cfg = LearningToRankConfig(cb_loss_fn="QuerySoftMax")
         out = CatBoostStrategy().get_ranker_objective_kwargs(cfg)
         assert out["loss_function"] == "QuerySoftMax"
 
     def test_xgb_default_objective_is_rank_ndcg(self):
+        """Xgb default objective is rank ndcg."""
         cfg = LearningToRankConfig()
         out = XGBoostStrategy().get_ranker_objective_kwargs(cfg, y_max=1)
         assert out["objective"] == "rank:ndcg"
@@ -143,11 +150,13 @@ class TestRankerObjectiveKwargs:
         assert out["objective"] == "rank:map"
 
     def test_lgb_default_objective_is_lambdarank(self):
+        """Lgb default objective is lambdarank."""
         cfg = LearningToRankConfig()
         out = TreeModelStrategy().get_ranker_objective_kwargs(cfg)
         assert out["objective"] == "lambdarank"
 
     def test_lgb_xendcg_overridable(self):
+        """Lgb xendcg overridable."""
         cfg = LearningToRankConfig(lgb_objective="rank_xendcg")
         out = TreeModelStrategy().get_ranker_objective_kwargs(cfg)
         assert out["objective"] == "rank_xendcg"
@@ -168,14 +177,17 @@ class TestPrepareInputs:
     """CB needs sort-by-group; XGB takes per-row qid; LGB needs group_sizes."""
 
     def test_qid_to_group_sizes_basic(self):
+        """Qid to group sizes basic."""
         gids = np.array([0, 0, 0, 1, 1, 2, 2, 2, 2])
         out = qid_to_group_sizes(gids)
         np.testing.assert_array_equal(out, np.array([3, 2, 4]))
 
     def test_qid_to_group_sizes_empty(self):
+        """Qid to group sizes empty."""
         assert qid_to_group_sizes(np.array([], dtype=int)).tolist() == []
 
     def test_qid_to_group_sizes_single_query(self):
+        """Qid to group sizes single query."""
         out = qid_to_group_sizes(np.array([0, 0, 0]))
         np.testing.assert_array_equal(out, np.array([3]))
 
@@ -221,6 +233,7 @@ class TestPrepareInputs:
         assert int(group_sizes.sum()) == len(X)
 
     def test_lgb_prep_unsorted_gets_sorted_then_sized(self):
+        """Lgb prep unsorted gets sorted then sized."""
         X = pd.DataFrame({"f": np.arange(6, dtype=float)})
         y = np.arange(6)
         gids = np.array([2, 0, 1, 0, 2, 1])
@@ -229,6 +242,7 @@ class TestPrepareInputs:
         np.testing.assert_array_equal(group_sizes, np.array([2, 2, 2]))
 
     def test_prep_length_mismatch_raises(self):
+        """Prep length mismatch raises."""
         X = pd.DataFrame({"f": [1.0, 2.0]})
         y = np.array([0, 1, 2])  # mismatched
         gids = np.array([0, 0])
@@ -253,6 +267,7 @@ class TestFitPredictPerStrategy:
         ],
     )
     def test_fit_predict_returns_per_row_scores(self, synthetic_ranking_data, flavor, strategy_cls):
+        """Fit predict returns per row scores."""
         d = synthetic_ranking_data
         cfg = LearningToRankConfig()
         iter_kw = "iterations" if flavor == "cb" else "n_estimators"

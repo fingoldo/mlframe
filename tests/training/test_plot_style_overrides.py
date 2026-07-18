@@ -24,26 +24,30 @@ import pytest
 from mlframe.training.configs import ReportingConfig
 from mlframe.training.core.utils import _apply_plot_style_overrides
 
-
 # ---------------------------------------------------------------------------
 # Config field defaults
 # ---------------------------------------------------------------------------
 
 
 class TestConfigDefaults:
+    """Groups tests covering config defaults."""
     def test_matplotlib_style_default_none(self) -> None:
+        """Matplotlib style default none."""
         cfg = ReportingConfig()
         assert cfg.matplotlib_style is None
 
     def test_matplotlib_rcparams_default_none(self) -> None:
+        """Matplotlib rcparams default none."""
         cfg = ReportingConfig()
         assert cfg.matplotlib_rcparams is None
 
     def test_plotly_template_default_none(self) -> None:
+        """Plotly template default none."""
         cfg = ReportingConfig()
         assert cfg.plotly_template is None
 
     def test_set_all_three_fields_through_config(self) -> None:
+        """Set all three fields through config."""
         cfg = ReportingConfig(
             matplotlib_style="ggplot",
             matplotlib_rcparams={"font.size": 11},
@@ -66,6 +70,7 @@ class TestConfigDefaults:
 
 
 class TestNoOpPath:
+    """Groups tests covering no op path."""
     def test_all_none_does_nothing(self) -> None:
         """``None`` for every field -- helper returns early without
         touching any backend state."""
@@ -82,6 +87,7 @@ class TestNoOpPath:
 
 
 class TestMatplotlibBranch:
+    """Groups tests covering matplotlib branch."""
     def test_apply_style_sheet(self) -> None:
         """``plt.style.use("ggplot")`` is invoked when matplotlib_style is set."""
         # Reset to a known-good state first.
@@ -91,6 +97,7 @@ class TestMatplotlibBranch:
         assert plt.rcParams["axes.facecolor"] != (1.0, 1.0, 1.0, 1.0)
 
     def test_apply_rcparams_overrides(self) -> None:
+        """Apply rcparams overrides."""
         plt.style.use("default")
         _apply_plot_style_overrides(
             matplotlib_rcparams={"font.size": 17.5, "axes.grid": True},
@@ -109,6 +116,7 @@ class TestMatplotlibBranch:
         assert plt.rcParams["font.size"] == 22.0
 
     def test_unknown_style_logs_warning_does_not_raise(self, caplog) -> None:
+        """Unknown style logs warning does not raise."""
         plt.style.use("default")
         caplog.set_level(logging.WARNING, logger="mlframe.training.core.utils")
         # Should NOT raise -- the typo surfaces as a WARNING.
@@ -123,7 +131,9 @@ class TestMatplotlibBranch:
 
 
 class TestPlotlyBranch:
+    """Groups tests covering plotly branch."""
     def test_apply_plotly_template(self) -> None:
+        """Apply plotly template."""
         pio = pytest.importorskip("plotly.io")
         # Snapshot current
         _before = pio.templates.default
@@ -138,6 +148,7 @@ class TestPlotlyBranch:
         self,
         caplog,
     ) -> None:
+        """Unknown plotly template logs warning does not raise."""
         pio = pytest.importorskip("plotly.io")
         _before = pio.templates.default
         try:
@@ -155,7 +166,9 @@ class TestPlotlyBranch:
 
 
 class TestUnifiedTheme:
+    """Groups tests covering unified theme."""
     def test_both_backends_can_be_set_in_one_call(self) -> None:
+        """Both backends can be set in one call."""
         pio = pytest.importorskip("plotly.io")
         _before_pio = pio.templates.default
         try:

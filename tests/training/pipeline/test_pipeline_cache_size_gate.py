@@ -24,6 +24,7 @@ class _SizedBlob:
 
     @property
     def nbytes(self) -> int:
+        """Nbytes."""
         return int(self._buf.nbytes)
 
 

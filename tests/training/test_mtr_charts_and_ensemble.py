@@ -20,7 +20,6 @@ from mlframe.training.core._phase_composite_post_xt_ensemble import (
     _build_mtr_per_column_ensemble,
 )
 
-
 # --- E2: MTRPerColumnEqualMeanEnsemble ---------------------------------------
 
 
@@ -31,6 +30,7 @@ class _StubComponent:
         self._preds = np.asarray(preds)
 
     def predict(self, X):
+        """Predict."""
         return self._preds
 
 
@@ -65,6 +65,7 @@ def test_mtr_ensemble_promotes_1d_components_to_2d():
 
 
 def test_mtr_ensemble_empty_components_raises():
+    """Mtr ensemble empty components raises."""
     with pytest.raises(ValueError, match=r"at least 1 component"):
         MTRPerColumnEqualMeanEnsemble(
             components=[],
@@ -74,6 +75,7 @@ def test_mtr_ensemble_empty_components_raises():
 
 
 def test_mtr_ensemble_repr_includes_counts():
+    """Mtr ensemble repr includes counts."""
     c1 = _StubComponent(np.zeros((4, 2)))
     c2 = _StubComponent(np.ones((4, 2)))
     ens = MTRPerColumnEqualMeanEnsemble(

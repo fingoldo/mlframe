@@ -9,7 +9,6 @@ import pytest
 
 import mlframe.core.arrays as m
 
-
 MIN_ELEM = 50
 MAX_ELEM = 1000
 ARR_SIZE = 100_000  # reduced from 1_000_000 for test speed

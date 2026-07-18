@@ -79,6 +79,7 @@ _INIT_DESIGN = 8
 
 
 def _make_data(seed: int = 0):
+    """Make data."""
     X, y = make_classification(
         n_samples=_N_SAMPLES,
         n_features=_N_FEATURES,
@@ -101,6 +102,7 @@ def _quiet(fn):
 
 
 def _make_ours(max_refits: int = _MAX_REFITS):
+    """Make ours."""
     return MlframeRFECV(
         estimator=LogisticRegression(max_iter=200, random_state=0),
         cv=_CV,
@@ -115,6 +117,7 @@ def _make_ours(max_refits: int = _MAX_REFITS):
 
 
 def _make_sklearn():
+    """Make sklearn."""
     return SkRFECV(estimator=LogisticRegression(max_iter=200, random_state=0), step=1, cv=_CV)
 
 
@@ -287,9 +290,9 @@ def test_rfecv_runtime_at_score_parity():
 
     # Both halves of the intended win. Either failing is the documented gap.
     assert our_score >= sk_score - 0.02, f"score parity not met: ours={our_score:.4f} sklearn={sk_score:.4f} (floor sklearn-0.02={sk_score - 0.02:.4f})"
-    assert our_wall_min <= 0.7 * sk_wall_min, (
-        f"runtime win not met: our_min={our_wall_min:.3f}s sklearn_min={sk_wall_min:.3f}s ratio={our_wall_min / sk_wall_min:.3f} (want <= 0.7)"
-    )
+    assert (
+        our_wall_min <= 0.7 * sk_wall_min
+    ), f"runtime win not met: our_min={our_wall_min:.3f}s sklearn_min={sk_wall_min:.3f}s ratio={our_wall_min / sk_wall_min:.3f} (want <= 0.7)"
 
 
 # --- fast-mode representative ----------------------------------------------

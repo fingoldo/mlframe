@@ -140,6 +140,6 @@ def test_biz_val_nested_ma_decompose_chain_speedup_over_pairwise_calls():
     pairwise_median = float(np.median(pairwise_times))
     chain_median = float(np.median(chain_times))
 
-    assert chain_median < pairwise_median * 0.7, (
-        f"expected chained decomposition to beat pairwise calls by >=30%, got chain_median={chain_median:.6f}s vs pairwise_median={pairwise_median:.6f}s"
-    )
+    assert (
+        chain_median < pairwise_median * 0.7
+    ), f"expected chained decomposition to beat pairwise calls by >=30%, got chain_median={chain_median:.6f}s vs pairwise_median={pairwise_median:.6f}s"

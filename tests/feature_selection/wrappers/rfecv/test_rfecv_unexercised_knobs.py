@@ -37,7 +37,6 @@ from tests.feature_selection._biz_val_synth import (
     as_df,
 )
 
-
 # Compiled once at module scope (project rule: pre-compile regex).
 _XCOL_RE = re.compile(r"x(\d+)")
 
@@ -48,14 +47,17 @@ def _refit_count(r: RFECV) -> int:
 
 
 def _selected_names(r: RFECV) -> list:
+    """Selected names."""
     return r.get_feature_names_out().tolist()
 
 
 def _logreg(seed: int = 0):
+    """Helper that logreg."""
     return LogisticRegression(max_iter=200, random_state=seed)
 
 
 def _base_kwargs(**over):
+    """Base kwargs."""
     kw = dict(cv=3, random_state=0, leakage_corr_threshold=None, n_features_selection_rule="argmax")
     kw.update(over)
     return kw
@@ -150,6 +152,7 @@ def test_stability_top_k_fast():
 
 
 def _stability_top_k_body(fast: bool = False):
+    """Stability top k body."""
     X, y, _ = make_signal_plus_noise(n=400 if fast else 800, p_signal=6, p_noise=6, seed=7)
     Xdf, ys = as_df(X, y)
     ks = [2, 6] if fast else [1, 2, 3, 6]
@@ -201,11 +204,13 @@ def test_prescreen_fdr_level_fast():
 
 
 def _prescreen_fdr_body(fast: bool = False):
+    """Prescreen fdr body."""
     n = 400 if fast else 600
     X, y, sig = make_signal_plus_noise(n=n, p_signal=3, p_noise=12, seed=4)
     Xdf, ys = as_df(X, y)
 
     def _fit(level):
+        """Helper that fit."""
         r = RFECV(estimator=_logreg(), **_base_kwargs(max_refits=3, prescreen="univariate_ht", prescreen_fdr_level=level))
         r.fit(Xdf, ys)
         return set(_selected_names(r))
@@ -242,6 +247,7 @@ def test_cpi_max_depth_fast():
 
 
 def _cpi_depth_body(fast: bool = False):
+    """Cpi depth body."""
     from sklearn.ensemble import RandomForestClassifier
 
     n = 350 if fast else 500
@@ -252,6 +258,7 @@ def _cpi_depth_body(fast: bool = False):
     rf = RandomForestClassifier(n_estimators=30, random_state=0).fit(Xdf, ys)
 
     def _cpi(depth):
+        """Helper that cpi."""
         fi = get_feature_importances(
             model=rf,
             current_features=feats,
@@ -269,9 +276,9 @@ def _cpi_depth_body(fast: bool = False):
     v_full = _cpi(None)
 
     max_abs_diff = float(np.max(np.abs(v_stump - v_full)))
-    assert max_abs_diff >= 0.015, (
-        f"cpi_max_depth had no effect on the conditional-permutation FI vector (max abs diff {max_abs_diff:.4f}); the aux-tree depth knob is not wired."
-    )
+    assert (
+        max_abs_diff >= 0.015
+    ), f"cpi_max_depth had no effect on the conditional-permutation FI vector (max abs diff {max_abs_diff:.4f}); the aux-tree depth knob is not wired."
 
 
 def test_cpi_min_samples_leaf_changes_conditional_permutation_fi_vector():
@@ -287,6 +294,7 @@ def test_cpi_min_samples_leaf_changes_conditional_permutation_fi_vector():
     rf = RandomForestClassifier(n_estimators=30, random_state=0).fit(Xdf, ys)
 
     def _cpi(leaf):
+        """Helper that cpi."""
         fi = get_feature_importances(
             model=rf,
             current_features=feats,
@@ -318,6 +326,7 @@ class _FoldTaggedLR(ClassifierMixin, BaseEstimator):
         self.bad_rows = bad_rows
 
     def fit(self, X, y, **kw):
+        """Helper that fit."""
         self._train_n = X.shape[0]
         self._lr = LogisticRegression(max_iter=200, random_state=self.random_state).fit(X, y)
         self.classes_ = self._lr.classes_
@@ -326,14 +335,18 @@ class _FoldTaggedLR(ClassifierMixin, BaseEstimator):
         return self
 
     def predict(self, X):
+        """Helper that predict."""
         return self._lr.predict(X)
 
     def predict_proba(self, X):
+        """Predict proba."""
         return self._lr.predict_proba(X)
 
 
 def _make_nan_fold_scorer(bad_rows: int):
+    """Make nan fold scorer."""
     def _score(estimator, X, y):
+        """Helper that score."""
         if getattr(estimator, "_train_n", None) == bad_rows:
             return float("nan")
         try:
@@ -353,12 +366,14 @@ class _UnequalCV:
         self.bad_train = bad_train
 
     def split(self, X=None, y=None, groups=None):
+        """Helper that split."""
         idx = np.arange(self.n)
         yield idx[: self.bad_train], idx[self.bad_train :]
         half = self.n // 2
         yield idx[:half], idx[half:]
 
     def get_n_splits(self, X=None, y=None, groups=None):
+        """Get n splits."""
         return 2
 
 
@@ -377,6 +392,7 @@ def test_drop_nan_score_fi_excludes_nan_fold_importances_from_voting_pool():
     scorer = _make_nan_fold_scorer(bad)
 
     def _fit(drop):
+        """Helper that fit."""
         r = RFECV(
             estimator=_FoldTaggedLR(0, bad),
             cv=cv,
@@ -417,6 +433,7 @@ def test_drop_nan_score_fi_excludes_nan_fold_importances_from_voting_pool():
 
 @pytest.mark.parametrize("flag", [False, True])
 def test_keep_loser_subset_fi_legacy_branch_fits_and_round_trips(flag):
+    """Keep loser subset fi legacy branch fits and round trips."""
     X, y, _ = make_signal_plus_noise(n=300, p_signal=3, p_noise=5, seed=9)
     Xdf, ys = as_df(X, y)
     r = RFECV(estimator=_logreg(), **_base_kwargs(max_refits=12, keep_loser_subset_fi=flag))
@@ -432,6 +449,7 @@ def test_keep_loser_subset_fi_legacy_branch_fits_and_round_trips(flag):
 
 @pytest.mark.parametrize("flag", [False, True])
 def test_noimprove_counts_revisit_legacy_branch_fits_and_round_trips(flag):
+    """Noimprove counts revisit legacy branch fits and round trips."""
     X, y, _ = make_signal_plus_noise(n=300, p_signal=3, p_noise=5, seed=10)
     Xdf, ys = as_df(X, y)
     r = RFECV(estimator=_logreg(), **_base_kwargs(max_refits=15, max_noimproving_iters=4, noimprove_counts_revisit=flag))

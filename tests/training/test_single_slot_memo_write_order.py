@@ -16,6 +16,7 @@ import pytest
 
 
 class _OrderRecordingDict(dict):
+    """Groups tests covering order recording dict."""
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
         self.set_order = []
@@ -26,6 +27,7 @@ class _OrderRecordingDict(dict):
 
 
 def test_mrmr_x_hash_memo_publishes_value_before_key():
+    """Mrmr x hash memo publishes value before key."""
     import mlframe.feature_selection.filters._mrmr_fingerprints as fp
 
     rec = _OrderRecordingDict({"id_shape": None, "hash": None})
@@ -36,12 +38,13 @@ def test_mrmr_x_hash_memo_publishes_value_before_key():
     finally:
         fp._MRMR_LAST_X_HASH_CACHE = orig
     assert rec.set_order, "memo store path did not run"
-    assert rec.set_order.index("hash") < rec.set_order.index("id_shape"), (
-        "value (hash) must be published before key (id_shape) so a torn read cannot pair a new key with a stale hash"
-    )
+    assert rec.set_order.index("hash") < rec.set_order.index(
+        "id_shape"
+    ), "value (hash) must be published before key (id_shape) so a torn read cannot pair a new key with a stale hash"
 
 
 def test_pipeline_last_key_memo_publishes_value_before_key():
+    """Pipeline last key memo publishes value before key."""
     import mlframe.training.pipeline._pipeline_cache as pc
 
     rec = _OrderRecordingDict({"id_tup": None, "key": None})
@@ -55,12 +58,13 @@ def test_pipeline_last_key_memo_publishes_value_before_key():
     finally:
         pc._LAST_KEY_CACHE = orig
     assert rec.set_order, "memo store path did not run"
-    assert rec.set_order.index("key") < rec.set_order.index("id_tup"), (
-        "value (key) must be published before key (id_tup) so a torn read cannot pair a new id_tup with a stale key"
-    )
+    assert rec.set_order.index("key") < rec.set_order.index(
+        "id_tup"
+    ), "value (key) must be published before key (id_tup) so a torn read cannot pair a new id_tup with a stale key"
 
 
 def test_pd_view_memo_publishes_value_before_key():
+    """Pd view memo publishes value before key."""
     pl = pytest.importorskip("polars")
     import mlframe.training.utils as ut
 
@@ -73,6 +77,6 @@ def test_pd_view_memo_publishes_value_before_key():
         ut._PD_VIEW_LAST_CACHE = orig
     if not rec.set_order:
         pytest.skip("pd-view memo store path not exercised on this build/config")
-    assert rec.set_order.index("result") < rec.set_order.index("id_key"), (
-        "value (result) must be published before key (id_key) so a torn read cannot pair a new id_key with a stale view"
-    )
+    assert rec.set_order.index("result") < rec.set_order.index(
+        "id_key"
+    ), "value (result) must be published before key (id_key) so a torn read cannot pair a new id_key with a stale view"

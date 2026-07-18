@@ -24,8 +24,8 @@ try:
     import xxhash as _xxhash
 
     _xxh3_128 = _xxhash.xxh3_128_digest
-except Exception:  # nosec B110 - xxhash optional: falls back to blake2b below
-    pass
+except Exception as e:  # nosec B110 - xxhash optional: falls back to blake2b below
+    logger.debug("xxhash unavailable, falling back to blake2b for content hashing: %s", e)
 
 
 def _discretize_input_dtype():

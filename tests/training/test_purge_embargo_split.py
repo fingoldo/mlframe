@@ -13,6 +13,7 @@ from mlframe.training.core._phase_helpers_fit_split import (
 
 
 def test_cv_purge_field_default_and_bounds():
+    """Cv purge field default and bounds."""
     assert TrainingSplitConfig().cv_purge == 0
     assert TrainingSplitConfig(cv_strategy="purged", cv_purge=10).cv_purge == 10
     with pytest.raises(ValueError):
@@ -20,6 +21,7 @@ def test_cv_purge_field_default_and_bounds():
 
 
 def test_embargo_drops_newest_train_rows():
+    """Embargo drops newest train rows."""
     train_idx = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
     ts = np.arange(10)  # idx == time
     out = _apply_purge_embargo(train_idx, ts, purge=3)
@@ -29,6 +31,7 @@ def test_embargo_drops_newest_train_rows():
 
 def test_embargo_respects_time_order_not_index_order():
     # train_idx not in time order; embargo must drop by TIME, not by index position.
+    """Embargo respects time order not index order."""
     train_idx = np.array([5, 0, 9, 3])
     full_ts = np.zeros(10)
     full_ts[[5, 0, 9, 3]] = [50, 0, 90, 30]
@@ -38,6 +41,7 @@ def test_embargo_respects_time_order_not_index_order():
 
 
 def test_embargo_noops_on_zero_or_too_large():
+    """Embargo noops on zero or too large."""
     train_idx = np.arange(5)
     ts = np.arange(5)
     np.testing.assert_array_equal(_apply_purge_embargo(train_idx, ts, 0), train_idx)
@@ -46,6 +50,7 @@ def test_embargo_noops_on_zero_or_too_large():
 
 
 def test_val_test_embargo_drops_newest_val_rows():
+    """Val test embargo drops newest val rows."""
     val_idx = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
     ts = np.arange(10)
     out = _apply_val_test_embargo(val_idx, ts, purge=3)
@@ -54,6 +59,7 @@ def test_val_test_embargo_drops_newest_val_rows():
 
 
 def test_val_test_embargo_respects_time_order_not_index_order():
+    """Val test embargo respects time order not index order."""
     val_idx = np.array([5, 0, 9, 3])
     full_ts = np.zeros(10)
     full_ts[[5, 0, 9, 3]] = [50, 0, 90, 30]
@@ -63,6 +69,7 @@ def test_val_test_embargo_respects_time_order_not_index_order():
 
 
 def test_val_test_embargo_noops_on_zero_or_too_large():
+    """Val test embargo noops on zero or too large."""
     val_idx = np.arange(5)
     ts = np.arange(5)
     np.testing.assert_array_equal(_apply_val_test_embargo(val_idx, ts, 0), val_idx)

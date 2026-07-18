@@ -23,6 +23,7 @@ class _FakeFittedInner:
         self.n_predict = 0
 
     def predict(self, X):
+        """Predict."""
         self.n_predict += 1
         n = len(X)
         # deterministic so equality checks below are stable
@@ -36,6 +37,7 @@ class _FakeShim:
         self.model = model
 
     def predict(self, X):
+        """Predict."""
         return self.model.predict(X)
 
 
@@ -47,6 +49,8 @@ def test_S48_cache_lookup_peels_one_shim_layer_via_dot_model():
 
     # Simulate a (fake) DataFrame so shape attr exists. Just a list with shape.
     class _F:
+        """Minimal fake frame exposing only the .shape attribute the cache key needs."""
+
         shape = (10, 3)
 
     frame = _F()
@@ -74,6 +78,8 @@ def test_S48_cache_key_includes_frame_identity_against_id_recycling():
     cache: dict[tuple, np.ndarray] = {}
 
     class _F:
+        """Minimal fake frame exposing only the .shape attribute the cache key needs, distinguishable by identity."""
+
         def __init__(self, shape):
             self.shape = shape
 
@@ -102,12 +108,15 @@ def test_S48_lookup_peels_one_shim_and_keys_on_frame_for_unwrapped_and_wrapped()
     """
 
     def lookup_key(comp, frame_key):
+        """Lookup key."""
         inner = getattr(comp, "model", comp)
         return (id(inner), *frame_key)
 
     inner_wrapper = _FakeFittedInner()
 
     class _F:
+        """Minimal fake frame exposing only the .shape attribute the cache key needs."""
+
         shape = (10, 3)
 
     frame = _F()

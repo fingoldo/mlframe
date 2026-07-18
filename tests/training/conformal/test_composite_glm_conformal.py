@@ -55,6 +55,7 @@ def _fit_three_way():
 
 # -- variance-function unit ----------------------------------------------------------
 def test_variance_function_per_family() -> None:
+    """Variance function per family."""
     mu = np.array([0.5, 2.0, 10.0])
     np.testing.assert_allclose(_variance_function(mu, "poisson", 1.5), mu)
     np.testing.assert_allclose(_variance_function(mu, "gamma", 1.5), mu**2)
@@ -65,6 +66,7 @@ def test_variance_function_per_family() -> None:
 
 def test_standardized_quantile_too_few_points_is_inf() -> None:
     # n=2 at alpha=0.1: ceil(3*0.9)=3 > 2 -> +inf (valid but uninformative).
+    """Standardized quantile too few points is inf."""
     r = np.array([1.0, 2.0])
     s = np.array([1.0, 1.0])
     assert standardized_conformal_quantile(r, s, 0.1) == float("inf")
@@ -74,18 +76,21 @@ def test_standardized_quantile_too_few_points_is_inf() -> None:
 
 # -- error paths ---------------------------------------------------------------------
 def test_calibrate_before_fit_raises() -> None:
+    """Calibrate before fit raises."""
     est = CompositeGLMEstimator(family="poisson")
     with pytest.raises(NotFittedError):
         est.calibrate_conformal_glm(pd.DataFrame({"z": [1.0]}), np.array([1.0]), alpha=0.1)
 
 
 def test_predict_interval_before_calibration_raises() -> None:
+    """Predict interval before calibration raises."""
     est, _, _, Xte, _ = _fit_three_way()
     with pytest.raises(RuntimeError, match="no conformal radius"):
         est.predict_interval_glm(Xte, alpha=0.1)
 
 
 def test_uncalibrated_alpha_raises() -> None:
+    """Uncalibrated alpha raises."""
     est, Xc, yc, Xte, _ = _fit_three_way()
     est.calibrate_conformal_glm(Xc, yc, alpha=0.1)
     with pytest.raises(RuntimeError, match="no conformal radius"):
@@ -94,6 +99,7 @@ def test_uncalibrated_alpha_raises() -> None:
 
 # -- contract unit -------------------------------------------------------------------
 def test_band_non_negative_and_ordered() -> None:
+    """Band non negative and ordered."""
     est, Xc, yc, Xte, _ = _fit_three_way()
     est.calibrate_conformal_glm(Xc, yc, alpha=0.1)
     lo, hi = est.predict_interval_glm(Xte, alpha=0.1)
@@ -118,6 +124,7 @@ def test_width_grows_with_mu() -> None:
 
 
 def test_multiple_alphas_cached() -> None:
+    """Multiple alphas cached."""
     est, Xc, yc, Xte, _ = _fit_three_way()
     est.calibrate_conformal_glm(Xc, yc, alpha=[0.1, 0.2])
     lo1, hi1 = est.predict_interval_glm(Xte, alpha=0.1)
@@ -128,6 +135,7 @@ def test_multiple_alphas_cached() -> None:
 
 # -- biz_value -----------------------------------------------------------------------
 class TestGLMConformalBizValue:
+    """Groups tests covering g l m conformal biz value."""
     def test_empirical_coverage_at_least_one_minus_alpha(self) -> None:
         """Marginal coverage on held-out test >= 1-alpha (allow tiny finite-n slack)."""
         est, Xc, yc, Xte, yte = _fit_three_way()
@@ -164,6 +172,7 @@ class TestGLMConformalBizValue:
 
         # Worst-stratum coverage over mu deciles.
         def worst_stratum_cov(lo, hi):
+            """Worst stratum cov."""
             order = np.argsort(mu_te)
             yte_o = np.asarray(yte, dtype=np.float64)[order]
             lo_o, hi_o = lo[order], hi[order]

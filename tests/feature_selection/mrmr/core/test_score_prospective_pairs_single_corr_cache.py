@@ -32,9 +32,11 @@ from mlframe.feature_selection.filters._fe_usability_signal import (
 
 
 def _make_cached_single_corr(y, operands, call_log):
+    """Make cached single corr."""
     cache: dict = {}
 
     def _cached(idx):
+        """Helper that cached."""
         if idx in cache:
             return cache[idx]
         call_log.append(idx)
@@ -46,6 +48,7 @@ def _make_cached_single_corr(y, operands, call_log):
 
 
 def test_cached_single_corr_returns_identical_values_to_uncached():
+    """Cached single corr returns identical values to uncached."""
     rng = np.random.default_rng(10)
     n = 800
     y = rng.standard_normal(n)

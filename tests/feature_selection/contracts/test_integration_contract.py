@@ -114,14 +114,14 @@ def test_mrmr_rfecv_pipeline_no_feature_names_drift(small_classification_df):
     # RFECV may drop zero-variance / duplicate columns at fit entry; the contract here is that the columns it RECORDED as inputs are exactly the names MRMR
     # handed it (no renaming, no positional drift). Subset semantics catch the renaming/drift bug while tolerating the documented dedup step.
     rfecv_names = list(rfecv.feature_names_in_)
-    assert set(rfecv_names).issubset(set(mrmr_names)), (
-        f"RFECV.feature_names_in_ ({rfecv_names}) contains names MRMR.get_feature_names_out() did not emit ({mrmr_names}); name drift occurred in the chain."
-    )
+    assert set(rfecv_names).issubset(
+        set(mrmr_names)
+    ), f"RFECV.feature_names_in_ ({rfecv_names}) contains names MRMR.get_feature_names_out() did not emit ({mrmr_names}); name drift occurred in the chain."
     # Order alignment: the names RFECV kept appear in the same relative order as in MRMR's output.
     kept_order = [n for n in mrmr_names if n in set(rfecv_names)]
-    assert kept_order == rfecv_names, (
-        f"Order drift: MRMR emitted {mrmr_names}, RFECV recorded {rfecv_names}; expected RFECV order to match MRMR's (filtered) order {kept_order}."
-    )
+    assert (
+        kept_order == rfecv_names
+    ), f"Order drift: MRMR emitted {mrmr_names}, RFECV recorded {rfecv_names}; expected RFECV order to match MRMR's (filtered) order {kept_order}."
 
 
 # ---------------------------------------------------------------------------

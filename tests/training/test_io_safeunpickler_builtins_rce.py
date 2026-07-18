@@ -22,16 +22,19 @@ from mlframe.training.io import _SafeUnpickler
 
 
 class _EvilEval:
+    """Groups tests covering evil eval."""
     def __reduce__(self):
         return (eval, ("__import__('os').getcwd()",))
 
 
 class _EvilExec:
+    """Groups tests covering evil exec."""
     def __reduce__(self):
         return (exec, ("_pwned = 1",))
 
 
 class _EvilImport:
+    """Groups tests covering evil import."""
     def __reduce__(self):
         return (__import__, ("os",))
 
@@ -41,6 +44,7 @@ class _EvilImport:
     [(_EvilEval(), "eval"), (_EvilExec(), "exec"), (_EvilImport(), "__import__")],
 )
 def test_code_exec_builtin_blocked(obj, name):
+    """Code exec builtin blocked."""
     raw = pickle.dumps(obj)
     with pytest.raises(dill.UnpicklingError, match=rf"builtins\.{name}"):
         _SafeUnpickler(io.BytesIO(raw)).load()
@@ -55,6 +59,7 @@ class _EvilGetattrGlobals:
 
 def test_getattr_escalation_attr_blocked():
     # The restricted reconstructor must refuse dangerous introspection attribute names.
+    """Getattr escalation attr blocked."""
     raw = pickle.dumps(_EvilGetattrGlobals())
     with pytest.raises(dill.UnpicklingError, match=r"Unsafe getattr"):
         _SafeUnpickler(io.BytesIO(raw)).load()
@@ -69,6 +74,7 @@ class _BenignGetattr:
 
 def test_getattr_benign_attribute_allowed():
     # Operand is a plain str (allowlisted builtins data); ``lower`` is a harmless bound method.
+    """Getattr benign attribute allowed."""
     raw = pickle.dumps(_BenignGetattr())
     loaded = _SafeUnpickler(io.BytesIO(raw)).load()
     assert loaded() == "abc"
@@ -82,6 +88,7 @@ class _EvilSetattrDunder:
 
 
 def test_setattr_dunder_blocked():
+    """Setattr dunder blocked."""
     raw = pickle.dumps(_EvilSetattrDunder())
     with pytest.raises(dill.UnpicklingError, match=r"Unsafe setattr"):
         _SafeUnpickler(io.BytesIO(raw)).load()
@@ -89,6 +96,7 @@ def test_setattr_dunder_blocked():
 
 def test_legit_data_containers_still_load():
     # The denylist must not break ordinary builtins data structures a model bundle carries.
+    """Legit data containers still load."""
     payload = {"a": [1, 2, 3], "b": (4, 5), "c": {6, 7}, "d": b"xx", "e": None, "f": True, "g": frozenset({8})}
     raw = dill.dumps(payload)
     loaded = _SafeUnpickler(io.BytesIO(raw)).load()
@@ -97,10 +105,12 @@ def test_legit_data_containers_still_load():
 
 def test_eval_payload_does_not_execute(tmp_path):
     # End-to-end proof the exec primitive cannot write a side-effect file through safe load.
+    """Eval payload does not execute."""
     marker = tmp_path / "pwned.txt"
     src = f"open({str(marker)!r}, 'w').write('x')"
 
     class _Side:
+        """Groups tests covering side."""
         def __reduce__(self):
             return (exec, (src,))
 

@@ -17,11 +17,13 @@ from mlframe.feature_selection.filters._synergy_detector import _pair_mm_mi, det
 
 
 def _codes(rng, n, nb):
+    """Helper that codes."""
     return rng.integers(0, nb, size=n).astype(np.int64)
 
 
 @pytest.mark.parametrize("n,nb", [(600, 6), (2407, 8), (4000, 8)])
 def test_pair_mm_mi_matches_numpy_reference(n, nb):
+    """Pair mm mi matches numpy reference."""
     rng = np.random.default_rng(n + nb)
     yc = _codes(rng, n, nb)
     const = np.zeros(n, dtype=np.int64)
@@ -75,6 +77,7 @@ def test_detect_synergy_verdict_on_xor_and_noise():
 def test_combo_mm_mi_cols_njit_matches_matrix_kernel():
     # The direct-columns synergy kernel (orders 2-3, no _mat materialise) must equal the (n, order)-matrix
     # kernel bit-for-bit -- same mixed-radix cell code + histogram + Miller-Madow debit.
+    """Combo mm mi cols njit matches matrix kernel."""
     import numpy as np
     from mlframe.feature_selection.filters._fe_synergy_screen import (
         _combo_mm_mi_njit,

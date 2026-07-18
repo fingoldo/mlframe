@@ -22,6 +22,7 @@ from mlframe.training.trainer import (
 
 
 def _make_multiclass(N=500, K=3, seed=0):
+    """Make multiclass."""
     rng = np.random.default_rng(seed)
     probs = rng.dirichlet(np.ones(K), size=N)
     y = rng.integers(0, K, size=N)
@@ -29,6 +30,7 @@ def _make_multiclass(N=500, K=3, seed=0):
 
 
 def _make_multilabel(N=500, K=3, seed=0):
+    """Make multilabel."""
     rng = np.random.default_rng(seed)
     probs = rng.uniform(0.01, 0.99, size=(N, K))
     y = rng.integers(0, 2, size=(N, K))
@@ -41,6 +43,7 @@ def _make_multilabel(N=500, K=3, seed=0):
 
 
 def test_multiclass_rows_sum_to_one():
+    """Multiclass rows sum to one."""
     probs, y = _make_multiclass()
     cal = _PerClassIsotonicCalibrator.fit(probs, y, TargetTypes.MULTICLASS_CLASSIFICATION)
     out = cal.predict_proba(probs)
@@ -49,6 +52,7 @@ def test_multiclass_rows_sum_to_one():
 
 
 def test_multilabel_columns_independent():
+    """Multilabel columns independent."""
     probs, y = _make_multilabel()
     cal = _PerClassIsotonicCalibrator.fit(probs, y, TargetTypes.MULTILABEL_CLASSIFICATION)
     out = cal.predict_proba(probs)
@@ -59,6 +63,7 @@ def test_multilabel_columns_independent():
 
 
 def test_output_in_0_1_range():
+    """Output in 0 1 range."""
     for target_type in (TargetTypes.MULTICLASS_CLASSIFICATION, TargetTypes.MULTILABEL_CLASSIFICATION):
         if target_type == TargetTypes.MULTICLASS_CLASSIFICATION:
             probs, y = _make_multiclass()
@@ -178,6 +183,7 @@ class _PickleableFakeBase:
 
     def predict_proba(self, X):
         # Deterministic uniform; not rng-dependent so pickle roundtrip is stable
+        """Predict proba."""
         n = X.shape[0] if hasattr(X, "shape") else len(X)
         return np.full((n, 3), 1 / 3)
 
@@ -188,13 +194,16 @@ class _PickleableFakeBase:
 
 
 def test_wrapped_model_predict_proba_shape():
+    """Wrapped model predict proba shape."""
     probs, y = _make_multiclass(N=300, K=3)
     cal = _PerClassIsotonicCalibrator.fit(probs, y, TargetTypes.MULTICLASS_CLASSIFICATION)
 
     class FakeBase:
+        """Groups tests covering fake base."""
         classes_ = np.array([0, 1, 2])
 
         def predict_proba(self, X):
+            """Predict proba."""
             return np.random.default_rng(0).dirichlet(np.ones(3), size=X.shape[0])
 
     wrapped = _PostHocMultiCalibratedModel(
@@ -214,9 +223,11 @@ def test_wrapped_model_predict_uses_decision_rule():
     cal = _PerClassIsotonicCalibrator.fit(probs, y, TargetTypes.MULTICLASS_CLASSIFICATION)
 
     class FakeBase:
+        """Groups tests covering fake base."""
         classes_ = np.array([0, 1, 2])
 
         def predict_proba(self, X):
+            """Predict proba."""
             return np.array([[0.1, 0.8, 0.1], [0.5, 0.3, 0.2]])
 
     wrapped = _PostHocMultiCalibratedModel(
@@ -258,6 +269,7 @@ def test_wrapped_model_pickle_roundtrip():
 
 
 def test_metrics_registry_builtin_multilabel():
+    """Metrics registry builtin multilabel."""
     from mlframe.training.metrics_registry import list_registered, iter_extra_metrics
 
     names = list_registered(TargetTypes.MULTILABEL_CLASSIFICATION)
@@ -296,6 +308,7 @@ def test_metrics_registry_user_registration():
     )
 
     def my_metric(y_true, probs_NK, preds_NK):
+        """My metric."""
         return 42.0
 
     register_metric(TargetTypes.MULTILABEL_CLASSIFICATION, "my_test_metric", my_metric)
@@ -333,9 +346,11 @@ def test_metrics_registry_documented_failure_modes_are_skipped():
     )
 
     def value_error_metric(y_true, probs_NK, preds_NK):
+        """Value error metric."""
         raise ValueError("only one class present in y_true")
 
     def runtime_error_metric(y_true, probs_NK, preds_NK):
+        """Runtime error metric."""
         raise RuntimeError("oh no")
 
     # Branch 1: documented recoverable -> silently skipped.
@@ -379,6 +394,7 @@ pl = pytest.importorskip("polars")
     ["numpy", "polars_df", "polars_lazy"],
 )
 def test_per_class_isotonic_accepts_frame_kinds(frame_kind: str):
+    """Per class isotonic accepts frame kinds."""
     probs, y = _make_multiclass(N=200, K=3)
     if frame_kind == "polars_df":
         arr = pl.DataFrame(probs, schema=[f"p{i}" for i in range(probs.shape[1])]).to_numpy()

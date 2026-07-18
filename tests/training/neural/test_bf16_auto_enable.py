@@ -28,6 +28,7 @@ from mlframe.training.neural import (
 
 
 def _params(precision=None):
+    """Builds MLPTorchModel constructor params with an optional explicit Lightning trainer precision override."""
     trainer_params = {
         "max_epochs": 1,
         "enable_model_summary": False,
@@ -64,6 +65,7 @@ def _params(precision=None):
 
 @pytest.fixture
 def reg_data():
+    """Small deterministic regression dataset shared by the bf16-auto-enable tests."""
     X, y = make_regression(n_samples=64, n_features=4, random_state=0)
     X = X.astype(np.float32)
     y = y.astype(np.float32)

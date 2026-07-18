@@ -101,6 +101,6 @@ def test_polars_join_warm_after_prewarm():
     import os as _os
 
     _ceiling_ms = 2000.0 if _os.environ.get("CI") or _os.environ.get("GITHUB_ACTIONS") else 500.0
-    assert elapsed_ms < _ceiling_ms, (
-        f"polars join on 200k rows took {elapsed_ms:.1f}ms (ceiling {_ceiling_ms:.0f}ms); >ceiling suggests the join warm-up did NOT fire."
-    )
+    assert (
+        elapsed_ms < _ceiling_ms
+    ), f"polars join on 200k rows took {elapsed_ms:.1f}ms (ceiling {_ceiling_ms:.0f}ms); >ceiling suggests the join warm-up did NOT fire."

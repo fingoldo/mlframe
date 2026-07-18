@@ -28,13 +28,13 @@ from mlframe.training.suite_artefact_cache import (
     set_default_cache,
 )
 
-
 # --------------------------------------------------------------------------
 # SuiteKeyBuilder
 # --------------------------------------------------------------------------
 
 
 def test_key_builder_deterministic_on_identical_inputs():
+    """Key builder deterministic on identical inputs."""
     k1 = SuiteKeyBuilder.build(
         df_fp="deadbeef" * 4,
         config_canonical={"a": 1, "b": [2, 3]},
@@ -55,6 +55,7 @@ def test_key_builder_deterministic_on_identical_inputs():
 
 def test_key_builder_invariant_to_model_order():
     # frozenset-sort of models means ["cb", "lgb"] == ["lgb", "cb"] for cache purposes.
+    """Key builder invariant to model order."""
     k1 = SuiteKeyBuilder.build(df_fp="x", config_canonical={}, mlframe_models=["cb", "lgb"])
     k2 = SuiteKeyBuilder.build(df_fp="x", config_canonical={}, mlframe_models=["lgb", "cb"])
     assert k1 == k2
@@ -62,6 +63,7 @@ def test_key_builder_invariant_to_model_order():
 
 def test_key_builder_invariant_to_lib_versions_order():
     # Dict order is unstable across Python versions; sort_keys must canonicalise.
+    """Key builder invariant to lib versions order."""
     k1 = SuiteKeyBuilder.build(df_fp="x", config_canonical={}, lib_versions={"a": "1", "b": "2"})
     k2 = SuiteKeyBuilder.build(df_fp="x", config_canonical={}, lib_versions={"b": "2", "a": "1"})
     assert k1 == k2
@@ -80,6 +82,7 @@ def test_key_builder_invariant_to_lib_versions_order():
 )
 def test_key_builder_changes_when_any_slot_diff(slot, base, mutated):
     # Common defaults so the only difference is the named slot.
+    """Key builder changes when any slot diff."""
     defaults = dict(df_fp="x", config_canonical={"k": 0})
     k_base = SuiteKeyBuilder.build(**{**defaults, **base})
     k_mut = SuiteKeyBuilder.build(**{**defaults, **mutated})
@@ -88,6 +91,7 @@ def test_key_builder_changes_when_any_slot_diff(slot, base, mutated):
 
 def test_key_builder_none_seed_distinct_from_zero_seed():
     # Explicit None should NOT collide with seed=0 (the common "implicit default").
+    """Key builder none seed distinct from zero seed."""
     k_none = SuiteKeyBuilder.build(df_fp="x", config_canonical={}, random_seed=None)
     k_zero = SuiteKeyBuilder.build(df_fp="x", config_canonical={}, random_seed=0)
     assert k_none != k_zero
@@ -99,6 +103,7 @@ def test_key_builder_none_seed_distinct_from_zero_seed():
 
 
 def test_cache_put_get_round_trip(tmp_path):
+    """Cache put get round trip."""
     cache = SuiteArtefactCache(cache_dir=str(tmp_path), bytes_limit=1_000_000)
     key = SuiteKeyBuilder.build(df_fp="x", config_canonical={"k": 0})
     assert cache.get(key) is None  # miss before put
@@ -109,6 +114,7 @@ def test_cache_put_get_round_trip(tmp_path):
 
 
 def test_cache_get_uses_sentinel_for_cached_none(tmp_path):
+    """Cache get uses sentinel for cached none."""
     cache = SuiteArtefactCache(cache_dir=str(tmp_path), bytes_limit=1_000_000)
     key = SuiteKeyBuilder.build(df_fp="x", config_canonical={})
     cache.put(key, None)
@@ -126,11 +132,13 @@ def test_cache_get_uses_sentinel_for_cached_none(tmp_path):
 
 def test_cache_artefact_hit_faster_than_miss(tmp_path):
     # Use isolated cache, NOT the default singleton, so the test doesn't leak / get leaked into.
+    """Cache artefact hit faster than miss."""
     cache = SuiteArtefactCache(cache_dir=str(tmp_path), bytes_limit=10_000_000)
 
     @cache_artefact("slow_func_under_test", cache=cache)
     def slow(x):
         # Meaningful enough to dominate the cache I/O so the speedup is visible across noise.
+        """Slow."""
         time.sleep(0.05)
         return x * x
 
@@ -149,11 +157,13 @@ def test_cache_artefact_hit_faster_than_miss(tmp_path):
 
 
 def test_cache_artefact_miss_on_different_args(tmp_path):
+    """Cache artefact miss on different args."""
     cache = SuiteArtefactCache(cache_dir=str(tmp_path), bytes_limit=10_000_000)
     call_count = {"n": 0}
 
     @cache_artefact("counter_func", cache=cache)
     def counted(x):
+        """Counted."""
         call_count["n"] += 1
         return x + 1
 
@@ -170,6 +180,7 @@ def test_cache_artefact_miss_on_different_args(tmp_path):
 
 
 def test_cache_refuses_oversize_via_size_estimate(tmp_path):
+    """Cache refuses oversize via size estimate."""
     cache = SuiteArtefactCache(cache_dir=str(tmp_path), bytes_limit=1024)
     key = SuiteKeyBuilder.build(df_fp="big", config_canonical={})
     # Caller knows the artefact is >1KB; cache MUST refuse before writing.
@@ -182,6 +193,7 @@ def test_cache_refuses_oversize_via_size_estimate(tmp_path):
 
 def test_cache_rolls_back_oversize_written_blob(tmp_path):
     # Tiny budget so even a small dict overshoots once pickled with the sidecar overhead.
+    """Cache rolls back oversize written blob."""
     cache = SuiteArtefactCache(cache_dir=str(tmp_path), bytes_limit=32)
     key = SuiteKeyBuilder.build(df_fp="x", config_canonical={})
     # Large enough payload that the resulting pickle exceeds 32 bytes.
@@ -213,6 +225,7 @@ def test_cache_evicts_oldest_when_bytes_budget_exceeded(tmp_path):
 
 
 def test_cache_evicts_oldest_when_entry_cap_exceeded(tmp_path):
+    """Cache evicts oldest when entry cap exceeded."""
     cache = SuiteArtefactCache(cache_dir=str(tmp_path), bytes_limit=10_000_000, max_entries=3)
     keys = [SuiteKeyBuilder.build(df_fp=f"fp{i}", config_canonical={"i": i}) for i in range(5)]
     for k in keys:
@@ -229,6 +242,7 @@ def test_cache_evicts_oldest_when_entry_cap_exceeded(tmp_path):
 
 
 def test_cache_clear_removes_everything(tmp_path):
+    """Cache clear removes everything."""
     cache = SuiteArtefactCache(cache_dir=str(tmp_path), bytes_limit=10_000_000)
     for i in range(5):
         cache.put(f"k{i:032x}", {"i": i})
@@ -240,6 +254,7 @@ def test_cache_clear_removes_everything(tmp_path):
 
 def test_cache_get_returns_default_on_corrupt_sidecar(tmp_path):
     # Write a legitimate entry, then corrupt its sidecar -- the next get must miss, not raise.
+    """Cache get returns default on corrupt sidecar."""
     cache = SuiteArtefactCache(cache_dir=str(tmp_path), bytes_limit=10_000_000)
     key = SuiteKeyBuilder.build(df_fp="x", config_canonical={})
     cache.put(key, {"alpha": 1})
@@ -253,6 +268,7 @@ def test_cache_get_returns_default_on_corrupt_sidecar(tmp_path):
 
 def test_default_cache_singleton_is_stable_within_process():
     # Reset state for the duration of this test only, then restore.
+    """Default cache singleton is stable within process."""
     prev = get_default_cache()
     try:
         set_default_cache(None)
@@ -267,10 +283,12 @@ def test_default_bytes_limit_matches_claude_md_ceiling():
     # CLAUDE.md mandates a 2 GB streaming threshold above which artefacts must NOT be cached in
     # memory; the default must match so an operator who doesn't read the env-var docs still
     # gets the safe-by-default behaviour.
+    """Default bytes limit matches claude md ceiling."""
     assert DEFAULT_BYTES_LIMIT == 2_000_000_000
 
 
 def test_cache_artefact_decorator_preserves_function_name(tmp_path):
+    """Cache artefact decorator preserves function name."""
     cache = SuiteArtefactCache(cache_dir=str(tmp_path), bytes_limit=10_000_000)
 
     @cache_artefact("my_thing", cache=cache)

@@ -19,6 +19,7 @@ from mlframe.training._format import (
 
 
 class TestFormatMetric:
+    """Groups tests covering format metric."""
     @pytest.mark.parametrize(
         "value, expected",
         [
@@ -50,6 +51,7 @@ class TestFormatMetric:
         ],
     )
     def test_default_ndigits_2(self, value, expected):
+        """Default ndigits 2."""
         assert format_metric(value) == expected
 
     @pytest.mark.parametrize(
@@ -66,6 +68,7 @@ class TestFormatMetric:
         ],
     )
     def test_custom_ndigits(self, value, ndigits, expected):
+        """Custom ndigits."""
         assert format_metric(value, ndigits=ndigits) == expected
 
     @pytest.mark.fast
@@ -80,6 +83,7 @@ class TestFormatMetric:
 
 
 class TestStripShimSuffix:
+    """Groups tests covering strip shim suffix."""
     @pytest.mark.parametrize(
         "name, expected",
         [
@@ -93,6 +97,7 @@ class TestStripShimSuffix:
         ],
     )
     def test_strip(self, name, expected):
+        """Strip."""
         assert strip_shim_suffix(name) == expected
 
     @pytest.mark.fast
@@ -103,6 +108,7 @@ class TestStripShimSuffix:
 
 
 class TestShortModelTag:
+    """Groups tests covering short model tag."""
     @pytest.mark.parametrize(
         "name, expected",
         [
@@ -119,6 +125,7 @@ class TestShortModelTag:
         ],
     )
     def test_tag(self, name, expected):
+        """Tag."""
         assert short_model_tag(name) == expected
 
     @pytest.mark.fast
@@ -126,6 +133,7 @@ class TestShortModelTag:
         """Object input: use type(obj).__name__."""
 
         class FakeXGB:
+            """Groups tests covering fake x g b."""
             pass
 
         FakeXGB.__name__ = "XGBRegressorWithDMatrixReuse"

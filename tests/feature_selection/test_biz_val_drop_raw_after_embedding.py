@@ -20,6 +20,7 @@ from mlframe.feature_selection.drop_raw_after_embedding import drop_raw_after_em
 
 
 def _make_dataset(n_rows: int, n_entities: int, seed: int):
+    """Make dataset."""
     rng = np.random.default_rng(seed)
     entity_id = rng.integers(0, n_entities, size=n_rows)
     x = rng.normal(size=n_rows)
@@ -29,6 +30,7 @@ def _make_dataset(n_rows: int, n_entities: int, seed: int):
 
 
 def test_biz_val_drop_raw_after_embedding_reduces_overfit_from_high_cardinality_raw_id():
+    """Biz val drop raw after embedding reduces overfit from high cardinality raw id."""
     df, y = _make_dataset(n_rows=6000, n_entities=2000, seed=0)
     df_train, df_test, y_train, y_test = train_test_split(df, y, test_size=0.3, random_state=0)
 
@@ -56,18 +58,20 @@ def test_biz_val_drop_raw_after_embedding_reduces_overfit_from_high_cardinality_
     model_dropped.fit(df_train_dropped[feature_cols_dropped], y_train)
     rmse_dropped = float(mean_squared_error(y_test, model_dropped.predict(df_test_dropped[feature_cols_dropped])) ** 0.5)
 
-    assert rmse_dropped < rmse_with_raw * 0.9, (
-        f"expected dropping the raw high-cardinality id to reduce test RMSE by >=10% vs keeping it, got dropped={rmse_dropped:.4f} with_raw={rmse_with_raw:.4f}"
-    )
+    assert (
+        rmse_dropped < rmse_with_raw * 0.9
+    ), f"expected dropping the raw high-cardinality id to reduce test RMSE by >=10% vs keeping it, got dropped={rmse_dropped:.4f} with_raw={rmse_with_raw:.4f}"
 
 
 def test_drop_raw_after_embedding_keeps_raw_when_derived_missing():
+    """Drop raw after embedding keeps raw when derived missing."""
     df = pd.DataFrame({"entity_id": ["a", "b"], "x": [1.0, 2.0]})
     out = drop_raw_after_embedding(df, raw_to_derived={"entity_id": ["entity_id_target_enc"]})
     assert "entity_id" in out.columns
 
 
 def test_drop_raw_after_embedding_min_derived_present_threshold():
+    """Drop raw after embedding min derived present threshold."""
     df = pd.DataFrame({"entity_id": ["a", "b"], "enc_1": [0.1, 0.2], "x": [1.0, 2.0]})
     out = drop_raw_after_embedding(df, raw_to_derived={"entity_id": ["enc_1", "enc_2"]}, min_derived_present=2)
     assert "entity_id" in out.columns
@@ -90,6 +94,7 @@ def _make_signal_verification_dataset(n_rows: int, n_entities: int, seed: int):
 
 
 def test_biz_val_verify_against_keeps_raw_column_with_uninformative_embedding():
+    """Biz val verify against keeps raw column with uninformative embedding."""
     df, y = _make_signal_verification_dataset(n_rows=4000, n_entities=400, seed=2)
     y_binary = (y > np.median(y)).astype(int)  # verify_against's signal check needs a binary target, like drop_near_noise_univariate_auc
     rng = np.random.default_rng(2)
@@ -109,6 +114,7 @@ def test_biz_val_verify_against_keeps_raw_column_with_uninformative_embedding():
 
 
 def test_biz_val_verify_against_matches_naive_default_when_embedding_good():
+    """Biz val verify against matches naive default when embedding good."""
     df, y = _make_signal_verification_dataset(n_rows=6000, n_entities=600, seed=3)
     df_train, df_test, y_train, y_test = train_test_split(df, y, test_size=0.3, random_state=3)
     y_train_binary = (y_train > np.median(y_train)).astype(int)  # verify_against's signal check needs a binary target
@@ -152,6 +158,6 @@ def test_biz_val_verify_against_matches_naive_default_when_embedding_good():
     model_safe.fit(X_train_safe, y_train)
     rmse_safe = float(mean_squared_error(y_test, model_safe.predict(X_test_safe)) ** 0.5)
 
-    assert rmse_safe < rmse_naive * 0.9, (
-        f"expected keeping bad_id raw (noise embedding) to beat naive always-drop RMSE by >=10%, got safe={rmse_safe:.4f} naive={rmse_naive:.4f}"
-    )
+    assert (
+        rmse_safe < rmse_naive * 0.9
+    ), f"expected keeping bad_id raw (noise embedding) to beat naive always-drop RMSE by >=10%, got safe={rmse_safe:.4f} naive={rmse_naive:.4f}"

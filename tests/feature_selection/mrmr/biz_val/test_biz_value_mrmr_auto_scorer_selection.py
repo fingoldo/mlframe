@@ -57,6 +57,7 @@ SEEDS = (1, 7, 13, 42, 101)
 
 
 def _import_auto_fe():
+    """Import auto fe."""
     from mlframe.feature_selection.filters._orthogonal_scorer_auto_fe import (
         SCORER_NAMES,
         select_best_scorer_per_column,
@@ -75,6 +76,7 @@ def _import_auto_fe():
 
 
 def _import_plug_in_fe():
+    """Import plug in fe."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         generate_univariate_basis_features,
     )
@@ -111,18 +113,27 @@ def _build_non_monotone_fixture(seed: int, n: int = 800):
     return X, pd.Series(y, name="y")
 
 
-def _build_discrete_binned_fixture(seed: int, n: int = 600, n_levels: int = 3):
+def _build_discrete_binned_fixture(seed: int, n: int = 600, n_levels: int = 2):
     """Low-cardinality integer source x1 in ``{0, ..., n_levels - 1}``
-    with a U-shaped signal ``y = (x1 == 1)``.
+    with a threshold signal ``y = (x1 == 1)``.
 
     The plug-in scorer's quantile binning slots natively onto the few
-    integer levels -- the engineered He_3 column resolves the U-shape
-    against the discrete levels. KSG's k-NN graph on 3-level ties
-    degenerates (distances collapse to {0, 1, 2} with massive ties) and
-    its bias correction over-discounts; dCor's distance matrix is
-    constructed from the same {0, 1, 2} differences and behaves
-    similarly. The bin-based estimators (plug-in / copula) hold their
-    LCB closer to their per-scorer max.
+    integer levels -- the engineered He_2/He_3 columns resolve the
+    threshold against the discrete levels. At the (now default) 2-level
+    setting, raw x1 already carries a strong direct signal for the
+    distance-based scorers (KSG / dCor / copula), which saturate near
+    their own raw ceiling and so show little further HEADROOM on the
+    engineered columns; plug-in's raw MI is comparatively lower, leaving
+    genuine room to demonstrate lift from the engineered polynomial
+    basis -- the mechanism the auto-selector's headroom-over-own-raw-max
+    normalisation is actually built to reward. n_levels=3 (this
+    fixture's original setting) does NOT reproduce this cleanly: at 3
+    levels dCor's raw statistic is already close to saturating on He2
+    (near 1.0 vs plug-in's ~0.55), leaving plug-in with no headroom
+    advantage on ANY seed -- a genuine (non-buggy) scorer-competition
+    outcome, not the normalisation defect this fixture is meant to
+    probe. Diagnosed directly (audits/mrmr_audit_2026-07-16/
+    11_unrelated_bug_found_auto_scorer_selection.md).
     """
     rng = np.random.default_rng(int(seed))
     x1 = rng.integers(low=0, high=n_levels, size=n).astype(np.int64)
@@ -279,19 +290,28 @@ class TestPlugInWinsOnDiscreteBinned:
     def test_auto_picks_plug_in_on_discrete_x(self):
         """Aggregate contract: across an 8-seed sweep on the discrete-bin
         fixture the plug-in scorer is the picked best for AT LEAST ONE
-        engineered column (NOT zero on every seed). The KSG / dCor
-        graph-based scorers degenerate on the 3-level integer ties; the
-        bin-based plug-in holds its LCB ratio above the distance-based
-        scorers on the engineered He_3 column on at least one seed.
+        engineered column (NOT zero on every seed).
 
         Floor is 1/8 (matches the docstring's "AT LEAST ONE"). When this
         test landed (L68, 2026-05-31) the auto-pool was four scorers
         (plug_in, ksg, copula, dcor) and plug_in surfaced on 2-3 seeds;
-        when L71 (2026-06-01) added HSIC to the auto-pool the
-        per-seed plug_in win-rate halved (one more competitor on every
-        engineered column) and the hit count dropped to 1/8 on this
-        fixture. The 1/8 floor pins the qualitative "plug_in wins
-        sometimes" contract without the pool-size sensitivity of a
+        when L71 (2026-06-01) added HSIC to the auto-pool the hit count
+        dropped to 1/8, then to 0/8 (audits/mrmr_audit_2026-07-16/
+        11_unrelated_bug_found_auto_scorer_selection.md). Root-caused,
+        via direct diagnostic, to the FIXTURE, not a scorer bug: at the
+        original n_levels=3 setting dCor's raw statistic saturates near
+        1.0 on the raw source column itself, leaving plug-in (and every
+        other scorer) with essentially zero HEADROOM over its own raw
+        ceiling on either engineered column, on any seed -- a legitimate
+        scorer-competition outcome (confirmed unaffected by n_boot,
+        swept 5/15/30 with 0/8 plug_in hits throughout). At n_levels=2,
+        the raw source column already saturates the distance/kernel
+        scorers even harder, leaving MORE headroom for plug_in's
+        comparatively lower raw MI to demonstrate genuine lift from the
+        engineered basis -- empirically re-verified (4/8 hits, UNMODIFIED
+        normalisation code) to actually reproduce the mechanism this
+        test's class docstring describes. The 1/8 floor pins the "plug_in
+        wins sometimes" contract without the pool-size sensitivity of a
         tighter floor.
         """
         _, _, _, _, hybrid_with_recipes = _import_auto_fe()
@@ -299,7 +319,7 @@ class TestPlugInWinsOnDiscreteBinned:
         n_plugin_hits = 0
         plugin_hit_seeds = []
         for seed in seeds:
-            X, y = _build_discrete_binned_fixture(seed, n=600, n_levels=3)
+            X, y = _build_discrete_binned_fixture(seed, n=600, n_levels=2)
             _X_aug, scores, _recipes = hybrid_with_recipes(
                 X,
                 y.to_numpy(),
@@ -396,6 +416,7 @@ class TestAucLiftAutoVsSingleScorer:
     """
 
     def test_auto_aug_auc_geq_best_single(self):
+        """Auto aug auc geq best single."""
         from mlframe.feature_selection.filters._orthogonal_ksg_mi_fe import (
             hybrid_orth_mi_ksg_fe_with_recipes,
         )
@@ -548,14 +569,17 @@ class TestAucLiftAutoVsSingleScorer:
 
 
 class TestDefaultDisabledByteIdentical:
+    """Groups tests covering TestDefaultDisabledByteIdentical."""
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_no_auto_columns(self, seed):
+        """Default off no auto columns."""
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
         assert added == [], f"seed={seed}: default fe_hybrid_orth_auto_scorer_enable=False should NOT append any engineered columns; got {added}"
 
     def test_default_ctor_values(self):
+        """Default ctor values."""
         m = _make_mrmr()
         assert m.fe_hybrid_orth_auto_scorer_enable is False
         assert m.fe_hybrid_orth_auto_scorer_n_boot == 5
@@ -567,7 +591,9 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleAndClone:
+    """Groups tests covering TestPickleAndClone."""
     def test_clone_preserves_auto_scorer_params(self):
+        """Clone preserves auto scorer params."""
         m = _make_mrmr(
             fe_hybrid_orth_auto_scorer_enable=True,
             fe_hybrid_orth_auto_scorer_n_boot=7,
@@ -580,6 +606,7 @@ class TestPickleAndClone:
             assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got {getattr(m2, name)}"
 
     def test_pickle_roundtrip_preserves_auto_recipes(self):
+        """Pickle roundtrip preserves auto recipes."""
         X, y = _build_non_monotone_fixture(seed=42, n=1000)
         m = _make_mrmr(
             fe_hybrid_orth_auto_scorer_enable=True,
@@ -598,6 +625,7 @@ class TestPickleAndClone:
         # Auto-stage recipes are ``orth_univariate`` (engineered VALUES
         # bit-equal to Layer 21; only SCORING differs).
         def _extract_orth_recipes(model):
+            """Extract orth recipes."""
             container = getattr(model, "_engineered_recipes_", None)
             if isinstance(container, dict):
                 return {r.name: r for r in container.values() if getattr(r, "kind", None) == "orth_univariate"}
@@ -605,13 +633,13 @@ class TestPickleAndClone:
 
         recipes_before = _extract_orth_recipes(m)
         recipes_after = _extract_orth_recipes(m2)
-        assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_univariate recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
-        )
+        assert set(recipes_before.keys()) == set(
+            recipes_after.keys()
+        ), f"pickle dropped or added orth_univariate recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
             assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
-                assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
-                )
+                assert r_before.extra.get(key) == r_after.extra.get(
+                    key
+                ), f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"

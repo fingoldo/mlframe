@@ -37,6 +37,7 @@ def _reset_cc_major_memo():
 
 
 def _need_cuda():
+    """True iff pyutilz reports CUDA availability, gating the kernel-tuning-cache GPU tests."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -88,11 +89,13 @@ def test_streamed_uses_multiple_streams_and_independent_rngs():
     real_default_rng = cp.random.default_rng
 
     def _track_stream(*a, **kw):
+        """Wrap cp.cuda.Stream to record every created stream, proving the streamed variant uses >=2 streams."""
         s = real_stream(*a, **kw)
         n_streams_created.append(s)
         return s
 
     def _track_rng(*a, **kw):
+        """Wrap cp.random.default_rng to record every created generator, proving each stream gets its own independent RNG."""
         g = real_default_rng(*a, **kw)
         n_generators_created.append(g)
         return g
@@ -117,9 +120,9 @@ def test_streamed_uses_multiple_streams_and_independent_rngs():
         )
 
     assert len(n_streams_created) >= 2, f"streamed variant should create >=2 streams; got {len(n_streams_created)}"
-    assert len(n_generators_created) >= 2, (
-        f"streamed variant should create >=2 per-stream RNGs; got {len(n_generators_created)} (regression -- per-stream RNG protection may have been reverted)"
-    )
+    assert (
+        len(n_generators_created) >= 2
+    ), f"streamed variant should create >=2 per-stream RNGs; got {len(n_generators_created)} (regression -- per-stream RNG protection may have been reverted)"
 
 
 # --------------------------------------------------------------------------

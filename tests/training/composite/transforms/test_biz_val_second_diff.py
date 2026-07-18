@@ -26,13 +26,13 @@ from mlframe.training.composite.transforms import (
     is_composite_target_name,
 )
 
-
 # ---------------------------------------------------------------------------
 # Unit: registry wiring, round-trip, base contract, domain, serialisation.
 # ---------------------------------------------------------------------------
 
 
 def test_second_diff_registered_contract():
+    """Second diff registered contract."""
     t = get_transform("second_diff")
     assert t is TRANSFORMS_REGISTRY["second_diff"]
     assert t.requires_base is True
@@ -66,6 +66,7 @@ def test_second_diff_round_trip_identity_two_column_base():
 
 
 def test_second_diff_forward_algebra_matches_definition():
+    """Second diff forward algebra matches definition."""
     rng = np.random.default_rng(1)
     n = 200
     b1 = rng.standard_normal(n)
@@ -113,6 +114,7 @@ def test_second_diff_params_serialize_empty():
 
 
 def test_second_diff_domain_rejects_non_finite():
+    """Second diff domain rejects non finite."""
     t = get_transform("second_diff")
     y = np.array([1.0, np.nan, 3.0, 4.0, 5.0])
     base = np.column_stack(
@@ -142,6 +144,7 @@ def test_second_diff_domain_ignores_nan_in_extra_column():
 
 
 def test_second_diff_single_row():
+    """Second diff single row."""
     t = get_transform("second_diff")
     base = np.array([[2.0, 1.0]])
     y = np.array([5.0])
@@ -152,6 +155,7 @@ def test_second_diff_single_row():
 
 
 def test_second_diff_fit_does_not_mutate_inputs():
+    """Second diff fit does not mutate inputs."""
     rng = np.random.default_rng(5)
     base = np.column_stack([rng.standard_normal(200), rng.standard_normal(200)])
     y = rng.standard_normal(200)
@@ -162,6 +166,7 @@ def test_second_diff_fit_does_not_mutate_inputs():
 
 
 def test_second_diff_composite_name_recognised():
+    """Second diff composite name recognised."""
     name = compose_target_name("y", "second_diff", "lag")
     assert name == "y-d2-lag"
     assert is_composite_target_name(name)
@@ -173,12 +178,14 @@ def test_second_diff_composite_name_recognised():
 
 
 def _ols(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Ols."""
     X = np.column_stack([x, np.ones_like(x)])
     coef, *_ = np.linalg.lstsq(X, y, rcond=None)
     return coef
 
 
 def _rmse(a: np.ndarray, b: np.ndarray) -> float:
+    """Rmse."""
     return float(np.sqrt(np.mean((a - b) ** 2)))
 
 
@@ -196,6 +203,7 @@ def _gen_i2(n: int, seed: int):
 
 
 def test_biz_val_second_diff_beats_diff_on_doubly_integrated():
+    """Biz val second diff beats diff on doubly integrated."""
     sd = get_transform("second_diff")
     diff = get_transform("diff")
     sd_rmses, diff_rmses = [], []

@@ -16,6 +16,7 @@ from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin
 
 @pytest.mark.parametrize("nbins", [10, 32, 64])
 def test_f32_candidate_against_f64_edges_shifts_at_most_one_bin(nbins):
+    """F32 candidate against f64 edges shifts at most one bin."""
     rng = np.random.default_rng(0)
     x = rng.standard_normal(50_000).astype(np.float64)
     # float64-exact equi-frequency edges (what the GPU-resident path computes).

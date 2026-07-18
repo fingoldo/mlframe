@@ -33,7 +33,6 @@ from mlframe.training.composite import (
     report_to_markdown,
 )
 
-
 # ----------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------
@@ -46,6 +45,7 @@ def _make_spec(
     fitted_params: Optional[Dict[str, Any]] = None,
     mi_gain: float = 0.42,
 ) -> CompositeSpec:
+    """Make spec."""
     fitted_params = fitted_params or {"alpha": 0.95, "beta": 0.5}
     return CompositeSpec(
         name=f"{target_col}__{transform_name}__{base_column}",
@@ -67,7 +67,9 @@ def _make_spec(
 
 
 class TestFromSpec:
+    """Groups tests covering from spec."""
     def test_basic_construction(self) -> None:
+        """Basic construction."""
         spec = _make_spec()
         prov = CompositeProvenance.from_spec(spec, random_state=42)
         assert prov.target_col == "TVT"
@@ -80,12 +82,14 @@ class TestFromSpec:
         assert all(c in "0123456789abcdef" for c in prov.composite_id)
 
     def test_composite_id_deterministic(self) -> None:
+        """Composite id deterministic."""
         spec = _make_spec()
         a = CompositeProvenance.from_spec(spec, random_state=42)
         b = CompositeProvenance.from_spec(spec, random_state=42)
         assert a.composite_id == b.composite_id
 
     def test_composite_id_changes_with_fitted_params(self) -> None:
+        """Composite id changes with fitted params."""
         a = CompositeProvenance.from_spec(
             _make_spec(fitted_params={"alpha": 0.95, "beta": 0.5}),
             random_state=42,
@@ -97,6 +101,7 @@ class TestFromSpec:
         assert a.composite_id != b.composite_id
 
     def test_timestamp_is_iso8601(self) -> None:
+        """Timestamp is iso8601."""
         prov = CompositeProvenance.from_spec(_make_spec(), random_state=42)
         # round-trip through datetime.fromisoformat shouldn't raise.
         dt = datetime.fromisoformat(prov.discovery_timestamp)
@@ -104,6 +109,7 @@ class TestFromSpec:
         assert dt.tzinfo is not None
 
     def test_optional_ensemble_fields(self) -> None:
+        """Optional ensemble fields."""
         prov = CompositeProvenance.from_spec(
             _make_spec(),
             random_state=42,
@@ -120,7 +126,9 @@ class TestFromSpec:
 
 
 class TestSerialisation:
+    """Groups tests covering serialisation."""
     def test_to_dict_json_clean(self) -> None:
+        """To dict json clean."""
         prov = CompositeProvenance.from_spec(_make_spec(), random_state=42)
         d = prov.to_dict()
         # Round-trip through JSON: catches any non-serialisable value.
@@ -131,6 +139,7 @@ class TestSerialisation:
         assert d2["fitted_params"]["alpha"] == pytest.approx(0.95)
 
     def test_to_audit_trail_contains_numbers(self) -> None:
+        """To audit trail contains numbers."""
         prov = CompositeProvenance.from_spec(
             _make_spec(mi_gain=0.42),
             random_state=42,
@@ -154,7 +163,9 @@ class TestSerialisation:
 
 
 class TestFormulas:
+    """Groups tests covering formulas."""
     def test_diff(self) -> None:
+        """Diff."""
         fwd, inv, desc = _format_transform_formulas(
             "diff",
             base_column="x",
@@ -166,6 +177,7 @@ class TestFormulas:
         assert desc
 
     def test_linear_residual_includes_alpha_beta(self) -> None:
+        """Linear residual includes alpha beta."""
         fwd, inv, _desc = _format_transform_formulas(
             "linear_residual",
             base_column="x",
@@ -177,6 +189,7 @@ class TestFormulas:
         assert "0.95" in inv
 
     def test_logratio_includes_clip_params(self) -> None:
+        """Logratio includes clip params."""
         fwd, inv, _desc = _format_transform_formulas(
             "logratio",
             base_column="x",
@@ -192,6 +205,7 @@ class TestFormulas:
         assert "0.05" in inv
 
     def test_unknown_transform_falls_back_gracefully(self) -> None:
+        """Unknown transform falls back gracefully."""
         fwd, inv, _desc = _format_transform_formulas(
             "made_up",
             base_column="x",
@@ -208,7 +222,9 @@ class TestFormulas:
 
 
 class TestReportToMarkdown:
+    """Groups tests covering report to markdown."""
     def test_renders_specs_table(self) -> None:
+        """Renders specs table."""
         spec = _make_spec()
         md = report_to_markdown(target_col="TVT", specs=[spec])
         assert "# Composite-target discovery report" in md
@@ -217,12 +233,14 @@ class TestReportToMarkdown:
         assert "## Per-spec audit" in md
 
     def test_no_specs_minimal_report(self) -> None:
+        """No specs minimal report."""
         md = report_to_markdown(target_col="TVT", specs=[])
         assert "0** discovered" in md or "0 discovered" in md
         # No specs section.
         assert "## Discovered specs" not in md
 
     def test_renders_failures(self) -> None:
+        """Renders failures."""
         md = report_to_markdown(
             target_col="TVT",
             specs=[],
@@ -240,6 +258,7 @@ class TestReportToMarkdown:
         assert "valid_domain_frac" in md
 
     def test_renders_ensemble_section(self) -> None:
+        """Renders ensemble section."""
         spec = _make_spec()
         md = report_to_markdown(
             target_col="TVT",
@@ -263,7 +282,9 @@ class TestReportToMarkdown:
 
 
 class TestMetricsMatrixAndDecisionTrail:
+    """Groups tests covering metrics matrix and decision trail."""
     def test_metrics_matrix_renders_for_kept_spec(self) -> None:
+        """Metrics matrix renders for kept spec."""
         spec = _make_spec(mi_gain=0.33)
         md = report_to_markdown(
             target_col="TVT",
@@ -279,6 +300,7 @@ class TestMetricsMatrixAndDecisionTrail:
         assert "kept" in md and "gate-passed" in md
 
     def test_metrics_matrix_dashes_missing_metrics(self) -> None:
+        """Metrics matrix dashes missing metrics."""
         spec = _make_spec()
         md = report_to_markdown(target_col="TVT", specs=[spec])
         # No spec_metrics supplied -> raw_delta / tiny_cv_rmse render as a dash.
@@ -286,6 +308,7 @@ class TestMetricsMatrixAndDecisionTrail:
         assert "-" in md  # ascii dash placeholder present
 
     def test_decision_trail_classifies_gate(self) -> None:
+        """Decision trail classifies gate."""
         md = report_to_markdown(
             target_col="TVT",
             specs=[],
@@ -302,10 +325,12 @@ class TestMetricsMatrixAndDecisionTrail:
         assert "valid_domain_frac=0.42" in md
 
     def test_decision_trail_absent_when_no_failures(self) -> None:
+        """Decision trail absent when no failures."""
         md = report_to_markdown(target_col="TVT", specs=[_make_spec()])
         assert "## Decision trail" not in md
 
     def test_classify_gate_routing(self) -> None:
+        """Classify gate routing."""
         from mlframe.training.composite.provenance import _classify_gate
 
         assert _classify_gate("") == "kept"
@@ -316,6 +341,7 @@ class TestMetricsMatrixAndDecisionTrail:
         assert _classify_gate("some unknown reason") == "other"
 
     def test_matrix_uses_failure_inline_metrics(self) -> None:
+        """Matrix uses failure inline metrics."""
         md = report_to_markdown(
             target_col="TVT",
             specs=[],

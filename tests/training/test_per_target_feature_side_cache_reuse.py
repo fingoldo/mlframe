@@ -23,7 +23,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # ----------------------------------------------------------------------------
 # Cache helper unit tests
 # ----------------------------------------------------------------------------
@@ -45,6 +44,7 @@ class _FakeCtx:
 
 
 def test_feature_side_cache_creates_dict_on_first_access():
+    """Feature side cache creates dict on first access."""
     from mlframe.training.core._phase_train_one_target import _ensure_feature_side_cache
 
     ctx = _FakeCtx()
@@ -56,6 +56,7 @@ def test_feature_side_cache_creates_dict_on_first_access():
 
 
 def test_feature_side_cache_survives_none_artifacts():
+    """Feature side cache survives none artifacts."""
     from mlframe.training.core._phase_train_one_target import _ensure_feature_side_cache
 
     ctx = _FakeCtx(artifacts=None)
@@ -65,6 +66,7 @@ def test_feature_side_cache_survives_none_artifacts():
 
 
 def test_dataset_reuse_cache_separate_from_feature_side():
+    """Dataset reuse cache separate from feature side."""
     from mlframe.training.core._phase_train_one_target import (
         _ensure_dataset_reuse_cache,
         _ensure_feature_side_cache,
@@ -93,6 +95,7 @@ def test_capture_then_restore_dataset_reuse_cache_round_trips():
     sentinel = object()
 
     class _T:
+        """Groups tests covering t."""
         pass
 
     t1 = _T()
@@ -125,6 +128,7 @@ def test_capture_skips_none_attrs():
     ctx = _FakeCtx()
 
     class _T:
+        """Groups tests covering t."""
         pass
 
     t = _T()
@@ -142,6 +146,7 @@ def test_restore_no_op_on_missing_entry():
     ctx = _FakeCtx()
 
     class _T:
+        """Groups tests covering t."""
         pass
 
     t = _T()
@@ -226,6 +231,7 @@ class _MultiTargetExtractor:
         self.target_carrier = "numpy"
 
     def transform(self, df):
+        """Transform."""
         target_by_type = {self.target_type: {}}
         for col in self.target_columns:
             if isinstance(df, pd.DataFrame):
@@ -272,6 +278,7 @@ def test_multi_target_suite_feature_side_cache_populated(synthetic_multi_target_
     _orig_train_one = pt._train_one_target
 
     def _stash_ctx(ctx, target_type, targets, cur_target_name, cur_target_values):
+        """Stash ctx."""
         captured_ctx_holder["ctx"] = ctx
         return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)
 

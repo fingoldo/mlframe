@@ -33,7 +33,6 @@ from mlframe.training.strategies import LinearModelStrategy, NeuralNetStrategy
 from mlframe.training.strategies import CatBoostStrategy, TreeModelStrategy
 from mlframe.training.strategies import XGBoostStrategy
 
-
 # ----- Strategy gate flags -----------------------------------------------
 
 

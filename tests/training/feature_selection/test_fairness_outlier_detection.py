@@ -13,11 +13,11 @@ from mlframe.training.core import (
 )
 from mlframe.training.configs import TrainingBehaviorConfig
 
-
 # ----- _compute_fairness_subgroups -----
 
 
 def test_fairness_no_features_returns_none():
+    """Fairness no features returns none."""
     bc = TrainingBehaviorConfig()  # fairness_features default None
     df = pd.DataFrame({"a": [1, 2, 3]})
     subs, feats = _compute_fairness_subgroups(df, bc)
@@ -26,6 +26,7 @@ def test_fairness_no_features_returns_none():
 
 
 def test_fairness_categorical_feature_pandas():
+    """Fairness categorical feature pandas."""
     rng = np.random.default_rng(0)
     n = 200
     df = pd.DataFrame(
@@ -46,6 +47,7 @@ def test_fairness_categorical_feature_pandas():
 
 def test_fairness_missing_columns_skipped():
     # Only special markers -> df_subset is empty frame but function still runs
+    """Fairness missing columns skipped."""
     bc = TrainingBehaviorConfig(
         fairness_features=["**ORDER**"],
         cont_nbins=3,
@@ -58,6 +60,7 @@ def test_fairness_missing_columns_skipped():
 
 
 def test_fairness_polars_input():
+    """Fairness polars input."""
     rng = np.random.default_rng(1)
     n = 150
     df = pl.DataFrame(
@@ -82,10 +85,12 @@ class _MockOD:
     """Trivial mock outlier detector — marks final row as outlier."""
 
     def fit(self, X):
+        """Fit."""
         self._n = len(X)
         return self
 
     def predict(self, X):
+        """Predict."""
         n = len(X)
         out = np.ones(n, dtype=int)
         if n > 0:
@@ -94,6 +99,7 @@ class _MockOD:
 
 
 def test_outlier_none_returns_inputs_unchanged():
+    """Outlier none returns inputs unchanged."""
     df = pd.DataFrame({"a": [1, 2, 3]})
     idx = np.arange(3)
     tr, va, _tr_idx, _va_idx, tr_mask, va_mask = _apply_outlier_detection_global(
@@ -110,6 +116,7 @@ def test_outlier_none_returns_inputs_unchanged():
 
 
 def test_outlier_filters_train_pandas():
+    """Outlier filters train pandas."""
     rng = np.random.default_rng(0)
     n = 20
     df = pd.DataFrame({"a": rng.standard_normal(n)})
@@ -130,6 +137,7 @@ def test_outlier_filters_train_pandas():
 
 
 def test_outlier_filters_val_when_od_val_set():
+    """Outlier filters val when od val set."""
     n_tr, n_va = 10, 6
     tr_df = pd.DataFrame({"a": np.arange(n_tr, dtype=float)})
     va_df = pd.DataFrame({"a": np.arange(n_va, dtype=float)})
@@ -151,6 +159,7 @@ def test_outlier_filters_val_when_od_val_set():
 
 
 def test_outlier_skips_val_when_flag_false():
+    """Outlier skips val when flag false."""
     n_tr, n_va = 8, 4
     tr_df = pd.DataFrame({"a": np.arange(n_tr, dtype=float)})
     va_df = pd.DataFrame({"a": np.arange(n_va, dtype=float)})
@@ -170,6 +179,7 @@ def test_outlier_skips_val_when_flag_false():
 
 
 def test_outlier_polars_path():
+    """Outlier polars path."""
     n = 12
     tr_df = pl.DataFrame({"a": list(range(n))})
     tr_idx = np.arange(n)
@@ -197,9 +207,11 @@ class _RejectAllOD:
     """Mock OD that marks every sample as an outlier."""
 
     def fit(self, X):
+        """Fit."""
         self._n = len(X)
 
     def predict(self, X):
+        """Predict."""
         return np.full(len(X), -1, dtype=int)
 
 
@@ -207,9 +219,11 @@ class _RejectAllButOneOD:
     """Mock OD that keeps exactly one sample (below 1% threshold when n>>100)."""
 
     def fit(self, X):
+        """Fit."""
         self._n = len(X)
 
     def predict(self, X):
+        """Predict."""
         out = np.full(len(X), -1, dtype=int)
         out[0] = 1
         return out

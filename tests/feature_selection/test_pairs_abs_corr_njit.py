@@ -11,6 +11,7 @@ from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core im
 
 
 def _numpy_ref(a, y, yfin):
+    """Numpy ref."""
     m = np.isfinite(a) & yfin
     if int(m.sum()) < 8:
         return 0.0
@@ -21,6 +22,7 @@ def _numpy_ref(a, y, yfin):
 
 
 def test_abs_corr_njit_matches_numpy_with_nan():
+    """Abs corr njit matches numpy with nan."""
     rng = np.random.default_rng(0)
     for n in (500, 2000, 5000):
         y = rng.standard_normal(n)
@@ -34,6 +36,7 @@ def test_abs_corr_njit_matches_numpy_with_nan():
 
 
 def test_abs_corr_njit_short_circuits():
+    """Abs corr njit short circuits."""
     n = 1000
     y = np.linspace(0, 1, n)
     yfin = np.isfinite(y)
@@ -47,6 +50,7 @@ def test_abs_corr_njit_short_circuits():
 
 
 def test_abs_corr_njit_perfect_correlation():
+    """Abs corr njit perfect correlation."""
     n = 1000
     y = np.linspace(-2, 2, n)
     a = -3.0 * y + 1.0  # |corr| == 1

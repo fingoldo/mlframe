@@ -70,9 +70,9 @@ def test_biz_val_masked_objective_beats_naive_negative_coding():
     auc_masked = float(roc_auc_score(y_true_test[test_not_owned], pred_masked[test_not_owned]))
     auc_naive = float(roc_auc_score(y_true_test[test_not_owned], pred_naive[test_not_owned]))
 
-    assert auc_masked > auc_naive + 0.05, (
-        f"expected the masked objective to beat naive negative-coding by >=0.05 AUC on genuinely-undetermined cells, got masked={auc_masked:.4f} naive={auc_naive:.4f}"
-    )
+    assert (
+        auc_masked > auc_naive + 0.05
+    ), f"expected the masked objective to beat naive negative-coding by >=0.05 AUC on genuinely-undetermined cells, got masked={auc_masked:.4f} naive={auc_naive:.4f}"
 
 
 def test_flatten_masked_multilabel_sentinel_marks_dont_care_cells():

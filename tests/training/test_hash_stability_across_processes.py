@@ -38,7 +38,6 @@ import subprocess  # nosec B404 -- test-only local trusted subprocess invocation
 import sys
 
 
-
 def _run_once(target_name: str) -> int:
     """Launch a fresh Python subprocess, compute ``_per_target_seed(42, name)``,
     return the integer. Each call uses a DIFFERENT PYTHONHASHSEED (the

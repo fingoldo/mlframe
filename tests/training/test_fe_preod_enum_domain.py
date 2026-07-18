@@ -52,9 +52,9 @@ def test_precomputed_union_keeps_rare_val_category_alive():
     # val's 'rare_X' must NOT become null after Enum cast.
     val_cat_col = val_out["cat"]
     null_count = int(val_cat_col.is_null().sum())
-    assert null_count == 0, (
-        f"val rows lost {null_count} cell(s) to null - 'rare_X' was dropped from the Enum domain. Pre-OD union not honoured. val_out: {val_out.to_dict()}"
-    )
+    assert (
+        null_count == 0
+    ), f"val rows lost {null_count} cell(s) to null - 'rare_X' was dropped from the Enum domain. Pre-OD union not honoured. val_out: {val_out.to_dict()}"
     # Confirm the Enum domain includes rare_X.
     dt = train_out.schema["cat"]
     assert "rare_X" in list(dt.categories), f"Enum domain {list(dt.categories)} is missing rare_X"

@@ -29,13 +29,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
 def _fit(df, y, seed=0, verbose=0):
+    """Helper that fit."""
     from mlframe.feature_selection.filters import MRMR
 
     with warnings.catch_warnings():
@@ -97,6 +97,7 @@ def _direct_retention(df, y, seed=0):
     from mlframe.feature_selection.filters._fe_pure_form_retention import retain_usable_pure_forms
 
     class _Stub:
+        """Groups tests covering Stub."""
         feature_names_in_ = list(df.columns)
         _engineered_recipes_ = []
         _engineered_features_ = []

@@ -15,13 +15,10 @@ import numpy as np
 import pandas as pd
 import warnings
 
-
-
 # Import the module under test
 from mlframe.feature_selection.filters import (
     MRMR,
 )
-
 
 _IDENT = re.compile(r"[A-Za-z_]\w*")
 
@@ -93,9 +90,9 @@ class TestMRMRFeatureEngineering:
 
         # At least 3 of the 4 informative features must be referenced by a survivor.
         informative_selected = sum(1 for f in expected_features if f in referenced)
-        assert informative_selected >= 3, (
-            f"Expected at least 3 informative features referenced, got {informative_selected}: {list(mrmr.get_feature_names_out())}"
-        )
+        assert (
+            informative_selected >= 3
+        ), f"Expected at least 3 informative features referenced, got {informative_selected}: {list(mrmr.get_feature_names_out())}"
 
     @pytest.mark.slow
     def test_feature_engineering_example(self, feature_engineering_example_data):
@@ -173,6 +170,7 @@ class TestMRMRFeatureEngineering:
         # Classify each selected feature by which signal half(s) it references. The two structural halves
         # are {a,b} (the a**2/b term) and {c,d} (the log(c)*sin(d) term); 'e' is pure noise.
         def _cols(nm):
+            """Helper that cols."""
             return set(_IDENT.findall(nm)) & {"a", "b", "c", "d", "e"}
 
         assert all("e" not in _cols(nm) for nm in names), f"noise 'e' referenced: {names}"

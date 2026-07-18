@@ -146,6 +146,7 @@ def test_fix3b_select_target_accepts_size_kwargs():
 
 
 def test_fix3b_configure_training_params_accepts_size_kwargs():
+    """Fix3b configure training params accepts size kwargs."""
     import inspect
     from mlframe.training.trainer import configure_training_params
 
@@ -380,9 +381,9 @@ def test_fix6_use_text_features_false_end_to_end_xgb_does_not_see_highcard(tmp_p
     # input schema — XGB never saw it.
     trained_cols = metadata["columns"]
     trained_cols = list(trained_cols) if not isinstance(trained_cols, list) else trained_cols
-    assert "skills_text_like" not in trained_cols, (
-        f"Fix 6 regression: ``use_text_features=False`` but column 'skills_text_like' still reached the XGB fit frame. metadata['columns']={trained_cols}"
-    )
+    assert (
+        "skills_text_like" not in trained_cols
+    ), f"Fix 6 regression: ``use_text_features=False`` but column 'skills_text_like' still reached the XGB fit frame. metadata['columns']={trained_cols}"
     # And the stored cat_features must not list it either.
     assert "skills_text_like" not in (metadata.get("cat_features") or [])
     assert "skills_text_like" not in (metadata.get("text_features") or [])
@@ -410,6 +411,7 @@ def test_fix7_lazy_start_defers_elapsed_counter(monkeypatch):
 
     def gen():
         # Simulate idle period before first yield by advancing the clock without sleeping.
+        """Gen."""
         clock["t"] += 0.5
         yield_times.append(clock["t"])
         yield "a"
@@ -777,6 +779,7 @@ def test_fix9_cb_pool_reuse_weight_only_swap_no_rebuild():
     orig_init = cb.Pool.__init__
 
     def counting_init(self, *args, **kwargs):
+        """Counting init."""
         build_count["n"] += 1
         return orig_init(self, *args, **kwargs)
 
@@ -1030,9 +1033,9 @@ def test_align_polars_categorical_dicts_no_test_leakage(tmp_path):
     # dtype string for pl.Enum(...) includes the category list; assert
     # test_only_cat is absent from it (strict substring check).
     assert cats_seen is not None, "'my_cat' not found in any model_schema"
-    assert "test_only_cat" not in cats_seen, (
-        f"Future-leakage regression: 'test_only_cat' (test-only category) leaked into the trained Enum vocabulary. dtype snapshot: {cats_seen!r}"
-    )
+    assert (
+        "test_only_cat" not in cats_seen
+    ), f"Future-leakage regression: 'test_only_cat' (test-only category) leaked into the trained Enum vocabulary. dtype snapshot: {cats_seen!r}"
 
 
 def test_orch1_cb_val_pool_reuse_across_weight_swaps():
@@ -1075,6 +1078,7 @@ def test_orch1_cb_val_pool_reuse_across_weight_swaps():
     orig_init = cb.Pool.__init__
 
     def counting_init(self, *args, **kwargs):
+        """Counting init."""
         build_count["n"] += 1
         return orig_init(self, *args, **kwargs)
 
@@ -1144,6 +1148,7 @@ def test_fix943_cb_val_pool_reused_on_predict_path_too():
     orig_init = cb.Pool.__init__
 
     def counting_init(self, *args, **kwargs):
+        """Counting init."""
         build_count["n"] += 1
         return orig_init(self, *args, **kwargs)
 

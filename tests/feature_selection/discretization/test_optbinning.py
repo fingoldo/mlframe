@@ -40,6 +40,7 @@ def _make_synthetic_binary_df(n: int = 300, n_features: int = 5, seed: int = 0) 
 
 
 def _make_synthetic_with_categorical(n: int = 300, seed: int = 1) -> tuple[pd.DataFrame, pd.Series]:
+    """Make synthetic with categorical."""
     rng = np.random.default_rng(seed)
     cats = pd.Categorical(rng.choice(["A", "B", "C"], size=n))
     x_num = rng.normal(size=n)
@@ -54,6 +55,7 @@ def _make_synthetic_with_categorical(n: int = 300, seed: int = 1) -> tuple[pd.Da
 
 
 def test_returns_4_tuple_of_pipelines():
+    """Returns 4 tuple of pipelines."""
     df, _ = _make_synthetic_binary_df()
     out = get_binningprocess_featureselectors(df, n_jobs=1)
     assert isinstance(out, tuple), f"must return tuple; got {type(out).__name__}"
@@ -63,6 +65,7 @@ def test_returns_4_tuple_of_pipelines():
 
 
 def test_withcats_pipelines_have_encoder_step():
+    """Withcats pipelines have encoder step."""
     df, _ = _make_synthetic_binary_df()
     bp_withcats_fs, bp_withcats_nofs, bp_nocats_fs, bp_nocats_nofs = get_binningprocess_featureselectors(df, n_jobs=1)
     # _withcats variants must start with the CatBoostEncoder step named "enc"
@@ -74,6 +77,7 @@ def test_withcats_pipelines_have_encoder_step():
 
 
 def test_all_pipelines_have_binningprocess_step():
+    """All pipelines have binningprocess step."""
     df, _ = _make_synthetic_binary_df()
     for pipe in get_binningprocess_featureselectors(df, n_jobs=1):
         assert "BP" in dict(pipe.steps), f"every pipeline must include the 'BP' (BinningProcess) step; got {[n for n, _ in pipe.steps]}"
@@ -88,9 +92,9 @@ def test_fs_pipelines_have_selection_criteria():
     assert bp_fs.selection_criteria, "fs variant must have selection_criteria set"
     assert "iv" in bp_fs.selection_criteria, "fs variant must use IV selection criterion"
     # nofs may have None or empty dict — must NOT have an IV gate
-    assert not getattr(bp_nofs, "selection_criteria", None) or "iv" not in (bp_nofs.selection_criteria or {}), (
-        f"nofs variant must not gate on IV; got {bp_nofs.selection_criteria!r}"
-    )
+    assert not getattr(bp_nofs, "selection_criteria", None) or "iv" not in (
+        bp_nofs.selection_criteria or {}
+    ), f"nofs variant must not gate on IV; got {bp_nofs.selection_criteria!r}"
 
 
 def test_iv_kwargs_propagate():
@@ -141,6 +145,7 @@ def _skip_if_optbinning_sklearn_incompat(exc: Exception) -> None:
 
 
 def test_nocats_nofs_pipeline_fits_and_transforms_binary_target():
+    """Nocats nofs pipeline fits and transforms binary target."""
     df, y = _make_synthetic_binary_df(n=300, n_features=4)
     _, _, _, bp_nocats_nofs = get_binningprocess_featureselectors(df, n_jobs=1)
     try:

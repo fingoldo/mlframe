@@ -343,9 +343,9 @@ class TestLogNormalAllThreeSignals:
         assert {"x_signal_1", "x_signal_2", "x_signal_3"}.issubset(set(names))
         # Map name -> position in support_ (= selection order).
         pos = {n: i for i, n in enumerate(names)}
-        assert pos["x_signal_1"] < pos["x_signal_2"] < pos["x_signal_3"], (
-            f"Selection order does not match effect-size order on seed={seed}: support={names}, gains={list(sel.mrmr_gains_)}"
-        )
+        assert (
+            pos["x_signal_1"] < pos["x_signal_2"] < pos["x_signal_3"]
+        ), f"Selection order does not match effect-size order on seed={seed}: support={names}, gains={list(sel.mrmr_gains_)}"
         # And the underlying gains are strictly descending across the
         # greedy steps (MRMR's invariant; pinned here as a regression
         # guard against a future change that would let later steps

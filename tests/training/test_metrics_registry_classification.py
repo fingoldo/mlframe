@@ -20,6 +20,7 @@ from mlframe.training.configs import TargetTypes
 
 @pytest.fixture(autouse=True)
 def _snapshot_registry():
+    """Snapshot registry."""
     snapshot = {tt: dict(specs) for tt, specs in mr._REGISTRY.items()}
     yield
     mr._REGISTRY.clear()
@@ -31,17 +32,20 @@ def _snapshot_registry():
 
 @pytest.mark.parametrize("tt", [TargetTypes.BINARY_CLASSIFICATION, TargetTypes.MULTICLASS_CLASSIFICATION])
 def test_kappa_metrics_registered_for_binary_and_multiclass(tt):
+    """Kappa metrics registered for binary and multiclass."""
     names = set(mr.list_registered(tt))
     assert {"quadratic_weighted_kappa", "weighted_kappa"} <= names, f"kappa metrics missing for {tt}: {names}"
 
 
 def test_exploss_registered_for_binary_only():
+    """Exploss registered for binary only."""
     assert "exploss" in mr.list_registered(TargetTypes.BINARY_CLASSIFICATION)
     # exploss is a single-vector binary proper scoring rule with no canonical multiclass form.
     assert "exploss" not in mr.list_registered(TargetTypes.MULTICLASS_CLASSIFICATION)
 
 
 def test_registered_directions_correct():
+    """Registered directions correct."""
     for tt in (TargetTypes.BINARY_CLASSIFICATION, TargetTypes.MULTICLASS_CLASSIFICATION):
         assert mr.get_metric_direction(tt, "quadratic_weighted_kappa") is True
         assert mr.get_metric_direction(tt, "weighted_kappa") is True
@@ -49,6 +53,7 @@ def test_registered_directions_correct():
 
 
 def test_direction_name_table_correct():
+    """Direction name table correct."""
     assert mr.metric_name_higher_is_better("quadratic_weighted_kappa") is True
     assert mr.metric_name_higher_is_better("weighted_kappa") is True
     assert mr.metric_name_higher_is_better("qwk") is True
@@ -59,6 +64,7 @@ def test_direction_name_table_correct():
 
 
 def test_iter_extra_metrics_binary_finite():
+    """Iter extra metrics binary finite."""
     rng = np.random.default_rng(0)
     n = 200
     y = rng.integers(0, 2, size=n)
@@ -72,6 +78,7 @@ def test_iter_extra_metrics_binary_finite():
 
 
 def test_iter_extra_metrics_multiclass_finite():
+    """Iter extra metrics multiclass finite."""
     rng = np.random.default_rng(1)
     n, k = 300, 4
     y = rng.integers(0, k, size=n)
@@ -136,6 +143,7 @@ def test_kappa_handles_non_zero_indexed_labels():
 
 
 def _fit_reference_model(n, k, seed):
+    """Fit reference model."""
     from sklearn.linear_model import LogisticRegression
 
     rng = np.random.default_rng(seed)
@@ -147,6 +155,7 @@ def _fit_reference_model(n, k, seed):
 
 
 def test_reporting_path_binary_lands_scalars():
+    """Reporting path binary lands scalars."""
     from mlframe.training.reporting._reporting_probabilistic import report_probabilistic_model_perf
 
     X, y, model = _fit_reference_model(400, 2, seed=10)
@@ -169,6 +178,7 @@ def test_reporting_path_binary_lands_scalars():
 
 
 def test_reporting_path_multiclass_lands_kappa_scalars():
+    """Reporting path multiclass lands kappa scalars."""
     from mlframe.training.reporting._reporting_probabilistic import report_probabilistic_model_perf
 
     X, y, model = _fit_reference_model(500, 4, seed=11)

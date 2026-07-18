@@ -8,8 +8,13 @@ extend = "../../py-ci-shared/configs/ruff-tests.toml"
 target-version = "py39"
 
 [lint.mccabe]
-# Provisional: inherits mlframe's own measured src/ threshold (see root pyproject.toml's
-# [tool.ruff.lint.mccabe] comment) as a starting point -- test functions are rarely complex by
-# nature (mostly straight-line arrange/act/assert), so C90 should fire rarely here regardless of
-# the exact number. Re-measure and lower once this gate has run against the full tests/ tree.
-max-complexity = 40
+# Re-measured 2026-07-18 (was a provisional 40, inherited from src/'s own threshold): the real
+# distribution under tests/ is far flatter than src/ -- at threshold=1 (report everything) the top
+# values are 64/36/26/25/24, then a long tail of simple arrange/act/assert bodies. 30 catches only
+# the two genuine outliers (both fuzz-combo runners that intentionally fan out over every axis of
+# FuzzCombo -- build_frame_for_combo at 64, test_fuzz_train_mlframe_models_suite at 36) without
+# flagging anything else. Same as src/'s own [tool.ruff.lint.mccabe]: C901 is advisory-only
+# (ignored in every blocking `ruff check ... --ignore C901` invocation, src AND tests alike) --
+# this threshold only affects the mccabe --statistics advisory report, not a blocking gate, so no
+# inline `# noqa: C901` is needed on the two outliers (src/ has none either, by the same logic).
+max-complexity = 30

@@ -15,12 +15,14 @@ from pathlib import Path
 
 
 def test_wrapping_symbol_still_importable_from_facade() -> None:
+    """Wrapping symbol still importable from facade."""
     from mlframe.training.core._phase_composite_post import _run_composite_target_wrapping
 
     assert callable(_run_composite_target_wrapping)
 
 
 def test_other_phase_post_symbols_still_importable() -> None:
+    """Other phase post symbols still importable."""
     from mlframe.training.core._phase_composite_post import (
         recover_composite_y_scale_metrics,
         _run_suite_end_dummy_baselines_summary,
@@ -36,6 +38,7 @@ def test_other_phase_post_symbols_still_importable() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
+    """Facade below 1k line threshold."""
     root = Path(__file__).resolve().parents[3] / "src" / "mlframe" / "training" / "core"
     facade = root / "_phase_composite_post.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())

@@ -59,6 +59,7 @@ def test_biz_val_trust_guard_n_estimators_default_preserves_trust_and_subset():
     )
 
     def _build(value):
+        """Helper that build."""
         return ShapProxiedFS(
             classification=True,
             metric="brier",
@@ -80,9 +81,9 @@ def test_biz_val_trust_guard_n_estimators_default_preserves_trust_and_subset():
     assert sel_default.trust_guard_n_estimators == 25
     sel_default.fit(X, pd.Series(y))
     trust_default = sel_default.shap_proxy_report_.get("trust", {}) or {}
-    assert trust_default.get("trustworthy") is True, (
-        f"trust gate tripped at new default (trustworthy={trust_default.get('trustworthy')}, fidelity={trust_default.get('proxy_fidelity_score')})"
-    )
+    assert (
+        trust_default.get("trustworthy") is True
+    ), f"trust gate tripped at new default (trustworthy={trust_default.get('trustworthy')}, fidelity={trust_default.get('proxy_fidelity_score')})"
 
     sel_full = _build(100)
     sel_full.fit(X, pd.Series(y))
@@ -91,6 +92,6 @@ def test_biz_val_trust_guard_n_estimators_default_preserves_trust_and_subset():
 
     chosen_default = tuple(sorted(sel_default.selected_features_))
     chosen_full = tuple(sorted(sel_full.selected_features_))
-    assert chosen_default == chosen_full, (
-        f"chosen subset diverged between trust_guard_n_estimators=25 (new default) and 100 (control): default={chosen_default} vs full={chosen_full}"
-    )
+    assert (
+        chosen_default == chosen_full
+    ), f"chosen subset diverged between trust_guard_n_estimators=25 (new default) and 100 (control): default={chosen_default} vs full={chosen_full}"

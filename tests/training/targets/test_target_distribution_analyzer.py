@@ -20,36 +20,41 @@ from mlframe.training.targets._target_distribution_analyzer import (
     analyze_target_distribution,
 )
 
-
 # ---------------------------------------------------------------------------
 # helper detectors -- direct numeric sanity
 # ---------------------------------------------------------------------------
 
 
 class TestHelperDetectors:
+    """Groups tests covering helper detectors."""
     def test_excess_kurtosis_gaussian_near_zero(self):
+        """Excess kurtosis gaussian near zero."""
         rng = np.random.default_rng(0)
         y = rng.standard_normal(20_000)
         # Sample excess kurtosis of N(0,1) over 20k samples typically |k| < 0.1.
         assert abs(_excess_kurtosis(y)) < 0.5
 
     def test_excess_kurtosis_heavy_tail_large(self):
+        """Excess kurtosis heavy tail large."""
         rng = np.random.default_rng(1)
         y = rng.standard_t(df=3, size=20_000)
         # Student-t with df=3 has infinite kurtosis; sample value > 5 reliably.
         assert _excess_kurtosis(y) > 5.0
 
     def test_skewness_symmetric_near_zero(self):
+        """Skewness symmetric near zero."""
         rng = np.random.default_rng(2)
         y = rng.standard_normal(20_000)
         assert abs(_skewness(y)) < 0.2
 
     def test_skewness_lognormal_positive(self):
+        """Skewness lognormal positive."""
         rng = np.random.default_rng(3)
         y = np.exp(rng.standard_normal(20_000))
         assert _skewness(y) > 2.0
 
     def test_lag1_autocorr_iid_near_zero(self):
+        """Lag1 autocorr iid near zero."""
         rng = np.random.default_rng(4)
         y = rng.standard_normal(10_000)
         assert abs(_lag1_autocorr(y)) < 0.05
@@ -70,12 +75,14 @@ class TestHelperDetectors:
         assert lag == 2, f"expected lag-2 to dominate, got lag={lag}"
 
     def test_max_abs_lag_autocorr_iid_near_zero(self):
+        """Max abs lag autocorr iid near zero."""
         rng = np.random.default_rng(51)
         y = rng.standard_normal(4000)
         ar, _lag = _max_abs_lag_autocorr(y)
         assert abs(ar) < 0.1, f"iid noise should give max-lag autocorr near 0, got {ar}"
 
     def test_lag1_autocorr_strong_AR_high(self):
+        """Lag1 autocorr strong a r high."""
         rng = np.random.default_rng(5)
         n = 10_000
         ar = np.zeros(n, dtype=np.float64)
@@ -85,12 +92,14 @@ class TestHelperDetectors:
         assert _lag1_autocorr(ar) > 0.8
 
     def test_multi_modal_unimodal_returns_false(self):
+        """Multi modal unimodal returns false."""
         rng = np.random.default_rng(6)
         y = rng.standard_normal(5000)
         is_mm, n_peaks, sep = _detect_multi_modal(y)
         assert is_mm is False, f"unimodal gaussian flagged as multi-modal (n_peaks={n_peaks}, sep={sep})"
 
     def test_multi_modal_bimodal_returns_true(self):
+        """Multi modal bimodal returns true."""
         rng = np.random.default_rng(7)
         y = np.concatenate(
             [
@@ -105,6 +114,7 @@ class TestHelperDetectors:
         assert sep >= 1.8
 
     def test_within_between_group_variance_strongly_clustered(self):
+        """Within between group variance strongly clustered."""
         rng = np.random.default_rng(8)
         groups = np.repeat(np.arange(10), 200)
         group_means = rng.uniform(0, 100, 10)
@@ -114,6 +124,7 @@ class TestHelperDetectors:
         assert ratio < 0.1
 
     def test_within_between_group_variance_uniform_groups(self):
+        """Within between group variance uniform groups."""
         rng = np.random.default_rng(9)
         groups = np.repeat(np.arange(10), 200)
         y = rng.normal(0, 1, 2000)  # target unrelated to group
@@ -128,7 +139,9 @@ class TestHelperDetectors:
 
 
 class TestRegressionAnalyzer:
+    """Groups tests covering regression analyzer."""
     def test_clean_gaussian_no_pathologies(self):
+        """Clean gaussian no pathologies."""
         rng = np.random.default_rng(100)
         y = rng.standard_normal(5000)
         rep = analyze_target_distribution(y, has_time_axis=False)
@@ -138,6 +151,7 @@ class TestRegressionAnalyzer:
         assert rep.knob_overrides == {}
 
     def test_heavy_tail_recommends_huber(self):
+        """Heavy tail recommends huber."""
         rng = np.random.default_rng(101)
         y = rng.standard_t(df=3, size=5000)
         rep = analyze_target_distribution(y, has_time_axis=False)
@@ -147,6 +161,7 @@ class TestRegressionAnalyzer:
         assert "reg:pseudohubererror" in str(rep.knob_overrides.get("xgb_kwargs", {}).get("objective", ""))
 
     def test_strong_AR_recommends_no_layernorm(self):
+        """Strong a r recommends no layernorm."""
         rng = np.random.default_rng(102)
         n = 4000
         ar = np.zeros(n, dtype=np.float64)
@@ -214,9 +229,9 @@ class TestRegressionAnalyzer:
                 has_time_axis=False,
             )
         msgs = " | ".join(r.getMessage() for r in caplog.records)
-        assert "rows do not appear sorted by group" in msgs, (
-            "ordering-check WARN missing on shuffled data; per-group AR detector would silently false-negative without surfacing the assumption violation."
-        )
+        assert (
+            "rows do not appear sorted by group" in msgs
+        ), "ordering-check WARN missing on shuffled data; per-group AR detector would silently false-negative without surfacing the assumption violation."
 
     def test_strong_AR_per_group_when_time_axis_false_but_groups_supplied(self):
         """Per-group AR (2026-05-21 fix #5): TVT-like data where rows are ordered
@@ -256,6 +271,7 @@ class TestRegressionAnalyzer:
         assert not any("strong_AR" in p for p in rep.pathologies), rep.pathologies
 
     def test_multi_modal_flag(self):
+        """Multi modal flag."""
         rng = np.random.default_rng(104)
         y = np.concatenate(
             [
@@ -267,6 +283,7 @@ class TestRegressionAnalyzer:
         assert any("multi_modal" in p for p in rep.pathologies), rep.pathologies
 
     def test_skewed_target_flag(self):
+        """Skewed target flag."""
         rng = np.random.default_rng(105)
         y = np.exp(rng.standard_normal(5000)).astype(np.float64)
         rep = analyze_target_distribution(y, has_time_axis=False)
@@ -277,6 +294,7 @@ class TestRegressionAnalyzer:
         # heuristic (which treats single-unique-value floats as classification)
         # doesn't intercept. A truly constant target should hit the regression-side
         # near_constant detector and short-circuit before kurtosis/skew run.
+        """Near constant target hard warn."""
         y = np.full(5000, 42.0)
         rep = analyze_target_distribution(y, has_time_axis=False, target_type="regression")
         assert any("near_constant" in p for p in rep.pathologies), rep.pathologies
@@ -284,6 +302,7 @@ class TestRegressionAnalyzer:
         assert "excess_kurtosis" not in rep.diagnostics
 
     def test_clustered_target_with_group_ids(self):
+        """Clustered target with group ids."""
         rng = np.random.default_rng(106)
         groups = np.repeat(np.arange(20), 100)
         means = rng.uniform(0, 50, 20)
@@ -297,6 +316,7 @@ class TestRegressionAnalyzer:
         assert np_overrides.get("use_layernorm") is False, f"E5.2: clustered target must also disable MLP LayerNorm; got {np_overrides}"
 
     def test_clustered_target_skipped_without_group_ids(self):
+        """Clustered target skipped without group ids."""
         rng = np.random.default_rng(107)
         groups = np.repeat(np.arange(20), 100)
         means = rng.uniform(0, 50, 20)
@@ -312,7 +332,9 @@ class TestRegressionAnalyzer:
 
 
 class TestClassificationAnalyzer:
+    """Groups tests covering classification analyzer."""
     def test_balanced_two_class_no_pathology(self):
+        """Balanced two class no pathology."""
         rng = np.random.default_rng(200)
         y = rng.integers(0, 2, size=4000)
         rep = analyze_target_distribution(y)
@@ -321,6 +343,7 @@ class TestClassificationAnalyzer:
 
     def test_class_imbalance_recommends_balanced_weights(self):
         # 95% class 0, 5% class 1 -> ratio 19x > 10x threshold
+        """Class imbalance recommends balanced weights."""
         y = np.zeros(4000, dtype=np.int32)
         y[:200] = 1  # 5%
         rep = analyze_target_distribution(y)
@@ -330,6 +353,7 @@ class TestClassificationAnalyzer:
 
     def test_rare_class_flag(self):
         # Three classes, third one with only 50 samples (below the default 100 threshold).
+        """Rare class flag."""
         y = np.concatenate(
             [
                 np.zeros(2000, dtype=np.int32),
@@ -342,12 +366,14 @@ class TestClassificationAnalyzer:
 
     def test_near_singleton_class_flag(self):
         # 99.5% class 0
+        """Near singleton class flag."""
         y = np.zeros(2000, dtype=np.int32)
         y[-10:] = 1
         rep = analyze_target_distribution(y)
         assert any("near_singleton_class" in p for p in rep.pathologies), rep.pathologies
 
     def test_single_class_short_circuits(self):
+        """Single class short circuits."""
         y = np.zeros(2000, dtype=np.int32)
         rep = analyze_target_distribution(y)
         assert any("single_class" in p for p in rep.pathologies), rep.pathologies
@@ -359,7 +385,9 @@ class TestClassificationAnalyzer:
 
 
 class TestMergeIntoConfig:
+    """Groups tests covering merge into config."""
     def test_recommendations_fill_gaps_but_preserve_user_values(self):
+        """Recommendations fill gaps but preserve user values."""
         rng = np.random.default_rng(300)
         # Heavy-tail target so we know which knobs are recommended.
         y = rng.standard_t(df=3, size=5000)
@@ -374,6 +402,7 @@ class TestMergeIntoConfig:
         assert merged["lgb_kwargs"]["objective"] == "huber"
 
     def test_override_existing_lets_recommendation_win(self):
+        """Override existing lets recommendation win."""
         rng = np.random.default_rng(301)
         y = rng.standard_t(df=3, size=5000)
         rep = analyze_target_distribution(y, has_time_axis=False)
@@ -385,6 +414,7 @@ class TestMergeIntoConfig:
     def test_non_dict_user_slot_preserved(self):
         # Caller had ``mlp_kwargs=None`` (or some non-dict sentinel): the merger
         # must NOT crash; it bails on that slot. The slot stays as the caller put it.
+        """Non dict user slot preserved."""
         rng = np.random.default_rng(302)
         y = rng.standard_t(df=3, size=5000)
         rep = analyze_target_distribution(y, has_time_axis=False)

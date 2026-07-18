@@ -19,6 +19,7 @@ import pytest
 
 
 def _stride(n, max_rows):
+    """Helper that stride."""
     return int(n // max_rows) if max_rows > 0 and n > max_rows else 1
 
 
@@ -27,6 +28,7 @@ def _stride(n, max_rows):
     [(1_000_000, 250_000, 4), (1_000_000, 0, 1), (200_000, 250_000, 1), (500_000, 250_000, 2)],
 )
 def test_perm_null_caller_stride_formula(n, max_rows, expect):
+    """Perm null caller stride formula."""
     st = _stride(n, max_rows)
     assert st == expect
     sub = np.arange(n)[::st]
@@ -37,6 +39,7 @@ def test_perm_null_caller_stride_formula(n, max_rows, expect):
 
 
 def _retention_verdict(cand, incumbents, y_binned, cap_env, monkeypatch):
+    """Retention verdict."""
     import mlframe.feature_selection.filters._fe_retention_subsumption as R
 
     monkeypatch.setenv("MLFRAME_RETENTION_NULL_MAX_ROWS", str(cap_env))
@@ -95,6 +98,7 @@ def test_retention_cap_actually_subsamples(monkeypatch):
         seen = {}
 
         def spy(cand_bin, y_bin, z_support, **k):
+            """Helper that spy."""
             seen["n"] = int(np.asarray(cand_bin).shape[0])
             return orig(cand_bin, y_bin, z_support, **k)
 

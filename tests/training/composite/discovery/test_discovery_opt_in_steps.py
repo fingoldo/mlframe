@@ -47,6 +47,7 @@ def _synthetic(n: int = 1200, seed: int = 0) -> pd.DataFrame:
 
 
 def _base_config(**overrides):
+    """Base config."""
     cfg = dict(
         enabled=True,
         base_candidates=["base"],
@@ -65,6 +66,7 @@ def _base_config(**overrides):
 
 
 def _fit(config, df=None):
+    """Fit."""
     df = _synthetic() if df is None else df
     feats = ["base", "x1", "x2", "x3"]
     train_idx = np.arange(len(df))
@@ -74,6 +76,7 @@ def _fit(config, df=None):
 
 
 def _spec_keys(specs):
+    """Spec keys."""
     return [(s.name, s.transform_name, s.base_column, tuple(getattr(s, "extra_base_columns", ()) or ())) for s in specs]
 
 
@@ -83,6 +86,7 @@ def _spec_keys(specs):
 
 
 def test_all_flags_off_is_noop_identical_to_baseline():
+    """All flags off is noop identical to baseline."""
     base = _fit(_base_config())
     again = _fit(_base_config())
     assert _spec_keys(base.specs_) == _spec_keys(again.specs_)
@@ -101,6 +105,7 @@ def test_all_flags_off_is_noop_identical_to_baseline():
     ],
 )
 def test_each_flag_off_individually_matches_baseline_specs(flag):
+    """Each flag off individually matches baseline specs."""
     baseline = _fit(_base_config())
     # Flip every OTHER flag off (already off) -- this flag explicitly False.
     off = _fit(_base_config(**{flag: False}))
@@ -113,6 +118,7 @@ def test_each_flag_off_individually_matches_baseline_specs(flag):
 
 
 def test_region_adaptive_on_runs_and_sets_artifact():
+    """Region adaptive on runs and sets artifact."""
     disc = _fit(_base_config(region_adaptive_enabled=True))
     assert hasattr(disc, "region_adaptive_specs_")
     # At least one kept single-base spec => at least one region-adaptive spec.
@@ -128,6 +134,7 @@ def test_region_adaptive_on_runs_and_sets_artifact():
 
 
 def test_interaction_base_discovery_on_runs_and_sets_artifact():
+    """Interaction base discovery on runs and sets artifact."""
     disc = _fit(_base_config(interaction_base_discovery_enabled=True))
     assert hasattr(disc, "interaction_bases_")
     assert isinstance(disc.interaction_bases_, dict)
@@ -139,6 +146,7 @@ def test_interaction_base_discovery_on_runs_and_sets_artifact():
 
 
 def test_auto_chain_on_runs_and_appends_wellformed_specs():
+    """Auto chain on runs and appends wellformed specs."""
     disc = _fit(_base_config(auto_chain_discovery_enabled=True))
     assert hasattr(disc, "auto_chains_")
     # Any appended chain spec is a well-formed CompositeSpec resolvable by name.
@@ -158,6 +166,7 @@ def test_auto_chain_on_runs_and_appends_wellformed_specs():
 
 
 def test_all_flags_on_together_runs_and_superset_of_baseline():
+    """All flags on together runs and superset of baseline."""
     baseline = _fit(_base_config())
     full = _fit(
         _base_config(
@@ -181,6 +190,7 @@ def test_all_flags_on_together_runs_and_superset_of_baseline():
 
 
 def test_discover_incremental_reuse_on_identical_frame():
+    """Discover incremental reuse on identical frame."""
     df = _synthetic()
     disc = _fit(_base_config(), df=df)
     decision = discover_incremental(disc, df, "y", ["base", "x1", "x2", "x3"])
@@ -192,6 +202,7 @@ def test_discover_incremental_reuse_on_identical_frame():
 
 
 def test_discover_incremental_rescores_on_appended_frame():
+    """Discover incremental rescores on appended frame."""
     df = _synthetic(n=1200, seed=0)
     disc = _fit(_base_config(), df=df)
     grown = pd.concat([df, _synthetic(n=400, seed=1)], ignore_index=True)
@@ -214,7 +225,7 @@ def test_opt_in_steps_parallel_matches_serial_specs(monkeypatch):
     feature matrix is built once then sliced per base via np.delete, so the discovered specs must
     be order- and content-identical whether the loop runs serial (1 core) or parallel (N cores).
     """
-    import mlframe.training.composite.discovery._opt_in_steps as ois
+    import mlframe.training.composite.discovery._opt_in_steps as ois_mod  # codespell:ignore
 
     cfg = dict(
         region_adaptive_enabled=True,
@@ -223,10 +234,10 @@ def test_opt_in_steps_parallel_matches_serial_specs(monkeypatch):
         base_candidates=["base", "x1", "x2"],  # >=2 kept bases so the parallel branch fires
     )
 
-    monkeypatch.setattr(ois, "cpu_count_physical", lambda *a, **k: 1)
+    monkeypatch.setattr(ois_mod, "cpu_count_physical", lambda *a, **k: 1)
     serial = _fit(_base_config(**cfg))
 
-    monkeypatch.setattr(ois, "cpu_count_physical", lambda *a, **k: 8)
+    monkeypatch.setattr(ois_mod, "cpu_count_physical", lambda *a, **k: 8)
     parallel = _fit(_base_config(**cfg))
 
     assert _spec_keys(serial.specs_) == _spec_keys(parallel.specs_)

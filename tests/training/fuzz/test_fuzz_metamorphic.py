@@ -45,7 +45,6 @@ from tests.training._fuzz_combo import (
 )
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
-
 # Tolerances for metric drift. Generous — metamorphic tests should catch
 # catastrophic regressions (predictions inverting, pipeline silently
 # dropping features), not 0.01-AUC wobble.
@@ -206,6 +205,7 @@ def _run_suite(combo: FuzzCombo, df, target_col: str, tmp_path) -> dict:
 
 
 def _tolerance_for(combo: FuzzCombo) -> float:
+    """Returns the per-target-type metric tolerance (regression/LTR/classification) for metamorphic stability checks."""
     if combo.target_type == "regression":
         return _REG_R2_TOLERANCE
     if combo.target_type == "learning_to_rank":
@@ -237,6 +237,7 @@ def _no_signal(combo: FuzzCombo, m_base: float, m_perturbed: float) -> bool:
 
 
 def _curated_metamorphic_combos() -> list[FuzzCombo]:
+    """Returns one FuzzCombo per model family (or the full sweep under MLFRAME_METAMORPHIC_ALL=1) for metamorphic testing."""
     if os.environ.get("MLFRAME_METAMORPHIC_ALL") == "1":
         return enumerate_combos(target=150, master_seed=20260422)
     combos = enumerate_combos(target=150, master_seed=20260422)
@@ -329,9 +330,9 @@ def test_metamorphic_column_rename_invariance(combo: FuzzCombo, tmp_path):
         pytest.skip(f"base/renamed metric lacks signal ({combo.target_type}: base={m_base:.3f}, renamed={m_renamed:.3f}); metamorphic check not meaningful")
 
     tol = _tolerance_for(combo)
-    assert abs(m_base - m_renamed) <= tol, (
-        f"D1: val metric drifted under column rename — base={m_base:.4f}, renamed={m_renamed:.4f}, |Δ|={abs(m_base - m_renamed):.4f} > {tol}"
-    )
+    assert (
+        abs(m_base - m_renamed) <= tol
+    ), f"D1: val metric drifted under column rename — base={m_base:.4f}, renamed={m_renamed:.4f}, |Δ|={abs(m_base - m_renamed):.4f} > {tol}"
 
 
 # ---------------------------------------------------------------------------
@@ -396,6 +397,6 @@ def test_metamorphic_duplicate_rows_stable(combo: FuzzCombo, tmp_path):
         pytest.skip(f"base/dup metric lacks signal ({combo.target_type}: base={m_base:.3f}, dup={m_dup:.3f}); metamorphic check not meaningful")
 
     tol = _tolerance_for(combo)
-    assert abs(m_base - m_dup) <= tol, (
-        f"D2: val metric drifted under 5% row duplication — base={m_base:.4f}, dup={m_dup:.4f}, |Δ|={abs(m_base - m_dup):.4f} > {tol}"
-    )
+    assert (
+        abs(m_base - m_dup) <= tol
+    ), f"D2: val metric drifted under 5% row duplication — base={m_base:.4f}, dup={m_dup:.4f}, |Δ|={abs(m_base - m_dup):.4f} > {tol}"

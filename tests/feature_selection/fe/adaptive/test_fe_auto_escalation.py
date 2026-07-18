@@ -37,6 +37,7 @@ warnings.filterwarnings("ignore")
 
 
 def _frame(n, p, seed):
+    """Helper that frame."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, p))
     return X, pd.DataFrame(X, columns=[f"x{i}" for i in range(p)]), rng
@@ -144,6 +145,7 @@ def test_biz_val_escalation_skips_complete_he3_capture():
     truth = (Xt[:, 0] ** 3 - 3 * Xt[:, 0]) * Xt[:, 1]
 
     def _r2(cols):
+        """Fit a linear model on the given transformed columns and return held-out R^2 against the He3-cubic truth signal."""
         if not cols:
             return 0.0
         A = np.column_stack([np.asarray(out[c], dtype=np.float64) for c in cols] + [np.ones(len(out))])
@@ -213,6 +215,7 @@ def test_escalation_noise_control_zero_admissions():
 
 @pytest.mark.parametrize("arg", ["linear", "quadratic"])
 def test_fourier_adaptive_prewarp_replay_bit_identical(arg):
+    """Fourier adaptive prewarp replay bit identical."""
     from mlframe.feature_selection.filters.engineered_recipes import (
         _apply_unary_binary,
         build_unary_binary_recipe,
@@ -329,9 +332,9 @@ def test_target_rebin_guard_fires_on_heavy_tailed_continuous_target(caplog):
     sel = MRMR(verbose=1, random_seed=42)
     with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters.mrmr"):
         sel.fit(df, pd.Series(y, name="y"))
-    assert any("target-rebin guard" in r.message for r in caplog.records), (
-        "the target-rebin guard must fire on a heavy-tailed continuous target under the adaptive nbins_strategy default"
-    )
+    assert any(
+        "target-rebin guard" in r.message for r in caplog.records
+    ), "the target-rebin guard must fire on a heavy-tailed continuous target under the adaptive nbins_strategy default"
 
 
 # ---------------------------------------------------------------------------
@@ -383,6 +386,7 @@ def test_find_underdelivering_pairs_memoizes_per_column_quantile_bin():
     _orig = mgcf._quantile_bin
 
     def _counting_qbin(col, nbins):
+        """Counting qbin."""
         calls["n"] += 1
         calls["arrays"].append(np.asarray(col))
         return _orig(col, nbins)

@@ -10,17 +10,18 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # --------------------------------------------------------------------------- unit
 
 
 def test_lgb_callback_fires_on_monotone_worsening():
+    """Lgb callback fires on monotone worsening."""
     lgb = pytest.importorskip("lightgbm")
     from mlframe.training.callbacks.monotonic_decline import LGBMonotonicDeclineStop
 
     cb = LGBMonotonicDeclineStop(patience=3, monitor_dataset="valid_0", monitor_metric="l2", mode="min")
 
     def _env(it, value):
+        """Env."""
         return type("E", (), {"iteration": it, "evaluation_result_list": [("valid_0", "l2", value, False)]})()
 
     # improving then 3 strict rises -> EarlyStopException
@@ -33,6 +34,7 @@ def test_lgb_callback_fires_on_monotone_worsening():
 
 
 def test_xgb_callback_fires_on_monotone_worsening():
+    """Xgb callback fires on monotone worsening."""
     pytest.importorskip("xgboost")
     from mlframe.training.callbacks.monotonic_decline import _make_xgb_monotonic_callback
 
@@ -40,6 +42,7 @@ def test_xgb_callback_fires_on_monotone_worsening():
     assert cb is not None
 
     def _log(value):
+        """Log."""
         return {"validation_0": {"rmse": [value]}}
 
     assert cb.after_iteration(None, 0, _log(0.5)) is False
@@ -50,6 +53,7 @@ def test_xgb_callback_fires_on_monotone_worsening():
 
 
 def test_xgb_callback_disabled_returns_none():
+    """Xgb callback disabled returns none."""
     pytest.importorskip("xgboost")
     from mlframe.training.callbacks.monotonic_decline import _make_xgb_monotonic_callback
 
@@ -57,11 +61,13 @@ def test_xgb_callback_disabled_returns_none():
 
 
 def test_cb_callback_fires_on_monotone_worsening():
+    """Cb callback fires on monotone worsening."""
     from mlframe.training.callbacks.monotonic_decline import CBMonotonicDeclineStop
 
     cb = CBMonotonicDeclineStop(patience=3, monitor_dataset="validation", monitor_metric="RMSE", mode="min")
 
     def _info(value):
+        """Info."""
         return type("I", (), {"metrics": {"validation": {"RMSE": [value]}}})()
 
     # CatBoost convention: after_iteration returns True to continue, False to stop.
@@ -73,11 +79,13 @@ def test_cb_callback_fires_on_monotone_worsening():
 
 
 def test_cb_callback_disabled_always_continues():
+    """Cb callback disabled always continues."""
     from mlframe.training.callbacks.monotonic_decline import CBMonotonicDeclineStop
 
     cb = CBMonotonicDeclineStop(patience=None, monitor_dataset="validation", monitor_metric="RMSE", mode="min")
 
     def _info(value):
+        """Info."""
         return type("I", (), {"metrics": {"validation": {"RMSE": [value]}}})()
 
     for v in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]:
@@ -96,20 +104,24 @@ def _overfit_data(seed=0, n=600, d=20):
 
 
 def _rmse(yt, yp):
+    """Rmse."""
     return float(np.sqrt(np.mean((np.asarray(yp).reshape(-1) - yt) ** 2)))
 
 
 def _n_trees_lgb(booster):
+    """N trees lgb."""
     return booster.num_trees()
 
 
 def test_lgb_shim_monotonic_stops_early():
+    """Lgb shim monotonic stops early."""
     pytest.importorskip("lightgbm")
     from mlframe.training.lgb_shim import LGBMRegressorWithDatasetReuse
 
     Xtr, ytr, Xv, yv = _overfit_data()
 
     def _fit(mono):
+        """Fit."""
         m = LGBMRegressorWithDatasetReuse(
             n_estimators=400,
             learning_rate=0.1,
@@ -130,12 +142,14 @@ def test_lgb_shim_monotonic_stops_early():
 
 
 def test_xgb_shim_monotonic_stops_early():
+    """Xgb shim monotonic stops early."""
     pytest.importorskip("xgboost")
     from mlframe.training.xgb_shim import XGBRegressorWithDMatrixReuse
 
     Xtr, ytr, Xv, yv = _overfit_data()
 
     def _fit(mono):
+        """Fit."""
         m = XGBRegressorWithDMatrixReuse(
             n_estimators=400,
             learning_rate=0.1,
@@ -167,15 +181,18 @@ def test_xgb_callback_stamps_best_iteration_on_stop():
     cb = _make_xgb_monotonic_callback(patience=3, monitor_dataset="validation_0", monitor_metric="rmse", mode="min")
 
     class _FakeBooster:
+        """Groups tests covering fake booster."""
         def __init__(self):
             self.attrs = {}
 
         def set_attr(self, **kw):
+            """Set attr."""
             self.attrs.update({k: v for k, v in kw.items()})
 
     model = _FakeBooster()
 
     def _log(value):
+        """Log."""
         return {"validation_0": {"rmse": [value]}}
 
     cb.after_iteration(model, 0, _log(0.5))
@@ -221,6 +238,7 @@ def test_biz_xgb_monotonic_predict_uses_best_iteration_not_full_booster():
 
 
 def test_resolve_mode_unknown_metric_returns_skip_sentinel():
+    """Resolve mode unknown metric returns skip sentinel."""
     from mlframe.training.callbacks.monotonic_decline import _resolve_mode, _UNKNOWN_DIRECTION
 
     assert _resolve_mode("my_totally_custom_metric", None) == _UNKNOWN_DIRECTION
@@ -240,6 +258,7 @@ def test_lgb_callback_unknown_max_metric_does_not_stop_improving_curve():
     cb = LGBMonotonicDeclineStop(patience=3, monitor_dataset="valid_0", monitor_metric="my_custom_skill_score", mode=None)
 
     def _env(it, value):
+        """Env."""
         return type("E", (), {"iteration": it, "evaluation_result_list": [("valid_0", "my_custom_skill_score", value, True)]})()
 
     # Strictly improving (higher-is-better) curve. Under the old 'min' guess every step looks like a
@@ -249,11 +268,13 @@ def test_lgb_callback_unknown_max_metric_does_not_stop_improving_curve():
 
 
 def test_cb_callback_unknown_max_metric_does_not_stop_improving_curve():
+    """Cb callback unknown max metric does not stop improving curve."""
     from mlframe.training.callbacks.monotonic_decline import CBMonotonicDeclineStop
 
     cb = CBMonotonicDeclineStop(patience=3, monitor_dataset="validation", monitor_metric="my_custom_skill_score", mode=None)
 
     def _info(value):
+        """Info."""
         return type("I", (), {"metrics": {"validation": {"my_custom_skill_score": [value]}}})()
 
     for v in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]:

@@ -284,9 +284,9 @@ def test_unary_binary_exact_parity_holds_on_majority_of_seeds():
                 all_exact = False
         exact_seeds += int(all_exact)
     assert produced >= 1, "no seed produced a unary_binary recipe to test"
-    assert exact_seeds == produced, (
-        f"transform/apply bit-exact parity held on only {exact_seeds}/{produced} seeds; bit-equality on the same recipe path must hold on every seed"
-    )
+    assert (
+        exact_seeds == produced
+    ), f"transform/apply bit-exact parity held on only {exact_seeds}/{produced} seeds; bit-equality on the same recipe path must hold on every seed"
 
 
 # ===========================================================================

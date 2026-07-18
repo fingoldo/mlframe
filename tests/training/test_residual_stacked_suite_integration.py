@@ -22,6 +22,7 @@ import pandas as pd
 
 
 def _make_problem():
+    """Make problem."""
     rng = np.random.default_rng(2026)
     n = 400
     x_a = rng.normal(10.0, 3.0, n)
@@ -35,6 +36,7 @@ class TestSuiteRoutesToResidualStackedWhenEnabled:
     """When ``use_stacked_discovery_residual=True`` the suite phase invokes ``fit_stacked_on_residual`` (not ``fit`` or ``fit_stacked``)."""
 
     def test_calls_fit_stacked_on_residual(self) -> None:
+        """Calls fit stacked on residual."""
         from mlframe.training.composite.discovery import CompositeTargetDiscovery
 
         df = _make_problem()
@@ -48,14 +50,17 @@ class TestSuiteRoutesToResidualStackedWhenEnabled:
         real_fit = CompositeTargetDiscovery.fit
 
         def track_fsor(self, *a, **kw):
+            """Track fsor."""
             call_log.append("fit_stacked_on_residual")
             return real_fsor(self, *a, **kw)
 
         def track_fs(self, *a, **kw):
+            """Track fs."""
             call_log.append("fit_stacked")
             return real_fs(self, *a, **kw)
 
         def track_fit(self, *a, **kw):
+            """Track fit."""
             call_log.append("fit")
             return real_fit(self, *a, **kw)
 
@@ -99,6 +104,7 @@ class TestSuiteRealPhaseRoutesToResidualStacked:
     """MEDIUM#8 2026-05-18: invoke the ACTUAL ``run_composite_target_discovery`` suite phase (not the dispatcher in isolation) and verify the residual flag routes to ``fit_stacked_on_residual``. Previously we only tested the if/elif logic inline; this exercises the real call site."""
 
     def test_real_phase_invokes_fit_stacked_on_residual(self) -> None:
+        """Real phase invokes fit stacked on residual."""
         from unittest.mock import patch
         from mlframe.training.composite.discovery import CompositeTargetDiscovery
         from mlframe.training.configs import (
@@ -133,14 +139,17 @@ class TestSuiteRealPhaseRoutesToResidualStacked:
         real_fit = CompositeTargetDiscovery.fit
 
         def track_fsor(self, *a, **kw):
+            """Track fsor."""
             call_log.append("fit_stacked_on_residual")
             return real_fsor(self, *a, **kw)
 
         def track_fs(self, *a, **kw):
+            """Track fs."""
             call_log.append("fit_stacked")
             return real_fs(self, *a, **kw)
 
         def track_fit(self, *a, **kw):
+            """Track fit."""
             call_log.append("fit")
             return real_fit(self, *a, **kw)
 
@@ -168,9 +177,9 @@ class TestSuiteRealPhaseRoutesToResidualStacked:
             )
 
         # The REAL suite phase must route to fit_stacked_on_residual.
-        assert "fit_stacked_on_residual" in call_log, (
-            f"real suite phase did not call fit_stacked_on_residual when use_stacked_discovery_residual=True; call_log={call_log}"
-        )
+        assert (
+            "fit_stacked_on_residual" in call_log
+        ), f"real suite phase did not call fit_stacked_on_residual when use_stacked_discovery_residual=True; call_log={call_log}"
         assert "fit_stacked" not in call_log
 
 
@@ -178,6 +187,7 @@ class TestStackedResidualAggregationFirst:
     """MEDIUM#9 2026-05-18: ``stacked_residual_aggregation="first"`` mode must produce a coherent specs_ list (previously only ``mean`` was exercised). ``first`` uses the best pass-1 spec instead of averaging across all pass-1 OOF predictions."""
 
     def test_first_aggregation_does_not_raise_and_produces_specs(self) -> None:
+        """First aggregation does not raise and produces specs."""
         from mlframe.training.composite.discovery import CompositeTargetDiscovery
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
@@ -211,6 +221,7 @@ class TestBothFlagsWarnAndPreferResidual:
     """When BOTH ``use_stacked_discovery=True`` AND ``use_stacked_discovery_residual=True``, the suite logs a warning AND routes to residual mode."""
 
     def test_warning_logged_when_both_flags_set(self, caplog) -> None:
+        """Warning logged when both flags set."""
         from mlframe.training.composite.discovery import CompositeTargetDiscovery
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
         from mlframe.training.core import _phase_composite_discovery as phase_mod
@@ -255,6 +266,6 @@ class TestBothFlagsWarnAndPreferResidual:
                     residual_aggregation="mean",
                 )
 
-        assert any("use_stacked_discovery=True and use_stacked_discovery_residual=True" in rec.message for rec in caplog.records), (
-            f"expected mutual-exclusion warning; got log records: {[r.message for r in caplog.records]}"
-        )
+        assert any(
+            "use_stacked_discovery=True and use_stacked_discovery_residual=True" in rec.message for rec in caplog.records
+        ), f"expected mutual-exclusion warning; got log records: {[r.message for r in caplog.records]}"

@@ -29,6 +29,7 @@ pytest.importorskip("xgboost")
 
 
 def _make_clf_data(n=400, f=10, seed=0):
+    """Make clf data."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, f)).astype(np.float64)
     logits = X[:, 0] * 1.3 - X[:, 1] * 0.8 + X[:, 2] * 0.5
@@ -193,6 +194,6 @@ def test_within_cluster_refine_two_fit_cache_writes_perm_fit_and_honest_loss(tmp
         refine_n_estimators=20,
         disk_cache_dir=cache_dir,
     )
-    assert tuple(refined_cold) == tuple(refined_warm), (
-        f"warm refine subset must match cold (cache served same booster + same losses); cold={refined_cold} warm={refined_warm}"
-    )
+    assert tuple(refined_cold) == tuple(
+        refined_warm
+    ), f"warm refine subset must match cold (cache served same booster + same losses); cold={refined_cold} warm={refined_warm}"

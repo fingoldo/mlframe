@@ -31,6 +31,7 @@ def test_highcard_clf_does_not_return_full_n():
 
 
 def test_highcard_int_clf_does_not_return_full_n():
+    """Highcard int clf does not return full n."""
     n, size = 200_000, 30_000
     y = np.random.default_rng(1).integers(0, 100_000, n)  # >size distinct labels
     idx = stratified_subsample_idx(np.random.default_rng(7), y, size, is_clf=True)
@@ -60,6 +61,7 @@ def test_legit_classification_still_stratifies():
 
 
 def test_regression_path_still_subsamples():
+    """Regression path still subsamples."""
     n, size = 998_327, 30_000
     y = np.random.default_rng(4).lognormal(0.0, 1.5, n)
     idx = resolve_shared_fe_subsample_idx(y, n, size, is_clf=False, stratify_knob=None, random_seed=42)

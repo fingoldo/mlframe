@@ -25,7 +25,6 @@ from PIL import Image
 
 from mlframe.metrics.core import show_calibration_plot
 
-
 PYEXE = sys.executable
 
 
@@ -45,6 +44,7 @@ def _subprocess_env_with_pythonpath() -> dict:
 # ---------- fixtures ----------
 @pytest.fixture
 def calib_inputs():
+    """Calib inputs."""
     rng = np.random.default_rng(42)
     freqs_predicted = np.linspace(0.05, 0.95, 10)
     freqs_true = freqs_predicted + rng.normal(0, 0.02, 10)
@@ -89,6 +89,7 @@ def test_agg_path_concurrent_threads(tmp_path, calib_inputs):
     files = [tmp_path / f"c{i}.png" for i in range(4)]
 
     def _one(p):
+        """One."""
         show_calibration_plot(fp, ft, h, show_plots=False, plot_file=str(p), plot_title=f"t={p.name}")
         return p
 
@@ -177,6 +178,7 @@ def test_numba_nogil_releases_gil():
 
     @njit(**NUMBA_NJIT_PARAMS)
     def _heavy(n):
+        """Heavy."""
         s = 0.0
         for i in range(n):
             s += (i * 0.5) ** 0.5
@@ -188,11 +190,13 @@ def test_numba_nogil_releases_gil():
     # Take the best-of-3 for both solo and parallel to suppress one-shot
     # CPU-contention spikes from other test workers.
     def _time_solo():
+        """Time solo."""
         t0 = time.perf_counter()
         _heavy(N)
         return time.perf_counter() - t0
 
     def _time_par():
+        """Time par."""
         t0 = time.perf_counter()
         with ThreadPoolExecutor(max_workers=2) as ex:
             list(ex.map(_heavy, [N, N]))
@@ -285,6 +289,7 @@ def test_torch_stays_out_for_catboost_only_path():
 # TestExtractorVerbose
 # =====================================================================
 def _make_extractor_and_df(verbose):
+    """Make extractor and df."""
     from mlframe.training.extractors import FeaturesAndTargetsExtractor
     import pandas as pd
 
@@ -323,6 +328,7 @@ def test_verbose_2_logs_showcase(caplog):
 
 
 def test_verbose_0_no_showcase(capsys):
+    """Verbose 0 no showcase."""
     ex, df = _make_extractor_and_df(verbose=0)
     ex.transform(df)
     out = capsys.readouterr().out

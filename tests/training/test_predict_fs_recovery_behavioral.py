@@ -104,6 +104,7 @@ def _build_minimal_suite(*, inner_exposes_feature_names: bool = True):
     from sklearn.exceptions import NotFittedError
 
     def _broken_transform(_X, *_a, **_k):
+        """Always raises NotFittedError, simulating a stale-bundle/clone-not-refit selector at predict time."""
         raise NotFittedError("simulated stale selector state at predict")
 
     pre_pipeline.transform = _broken_transform  # instance-level override
@@ -137,6 +138,7 @@ class _StripNamesModel:
         self._inner = inner
 
     def predict(self, X):
+        """Subsets to the first two columns before delegating, simulating a model with no feature-name introspection."""
         if isinstance(X, pd.DataFrame):
             X = X.loc[:, ["x0", "x1"]]
         return self._inner.predict(X)
@@ -203,9 +205,9 @@ def test_fs_recovery_branch_is_load_bearing_when_no_inner_feature_names(caplog) 
         )
 
     preds_map = result["predictions"]
-    assert len(preds_map) == 1, (
-        "recovery must keep the model alive even without inner feature_names_in_; an empty predictions dict would mean the model was dropped (recovery absent)"
-    )
+    assert (
+        len(preds_map) == 1
+    ), "recovery must keep the model alive even without inner feature_names_in_; an empty predictions dict would mean the model was dropped (recovery absent)"
     (got,) = preds_map.values()
     assert np.allclose(np.asarray(got), expected)
     assert any("Skipping pre_pipeline" in rec.getMessage() for rec in caplog.records)

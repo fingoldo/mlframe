@@ -19,6 +19,7 @@ from mlframe.training.neural.trunk_residual_mlp import TrunkResidualMLPRegressor
 
 
 def _make_data(n: int, n_features: int, seed: int):
+    """Make data."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, n_features)).astype(np.float32)
     y = (X[:, 0] * X[:, 1] + 0.5 * X[:, 2]).astype(np.float32) + rng.normal(scale=0.3, size=n).astype(np.float32)
@@ -26,6 +27,7 @@ def _make_data(n: int, n_features: int, seed: int):
 
 
 class _NoSkipDeepMLP(nn.Module):
+    """Groups tests covering no skip deep m l p."""
     def __init__(self, n_features: int, width: int = 12, n_blocks: int = 15) -> None:
         super().__init__()
         self.inp = nn.Sequential(nn.Linear(n_features, width), nn.LayerNorm(width), nn.ReLU())
@@ -33,6 +35,7 @@ class _NoSkipDeepMLP(nn.Module):
         self.head = nn.Linear(width, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward."""
         h = self.inp(x)
         for block in self.blocks:
             h = block(h)  # NO skip connection at all -- the naive deep-MLP default.
@@ -41,6 +44,7 @@ class _NoSkipDeepMLP(nn.Module):
 
 
 def test_biz_val_trunk_residual_mlp_beats_no_skip_deep_mlp_at_depth():
+    """Biz val trunk residual mlp beats no skip deep mlp at depth."""
     X, y = _make_data(n=300, n_features=10, seed=1)
     Xtr, Xte, ytr, yte = X[:220], X[220:], y[:220], y[220:]
 
@@ -63,12 +67,13 @@ def test_biz_val_trunk_residual_mlp_beats_no_skip_deep_mlp_at_depth():
     r2_plain = float(r2_score(yte, pred_plain))
 
     assert r2_trunk >= 0.5, f"expected the trunk-residual MLP to learn a strong held-out R2 at 15 blocks deep, got {r2_trunk:.4f}"
-    assert r2_trunk > r2_plain + 0.3, (
-        f"expected the trunk-residual MLP to massively beat a same-depth no-skip MLP (which should collapse), got trunk={r2_trunk:.4f} plain={r2_plain:.4f}"
-    )
+    assert (
+        r2_trunk > r2_plain + 0.3
+    ), f"expected the trunk-residual MLP to massively beat a same-depth no-skip MLP (which should collapse), got trunk={r2_trunk:.4f} plain={r2_plain:.4f}"
 
 
 def test_trunk_residual_mlp_predict_shape():
+    """Trunk residual mlp predict shape."""
     X, y = _make_data(n=100, n_features=5, seed=0)
     model = TrunkResidualMLPRegressor(trunk_dim=8, n_blocks=3, n_epochs=20, random_state=0).fit(X, y)
     preds = model.predict(X)
@@ -93,9 +98,9 @@ def test_biz_val_trunk_residual_mlp_seed_ensemble_beats_single_seed():
     r2_ensemble = float(r2_score(yte, ensemble.predict_ensemble_mean(Xte)))
 
     assert r2_ensemble >= 0.55, f"expected the 16-seed ensemble mean to reach a strong held-out R2, got {r2_ensemble:.4f}"
-    assert r2_ensemble - r2_single >= 0.2, (
-        f"expected the seed ensemble to beat a single noisy seed by a wide margin, got single={r2_single:.4f} ensemble={r2_ensemble:.4f}"
-    )
+    assert (
+        r2_ensemble - r2_single >= 0.2
+    ), f"expected the seed ensemble to beat a single noisy seed by a wide margin, got single={r2_single:.4f} ensemble={r2_ensemble:.4f}"
 
     std = ensemble.predict_std(Xte)
     assert std.shape == (Xte.shape[0],)
@@ -121,7 +126,7 @@ def test_biz_val_trunk_residual_mlp_seed_ensemble_variance_curve_diminishing_ret
     # sigma/sqrt(K) scaling makes the K=1 vs K=16 ratio exactly sqrt(16)=4 in expectation; allow a hair of
     # floating-point slack rather than pin an exact equality.
     assert std_k1 > 3.9 * std_k16, f"expected K=1 std to dwarf K=16 std, got std_k1={std_k1:.4f} std_k16={std_k16:.4f}"
-    assert std_k8 - std_k16 < (std_k1 - std_k8) / 2, (
-        f"expected diminishing returns (K=8->K=16 drop much smaller than K=1->K=8 drop), got std_k1={std_k1:.4f} std_k8={std_k8:.4f} std_k16={std_k16:.4f}"
-    )
+    assert (
+        std_k8 - std_k16 < (std_k1 - std_k8) / 2
+    ), f"expected diminishing returns (K=8->K=16 drop much smaller than K=1->K=8 drop), got std_k1={std_k1:.4f} std_k8={std_k8:.4f} std_k16={std_k16:.4f}"
     assert all(a >= b - 1e-9 for a, b in zip(mean_std, mean_std[1:])), f"expected mean_std to be non-increasing in K, got {mean_std}"

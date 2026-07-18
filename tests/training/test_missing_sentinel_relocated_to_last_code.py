@@ -11,7 +11,6 @@ import pytest
 
 from mlframe.training.pipeline import prepare_dfs_for_catboost_joint
 
-
 SENTINEL = "__MISSING__"
 
 
@@ -72,9 +71,9 @@ def test_missing_sentinel_shuffle_stable_to_last_code(real_values):
     categories = list(train_df["cat"].cat.categories)
     sentinel_idx = _sentinel_code(train_df)
 
-    assert sentinel_idx == len(categories) - 1, (
-        f"For input {real_values!r}: sentinel at code {sentinel_idx}, expected {len(categories) - 1}. categories={categories!r}"
-    )
+    assert (
+        sentinel_idx == len(categories) - 1
+    ), f"For input {real_values!r}: sentinel at code {sentinel_idx}, expected {len(categories) - 1}. categories={categories!r}"
     assert categories[-1] == SENTINEL
     # The set of real categories is identical to the input set, and they are sorted among themselves.
     assert set(categories) - {SENTINEL} == set(real_values)

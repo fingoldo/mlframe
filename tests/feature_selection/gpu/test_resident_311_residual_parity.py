@@ -23,6 +23,7 @@ cp = pytest.importorskip("cupy")
 
 
 def _need_cuda() -> bool:
+    """Need cuda."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -35,6 +36,7 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no C
 
 
 def _strict(monkeypatch):
+    """Helper that strict."""
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT_RESIDENT", "1")
     monkeypatch.setenv("MLFRAME_CMI_GPU", "1")
@@ -44,6 +46,7 @@ def _strict(monkeypatch):
 # SF3: raw_mi_noise_floor (class B) -- byte-identical floor
 # ---------------------------------------------------------------------------
 def test_sf3_noise_floor_resident_byte_identical(monkeypatch):
+    """Sf3 noise floor resident byte identical."""
     _strict(monkeypatch)
     from mlframe.feature_selection.filters._unified_fe_gate import raw_mi_noise_floor
 
@@ -63,6 +66,7 @@ def test_sf3_noise_floor_resident_byte_identical(monkeypatch):
 # SF4a: _rank_and_prune raw relevance (class B) -- identical gate/operand pools
 # ---------------------------------------------------------------------------
 def test_sf4a_rank_and_prune_resident_selection_identical(monkeypatch):
+    """Sf4a rank and prune resident selection identical."""
     _strict(monkeypatch)
     from mlframe.feature_selection.filters._conditional_gate_fe import _rank_and_prune
 
@@ -84,6 +88,7 @@ def test_sf4a_rank_and_prune_resident_selection_identical(monkeypatch):
 # SF1: score_features_by_mi_uplift -- raw baseline (B) + poly engineered (device-born A)
 # ---------------------------------------------------------------------------
 def test_sf1_uplift_poly_engineered_device_born_selection_identical(monkeypatch):
+    """Sf1 uplift poly engineered device born selection identical."""
     _strict(monkeypatch)
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         generate_univariate_basis_features,
@@ -113,6 +118,7 @@ def test_sf1_uplift_poly_engineered_device_born_selection_identical(monkeypatch)
 def test_sf1c_extra_basis_engineered_stays_on_host(monkeypatch):
     # An extra-basis engineered name (spline / Fourier) must NOT parse to a poly leg -> the device-born helper
     # returns None and the caller keeps the engineered matrix on the host (irreducible born-fresh transient).
+    """Sf1c extra basis engineered stays on host."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe._uplift_univariate_resident import (
         _specs_from_engineered_names,
     )
@@ -126,6 +132,7 @@ def test_sf1c_extra_basis_engineered_stays_on_host(monkeypatch):
 # SF2: pairwise-modular device-born (residue grid + combiner baseline + perm null) -- bit-identical
 # ---------------------------------------------------------------------------
 def test_sf2_residue_grid_device_born_byte_identical(monkeypatch):
+    """Sf2 residue grid device born byte identical."""
     _strict(monkeypatch)
     from mlframe.feature_selection.filters._pairwise_modular_fe import _residue_grid_mi, COARSE_MODULI
 

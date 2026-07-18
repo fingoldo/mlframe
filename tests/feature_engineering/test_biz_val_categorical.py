@@ -147,9 +147,9 @@ def test_biz_val_categorical_compute_countaggs_top_n_zero_smoke():
         f"name list length ({len(names)}) must match value list length ({len(out)}); disabled top-N flags can't "
         "silently leak top-N positions into the value tuple"
     )
-    assert not any(("top_value_" in nm) or ("top_count_" in nm) or ("top_n_" in nm) for nm in names), (
-        f"counts_top_n=0 + disabled returns must yield no top-N feature names; got names={names[:20]}"
-    )
+    assert not any(
+        ("top_value_" in nm) or ("top_count_" in nm) or ("top_n_" in nm) for nm in names
+    ), f"counts_top_n=0 + disabled returns must yield no top-N feature names; got names={names[:20]}"
 
 
 def test_biz_val_categorical_get_countaggs_names_no_duplicates():

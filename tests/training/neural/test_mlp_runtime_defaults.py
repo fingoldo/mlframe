@@ -52,7 +52,6 @@ from mlframe.training.mlp_runtime_defaults import (
     resolve_mlp_train_batch_size,
 )
 
-
 # ---------------------------------------------------------------------------
 # DataLoader defaults
 # ---------------------------------------------------------------------------
@@ -62,16 +61,18 @@ class TestDataLoaderDefaultsWindows:
     """Lock the Windows-safe behaviour: never auto-raise workers."""
 
     def test_windows_num_workers_is_zero_by_default(self) -> None:
+        """Windows num workers is zero by default."""
         res = resolve_mlp_dataloader_defaults(
             cpu_count=32,
             cuda_available=True,
             force_windows=True,
         )
-        assert res["num_workers"] == 0, (
-            "Windows must keep num_workers=0 by default; raising auto on Windows hits spawn + CUDA-tensor-sharing bugs the user has previously been bitten by."
-        )
+        assert (
+            res["num_workers"] == 0
+        ), "Windows must keep num_workers=0 by default; raising auto on Windows hits spawn + CUDA-tensor-sharing bugs the user has previously been bitten by."
 
     def test_windows_zero_workers_implies_no_persistent_no_prefetch(self) -> None:
+        """Windows zero workers implies no persistent no prefetch."""
         res = resolve_mlp_dataloader_defaults(
             cpu_count=32,
             cuda_available=True,
@@ -103,6 +104,7 @@ class TestDataLoaderDefaultsWindows:
         assert res["pin_memory"] is True
 
     def test_windows_pin_memory_false_without_cuda(self) -> None:
+        """Windows pin memory false without cuda."""
         res = resolve_mlp_dataloader_defaults(
             cpu_count=8,
             cuda_available=False,
@@ -126,6 +128,7 @@ class TestDataLoaderDefaultsPosix:
         assert res["num_workers"] == 0
 
     def test_posix_zero_workers_implies_no_persistent_no_prefetch(self) -> None:
+        """Posix zero workers implies no persistent no prefetch."""
         res = resolve_mlp_dataloader_defaults(
             cpu_count=32,
             cuda_available=True,
@@ -148,6 +151,7 @@ class TestDataLoaderDefaultsPosix:
         assert res["prefetch_factor"] == 4
 
     def test_posix_user_overrides_persistent_workers(self) -> None:
+        """Posix user overrides persistent workers."""
         res = resolve_mlp_dataloader_defaults(
             user_overrides={"num_workers": 4, "persistent_workers": False},
             cpu_count=8,
@@ -159,6 +163,7 @@ class TestDataLoaderDefaultsPosix:
         assert res["persistent_workers"] is False
 
     def test_posix_user_overrides_prefetch_factor(self) -> None:
+        """Posix user overrides prefetch factor."""
         res = resolve_mlp_dataloader_defaults(
             user_overrides={"num_workers": 4, "prefetch_factor": 16},
             cpu_count=8,
@@ -169,6 +174,7 @@ class TestDataLoaderDefaultsPosix:
 
 
 class TestDataLoaderDefaultsExtra:
+    """Groups tests covering data loader defaults extra."""
     def test_user_extra_kwargs_pass_through(self) -> None:
         """Unrecognised user kwargs (timeout, sampler, etc.) survive unchanged."""
         res = resolve_mlp_dataloader_defaults(
@@ -187,7 +193,9 @@ class TestDataLoaderDefaultsExtra:
 
 
 class TestPrecisionDefault:
+    """Groups tests covering precision default."""
     def test_user_override_wins(self) -> None:
+        """User override wins."""
         assert (
             resolve_mlp_precision_default(
                 user_override="16-mixed",
@@ -198,6 +206,7 @@ class TestPrecisionDefault:
         )
 
     def test_cpu_only_returns_32_true(self) -> None:
+        """Cpu only returns 32 true."""
         assert (
             resolve_mlp_precision_default(
                 cuda_available=False,
@@ -206,6 +215,7 @@ class TestPrecisionDefault:
         )
 
     def test_ampere_returns_bf16_mixed(self) -> None:
+        """Ampere returns bf16 mixed."""
         assert (
             resolve_mlp_precision_default(
                 cuda_available=True,
@@ -216,6 +226,7 @@ class TestPrecisionDefault:
 
     def test_ada_lovelace_returns_bf16_mixed(self) -> None:
         # RTX 40-series -- sm_89, major=8.
+        """Ada lovelace returns bf16 mixed."""
         assert (
             resolve_mlp_precision_default(
                 cuda_available=True,
@@ -226,6 +237,7 @@ class TestPrecisionDefault:
 
     def test_hopper_returns_bf16_mixed(self) -> None:
         # H100 -- sm_90, major=9.
+        """Hopper returns bf16 mixed."""
         assert (
             resolve_mlp_precision_default(
                 cuda_available=True,
@@ -236,6 +248,7 @@ class TestPrecisionDefault:
 
     def test_volta_t4_stays_32_true(self) -> None:
         # V100=sm_70 (major=7), T4=sm_75 (major=7) -- bf16 is emulated, slower.
+        """Volta t4 stays 32 true."""
         assert (
             resolve_mlp_precision_default(
                 cuda_available=True,
@@ -246,6 +259,7 @@ class TestPrecisionDefault:
 
     def test_pascal_stays_32_true(self) -> None:
         # P100=sm_60 (major=6).
+        """Pascal stays 32 true."""
         assert (
             resolve_mlp_precision_default(
                 cuda_available=True,
@@ -261,7 +275,9 @@ class TestPrecisionDefault:
 
 
 class TestPredictBatchSize:
+    """Groups tests covering predict batch size."""
     def test_user_override_wins(self) -> None:
+        """User override wins."""
         assert (
             resolve_mlp_predict_batch_size(
                 user_override=512,
@@ -272,10 +288,12 @@ class TestPredictBatchSize:
         )
 
     def test_user_override_clamped_to_min_one(self) -> None:
+        """User override clamped to min one."""
         assert resolve_mlp_predict_batch_size(user_override=0) == 1
         assert resolve_mlp_predict_batch_size(user_override=-5) == 1
 
     def test_no_width_hint_returns_fallback(self) -> None:
+        """No width hint returns fallback."""
         assert (
             resolve_mlp_predict_batch_size(
                 n_features=None,
@@ -285,13 +303,14 @@ class TestPredictBatchSize:
         )
 
     def test_no_memory_probe_returns_fallback(self) -> None:
+        """No memory probe returns fallback."""
         assert resolve_mlp_predict_batch_size(
             n_features=25,
             available_memory_bytes=None,
             cuda_available=False,
         ) in (_PREDICT_BATCH_FALLBACK, _PREDICT_BATCH_MAX)
         # The first form (constant) fires when psutil + torch are both
-        # unprobable. On a typical dev box psutil is installed -> memory IS
+        # unavailable to probe. On a typical dev box psutil is installed -> memory IS
         # probed and the resolver picks the adaptive size; that path is
         # locked by the explicit-memory tests below.
 
@@ -345,6 +364,7 @@ class TestPredictBatchSize:
         assert big >= small
 
     def test_zero_memory_returns_min_batch(self) -> None:
+        """Zero memory returns min batch."""
         res = resolve_mlp_predict_batch_size(
             n_features=10,
             available_memory_bytes=0,
@@ -353,6 +373,7 @@ class TestPredictBatchSize:
         assert res == _PREDICT_BATCH_FALLBACK
 
     def test_negative_features_returns_fallback(self) -> None:
+        """Negative features returns fallback."""
         assert (
             resolve_mlp_predict_batch_size(
                 n_features=-1,
@@ -368,7 +389,9 @@ class TestPredictBatchSize:
 
 
 class TestTrainBatchSize:
+    """Groups tests covering train batch size."""
     def test_no_width_hint_returns_fallback(self) -> None:
+        """No width hint returns fallback."""
         assert (
             resolve_mlp_train_batch_size(
                 n_features=None,
@@ -378,6 +401,7 @@ class TestTrainBatchSize:
         )
 
     def test_narrow_dataframe_keeps_historical_ceiling(self) -> None:
+        """Narrow dataframe keeps historical ceiling."""
         res = resolve_mlp_train_batch_size(
             n_features=25,
             available_memory_bytes=8_000_000_000,
@@ -385,6 +409,7 @@ class TestTrainBatchSize:
         assert res == _TRAIN_BATCH_MAX
 
     def test_extremely_wide_features_picks_min_batch(self) -> None:
+        """Extremely wide features picks min batch."""
         res = resolve_mlp_train_batch_size(
             n_features=500_000,
             available_memory_bytes=100_000_000,
@@ -392,6 +417,7 @@ class TestTrainBatchSize:
         assert res == _TRAIN_BATCH_MIN
 
     def test_datamodule_auto_batch_logs_selected_value(self, caplog, monkeypatch) -> None:
+        """Datamodule auto batch logs selected value."""
         import logging
         import numpy as np
 

@@ -20,6 +20,7 @@ def _make_tiny_data(n_train=400, n_val=200, n_test=200, d=5, seed=42):
     rng = np.random.default_rng(seed)
 
     def gen(n):
+        """Gen."""
         X = rng.uniform(0, 1, (n, d))
         sigma = 0.05 + 1.5 * np.mean((X - 0.5) ** 2, axis=1)
         y_true = np.sum(np.sin(2 * np.pi * X), axis=1)
@@ -30,6 +31,7 @@ def _make_tiny_data(n_train=400, n_val=200, n_test=200, d=5, seed=42):
 
 
 def test_lgb_with_slice_callback_records_shard_history() -> None:
+    """Lgb with slice callback records shard history."""
     pytest.importorskip("lightgbm")
     import lightgbm as lgb
     from mlframe.training.callbacks._callbacks import LightGBMCallback

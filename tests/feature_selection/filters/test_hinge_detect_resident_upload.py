@@ -30,12 +30,14 @@ _KW = dict(
 
 @pytest.fixture(autouse=True)
 def _clear_cache():
+    """Clear cache."""
     clear_fe_resident_operands()
     yield
     clear_fe_resident_operands()
 
 
 def _hinge_data(n, seed=0):
+    """Hinge data."""
     rng = np.random.default_rng(seed)
     x = rng.uniform(-3, 3, n)
     y = np.where(x > 0.5, 2.0 * (x - 0.5), 0.0) + rng.normal(0, 0.05, n)
@@ -53,6 +55,7 @@ def test_y_dedups_upload_across_candidate_columns(monkeypatch):
     orig_asarray = cp.asarray
 
     def _counting_asarray(arr, *a, **kw):
+        """Counting asarray."""
         if isinstance(arr, np.ndarray) and arr.shape == y.shape and arr.dtype == np.float64 and np.array_equal(arr, y):
             upload_calls["n"] += 1
         return orig_asarray(arr, *a, **kw)

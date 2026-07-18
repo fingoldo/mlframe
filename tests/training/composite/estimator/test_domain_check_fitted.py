@@ -44,7 +44,6 @@ from mlframe.training.composite.transforms import TRANSFORMS_REGISTRY
 from mlframe.training.composite.discovery._screening_tiny import _tiny_cv_rmse_y_scale
 from mlframe.training.composite.estimator import CompositeTargetEstimator
 
-
 # --------------------------------------------------------------------------
 # 1. Contract: the hook exists and is wired exactly where params-dependent.
 # --------------------------------------------------------------------------
@@ -58,9 +57,9 @@ def test_params_dependent_transform_has_fitted_domain_hook(name):
     """log_y / centered_ratio expose a non-None ``domain_check_fitted`` so the
     fitted-params domain can be enforced (pre-fix: attribute absent / None)."""
     t = TRANSFORMS_REGISTRY[name]
-    assert getattr(t, "domain_check_fitted", None) is not None, (
-        f"{name!r} validity depends on a fitted param and MUST declare domain_check_fitted so callers can enforce its true domain"
-    )
+    assert (
+        getattr(t, "domain_check_fitted", None) is not None
+    ), f"{name!r} validity depends on a fitted param and MUST declare domain_check_fitted so callers can enforce its true domain"
 
 
 @pytest.mark.parametrize("name", PARAMS_FREE_SAMPLE)
@@ -69,9 +68,9 @@ def test_params_free_transforms_leave_hook_unset(name):
     otherwise callers pay an extra fit / mask pass for nothing and the path
     is no longer bit-identical for them."""
     t = TRANSFORMS_REGISTRY[name]
-    assert getattr(t, "domain_check_fitted", "MISSING") is None, (
-        f"{name!r} has no params-dependent domain; domain_check_fitted must stay None to keep its path bit-identical"
-    )
+    assert (
+        getattr(t, "domain_check_fitted", "MISSING") is None
+    ), f"{name!r} has no params-dependent domain; domain_check_fitted must stay None to keep its path bit-identical"
 
 
 # --------------------------------------------------------------------------
@@ -202,9 +201,9 @@ def test_biz_centered_ratio_predict_eps_band_routes_to_fallback():
     assert np.all(np.isfinite(yp)), "fallback must keep all predictions finite"
     # The in-domain rows track the linear fit (~2*base); the band row is the
     # fallback (train median), well separated from a true ratio prediction.
-    assert yp[1] == pytest.approx(y_train_median, rel=1e-6), (
-        f"eps-band predict row should equal y_train_median fallback ({y_train_median:.4f}); got {yp[1]:.4f} (distorted clamped divisor)"
-    )
+    assert yp[1] == pytest.approx(
+        y_train_median, rel=1e-6
+    ), f"eps-band predict row should equal y_train_median fallback ({y_train_median:.4f}); got {yp[1]:.4f} (distorted clamped divisor)"
     # Sanity: the in-domain rows are model-driven (vary with base), NOT all
     # collapsed to the fallback. With different base values their predictions
     # must differ from each other and at least one must be away from the median.
@@ -224,6 +223,6 @@ def test_biz_centered_ratio_predict_eps_band_routes_to_fallback():
             est.fitted_params_,
         )[0]
     )
-    assert yp[1] != pytest.approx(ungated, rel=1e-3) or ungated == pytest.approx(y_train_median, rel=1e-6), (
-        "fitted-domain gate did not change the band-row prediction vs the pre-fix clamped-divisor inverse"
-    )
+    assert yp[1] != pytest.approx(ungated, rel=1e-3) or ungated == pytest.approx(
+        y_train_median, rel=1e-6
+    ), "fitted-domain gate did not change the band-row prediction vs the pre-fix clamped-divisor inverse"

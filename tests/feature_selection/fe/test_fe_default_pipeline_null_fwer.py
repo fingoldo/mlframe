@@ -49,7 +49,6 @@ import pytest
 
 from tests.feature_selection.conftest import is_fast_mode
 
-
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
@@ -84,10 +83,12 @@ def _fit_default(X, y, seed: int):
 
 
 def _n_selected(sel) -> int:
+    """N selected."""
     return len(list(sel.get_feature_names_out()))
 
 
 def _n_engineered(sel) -> int:
+    """N engineered."""
     return len(getattr(sel, "_engineered_recipes_", []) or [])
 
 
@@ -178,6 +179,7 @@ _NOISE_SELECT_FRACTION_CEIL = 0.5
 
 
 def _null_fwer_seeds_slow():
+    """Null fwer seeds slow."""
     return [0, 1, 2, 3, 4, 5, 6, 7]
 
 
@@ -262,6 +264,7 @@ def test_default_pipeline_null_manufactures_no_engineered_recipe_from_noise():
 
 
 def _split(df, y, n_tr_frac: float = 0.7):
+    """Helper that split."""
     n_tr = int(len(df) * n_tr_frac)
     return (df.iloc[:n_tr], y.iloc[:n_tr], df.iloc[n_tr:], y.iloc[n_tr:])
 
@@ -307,9 +310,9 @@ def test_all_fe_on_prod_default_redundancy_holds_auc(seed):
     auc_default = _holdout_auc(sel_default, X_tr, y_tr, X_ho, y_ho)
     auc_isolated = _holdout_auc(sel_isolated, X_tr, y_tr, X_ho, y_ho)
 
-    assert auc_default >= _ALL_FE_PRODDEFAULT_AUC_FLOOR, (
-        f"all-FE-on prod-default downstream AUC {auc_default:.4f} below floor {_ALL_FE_PRODDEFAULT_AUC_FLOOR} at seed={seed}"
-    )
+    assert (
+        auc_default >= _ALL_FE_PRODDEFAULT_AUC_FLOOR
+    ), f"all-FE-on prod-default downstream AUC {auc_default:.4f} below floor {_ALL_FE_PRODDEFAULT_AUC_FLOOR} at seed={seed}"
     assert auc_default >= auc_isolated - _ALL_FE_VS_ISOLATED_BAND, (
         f"prod-default redundancy (dcd/cluster ON) DEGRADED the all-FE selection vs "
         f"the isolated config at seed={seed}: AUC_default={auc_default:.4f} < "
@@ -344,6 +347,6 @@ def test_all_fe_on_prod_default_redundancy_holds_auc_fast():
     auc_isolated = _holdout_auc(sel_isolated, X_tr, y_tr, X_ho, y_ho)
     # Smaller-n floor is looser; the within-band contract is the real sensor.
     assert auc_default >= 0.70, f"all-FE-on prod-default downstream AUC {auc_default:.4f} unexpectedly low (fast)"
-    assert auc_default >= auc_isolated - _ALL_FE_VS_ISOLATED_BAND, (
-        f"prod-default redundancy degraded the all-FE selection vs isolated (fast): AUC_default={auc_default:.4f} AUC_isolated={auc_isolated:.4f}"
-    )
+    assert (
+        auc_default >= auc_isolated - _ALL_FE_VS_ISOLATED_BAND
+    ), f"prod-default redundancy degraded the all-FE selection vs isolated (fast): AUC_default={auc_default:.4f} AUC_isolated={auc_isolated:.4f}"

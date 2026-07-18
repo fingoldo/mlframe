@@ -15,7 +15,6 @@ import pandas as pd
 import polars as pl
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # H-HUS-03: rng.choice raises when n_test_shuf > len(remaining)
 # ---------------------------------------------------------------------------
@@ -172,6 +171,7 @@ def test_hhus06_all_nan_pandas_column_flagged_constant():
 
 
 def test_hhus07_subset_dataframe_validates_bool_mask_length():
+    """Hhus07 subset dataframe validates bool mask length."""
     from mlframe.training._data_helpers import _subset_dataframe
 
     df = pd.DataFrame({"x": range(10)})
@@ -301,6 +301,7 @@ def test_hhus12_lgb_shim_handles_bare_list_pair_eval_set():
 
 
 def test_hhus13_xgb_shim_rejects_2d_y_in_finalize():
+    """Hhus13 xgb shim rejects 2d y in finalize."""
     pytest.importorskip("xgboost")
     from mlframe.training import xgb_shim
 
@@ -362,6 +363,7 @@ def test_hhus15_showcase_seeded_subsample_reproducible(monkeypatch):
     real_default_rng = np.random.default_rng
 
     def _capture_rng(seed):
+        """Capture rng."""
         captured_seeds.append(int(seed))
         return real_default_rng(seed)
 
@@ -533,10 +535,12 @@ def test_hhus20_quantile_wrapper_uses_parallel_as_context_manager(monkeypatch):
     orig_exit = joblib.Parallel.__exit__
 
     def _track_enter(self):
+        """Track enter."""
         enters.append(id(self))
         return orig_enter(self)
 
     def _track_exit(self, exc_type, exc, tb):
+        """Track exit."""
         exits.append(id(self))
         return orig_exit(self, exc_type, exc, tb)
 
@@ -564,6 +568,6 @@ def test_hhus20_quantile_wrapper_uses_parallel_as_context_manager(monkeypatch):
         # below only cares about Parallel context-manager hygiene.
         pass
     # Every enter must have a matching exit.
-    assert len(enters) == len(exits), (
-        f"Parallel enter/exit not balanced (enters={len(enters)}, exits={len(exits)}); wrapper is not using `with Parallel(...)` form."
-    )
+    assert len(enters) == len(
+        exits
+    ), f"Parallel enter/exit not balanced (enters={len(enters)}, exits={len(exits)}); wrapper is not using `with Parallel(...)` form."

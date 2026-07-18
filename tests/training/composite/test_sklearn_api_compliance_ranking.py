@@ -20,6 +20,7 @@ from mlframe.training.composite.ranking import CompositeRankEstimator
 
 
 def _toy(n_groups: int = 6, per: int = 8, seed: int = 0):
+    """Toy."""
     rng = np.random.default_rng(seed)
     rows = []
     groups = []
@@ -36,12 +37,14 @@ def _toy(n_groups: int = 6, per: int = 8, seed: int = 0):
 
 
 def test_sk3_clone_round_trips():
+    """Sk3 clone round trips."""
     est = CompositeRankEstimator(base_column=0)
     cloned = clone(est)
     assert cloned.get_params() == est.get_params()
 
 
 def test_sk3_predict_before_fit_raises_not_fitted():
+    """Sk3 predict before fit raises not fitted."""
     est = CompositeRankEstimator(base_column=0)
     X, _, _ = _toy()
     with pytest.raises(NotFittedError):
@@ -50,6 +53,7 @@ def test_sk3_predict_before_fit_raises_not_fitted():
 
 def test_sk3_fit_without_group_raises_clear_error():
     # group is now a keyword default None so clone().fit(X, y) is callable; it must raise a clear error rather than a TypeError on missing-positional.
+    """Sk3 fit without group raises clear error."""
     est = CompositeRankEstimator(base_column=0)
     X, y, _ = _toy()
     with pytest.raises(ValueError, match="group"):
@@ -62,6 +66,7 @@ def test_sk3_fit_without_group_raises_clear_error():
     ids=["default_inner", "pairwise_logistic"],
 )
 def test_sk3_learned_attrs_have_trailing_underscore(inner):
+    """Sk3 learned attrs have trailing underscore."""
     est = CompositeRankEstimator(base_column=0, base_estimator=inner)
     X, y, group = _toy()
     est.fit(X, y, group=group)

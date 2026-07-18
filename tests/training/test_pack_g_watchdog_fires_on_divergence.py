@@ -42,15 +42,18 @@ class _InnerWithKnownScale(BaseEstimator, RegressorMixin):
         self.t_scale_factor = t_scale_factor
 
     def fit(self, X, y):
+        """Fit."""
         return self
 
     def predict(self, X):
+        """Predict."""
         if isinstance(X, pd.DataFrame):
             return X["base"].values * self.t_scale_factor
         return np.asarray(X).reshape(-1) * self.t_scale_factor
 
 
 def _build_problem():
+    """Build problem."""
     rng = np.random.default_rng(2026)
     n = 300
     base = rng.normal(100.0, 20.0, n)
@@ -108,6 +111,7 @@ def _setup_wrapper_models(*, broken_inner_factor: float | None = None):
         def _predict_override(X_in):
             # If the input index matches the original rows, return oracle.
             # Otherwise fall back to the normal path.
+            """Predict override."""
             return _y_oracle[: len(X_in)]
 
         # Monkey-patch: this simulates the production wrapper state where
@@ -115,6 +119,7 @@ def _setup_wrapper_models(*, broken_inner_factor: float | None = None):
         wrapper.predict = _predict_override
 
     class _Entry:
+        """Groups tests covering entry."""
         def __init__(self, m):
             self.model = m
             self.model_name = "InnerWithKnownScale"
@@ -155,6 +160,7 @@ class TestUniversalWatchdogFiresOnDivergence:
     the universal Pack G watchdog must emit a WARNING."""
 
     def test_watchdog_warns_when_predict_path_corrupted(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Watchdog warns when predict path corrupted."""
         from mlframe.training.core._phase_composite_post import (
             _run_composite_target_wrapping,
         )
@@ -198,6 +204,7 @@ class TestUniversalWatchdogQuietOnHappyPath:
     universal watchdog must NOT fire (no false positives)."""
 
     def test_watchdog_quiet_on_consistent_wrapper(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Watchdog quiet on consistent wrapper."""
         from mlframe.training.core._phase_composite_post import (
             _run_composite_target_wrapping,
         )

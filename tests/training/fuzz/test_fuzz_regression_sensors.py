@@ -36,6 +36,7 @@ from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 @pytest.fixture(autouse=True)
 def _sensor_cleanup():
+    """Sensor cleanup."""
     yield
     try:
         import matplotlib.pyplot as plt
@@ -57,12 +58,14 @@ def _sensor_cleanup():
 
 
 def _skip_if_deps_missing(*models):
+    """Skip if deps missing."""
     pkg = {"cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm", "hgb": "sklearn", "linear": "sklearn"}
     for m in models:
         pytest.importorskip(pkg[m])
 
 
 def _run_sensor_combo(combo: FuzzCombo, tmp_path):
+    """Run sensor combo."""
     from mlframe.training.core import train_mlframe_models_suite
 
     df, target_col, _ = build_frame_for_combo(combo)
@@ -283,6 +286,7 @@ def test_sensor_mrmr_native_polars_no_full_to_pandas():
     orig = pl.DataFrame.to_pandas
 
     def _spy(self, *args, **kwargs):
+        """Spy."""
         call_count["n"] += 1
         return orig(self, *args, **kwargs)
 
@@ -444,9 +448,9 @@ def test_sensor_categorize_dataset_recognizes_polars_cat_dtypes():
             f"reinstated instead of explicit `==` checks)."
         )
     # The integer codes must fit in the quantization dtype, not NaN/str.
-    assert np.issubdtype(data.dtype, np.integer), (
-        f"categorize_dataset returned data with dtype {data.dtype}; expected integer codes. Regression likely in the polars-cat encoding path."
-    )
+    assert np.issubdtype(
+        data.dtype, np.integer
+    ), f"categorize_dataset returned data with dtype {data.dtype}; expected integer codes. Regression likely in the polars-cat encoding path."
 
 
 # ---------------------------------------------------------------------------
@@ -879,9 +883,9 @@ def test_sensor_fuzz_mrmr_fillna_zero_x_all_null_col_does_not_corrupt_mi():
     support = np.asarray(getattr(sel, "support_", []), dtype=np.int64).ravel()
     assert support.size >= 1, "MRMR with all-null injected column must still select at least one feature when an informative column exists"
     informative_idx = list(sel.feature_names_in_).index("x_informative")
-    assert informative_idx in support.tolist(), (
-        f"fillna_zero x all-null column corrupted MI: informative feature was dropped; support indices={support.tolist()}"
-    )
+    assert (
+        informative_idx in support.tolist()
+    ), f"fillna_zero x all-null column corrupted MI: informative feature was dropped; support indices={support.tolist()}"
 
 
 def test_sensor_fuzz_recurrent_model_x_recency_only_weights(tmp_path):
@@ -919,9 +923,9 @@ def test_sensor_fuzz_recurrent_model_x_recency_only_weights(tmp_path):
     except Exception as exc:
         msg = str(exc).lower()
         # Acceptable: explicit failure with informative message. Forbidden: silent / generic NaN / type errors.
-        assert any(token in msg for token in ("weight", "recurrent", "lstm", "recency", "config", "sequence")), (
-            f"recurrent x recency-only must raise a CLEAR diagnostic, got obscure: {exc!r}"
-        )
+        assert any(
+            token in msg for token in ("weight", "recurrent", "lstm", "recency", "config", "sequence")
+        ), f"recurrent x recency-only must raise a CLEAR diagnostic, got obscure: {exc!r}"
 
 
 def test_pca2_custom_prep_canonicalises_off_when_inject_all_nan_col():

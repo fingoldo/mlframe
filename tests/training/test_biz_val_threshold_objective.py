@@ -58,9 +58,9 @@ def test_biz_val_threshold_balanced_accuracy_beats_f1_majority():
             wins += ba >= f1 - 1e-9
             total += 1
     assert wins >= 20, f"balanced_accuracy won only {wins}/{total} cells; expected >=20"
-    assert bacc_ba_sum / total >= bacc_f1_sum / total + 0.02, (
-        f"mean test balanced-acc: ba={bacc_ba_sum / total:.4f} f1={bacc_f1_sum / total:.4f}; expected >=0.02 lift"
-    )
+    assert (
+        bacc_ba_sum / total >= bacc_f1_sum / total + 0.02
+    ), f"mean test balanced-acc: ba={bacc_ba_sum / total:.4f} f1={bacc_f1_sum / total:.4f}; expected >=0.02 lift"
 
 
 def test_biz_val_threshold_default_metric_is_balanced_accuracy():

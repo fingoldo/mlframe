@@ -26,7 +26,6 @@ from mlframe.feature_selection.mi import (
     grok_mutual_information_old,
 )
 
-
 # ---------------------------------------------------------------------------
 # Synthetic fixtures
 # ---------------------------------------------------------------------------
@@ -44,11 +43,13 @@ def _make_binned_dataset(n: int, k: int, n_bins: int, seed: int) -> np.ndarray:
 
 @pytest.fixture
 def binned_data():
+    """Binned data."""
     return _make_binned_dataset(n=500, k=10, n_bins=15, seed=42)
 
 
 @pytest.fixture
 def target_indices():
+    """Target indices."""
     return np.array([0, 3], dtype=np.int64)
 
 
@@ -66,6 +67,7 @@ def target_indices():
     ],
 )
 def test_each_estimator_returns_expected_shape(fn, binned_data, target_indices):
+    """Each estimator returns expected shape."""
     out = fn(binned_data, target_indices, n_bins=15)
     assert out.shape == (len(target_indices), binned_data.shape[1]), (
         f"{fn.__name__}: shape mismatch — got {out.shape}, expected {(len(target_indices), binned_data.shape[1])}"

@@ -36,6 +36,7 @@ def _phi_fixture():
 
 
 def test_injected_pair_gets_real_loss_and_cannot_win_on_fabricated_loss():
+    """Injected pair gets real loss and cannot win on fabricated loss."""
     phi, base, y = _phi_fixture()
 
     # Pre-existing winner: the informative coalition (0,1) with a genuinely low loss.
@@ -59,6 +60,7 @@ def test_injected_pair_gets_real_loss_and_cannot_win_on_fabricated_loss():
 
 
 def test_inject_keeps_real_loss_when_pair_already_present():
+    """Inject keeps real loss when pair already present."""
     phi, base, y = _phi_fixture()
     # The pair already carries a REAL (good) loss from upstream; injection must not overwrite it.
     merged = {(3, 4): 0.05, (0, 1): 0.1}
@@ -67,12 +69,14 @@ def test_inject_keeps_real_loss_when_pair_already_present():
 
 
 def test_min_selected_ratio_no_zero_division_on_empty_proxy():
+    """Min selected ratio no zero division on empty proxy."""
     candidates = [(0.1, (0, 1)), (0.2, (0,))]
     out = _apply_min_selected_ratio(candidates, n_proxy_cols=0, min_selected_ratio=0.5)
     assert out == candidates  # no width to ratio against -> pass through unfiltered, no raise
 
 
 def test_min_selected_ratio_filters_when_width_known():
+    """Min selected ratio filters when width known."""
     candidates = [(0.1, (0,)), (0.2, (0, 1, 2, 3))]
     out = _apply_min_selected_ratio(candidates, n_proxy_cols=4, min_selected_ratio=0.5)
     assert out == [(0.2, (0, 1, 2, 3))]  # 1/4 < 0.5 dropped, 4/4 kept

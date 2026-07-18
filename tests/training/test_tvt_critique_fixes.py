@@ -66,6 +66,7 @@ def test_C_build_feature_matrix_shape_and_dtype():
 # the binned tensors and the RSS-drop sanity check warns at 0.0 MB freed).
 # ---------------------------------------------------------------------------
 def test_D_release_clears_dataset_reuse_cache():
+    """_release_ctx_polars_frames must clear dataset_reuse_cache too, or pinned DMatrix/Dataset/Pool wrappers block RSS reclaim."""
     from mlframe.training.core import _phase_train_one_target_dataset_cache as mod
 
     ctx = types.SimpleNamespace(
@@ -93,9 +94,9 @@ def test_D_release_clears_dataset_reuse_cache():
             verbose=False,
             reason="test",
         )
-    assert ctx.artifacts["dataset_reuse_cache"] == {}, (
-        "dataset_reuse_cache must be emptied; otherwise XGB/LGB/CB wrappers pin the polars buffers and the polars-release is a no-op."
-    )
+    assert (
+        ctx.artifacts["dataset_reuse_cache"] == {}
+    ), "dataset_reuse_cache must be emptied; otherwise XGB/LGB/CB wrappers pin the polars buffers and the polars-release is a no-op."
 
 
 # ---------------------------------------------------------------------------
@@ -279,9 +280,9 @@ def test_I_mape_warmup_does_not_emit_zero_y_warning(caplog):
                 # If warmup signature differs, importing the module already executed it.
                 pass
     zero_warns = [r for r in caplog.records if "y_true entries are zero" in r.getMessage()]
-    assert not zero_warns, (
-        f"MAPE zero-y warning fired during numba warmup; warmup y_true must be a non-zero vector. Captured: {[r.getMessage() for r in zero_warns]}"
-    )
+    assert (
+        not zero_warns
+    ), f"MAPE zero-y warning fired during numba warmup; warmup y_true must be a non-zero vector. Captured: {[r.getMessage() for r in zero_warns]}"
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +321,7 @@ def test_shap_xgb_base_score_patch_handles_bracketed_array_string():
 
 
 def test_J_coerce_to_numpy_does_not_emit_zero_copy_deprecation_warning():
+    """coerce_to_numpy on a polars Series must not trigger polars' zero-copy-conversion DeprecationWarning."""
     pl = pytest.importorskip("polars")
     from mlframe.training.utils import coerce_to_numpy
 

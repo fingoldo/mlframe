@@ -11,7 +11,6 @@ from mlframe.feature_selection.filters.bases import EXTRA_BASES
 from mlframe.feature_selection.filters.discretization import discretize_array
 from mlframe.feature_selection.filters.info_theory import compute_mi_from_classes
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -43,7 +42,9 @@ def _eval(basis: dict, z: np.ndarray, c: np.ndarray, params: dict) -> np.ndarray
 
 
 class TestFourier:
+    """Groups tests covering TestFourier."""
     def test_roundtrip(self):
+        """Helper that roundtrip."""
         b = EXTRA_BASES["fourier"]
         x = np.linspace(-3, 7, 100)
         z, params = b["fit"](x)
@@ -53,11 +54,13 @@ class TestFourier:
         np.testing.assert_allclose(z, z2)
 
     def test_coef_size(self):
+        """Coef size."""
         b = EXTRA_BASES["fourier"]
         for d in range(1, 6):
             assert b["coef_size_func"](d) == 2 * d
 
     def test_canonical_seeds(self):
+        """Canonical seeds."""
         b = EXTRA_BASES["fourier"]
         seeds = b["canonical_seeds_func"](3)
         for s in seeds:
@@ -65,6 +68,7 @@ class TestFourier:
         assert len(seeds) >= 2
 
     def test_empty_coefs_returns_zeros(self):
+        """Empty coefs returns zeros."""
         b = EXTRA_BASES["fourier"]
         z = np.linspace(0, 1, 50)
         out = b["eval_njit"](z, np.array([], dtype=np.float64))
@@ -72,6 +76,7 @@ class TestFourier:
 
     def test_pure_sin_seed_matches_numpy(self):
         # First seed in canonical_seeds is pure sin(2*pi*k=1*z) per the source.
+        """Pure sin seed matches numpy."""
         b = EXTRA_BASES["fourier"]
         seeds = b["canonical_seeds_func"](2)
         z = np.linspace(0, 1, 200)
@@ -82,6 +87,7 @@ class TestFourier:
         # y = sign(sin(2*pi*5*x)); Fourier feature at the matching frequency must beat raw x.
         # Calibrated: observed mi_fourier=0.666, mi_raw=0.538 (binning preserves rank for periodic targets too).
         # Assert >= 1.10x for CI margin; absolute floor mi_fourier > 0.4.
+        """Biz fourier recovers periodic signal."""
         pytest.importorskip("numba")
         rng = np.random.default_rng(0)
         n = 2000
@@ -101,6 +107,7 @@ class TestFourier:
     @pytest.mark.fast
     def test_biz_fourier_recovers_periodic_signal_fast(self):
         # Smaller fixture marked fast. Calibrated: observed mi_fourier=0.649, mi_raw=0.403 (ratio 1.61x); assert >= 1.20x.
+        """Biz fourier recovers periodic signal fast."""
         rng = np.random.default_rng(1)
         n = 500
         x = rng.uniform(0, 1, n)
@@ -121,7 +128,9 @@ class TestFourier:
 
 
 class TestRBF:
+    """Groups tests covering TestRBF."""
     def test_roundtrip(self):
+        """Helper that roundtrip."""
         b = EXTRA_BASES["rbf"]
         x = np.random.default_rng(0).normal(size=200)
         z, params = b["fit"](x)
@@ -129,6 +138,7 @@ class TestRBF:
         assert params["bandwidth"] > 0.0
 
     def test_centres_at_quantiles(self):
+        """Centres at quantiles."""
         b = EXTRA_BASES["rbf"]
         rng = np.random.default_rng(0)
         x = rng.normal(size=1000)
@@ -137,6 +147,7 @@ class TestRBF:
         np.testing.assert_allclose(params["centres"], expected)
 
     def test_coef_size_saturates_at_9(self):
+        """Coef size saturates at 9."""
         b = EXTRA_BASES["rbf"]
         # coef_size_func returns min(degree+1, 9) per the source
         assert b["coef_size_func"](1) == 2
@@ -144,6 +155,7 @@ class TestRBF:
         assert b["coef_size_func"](100) == 9
 
     def test_empty_coefs_zero(self):
+        """Empty coefs zero."""
         b = EXTRA_BASES["rbf"]
         x = np.linspace(-2, 2, 50)
         _, params = b["fit"](x)
@@ -152,6 +164,7 @@ class TestRBF:
 
     def test_single_active_centre_is_local_gaussian(self):
         # If only one weight is non-zero, eval should be a Gaussian bump around the matching centre.
+        """Single active centre is local gaussian."""
         b = EXTRA_BASES["rbf"]
         rng = np.random.default_rng(0)
         x = rng.normal(size=500)
@@ -170,6 +183,7 @@ class TestRBF:
         # y depends on |x| (anti-mode at 0); RBF centred at the median captures it where raw x can't (sign-symmetric target).
         # Calibrated: y = (|x| < 0.3) hardly fires for the bimodal-mixture fixture, leading to near-uniform raw MI. Switch to a
         # narrow-band target with enough positive samples so plug-in MI is meaningful. Observed mi_rbf=0.649 vs mi_raw=0.403 (1.61x).
+        """Biz rbf recovers local bumps."""
         rng = np.random.default_rng(0)
         n = 1000
         x = np.concatenate([rng.normal(-1, 0.2, n // 2), rng.normal(1, 0.2, n // 2)])
@@ -190,7 +204,9 @@ class TestRBF:
 
 
 class TestSigmoid:
+    """Groups tests covering TestSigmoid."""
     def test_roundtrip(self):
+        """Helper that roundtrip."""
         b = EXTRA_BASES["sigmoid"]
         x = np.random.default_rng(0).normal(size=200)
         z, params = b["fit"](x)
@@ -198,6 +214,7 @@ class TestSigmoid:
         assert params["slope"] > 0
 
     def test_thresholds_at_quantiles(self):
+        """Thresholds at quantiles."""
         b = EXTRA_BASES["sigmoid"]
         rng = np.random.default_rng(0)
         x = rng.normal(size=1000)
@@ -206,6 +223,7 @@ class TestSigmoid:
         np.testing.assert_allclose(params["thresholds"], expected)
 
     def test_monotone_non_decreasing_with_positive_weights(self):
+        """Monotone non decreasing with positive weights."""
         b = EXTRA_BASES["sigmoid"]
         rng = np.random.default_rng(0)
         x = np.sort(rng.normal(size=200))
@@ -220,6 +238,7 @@ class TestSigmoid:
         # y = step at x > median; sigmoid with centred threshold beats raw x.
         # Plug-in MI on raw x for a perfect step at the median already separates the quantile bins perfectly,
         # so the win is modest -- assert sigmoid >= 0.85x raw (i.e. parity or better).
+        """Biz sigmoid recovers threshold."""
         rng = np.random.default_rng(0)
         n = 1000
         x = rng.normal(size=n)
@@ -241,7 +260,9 @@ class TestSigmoid:
 
 
 class TestPade:
+    """Groups tests covering TestPade."""
     def test_roundtrip(self):
+        """Helper that roundtrip."""
         b = EXTRA_BASES["pade"]
         x = np.random.default_rng(0).normal(size=200)
         z, _params = b["fit"](x)
@@ -251,11 +272,13 @@ class TestPade:
         assert abs(np.std(z) - 1.0) < 0.1
 
     def test_coef_size(self):
+        """Coef size."""
         b = EXTRA_BASES["pade"]
         for d in range(1, 5):
             assert b["coef_size_func"](d) == 2 * d + 1
 
     def test_empty_too_short_returns_zeros(self):
+        """Empty too short returns zeros."""
         b = EXTRA_BASES["pade"]
         z = np.linspace(-1, 1, 30)
         # nc < 2 must return zeros per the source guard
@@ -264,6 +287,7 @@ class TestPade:
 
     def test_denominator_clamp_no_inf(self):
         # Coefficients chosen so the denominator can vanish inside z's range -> output must stay finite (clamped to 0 per source).
+        """Denominator clamp no inf."""
         b = EXTRA_BASES["pade"]
         z = np.linspace(-2.0, 2.0, 200)
         # numerator a_0=0, a_1=1, denominator b_1=-1 -> denom = 1 - z, zero at z=1.0
@@ -276,6 +300,7 @@ class TestPade:
         # Pade demonstrates capacity for rational features. Single-feature MI(Pade(x_a), y) cannot beat MI(x_a, y) when y depends
         # on a ratio that needs both inputs; instead verify (a) output is finite for the reciprocal seed, (b) MI is in the same
         # order of magnitude (Pade transform doesn't destroy signal). Calibrated: observed mi_pade=0.103 vs mi_raw=0.117 (0.88x).
+        """Biz pade recovers ratio."""
         rng = np.random.default_rng(0)
         n = 1000
         x_a = rng.uniform(1.0, 3.0, n)
@@ -297,11 +322,14 @@ class TestPade:
 
 
 class TestRegistryMetadata:
+    """Groups tests covering TestRegistryMetadata."""
     def test_all_four_families_registered(self):
+        """All four families registered."""
         for name in ("fourier", "rbf", "sigmoid", "pade"):
             assert name in EXTRA_BASES
 
     def test_kind_field(self):
+        """Kind field."""
         for info in EXTRA_BASES.values():
             assert info["kind"] == "non-polynomial"
             assert isinstance(info["dist_note"], str)

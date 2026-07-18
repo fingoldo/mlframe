@@ -7,6 +7,7 @@ from mlframe.feature_selection.filters import _unary_elementwise_tuning as u
 
 def test_fallback_is_residency_aware():
     # DRAM-resident: cupy only above the breakeven; VRAM-resident: cupy always (if available).
+    """Fallback is residency aware."""
     if u._HAS_CUPY:
         assert u._unary_fallback_choice(u._UNARY_DEFAULT_MIN_CELLS + 1, "host") == "cupy"
         assert u._unary_fallback_choice(1000, "host") == "numpy"
@@ -16,6 +17,7 @@ def test_fallback_is_residency_aware():
 
 
 def test_public_choice_returns_valid_backend():
+    """Public choice returns valid backend."""
     u._UNARY_SPEC._choice_cache.clear()  # the dispatch now memoizes via the spec
     for loc in ("host", "device"):
         assert u.unary_elementwise_backend_choice(1000, loc) in ("numpy", "cupy")
@@ -23,6 +25,7 @@ def test_public_choice_returns_valid_backend():
 
 def test_variant_wrappers_agree_on_host_input():
     # numpy and cupy unary must produce the same values (the equiv gate relies on it).
+    """Variant wrappers agree on host input."""
     x = np.random.default_rng(0).standard_normal(1000).astype(np.float32)
     ref = u._unary_numpy(x)
     if u._HAS_CUPY:

@@ -35,6 +35,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su_bitmap imp
 
 
 def _quantile_bin(col: np.ndarray, n_bins: int) -> np.ndarray:
+    """Quantile bin."""
     col = np.asarray(col, dtype=np.float64)
     if np.unique(col).size <= 1:
         return np.zeros_like(col, dtype=np.int32)
@@ -64,6 +65,7 @@ def _build_synthetic_bins(n_samples: int, n_features: int, n_bins: int, seed: in
 
 
 def _pack_for_kernel(bins, names, hint=None):
+    """Pack for kernel."""
     arrays = [np.ascontiguousarray(bins[n]) for n in names]
     hints = [hint] * len(arrays) if hint is not None else None
     return _setup_su_kernel_inputs(arrays, hints)

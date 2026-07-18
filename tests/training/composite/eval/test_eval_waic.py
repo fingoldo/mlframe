@@ -19,7 +19,6 @@ from mlframe.training.composite.discovery._eval_waic import (
     waic_from_oof_residuals,
 )
 
-
 # ----------------------------- pure kernel ---------------------------------- #
 
 
@@ -84,6 +83,7 @@ def test_waic_kernel_ignores_nonfinite_and_tiny_folds():
 
 
 def test_compute_transform_waic_runs_and_is_valid():
+    """Compute transform waic runs and is valid."""
     rng = np.random.default_rng(2)
     n = 600
     x = rng.normal(size=(n, 3))
@@ -95,6 +95,7 @@ def test_compute_transform_waic_runs_and_is_valid():
 
 
 def test_compute_transform_waic_invalid_on_tiny_sample():
+    """Compute transform waic invalid on tiny sample."""
     x = np.arange(6, dtype=float).reshape(-1, 1)
     y = x.ravel()
     score = compute_transform_waic(y, x, n_folds=4)
@@ -102,6 +103,7 @@ def test_compute_transform_waic_invalid_on_tiny_sample():
 
 
 def test_rank_transforms_by_waic_returns_per_name_scores():
+    """Rank transforms by waic returns per name scores."""
     rng = np.random.default_rng(3)
     n = 500
     x = rng.normal(size=(n, 2))
@@ -179,6 +181,7 @@ def test_biz_val_waic_ranks_generalising_transform_over_overfit_when_mi_ties():
 
 
 def test_biz_val_waic_config_flag_default_on():
+    """Biz val waic config flag default on."""
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
     # The flag now defaults ON: the tiny-rerank folds WAIC into its ordering as a strict tie-break (re-ranks only

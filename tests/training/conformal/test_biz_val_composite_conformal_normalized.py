@@ -55,7 +55,9 @@ def _fit_het(seed, score, alpha=0.1, n=6000):
 
 
 class TestNormalizedDefault:
+    """Groups tests covering normalized default."""
     def test_default_score_is_normalized(self) -> None:
+        """Default score is normalized."""
         rng = np.random.default_rng(0)
         b = rng.uniform(0, 1, 900)
         y = 10 * b + rng.normal(0, 1, 900) * (0.2 + 4 * b)
@@ -75,6 +77,7 @@ class TestNormalizedDefault:
         assert float(w.max() - w.min()) > 1e-6, "normalized band must vary in width"
 
     def test_absolute_opt_out_is_constant_width(self) -> None:
+        """Absolute opt out is constant width."""
         rng = np.random.default_rng(1)
         b = rng.uniform(0, 1, 900)
         y = 10 * b + rng.normal(0, 1, 900) * (0.2 + 4 * b)
@@ -94,6 +97,7 @@ class TestNormalizedDefault:
         assert float(np.median(np.abs(w - np.median(w)))) < 1e-6, "absolute band must be constant width"
 
     def test_invalid_score_raises(self) -> None:
+        """Invalid score raises."""
         rng = np.random.default_rng(2)
         X = pd.DataFrame({"b": rng.uniform(0, 1, 300)})
         y = 10 * X["b"].to_numpy() + rng.normal(0, 1, 300)
@@ -108,6 +112,7 @@ class TestNormalizedDefault:
 
 
 class TestNormalizedBizValue:
+    """Groups tests covering normalized biz value."""
     def test_biz_normalized_better_conditional_coverage(self) -> None:
         """Normalized must beat absolute on worst-bin (conditional) coverage gap on a
         heteroscedastic target, on the majority of seeds. Bench: gap 0.042 vs 0.227;

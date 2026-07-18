@@ -12,6 +12,7 @@ import pandas as pd
 
 
 def test_confidence_chain_threads_use_jmim():
+    """Confidence chain threads use jmim."""
     from mlframe.feature_selection.filters import fleuret
 
     for fn in (fleuret.parallel_fleuret, fleuret.get_fleuret_criteria_confidence):
@@ -19,6 +20,7 @@ def test_confidence_chain_threads_use_jmim():
 
 
 def test_jmim_fit_completes_with_confirmation():
+    """Jmim fit completes with confirmation."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     import warnings
 

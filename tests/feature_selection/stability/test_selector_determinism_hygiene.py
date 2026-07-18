@@ -47,7 +47,6 @@ from tests.feature_selection._selector_factories import (
 )
 from tests.feature_selection.conftest import fast_subset
 
-
 # Module-level compiled regex: parse a parallelism kwarg out of a "key=val|..."
 # child-line, kept compiled per the project convention even though it is only a
 # guard here.
@@ -63,6 +62,7 @@ _SEL_LINE_RE = re.compile(r"^[\w()|]*$")
 
 
 def _toy(n: int = 200, p_signal: int = 3, p_noise: int = 6, seed: int = 0):
+    """Helper that toy."""
     X, y, sig = make_signal_plus_noise(n=n, p_signal=p_signal, p_noise=p_noise, seed=seed)
     df, ys = as_df(X, y)
     return df, ys, sig
@@ -161,6 +161,7 @@ def _fit_with_kwarg(spec, kwarg: str, value: int, df, ys):
 
 
 def _clear_mrmr_cache_if_any() -> None:
+    """Clear mrmr cache if any."""
     mod = sys.modules.get("mlframe.feature_selection.filters.mrmr")
     if mod is not None:
         try:
@@ -255,6 +256,7 @@ sys.stdout.write("|".join(sorted(str(s) for s in sel)))
 
 
 def _child_env(hashseed: str) -> dict:
+    """Child env."""
     env = dict(os.environ)
     env["PYTHONHASHSEED"] = hashseed
     env["CUDA_VISIBLE_DEVICES"] = ""
@@ -266,6 +268,7 @@ def _child_env(hashseed: str) -> dict:
 
 
 def _check_child_output(hashseed: str, stdout: str, stderr: str, rc: int) -> str:
+    """Check child output."""
     if rc != 0:
         raise AssertionError(f"hashseed child (PYTHONHASHSEED={hashseed}) failed rc={rc}\nSTDERR tail:\n{(stderr or '')[-2000:]}")
     out = (stdout or "").strip()

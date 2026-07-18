@@ -36,6 +36,7 @@ from mlframe.training.neural import (
 
 
 def _regressor_params():
+    """Regressor params."""
     return {
         "model_class": MLPTorchModel,
         "model_params": {"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-2},
@@ -69,6 +70,7 @@ def _regressor_params():
 
 @pytest.fixture
 def clean_regression_split():
+    """Clean regression split."""
     X, y = make_regression(n_samples=160, n_features=5, noise=0.1, random_state=0)
     X = X.astype(np.float32)
     y = y.astype(np.float32)
@@ -77,6 +79,7 @@ def clean_regression_split():
 
 
 def _inject_nan_into_features(X, rng, frac=0.05):
+    """Inject nan into features."""
     Xn = X.copy()
     n, d = Xn.shape
     n_nan = int(n * d * frac)
@@ -86,6 +89,7 @@ def _inject_nan_into_features(X, rng, frac=0.05):
 
 
 def _inject_nan_into_targets(y, rng, frac=0.05):
+    """Inject nan into targets."""
     yn = y.copy()
     n_nan = int(len(yn) * frac)
     idx = rng.choice(len(yn), size=n_nan, replace=False)

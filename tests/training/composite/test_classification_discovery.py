@@ -43,6 +43,7 @@ def _steep_ramp_data(n: int = 1200, seed: int = 0, n_noise: int = 18):
 
 
 def test_discovery_picks_dominant_column():
+    """Discovery picks dominant column."""
     X, y = _steep_ramp_data()
     disc = CompositeClassificationDiscovery(inner_estimator=_tiny_capacity_inner(), random_state=0, holdout_frac=0.25).fit(X, y)
     rec = disc.recommend()
@@ -55,6 +56,7 @@ def test_discovery_picks_dominant_column():
 
 
 def test_stage1_table_is_ranked_and_complete():
+    """Stage1 table is ranked and complete."""
     X, y = _dominant_feature_data(n=1500)
     disc = CompositeClassificationDiscovery(random_state=0).fit(X, y)
     res = disc.result_
@@ -65,6 +67,7 @@ def test_stage1_table_is_ranked_and_complete():
 
 
 def test_leak_column_rejected():
+    """Leak column rejected."""
     X, y = _dominant_feature_data(n=1500)
     # append a perfect-leak column: the label itself, jittered infinitesimally
     leak = y.astype(np.float64) + np.random.default_rng(1).normal(0, 1e-9, y.size)
@@ -78,6 +81,7 @@ def test_leak_column_rejected():
 
 
 def test_pure_noise_recommends_plain_model():
+    """Pure noise recommends plain model."""
     rng = np.random.default_rng(3)
     X = rng.normal(0, 1, (1200, 5))
     y = rng.integers(0, 2, 1200)
@@ -87,6 +91,7 @@ def test_pure_noise_recommends_plain_model():
 
 
 def test_multiclass_supported():
+    """Multiclass supported."""
     rng = np.random.default_rng(4)
     n = 2400
     X = rng.normal(0, 1, (n, 5))
@@ -100,6 +105,7 @@ def test_multiclass_supported():
 
 
 def test_discover_and_wrap_always_returns_usable_model():
+    """Discover and wrap always returns usable model."""
     X, y = _steep_ramp_data()
     model, result = discover_and_wrap_classification(X, y, inner_estimator=_tiny_capacity_inner(), random_state=0, holdout_frac=0.25)
     assert hasattr(model, "predict_proba")
@@ -114,6 +120,7 @@ def test_discover_and_wrap_always_returns_usable_model():
 
 
 def test_pandas_input_and_forbidden_patterns():
+    """Pandas input and forbidden patterns."""
     pd = pytest.importorskip("pandas")
     X, y = _steep_ramp_data()
     df = pd.DataFrame(X, columns=[f"f{i}" for i in range(X.shape[1])])
@@ -125,6 +132,7 @@ def test_pandas_input_and_forbidden_patterns():
 
 
 def test_single_class_raises():
+    """Single class raises."""
     X = np.random.default_rng(0).normal(0, 1, (100, 3))
     with pytest.raises(ValueError, match=">= 2 classes"):
         CompositeClassificationDiscovery().fit(X, np.zeros(100))

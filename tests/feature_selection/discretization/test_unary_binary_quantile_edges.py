@@ -38,6 +38,7 @@ import pandas as pd
 
 
 def _build_recipe(with_edges: bool, train: pd.DataFrame):
+    """Build recipe."""
     from mlframe.feature_selection.filters.engineered_recipes import (
         build_unary_binary_recipe,
     )
@@ -60,6 +61,7 @@ def _build_recipe(with_edges: bool, train: pd.DataFrame):
 
 
 def _frames():
+    """Helper that frames."""
     rng = np.random.default_rng(0)
     n = 200
     train = pd.DataFrame(
@@ -93,12 +95,12 @@ def test_replay_output_is_continuous_not_quantized():
     out = np.asarray(_apply_unary_binary(recipe, train), dtype=np.float64)
     expected = train["c1"].to_numpy() * train["c2"].to_numpy()
     # Continuous: matches the closed-form product, not a 5-bin code.
-    assert np.allclose(out, expected, atol=1e-9), (
-        f"replay should equal the continuous product c1*c2; max abs diff {np.max(np.abs(out - expected)):.3e}, sample out[:5]={out[:5]}"
-    )
-    assert np.unique(out).size > recipe.quantization["nbins"], (
-        f"replay output has only {np.unique(out).size} distinct values -- looks quantized to ~{recipe.quantization['nbins']} bins, not continuous."
-    )
+    assert np.allclose(
+        out, expected, atol=1e-9
+    ), f"replay should equal the continuous product c1*c2; max abs diff {np.max(np.abs(out - expected)):.3e}, sample out[:5]={out[:5]}"
+    assert (
+        np.unique(out).size > recipe.quantization["nbins"]
+    ), f"replay output has only {np.unique(out).size} distinct values -- looks quantized to ~{recipe.quantization['nbins']} bins, not continuous."
 
 
 def test_identical_row_same_value_under_drift():
@@ -132,9 +134,9 @@ def test_legacy_recipe_without_edges_also_continuous_and_drift_free():
         warnings.simplefilter("always")
         out_train = _apply_unary_binary(recipe, train)
         out_test = _apply_unary_binary(recipe, test)
-    assert not any("fit-time quantile edges" in str(w.message) for w in caught), (
-        f"replay no longer quantises, so the legacy-edge leak warning must be gone; got {[str(w.message) for w in caught]}"
-    )
+    assert not any(
+        "fit-time quantile edges" in str(w.message) for w in caught
+    ), f"replay no longer quantises, so the legacy-edge leak warning must be gone; got {[str(w.message) for w in caught]}"
     # The pre-iter-28 leak (identical row -> different code under drift) is structurally
     # eliminated: identical row -> identical continuous value.
     assert out_train[0] == out_test[0], f"continuous replay must give the identical row the same value under drift; train={out_train[0]}, test={out_test[0]}"

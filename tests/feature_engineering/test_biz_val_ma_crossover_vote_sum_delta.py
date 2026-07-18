@@ -117,6 +117,6 @@ def test_biz_val_ma_crossover_long_window_weight_power_reduces_false_flips_vs_eq
     weighted_rate = _consensus_false_flip_rate(weighted_feats["ma_crossover_vote_sum"].to_numpy(), trend_sign)
 
     assert weighted_rate <= 0.30, f"expected weighted consensus false-flip rate <=0.30, got {weighted_rate:.4f}"
-    assert weighted_rate < equal_rate - 0.15, (
-        f"expected weighted voting to cut false flips well below equal-weight, got weighted={weighted_rate:.4f} equal={equal_rate:.4f}"
-    )
+    assert (
+        weighted_rate < equal_rate - 0.15
+    ), f"expected weighted voting to cut false flips well below equal-weight, got weighted={weighted_rate:.4f} equal={equal_rate:.4f}"

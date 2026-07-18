@@ -51,8 +51,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
-
 MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
@@ -108,6 +106,7 @@ def _read(rel: str) -> str:
 
 
 def test_rff_calibration_bench_module_exists() -> None:
+    """Rff calibration bench module exists."""
     bench_path = MLFRAME_ROOT / "feature_engineering" / "_benchmarks" / "bench_rff_matmul.py"
     assert bench_path.exists(), "Wave 65: RFF calibration bench script must exist"
     text = bench_path.read_text(encoding="utf-8")
@@ -122,6 +121,7 @@ def test_rff_calibration_bench_module_exists() -> None:
 
 
 def test_rff_calibration_module_imports_and_calibrate_returns_tuple() -> None:
+    """Rff calibration module imports and calibrate returns tuple."""
     from mlframe.feature_engineering._benchmarks.bench_rff_matmul import calibrate
 
     # Don't actually run the full sweep (slow); just verify the function imports
@@ -135,6 +135,7 @@ def test_rff_calibration_module_imports_and_calibrate_returns_tuple() -> None:
 
 
 def test_phase_recurrent_todo_replaced_with_closure_note() -> None:
+    """Phase recurrent todo replaced with closure note."""
     src = _read("training/core/_phase_recurrent.py")
     # The original TODO ("core/predict.py (currently locked) does not re-run
     # the recurrent-augmented ensemble") must be gone.
@@ -149,6 +150,7 @@ def test_phase_recurrent_todo_replaced_with_closure_note() -> None:
 
 
 def test_per_cluster_composite_marked_rejected() -> None:
+    """Per cluster composite marked rejected."""
     src = _read("training/composite/discovery/__init__.py")
     # The "TODO(per-cluster composite, follow-up):" marker is gone.
     assert "TODO(per-cluster composite, follow-up)" not in src
@@ -165,6 +167,7 @@ def test_cat_interactions_multiclass_docstring_documents_design() -> None:
     # ``_compute_target_encoding`` (and its multi-class design docstring)
     # was moved to the ``_cat_target_encoding_and_weighted.py`` sibling when
     # ``cat_interactions.py`` was split below 1k LOC.
+    """Cat interactions multiclass docstring documents design."""
     src = _read("feature_selection/filters/cat_interactions.py") + _read("feature_selection/filters/_cat_target_encoding_and_weighted.py")
     # The TODO marker is gone.
     assert "TODO multi-class" not in src
@@ -179,6 +182,7 @@ def test_cat_interactions_multiclass_docstring_documents_design() -> None:
 
 
 def test_timeseries_past_side_sanity_check_landed() -> None:
+    """Timeseries past side sanity check landed."""
     src = _read("feature_engineering/timeseries.py")
     # The "deferred to a follow-up" marker is gone.
     assert "deferred to a follow-up" not in src
@@ -188,12 +192,14 @@ def test_timeseries_past_side_sanity_check_landed() -> None:
 
 
 def test_mrmr_factors_to_use_documented_already_threaded() -> None:
+    """Mrmr factors to use documented already threaded."""
     src = _read("feature_selection/filters/mrmr.py")
     assert "TODO 2026-05-17: handle factors_to_use" not in src
     assert "already threaded through the upstream FE loop" in src
 
 
 def test_phase_helpers_strategy_list_documented() -> None:
+    """Phase helpers strategy list documented."""
     src = _read("training/core/_phase_helpers.py")
     # The TODO is replaced with a closure note.
     assert "TODO: surface the per-model strategy list" not in src
@@ -203,6 +209,7 @@ def test_phase_helpers_strategy_list_documented() -> None:
 def test_hermite_fe_separate_eval_documented_as_implemented() -> None:
     # The closure marker moved out of ``hermite_fe.py`` into the sibling
     # ``_hermite_fe_optimise_pair.py`` during the hermite-fe monolith split.
+    """Hermite fe separate eval documented as implemented."""
     import pathlib
     import mlframe as _mlframe
 
@@ -221,6 +228,7 @@ def test_hermite_fe_separate_eval_documented_as_implemented() -> None:
 def test_plotly_legend_implemented_not_skipped() -> None:
     # The plotly static legend landed (was a documented TODO/skip): the renderer now wires a
     # ``static_legend`` flag through to ``showlegend`` for png/svg/pdf exports that have no hover.
+    """Plotly legend implemented not skipped."""
     src = _read("reporting/renderers/plotly.py")
     assert "(plotly 5.x feature) — TODO" not in src
     assert "static_legend" in src and "showlegend=static_legend" in src
@@ -230,6 +238,7 @@ def test_ensembling_p2_quantile_design_decision_documented() -> None:
     # The two TODOs were replaced with explicit design decisions in the
     # ``models/ensembling`` package (``base.py`` leaf); reading the package
     # concats every submodule.
+    """Ensembling p2 quantile design decision documented."""
     src = _read("models/ensembling.py")
     # The two TODOs are replaced with explicit design decisions.
     assert "TODO(session-5+) P^2-Quantile numba-jit per-cell impl" not in src

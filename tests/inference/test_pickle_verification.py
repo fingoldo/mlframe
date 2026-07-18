@@ -107,9 +107,9 @@ def test_write_save_meta_sidecar_populates_real_bundle_sha256(tmp_pickle: Path):
     payload = orjson.loads(meta_path.read_bytes())
     assert "bundle_sha256" in payload, "bundle_sha256 key must be present"
     expected = _sha256_hex(tmp_pickle)
-    assert payload["bundle_sha256"] == expected, (
-        f"bundle_sha256 must be the actual SHA-256 of the bundle file. Got {payload['bundle_sha256']!r}, expected {expected!r}."
-    )
+    assert (
+        payload["bundle_sha256"] == expected
+    ), f"bundle_sha256 must be the actual SHA-256 of the bundle file. Got {payload['bundle_sha256']!r}, expected {expected!r}."
     # Defence-in-depth: the placeholder string ``...`` must not leak through.
     assert payload["bundle_sha256"] != "...", "bundle_sha256 must not be a placeholder"
     assert len(payload["bundle_sha256"]) == 64, "SHA-256 hex digest is 64 chars"

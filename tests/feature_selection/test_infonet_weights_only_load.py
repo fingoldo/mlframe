@@ -17,6 +17,7 @@ _INFER = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "feature_sele
 
 
 def test_state_dict_round_trips_under_weights_only_true(tmp_path):
+    """State dict round trips under weights only true."""
     model = torch.nn.Linear(4, 2)
     ckpt = tmp_path / "ckpt.pt"
     torch.save(model.state_dict(), ckpt)
@@ -30,5 +31,6 @@ def test_state_dict_round_trips_under_weights_only_true(tmp_path):
 
 
 def test_infer_source_calls_torch_load_with_weights_only():
+    """Infer source calls torch load with weights only."""
     src = _INFER.read_text(encoding="utf-8")
     assert re.search(r"torch\.load\([^)]*weights_only\s*=\s*True", src), "infer.py must call torch.load(..., weights_only=True)"

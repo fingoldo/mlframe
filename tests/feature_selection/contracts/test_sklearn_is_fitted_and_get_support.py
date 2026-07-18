@@ -33,6 +33,7 @@ import pytest
 
 
 def _fit_full():
+    """Fit full."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(0)

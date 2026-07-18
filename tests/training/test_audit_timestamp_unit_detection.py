@@ -144,9 +144,9 @@ def test_truly_out_of_range_negative_falls_back_with_warning(caplog):
 
     with caplog.at_level(logging.WARNING):
         _ = _coerce_timestamps_for_audit(ts)
-    assert any("fall outside" in (rec.getMessage() if hasattr(rec, "getMessage") else str(rec.message)) for rec in caplog.records), (
-        f"expected 'fall outside' warning; got records: {[rec.message for rec in caplog.records]}"
-    )
+    assert any(
+        "fall outside" in (rec.getMessage() if hasattr(rec, "getMessage") else str(rec.message)) for rec in caplog.records
+    ), f"expected 'fall outside' warning; got records: {[rec.message for rec in caplog.records]}"
 
 
 def test_max_int64_out_of_range_falls_back_with_warning(caplog):

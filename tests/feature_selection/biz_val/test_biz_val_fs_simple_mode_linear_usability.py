@@ -21,6 +21,7 @@ from mlframe.feature_selection.filters._fe_raw_redundancy_drop import (
 
 
 def _bin10(x: np.ndarray) -> np.ndarray:
+    """Helper that bin10."""
     x = np.asarray(x, dtype=np.float64).ravel()
     edges = np.quantile(x, np.linspace(0, 1, 11)[1:-1])
     return np.digitize(x, edges).astype(np.int64)

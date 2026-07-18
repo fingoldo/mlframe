@@ -25,6 +25,7 @@ class TestLinearStrategyImputerWarning:
     """LinearModelStrategy.build_pipeline must emit a WARN when requires_imputation=True but imputer=None."""
 
     def test_imputer_none_emits_warning(self, caplog):
+        """Imputer none emits warning."""
         strat = LinearModelStrategy()
         assert strat.requires_imputation is True, "precondition: LinearModelStrategy must require imputation"
 
@@ -52,6 +53,7 @@ class TestLinearStrategyImputerWarning:
             assert "imp" not in step_names, "imp step should be skipped when imputer=None"
 
     def test_imputer_present_no_warning(self, caplog):
+        """Imputer present no warning."""
         strat = LinearModelStrategy()
         with caplog.at_level(logging.WARNING, logger="mlframe.training.strategies"):
             pipeline = strat.build_pipeline(
@@ -93,6 +95,7 @@ class TestGetPipelineComponentsDefaults:
     """_get_pipeline_components must never return None for imputer/scaler when the caller leaves them blank - that was the root cause of the prod crash."""
 
     def test_none_inputs_resolve_to_real_components(self):
+        """None inputs resolve to real components."""
         cfg = PreprocessingConfig()  # all fields default
         _category_encoder, imputer, scaler = _get_pipeline_components(cfg, cat_features=[])
         assert imputer is not None, "imputer must default to a real SimpleImputer when PreprocessingConfig.imputer is None"
@@ -102,6 +105,7 @@ class TestGetPipelineComponentsDefaults:
         assert hasattr(scaler, "fit_transform"), "scaler default must be a sklearn-compatible transformer"
 
     def test_explicit_imputer_passes_through(self):
+        """Explicit imputer passes through."""
         my_imputer = SimpleImputer(strategy="median")
         cfg = PreprocessingConfig(imputer=my_imputer)
         _, imputer, _ = _get_pipeline_components(cfg, cat_features=[])

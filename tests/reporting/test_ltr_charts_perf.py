@@ -34,7 +34,6 @@ from mlframe.reporting.charts.ltr import (
 )
 from mlframe.reporting.spec import BarPanelSpec, FigureSpec
 
-
 # ---------------------------------------------------------------------------
 # Synthetic generators covering mixed group sizes, ties, int + float grades
 # ---------------------------------------------------------------------------

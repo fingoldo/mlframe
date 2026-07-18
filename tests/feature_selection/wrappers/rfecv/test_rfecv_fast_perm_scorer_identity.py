@@ -36,6 +36,7 @@ def _legacy_scorer(_est, _X, _y):
 
 
 def _perm(model, X, y, scoring, seed=42, n_repeats=5):
+    """Helper that perm."""
     return permutation_importance(
         model,
         X,
@@ -57,6 +58,7 @@ def _perm(model, X, y, scoring, seed=42, n_repeats=5):
     ],
 )
 def test_fast_perm_scorer_bit_identical_to_estimator_score(name, make, regression):
+    """Fast perm scorer bit identical to estimator score."""
     rng = np.random.RandomState(1)
     X = rng.randn(500, 12)
     if regression:
@@ -69,9 +71,9 @@ def test_fast_perm_scorer_bit_identical_to_estimator_score(name, make, regressio
     pi_fast = _perm(model, X, y, _make_fast_default_scorer(model))
 
     # HARD bit-identity gate: the selected set can only stay identical if the importances do.
-    assert np.array_equal(pi_legacy, pi_fast), (
-        f"{name}: fast permutation-FI scorer diverged from estimator.score() (max|diff|={np.max(np.abs(pi_legacy - pi_fast)):.3e})"
-    )
+    assert np.array_equal(
+        pi_legacy, pi_fast
+    ), f"{name}: fast permutation-FI scorer diverged from estimator.score() (max|diff|={np.max(np.abs(pi_legacy - pi_fast)):.3e})"
 
 
 def test_fast_scorer_latches_fast_mode_for_standard_classifier():

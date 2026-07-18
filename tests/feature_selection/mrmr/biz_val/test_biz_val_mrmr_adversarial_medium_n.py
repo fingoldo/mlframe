@@ -172,6 +172,7 @@ def _make_large_p(seed, n=300, p=40):
 
 
 def _signal_cols(names):
+    """Signal cols."""
     return [n for n in names if n in ("signal", "signal_dup", "signal_near")]
 
 
@@ -217,9 +218,9 @@ def test_exact_duplicate_keeps_one(nbins, n):
         # Strengthened: the survivor must be the SIGNAL (or a signal-derived engineered col), and NO pure-noise
         # column may leak in. Just collapsing the pair is not enough -- a selector that drops both duplicates and
         # picks noise would pass the count check; this catches that.
-        assert any(nm == "signal" or nm.startswith("signal") for nm in names), (
-            f"exact-dup n={n} seed={seed} nbins={nbins}: a signal(-derived) column must be selected; got {names}"
-        )
+        assert any(
+            nm == "signal" or nm.startswith("signal") for nm in names
+        ), f"exact-dup n={n} seed={seed} nbins={nbins}: a signal(-derived) column must be selected; got {names}"
         leaked_noise = [nm for nm in names if nm.startswith("noise")]
         assert not leaked_noise, f"exact-dup n={n} seed={seed} nbins={nbins}: pure-noise columns leaked into selection: {leaked_noise}; full={names}"
 
@@ -320,9 +321,9 @@ def test_large_p_noise_exclusion(seed, n, p):
     n_noise_total = p - 2
     n_noise_kept = sum(1 for nm in names if nm.startswith("noise"))
     excl_frac = 1.0 - n_noise_kept / n_noise_total
-    assert excl_frac >= 0.85, (
-        f"large-p n={n} seed={seed}: noise-exclusion frac {excl_frac:.2f} too low ({n_noise_kept}/{n_noise_total} noise kept); floor 0.85; full={names}"
-    )
+    assert (
+        excl_frac >= 0.85
+    ), f"large-p n={n} seed={seed}: noise-exclusion frac {excl_frac:.2f} too low ({n_noise_kept}/{n_noise_total} noise kept); floor 0.85; full={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -336,9 +337,9 @@ def test_exact_duplicate_keeps_one_jmim_vs_default(aggregator):
     (None -> fleuret)."""
     import inspect
 
-    assert "redundancy_aggregator" in inspect.signature(MRMR.__init__).parameters, (
-        "redundancy_aggregator is a documented MRMR ctor param; a missing kwarg is a real regression, not a skip"
-    )
+    assert (
+        "redundancy_aggregator" in inspect.signature(MRMR.__init__).parameters
+    ), "redundancy_aggregator is a documented MRMR ctor param; a missing kwarg is a real regression, not a skip"
     names = _fit_cached(("exact_dup_agg", aggregator), _make_exact_dup(0, n=2000), mode="raw", nbins=8, seed=0, redundancy_aggregator=aggregator)
     sigs = _signal_cols(names)
     assert len(sigs) == 1, f"exact-dup under aggregator={aggregator!r}: expected ONE of the pair, got {sigs}; full={names}"

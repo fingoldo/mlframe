@@ -24,6 +24,7 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 def _make_disc(threshold=0.99999):
+    """Make disc."""
     cfg = CompositeTargetDiscoveryConfig(forbidden_base_corr_threshold=threshold)
     disc = CompositeTargetDiscovery(cfg)
     disc._target_col = "y"
@@ -31,6 +32,7 @@ def _make_disc(threshold=0.99999):
 
 
 class TestLeakCorrNaNDilution:
+    """Groups tests covering leak corr na n dilution."""
     def test_y_copy_with_nan_rows_is_dropped(self) -> None:
         """D1: an exact y-copy carrying ~1% NaN must still be dropped by the
         leak-corr gate. Pre-fix the mean-imputation diluted |corr| to ~0.995
@@ -66,6 +68,7 @@ class TestLeakCorrNaNDilution:
 
 
 class TestIterTransformMultiBase:
+    """Groups tests covering iter transform multi base."""
     def test_multi_base_spec_does_not_crash(self) -> None:
         """D2: iter_transform must apply a multi-base spec without raising the
         '(n,) vs (n,K)' shape error."""
@@ -100,6 +103,7 @@ class TestIterTransformMultiBase:
 
 
 class TestMultiBaseFiniteMasking:
+    """Groups tests covering multi base finite masking."""
     def test_fit_recovers_alphas_with_leading_nan(self) -> None:
         """D3: _linear_residual_multi_fit must recover the true alphas even
         when a base column carries leading NaN (lag/rolling base). Pre-fix the

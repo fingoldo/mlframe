@@ -37,9 +37,11 @@ class _FakeFittedBoosterRejectingSetParams:
         self.best_iteration_ = 0
 
     def get_params(self, deep: bool = True):
+        """Get params."""
         return dict(self._stored)
 
     def set_params(self, **params):
+        """Set params."""
         self.set_params_attempts += 1
         if self._is_fitted:
             raise RuntimeError("You can't change params of fitted model. (sensor)")
@@ -47,6 +49,7 @@ class _FakeFittedBoosterRejectingSetParams:
         return self
 
     def fit(self, X, y, **kwargs):
+        """Fit."""
         self.fit_calls += 1
         self._is_fitted = True
         # Pretend best_iter improves only on RMSE refit.
@@ -57,6 +60,7 @@ class _FakeFittedBoosterRejectingSetParams:
         return self
 
     def predict(self, X):
+        """Predict."""
         return np.zeros(len(X) if hasattr(X, "__len__") else 0)
 
 
@@ -96,9 +100,9 @@ def test_refit_ladder_handles_set_params_rejection() -> None:
     )
     # The refit must have produced a new best_iter (the fallback path
     # rebuilds and fits, so best_iteration_ should now be 133 per our fake).
-    assert new_best_iter == 133, (
-        f"refit ladder did not run / new_best_iter={new_best_iter}; set_params_attempts={model_obj.set_params_attempts}, fit_calls={model_obj.fit_calls}"
-    )
+    assert (
+        new_best_iter == 133
+    ), f"refit ladder did not run / new_best_iter={new_best_iter}; set_params_attempts={model_obj.set_params_attempts}, fit_calls={model_obj.fit_calls}"
     # The original model_obj reference must reflect the RMSE-refit state
     # (atomic __dict__ swap from the rebuild fallback).
     assert model_obj._stored.get("loss_function") == "RMSE", f"model_obj state not swapped to RMSE: {model_obj._stored}"

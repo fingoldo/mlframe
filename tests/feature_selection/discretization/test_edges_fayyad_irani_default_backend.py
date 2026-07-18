@@ -100,10 +100,12 @@ def test_per_feature_edges_uses_njit_default():
     real_python = pytest.importorskip("mlframe.feature_selection.filters.supervised_binning")._mdlp_recurse
 
     def fake_njit(*args, **kwargs):
+        """Fake njit."""
         call_record["njit"] += 1
         return real_njit(*args, **kwargs)
 
     def fake_python(*args, **kwargs):
+        """Fake python."""
         call_record["python"] += 1
         return real_python(*args, **kwargs)
 
@@ -120,9 +122,9 @@ def test_per_feature_edges_uses_njit_default():
         per_feature_edges(x, y, method="fayyad_irani")
 
     assert call_record["njit"] >= 1, f"per_feature_edges with empty kwargs must route to _mdlp_recurse_njit; call record: {call_record}"
-    assert call_record["python"] == 0, (
-        f"per_feature_edges with empty kwargs must NOT route to legacy _mdlp_recurse (the 1566s/1700s @500k hotspot); call record: {call_record}"
-    )
+    assert (
+        call_record["python"] == 0
+    ), f"per_feature_edges with empty kwargs must NOT route to legacy _mdlp_recurse (the 1566s/1700s @500k hotspot); call record: {call_record}"
 
 
 def test_njit_backend_smoke_handles_pure_label_input():

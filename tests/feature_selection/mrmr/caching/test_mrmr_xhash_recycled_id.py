@@ -13,6 +13,7 @@ from mlframe.feature_selection.filters import _mrmr_fingerprints as fp
 
 
 def test_recycled_id_same_shape_does_not_serve_stale_hash():
+    """Recycled id same shape does not serve stale hash."""
     A = np.arange(100, dtype=np.float64).reshape(10, 10)
     B = (np.arange(100, dtype=np.float64) + 1000.0).reshape(10, 10)  # same shape, different content
     hA = fp._full_x_content_hash(A)

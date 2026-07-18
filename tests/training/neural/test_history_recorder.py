@@ -14,10 +14,12 @@ from mlframe.training.neural._history_recorder import TrainingHistoryRecorder
 
 
 def _trainer(epoch, metrics, sanity=False):
+    """Trainer."""
     return types.SimpleNamespace(current_epoch=epoch, callback_metrics=metrics, sanity_checking=sanity)
 
 
 def test_records_train_and_val_in_booster_shape_and_aligned():
+    """Records train and val in booster shape and aligned."""
     rec = TrainingHistoryRecorder(monitor="val_loss", mode="min")
     # val_loss: 0.5 -> 0.3 (best) -> 0.4 -> 0.45 ; train monotonically down.
     seq = [(0, 0.6, 0.5), (1, 0.4, 0.3), (2, 0.3, 0.4), (3, 0.25, 0.45)]
@@ -32,6 +34,7 @@ def test_records_train_and_val_in_booster_shape_and_aligned():
 
 
 def test_skips_sanity_check_pass():
+    """Skips sanity check pass."""
     rec = TrainingHistoryRecorder(monitor="val_loss", mode="min")
     rec.on_validation_epoch_end(_trainer(0, {"train_loss": 9.9, "val_loss": 9.9}, sanity=True), None)
     assert rec.evals_result_ == {}
@@ -39,6 +42,7 @@ def test_skips_sanity_check_pass():
 
 
 def test_mode_max_tracks_metric_increasing():
+    """Mode max tracks metric increasing."""
     rec = TrainingHistoryRecorder(monitor="val_roc_auc", mode="max")
     for ep, auc in [(0, 0.70), (1, 0.85), (2, 0.82)]:
         rec.on_validation_epoch_end(_trainer(ep, {"val_roc_auc": auc}), None)
@@ -47,6 +51,7 @@ def test_mode_max_tracks_metric_increasing():
 
 
 def test_non_float_metrics_are_skipped():
+    """Non float metrics are skipped."""
     rec = TrainingHistoryRecorder(monitor="val_loss", mode="min")
     rec.on_validation_epoch_end(_trainer(0, {"val_loss": None, "train_loss": "x", "epoch": 0}), None)
     assert rec.evals_result_ == {}

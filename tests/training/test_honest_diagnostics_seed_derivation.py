@@ -13,6 +13,7 @@ import numpy as np
 
 
 def test_derive_seed_is_deterministic_and_key_dependent():
+    """Derive seed is deterministic and key dependent."""
     from mlframe.training.honest_diagnostics import _derive_seed
 
     assert _derive_seed(42, "binary/t1/cb") == _derive_seed(42, "binary/t1/cb")  # stable

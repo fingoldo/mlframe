@@ -17,6 +17,7 @@ pytest.importorskip("xgboost")
 
 
 def _xor_data(n=3000, seed=0):
+    """Xor data."""
     rng = np.random.default_rng(seed)
     x = rng.normal(size=(n, 6))
     y = ((x[:, 0] > 0) ^ (x[:, 1] > 0)).astype(int)  # pure interaction: XOR of signs of x0, x1
@@ -26,6 +27,7 @@ def _xor_data(n=3000, seed=0):
 
 
 def test_biz_val_interaction_coalition_sees_xor_pair():
+    """Biz val interaction coalition sees xor pair."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix, make_default_estimator
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import compute_interaction_tensor, interaction_subset_loss, interaction_top_n
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import subset_loss
@@ -51,6 +53,7 @@ def test_biz_val_interaction_coalition_sees_xor_pair():
 
 @pytest.mark.slow
 def test_biz_val_facade_interaction_aware_recovers_xor():
+    """Biz val facade interaction aware recovers xor."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     X, y = _xor_data(n=4000, seed=1)

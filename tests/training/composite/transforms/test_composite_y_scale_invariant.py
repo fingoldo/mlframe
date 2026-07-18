@@ -49,11 +49,13 @@ def _make_dataset(n: int = 600, seed: int = 17) -> tuple[pd.DataFrame, np.ndarra
 
 
 def _y_scale_mae(wrapper: CompositeTargetEstimator, X: pd.DataFrame, y: np.ndarray) -> float:
+    """Y scale mae."""
     preds = np.asarray(wrapper.predict(X), dtype=np.float64).reshape(-1)
     return float(np.mean(np.abs(preds - y.astype(np.float64))))
 
 
 def _t_scale_mae(inner, X: pd.DataFrame, y_T: np.ndarray) -> float:
+    """T scale mae."""
     preds_T = np.asarray(inner.predict(X), dtype=np.float64).reshape(-1)
     return float(np.mean(np.abs(preds_T - y_T.astype(np.float64))))
 
@@ -62,6 +64,7 @@ class TestCompositeYscaleInvariant:
     """y-scale error after wrap must equal T-scale error before wrap (linear_residual is additive + invertible)."""
 
     def test_plain_linear_inner(self) -> None:
+        """Plain linear inner."""
         X, base, y = _make_dataset()
         params = _fit_linear_residual_params(y, base)
         transform = get_transform("linear_residual")
@@ -79,9 +82,9 @@ class TestCompositeYscaleInvariant:
 
         t_mae = _t_scale_mae(inner, X, y_T)
         y_mae = _y_scale_mae(wrapper, X, y)
-        assert y_mae == pytest.approx(t_mae, abs=1e-6), (
-            f"Composite wrapper broke the additive-invariance: T-scale MAE={t_mae:.6f} but y-scale MAE={y_mae:.6f} (delta={y_mae - t_mae:.6f})"
-        )
+        assert y_mae == pytest.approx(
+            t_mae, abs=1e-6
+        ), f"Composite wrapper broke the additive-invariance: T-scale MAE={t_mae:.6f} but y-scale MAE={y_mae:.6f} (delta={y_mae - t_mae:.6f})"
 
     def test_ttr_wrapped_inner(self) -> None:
         """Mirrors the MLP path: TransformedTargetRegressor wraps the inner so the inner sees standardised T.
@@ -109,9 +112,9 @@ class TestCompositeYscaleInvariant:
 
         t_mae = _t_scale_mae(ttr, X, y_T)
         y_mae = _y_scale_mae(wrapper, X, y)
-        assert y_mae == pytest.approx(t_mae, abs=1e-6), (
-            f"TTR+composite broke additive-invariance (production symptom): T-scale MAE={t_mae:.6f} but y-scale MAE={y_mae:.6f} (delta={y_mae - t_mae:.6f})"
-        )
+        assert y_mae == pytest.approx(
+            t_mae, abs=1e-6
+        ), f"TTR+composite broke additive-invariance (production symptom): T-scale MAE={t_mae:.6f} but y-scale MAE={y_mae:.6f} (delta={y_mae - t_mae:.6f})"
 
     def test_invariant_holds_with_y_clip_active(self) -> None:
         """Repeat with a base that pushes predictions to the train-envelope clip; clip MUST NOT silently improve metrics on in-envelope train rows (the documented contract)."""

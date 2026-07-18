@@ -29,6 +29,7 @@ from mlframe.training.composite.ensemble import (
 
 
 class TestAlignFitSampleWeight:
+    """Groups tests covering align fit sample weight."""
     def test_group_mask_alignment_not_prefix(self) -> None:
         """N1: on a scattered fit_mask the aligned weights must be sw[mask],
         NOT the (wrong) prefix sw[:n_fit]."""
@@ -40,11 +41,13 @@ class TestAlignFitSampleWeight:
         assert not np.array_equal(aligned, sw[: int(fit_mask.sum())])
 
     def test_prefix_path_when_no_mask(self) -> None:
+        """Prefix path when no mask."""
         sw = np.arange(10, dtype=np.float64)
         aligned = _align_fit_sw(sw, None, 6)
         np.testing.assert_array_equal(aligned, sw[:6])
 
     def test_carve_group_path_returns_scattered_mask(self) -> None:
+        """Carve group path returns scattered mask."""
         n = 2000
         X = np.arange(n).reshape(-1, 1).astype(np.float64)
         y = np.arange(n).astype(np.float64)
@@ -61,6 +64,7 @@ class _ESComposite(BaseEstimator, RegressorMixin):
     """Inner that REQUIRES an eval_set (mimics an early-stopping booster)."""
 
     def fit(self, X, y, eval_set=None, sample_weight=None, **kw):
+        """Fit."""
         if eval_set is None:
             raise ValueError("early stopping requires an eval_set")
         self.n_features_in_ = X.shape[1]
@@ -68,10 +72,12 @@ class _ESComposite(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X):
+        """Predict."""
         return np.full(X.shape[0], self._t, dtype=np.float64)
 
 
 def _make_composite_component(X, y, base):
+    """Make composite component."""
     inner = _ESComposite().fit(
         X,
         y - base,
@@ -94,6 +100,7 @@ def _make_composite_component(X, y, base):
 
 
 class TestKfoldCompositeESCarve:
+    """Groups tests covering kfold composite e s carve."""
     def test_es_composite_component_survives_kfold_oof(self) -> None:
         """N2: an early-stopping composite component must survive the kfold OOF
         (it gets a carved eval_set). Pre-fix it raised every fold and was
@@ -128,17 +135,20 @@ class _GidRecordingRaw(BaseEstimator, RegressorMixin):
     pred_gids: set = set()
 
     def fit(self, X, y, eval_set=None, sample_weight=None, **kw):
+        """Fit."""
         type(self).fit_gids |= set(np.asarray(X["gid"]).tolist())
         self.n_features_in_ = X.shape[1]
         self._t = float(np.mean(np.asarray(y, dtype=np.float64)))
         return self
 
     def predict(self, X):
+        """Predict."""
         type(self).pred_gids |= set(np.asarray(X["gid"]).tolist())
         return np.full(X.shape[0], self._t, dtype=np.float64)
 
 
 class TestOuterSplitGroupAware:
+    """Groups tests covering outer split group aware."""
     def test_no_group_spans_fit_and_holdout(self) -> None:
         """N3: with group_ids, no group may appear in both the refit-train and
         the OOF holdout of the outer split."""

@@ -114,9 +114,9 @@ def test_missing_fit_col_warns_then_hard_fails(caplog) -> None:
         with pytest.raises(RuntimeError, match="transform failed at predict time"):
             _apply_extensions_pipeline(df, pipe, verbose=0)
     # The "missing fit-time column" WARN must have fired before the hard-fail.
-    assert any("missing" in rec.message and "fit-time" in rec.message and "x0" in rec.message for rec in caplog.records), (
-        f"expected missing-col WARN; got: {[r.message for r in caplog.records]}"
-    )
+    assert any(
+        "missing" in rec.message and "fit-time" in rec.message and "x0" in rec.message for rec in caplog.records
+    ), f"expected missing-col WARN; got: {[r.message for r in caplog.records]}"
 
 
 def test_exact_fit_cols_passes_through_unchanged_subset() -> None:
@@ -140,10 +140,13 @@ def test_pipeline_without_feature_names_in_falls_through() -> None:
 
     class _IdentityNoNames:
         # Mimics a fitted estimator that doesn't expose feature_names_in_.
+        """Groups tests covering identity no names."""
         def transform(self, X):
+            """Transform."""
             return X.values if isinstance(X, pd.DataFrame) else np.asarray(X)
 
         def get_feature_names_out(self):
+            """Get feature names out."""
             return [f"col_{i}" for i in range(6)]
 
     pipe = _IdentityNoNames()

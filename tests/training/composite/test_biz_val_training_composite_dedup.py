@@ -21,6 +21,7 @@ from mlframe.training._composite_target_discovery_config import CompositeTargetD
 
 
 def _make_pool(seed: int, n: int = 4000, n_dup: int = 4, jitter: float = 0.02):
+    """Make pool."""
     rng = np.random.default_rng(seed)
     x = rng.normal(size=n)
     z = rng.normal(size=n)
@@ -33,16 +34,19 @@ def _make_pool(seed: int, n: int = 4000, n_dup: int = 4, jitter: float = 0.02):
 
 
 def _split(M, y, frac=0.5):
+    """Split."""
     cut = int(M.shape[0] * frac)
     return M[:cut], y[:cut], M[cut:], y[cut:]
 
 
 def _nnls_rmse(oof, y_oof, test, y_test):
+    """Nnls rmse."""
     w, _ = nnls(oof, y_oof)
     return float(np.sqrt(np.mean((test @ w - y_test) ** 2)))
 
 
 def _mean_rmse(test, y_test):
+    """Mean rmse."""
     return float(np.sqrt(np.mean((test.mean(axis=1) - y_test) ** 2)))
 
 
@@ -83,14 +87,14 @@ def test_biz_val_ct_ensemble_dedup_does_not_help_nnls_or_mean_on_redundant_pool(
             mean_dedup_worse += 1
 
     # NNLS: dedup does NOT win the majority (measured 1/10).
-    assert nnls_dedup_wins <= len(list(seeds)) // 2, (
-        f"dedup unexpectedly beat the full NNLS stack on {nnls_dedup_wins}/10 seeds -- re-examine the qual-19 REJECT"
-    )
+    assert (
+        nnls_dedup_wins <= len(list(seeds)) // 2
+    ), f"dedup unexpectedly beat the full NNLS stack on {nnls_dedup_wins}/10 seeds -- re-examine the qual-19 REJECT"
     # Mean: dedup is harmful on EVERY seed; aggregate worse by a clear margin (measured +2.8%).
     assert mean_dedup_worse == len(list(seeds)), f"dedup expected to hurt the uniform-mean ensemble on all seeds; hurt only {mean_dedup_worse}/10"
-    assert mean_dedup_total > mean_full_total * 1.01, (
-        "dedup should measurably RAISE uniform-mean holdout RMSE on the redundant pool (lower-variance cluster removed)"
-    )
+    assert (
+        mean_dedup_total > mean_full_total * 1.01
+    ), "dedup should measurably RAISE uniform-mean holdout RMSE on the redundant pool (lower-variance cluster removed)"
 
 
 if __name__ == "__main__":

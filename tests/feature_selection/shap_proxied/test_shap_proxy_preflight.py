@@ -13,6 +13,7 @@ pytest.importorskip("xgboost")
 
 
 def _additive(n=2500, seed=0):
+    """Helper that additive."""
     rng = np.random.default_rng(seed)
     inf = rng.normal(size=(n, 5))
     noise = rng.normal(size=(n, 5))
@@ -49,6 +50,7 @@ def test_preflight_corr_gate_bit_identical_under_iter25_cap():
 
 
 def _xor(n=2500, seed=0):
+    """Helper that xor."""
     rng = np.random.default_rng(seed)
     x = rng.normal(size=(n, 8))
     y = ((x[:, 0] > 0) ^ (x[:, 1] > 0)).astype(int)  # pure interaction
@@ -57,6 +59,7 @@ def _xor(n=2500, seed=0):
 
 @pytest.mark.slow
 def test_biz_val_preflight_favours_additive_flags_interaction():
+    """Biz val preflight favours additive flags interaction."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     add = ShapProxiedFS.preflight(*_additive(), classification=True, random_state=0)
@@ -75,6 +78,7 @@ def test_biz_val_preflight_favours_additive_flags_interaction():
 
 @pytest.mark.slow
 def test_biz_val_preflight_flags_redundancy_and_width():
+    """Biz val preflight flags redundancy and width."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     rng = np.random.default_rng(0)
@@ -139,9 +143,9 @@ def test_preflight_capped_recommendation_matches_legacy_iter17(regime):
         f"ratios legacy={legacy['diagnostics']['additive_ratio']:.3f} "
         f"capped={capped['diagnostics']['additive_ratio']:.3f}"
     )
-    assert sorted(capped["suggestions"]) == sorted(legacy["suggestions"]), (
-        f"regime {regime['name']}: suggestion set changed under cap legacy={legacy['suggestions']} capped={capped['suggestions']}"
-    )
+    assert sorted(capped["suggestions"]) == sorted(
+        legacy["suggestions"]
+    ), f"regime {regime['name']}: suggestion set changed under cap legacy={legacy['suggestions']} capped={capped['suggestions']}"
     # max_abs_corr uses an independent ``max_rows_corr`` knob (default 5000) so the redundancy gate
     # remains bit-for-bit identical to the legacy pre-iter25 implementation.
     assert capped["diagnostics"]["max_abs_corr"] == legacy["diagnostics"]["max_abs_corr"]
@@ -267,9 +271,9 @@ def test_preflight_deep_depth3_recommendation_matches_depth4_iter27(regime):
         f"ratios legacy(d=4)={legacy['diagnostics']['additive_ratio']:.3f} "
         f"new(d=3)={new['diagnostics']['additive_ratio']:.3f}"
     )
-    assert sorted(new["suggestions"]) == sorted(legacy["suggestions"]), (
-        f"regime {regime['name']}: suggestion set changed under d=3 legacy={legacy['suggestions']} new={new['suggestions']}"
-    )
+    assert sorted(new["suggestions"]) == sorted(
+        legacy["suggestions"]
+    ), f"regime {regime['name']}: suggestion set changed under d=3 legacy={legacy['suggestions']} new={new['suggestions']}"
     # The corr-pass is depth-independent (it doesn't fit a booster) so max_abs_corr must be
     # bit-for-bit identical between the two depths.
     assert new["diagnostics"]["max_abs_corr"] == legacy["diagnostics"]["max_abs_corr"]
@@ -294,9 +298,9 @@ def test_preflight_deep_depth3_xor_guard_invariant():
 
     for label, rep in (("d=4", legacy), ("d=3", new)):
         assert rep["recommendation"] in ("caution", "fallback"), f"XOR {label} must flag a guard recommendation, got {rep['recommendation']!r}: {rep}"
-        assert rep["diagnostics"]["additive_ratio"] < 0.6, (
-            f"XOR {label} additive ratio should be interaction-low (<0.6), got {rep['diagnostics']['additive_ratio']}"
-        )
+        assert (
+            rep["diagnostics"]["additive_ratio"] < 0.6
+        ), f"XOR {label} additive ratio should be interaction-low (<0.6), got {rep['diagnostics']['additive_ratio']}"
     # The corr-pass is depth-independent (it doesn't fit a booster) so max_abs_corr must be
     # bit-for-bit identical between the two depths.
     assert new["diagnostics"]["max_abs_corr"] == legacy["diagnostics"]["max_abs_corr"]

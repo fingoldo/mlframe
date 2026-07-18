@@ -44,11 +44,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-
 MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
 def _read(rel: str) -> str:
+    """Read."""
     _path = MLFRAME_ROOT / rel
     if not _path.exists() and _path.suffix == ".py":
         # Monolith-split compat: the flat module became a subpackage
@@ -82,6 +82,7 @@ def test_extractors_classification_target_rejects_nan() -> None:
 
 
 def test_pd_ordinal_encoder_default_uses_minus_one() -> None:
+    """Pd ordinal encoder default uses minus one."""
     src = _read("estimators/custom.py")
     assert "encoded_missing_value=-1" in src
     # transform must guard against NaN -> int32 platform-dependent behaviour.
@@ -92,6 +93,7 @@ def test_dummy_baselines_factorize_filters_negative_codes() -> None:
     # The LTR factorize fast-path was moved to the
     # ``_dummy_compute_helpers.py`` sibling when ``dummy_baselines.py`` was
     # split below 1k LOC.
+    """Dummy baselines factorize filters negative codes."""
     src = _read("training/baselines/_dummy_compute_helpers.py")
     # The fix filters codes>=0 before bincount.
     assert "_factor_codes = pd.factorize(g_train)[0]" in src
@@ -99,12 +101,14 @@ def test_dummy_baselines_factorize_filters_negative_codes() -> None:
 
 
 def test_predict_guards_nan_detection_uses_isnan_not_isfinite() -> None:
+    """Predict guards nan detection uses isnan not isfinite."""
     src = _read("training/_predict_guards.py")
     # The numpy branch must use np.isnan (not ~np.isfinite) for parity.
     assert "_has_nan = bool(np.any(np.isnan(_arr_check[:500])))" in src
 
 
 def test_discretization_nan_filler_supports_raise() -> None:
+    """Discretization nan filler supports raise."""
     src = _read("feature_selection/filters/discretization.py")
     # The fix adds a nan_filler=None branch that raises.
     assert "input contains NaN and nan_filler=None" in src
@@ -127,6 +131,7 @@ def test_target_temporal_audit_drops_nan_before_rate() -> None:
 
 
 def test_bruteforce_fill_uses_median_not_zero() -> None:
+    """Bruteforce fill uses median not zero."""
     src = _read("feature_engineering/bruteforce.py")
     # Polars path uses median instead of 0. The current shape wraps the
     # median inputs in ``.drop_nans()`` so a column that is all-NaN

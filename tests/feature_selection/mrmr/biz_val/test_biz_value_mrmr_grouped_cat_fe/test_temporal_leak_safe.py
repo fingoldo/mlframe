@@ -246,9 +246,9 @@ class TestL92LeakSafe:
             auc_fwd = roc_auc_score(yte, m.predict_proba(fte)[:, 1])
             gaps.append(abs(auc_cv - auc_fwd))
         mean_gap = float(np.mean(gaps))
-        assert mean_gap < 0.05, (
-            f"L92 expanding agg is not leak-safe: |train-CV - forward-holdout| AUC gap {mean_gap:.4f} >= 0.05 (per-seed {[round(g, 4) for g in gaps]})."
-        )
+        assert (
+            mean_gap < 0.05
+        ), f"L92 expanding agg is not leak-safe: |train-CV - forward-holdout| AUC gap {mean_gap:.4f} >= 0.05 (per-seed {[round(g, 4) for g in gaps]})."
 
 
 # ---------------------------------------------------------------------------
@@ -292,9 +292,9 @@ class TestL92RecoversPastMeanSignal:
             fte = apply_recipe(rec, Xte).reshape(-1, 1)
             aucs.append(roc_auc_score(yte, m.predict_proba(fte)[:, 1]))
         mean_auc = float(np.mean(aucs))
-        assert mean_auc >= 0.80, (
-            f"L92 expanding-mean forward-holdout AUC {mean_auc:.4f} < 0.80 (per-seed {[round(a, 4) for a in aucs]}); did not recover the past-mean signal."
-        )
+        assert (
+            mean_auc >= 0.80
+        ), f"L92 expanding-mean forward-holdout AUC {mean_auc:.4f} < 0.80 (per-seed {[round(a, 4) for a in aucs]}); did not recover the past-mean signal."
 
 
 # ---------------------------------------------------------------------------
@@ -360,9 +360,9 @@ class TestLagFeatures:
             assert ln in enc.columns, f"seed={s}: lag-1 not produced."
             aucs.append(roc_auc_score(y, enc[ln].to_numpy()))
         mean_auc = float(np.mean(aucs))
-        assert mean_auc >= 0.80, (
-            f"lag-1 feature AUC {mean_auc:.4f} < 0.80 (per-seed {[round(a, 4) for a in aucs]}); did not capture the autoregressive y = f(value_t-1) signal."
-        )
+        assert (
+            mean_auc >= 0.80
+        ), f"lag-1 feature AUC {mean_auc:.4f} < 0.80 (per-seed {[round(a, 4) for a in aucs]}); did not capture the autoregressive y = f(value_t-1) signal."
 
 
 # ---------------------------------------------------------------------------

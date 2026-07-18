@@ -20,10 +20,12 @@ import mlframe.training.composite.qrf as qrf
 
 def test_batch_kernel_symbol_exists_and_is_njit():
     # Pre-fix code had no batched kernel; importing the symbol fails on the old module.
+    """Batch kernel symbol exists and is njit."""
     assert hasattr(qrf, "_batch_weighted_quantiles_kernel")
 
 
 def _fit_estimator(seed: int = 1):
+    """Fit estimator."""
     rng = np.random.default_rng(seed)
     n = 3000
     X = rng.standard_normal((n, 4))
@@ -36,6 +38,7 @@ def _fit_estimator(seed: int = 1):
 
 @pytest.mark.skipif(not qrf._HAS_NUMBA, reason="numba required for the kernel path")
 def test_kernel_path_matches_python_per_row_path():
+    """Kernel path matches python per row path."""
     est, df = _fit_estimator()
     levels = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
     qrf._HAS_NUMBA = True
@@ -54,6 +57,7 @@ def test_kernel_path_matches_python_per_row_path():
 def test_kernel_handles_all_zero_weight_row_as_nan():
     # A query row whose leaf-weights are all zero must yield NaN (transform fallback), matching
     # the Python path's ``total <= 0`` branch. Drive the kernel directly with a zero row.
+    """Kernel handles all zero weight row as nan."""
     w = np.zeros((3, 50), dtype=np.float64)
     w[0, 5] = 1.0
     w[2, 10] = 0.5

@@ -28,7 +28,6 @@ import tempfile
 from pathlib import Path
 
 
-
 def test_atomic_write_bytes_accepts_fsync_kwarg():
     """The kwarg must be keyword-only and default to False (perf-over-
     legacy policy 2026-05-20: per-file fsync on Windows costs ~400ms and
@@ -56,9 +55,9 @@ def test_save_mlframe_model_accepts_durable_kwarg():
     from mlframe.training.io import save_mlframe_model
 
     sig = inspect.signature(save_mlframe_model)
-    assert "durable" in sig.parameters, (
-        "save_mlframe_model lost the ``durable`` kwarg; bench / test paths can no longer opt out of the per-file 400ms fsync cost."
-    )
+    assert (
+        "durable" in sig.parameters
+    ), "save_mlframe_model lost the ``durable`` kwarg; bench / test paths can no longer opt out of the per-file 400ms fsync cost."
     p = sig.parameters["durable"]
     assert p.default is False, (
         f"save_mlframe_model ``durable`` default changed from False to {p.default!r}; "
@@ -76,6 +75,7 @@ def test_save_mlframe_model_durable_false_skips_fsync(monkeypatch, tmp_path):
     _orig_fsync = os.fsync
 
     def _spy_fsync(fd):
+        """Spy fsync."""
         fsync_calls["n"] += 1
         return _orig_fsync(fd)
 
@@ -111,6 +111,7 @@ def test_save_mlframe_model_durable_true_does_fsync(monkeypatch, tmp_path):
     _orig_fsync = os.fsync
 
     def _spy_fsync(fd):
+        """Spy fsync."""
         fsync_calls["n"] += 1
         return _orig_fsync(fd)
 
@@ -129,9 +130,9 @@ def test_save_mlframe_model_durable_true_does_fsync(monkeypatch, tmp_path):
         durable=True,
     )
     assert ok
-    assert fsync_calls["n"] >= 1, (
-        "save_mlframe_model with explicit durable=True did NOT call os.fsync; callers that opt-in to crash-durability now silently lose it."
-    )
+    assert (
+        fsync_calls["n"] >= 1
+    ), "save_mlframe_model with explicit durable=True did NOT call os.fsync; callers that opt-in to crash-durability now silently lose it."
 
 
 def test_save_mlframe_model_default_skips_fsync(monkeypatch, tmp_path):
@@ -145,6 +146,7 @@ def test_save_mlframe_model_default_skips_fsync(monkeypatch, tmp_path):
     _orig_fsync = os.fsync
 
     def _spy_fsync(fd):
+        """Spy fsync."""
         fsync_calls["n"] += 1
         return _orig_fsync(fd)
 

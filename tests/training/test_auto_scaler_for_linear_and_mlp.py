@@ -13,7 +13,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Sanity: strategy flags + pipeline-built StandardScaler
 # ---------------------------------------------------------------------------
@@ -84,21 +83,25 @@ def _try_register_family(name: str, factory):
 
 
 def _cb_factory():
+    """Cb factory."""
     cb = pytest.importorskip("catboost")
     return cb.CatBoostRegressor(iterations=50, depth=4, verbose=False, allow_writing_files=False)
 
 
 def _xgb_factory():
+    """Xgb factory."""
     xgb = pytest.importorskip("xgboost")
     return xgb.XGBRegressor(n_estimators=50, max_depth=4, verbosity=0)
 
 
 def _lgb_factory():
+    """Lgb factory."""
     lgb = pytest.importorskip("lightgbm")
     return lgb.LGBMRegressor(n_estimators=50, num_leaves=15, verbose=-1, random_state=0)
 
 
 def _linear_factory():
+    """Linear factory."""
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
     from sklearn.linear_model import LinearRegression
@@ -156,6 +159,6 @@ def test_model_family_learns_on_large_magnitude_target(family_name: str, factory
     ratio = rmse / target_std
 
     # Every family must learn -- RMSE strictly below 50% of target std on the hold-out.
-    assert ratio < 0.5, (
-        f"{family_name} did NOT learn on large-magnitude target -- rmse={rmse:.2f}, target_std={target_std:.2f}, ratio={ratio:.3f}. The 2026-05-11 TVT failure mode (predicting near-mean against mean=11500) reproduces if this fails."
-    )
+    assert (
+        ratio < 0.5
+    ), f"{family_name} did NOT learn on large-magnitude target -- rmse={rmse:.2f}, target_std={target_std:.2f}, ratio={ratio:.3f}. The 2026-05-11 TVT failure mode (predicting near-mean against mean=11500) reproduces if this fails."

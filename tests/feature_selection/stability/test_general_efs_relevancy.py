@@ -51,6 +51,7 @@ def _build_bins_with_known_signal(n: int = 500, n_informative: int = 2, n_noise:
 
 
 def test_relevancy_returns_4_tuple():
+    """Relevancy returns 4 tuple."""
     bins = _build_bins_with_known_signal(n=300)
     result = estimate_features_relevancy(
         bins=bins,

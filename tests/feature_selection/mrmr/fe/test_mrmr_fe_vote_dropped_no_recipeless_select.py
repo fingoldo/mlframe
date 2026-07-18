@@ -38,6 +38,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _user_case2_df_and_y(n: int, seed: int = 0):
+    """User case2 df and y."""
     rng = np.random.RandomState(seed)
     a = rng.rand(n)
     b = rng.rand(n)
@@ -51,16 +52,19 @@ def _user_case2_df_and_y(n: int, seed: int = 0):
 
 
 class _CaptureHandler(logging.Handler):
+    """Groups tests covering CaptureHandler."""
     def __init__(self):
         super().__init__()
         self.messages: list[str] = []
 
     def emit(self, record):
+        """Helper that emit."""
         self.messages.append(record.getMessage())
 
 
 @pytest.mark.parametrize("n", [40000])
 def test_mrmr_fe_vote_dropped_feature_not_select_then_dropped(n):
+    """Mrmr fe vote dropped feature not select then dropped."""
     df, y = _user_case2_df_and_y(n)
 
     handler = _CaptureHandler()
@@ -85,9 +89,9 @@ def test_mrmr_fe_vote_dropped_feature_not_select_then_dropped(n):
 
     # (2) Every advertised output feature must actually be produced by transform().
     missing_from_transform = [nm for nm in names_out if nm not in out_cols]
-    assert not missing_from_transform, (
-        f"get_feature_names_out advertises feature(s) that transform() does not produce: {missing_from_transform} (out_cols={out_cols})"
-    )
+    assert (
+        not missing_from_transform
+    ), f"get_feature_names_out advertises feature(s) that transform() does not produce: {missing_from_transform} (out_cols={out_cols})"
 
     # (3) Every discovered engineered feature must survive transform() (no silent drop).
     discovered_missing = [nm for nm in discovered if nm not in out_cols]

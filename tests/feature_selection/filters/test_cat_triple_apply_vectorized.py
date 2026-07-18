@@ -12,6 +12,7 @@ import pytest
 
 
 def _per_row_loop(X_test, cat_a, cat_b, cat_c, mapping, *, encoding="raw", te_lookup=None, global_mean=0.0):
+    """Per row loop."""
     from mlframe.feature_selection.filters._target_encoding_fe import _column_to_str
 
     cats_a = _column_to_str(X_test[cat_a])
@@ -36,6 +37,7 @@ def _per_row_loop(X_test, cat_a, cat_b, cat_c, mapping, *, encoding="raw", te_lo
 @pytest.mark.parametrize("card", [3, 8, 25])
 @pytest.mark.parametrize("encoding", ["raw", "target"])
 def test_vectorized_replay_bit_identical_to_per_row_loop(card, encoding):
+    """Vectorized replay bit identical to per row loop."""
     from mlframe.feature_selection.filters._cat_triple_fe import apply_cat_triple_cross, _encode_triple
     from mlframe.feature_selection.filters._target_encoding_fe import _column_to_str
 
@@ -73,6 +75,7 @@ def test_vectorized_replay_bit_identical_to_per_row_loop(card, encoding):
 
 
 def test_empty_frame_returns_empty_float():
+    """Empty frame returns empty float."""
     from mlframe.feature_selection.filters._cat_triple_fe import apply_cat_triple_cross
 
     empty = pd.DataFrame({"a": [], "b": [], "c": []})

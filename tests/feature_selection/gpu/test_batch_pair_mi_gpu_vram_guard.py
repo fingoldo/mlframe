@@ -47,6 +47,7 @@ from mlframe.feature_selection.filters.batch_pair_mi_gpu import (
 
 
 def _build_pair_inputs(n_samples=500, nbins_per_col=(4, 4, 4, 4), n_classes_y=2, seed=0):
+    """Build pair inputs."""
     rng = np.random.default_rng(seed)
     cols = [rng.integers(0, nb, size=n_samples) for nb in nbins_per_col]
     data = np.column_stack(cols).astype(np.int32)
@@ -78,11 +79,14 @@ def test_gpu_upload_fits_rejection_is_never_silent(monkeypatch, caplog):
     _data, _nbins, _classes_y, _freqs_y, _pair_a, _pair_b = _build_pair_inputs(n_samples=1000, nbins_per_col=(4,) * 20)
 
     class _FakeCupyRuntime:
+        """Groups tests covering FakeCupyRuntime."""
         @staticmethod
         def memGetInfo():
+            """Helper that memGetInfo."""
             return 100 * 1024**2, 4 * 1024**3  # 100 MiB free / 4 GiB total -- tiny, forces a reject
 
     class _FakeCupy:
+        """Groups tests covering FakeCupy."""
         cuda = type("cuda", (), {"runtime": _FakeCupyRuntime})
 
     monkeypatch.setitem(__import__("sys").modules, "cupy", _FakeCupy)
@@ -111,11 +115,13 @@ def test_forced_cuda_vram_insufficient_uses_row_chunked_not_bare_fallback(monkey
     monkeypatch.setattr(bpmg, "_gpu_upload_fits", lambda required_bytes, **kw: False)
 
     def _boom_full(*a, **kw):
+        """Boom full."""
         raise AssertionError("batch_pair_mi_cuda (full-upload) must NOT be invoked when the VRAM guard fails")
 
     calls = {"row_chunked": 0}
 
     def _fake_row_chunked(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y):
+        """Fake row chunked."""
         calls["row_chunked"] += 1
         return np.zeros(pair_a.shape[0], dtype=np.float64)
 
@@ -136,9 +142,11 @@ def test_falls_back_to_cpu_only_when_row_chunked_also_fails(monkeypatch, caplog)
     monkeypatch.setattr(bpmg, "_gpu_upload_fits", lambda required_bytes, **kw: False)
 
     def _boom_full(*a, **kw):
+        """Boom full."""
         raise AssertionError("batch_pair_mi_cuda (full-upload) must NOT be invoked when the VRAM guard fails")
 
     def _boom_row_chunked(*a, **kw):
+        """Boom row chunked."""
         raise RuntimeError("simulated row-chunked failure too")
 
     monkeypatch.setattr(bpmg, "batch_pair_mi_cuda", _boom_full)
@@ -174,6 +182,7 @@ def test_forced_cupy_falls_back_to_cpu_when_vram_insufficient(monkeypatch, caplo
     monkeypatch.setattr(bpmg, "_CUDA_AVAIL", False)
 
     def _boom(*a, **kw):
+        """Helper that boom."""
         raise AssertionError("batch_pair_mi_cupy must NOT be invoked when the VRAM guard fails")
 
     monkeypatch.setattr(bpmg, "batch_pair_mi_cupy", _boom)
@@ -187,6 +196,7 @@ def test_forced_cupy_falls_back_to_cpu_when_vram_insufficient(monkeypatch, caplo
 
 
 def test_auto_choice_cuda_falls_back_via_row_chunked_when_vram_insufficient(monkeypatch):
+    """Auto choice cuda falls back via row chunked when vram insufficient."""
     data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs()
     monkeypatch.setattr(bpmg, "_CUDA_AVAIL", True)
     monkeypatch.setattr(bpmg, "_CUPY_AVAIL", False)
@@ -194,9 +204,11 @@ def test_auto_choice_cuda_falls_back_via_row_chunked_when_vram_insufficient(monk
     monkeypatch.setattr(bpmg, "_gpu_upload_fits", lambda required_bytes, **kw: False)
 
     def _boom_full(*a, **kw):
+        """Boom full."""
         raise AssertionError("batch_pair_mi_cuda (full-upload) must NOT be invoked when the VRAM guard fails")
 
     def _fake_row_chunked(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y):
+        """Fake row chunked."""
         return np.zeros(pair_a.shape[0], dtype=np.float64)
 
     monkeypatch.setattr(bpmg, "batch_pair_mi_cuda", _boom_full)
@@ -219,6 +231,7 @@ def test_auto_choice_cuda_uses_gpu_when_vram_fits(monkeypatch):
     calls = {"n": 0}
 
     def _fake_cuda(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y):
+        """Fake cuda."""
         calls["n"] += 1
         return np.zeros(pair_a.shape[0], dtype=np.float64)
 
@@ -246,6 +259,7 @@ def test_cuda_driver_fault_falls_through_row_chunked_then_cpu(monkeypatch):
     monkeypatch.setattr(bpmg, "_gpu_upload_fits", lambda required_bytes, **kw: True)
 
     def _fault(*a, **kw):
+        """Helper that fault."""
         raise _SimulatedCudaDriverFault("CUDA_ERROR_LAUNCH_FAILED")
 
     monkeypatch.setattr(bpmg, "batch_pair_mi_cuda", _fault)

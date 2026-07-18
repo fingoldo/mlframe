@@ -26,6 +26,7 @@ def _make_step_frame(n=1200, p=8, seed=0):
 
 
 def test_max_cols_none_preserves_legacy_behavior():
+    """Max cols none preserves legacy behavior."""
     X, y = _make_step_frame(p=5)
     eng_unbounded, _meta_unbounded = generate_wavelet_features(X, y=y, max_cols=None)
     eng_explicit_default, _meta_explicit_default = generate_wavelet_features(X, y=y)
@@ -33,6 +34,7 @@ def test_max_cols_none_preserves_legacy_behavior():
 
 
 def test_max_cols_zero_emits_no_wavelet_columns():
+    """Max cols zero emits no wavelet columns."""
     X, y = _make_step_frame(p=5)
     eng, meta = generate_wavelet_features(X, y=y, max_cols=0)
     assert eng.empty

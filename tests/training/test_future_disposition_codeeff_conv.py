@@ -10,7 +10,6 @@ import inspect
 from pathlib import Path
 
 
-
 def _read(rel: str) -> str:
     """Read a module source file from the mlframe src tree.
 
@@ -61,6 +60,7 @@ def _read(rel: str) -> str:
 
 
 def test_codep14_run_temporal_audit_batch_has_no_df_param():
+    """Codep14 run temporal audit batch has no df param."""
     from mlframe.training.core._phase_temporal_audit import run_temporal_audit_batch
 
     sig = inspect.signature(run_temporal_audit_batch)
@@ -68,6 +68,7 @@ def test_codep14_run_temporal_audit_batch_has_no_df_param():
 
 
 def test_codep14_main_does_not_pass_df_to_temporal_audit():
+    """Codep14 main does not pass df to temporal audit."""
     src = _read("training/core/main.py")
     # The call site must not pass df=...
     assert "run_temporal_audit_batch(" in src
@@ -82,12 +83,14 @@ def test_codep14_main_does_not_pass_df_to_temporal_audit():
 
 
 def test_codep17_prep_polars_df_lives_in_misc_helpers():
+    """Codep17 prep polars df lives in misc helpers."""
     from mlframe.training.core import _misc_helpers as mh
 
     assert hasattr(mh, "_prep_polars_df"), "CODE-P1-7 regression: _prep_polars_df missing from _misc_helpers"
 
 
 def test_codep17_no_local_main_import_in_train_one_target():
+    """Codep17 no local main import in train one target."""
     src = _read("training/core/_phase_train_one_target.py")
     assert "from .main import _prep_polars_df" not in src, "CODE-P1-7 regression: _train_one_target hot loop still locally imports _prep_polars_df from .main"
 
@@ -96,6 +99,7 @@ def test_codep17_no_local_main_import_in_train_one_target():
 
 
 def test_codep110_fingerprint_cache_attr_on_ctx():
+    """Codep110 fingerprint cache attr on ctx."""
     from mlframe.training.core._training_context import TrainingContext
 
     ctx = TrainingContext()
@@ -140,6 +144,7 @@ def test_codep18_phase_runners_namespace_present():
 
 
 def test_codep18_main_uses_phase_runner_namespace():
+    """Codep18 main uses phase runner namespace."""
     src = _read("training/core/main.py")
     # The consolidated import must be present.
     assert "from . import _phase_runners as pr" in src
@@ -164,6 +169,7 @@ def test_codep18_main_uses_phase_runner_namespace():
 
 
 def test_codep112_train_recurrent_models_reads_from_ctx():
+    """Codep112 train recurrent models reads from ctx."""
     src = _read("training/core/main.py")
     # The call to train_recurrent_models must pass recurrent_models from ctx.recurrent_models
     # not from the closed-over function param. After the fix the call uses ctx.recurrent_models.
@@ -178,9 +184,9 @@ def test_codep112_train_recurrent_models_reads_from_ctx():
     if rec_line:
         # Either it reads from ctx or there is no recurrent_models= line at all.
         for l in rec_line:
-            assert "ctx.recurrent_models" in l, (
-                "CODE-P1-12 regression: train_recurrent_models() still receives the closed-over param instead of reading ctx.recurrent_models at call time"
-            )
+            assert (
+                "ctx.recurrent_models" in l
+            ), "CODE-P1-12 regression: train_recurrent_models() still receives the closed-over param instead of reading ctx.recurrent_models at call time"
 
 
 # ---------- CODE-P2-8: inspect import at module top ----------
@@ -192,9 +198,9 @@ def test_codep28_inspect_imported_at_module_top():
     inflating per-call dispatch cost in tight loops)."""
     from mlframe.training.core import _phase_train_one_target as pt
 
-    assert hasattr(pt, "inspect"), (
-        "CODE-P2-8 regression: ``inspect`` not bound at module level of _phase_train_one_target; expected `import inspect` at module top."
-    )
+    assert hasattr(
+        pt, "inspect"
+    ), "CODE-P2-8 regression: ``inspect`` not bound at module level of _phase_train_one_target; expected `import inspect` at module top."
     import inspect as _inspect_canonical
 
     assert pt.inspect is _inspect_canonical, "module-level ``inspect`` is not the std-lib module"
@@ -216,6 +222,7 @@ def test_codelow2_no_redundant_slug_assignment():
 
 
 def test_codelow3_models_dir_read_once():
+    """Codelow3 models dir read once."""
     src = _read("training/core/_phase_train_one_target.py")
     # `models_dir = ctx.models_dir` must appear exactly once at the top of _train_one_target.
     count = src.count("models_dir = ctx.models_dir")
@@ -243,6 +250,7 @@ def test_codelow7_dataset_reuse_helper_supports_bidirectional_transfer():
     from mlframe.training.core import _phase_train_one_target as pt
 
     class _Bag:
+        """Groups tests covering bag."""
         pass
 
     src = _Bag()
@@ -271,6 +279,7 @@ def test_codelow7_dataset_reuse_helper_supports_bidirectional_transfer():
 
 
 def test_convmed5_pandas_view_cache_attr_on_ctx():
+    """Convmed5 pandas view cache attr on ctx."""
     from mlframe.training.core._training_context import TrainingContext
 
     ctx = TrainingContext()
@@ -289,6 +298,7 @@ def test_convmed5_cache_used_in_train_one_target():
 
 
 def test_convlow15_preprocessing_uses_native_is_infinite():
+    """Convlow15 preprocessing uses native is infinite."""
     src = _read("training/preprocessing.py")
     # CONV-LOW-15: the polars _frame_contains_inf branch must use the native expression-side
     # ``df[name].is_infinite().any()`` rather than going through ``np.isinf(series.to_numpy())``.
@@ -317,9 +327,9 @@ def test_codelow6_profile_harness_module_present():
     harness = repo_root / "tests" / "perf" / "profile_train_mlframe_models_suite.py"
     assert harness.is_file(), f"CODE-LOW-6 regression: profile harness missing at {harness}"
     txt = harness.read_text(encoding="utf-8")
-    assert "cProfile" in txt and "tests/perf/results" in txt.replace("\\", "/"), (
-        "CODE-LOW-6 regression: harness must invoke cProfile and write to tests/perf/results/"
-    )
+    assert "cProfile" in txt and "tests/perf/results" in txt.replace(
+        "\\", "/"
+    ), "CODE-LOW-6 regression: harness must invoke cProfile and write to tests/perf/results/"
 
 
 # ---------- CODE-P1-13: tqdmu_lazy_start audit ----------
@@ -354,6 +364,6 @@ def test_convhigh1_clone_gate_documented():
     src = _read("training/core/_phase_helpers.py")
     if "needs_polars_pre_clone" in src and ".clone()" in src:
         # If the gated clone still exists, a CONV-HIGH-1 marker must be present documenting why.
-        assert "CONV-HIGH-1" in src, (
-            "CONV-HIGH-1 regression: gated clone()s still present but no CONV-HIGH-1 TODO/marker explains the destructive operation that requires them"
-        )
+        assert (
+            "CONV-HIGH-1" in src
+        ), "CONV-HIGH-1 regression: gated clone()s still present but no CONV-HIGH-1 TODO/marker explains the destructive operation that requires them"

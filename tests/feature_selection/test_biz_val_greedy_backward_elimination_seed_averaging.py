@@ -19,6 +19,7 @@ from mlframe.feature_selection.greedy_backward_elimination import greedy_backwar
 
 
 def _make_borderline_regression(n: int, weak_coef: float, noise_scale: float, seed: int):
+    """Make borderline regression."""
     rng = np.random.default_rng(seed)
     strong = rng.normal(size=(n, 2))
     weak = rng.normal(size=(n, 1))
@@ -32,6 +33,7 @@ def test_biz_val_greedy_backward_elimination_seed_averaging_more_consistent_than
     # noisy CV run frequently (mis)judges dropping "weak" as an improvement; averaging over several
     # independently-shuffled splits before deciding should surface its real, if small, contribution far
     # more consistently. Both X/y and every CV seed are fixed, so the counts below are deterministic.
+    """Biz val greedy backward elimination seed averaging more consistent than single run."""
     n_trials = 10
     X, y = _make_borderline_regression(n=30, weak_coef=0.45, noise_scale=2.0, seed=7)
 
@@ -59,6 +61,7 @@ def test_biz_val_greedy_backward_elimination_seed_averaging_more_consistent_than
 
 
 def test_greedy_backward_elimination_n_repeats_default_is_bit_identical_to_single_run():
+    """Greedy backward elimination n repeats default is bit identical to single run."""
     X, y = _make_borderline_regression(n=50, weak_coef=0.6, noise_scale=1.0, seed=3)
     cv = KFold(n_splits=3, shuffle=True, random_state=0)
 

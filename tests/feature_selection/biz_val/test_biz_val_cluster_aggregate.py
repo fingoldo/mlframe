@@ -21,17 +21,18 @@ warnings.filterwarnings("ignore")
 from tests.feature_selection._biz_val_synth import make_latent_reflections, make_two_latent_groups, as_df
 from sklearn.metrics import roc_auc_score
 
-
 pytestmark = pytest.mark.timeout(
     240
 )  # untimed biz_val real-fit tier: hang-detector, not a perf budget. The module-scoped full-mode MRMR fixture fits legitimately run ~75-90s on many-core/contended hosts; 60s killed a progressing fit mid-way. 240s stays well under the coarse 600s global backstop while still surfacing a true hang fast.
 
 
 def _abs_corr(a, b):
+    """Abs corr."""
     return abs(np.corrcoef(np.asarray(a, dtype=float), np.asarray(b, dtype=float))[0, 1])
 
 
 def _make_model(name):
+    """Make model."""
     if name == "logreg":
         from sklearn.linear_model import LogisticRegression
 
@@ -195,6 +196,7 @@ def test_biz_val_two_clusters_two_latent_factors(two_group_fit):
 
 
 def _auc(sel, model_name, Xtr, ytr, Xte, yte):
+    """Helper that auc."""
     Atr, Ate = sel.transform(Xtr), sel.transform(Xte)
     m = _make_model(model_name).fit(np.asarray(Atr, float), ytr)
     return roc_auc_score(yte, m.predict_proba(np.asarray(Ate, float))[:, 1])

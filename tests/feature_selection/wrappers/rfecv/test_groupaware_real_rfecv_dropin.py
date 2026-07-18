@@ -14,6 +14,7 @@ warnings.filterwarnings("ignore")
 
 
 def _wide_corr(n=900, n_groups=5, per=6, n_noise=10, seed=0):
+    """Wide corr."""
     rng = np.random.default_rng(seed)
     latents = [rng.standard_normal(n) for _ in range(n_groups)]
     cols = {}
@@ -29,6 +30,7 @@ def _wide_corr(n=900, n_groups=5, per=6, n_noise=10, seed=0):
 
 
 def test_groupaware_wraps_real_mlframe_rfecv():
+    """Groupaware wraps real mlframe rfecv."""
     from sklearn.linear_model import LogisticRegression
 
     from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
@@ -56,6 +58,7 @@ def test_groupaware_wraps_real_mlframe_rfecv():
 def test_guard_bypasses_on_uncorrelated_data():
     # No correlated clusters -> reduction below min_reduction -> bypass to a full
     # inner fit. support_ must equal what the bare inner selector would give.
+    """Guard bypasses on uncorrelated data."""
     from sklearn.feature_selection import RFECV as SkRFECV
     from sklearn.linear_model import LogisticRegression
 
@@ -80,6 +83,7 @@ def test_guard_bypasses_on_uncorrelated_data():
 def test_registry_rfecv_is_cluster_reduced_by_default():
     # The suite instantiates RFECV via the registry; medoid reduction must be
     # DEFAULT-ON (returns a GroupAwareMRMR wrapping RFECV).
+    """Registry rfecv is cluster reduced by default."""
     from sklearn.linear_model import LogisticRegression
 
     from mlframe.feature_selection import registry
@@ -97,6 +101,7 @@ def test_registry_rfecv_is_cluster_reduced_by_default():
 
 
 def test_registry_rfecv_cluster_reduce_false_returns_bare():
+    """Registry rfecv cluster reduce false returns bare."""
     from sklearn.linear_model import LogisticRegression
 
     from mlframe.feature_selection import registry
@@ -109,6 +114,7 @@ def test_registry_rfecv_cluster_reduce_false_returns_bare():
 def test_groupaware_wraps_borutashap_via_accepted_names():
     # BorutaShap exposes selection via ``accepted`` (names), not support_;
     # _inner_support_indices must map it back. Validates the BorutaShap drop-in.
+    """Groupaware wraps borutashap via accepted names."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
     from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
 
@@ -124,6 +130,7 @@ def test_groupaware_wraps_borutashap_via_accepted_names():
 
 
 def test_registry_borutashap_is_cluster_reduced_by_default():
+    """Registry borutashap is cluster reduced by default."""
     from mlframe.feature_selection import registry
     from mlframe.feature_selection.boruta_shap import BorutaShap
     from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
@@ -138,6 +145,7 @@ def test_groupaware_borutashap_accepted_matches_expanded_selection():
     # The suite reads ``accepted`` (names) for BorutaShap diagnostics; the wrapper
     # must report the EXPANDED selection (agreeing with transform/support_), not
     # the inner's medoid-only accepted list.
+    """Groupaware borutashap accepted matches expanded selection."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
     from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
 
@@ -147,6 +155,6 @@ def test_groupaware_borutashap_accepted_matches_expanded_selection():
         corr_threshold=0.9,
         corr_method="pearson",
     ).fit(X, y)
-    assert set(g.accepted) == set(g.get_feature_names_out()), (
-        "GroupAwareMRMR.accepted (BorutaShap report contract) must equal the expanded selection, not the inner medoid-only accepted set"
-    )
+    assert set(g.accepted) == set(
+        g.get_feature_names_out()
+    ), "GroupAwareMRMR.accepted (BorutaShap report contract) must equal the expanded selection, not the inner medoid-only accepted set"

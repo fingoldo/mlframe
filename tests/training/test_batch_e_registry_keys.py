@@ -18,6 +18,7 @@ import numpy as np
 
 
 def _regression_frame(seed=11, n=1200):
+    """Regression frame."""
     import polars as pl
 
     rng = np.random.default_rng(seed)
@@ -29,6 +30,7 @@ def _regression_frame(seed=11, n=1200):
 
 
 def _classification_frame(seed=13, n=1200):
+    """Classification frame."""
     import polars as pl
 
     rng = np.random.default_rng(seed)
@@ -42,6 +44,7 @@ def _classification_frame(seed=13, n=1200):
 
 
 def _run_suite(tmp_path, df, mlframe_models, regression):
+    """Run suite."""
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.configs import (
         PreprocessingBackendConfig,
@@ -76,6 +79,7 @@ def _run_suite(tmp_path, df, mlframe_models, regression):
 
 
 def _trained_entries(models):
+    """Trained entries."""
     trained = [e for per_target in models.values() for entries in per_target.values() for e in entries]
     return [e[0] if isinstance(e, tuple) and e else e for e in trained]
 
@@ -86,6 +90,7 @@ def _trained_entries(models):
 
 
 def test_unit_bagged_composite_estimator_fit_predict():
+    """Unit bagged composite estimator fit predict."""
     from lightgbm import LGBMRegressor
     from mlframe.training.composite.bagging import BaggedCompositeEstimator
 
@@ -100,6 +105,7 @@ def test_unit_bagged_composite_estimator_fit_predict():
 
 
 def test_unit_composite_classification_estimator_fit_predict():
+    """Unit composite classification estimator fit predict."""
     from lightgbm import LGBMClassifier
     from mlframe.training.composite.classification import CompositeClassificationEstimator
 
@@ -121,6 +127,7 @@ def test_unit_composite_classification_estimator_fit_predict():
 
 
 def test_e2e_bagging_key_trains_and_predicts(tmp_path):
+    """E2e bagging key trains and predicts."""
     from mlframe.training.composite.bagging import BaggedCompositeEstimator
 
     models, _metadata = _run_suite(tmp_path, _regression_frame(), ["bagging"], regression=True)
@@ -146,6 +153,7 @@ def test_e2e_bagging_key_trains_and_predicts(tmp_path):
 
 
 def test_e2e_composite_classification_key_trains_and_predicts(tmp_path):
+    """E2e composite classification key trains and predicts."""
     from mlframe.training.composite.classification import CompositeClassificationEstimator
 
     models, _metadata = _run_suite(tmp_path, _classification_frame(), ["composite_classification"], regression=False)
@@ -189,6 +197,7 @@ def test_existing_keys_unperturbed_by_new_registry_entries(tmp_path):
 
 
 def test_default_allowlist_does_not_auto_include_new_keys(tmp_path):
+    """Default allowlist does not auto include new keys."""
     from mlframe.training.composite.bagging import BaggedCompositeEstimator
 
     models, _metadata = _run_suite(tmp_path, _regression_frame(), None, regression=True)

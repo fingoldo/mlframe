@@ -26,14 +26,15 @@ from mlframe.training.composite import (
     get_transform,
 )
 
-
 # ---------------------------------------------------------------------------
 # Unit: fit + bin assignment
 # ---------------------------------------------------------------------------
 
 
 class TestFit:
+    """Groups tests covering fit."""
     def test_default_n_bins_and_min_bin_n(self) -> None:
+        """Default n bins and min bin n."""
         rng = np.random.default_rng(0)
         n = 2000
         base = rng.normal(loc=10.0, scale=2.0, size=n)
@@ -74,6 +75,7 @@ class TestFit:
         assert params["bin_iqrs"].size == 1
 
     def test_assign_bins_in_range(self) -> None:
+        """Assign bins in range."""
         edges = np.array([-np.inf, 2.0, 5.0, np.inf], dtype=np.float64)
         base = np.array([0.0, 1.9, 2.0, 3.0, 5.0, 5.1, 10.0])
         bins = _quantile_residual_assign_bins(base, edges)
@@ -81,6 +83,7 @@ class TestFit:
         assert bins.tolist() == [0, 0, 1, 1, 2, 2, 2]
 
     def test_assign_bins_out_of_range_maps_to_edge(self) -> None:
+        """Assign bins out of range maps to edge."""
         edges = np.array([-np.inf, 2.0, 5.0, np.inf], dtype=np.float64)
         base = np.array([-1e9, 1e9])
         bins = _quantile_residual_assign_bins(base, edges)
@@ -94,7 +97,9 @@ class TestFit:
 
 
 class TestRoundTrip:
+    """Groups tests covering round trip."""
     def test_round_trip_on_homoscedastic_dgp(self) -> None:
+        """Round trip on homoscedastic dgp."""
         rng = np.random.default_rng(2)
         n = 1500
         base = rng.normal(loc=10.0, scale=3.0, size=n)
@@ -123,13 +128,16 @@ class TestRoundTrip:
 
 
 class TestDomain:
+    """Groups tests covering domain."""
     def test_rejects_non_finite_base(self) -> None:
+        """Rejects non finite base."""
         base = np.array([1.0, 2.0, np.nan, np.inf, 5.0])
         y = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         mask = _quantile_residual_domain(y, base)
         np.testing.assert_array_equal(mask, [True, True, False, False, True])
 
     def test_y_none_only_checks_base(self) -> None:
+        """Y none only checks base."""
         base = np.array([1.0, np.nan, 3.0])
         mask = _quantile_residual_domain(None, base)
         np.testing.assert_array_equal(mask, [True, False, True])
@@ -147,6 +155,7 @@ class TestBizValueQuantileResidualOnHeteroscedasticDGP:
     """
 
     def _make_hetero_dgp(self, n: int = 5000, seed: int = 0):
+        """Make hetero dgp."""
         rng = np.random.default_rng(seed)
         # base in [1, 11]; noise std scales LINEARLY with base.
         base = rng.uniform(low=1.0, high=11.0, size=n)
@@ -155,6 +164,7 @@ class TestBizValueQuantileResidualOnHeteroscedasticDGP:
 
     @staticmethod
     def _bin_var_ratio(T: np.ndarray, base: np.ndarray, n_bins: int = 10) -> float:
+        """Bin var ratio."""
         edges = np.quantile(base, np.linspace(0.0, 1.0, n_bins + 1))
         edges[0] = -np.inf
         edges[-1] = np.inf
@@ -166,6 +176,7 @@ class TestBizValueQuantileResidualOnHeteroscedasticDGP:
         return float(finite.max() / max(finite.min(), 1e-12))
 
     def test_quantile_residual_iid_variance_beats_linear(self) -> None:
+        """Quantile residual iid variance beats linear."""
         y, base = self._make_hetero_dgp()
         # Quantile residual.
         qr_params = _quantile_residual_fit(y, base, n_bins=10, min_bin_n=50)

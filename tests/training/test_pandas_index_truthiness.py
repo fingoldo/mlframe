@@ -22,6 +22,7 @@ class TestPandasIndexColumns:
     """``columns=df.columns`` (pd.Index) used to crash; now should run."""
 
     def test_pd_index_does_not_crash_reporter(self) -> None:
+        """Pd index does not crash reporter."""
         df = pd.DataFrame({"a": [0.0, 1.0, 2.0, 3.0], "b": [1.0, 0.0, 1.0, 2.0]})
         y = np.array([0.5, 1.5, 1.0, 2.5])
         preds = np.array([0.4, 1.4, 1.1, 2.6])
@@ -37,6 +38,7 @@ class TestPandasIndexColumns:
         )
 
     def test_empty_pd_index_does_not_crash_reporter(self) -> None:
+        """Empty pd index does not crash reporter."""
         y = np.array([0.5, 1.5, 1.0, 2.5])
         preds = np.array([0.4, 1.4, 1.1, 2.6])
         report_regression_model_perf(
@@ -50,6 +52,7 @@ class TestPandasIndexColumns:
         )
 
     def test_none_columns_does_not_crash_reporter(self) -> None:
+        """None columns does not crash reporter."""
         y = np.array([0.5, 1.5, 1.0, 2.5])
         preds = np.array([0.4, 1.4, 1.1, 2.6])
         report_regression_model_perf(
@@ -64,6 +67,7 @@ class TestPandasIndexColumns:
 
     @pytest.mark.parametrize("cols", [["a", "b"], ("a", "b"), pd.Index(["a", "b"])])
     def test_list_tuple_index_all_work(self, cols) -> None:
+        """List tuple index all work."""
         y = np.array([0.5, 1.5, 1.0, 2.5])
         preds = np.array([0.4, 1.4, 1.1, 2.6])
         report_regression_model_perf(

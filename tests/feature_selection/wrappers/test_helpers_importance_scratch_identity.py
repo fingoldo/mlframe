@@ -16,6 +16,7 @@ from mlframe.feature_selection.wrappers._helpers_importance import _conditional_
 
 
 def _delete_reference(X, j):
+    """Delete reference."""
     return np.delete(X, j, axis=1)
 
 
@@ -32,6 +33,7 @@ def _scratch_build(X, j):
 
 @pytest.mark.parametrize("p", [2, 3, 7, 20])
 def test_scratch_build_byte_identical_to_np_delete(p):
+    """Scratch build byte identical to np delete."""
     rng = np.random.default_rng(p)
     X = rng.standard_normal((50, p))
     for j in range(p):
@@ -39,6 +41,7 @@ def test_scratch_build_byte_identical_to_np_delete(p):
 
 
 def _make(n=4000, p=30, seed=0):
+    """Helper that make."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, p))
     X[:, 1] += 0.7 * X[:, 0]
@@ -58,6 +61,7 @@ def _reference_cpi(model, X, y, n_repeats, random_state):
     importances = np.zeros(p, dtype=float)
 
     def _is_discrete_v2(col):
+        """Is discrete v2."""
         if np.issubdtype(col.dtype, np.integer):
             return True
         mask = ~np.isnan(col.astype(float, copy=False))
@@ -109,6 +113,7 @@ def _reference_cpi(model, X, y, n_repeats, random_state):
 
 
 def test_importances_bit_identical_to_np_delete_reference():
+    """Importances bit identical to np delete reference."""
     from sklearn.linear_model import Ridge
 
     X, y = _make()
@@ -119,6 +124,7 @@ def test_importances_bit_identical_to_np_delete_reference():
 
 
 def test_single_feature_path_runs():
+    """Single feature path runs."""
     from sklearn.linear_model import Ridge
 
     rng = np.random.default_rng(1)

@@ -15,7 +15,6 @@ import pytest
 
 from tests.feature_selection import _synthetic_distributions as sd
 
-
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -23,6 +22,7 @@ from tests.feature_selection import _synthetic_distributions as sd
 
 @pytest.mark.parametrize("name", sorted(sd.DISTRIBUTIONS.keys()))
 def test_registry_shape_and_finite(name):
+    """Registry shape and finite."""
     rng = np.random.default_rng(123)
     arr = sd.DISTRIBUTIONS[name](rng, 2000)
     assert arr.shape == (2000,)
@@ -32,6 +32,7 @@ def test_registry_shape_and_finite(name):
 
 @pytest.mark.parametrize("name", sd._POSITIVE_FAMILIES)
 def test_positive_families_are_positive(name):
+    """Positive families are positive."""
     rng = np.random.default_rng(7)
     arr = sd.DISTRIBUTIONS[name](rng, 5000)
     assert arr.min() > 0.0, f"{name} is declared positive but produced <= 0"
@@ -66,6 +67,7 @@ def test_marginals_are_distinguishable():
 
 @pytest.mark.parametrize("frac", [0.01, 0.03, 0.05])
 def test_with_outliers_count_and_clean_point(frac):
+    """With outliers count and clean point."""
     rng = np.random.default_rng(11)
     a = rng.uniform(0, 1, 3000)
     b = sd.with_outliers(rng, a, frac=frac, mag=20.0)
@@ -92,6 +94,7 @@ def test_with_outliers_scale_tracks_input_spread():
 
 
 def test_with_outliers_zero_frac_is_noop():
+    """With outliers zero frac is noop."""
     rng = np.random.default_rng(1)
     a = rng.uniform(0, 1, 100)
     b = sd.with_outliers(rng, a, frac=0.0)
@@ -149,6 +152,7 @@ def test_formula_well_defined_under_profile(profile):
 
 @pytest.mark.parametrize("profile", PROFILES)
 def test_reproducible_same_seed(profile):
+    """Reproducible same seed."""
     doms = {"a": sd.DOMAIN_ANY, "b": sd.DOMAIN_DIVISOR, "c": sd.DOMAIN_POSITIVE}
     d1 = sd.sample_operands(seed=42, n=3000, domains=doms, profile=profile)
     d2 = sd.sample_operands(seed=42, n=3000, domains=doms, profile=profile)
@@ -157,6 +161,7 @@ def test_reproducible_same_seed(profile):
 
 
 def test_different_seed_changes_data():
+    """Different seed changes data."""
     doms = {"a": sd.DOMAIN_ANY}
     d1 = sd.sample_operands(seed=1, n=2000, domains=doms, profile="uniform")
     d2 = sd.sample_operands(seed=2, n=2000, domains=doms, profile="uniform")
@@ -173,6 +178,7 @@ def test_mixed_profile_assigns_different_families():
 
 
 def test_family_choice_stable_per_operand():
+    """Family choice stable per operand."""
     f1 = sd.family_for_operand("xyz", seed=3, domain=sd.DOMAIN_ANY, candidates=tuple(sd.DISTRIBUTIONS))
     f2 = sd.family_for_operand("xyz", seed=3, domain=sd.DOMAIN_ANY, candidates=tuple(sd.DISTRIBUTIONS))
     assert f1 == f2

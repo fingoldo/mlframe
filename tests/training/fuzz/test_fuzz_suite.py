@@ -617,18 +617,18 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 # 2026-07-13 -- Batch C: run_diagnostics defaults (None) to all 6
                 # registered diagnostics per DEFAULTS_CHANGELOG.md. "subset"/"empty"
                 # exercise the explicit-override paths; None keeps the default.
-                **_safe_cfg_kwargs(
-                    OutputConfig,
-                    run_diagnostics=(
-                        ["cv_informativeness", "group_leakage"]
-                        if combo.run_diagnostics_cfg == "subset"
-                        else []
-                        if combo.run_diagnostics_cfg == "empty"
-                        else None
-                    ),
-                )
-                if combo.run_diagnostics_cfg is not None
-                else {},
+                **(
+                    _safe_cfg_kwargs(
+                        OutputConfig,
+                        run_diagnostics=(
+                            ["cv_informativeness", "group_leakage"]
+                            if combo.run_diagnostics_cfg == "subset"
+                            else [] if combo.run_diagnostics_cfg == "empty" else None
+                        ),
+                    )
+                    if combo.run_diagnostics_cfg is not None
+                    else {}
+                ),
             ),
             reporting_config=ReportingConfig(
                 show_perf_chart=_viz_on,
@@ -807,4 +807,5 @@ def test_enumerator_hits_all_models():
 
 
 def test_enumerator_target_count():
+    """Enumerator target count."""
     assert len(COMBOS) == 150

@@ -10,8 +10,6 @@ Tests include:
 
 import pytest
 
-
-
 # Import the module under test
 from mlframe.feature_selection.filters import (
     MRMR,
@@ -50,9 +48,9 @@ class TestScreenPredictorsPatienceObservability:
         msgs = [r.message for r in caplog.records if r.name.startswith("mlframe.feature_selection.filters") and r.levelname in ("INFO", "WARNING")]
         # The summary must fire at least once with the "screen_predictors"
         # prefix and a selected-feature count, regardless of path taken.
-        assert any("screen_predictors" in m and ("terminated early" in m or "finished naturally" in m) for m in msgs), (
-            f"Expected termination-reason summary log; got:\n{msgs}"
-        )
+        assert any(
+            "screen_predictors" in m and ("terminated early" in m or "finished naturally" in m) for m in msgs
+        ), f"Expected termination-reason summary log; got:\n{msgs}"
 
     # Note — a second sensor that tried to force the patience-triggered
     # WARN path was dropped: on any realistic synthetic fixture, the

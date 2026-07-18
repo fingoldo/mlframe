@@ -16,12 +16,14 @@ from mlframe.feature_selection.filters._boruta import boruta_select
 
 
 def _importance_fn(X, y):
+    """Importance fn."""
     model = RandomForestRegressor(n_estimators=60, max_depth=5, random_state=0, n_jobs=1)
     model.fit(X, y)
     return model.feature_importances_
 
 
 def test_biz_val_boruta_select_confirms_relevant_rejects_noise():
+    """Biz val boruta select confirms relevant rejects noise."""
     rng = np.random.default_rng(0)
     n = 800
     x_relevant_1 = rng.normal(0, 1, n)
@@ -42,6 +44,7 @@ def test_biz_val_boruta_select_confirms_relevant_rejects_noise():
 
 
 def test_boruta_select_returns_expected_keys_and_shapes():
+    """Boruta select returns expected keys and shapes."""
     rng = np.random.default_rng(1)
     n = 300
     X = pd.DataFrame({"a": rng.normal(0, 1, n), "b": rng.normal(0, 1, n)})

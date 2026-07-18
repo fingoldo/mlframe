@@ -26,6 +26,7 @@ pl = pytest.importorskip("polars")
 
 
 def test_compute_pipeline_cache_key_folds_polars_dtype():
+    """Compute pipeline cache key folds polars dtype."""
     from mlframe.training.core._phase_train_one_target import _compute_pipeline_cache_key
 
     df_i32 = pl.DataFrame({"a": pl.Series([1, 2, 3], dtype=pl.Int32)})
@@ -36,6 +37,7 @@ def test_compute_pipeline_cache_key_folds_polars_dtype():
 
 
 def test_compute_pipeline_cache_key_stable_without_train_df():
+    """Compute pipeline cache key stable without train df."""
     from mlframe.training.core._phase_train_one_target import _compute_pipeline_cache_key
 
     k1 = _compute_pipeline_cache_key("tree", "ord", (False, False), True, [], [], [])
@@ -49,6 +51,7 @@ def test_compute_pipeline_cache_key_stable_without_train_df():
 
 
 def test_drift_snapshot_uses_ctx_cache():
+    """Drift snapshot uses ctx cache."""
     from mlframe.training.core._phase_helpers import _log_cardinality_and_drift_snapshot
 
     df = pl.DataFrame({"cat": ["a", "b", "c"] * 50})
@@ -70,6 +73,7 @@ def test_drift_snapshot_uses_ctx_cache():
 
 
 def test_drift_snapshot_without_ctx_does_not_crash():
+    """Drift snapshot without ctx does not crash."""
     from mlframe.training.core._phase_helpers import _log_cardinality_and_drift_snapshot
 
     df = pl.DataFrame({"cat": ["a", "b", "c"] * 50})
@@ -93,6 +97,7 @@ def test_drift_snapshot_without_ctx_does_not_crash():
 
 
 def test_cached_slugify_is_memoized():
+    """Cached slugify is memoized."""
     from mlframe.training.core._phase_train_one_target import _cached_slugify
 
     s1 = _cached_slugify("Some Target Name 42")
@@ -109,6 +114,7 @@ def test_cached_slugify_is_memoized():
 
 
 def test_recurrent_numpy_cache_returns_same_array():
+    """Recurrent numpy cache returns same array."""
     import pandas as pd
     from mlframe.training.core._phase_recurrent import _coerce_features_to_float32
 
@@ -121,6 +127,7 @@ def test_recurrent_numpy_cache_returns_same_array():
 
 
 def test_recurrent_coerce_returns_float32_for_int_input():
+    """Recurrent coerce returns float32 for int input."""
     import pandas as pd
     from mlframe.training.core._phase_recurrent import _coerce_features_to_float32
 
@@ -135,9 +142,12 @@ def test_recurrent_coerce_returns_float32_for_int_input():
 
 
 def test_cached_init_params_returns_consistent_set():
+    """Cached init params returns consistent set."""
     from mlframe.training.core._phase_train_one_target import _cached_init_params
 
     class _Foo:
+        """Dummy class with a 3-arg constructor, used to check _cached_init_params' return set is stable across calls."""
+
         def __init__(self, a, b, c=3):
             pass
 

@@ -18,6 +18,7 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 def _make_config(**overrides):
+    """Make config."""
     defaults = dict(
         enabled=True,
         base_candidates=["base"],
@@ -45,6 +46,7 @@ def _linear_residual_dataset(seed: int = 0, n: int = 2000):
 
 
 def _fit(df, config):
+    """Fit."""
     n = len(df)
     train_idx = np.arange(0, int(0.8 * n))
     val_idx = np.arange(int(0.8 * n), n)
@@ -54,6 +56,7 @@ def _fit(df, config):
 
 
 def test_waic_scores_populated_only_when_flag_enabled():
+    """Waic scores populated only when flag enabled."""
     df = _linear_residual_dataset()
     on = _fit(df, _make_config(transform_waic_validation_enabled=True))
     off = _fit(df, _make_config(transform_waic_validation_enabled=False))
@@ -78,6 +81,6 @@ def test_waic_prefers_generalising_over_overfit_transform():
     w_signal = compute_transform_waic(signal, x, n_folds=4, random_state=0)
     w_noise = compute_transform_waic(noise, x, n_folds=4, random_state=0)
     assert w_signal.valid and w_noise.valid
-    assert w_signal.waic > w_noise.waic, (
-        f"generalising signal target should out-WAIC the memorise-only noise target; signal={w_signal.waic:.3f} noise={w_noise.waic:.3f}"
-    )
+    assert (
+        w_signal.waic > w_noise.waic
+    ), f"generalising signal target should out-WAIC the memorise-only noise target; signal={w_signal.waic:.3f} noise={w_noise.waic:.3f}"

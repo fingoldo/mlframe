@@ -25,6 +25,7 @@ from mlframe.training.neural import MLPTorchModel, generate_mlp
 
 
 def _make_module() -> MLPTorchModel:
+    """Make module."""
     torch.manual_seed(0)
     network = generate_mlp(
         num_features=4,

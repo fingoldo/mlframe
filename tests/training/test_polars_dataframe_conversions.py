@@ -20,7 +20,6 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
@@ -55,6 +54,7 @@ def test_fix1_fairness_subgroups_uses_pandas_view_bridge():
     # Mock the behavior config -- only the fairness_features attribute is read.
 
     class _BCfg:
+        """Groups tests covering b cfg."""
         fairness_features = ["cat"]
         cont_nbins = 4
         fairness_min_pop_cat_thresh = 0.01
@@ -64,6 +64,7 @@ def test_fix1_fairness_subgroups_uses_pandas_view_bridge():
     real_bridge = setup_mod.get_pandas_view_of_polars_df
 
     def _spy(arg):
+        """Spy."""
         called["n"] += 1
         return real_bridge(arg)
 
@@ -83,6 +84,7 @@ def test_fix1_fairness_subgroups_equivalent_to_default_to_pandas():
     df = _make_numeric_pl_df(n_rows=500)
 
     class _BCfg:
+        """Groups tests covering b cfg."""
         fairness_features = ["cat"]
         cont_nbins = 4
         fairness_min_pop_cat_thresh = 0.01
@@ -129,6 +131,7 @@ def test_fix2_shap_branch_localimport_is_the_arrow_bridge():
 
 
 def test_fix3_baseline_diagnostics_coerce_uses_bridge():
+    """Fix3 baseline diagnostics coerce uses bridge."""
     from mlframe.training.baselines import diagnostics as bd
     from mlframe.training import utils as utils_mod
 
@@ -137,6 +140,7 @@ def test_fix3_baseline_diagnostics_coerce_uses_bridge():
     real = utils_mod.get_pandas_view_of_polars_df
 
     def _spy(arg):
+        """Spy."""
         called["n"] += 1
         return real(arg)
 
@@ -149,6 +153,7 @@ def test_fix3_baseline_diagnostics_coerce_uses_bridge():
 
 
 def test_fix3_baseline_diagnostics_coerce_equivalence():
+    """Fix3 baseline diagnostics coerce equivalence."""
     from mlframe.training.baselines import diagnostics as bd
 
     df = _make_numeric_pl_df(n_rows=200)
@@ -176,6 +181,7 @@ def test_fix4_temporal_audit_aggregate_polars_uses_bridge(monkeypatch):
     captured = {"calls": 0}
 
     def _spy(*args, **kwargs):
+        """Spy."""
         captured["calls"] += 1
         return real_bridge(*args, **kwargs)
 
@@ -274,6 +280,7 @@ def test_fix6_predict_guards_no_double_wrap_on_pandas():
     from mlframe.training._predict_guards import _apply_nan_guard
 
     class _DummyModel:
+        """Groups tests covering dummy model."""
         pass
 
     buf = np.ascontiguousarray(np.linspace(0.0, 1.0, 64 * 4, dtype=np.float64).reshape(64, 4))
@@ -281,6 +288,7 @@ def test_fix6_predict_guards_no_double_wrap_on_pandas():
     captured = {}
 
     def _fn(X):
+        """Records the array it was called with (for later inspection) and returns an all-zero prediction."""
         captured["X"] = X
         return np.zeros(len(X))
 
@@ -298,6 +306,7 @@ def test_fix6_predict_guards_dtype_preserved():
     from mlframe.training._predict_guards import _apply_nan_guard
 
     class _DummyModel:
+        """Groups tests covering dummy model."""
         pass
 
     # Build pandas frame with NaN so the NaN-guard path activates.
@@ -308,6 +317,7 @@ def test_fix6_predict_guards_dtype_preserved():
     captured = {}
 
     def _predict_fn(X):
+        """Predict fn."""
         captured["X"] = X
         return np.zeros(len(X))
 
@@ -427,6 +437,7 @@ def test_fix8_per_group_predict_converts_once_per_frame():
     real = dbc._to_pandas_for_baseline
 
     def _spy(x):
+        """Spy."""
         called["n"] += 1
         return real(x)
 
@@ -449,6 +460,7 @@ def test_fix8_per_group_predict_converts_once_per_frame():
 
 
 def test_fix8_pick_per_group_categorical_uses_bridge():
+    """Fix8 pick per group categorical uses bridge."""
     from mlframe.training.baselines import _dummy_baseline_compute as dbc
 
     rng = np.random.default_rng(0)
@@ -458,6 +470,7 @@ def test_fix8_pick_per_group_categorical_uses_bridge():
     real = dbc._to_pandas_for_baseline
 
     def _spy(x):
+        """Spy."""
         called["n"] += 1
         return real(x)
 

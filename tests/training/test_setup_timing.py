@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 
-
 # The instrumented setup-timing block lives inline inside _phase_config_setup.
 # To exercise it without instantiating the full suite, replicate the helper's
 # shape and verify the contract directly.
@@ -36,6 +35,7 @@ def _make_timing_helper(*, verbose: bool, env_value: str | None) -> tuple:
     log = logging.getLogger("mlframe.training.core._phase_config_setup")
 
     def _step_done(label: str) -> None:
+        """Step done."""
         if not _setup_timing_on or not verbose:
             return
         now = _time.perf_counter()

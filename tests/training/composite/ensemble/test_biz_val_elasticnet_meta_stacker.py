@@ -27,6 +27,7 @@ _GROUP_IDX = (2, 3, 4)  # columns of the 3 near-identical copies of `a`
 
 
 def _gen_correlated_group_and_noise(n, seed, n_group=3, n_noise=3, group_noise=0.02):
+    """Gen correlated group and noise."""
     rng = np.random.default_rng(seed)
     a = rng.normal(size=n)
     b = rng.normal(size=n)
@@ -49,11 +50,13 @@ def _group_zero_patterns(fit_fn, n_resamples, n, seed_offset):
 
 
 def test_biz_val_elasticnet_meta_stacker_keeps_correlated_group_together_more_often_than_lasso():
+    """Biz val elasticnet meta stacker keeps correlated group together more often than lasso."""
     n_resamples = 40
     lasso_patterns = _group_zero_patterns(fit_lasso_meta_stacker, n_resamples, n=2000, seed_offset=100)
     en_patterns = _group_zero_patterns(fit_elasticnet_meta_stacker, n_resamples, n=2000, seed_offset=100)
 
     def frac_kept_or_dropped_together(patterns):
+        """Frac kept or dropped together."""
         return sum(1 for p in patterns if p == (0, 0, 0) or p == (1, 1, 1)) / len(patterns)
 
     lasso_together = frac_kept_or_dropped_together(lasso_patterns)
@@ -61,18 +64,19 @@ def test_biz_val_elasticnet_meta_stacker_keeps_correlated_group_together_more_of
 
     # Measured on this synthetic: lasso=0.07 (2-3/40), elasticnet=0.33 (13/40) -- threshold set below the measured
     # elasticnet value and above the measured lasso value, with margin.
-    assert en_together >= 0.20, (
-        f"expected ElasticNet to keep/drop the correlated group together in >=20% of resamples, got {en_together:.2f} (patterns={Counter(en_patterns)})"
-    )
-    assert lasso_together <= 0.15, (
-        f"sanity check on the synthetic: expected Lasso's arbitrary single-member pick to keep the group together in <=15% of resamples, got {lasso_together:.2f} (patterns={Counter(lasso_patterns)})"
-    )
-    assert en_together > lasso_together, (
-        f"expected ElasticNet to be strictly more stable than Lasso on the correlated group, got en={en_together:.2f} lasso={lasso_together:.2f}"
-    )
+    assert (
+        en_together >= 0.20
+    ), f"expected ElasticNet to keep/drop the correlated group together in >=20% of resamples, got {en_together:.2f} (patterns={Counter(en_patterns)})"
+    assert (
+        lasso_together <= 0.15
+    ), f"sanity check on the synthetic: expected Lasso's arbitrary single-member pick to keep the group together in <=15% of resamples, got {lasso_together:.2f} (patterns={Counter(lasso_patterns)})"
+    assert (
+        en_together > lasso_together
+    ), f"expected ElasticNet to be strictly more stable than Lasso on the correlated group, got en={en_together:.2f} lasso={lasso_together:.2f}"
 
 
 def test_biz_val_elasticnet_meta_stacker_lower_zero_indicator_variance_than_lasso():
+    """Biz val elasticnet meta stacker lower zero indicator variance than lasso."""
     n_resamples = 40
     lasso_patterns = np.array(_group_zero_patterns(fit_lasso_meta_stacker, n_resamples, n=2000, seed_offset=100), dtype=float)
     en_patterns = np.array(_group_zero_patterns(fit_elasticnet_meta_stacker, n_resamples, n=2000, seed_offset=100), dtype=float)
@@ -88,6 +92,7 @@ def test_biz_val_elasticnet_meta_stacker_lower_zero_indicator_variance_than_lass
 
 
 def test_biz_val_elasticnet_meta_stacker_holdout_rmse_not_worse_than_lasso():
+    """Biz val elasticnet meta stacker holdout rmse not worse than lasso."""
     X_train, y_train = _gen_correlated_group_and_noise(n=2000, seed=0)
     X_test, y_test = _gen_correlated_group_and_noise(n=2000, seed=1)
     n_components = X_train.shape[1]

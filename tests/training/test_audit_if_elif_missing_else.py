@@ -34,7 +34,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-
 MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
@@ -86,6 +85,7 @@ def _read(rel: str) -> str:
 
 
 def test_categorize_1d_array_rejects_unknown_method() -> None:
+    """Categorize 1d array rejects unknown method."""
     src = _read("feature_selection/filters/discretization.py")
     # The fix adds an explicit else: raise ValueError with the method name.
     assert "categorize_1d_array: unknown method=" in src
@@ -94,6 +94,7 @@ def test_categorize_1d_array_rejects_unknown_method() -> None:
 
 
 def test_extractors_display_diagnostic_initialises_desc_data() -> None:
+    """Extractors display diagnostic initialises desc data."""
     src = _read("training/extractors.py")
     # The fix initialises desc_data = None before the isinstance dispatch
     # and guards the display with `if desc_data is not None`.
@@ -128,6 +129,7 @@ def test_categorize_1d_array_raises_typed_on_unknown_method() -> None:
 
 
 def test_select_scalable_numeric_columns_raises_typed_on_unknown_method() -> None:
+    """Select scalable numeric columns raises typed on unknown method."""
     pl = pytest.importorskip("polars")
     from mlframe.training import pipeline as pipe_mod
 

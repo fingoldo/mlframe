@@ -16,7 +16,6 @@ from mlframe.feature_selection.filters._numba_utils import (
     unpack_and_sort,
 )
 
-
 # ----------------------------------------------------------------------------------------------------------------------------------------------------
 # arr2str
 # ----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -26,31 +25,37 @@ class TestArr2Str:
     """Cache-key stringification of integer arrays. Must be deterministic, order-sensitive, and collision-safe across distinct multisets."""
 
     def test_equal_arrays_equal_strings(self):
+        """Equal arrays equal strings."""
         a = np.array([1, 2, 3], dtype=np.int64)
         b = np.array([1, 2, 3], dtype=np.int64)
         assert arr2str(a) == arr2str(b)
 
     def test_different_arrays_different_strings(self):
+        """Different arrays different strings."""
         a = np.array([1, 2, 3], dtype=np.int64)
         b = np.array([1, 2, 4], dtype=np.int64)
         assert arr2str(a) != arr2str(b)
 
     def test_order_matters(self):
         # The kernel iterates positionally; reversing the input MUST change the key (canonicalisation is the caller's job via ``unpack_and_sort``).
+        """Order matters."""
         a = np.array([1, 2, 3], dtype=np.int64)
         rev = a[::-1].copy()
         assert arr2str(a) != arr2str(rev)
 
     def test_empty_array(self):
+        """Empty array."""
         empty = np.array([], dtype=np.int64)
         assert arr2str(empty) == ""
 
     def test_single_element(self):
+        """Single element."""
         a = np.array([42], dtype=np.int64)
         assert arr2str(a) == "42"
 
     def test_multidigit_separator_disambiguation(self):
         # Regression: the legacy naive concat collapsed sorted([1, 11]) and sorted([1, 1, 1]) both to "111". Underscore separator must keep them distinct.
+        """Multidigit separator disambiguation."""
         a = np.array([1, 11], dtype=np.int64)
         b = np.array([1, 1, 1], dtype=np.int64)
         assert arr2str(a) != arr2str(b)
@@ -58,6 +63,7 @@ class TestArr2Str:
         assert arr2str(b) == "1_1_1"
 
     def test_returns_python_str(self):
+        """Returns python str."""
         a = np.array([1, 2], dtype=np.int64)
         out = arr2str(a)
         # numba returns its UnicodeType which is interchangeable with Python str on the boundary.
@@ -68,6 +74,7 @@ class TestArr2Str:
     def test_biz_arr2str_no_collisions_on_uniform_random(self):
         # 10000 random length-5 keys with bin alphabet [0, 256). The "deterministic cache key" rule requires distinct arrays produce distinct strings on
         # realistic screening-path inputs; collision rate must be <0.1%.
+        """Biz arr2str no collisions on uniform random."""
         rng = np.random.default_rng(0)
         nbins = 256
         n_keys = 10_000
@@ -94,16 +101,19 @@ class TestCountCandNbins:
     """Sum of per-factor bin counts across a candidate's selected factor indices."""
 
     def test_basic_sum(self):
+        """Basic sum."""
         X = np.array([0, 1, 2], dtype=np.int64)
         factors_nbins = np.array([3, 5, 7, 11], dtype=np.int64)
         assert count_cand_nbins(X, factors_nbins) == 3 + 5 + 7
 
     def test_single_factor(self):
+        """Single factor."""
         X = np.array([2], dtype=np.int64)
         factors_nbins = np.array([3, 5, 7, 11], dtype=np.int64)
         assert count_cand_nbins(X, factors_nbins) == 7
 
     def test_positive_for_nonempty(self):
+        """Positive for nonempty."""
         X = np.array([0, 1], dtype=np.int64)
         factors_nbins = np.array([4, 6], dtype=np.int64)
         out = count_cand_nbins(X, factors_nbins)
@@ -112,6 +122,7 @@ class TestCountCandNbins:
 
     def test_repeated_indices(self):
         # The kernel does not deduplicate; same index counted twice is intentional in the screening path.
+        """Repeated indices."""
         X = np.array([1, 1, 1], dtype=np.int64)
         factors_nbins = np.array([2, 4], dtype=np.int64)
         assert count_cand_nbins(X, factors_nbins) == 12
@@ -126,12 +137,14 @@ class TestUnpackAndSort:
     """Concatenation + ascending sort of two integer iterables. Used to canonicalise the X u Z union for ``conditional_mi`` cache keys."""
 
     def test_sorted_ascending(self):
+        """Sorted ascending."""
         x = np.array([3, 1], dtype=np.int64)
         z = np.array([4, 2], dtype=np.int64)
         out = unpack_and_sort(x, z)
         assert np.all(out[:-1] <= out[1:])
 
     def test_preserves_all_elements(self):
+        """Preserves all elements."""
         x = np.array([5, 1, 3], dtype=np.int64)
         z = np.array([2, 4], dtype=np.int64)
         out = unpack_and_sort(x, z)
@@ -140,6 +153,7 @@ class TestUnpackAndSort:
 
     def test_ordering_independence(self):
         # Same multiset, different concat order -> same canonical key. This is the whole reason the helper exists.
+        """Ordering independence."""
         x1 = np.array([3, 1], dtype=np.int64)
         z1 = np.array([4, 2], dtype=np.int64)
         x2 = np.array([4, 2], dtype=np.int64)
@@ -149,24 +163,28 @@ class TestUnpackAndSort:
         assert np.array_equal(a, b)
 
     def test_one_empty(self):
+        """One empty."""
         x = np.array([], dtype=np.int64)
         z = np.array([7, 3, 5], dtype=np.int64)
         out = unpack_and_sort(x, z)
         assert out.tolist() == [3, 5, 7]
 
     def test_both_empty(self):
+        """Both empty."""
         x = np.array([], dtype=np.int64)
         z = np.array([], dtype=np.int64)
         out = unpack_and_sort(x, z)
         assert len(out) == 0
 
     def test_duplicates_preserved(self):
+        """Duplicates preserved."""
         x = np.array([1, 1], dtype=np.int64)
         z = np.array([1], dtype=np.int64)
         out = unpack_and_sort(x, z)
         assert out.tolist() == [1, 1, 1]
 
     def test_output_dtype_int64(self):
+        """Output dtype int64."""
         x = np.array([1, 2], dtype=np.int64)
         z = np.array([3], dtype=np.int64)
         out = unpack_and_sort(x, z)

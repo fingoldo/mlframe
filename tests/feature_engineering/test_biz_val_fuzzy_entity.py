@@ -89,9 +89,9 @@ def test_biz_val_fuzzy_entity_features_predict_deviation_while_raw_value_does_no
     # group_mode_match=False should coincide with y=1 (deviation) far more than chance.
     mismatch_rate_when_fraud = float((~out["group_mode_match"][y == 1]).mean())
     mismatch_rate_when_clean = float((~out["group_mode_match"][y == 0]).mean())
-    assert mismatch_rate_when_fraud > mismatch_rate_when_clean + 0.5, (
-        f"mode mismatch should be far more common on fraud rows: fraud={mismatch_rate_when_fraud:.3f} clean={mismatch_rate_when_clean:.3f}"
-    )
+    assert (
+        mismatch_rate_when_fraud > mismatch_rate_when_clean + 0.5
+    ), f"mode mismatch should be far more common on fraud rows: fraud={mismatch_rate_when_fraud:.3f} clean={mismatch_rate_when_clean:.3f}"
 
     # novel-in-group values (occurrence_count==0) should correlate with fraud.
     corr_occurrence, _ = spearmanr(out["value_occurrence_count_in_group"], y)
@@ -161,9 +161,9 @@ def test_biz_val_fuzzy_entity_group_features_fuzzy_key_matching_recovers_split_g
     # than under fuzzy matching, which reunites an entity's events into one group.
     corr_exact, _ = spearmanr(out_exact["value_occurrence_count_in_group"], y)
     corr_fuzzy, _ = spearmanr(out_fuzzy["value_occurrence_count_in_group"], y)
-    assert corr_fuzzy < corr_exact - 0.05, (
-        f"fuzzy key matching should strengthen occurrence-count's fraud signal vs exact matching: exact corr={corr_exact:.3f} fuzzy corr={corr_fuzzy:.3f}"
-    )
+    assert (
+        corr_fuzzy < corr_exact - 0.05
+    ), f"fuzzy key matching should strengthen occurrence-count's fraud signal vs exact matching: exact corr={corr_exact:.3f} fuzzy corr={corr_fuzzy:.3f}"
     assert corr_fuzzy < -0.2, f"fuzzy-matched occurrence count should strongly predict fraud, got corr={corr_fuzzy:.3f}"
 
 

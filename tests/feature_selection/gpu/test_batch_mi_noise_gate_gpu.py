@@ -66,6 +66,7 @@ def _make_frame(n, K, nbins, seed):
 
 
 def _cpu_ref(disc_2d, factors_nbins, classes_y, freqs_y, npermutations, mnc, use_su):
+    """Cpu ref."""
     return batch_mi_with_noise_gate(
         disc_2d=disc_2d,
         factors_nbins=factors_nbins,
@@ -93,6 +94,7 @@ if _CUDA_AVAIL:
 @pytest.mark.parametrize("npermutations", [0, 3, 10])
 @pytest.mark.parametrize("min_nonzero_confidence", [0.99, 0.0])
 def test_gpu_bit_identical_to_cpu(backend_name, backend_fn, n, K, nbins, npermutations, min_nonzero_confidence):
+    """Gpu bit identical to cpu."""
     if backend_fn is None:
         pytest.skip("no GPU backend available")
     disc_2d, classes_y, freqs_y = _make_frame(n, K, nbins, seed=1234 + n + K + nbins)
@@ -112,14 +114,15 @@ def test_gpu_bit_identical_to_cpu(backend_name, backend_fn, n, K, nbins, npermut
         np.int32,
     )
     assert got.shape == ref.shape
-    assert np.array_equal(got, ref), (
-        f"{backend_name} mismatch n={n} K={K} nbins={nbins} nperm={npermutations} mnc={min_nonzero_confidence}\n ref={ref}\n got={got}\n diff={got - ref}"
-    )
+    assert np.array_equal(
+        got, ref
+    ), f"{backend_name} mismatch n={n} K={K} nbins={nbins} nperm={npermutations} mnc={min_nonzero_confidence}\n ref={ref}\n got={got}\n diff={got - ref}"
 
 
 @pytest.mark.skipif(not (_CUDA_AVAIL or _CUPY_AVAIL), reason="no GPU backend available")
 @pytest.mark.parametrize("backend_name,backend_fn", _BACKENDS or [("none", None)])
 def test_gpu_su_mode_bit_identical(backend_name, backend_fn, monkeypatch):
+    """Gpu su mode bit identical."""
     if backend_fn is None:
         pytest.skip("no GPU backend available")
     import mlframe.feature_selection.filters.info_theory as it
@@ -145,6 +148,7 @@ def test_gpu_su_mode_bit_identical(backend_name, backend_fn, monkeypatch):
 
 @pytest.mark.skipif(not (_CUDA_AVAIL or _CUPY_AVAIL), reason="no GPU backend available")
 def test_gpu_pure_noise_zeroed_identically():
+    """Gpu pure noise zeroed identically."""
     n = 800
     rng = np.random.default_rng(99)
     y = rng.integers(0, 4, size=n).astype(np.int32)
@@ -167,6 +171,7 @@ def test_gpu_pure_noise_zeroed_identically():
 @pytest.mark.skipif(not (_CUDA_AVAIL or _CUPY_AVAIL), reason="no GPU backend available")
 @pytest.mark.parametrize("force", [b for b, _ in _BACKENDS])
 def test_dispatch_force_backend_bit_identical(force):
+    """Dispatch force backend bit identical."""
     disc_2d, classes_y, freqs_y = _make_frame(700, 32, 8, seed=321)
     factors_nbins = np.full(32, 8, dtype=np.int64)
     ref = _cpu_ref(disc_2d, factors_nbins, classes_y, freqs_y, 3, 0.99, False)
@@ -265,6 +270,7 @@ def test_histgate_column_major_bit_identical(monkeypatch, n, K, nbins, npermutat
     ref = _cpu_ref(disc_2d, factors_nbins, classes_y, freqs_y, npermutations, 0.99, False)
 
     def _run():
+        """Run the CUDA batched noise-gate MI kernel on the shared fixture, to compare against the CPU reference."""
         return batch_mi_with_noise_gate_cuda(
             disc_2d,
             factors_nbins,

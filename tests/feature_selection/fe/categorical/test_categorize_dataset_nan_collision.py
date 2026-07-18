@@ -23,7 +23,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # Strategies whose per-column nbins commonly exceeds ctor n_bins=4 and
 # therefore trigger the collision pre-fix.
 COLLIDING_STRATEGIES = ["fd", "sturges", "qs"]
@@ -117,6 +116,6 @@ def test_non_adaptive_path_unchanged():
             codes = data[:, cols.index("x")]
             real_codes = {int(c) for c in codes[~np.isnan(xx)]}
             nan_codes = {int(c) for c in codes[np.isnan(xx)]}
-            assert nan_codes.isdisjoint(real_codes), (
-                f"[seed={seed} n_bins={n_bins}] NaN code collides with a real bin on the legacy path: nan={sorted(nan_codes)} real={sorted(real_codes)}"
-            )
+            assert nan_codes.isdisjoint(
+                real_codes
+            ), f"[seed={seed} n_bins={n_bins}] NaN code collides with a real bin on the legacy path: nan={sorted(nan_codes)} real={sorted(real_codes)}"

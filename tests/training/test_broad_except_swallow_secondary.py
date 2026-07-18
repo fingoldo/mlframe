@@ -40,7 +40,6 @@ import logging
 
 import numpy as np
 
-
 # ---- #1: per-class log_loss --------------------------------------------
 
 
@@ -49,6 +48,7 @@ import numpy as np
 # Source-pattern sensors that grep the parent file must also read every
 # sibling so they still match relocated code.
 def _read_phase_train_one_target_combined():
+    """Read phase train one target combined."""
     import pathlib
     import mlframe as _mlframe
 
@@ -76,6 +76,7 @@ def test_multilabel_log_loss_failed_class_warns_and_uses_nanmean(caplog):
 
     def _ll_mock(y, p, labels):
         # Fail on class index 1, succeed otherwise.
+        """Ll mock."""
         if y.shape[0] > 0 and y[0] == -1:
             raise ValueError("synthetic class-1 failure")
         return float(y.shape[0])
@@ -119,9 +120,9 @@ def test_multilabel_log_loss_failed_class_warns_and_uses_nanmean(caplog):
     _baselines = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "baselines"
     src = "\n".join(p.read_text(encoding="utf-8") for p in sorted(_baselines.glob("*.py")))
     assert "multilabel log-loss: %d/%d class component(s) failed" in src, "Wave 16 P1 regression: per-class log_loss WARN log shape gone."
-    assert "return float(np.nanmean(losses))" in src, (
-        "Wave 16 P1 regression: still using mean() instead of nanmean() over per-class log-loss; biased average over surviving classes returns."
-    )
+    assert (
+        "return float(np.nanmean(losses))" in src
+    ), "Wave 16 P1 regression: still using mean() instead of nanmean() over per-class log-loss; biased average over surviving classes returns."
 
 
 # ---- #2: _has_any_infinity -------------------------------------------------
@@ -135,15 +136,16 @@ def test_has_any_infinity_returns_true_on_detection_failure(caplog, monkeypatch)
     from mlframe.training import preprocessing as pp
 
     def _boom(_d):
+        """Boom."""
         raise RuntimeError("synthetic detection failure")
 
     monkeypatch.setattr(pp, "_pandas_float_like_columns", _boom)
     with caplog.at_level(logging.WARNING, logger="mlframe.training.preprocessing"):
         result = pp._frame_contains_inf(pd.DataFrame({"f0": [1.0, 2.0, 3.0]}))
     assert result is True
-    assert any("detection failed" in r.getMessage() for r in caplog.records), (
-        f"expected WARN on detection failure; got {[r.getMessage() for r in caplog.records]}"
-    )
+    assert any(
+        "detection failed" in r.getMessage() for r in caplog.records
+    ), f"expected WARN on detection failure; got {[r.getMessage() for r in caplog.records]}"
 
 
 def test_has_any_infinity_true_on_numpy_conversion_failure(caplog, monkeypatch):
@@ -155,9 +157,11 @@ def test_has_any_infinity_true_on_numpy_conversion_failure(caplog, monkeypatch):
     df = pd.DataFrame({"f0": [1.0, 2.0, 3.0]})
 
     class _BadNum:
+        """Groups tests covering bad num."""
         shape = (3, 1)
 
         def to_numpy(self, *a, **k):
+            """To numpy."""
             raise ValueError("synthetic numpy conversion failure")
 
     monkeypatch.setattr(pp, "_pandas_float_like_columns", lambda d: ["f0"])
@@ -183,6 +187,7 @@ def test_detect_group_column_candidates_logs_per_skip(caplog):
     from mlframe.training.composite.discovery import auto_detect as cad
 
     class _BadGet(pd.DataFrame):
+        """Groups tests covering bad get."""
         def __getitem__(self, key):
             if key == "boom":
                 raise RuntimeError("synthetic get_col failure")
@@ -192,9 +197,9 @@ def test_detect_group_column_candidates_logs_per_skip(caplog):
     with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite.discovery.auto_detect"):
         result = cad.detect_group_column_candidates(df, candidate_columns=["boom", "ok"])
     assert all(name != "boom" for name, _ in result)
-    assert any("detect_group_column_candidates: skipping col=" in r.message for r in caplog.records), (
-        f"expected DEBUG skip log; got: {[r.message for r in caplog.records]}"
-    )
+    assert any(
+        "detect_group_column_candidates: skipping col=" in r.message for r in caplog.records
+    ), f"expected DEBUG skip log; got: {[r.message for r in caplog.records]}"
 
 
 def test_detect_skip_emits_debug_when_col_raises(caplog):
@@ -214,9 +219,9 @@ def test_detect_skip_emits_debug_when_col_raises(caplog):
     with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite.discovery.auto_detect"):
         result = cad.detect_time_column_candidates(df)
     assert result == []
-    assert any("detect_time_column_candidates: skipping col=" in rec.message for rec in caplog.records), (
-        f"expected DEBUG log; got: {[r.message for r in caplog.records]}"
-    )
+    assert any(
+        "detect_time_column_candidates: skipping col=" in rec.message for rec in caplog.records
+    ), f"expected DEBUG log; got: {[r.message for r in caplog.records]}"
 
 
 # ---- #4: composite_screening CV fold -------------------------------------
@@ -237,9 +242,9 @@ def test_composite_screening_failed_fold_warns(caplog):
         if p.exists():
             src_combined += p.read_text(encoding="utf-8")
             src_combined += "\n"
-    assert "composite_screening: tiny-model CV fold failed" in src_combined, (
-        "Wave 16 P1 regression: failed CV fold no longer emits a WARN; Screening RMSE silently biased toward well-behaved folds."
-    )
+    assert (
+        "composite_screening: tiny-model CV fold failed" in src_combined
+    ), "Wave 16 P1 regression: failed CV fold no longer emits a WARN; Screening RMSE silently biased toward well-behaved folds."
 
 
 # ---- #5: clone() fallback -------------------------------------------------
@@ -267,10 +272,13 @@ def test_multilabel_cb_stack_failure_warns(caplog):
     set_calls = []
 
     class CatBoostClassifier:  # name drives the type-name gate in prod
+        """Groups tests covering cat boost classifier."""
         def get_param(self):
+            """Get param."""
             return {"loss_function": None}
 
         def set_params(self, **kw):
+            """Set params."""
             set_calls.append(kw)
 
     # Ragged rows -> np.array(obj.tolist()) raises -> stack-failure branch.
@@ -294,10 +302,13 @@ def test_multilabel_cb_stack_success_sets_multilogloss(caplog):
     set_calls = []
 
     class CatBoostClassifier:
+        """Groups tests covering cat boost classifier."""
         def get_param(self):
+            """Get param."""
             return {"loss_function": None}
 
         def set_params(self, **kw):
+            """Set params."""
             set_calls.append(kw)
 
     target = np.array([[1, 0], [0, 1], [1, 1]])

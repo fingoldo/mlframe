@@ -213,11 +213,13 @@ class TestLayer49_ScenarioA_SensorMesh:
 
     @pytest.fixture(scope="class")
     def fits(self):
+        """Helper that fits."""
         X, y = _scenario_A_sensor_mesh(n=1500, seed=49)
         m_off, m_on, m_auto = _fit_three_modes(X, y, on_tau=0.5)
         return X, y, m_off, m_on, m_auto
 
     def test_S1_dcd_on_does_not_grow_support(self, fits):
+        """S1 dcd on does not grow support."""
         _X, _y, m_off, m_on, _m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_on = len(list(m_on.get_feature_names_out()))
@@ -254,12 +256,14 @@ class TestLayer49_ScenarioA_SensorMesh:
         assert sz_auto <= 12, f"Scenario A: DCD-auto should clamp the FE-bloated support (measured ~11, off={sz_off}); got {sz_auto}"
 
     def test_S3_metric_no_regression_dcd_on(self, fits):
+        """S3 metric no regression dcd on."""
         X, y, m_off, m_on, _m_auto = fits
         auc_off = _logreg_cv_auc(m_off.transform(X), y)
         auc_on = _logreg_cv_auc(m_on.transform(X), y)
         assert auc_on >= auc_off - 0.02, f"Scenario A: DCD-on metric regressed: off={auc_off:.4f}, on={auc_on:.4f}"
 
     def test_S4_metric_no_regression_dcd_auto(self, fits):
+        """S4 metric no regression dcd auto."""
         X, y, m_off, _m_on, m_auto = fits
         auc_off = _logreg_cv_auc(m_off.transform(X), y)
         auc_auto = _logreg_cv_auc(m_auto.transform(X), y)
@@ -326,9 +330,9 @@ class TestLayer49_ScenarioA_SensorMesh:
         # Path (b): L48 hierarchy non-empty.
         ch = m_on.cluster_hierarchy_ or {}
         hierarchical = bool(ch)
-        assert collapsed_directly or hierarchical, (
-            f"Scenario A: neither direct collapse nor hierarchy surfaced the sensor structure; cluster_members_={cm}, hierarchy={ch}"
-        )
+        assert (
+            collapsed_directly or hierarchical
+        ), f"Scenario A: neither direct collapse nor hierarchy surfaced the sensor structure; cluster_members_={cm}, hierarchy={ch}"
 
 
 # ---------------------------------------------------------------------------
@@ -337,13 +341,16 @@ class TestLayer49_ScenarioA_SensorMesh:
 
 
 class TestLayer49_ScenarioB_Financial:
+    """Groups tests covering TestLayer49_ScenarioB_Financial."""
     @pytest.fixture(scope="class")
     def fits(self):
+        """Helper that fits."""
         X, y = _scenario_B_financial(n=1500, seed=49)
         m_off, m_on, m_auto = _fit_three_modes(X, y, on_tau=0.5)
         return X, y, m_off, m_on, m_auto
 
     def test_S1_dcd_on_does_not_bloat_minimal_full_mode_support(self, fits):
+        """S1 dcd on does not bloat minimal full mode support."""
         _X, _y, m_off, m_on, _m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_on = len(list(m_on.get_feature_names_out()))
@@ -360,6 +367,7 @@ class TestLayer49_ScenarioB_Financial:
         assert sz_on <= sz_off + 1, f"Scenario B: DCD-on bloated the minimal full-mode support; off={sz_off}, on={sz_on}"
 
     def test_S2_dcd_auto_does_not_bloat_minimal_full_mode_support(self, fits):
+        """S2 dcd auto does not bloat minimal full mode support."""
         _X, _y, m_off, _m_on, m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_auto = len(list(m_auto.get_feature_names_out()))
@@ -367,12 +375,14 @@ class TestLayer49_ScenarioB_Financial:
         assert sz_auto <= sz_off + 1, f"Scenario B: DCD-auto bloated the minimal full-mode support; off={sz_off}, auto={sz_auto}"
 
     def test_S3_metric_no_regression_dcd_on(self, fits):
+        """S3 metric no regression dcd on."""
         X, y, m_off, m_on, _m_auto = fits
         auc_off = _logreg_cv_auc(m_off.transform(X), y)
         auc_on = _logreg_cv_auc(m_on.transform(X), y)
         assert auc_on >= auc_off - 0.02, f"Scenario B: DCD-on regressed >0.02: off={auc_off:.4f}, on={auc_on:.4f}"
 
     def test_S4_metric_no_regression_dcd_auto(self, fits):
+        """S4 metric no regression dcd auto."""
         X, y, m_off, _m_on, m_auto = fits
         auc_off = _logreg_cv_auc(m_off.transform(X), y)
         auc_auto = _logreg_cv_auc(m_auto.transform(X), y)
@@ -410,6 +420,7 @@ class TestLayer49_ScenarioC_Embedding:
 
     @pytest.fixture(scope="class")
     def fits(self):
+        """Helper that fits."""
         X, y = _scenario_C_embedding(n=1500, seed=49)
         # tau=0.3 -- realistic for noisy embedding axes where pair SU is
         # mid-range (0.3-0.6). With default 0.7 DCD on does nothing on this
@@ -418,6 +429,7 @@ class TestLayer49_ScenarioC_Embedding:
         return X, y, m_off, m_on, m_auto
 
     def test_S1_dcd_on_does_not_bloat_support(self, fits):
+        """S1 dcd on does not bloat support."""
         _X, _y, m_off, m_on, _m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_on = len(list(m_on.get_feature_names_out()))
@@ -430,6 +442,7 @@ class TestLayer49_ScenarioC_Embedding:
         assert sz_on <= sz_off + 3, f"Scenario C: DCD-on bloated support unexpectedly: off={sz_off}, on={sz_on}"
 
     def test_S2_dcd_auto_does_not_grow_support(self, fits):
+        """S2 dcd auto does not grow support."""
         _X, _y, m_off, _m_on, m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_auto = len(list(m_auto.get_feature_names_out()))
@@ -440,12 +453,14 @@ class TestLayer49_ScenarioC_Embedding:
         assert sz_auto <= sz_off + 3, f"Scenario C: DCD-auto grew support unexpectedly: off={sz_off}, auto={sz_auto}"
 
     def test_S3_metric_no_regression_dcd_on(self, fits):
+        """S3 metric no regression dcd on."""
         X, y, m_off, m_on, _m_auto = fits
         auc_off = _logreg_cv_auc(m_off.transform(X), y)
         auc_on = _logreg_cv_auc(m_on.transform(X), y)
         assert auc_on >= auc_off - 0.02, f"Scenario C: DCD-on regressed >0.02: off={auc_off:.4f}, on={auc_on:.4f}"
 
     def test_S4_metric_no_regression_dcd_auto(self, fits):
+        """S4 metric no regression dcd auto."""
         X, y, m_off, _m_on, m_auto = fits
         auc_off = _logreg_cv_auc(m_off.transform(X), y)
         auc_auto = _logreg_cv_auc(m_auto.transform(X), y)
@@ -471,19 +486,23 @@ class TestLayer49_ScenarioC_Embedding:
 
 
 class TestLayer49_ScenarioD_MixedCatNum:
+    """Groups tests covering TestLayer49_ScenarioD_MixedCatNum."""
     @pytest.fixture(scope="class")
     def fits(self):
+        """Helper that fits."""
         X, y = _scenario_D_mixed_cat_num(n=1500, seed=49)
         m_off, m_on, m_auto = _fit_three_modes(X, y, on_tau=0.5)
         return X, y, m_off, m_on, m_auto
 
     def test_S1_dcd_on_does_not_grow_support(self, fits):
+        """S1 dcd on does not grow support."""
         _X, _y, m_off, m_on, _m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_on = len(list(m_on.get_feature_names_out()))
         assert sz_on <= sz_off, f"Scenario D: DCD-on grew support: off={sz_off}, on={sz_on}"
 
     def test_S2_dcd_auto_does_not_grow_support(self, fits):
+        """S2 dcd auto does not grow support."""
         _X, _y, m_off, _m_on, m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_auto = len(list(m_auto.get_feature_names_out()))
@@ -496,12 +515,14 @@ class TestLayer49_ScenarioD_MixedCatNum:
         assert sz_auto <= sz_off + 2, f"Scenario D: DCD-auto grew support: off={sz_off}, auto={sz_auto}"
 
     def test_S3_metric_no_regression_dcd_on(self, fits):
+        """S3 metric no regression dcd on."""
         X, y, m_off, m_on, _m_auto = fits
         auc_off = _logreg_cv_auc(m_off.transform(X), y)
         auc_on = _logreg_cv_auc(m_on.transform(X), y)
         assert auc_on >= auc_off - 0.02, f"Scenario D: DCD-on regressed >0.02: off={auc_off:.4f}, on={auc_on:.4f}"
 
     def test_S4_metric_no_regression_dcd_auto(self, fits):
+        """S4 metric no regression dcd auto."""
         X, y, m_off, _m_on, m_auto = fits
         auc_off = _logreg_cv_auc(m_off.transform(X), y)
         auc_auto = _logreg_cv_auc(m_auto.transform(X), y)
@@ -559,6 +580,7 @@ class TestLayer49_CumulativeSummary:
     """
 
     def test_dcd_collapses_redundant_clusters_across_scenarios(self):
+        """Dcd collapses redundant clusters across scenarios."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         # Smaller n under --fast: 4 DCD-auto fits at n=1200 starve a worker into a timeout under full-suite ``-n``

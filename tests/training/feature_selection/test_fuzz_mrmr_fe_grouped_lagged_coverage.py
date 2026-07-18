@@ -20,6 +20,7 @@ MRMR = pytest.importorskip("mlframe.feature_selection.filters.mrmr").MRMR
 
 
 def _combo(kind):
+    """Builds a FuzzCombo with MRMR FE enabled and the given ratio/delta/diff engineering kind."""
     axes = {name: values[0] for name, values in AXES.items()}
     axes.update(
         use_mrmr_fs=True,
@@ -40,6 +41,7 @@ def _combo(kind):
     ],
 )
 def test_mrmr_fe_kind_emits_surviving_engineered_columns(kind, features_attr):
+    """A grouped_delta/lagged_diff MRMR FE kind survives combo canonicalization and produces its named engineered-features attribute."""
     combo = _combo(kind)
     # The canon must NOT collapse the kind to "off" -- its canonical key differs from the off combo.
     assert combo.canonical_key() != _combo("off").canonical_key(), f"{kind} was canonicalised away"

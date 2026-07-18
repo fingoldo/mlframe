@@ -81,6 +81,7 @@ class TestLockRegimeGate:
     contaminated top quintile -> per-bin gate fires."""
 
     def test_per_bin_gate_rejects_wrong_logratio(self) -> None:
+        """Per bin gate rejects wrong logratio."""
         rng = np.random.default_rng(0)
         n = 3000
         base = rng.lognormal(mean=2.0, sigma=0.6, size=n)
@@ -134,6 +135,7 @@ class TestLockPermutationNull:
     rate by at least 50%."""
 
     def test_null_filter_reduces_pure_noise_false_positives(self) -> None:
+        """Null filter reduces pure noise false positives."""
         n_reps = 10
         false_off = 0
         false_on = 0
@@ -203,6 +205,7 @@ class TestLockWrapperAware:
     raw on the heavy-tail fixture."""
 
     def test_wrapper_yclip_bounds_outlier_predictions(self) -> None:
+        """Wrapper yclip bounds outlier predictions."""
         from lightgbm import LGBMRegressor
 
         rng = np.random.default_rng(0)
@@ -236,9 +239,9 @@ class TestLockWrapperAware:
         assert np.all(np.isfinite(y_hat)), "regression: wrapper produced non-finite predictions on outlier base"
         # Loose bound: predictions stay within 100x of train y_max.
         y_train_max = float(df["y"].iloc[:cut].max())
-        assert np.all(np.abs(y_hat) < 100 * y_train_max), (
-            f"regression: wrapper y-clip not bounding predictions; max|y_hat|={np.abs(y_hat).max():.2f}, 100*y_train_max={100 * y_train_max:.2f}"
-        )
+        assert np.all(
+            np.abs(y_hat) < 100 * y_train_max
+        ), f"regression: wrapper y-clip not bounding predictions; max|y_hat|={np.abs(y_hat).max():.2f}, 100*y_train_max={100 * y_train_max:.2f}"
 
 
 # ----------------------------------------------------------------------
@@ -254,6 +257,7 @@ class TestLockEnsembleNNLS:
     convex combination)."""
 
     def test_nnls_stack_beats_best_single(self) -> None:
+        """Nnls stack beats best single."""
         from lightgbm import LGBMRegressor
         from sklearn.metrics import mean_squared_error
 
@@ -323,9 +327,9 @@ class TestLockEnsembleNNLS:
         nnls_rmse = float(np.sqrt(mean_squared_error(y_te, nnls_pred)))
         # Lock: NNLS not worse than 1.5% over best_single (allows
         # for jitter; demo showed NNLS +1.1% better).
-        assert nnls_rmse < best_single * 1.015, (
-            f"regression: NNLS stack ({nnls_rmse:.4f}) much worse than best_single ({best_single:.4f}); expected within 1.5%"
-        )
+        assert (
+            nnls_rmse < best_single * 1.015
+        ), f"regression: NNLS stack ({nnls_rmse:.4f}) much worse than best_single ({best_single:.4f}); expected within 1.5%"
 
 
 # ----------------------------------------------------------------------
@@ -339,6 +343,7 @@ class TestLockTimeIndexDemoter:
     by x1 as picked base."""
 
     def test_time_index_detector_demotes_monotone_base(self) -> None:
+        """Time index detector demotes monotone base."""
         rng = np.random.default_rng(0)
         n = 3000
         base_time = np.linspace(0, 5, n) + rng.normal(scale=0.05, size=n)
@@ -379,9 +384,9 @@ class TestLockTimeIndexDemoter:
         if d_off.specs_:
             assert d_off.specs_[0].base_column == "base_time", "fixture broken: OFF should pick base_time (highest MI)"
         if d_on.specs_:
-            assert d_on.specs_[0].base_column != "base_time", (
-                f"regression: time-index demoter failed to push base_time down; got '{d_on.specs_[0].base_column}'"
-            )
+            assert (
+                d_on.specs_[0].base_column != "base_time"
+            ), f"regression: time-index demoter failed to push base_time down; got '{d_on.specs_[0].base_column}'"
 
 
 # ----------------------------------------------------------------------
@@ -394,6 +399,7 @@ class TestLockMedianSeeds:
     CV-RMSE estimate by at least 30% on small-noisy fixtures."""
 
     def test_median_of_seeds_reduces_variance(self) -> None:
+        """Median of seeds reduces variance."""
         from tests.conftest import is_fast_mode
 
         rng = np.random.default_rng(0)
@@ -447,9 +453,9 @@ class TestLockMedianSeeds:
         # Demo showed 47.8% reduction. Lock at >=30%.
         if std_single > 1e-6:
             reduction = (std_single - std_median) / std_single
-            assert reduction >= 0.3, (
-                f"regression: median-of-5 reduced std by only {reduction * 100:.0f}% (single={std_single:.4f}, median={std_median:.4f}); expected >= 30%"
-            )
+            assert (
+                reduction >= 0.3
+            ), f"regression: median-of-5 reduced std by only {reduction * 100:.0f}% (single={std_single:.4f}, median={std_median:.4f}); expected >= 30%"
 
 
 # ----------------------------------------------------------------------
@@ -463,6 +469,7 @@ class TestLockMeanMI:
     bias the mean fix removes)."""
 
     def test_mean_mi_invariant_to_duplicates(self) -> None:
+        """Mean mi invariant to duplicates."""
         rng = np.random.default_rng(0)
         n = 2000
         base = rng.normal(size=n)
@@ -527,6 +534,7 @@ class TestLockWilcoxonGate:
     everything (loose tolerance)."""
 
     def test_wilcoxon_catches_borderline_noise(self) -> None:
+        """Wilcoxon catches borderline noise."""
         from tests.conftest import is_fast_mode
 
         threshold_accepts = 0
@@ -600,6 +608,7 @@ class TestLockAlphaDrift:
     (alpha jump 0.5 -> 1.5) with z >= 5."""
 
     def test_alpha_drift_detects_strong_jump(self) -> None:
+        """Alpha drift detects strong jump."""
         rng = np.random.default_rng(0)
         n = 4000
         base = rng.normal(loc=10, scale=2, size=n)
@@ -635,6 +644,7 @@ class TestLockMINullDistinguishesNoiseFromSignal:
     for noise and clearly positive for signal."""
 
     def test_null_centred_gain_separates_noise_from_signal(self) -> None:
+        """Null centred gain separates noise from signal."""
         from mlframe.feature_selection.filters.hermite_fe import (
             _plugin_mi_regression_njit,
         )
@@ -649,6 +659,7 @@ class TestLockMINullDistinguishesNoiseFromSignal:
         y_sig = 1.0 * x_sig[:, 0] + 0.3 * rng.normal(size=n)
 
         def gain(x, y, n_perm=20):
+            """Gain."""
             point = float(np.mean([_plugin_mi_regression_njit(x[:, j].copy(), y, 16) for j in range(x.shape[1])]))
             rng2 = np.random.default_rng(42)
             null_vals = []

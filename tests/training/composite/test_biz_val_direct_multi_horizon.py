@@ -22,6 +22,7 @@ from mlframe.training.composite import DirectMultiHorizonEnsemble
 
 
 def _make_ar_horizon_dataset(n: int, horizon: int, ar_coef: float, seed: int):
+    """Make ar horizon dataset."""
     rng = np.random.default_rng(seed)
     z0 = rng.normal(size=n)
     X0 = pd.DataFrame({"x": z0 + rng.normal(scale=0.3, size=n)})
@@ -35,6 +36,7 @@ def _make_ar_horizon_dataset(n: int, horizon: int, ar_coef: float, seed: int):
 
 
 def test_biz_val_direct_multi_horizon_beats_recursive_forecaster_pooled_rmse():
+    """Biz val direct multi horizon beats recursive forecaster pooled rmse."""
     n, horizon, ar_coef = 3000, 12, 0.9
     X0, Y, Z, rng = _make_ar_horizon_dataset(n, horizon, ar_coef, seed=0)
     n_train = 2000
@@ -62,12 +64,13 @@ def test_biz_val_direct_multi_horizon_beats_recursive_forecaster_pooled_rmse():
     rmse_direct = float(np.sqrt(np.mean((pred_direct - Y_test) ** 2)))
     improvement = 1.0 - rmse_direct / rmse_recursive
 
-    assert improvement > 0.15, (
-        f"expected >15% pooled RMSE reduction vs. the recursive forecaster, got {improvement:.4f} (recursive={rmse_recursive:.4f}, direct={rmse_direct:.4f})"
-    )
+    assert (
+        improvement > 0.15
+    ), f"expected >15% pooled RMSE reduction vs. the recursive forecaster, got {improvement:.4f} (recursive={rmse_recursive:.4f}, direct={rmse_direct:.4f})"
 
 
 def test_direct_multi_horizon_grouped_blocks_multi_output():
+    """Direct multi horizon grouped blocks multi output."""
     from sklearn.multioutput import MultiOutputRegressor
 
     n, horizon = 500, 8
@@ -92,11 +95,13 @@ class _AutoTaskLasso(BaseEstimator, RegressorMixin):
         self.alpha = alpha
 
     def fit(self, X: Any, y: Any) -> "_AutoTaskLasso":
+        """Fit."""
         y_arr = np.asarray(y)
         self.model_ = (Lasso if y_arr.ndim == 1 else MultiTaskLasso)(alpha=self.alpha).fit(X, y_arr)
         return self
 
     def predict(self, X: Any) -> np.ndarray:
+        """Predict."""
         return self.model_.predict(X)
 
 
@@ -122,6 +127,7 @@ def _make_regime_horizon_dataset(n: int, n_regimes: int, steps_per_regime: int, 
 
 
 def test_biz_val_direct_multi_horizon_auto_block_search_recovers_near_optimal_block_size():
+    """Biz val direct multi horizon auto block search recovers near optimal block size."""
     n, n_regimes, steps_per_regime = 150, 3, 3
     X0, Y = _make_regime_horizon_dataset(n, n_regimes, steps_per_regime, p_per_regime=2, n_irrelevant=4, seed=7, noise=0.6)
     n_train = 100
@@ -130,6 +136,7 @@ def test_biz_val_direct_multi_horizon_auto_block_search_recovers_near_optimal_bl
     horizon = n_regimes * steps_per_regime
 
     def make_lasso():
+        """Make lasso."""
         return _AutoTaskLasso(alpha=0.3)
 
     auto = DirectMultiHorizonEnsemble(
@@ -170,6 +177,7 @@ def test_biz_val_direct_multi_horizon_auto_block_search_recovers_near_optimal_bl
 
 
 def test_direct_multi_horizon_default_behavior_unchanged_when_auto_search_omitted():
+    """Direct multi horizon default behavior unchanged when auto search omitted."""
     n, horizon = 300, 8
     X0, Y, _, _ = _make_ar_horizon_dataset(n, horizon, ar_coef=0.8, seed=3)
     blocks = [[0, 1, 2, 3], [4, 5, 6, 7]]
@@ -189,6 +197,7 @@ def test_direct_multi_horizon_default_behavior_unchanged_when_auto_search_omitte
 
 
 def test_direct_multi_horizon_block_diagnostics_reports_per_block_importance_similarity():
+    """Direct multi horizon block diagnostics reports per block importance similarity."""
     from sklearn.ensemble import RandomForestRegressor
 
     n, horizon = 400, 6
@@ -212,6 +221,7 @@ def test_direct_multi_horizon_block_diagnostics_reports_per_block_importance_sim
 
 
 def test_direct_multi_horizon_rejects_overlapping_or_incomplete_blocks():
+    """Direct multi horizon rejects overlapping or incomplete blocks."""
     est_overlap = DirectMultiHorizonEnsemble(estimator_factory=lambda: LinearRegression(), horizon_blocks=[[0, 1], [1, 2]])
     try:
         est_overlap.fit(pd.DataFrame({"x": [1.0, 2.0]}), np.zeros((2, 3)))

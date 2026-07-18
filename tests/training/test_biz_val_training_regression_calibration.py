@@ -19,6 +19,7 @@ from mlframe.training._regression_calibration import (
 
 
 def test_recalibrator_is_monotone():
+    """Recalibrator is monotone."""
     rng = np.random.default_rng(0)
     yp = rng.uniform(-3, 3, 2000)
     yt = 2.0 * yp + rng.standard_normal(2000)  # shrunk preds vs true (slope 2)
@@ -29,6 +30,7 @@ def test_recalibrator_is_monotone():
 
 
 def test_identity_on_tiny_and_degenerate_input():
+    """Identity on tiny and degenerate input."""
     g_tiny = fit_point_recalibrator(np.arange(5.0), np.arange(5.0))
     assert g_tiny._identity
     assert np.allclose(g_tiny.transform(np.array([1.0, 2.0, 3.0])), [1.0, 2.0, 3.0])
@@ -38,6 +40,7 @@ def test_identity_on_tiny_and_degenerate_input():
 
 
 def test_linear_slope_clamped_nonnegative():
+    """Linear slope clamped nonnegative."""
     rng = np.random.default_rng(2)
     yp = rng.uniform(0, 1, 500)
     yt = -3.0 * yp + rng.standard_normal(500) * 0.01  # anti-correlated
@@ -46,6 +49,7 @@ def test_linear_slope_clamped_nonnegative():
 
 
 def test_recalibrator_picklable():
+    """Recalibrator picklable."""
     rng = np.random.default_rng(3)
     yp = rng.uniform(-2, 2, 1000)
     yt = 1.5 * yp + rng.standard_normal(1000)

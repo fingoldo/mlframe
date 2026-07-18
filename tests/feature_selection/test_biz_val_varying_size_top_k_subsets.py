@@ -18,6 +18,7 @@ from mlframe.feature_selection.varying_size_top_k_subsets import varying_size_to
 
 
 def _make_ranked_feature_dataset(n: int, n_signal: int, n_noise: int, seed: int):
+    """Make ranked feature dataset."""
     rng = np.random.default_rng(seed)
     w = rng.normal(size=n_signal) / np.sqrt(n_signal)
     X_signal = rng.normal(size=(n, n_signal))
@@ -34,6 +35,7 @@ def _make_ranked_feature_dataset(n: int, n_signal: int, n_noise: int, seed: int)
 
 
 def test_biz_val_varying_size_subsets_ensemble_beats_single_arbitrary_cutoff():
+    """Biz val varying size subsets ensemble beats single arbitrary cutoff."""
     X, y, feature_names, ranked_features = _make_ranked_feature_dataset(n=600, n_signal=8, n_noise=40, seed=0)
     import pandas as pd
 
@@ -57,12 +59,13 @@ def test_biz_val_varying_size_subsets_ensemble_beats_single_arbitrary_cutoff():
         arbitrary_cutoff_mse.append(mean_squared_error(y_test, model.predict(X_test[subset])))
     mean_single_cutoff_mse = float(np.mean(arbitrary_cutoff_mse))
 
-    assert mse_ensemble < mean_single_cutoff_mse, (
-        f"expected the varying-size-subset ensemble to beat the average single-cutoff model (robust to not knowing the true optimal cutoff), got ensemble={mse_ensemble:.4f} avg_single={mean_single_cutoff_mse:.4f}"
-    )
+    assert (
+        mse_ensemble < mean_single_cutoff_mse
+    ), f"expected the varying-size-subset ensemble to beat the average single-cutoff model (robust to not knowing the true optimal cutoff), got ensemble={mse_ensemble:.4f} avg_single={mean_single_cutoff_mse:.4f}"
 
 
 def test_varying_size_top_k_subsets_exact_prefixes():
+    """Varying size top k subsets exact prefixes."""
     ranked = ["a", "b", "c", "d", "e"]
     subsets = varying_size_top_k_subsets(ranked, sizes=[1, 3, 10])
     assert subsets == [["a"], ["a", "b", "c"], ["a", "b", "c", "d", "e"]]
@@ -112,6 +115,7 @@ def _make_clustered_dataset(n: int, n_clusters: int, cluster_size: int, n_noise:
 
 
 def test_biz_val_varying_size_subsets_diversify_beats_naive_topk_on_correlated_clusters():
+    """Biz val varying size subsets diversify beats naive topk on correlated clusters."""
     import pandas as pd
 
     X, y, names, ranked_features = _make_clustered_dataset(n=800, n_clusters=3, cluster_size=6, n_noise=20, seed=0)
@@ -121,6 +125,7 @@ def test_biz_val_varying_size_subsets_diversify_beats_naive_topk_on_correlated_c
     sizes = [2, 4, 6]
 
     def _ensemble_mse(subsets):
+        """Ensemble mse."""
         preds = []
         for subset in subsets:
             model = Ridge(alpha=1.0).fit(X_train[subset], y_train)

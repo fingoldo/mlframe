@@ -9,13 +9,13 @@ from typing import Any
 from .axes import AXES, MODELS
 from .combo import FuzzCombo
 
-
 # ---------------------------------------------------------------------------
 # Enumerator: pairwise-greedy, deterministic, deduplicated
 # ---------------------------------------------------------------------------
 
 
 def _powerset_nonempty(items: tuple[str, ...]) -> list[tuple[str, ...]]:
+    """Powerset nonempty."""
     out: list[tuple[str, ...]] = []
     for r in range(1, len(items) + 1):
         for sub in iter_combinations(items, r):
@@ -45,10 +45,12 @@ def _combo_is_runnable(models: tuple[str, ...], target_type: str) -> bool:
 
 
 def _sample_axes(rng: random.Random) -> dict[str, Any]:
+    """Sample axes."""
     return {name: rng.choice(values) for name, values in AXES.items()}
 
 
 def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> FuzzCombo:
+    """Build combo."""
     return FuzzCombo(
         models=tuple(sorted(models)),
         input_type=axes["input_type"],
@@ -613,6 +615,7 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
 
 
 def _all_axis_pairs() -> set[tuple[str, Any, str, Any]]:
+    """All axis pairs."""
     pairs: set[tuple[str, Any, str, Any]] = set()
     # Also include model-count ("n_models" pseudo-axis) to balance single vs
     # multi-model combos across other axes.
@@ -628,6 +631,7 @@ def _all_axis_pairs() -> set[tuple[str, Any, str, Any]]:
 
 
 def _combo_pairs(combo: FuzzCombo) -> set[tuple[str, Any, str, Any]]:
+    """Combo pairs."""
     values = {
         "input_type": combo.input_type,
         "n_rows": combo.n_rows,
@@ -835,6 +839,7 @@ _3WAY_AXES: tuple[str, ...] = (
 
 
 def _all_axis_triples() -> set[tuple[str, Any, str, Any, str, Any]]:
+    """All axis triples."""
     axes_ext: dict[str, tuple[Any, ...]] = {name: AXES[name] for name in _3WAY_AXES if name in AXES}
     axes_ext["n_models"] = (1, 2, 3, 4, 5)
     names = list(axes_ext.keys())
@@ -851,6 +856,7 @@ def _all_axis_triples() -> set[tuple[str, Any, str, Any, str, Any]]:
 
 
 def _combo_triples(combo: FuzzCombo) -> set[tuple[str, Any, str, Any, str, Any]]:
+    """Combo triples."""
     values = {name: getattr(combo, name) for name in _3WAY_AXES if hasattr(combo, name)}
     values["n_models"] = len(combo.models)
     names = list(values.keys())

@@ -26,6 +26,7 @@ from mlframe.training.neural import (
 
 
 def _common(labels_dtype, loss_fn):
+    """Common."""
     return dict(
         model_class=MLPTorchModel,
         model_params={"loss_fn": loss_fn, "learning_rate": 1e-3},
@@ -51,6 +52,7 @@ def _common(labels_dtype, loss_fn):
 
 
 def _make_frame(n=64, seed=0):
+    """Make frame."""
     rng = np.random.default_rng(seed)
     cats = rng.choice(["red", "green", "blue", "yellow"], size=n)
     X = pd.DataFrame(
@@ -64,6 +66,7 @@ def _make_frame(n=64, seed=0):
 
 
 def test_regression_native_cat_embeddings():
+    """Regression native cat embeddings."""
     X, cats, rng = _make_frame()
     lut = {"red": 1.0, "green": -2.0, "blue": 5.0, "yellow": 0.0}
     y = np.array([lut[c] for c in cats], dtype=np.float32) + rng.normal(scale=0.1, size=len(cats)).astype(np.float32)
@@ -77,6 +80,7 @@ def test_regression_native_cat_embeddings():
 
 
 def test_binary_classification_native_cat_embeddings():
+    """Binary classification native cat embeddings."""
     X, cats, _rng = _make_frame()
     y = (np.isin(cats, ["red", "blue"])).astype(np.int64)
     clf = PytorchLightningClassifier(**_common(torch.int64, torch.nn.CrossEntropyLoss()))
@@ -90,6 +94,7 @@ def test_binary_classification_native_cat_embeddings():
 
 
 def test_multiclass_classification_native_cat_embeddings():
+    """Multiclass classification native cat embeddings."""
     X, cats, _rng = _make_frame()
     mapping = {"red": 0, "green": 1, "blue": 2, "yellow": 0}
     y = np.array([mapping[c] for c in cats], dtype=np.int64)
@@ -101,6 +106,7 @@ def test_multiclass_classification_native_cat_embeddings():
 
 
 def test_multilabel_classification_native_cat_embeddings():
+    """Multilabel classification native cat embeddings."""
     X, cats, _rng = _make_frame()
     y = np.column_stack(
         [
@@ -122,6 +128,7 @@ def test_multilabel_classification_native_cat_embeddings():
 def test_no_cat_features_trains_identically_hook_noop():
     # No cat_features named -> the factorizer is a no-op (cardinalities stays None), the generate_mlp hook is skipped, and the all-numeric
     # frame trains + predicts exactly as before. (object-dtype-free frame so the NaN/inf validator is happy.)
+    """No cat features trains identically hook noop."""
     rng = np.random.default_rng(3)
     n = 64
     X = pd.DataFrame({"num_0": rng.normal(size=n).astype(np.float32), "num_1": rng.normal(size=n).astype(np.float32)})
@@ -152,6 +159,7 @@ def test_mlp_auto_factorizes_raw_object_cat_without_explicit_cat_features():
 
 
 def test_fit_pickle_unpickle_predict_round_trip():
+    """Fit pickle unpickle predict round trip."""
     X, cats, _rng = _make_frame(seed=7)
     y = (X["num_0"] + np.isin(cats, ["red"]).astype(np.float32) * 3.0).to_numpy().astype(np.float32)
     reg = PytorchLightningRegressor(**_common(torch.float32, torch.nn.MSELoss()), random_state=42)
@@ -166,6 +174,7 @@ def test_fit_pickle_unpickle_predict_round_trip():
 
 
 def test_unseen_category_at_predict_maps_to_reserved_code():
+    """Unseen category at predict maps to reserved code."""
     X, cats, _rng = _make_frame(seed=11)
     y = (X["num_0"]).to_numpy().astype(np.float32)
     reg = PytorchLightningRegressor(**_common(torch.float32, torch.nn.MSELoss()))
@@ -181,6 +190,7 @@ def test_knob_off_disables_factorization():
     # use_learnable_cat_embeddings=False -> the estimator does NOT factorize; with a raw string cat column present the NaN/inf validator (which
     # rejects object dtype on X) is bypassed by allow_object only for y, so the string cat would reach the network. We assert the factorizer is
     # a no-op (cardinalities None); the user is then responsible for upstream encoding. We pass an all-numeric frame so the fit still completes.
+    """Knob off disables factorization."""
     rng = np.random.default_rng(5)
     n = 48
     X = pd.DataFrame({"cat_code": rng.integers(0, 3, size=n).astype(np.float32), "num_0": rng.normal(size=n).astype(np.float32)})

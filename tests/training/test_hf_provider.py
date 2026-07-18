@@ -34,7 +34,6 @@ pytest.importorskip("torch")
 from mlframe.training.feature_handling import EmbeddingProvider, shutdown_all
 from mlframe.training.feature_handling.hf_provider import HuggingFaceProvider
 
-
 # Cheapest-possible HF encoder for CI speed. ``hf-internal-testing/tiny-random-BertModel`` ships a
 # fast tokenizer.json (so it loads under transformers>=5, which can no longer build prajjwal1/bert-tiny's
 # slow-only tokenizer) and tiny random weights -- enough for the provider lifecycle/shape/embedding tests.
@@ -45,6 +44,7 @@ EMBED_DIM = 32
 
 @pytest.fixture(autouse=True)
 def _shutdown_after():
+    """Shutdown after."""
     yield
     shutdown_all()
 
@@ -70,13 +70,16 @@ def loaded_provider():
 
 
 class TestLifecycle:
+    """Groups tests covering lifecycle."""
     def test_acquire_loads_model(self, loaded_provider):
+        """Acquire loads model."""
         assert loaded_provider._is_loaded is True
         assert loaded_provider._model is not None
         assert loaded_provider._tokenizer is not None
         assert loaded_provider.embedding_dim == EMBED_DIM
 
     def test_release_drops_model(self):
+        """Release drops model."""
         cfg = EmbeddingProvider(
             kind="huggingface",
             model=TINY_MODEL,
@@ -90,6 +93,7 @@ class TestLifecycle:
         assert p._model is None
 
     def test_kind_must_be_huggingface(self):
+        """Kind must be huggingface."""
         cfg = EmbeddingProvider(kind="onnx", model="x")
         with pytest.raises(ValueError, match="kind='huggingface'"):
             HuggingFaceProvider(cfg)
@@ -101,12 +105,15 @@ class TestLifecycle:
 
 
 class TestTransform:
+    """Groups tests covering transform."""
     def test_transform_returns_correct_shape(self, loaded_provider):
+        """Transform returns correct shape."""
         out = loaded_provider.transform(["hello", "world", "third"])
         assert out.shape == (3, EMBED_DIM)
         assert out.dtype == np.float32
 
     def test_transform_empty_list(self, loaded_provider):
+        """Transform empty list."""
         out = loaded_provider.transform([])
         assert out.shape == (0, EMBED_DIM)
 
@@ -117,7 +124,9 @@ class TestTransform:
 
 
 class TestEdgeInputs:
+    """Groups tests covering edge inputs."""
     def test_empty_strings_dont_crash(self, loaded_provider):
+        """Empty strings dont crash."""
         out = loaded_provider.transform(["", "", "ok"])
         assert out.shape == (3, EMBED_DIM)
         # All-empty rows should still produce valid embeddings (the
@@ -126,6 +135,7 @@ class TestEdgeInputs:
 
     def test_none_in_input_coerced_to_empty(self, loaded_provider):
         # None coerced to "" by HuggingFaceProvider.transform.
+        """None in input coerced to empty."""
         out = loaded_provider.transform([None, "real text", None])  # type: ignore[arg-type]
         assert out.shape == (3, EMBED_DIM)
         assert not np.any(np.isnan(out))
@@ -143,8 +153,10 @@ class TestEdgeInputs:
 
 
 class TestPoolVariants:
+    """Groups tests covering pool variants."""
     @pytest.mark.parametrize("pool", ["mean", "cls", "max"])
     def test_pool_produces_valid_output(self, pool):
+        """Pool produces valid output."""
         cfg = EmbeddingProvider(
             kind="huggingface",
             model=TINY_MODEL,
@@ -166,14 +178,17 @@ class TestPoolVariants:
 
 
 class TestTrustRemoteCode:
+    """Groups tests covering trust remote code."""
     def test_trust_remote_code_default_false(self, loaded_provider):
         # Round-3 S4: default must be False (require explicit opt-in).
         # We can verify the param wasn't smuggled in -- the loaded
         # tokenizer is the standard one.
+        """Trust remote code default false."""
         params = loaded_provider._cfg.params
         assert params.get("trust_remote_code", False) is False
 
     def test_trust_remote_code_true_emits_warning(self, recwarn):
+        """Trust remote code true emits warning."""
         cfg = EmbeddingProvider(
             kind="huggingface",
             model=TINY_MODEL,
@@ -199,7 +214,9 @@ class TestTrustRemoteCode:
 
 
 class TestE5AutoPrefix:
+    """Groups tests covering e5 auto prefix."""
     def test_auto_prefix_detector(self):
+        """Auto prefix detector."""
         from mlframe.training.feature_handling.hf_provider import _needs_e5_prefix
 
         assert _needs_e5_prefix("intfloat/multilingual-e5-small") is True

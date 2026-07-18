@@ -74,9 +74,9 @@ def test_biz_val_ordered_target_encode_noise_count_halflife_beats_constant_noise
     )
     # the schedule should also stay close to the no-noise baseline on the high-count categories (it decayed
     # noise away for them), not just "less bad than constant" -- within 15% relative of the un-noised fit.
-    assert rmse_scheduled < rmse_no_noise * 1.15, (
-        f"expected scheduled noise to stay near the no-noise baseline on high-count categories, got scheduled={rmse_scheduled:.4f} no_noise={rmse_no_noise:.4f}"
-    )
+    assert (
+        rmse_scheduled < rmse_no_noise * 1.15
+    ), f"expected scheduled noise to stay near the no-noise baseline on high-count categories, got scheduled={rmse_scheduled:.4f} no_noise={rmse_no_noise:.4f}"
 
 
 def test_ordered_target_encode_noise_count_halflife_none_is_bit_identical_to_omitting_param():

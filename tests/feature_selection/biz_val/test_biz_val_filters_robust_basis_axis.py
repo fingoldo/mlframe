@@ -47,6 +47,7 @@ def _contaminate(base: np.ndarray, rng) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _fourier_axis(x: np.ndarray, lo: float, span: float, freq: float = 1.0) -> np.ndarray:
+    """Fourier axis."""
     z = (np.asarray(x, dtype=np.float64) - lo) / max(span, 1e-12)
     return np.sin(2.0 * np.pi * freq * z)
 
@@ -111,16 +112,16 @@ def test_biz_val_robust_axis_fourier_shift_stable_under_new_outlier():
     os.environ.pop("MLFRAME_ROBUST_AXIS", None)
     legacy_drift = float(np.median(legacy_drifts))
     robust_drift = float(np.median(robust_drifts))
-    assert legacy_drift >= 0.5, (
-        f"legacy axis is supposed to be shift-fragile (drift ~0.88); got {legacy_drift:.4f} -- the contrast test is no longer measuring the bug."
-    )
+    assert (
+        legacy_drift >= 0.5
+    ), f"legacy axis is supposed to be shift-fragile (drift ~0.88); got {legacy_drift:.4f} -- the contrast test is no longer measuring the bug."
     assert robust_drift <= 0.05, (
         f"robust axis must be shift-stable under a new outlier (measured ~0.0016); got {robust_drift:.4f} -- the robust "
         f"path is not engaging or the MAD anchor is leaking the new spike into the span."
     )
-    assert (legacy_drift / max(robust_drift, 1e-12)) >= 10.0, (
-        f"robust axis must be >=10x more shift-stable than legacy; got {legacy_drift / max(robust_drift, 1e-12):.1f}x."
-    )
+    assert (
+        legacy_drift / max(robust_drift, 1e-12)
+    ) >= 10.0, f"robust axis must be >=10x more shift-stable than legacy; got {legacy_drift / max(robust_drift, 1e-12):.1f}x."
 
 
 # ---------------------------------------------------------------------------

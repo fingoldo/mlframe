@@ -226,9 +226,9 @@ class TestMrmrSurvivesDegenerateFrame:
         """MRMR.fit on a degenerate-column frame does not crash and yields non-empty support_."""
         _X, _y, sel = _build_and_fit_layer18(seed)
         assert sel.support_ is not None
-        assert sel.n_features_ >= 1, (
-            f"MRMR returned empty support_ on degenerate frame; seed={seed}. A frame with 2 real signals plus degenerate junk must yield at least one feature."
-        )
+        assert (
+            sel.n_features_ >= 1
+        ), f"MRMR returned empty support_ on degenerate frame; seed={seed}. A frame with 2 real signals plus degenerate junk must yield at least one feature."
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_at_least_one_real_signal_in_support(self, seed):
@@ -289,9 +289,9 @@ class TestExactDuplicateAtMostOneOfPair:
         _X, _y, sel = _build_and_fit_layer18(seed)
         names = list(sel.get_feature_names_out())
         pair_count = sum(1 for n in names if n in ("x_signal_1", "dup_signal_1"))
-        assert pair_count <= 1, (
-            f"BOTH x_signal_1 AND dup_signal_1 selected (byte-identical duplicates); DCD failed on the trivial duplicate case. seed={seed}, support={names}"
-        )
+        assert (
+            pair_count <= 1
+        ), f"BOTH x_signal_1 AND dup_signal_1 selected (byte-identical duplicates); DCD failed on the trivial duplicate case. seed={seed}, support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -393,9 +393,9 @@ class TestNearConstantNotPreferredOverSignal:
         # be too. near_const winning over BOTH signals would mean MI
         # ranking is broken.
         has_signal = any(n in ("x_signal_1", "x_signal_2", "dup_signal_1") for n in names)
-        assert has_signal, (
-            f"near_const in support but NO real signal -- a column with 1% jitter outranked features carrying >88% of var(y). seed={seed}, support={names}"
-        )
+        assert (
+            has_signal
+        ), f"near_const in support but NO real signal -- a column with 1% jitter outranked features carrying >88% of var(y). seed={seed}, support={names}"
 
 
 # ---------------------------------------------------------------------------

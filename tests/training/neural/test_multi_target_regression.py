@@ -52,6 +52,7 @@ def _make_multi_target_data(n=240, d=5, k=3, seed=0):
 
 
 def _regressor_params():
+    """Regressor params."""
     return {
         "model_class": MLPTorchModel,
         "model_params": {"loss_fn": torch.nn.MSELoss(), "learning_rate": 5e-3},
@@ -107,9 +108,9 @@ def test_multi_target_regression_k3_native_support():
 
     per_col_r2 = [r2_score(data["y_test"][:, k], preds[:, k]) for k in range(preds.shape[1])]
     print(f"\nF-24 multi-target (K=3) per-column R^2: {per_col_r2}")
-    assert min(per_col_r2) > 0.5, (
-        f"per-column R^2 = {per_col_r2}; multi-target MLP did not learn each target. Expected per-column R^2 > 0.5 on this clean linear synthetic problem."
-    )
+    assert (
+        min(per_col_r2) > 0.5
+    ), f"per-column R^2 = {per_col_r2}; multi-target MLP did not learn each target. Expected per-column R^2 > 0.5 on this clean linear synthetic problem."
 
 
 def test_multi_target_regression_k2_native_support():

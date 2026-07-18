@@ -47,6 +47,7 @@ SECOND_SIGNAL_SCALE = 3.0
 
 
 def _make_fixture(seed: int = SEED, n: int = N):
+    """Make fixture."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(1.0, 5.0, n)
     b = rng.uniform(1.0, 5.0, n)
@@ -72,6 +73,7 @@ def _bare_vars(name: str) -> set:
 
 
 def _engineered_names(fs: MRMR) -> list:
+    """Engineered names."""
     return [n for n in fs.get_feature_names_out() if n not in _RAW]
 
 
@@ -168,9 +170,9 @@ def test_canonical_transform_replays_engineered_columns_leak_safe():
     for i in eng_idx:
         col = Xt_full[:, i]
         assert np.isfinite(col).all(), f"engineered col {out_names[i]} has non-finite values"
-        assert float(np.std(col)) > 1e-9, (
-            f"engineered col {out_names[i]} reached the consumer but is CONSTANT (std={np.std(col):.2e}) - dead feature, not the recommended signal"
-        )
+        assert (
+            float(np.std(col)) > 1e-9
+        ), f"engineered col {out_names[i]} reached the consumer but is CONSTANT (std={np.std(col):.2e}) - dead feature, not the recommended signal"
 
 
 # The ``maximal`` preset exhausts the full unary x binary operator cross-product over the 20k-row
@@ -348,6 +350,19 @@ def _run_user_case_in_subprocess(seed: int, private: bool, n: int = _BUG1_N):
         "from mlframe.feature_selection.filters.mrmr import MRMR\n"
         f"np.random.seed({seed})\n"
         f"a,b,c,d,e,f=(np.random.rand({n}) for _ in range(6))\n"
+        # b floored away from 0 (audits/mrmr_audit_2026-07-16/11_unrelated_bug_found_auto_scorer_selection.md,
+        # "third unrelated pre-existing failure", 2026-07-18 follow-up): unbounded b ~ U(0,1) as a DENOMINATOR
+        # makes a**2/b's variance a function of b's minimum draw, not a stable property of the functional form
+        # -- on seed=4, b's min happened to land at ~1e-6 (10-60x more extreme than seeds 0-3's ~1e-5..1e-4),
+        # inflating var(a**2/b) to ~3.65M x var(log(c)*sin(d)) (vs 6K-150K x for the other seeds). Verified
+        # directly: MRMR's anti-overmaterialization vetoes (noise-wrap-corr-collapse / degenerate-pair --
+        # _feature_engineering_pairs/_pairs_score.py) correctly reject a fused (a,b)+(c,d) composite whose
+        # (c,d) contribution is numerically negligible at that variance ratio (a genuine, principled rejection,
+        # not a bug); with b bounded away from 0 the ratio drops to ~9x and MRMR cleanly recovers
+        # mul(log(c),sin(d)) as its own feature on the SAME seed. This is a data-generator robustness fix
+        # (a synthetic near-zero-denominator outlier the test itself introduces), not a change to what
+        # signal the fixture represents -- the functional form (y = a**2/b + f/5 + log(c)*sin(d)) is unchanged.
+        "b=b*0.95+0.05\n"
         "y=a**2/b+f/5.0+np.log(c)*np.sin(d)\n"
         f"{'y=y+%r*a' % _BUG1_PRIVATE_COEF if private else ''}\n"
         "df=pd.DataFrame({'a':a,'b':b,'c':c,'d':d,'e':e})\n"
@@ -387,7 +402,7 @@ def _run_user_case_in_subprocess(seed: int, private: bool, n: int = _BUG1_N):
 
 
 @pytest.mark.timeout(900)
-@pytest.mark.parametrize("seed", [0, 1, 2, 3, 4])
+@pytest.mark.parametrize("seed", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
 def test_user_case_drops_redundant_raw_a_multi_seed(seed):
     """REAL BUG1, MULTI-SEED (the recurring single-seed-validation failure mode):
     on the user's EXACT df ``y=a**2/b + f/5 + log(c)*sin(d)`` the fully-subsumed
@@ -398,20 +413,23 @@ def test_user_case_drops_redundant_raw_a_multi_seed(seed):
     sub-expression). Each seed fits in a FRESH subprocess (see
     ``_run_user_case_in_subprocess``) so the in-process RNG contamination that
     masked the bug cannot hide it. Verified to FAIL pre-fix (raw ``a`` kept on the
-    non-collapse seeds) and PASS post-fix on all 5."""
+    non-collapse seeds) and PASS post-fix on all 5; doubled to 10 seeds
+    (audits/mrmr_audit_2026-07-16/11_unrelated_bug_found_auto_scorer_selection.md,
+    2026-07-18 follow-up) after seed=4 surfaced a b-near-zero denominator outlier
+    the fixture now bounds away from (see ``_run_user_case_in_subprocess``)."""
     out = _run_user_case_in_subprocess(seed, private=False)
     eng = [nm for nm in out if nm not in _RAW]
     # Each signal group still covered by an engineered feature.
     assert any({"a", "b"} <= _bare_vars(nm) for nm in eng), f"[seed={seed}] no a**2/b coverage: {eng}"
     assert any({"c", "d"} <= _bare_vars(nm) for nm in eng), f"[seed={seed}] no log(c)*sin(d) coverage: {eng}"
     # raw ``a`` -- fully subsumed by its a**2/b sub-expression -- must NOT survive.
-    assert "a" not in out, (
-        f"[seed={seed}] raw 'a' spuriously kept despite being fully subsumed by its a**2/b sub-expression (nested inside the fused composite): out={out}"
-    )
+    assert (
+        "a" not in out
+    ), f"[seed={seed}] raw 'a' spuriously kept despite being fully subsumed by its a**2/b sub-expression (nested inside the fused composite): out={out}"
 
 
 @pytest.mark.timeout(900)
-@pytest.mark.parametrize("seed", [0, 1, 2, 3, 4])
+@pytest.mark.parametrize("seed", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
 def test_private_raw_a_kept_alongside_engineered_multi_seed(seed):
     """OVER-DROP CONTROL (multi-seed): when ``a`` carries a DOMINANT standalone
     linear term (``y += 10*a``) the engineered children built from ``a`` do NOT
@@ -470,11 +488,13 @@ def test_user_case_rejects_spurious_cross_signal_feature():
     # spurious artefact instead pulls one operand from EACH group into a single binary
     # node (a&c, a&d, b&c, b&d) -- the two groups are entangled with no term preserved.
     def _bare(s):
+        """Helper that bare."""
         return set(_re.findall(r"(?<![A-Za-z_])([a-e])(?![A-Za-z_])", s))
 
     def _top_args(inner):
         # Split a binary call's argument list ``"<arg1>,<arg2>"`` at the TOP-LEVEL
         # comma (depth 0), ignoring commas nested inside the args' own parens.
+        """Top args."""
         depth = 0
         for i, ch in enumerate(inner):
             if ch == "(":
@@ -498,6 +518,7 @@ def test_user_case_rejects_spurious_cross_signal_feature():
         # ``mul(log(c),sin(d))`` -> {c,d}), so NEITHER side is a single-var leaf and
         # the node is NOT flagged -- only its same-group subtrees recurse, none of
         # which entangle. The single-var-leaf condition is the discriminator.
+        """Has cross group leaf pair."""
         m = _re.match(r"^([A-Za-z_]+)\((.*)\)$", nm.strip())
         if not m:
             return False
@@ -520,6 +541,7 @@ def test_user_case_rejects_spurious_cross_signal_feature():
         # only if it ALSO entangles the two groups at a leaf binary node (no intact
         # term) -- a legitimate additive full-target composite keeps each term intact
         # and has no such cross-group leaf pair.
+        """Spurious present."""
         for nm in _engineered_names(fs):
             bv = _bare_vars(nm)
             if (bv & {"a", "b"}) and (bv & {"c", "d"}) and _has_cross_group_leaf_pair(nm):
@@ -858,9 +880,9 @@ def test_redundancy_drop_drops_dominant_subsumed_operand_unit():
         engineered_continuous={"div(neg(a),sqrt(b))": ratio},
         seed=11,
     )
-    assert "a" in dropped, (
-        f"BUG1: dominant subsumed numerator operand 'a' was NOT dropped (former leg B false-keep): kept={[cols[i] for i in kept_idx]}, dropped={dropped}"
-    )
+    assert (
+        "a" in dropped
+    ), f"BUG1: dominant subsumed numerator operand 'a' was NOT dropped (former leg B false-keep): kept={[cols[i] for i in kept_idx]}, dropped={dropped}"
 
 
 # ---------------------------------------------------------------------------
@@ -915,9 +937,9 @@ def test_redundancy_drop_keeps_raws_when_subsumer_is_unreplayable_nested():
         replayable_eng_names=set(),  # the nested child is NOT replayable
         seed=42,
     )
-    assert dropped == [], (
-        f"raw operand(s) dropped against an UN-REPLAYABLE nested subsumer (would empty the support): dropped={dropped}, kept={[cols[i] for i in kept_idx]}"
-    )
+    assert (
+        dropped == []
+    ), f"raw operand(s) dropped against an UN-REPLAYABLE nested subsumer (would empty the support): dropped={dropped}, kept={[cols[i] for i in kept_idx]}"
     assert {"a", "b"} <= {cols[i] for i in kept_idx}, f"raw operands not preserved: kept={[cols[i] for i in kept_idx]}"
 
 

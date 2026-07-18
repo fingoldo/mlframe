@@ -30,7 +30,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["detect_hinge_breakpoints_gpu", "detect_hinge_breakpoints_gpu_batch", "hinge_gpu_enabled"]
+__all__ = ["detect_hinge_breakpoints_gpu", "hinge_gpu_enabled"]
 
 
 def hinge_gpu_enabled() -> bool:

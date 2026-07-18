@@ -16,6 +16,7 @@ from mlframe.feature_selection.filters.engineered_recipes import (
 
 # Per-helper presence flags so a single missing name doesn't skip the entire file.
 def _try_import(name):
+    """Try import."""
     try:
         mod = __import__("mlframe.feature_selection.filters.engineered_recipes", fromlist=[name])
         return getattr(mod, name, None)
@@ -38,6 +39,7 @@ _HAVE_PRIVATES = build_unary_binary_recipe is not None  # legacy flag for old te
 
 
 def _basic_df():
+    """Basic df."""
     return pd.DataFrame({"a": [1, 2, 3, 4], "b": [10, 20, 30, 40]})
 
 
@@ -55,6 +57,7 @@ def test_engineered_recipe_equality():
 
 
 def test_engineered_recipe_pickle_round_trip():
+    """Engineered recipe pickle round trip."""
     r = EngineeredRecipe(name="mul(a,b)", kind="unary_binary", src_names=("a", "b"), extra={"binary_name": "mul"})
     blob = pickle.dumps(r)
     r2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
@@ -62,6 +65,7 @@ def test_engineered_recipe_pickle_round_trip():
 
 
 def test_engineered_recipe_hash_consistent():
+    """Engineered recipe hash consistent."""
     r1 = EngineeredRecipe(name="x", kind="factorize", src_names=("a",), extra={})
     r2 = EngineeredRecipe(name="x", kind="factorize", src_names=("a",), extra={})
     assert hash(r1) == hash(r2)
@@ -95,6 +99,7 @@ def _build_recipe_via_actual_api(binary: str, unary_a: str, unary_b: str, *, una
 
 
 def test_build_unary_binary_recipe_mul():
+    """Build unary binary recipe mul."""
     r = _build_recipe_via_actual_api("mul", "identity", "identity")
     df = _basic_df()
     out = apply_recipe(r, df)
@@ -102,6 +107,7 @@ def test_build_unary_binary_recipe_mul():
 
 
 def test_build_unary_binary_recipe_add():
+    """Build unary binary recipe add."""
     r = _build_recipe_via_actual_api("add", "identity", "identity")
     df = _basic_df()
     out = apply_recipe(r, df)
@@ -112,6 +118,7 @@ def test_build_unary_binary_recipe_max():
     # 'sub' is not a 'minimal' preset binary; 'max' is. We exercise the same code path with a
     # binary that actually lives in the preset so the replay succeeds end-to-end. Pre-fix this
     # test used 'sub' and pytest.skip'd on KeyError, masking that the call never replayed.
+    """Build unary binary recipe max."""
     r = _build_recipe_via_actual_api("max", "identity", "identity")
     df = _basic_df()
     out = apply_recipe(r, df)
@@ -124,6 +131,7 @@ def test_build_unary_binary_recipe_with_log_unary():
     # replay finds the unary function. ('standard' is NOT a valid preset --
     # create_unary_transformations accepts only minimal/medium/maximal plus
     # the rich/full aliases -- so the old 'standard' arg raised ValueError.)
+    """Build unary binary recipe with log unary."""
     r = _build_recipe_via_actual_api("mul", "log", "identity", unary_preset="maximal")
     df = _basic_df()
     out = apply_recipe(r, df)
@@ -184,6 +192,7 @@ def test_apply_factorize_clip_out_of_range():
 
 
 def test_coerce_to_int_with_nan_handling():
+    """Coerce to int with nan handling."""
     if _coerce_to_int_with_nan_handling is None:
         pytest.skip("_coerce_to_int_with_nan_handling not exported")
     # Real signature: (vals, n_bins, recipe_name, col_name, unknown_strategy)
@@ -194,6 +203,7 @@ def test_coerce_to_int_with_nan_handling():
 
 
 def test_coerce_to_int_unknown_strategy_raise():
+    """Coerce to int unknown strategy raise."""
     if _coerce_to_int_with_nan_handling is None:
         pytest.skip("_coerce_to_int_with_nan_handling not exported")
     arr = np.array([1.0, np.nan], dtype=np.float64)
@@ -202,6 +212,7 @@ def test_coerce_to_int_unknown_strategy_raise():
 
 
 def test_coerce_to_int_integer_passthrough():
+    """Coerce to int integer passthrough."""
     if _coerce_to_int_with_nan_handling is None:
         pytest.skip("_coerce_to_int_with_nan_handling not exported")
     arr = np.array([0, 1, 2], dtype=np.int32)
@@ -210,6 +221,7 @@ def test_coerce_to_int_integer_passthrough():
 
 
 def test_extract_column_pandas():
+    """Extract column pandas."""
     if _extract_column is None:
         pytest.skip("_extract_column not exported")
     df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
@@ -218,6 +230,7 @@ def test_extract_column_pandas():
 
 
 def test_extract_column_polars():
+    """Extract column polars."""
     pl = pytest.importorskip("polars")
     if _extract_column is None:
         pytest.skip("_extract_column not exported")
@@ -227,6 +240,7 @@ def test_extract_column_polars():
 
 
 def test_extra_equal_helper():
+    """Extra equal helper."""
     if _extra_equal is None:
         pytest.skip("_extra_equal not exported")
     assert _extra_equal({"a": 1}, {"a": 1}) is True
@@ -270,6 +284,7 @@ def test_apply_target_encoding_k_gt_2_raises():
 
 
 def test_apply_recipe_unknown_kind_raises():
+    """Apply recipe unknown kind raises."""
     r = EngineeredRecipe(name="bogus", kind="nonexistent_kind_xyz", src_names=("a",), extra={})
     df = _basic_df()
     with pytest.raises((ValueError, KeyError, NotImplementedError, TypeError)):

@@ -37,7 +37,6 @@ from sklearn.base import BaseEstimator, RegressorMixin
 from mlframe.training.composite import CompositeTargetEstimator
 from mlframe.training.composite.transforms import get_transform
 
-
 # ----------------------------------------------------------------------
 # Inner mocks
 # ----------------------------------------------------------------------
@@ -50,11 +49,13 @@ class _ConstInner(BaseEstimator, RegressorMixin):
         self.t_value = t_value
 
     def fit(self, X, y, **kw):
+        """Fit."""
         self.n_features_in_ = X.shape[1]
         self._mean_t = float(self.t_value) if self.t_value is not None else float(np.mean(np.asarray(y, dtype=np.float64)))
         return self
 
     def predict(self, X):
+        """Predict."""
         return np.full(X.shape[0], self._mean_t, dtype=np.float64)
 
 
@@ -73,12 +74,14 @@ class _WeightAwareButBuggyInner(BaseEstimator, RegressorMixin):
     fit_call_count = 0
 
     def fit(self, X, y, sample_weight=None, **kw):
+        """Fit."""
         type(self).fit_call_count += 1
         self.n_features_in_ = X.shape[1]
         # Simulate a deep TypeError unrelated to sample_weight acceptance.
         raise TypeError("deep boom: simulated downstream dtype error inside fit")
 
     def predict(self, X):
+        """Predict."""
         return np.zeros(X.shape[0], dtype=np.float64)
 
 
@@ -86,12 +89,14 @@ class _WeightAwareInner(BaseEstimator, RegressorMixin):
     """Records whether it received sample_weight (and that it was non-None)."""
 
     def fit(self, X, y, sample_weight=None, **kw):
+        """Fit."""
         self.n_features_in_ = X.shape[1]
         self.got_sample_weight_ = sample_weight is not None
         self._mean_t = float(np.mean(np.asarray(y, dtype=np.float64)))
         return self
 
     def predict(self, X):
+        """Predict."""
         return np.full(X.shape[0], self._mean_t, dtype=np.float64)
 
 
@@ -101,15 +106,18 @@ class _NoWeightInner(BaseEstimator, RegressorMixin):
     """
 
     def fit(self, X, y, **kw):  # no sample_weight, no **kwargs swallow of it
+        """Fit."""
         self.n_features_in_ = X.shape[1]
         self._mean_t = float(np.mean(np.asarray(y, dtype=np.float64)))
         return self
 
     def predict(self, X):
+        """Predict."""
         return np.full(X.shape[0], self._mean_t, dtype=np.float64)
 
 
 def _diff_frame(n=200, seed=0):
+    """Diff frame."""
     rng = np.random.default_rng(seed)
     base = rng.normal(0.0, 1.0, size=n)
     feat = rng.normal(0.0, 1.0, size=n)
@@ -124,6 +132,7 @@ def _diff_frame(n=200, seed=0):
 
 
 class TestE7SampleWeightSignatureGate:
+    """Groups tests covering e7 sample weight signature gate."""
     def test_deep_typeerror_in_weight_aware_inner_propagates_no_retry(self) -> None:
         """E7: a TypeError raised DEEP inside a weight-AWARE inner.fit must
         propagate on the FIRST call -- no silent unweighted retry. Pre-fix the
@@ -142,9 +151,9 @@ class TestE7SampleWeightSignatureGate:
         with pytest.raises(TypeError, match="deep boom"):
             est.fit(X, y, sample_weight=sw)
         # Exactly one fit attempt -- the gate did NOT trigger an unweighted retry.
-        assert _WeightAwareButBuggyInner.fit_call_count == 1, (
-            f"expected 1 inner.fit call (no retry); got {_WeightAwareButBuggyInner.fit_call_count} (pre-fix retry bug)"
-        )
+        assert (
+            _WeightAwareButBuggyInner.fit_call_count == 1
+        ), f"expected 1 inner.fit call (no retry); got {_WeightAwareButBuggyInner.fit_call_count} (pre-fix retry bug)"
 
     def test_weight_aware_inner_receives_sample_weight(self) -> None:
         """A weight-aware inner gets the sample_weight kwarg threaded through."""
@@ -180,7 +189,9 @@ class TestE7SampleWeightSignatureGate:
 
 
 class TestE10FromFittedInnerUnaryTClip:
+    """Groups tests covering e10 from fitted inner unary t clip."""
     def _fit_log_y_params(self, y):
+        """Fit log y params."""
         tr = get_transform("log_y")
         return dict(tr.fit(y, np.zeros_like(y)))
 
@@ -277,7 +288,9 @@ class TestE10FromFittedInnerUnaryTClip:
 
 
 class TestE11GroupedNFeaturesInvariant:
+    """Groups tests covering e11 grouped n features invariant."""
     def _grouped_frame(self, n=400, seed=0):
+        """Grouped frame."""
         rng = np.random.default_rng(seed)
         g = rng.integers(0, 5, size=n).astype(str)
         base = rng.normal(0.0, 1.0, size=n)
@@ -332,6 +345,7 @@ class TestE11GroupedNFeaturesInvariant:
 
 
 class TestDX15InBodySurface:
+    """Groups tests covering d x15 in body surface."""
     @pytest.mark.parametrize(
         "name",
         ["update", "get_buffer_state", "predict_pre_clip", "get_booster", "predict", "predict_quantile"],

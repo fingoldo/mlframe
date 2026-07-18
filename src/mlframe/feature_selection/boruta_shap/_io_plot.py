@@ -74,7 +74,7 @@ def plot(self, X_rotation=90, X_size=8, figsize=(12, 8), y_scale="log", which_fe
 
     decision_mapper = self.create_mapping_of_features_to_attribute(maps=["Tentative", "Rejected", "Accepted", "Shadow"])
     data["Decision"] = data["Methods"].map(decision_mapper)
-    data.drop(["index"], axis=1, inplace=True)
+    data = data.drop(["index"], axis=1)
 
     options = {
         "accepted": self.filter_data(data, "Decision", "Accepted"),

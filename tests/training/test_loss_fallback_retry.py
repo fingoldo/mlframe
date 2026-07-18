@@ -20,8 +20,6 @@ from __future__ import annotations
 
 import logging
 
-
-
 # ---------------------------------------------------------------------------
 # Stand-in booster: minimal CB / LGB / XGB interface needed by the helper.
 # ---------------------------------------------------------------------------
@@ -57,24 +55,29 @@ class _StubBooster:
         self.__class__.__name__ = booster_type_name
 
     def get_params(self, deep: bool = True) -> dict:
+        """Get params."""
         return dict(self._params)
 
     def set_params(self, **kwargs) -> "_StubBooster":
+        """Set params."""
         self._params.update(kwargs)
         self.set_params_history.append(kwargs)
         return self
 
     def fit(self, X, y, **fit_params) -> "_StubBooster":
+        """Fit."""
         self._fit_count += 1
         self.fit_history.append({"X_id": id(X), "y_id": id(y), "fit_params": dict(fit_params)})
         return self
 
     # ``get_model_best_iter`` calls these in order on CB / LGB / XGB.
     def get_best_iteration(self) -> int:
+        """Get best iteration."""
         return self._best_iter_first if self._fit_count <= 1 else self._best_iter_after_refit
 
     @property
     def best_iteration(self) -> int:
+        """Best iteration."""
         return self.get_best_iteration()
 
 
@@ -84,7 +87,9 @@ class _StubBooster:
 
 
 class TestRefitOnDegenerateBestIter:
+    """Groups tests covering refit on degenerate best iter."""
     def _call_helper(self, stub, *, model_type_name: str, best_iter: int):
+        """Call helper."""
         from mlframe.training._training_loop import _maybe_refit_on_degenerate_best_iter
 
         return _maybe_refit_on_degenerate_best_iter(
@@ -98,6 +103,7 @@ class TestRefitOnDegenerateBestIter:
         )
 
     def test_catboost_huber_degenerate_refits_with_rmse(self):
+        """Catboost huber degenerate refits with rmse."""
         stub = _StubBooster(
             loss_param_key="loss_function",
             initial_loss="Huber:delta=1.345",
@@ -115,6 +121,7 @@ class TestRefitOnDegenerateBestIter:
         assert len(stub.fit_history) == 1
 
     def test_lgb_huber_degenerate_refits_with_regression(self):
+        """Lgb huber degenerate refits with regression."""
         stub = _StubBooster(
             loss_param_key="objective",
             initial_loss="huber",
@@ -129,6 +136,7 @@ class TestRefitOnDegenerateBestIter:
         assert last.get("metric") == "l2"
 
     def test_xgb_pseudohuber_degenerate_refits_with_squarederror(self):
+        """Xgb pseudohuber degenerate refits with squarederror."""
         stub = _StubBooster(
             loss_param_key="objective",
             initial_loss="reg:pseudohubererror",
@@ -220,7 +228,9 @@ class TestRefitOnDegenerateBestIter:
         degenerate best_iter survives so the chart shows the truth."""
 
         class _RaisingStub(_StubBooster):
+            """Groups tests covering raising stub."""
             def set_params(self, **kwargs):
+                """Set params."""
                 raise ValueError("simulated backend rejection")
 
         stub = _RaisingStub(

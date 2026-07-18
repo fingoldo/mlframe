@@ -19,7 +19,6 @@ from enum import Enum
 
 import pytest
 
-
 PUBLIC_NAMES = [
     # Permuted-y noise-floor post-hoc cut of an over-selected feature ranking (wrappers/_noise_floor.py).
     "select_features_noise_floor",
@@ -48,6 +47,7 @@ class TestPublicAPI:
     """Top-level ``__all__`` contract."""
 
     def test_all_names_importable(self):
+        """All names importable."""
         import mlframe.feature_selection.wrappers as pkg
 
         for name in PUBLIC_NAMES:
@@ -74,6 +74,7 @@ class TestPublicAPITypes:
     """Each public name has the expected category (enum / class / callable)."""
 
     def test_optimum_search_is_enum(self):
+        """Optimum search is enum."""
         from mlframe.feature_selection.wrappers import OptimumSearch
 
         assert issubclass(OptimumSearch, Enum)
@@ -87,6 +88,7 @@ class TestPublicAPITypes:
         assert {m.name for m in OptimumSearch} == expected
 
     def test_votes_aggregation_is_enum(self):
+        """Votes aggregation is enum."""
         from mlframe.feature_selection.wrappers import VotesAggregation
 
         assert issubclass(VotesAggregation, Enum)
@@ -94,6 +96,7 @@ class TestPublicAPITypes:
         assert {m.name for m in VotesAggregation} == expected
 
     def test_rfecv_is_class_with_sklearn_contract(self):
+        """Rfecv is class with sklearn contract."""
         from mlframe.feature_selection.wrappers import RFECV
         from sklearn.base import BaseEstimator, TransformerMixin
 
@@ -119,6 +122,7 @@ class TestPublicAPITypes:
         ],
     )
     def test_helper_is_callable(self, name):
+        """Helper is callable."""
         import mlframe.feature_selection.wrappers as pkg
 
         obj = getattr(pkg, name)
@@ -147,6 +151,7 @@ class TestRfecvSubmoduleReExports:
         ],
     )
     def test_rfecv_reexport_present(self, name):
+        """Rfecv reexport present."""
         mod = __import__("mlframe.feature_selection.wrappers.rfecv", fromlist=[name])
         obj = getattr(mod, name, None)
         assert obj is not None, f"{name} must remain importable from mlframe.feature_selection.wrappers.rfecv (declared as # noqa: F401 re-export)"

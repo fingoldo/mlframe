@@ -58,17 +58,22 @@ def test_nan_fold_count_warn_fires_when_any_fold_fails(caplog):
     fail_count = {"n": 0}
 
     def _fail_first_3(*args, **kwargs):
+        """Fail first 3."""
         if fail_count["n"] < 3:
             fail_count["n"] += 1
 
             class _Broken:
+                """Groups tests covering broken."""
                 def fit(self, X, y):
+                    """Fit."""
                     raise RuntimeError("simulated fold failure for E1.2 test")
 
                 def predict(self, X):
+                    """Predict."""
                     return np.zeros(len(X))
 
                 def set_params(self, **k):
+                    """Set params."""
                     return self
 
             return _Broken()
@@ -115,6 +120,7 @@ def test_concurrent_import_does_not_raise():
         # while invalidate_caches() iterates it). Swallow that environment
         # KeyError so the import-race contract we actually test (no
         # NameError / ImportError on _y_train_clip_bounds) stays measurable.
+        """Import and call."""
         try:
             importlib.invalidate_caches()
         except KeyError:

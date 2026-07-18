@@ -26,11 +26,11 @@ from mlframe.training.neural._recurrent_config import (
     RNNType,
 )
 
-
 # --- Config surface --------------------------------------------------------
 
 
 def test_recurrent_config_exposes_ema_defaults():
+    """RecurrentConfig exposes use_ema (default False) and ema_decay (default 0.999)."""
     cfg = RecurrentConfig()
     assert hasattr(cfg, "use_ema")
     assert hasattr(cfg, "ema_decay")
@@ -39,6 +39,7 @@ def test_recurrent_config_exposes_ema_defaults():
 
 
 def test_recurrent_config_accepts_custom_ema_kwargs():
+    """RecurrentConfig accepts explicit use_ema/ema_decay overrides and stores them verbatim."""
     cfg = RecurrentConfig(use_ema=True, ema_decay=0.995)
     assert cfg.use_ema is True
     assert cfg.ema_decay == 0.995
@@ -114,9 +115,9 @@ def test_recurrent_ema_callback_attached_when_use_ema_true(monkeypatch):
     from lightning.pytorch.callbacks import StochasticWeightAveraging
 
     expected_type = WeightAveraging if _native else StochasticWeightAveraging  # type: ignore[possibly-unbound]
-    assert any(isinstance(cb, expected_type) for cb in trainer.callbacks), (
-        f"use_ema=True did not attach {expected_type.__name__} to Trainer.callbacks; observed: {[type(cb).__name__ for cb in trainer.callbacks]}"
-    )
+    assert any(
+        isinstance(cb, expected_type) for cb in trainer.callbacks
+    ), f"use_ema=True did not attach {expected_type.__name__} to Trainer.callbacks; observed: {[type(cb).__name__ for cb in trainer.callbacks]}"
 
 
 def test_recurrent_no_ema_callback_when_use_ema_false():

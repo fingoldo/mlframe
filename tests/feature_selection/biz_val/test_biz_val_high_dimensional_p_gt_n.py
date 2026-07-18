@@ -90,6 +90,7 @@ def _recovered_and_total(sel, signal):
 
 
 def _fit(spec, n, p, seed):
+    """Helper that fit."""
     sel = spec.make("binary")
     X, y, signal = make_p_gt_n(n, p, seed=seed)
     with warnings.catch_warnings():
@@ -105,6 +106,7 @@ def _fit(spec, n, p, seed):
 
 
 def _spec_param(name):
+    """Spec param."""
     spec = SELECTOR_SPECS[name]
     marks = [pytest.mark.slow] if spec.slow else []
     return pytest.param(name, marks=marks, id=name)
@@ -239,9 +241,9 @@ def test_rfecv_p_ge_n_below_dummy_full_set_caps_at_fp_ceiling():
     sel.fit(X, y)
     n_sel = int(np.asarray(sel.get_support()).sum())
     ceiling = max(20, 300 // 3)
-    assert 0 < n_sel <= ceiling, (
-        f"p>=n below-dummy full set must cap at the FP ceiling {ceiling}, not select all p / abstain; got n_features_={n_sel}; cv_results={sel.cv_results_}"
-    )
+    assert (
+        0 < n_sel <= ceiling
+    ), f"p>=n below-dummy full set must cap at the FP ceiling {ceiling}, not select all p / abstain; got n_features_={n_sel}; cv_results={sel.cv_results_}"
     assert "p_ge_n_fp_control_cap" in getattr(sel, "resolved_n_features_rule_", "")
 
 

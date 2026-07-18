@@ -19,6 +19,7 @@ from mlframe.feature_selection.filters._fe_batch_dispatch import choose_fe_batch
 
 
 def _continuous(seed=3, n=5000, k=40, nbins=10):
+    """Helper that continuous."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(1, 5, n)
     b = rng.uniform(1, 5, n)
@@ -32,6 +33,7 @@ def _continuous(seed=3, n=5000, k=40, nbins=10):
 
 
 def _tied(seed=5, n=5000, k=24, nbins=10):
+    """Helper that tied."""
     rng = np.random.default_rng(seed)
     cols = [
         rng.integers(0, 5, n).astype(np.float64),
@@ -48,6 +50,7 @@ def _tied(seed=5, n=5000, k=24, nbins=10):
 
 @pytest.mark.parametrize("fixture", [_continuous, _tied], ids=["continuous", "tied"])
 def test_cpu_batcher_matches_primitive_and_is_chunk_invariant(fixture):
+    """Cpu batcher matches primitive and is chunk invariant."""
     X, y, nb = fixture()
     prim = plugin_mi_classif_batch_edge_njit(X, y, nb)
     whole = cpu_fe_batch_mi(X, y, nb)
@@ -73,6 +76,7 @@ def test_collector_matches_per_family_separate():
 
 
 def test_dispatcher_force_env(monkeypatch):
+    """Dispatcher force env."""
     monkeypatch.setenv("MLFRAME_FE_VRAM_BACKEND", "cpu")
     assert choose_fe_batch_backend(10_000, 100) == "cpu"
     monkeypatch.delenv("MLFRAME_FE_VRAM_BACKEND", raising=False)
@@ -82,6 +86,7 @@ def test_dispatcher_force_env(monkeypatch):
 
 
 def test_dispatcher_cpu_path_matches_primitive():
+    """Dispatcher cpu path matches primitive."""
     X, y, nb = _continuous()
     out = fe_batch_mi(X, y, nb, backend="cpu")
     assert np.array_equal(out, plugin_mi_classif_batch_edge_njit(X, y, nb))
@@ -91,6 +96,7 @@ def test_dispatcher_cpu_path_matches_primitive():
 # CUDA: CPU batcher == GPU batcher (the cross-backend identity the user requires).
 # ---------------------------------------------------------------------------
 def _need_cuda() -> bool:
+    """Need cuda."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -103,6 +109,7 @@ def _need_cuda() -> bool:
 @pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 @pytest.mark.parametrize("fixture", [_continuous, _tied], ids=["continuous", "tied"])
 def test_cpu_batcher_matches_gpu_batcher(fixture):
+    """Cpu batcher matches gpu batcher."""
     import cupy as cp
     from mlframe.feature_selection.filters._fe_gpu_batch import gpu_fe_batch_mi
 
@@ -110,9 +117,9 @@ def test_cpu_batcher_matches_gpu_batcher(fixture):
     cpu = cpu_fe_batch_mi(X, y, nb)
     gpu = gpu_fe_batch_mi(X, y, nb)
     cp.get_default_memory_pool().free_all_blocks()
-    assert np.allclose(cpu, gpu, atol=1e-9, rtol=0), (
-        f"CPU vs GPU batcher diverged: max|d|={np.max(np.abs(cpu - gpu)):.3e} (the two FE paths must select identically)"
-    )
+    assert np.allclose(
+        cpu, gpu, atol=1e-9, rtol=0
+    ), f"CPU vs GPU batcher diverged: max|d|={np.max(np.abs(cpu - gpu)):.3e} (the two FE paths must select identically)"
 
 
 @pytest.mark.gpu

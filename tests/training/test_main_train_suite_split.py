@@ -22,6 +22,7 @@ from types import SimpleNamespace
 
 
 def test_w14a_main_train_suite_facade_under_budget():
+    """W14a main train suite facade under budget."""
     parent = Path(__file__).parent.parent.parent / "src" / "mlframe" / "training" / "core" / "_main_train_suite.py"
     facade_loc = sum(1 for _ in parent.open(encoding="utf-8"))
     # Budget tracks the irreducible orchestration shell plus the comprehensive 34-parameter
@@ -33,6 +34,7 @@ def test_w14a_main_train_suite_facade_under_budget():
 
 
 def test_w14a_main_train_suite_phases_identity():
+    """W14a main train suite phases identity."""
     from mlframe.training.core import _main_train_suite as parent
     from mlframe.training.core import _main_train_suite_phases as phases
 
@@ -49,6 +51,7 @@ def test_w14a_main_train_suite_phases_identity():
 
 
 def test_encoding_sibling_reexport_identity():
+    """Encoding sibling reexport identity."""
     from mlframe.training.core import _main_train_suite as parent
     from mlframe.training.core import _main_train_suite_encoding as enc
 
@@ -58,6 +61,7 @@ def test_encoding_sibling_reexport_identity():
 
 
 def test_assert_suite_return_shape_body_callable():
+    """Assert suite return shape body callable."""
     from mlframe.training.core._main_train_suite_encoding import _assert_suite_return_shape
     import pytest
 
@@ -67,6 +71,7 @@ def test_assert_suite_return_shape_body_callable():
 
 
 def test_encode_string_multiclass_target_body_callable():
+    """Encode string multiclass target body callable."""
     import numpy as np
     from mlframe.training.core._main_train_suite_encoding import _encode_string_multiclass_target
     from mlframe.training.configs import TargetTypes
@@ -81,6 +86,7 @@ def test_encode_string_multiclass_target_body_callable():
 
 
 def test_w14a_validate_suite_inputs_pathlike_coerced_to_str():
+    """W14a validate suite inputs pathlike coerced to str."""
     from mlframe.training.core._main_train_suite_phases import validate_suite_inputs
 
     p = Path("data.parquet")
@@ -89,6 +95,7 @@ def test_w14a_validate_suite_inputs_pathlike_coerced_to_str():
 
 
 def test_w14a_validate_suite_inputs_rejects_non_parquet_str():
+    """W14a validate suite inputs rejects non parquet str."""
     from mlframe.training.core._main_train_suite_phases import validate_suite_inputs
 
     import pytest
@@ -98,6 +105,7 @@ def test_w14a_validate_suite_inputs_rejects_non_parquet_str():
 
 
 def test_w14a_validate_suite_inputs_rejects_empty_target_name():
+    """W14a validate suite inputs rejects empty target name."""
     from mlframe.training.core._main_train_suite_phases import validate_suite_inputs
 
     import pandas as pd
@@ -109,6 +117,7 @@ def test_w14a_validate_suite_inputs_rejects_empty_target_name():
 
 
 def test_w14a_validate_suite_inputs_rejects_none_extractor():
+    """W14a validate suite inputs rejects none extractor."""
     from mlframe.training.core._main_train_suite_phases import validate_suite_inputs
 
     import pandas as pd
@@ -140,6 +149,7 @@ def test_w14a_warn_on_empty_target_by_type_silent_on_nonempty(caplog):
 
 
 def test_w14a_check_precomputed_fingerprint_none_precomputed_returns_true():
+    """W14a check precomputed fingerprint none precomputed returns true."""
     from mlframe.training.core._main_train_suite_phases import check_precomputed_fingerprint
 
     assert check_precomputed_fingerprint(None, None) is True

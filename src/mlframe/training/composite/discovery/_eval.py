@@ -594,6 +594,7 @@ def _eval_one_transform_impl(
         _y_screen_valid = y_screen[valid_screen]
         _x_pb_valid_const = _x_prebinned[valid_screen] if _x_prebinned is not None else None
         _boot_fail_count = 0
+        failures: list = []  # per-replicate failure messages, surfaced in the returned entry below
         for b in range(bootstrap_n):
             idx_b = boot_rng.integers(0, n_screen, size=n_screen)
             t_boot = t_screen[idx_b]
@@ -631,6 +632,7 @@ def _eval_one_transform_impl(
                 # so operators see when the CI is computed over a reduced bootstrap sample. The `>= bootstrap_n // 2` guard below only
                 # protects against extreme under-sampling, not the partial-bias case.
                 _boot_fail_count += 1
+                failures.append(f"replicate {b}: {type(_e_boot).__name__}: {_e_boot}")
                 if _boot_fail_count == 1:
                     import logging as _logging
                     _logging.getLogger(__name__).warning(
@@ -691,5 +693,7 @@ def _eval_one_transform_impl(
         "reason": "",
         "mi_gain_lcb": float(mi_gain_lcb),
         "bootstrap_p_value": float(bootstrap_p_value),
+        "bootstrap_failure_count": int(_boot_fail_count) if bootstrap_n > 0 else 0,
+        "failures": failures if bootstrap_n > 0 else [],
     })
     return _local

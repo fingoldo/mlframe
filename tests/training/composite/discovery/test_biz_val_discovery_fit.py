@@ -112,18 +112,18 @@ def test_biz_val_stratified_quantile_guarantees_heavy_tail_coverage() -> None:
 
     # 1) Variance reduction: stratified is near-deterministic per stratum.
     assert mean_strat_var <= 0.5, f"stratified per-stratum variance {mean_strat_var:.3f} is not ~0; the strata are not driving the draw"
-    assert mean_rand_var >= 5.0 * max(mean_strat_var, 1.0), (
-        f"random per-stratum variance {mean_rand_var:.2f} should dwarf the stratified variance {mean_strat_var:.3f}"
-    )
+    assert mean_rand_var >= 5.0 * max(
+        mean_strat_var, 1.0
+    ), f"random per-stratum variance {mean_rand_var:.2f} should dwarf the stratified variance {mean_strat_var:.3f}"
 
     # 2) Guaranteed minimum coverage: stratified gives every bin ~``expected``,
     #    random starves the leanest bin.
-    assert mean_strat_min >= 0.9 * expected, (
-        f"stratified worst-stratum count {mean_strat_min:.1f} fell below the guaranteed {expected}; the per-stratum quota is broken"
-    )
-    assert mean_strat_min >= 1.4 * mean_rand_min, (
-        f"stratified worst-stratum coverage {mean_strat_min:.1f} is not >= 1.4x the random worst {mean_rand_min:.1f}; M1 tail-coverage win is gone"
-    )
+    assert (
+        mean_strat_min >= 0.9 * expected
+    ), f"stratified worst-stratum count {mean_strat_min:.1f} fell below the guaranteed {expected}; the per-stratum quota is broken"
+    assert (
+        mean_strat_min >= 1.4 * mean_rand_min
+    ), f"stratified worst-stratum coverage {mean_strat_min:.1f} is not >= 1.4x the random worst {mean_rand_min:.1f}; M1 tail-coverage win is gone"
 
 
 # ----------------------------------------------------------------------
@@ -132,6 +132,7 @@ def test_biz_val_stratified_quantile_guarantees_heavy_tail_coverage() -> None:
 
 
 def _make_config(**overrides):
+    """Builds a CompositeTargetDiscoveryConfig tuned for fast deterministic fits (MI-only screening), overridable per test."""
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
     defaults = dict(
@@ -166,6 +167,7 @@ def _drift_dataset(n: int = 2400, seed: int = 7) -> pd.DataFrame:
 
 
 def _run(df: pd.DataFrame, config):
+    """Fits CompositeTargetDiscovery on an 80/20 train/val split of df and returns the fitted discovery object."""
     from mlframe.training.composite import CompositeTargetDiscovery
 
     n = len(df)

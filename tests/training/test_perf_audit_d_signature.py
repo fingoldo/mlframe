@@ -28,6 +28,7 @@ from mlframe.training.pipeline._pipeline_helpers import (
 
 @pytest.mark.fast
 def test_data_signature_is_stable_for_same_frame() -> None:
+    """Data signature is stable for same frame."""
     df = pl.DataFrame({"a": [1, 2, 3, 4, 5], "target": [0, 1, 0, 1, 0]})
     sig1 = data_signature(df, "target", ["a"])
     sig2 = data_signature(df, "target", ["a"])
@@ -102,6 +103,6 @@ def test_uncachable_sentinel_is_fresh_per_call() -> None:
 @pytest.mark.fast
 def test_pre_pipeline_cache_default_max_is_at_least_eight() -> None:
     """P2-1: typical suite has 5 distinct models; default must fit without eviction."""
-    assert _PRE_PIPELINE_CACHE_MAX >= 8, (
-        f"_PRE_PIPELINE_CACHE_MAX={_PRE_PIPELINE_CACHE_MAX}; audit D P2-1 bumped default to 8 to avoid thrashing on cb+lgb+xgb+mlp+linear."
-    )
+    assert (
+        _PRE_PIPELINE_CACHE_MAX >= 8
+    ), f"_PRE_PIPELINE_CACHE_MAX={_PRE_PIPELINE_CACHE_MAX}; audit D P2-1 bumped default to 8 to avoid thrashing on cb+lgb+xgb+mlp+linear."

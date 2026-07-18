@@ -23,6 +23,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interaction_proxy imp
 
 
 def _xgb(seed=0):
+    """Helper that xgb."""
     import xgboost as xgb
 
     return xgb.XGBClassifier(n_estimators=120, max_depth=4, learning_rate=0.15, subsample=0.9, n_jobs=1, tree_method="hist", verbosity=0, random_state=seed)
@@ -44,6 +45,7 @@ def _two_xor_pairs(n=1500, p_noise=30, seed=0):
 
 
 def _shap_and_tensor(X, y, seed):
+    """Shap and tensor."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import compute_interaction_tensor
 
@@ -60,6 +62,7 @@ def _shap_and_tensor(X, y, seed):
 
 
 def test_build_pair_table_gate_and_symmetry():
+    """Build pair table gate and symmetry."""
     rng = np.random.default_rng(0)
     n, P = 50, 8
     phi = rng.normal(size=(n, P))
@@ -94,6 +97,7 @@ def test_interaction_proxy_per_row_not_collapsed():
 
 
 def test_interaction_proxy_top_n_smoke_and_candidate_rescore():
+    """Interaction proxy top n smoke and candidate rescore."""
     X, y = _two_xor_pairs(seed=0)
     phi, base, y_phi, Phi = _shap_and_tensor(X, y, 0)
     cands = interaction_proxy_top_n(
@@ -113,6 +117,7 @@ def test_interaction_proxy_top_n_smoke_and_candidate_rescore():
 
 
 def _honest_auc(X, y, sel, seed):
+    """Honest auc."""
     from sklearn.metrics import roc_auc_score
     from sklearn.model_selection import train_test_split
 
@@ -127,6 +132,7 @@ def _honest_auc(X, y, sel, seed):
 
 
 def _best_subset(cands, names):
+    """Best subset."""
     return [names[i] for i in cands[0][1]] if cands else []
 
 
@@ -212,6 +218,7 @@ def test_biz_val_interaction_proxy_no_regression_on_additive_bed():
 
 
 def test_proxy_mode_param_validation_and_roundtrip():
+    """Proxy mode param validation and roundtrip."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     with pytest.raises(ValueError):

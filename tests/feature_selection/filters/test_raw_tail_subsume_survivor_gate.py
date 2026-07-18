@@ -34,6 +34,7 @@ _FE_KWARGS = dict(
 
 
 def _fit_kept_raws(gate: float):
+    """Fit kept raws."""
     df, y, _meta = make_realistic_case(
         seed=312,
         n=25000,

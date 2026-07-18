@@ -120,6 +120,6 @@ def test_biz_val_isotonic_overfit_risk_remediate_beats_plain_isotonic_on_sparse_
     ece_remediated = _ece_score(holdout_y, remediated_pred)
 
     # The remediated blend must beat plain isotonic by a real margin, not just tie within noise.
-    assert ece_remediated < ece_plain - 0.01, (
-        f"remediated ECE should beat plain isotonic by a real margin: ece_plain={ece_plain:.4f} ece_remediated={ece_remediated:.4f}"
-    )
+    assert (
+        ece_remediated < ece_plain - 0.01
+    ), f"remediated ECE should beat plain isotonic by a real margin: ece_plain={ece_plain:.4f} ece_remediated={ece_remediated:.4f}"

@@ -17,7 +17,6 @@ from mlframe.feature_selection.filters.discretization import (
 )
 from mlframe.feature_selection.filters.info_theory._class_encoding import merge_vars
 
-
 # --------------------------------------------------------------------------------------------------
 # cap_categorical_cardinality: int8 boundary + NaN sentinel + degenerate columns
 # --------------------------------------------------------------------------------------------------
@@ -145,6 +144,7 @@ def test_merge_vars_joint_counter_survives_large_single_bin():
 
 
 def test_polars_input_honors_categorical_cardinality_cap():
+    """Polars input honors categorical cardinality cap."""
     pl = pytest.importorskip("polars")
     n = 6000
     df = pd.DataFrame(

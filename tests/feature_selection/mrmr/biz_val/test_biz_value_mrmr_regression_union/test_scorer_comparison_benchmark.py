@@ -581,9 +581,9 @@ class TestCmimStrongestOnRedundant:
         jmim = row["JMIM"]
         tc = row["TC"]
         runner_up = max(jmim, tc)
-        assert cmim >= runner_up + 0.10, (
-            f"CMIM ({cmim:.4f}) does not dominate the JMIM/TC pack (runner_up={runner_up:.4f}) by the 0.10 absolute AUC floor on xor_redundant.\nrow={row!r}"
-        )
+        assert (
+            cmim >= runner_up + 0.10
+        ), f"CMIM ({cmim:.4f}) does not dominate the JMIM/TC pack (runner_up={runner_up:.4f}) by the 0.10 absolute AUC floor on xor_redundant.\nrow={row!r}"
 
 
 class TestPlugInAdequateOnLinearMonotone:
@@ -672,9 +672,9 @@ class TestRosterAtLeast74:
         module_count = len(glob.glob(os.path.join(this_dir, "test_biz_value_*.py"))) + len(
             glob.glob(os.path.join(this_dir, "test_biz_value_mrmr_*", "test_*.py"))
         )
-        assert module_count >= 110, (
-            f"biz_value test-module roster shrank to {module_count} (floor 110); a prior-layer test module was likely dropped or renamed."
-        )
+        assert (
+            module_count >= 110
+        ), f"biz_value test-module roster shrank to {module_count} (floor 110); a prior-layer test module was likely dropped or renamed."
         # L75 (this very module) must be discoverable on disk -- pin it by path, immune to renames.
         # All test_layer<N>.py files were renamed to descriptive names, so a layer-number
         # regex over filenames can no longer pin a specific layer; the path check below is the replacement.

@@ -18,6 +18,7 @@ from mlframe.feature_selection import cascade_select, cascade_select_stable
 
 
 def _make_borderline_dataset(n: int, seed: int):
+    """Make borderline dataset."""
     rng = np.random.default_rng(seed)
     X_strong = rng.normal(size=(n, 3))  # clearly informative, large coefficients
     X_borderline = rng.normal(size=(n, 4))  # weak signal, close to the noise floor
@@ -33,9 +34,11 @@ def _make_borderline_dataset(n: int, seed: int):
 
 
 def test_biz_val_cascade_select_stable_reduces_selection_variance_vs_single_run():
+    """Biz val cascade select stable reduces selection variance vs single run."""
     X, y = _make_borderline_dataset(n=200, seed=7)
 
     def make_estimator():
+        """Make estimator."""
         return RandomForestRegressor(n_estimators=12, random_state=0)
 
     cascade_kwargs = dict(n_boruta_iterations=6, cv=3, scoring="neg_mean_squared_error", forward_max_features=8)
@@ -57,9 +60,9 @@ def test_biz_val_cascade_select_stable_reduces_selection_variance_vs_single_run(
     # Variance of per-feature inclusion frequency around {0, 1} -- pure jitter noise sits near 0.5 (max variance
     # bernoulli), a stable/consistent selection sits near 0 or 1.
     single_run_jitter = np.mean([min(freq, 1.0 - freq) for freq in single_run_freq.values()]) if single_run_freq else 0.0
-    assert single_run_jitter > 0.05, (
-        f"expected the synthetic dataset to actually exhibit single-run selection jitter, got {single_run_jitter:.4f} (no borderline flip-flop to guard against)"
-    )
+    assert (
+        single_run_jitter > 0.05
+    ), f"expected the synthetic dataset to actually exhibit single-run selection jitter, got {single_run_jitter:.4f} (no borderline flip-flop to guard against)"
 
     # A single run is untrustworthy in a second, very concrete way: it regularly lets a pure-noise column
     # through (a lucky CV split makes it look predictive). Count how often that happens across the same

@@ -16,6 +16,7 @@ from mlframe.feature_selection.filters._screen_predictors_prescreen import compu
 
 
 def _make_wide_pool(n=3000, p=40, seed=0):
+    """Make wide pool."""
     rng = np.random.default_rng(seed)
     factors_data = rng.integers(0, 5, size=(n, p + 1)).astype(np.int32)
     factors_nbins = np.array([5] * (p + 1), dtype=np.int32)
@@ -25,6 +26,7 @@ def _make_wide_pool(n=3000, p=40, seed=0):
 
 
 def _common_kwargs(**overrides):
+    """Common kwargs."""
     base = dict(
         screen_fdr_null_permutations=25,
         screen_fdr_null_quantile=0.95,
@@ -48,6 +50,7 @@ def test_cache_none_disables_caching_legacy_behavior():
 
 
 def test_cache_hit_returns_identical_floor_to_a_fresh_computation():
+    """Cache hit returns identical floor to a fresh computation."""
     fd, fn, x, y = _make_wide_pool(seed=2)
     cache: dict = {}
     floor_cold = compute_fdr_gain_floor(fd, fn, x, y, maxt_floor_cache=cache, **_common_kwargs())
@@ -59,6 +62,7 @@ def test_cache_hit_returns_identical_floor_to_a_fresh_computation():
 
 
 def test_cache_miss_on_different_pool_recomputes_and_adds_entry():
+    """Cache miss on different pool recomputes and adds entry."""
     fd, fn, x, y = _make_wide_pool(seed=3)
     cache: dict = {}
     compute_fdr_gain_floor(fd, fn, x, y, maxt_floor_cache=cache, **_common_kwargs())
@@ -71,6 +75,7 @@ def test_cache_miss_on_different_pool_recomputes_and_adds_entry():
 
 
 def test_cache_miss_on_different_seed_recomputes():
+    """Cache miss on different seed recomputes."""
     fd, fn, x, y = _make_wide_pool(seed=4)
     cache: dict = {}
     compute_fdr_gain_floor(fd, fn, x, y, maxt_floor_cache=cache, **_common_kwargs(random_seed=1))
@@ -89,6 +94,7 @@ def test_cache_avoids_recomputation_call_count():
     original = permnull_mod.pooled_permutation_null_gain_floor
 
     def _counting(*args, **kwargs):
+        """Helper that counting."""
         call_count["n"] += 1
         return original(*args, **kwargs)
 

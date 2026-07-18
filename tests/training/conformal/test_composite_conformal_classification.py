@@ -20,12 +20,14 @@ from mlframe.training.composite.conformal_classification import (
 
 
 def _make_estimator():
+    """Make estimator."""
     return CompositeClassificationEstimator(
         base_estimator=lgb.LGBMClassifier(n_estimators=40, num_leaves=15, verbose=-1),
     )
 
 
 def _fit_multiclass(n=2400, k=4, sep=2.0, seed=0):
+    """Fit multiclass."""
     rng = np.random.default_rng(seed)
     y = rng.integers(0, k, size=n)
     centers = rng.normal(0, sep, size=(k, 6))
@@ -40,6 +42,7 @@ def _fit_multiclass(n=2400, k=4, sep=2.0, seed=0):
 
 
 def _coverage(est, X_te, y_te, alpha, score):
+    """Coverage."""
     sets = est.predict_set(X_te, alpha=alpha, score=score)
     hit = np.array([y_te[i] in set(sets[i].tolist()) for i in range(len(sets))])
     size = np.array([len(s) for s in sets])
@@ -49,17 +52,20 @@ def _coverage(est, X_te, y_te, alpha, score):
 # -- unit: threshold helper -------------------------------------------------
 def test_threshold_inf_when_too_few_points():
     # rank ceil((n+1)(1-alpha)) > n => +inf (valid, uninformative).
+    """Threshold inf when too few points."""
     assert conformal_set_threshold(np.array([0.3]), alpha=0.1) == float("inf")
     assert np.isfinite(conformal_set_threshold(np.linspace(0, 1, 100), alpha=0.1))
 
 
 def test_threshold_rejects_bad_alpha():
+    """Threshold rejects bad alpha."""
     with pytest.raises(ValueError):
         conformal_set_threshold(np.array([0.1, 0.2, 0.3]), alpha=0.0)
 
 
 # -- unit: before-fit raise -------------------------------------------------
 def test_calibrate_before_fit_raises():
+    """Calibrate before fit raises."""
     from sklearn.exceptions import NotFittedError
 
     est = _make_estimator()
@@ -68,12 +74,14 @@ def test_calibrate_before_fit_raises():
 
 
 def test_predict_set_without_calibration_raises():
+    """Predict set without calibration raises."""
     est, X, _y, _sl_cal, sl_te = _fit_multiclass()
     with pytest.raises(RuntimeError):
         est.predict_set(X[sl_te], alpha=0.1)
 
 
 def test_predict_set_unknown_alpha_raises():
+    """Predict set unknown alpha raises."""
     est, X, y, sl_cal, sl_te = _fit_multiclass()
     est.calibrate_conformal_set(X[sl_cal], y[sl_cal], alpha=0.1, score="lac")
     with pytest.raises(RuntimeError):
@@ -83,6 +91,7 @@ def test_predict_set_unknown_alpha_raises():
 # -- unit: singleton sets on easy data --------------------------------------
 def test_singleton_sets_on_easy_data():
     # Very well-separated classes => the model is sure => mostly size-1 sets.
+    """Singleton sets on easy data."""
     est, X, y, sl_cal, sl_te = _fit_multiclass(sep=6.0, seed=1)
     est.calibrate_conformal_set(X[sl_cal], y[sl_cal], alpha=0.1, score="lac")
     cov, size, _sets = _coverage(est, X[sl_te], y[sl_te], 0.1, "lac")
@@ -93,6 +102,7 @@ def test_singleton_sets_on_easy_data():
 # -- unit: full-label set on hard / tiny-n ----------------------------------
 def test_full_label_set_on_tiny_calibration():
     # n_cal too small to certify the level => threshold +inf => all labels in set.
+    """Full label set on tiny calibration."""
     est, X, y, _sl_cal, sl_te = _fit_multiclass(seed=2)
     cal_idx = np.arange(2)  # 2 calibration rows, alpha=0.1 -> rank 3 > 2 -> inf
     est.calibrate_conformal_set(X[cal_idx], y[cal_idx], alpha=0.1, score="lac")
@@ -103,6 +113,7 @@ def test_full_label_set_on_tiny_calibration():
 
 def test_full_label_set_on_hard_low_alpha():
     # Overlapping classes + tiny alpha => near-full sets, high coverage.
+    """Full label set on hard low alpha."""
     est, X, y, sl_cal, sl_te = _fit_multiclass(sep=0.4, seed=3)
     est.calibrate_conformal_set(X[sl_cal], y[sl_cal], alpha=0.01, score="aps")
     cov, size, _ = _coverage(est, X[sl_te], y[sl_te], 0.01, "aps")
@@ -150,6 +161,7 @@ def test_biz_val_lac_sets_no_larger_than_aps():
 
 # -- binary path ------------------------------------------------------------
 def test_binary_conformal_sets_cover():
+    """Binary conformal sets cover."""
     rng = np.random.default_rng(11)
     n = 2400
     y = rng.integers(0, 2, size=n)

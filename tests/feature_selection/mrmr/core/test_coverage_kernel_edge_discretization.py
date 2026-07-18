@@ -36,6 +36,7 @@ def test_all_nan_column_yields_single_in_range_code():
 
 
 def test_constant_column_yields_single_in_range_code():
+    """Constant column yields single in range code."""
     codes = discretize_array(np.full(50, 7.0), n_bins=5)
     assert _in_range(codes, 5)
     assert len(np.unique(codes)) == 1
@@ -72,11 +73,13 @@ def test_inf_values_do_not_emit_out_of_range_codes():
 
 
 def test_all_inf_column_yields_in_range_code():
+    """All inf column yields in range code."""
     codes = discretize_array(np.full(50, np.inf), n_bins=5)
     assert _in_range(codes, 5)
 
 
 def test_deterministic_codes_across_calls():
+    """Deterministic codes across calls."""
     rng = np.random.default_rng(2)
     a = rng.normal(size=200)
     a[rng.random(200) < 0.1] = np.nan
@@ -86,6 +89,7 @@ def test_deterministic_codes_across_calls():
 
 
 def test_uniform_method_in_range():
+    """Uniform method in range."""
     rng = np.random.default_rng(0)
     codes = discretize_array(rng.normal(size=200), n_bins=10, method="uniform")
     assert _in_range(codes, 10)

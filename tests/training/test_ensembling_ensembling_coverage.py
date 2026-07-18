@@ -14,7 +14,6 @@ from types import SimpleNamespace
 
 import numpy as np
 
-
 # ---------------------------------------------------------------------------
 # §8.3 P1: _phase_recurrent.py:135 _build_recurrent_member_entry shape
 # ---------------------------------------------------------------------------

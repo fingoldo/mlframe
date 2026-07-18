@@ -28,22 +28,27 @@ from mlframe.training.composite.conformal import conformal_quantile
 # Tiny-n robustness of the radius itself.
 # --------------------------------------------------------------------------- #
 class TestTinyNRadius:
+    """Groups tests covering tiny n radius."""
     @pytest.mark.parametrize("n", [0, 1, 2])
     def test_tiny_n_returns_inf(self, n: int) -> None:
         # n in {0,1,2} at alpha=0.1: ceil((n+1)*0.9) > n -> uninformative inf.
+        """Tiny n returns inf."""
         r = np.arange(float(n))
         assert conformal_quantile(r, 0.1) == float("inf")
 
     def test_single_point_at_huge_alpha_is_finite(self) -> None:
         # n=1, alpha=0.6 -> rank=ceil(2*0.4)=1 <= 1 -> the lone residual.
+        """Single point at huge alpha is finite."""
         assert conformal_quantile(np.array([7.0]), 0.6) == pytest.approx(7.0)
 
     def test_does_not_crash_on_all_nonfinite(self) -> None:
+        """Does not crash on all nonfinite."""
         r = np.array([np.nan, np.inf, -np.inf])
         assert conformal_quantile(r, 0.1) == float("inf")
 
 
 def _fit(seed: int, n: int = 600):
+    """Fit."""
     rng = np.random.default_rng(seed)
     b = rng.normal(0.0, 1.0, n)
     f = rng.normal(0.0, 1.0, n)
@@ -58,7 +63,9 @@ def _fit(seed: int, n: int = 600):
 
 
 class TestTinyNCalibratePredict:
+    """Groups tests covering tiny n calibrate predict."""
     def test_calibrate_predict_single_cal_row_no_crash(self) -> None:
+        """Calibrate predict single cal row no crash."""
         est = _fit(0)
         Xc = pd.DataFrame({"b": [0.3], "feat": [0.1]})
         est.calibrate_conformal(Xc, np.array([0.5]), 0.1)
@@ -70,6 +77,7 @@ class TestTinyNCalibratePredict:
         assert hi[0] >= lo[0]
 
     def test_predict_interval_single_test_row(self) -> None:
+        """Predict interval single test row."""
         est = _fit(1)
         rng = np.random.default_rng(1)
         Xc = pd.DataFrame({"b": rng.normal(size=300), "feat": rng.normal(size=300)})
@@ -102,6 +110,7 @@ def _make_grouped(seed: int, n_major: int = 4000, n_minor: int = 400):
 
 
 def _split3(X, y, groups, seed: int):
+    """Split3."""
     rng = np.random.default_rng(seed)
     idx = rng.permutation(len(y))
     n3 = len(y) // 3
@@ -110,6 +119,7 @@ def _split3(X, y, groups, seed: int):
 
 
 class TestMondrianBizValue:
+    """Groups tests covering mondrian biz value."""
     def test_biz_mondrian_minority_coverage_beats_marginal(self) -> None:
         """On the noisier minority group, the marginal band under-covers while
         Mondrian's per-group radius keeps coverage at >= 1-alpha. Mondrian must
@@ -149,6 +159,7 @@ class TestMondrianBizValue:
         assert mean_mond < mean_marg, f"mondrian not closer to target on minority: mond_err={mean_mond:.3f} marg_err={mean_marg:.3f}"
 
     def test_mondrian_unseen_group_falls_back_with_warning(self) -> None:
+        """Mondrian unseen group falls back with warning."""
         X, y, groups = _make_grouped(0)
         tr, ca, te = _split3(X, y, groups, 0)
         est = CompositeTargetEstimator(
@@ -187,6 +198,7 @@ class TestMondrianBizValue:
         assert table["tiny"] == pytest.approx(table[None])
 
     def test_predict_mondrian_without_calibration_raises(self) -> None:
+        """Predict mondrian without calibration raises."""
         est = _fit(0)
         with pytest.raises(RuntimeError, match="no Mondrian radius"):
             est.predict_interval_mondrian(
@@ -196,6 +208,7 @@ class TestMondrianBizValue:
             )
 
     def test_mondrian_single_test_row(self) -> None:
+        """Mondrian single test row."""
         X, y, groups = _make_grouped(0)
         tr, ca, te = _split3(X, y, groups, 0)
         est = CompositeTargetEstimator(
@@ -210,6 +223,7 @@ class TestMondrianBizValue:
         assert hi[0] >= lo[0]
 
     def test_mondrian_calibrate_before_fit_raises(self) -> None:
+        """Mondrian calibrate before fit raises."""
         from sklearn.exceptions import NotFittedError
 
         est = CompositeTargetEstimator(
@@ -242,6 +256,7 @@ class TestMondrianRadiusGatherVectorization:
 
     @staticmethod
     def _loop_reference(g, per_group, global_r):
+        """Loop reference."""
         radii = np.empty(g.shape[0], dtype=np.float64)
         missing = set()
         for i in range(g.shape[0]):
@@ -254,12 +269,14 @@ class TestMondrianRadiusGatherVectorization:
         return radii
 
     def _build_est(self):
+        """Build est."""
         est = _fit(0)
         per_group = {"a": 1.5, "b": 2.5, "c": 0.7, None: 9.0}
         est._mondrian_q_ = {round(0.1, 6): per_group}
         return est, per_group
 
     def test_radius_gather_matches_row_loop_with_unseen_and_nan_labels(self) -> None:
+        """Radius gather matches row loop with unseen and nan labels."""
         est, per_group = self._build_est()
         global_r = per_group[None]
         # mix known, unseen ("z"), and a NaN label -- all must match the loop.
@@ -273,14 +290,15 @@ class TestMondrianRadiusGatherVectorization:
         # Recover the radius the function applied (band is symmetric pre-clip; the
         # train envelope here is unbounded for this synthetic, so no clipping).
         applied = (hi - lo) / 2.0
-        assert np.array_equal(applied, expected_radii), (
-            "vectorized radius gather diverged from the row-by-row loop; NaN/unseen labels must fall back to the global radius"
-        )
+        assert np.array_equal(
+            applied, expected_radii
+        ), "vectorized radius gather diverged from the row-by-row loop; NaN/unseen labels must fall back to the global radius"
 
     def test_nan_label_falls_back_to_global_not_last_unique(self) -> None:
         # Direct guard against use_na_sentinel=True: with default factorize a NaN
         # label would gather radius_per_uniq[-1] (the last seen group's radius),
         # NOT the global fallback. Construct a case where those differ.
+        """Nan label falls back to global not last unique."""
         est, per_group = self._build_est()
         g = np.array(["a", float("nan")], dtype=object)
         X = pd.DataFrame({"b": [0.0, 0.0], "feat": [0.0, 0.0]})

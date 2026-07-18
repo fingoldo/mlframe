@@ -13,6 +13,7 @@ from mlframe.training.io import save_mlframe_model, load_mlframe_model
 
 
 def test_partial_survives_save_load_roundtrip(tmp_path):
+    """A functools.partial wrapping an allowlisted numpy function survives safe save/load and stays callable."""
     # Inner func is numpy (allowlisted); the partial itself needs functools allowed,
     # otherwise safe-load returns None SILENTLY (no model, no exception).
     model = SimpleNamespace(metric=functools.partial(np.clip, a_min=0.0, a_max=1.0))
@@ -25,6 +26,7 @@ def test_partial_survives_save_load_roundtrip(tmp_path):
 
 
 def test_partial_wrapping_dangerous_func_still_blocked(tmp_path):
+    """Allowlisting functools.partial itself must not smuggle a disallowed inner callable (e.g. os.system) past safe-load."""
     # Allowing functools.partial must not open an RCE: the wrapped os.system is
     # independently re-resolved through find_class on unpickle and stays blocked.
     model = SimpleNamespace(evil=functools.partial(os.system, "echo pwned"))

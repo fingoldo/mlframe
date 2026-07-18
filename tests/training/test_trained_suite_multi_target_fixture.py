@@ -11,6 +11,7 @@ from mlframe.training.configs import TargetTypes
 
 
 def test_multi_target_fixture_has_two_regression_targets(trained_suite_multi_target):
+    """Multi target fixture has two regression targets."""
     models, metadata = trained_suite_multi_target
     assert isinstance(models, dict) and isinstance(metadata, dict)
 

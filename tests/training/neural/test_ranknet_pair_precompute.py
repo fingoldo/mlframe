@@ -27,6 +27,7 @@ pytest.importorskip("pytorch_lightning")
 
 
 def test_install_pair_index_cache_builds_per_query_entries():
+    """Install pair index cache builds per query entries."""
     from mlframe.training.neural.ranker import _RankerDataset, GroupBatchSampler
 
     rng = np.random.default_rng(20260521)
@@ -54,6 +55,7 @@ def test_install_pair_index_cache_builds_per_query_entries():
 
 
 def test_getitems_returns_four_tuple_when_cache_installed():
+    """Getitems returns four tuple when cache installed."""
     from mlframe.training.neural.ranker import _RankerDataset, GroupBatchSampler
 
     rng = np.random.default_rng(0)
@@ -77,6 +79,7 @@ def test_getitems_returns_four_tuple_when_cache_installed():
 
 
 def test_collate_passes_four_tuple_through():
+    """Collate passes four tuple through."""
     from mlframe.training.neural.ranker import _ranker_passthrough_collate
 
     X = torch.randn(8, 3)
@@ -91,6 +94,7 @@ def test_collate_passes_four_tuple_through():
 
 
 def test_precomputed_loss_matches_original():
+    """Precomputed loss matches original."""
     from mlframe.training.neural.ranker import (
         ranknet_pairwise_loss,
         ranknet_pairwise_loss_precomputed,
@@ -106,6 +110,7 @@ def test_precomputed_loss_matches_original():
 
 
 def test_precomputed_loss_zero_on_empty_pairs():
+    """Precomputed loss zero on empty pairs."""
     from mlframe.training.neural.ranker import ranknet_pairwise_loss_precomputed
 
     scores = torch.randn(5, requires_grad=True)
@@ -115,6 +120,7 @@ def test_precomputed_loss_zero_on_empty_pairs():
 
 
 def test_mlp_ranker_fit_uses_fastpath_end_to_end():
+    """Mlp ranker fit uses fastpath end to end."""
     from mlframe.training.neural.ranker import MLPRanker
 
     rng = np.random.default_rng(20260521)
@@ -190,6 +196,7 @@ def test_listnet_path_caches_batch_without_pair_indices():
 
 
 def test_multilabel_y_skips_cache_installation():
+    """Multilabel y skips cache installation."""
     from mlframe.training.neural.ranker import _RankerDataset
 
     rng = np.random.default_rng(0)

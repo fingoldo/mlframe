@@ -41,7 +41,6 @@ from mlframe.training.composite import (
 )
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
-
 # ----------------------------------------------------------------------
 # Synthetic generators
 # ----------------------------------------------------------------------
@@ -112,6 +111,7 @@ class TestCompositeXRFECV:
     features."""
 
     def test_rfecv_then_composite_regression(self) -> None:
+        """Rfecv then composite regression."""
         from sklearn.ensemble import RandomForestRegressor
         from mlframe.feature_selection.wrappers import RFECV
 
@@ -195,6 +195,7 @@ class TestCompositeXRFECVBinary:
     on the binary path explicitly."""
 
     def test_rfecv_binary_classification(self) -> None:
+        """Rfecv binary classification."""
         from sklearn.ensemble import RandomForestClassifier
         from mlframe.feature_selection.wrappers import RFECV
 
@@ -261,6 +262,7 @@ class TestCompositeXMRMRNoFE:
     """
 
     def test_mrmr_no_fe_then_composite_regression(self) -> None:
+        """Mrmr no fe then composite regression."""
         from mlframe.feature_selection.filters import MRMR
 
         df, target_col, feature_cols = _composite_friendly_regression()
@@ -301,6 +303,7 @@ class TestCompositeXMRMRNoFE:
         assert len(disc.specs_) >= 1, "composite discovery yielded no specs after MRMR-no-FE reduced to " + repr(selected)
 
     def test_mrmr_no_fe_binary(self) -> None:
+        """Mrmr no fe binary."""
         from mlframe.feature_selection.filters import MRMR
 
         df, target_col, feature_cols = _composite_friendly_binary()
@@ -335,6 +338,7 @@ class TestCompositeXMRMRWithFE:
     """MRMR with feature engineering, then composite discovery."""
 
     def test_mrmr_with_fe_regression(self) -> None:
+        """Mrmr with fe regression."""
         from mlframe.feature_selection.filters import MRMR
 
         df, target_col, feature_cols = _composite_friendly_regression()
@@ -390,6 +394,7 @@ class TestCompositeXMRMRWithFE:
         assert isinstance(disc.specs_, list)
 
     def test_mrmr_with_fe_binary(self) -> None:
+        """Mrmr with fe binary."""
         from mlframe.feature_selection.filters import MRMR
 
         df, target_col, feature_cols = _composite_friendly_binary()

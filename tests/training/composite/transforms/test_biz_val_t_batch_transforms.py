@@ -18,6 +18,7 @@ from mlframe.training.composite.transforms import get_transform
 
 
 def _rmse(a: np.ndarray, b: np.ndarray) -> float:
+    """Rmse."""
     return float(np.sqrt(np.mean((a - b) ** 2)))
 
 
@@ -47,12 +48,14 @@ def _interleaved_panel(seed: int, n_per: int = 900, levels: tuple[float, ...] = 
 
 
 def test_biz_val_ewma_grouped_beats_raw_and_ungrouped_on_interleaved_panel() -> None:
+    """Biz val ewma grouped beats raw and ungrouped on interleaved panel."""
     y, base, f, groups = _interleaved_panel(0)
     n = y.size
     ntr = int(n * 0.7)
     tr, te = slice(0, ntr), slice(ntr, n)
 
     def _pipeline(name: str) -> float:
+        """Pipeline."""
         t = get_transform(name)
         kw_tr = {"groups": groups[tr]} if t.requires_groups else {}
         kw_te = {"groups": groups[te]} if t.requires_groups else {}
@@ -72,6 +75,7 @@ def test_biz_val_ewma_grouped_beats_raw_and_ungrouped_on_interleaved_panel() -> 
 
 
 def test_biz_val_volatility_normalized_beats_plain_ewma_on_regime_switch() -> None:
+    """Biz val volatility normalized beats plain ewma on regime switch."""
     rng = np.random.default_rng(1)
     n = 6000
     sigma = np.where(np.arange(n) < n // 2, 0.5, 10.0)
@@ -88,6 +92,7 @@ def test_biz_val_volatility_normalized_beats_plain_ewma_on_regime_switch() -> No
     # Recurrent transforms consume contiguous sequences; keep the full series for forward/inverse and mask afterwards.
 
     def _pipeline(name: str) -> float:
+        """Pipeline."""
         t = get_transform(name)
         p = t.fit(y[tr_mask], base[tr_mask], k=10)
         T_full = t.forward(y, base, p)

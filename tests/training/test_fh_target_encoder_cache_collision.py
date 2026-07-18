@@ -37,17 +37,20 @@ def _fresh_session():
 
 
 def test_target_content_token_distinguishes_distinct_targets():
+    """Target content token distinguishes distinct targets."""
     y_a = np.array([0, 1, 0, 1, 0, 1, 0, 1], dtype=np.int64)
     y_b = np.array([1, 0, 1, 0, 1, 0, 1, 0], dtype=np.int64)
     assert _target_content_token(y_a) != _target_content_token(y_b)
 
 
 def test_target_content_token_stable_for_identical_inputs():
+    """Target content token stable for identical inputs."""
     y = np.array([0, 1, 0, 1, 0, 1, 0, 1], dtype=np.int64)
     assert _target_content_token(y) == _target_content_token(y.copy())
 
 
 def test_target_content_token_handles_pandas_series():
+    """Target content token handles pandas series."""
     import pandas as pd
 
     s = pd.Series([0, 1, 0, 1], name="target", dtype=np.int64)

@@ -26,7 +26,6 @@ from mlframe.training.neural.recurrent import (
 from mlframe.training.neural._recurrent_config import RecurrentConfig, InputMode, RNNType
 from mlframe.training.neural._categorical_embeddings import CategoricalEmbedding
 
-
 # n=256 / batch=32 / 3 epochs keeps total stepping batches comfortably > 1 (OneCycleLR divides by (end-start) steps; a handful of total steps
 # trips a ZeroDivisionError inside torch's scheduler -- unrelated to cat embeddings, just degenerate-tiny-data scheduler math).
 _N = 256
@@ -34,6 +33,7 @@ _COLORS = ["red", "green", "blue", "yellow"]
 
 
 def _cfg(input_mode=InputMode.HYBRID, num_classes=2, rnn_type=RNNType.GRU):
+    """Cfg."""
     return RecurrentConfig(
         input_mode=input_mode,
         rnn_type=rnn_type,
@@ -54,6 +54,7 @@ def _cfg(input_mode=InputMode.HYBRID, num_classes=2, rnn_type=RNNType.GRU):
 
 
 def _make_data(n=_N, seed=0):
+    """Make data."""
     rng = np.random.default_rng(seed)
     cats = rng.choice(_COLORS, size=n)
     feats = pd.DataFrame(
@@ -68,6 +69,7 @@ def _make_data(n=_N, seed=0):
 
 
 def test_regression_hybrid_native_cat_embeddings():
+    """Regression hybrid native cat embeddings."""
     feats, seqs, cats, rng = _make_data()
     lut = {"red": 1.0, "green": -2.0, "blue": 5.0, "yellow": 0.0}
     y = np.array([lut[c] for c in cats], dtype=np.float32) + rng.normal(scale=0.05, size=len(cats)).astype(np.float32)
@@ -85,6 +87,7 @@ def test_regression_hybrid_native_cat_embeddings():
 
 
 def test_binary_hybrid_native_cat_embeddings():
+    """Binary hybrid native cat embeddings."""
     feats, seqs, cats, _rng = _make_data(seed=1)
     y = np.isin(cats, ["red", "blue"]).astype(np.int64)
     clf = RecurrentClassifierWrapper(config=_cfg(num_classes=2), random_state=42)
@@ -99,6 +102,7 @@ def test_binary_hybrid_native_cat_embeddings():
 
 
 def test_multiclass_hybrid_native_cat_embeddings():
+    """Multiclass hybrid native cat embeddings."""
     feats, seqs, cats, _rng = _make_data(seed=2)
     mapping = {"red": 0, "green": 1, "blue": 2, "yellow": 0}
     y = np.array([mapping[c] for c in cats], dtype=np.int64)
@@ -113,6 +117,7 @@ def test_multiclass_hybrid_native_cat_embeddings():
 def test_sequence_only_no_tabular_cats_trains_identically():
     # SEQUENCE_ONLY has NO tabular block; the cat factorizer must no-op (cardinalities None) and the model builds no aux embedding. Training +
     # prediction proceed exactly as without the feature.
+    """Sequence only no tabular cats trains identically."""
     _feats, seqs, _cats, _rng = _make_data(seed=3)
     y = np.array([float(s[:, 0].mean()) for s in seqs], dtype=np.float32)
     reg = RecurrentRegressorWrapper(config=_cfg(input_mode=InputMode.SEQUENCE_ONLY), random_state=42)
@@ -127,6 +132,7 @@ def test_sequence_only_no_tabular_cats_trains_identically():
 
 def test_sequence_only_ignores_cat_features_passed_by_caller():
     # Even if the orchestrator threads cat_features for a SEQUENCE_ONLY member (features=None), the wrapper must no-op cleanly -- no aux block.
+    """Sequence only ignores cat features passed by caller."""
     _feats, seqs, _cats, _rng = _make_data(seed=4)
     y = np.array([float(s[:, 0].mean()) for s in seqs], dtype=np.float32)
     reg = RecurrentRegressorWrapper(config=_cfg(input_mode=InputMode.SEQUENCE_ONLY), random_state=42)
@@ -137,6 +143,7 @@ def test_sequence_only_ignores_cat_features_passed_by_caller():
 
 
 def test_fit_pickle_predict_round_trip_bit_identical():
+    """Fit pickle predict round trip bit identical."""
     feats, seqs, cats, _rng = _make_data(seed=7)
     y = (feats["num_a"].to_numpy() + np.isin(cats, ["red"]).astype(np.float32) * 3.0).astype(np.float32)
     reg = RecurrentRegressorWrapper(config=_cfg(), random_state=42)
@@ -151,6 +158,7 @@ def test_fit_pickle_predict_round_trip_bit_identical():
 
 
 def test_unseen_category_at_predict_maps_to_reserved_code():
+    """Unseen category at predict maps to reserved code."""
     feats, seqs, cats, _rng = _make_data(seed=11)
     y = feats["num_a"].to_numpy().astype(np.float32)
     reg = RecurrentRegressorWrapper(config=_cfg(), random_state=42)
@@ -165,6 +173,7 @@ def test_unseen_category_at_predict_maps_to_reserved_code():
 def test_knob_off_disables_factorization():
     # use_learnable_cat_embeddings=False -> the wrapper does NOT factorize (cardinalities None). The caller is then responsible for upstream
     # encoding; we pass an all-numeric frame so the fit completes.
+    """Knob off disables factorization."""
     rng = np.random.default_rng(5)
     n = _N
     feats = pd.DataFrame(
@@ -231,6 +240,6 @@ def test_biz_value_learnable_embeddings_beat_ordinal_on_nonmonotone_signal():
     assert np.all(np.isfinite(pred_emb)) and np.all(np.isfinite(pred_ord))
     assert reg_emb._cat_cardinalities_ == [4]
     assert reg_ord._cat_cardinalities_ is None
-    assert rmse_emb < rmse_ord / 1.10, (
-        f"learnable embeddings (RMSE {rmse_emb:.4f}) should beat ordinal cat-code (RMSE {rmse_ord:.4f}) by >=1.10x on the non-monotone signal"
-    )
+    assert (
+        rmse_emb < rmse_ord / 1.10
+    ), f"learnable embeddings (RMSE {rmse_emb:.4f}) should beat ordinal cat-code (RMSE {rmse_ord:.4f}) by >=1.10x on the non-monotone signal"

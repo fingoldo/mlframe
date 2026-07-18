@@ -27,6 +27,7 @@ import pytest
 
 
 def _make_simple(n=600, p=2000, seed=0):
+    """Make simple."""
     rng = np.random.default_rng(seed)
     # Two informative columns; rest noise.
     X = rng.standard_normal((n, p)).astype(np.float64)
@@ -40,6 +41,7 @@ def _make_simple(n=600, p=2000, seed=0):
 
 
 def test_split_path_recovers_informatives():
+    """Split path recovers informatives."""
     pytest.importorskip("xgboost")
     pytest.importorskip("shap")
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
@@ -94,9 +96,9 @@ def test_split_path_drops_parent_frame_reference():
         n_jobs=1,
     )
     sel.fit(X, y)
-    assert sel._deferred_holdout is None, (
-        "selector leaked a reference to the parent X via _deferred_holdout; this would keep the wide block alive past fit and defeat the iter46 memory lever"
-    )
+    assert (
+        sel._deferred_holdout is None
+    ), "selector leaked a reference to the parent X via _deferred_holdout; this would keep the wide block alive past fit and defeat the iter46 memory lever"
 
 
 def test_split_path_works_without_prefilter():

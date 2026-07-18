@@ -99,9 +99,9 @@ class TestAllNoiseNoSpuriousFE:
         # FP rate but empirical MAD tails are heavier than Gaussian, so a
         # small FP budget keeps the contract robust on adversarial seeds
         # without hiding the major regression class (pre-fix: 5 / top_k=5).
-        assert len(m.hybrid_orth_features_) <= 3, (
-            f"seed={seed}: hybrid_orth manufactured {len(m.hybrid_orth_features_)} engineered columns on a pure-noise frame: {m.hybrid_orth_features_}"
-        )
+        assert (
+            len(m.hybrid_orth_features_) <= 3
+        ), f"seed={seed}: hybrid_orth manufactured {len(m.hybrid_orth_features_)} engineered columns on a pure-noise frame: {m.hybrid_orth_features_}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_mi_greedy_emits_no_spurious_columns(self, seed):
@@ -118,9 +118,9 @@ class TestAllNoiseNoSpuriousFE:
         # 5 seed cols x (8 unary + 8 binary x 4 partners) ~= 200 candidates;
         # FP budget of 5 keeps the absolute-MI floor honest while allowing
         # the statistical noise inherent in MI from 1500 samples.
-        assert len(m.mi_greedy_features_) <= 5, (
-            f"seed={seed}: mi_greedy manufactured {len(m.mi_greedy_features_)} engineered columns on a pure-noise frame: {m.mi_greedy_features_}"
-        )
+        assert (
+            len(m.mi_greedy_features_) <= 5
+        ), f"seed={seed}: mi_greedy manufactured {len(m.mi_greedy_features_)} engineered columns on a pure-noise frame: {m.mi_greedy_features_}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_both_enabled_no_spurious_columns(self, seed):
@@ -422,9 +422,9 @@ class TestHybridMiGreedyConflictResolution:
         # MRMR redundancy: both encodings of x^2 carry essentially identical
         # signal (correlation ~1.0 on |x| ranking). At most one should
         # survive into the final selection.
-        assert len(x_quadratic) <= 1, (
-            f"seed={seed}: {len(x_quadratic)} quadratic-x encodings survived selection ({x_quadratic}); MRMR redundancy should keep at most one"
-        )
+        assert (
+            len(x_quadratic) <= 1
+        ), f"seed={seed}: {len(x_quadratic)} quadratic-x encodings survived selection ({x_quadratic}); MRMR redundancy should keep at most one"
 
 
 # ---------------------------------------------------------------------------

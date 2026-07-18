@@ -47,7 +47,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # 1. _pick_per_group_categorical: alphabetical tiebreaker
 # ---------------------------------------------------------------------------
@@ -147,6 +146,7 @@ def test_compute_ml_perf_by_time_no_futurewarning_on_M_alias():
 
 
 def _build_minimal_report(primary_metric, strongest, trivial, primary_val, trivial_val):
+    """Build minimal report."""
     from mlframe.training.baselines.dummy import BaselineReport
 
     table = pd.DataFrame(
@@ -270,6 +270,7 @@ def test_multilabel_split_summary_well_formed_object_array_stacks():
     from mlframe.training import drift_report
 
     def _ki(*a, **kw):
+        """Ki."""
         raise KeyboardInterrupt("simulated")
 
     import unittest.mock as _mock
@@ -311,6 +312,7 @@ def test_baseline_diagnostics_outer_try_does_not_swallow_keyboard_interrupt(monk
     target_name = "y"
 
     def _ki(*a, **kw):
+        """Ki."""
         raise KeyboardInterrupt("simulated")
 
     # Patch the LOCAL alias inside baseline_diagnostics, NOT numpy globally.
@@ -350,6 +352,7 @@ def test_reporting_classification_report_fallback_narrow(monkeypatch):
     from mlframe.training.reporting import _reporting_probabilistic as _rp
 
     def _ki(*a, **kw):
+        """Ki."""
         raise KeyboardInterrupt("simulated")
 
     # Patch BOTH the import target (sklearn.metrics) AND the already-
@@ -428,6 +431,7 @@ def test_dummy_baselines_numba_log_loss_kernel_narrow_catch(monkeypatch):
     from mlframe.training.baselines import _dummy_metrics_pick_plot as _dmpp
 
     def _mem(*a, **kw):
+        """Mem."""
         raise MemoryError("simulated")
 
     monkeypatch.setattr(_dmpp, "log_loss", _mem)

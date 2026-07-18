@@ -15,7 +15,6 @@ pl = pytest.importorskip("polars")
 
 from mlframe.training.neural import extract_sequences
 
-
 COLUMNS = ("mjd", "mag", "magerr", "norm")
 
 
@@ -27,6 +26,7 @@ def _reference(df, columns):
 
 
 def test_equal_length_fast_path_bit_identical():
+    """Equal length fast path bit identical."""
     rng = np.random.default_rng(0)
     n_rows, seq_len = 200, 30
     data = {c: [rng.standard_normal(seq_len).tolist() for _ in range(n_rows)] for c in COLUMNS}
@@ -41,6 +41,7 @@ def test_equal_length_fast_path_bit_identical():
 
 
 def test_ragged_fallback_bit_identical():
+    """Ragged fallback bit identical."""
     rng = np.random.default_rng(1)
     n_rows = 150
     lens = [int(rng.integers(2, 12)) for _ in range(n_rows)]
@@ -56,6 +57,7 @@ def test_ragged_fallback_bit_identical():
 
 
 def test_indices_subset_and_column_order():
+    """Indices subset and column order."""
     rng = np.random.default_rng(2)
     n_rows, seq_len = 80, 10
     cols = ("a", "b")

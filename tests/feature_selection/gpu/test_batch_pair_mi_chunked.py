@@ -18,6 +18,7 @@ import pytest
 
 
 def _build_factor_data(n_samples: int, n_cols: int, nbins: int, seed: int):
+    """Build factor data."""
     rng = np.random.default_rng(seed)
     cols = [rng.integers(0, nbins, size=n_samples) for _ in range(n_cols)]
     data = np.column_stack(cols).astype(np.int32)
@@ -35,6 +36,7 @@ def test_batch_precompute_max_k_cap_is_removed():
 
 
 def test_iter_upper_triangle_pair_chunks_covers_every_pair_exactly_once():
+    """Iter upper triangle pair chunks covers every pair exactly once."""
     from mlframe.feature_selection.filters.batch_pair_mi_gpu import _iter_upper_triangle_pair_chunks
 
     for k, chunk_pairs in [(2, 1), (5, 1), (5, 3), (20, 7), (37, 5), (100, 1)]:
@@ -53,6 +55,7 @@ def test_iter_upper_triangle_pair_chunks_covers_every_pair_exactly_once():
 
 
 def test_iter_upper_triangle_pair_chunks_empty_for_trivial_k():
+    """Iter upper triangle pair chunks empty for trivial k."""
     from mlframe.feature_selection.filters.batch_pair_mi_gpu import _iter_upper_triangle_pair_chunks
 
     assert list(_iter_upper_triangle_pair_chunks(0, 100)) == []
@@ -136,6 +139,7 @@ def test_dispatch_batch_pair_mi_chunked_handles_pool_width_above_old_cap():
 
 
 def test_dispatch_batch_pair_mi_chunked_empty_and_singleton():
+    """Dispatch batch pair mi chunked empty and singleton."""
     from mlframe.feature_selection.filters.batch_pair_mi_gpu import dispatch_batch_pair_mi_chunked
 
     data, nbins = _build_factor_data(n_samples=50, n_cols=1, nbins=3, seed=1)

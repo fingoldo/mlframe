@@ -26,6 +26,7 @@ from sklearn.feature_selection import SelectKBest, f_classif
 
 
 def _fitted_reducing_selector(n_in=8, k=4, seed=0):
+    """Fitted reducing selector."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(rng.normal(size=(200, n_in)), columns=[f"f{i}" for i in range(n_in)])
     y = (X["f0"] + X["f1"] > 0).astype(int)
@@ -35,6 +36,7 @@ def _fitted_reducing_selector(n_in=8, k=4, seed=0):
 
 
 def test_stale_identity_flag_does_not_skip_reducing_test_transform():
+    """Stale identity flag does not skip reducing test transform."""
     from mlframe.training.pipeline._pipeline_helpers import _prepare_test_split
 
     sel = _fitted_reducing_selector(n_in=8, k=4)
@@ -61,9 +63,9 @@ def test_stale_identity_flag_does_not_skip_reducing_test_transform():
 
     # Post-fix: the selector transformed the raw 8-col test frame down to 4.
     # Pre-fix the stale identity flag skipped the transform -> 8 columns remained.
-    assert out_test_df.shape[1] == 4, (
-        f"test frame must be reduced 8->4 by the fitted selector; got {out_test_df.shape[1]} columns (stale identity flag skipped the transform)"
-    )
+    assert (
+        out_test_df.shape[1] == 4
+    ), f"test frame must be reduced 8->4 by the fitted selector; got {out_test_df.shape[1]} columns (stale identity flag skipped the transform)"
 
 
 def test_already_transformed_test_frame_is_not_double_transformed():
@@ -111,6 +113,7 @@ class _ZeroVarPrefilterSelector(TransformerMixin, BaseEstimator):
     def fit(self, X, y=None):
         # Zero-variance pre-filter (drops constant columns) -> recorded input
         # width is narrower than the caller's raw frame.
+        """Fit."""
         nunique = X.nunique(axis=0)
         kept_in = [c for c in X.columns if nunique[c] > 1]
         self.feature_names_in_ = np.asarray(kept_in, dtype=object)
@@ -122,9 +125,11 @@ class _ZeroVarPrefilterSelector(TransformerMixin, BaseEstimator):
         return self
 
     def get_support(self):
+        """Get support."""
         return self.support_
 
     def transform(self, X, y=None):
+        """Transform."""
         selected = [c for c, keep in zip(self.feature_names_in_, self.support_) if keep]
         return X[selected]
 

@@ -25,6 +25,7 @@ def test_a2_12_default_encoder_is_ordered() -> None:
 
 
 def _high_card_frame(n: int = 400):
+    """High card frame."""
     rng = np.random.default_rng(0)
     # One distinct category per row -> a naive mean encoder maps each category to exactly its own y.
     cats = pd.Series([f"c{i}" for i in range(n)], dtype="category")

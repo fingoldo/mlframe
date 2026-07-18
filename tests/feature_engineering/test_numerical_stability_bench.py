@@ -42,7 +42,6 @@ from mlframe.feature_engineering._numerical_stable import (
     naive_moments_two_pass_seq,
 )
 
-
 # ---------------------------------------------------------------------------
 # Distributions
 # ---------------------------------------------------------------------------

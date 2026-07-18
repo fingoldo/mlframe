@@ -58,6 +58,7 @@ def test_plr_embedding_gradients_flow():
 
 
 def test_plr_embedding_rejects_non_2d_input():
+    """Plr embedding rejects non 2d input."""
     emb = PeriodicLinearEmbedding(in_features=4, embed_dim=4)
     with pytest.raises(ValueError, match=r"2-D"):
         emb(torch.randn(8, 4, 1))
@@ -91,6 +92,7 @@ def test_generate_mlp_with_plr_embedding_constructs():
 
 
 def test_generate_mlp_plr_unknown_type_raises():
+    """Generate mlp plr unknown type raises."""
     with pytest.raises(ValueError, match=r"Unknown numerical_embedding"):
         generate_mlp(
             num_features=4,
@@ -125,6 +127,7 @@ def test_plr_embedded_mlp_beats_vanilla_on_periodic_target():
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, random_state=0)
 
     def _make_reg(use_plr: bool):
+        """Make reg."""
         np_params = {
             "nlayers": 2,
             "first_layer_num_neurons": 64,

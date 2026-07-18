@@ -17,6 +17,7 @@ from mlframe.training.feature_handling.ordered_target_encoder import ordered_tar
 
 
 def test_biz_val_ordered_target_encode_avoids_self_leakage_naive_encoding_falls_for():
+    """Biz val ordered target encode avoids self leakage naive encoding falls for."""
     rng = np.random.default_rng(0)
     n = 3000
     n_cats = 1000  # many small/rare categories
@@ -35,6 +36,7 @@ def test_biz_val_ordered_target_encode_avoids_self_leakage_naive_encoding_falls_
 
 
 def test_ordered_target_encode_first_occurrence_gets_prior():
+    """Ordered target encode first occurrence gets prior."""
     cats = np.array(["a", "a", "b"])
     y = np.array([1.0, 0.0, 1.0])
     encoded = ordered_target_encode(cats, y, smoothing=1.0, prior=0.5)
@@ -43,6 +45,7 @@ def test_ordered_target_encode_first_occurrence_gets_prior():
 
 
 def test_ordered_target_encode_matches_manual_expanding_computation():
+    """Ordered target encode matches manual expanding computation."""
     cats = np.array(["a", "a", "a"])
     y = np.array([1.0, 1.0, 0.0])
     encoded = ordered_target_encode(cats, y, smoothing=1.0, prior=0.5)
@@ -55,6 +58,7 @@ def test_ordered_target_encode_matches_manual_expanding_computation():
 
 
 def test_ordered_target_encode_respects_custom_order():
+    """Ordered target encode respects custom order."""
     cats = np.array(["a", "a"])
     y = np.array([10.0, 0.0])
     order = np.array([1, 0])  # row 1 (y=0) comes FIRST in causal order, row 0 (y=10) second

@@ -47,6 +47,7 @@ class _LinearInner(BaseEstimator, RegressorMixin):
     """
 
     def fit(self, X, y, **kw):
+        """Fit."""
         Xm = self._to_matrix(X)
         self.n_features_in_ = Xm.shape[1]
         A = np.column_stack([Xm, np.ones(Xm.shape[0])])
@@ -55,11 +56,13 @@ class _LinearInner(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X):
+        """Predict."""
         Xm = self._to_matrix(X)
         A = np.column_stack([Xm, np.ones(Xm.shape[0])])
         return A @ self._coef
 
     def predict_quantile(self, X, alpha=0.5):
+        """Predict quantile."""
         base = self.predict(X)
         if np.isscalar(alpha):
             return base + (float(alpha) - 0.5)
@@ -67,6 +70,7 @@ class _LinearInner(BaseEstimator, RegressorMixin):
 
     @staticmethod
     def _to_matrix(X) -> np.ndarray:
+        """To matrix."""
         if _HAS_POLARS and isinstance(X, pl.DataFrame):
             return X.to_numpy().astype(np.float64, copy=False)
         if isinstance(X, pd.DataFrame):
@@ -75,6 +79,7 @@ class _LinearInner(BaseEstimator, RegressorMixin):
 
 
 def _frame(n=200, seed=0, with_group=False, n_groups=4):
+    """Frame."""
     rng = np.random.default_rng(seed)
     base = rng.normal(5.0, 1.0, size=n)  # >0 so logratio/ratio domains hold
     feat = rng.normal(0.0, 1.0, size=n)
@@ -91,6 +96,7 @@ _PARITY_TRANSFORMS = ["diff", "linear_residual", "logratio", "ratio"]
 
 
 def _fit_est(transform_name, X, y, **kw):
+    """Fit est."""
     est = CompositeTargetEstimator(
         base_estimator=_LinearInner(),
         transform_name=transform_name,
@@ -104,7 +110,9 @@ def _fit_est(transform_name, X, y, **kw):
 # (1) Unseen groups -> global fallback, finite, no crash.
 # ---------------------------------------------------------------------------
 class TestUnseenGroups:
+    """Groups tests covering unseen groups."""
     def test_unseen_group_falls_back_global_finite(self) -> None:
+        """Unseen group falls back global finite."""
         X, y = _frame(n=240, with_group=True, n_groups=4)
         est = CompositeTargetEstimator(
             base_estimator=_LinearInner(),
@@ -122,6 +130,7 @@ class TestUnseenGroups:
         assert np.all(np.isfinite(y_hat)), "unseen-group rows must stay finite"
 
     def test_all_unseen_groups_does_not_crash(self) -> None:
+        """All unseen groups does not crash."""
         X, y = _frame(n=160, with_group=True, n_groups=3)
         est = CompositeTargetEstimator(
             base_estimator=_LinearInner(),
@@ -159,8 +168,10 @@ class TestUnseenGroups:
 # (2) Degenerate domains -> every row to fallback, all-finite.
 # ---------------------------------------------------------------------------
 class TestDegenerateDomain:
+    """Groups tests covering degenerate domain."""
     @pytest.mark.parametrize("transform_name", ["logratio", "ratio"])
     def test_all_invalid_base_routes_to_fallback(self, transform_name) -> None:
+        """All invalid base routes to fallback."""
         X, y = _frame(n=150)
         est = _fit_est(transform_name, X, y, fallback_predict="y_train_median")
         X_pred = X.copy()
@@ -173,6 +184,7 @@ class TestDegenerateDomain:
         assert np.allclose(y_hat, y_hat[0])
 
     def test_all_nonfinite_base_routes_to_fallback(self) -> None:
+        """All nonfinite base routes to fallback."""
         X, y = _frame(n=120)
         est = _fit_est("logratio", X, y, fallback_predict="y_train_median")
         X_pred = X.copy()
@@ -208,8 +220,10 @@ class TestDegenerateDomain:
 # (3) Duplicate rows -> deterministic + identical predictions.
 # ---------------------------------------------------------------------------
 class TestDuplicateRows:
+    """Groups tests covering duplicate rows."""
     @pytest.mark.parametrize("transform_name", _PARITY_TRANSFORMS)
     def test_identical_rows_identical_predictions(self, transform_name) -> None:
+        """Identical rows identical predictions."""
         X, y = _frame(n=180)
         est = _fit_est(transform_name, X, y)
         # Build a frame whose rows 0..9 are exact copies of row 0.
@@ -221,6 +235,7 @@ class TestDuplicateRows:
 
     @pytest.mark.parametrize("transform_name", _PARITY_TRANSFORMS)
     def test_predict_is_deterministic(self, transform_name) -> None:
+        """Predict is deterministic."""
         X, y = _frame(n=180)
         est = _fit_est(transform_name, X, y)
         a = est.predict(X)
@@ -233,8 +248,10 @@ class TestDuplicateRows:
 # ---------------------------------------------------------------------------
 @pytest.mark.skipif(not _HAS_POLARS, reason="polars not installed")
 class TestPandasPolarsParity:
+    """Groups tests covering pandas polars parity."""
     @pytest.mark.parametrize("transform_name", _PARITY_TRANSFORMS)
     def test_point_predict_parity(self, transform_name) -> None:
+        """Point predict parity."""
         X, y = _frame(n=200, seed=3)
         X_pl = pl.from_pandas(X)
         est_pd = _fit_est(transform_name, X, y)
@@ -246,6 +263,7 @@ class TestPandasPolarsParity:
 
     @pytest.mark.parametrize("transform_name", ["diff", "linear_residual"])
     def test_quantile_predict_parity(self, transform_name) -> None:
+        """Quantile predict parity."""
         X, y = _frame(n=200, seed=4)
         X_pl = pl.from_pandas(X)
         est_pd = _fit_est(transform_name, X, y)
@@ -260,8 +278,10 @@ class TestPandasPolarsParity:
 # (5) Single-row + empty-frame predict -> no crash, right shape.
 # ---------------------------------------------------------------------------
 class TestSingleAndEmpty:
+    """Groups tests covering single and empty."""
     @pytest.mark.parametrize("transform_name", _PARITY_TRANSFORMS)
     def test_single_row_predict(self, transform_name) -> None:
+        """Single row predict."""
         X, y = _frame(n=150)
         est = _fit_est(transform_name, X, y)
         X_one = X.iloc[[0]].copy()
@@ -271,6 +291,7 @@ class TestSingleAndEmpty:
 
     @pytest.mark.parametrize("transform_name", _PARITY_TRANSFORMS)
     def test_empty_frame_predict(self, transform_name) -> None:
+        """Empty frame predict."""
         X, y = _frame(n=150)
         est = _fit_est(transform_name, X, y)
         X_empty = X.iloc[0:0].copy()
@@ -278,6 +299,7 @@ class TestSingleAndEmpty:
         assert y_hat.shape == (0,)
 
     def test_single_row_grouped_unseen_predict(self) -> None:
+        """Single row grouped unseen predict."""
         X, y = _frame(n=160, with_group=True, n_groups=4)
         est = CompositeTargetEstimator(
             base_estimator=_LinearInner(),
@@ -293,6 +315,7 @@ class TestSingleAndEmpty:
         assert np.all(np.isfinite(y_hat))
 
     def test_empty_frame_quantile_predict(self) -> None:
+        """Empty frame quantile predict."""
         X, y = _frame(n=150)
         est = _fit_est("diff", X, y)
         X_empty = X.iloc[0:0].copy()

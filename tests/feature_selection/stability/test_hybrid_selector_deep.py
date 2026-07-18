@@ -69,6 +69,7 @@ def _linear_frame(n=700, seed=0, p_inf=4, p_noise=8):
 
 
 def _admit(gate, fi, pairs, names, relevant, raw_cols):
+    """Helper that admit."""
     h = HybridSelector(tree_prod_gate=gate)
     h.fi_ = fi
     h._tree_prod_pairs_ = pairs
@@ -80,26 +81,28 @@ def _admit(gate, fi, pairs, names, relevant, raw_cols):
 def test_gate_three_rules_admit_distinct_subsets():
     # Two products: P0 = z0*z1 is super-additive (FI 0.9 > max(0.1,0.1)); P1 = a*b is NOT (FI 0.30 < max(0.5,0.4)).
     # Survivor bar (relevant_median, over {z0,z1,a,b}) = median(0.1,0.1,0.5,0.4)=0.25; raw_median over all incl noise ~0.
+    """Gate three rules admit distinct subsets."""
     fi = {"z0": 0.1, "z1": 0.1, "a": 0.5, "b": 0.4, "P0": 0.9, "P1": 0.30}
     fi.update({f"x{i}": 0.0 for i in range(20)})
     raw = ["z0", "z1", "a", "b"] + [f"x{i}" for i in range(20)]
     pairs, names = [("z0", "z1"), ("a", "b")], ["P0", "P1"]
     rel = ["z0", "z1", "a", "b", "P0", "P1"]
     syn = _admit("synergy", fi, pairs, names, rel, raw)
-    relm = _admit("relevant_median", fi, pairs, names, rel, raw)
+    rel_med = _admit("relevant_median", fi, pairs, names, rel, raw)
     rawm = _admit("raw_median", fi, pairs, names, rel, raw)
     # synergy keeps only the super-additive product; relevant_median's 0.25 bar admits P0 (0.9) AND P1 (0.30);
     # raw_median's ~0 bar admits both too -- but relevant_median and raw_median differ from synergy, and we also
     # show a case (below) where relevant_median is strictly stricter than raw_median.
     assert syn == {"P0"}, syn
-    assert relm == {"P0", "P1"}, relm
+    assert rel_med == {"P0", "P1"}, rel_med
     assert rawm == {"P0", "P1"}, rawm
-    assert syn != relm  # the rules are genuinely not the same gate
+    assert syn != rel_med  # the rules are genuinely not the same gate
 
 
 def test_gate_relevant_median_strictly_stricter_than_raw_median():
     # survivors {z0,z1} have FI 0.5 -> relevant_median bar 0.5; a product at 0.3 FAILS relevant_median but the
     # noise-diluted raw median (~0) ADMITS it. The two gates disagree on this product.
+    """Gate relevant median strictly stricter than raw median."""
     fi = {"z0": 0.5, "z1": 0.5, "P0": 0.3}
     fi.update({f"n{i}": 0.0 for i in range(15)})
     raw = ["z0", "z1"] + [f"n{i}" for i in range(15)]
@@ -110,6 +113,7 @@ def test_gate_relevant_median_strictly_stricter_than_raw_median():
 
 def test_gate_synergy_strictly_stricter_than_raw_median_on_noise_heavy_frame():
     # a weak product (FI 0.02) clears the ~0 raw median but fails synergy (0.02 < operand FI 0.5).
+    """Gate synergy strictly stricter than raw median on noise heavy frame."""
     fi = {"z0": 0.5, "z1": 0.5, "P0": 0.02}
     fi.update({f"n{i}": 0.0 for i in range(20)})
     raw = ["z0", "z1"] + [f"n{i}" for i in range(20)]
@@ -119,6 +123,7 @@ def test_gate_synergy_strictly_stricter_than_raw_median_on_noise_heavy_frame():
 
 
 def test_gate_empty_when_no_products():
+    """Gate empty when no products."""
     h = HybridSelector()
     h.fi_ = {}
     h._tree_prod_pairs_, h._tree_prod_names_, h._tree_op_ = [], [], {}
@@ -129,6 +134,7 @@ def test_gate_empty_when_no_products():
 @pytest.mark.slow
 @pytest.mark.timeout(200)
 def test_tree_member_engineers_replays_and_prunes():
+    """Tree member engineers replays and prunes."""
     X, y = _interaction_frame(n=900, seed=0, p_noise=8)
     h = HybridSelector(use_tree_member=True, tree_n_estimators=30, tree_cooccur_pairs=6, random_state=0).fit(X, y)
     # the member engineered surviving products
@@ -148,6 +154,7 @@ def test_tree_member_engineers_replays_and_prunes():
 @pytest.mark.slow
 @pytest.mark.timeout(200)
 def test_tree_rich_ops_mul_only_restricts_to_tmul():
+    """Tree rich ops mul only restricts to tmul."""
     X, y = _interaction_frame(n=900, seed=0, p_noise=8)
     h = HybridSelector(use_tree_member=True, tree_rich_ops=("mul",), tree_n_estimators=30, tree_cooccur_pairs=6, random_state=0).fit(X, y)
     assert h._tree_prod_names_, "mul-only tree member should still engineer products"
@@ -158,6 +165,7 @@ def test_tree_rich_ops_mul_only_restricts_to_tmul():
 @pytest.mark.slow
 @pytest.mark.timeout(200)
 def test_transform_replays_tree_ops_bit_equal_on_fresh_rows():
+    """Transform replays tree ops bit equal on fresh rows."""
     X, y = _interaction_frame(n=900, seed=0, p_noise=8)
     h = HybridSelector(use_tree_member=True, tree_n_estimators=30, tree_cooccur_pairs=6, random_state=0).fit(X, y)
     Xfresh = _interaction_frame(n=120, seed=99, p_noise=8)[0]  # rows the selector never saw
@@ -175,6 +183,7 @@ def test_transform_replays_tree_ops_bit_equal_on_fresh_rows():
 @pytest.mark.slow
 @pytest.mark.timeout(200)
 def test_use_tree_member_false_is_dormant():
+    """Use tree member false is dormant."""
     X, y = _interaction_frame(n=900, seed=0, p_noise=8)
     h = HybridSelector(use_tree_member=False, use_fe=False, random_state=0).fit(X, y)
     # dormant-member contract: no tree products, no "tree" key in member_selections_, no t*_ columns in transform
@@ -189,9 +198,11 @@ def test_use_tree_member_false_is_dormant():
 @pytest.mark.slow
 @pytest.mark.timeout(200)
 def test_shap_member_degrades_to_empty_with_warning(monkeypatch):
+    """Shap member degrades to empty with warning."""
     X, y, inf = _linear_frame(n=700, seed=0)
 
     def _boom(self, *a, **k):
+        """Helper that boom."""
         raise RuntimeError("boom-shap")
 
     monkeypatch.setattr(HybridSelector, "_run_shap", _boom)
@@ -205,9 +216,11 @@ def test_shap_member_degrades_to_empty_with_warning(monkeypatch):
 @pytest.mark.slow
 @pytest.mark.timeout(200)
 def test_boruta_member_degrades_to_empty_with_warning(monkeypatch):
+    """Boruta member degrades to empty with warning."""
     X, y, inf = _linear_frame(n=700, seed=0)
 
     def _boom(self, *a, **k):
+        """Helper that boom."""
         raise RuntimeError("boom-boruta")
 
     monkeypatch.setattr(HybridSelector, "_run_boruta_premerge", _boom)
@@ -222,9 +235,11 @@ def test_boruta_member_degrades_to_empty_with_warning(monkeypatch):
 def test_mrmr_stage_degrades_to_empty_with_warning(monkeypatch):
     # _run_mrmr does a lazy `from mlframe.feature_selection.filters import MRMR`; patch the attribute on that package
     # so construction raises, exercising the try/except -> ([], None) degrade with the "MRMR stage degraded" warning.
+    """Mrmr stage degrades to empty with warning."""
     import mlframe.feature_selection.filters as filters_pkg
 
     class _BoomMRMR:
+        """Groups tests covering BoomMRMR."""
         def __init__(self, *a, **k):
             raise RuntimeError("boom-mrmr")
 
@@ -241,6 +256,7 @@ def test_mrmr_stage_degrades_to_empty_with_warning(monkeypatch):
 @pytest.mark.slow
 @pytest.mark.timeout(200)
 def test_boruta_driver_permutation_fits_and_recovers(monkeypatch):
+    """Boruta driver permutation fits and recovers."""
     X, y, inf = _linear_frame(n=700, seed=0)
     h = HybridSelector(boruta_driver="permutation", use_fe=False, use_tree_member=False, random_state=0).fit(X, y)
     assert h.boruta_driver == "permutation"
@@ -251,6 +267,7 @@ def test_boruta_driver_permutation_fits_and_recovers(monkeypatch):
 @pytest.mark.slow
 @pytest.mark.timeout(200)
 def test_use_mrmr_false_zeroes_engineering_and_still_votes():
+    """Use mrmr false zeroes engineering and still votes."""
     X, y, inf = _linear_frame(n=700, seed=0)
     h = HybridSelector(use_mrmr=False, use_fe=False, use_tree_member=False, random_state=0).fit(X, y)
     # the mrmr stage is skipped entirely: no member, no engineered cols, no MRMR selection or artifacts
@@ -266,6 +283,7 @@ def test_use_mrmr_false_zeroes_engineering_and_still_votes():
 @pytest.mark.slow
 @pytest.mark.timeout(200)
 def test_prescreen_false_keeps_all_augmented_columns_relevant():
+    """Prescreen false keeps all augmented columns relevant."""
     X, y, _inf = _linear_frame(n=700, seed=0)
     h = HybridSelector(prescreen=False, use_fe=False, use_tree_member=False, random_state=0).fit(X, y)
     # prescreen=False -> relevant_ is exactly the full augmented column set (no FI narrowing)
@@ -276,6 +294,7 @@ def test_prescreen_false_keeps_all_augmented_columns_relevant():
 @pytest.mark.slow
 @pytest.mark.timeout(200)
 def test_fe_mode_pickle_replays_engineered_columns_value_equal():
+    """Fe mode pickle replays engineered columns value equal."""
     X, y = _interaction_frame(n=1000, seed=3, p_noise=10)
     Xfresh = _interaction_frame(n=60, seed=77, p_noise=10)[0]
     h = HybridSelector(use_fe=True, use_tree_member=True, tree_n_estimators=30, tree_cooccur_pairs=6, random_state=3).fit(X, y)
@@ -297,6 +316,7 @@ def test_fe_mode_pickle_replays_engineered_columns_value_equal():
 @pytest.mark.slow
 @pytest.mark.timeout(200)
 def test_get_support_excludes_engineered_names():
+    """Get support excludes engineered names."""
     X, y = _interaction_frame(n=1000, seed=3, p_noise=10)
     h = HybridSelector(use_fe=True, use_tree_member=True, tree_n_estimators=30, tree_cooccur_pairs=6, random_state=3).fit(X, y)
     eng_survivors = [c for c in h.raw_selected_ if c not in set(h.feature_names_in_)]
@@ -326,6 +346,7 @@ def test_get_support_excludes_engineered_names():
 @pytest.mark.slow
 @pytest.mark.timeout(200)
 def test_biz_value_tree_member_recovers_interaction_product_signal():
+    """Biz value tree member recovers interaction product signal."""
     from sklearn.model_selection import train_test_split
     from sklearn.linear_model import LogisticRegression
     from sklearn.metrics import roc_auc_score

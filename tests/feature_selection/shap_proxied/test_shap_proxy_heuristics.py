@@ -15,6 +15,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import coal
 
 @pytest.fixture
 def easy_problem():
+    """Easy problem."""
     rng = np.random.default_rng(7)
     n, f = 500, 10
     phi = rng.normal(size=(n, f))
@@ -25,6 +26,7 @@ def easy_problem():
 
 
 def _check(top, phi, base, y, truth):
+    """Assert a candidate-coalition result list is non-empty, deduplicated, and ascending by loss."""
     assert len(top) >= 1
     # deduplicated and ascending by loss
     keys = [frozenset(c) for _, c in top]
@@ -41,6 +43,7 @@ def _check(top, phi, base, y, truth):
 
 
 def test_beam_recovers_truth(easy_problem):
+    """Beam recovers truth."""
     phi, base, y, truth = easy_problem
     top = H.beam_search(phi, base, y, classification=False, metric="rmse", beam_width=6, top_n=5)
     assert _check(top, phi, base, y, truth) == truth
@@ -69,30 +72,35 @@ def test_beam_recovers_truth_with_max_card_capacity_for_mixed_strength_signal():
 
 
 def test_greedy_forward_recovers_truth(easy_problem):
+    """Greedy forward recovers truth."""
     phi, base, y, truth = easy_problem
     top = H.greedy_forward(phi, base, y, classification=False, metric="rmse", top_n=5)
     assert _check(top, phi, base, y, truth) == truth
 
 
 def test_greedy_backward_recovers_truth(easy_problem):
+    """Greedy backward recovers truth."""
     phi, base, y, truth = easy_problem
     top = H.greedy_backward(phi, base, y, classification=False, metric="rmse", top_n=5)
     assert _check(top, phi, base, y, truth) == truth
 
 
 def test_multistart_beats_random(easy_problem):
+    """Multistart beats random."""
     phi, base, y, truth = easy_problem
     top = H.multistart_local(phi, base, y, classification=False, metric="rmse", rng=np.random.default_rng(0), n_starts=8, top_n=5)
     _check(top, phi, base, y, truth)
 
 
 def test_genetic_beats_random(easy_problem):
+    """Genetic beats random."""
     phi, base, y, truth = easy_problem
     top = H.genetic(phi, base, y, classification=False, metric="rmse", rng=np.random.default_rng(0), pop_size=30, n_generations=20, top_n=5)
     _check(top, phi, base, y, truth)
 
 
 def test_annealing_beats_random(easy_problem):
+    """Annealing beats random."""
     phi, base, y, truth = easy_problem
     top = H.simulated_annealing(phi, base, y, classification=False, metric="rmse", rng=np.random.default_rng(0), n_iter=1500, top_n=5)
     _check(top, phi, base, y, truth)

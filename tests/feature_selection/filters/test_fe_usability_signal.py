@@ -16,6 +16,7 @@ MOD = "mlframe.feature_selection.filters._fe_usability_signal"
 
 
 def _full_abs_pearson(y, v):
+    """Full abs pearson."""
     m = np.isfinite(y) & np.isfinite(v)
     yy, vv = y[m], v[m]
     ys, vs = float(yy.std()), float(vv.std())
@@ -25,6 +26,7 @@ def _full_abs_pearson(y, v):
 
 
 def test_abs_pearson_subsample_matches_fulln_within_margin():
+    """Abs pearson subsample matches fulln within margin."""
     m = importlib.import_module(MOD)
     rng = np.random.default_rng(7)
     n = 1_000_000
@@ -60,6 +62,7 @@ def test_abs_pearson_preserves_outlier_inflated_corr():
 
 
 def test_abs_pearson_env_optout_full_n(monkeypatch):
+    """Abs pearson env optout full n."""
     monkeypatch.setenv("MLFRAME_USABILITY_CORR_MAX_ROWS", "0")
     m = importlib.import_module(MOD)
     _orig_dict = dict(m.__dict__)

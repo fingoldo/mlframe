@@ -9,7 +9,6 @@ import importlib
 
 import pytest
 
-
 # (module path, attribute) pairs, one per documented public symbol.
 PUBLIC_SYMBOLS = [
     # estimator families
@@ -85,12 +84,14 @@ BOUND_METHODS = [
 
 @pytest.mark.parametrize("module_path,attr", PUBLIC_SYMBOLS)
 def test_documented_symbol_imports(module_path, attr):
+    """Documented symbol imports."""
     mod = importlib.import_module(module_path)
     assert hasattr(mod, attr), f"{module_path}.{attr} is documented but missing"
 
 
 @pytest.mark.parametrize("module_path,cls_name,methods", BOUND_METHODS)
 def test_documented_bound_methods_exist(module_path, cls_name, methods):
+    """Documented bound methods exist."""
     cls = getattr(importlib.import_module(module_path), cls_name)
     for m in methods:
         assert hasattr(cls, m), f"{cls_name}.{m}() is documented but missing"
@@ -99,5 +100,6 @@ def test_documented_bound_methods_exist(module_path, cls_name, methods):
 def test_qrf_estimator_present_and_documented():
     # CompositeQRFEstimator landed as a real public estimator (own qrf.py module + __all__ + tests),
     # so the guide documents it and the symbol must resolve.
+    """Qrf estimator present and documented."""
     mod = importlib.import_module("mlframe.training.composite")
     assert hasattr(mod, "CompositeQRFEstimator")

@@ -70,9 +70,9 @@ def test_prediction_datamodule_stashed_after_fit():
 
     # Shell stays (lightweight config + class refs, ~few KB).
     assert hasattr(est, "prediction_datamodule"), "fit() must stash the datamodule shell"
-    assert est.prediction_datamodule is not None, (
-        "fit-end memory-safety must keep the lightweight datamodule shell so predict can reuse it; only the heavy tensors are nulled"
-    )
+    assert (
+        est.prediction_datamodule is not None
+    ), "fit-end memory-safety must keep the lightweight datamodule shell so predict can reuse it; only the heavy tensors are nulled"
     # Heavy tensors inside the shell are nulled.
     _dm = est.prediction_datamodule
     for _attr in ("train_features", "train_labels", "train_sample_weight", "val_features", "val_labels"):

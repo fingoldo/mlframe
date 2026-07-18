@@ -18,6 +18,7 @@ from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as spe
 
 
 def test_patch_is_noop_on_shap_ge_052():
+    """Patch is noop on shap ge 052."""
     ver = tuple(int(p) for p in shap.__version__.split(".")[:2])
     if ver < (0, 52):
         pytest.skip("workaround is expected to apply on shap < 0.52")
@@ -34,9 +35,9 @@ def test_patch_is_noop_on_shap_ge_052():
         spe._SHAP_XGB_PATCHED = False
         _shap_tree.__dict__.pop("float", None)
         spe._maybe_patch_shap_xgb_base_score()
-        assert _shap_tree.__dict__.get("float", builtins.float) is builtins.float, (
-            "patch clobbered shap._tree.float on shap >= 0.52; np.asarray(base_score, dtype=float) will break"
-        )
+        assert (
+            _shap_tree.__dict__.get("float", builtins.float) is builtins.float
+        ), "patch clobbered shap._tree.float on shap >= 0.52; np.asarray(base_score, dtype=float) will break"
     finally:
         if had_attr:
             _shap_tree.float = saved_attr
@@ -46,6 +47,7 @@ def test_patch_is_noop_on_shap_ge_052():
 
 
 def test_xgb_treeexplainer_smoke_no_dtype_error():
+    """Xgb treeexplainer smoke no dtype error."""
     xgb = pytest.importorskip("xgboost")
     import numpy as np
 

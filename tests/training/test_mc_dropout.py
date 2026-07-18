@@ -7,6 +7,7 @@ import pytest
 
 
 def test_mc_dropout_spread_positive_with_dropout_zero_without():
+    """Mc dropout spread positive with dropout zero without."""
     torch = pytest.importorskip("torch")
     rng = np.random.default_rng(0)
     X = torch.tensor(rng.standard_normal((50, 8)).astype("float32"))
@@ -27,6 +28,7 @@ def test_mc_dropout_spread_positive_with_dropout_zero_without():
 
 
 def test_mc_dropout_restores_module_mode():
+    """Mc dropout restores module mode."""
     torch = pytest.importorskip("torch")
     from mlframe.training._mc_dropout import mc_dropout_predict
 
@@ -41,6 +43,7 @@ def test_mc_dropout_restores_module_mode():
 
 
 def test_predictive_entropy_peaks_for_uniform_min_for_confident():
+    """Predictive entropy peaks for uniform min for confident."""
     from mlframe.training._mc_dropout import predictive_entropy
 
     uniform = np.full((1, 4), 0.25)

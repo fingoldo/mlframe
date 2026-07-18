@@ -13,6 +13,7 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 def test_default_does_not_fit_in_sample_stacker():
+    """If the default cross-target ensemble strategy is a stacker, oof_holdout_frac must be nonzero or it fits on leaked in-sample predictions."""
     cfg = CompositeTargetDiscoveryConfig()
     # Acceptable defenses: either the strategy isn't a stacker, or the
     # stacker fits on a real honest holdout slice (>0).
@@ -29,6 +30,7 @@ def test_default_does_not_fit_in_sample_stacker():
 
 
 def test_oof_holdout_frac_default_value():
+    """Pins oof_holdout_frac strictly between 0 and 1 by default, so the safe-default doesn't silently regress to 0.0."""
     # Explicit pin so the safe-default doesn't regress to 0.0 silently.
     cfg = CompositeTargetDiscoveryConfig()
     assert 0.0 < cfg.oof_holdout_frac < 1.0

@@ -76,6 +76,6 @@ def test_predict_from_models_lgb_hgb_polars_unfitted_pre_pipeline():
         return_probabilities=False,
         verbose=0,
     )
-    assert len(results["models_used"]) >= 2, (
-        f"Expected lgb+hgb to predict; got {results['models_used']}. If both crashed, the unfitted-pre_pipeline guard is missing."
-    )
+    assert (
+        len(results["models_used"]) >= 2
+    ), f"Expected lgb+hgb to predict; got {results['models_used']}. If both crashed, the unfitted-pre_pipeline guard is missing."

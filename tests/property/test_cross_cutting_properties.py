@@ -45,7 +45,6 @@ from mlframe.calibration.post import BinaryPostCalibrator
 from mlframe.calibration.policy import CalibrationConfig
 from sklearn.isotonic import IsotonicRegression
 
-
 # Warm the numba kernels once at import so the first ``@given`` example does not pay the JIT
 # compile inside a timed hypothesis example. Deadline is disabled on the property tests anyway,
 # but this keeps the whole file's wall-time predictable. Failures here are non-fatal.

@@ -86,21 +86,23 @@ jobs:
       # of the 90-min job budget so install+test overruns the cap. uv's resolver
       # has no depth ceiling and installs in parallel (~10x faster), fixing both.
       - name: Set up uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
         with:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
 
-      - name: Clone & install pyutilz + mlframe in one uv resolution
-        # pyutilz is a first-party sibling dep not yet on PyPI: clone it and install from the local path so
-        # mlframe's `pyutilz>=1.0.0` resolves to it (mlframe requires plain pyutilz, no extras, so the explicit
-        # ./pyutilz[...] target fully controls pyutilz's extras). Install the narrow pyutilz extras -- EXCLUDING
-        # [nlp] (spacy>=3.0 -> thinc>=8.3.12 needs py>=3.10, and the matrix still covers py3.9) -- and mlframe's
-        # [all,dev] union (mlframe's submodules have unguarded top-level heavy imports, so [all] keeps test
-        # collection from blowing up on ModuleNotFoundError) in a SINGLE `uv pip install`.
-        run: |
-          git clone --depth 1 https://github.com/fingoldo/pyutilz.git
-          uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev]"
+      # pyutilz is a first-party sibling dep not yet on PyPI: clone it and install from the local path so
+      # mlframe's `pyutilz>=1.0.0` resolves to it (mlframe requires plain pyutilz, no extras, so the explicit
+      # ./pyutilz[...] target fully controls pyutilz's extras). Install the narrow pyutilz extras -- EXCLUDING
+      # [nlp] (spacy>=3.0 -> thinc>=8.3.12 needs py>=3.10, and the matrix still covers py3.9) -- and mlframe's
+      # [all,dev] union (mlframe's submodules have unguarded top-level heavy imports, so [all] keeps test
+      # collection from blowing up on ModuleNotFoundError) in a SINGLE `uv pip install`. Extracted 2026-07-18
+      # to py-ci-shared's install-pyutilz composite action -- this exact clone+uv-install pair was
+      # duplicated near-verbatim across 6 workflows in this repo.
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@7a0e0286080bae6250476e0cefe4309096dbbfe1  # v1.1.1
+        with:
+          pyutilz-extras: "system,pandas,polars,database"
+          project-extras: ".[all,dev]"
 
       - name: Restore numba JIT cache
         # numba's per-kernel disk cache (keyed internally by source + numba version) is restored into
@@ -149,6 +151,13 @@ jobs:
   # Blocking gate + advisory bundle, both extracted to fingoldo/py-ci-shared reusable workflows
   # (2026-07-09) since their logic is identical across mlframe/pyutilz -- see
   # https://github.com/fingoldo/py-ci-shared and this repo's pyproject.toml `[tool.ruff] extend`.
+  #
+  # None of these call sites restate `permissions:` -- a workflow_call job's permissions are
+  # CAPPED BY, not additive to, the caller's own top-level `permissions: contents: read` (line 23
+  # above); the reusable workflow can request more but never actually receive more than what this
+  # file grants. Confirmed against GitHub's own reusable-workflow permissions docs (2026-07-18
+  # architecture review) -- not an oversight, restating `contents: read` at each call site would
+  # be redundant, not safer.
   ruff-blocking:
     name: Ruff (real bugs - blocking)
     uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@4e821c3982aa3a3f24d3026e7a77fab872819c0a  # v1.0.0
@@ -175,9 +184,47 @@ jobs:
 
   lint-advisory:
     name: lint (advisory)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@4e821c3982aa3a3f24d3026e7a77fab872819c0a  # v1.0.0
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@f26052fd4fee0d667aa6f4c3290d77e7ca6c1c06  # v1.2.0
     with:
       source-path: src/mlframe
+      run-import-linter: true
+      pydoclint-source-path: src/mlframe
+      semgrep-config-path: .semgrep.yml
+
+  # tests/ is intentionally EXCLUDED from the src-scoped jobs above (root pyproject.toml's
+  # [tool.ruff] / [tool.interrogate] both list "tests" in their exclude) -- it carries its own,
+  # deliberately looser configs (tests/ruff.toml, tests/interrogate.toml) reached via a 2026-07-17
+  # cleanup pass (rename, ruff format+fix, black, docstrings to 100%). These jobs gate that
+  # subtree separately so it isn't silently unchecked; check-path/interrogate-config on the
+  # reusable workflows (py-ci-shared v1.1.0+) point them at tests/ instead of the whole repo.
+  tests-ruff-blocking:
+    name: Ruff tests/ (real bugs - blocking)
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@bd504156abd3e63dc53c189b9c61fedf1a289c02  # v1.1.0
+    with:
+      check-path: tests
+      ignore: "C901"
+
+  tests-black-filtered:
+    name: Black tests/ (filtered, blocking)
+    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@acf3f712ec7e00fd23880cf20be8842bc5c2cc07  # v1.0.1
+    with:
+      check-path: tests
+
+  tests-lint-blocking:
+    name: lint + security tests/ (blocking)
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@bd504156abd3e63dc53c189b9c61fedf1a289c02  # v1.1.0
+    with:
+      source-path: tests
+      codespell-paths: tests
+      interrogate-source-path: tests
+      interrogate-config: tests/interrogate.toml
+      # deptry is project-wide (installed deps are the same regardless of which tree imports
+      # them) and already checked once by lint-blocking above -- running it again here would
+      # just duplicate that result, not add coverage.
+      deptry-install-command: ""
+      # zizmor scans .github/workflows/ regardless of source-path -- already covered by the
+      # src-scoped lint-blocking job above; skip the duplicate run here.
+      run-zizmor: false
 
   build:
     name: build sdist + wheel + install smoke
@@ -193,7 +240,7 @@ jobs:
           python-version: "3.11"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
         with:
           enable-cache: true
 
@@ -222,3 +269,4 @@ jobs:
         with:
           name: dist
           path: dist/
+          retention-days: 14

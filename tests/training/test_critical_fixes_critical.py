@@ -222,6 +222,7 @@ def test_c4_c5_c6_weighted_loss_normalises_by_weight_sum() -> None:
     from mlframe.training.neural.recurrent import RecurrentTorchModel
 
     class _Stub:
+        """Groups tests covering stub."""
         is_regression = True
         task_type = "regression"
         _loss_fn_unreduced = staticmethod(lambda preds, targets: (preds - targets) ** 2)
@@ -242,6 +243,7 @@ def test_c4_c5_c6_weighted_loss_normalises_by_weight_sum() -> None:
 
     # Multilabel branch.
     class _StubML:
+        """Groups tests covering stub m l."""
         is_regression = False
         task_type = "multilabel"
         _loss_fn_unreduced = staticmethod(lambda logits, labels_f: (logits - labels_f) ** 2)
@@ -258,6 +260,7 @@ def test_c4_c5_c6_weighted_loss_normalises_by_weight_sum() -> None:
 
     # Multiclass CE branch.
     class _StubCE:
+        """Groups tests covering stub c e."""
         is_regression = False
         task_type = "classification"
         _loss_fn_unreduced = staticmethod(lambda logits, labels: torch.ones(logits.shape[0]))
@@ -294,27 +297,33 @@ def test_c7_predict_uses_prediction_datamodule_when_set() -> None:
     from mlframe.training.neural.base import PytorchLightningEstimator
 
     class _RecordingDM:
+        """Groups tests covering recording d m."""
         def __init__(self):
             self.setup_predict_calls = []
             self.predict_dataloader_calls = 0
             self.batch_size = 64
 
         def setup_predict(self, X, batch_size=None):
+            """Setup predict."""
             self.setup_predict_calls.append({"X_shape": getattr(X, "shape", None), "batch_size": batch_size})
 
         def predict_dataloader(self):  # pragma: no cover - reached after the fix only
+            """Predict dataloader."""
             self.predict_dataloader_calls += 1
             return []
 
     class _FakeTrainer:
+        """Groups tests covering fake trainer."""
         def __init__(self):
             self.predict_calls = 0
 
         def predict(self, model, dataloaders=None):
+            """Predict."""
             self.predict_calls += 1
             return [np.zeros((0, 1), dtype=np.float32)]
 
         class _Acc:
+            """Groups tests covering acc."""
             def __init__(self):
                 self.__class__.__name__ = "CPUAccelerator"
 
@@ -384,9 +393,9 @@ def test_c8_zero_weight_sum_returns_zero_loss_without_sync(caplog) -> None:
     # cost was the dominant overhead). No WARN should fire on the
     # all-zero-weight path; the operator notices via flat val loss.
     warn_lines = [r for r in caplog.records if "sample_weight.sum()=0" in r.getMessage()]
-    assert not warn_lines, (
-        f"C8: per-batch zero-weight WARN was re-introduced; that re-adds a forced GPU->CPU sync per batch. Got: {[r.getMessage() for r in warn_lines]}"
-    )
+    assert (
+        not warn_lines
+    ), f"C8: per-batch zero-weight WARN was re-introduced; that re-adds a forced GPU->CPU sync per batch. Got: {[r.getMessage() for r in warn_lines]}"
 
 
 # ---------------------------------------------------------------------------
@@ -537,9 +546,9 @@ def test_wave15_third_party_patches_not_applied_at_bare_import() -> None:
         env=_env,
     )
     assert _res.returncode == 0, f"probe subprocess failed: {_res.stderr}"
-    assert _res.stdout.strip() == "False", (
-        f"Wave 1.5: third-party patches were applied at import time (probe printed {_res.stdout!r}). Did someone re-add the import-time call?"
-    )
+    assert (
+        _res.stdout.strip() == "False"
+    ), f"Wave 1.5: third-party patches were applied at import time (probe printed {_res.stdout!r}). Did someone re-add the import-time call?"
 
 
 def test_wave15_factory_applies_patches_on_first_call() -> None:

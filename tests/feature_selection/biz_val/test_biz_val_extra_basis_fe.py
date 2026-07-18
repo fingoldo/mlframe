@@ -25,11 +25,13 @@ _DEG = 8
 
 
 def _to_pm1(x):
+    """To pm1."""
     c = x.astype(np.float64)
     return 2 * (c - c.min()) / (np.ptp(c) + 1e-12) - 1
 
 
 def _best_existing_mi(x, y):
+    """Best existing mi."""
     return max(
         fit_basis_mi(chebvander(_to_pm1(x), _DEG), y, nbins=_NBINS),
         fit_basis_mi(legvander(_to_pm1(x), _DEG), y, nbins=_NBINS),
@@ -38,6 +40,7 @@ def _best_existing_mi(x, y):
 
 @pytest.fixture(scope="module")
 def targets():
+    """Helper that targets."""
     rng = np.random.default_rng(0)
     x = np.sort(rng.uniform(-3, 3, 2000))
     return {

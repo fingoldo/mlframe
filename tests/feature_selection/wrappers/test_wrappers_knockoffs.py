@@ -22,7 +22,9 @@ from mlframe.feature_selection.wrappers import (
 # K1: Gaussian knockoffs sanity - shape, structure, correlation properties
 # ----------------------------------------------------------------------------
 class TestK1_KnockoffsSanity:
+    """Groups tests covering TestK1_KnockoffsSanity."""
     def test_shape_matches_input(self):
+        """Shape matches input."""
         rng = np.random.default_rng(0)
         X = rng.standard_normal((200, 10))
         X_tilde = make_gaussian_knockoffs(X, random_state=42)
@@ -58,6 +60,7 @@ class TestK1_KnockoffsSanity:
         assert abs(c_real - c_fake) < 0.25, f"Cross-correlation structure not preserved: corr(X_0, X_2)={c_real:.3f} vs corr(X_0, X_tilde_2)={c_fake:.3f}"
 
     def test_deterministic_with_random_state(self):
+        """Deterministic with random state."""
         rng = np.random.default_rng(0)
         X = rng.standard_normal((100, 5))
         a = make_gaussian_knockoffs(X, random_state=0)
@@ -65,6 +68,7 @@ class TestK1_KnockoffsSanity:
         np.testing.assert_array_equal(a, b)
 
     def test_different_seeds_give_different_knockoffs(self):
+        """Different seeds give different knockoffs."""
         rng = np.random.default_rng(0)
         X = rng.standard_normal((100, 5))
         a = make_gaussian_knockoffs(X, random_state=0)
@@ -73,6 +77,7 @@ class TestK1_KnockoffsSanity:
         assert not np.allclose(a, b)
 
     def test_handles_constant_columns(self):
+        """Handles constant columns."""
         rng = np.random.default_rng(0)
         X = rng.standard_normal((100, 4))
         X[:, 1] = 5.0  # constant
@@ -85,6 +90,7 @@ class TestK1_KnockoffsSanity:
 # K2: knockoff_importance separates informative from noise
 # ----------------------------------------------------------------------------
 class TestK2_KnockoffImportance:
+    """Groups tests covering TestK2_KnockoffImportance."""
     def test_informative_features_have_positive_W(self):
         """On a synthetic problem with M informative + K noise features,
         W = imp(X) - imp(X_tilde) should be:
@@ -112,11 +118,12 @@ class TestK2_KnockoffImportance:
         noise_W = [W[f"f{i}"] for i in range(4, 12)]
         median_noise = np.median(noise_W)
         for f_idx, w_inf in enumerate(informative_W):
-            assert w_inf > median_noise, (
-                f"Informative feature f{f_idx} has W={w_inf:+.4f} which is not above median noise W={median_noise:+.4f}. Knockoffs failed."
-            )
+            assert (
+                w_inf > median_noise
+            ), f"Informative feature f{f_idx} has W={w_inf:+.4f} which is not above median noise W={median_noise:+.4f}. Knockoffs failed."
 
     def test_W_is_signed_dict(self):
+        """W is signed dict."""
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((100, 3)), columns=list("abc"))
         y = (X["a"] > 0).astype(int).values
@@ -134,6 +141,7 @@ class TestK2_KnockoffImportance:
 # K3: multi-estimator score aggregation - min instead of mean
 # ----------------------------------------------------------------------------
 class TestK3_MultiEstimatorMinAggregation:
+    """Groups tests covering TestK3_MultiEstimatorMinAggregation."""
     def test_min_aggregation_uses_worst_case_score(self):
         """Verify the score-aggregation fix: when one estimator scores 0.9
         and another 0.7 on the same fold, min returns 0.7 (worst-case).
@@ -181,6 +189,7 @@ class TestK3_MultiEstimatorMinAggregation:
 # K4: Plateau-aware n_features_selection_rule (auto + one_se_max + one_se_min)
 # ----------------------------------------------------------------------------
 class TestK4_PlateauRule:
+    """Groups tests covering TestK4_PlateauRule."""
     def test_one_se_max_recovers_informative_features_on_plateau(self):
         """C3 (Wave 1, 2026-05-28): the audit found 'auto' = 'one_se_max'
         for multi-estimator was INVERTED logic - multi-estimator path uses
@@ -285,6 +294,7 @@ class TestK4_PlateauRule:
     def test_unknown_rule_raises(self):
         # PR-6: validation moved to __init__ (eager) instead of select_optimal_nfeatures_
         # so a bad config aborts at construction time, not after a long fit.
+        """Unknown rule raises."""
         with pytest.raises(ValueError, match="n_features_selection_rule"):
             RFECV(
                 estimator=LogisticRegression(max_iter=200, random_state=0),

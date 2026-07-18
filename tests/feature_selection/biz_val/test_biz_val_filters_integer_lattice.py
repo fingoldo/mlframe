@@ -36,7 +36,6 @@ from mlframe.feature_selection.filters._integer_lattice_fe import (
 )
 from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
 
 
@@ -60,7 +59,9 @@ def _build_gcd_target(seed: int, n: int = 4000):
 
 
 class TestPrototypeDirect:
+    """Groups tests covering TestPrototypeDirect."""
     def test_detects_gcd_shared_factor(self):
+        """Detects gcd shared factor."""
         X, y = _build_gcd_target(7)
         hits = detect_integer_lattice(X, y, seed=7)
         assert hits, "no responded hit on the gcd-shared-factor target."
@@ -68,6 +69,7 @@ class TestPrototypeDirect:
         assert max(h["margin"] for h in hits) >= 0.10, "MI lift below the measured floor."
 
     def test_silent_on_smooth_control(self):
+        """Silent on smooth control."""
         rng = np.random.default_rng(7)
         n = 4000
         a, b = rng.integers(0, 100, n), rng.integers(0, 100, n)
@@ -78,7 +80,9 @@ class TestPrototypeDirect:
 
 
 class TestRecipeReplay:
+    """Groups tests covering TestRecipeReplay."""
     def test_recipe_replay_bit_identical(self):
+        """Recipe replay bit identical."""
         X, y = _build_gcd_target(1)
         _appended, recipes = hybrid_integer_lattice_fe_with_recipes(X, y, seed=1)
         assert recipes, "no integer-lattice recipes emitted."
@@ -99,6 +103,7 @@ class TestRecipeReplay:
         np.testing.assert_array_equal(on_train[:500], on_test)
 
     def test_recipe_pickle_round_trip(self):
+        """Recipe pickle round trip."""
         X, y = _build_gcd_target(1)
         _, recipes = hybrid_integer_lattice_fe_with_recipes(X, y, seed=1)
         assert recipes
@@ -109,6 +114,7 @@ class TestRecipeReplay:
 
 
 class TestMRMRIntegration:
+    """Groups tests covering TestMRMRIntegration."""
     def test_opt_out_is_no_op(self):
         """The opt-out (fe_integer_lattice_enable=False) must stay a byte-identical no-op for legacy/replay."""
         from mlframe.feature_selection.filters.mrmr import MRMR
@@ -134,6 +140,7 @@ class TestMRMRIntegration:
         assert il_cols, f"default-ON MRMR did not select an integer-lattice feature; selected={list(out.columns)}"
 
     def test_enabled_selects_gcd_feature_and_replays(self):
+        """Enabled selects gcd feature and replays."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_gcd_target(7, n=4000)
@@ -166,6 +173,7 @@ class TestMRMRIntegration:
         assert not nan_cols, f"replay emitted NaN columns (nested-engineered recipe): {nan_cols}"
 
     def test_budget_guard_skips_whole_sweep_and_logs(self, caplog):
+        """Budget guard skips whole sweep and logs."""
         rng = np.random.default_rng(7)
         n = 2000
         cols = {f"c{i}": rng.integers(1, 60, n) for i in range(35)}
@@ -174,12 +182,13 @@ class TestMRMRIntegration:
         X = pd.DataFrame(cols)
         with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters._integer_lattice_fe"):
             appended, recipes = hybrid_integer_lattice_fe_with_recipes(X, y, seed=7)
-        assert any("skipping the pairwise integer-lattice sweep" in r.message for r in caplog.records), (
-            "expected a whole-sweep-skipped budget log line for 35 int columns."
-        )
+        assert any(
+            "skipping the pairwise integer-lattice sweep" in r.message for r in caplog.records
+        ), "expected a whole-sweep-skipped budget log line for 35 int columns."
         assert appended == [] and recipes == [], "above max_int_cols nothing should be emitted."
 
     def test_clone_preserves_params(self):
+        """Clone preserves params."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         m = MRMR(
@@ -194,6 +203,7 @@ class TestMRMRIntegration:
 
 
 class TestBizValue:
+    """Groups tests covering TestBizValue."""
     def test_biz_val_integer_lattice_end_to_end_auc_lift(self):
         """MRMR(fe_integer_lattice_enable=True) recovers gcd(a,b)>=3, raw columns can't.
 
@@ -228,6 +238,7 @@ class TestIntegerLatticeTargetTypeRobustness:
     SPECIFIC (0 emission). A 2D y stays SKIPPED (label-matrix binning out of scope). No hang/crash on any target type (permanent safety contract)."""
 
     def _xy(self, kind, n=600, seed=0):
+        """Build an (X, y) fixture of the requested target-type kind (continuous/2d/etc) to probe the gcd/lcm/AND operator."""
         rng = np.random.default_rng(seed)
         xi = rng.integers(0, 20, size=(n, 4)).astype(float)
         xf = rng.normal(size=(n, 4))
@@ -248,6 +259,7 @@ class TestIntegerLatticeTargetTypeRobustness:
         return df, y
 
     def _fit(self, df, y):
+        """Helper that fit."""
         import time
         from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -274,19 +286,21 @@ class TestIntegerLatticeTargetTypeRobustness:
 
     @pytest.mark.parametrize("kind", ["regression", "quantile", "count"])
     def test_integer_lattice_specific_on_smooth_continuous_target_no_crash_or_hang(self, kind):
+        """Integer lattice specific on smooth continuous target no crash or hang."""
         df, y = self._xy(kind)
         m = self._fit(df, y)
-        assert list(getattr(m, "integer_lattice_features_", []) or []) == [], (
-            f"integer-lattice FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
-        )
+        assert (
+            list(getattr(m, "integer_lattice_features_", []) or []) == []
+        ), f"integer-lattice FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
 
     @pytest.mark.parametrize("kind", ["multilabel", "multitarget"])
     def test_integer_lattice_skipped_on_2d_target_no_crash_or_hang(self, kind):
+        """Integer lattice skipped on 2d target no crash or hang."""
         df, y = self._xy(kind)
         m = self._fit(df, y)
-        assert list(getattr(m, "integer_lattice_features_", []) or []) == [], (
-            f"integer-lattice FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
-        )
+        assert (
+            list(getattr(m, "integer_lattice_features_", []) or []) == []
+        ), f"integer-lattice FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
 
     def test_integer_lattice_detects_on_gcd_regression_target(self):
         """Continuous-1D y with TRUE gcd structure (y = gcd(a, b) + noise) DETECTS + emits the gcd feature on the binned y."""

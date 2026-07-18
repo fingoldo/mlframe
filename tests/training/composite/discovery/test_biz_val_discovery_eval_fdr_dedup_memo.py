@@ -40,7 +40,6 @@ from mlframe.training.composite.discovery._eval_stats import (
     near_collinear_keep_mask,
 )
 
-
 # ----------------------------------------------------------------------
 # M4: Benjamini-Hochberg FDR step-up
 # ----------------------------------------------------------------------
@@ -78,6 +77,7 @@ def _entry(name: str, p_value: float, mi_gain: float = 0.01) -> dict:
     """A minimal candidate-entry stub shaped like ``eval_one_transform`` output."""
 
     class _Spec:
+        """Groups tests covering spec."""
         def __init__(self, nm: str, g: float) -> None:
             self.name = nm
             self.mi_gain = g
@@ -144,9 +144,9 @@ def test_biz_val_fdr_reduces_false_positives_on_all_null_specs() -> None:
     mean_bh = float(np.mean(bh_fp))
     assert mean_naive >= 1.5, f"uncorrected gate should admit ~alpha*m={alpha * m:.1f} false positives, got {mean_naive:.2f}; test not exercising the inflation"
     assert mean_bh <= 0.5, f"BH FDR control should admit ~0 false positives on all-null specs, got {mean_bh:.2f}"
-    assert mean_bh <= 0.3 * mean_naive, (
-        f"BH false-positive rate {mean_bh:.2f} is not materially below the uncorrected {mean_naive:.2f}; the multiplicity correction is gone"
-    )
+    assert (
+        mean_bh <= 0.3 * mean_naive
+    ), f"BH false-positive rate {mean_bh:.2f} is not materially below the uncorrected {mean_naive:.2f}; the multiplicity correction is gone"
 
 
 # ----------------------------------------------------------------------
@@ -221,6 +221,7 @@ def test_biz_val_dedup_removes_mi_baseline_inflation() -> None:
 
 
 def _make_config(**overrides):
+    """Make config."""
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
     defaults = dict(
@@ -259,6 +260,7 @@ def _shrink_dataset(n: int = 2400, seed: int = 11) -> pd.DataFrame:
 
 
 def _run(df: pd.DataFrame, config):
+    """Fits CompositeTargetDiscovery on an 80/20 train/val split of df and returns the fitted discovery object."""
     from mlframe.training.composite import CompositeTargetDiscovery
 
     n = len(df)
@@ -373,6 +375,7 @@ def test_p18_memo_present_on_base_contexts_and_used() -> None:
     x_prebinned = _prebin_feature_columns(x_remaining, nbins=16)
 
     class _Cfg:
+        """Groups tests covering cfg."""
         mi_n_neighbors = 3
         random_state = 42
         mi_estimator = "bin"
@@ -381,9 +384,11 @@ def test_p18_memo_present_on_base_contexts_and_used() -> None:
         mi_gain_bootstrap_random_state = 12345
 
     class _Disc:
+        """Groups tests covering disc."""
         config = _Cfg()
 
         def _reject(self, *a, **k):
+            """Reject."""
             return {"spec": None, "kept": False, "reason": k.get("reason", "rej")}
 
     memo: dict = {}

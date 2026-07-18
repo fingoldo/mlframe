@@ -39,6 +39,7 @@ class _DictX:
 
 @pytest.mark.parametrize("op", ["gcd", "lcm", "bitwise_and"])
 def test_integer_lattice_nonfinite_operand_is_nan_not_garbage(op):
+    """Integer lattice nonfinite operand is nan not garbage."""
     a = np.array([12.0, 18.0, np.nan, 24.0, np.inf], dtype=np.float64)
     b = np.array([8.0, 6.0, 4.0, np.nan, 2.0], dtype=np.float64)
     out = apply_integer_lattice(_DictX({"a": a, "b": b}), op, ("a", "b"))
@@ -51,6 +52,7 @@ def test_integer_lattice_nonfinite_operand_is_nan_not_garbage(op):
 
 
 def test_integer_lattice_clean_rows_byte_identical_with_and_without_nan_neighbours():
+    """Integer lattice clean rows byte identical with and without nan neighbours."""
     a_clean = np.array([12.0, 18.0, 24.0, 30.0], dtype=np.float64)
     b_clean = np.array([8.0, 6.0, 16.0, 10.0], dtype=np.float64)
     ref = apply_integer_lattice(_DictX({"a": a_clean, "b": b_clean}), "gcd", ("a", "b"))
@@ -65,6 +67,7 @@ def test_integer_lattice_clean_rows_byte_identical_with_and_without_nan_neighbou
 
 def test_lattice_batched_matches_and_masks():
     # the per-pair batched path (_lattice_columns_for_pair) must mask the same rows as the per-column path.
+    """Lattice batched matches and masks."""
     a = np.array([12.0, np.nan, 24.0], dtype=np.float64)
     b = np.array([8.0, 6.0, 16.0], dtype=np.float64)
     mat = _lattice_columns_for_pair(a, b, ("gcd", "lcm", "bitwise_and"))
@@ -74,6 +77,7 @@ def test_lattice_batched_matches_and_masks():
 
 @pytest.mark.parametrize("op", ["sum", "diff", "prod"])
 def test_pairwise_modular_nonfinite_operand_is_nan_not_garbage(op):
+    """Pairwise modular nonfinite operand is nan not garbage."""
     a = np.array([10.0, 21.0, np.nan, 33.0], dtype=np.float64)
     b = np.array([3.0, 7.0, 5.0, np.inf], dtype=np.float64)
     out = apply_pairwise_modular(_DictX({"a": a, "b": b}), op, ("a", "b"), modulus=7)
@@ -85,6 +89,7 @@ def test_pairwise_modular_nonfinite_operand_is_nan_not_garbage(op):
 
 
 def test_pairwise_modular_clean_rows_byte_identical_with_nan_neighbour():
+    """Pairwise modular clean rows byte identical with nan neighbour."""
     a_clean = np.array([10.0, 21.0, 33.0], dtype=np.float64)
     b_clean = np.array([3.0, 7.0, 4.0], dtype=np.float64)
     ref = apply_pairwise_modular(_DictX({"a": a_clean, "b": b_clean}), "sum", ("a", "b"), modulus=5)

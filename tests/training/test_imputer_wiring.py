@@ -148,7 +148,9 @@ def _scaler_off() -> dict:
 
 
 class TestImputerStrategyMean:
+    """Groups tests covering imputer strategy mean."""
     def test_strategy_mean_fills_all_numeric_nans(self, df_with_nans):
+        """Strategy mean fills all numeric nans."""
         cfg = PreprocessingBackendConfig(imputer_strategy="mean", **_scaler_off())
         pipe = create_polarsds_pipeline(df_with_nans, cfg, verbose=0)
         assert pipe is not None, "polars-ds pipeline must be returned"
@@ -159,6 +161,7 @@ class TestImputerStrategyMean:
         assert out["f2"].null_count() == 0, "f2 was already clean; should stay clean"
 
     def test_strategy_mean_uses_train_mean_value(self, df_with_nans):
+        """Strategy mean uses train mean value."""
         cfg = PreprocessingBackendConfig(imputer_strategy="mean", **_scaler_off())
         pipe = create_polarsds_pipeline(df_with_nans, cfg, verbose=0)
         out = pipe.transform(df_with_nans)
@@ -181,7 +184,9 @@ class TestImputerStrategyMean:
 
 
 class TestImputerStrategyMedian:
+    """Groups tests covering imputer strategy median."""
     def test_strategy_median_fills_nans(self, df_with_nans):
+        """Strategy median fills nans."""
         cfg = PreprocessingBackendConfig(imputer_strategy="median", **_scaler_off())
         pipe = create_polarsds_pipeline(df_with_nans, cfg, verbose=0)
         out = pipe.transform(df_with_nans)
@@ -189,6 +194,7 @@ class TestImputerStrategyMedian:
         assert out["f1"].null_count() == 0
 
     def test_strategy_median_uses_train_median(self, df_with_nans):
+        """Strategy median uses train median."""
         cfg = PreprocessingBackendConfig(imputer_strategy="median", **_scaler_off())
         pipe = create_polarsds_pipeline(df_with_nans, cfg, verbose=0)
         out = pipe.transform(df_with_nans)
@@ -207,7 +213,9 @@ class TestImputerStrategyMedian:
 
 
 class TestImputerStrategyNone:
+    """Groups tests covering imputer strategy none."""
     def test_strategy_none_leaves_nans(self, df_with_nans):
+        """Strategy none leaves nans."""
         cfg = PreprocessingBackendConfig(imputer_strategy=None, **_scaler_off())
         pipe = create_polarsds_pipeline(df_with_nans, cfg, verbose=0)
         out = pipe.transform(df_with_nans)
@@ -223,7 +231,9 @@ class TestImputerStrategyNone:
 
 
 class TestImputerTrainOnlyNoLeak:
+    """Groups tests covering imputer train only no leak."""
     def test_test_set_imputed_with_train_mean_not_test_mean(self, df_train_test_with_nans):
+        """Test set imputed with train mean not test mean."""
         train, test = df_train_test_with_nans
         cfg = PreprocessingBackendConfig(imputer_strategy="mean", **_scaler_off())
         pipe = create_polarsds_pipeline(train, cfg, verbose=0)
@@ -251,7 +261,9 @@ class TestImputerTrainOnlyNoLeak:
 
 
 class TestImputerLeavesStringColumnsAlone:
+    """Groups tests covering imputer leaves string columns alone."""
     def test_string_nulls_not_filled_by_numeric_imputer(self, df_with_string_and_numeric_nans):
+        """String nulls not filled by numeric imputer."""
         cfg = PreprocessingBackendConfig(
             imputer_strategy="mean",
             categorical_encoding=None,  # disable encoder to leave string column raw
@@ -274,7 +286,9 @@ class TestImputerLeavesStringColumnsAlone:
 
 
 class TestImputerIdempotentOnCleanData:
+    """Groups tests covering imputer idempotent on clean data."""
     def test_clean_data_passes_through_unchanged(self):
+        """Clean data passes through unchanged."""
         rng = np.random.default_rng(0)
         clean = pl.DataFrame(
             {
@@ -296,6 +310,7 @@ class TestImputerIdempotentOnCleanData:
 
 
 class TestImputerComposesWithScaler:
+    """Groups tests covering imputer composes with scaler."""
     def test_imputer_runs_before_scaler(self, df_with_nans):
         """
         If scaler ran before imputer, NaN values would propagate through
@@ -328,6 +343,7 @@ class TestFloatNanImputed:
     pipeline now converts NaN -> NULL on float imputable columns first."""
 
     def _nan_frame(self):
+        """Nan frame."""
         rng = np.random.default_rng(0)
         n = 200
         X = rng.lognormal(0.0, 1.0, size=(n, 3)).astype(np.float32)
@@ -339,6 +355,7 @@ class TestFloatNanImputed:
         return df, mask
 
     def test_float_nan_is_imputed_not_survived(self):
+        """Float nan is imputed not survived."""
         df, _ = self._nan_frame()
         cfg = PreprocessingBackendConfig(imputer_strategy="mean", scaler_name=None, categorical_encoding=None)
         pipe = create_polarsds_pipeline(df, cfg, verbose=0)
@@ -375,6 +392,7 @@ class TestAllNullColumnFilledNotSurvived:
     """
 
     def _frame_with_all_null_col(self):
+        """Frame with all null col."""
         rng = np.random.default_rng(0)
         n = 100
         return pl.DataFrame(
@@ -385,14 +403,15 @@ class TestAllNullColumnFilledNotSurvived:
         )
 
     def test_all_null_column_filled_finite_not_left_null(self):
+        """All null column filled finite not left null."""
         df = self._frame_with_all_null_col()
         cfg = PreprocessingBackendConfig(imputer_strategy="mean", **_scaler_off())
         pipe = create_polarsds_pipeline(df, cfg, verbose=0)
         assert pipe is not None
         out = pipe.transform(df)
-        assert out["f_all_null"].null_count() == 0, (
-            "all-NULL column must be filled to a finite value, not left NULL relying on the constant-column dropper (which may be disabled)"
-        )
+        assert (
+            out["f_all_null"].null_count() == 0
+        ), "all-NULL column must be filled to a finite value, not left NULL relying on the constant-column dropper (which may be disabled)"
         assert out["f0"].null_count() == 0
 
     def test_all_null_column_filled_zero(self):

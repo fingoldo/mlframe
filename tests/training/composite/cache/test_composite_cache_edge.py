@@ -29,10 +29,12 @@ class _Cfg:
     """Minimal pydantic-shaped config (model_dump route)."""
 
     def model_dump(self, mode="json"):
+        """Model dump."""
         return {"some_field": 1}
 
 
 class TestS25VersionFoldedUnconditionally:
+    """Groups tests covering s25 version folded unconditionally."""
     def test_signature_folds_mlframe_version_without_library_versions(self) -> None:
         """The whole point of S25: a caller passing NO library_versions still
         gets a code-version component, so the digest moves on an mlframe bump."""
@@ -42,6 +44,7 @@ class TestS25VersionFoldedUnconditionally:
         real_dumps = json.dumps
 
         def capturing_dumps(obj, *a, **kw):
+            """Capturing dumps."""
             if isinstance(obj, dict) and "_schema" in obj:
                 captured["payload"] = obj
             return real_dumps(obj, *a, **kw)
@@ -67,6 +70,7 @@ class TestS25VersionFoldedUnconditionally:
     def test_signature_changes_when_schema_version_bumps(self) -> None:
         # Patch to a value DIFFERENT from the current default (hardcoding "2" collided once the default itself was
         # bumped to 2); the digest must change whenever the schema-version component changes.
+        """Signature changes when schema version bumps."""
         from mlframe.training.composite import cache as _cache_mod
 
         sig_v1 = compute_config_signature_v1(_Cfg())
@@ -85,6 +89,7 @@ class TestS25VersionFoldedUnconditionally:
 
 
 class TestS18EvictionAccountingAndSweep:
+    """Groups tests covering s18 eviction accounting and sweep."""
     def test_eviction_size_cap_counts_sidecar(self, tmp_path) -> None:
         """S18: the eviction byte cap must agree with _discovery_cache_bytes_total
         (which counts .pkl + .pkl.sha256).

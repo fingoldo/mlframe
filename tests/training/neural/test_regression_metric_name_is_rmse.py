@@ -46,6 +46,7 @@ from mlframe.training.neural import (
 
 @pytest.fixture
 def regression_split():
+    """Builds a small train/val regression split for the RMSE-metric-name regression tests."""
     X, y = make_regression(
         n_samples=240,
         n_features=8,
@@ -61,6 +62,7 @@ def regression_split():
 
 @pytest.fixture
 def tiny_regressor_params():
+    """Builds minimal MLPTorchModel network params for a fast-fitting regressor in the RMSE-metric-name tests."""
     network_params = {
         "nlayers": 1,
         "first_layer_num_neurons": 16,

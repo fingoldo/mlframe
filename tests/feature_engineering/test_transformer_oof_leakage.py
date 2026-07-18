@@ -18,7 +18,6 @@ from mlframe.feature_engineering.transformer import (
     rff_apply_state,
 )
 
-
 # ----------------------------- A2-06 ---------------------------------------
 
 

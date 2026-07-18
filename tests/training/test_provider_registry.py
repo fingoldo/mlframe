@@ -37,7 +37,6 @@ from mlframe.training.feature_handling import (
     wait_prewarm,
 )
 
-
 # =====================================================================
 # Mock provider that records calls
 # =====================================================================
@@ -56,24 +55,30 @@ class _DummyProvider:
 
     @property
     def signature(self) -> str:
+        """Signature."""
         return self._signature
 
     @property
     def embedding_dim(self) -> int:
+        """Embedding dim."""
         return self._dim
 
     def fit(self, train_texts):
+        """Fit."""
         return self
 
     def transform(self, texts):
+        """Transform."""
         return np.zeros((len(texts), self._dim), dtype=np.float32)
 
     def acquire(self) -> None:
+        """Acquire."""
         if self.fail_on_acquire:
             raise RuntimeError("synthetic acquire failure")
         self.acquire_calls += 1
 
     def release(self) -> None:
+        """Release."""
         self.release_calls += 1
 
 
@@ -100,7 +105,9 @@ def cache_cfg():
 
 
 class TestAcquireReleaseLifecycle:
+    """Groups tests covering acquire release lifecycle."""
     def test_first_acquire_loads_provider(self, cache_cfg):
+        """First acquire loads provider."""
         p = _DummyProvider("sig-A")
         assert p.acquire_calls == 0
         with acquire_provider(p, cache_cfg) as got:
@@ -116,6 +123,7 @@ class TestAcquireReleaseLifecycle:
         # keep_n=0 -> immediate release after refcount==0.
         # We can't set keep_n=0 (validator), so verify with keep_n=1
         # and a second provider that evicts the first.
+        """Release when not in lru after final refcount drop."""
         p1 = _DummyProvider("sig-1")
         p2 = _DummyProvider("sig-2")
         cfg = CacheConfig(persistence="off", keep_n_providers=1)
@@ -147,7 +155,9 @@ class TestAcquireReleaseLifecycle:
 
 
 class TestConcurrentAcquire:
+    """Groups tests covering concurrent acquire."""
     def test_two_threads_one_load(self, cache_cfg):
+        """Two threads one load."""
         p = _DummyProvider("sig-concurrent")
         original_acquire = p.acquire
         n_workers = 4
@@ -160,6 +170,7 @@ class TestConcurrentAcquire:
         barrier = threading.Barrier(n_workers, timeout=5.0)
 
         def _race_acquire():
+            """Race acquire."""
             try:
                 barrier.wait()
             except threading.BrokenBarrierError:
@@ -172,6 +183,7 @@ class TestConcurrentAcquire:
         results_lock = threading.Lock()
 
         def worker():
+            """Worker."""
             with acquire_provider(p, cache_cfg) as got:
                 with results_lock:
                     results.append(got is p)
@@ -193,7 +205,9 @@ class TestConcurrentAcquire:
 
 
 class TestLRUStrongKeep:
+    """Groups tests covering l r u strong keep."""
     def test_two_providers_within_keep_n(self):
+        """Two providers within keep n."""
         cfg = CacheConfig(persistence="off", keep_n_providers=2)
         p1 = _DummyProvider("sig-a")
         p2 = _DummyProvider("sig-b")
@@ -206,6 +220,7 @@ class TestLRUStrongKeep:
         assert p2.release_calls == 0
 
     def test_third_provider_evicts_oldest(self):
+        """Third provider evicts oldest."""
         cfg = CacheConfig(persistence="off", keep_n_providers=2)
         p1 = _DummyProvider("sig-a")
         p2 = _DummyProvider("sig-b")
@@ -227,7 +242,9 @@ class TestLRUStrongKeep:
 
 
 class TestShutdown:
+    """Groups tests covering shutdown."""
     def test_shutdown_releases_all_in_lru(self, cache_cfg):
+        """Shutdown releases all in lru."""
         providers = [_DummyProvider(f"sig-{i}") for i in range(3)]
         # Acquire each in sequence
         for p in providers:
@@ -241,6 +258,7 @@ class TestShutdown:
             assert p.release_calls == 1, f"{p.signature} should be released on shutdown"
 
     def test_provider_status_after_acquire(self, cache_cfg):
+        """Provider status after acquire."""
         p = _DummyProvider("sig-status")
         with acquire_provider(p, cache_cfg):
             status = provider_status()
@@ -255,7 +273,9 @@ class TestShutdown:
 
 
 class TestPrewarm:
+    """Groups tests covering prewarm."""
     def test_prewarm_loads_in_background(self):
+        """Prewarm loads in background."""
         p = _DummyProvider("sig-prewarm-ok")
         fut = prewarm(p)
         # Wait for completion
@@ -289,6 +309,7 @@ class TestContextManagerOnly:
     """
 
     def test_acquire_provider_is_context_manager(self, cache_cfg):
+        """Acquire provider is context manager."""
         p = _DummyProvider("sig-cm")
         cm = acquire_provider(p, cache_cfg)
         # Should support __enter__ / __exit__
@@ -298,6 +319,7 @@ class TestContextManagerOnly:
             assert got is p
 
     def test_release_called_on_exception_in_with_block(self, cache_cfg):
+        """Release called on exception in with block."""
         cfg = CacheConfig(persistence="off", keep_n_providers=1)
         p1 = _DummyProvider("sig-exc")
         p2 = _DummyProvider("sig-exc-2")  # to force eviction

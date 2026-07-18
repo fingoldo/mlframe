@@ -18,6 +18,7 @@ from .shared import SimpleFeaturesAndTargetsExtractor, get_cpu_config, skip_if_d
 
 
 def _make_frame(n: int = 500, seed: int = 0) -> pd.DataFrame:
+    """Builds a binary-classification frame with a logistic target driven by feature f0."""
     rng = np.random.default_rng(seed)
     f0 = rng.uniform(0, 1, n)
     f1 = rng.uniform(0, 1, n)
@@ -60,6 +61,7 @@ def test_run_diagnostics_reaches_evaluation_functions_through_suite(tmp_path):
 
 
 def test_unknown_diagnostic_name_reports_error_without_crashing(tmp_path):
+    """An unrecognized run_diagnostics name reports an error entry under metadata['diagnostics'] instead of raising."""
     skip_if_dependency_missing("hgb")
     df = _make_frame(300)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)

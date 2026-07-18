@@ -33,7 +33,6 @@ from mlframe.training.feature_handling import (
     reset_capability_cache,
 )
 
-
 # =====================================================================
 # Fixtures
 # =====================================================================
@@ -41,6 +40,7 @@ from mlframe.training.feature_handling import (
 
 @pytest.fixture
 def small_text_polars():
+    """Small text polars."""
     return pl.DataFrame(
         {
             "txt": [
@@ -56,6 +56,7 @@ def small_text_polars():
 
 @pytest.fixture
 def small_text_pandas():
+    """Small text pandas."""
     return pd.DataFrame(
         {
             "txt": [
@@ -75,7 +76,9 @@ def small_text_pandas():
 
 
 class TestTfidfHappyPath:
+    """Groups tests covering tfidf happy path."""
     def test_fit_then_transform_polars(self, small_text_polars):
+        """Fit then transform polars."""
         enc = TextColumnEncoder(
             column="txt",
             params=TfidfParams(max_features=50, ngram_range=(1, 1)),
@@ -88,6 +91,7 @@ class TestTfidfHappyPath:
         assert 0 < out.shape[1] <= 50
 
     def test_fit_transform_pandas(self, small_text_pandas):
+        """Fit transform pandas."""
         enc = TextColumnEncoder(
             column="txt",
             params=TfidfParams(max_features=50, ngram_range=(1, 1)),
@@ -124,7 +128,9 @@ class TestTfidfHappyPath:
 
 
 class TestHashingHappyPath:
+    """Groups tests covering hashing happy path."""
     def test_hashing_deterministic_n_features(self, small_text_polars):
+        """Hashing deterministic n features."""
         enc = TextColumnEncoder(
             column="txt",
             params=HashingParams(n_features=128),
@@ -152,6 +158,7 @@ class TestHashingHappyPath:
 
 
 class TestSymmetry:
+    """Groups tests covering symmetry."""
     def test_same_vocab_from_polars_and_pandas(self, small_text_polars, small_text_pandas):
         """A polars frame and a pandas frame with the same content
         produce the same fitted TF-IDF vocabulary."""
@@ -178,7 +185,9 @@ class TestEdgeInputs:
     # min_df=1 throughout: these edge fixtures are 4-token, every term is hapax.
     # Production default min_df=2 prunes them to empty vocab (sklearn raises
     # "After pruning, no terms remain").
+    """Groups tests covering edge inputs."""
     def test_empty_strings_dont_crash(self):
+        """Empty strings dont crash."""
         df = pl.DataFrame({"txt": ["", "", "", "real text"]})
         enc = TextColumnEncoder(column="txt", params=TfidfParams(max_features=10, min_df=1))
         enc.fit(df)
@@ -188,6 +197,7 @@ class TestEdgeInputs:
         assert out[0].nnz == 0
 
     def test_null_in_polars_coerced(self):
+        """Null in polars coerced."""
         df = pl.DataFrame({"txt": ["hello", None, "world", None]})
         enc = TextColumnEncoder(column="txt", params=TfidfParams(max_features=10, min_df=1))
         enc.fit(df)
@@ -195,6 +205,7 @@ class TestEdgeInputs:
         assert out.shape[0] == 4
 
     def test_nan_in_pandas_coerced(self):
+        """Nan in pandas coerced."""
         df = pd.DataFrame({"txt": ["hello", float("nan"), "world", float("nan")]})
         enc = TextColumnEncoder(column="txt", params=TfidfParams(max_features=10, min_df=1))
         enc.fit(df)
@@ -202,6 +213,7 @@ class TestEdgeInputs:
         assert out.shape[0] == 4
 
     def test_unicode_roundtrip(self):
+        """Unicode roundtrip."""
         df = pl.DataFrame({"txt": ["привет мир", "🔥 launch", "مرحبا", "english"]})
         enc = TextColumnEncoder(column="txt", params=TfidfParams(max_features=20, min_df=1))
         enc.fit(df)
@@ -215,7 +227,9 @@ class TestEdgeInputs:
 
 
 class TestNoLeak:
+    """Groups tests covering no leak."""
     def test_train_vocab_applied_to_test(self):
+        """Train vocab applied to test."""
         train = pl.DataFrame({"txt": ["foo bar", "bar baz", "baz qux"]})
         test = pl.DataFrame({"txt": ["foo unseen", "qux unseen", "completely new"]})
 
@@ -241,7 +255,9 @@ class TestNoLeak:
 
 
 class TestCapabilityDetector:
+    """Groups tests covering capability detector."""
     def test_detect_returns_set(self):
+        """Detect returns set."""
         reset_capability_cache()
         caps = detect_polars_ds_capabilities()
         assert isinstance(caps, frozenset)
@@ -253,11 +269,13 @@ class TestCapabilityDetector:
             assert "blueprint.ordinal_encode" in caps
 
     def test_dispatcher_prefer_false_disables(self):
+        """Dispatcher prefer false disables."""
         d = PolarsNativeDispatcher(prefer_polarsds=False)
         assert d.has("blueprint.scale") is False
         assert d.has("blueprint.tfidf") is False
 
     def test_dispatcher_prefer_true_uses_caps(self):
+        """Dispatcher prefer true uses caps."""
         d = PolarsNativeDispatcher(prefer_polarsds=True)
         # The dispatcher's blueprint.* caps require both ``polars_ds`` AND
         # its ``polars_ds.pipeline`` submodule (the Blueprint factory lives
@@ -273,6 +291,7 @@ class TestCapabilityDetector:
         assert d.has("blueprint.scale")
 
     def test_get_version_returns_string(self):
+        """Get version returns string."""
         reset_capability_cache()
         d = PolarsNativeDispatcher(prefer_polarsds=True)
         v = d.get_version()
@@ -298,7 +317,9 @@ class TestCapabilityDetector:
 
 
 class TestSignature:
+    """Groups tests covering signature."""
     def test_signature_stable_for_same_params(self):
+        """Signature stable for same params."""
         e1 = TextColumnEncoder(
             column="txt",
             params=TfidfParams(max_features=100, ngram_range=(1, 2)),
@@ -310,6 +331,7 @@ class TestSignature:
         assert e1.signature() == e2.signature()
 
     def test_signature_changes_with_params(self):
+        """Signature changes with params."""
         e1 = TextColumnEncoder(column="txt", params=TfidfParams(max_features=100))
         e2 = TextColumnEncoder(column="txt", params=TfidfParams(max_features=200))
         assert e1.signature() != e2.signature()

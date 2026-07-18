@@ -598,9 +598,9 @@ class TestNoDoubleCountingAbsFamily:
             "log_abs(x_quad)",
         }
         present = [c for c in out.columns if c in abs_family]
-        assert len(present) <= 1, (
-            f"seed={seed}: Spearman dedup failed - found {len(present)} |x_quad|-family columns in transform output: {present}. At most one should survive."
-        )
+        assert (
+            len(present) <= 1
+        ), f"seed={seed}: Spearman dedup failed - found {len(present)} |x_quad|-family columns in transform output: {present}. At most one should survive."
 
 
 # ---------------------------------------------------------------------------

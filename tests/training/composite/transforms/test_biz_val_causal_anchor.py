@@ -36,13 +36,13 @@ from mlframe.training.composite.transforms._causal_anchor import (
     _causal_anchor_residual_fit,
 )
 
-
 # ---------------------------------------------------------------------------
 # Unit: registry wiring, round-trip, [0,1] clamp, domain, serialisation.
 # ---------------------------------------------------------------------------
 
 
 def test_causal_anchor_registered_contract():
+    """Causal anchor registered contract."""
     t = get_transform("causal_anchor_residual")
     assert t is TRANSFORMS_REGISTRY["causal_anchor_residual"]
     assert t.requires_base is True
@@ -73,6 +73,7 @@ def test_causal_anchor_round_trip_identity_when_t_hat_exact():
 
 
 def test_causal_anchor_alpha_in_unit_interval_and_recovers_true():
+    """Causal anchor alpha in unit interval and recovers true."""
     rng = np.random.default_rng(1)
     anchor = rng.standard_normal(3000) * 3.0
     y = 0.6 * anchor + rng.standard_normal(3000) + rng.standard_normal(3000) * 0.5
@@ -124,6 +125,7 @@ def test_causal_anchor_scarce_data_defaults_toward_prior():
 
 
 def test_causal_anchor_domain_rejects_non_finite():
+    """Causal anchor domain rejects non finite."""
     t = get_transform("causal_anchor_residual")
     y = np.array([1.0, np.nan, 3.0, np.inf, 5.0])
     base = np.array([1.0, 2.0, np.nan, 4.0, 5.0])
@@ -134,6 +136,7 @@ def test_causal_anchor_domain_rejects_non_finite():
 
 
 def test_causal_anchor_params_serialize():
+    """Causal anchor params serialize."""
     rng = np.random.default_rng(6)
     anchor = rng.standard_normal(500) * 3.0
     y = 0.6 * anchor + rng.standard_normal(500)
@@ -145,6 +148,7 @@ def test_causal_anchor_params_serialize():
 
 
 def test_causal_anchor_fit_does_not_mutate_inputs():
+    """Causal anchor fit does not mutate inputs."""
     rng = np.random.default_rng(7)
     anchor = rng.standard_normal(400) * 3.0
     y = 0.6 * anchor + rng.standard_normal(400)
@@ -162,6 +166,7 @@ def test_causal_anchor_constant_base_stays_bounded():
 
 
 def test_causal_anchor_composite_name_recognised():
+    """Causal anchor composite name recognised."""
     name = compose_target_name("y", "causal_anchor_residual", "anchor")
     assert name == "y-canchor-anchor"
     assert is_composite_target_name(name)
@@ -173,12 +178,14 @@ def test_causal_anchor_composite_name_recognised():
 
 
 def _ols(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Ols."""
     X = np.column_stack([x, np.ones_like(x)])
     coef, *_ = np.linalg.lstsq(X, y, rcond=None)
     return coef
 
 
 def _rmse(a: np.ndarray, b: np.ndarray) -> float:
+    """Rmse."""
     return float(np.sqrt(np.mean((a - b) ** 2)))
 
 
@@ -195,6 +202,7 @@ def _reconstruct(t, anchor_tr, feat_tr, y_tr, anchor_te, feat_te):
 
 
 def _gen_mean_revert(n, seed):
+    """Gen mean revert."""
     r = np.random.default_rng(seed)
     anchor = r.standard_normal(n) * 3.0
     mr = r.standard_normal(n)
@@ -290,6 +298,7 @@ def test_biz_val_causal_anchor_bounded_on_ood_group_vs_linear_residual():
 
 
 def _gen_strong_ar(n, seed):
+    """Gen strong ar."""
     r = np.random.default_rng(seed)
     anchor = r.standard_normal(n) * 3.0
     mr = r.standard_normal(n) * 0.3

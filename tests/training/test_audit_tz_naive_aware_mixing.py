@@ -32,7 +32,6 @@ import logging
 
 import pandas as pd
 
-
 # ---- #1 + #2: target_temporal_audit -----------------------------------
 
 
@@ -96,15 +95,15 @@ def test_recommended_filter_mask_handles_tz_aware_segments():
 
 def test_cleaning_datetime_probe_strips_tz_before_astype():
     """The pandas-2.x raise on tz-aware Series .astype('datetime64[D]')
-    is pre-empted by an upfront tz strip."""
+    is preempted by an upfront tz strip."""
     import pathlib
     import mlframe as _mlframe
 
     src = (pathlib.Path(_mlframe.__file__).resolve().parent / "preprocessing" / "cleaning.py").read_text(encoding="utf-8")
     # Pre-fix shape direct on values MUST be gone:
-    assert 'if np.all(values.astype(f"datetime64[{date_fract}]") == values):' not in src, (
-        "cleaning.py reverted to .astype on the raw values, which raises on pandas >=2.0 for tz-aware Series."
-    )
+    assert (
+        'if np.all(values.astype(f"datetime64[{date_fract}]") == values):' not in src
+    ), "cleaning.py reverted to .astype on the raw values, which raises on pandas >=2.0 for tz-aware Series."
     # Post-fix marker:
     assert "_vals_naive = values" in src
     assert 'values.tz_convert("UTC").tz_localize(None)' in src

@@ -23,6 +23,7 @@ optuna = pytest.importorskip("optuna")
 
 
 def _make_diff_data(n: int = 1500, seed: int = 0):
+    """Make diff data."""
     rng = np.random.default_rng(seed)
     base = np.cumsum(rng.normal(0, 1, n)) + 100.0
     feat = rng.uniform(-2, 2, n)
@@ -33,10 +34,12 @@ def _make_diff_data(n: int = 1500, seed: int = 0):
 
 
 def _inner_factory():
+    """Inner factory."""
     return DecisionTreeRegressor(random_state=0)
 
 
 def _spaces():
+    """Spaces."""
     return {"max_depth": HPOSpace("int", low=1, high=6)}
 
 
@@ -46,6 +49,7 @@ def _spaces():
 
 
 def test_pruner_defaults_to_disabled_completes_every_trial():
+    """Pruner defaults to disabled completes every trial."""
     X, y = _make_diff_data(n=600)
     res = optimize_composite(
         X,
@@ -66,6 +70,7 @@ def test_pruner_defaults_to_disabled_completes_every_trial():
 
 
 def test_pruner_auto_enables_median_pruner_may_prune_some_trials():
+    """Pruner auto enables median pruner may prune some trials."""
     X, y = _make_diff_data(n=600)
     res = optimize_composite(
         X,
@@ -87,6 +92,7 @@ def test_pruner_auto_enables_median_pruner_may_prune_some_trials():
 
 
 def test_pruner_custom_instance_accepted():
+    """Pruner custom instance accepted."""
     X, y = _make_diff_data(n=600)
     res = optimize_composite(
         X,
@@ -173,6 +179,7 @@ def test_biz_val_pruner_reduces_completed_folds():
 
 
 def test_pruning_stats_none_when_pruner_not_requested():
+    """Pruning stats none when pruner not requested."""
     X, y = _make_diff_data(n=600)
     res = optimize_composite(
         X,
@@ -255,6 +262,7 @@ def _conditional_space(trial, transform_name):
 
 
 def test_conditional_inner_space_fn_used_when_provided():
+    """Conditional inner space fn used when provided."""
     X, y = _make_diff_data(n=600)
     res = optimize_composite(
         X,
@@ -299,6 +307,6 @@ def test_biz_val_conditional_space_explores_wider_effective_range_than_flat_spac
         conditional_inner_space_fn=_conditional_space,
     )
     max_depth_seen = max(t[1]["max_depth"] for t in res.trials)
-    assert max_depth_seen > 6, (
-        f"expected the conditional bonus branch to push max_depth beyond the flat space's cap of 6 at least once across {len(res.trials)} trials, max seen={max_depth_seen}"
-    )
+    assert (
+        max_depth_seen > 6
+    ), f"expected the conditional bonus branch to push max_depth beyond the flat space's cap of 6 at least once across {len(res.trials)} trials, max seen={max_depth_seen}"

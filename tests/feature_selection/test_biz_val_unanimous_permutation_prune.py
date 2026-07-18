@@ -22,10 +22,12 @@ from mlframe.feature_selection.unanimous_permutation_prune import unanimous_perm
 
 
 def _scoring(y_true, y_pred):
+    """Helper that scoring."""
     return -float(np.sqrt(np.mean((np.asarray(y_true) - np.asarray(y_pred)) ** 2)))
 
 
 def _make_regime_reversing_dataset(n: int, seed: int):
+    """Make regime reversing dataset."""
     rng = np.random.default_rng(seed)
     stable_feature = rng.normal(size=n)
     regime_feature = rng.normal(size=n)
@@ -44,6 +46,7 @@ def _make_regime_reversing_dataset(n: int, seed: int):
 
 
 def _naive_mean_importance_survivors(X, y, estimator_factory, cv_splits, n_repeats, random_state):
+    """Naive mean importance survivors."""
     sk_scorer = make_scorer(_scoring, greater_is_better=True)
     per_fold = []
     for train_idx, val_idx in cv_splits:
@@ -56,22 +59,24 @@ def _naive_mean_importance_survivors(X, y, estimator_factory, cv_splits, n_repea
 
 
 def test_biz_val_unanimous_prune_keeps_regime_reversing_feature_naive_mean_would_drop():
+    """Biz val unanimous prune keeps regime reversing feature naive mean would drop."""
     X, y = _make_regime_reversing_dataset(n=1200, seed=1)
     cv_splits = list(TimeSeriesSplit(n_splits=5).split(X))
 
     naive_survivors = _naive_mean_importance_survivors(X, y, lambda: Ridge(alpha=1.0), cv_splits, n_repeats=10, random_state=0)
     unanimous_survivors = unanimous_permutation_prune(X, y, lambda: Ridge(alpha=1.0), cv_splits, n_repeats=10, max_iterations=1, random_state=0)
 
-    assert "regime_feature" not in naive_survivors, (
-        f"expected the naive mean-importance baseline to wrongly drop the regime-reversing feature (negative average importance), got {naive_survivors}"
-    )
-    assert "regime_feature" in unanimous_survivors, (
-        f"expected unanimous pruning to correctly RETAIN the regime-reversing feature (genuinely useful in at least one fold), got {unanimous_survivors}"
-    )
+    assert (
+        "regime_feature" not in naive_survivors
+    ), f"expected the naive mean-importance baseline to wrongly drop the regime-reversing feature (negative average importance), got {naive_survivors}"
+    assert (
+        "regime_feature" in unanimous_survivors
+    ), f"expected unanimous pruning to correctly RETAIN the regime-reversing feature (genuinely useful in at least one fold), got {unanimous_survivors}"
     assert "stable_feature" in unanimous_survivors and "stable_feature" in naive_survivors
 
 
 def _make_mostly_noise_one_spurious_fold_dataset(n: int, seed: int):
+    """Make mostly noise one spurious fold dataset."""
     rng = np.random.default_rng(seed)
     real_feature = rng.normal(size=n)
     noise_feature = rng.normal(size=n)
@@ -96,6 +101,7 @@ def _make_mostly_noise_one_spurious_fold_dataset(n: int, seed: int):
 
 
 def test_biz_val_unanimous_prune_kof_n_threshold_prunes_feature_one_spurious_fold_blocks_unanimity():
+    """Biz val unanimous prune kof n threshold prunes feature one spurious fold blocks unanimity."""
     X, y = _make_mostly_noise_one_spurious_fold_dataset(n=1500, seed=3)
     cv_splits = list(TimeSeriesSplit(n_splits=5).split(X))
 
@@ -105,9 +111,9 @@ def test_biz_val_unanimous_prune_kof_n_threshold_prunes_feature_one_spurious_fol
     )
 
     assert "noise_feature" in strict_survivors, f"expected strict unanimity to be blocked by the one spurious fold, got {strict_survivors}"
-    assert "noise_feature" not in kofn_survivors, (
-        f"expected the k-of-n threshold (0.6) to prune the noise feature despite the spurious fold, got {kofn_survivors}"
-    )
+    assert (
+        "noise_feature" not in kofn_survivors
+    ), f"expected the k-of-n threshold (0.6) to prune the noise feature despite the spurious fold, got {kofn_survivors}"
     assert "real_feature" in kofn_survivors and "real_feature" in strict_survivors
     assert len(kofn_survivors) < len(strict_survivors)
 
@@ -117,6 +123,7 @@ def test_biz_val_unanimous_prune_kof_n_threshold_prunes_feature_one_spurious_fol
 
 
 def test_unanimous_prune_keeps_all_when_no_feature_unanimously_hurts():
+    """Unanimous prune keeps all when no feature unanimously hurts."""
     import pandas as pd
 
     rng = np.random.default_rng(1)

@@ -33,12 +33,11 @@ import os
 import tempfile
 from pathlib import Path
 
-
-
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
 def _read(rel: str) -> str:
+    """Read."""
     return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
 
 
@@ -48,6 +47,7 @@ def _read(rel: str) -> str:
 
 
 def test_composite_cache_invalidate_uses_try_remove() -> None:
+    """Composite cache invalidate uses try remove."""
     src = _read("training/composite/cache_store.py")
     # The fix replaces exists+remove with try/remove.
     assert "if os.path.exists(path):\n            os.remove(path)" not in src
@@ -55,6 +55,7 @@ def test_composite_cache_invalidate_uses_try_remove() -> None:
 
 
 def test_key_bank_save_uses_uuid_tmp_dir() -> None:
+    """Key bank save uses uuid tmp dir."""
     src = _read("feature_engineering/transformer/_key_bank.py")
     # The fix introduces UUID-stamped tmp + ignore_errors / try-except on rename.
     assert 'fingerprint + ".tmp."' in src and "_uuid.uuid4().hex[:8]" in src
@@ -63,6 +64,7 @@ def test_key_bank_save_uses_uuid_tmp_dir() -> None:
 
 
 def test_rfecv_load_checkpoint_tolerates_missing_file() -> None:
+    """Rfecv load checkpoint tolerates missing file."""
     src = _read("feature_selection/wrappers/rfecv/__init__.py")
     # The pre-fix `if not path or not os.path.exists(path)` is replaced
     # with `if not path: return None` plus FileNotFoundError on open.
@@ -98,23 +100,27 @@ def test_pipelines_verify_sidecar_tolerates_missing() -> None:
 
 
 def test_io_load_save_meta_sidecar_drops_redundant_precheck() -> None:
+    """Io load save meta sidecar drops redundant precheck."""
     src = _read("training/io.py")
     assert "if not os.path.exists(sidecar):\n        return None\n    try:" not in src
     assert "except FileNotFoundError:\n        return None" in src
 
 
 def test_feature_handling_cache_read_drops_redundant_precheck() -> None:
+    """Feature handling cache read drops redundant precheck."""
     src = _read("training/feature_handling/cache.py")
     assert "if not os.path.exists(path):\n            return None\n        allow_pickle" not in src
 
 
 def test_cache_backend_exists_documents_advisory_contract() -> None:
+    """Cache backend exists documents advisory contract."""
     src = _read("training/feature_handling/cache_backend.py")
     assert "Advisory existence check" in src
     assert "TOCTOU" in src
 
 
 def test_kernel_tuning_cli_show_and_clear_tolerate_missing() -> None:
+    """Kernel tuning cli show and clear tolerate missing."""
     src = _read("feature_selection/_benchmarks/kernel_tuning_cache/cli.py")
     # _cmd_show now uses try/open; the missing file message branches via FileNotFoundError.
     assert 'except FileNotFoundError:\n        print(f"# no cache at {path}"' in src
@@ -138,6 +144,7 @@ def test_invalidate_missing_key_returns_false_no_crash() -> None:
 
 
 def test_rfecv_load_checkpoint_missing_path_returns_none() -> None:
+    """Rfecv load checkpoint missing path returns none."""
     from mlframe.feature_selection.wrappers.rfecv import RFECV
 
     rf = RFECV.__new__(RFECV)
@@ -147,6 +154,7 @@ def test_rfecv_load_checkpoint_missing_path_returns_none() -> None:
 
 
 def test_load_save_meta_sidecar_missing_returns_none() -> None:
+    """Load save meta sidecar missing returns none."""
     from mlframe.training.io import load_save_meta_sidecar
 
     with tempfile.TemporaryDirectory() as td:

@@ -393,9 +393,9 @@ def test_mrmr_real_100k(tmp_path):
     # 4) redundant cluster contributes AT MOST a small number (not all copies).
     cluster_all = set(layout["cluster_all"])  # driver + 4 copies = 5
     cluster_selected = cluster_all & sel_set
-    assert len(cluster_selected) <= 2, (
-        f"MRMR kept {len(cluster_selected)} of {len(cluster_all)} redundant cluster members (should dedup to <=2): {sorted(cluster_selected)}"
-    )
+    assert (
+        len(cluster_selected) <= 2
+    ), f"MRMR kept {len(cluster_selected)} of {len(cluster_all)} redundant cluster members (should dedup to <=2): {sorted(cluster_selected)}"
 
     # 5) downstream model on MRMR-selected features beats an equal-count RANDOM
     #    subset on held-out AUC.

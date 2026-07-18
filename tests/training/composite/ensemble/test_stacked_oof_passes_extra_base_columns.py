@@ -16,6 +16,7 @@ from mlframe.training.composite.estimator import CompositeTargetEstimator
 
 @dataclass
 class _Spec:
+    """Groups tests covering spec."""
     name: str
     transform_name: str
     base_column: str
@@ -23,16 +24,19 @@ class _Spec:
 
 
 def test_single_base_spec_yields_none():
+    """Single base spec yields none."""
     spec = _Spec("s", "linear_residual", "b0")
     assert _spec_base_columns(spec) is None
 
 
 def test_multi_base_spec_yields_full_tuple():
+    """Multi base spec yields full tuple."""
     spec = _Spec("s", "linear_residual_multi", "b0", ("b1", "b2"))
     assert _spec_base_columns(spec) == ("b0", "b1", "b2")
 
 
 def test_estimator_built_with_helper_resolves_all_bases():
+    """Estimator built with helper resolves all bases."""
     from sklearn.linear_model import Ridge
 
     spec = _Spec("s", "linear_residual_multi", "b0", ("b1", "b2"))

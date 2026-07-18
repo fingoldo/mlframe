@@ -19,6 +19,7 @@ from mlframe.training.composite.transforms.nonlinear import (
 
 
 def _scipy_dir(base: np.ndarray, y: np.ndarray) -> int:
+    """Scipy dir."""
     spearmanr = pytest.importorskip("scipy.stats").spearmanr
     rho, _ = spearmanr(base, y)
     return 1 if (rho is None or not np.isfinite(rho) or rho >= 0) else -1
@@ -26,6 +27,7 @@ def _scipy_dir(base: np.ndarray, y: np.ndarray) -> int:
 
 @pytest.mark.parametrize("seed", range(40))
 def test_spearman_sign_matches_scipy_across_random(seed: int) -> None:
+    """Spearman sign matches scipy across random."""
     rng = np.random.default_rng(seed)
     n = int(rng.integers(500, 4000))
     base = rng.normal(size=n)
@@ -37,6 +39,7 @@ def test_spearman_sign_matches_scipy_across_random(seed: int) -> None:
 
 
 def test_spearman_sign_increasing_and_decreasing() -> None:
+    """Spearman sign increasing and decreasing."""
     rng = np.random.default_rng(7)
     base = rng.normal(size=3000)
     assert _spearman_sign(base, 3.0 * base + rng.normal(size=3000) * 0.1) == 1
@@ -45,12 +48,14 @@ def test_spearman_sign_increasing_and_decreasing() -> None:
 
 def test_spearman_sign_constant_input_is_increasing() -> None:
     # Degenerate (zero covariance) maps to +1, matching the legacy rho>=0 / rho-is-None rule.
+    """Spearman sign constant input is increasing."""
     base = np.zeros(100)
     y = np.arange(100, dtype=float)
     assert _spearman_sign(base, y) == 1
 
 
 def test_monotonic_fit_direction_matches_scipy() -> None:
+    """Monotonic fit direction matches scipy."""
     rng = np.random.default_rng(11)
     n = 5000
     base = rng.normal(size=n)

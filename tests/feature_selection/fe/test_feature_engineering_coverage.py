@@ -34,7 +34,6 @@ from mlframe.feature_selection.filters.feature_engineering import (
 )
 from mlframe.feature_selection.filters._internals import njit_functions_dict
 
-
 # ---------------------------------------------------------------------------
 # create_unary_transformations / create_binary_transformations
 # ---------------------------------------------------------------------------
@@ -49,6 +48,7 @@ class TestUnaryTransformationsPresets:
         # The "minimal" preset is a non-degenerate workhorse set (NOT identity-only):
         # it must carry enough building blocks to engineer common signals like
         # sqr(a)/b or log(c)*sin(d) on default MRMR settings.
+        """Minimal preset is workhorse set."""
         unary = create_unary_transformations(preset="minimal")
         assert set(unary.keys()) == {
             "identity",
@@ -65,6 +65,7 @@ class TestUnaryTransformationsPresets:
         np.testing.assert_array_equal(unary["identity"](x), x)
 
     def test_medium_preset_superset_of_minimal(self):
+        """Medium preset superset of minimal."""
         medium = create_unary_transformations(preset="medium")
         minimal = create_unary_transformations(preset="minimal")
         for k in minimal:
@@ -91,6 +92,7 @@ class TestUnaryTransformationsPresets:
             assert k in medium, f"medium preset missing '{k}'"
 
     def test_maximal_preset_superset_of_medium(self):
+        """Maximal preset superset of medium."""
         maximal = create_unary_transformations(preset="maximal")
         medium = create_unary_transformations(preset="medium")
         for k in medium:
@@ -148,10 +150,12 @@ class TestUnaryTransformationsPresets:
 
 
 class TestBinaryTransformationsPresets:
+    """Groups tests covering TestBinaryTransformationsPresets."""
     @pytest.mark.fast
     def test_minimal_keys(self):
         # minimal carries the six arithmetic workhorses, including div + sub
         # (their prior absence from every tier was the FE regression).
+        """Minimal keys."""
         binary = create_binary_transformations(preset="minimal")
         assert set(binary.keys()) == {"mul", "add", "sub", "div", "max", "min"}
 
@@ -165,6 +169,7 @@ class TestBinaryTransformationsPresets:
             assert k in medium, f"medium preset missing '{k}'"
 
     def test_maximal_superset(self):
+        """Maximal superset."""
         maximal = create_binary_transformations(preset="maximal")
         # GPU-DISABLED(restore): agm, logn, binom temporarily removed for the full-GPU residency build
         # (2026-06-21) -- re-add them here when the catalog lines are uncommented.
@@ -185,6 +190,7 @@ class TestBinaryTransformationsPresets:
             assert k in maximal, f"maximal preset missing '{k}'"
 
     def test_binary_funcs_callable_on_simple_inputs(self):
+        """Binary funcs callable on simple inputs."""
         binary = create_binary_transformations(preset="minimal")
         a = np.array([1.0, 2.0, 3.0])
         b = np.array([4.0, 5.0, 6.0])
@@ -200,8 +206,10 @@ class TestBinaryTransformationsPresets:
 
 
 class TestUnaryInputConstraints:
+    """Groups tests covering TestUnaryInputConstraints."""
     @pytest.mark.fast
     def test_all_keys_resolve_to_known_tags(self):
+        """All keys resolve to known tags."""
         valid_tags = {
             "-1to1",
             "-pi/2topi/2",
@@ -245,19 +253,23 @@ class TestUnaryInputConstraints:
 
 
 class TestNameFormatters:
+    """Groups tests covering TestNameFormatters."""
     @pytest.mark.fast
     def test_identity_strips_wrapper(self):
+        """Identity strips wrapper."""
         cols = ["a", "b", "c"]
         # (idx, "identity") -> bare column name
         assert get_existing_feature_name((0, "identity"), cols) == "a"
         assert get_existing_feature_name((2, "identity"), cols) == "c"
 
     def test_non_identity_wraps(self):
+        """Non identity wraps."""
         cols = ["a", "b"]
         assert get_existing_feature_name((1, "log"), cols) == "log(b)"
         assert get_existing_feature_name((0, "sin"), cols) == "sin(a)"
 
     def test_new_feature_name_full(self):
+        """New feature name full."""
         cols = ["a", "b", "c", "d"]
         # fe_tuple structure: (((idx_a, unary_a), (idx_b, unary_b)), bin_name, i)
         fe = (((0, "log"), (1, "sin")), "mul", 17)
@@ -274,6 +286,7 @@ class TestNameFormatters:
 
 
 class TestNjitFunctionsDictExceptions:
+    """Groups tests covering TestNjitFunctionsDictExceptions."""
     @pytest.mark.fast
     def test_uncompilable_function_left_intact(self):
         """A function numba can't compile must remain callable from the registry
@@ -283,6 +296,7 @@ class TestNjitFunctionsDictExceptions:
         def python_only(x, y):
             # Use a feature numba refuses to compile in nopython mode (e.g. a
             # dict-of-lists construction that touches reflected types).
+            """Python only."""
             return {str(int(v)): [v + 1] for v in (x, y)}
 
         registry = {"weird": python_only, "ok": lambda a: a + 1}
@@ -298,6 +312,7 @@ class TestNjitFunctionsDictExceptions:
         a uniquely-named function)."""
 
         def keep_me(x):
+            """Keep me."""
             return x * 2
 
         keep_me.__name__ = "keep_me_unique_sentinel"
@@ -318,6 +333,7 @@ class TestComputePairsMis:
 
     @pytest.fixture
     def synthetic_dataset(self):
+        """Synthetic dataset."""
         rng = np.random.default_rng(0)
         n = 200
         # 3 discrete factors + a target.
@@ -331,6 +347,7 @@ class TestComputePairsMis:
 
     @pytest.mark.fast
     def test_populates_singletons_and_pairs(self, synthetic_dataset):
+        """Populates singletons and pairs."""
         from mlframe.feature_selection.filters.info_theory import merge_vars
 
         data = synthetic_dataset
@@ -441,6 +458,7 @@ class TestComputePairsMis:
         real_mi_direct = fe_mod.mi_direct
 
         def counting_mi_direct(data, x, y, **kw):
+            """Counting mi direct."""
             if isinstance(x, tuple) and len(x) == 2:
                 call_counts["pair"] += 1
             else:
@@ -511,6 +529,7 @@ class TestCheckProspectiveFePairs:
 
     @pytest.fixture
     def small_pandas_data(self):
+        """Small pandas data."""
         rng = np.random.default_rng(0)
         n = 200
         df = pd.DataFrame(
@@ -524,6 +543,7 @@ class TestCheckProspectiveFePairs:
 
     @pytest.mark.fast
     def test_runs_end_to_end_pandas(self, small_pandas_data):
+        """Runs end to end pandas."""
         from mlframe.feature_selection.filters.info_theory import merge_vars
 
         df = small_pandas_data

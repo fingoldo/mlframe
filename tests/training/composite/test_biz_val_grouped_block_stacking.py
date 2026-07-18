@@ -53,6 +53,7 @@ def _make_correlated_block_dataset(n: int, n_groups: int, cols_per_group: int, s
 
 
 def _make_grouped_block_dataset(n: int, n_groups: int, cols_per_group: int, seed: int):
+    """Make grouped block dataset."""
     rng = np.random.default_rng(seed)
     n_cols = n_groups * cols_per_group
     group_id = rng.integers(0, n_groups, n)
@@ -73,6 +74,7 @@ def _make_grouped_block_dataset(n: int, n_groups: int, cols_per_group: int, seed
 
 
 def test_biz_val_grouped_block_stacker_beats_global_model_mse():
+    """Biz val grouped block stacker beats global model mse."""
     X, y, feature_groups = _make_grouped_block_dataset(n=2000, n_groups=6, cols_per_group=6, seed=0)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
 
@@ -91,12 +93,13 @@ def test_biz_val_grouped_block_stacker_beats_global_model_mse():
     stacker_mse = mean_squared_error(y_test, stacker.predict(X_test))
 
     improvement = 1.0 - stacker_mse / baseline_mse
-    assert improvement > 0.12, (
-        f"expected >12% MSE reduction vs. a single global model, got {improvement:.4f} (baseline={baseline_mse:.4f}, stacker={stacker_mse:.4f})"
-    )
+    assert (
+        improvement > 0.12
+    ), f"expected >12% MSE reduction vs. a single global model, got {improvement:.4f} (baseline={baseline_mse:.4f}, stacker={stacker_mse:.4f})"
 
 
 def test_grouped_block_stacker_valid_rates_match_synthetic_group_assignment():
+    """Grouped block stacker valid rates match synthetic group assignment."""
     X, y, feature_groups = _make_grouped_block_dataset(n=1200, n_groups=4, cols_per_group=4, seed=1)
     stacker = GroupedBlockStacker(
         feature_groups=feature_groups,
@@ -112,6 +115,7 @@ def test_grouped_block_stacker_valid_rates_match_synthetic_group_assignment():
 
 
 def test_grouped_block_stacker_requires_nonempty_feature_groups():
+    """Grouped block stacker requires nonempty feature groups."""
     from sklearn.linear_model import LinearRegression
 
     stacker = GroupedBlockStacker(feature_groups={}, submodel_factory=lambda: LinearRegression(), meta_estimator=LinearRegression())
@@ -123,6 +127,7 @@ def test_grouped_block_stacker_requires_nonempty_feature_groups():
 
 
 def test_biz_val_grouped_block_stacker_auto_discover_recovers_blocks_and_matches_manual_accuracy():
+    """Biz val grouped block stacker auto discover recovers blocks and matches manual accuracy."""
     from sklearn.metrics import adjusted_rand_score
 
     X, y, feature_groups, true_group_of = _make_correlated_block_dataset(n=2000, n_groups=5, cols_per_group=5, seed=2)
@@ -170,6 +175,7 @@ def test_biz_val_grouped_block_stacker_auto_discover_recovers_blocks_and_matches
 
 
 def test_grouped_block_stacker_auto_discover_and_manual_feature_groups_are_mutually_exclusive():
+    """Grouped block stacker auto discover and manual feature groups are mutually exclusive."""
     from sklearn.linear_model import LinearRegression
 
     stacker = GroupedBlockStacker(

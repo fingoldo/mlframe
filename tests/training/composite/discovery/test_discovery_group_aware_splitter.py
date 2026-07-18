@@ -29,12 +29,15 @@ class _FitStub:
     specs_: list = []
 
     def export_specs(self):
+        """Export specs."""
         return []
 
     def report(self):
+        """Report."""
         return []
 
     def filter_drops(self):
+        """Filter drops."""
         return {}
 
 
@@ -57,6 +60,7 @@ def _run_capture_rerank_groups(*, split_config, group_ids, metadata_extra=None):
     captured = {}
 
     def _spy_fit(self, *a, **kw):
+        """Spy fit."""
         captured["rerank_groups"] = getattr(self, "_group_ids_for_rerank", None)
         return _FitStub()
 
@@ -152,7 +156,7 @@ def test_recommendation_still_activates_rerank_without_split_config():
         group_ids=groups,
         metadata_extra=metadata_extra,
     )
-    assert rerank_groups is not None, (
-        "analyzer recommendation prefer_group_aware=True no longer activates the rerank when split_config is None (regression in the OR gate)"
-    )
+    assert (
+        rerank_groups is not None
+    ), "analyzer recommendation prefer_group_aware=True no longer activates the rerank when split_config is None (regression in the OR gate)"
     np.testing.assert_array_equal(np.asarray(rerank_groups), groups)

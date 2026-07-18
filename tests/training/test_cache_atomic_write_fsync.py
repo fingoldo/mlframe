@@ -16,7 +16,6 @@ import os
 from unittest import mock
 
 
-
 def test_discovery_cache_set_fsyncs_before_replace(tmp_path):
     """``DiscoveryCache.set`` must fsync the tmp fd before the atomic rename."""
     from mlframe.training.composite.cache import DiscoveryCache
@@ -28,10 +27,12 @@ def test_discovery_cache_set_fsyncs_before_replace(tmp_path):
     real_replace = os.replace
 
     def tracking_fsync(fd):
+        """Tracking fsync."""
         call_order.append("fsync")
         return real_fsync(fd)
 
     def tracking_replace(src, dst):
+        """Tracking replace."""
         call_order.append("replace")
         return real_replace(src, dst)
 
@@ -65,14 +66,17 @@ def test_atomic_write_bytes_fsyncs_before_replace(tmp_path):
     real_replace = os.replace
 
     def tracking_fsync(fd):
+        """Tracking fsync."""
         call_order.append("fsync")
         return real_fsync(fd)
 
     def tracking_replace(src, dst):
+        """Tracking replace."""
         call_order.append("replace")
         return real_replace(src, dst)
 
     def writer(f):
+        """Writer."""
         f.write(b"durable bytes")
 
     with mock.patch("os.fsync", side_effect=tracking_fsync) as m_fsync, mock.patch("os.replace", side_effect=tracking_replace):

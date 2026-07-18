@@ -25,7 +25,9 @@ import pytest
 
 
 class TestAdditiveResidualTransform:
+    """Groups tests covering additive residual transform."""
     def test_registered_with_short_alias(self) -> None:
+        """Registered with short alias."""
         from mlframe.training.composite.transforms import (
             TRANSFORM_NAME_SHORT,
             get_transform,
@@ -36,6 +38,7 @@ class TestAdditiveResidualTransform:
         assert TRANSFORM_NAME_SHORT["additive_residual"] == "addres"
 
     def test_in_default_transforms_list(self) -> None:
+        """In default transforms list."""
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
         cfg = CompositeTargetDiscoveryConfig()
@@ -65,7 +68,9 @@ class TestAdditiveResidualTransform:
 
 
 class TestIdentityMLPGuard:
+    """Groups tests covering identity m l p guard."""
     def test_warns_on_identity_with_multilayer_regression(self, caplog) -> None:
+        """Warns on identity with multilayer regression."""
         torch = pytest.importorskip("torch")
         from mlframe.training.neural.flat import generate_mlp
 
@@ -83,6 +88,7 @@ class TestIdentityMLPGuard:
         assert any("COLLAPSE" in rec.message and "Identity" in rec.message for rec in caplog.records), [r.message for r in caplog.records]
 
     def test_no_warn_on_identity_with_single_layer(self, caplog) -> None:
+        """No warn on identity with single layer."""
         torch = pytest.importorskip("torch")
         from mlframe.training.neural.flat import generate_mlp
 
@@ -100,6 +106,7 @@ class TestIdentityMLPGuard:
         assert not any("COLLAPSE" in rec.message for rec in caplog.records)
 
     def test_no_warn_on_relu_with_multilayer(self, caplog) -> None:
+        """No warn on relu with multilayer."""
         torch = pytest.importorskip("torch")
         from mlframe.training.neural.flat import generate_mlp
 
@@ -129,6 +136,7 @@ class TestRegressionCollapseSensorBranches:
     (composite-target / tree booster / group-split verification) intact."""
 
     def test_linear_extrapolation_branch_trips(self, caplog, monkeypatch) -> None:
+        """Linear extrapolation branch trips."""
         from mlframe.training.reporting import _reporting
 
         caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
@@ -160,6 +168,7 @@ class TestRegressionCollapseSensorBranches:
         ), [r.message for r in caplog.records if "sensor" in r.message]
 
     def test_mean_shift_branch_trips(self, caplog) -> None:
+        """Mean shift branch trips."""
         from mlframe.training.reporting import _reporting
 
         caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
@@ -189,7 +198,9 @@ class TestRegressionCollapseSensorBranches:
 
 
 class TestRansacInnerIsRidge:
+    """Groups tests covering ransac inner is ridge."""
     def test_ransac_uses_ridge_not_linear_regression(self) -> None:
+        """Ransac uses ridge not linear regression."""
         from sklearn.linear_model import Ridge, LinearRegression
         from mlframe.training.configs import LinearModelConfig
         from mlframe.training.models import _build_ransac_regressor
@@ -205,7 +216,9 @@ class TestRansacInnerIsRidge:
 
 
 class TestFeatureDriftIdentityTranslator:
+    """Groups tests covering feature drift identity translator."""
     def test_identity_activation_forces_nlayers_1(self) -> None:
+        """Identity activation forces nlayers 1."""
         pytest.importorskip("torch")
         from mlframe.training.feature_drift_report import (
             translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs,
@@ -221,7 +234,9 @@ class TestFeatureDriftIdentityTranslator:
 
 
 class TestTinyScreeningPerFamilyDefault:
+    """Groups tests covering tiny screening per family default."""
     def test_default_is_per_family_lightgbm_plus_linear(self) -> None:
+        """Default is per family lightgbm plus linear."""
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
         cfg = CompositeTargetDiscoveryConfig()

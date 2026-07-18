@@ -54,6 +54,7 @@ _LEDGER = []
 
 
 def _checkpoint(msg: str) -> None:
+    """Helper that checkpoint."""
     try:
         with open(_PROGRESS, "a", encoding="utf-8") as fh:
             fh.write(msg.rstrip("\n") + "\n")
@@ -77,6 +78,7 @@ FORMULAS = {}
 
 
 def _reg(name, domains, target, keep, drop, family):
+    """Helper that reg."""
     FORMULAS[name] = dict(domains=domains, target=target, keep=keep, drop=drop, family=family)
 
 
@@ -273,10 +275,12 @@ NOISE_ADMISSION = {
 
 
 def _signal_loss_reason(formula, profile, n):
+    """Signal loss reason."""
     return SIGNAL_LOSS.get((formula, profile, n))
 
 
 def _noise_admission_reason(formula, profile, n):
+    """Noise admission reason."""
     return NOISE_ADMISSION.get((formula, profile, n))
 
 
@@ -321,6 +325,7 @@ def _eval_keep(selected, df_cols, keep):
 
 
 def _eval_drop(selected, drop):
+    """Eval drop."""
     results, failures = [], []
     for col in sorted(drop):
         admitted = col in selected
@@ -331,6 +336,7 @@ def _eval_drop(selected, drop):
 
 
 def _fit_profile(formula, profile, n):
+    """Fit profile."""
     spec = FORMULAS[formula]
     data = sd.sample_operands(seed=SEED, n=n, domains=spec["domains"], profile=profile)
     y = spec["target"](data)
@@ -398,6 +404,7 @@ def _gate(formula, profile, n, selected, keep_fail, drop_fail):
 @pytest.mark.parametrize("formula", sorted(FORMULAS.keys()))
 @pytest.mark.parametrize("profile", _PROFILES)
 def test_create_keep_drop_under_profile(profile, formula):
+    """Create keep drop under profile."""
     _checkpoint(f"PROFILE start {formula}/{profile} n={_BROAD_N}")
     selected, keep_fail, drop_fail = _fit_profile(formula, profile, _BROAD_N)
     _checkpoint(f"PROFILE done  {formula}/{profile} n={_BROAD_N} sel={selected} signal_lost={keep_fail} noise={drop_fail}")
@@ -414,6 +421,7 @@ _NSWEEP_NS = [10000, 30000]
 @pytest.mark.parametrize("profile", ["uniform", "heavy_tailed", "with_outliers"])
 @pytest.mark.parametrize("n", _NSWEEP_NS)
 def test_ratio_sqr_nsweep_under_profile(profile, n):
+    """Ratio sqr nsweep under profile."""
     _checkpoint(f"NSWEEP start ratio_sqr/{profile} n={n}")
     selected, keep_fail, drop_fail = _fit_profile("ratio_sqr", profile, n)
     _checkpoint(f"NSWEEP done  ratio_sqr/{profile} n={n} sel={selected} signal_lost={keep_fail} noise={drop_fail}")
@@ -511,13 +519,14 @@ def test_documented_xfail_cell_recovers_in_fresh_process(kind, formula, profile,
             f"stdout:\n{proc.stdout}\nstderr tail:\n{proc.stderr[-2000:]}",
             pytrace=False,
         )
-    assert proc.returncode == 0, (
-        f"recovery subprocess for {kind}:{formula}:{profile}:{n} errored (rc={proc.returncode}); stdout:\n{proc.stdout}\nstderr tail:\n{proc.stderr[-2000:]}"
-    )
+    assert (
+        proc.returncode == 0
+    ), f"recovery subprocess for {kind}:{formula}:{profile}:{n} errored (rc={proc.returncode}); stdout:\n{proc.stdout}\nstderr tail:\n{proc.stderr[-2000:]}"
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _dump_profile_ledger():
+    """Dump profile ledger."""
     yield
     ledger_path = _artifact_path("distros_profile_ledger.json")
     try:

@@ -44,6 +44,7 @@ def _legacy_post_gather(y, p, n_resamples, seed, eps=1e-15):
 
 
 def test_pre_gather_1d_matches_post_gather_oracle():
+    """The pre-gather vectorized bootstrap logloss is bit-identical to the legacy post-gather implementation on 1-D binary targets."""
     rng = np.random.default_rng(0)
     n = 500
     y = rng.integers(0, 2, size=n).astype(np.float64)
@@ -55,6 +56,7 @@ def test_pre_gather_1d_matches_post_gather_oracle():
 
 
 def test_pre_gather_2d_multilabel_matches_post_gather_oracle():
+    """The pre-gather vectorized bootstrap logloss is bit-identical to the legacy post-gather implementation on 2-D multilabel targets."""
     rng = np.random.default_rng(0)
     n, K = 500, 4
     y = rng.integers(0, 2, size=(n, K)).astype(np.float64)
@@ -100,9 +102,9 @@ def test_multiclass_path_matches_sklearn_log_loss():
     for r in range(200):
         idx = rng_ref.integers(0, n, size=n)
         ref[r] = log_loss(y[idx], p[idx], labels=np.arange(K))
-    assert np.abs(samples_new - ref).max() < 1e-12, (
-        f"multiclass bootstrap log-loss must match sklearn at fp64 epsilon (max abs diff={np.abs(samples_new - ref).max():.2e})"
-    )
+    assert (
+        np.abs(samples_new - ref).max() < 1e-12
+    ), f"multiclass bootstrap log-loss must match sklearn at fp64 epsilon (max abs diff={np.abs(samples_new - ref).max():.2e})"
 
 
 def test_multiclass_path_rejects_out_of_range_labels():

@@ -35,7 +35,6 @@ from pathlib import Path
 
 import pytest
 
-
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
@@ -133,6 +132,7 @@ def _raise_type_for_isinstance_fail(src: str, sentinel_token: str) -> str:
 
 
 def test_predict_models_path_type_is_typeerror() -> None:
+    """Predict models path type is typeerror."""
     src = _read("training/core/predict.py")
     # Find the models_path isinstance str check; raise on the following line should be TypeError.
     snippet = src
@@ -140,11 +140,13 @@ def test_predict_models_path_type_is_typeerror() -> None:
 
 
 def test_bruteforce_df_type_is_typeerror() -> None:
+    """Bruteforce df type is typeerror."""
     src = _read("feature_engineering/bruteforce.py")
     assert "raise TypeError(" in src and "pandas or polars DataFrame" in src, "bruteforce.py: df type check should raise TypeError"
 
 
 def test_neural_base_mixin_type_is_typeerror() -> None:
+    """Neural base mixin type is typeerror."""
     src = _read("training/neural/base.py")
     assert 'raise TypeError(f"Estimator must be a RegressorMixin or ClassifierMixin' in src, "neural/base.py: mixin dispatch failure should raise TypeError"
 
@@ -161,6 +163,7 @@ def test_neural_base_period_type_is_typeerror() -> None:
 
 
 def test_neural_flat_validation_uses_typeerror_and_valueerror() -> None:
+    """Neural flat validation uses typeerror and valueerror."""
     src = _read("training/neural/flat.py")
     # TypeError sites for isinstance failures.
     type_error_phrases = [
@@ -204,6 +207,7 @@ def test_neural_flat_batch_format_is_typeerror() -> None:
     ],
 )
 def test_assertion_error_not_used_at_validation_boundary(rel: str, forbidden_assertion_substring: str) -> None:
+    """Assertion error not used at validation boundary."""
     src = _read(rel)
     # The forbidden string must NOT co-occur with raise AssertionError on the same line.
     for line in src.splitlines():
@@ -212,18 +216,21 @@ def test_assertion_error_not_used_at_validation_boundary(rel: str, forbidden_ass
 
 
 def test_categorical_numaggs_count_mismatch_is_runtimeerror() -> None:
+    """Categorical numaggs count mismatch is runtimeerror."""
     src = _read("feature_engineering/categorical.py")
-    assert "raise RuntimeError(" in src and "compute_numaggs(directional_only=True) returned" in src, (
-        "categorical.py: numaggs count mismatch should raise RuntimeError"
-    )
+    assert (
+        "raise RuntimeError(" in src and "compute_numaggs(directional_only=True) returned" in src
+    ), "categorical.py: numaggs count mismatch should raise RuntimeError"
 
 
 def test_ranking_unreachable_is_runtimeerror() -> None:
+    """Ranking unreachable is runtimeerror."""
     src = _read("training/ranking.py")
     assert 'raise RuntimeError("unreachable' in src, "ranking.py: unreachable sentinel should be RuntimeError"
 
 
 def test_ranking_unknown_flavor_is_valueerror() -> None:
+    """Ranking unknown flavor is valueerror."""
     src = _read("training/ranking.py")
     assert 'raise ValueError(f"unknown ranker flavor' in src, "ranking.py: unknown flavor dispatch failure should raise ValueError (not AssertionError)"
 
@@ -234,6 +241,7 @@ def test_ranking_unknown_flavor_is_valueerror() -> None:
 
 
 def test_predict_models_path_typeerror_behavioural() -> None:
+    """Predict models path typeerror behavioural."""
     import polars as pl
     from mlframe.training.core.predict import predict_mlframe_models_suite
 
@@ -243,6 +251,7 @@ def test_predict_models_path_typeerror_behavioural() -> None:
 
 
 def test_polynomial_not_fitted_is_notfittederror() -> None:
+    """Polynomial not fitted is notfittederror."""
     from sklearn.exceptions import NotFittedError
     import numpy as np
     from mlframe.training.feature_handling.polynomial import PolynomialFeatureExpander

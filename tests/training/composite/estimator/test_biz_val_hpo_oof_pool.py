@@ -19,6 +19,7 @@ from mlframe.training.composite.hpo import HPOSpace, optimize_composite, select_
 
 
 def _make_composite_hpo_data(n: int, seed: int):
+    """Make composite hpo data."""
     rng = np.random.default_rng(seed)
     base = rng.normal(size=n)
     f1 = rng.normal(size=n)
@@ -29,6 +30,7 @@ def _make_composite_hpo_data(n: int, seed: int):
 
 
 def test_collect_oof_pool_off_by_default_leaves_field_none():
+    """Collect oof pool off by default leaves field none."""
     X, y = _make_composite_hpo_data(200, seed=0)
     result = optimize_composite(
         X,
@@ -44,6 +46,7 @@ def test_collect_oof_pool_off_by_default_leaves_field_none():
 
 
 def test_collect_oof_pool_returns_one_array_per_trial():
+    """Collect oof pool returns one array per trial."""
     X, y = _make_composite_hpo_data(200, seed=1)
     n_trials = 5
     result = optimize_composite(
@@ -64,6 +67,7 @@ def test_collect_oof_pool_returns_one_array_per_trial():
 
 
 def test_collect_oof_pool_matches_trials_log_length_and_order():
+    """Collect oof pool matches trials log length and order."""
     X, y = _make_composite_hpo_data(150, seed=2)
     result = optimize_composite(
         X,
@@ -80,6 +84,7 @@ def test_collect_oof_pool_matches_trials_log_length_and_order():
 
 
 def test_biz_val_hpo_oof_stacking_pool_beats_single_best_trial_on_holdout():
+    """Biz val hpo oof stacking pool beats single best trial on holdout."""
     X_train, y_train = _make_composite_hpo_data(600, seed=42)
     X_holdout, y_holdout = _make_composite_hpo_data(2000, seed=100)
 
@@ -122,12 +127,13 @@ def test_biz_val_hpo_oof_stacking_pool_beats_single_best_trial_on_holdout():
     pool_mean_pred = np.mean(pool_preds, axis=0)
     pool_rmse = float(np.sqrt(np.mean((pool_mean_pred - y_holdout) ** 2)))
 
-    assert pool_rmse < best_rmse, (
-        f"HPO-trial-pool ensemble RMSE ({pool_rmse:.4f}) should beat the single best-trial RMSE ({best_rmse:.4f}) on fresh holdout data"
-    )
+    assert (
+        pool_rmse < best_rmse
+    ), f"HPO-trial-pool ensemble RMSE ({pool_rmse:.4f}) should beat the single best-trial RMSE ({best_rmse:.4f}) on fresh holdout data"
 
 
 def _rmse(y_true, y_pred) -> float:
+    """Rmse."""
     return float(np.sqrt(np.mean((np.asarray(y_true, dtype=np.float64) - np.asarray(y_pred, dtype=np.float64)) ** 2)))
 
 
@@ -175,9 +181,9 @@ def test_biz_val_select_oof_pool_ensemble_beats_single_best_and_naive_average():
     selected_rmse = _rmse(y_train, selection.combined_oof)
 
     assert selected_rmse < naive_rmse, f"select_ensemble_from_pool RMSE ({selected_rmse:.4f}) should beat naive full-pool averaging ({naive_rmse:.4f})"
-    assert selected_rmse <= best_rmse * 1.0001, (
-        f"select_ensemble_from_pool RMSE ({selected_rmse:.4f}) should be at least as good as single-best ({best_rmse:.4f})"
-    )
+    assert (
+        selected_rmse <= best_rmse * 1.0001
+    ), f"select_ensemble_from_pool RMSE ({selected_rmse:.4f}) should be at least as good as single-best ({best_rmse:.4f})"
 
     # Equivalence check: calling the module function directly (bypassing the convenience method) gives an
     # identical result -- the method is purely a wiring convenience, not new selection logic.

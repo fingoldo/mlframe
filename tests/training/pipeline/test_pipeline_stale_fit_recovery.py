@@ -21,6 +21,7 @@ from sklearn.pipeline import Pipeline
 
 
 def test_is_stale_fit_state_value_error_classifies_messages():
+    """Is stale fit state value error classifies messages."""
     from mlframe.training.pipeline._pipeline_helpers import _is_stale_fit_state_value_error
 
     # Width / count mismatch variants.
@@ -36,6 +37,7 @@ def test_is_stale_fit_state_value_error_classifies_messages():
 
 
 def test_apply_pre_pipeline_recovers_from_stale_fit_width():
+    """Apply pre pipeline recovers from stale fit width."""
     from mlframe.training.pipeline._pipeline_helpers import _apply_pre_pipeline_transforms
 
     rng = np.random.default_rng(0)

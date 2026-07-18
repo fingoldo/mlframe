@@ -20,6 +20,7 @@ from mlframe.feature_selection.filters._mi_greedy_cmi_fe import (
 
 
 def test_marginal_mi_fixed_y_bit_identical_to_cmi_from_binned():
+    """Marginal mi fixed y bit identical to cmi from binned."""
     rng = np.random.default_rng(7)
     for n in (300, 4000):
         cases = {
@@ -40,6 +41,7 @@ def test_renumber_two_dense_partition_identical_to_generic():
     import mlframe.feature_selection.filters._mi_greedy_cmi_fe as M
 
     def _canon(j):
+        """Helper that canon."""
         seen, out, c = {}, np.empty_like(j), 0
         for i, v in enumerate(j.tolist()):
             if v not in seen:
@@ -62,6 +64,7 @@ def test_renumber_two_dense_partition_identical_to_generic():
 
 
 def test_renumber_two_dense_falls_back_on_negative_and_huge_span():
+    """Renumber two dense falls back on negative and huge span."""
     import mlframe.feature_selection.filters._mi_greedy_cmi_fe as M
 
     a = np.array([-1, 0, 1], dtype=np.int64)
@@ -74,6 +77,7 @@ def test_renumber_two_dense_falls_back_on_negative_and_huge_span():
 
 
 def test_precompute_marginal_y_terms_matches_inline_entropy():
+    """Precompute marginal y terms matches inline entropy."""
     from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _entropy_from_classes
 
     y = _quantile_bin(np.random.default_rng(3).normal(size=2000), 10)

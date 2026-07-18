@@ -46,7 +46,9 @@ class _LogLinearPoissonBase(PoissonRegressor):
 
 
 class TestGLMBizValue:
+    """Groups tests covering g l m biz value."""
     def test_residual_over_base_beats_base_and_plain_gbdt(self) -> None:
+        """Residual over base beats base and plain gbdt."""
         X, y = _poisson_log_linear_data()
         tr, te = slice(0, 8000), slice(8000, None)
         Xtr, Xte, ytr, yte = X.iloc[tr], X.iloc[te], y[tr], y[te]
@@ -83,7 +85,9 @@ class TestGLMBizValue:
 
 
 class TestGLMContract:
+    """Groups tests covering g l m contract."""
     def test_predictions_non_negative_and_deviance_finite(self) -> None:
+        """Predictions non negative and deviance finite."""
         X, y = _poisson_log_linear_data(n=3000)
         comp = CompositeGLMEstimator(
             base_estimator=lgb.LGBMRegressor(n_estimators=60, verbose=-1),
@@ -97,6 +101,7 @@ class TestGLMContract:
         assert np.isfinite(dev), "Poisson deviance must be finite"
 
     def test_gamma_family_on_positive_target(self) -> None:
+        """Gamma family on positive target."""
         rng = np.random.default_rng(3)
         n = 3000
         z = rng.normal(0.0, 1.0, n)
@@ -113,6 +118,7 @@ class TestGLMContract:
         assert np.all(np.isfinite(pred))
 
     def test_tweedie_family_zero_inflated(self) -> None:
+        """Tweedie family zero inflated."""
         rng = np.random.default_rng(7)
         n = 3000
         z = rng.normal(0.0, 1.0, n)
@@ -130,6 +136,7 @@ class TestGLMContract:
 
     def test_default_inner_is_family_matched(self) -> None:
         # base_estimator=None must build a family-matched LightGBM inner.
+        """Default inner is family matched."""
         X, y = _poisson_log_linear_data(n=2000)
         comp = CompositeGLMEstimator(family="poisson").fit(X, y)
         assert comp.estimator_.get_params()["objective"] == "poisson"
@@ -137,6 +144,7 @@ class TestGLMContract:
 
     def test_user_inner_objective_coerced_to_family(self) -> None:
         # A LightGBM inner with a Gaussian objective is coerced onto the family one.
+        """User inner objective coerced to family."""
         X, y = _poisson_log_linear_data(n=2000)
         comp = CompositeGLMEstimator(
             base_estimator=lgb.LGBMRegressor(n_estimators=40, objective="regression", verbose=-1),
@@ -145,6 +153,7 @@ class TestGLMContract:
         assert comp.estimator_.get_params()["objective"] == "poisson"
 
     def test_precomputed_base_mean_column_is_stripped(self) -> None:
+        """Precomputed base mean column is stripped."""
         X, y = _poisson_log_linear_data(n=4000)
         base = PoissonRegressor(max_iter=1000).fit(X, y)
         X = X.copy()
@@ -158,6 +167,7 @@ class TestGLMContract:
         assert np.all(comp.predict(X) >= 0.0)
 
     def test_unknown_family_raises(self) -> None:
+        """Unknown family raises."""
         X, y = _poisson_log_linear_data(n=300)
         with pytest.raises(ValueError, match="unknown family"):
             CompositeGLMEstimator(
@@ -166,6 +176,7 @@ class TestGLMContract:
             ).fit(X, y)
 
     def test_negative_target_raises(self) -> None:
+        """Negative target raises."""
         X, _ = _poisson_log_linear_data(n=300)
         y = np.full(len(X), -1.0)
         with pytest.raises(ValueError, match="non-negative"):
@@ -174,6 +185,7 @@ class TestGLMContract:
             ).fit(X, y)
 
     def test_gamma_zero_target_raises(self) -> None:
+        """Gamma zero target raises."""
         X, _ = _poisson_log_linear_data(n=300)
         y = np.zeros(len(X))
         with pytest.raises(ValueError, match="strictly positive"):
@@ -183,6 +195,7 @@ class TestGLMContract:
             ).fit(X, y)
 
     def test_bad_tweedie_power_raises(self) -> None:
+        """Bad tweedie power raises."""
         X, y = _poisson_log_linear_data(n=300)
         with pytest.raises(ValueError, match="tweedie_power"):
             CompositeGLMEstimator(
@@ -193,6 +206,7 @@ class TestGLMContract:
 
     def test_inner_without_offset_path_rejected(self) -> None:
         # A plain sklearn regressor has no raw-margin/offset path -> clear error.
+        """Inner without offset path rejected."""
         X, y = _poisson_log_linear_data(n=600)
         with pytest.raises(NotImplementedError):
             CompositeGLMEstimator(
@@ -201,6 +215,7 @@ class TestGLMContract:
             ).fit(X, y)
 
     def test_predict_before_fit_raises(self) -> None:
+        """Predict before fit raises."""
         from sklearn.exceptions import NotFittedError
 
         comp = CompositeGLMEstimator(family="poisson")

@@ -43,6 +43,7 @@ def test_phi_t_kwarg_skips_internal_transpose(monkeypatch):
     real_ascontig = np.ascontiguousarray
 
     def _counting_ascontig(a, *args, **kwargs):
+        """Counting ascontig."""
         calls["n"] += 1
         return real_ascontig(a, *args, **kwargs)
 
@@ -78,6 +79,7 @@ def test_proxy_trust_guard_passes_precomputed_phi_t(monkeypatch):
     real_calib_fn = calib_mod.subset_redundancy_many
 
     def _spy(phi, idx_list, *, phi_T=None):
+        """Helper that spy."""
         seen["phi_T_is_array"] = isinstance(phi_T, np.ndarray)
         seen["phi_T_shape"] = None if phi_T is None else phi_T.shape
         return real_calib_fn(phi, idx_list, phi_T=phi_T)

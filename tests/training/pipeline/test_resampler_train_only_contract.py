@@ -29,7 +29,6 @@ from mlframe.training.pipeline._pipeline_helpers import (
     _apply_pre_pipeline_transforms,
 )
 
-
 # Module-level call recorder so the FunctionSampler callables stay picklable/clonable.
 _RESAMPLE_ROW_COUNTS: list[int] = []
 
@@ -47,6 +46,7 @@ def _identity_sampler(X, y):
 
 
 def _make_dfs():
+    """Make dfs."""
     rng = np.random.default_rng(0)
     train_df = pd.DataFrame(rng.normal(size=(100, 3)), columns=list("abc"))
     val_df = pd.DataFrame(rng.normal(size=(40, 3)), columns=list("abc"))

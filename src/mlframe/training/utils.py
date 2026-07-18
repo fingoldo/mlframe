@@ -247,7 +247,8 @@ def _canonical_dtype_str(dtype) -> str:
         try:
             cats = list(dtype.categories) if hasattr(dtype, "categories") else []
             return "Enum[" + ",".join(sorted(str(c) for c in cats)) + "]"
-        except Exception:
+        except Exception as e:
+            logger.debug("failed to read Enum categories for canonical dtype string, falling back to str(dtype): %s", e)
             return s
     # pl.List(inner) -- record inner dtype recursively so List[Int64] != List[Float64].
     inner = getattr(dtype, "inner", None)
@@ -260,7 +261,8 @@ def _canonical_dtype_str(dtype) -> str:
             try:
                 parts = sorted(f"{getattr(f, 'name', '?')}:{_canonical_dtype_str(getattr(f, 'dtype', '?'))}" for f in fields)
                 return "Struct{" + ",".join(parts) + "}"
-            except Exception:
+            except Exception as e:
+                logger.debug("failed to build canonical Struct field digest, falling back to str(dtype): %s", e)
                 return s
     # pl.Datetime(time_unit='us', time_zone='UTC') -- include unit + tz so
     # naive vs UTC-aware columns differ.
@@ -268,7 +270,9 @@ def _canonical_dtype_str(dtype) -> str:
         tu = getattr(dtype, "time_unit", None)
         tz = getattr(dtype, "time_zone", None)
         if tu is not None or tz is not None:
-            return f"Datetime[{tu or '?'},{tz or 'naive'}]"
+            _tu_label = tu if tu else "?"
+            _tz_label = tz if tz else "naive"
+            return f"Datetime[{_tu_label},{_tz_label}]"
         return s
     # pl.Duration(time_unit='us') -- include unit so ms vs us hash differently.
     if s.startswith("Duration"):
@@ -334,7 +338,8 @@ def compute_model_input_fingerprint(
                 dt: Any = df_at_fit.schema[col]
             else:
                 dt = df_at_fit[col].dtype
-        except Exception:
+        except Exception as e:
+            logger.debug("failed to read dtype for column %r, using placeholder '?' in the fingerprint schema: %s", col, e)
             dt = "?"
         if col in cat_set:
             role = "cat"
@@ -360,7 +365,8 @@ def compute_model_input_fingerprint(
                 return "empty"
             picks = [int(arr[0]), int(arr[n // 2]), int(arr[-1])]
             return f"n{n}:{picks[0]}:{picks[1]}:{picks[2]}"
-        except Exception:
+        except Exception as e:
+            logger.debug("failed to digest index-like object of type %s for the fit fingerprint: %s", type(idx).__name__, e)
             return f"unhashable_{type(idx).__name__}"
 
     def _config_digest(cfg) -> str:
@@ -380,12 +386,14 @@ def compute_model_input_fingerprint(
                 orjson.dumps(payload, default=str, option=orjson.OPT_SORT_KEYS),
                 digest_size=8,
             ).hexdigest()
-        except Exception:
+        except Exception as e:
+            logger.debug("failed to digest a config object for the fit fingerprint, using placeholder 'uncached': %s", e)
             return "uncached"
 
     try:
         n_rows = len(df_at_fit)
-    except Exception:
+    except Exception as e:
+        logger.debug("failed to compute len(df_at_fit) for the fit fingerprint, using placeholder -1: %s", e)
         n_rows = -1
 
     payload = {
@@ -812,10 +820,10 @@ def get_pandas_view_of_polars_df(
             # paired with a stale pandas view from a prior different df. Key co-validates id()+shape+columns (see the read site).
             _PD_VIEW_LAST_CACHE["result"] = pandas_df
             _PD_VIEW_LAST_CACHE["id_key"] = (id(df), sh if sh is not None else (None,), _cols)
-        except Exception:  # nosec B110 - non-trivial body
+        except Exception as exc:  # nosec B110 - non-trivial body
             # Memo population is best-effort; never fail the conversion
             # because of a cache-write hiccup.
-            pass
+            logger.debug("get_pandas_view_of_polars_df: single-entry memo population failed, skipping cache: %s", exc)
 
     return pandas_df
 

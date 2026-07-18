@@ -20,6 +20,7 @@ from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
 
 def _build(seed: int, noise: float, alpha_grid: tuple[float, ...]):
+    """Build."""
     rng = np.random.default_rng(seed)
     n = 800
     y_train = rng.normal(loc=10.0, scale=2.0, size=n)

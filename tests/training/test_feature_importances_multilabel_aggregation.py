@@ -38,6 +38,7 @@ from mlframe.training._feature_importances import get_model_feature_importances
 
 
 def _make_multilabel_data(n=300, n_feats=10, n_labels=3, seed=42):
+    """Make multilabel data."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, n_feats))
     y = (rng.random((n, n_labels)) > 0.5).astype(int)
@@ -45,6 +46,7 @@ def _make_multilabel_data(n=300, n_feats=10, n_labels=3, seed=42):
 
 
 def test_multilabel_catboost_uses_aggregation_path():
+    """Multilabel catboost uses aggregation path."""
     X, y, cols = _make_multilabel_data(n_labels=3)
     model = MultiOutputClassifier(catboost.CatBoostClassifier(iterations=10, verbose=False))
     model.fit(X, y)
@@ -148,6 +150,7 @@ def test_multilabel_hgb_uses_per_child_permutation_not_wrapper():
     call_records: list[tuple] = []
 
     def recording_fn(_model, _X, _y, **kwargs):
+        """Recording fn."""
         _y_arr = np.asarray(_y)
         call_records.append((id(_model), _y_arr.shape, _y_arr.ndim))
         return real_fn(_model, _X, _y, **kwargs)
@@ -173,9 +176,9 @@ def test_multilabel_hgb_uses_per_child_permutation_not_wrapper():
     wrapper_id = id(model)
     child_ids = {id(c) for c in model.estimators_}
     for child_id, _, _ in call_records:
-        assert child_id in child_ids and child_id != wrapper_id, (
-            f"Per-child permutation must receive a child estimator, not the wrapper. Got id={child_id}, wrapper={wrapper_id}, children={child_ids}"
-        )
+        assert (
+            child_id in child_ids and child_id != wrapper_id
+        ), f"Per-child permutation must receive a child estimator, not the wrapper. Got id={child_id}, wrapper={wrapper_id}, children={child_ids}"
 
 
 def test_standalone_estimator_still_uses_direct_feature_importances():

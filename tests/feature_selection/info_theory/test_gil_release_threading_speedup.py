@@ -56,6 +56,7 @@ def test_shuffle_arr_lcg_chained_state_survives_uint64_high_bit():
 
 
 def test_compute_mi_from_classes_nogil_flag_set():
+    """Compute mi from classes nogil flag set."""
     assert compute_mi_from_classes.targetoptions.get("nogil") is True, (
         "compute_mi_from_classes must keep nogil=True -- without it, joblib backend='threading' "
         "dispatch through this kernel is GIL-serialized (measured 0.84-0.94x vs serial, i.e. a "
@@ -64,10 +65,12 @@ def test_compute_mi_from_classes_nogil_flag_set():
 
 
 def test_shuffle_arr_nogil_flag_set():
+    """Shuffle arr nogil flag set."""
     assert shuffle_arr.targetoptions.get("nogil") is True
 
 
 def test_parallel_mi_nogil_flag_set():
+    """Parallel mi nogil flag set."""
     assert parallel_mi.targetoptions.get("nogil") is True
 
 
@@ -96,6 +99,7 @@ def test_shuffle_arr_thread_safety_under_concurrent_nogil_execution():
     errors = []
 
     def worker(tid):
+        """Helper that worker."""
         try:
             for _ in range(200):
                 arr = np.arange(500)
@@ -115,11 +119,13 @@ def test_shuffle_arr_thread_safety_under_concurrent_nogil_execution():
 
 
 def test_shuffle_arr_lcg_thread_safety_under_concurrent_nogil_execution():
+    """Shuffle arr lcg thread safety under concurrent nogil execution."""
     shuffle_arr_lcg(np.arange(10), np.uint64(1))  # warmup JIT
 
     errors = []
 
     def worker(tid):
+        """Helper that worker."""
         try:
             state = np.uint64(tid + 1)
             for _ in range(200):
@@ -153,6 +159,7 @@ def test_threading_backend_delivers_real_speedup_not_regression():
     freqs_y = np.bincount(classes_y, minlength=10).astype(np.float64) / n
 
     def work():
+        """Helper that work."""
         total = 0.0
         for _ in range(200):
             total += compute_mi_from_classes(classes_x, freqs_x, classes_y, freqs_y)

@@ -23,6 +23,7 @@ from mlframe.training.composite.feature_subset_bagging import FeatureSubsetBaggi
 
 
 def _make_clustered_dataset(n: int, n_clusters: int, features_per_cluster: int, seed: int):
+    """Make clustered dataset."""
     rng = np.random.default_rng(seed)
     n_features = n_clusters * features_per_cluster
     latent = rng.normal(size=(n, n_clusters))
@@ -36,6 +37,7 @@ def _make_clustered_dataset(n: int, n_clusters: int, features_per_cluster: int, 
 
 
 def _manual_cv_r2(fit_predict, df, y, cv=5, seed=0):
+    """Manual cv r2."""
     kf = KFold(n_splits=cv, shuffle=True, random_state=seed)
     scores = []
     for train_idx, test_idx in kf.split(df):
@@ -45,17 +47,21 @@ def _manual_cv_r2(fit_predict, df, y, cv=5, seed=0):
 
 
 def test_biz_val_cluster_aware_bagging_beats_full_model_and_naive_random_bagging():
+    """Biz val cluster aware bagging beats full model and naive random bagging."""
     df, y = _make_clustered_dataset(n=120, n_clusters=10, features_per_cluster=6, seed=0)
 
     def _full(X_train, y_train, X_test):
+        """Full."""
         return Ridge(alpha=0.1).fit(X_train, y_train).predict(X_test)
 
     def _cluster_bagged(X_train, y_train, X_test):
+        """Cluster bagged."""
         ens = FeatureSubsetBaggingEnsemble(lambda: Ridge(alpha=0.1), n_subsets=10, subset_size=10, n_clusters=10, random_state=0)
         ens.fit(X_train, y_train)
         return ens.predict(X_test)
 
     def _naive_random_bagged(X_train, y_train, X_test):
+        """Naive random bagged."""
         rng = np.random.default_rng(0)
         subsets = [rng.choice(X_train.columns, 10, replace=False).tolist() for _ in range(10)]
         preds = [Ridge(alpha=0.1).fit(X_train[s], y_train).predict(X_test[s]) for s in subsets]
@@ -65,15 +71,16 @@ def test_biz_val_cluster_aware_bagging_beats_full_model_and_naive_random_bagging
     r2_cluster = _manual_cv_r2(_cluster_bagged, df, y)
     r2_random = _manual_cv_r2(_naive_random_bagged, df, y)
 
-    assert r2_cluster > r2_full, (
-        f"expected correlation-cluster-aware bagging to beat the full-feature model (variance reduction on a small-n, correlated-cluster dataset), got cluster={r2_cluster:.4f} full={r2_full:.4f}"
-    )
-    assert r2_cluster > r2_random + 0.1, (
-        f"expected correlation-cluster-aware bagging to materially beat naive random feature bagging (validating the source's own finding that plain random gave no gain), got cluster={r2_cluster:.4f} random={r2_random:.4f}"
-    )
+    assert (
+        r2_cluster > r2_full
+    ), f"expected correlation-cluster-aware bagging to beat the full-feature model (variance reduction on a small-n, correlated-cluster dataset), got cluster={r2_cluster:.4f} full={r2_full:.4f}"
+    assert (
+        r2_cluster > r2_random + 0.1
+    ), f"expected correlation-cluster-aware bagging to materially beat naive random feature bagging (validating the source's own finding that plain random gave no gain), got cluster={r2_cluster:.4f} random={r2_random:.4f}"
 
 
 def test_correlation_cluster_feature_subsets_covers_multiple_clusters():
+    """Correlation cluster feature subsets covers multiple clusters."""
     df, _ = _make_clustered_dataset(n=200, n_clusters=6, features_per_cluster=5, seed=1)
     subsets = correlation_cluster_feature_subsets(df, n_subsets=3, subset_size=6, n_clusters=6, random_state=0)
     assert len(subsets) == 3
@@ -116,14 +123,17 @@ def _make_mixed_quality_dataset(n: int, n_informative_clusters: int, n_noise_clu
 
 
 def test_biz_val_weighted_aggregation_beats_uniform_mean_with_mixed_quality_subsets():
+    """Biz val weighted aggregation beats uniform mean with mixed quality subsets."""
     df, y = _make_mixed_quality_dataset(n=300, n_informative_clusters=3, n_noise_clusters=9, features_per_cluster=4, seed=2)
 
     def _uniform(X_train, y_train, X_test):
+        """Uniform."""
         ens = FeatureSubsetBaggingEnsemble(lambda: Ridge(alpha=0.1), n_subsets=12, subset_size=4, n_clusters=12, random_state=0, aggregation="mean")
         ens.fit(X_train, y_train)
         return ens.predict(X_test)
 
     def _weighted(X_train, y_train, X_test):
+        """Weighted."""
         ens = FeatureSubsetBaggingEnsemble(
             lambda: Ridge(alpha=0.1), n_subsets=12, subset_size=4, n_clusters=12, random_state=0, aggregation="weighted", weighted_cv=3
         )

@@ -32,7 +32,6 @@ from mlframe.training.targets.regression_residual_audit import (
     plot_residual_diagnostics,
 )
 
-
 # -----------------------------------------------------------------------------
 # Each noise pattern → expected hypothesis
 # -----------------------------------------------------------------------------
@@ -79,9 +78,9 @@ def test_mild_leptokurtosis_not_called_gaussian():
     assert audit.excess_kurt > 1.0, f"fixture too weak: kurt={audit.excess_kurt:+.2f}; needs > 1 to test the bug"
     # The contract: anything with excess_kurt > 1.5 must NOT be called
     # plain Gaussian.
-    assert audit.hypothesis != "Gaussian (well-behaved)", (
-        f"regression: residuals with excess_kurt={audit.excess_kurt:+.2f} called Gaussian; this was the production profanation user reported on 2026-05-11."
-    )
+    assert (
+        audit.hypothesis != "Gaussian (well-behaved)"
+    ), f"regression: residuals with excess_kurt={audit.excess_kurt:+.2f} called Gaussian; this was the production profanation user reported on 2026-05-11."
     # Verdict label should indicate non-Gaussian (one of the documented
     # heavy-tails / peaky verdicts).
     assert audit.hypothesis in {
@@ -172,6 +171,7 @@ def test_lognormal_multiplicative_heteroscedastic():
 
 
 def test_homoscedastic_gaussian_says_mse():
+    """Homoscedastic gaussian says mse."""
     rng = np.random.default_rng(0)
     n = 5_000
     y_pred = rng.uniform(0, 100, size=n)
@@ -259,6 +259,7 @@ def test_sample_before_finite_filter_on_large_input():
     _orig_isfinite = np.isfinite
 
     def _spy_isfinite(arr, *a, **kw):
+        """Spy isfinite."""
         try:
             sz = int(np.asarray(arr).size)
             if sz > captured["max_size_seen"]:
@@ -282,12 +283,13 @@ def test_sample_before_finite_filter_on_large_input():
     # np.isfinite ever sees should be at most ``sample_size`` (plus a
     # tiny slack for any incidental probe; tighten to exactly
     # ``sample_size`` if no probes exist).
-    assert captured["max_size_seen"] <= sample_size, (
-        f"np.isfinite ran on an array of size {captured['max_size_seen']} > sample_size={sample_size}; this re-introduces the pre-fix full-N finite-mask pass."
-    )
+    assert (
+        captured["max_size_seen"] <= sample_size
+    ), f"np.isfinite ran on an array of size {captured['max_size_seen']} > sample_size={sample_size}; this re-introduces the pre-fix full-N finite-mask pass."
 
 
 def test_sample_size_none_no_subsample():
+    """Sample size none no subsample."""
     rng = np.random.default_rng(0)
     n = 1_000
     y_pred = rng.uniform(-3, 3, size=n)
@@ -298,16 +300,19 @@ def test_sample_size_none_no_subsample():
 
 
 def test_too_few_observations_raises():
+    """Too few observations raises."""
     with pytest.raises(ValueError, match=">= 5 finite observations"):
         audit_residuals(np.array([1.0, 2.0]), np.array([1.0, 2.0]))
 
 
 def test_mismatched_shapes_raises():
+    """Mismatched shapes raises."""
     with pytest.raises(ValueError, match="shape mismatch"):
         audit_residuals(np.zeros(10), np.zeros(11))
 
 
 def test_pandas_series_input():
+    """Pandas series input."""
     rng = np.random.default_rng(0)
     n = 1_000
     y_pred = pd.Series(rng.uniform(-3, 3, size=n))
@@ -322,6 +327,7 @@ def test_pandas_series_input():
 
 
 def test_format_report_includes_all_diagnostic_sections():
+    """Format report includes all diagnostic sections."""
     rng = np.random.default_rng(0)
     n = 5_000
     y_pred = rng.uniform(-3, 3, size=n)
@@ -338,6 +344,7 @@ def test_format_report_includes_all_diagnostic_sections():
 
 
 def test_to_dict_round_trips_to_json():
+    """To dict round trips to json."""
     import orjson
 
     rng = np.random.default_rng(0)
@@ -358,6 +365,7 @@ def test_to_dict_round_trips_to_json():
 
 
 def test_plot_residual_diagnostics_writes_to_axes():
+    """Plot residual diagnostics writes to axes."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -409,6 +417,7 @@ def test_plot_handles_too_few_obs_gracefully():
 
 
 def test_default_diag_sample_size_constant():
+    """Default diag sample size constant."""
     assert DEFAULT_DIAG_SAMPLE_SIZE == 50_000
     assert HETERO_SPEARMAN_THRESHOLD == 0.30
 
@@ -423,6 +432,7 @@ def test_spearman_corr_single_sort_byte_identical_to_double_argsort():
     from mlframe.training.targets.regression_residual_audit import _spearman_corr
 
     def _double_argsort_reference(x, y):
+        """Double argsort reference."""
         x = np.asarray(x, dtype=np.float64)
         y = np.asarray(y, dtype=np.float64)
         if x.size < 3:

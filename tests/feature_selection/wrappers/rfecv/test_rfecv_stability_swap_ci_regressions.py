@@ -24,6 +24,7 @@ def test_f1_stability_selection_does_not_count_zero_fi_noise():
 
     class _Stub:
         # Only the first 3 features ever get positive importance; the rest are pure noise (FI == 0).
+        """Groups tests covering Stub."""
         verbose = 0
         random_state = 0
         estimator = object()
@@ -45,12 +46,14 @@ def test_f1_stability_selection_does_not_count_zero_fi_noise():
 
     # Monkeypatch the FI getter + estimator clone so every bootstrap returns FI on exactly f0/f1/f2.
     def _fake_get_fi(model, current_features, data, target, importance_getter, n_repeats):
+        """Fake get fi."""
         return {"f0": 1.0, "f1": 0.9, "f2": 0.8}
 
     class _FakeEst:
+        """Groups tests covering FakeEst."""
         def fit(self, X, y):
+            """Helper that fit."""
             return self
-
 
     orig_clone = ss.clone
     orig_getfi = ss.get_feature_importances
@@ -77,6 +80,7 @@ def test_f3_bootstrap_ci_is_well_ordered():
     class _Stub:
         # cv curve peaks sharply at N=5 so the bootstrap argmax concentrates around 5,
         # but the picker chose n_features_=15 (e.g. one_se_max on a flat tail) -> outside the CI.
+        """Groups tests covering Stub."""
         n_features_ = 15
         cv_results_ = {
             "nfeatures": [0, 5, 10, 15],

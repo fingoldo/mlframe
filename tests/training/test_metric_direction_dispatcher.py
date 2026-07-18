@@ -40,7 +40,6 @@ import logging
 
 import pytest
 
-
 # ---- direction lookup ---------------------------------------------------
 
 
@@ -108,11 +107,12 @@ import pytest
     ],
 )
 def test_metric_name_higher_is_better_known(name, expected):
+    """Metric name higher is better known."""
     from mlframe.training.metrics_registry import metric_name_higher_is_better
 
-    assert metric_name_higher_is_better(name) is expected, (
-        f"direction for {name!r} should be higher_is_better={expected}; got {metric_name_higher_is_better(name)}"
-    )
+    assert (
+        metric_name_higher_is_better(name) is expected
+    ), f"direction for {name!r} should be higher_is_better={expected}; got {metric_name_higher_is_better(name)}"
 
 
 def test_metric_name_higher_is_better_unknown_returns_none():
@@ -126,6 +126,7 @@ def test_metric_name_higher_is_better_unknown_returns_none():
 
 
 def test_metric_name_higher_is_better_handles_non_string():
+    """Metric name higher is better handles non string."""
     from mlframe.training.metrics_registry import metric_name_higher_is_better
 
     assert metric_name_higher_is_better(None) is None
@@ -162,9 +163,11 @@ def test_metric_name_higher_is_better_handles_non_string():
     ],
 )
 def test_callbacks_derive_mode_correct_direction(name, expected):
+    """Callbacks derive mode correct direction."""
     from mlframe.training.callbacks._callbacks import UniversalCallback
 
     class _MockCallback(UniversalCallback):
+        """Groups tests covering mock callback."""
         def __init__(self):
             self.verbose = 0
             self.metric_history = {}
@@ -185,6 +188,7 @@ def test_derive_mode_unknown_warns_and_defaults_min(caplog):
     from mlframe.training.callbacks._callbacks import UniversalCallback
 
     class _MockCallback(UniversalCallback):
+        """Groups tests covering mock callback."""
         def __init__(self):
             self.verbose = 0
             self.metric_history = {}
@@ -228,6 +232,7 @@ def test_dummy_baselines_uses_central_dispatcher():
 
 
 def test_composite_post_uses_central_dispatcher():
+    """Composite post uses central dispatcher."""
     from mlframe.training.core import _phase_composite_post_summary as summ
 
     assert _imports_dispatcher(summ), "Wave 20 P0: _phase_composite_post_summary must import the central dispatcher"
@@ -239,6 +244,7 @@ def test_callbacks_derive_mode_not_endswith_e_heuristic():
     from mlframe.training.callbacks._callbacks import UniversalCallback
 
     class _MockCallback(UniversalCallback):
+        """Groups tests covering mock callback."""
         def __init__(self):
             self.verbose = 0
             self.metric_history = {}

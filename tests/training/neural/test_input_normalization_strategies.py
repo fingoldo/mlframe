@@ -94,6 +94,7 @@ def _base_params(network_params_override: dict, scale_y: bool = False) -> dict:
 
 
 def _fit_and_score(params: dict, X_tr, y_tr, X_te, y_te, seed: int = 0) -> float:
+    """Fit and score."""
     torch.manual_seed(seed)
     np.random.seed(seed)
     reg = PytorchLightningRegressor(**params)
@@ -163,9 +164,9 @@ def test_layernorm_on_input_loses_to_batchnorm_or_standardscaler():
     # path"; users who need per-feature scaling must opt into
     # ``use_batchnorm=True`` or StandardScaler upstream (documented in
     # the generate_mlp docstring after this fix).
-    assert r2_D >= r2_A - 0.05, (
-        f"post-fix default R^2={r2_D:+.4f} regresses against pre-fix forced-LN R^2={r2_A:+.4f}; the default flip should be at least neutral on this data shape."
-    )
+    assert (
+        r2_D >= r2_A - 0.05
+    ), f"post-fix default R^2={r2_D:+.4f} regresses against pre-fix forced-LN R^2={r2_A:+.4f}; the default flip should be at least neutral on this data shape."
 
     # Both BN and StandardScaler must independently reach respectable
     # R^2; sanity-check the "easy" paths actually work.

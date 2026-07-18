@@ -28,13 +28,13 @@ from mlframe.training.composite import (
     get_transform,
 )
 
-
 # ===========================================================================
 # ewma_residual
 # ===========================================================================
 
 
 class TestEWMA:
+    """Groups tests covering e w m a."""
     def test_anchor_constant_input(self) -> None:
         """Constant base => EWMA stays at the constant value forever."""
         out = _ewma_compute(np.array([5.0] * 100), k=5, anchor=5.0)
@@ -48,6 +48,7 @@ class TestEWMA:
         assert out[0] == pytest.approx(alpha * 10.0)
 
     def test_round_trip(self) -> None:
+        """Round trip."""
         rng = np.random.default_rng(0)
         n = 500
         base = rng.normal(size=n).cumsum()  # smooth-ish time series
@@ -58,6 +59,7 @@ class TestEWMA:
         np.testing.assert_allclose(y, y_back, rtol=1e-9)
 
     def test_round_trip_via_registry(self) -> None:
+        """Round trip via registry."""
         rng = np.random.default_rng(1)
         n = 300
         base = rng.normal(size=n).cumsum()
@@ -75,6 +77,7 @@ class TestEWMA:
         assert np.all(np.isfinite(out))
 
     def test_domain_rejects_non_finite(self) -> None:
+        """Domain rejects non finite."""
         base = np.array([1.0, np.nan, 3.0])
         y = np.array([1.0, 2.0, 3.0])
         mask = _ewma_residual_domain(y, base)
@@ -97,9 +100,9 @@ class TestEWMA:
         # Diff residual: y - y_prev.
         T_diff = y - base
         # On smooth drift, EWMA smooths through lag noise; diff doubles the noise (Var(y - y_prev) ~= 2 * sigma^2).
-        assert np.var(T_ewma) < np.var(T_diff), (
-            f"EWMA residual variance should be < diff residual on smooth drift; got ewma={np.var(T_ewma):.4f}, diff={np.var(T_diff):.4f}"
-        )
+        assert np.var(T_ewma) < np.var(
+            T_diff
+        ), f"EWMA residual variance should be < diff residual on smooth drift; got ewma={np.var(T_ewma):.4f}, diff={np.var(T_diff):.4f}"
 
 
 # ===========================================================================
@@ -108,6 +111,7 @@ class TestEWMA:
 
 
 class TestRollingMedian:
+    """Groups tests covering rolling median."""
     def test_centered_window(self) -> None:
         """Centred window of size 3: median of 3 neighbours."""
         arr = np.array([1.0, 5.0, 2.0, 8.0, 3.0])
@@ -119,12 +123,14 @@ class TestRollingMedian:
         assert out[3] == 3.0  # median([2, 8, 3])
 
     def test_handles_nans_in_window(self) -> None:
+        """Handles nans in window."""
         arr = np.array([1.0, np.nan, 3.0])
         out = _rolling_median(arr, k=3)
         # Window i=1: [1, nan, 3] -> finite [1, 3] -> median 2.0
         assert out[1] == 2.0
 
     def test_round_trip(self) -> None:
+        """Round trip."""
         rng = np.random.default_rng(3)
         n = 300
         base = np.abs(rng.normal(loc=10.0, scale=2.0, size=n)) + 1.0  # all positive
@@ -149,6 +155,7 @@ class TestRollingMedian:
 
 
 class TestFracDiff:
+    """Groups tests covering frac diff."""
     def test_weights_first_lag(self) -> None:
         """w_0 = 1; w_1 = -d (first-difference order weight)."""
         d = 0.5
@@ -165,6 +172,7 @@ class TestFracDiff:
         assert all(w[k] == 0.0 for k in range(2, 6))
 
     def test_round_trip(self) -> None:
+        """Round trip."""
         rng = np.random.default_rng(4)
         n = 200
         y = rng.normal(size=n).cumsum()  # random walk
@@ -175,6 +183,7 @@ class TestFracDiff:
         np.testing.assert_allclose(y, y_back, rtol=1e-7, atol=1e-7)
 
     def test_round_trip_via_registry(self) -> None:
+        """Round trip via registry."""
         rng = np.random.default_rng(5)
         n = 150
         y = rng.normal(size=n).cumsum()

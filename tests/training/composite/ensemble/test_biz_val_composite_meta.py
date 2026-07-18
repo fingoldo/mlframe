@@ -17,6 +17,7 @@ from mlframe.training.composite.meta import CompositeOrRawStacker
 
 
 def _split(X, y, n_tr):
+    """Split."""
     return X.iloc[:n_tr], X.iloc[n_tr:], y[:n_tr], y[n_tr:]
 
 
@@ -70,6 +71,6 @@ def test_biz_val_meta_falls_back_to_raw_and_beats_composite_on_misspecified_base
 
     _w_c, w_r = est.weights_
     assert w_r >= 0.6, f"raw model should dominate the blend on a misspecified base; got w_raw={w_r:.3f}"
-    assert rmse_blend < rmse_comp * 0.95, (
-        f"blend (fallback to raw) must beat standalone composite on OOS RMSE; blend={rmse_blend:.4f} composite={rmse_comp:.4f}"
-    )
+    assert (
+        rmse_blend < rmse_comp * 0.95
+    ), f"blend (fallback to raw) must beat standalone composite on OOS RMSE; blend={rmse_blend:.4f} composite={rmse_comp:.4f}"

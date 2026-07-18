@@ -26,6 +26,7 @@ from tests.training._fuzz_combo import AXES, _build_combo
 
 
 def _make_combo(**overrides):
+    """Make combo."""
     axes = {name: values[0] for name, values in AXES.items()}
     axes.update(overrides)
     return _build_combo(models=("cb",), axes=axes, seed=0)
@@ -1284,9 +1285,9 @@ def test_iter569_audit_pass_6_axes_flow_to_kwargs():
     )
     c_mrmr_a = _build_combo(models=("cb",), axes=mrmr_a, seed=0)
     c_mrmr_b = _build_combo(models=("cb",), axes=mrmr_b, seed=0)
-    assert c_mrmr_a.canonical_key() == c_mrmr_b.canonical_key(), (
-        "all 8 MRMR Wave 7/8/9 axes must collapse to MRMR defaults when use_mrmr_fs=False so dedup absorbs the disabled-branch combos"
-    )
+    assert (
+        c_mrmr_a.canonical_key() == c_mrmr_b.canonical_key()
+    ), "all 8 MRMR Wave 7/8/9 axes must collapse to MRMR defaults when use_mrmr_fs=False so dedup absorbs the disabled-branch combos"
 
     # (c.2) cv_selector_mode_cfg collapses to "mean" when discovery is off.
     cv_a = dict(base_axes)
@@ -1313,9 +1314,9 @@ def test_iter569_audit_pass_6_axes_flow_to_kwargs():
     )
     c_sse_a = _build_combo(models=("cb",), axes=sse_a, seed=0)
     c_sse_b = _build_combo(models=("cb",), axes=sse_b, seed=0)
-    assert c_sse_a.canonical_key() == c_sse_b.canonical_key(), (
-        "slice_stable_es sub-knobs must collapse to source defaults when slice_stable_es_enabled_cfg=False"
-    )
+    assert (
+        c_sse_a.canonical_key() == c_sse_b.canonical_key()
+    ), "slice_stable_es sub-knobs must collapse to source defaults when slice_stable_es_enabled_cfg=False"
 
     # (d.1) MRMR axes flow through build_mrmr_kwargs into the dict that
     # FeatureSelectionConfig.mrmr_kwargs consumes. Names match MRMR.__init__
@@ -1365,9 +1366,9 @@ def test_iter569_audit_pass_6_axes_flow_to_kwargs():
     e_b.update(slice_stable_es_enabled_cfg=False)
     c_e_a = _build_combo(models=("cb",), axes=e_a, seed=0)
     c_e_b = _build_combo(models=("cb",), axes=e_b, seed=0)
-    assert c_e_a.canonical_key() != c_e_b.canonical_key(), (
-        "slice_stable_es_enabled_cfg=True must NOT canon-collapse to False (master toggle is always meaningful)"
-    )
+    assert (
+        c_e_a.canonical_key() != c_e_b.canonical_key()
+    ), "slice_stable_es_enabled_cfg=True must NOT canon-collapse to False (master toggle is always meaningful)"
 
 
 def test_iter576_audit_pass_6_low_tier_axes_flow_to_kwargs():
@@ -1509,9 +1510,9 @@ def test_iter576_audit_pass_6_low_tier_axes_flow_to_kwargs():
     )
     c_sp_a = _build_combo(models=("cb",), axes=sp_a, seed=0)
     c_sp_b = _build_combo(models=("cb",), axes=sp_b, seed=0)
-    assert c_sp_a.canonical_key() == c_sp_b.canonical_key(), (
-        "all 18 shap_proxied_* LOW axes must collapse to ShapProxiedFS source defaults when use_shap_proxied_fs=False"
-    )
+    assert (
+        c_sp_a.canonical_key() == c_sp_b.canonical_key()
+    ), "all 18 shap_proxied_* LOW axes must collapse to ShapProxiedFS source defaults when use_shap_proxied_fs=False"
 
     # (c.2) MRMR LOW scalars collapse when use_mrmr_fs=False.
     mr_a = dict(base_axes)
@@ -1539,9 +1540,9 @@ def test_iter576_audit_pass_6_low_tier_axes_flow_to_kwargs():
     )
     c_cv_a = _build_combo(models=("cb",), axes=cv_a, seed=0)
     c_cv_b = _build_combo(models=("cb",), axes=cv_b, seed=0)
-    assert c_cv_a.canonical_key() == c_cv_b.canonical_key(), (
-        "4 CV-selector LOW scalars must collapse to discovery defaults when composite_discovery_enabled_cfg=False"
-    )
+    assert (
+        c_cv_a.canonical_key() == c_cv_b.canonical_key()
+    ), "4 CV-selector LOW scalars must collapse to discovery defaults when composite_discovery_enabled_cfg=False"
 
     # (d.1) ShapProxiedFS LOW knobs flow through
     # build_shap_proxied_fs_kwargs into the dict consumed by
@@ -1825,9 +1826,9 @@ def test_iter594_audit_pass_7_axes_flow_to_kwargs():
     quantile_b["mrmr_collapsed_fallback_nbins_cfg"] = 10
     c_q_a = _build_combo(models=("cb",), axes=quantile_a, seed=0)
     c_q_b = _build_combo(models=("cb",), axes=quantile_b, seed=0)
-    assert c_q_a.canonical_key() == c_q_b.canonical_key(), (
-        "audit-pass-7 #4: collapsed_fallback_nbins must canon-collapse when nbins_strategy is not one of {mdlp, fayyad_irani}"
-    )
+    assert (
+        c_q_a.canonical_key() == c_q_b.canonical_key()
+    ), "audit-pass-7 #4: collapsed_fallback_nbins must canon-collapse when nbins_strategy is not one of {mdlp, fayyad_irani}"
 
     # (d) Threading: when use_mrmr_fs=True the axes flow into build_mrmr_kwargs.
     on_axes = dict(base_axes)
@@ -1863,17 +1864,17 @@ def test_iter594_audit_pass_7_axes_flow_to_kwargs():
     c_on_def = _build_combo(models=("cb",), axes=on_defaults, seed=0)
     kw_def = build_mrmr_kwargs(c_on_def)
     assert kw_def is not None
-    assert "nbins_strategy_kwargs" not in kw_def, (
-        f"nbins_strategy_kwargs must NOT be injected when #3 + #4 are at source defaults; got {kw_def.get('nbins_strategy_kwargs')!r}"
-    )
+    assert (
+        "nbins_strategy_kwargs" not in kw_def
+    ), f"nbins_strategy_kwargs must NOT be injected when #3 + #4 are at source defaults; got {kw_def.get('nbins_strategy_kwargs')!r}"
     # #2 still threads even at the source default (always a real kwarg).
     assert kw_def["baseline_npermutations"] == 2
 
     # (d-bis) Distinct canonical_keys when the non-default values are set
     # under use_mrmr_fs=True (so the pairwise sampler reaches both branches).
-    assert c_on.canonical_key() != c_on_def.canonical_key(), (
-        "audit-pass-7 #2/#3/#4: non-default values must produce distinct canonical keys under use_mrmr_fs=True so the dedup keeps both branches reachable"
-    )
+    assert (
+        c_on.canonical_key() != c_on_def.canonical_key()
+    ), "audit-pass-7 #2/#3/#4: non-default values must produce distinct canonical keys under use_mrmr_fs=True so the dedup keeps both branches reachable"
 
 
 def test_iter606_audit_pass_8_axes_flow_to_kwargs():
@@ -1981,9 +1982,9 @@ def test_iter606_audit_pass_8_axes_flow_to_kwargs():
         off4_b["mlp_class_weight_cfg"] = None
         c_off4_a = _build_combo(models=("cb",), axes=off4_a, seed=0)
         c_off4_b = _build_combo(models=("cb",), axes=off4_b, seed=0)
-        assert c_off4_a.canonical_key() == c_off4_b.canonical_key(), (
-            f"audit-pass-8 #4: must canon-collapse outside the compound gate with override {ax_override!r}"
-        )
+        assert (
+            c_off4_a.canonical_key() == c_off4_b.canonical_key()
+        ), f"audit-pass-8 #4: must canon-collapse outside the compound gate with override {ax_override!r}"
 
     # (c-iv-bis) MLP + binary + balanced -> still outside the gate, collapses.
     off4_bal_a = dict(base_axes)
@@ -2010,9 +2011,9 @@ def test_iter606_audit_pass_8_axes_flow_to_kwargs():
     kw_mrmr = build_mrmr_kwargs(c_on_mrmr)
     assert kw_mrmr is not None
     assert kw_mrmr["cardinality_bias_correction"] is False, f"#1 did not thread into mrmr_kwargs: {kw_mrmr.get('cardinality_bias_correction')!r}"
-    assert kw_mrmr["min_relevance_gain_relative_to_first"] == 0.0, (
-        f"#2 did not thread into mrmr_kwargs: {kw_mrmr.get('min_relevance_gain_relative_to_first')!r}"
-    )
+    assert (
+        kw_mrmr["min_relevance_gain_relative_to_first"] == 0.0
+    ), f"#2 did not thread into mrmr_kwargs: {kw_mrmr.get('min_relevance_gain_relative_to_first')!r}"
 
     # MRMR off -> kwargs is None (no threading).
     off_mrmr = dict(base_axes)
@@ -2072,17 +2073,17 @@ def test_iter606_audit_pass_8_axes_flow_to_kwargs():
         mrmr_min_relevance_gain_relative_to_first_cfg=0.05,
     )
     c_on_def = _build_combo(models=("cb",), axes=on_def, seed=0)
-    assert c_on_mrmr.canonical_key() != c_on_def.canonical_key(), (
-        "audit-pass-8 #1/#2: non-default values must produce distinct canonical keys under use_mrmr_fs=True so dedup keeps both branches reachable"
-    )
+    assert (
+        c_on_mrmr.canonical_key() != c_on_def.canonical_key()
+    ), "audit-pass-8 #1/#2: non-default values must produce distinct canonical keys under use_mrmr_fs=True so dedup keeps both branches reachable"
 
     # Distinct canonical_keys for #3/#4 under the compound gate.
     on_mlp_def = dict(on_mlp)
     on_mlp_def.update(mlp_random_state_cfg=None, mlp_class_weight_cfg=None)
     c_on_mlp_def = _build_combo(models=("mlp",), axes=on_mlp_def, seed=0)
-    assert c_on_mlp.canonical_key() != c_on_mlp_def.canonical_key(), (
-        "audit-pass-8 #3/#4: non-default values must produce distinct canonical keys when 'mlp' in models AND rare classification holds"
-    )
+    assert (
+        c_on_mlp.canonical_key() != c_on_mlp_def.canonical_key()
+    ), "audit-pass-8 #3/#4: non-default values must produce distinct canonical keys when 'mlp' in models AND rare classification holds"
 
 
 def test_iter613_audit_pass_8_med_axes_flow_to_kwargs():
@@ -2133,9 +2134,9 @@ def test_iter613_audit_pass_8_med_axes_flow_to_kwargs():
 
     # (a) Dataclass defaults mirror HEAD source.
     fields = FuzzCombo.__dataclass_fields__
-    assert fields["shap_proxied_adaptive_prescreen_by_stability_cfg"].default is False, (
-        "audit-pass-8 #5: default must mirror feature_selection/shap_proxied_fs.py:208 (False)"
-    )
+    assert (
+        fields["shap_proxied_adaptive_prescreen_by_stability_cfg"].default is False
+    ), "audit-pass-8 #5: default must mirror feature_selection/shap_proxied_fs.py:208 (False)"
     assert fields["mlp_use_layernorm_cfg"].default is False, "audit-pass-8 #7: default must mirror training/neural/flat.py:205 (False)"
     assert fields["mlp_l1_alpha_cfg"].default == 0.0, "audit-pass-8 #8: default must mirror library default 0.0"
     assert fields["mlp_inject_zero_sample_weight_batch_cfg"].default is False, "audit-pass-8 #9: default must mirror False (no injection)"
@@ -2257,9 +2258,9 @@ def test_iter613_audit_pass_8_med_axes_flow_to_kwargs():
     c_on5 = _build_combo(models=("cb",), axes=on5, seed=0)
     kw_shap = build_shap_proxied_fs_kwargs(c_on5)
     assert kw_shap is not None
-    assert kw_shap["adaptive_prescreen_by_stability"] is True, (
-        f"#5 did not thread into shap_proxied_fs_kwargs: {kw_shap.get('adaptive_prescreen_by_stability')!r}"
-    )
+    assert (
+        kw_shap["adaptive_prescreen_by_stability"] is True
+    ), f"#5 did not thread into shap_proxied_fs_kwargs: {kw_shap.get('adaptive_prescreen_by_stability')!r}"
     # ShapProxiedFS off -> kwargs None.
     off5_full = dict(base_axes)
     off5_full.update(
@@ -2405,9 +2406,9 @@ def test_iter613_audit_pass_8_med_axes_flow_to_kwargs():
     on5_def = dict(on5)
     on5_def["shap_proxied_adaptive_prescreen_by_stability_cfg"] = False
     c_on5_def = _build_combo(models=("cb",), axes=on5_def, seed=0)
-    assert c_on5.canonical_key() != c_on5_def.canonical_key(), (
-        "audit-pass-8 #5: non-default value must produce distinct canonical key under use_shap_proxied_fs=True"
-    )
+    assert (
+        c_on5.canonical_key() != c_on5_def.canonical_key()
+    ), "audit-pass-8 #5: non-default value must produce distinct canonical key under use_shap_proxied_fs=True"
     # #7 distinct under mlp+regression.
     on7_def = dict(on78)
     on7_def["mlp_use_layernorm_cfg"] = False
@@ -2416,23 +2417,23 @@ def test_iter613_audit_pass_8_med_axes_flow_to_kwargs():
     on8_def = dict(on78)
     on8_def["mlp_l1_alpha_cfg"] = 0.0
     c_on8_def = _build_combo(models=("mlp",), axes=on8_def, seed=0)
-    assert c_on78.canonical_key() != c_on7_def.canonical_key() or (c_on78.canonical_key() != c_on8_def.canonical_key()), (
-        "audit-pass-8 #7/#8: non-default values must change canonical key under mlp+regression"
-    )
+    assert c_on78.canonical_key() != c_on7_def.canonical_key() or (
+        c_on78.canonical_key() != c_on8_def.canonical_key()
+    ), "audit-pass-8 #7/#8: non-default values must change canonical key under mlp+regression"
     # #9 distinct under mlp + non-uniform weights.
     on9_def = dict(on9)
     on9_def["mlp_inject_zero_sample_weight_batch_cfg"] = False
     c_on9_def = _build_combo(models=("mlp",), axes=on9_def, seed=0)
-    assert c_on9.canonical_key() != c_on9_def.canonical_key(), (
-        "audit-pass-8 #9: non-default value must produce distinct canonical key under mlp + non-uniform weights"
-    )
+    assert (
+        c_on9.canonical_key() != c_on9_def.canonical_key()
+    ), "audit-pass-8 #9: non-default value must produce distinct canonical key under mlp + non-uniform weights"
     # #10 distinct under use_mrmr_fs + interactions >= 2.
     on10_def = dict(on10)
     on10_def["inject_xor_synergy_pair_cfg"] = False
     c_on10_def = _build_combo(models=("cb",), axes=on10_def, seed=0)
-    assert c_on10.canonical_key() != c_on10_def.canonical_key(), (
-        "audit-pass-8 #10: non-default value must produce distinct canonical key under use_mrmr_fs + interactions >= 2"
-    )
+    assert (
+        c_on10.canonical_key() != c_on10_def.canonical_key()
+    ), "audit-pass-8 #10: non-default value must produce distinct canonical key under use_mrmr_fs + interactions >= 2"
 
 
 # ---------------------------------------------------------------------------
@@ -2510,12 +2511,12 @@ def test_iter615_audit_pass_9_axes_flow_to_kwargs():
     assert fields["mlp_use_residual_cfg"].default is False, "audit-pass-9 #5: default must mirror training/neural/flat.py:208 (False)"
     assert fields["mlp_numerical_embedding_cfg"].default is None, "audit-pass-9 #6: default must mirror training/neural/flat.py:209 (None)"
     assert fields["mlp_numerical_embedding_kwargs_cfg"].default == "paper_default", "audit-pass-9 #6: kwargs literal default must mirror 'paper_default'"
-    assert fields["mrmr_fe_hybrid_orth_enable_cfg"].default is False, (
-        "audit-pass-9 #7: master default must mirror feature_selection/filters/mrmr.py:656 (False)"
-    )
-    assert fields["mrmr_fe_hybrid_orth_pair_enable_cfg"].default is True, (
-        "audit-pass-9 #7: pair_enable default must mirror feature_selection/filters/mrmr.py:664 (True)"
-    )
+    assert (
+        fields["mrmr_fe_hybrid_orth_enable_cfg"].default is False
+    ), "audit-pass-9 #7: master default must mirror feature_selection/filters/mrmr.py:656 (False)"
+    assert (
+        fields["mrmr_fe_hybrid_orth_pair_enable_cfg"].default is True
+    ), "audit-pass-9 #7: pair_enable default must mirror feature_selection/filters/mrmr.py:664 (True)"
 
     # (b) AXES presence with the audit-listed pairs.
     assert AXES["mlp_adamw_betas_cfg"] == ((0.9, 0.95), (0.9, 0.999))
@@ -2667,9 +2668,9 @@ def test_iter615_audit_pass_9_axes_flow_to_kwargs():
     off8_b["target_type"] = "regression"
     c_off8_a = _build_combo(models=("xgb",), axes=off8_a, seed=0)
     c_off8_b = _build_combo(models=("xgb",), axes=off8_b, seed=0)
-    assert c_off8_a.canonical_key() == c_off8_b.canonical_key(), (
-        "audit-pass-9 #8: multi_target_regression must canon-collapse to 'regression' when neither 'cb' nor 'mlp' is in models"
-    )
+    assert (
+        c_off8_a.canonical_key() == c_off8_b.canonical_key()
+    ), "audit-pass-9 #8: multi_target_regression must canon-collapse to 'regression' when neither 'cb' nor 'mlp' is in models"
 
     # ------------------------------------------------------------------
     # (d) Threading.
@@ -2745,9 +2746,9 @@ def test_iter615_audit_pass_9_axes_flow_to_kwargs():
     kw6 = build_mlp_kwargs(c_on6)
     np6 = kw6.get("network_params", {})
     assert np6.get("numerical_embedding") == "plr", f"#6 numerical_embedding did not thread: {np6.get('numerical_embedding')!r}"
-    assert np6.get("numerical_embedding_kwargs") == {"include_raw": False}, (
-        f"#6 numerical_embedding_kwargs literal did not expand to include_raw=False: {np6.get('numerical_embedding_kwargs')!r}"
-    )
+    assert np6.get("numerical_embedding_kwargs") == {
+        "include_raw": False
+    }, f"#6 numerical_embedding_kwargs literal did not expand to include_raw=False: {np6.get('numerical_embedding_kwargs')!r}"
     # "paper_default" leaves the kwargs dict unset so the module ctor falls
     # through to library defaults.
     on6_pd = dict(on6)
@@ -2839,9 +2840,9 @@ def test_iter615_audit_pass_9_axes_flow_to_kwargs():
     off_inf_b["inject_inf_nan"] = False
     c_off_inf_a = _build_combo(models=("mlp",), axes=off_inf_a, seed=0)
     c_off_inf_b = _build_combo(models=("mlp",), axes=off_inf_b, seed=0)
-    assert c_off_inf_a.canonical_key() == c_off_inf_b.canonical_key(), (
-        "F-23 mirror: inject_inf_nan must canon-collapse when MLP is the sole model (validator raises on entry regardless)"
-    )
+    assert (
+        c_off_inf_a.canonical_key() == c_off_inf_b.canonical_key()
+    ), "F-23 mirror: inject_inf_nan must canon-collapse when MLP is the sole model (validator raises on entry regardless)"
     # Multi-model subset (mlp + cb): inject_inf_nan stays live so dedup
     # keeps both branches reachable (cb handles inf/nan via its own path).
     multi_a = dict(base_axes)
@@ -2850,9 +2851,9 @@ def test_iter615_audit_pass_9_axes_flow_to_kwargs():
     multi_b["inject_inf_nan"] = False
     c_multi_a = _build_combo(models=("cb", "mlp"), axes=multi_a, seed=0)
     c_multi_b = _build_combo(models=("cb", "mlp"), axes=multi_b, seed=0)
-    assert c_multi_a.canonical_key() != c_multi_b.canonical_key(), (
-        "F-23 mirror: inject_inf_nan must remain live on multi-model subsets where non-MLP models can consume inf/nan"
-    )
+    assert (
+        c_multi_a.canonical_key() != c_multi_b.canonical_key()
+    ), "F-23 mirror: inject_inf_nan must remain live on multi-model subsets where non-MLP models can consume inf/nan"
 
     # (f) Distinct canonical_keys: on-axis values must NOT collapse to the
     # source default under their compound-gate-on configuration.
@@ -2883,9 +2884,9 @@ def test_iter615_audit_pass_9_axes_flow_to_kwargs():
     on8_def = dict(on8)
     on8_def["target_type"] = "regression"
     c_on8_def = _build_combo(models=("mlp",), axes=on8_def, seed=0)
-    assert c_on8.canonical_key() != c_on8_def.canonical_key(), (
-        "#8: multi_target_regression must produce distinct canonical key from regression when 'mlp' is in models"
-    )
+    assert (
+        c_on8.canonical_key() != c_on8_def.canonical_key()
+    ), "#8: multi_target_regression must produce distinct canonical key from regression when 'mlp' is in models"
 
 
 # ---------------------------------------------------------------------------
@@ -3072,17 +3073,17 @@ def test_iter617_audit_pass_10_axes_flow_to_kwargs():
     assert kw1 is not None
     from mlframe.training.neural._muon_optimizer import MuonAdamWHybrid
 
-    assert kw1.get("model_params", {}).get("optimizer") is MuonAdamWHybrid, (
-        f"#1 muon_hybrid did not thread MuonAdamWHybrid into model_params: {kw1.get('model_params')!r}"
-    )
+    assert (
+        kw1.get("model_params", {}).get("optimizer") is MuonAdamWHybrid
+    ), f"#1 muon_hybrid did not thread MuonAdamWHybrid into model_params: {kw1.get('model_params')!r}"
     # "adamw" -> no optimizer key (LightningModule falls back to AdamW).
     on1_adamw = dict(base_axes)
     on1_adamw["mlp_optimizer_cfg"] = "adamw"
     c_on1_adamw = _build_combo(models=("mlp",), axes=on1_adamw, seed=0)
     kw1_adamw = build_mlp_kwargs(c_on1_adamw)
-    assert "optimizer" not in kw1_adamw.get("model_params", {}), (
-        "#1 'adamw' must NOT emit a model_params['optimizer'] key (library default at _flat_torch_module.py:86)"
-    )
+    assert "optimizer" not in kw1_adamw.get(
+        "model_params", {}
+    ), "#1 'adamw' must NOT emit a model_params['optimizer'] key (library default at _flat_torch_module.py:86)"
 
     # (d-2) #2 degrees threading: MRMR active + master on -> fe_hybrid_orth_degrees
     # surfaces with the axis value.
@@ -3141,9 +3142,9 @@ def test_iter617_audit_pass_10_axes_flow_to_kwargs():
         mrmr_fe_hybrid_orth_top_k_cfg=1,
         mrmr_fe_hybrid_orth_pair_max_degree_cfg=3,
     )
-    assert build_mrmr_kwargs(_build_combo(models=("cb",), axes=off_full, seed=0)) is None, (
-        "audit-pass-10 #2/#3/#4/#6: mrmr_kwargs must be None when use_mrmr_fs=False"
-    )
+    assert (
+        build_mrmr_kwargs(_build_combo(models=("cb",), axes=off_full, seed=0)) is None
+    ), "audit-pass-10 #2/#3/#4/#6: mrmr_kwargs must be None when use_mrmr_fs=False"
 
     # ------------------------------------------------------------------
     # (f) Distinct canonical_keys under compound-gate-on.
@@ -3173,9 +3174,9 @@ def test_iter617_audit_pass_10_axes_flow_to_kwargs():
     on6_def = dict(on6)
     on6_def["mrmr_fe_hybrid_orth_pair_max_degree_cfg"] = 2
     c_on6_def = _build_combo(models=("cb",), axes=on6_def, seed=0)
-    assert c_on6.canonical_key() != c_on6_def.canonical_key(), (
-        "#6: pair_max_degree=3 must produce distinct canonical key under use_mrmr_fs+master+pair_enable compound gate"
-    )
+    assert (
+        c_on6.canonical_key() != c_on6_def.canonical_key()
+    ), "#6: pair_max_degree=3 must produce distinct canonical key under use_mrmr_fs+master+pair_enable compound gate"
 
 
 # ---------------------------------------------------------------------------
@@ -3266,9 +3267,9 @@ def test_iter622_audit_pass_12_axes_flow_to_kwargs():
 
     # (b) FuzzCombo dataclass defaults match the source-verified library defaults.
     fields = FuzzCombo.__dataclass_fields__
-    assert fields["composite_target_multilabel_strategy_cfg"].default == "per_target", (
-        "A1: default must mirror _composite_target_discovery_config.py:773 ('per_target')"
-    )
+    assert (
+        fields["composite_target_multilabel_strategy_cfg"].default == "per_target"
+    ), "A1: default must mirror _composite_target_discovery_config.py:773 ('per_target')"
     assert fields["enable_ct_ensemble_cfg"].default is True, "A2: default True mirrors the suite-side default"
     assert fields["mtr_eval_metric_cfg"].default is None, "A3: canon-only marker default None"
     assert fields["mrmr_fe_kfold_te_enable_cfg"].default is False, "B1: default must mirror filters/mrmr.py:705 (False)"
@@ -3304,9 +3305,9 @@ def test_iter622_audit_pass_12_axes_flow_to_kwargs():
     cfg_a1 = build_composite_discovery_config(c_a1_on)
     # The CompositeTargetDiscoveryConfig field is consumed by the suite's
     # phase_helpers MTR routing branch; we assert it threaded through verbatim.
-    assert getattr(cfg_a1, "multilabel_strategy", None) == "multi_target_regression", (
-        f"A1: multilabel_strategy did not thread: {getattr(cfg_a1, 'multilabel_strategy', None)!r}"
-    )
+    assert (
+        getattr(cfg_a1, "multilabel_strategy", None) == "multi_target_regression"
+    ), f"A1: multilabel_strategy did not thread: {getattr(cfg_a1, 'multilabel_strategy', None)!r}"
 
     # A1 canon-collapse: outside multilabel/MTR target_types, the axis
     # collapses to "per_target" (the field is unread on other targets).
@@ -3560,18 +3561,18 @@ def test_iter622_audit_pass_12_axes_flow_to_kwargs():
         off_b5["mrmr_fe_ratio_delta_diff_cfg"] = "off"
         c_on_b5 = _build_combo(models=("cb",), axes=on_b5, seed=0)
         c_off_b5 = _build_combo(models=("cb",), axes=off_b5, seed=0)
-        assert c_on_b5.canonical_key() != c_off_b5.canonical_key(), (
-            f"B5 {kind}: must stay distinct from 'off' (the kind runs; collapsing it drops it from the sweep)"
-        )
+        assert (
+            c_on_b5.canonical_key() != c_off_b5.canonical_key()
+        ), f"B5 {kind}: must stay distinct from 'off' (the kind runs; collapsing it drops it from the sweep)"
         no_mrmr_b5 = dict(on_b5)
         no_mrmr_b5["use_mrmr_fs"] = False
         no_mrmr_off = dict(no_mrmr_b5)
         no_mrmr_off["mrmr_fe_ratio_delta_diff_cfg"] = "off"
         c_no_mrmr_b5 = _build_combo(models=("cb",), axes=no_mrmr_b5, seed=0)
         c_no_mrmr_off = _build_combo(models=("cb",), axes=no_mrmr_off, seed=0)
-        assert c_no_mrmr_b5.canonical_key() == c_no_mrmr_off.canonical_key(), (
-            f"B5 {kind}: must canon-collapse to 'off' when use_mrmr_fs is False (no FE entry point)"
-        )
+        assert (
+            c_no_mrmr_b5.canonical_key() == c_no_mrmr_off.canonical_key()
+        ), f"B5 {kind}: must canon-collapse to 'off' when use_mrmr_fs is False (no FE entry point)"
 
     # ------------------------------------------------------------------
     # Group C: MRMR + ShapProxiedFS artifact-reuse pipeline.
@@ -3610,12 +3611,12 @@ def test_iter622_audit_pass_12_axes_flow_to_kwargs():
         # X.columns must match what the sentinel feature_names target:
         X_4 = pd.DataFrame({"num_0": [0.0], "num_1": [0.1], "num_2": [0.2], "num_3": [0.3]})
         aligned, report = align_precomputed_to_X(kw_shap["precomputed"], X_4)
-        assert report["honoured"] is expected_honoured, (
-            f"C2 ({align_mode}): align_precomputed_to_X honoured mismatch -- got {report['honoured']!r}, expected {expected_honoured!r}; report={report!r}"
-        )
-        assert report["reason"] == expected_reason, (
-            f"C2 ({align_mode}): align_precomputed_to_X reason mismatch -- got {report['reason']!r}, expected {expected_reason!r}"
-        )
+        assert (
+            report["honoured"] is expected_honoured
+        ), f"C2 ({align_mode}): align_precomputed_to_X honoured mismatch -- got {report['honoured']!r}, expected {expected_honoured!r}; report={report!r}"
+        assert (
+            report["reason"] == expected_reason
+        ), f"C2 ({align_mode}): align_precomputed_to_X reason mismatch -- got {report['reason']!r}, expected {expected_reason!r}"
         if expected_honoured:
             assert aligned is not None
         else:
@@ -3761,9 +3762,9 @@ def test_iter627_audit_pass_14_axes_flow_to_kwargs():
         assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
     # F14-2: cushion axis was extended in place 2026-05-31 (was (2, 4), now (2, 4, 8)).
     cushion_axis = AXES["shap_proxied_shap_aware_stage1_cushion_cfg"]
-    assert 2 in cushion_axis and 4 in cushion_axis and 8 in cushion_axis, (
-        f"F14-2: cushion axis must include the legacy 8 for fuzz coverage of the pre-iter76 calibration; got {cushion_axis}"
-    )
+    assert (
+        2 in cushion_axis and 4 in cushion_axis and 8 in cushion_axis
+    ), f"F14-2: cushion axis must include the legacy 8 for fuzz coverage of the pre-iter76 calibration; got {cushion_axis}"
 
     # (b) FuzzCombo dataclass defaults match the source-verified library defaults.
     fields = FuzzCombo.__dataclass_fields__
@@ -3977,8 +3978,8 @@ def test_iter627_audit_pass_14_axes_flow_to_kwargs():
     # contract surface is reachable (split-bug sensor).
     from mlframe.feature_selection.filters import _mrmr_fe_provenance
 
-    assert hasattr(_mrmr_fe_provenance, "populate_fe_provenance"), (
-        "F14-6: _mrmr_fe_provenance.populate_fe_provenance must be importable from filters/_mrmr_fe_provenance (Layer 54 shape-contract surface)"
-    )
+    assert hasattr(
+        _mrmr_fe_provenance, "populate_fe_provenance"
+    ), "F14-6: _mrmr_fe_provenance.populate_fe_provenance must be importable from filters/_mrmr_fe_provenance (Layer 54 shape-contract surface)"
     # Sanity: the MRMR class itself is reachable through the facade.
     assert MRMR is not None

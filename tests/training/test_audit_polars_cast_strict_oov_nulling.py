@@ -36,11 +36,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
 def _read(rel: str) -> str:
+    """Read."""
     return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
 
 
@@ -53,6 +53,7 @@ def _read_phase_helpers_combined() -> str:
 
 
 def test_phase_helpers_enum_cast_uses_train_plus_val_domain() -> None:
+    """Phase helpers enum cast uses train plus val domain."""
     src = _read_phase_helpers_combined()
     # Domain is now train+val union (sorted by str).
     assert "sorted(set(_u_train) | set(_u_val), key=str)" in src
@@ -63,6 +64,7 @@ def test_phase_helpers_enum_cast_uses_train_plus_val_domain() -> None:
 
 
 def test_phase_helpers_enum_cast_logs_oov_delta_on_test() -> None:
+    """Phase helpers enum cast logs oov delta on test."""
     src = _read_phase_helpers_combined()
     # The _enum_cast helper now computes null_pre/null_post deltas.
     assert "_null_pre = {c: int(df[c].null_count()) for c in _affected_cols}" in src
@@ -70,6 +72,7 @@ def test_phase_helpers_enum_cast_logs_oov_delta_on_test() -> None:
 
 
 def test_phase_polars_fixes_test_cast_logs_oov_delta() -> None:
+    """Phase polars fixes test cast logs oov delta."""
     src = _read("training/core/_phase_polars_fixes.py")
     assert "[cat-alignment] test col=%s: %d row(s) cast-failed to null" in src
     # The null-count baseline is now batched into one collect across all eligible cols (S44)

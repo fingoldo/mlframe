@@ -17,7 +17,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # Cap kept modest (70) so two fits stay well under the pytest timeout while still leaving a residual tentative tail
 # at the cap (full resolution on this bed needs ~110 trials). The fs_hybrid round4_adaptive_n_trials_bench.py runs
 # the production-scale recipe (n=5000, cap=120) and confirms the larger wall-savings (synth ~72%, hard_synth ~63%).
@@ -57,6 +56,7 @@ def _tail_dataset(n=3000, seed=0):
 
 
 def _make_selector(**kw):
+    """Make selector."""
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
@@ -92,6 +92,7 @@ def test_early_stop_tentative_defaults_off_and_roundtrips():
 
 
 def _jac(a, b):
+    """Helper that jac."""
     a, b = set(a), set(b)
     return 1.0 if not a and not b else len(a & b) / len(a | b)
 

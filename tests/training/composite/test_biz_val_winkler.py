@@ -20,12 +20,12 @@ from mlframe.training.composite._winkler import (
     winkler_score_per_row,
 )
 
-
 # --------------------------------------------------------------------------- unit
 
 
 def test_winkler_decreases_as_interval_tightens_around_truth():
     # y == 0 always covered; score is pure width, so tighter (but still-covering) intervals score lower.
+    """Winkler decreases as interval tightens around truth."""
     y = np.zeros(1000)
     scores = [winkler_interval_score(y, np.full(1000, -w), np.full(1000, w), 0.1) for w in (5.0, 2.0, 1.0, 0.5)]
     assert scores == sorted(scores, reverse=True)
@@ -35,6 +35,7 @@ def test_winkler_decreases_as_interval_tightens_around_truth():
 def test_miss_penalty_scales_with_inverse_alpha():
     # Every row misses by the same amount; the score minus the (constant) width is (2/alpha)*mean_excess,
     # so halving alpha must double the penalty part.
+    """Miss penalty scales with inverse alpha."""
     y = np.full(500, 10.0)
     lo, hi = np.full(500, -1.0), np.full(500, 1.0)  # width 2, y misses above by 9 each
     width = 2.0
@@ -45,6 +46,7 @@ def test_miss_penalty_scales_with_inverse_alpha():
 
 
 def test_coverage_helper_correct():
+    """Coverage helper correct."""
     y = np.array([0.0, 0.0, 0.0, 0.0])
     lo = np.array([-1.0, -1.0, 1.0, -1.0])  # rows 0,1,3 cover 0; row 2 does not (lo=1>0)
     hi = np.array([1.0, 1.0, 2.0, 1.0])
@@ -52,6 +54,7 @@ def test_coverage_helper_correct():
 
 
 def test_weighted_matches_unweighted_under_uniform_weights():
+    """Weighted matches unweighted under uniform weights."""
     rng = np.random.default_rng(0)
     y = rng.normal(size=200)
     lo, hi = y - 1.0 - rng.random(200), y + 1.0 + rng.random(200)
@@ -63,6 +66,7 @@ def test_weighted_matches_unweighted_under_uniform_weights():
 
 
 def test_per_row_mean_matches_scalar_score():
+    """Per row mean matches scalar score."""
     rng = np.random.default_rng(1)
     y = rng.normal(size=300)
     lo, hi = y - rng.random(300), y + rng.random(300)
@@ -73,6 +77,7 @@ def test_per_row_mean_matches_scalar_score():
 
 def test_degenerate_zero_width_interval():
     # lo == hi: width 0; covered iff y == point (score 0), else pure penalty 2/alpha * |y - point|.
+    """Degenerate zero width interval."""
     y = np.array([0.0, 3.0])
     lo = np.array([0.0, 0.0])
     hi = np.array([0.0, 0.0])
@@ -82,6 +87,7 @@ def test_degenerate_zero_width_interval():
 
 
 def test_degenerate_all_miss_dominated_by_penalty():
+    """Degenerate all miss dominated by penalty."""
     y = np.full(100, 100.0)
     lo, hi = np.full(100, -1.0), np.full(100, 1.0)
     s = winkler_interval_score(y, lo, hi, 0.1)
@@ -90,6 +96,7 @@ def test_degenerate_all_miss_dominated_by_penalty():
 
 
 def test_per_group_correctness():
+    """Per group correctness."""
     y = np.zeros(4)
     lo = np.array([-1.0, -1.0, -2.0, -2.0])
     hi = np.array([1.0, 1.0, 2.0, 2.0])
@@ -101,6 +108,7 @@ def test_per_group_correctness():
 
 
 def test_alpha_out_of_range_raises():
+    """Alpha out of range raises."""
     y = np.zeros(3)
     for bad in (0.0, 1.0, -0.1, 1.5):
         with pytest.raises(ValueError):
@@ -108,6 +116,7 @@ def test_alpha_out_of_range_raises():
 
 
 def test_summary_reports_coverage_and_miss_split():
+    """Summary reports coverage and miss split."""
     y = np.array([-5.0, 0.0, 0.0, 5.0])  # rows 0 and 3 miss (below / above)
     lo, hi = np.full(4, -1.0), np.full(4, 1.0)
     s = interval_quality_summary(y, lo, hi, 0.1)
@@ -123,6 +132,7 @@ def test_summary_reports_coverage_and_miss_split():
 
 
 def test_biz_val_winkler_prefers_calibrated_over_wide_and_undercovering():
+    """Biz val winkler prefers calibrated over wide and undercovering."""
     rng = np.random.default_rng(42)
     n = 4000
     y = rng.normal(0.0, 1.0, n)

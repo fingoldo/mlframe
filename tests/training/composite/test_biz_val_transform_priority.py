@@ -24,6 +24,7 @@ def _make_volatility_style_dataset(n: int, seed: int):
     # A strictly-positive, multiplicative target: true_vol scales with base by a feature-dependent factor,
     # not an additive offset -- exactly Optiver's "target / realized_volatility gave a real improvement,
     # plain additive residual did NOT work" regime.
+    """Make volatility style dataset."""
     rng = np.random.default_rng(seed)
     X = rng.uniform(0.5, 2.0, size=(n, 3))
     base = rng.uniform(1.0, 5.0, size=n)
@@ -33,6 +34,7 @@ def _make_volatility_style_dataset(n: int, seed: int):
 
 
 def test_biz_val_ratio_transform_beats_diff_on_volatility_style_target():
+    """Biz val ratio transform beats diff on volatility style target."""
     X, y, base = _make_volatility_style_dataset(n=500, seed=0)
 
     ratio_params = _ratio_fit(y, base)
@@ -42,12 +44,13 @@ def test_biz_val_ratio_transform_beats_diff_on_volatility_style_target():
     T_diff = _diff_forward(y, base, {})
     auc_diff = float(np.mean(cross_val_score(Ridge(alpha=1.0), X, T_diff, cv=5, scoring="r2")))
 
-    assert auc_ratio > auc_diff + 0.1, (
-        f"expected ratio to materially beat diff on a volatility-style multiplicative target, got ratio_r2={auc_ratio:.4f} vs diff_r2={auc_diff:.4f}"
-    )
+    assert (
+        auc_ratio > auc_diff + 0.1
+    ), f"expected ratio to materially beat diff on a volatility-style multiplicative target, got ratio_r2={auc_ratio:.4f} vs diff_r2={auc_diff:.4f}"
 
 
 def test_recommend_transform_candidates_drops_additive_for_positive_scale_pair():
+    """Recommend transform candidates drops additive for positive scale pair."""
     _, y, base = _make_volatility_style_dataset(n=200, seed=1)
     candidates = ["diff", "linear_residual", "ratio", "logratio"]
     recommended = recommend_transform_candidates(y, base, candidates)
@@ -58,6 +61,7 @@ def test_recommend_transform_candidates_drops_additive_for_positive_scale_pair()
 
 
 def test_recommend_transform_candidates_keeps_additive_when_not_strictly_positive():
+    """Recommend transform candidates keeps additive when not strictly positive."""
     rng = np.random.default_rng(2)
     y = rng.normal(size=200)  # can be negative
     base = rng.uniform(1.0, 5.0, size=200)
@@ -67,6 +71,7 @@ def test_recommend_transform_candidates_keeps_additive_when_not_strictly_positiv
 
 
 def test_recommend_transform_candidates_never_drops_below_one_when_no_multiplicative_alternative():
+    """Recommend transform candidates never drops below one when no multiplicative alternative."""
     y = np.abs(np.random.default_rng(3).normal(size=100)) + 0.1
     base = np.abs(np.random.default_rng(4).normal(size=100)) + 0.1
     candidates = ["diff", "linear_residual"]
@@ -77,6 +82,7 @@ def test_recommend_transform_candidates_never_drops_below_one_when_no_multiplica
 def test_recommend_transform_candidates_auto_detect_is_opt_in_noop_when_omitted():
     # Bit-identical default: a caller who never passes ``auto_detect`` gets the exact old behavior, even for
     # a genuinely multiplicative pair where the caller forgot to list "ratio" among candidate_transforms.
+    """Recommend transform candidates auto detect is opt in noop when omitted."""
     _, y, base = _make_volatility_style_dataset(n=200, seed=5)
     candidates = ["diff", "linear_residual"]  # no multiplicative candidate offered
     recommended = recommend_transform_candidates(y, base, candidates)
@@ -89,6 +95,7 @@ def test_biz_val_recommend_transform_candidates_auto_detect_finds_multiplicative
     # pair is genuinely ratio-stationary (Optiver-style volatility regime). auto_detect probes the data
     # itself and both (a) surfaces "ratio" without the caller asserting the regime, and (b) proves that
     # doing so is a real downstream quality win, not just a label change.
+    """Biz val recommend transform candidates auto detect finds multiplicative regime."""
     X, y, base = _make_volatility_style_dataset(n=500, seed=6)
     candidates = ["diff", "linear_residual"]  # caller never asserts a multiplicative regime
 

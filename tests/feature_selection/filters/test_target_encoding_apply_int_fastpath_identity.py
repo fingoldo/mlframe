@@ -28,6 +28,7 @@ def _generic_reference(col_series, lookup, global_mean):
 
 @pytest.mark.parametrize("dtype", [np.int64, np.int32, np.uint16])
 def test_int_fastpath_matches_generic(dtype):
+    """Int fastpath matches generic."""
     rng = np.random.default_rng(0)
     n, card = 20_000, 120
     arr = rng.integers(0, card + 15, size=n).astype(dtype)  # ~unseen tail
@@ -42,6 +43,7 @@ def test_int_fastpath_matches_generic(dtype):
 
 
 def test_bool_fastpath_matches_generic():
+    """Bool fastpath matches generic."""
     rng = np.random.default_rng(1)
     n = 10_000
     arr = rng.integers(0, 2, size=n).astype(bool)
@@ -59,6 +61,7 @@ def test_bool_fastpath_matches_generic():
 
 
 def test_object_path_unchanged():
+    """Object path unchanged."""
     rng = np.random.default_rng(2)
     n, card = 10_000, 80
     toks = np.array([f"c{k}" for k in range(card + 10)], dtype=object)
@@ -72,6 +75,7 @@ def test_object_path_unchanged():
 
 
 def test_all_unseen_int_maps_to_global_mean():
+    """All unseen int maps to global mean."""
     n = 5_000
     arr = np.full(n, 999_999, dtype=np.int64)
     X = pd.DataFrame({"cat": arr})

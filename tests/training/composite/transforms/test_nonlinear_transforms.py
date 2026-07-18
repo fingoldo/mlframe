@@ -160,9 +160,9 @@ def test_t10_biz_val_more_knots_better_var_explained_on_curvy_target():
     full = _monotonic_residual_fit(y, base)  # fixed: ~12 knots
     starved = _monotonic_residual_fit(y, base, n_knots=3)  # explicit 3-knot
     assert full["n_knots_effective"] > starved["n_knots_effective"]
-    assert full["var_explained"] >= starved["var_explained"] + 0.05, (
-        f"more knots must explain more variance on a curvy target; full={full['var_explained']:.3f}, 3-knot={starved['var_explained']:.3f}"
-    )
+    assert (
+        full["var_explained"] >= starved["var_explained"] + 0.05
+    ), f"more knots must explain more variance on a curvy target; full={full['var_explained']:.3f}, 3-knot={starved['var_explained']:.3f}"
 
 
 def test_t10_discrete_base_caps_at_cardinality():
@@ -186,6 +186,7 @@ def test_t10_discrete_base_caps_at_cardinality():
 
 
 def _pandas_ref(arr: np.ndarray, k: int) -> np.ndarray:
+    """Pandas ref."""
     import pandas as pd
 
     out = pd.Series(arr).rolling(window=k, center=True, min_periods=1).median().to_numpy()

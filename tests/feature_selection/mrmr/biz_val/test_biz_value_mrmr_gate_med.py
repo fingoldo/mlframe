@@ -89,6 +89,7 @@ def _make_and_skew(seed: int = 707, n: int = N):
 
 
 def _make_noise(seed: int = 404, n: int = N):
+    """Make noise."""
     rng = np.random.default_rng(seed)
     a = np.exp(0.7 * rng.normal(size=n))
     b = rng.normal(size=n) + 2.0
@@ -132,6 +133,7 @@ def _unb(gate_med: bool):
 
 
 def _fit(make, df, y):
+    """Helper that fit."""
     MRMR.clear_fit_cache()
     fs = make()
     fs.fit(df, y)
@@ -139,10 +141,12 @@ def _fit(make, df, y):
 
 
 def _eng_names(fs):
+    """Eng names."""
     return [nm for nm in fs.get_feature_names_out() if nm not in RAW]
 
 
 def _best_engineered_corr(fs, df, true):
+    """Best engineered corr."""
     names = list(fs.get_feature_names_out())
     eng = [nm for nm in names if nm not in RAW]
     if not eng or true is None:
@@ -162,6 +166,7 @@ def _best_engineered_corr(fs, df, true):
 
 
 def _ridge_r2(X, y):
+    """Ridge r2."""
     from sklearn.linear_model import Ridge
     from sklearn.preprocessing import StandardScaler
     from sklearn.pipeline import make_pipeline
@@ -213,12 +218,12 @@ def test_gated_med_unary_binary_recovers_with_gate():
     df, y, true = _make_and_skew()
     fs = _fit(lambda: _unb(gate_med=True), df, y)
     name, corr = _best_engineered_corr(fs, df, true)
-    assert name is not None, (
-        "AND-skew/UNB+gate engineered nothing; the per-operand median gate is expected to recover the conditional signal via the unary/binary path"
-    )
-    assert "gate_med" in name, (
-        f"AND-skew recovery used '{name}' which does NOT involve the gate_med pseudo-unary; the recovery should be attributable to the median gate"
-    )
+    assert (
+        name is not None
+    ), "AND-skew/UNB+gate engineered nothing; the per-operand median gate is expected to recover the conditional signal via the unary/binary path"
+    assert (
+        "gate_med" in name
+    ), f"AND-skew recovery used '{name}' which does NOT involve the gate_med pseudo-unary; the recovery should be attributable to the median gate"
     assert corr >= 0.50, f"AND-skew/UNB+gate best engineered |corr|={corr:.3f} < 0.50 ({name}); the median-gate recovery regressed"
 
 
@@ -236,9 +241,9 @@ def test_gate_med_recovers_skewed_conjunction_via_the_median_gate():
     df, y, true = _make_and_skew()
     fs_on = _fit(lambda: _unb(gate_med=True), df, y)
     _n_on, corr_on = _best_engineered_corr(fs_on, df, true)
-    assert corr_on >= 0.50, (
-        f"gate ON failed to recover the skewed conjunction via the median gate (|corr|={corr_on:.3f}, {_n_on}); the median-gate recovery regressed"
-    )
+    assert (
+        corr_on >= 0.50
+    ), f"gate ON failed to recover the skewed conjunction via the median gate (|corr|={corr_on:.3f}, {_n_on}); the median-gate recovery regressed"
 
 
 def test_gated_med_downstream_score_recovers_with_gate():
@@ -277,9 +282,9 @@ def test_noise_control_gate_med_engineers_nothing():
     assert not gate_cols, f"noise control fabricated gate_med feature(s) {gate_cols}; the prevalence gate let a spurious median-gate feature through"
     raw_r2 = _ridge_r2(df.values, y)
     sel_r2 = _ridge_r2(np.asarray(fs_on.transform(df)), y)
-    assert sel_r2 <= raw_r2 + 0.10, (
-        f"noise control downstream R^2={sel_r2:.3f} beats the raw noise baseline {raw_r2:.3f}: a spurious gate_med feature is leaking signal"
-    )
+    assert (
+        sel_r2 <= raw_r2 + 0.10
+    ), f"noise control downstream R^2={sel_r2:.3f} beats the raw noise baseline {raw_r2:.3f}: a spurious gate_med feature is leaking signal"
 
 
 # ---------------------------------------------------------------------------
@@ -290,9 +295,9 @@ def test_default_mrmr_does_not_register_gate_med():
     """``fe_gate_med_enable`` defaults to False, so a vanilla MRMR (and the OFF
     arm of the A/B) never engineers a gate_med column -- the default fit path is
     byte-unchanged by this feature."""
-    assert MRMR(verbose=0).fe_gate_med_enable is False, (
-        "fe_gate_med_enable must default to False (opt-in); the median gate must not tax the default minimal path"
-    )
+    assert (
+        MRMR(verbose=0).fe_gate_med_enable is False
+    ), "fe_gate_med_enable must default to False (opt-in); the median gate must not tax the default minimal path"
     df, y, _ = _make_and_skew()
     fs_off = _fit(lambda: _unb(gate_med=False), df, y)
     gate_cols = [nm for nm in _eng_names(fs_off) if "gate_med" in nm]
@@ -337,9 +342,9 @@ def test_gate_med_recipe_replay_is_deterministic_and_leak_free():
         rec = recipes[nm]
         # The recipe must store at least one gate_med median in extra.
         med_keys = [k for k in rec.extra if k.startswith("gate_med_") and k.endswith("_median")]
-        assert med_keys, (
-            f"recipe '{nm}' uses gate_med but stores no gate_med_*_median in extra; leak-safe replay would have to recompute the median on test data"
-        )
+        assert (
+            med_keys
+        ), f"recipe '{nm}' uses gate_med but stores no gate_med_*_median in extra; leak-safe replay would have to recompute the median on test data"
         direct = np.asarray(apply_recipe(rec, df_test)).reshape(-1)
         r = abs(float(np.corrcoef(direct, Xt1[:, i])[0, 1]))
         assert r > 0.999, f"recipe-apply replay of '{nm}' diverges from transform() output (|corr|={r:.4f}); replay is not deterministic / leak-free"

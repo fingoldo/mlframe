@@ -12,6 +12,7 @@ from mlframe.feature_selection.filters._relaxmrmr_3d import relax_mrmr_score
 
 
 def _valid():
+    """Helper that valid."""
     rng = np.random.default_rng(0)
     x = rng.integers(0, 3, 200).astype(np.int64)
     s = rng.integers(0, 3, 200).astype(np.int64)
@@ -21,6 +22,7 @@ def _valid():
 
 @pytest.mark.parametrize("scorer", [jmim_score, bur_term, relax_mrmr_score])
 def test_scorers_reject_negative_sentinel(scorer):
+    """Scorers reject negative sentinel."""
     x, sel, y = _valid()
     x_bad = x.copy()
     x_bad[0] = -1  # NaN sentinel
@@ -30,6 +32,7 @@ def test_scorers_reject_negative_sentinel(scorer):
 
 @pytest.mark.parametrize("scorer", [jmim_score, bur_term, relax_mrmr_score])
 def test_scorers_reject_out_of_range_code(scorer):
+    """Scorers reject out of range code."""
     x, sel, y = _valid()
     x_bad = x.copy()
     x_bad[0] = 5  # >= nbins_x=3
@@ -39,6 +42,7 @@ def test_scorers_reject_out_of_range_code(scorer):
 
 @pytest.mark.parametrize("scorer", [jmim_score, bur_term, relax_mrmr_score])
 def test_scorers_accept_valid_codes(scorer):
+    """Scorers accept valid codes."""
     x, sel, y = _valid()
     val = scorer(x, sel, y, 3, [3], 2)
     assert np.isfinite(val)

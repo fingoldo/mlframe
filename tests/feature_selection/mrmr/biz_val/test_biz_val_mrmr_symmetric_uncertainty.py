@@ -17,7 +17,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Low-level: unit tests on the SU formula itself
 # ---------------------------------------------------------------------------
@@ -29,6 +28,7 @@ class TestSymmetricUncertaintyFormula:
     def _make_factors(self, x, y, nbins_x, nbins_y):
         # MRMR's low-level info_theory interface: factors_data is (n_samples, n_factors).
         # x/y arguments are INDICES into the columns of factors_data.
+        """Make factors."""
         x = np.asarray(x, dtype=np.int32)
         y = np.asarray(y, dtype=np.int32)
         factors_data = np.column_stack([x, y]).astype(np.int32)
@@ -36,6 +36,7 @@ class TestSymmetricUncertaintyFormula:
         return factors_data, factors_nbins
 
     def test_su_bounded_in_unit_interval(self):
+        """Su bounded in unit interval."""
         from mlframe.feature_selection.filters.info_theory import symmetric_uncertainty
 
         rng = np.random.default_rng(0)
@@ -47,6 +48,7 @@ class TestSymmetricUncertaintyFormula:
         assert 0.0 <= su <= 1.0
 
     def test_su_identity_equals_one(self):
+        """Su identity equals one."""
         from mlframe.feature_selection.filters.info_theory import symmetric_uncertainty
 
         rng = np.random.default_rng(0)
@@ -58,6 +60,7 @@ class TestSymmetricUncertaintyFormula:
         assert su == pytest.approx(1.0, abs=1e-6)
 
     def test_su_independent_is_zero(self):
+        """Su independent is zero."""
         from mlframe.feature_selection.filters.info_theory import symmetric_uncertainty
 
         rng = np.random.default_rng(0)
@@ -69,6 +72,7 @@ class TestSymmetricUncertaintyFormula:
         assert su < 0.05, f"SU(independent X, Y) should be ~0; got {su}"
 
     def test_su_symmetric(self):
+        """Su symmetric."""
         from mlframe.feature_selection.filters.info_theory import symmetric_uncertainty
 
         rng = np.random.default_rng(0)
@@ -104,6 +108,7 @@ class TestSUDefeatsMICardinalityBias:
 
     @pytest.fixture
     def cardinality_bias_data(self):
+        """Cardinality bias data."""
         n = 5000
         rng = np.random.default_rng(0)
         y = rng.integers(0, 2, size=n)
@@ -188,7 +193,9 @@ class TestSUDefeatsMICardinalityBias:
 
 
 class TestMRMRMiNormalizationE2E:
+    """Groups tests covering TestMRMRMiNormalizationE2E."""
     def test_mi_normalization_knob_validated(self):
+        """Mi normalization knob validated."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         with pytest.raises(ValueError, match="mi_normalization"):
@@ -198,12 +205,14 @@ class TestMRMRMiNormalizationE2E:
             )
 
     def test_mi_normalization_default_is_none(self):
+        """Mi normalization default is none."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         sel = MRMR()
         assert sel.mi_normalization == "none"
 
     def test_mi_normalization_su_does_not_crash(self):
+        """Mi normalization su does not crash."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         rng = np.random.default_rng(0)
@@ -341,6 +350,7 @@ class TestMRMRMiNormalizationE2E:
         sig_lo = np.where(rng.random(n) < 0.20, 1 - y, y).astype(np.int64)
 
         def hi_w(seed, prob=0.45):
+            """Hi w."""
             r = np.random.default_rng(seed)
             return np.where(
                 r.random(n) < prob,
@@ -399,6 +409,7 @@ class TestMRMRMiNormalizationE2E:
         # the raw noise column is admitted on its own, WITHOUT sig_lo fused in -- a fused
         # ``il_*__sig_lo__hi_a`` is signal-carrying, not a spurious-noise inclusion.
         def _has_signal(picks) -> bool:
+            """Has signal."""
             return any("sig_lo" in p for p in picks)
 
         # The cardinality bias this test probes is the inclusion of a RAW high-cardinality (80-level)
@@ -407,6 +418,7 @@ class TestMRMRMiNormalizationE2E:
         # cardinality bias, NOT a low-card encoding of a real signal, so it should NOT (and need not)
         # drop ``hi_*__te``. Count only the RAW columns admitted standalone (exact name, not substring).
         def _standalone_noise(picks) -> set:
+            """Standalone noise."""
             return {nm for nm in noise_names if nm in picks}
 
         # 1) BOTH modes keep the true signal (possibly fused into an engineered feature).

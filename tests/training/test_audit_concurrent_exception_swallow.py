@@ -30,12 +30,11 @@ import logging
 import time
 from pathlib import Path
 
-
-
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
 def _read(rel: str) -> str:
+    """Read."""
     return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
 
 
@@ -48,6 +47,7 @@ def test_kick_cpu_count_logs_at_debug_on_failure() -> None:
     # ``_kick_cpu_count`` was carved out of metrics/core.py into sibling
     # metrics/_core_numba_warmup.py during a numba-warmup split. Check both
     # files so the sensor still works after the move.
+    """Kick cpu count logs at debug on failure."""
     src = _read("metrics/core.py")
     helper_idx = src.find("def _kick_cpu_count")
     if helper_idx == -1:
@@ -59,6 +59,7 @@ def test_kick_cpu_count_logs_at_debug_on_failure() -> None:
 
 
 def test_prewarm_registers_done_callback() -> None:
+    """Prewarm registers done callback."""
     src = _read("training/feature_handling/registry.py")
     # The fix attaches add_done_callback after submit.
     assert "add_done_callback(_log_unhandled)" in src, "registry.py prewarm: must attach a done-callback so an unawaited failure logs."
@@ -79,10 +80,12 @@ def test_prewarm_done_callback_logs_warning_when_worker_raises(caplog) -> None:
     sig = f"wave43_silent_test_{id(object())}"
 
     class _DummyProvider:
+        """Groups tests covering dummy provider."""
         signature = sig
 
     # Inject a _do_load that raises immediately.
     def _raising_do_load():
+        """Raising do load."""
         raise RuntimeError("intentional wave-43 sensor failure")
 
     # Submit directly via the executor to bypass the registry's full prewarm
@@ -95,6 +98,7 @@ def test_prewarm_done_callback_logs_warning_when_worker_raises(caplog) -> None:
     captured = {}
 
     def _log_unhandled(_fut):
+        """Log unhandled."""
         try:
             exc = _fut.exception(timeout=0)
         except Exception:

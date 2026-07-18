@@ -39,6 +39,7 @@ from mlframe.training.neural import (
 
 
 def _params(lr_scheduler=None, lr_scheduler_kwargs=None, lr_scheduler_interval="epoch", lr_scheduler_monitor=None):
+    """Builds MLPTorchModel constructor params with an optional cosine-warm-restarts LR scheduler wired in."""
     return {
         "model_class": MLPTorchModel,
         "model_params": {
@@ -79,6 +80,7 @@ def _params(lr_scheduler=None, lr_scheduler_kwargs=None, lr_scheduler_interval="
 
 @pytest.fixture
 def reg_data():
+    """Small deterministic regression dataset shared by the cosine-warm-restarts scheduler tests."""
     X, y = make_regression(n_samples=128, n_features=4, random_state=0)
     X_tr, X_te, y_tr, _ = train_test_split(
         X.astype(np.float32),

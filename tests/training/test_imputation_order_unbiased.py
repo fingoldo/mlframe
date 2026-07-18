@@ -27,6 +27,7 @@ def _make_biased_frame() -> pd.DataFrame:
 
 
 def test_preprocess_does_not_pre_fill_nulls_so_imputer_mean_is_unbiased():
+    """preprocess_dataframe must leave numeric nulls untouched pre-split, or SimpleImputer learns a mean biased toward zero-padding."""
     df = _make_biased_frame()
     assert df["x"].isna().sum() == 30, "fixture invariant: 30 null rows in column x"
 
@@ -35,19 +36,20 @@ def test_preprocess_does_not_pre_fill_nulls_so_imputer_mean_is_unbiased():
     config = PreprocessingConfig(fillna_value=0.0, fix_infinities=True, ensure_float32_dtypes=False, remove_constant_columns=False)
     processed = preprocess_dataframe(df, config, verbose=0)
 
-    assert processed["x"].isna().sum() == 30, (
-        "preprocess_dataframe must NOT pre-fill numeric nulls; otherwise the downstream SimpleImputer.fit learns a biased mean over zero-padded rows"
-    )
+    assert (
+        processed["x"].isna().sum() == 30
+    ), "preprocess_dataframe must NOT pre-fill numeric nulls; otherwise the downstream SimpleImputer.fit learns a biased mean over zero-padded rows"
 
     imputer = SimpleImputer()
     imputer.fit(processed[["x"]])
     learned_mean = float(imputer.statistics_[0])
-    assert learned_mean == pytest.approx(100.0, abs=1e-6), (
-        f"SimpleImputer must learn the true non-null mean (100.0); got {learned_mean!r}. Pre-fix value was ~70.0 (mean over 70x100 + 30x0)."
-    )
+    assert learned_mean == pytest.approx(
+        100.0, abs=1e-6
+    ), f"SimpleImputer must learn the true non-null mean (100.0); got {learned_mean!r}. Pre-fix value was ~70.0 (mean over 70x100 + 30x0)."
 
 
 def test_preprocess_normalises_inf_to_nan_for_downstream_imputer():
+    """preprocess_dataframe converts +/-inf to NaN so the downstream imputer treats them as missing, not as outlier values."""
     # Mixing inf with nulls: post-fix inf becomes NaN so the imputer treats both as missing and the non-inf/non-null distribution drives the learned statistic.
     values = np.concatenate(
         [

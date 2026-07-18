@@ -20,16 +20,17 @@ import torch.nn as nn
 
 from mlframe.training.neural._sam_optimizer import SAM
 
-
 # --- Unit tests --------------------------------------------------------------
 
 
 def test_sam_rejects_non_optimizer_base():
+    """Sam rejects non optimizer base."""
     with pytest.raises(TypeError, match="base_optimizer must be"):
         SAM("not an optimizer", rho=0.05)  # type: ignore[arg-type]
 
 
 def test_sam_rejects_invalid_rho():
+    """Sam rejects invalid rho."""
     base = torch.optim.SGD([torch.zeros(1, requires_grad=True)], lr=0.1)
     with pytest.raises(ValueError, match="rho must be > 0"):
         SAM(base, rho=0.0)
@@ -83,6 +84,7 @@ def test_sam_second_step_restores_then_steps():
 
 
 def test_sam_param_groups_forwarding():
+    """Sam param groups forwarding."""
     p = torch.nn.Parameter(torch.zeros(2))
     base = torch.optim.SGD([p], lr=0.1)
     sam = SAM(base, rho=0.05)
@@ -90,6 +92,7 @@ def test_sam_param_groups_forwarding():
 
 
 def test_sam_state_dict_round_trip():
+    """Sam state dict round trip."""
     p = torch.nn.Parameter(torch.zeros(2))
     base = torch.optim.AdamW([p], lr=1e-3)
     sam = SAM(base, rho=0.1, adaptive=True)
@@ -132,6 +135,7 @@ def test_sam_step_with_closure_runs_two_passes():
     counter = {"calls": 0}
 
     def closure():
+        """Closure."""
         counter["calls"] += 1
         # Simulate the perturbed-weight forward+backward: produce a
         # different gradient at the perturbed point.
@@ -170,6 +174,7 @@ def test_sam_adaptive_scales_perturbation_by_param_magnitude():
 
 
 def test_mlptorchmodel_configure_optimizers_wraps_when_use_sam_true():
+    """Mlptorchmodel configure optimizers wraps when use sam true."""
     from mlframe.training.neural._flat_torch_module import MLPTorchModel
     from mlframe.training.neural.flat import generate_mlp
 
@@ -201,6 +206,7 @@ def test_mlptorchmodel_configure_optimizers_wraps_when_use_sam_true():
 
 
 def test_mlptorchmodel_sam_off_does_not_wrap():
+    """Mlptorchmodel sam off does not wrap."""
     from mlframe.training.neural._flat_torch_module import MLPTorchModel
     from mlframe.training.neural.flat import generate_mlp
 

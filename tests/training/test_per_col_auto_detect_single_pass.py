@@ -136,6 +136,7 @@ def test_auto_detect_polars_single_collect_bounded():
     counts = {"collect": 0}
 
     def _counting_collect(self, *a, **kw):
+        """Counting collect."""
         counts["collect"] += 1
         return orig_collect(self, *a, **kw)
 
@@ -175,9 +176,9 @@ def test_biz_val_auto_detect_polars_speedup():
     new_s = time.perf_counter() - t0
 
     ratio = new_s / max(legacy_s, 1e-9)
-    assert ratio <= 0.6, (
-        f"auto-detect single-pass regressed: new={new_s * 1000:.1f}ms legacy={legacy_s * 1000:.1f}ms ratio={ratio:.2f} (target<=0.6; bench-of-record ~0.36)"
-    )
+    assert (
+        ratio <= 0.6
+    ), f"auto-detect single-pass regressed: new={new_s * 1000:.1f}ms legacy={legacy_s * 1000:.1f}ms ratio={ratio:.2f} (target<=0.6; bench-of-record ~0.36)"
 
 
 # ---------------------------------------------------------------------------

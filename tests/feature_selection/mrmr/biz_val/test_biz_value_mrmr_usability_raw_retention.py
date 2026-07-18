@@ -26,6 +26,7 @@ SEED = 42
 
 
 def _make_ratio_plus_trig(n):
+    """Make ratio plus trig."""
     rng = np.random.default_rng(SEED)
     a, b, c, d, g, k = (rng.uniform(0.2, 1.2, n) for _ in range(6))
     e = rng.uniform(0.2, 1.2, n)  # pure-noise column the selection must reject
@@ -34,6 +35,7 @@ def _make_ratio_plus_trig(n):
 
 
 def _heldout_r2(M, y):
+    """Heldout r2."""
     M = np.asarray(M, dtype=float)
     if M.ndim == 1:
         M = M.reshape(-1, 1)
@@ -73,9 +75,9 @@ def test_biz_value_usability_retention_keeps_linearly_usable_raws():
 
     # (3) the RETAINED raws carry large linear signal the engineered children do not: dropping them (eng-only)
     #     craters the downstream linear fit. Measured gap 0.38; floor 0.25.
-    assert r2_full - r2_eng_only >= 0.25, (
-        f"retained linearly-usable raws add too little (full {r2_full:.4f} vs eng-only {r2_eng_only:.4f}); the retention win is not materialising"
-    )
+    assert (
+        r2_full - r2_eng_only >= 0.25
+    ), f"retained linearly-usable raws add too little (full {r2_full:.4f} vs eng-only {r2_eng_only:.4f}); the retention win is not materialising"
 
     # (4) absolute quality floor (measured 0.842).
     assert r2_full >= 0.80, f"downstream R2 {r2_full:.4f} below the 0.80 floor"

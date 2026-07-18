@@ -15,6 +15,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _fitted_mrmr(names, support):
+    """Fitted mrmr."""
     m = MRMR()
     m.feature_names_in_ = np.array(names)
     m.n_features_in_ = len(names)
@@ -26,6 +27,7 @@ def _fitted_mrmr(names, support):
 def test_polars_transform_narrower_input_does_not_index_out_of_range():
     # Fit-time saw 6 cols; support picks positions 5 ("f") and 3 ("d"). The polars input at transform is narrower
     # but carries the selected columns by name. Pre-fix: IndexError (5 >= width 3). Post-fix: name-selects ['f','d'].
+    """Polars transform narrower input does not index out of range."""
     m = _fitted_mrmr(["a", "b", "c", "d", "e", "f"], [5, 3])
     X = pl.DataFrame({"a": [1.0, 2, 3], "d": [4.0, 5, 6], "f": [7.0, 8, 9]})
     out = m.transform(X)
@@ -37,6 +39,7 @@ def test_polars_transform_narrower_input_does_not_index_out_of_range():
 
 def test_polars_transform_reordered_input_selects_by_name_not_position():
     # Same width as fit but columns reordered. Positional indexing would return the wrong columns; name-based is right.
+    """Polars transform reordered input selects by name not position."""
     m = _fitted_mrmr(["a", "b", "c", "d", "e", "f"], [5, 3])
     X = pl.DataFrame({"f": [7.0, 8, 9], "e": [0.0, 0, 0], "d": [4.0, 5, 6], "c": [0.0, 0, 0], "b": [0.0, 0, 0], "a": [1.0, 2, 3]})
     out = m.transform(X)
@@ -46,6 +49,7 @@ def test_polars_transform_reordered_input_selects_by_name_not_position():
 
 
 def test_polars_transform_missing_selected_column_raises_actionable():
+    """Polars transform missing selected column raises actionable."""
     m = _fitted_mrmr(["a", "b", "c", "d", "e", "f"], [5, 3])
     # Width 3 (not 2) so the all-selected identity fast-path (n_selected == X.shape[1]) does not fire and the
     # name-validation branch is reached; "d" is absent so the column-drift RuntimeError must raise.

@@ -30,7 +30,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 _TEXT_VOCAB = [
     "python",
     "rust",
@@ -60,6 +59,7 @@ _TEXT_VOCAB = [
 
 
 def _old_rows(n: int, seed: int):
+    """Old rows."""
     rng = np.random.default_rng(seed)
     rows = []
     for _ in range(n):
@@ -69,6 +69,7 @@ def _old_rows(n: int, seed: int):
 
 
 def _new_rows(n: int, seed: int):
+    """New rows."""
     rng = np.random.default_rng(seed)
     vocab_arr = np.asarray(_TEXT_VOCAB)
     idxs_arr = rng.integers(0, len(_TEXT_VOCAB), size=(n, 3))
@@ -78,6 +79,7 @@ def _new_rows(n: int, seed: int):
 
 @pytest.mark.parametrize("n,seed", [(100, 1), (10_000, 42), (50_000, 20260528)])
 def test_vectorised_text_rows_match_old_per_row_build(n, seed):
+    """Vectorised text rows match old per row build."""
     assert _new_rows(n, seed) == _old_rows(n, seed)
 
 

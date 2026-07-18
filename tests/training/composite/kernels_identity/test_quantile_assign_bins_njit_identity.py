@@ -26,6 +26,7 @@ def _reference_assign(base, edges):
 @pytest.mark.parametrize("n", [1, 7, 1000, 10_000, 200_000])
 @pytest.mark.parametrize("n_bins", [2, 5, 10, 25])
 def test_assign_bins_bit_identical_random(n, n_bins):
+    """The numba quantile-residual bin-assign kernel is bit-identical to a pure-Python reference across n/n_bins sweeps."""
     rng = np.random.default_rng(n * 31 + n_bins)
     base = rng.standard_normal(n)
     edges = np.quantile(base, np.linspace(0.0, 1.0, n_bins + 1))
@@ -54,6 +55,7 @@ def test_assign_bins_bit_identical_nan_inf_oob():
 
 
 def test_assign_bins_single_bin_degenerate():
+    """A single-bin edge array (all values fall in one bucket) is handled identically to the reference, including NaN."""
     edges = np.array([-np.inf, np.inf], dtype=np.float64)
     base = np.array([np.nan, 1.0, -1.0, 0.0], dtype=np.float64)
     got = nl._quantile_residual_assign_bins(base, edges)

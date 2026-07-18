@@ -19,13 +19,13 @@ import warnings
 import numpy as np
 import pandas as pd
 
-
 # =============================================================================
 # Combined hardness: rare positives + synergy
 # =============================================================================
 
 
 class TestRareSynergyCombo:
+    """Groups tests covering TestRareSynergyCombo."""
     def test_5pct_positive_with_2way_synergy(self):
         """Realistic credit-risk style: 5% positive rate, defaults
         triggered by INTERACTION (high_balance AND no_income), not
@@ -67,6 +67,7 @@ class TestRareSynergyCombo:
 
 
 class TestNoisyTargets:
+    """Groups tests covering TestNoisyTargets."""
     def test_30pct_label_noise_signal_still_found(self):
         """30% label flip noise on a clean linear target. Signal-to-
         noise ratio drops drastically but MRMR should still find the
@@ -139,6 +140,7 @@ class TestNoisyTargets:
 
 
 class TestRegressionTargets:
+    """Groups tests covering TestRegressionTargets."""
     def test_continuous_y_linear_signal(self):
         """Continuous y = sig + noise. MRMR with binned y must still
         find sig.
@@ -212,6 +214,7 @@ class TestRegressionTargets:
 
 
 class TestHeavyTailDistributions:
+    """Groups tests covering TestHeavyTailDistributions."""
     def test_lognormal_signal_detected(self):
         """Log-normal signal (right-skewed). After iter-6/9 quantile
         dedup fix, the FD binner should handle outlier tails.
@@ -266,6 +269,7 @@ class TestHeavyTailDistributions:
 
 
 class TestMixedDtypes:
+    """Groups tests covering TestMixedDtypes."""
     def test_numeric_plus_categorical_plus_datetime(self):
         """Production-grade frame: float + int + categorical +
         boolean. MRMR must handle each dtype gracefully.
@@ -320,6 +324,7 @@ class TestMixedDtypes:
 
 
 class TestSmallN:
+    """Groups tests covering TestSmallN."""
     def test_n_80_clear_signal_still_found(self):
         """n=80 — very small. Clear signal must still be detectable."""
         from mlframe.feature_selection.filters.mrmr import MRMR
@@ -366,6 +371,7 @@ class TestSmallN:
 
 
 class TestMultiClass:
+    """Groups tests covering TestMultiClass."""
     def test_imbalanced_5class_target(self):
         """5-class target with unbalanced class proportions
         [40%, 30%, 15%, 10%, 5%]. MRMR must find the signal feature.
@@ -420,6 +426,7 @@ class TestMultiClass:
 
 
 class TestConceptDrift:
+    """Groups tests covering TestConceptDrift."""
     def test_distribution_shift_transform_still_works(self):
         """Fit on one distribution, transform on shifted distribution.
         Transform must not crash and must select the correct columns
@@ -464,6 +471,7 @@ class TestConceptDrift:
 
 
 class TestHarderClusterScenarios:
+    """Groups tests covering TestHarderClusterScenarios."""
     def test_cluster_where_pc1_signal_beats_any_member(self):
         """All cluster members are noisy reflections of latent;
         individually each member's MI with y is ~0.3, but PC1 of
@@ -501,6 +509,7 @@ class TestHarderClusterScenarios:
 
 
 class TestFitTransformIdentity:
+    """Groups tests covering TestFitTransformIdentity."""
     def test_fit_transform_equals_fit_then_transform(self):
         """``fit_transform(X, y)`` MUST equal
         ``fit(X, y).transform(X)`` bit-exact.

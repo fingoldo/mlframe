@@ -70,9 +70,9 @@ def test_classification_report_skipped_when_info_filtered(monkeypatch):
         # harness; the assertion that matters is the sklearn call count.
         pass
 
-    assert sklearn_call_count["n"] == 0, (
-        f"classification_report fired {sklearn_call_count['n']} time(s) under WARNING-level logger; the isEnabledFor(INFO) gate is regressed"
-    )
+    assert (
+        sklearn_call_count["n"] == 0
+    ), f"classification_report fired {sklearn_call_count['n']} time(s) under WARNING-level logger; the isEnabledFor(INFO) gate is regressed"
 
     # Restore default level
     _reporting.logger.setLevel(logging.NOTSET)

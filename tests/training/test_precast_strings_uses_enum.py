@@ -35,9 +35,13 @@ def test_phase_auto_detect_precast_strings_uses_enum_not_categorical():
 
     # Minimal config shims matching the fastpath gating expectations.
     class _PipelineCfg:
+        """Minimal pipeline-config shim with skip_categorical_encoding enabled, matching the enum-fastpath gate."""
+
         skip_categorical_encoding = True
 
     class _FeatureTypesCfg:
+        """Minimal feature-types-config shim pinning x_str as the only cat feature with autodetect disabled."""
+
         text_features = []
         embedding_features = []
         cat_features = ["x_str"]

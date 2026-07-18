@@ -19,6 +19,7 @@ import numpy as np
 def _setup():
     # cand 0 (UNSTABLE): mean 0.20, std 0.155 -- lower mean, high seed-to-seed swing.
     # cand 1 (STABLE):   mean 0.23, std ~0.003 -- slightly higher mean, consistent.
+    """Helper that setup."""
     per_candidate = {0: [0.05, 0.35, 0.04, 0.36], 1: [0.23, 0.235, 0.225, 0.23]}
     candidates = [(0.0, (0, 1, 2)), (0.0, (3, 4))]
     member_cols = [[0, 1, 2], [3, 4]]
@@ -26,6 +27,7 @@ def _setup():
 
 
 def _winner(lambda_stab):
+    """Helper that winner."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_proxy_refine import (
         _winner_from_per_candidate,
     )
@@ -35,6 +37,7 @@ def _winner(lambda_stab):
 
 
 def test_biz_val_lambda_stab_off_picks_unstable_lower_mean_subset():
+    """Biz val lambda stab off picks unstable lower mean subset."""
     per, _, _ = _setup()
     assert np.mean(per[0]) < np.mean(per[1])  # unstable cand has the lower mean
     assert np.std(per[0]) > 10 * np.std(per[1])  # but is far more variable
@@ -42,4 +45,5 @@ def test_biz_val_lambda_stab_off_picks_unstable_lower_mean_subset():
 
 
 def test_biz_val_lambda_stab_on_switches_to_stable_subset():
+    """Biz val lambda stab on switches to stable subset."""
     assert _winner(0.5) == (3, 4), "lambda_stab=0.5 must penalise variance and pick the stable candidate"

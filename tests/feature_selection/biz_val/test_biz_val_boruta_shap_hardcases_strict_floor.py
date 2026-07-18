@@ -284,9 +284,9 @@ def test_biz_val_boruta_id_column_rejected_majority_of_seeds():
         assert {"x0", "x1"} <= selected, f"seed={seed} lost informative numerics: {sorted(selected)}"
         if "id_col" not in selected:
             rejected += 1
-    assert rejected > len(seeds) / 2, (
-        f"unique-int ID column must be rejected by a strict majority of seeds (gini cardinality-preserving shadow defence); rejected {rejected}/{len(seeds)}"
-    )
+    assert (
+        rejected > len(seeds) / 2
+    ), f"unique-int ID column must be rejected by a strict majority of seeds (gini cardinality-preserving shadow defence); rejected {rejected}/{len(seeds)}"
 
 
 # ---------------------------------------------------------------------------
@@ -367,6 +367,6 @@ def test_biz_val_boruta_downstream_beats_random_ties_shap_topk(seed: int):
     auc_rand = float(np.mean(rand_aucs))
 
     assert auc_boruta >= auc_shap - 0.02, f"boruta-accepted AUC must tie SHAP-top-k within 0.02; auc_boruta={auc_boruta:.4f} auc_shap_topk={auc_shap:.4f}"
-    assert auc_boruta >= auc_rand + 0.05, (
-        f"boruta-accepted AUC must beat random-same-size mean by >=0.05; auc_boruta={auc_boruta:.4f} auc_rand_mean={auc_rand:.4f}"
-    )
+    assert (
+        auc_boruta >= auc_rand + 0.05
+    ), f"boruta-accepted AUC must beat random-same-size mean by >=0.05; auc_boruta={auc_boruta:.4f} auc_rand_mean={auc_rand:.4f}"

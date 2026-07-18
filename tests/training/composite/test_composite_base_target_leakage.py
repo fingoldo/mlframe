@@ -18,6 +18,7 @@ from mlframe.training.composite.discovery._leakage import (
 
 @pytest.fixture
 def y_signal() -> np.ndarray:
+    """Y signal."""
     rng = np.random.default_rng(7)
     return rng.normal(size=2000).cumsum()  # a non-trivial 1-D series
 
@@ -26,6 +27,7 @@ def y_signal() -> np.ndarray:
 # Unit: leaky cases
 # ---------------------------------------------------------------------------
 def test_base_equals_y_is_leaky(y_signal):
+    """Base equals y is leaky."""
     v = detect_base_target_leakage(y_signal, y_signal.copy())
     assert v["is_leaky"] is True
     assert v["score"] > 0.99
@@ -33,6 +35,7 @@ def test_base_equals_y_is_leaky(y_signal):
 
 
 def test_base_equals_y_plus_tiny_noise_is_leaky(y_signal):
+    """Base equals y plus tiny noise is leaky."""
     base = y_signal + 1e-9 * np.random.default_rng(1).normal(size=y_signal.shape[0])
     v = detect_base_target_leakage(y_signal, base)
     assert v["is_leaky"] is True
@@ -40,12 +43,14 @@ def test_base_equals_y_plus_tiny_noise_is_leaky(y_signal):
 
 def test_monotone_transform_of_y_is_leaky(y_signal):
     # cubic monotone re-encoding -> not linearly identical but fully monotone.
+    """Monotone transform of y is leaky."""
     base = np.sign(y_signal) * np.abs(y_signal) ** 3
     v = detect_base_target_leakage(y_signal, base)
     assert v["is_leaky"] is True, v
 
 
 def test_decreasing_monotone_is_leaky(y_signal):
+    """Decreasing monotone is leaky."""
     v = detect_base_target_leakage(y_signal, -y_signal.copy())
     assert v["is_leaky"] is True
 
@@ -54,6 +59,7 @@ def test_decreasing_monotone_is_leaky(y_signal):
 # Unit: non-leaky cases
 # ---------------------------------------------------------------------------
 def test_merely_correlated_feature_not_leaky(y_signal):
+    """Merely correlated feature not leaky."""
     rng = np.random.default_rng(3)
     base = y_signal + rng.normal(scale=y_signal.std(), size=y_signal.shape[0])
     v = detect_base_target_leakage(y_signal, base)
@@ -61,6 +67,7 @@ def test_merely_correlated_feature_not_leaky(y_signal):
 
 
 def test_unrelated_feature_not_leaky(y_signal):
+    """Unrelated feature not leaky."""
     base = np.random.default_rng(99).normal(size=y_signal.shape[0])
     v = detect_base_target_leakage(y_signal, base)
     assert v["is_leaky"] is False
@@ -68,6 +75,7 @@ def test_unrelated_feature_not_leaky(y_signal):
 
 def test_genuine_lag1_not_leaky_with_time_ordering():
     # AR-ish series; lag-1 base is strongly correlated but shifted in time.
+    """Genuine lag1 not leaky with time ordering."""
     rng = np.random.default_rng(5)
     n = 2000
     y = np.zeros(n)
@@ -84,12 +92,14 @@ def test_genuine_lag1_not_leaky_with_time_ordering():
 
 
 def test_few_rows_not_leaky():
+    """Few rows not leaky."""
     v = detect_base_target_leakage(np.arange(4.0), np.arange(4.0))
     assert v["is_leaky"] is False
     assert "too few" in v["reason"]
 
 
 def test_nonfinite_rows_dropped(y_signal):
+    """Nonfinite rows dropped."""
     base = y_signal.copy()
     base[::50] = np.nan
     yv = y_signal.copy()
@@ -102,6 +112,7 @@ def test_nonfinite_rows_dropped(y_signal):
 # Batch helper
 # ---------------------------------------------------------------------------
 def test_screen_base_pool_partitions(y_signal):
+    """Screen base pool partitions."""
     rng = np.random.default_rng(11)
     pool = {
         "identity": y_signal.copy(),

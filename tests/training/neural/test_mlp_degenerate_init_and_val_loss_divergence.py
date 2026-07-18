@@ -33,7 +33,9 @@ pytestmark = [pytest.mark.requires_torch, pytest.mark.uses_torch]
 
 
 class TestDegenerateInitProbe:
+    """Groups tests covering degenerate init probe."""
     def test_zeros_init_triggers_warn(self, caplog) -> None:
+        """Zeros init triggers warn."""
         torch = pytest.importorskip("torch")
         from mlframe.training.neural.flat import generate_mlp
 
@@ -97,6 +99,7 @@ class TestDegenerateInitProbe:
 
 
 class TestValLossDivergenceCallback:
+    """Groups tests covering val loss divergence callback."""
     def test_callback_class_exists_and_warns(self, caplog) -> None:
         """Smoke: the callback class is importable and warns at high
         divergence factors. End-to-end Lightning integration is covered
@@ -109,10 +112,12 @@ class TestValLossDivergenceCallback:
 
         # Construct a minimal mock trainer with growing val_loss.
         class MockTrainer:
+            """Groups tests covering mock trainer."""
             current_epoch = 1
             callback_metrics = {"val_loss": 0.05}
 
         class MockModule:
+            """Groups tests covering mock module."""
             pass
 
         # Epoch 1 -> baseline
@@ -123,6 +128,7 @@ class TestValLossDivergenceCallback:
         caplog.set_level(logging.WARNING, logger="mlframe.training.neural.base")
 
         class MockTrainer2:
+            """Groups tests covering mock trainer2."""
             current_epoch = 5
             callback_metrics = {"val_loss": 2.5}  # 50x baseline of 0.05
 
@@ -131,12 +137,14 @@ class TestValLossDivergenceCallback:
         assert diverge_warnings, f"ValLossDivergenceCallback didn't warn on 50x growth (factor=10); records: {[r.message for r in caplog.records]}"
 
     def test_callback_only_warns_once(self) -> None:
+        """Callback only warns once."""
         pytest.importorskip("torch")
         from mlframe.training.neural.base import ValLossDivergenceCallback
 
         cb = ValLossDivergenceCallback(divergence_factor=10.0)
 
         class T:
+            """Groups tests covering t."""
             current_epoch = 1
             callback_metrics = {"val_loss": 0.01}
 
@@ -146,6 +154,7 @@ class TestValLossDivergenceCallback:
 
         # First divergence -> warns + latches.
         class T2:
+            """Groups tests covering t2."""
             current_epoch = 5
             callback_metrics = {"val_loss": 1.0}
 
@@ -154,6 +163,7 @@ class TestValLossDivergenceCallback:
 
         # Second divergence -> should NOT re-warn (idempotent).
         class T3:
+            """Groups tests covering t3."""
             current_epoch = 6
             callback_metrics = {"val_loss": 2.0}
 
@@ -167,6 +177,7 @@ class TestMRMRIdentityCacheCompositeAware:
     same X get separate cache slots."""
 
     def test_mrmr_identity_cache_include_y_default_is_true(self) -> None:
+        """Mrmr identity cache include y default is true."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         import inspect
 
@@ -189,15 +200,16 @@ class TestSaveSizePrecheckThreshold:
     50 MB threshold). Sensor and pre-check thresholds now agree."""
 
     def test_default_threshold_is_50_mb(self) -> None:
+        """Default threshold is 50 mb."""
         import inspect
         from mlframe.training.io import save_mlframe_model
 
         sig = inspect.signature(save_mlframe_model)
         assert "auto_lean_pre_check_mb" in sig.parameters
         param = sig.parameters["auto_lean_pre_check_mb"]
-        assert param.default == 50.0, (
-            f"save-size pre-check threshold must be 50 MB to match the post-save sensor's 50 MB suspicious-threshold; got {param.default}"
-        )
+        assert (
+            param.default == 50.0
+        ), f"save-size pre-check threshold must be 50 MB to match the post-save sensor's 50 MB suspicious-threshold; got {param.default}"
 
 
 class TestOutsideTrainYEnvelopeSensorBranch:
@@ -205,6 +217,7 @@ class TestOutsideTrainYEnvelopeSensorBranch:
     predictions land > 3 sigma outside [y_train_min, y_train_max]."""
 
     def test_branch_fires_when_y_train_stats_supplied(self, caplog, monkeypatch) -> None:
+        """Branch fires when y train stats supplied."""
         from mlframe.training.reporting import _reporting
 
         # report_regression_model_perf was carved out of _reporting.py into

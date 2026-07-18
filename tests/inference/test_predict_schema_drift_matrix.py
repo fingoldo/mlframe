@@ -38,7 +38,6 @@ from mlframe.training.core._misc_helpers import (
 )
 from mlframe.training.utils import compute_model_input_fingerprint
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -238,6 +237,6 @@ def test_polars_enum_domain_drift_soft_warns_and_accepts(caplog):
     assert out is not None
     assert "C" in out.columns
     warn_msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
-    assert any("C" in m and ("schema" in m.lower() or "drift" in m.lower()) for m in warn_msgs), (
-        f"Enum domain drift must surface a WARNING naming column 'C' and the schema drift; got: {warn_msgs}"
-    )
+    assert any(
+        "C" in m and ("schema" in m.lower() or "drift" in m.lower()) for m in warn_msgs
+    ), f"Enum domain drift must surface a WARNING naming column 'C' and the schema drift; got: {warn_msgs}"

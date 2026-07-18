@@ -9,6 +9,7 @@ from mlframe.training._noise_ensemble import NoiseAugmentedEnsemble
 
 
 def test_predict_shape_and_classes_passthrough():
+    """Predict shape and classes passthrough."""
     pytest.importorskip("sklearn")
     from sklearn.linear_model import LogisticRegression
 
@@ -22,6 +23,7 @@ def test_predict_shape_and_classes_passthrough():
 
 
 def test_picklable():
+    """Picklable."""
     import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     from sklearn.linear_model import Ridge
@@ -49,6 +51,7 @@ def test_biz_val_noise_ensemble_helps_high_variance_1nn():
     Xte = rng.standard_normal((3000, p))
 
     def tgt(Z):
+        """Tgt."""
         return np.sin(Z[:, 0]) + 0.5 * Z[:, 1]
 
     y = tgt(X) + 0.5 * rng.standard_normal(n)

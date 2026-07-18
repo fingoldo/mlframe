@@ -19,7 +19,6 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 
-
 # ---------------------------------------------------------------------------
 # Baseline: default sklearn Pipeline returns numpy — the behavior we must avoid
 # ---------------------------------------------------------------------------
@@ -109,6 +108,7 @@ def test_passthrough_cols_rewraps_numpy_so_passthrough_cols_survive():
     )
 
     def numpy_returning_transform(sub_df):
+        """Numpy returning transform."""
         return sub_df.to_numpy()
 
     out = _passthrough_cols_fit_transform(numpy_returning_transform, df, passthrough_cols=["text_passthrough"])
@@ -136,6 +136,7 @@ def test_passthrough_cols_pandas_output_keeps_dtypes():
     )
 
     def pandas_returning_transform(sub_df):
+        """Pandas returning transform."""
         return sub_df[["keep1", "cat_selected"]]
 
     out = _passthrough_cols_fit_transform(pandas_returning_transform, df, passthrough_cols=["text_passthrough"])
@@ -165,9 +166,9 @@ def test_get_pandas_view_signature_and_self_destruct_default():
     sig = inspect.signature(get_pandas_view_of_polars_df)
     assert "self_destruct" in sig.parameters, "get_pandas_view_of_polars_df must expose self_destruct param so callers can opt in to the 43x fast path."
     sd_param = sig.parameters["self_destruct"]
-    assert sd_param.default is False, (
-        f"self_destruct must default to False (pyarrow EXPERIMENTAL flag caused native crash 2026-04-22); got default={sd_param.default!r}"
-    )
+    assert (
+        sd_param.default is False
+    ), f"self_destruct must default to False (pyarrow EXPERIMENTAL flag caused native crash 2026-04-22); got default={sd_param.default!r}"
 
     df = pl.DataFrame({"num": np.arange(50, dtype=np.float32), "cat": ["a", "b"] * 25})
     out_default = get_pandas_view_of_polars_df(df)

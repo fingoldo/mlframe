@@ -15,6 +15,7 @@ from mlframe.training.neural._flat_torch_module import _flat_torch_predict_accel
 
 
 class _Stub(accel._PredictAccelMixin):
+    """Groups tests covering stub."""
     def __init__(self):
         self._cuda_graph_predict_cache = {}
 
@@ -25,10 +26,12 @@ class _Dummy:
 
 def _entry():
     # Stand-in for (graph, static_in, static_out); real ones are device-resident torch objects.
+    """Entry."""
     return (_Dummy(), _Dummy(), _Dummy())
 
 
 def test_graph_cache_is_lru_capped_and_frees_evicted_entries(monkeypatch):
+    """Graph cache is lru capped and frees evicted entries."""
     monkeypatch.setattr(accel, "_CUDA_GRAPH_PREDICT_CACHE_MAX", 3)
     m = _Stub()
 

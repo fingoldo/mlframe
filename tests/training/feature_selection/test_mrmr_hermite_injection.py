@@ -19,12 +19,15 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _suppress_optuna_warnings():
+    """Autouse fixture that silences Optuna's warnings for the duration of each Hermite-injection test."""
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore")
         yield
 
 
 class TestHermiteInjectionWiring:
+    """Groups tests covering the MRMR Hermite-feature injection block's wiring and gating."""
+
     def test_no_smart_polynom_no_attribute(self) -> None:
         """When fe_smart_polynom_iters=0, the new Hermite block does not run and _hermite_features_ is not set."""
         from mlframe.feature_selection.filters.mrmr import MRMR
@@ -49,9 +52,9 @@ class TestHermiteInjectionWiring:
         )
         m.fit(df, y)
         # Back-compat: attribute should not exist (or be empty if pre-initialised).
-        assert not getattr(m, "_hermite_features_", None), (
-            f"expected no Hermite features for fe_smart_polynom_iters=0; got {getattr(m, '_hermite_features_', None)}"
-        )
+        assert not getattr(
+            m, "_hermite_features_", None
+        ), f"expected no Hermite features for fe_smart_polynom_iters=0; got {getattr(m, '_hermite_features_', None)}"
 
     def test_with_smart_polynom_does_not_crash(self) -> None:
         """When fe_smart_polynom_iters>0 the new injection branch runs without raising. May or may not inject features depending on whether pairs pass the gate -- but MUST NOT crash."""

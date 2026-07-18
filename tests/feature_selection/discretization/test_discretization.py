@@ -15,7 +15,6 @@ import pandas as pd
 from hypothesis import given, settings, strategies as st, HealthCheck
 from hypothesis.extra.numpy import arrays
 
-
 # Import the module under test
 from mlframe.feature_selection.filters import (
     categorize_dataset,

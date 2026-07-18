@@ -54,8 +54,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
-
 MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
@@ -103,26 +101,31 @@ def _read(rel: str) -> str:
 
 
 def test_hermite_history_uses_secondary_bf_idx() -> None:
+    """Hermite history uses secondary bf idx."""
     src = _read("feature_selection/filters/hermite_fe.py")
     assert "sorted(history, key=lambda r: (-r[0], r[2]))" in src
 
 
 def test_hermite_results_uses_secondary_keys() -> None:
+    """Hermite results uses secondary keys."""
     src = _read("feature_selection/filters/hermite_fe.py")
     assert "results.sort(key=lambda r: (-r.mi" in src
 
 
 def test_composition_single_mi_secondary_key() -> None:
+    """Composition single mi secondary key."""
     src = _read("feature_selection/filters/composition.py")
     assert "single_mi.sort(key=lambda kv: (-kv[1], kv[0]))" in src
 
 
 def test_composition_pair_scores_secondary_key() -> None:
+    """Composition pair scores secondary key."""
     src = _read("feature_selection/filters/composition.py")
     assert "pair_scores.sort(key=lambda kv: (-kv[2], kv[0], kv[1]))" in src
 
 
 def test_fe_baselines_secondary_key_on_name() -> None:
+    """Fe baselines secondary key on name."""
     src = _read("feature_selection/filters/fe_baselines.py")
     assert src.count("sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))") >= 2
 
@@ -132,6 +135,7 @@ def test_knockoff_helper_secondary_key_on_name() -> None:
     # /_helpers.py monolith split (kept under 1k LOC). Concat so the source
     # sensor matches the post-carve layout regardless of which sibling
     # currently houses the literal.
+    """Knockoff helper secondary key on name."""
     src = _read("feature_selection/wrappers/_helpers.py")
     _sibling = MLFRAME_ROOT / "feature_selection" / "wrappers" / "_knockoffs.py"
     if _sibling.exists():
@@ -140,6 +144,7 @@ def test_knockoff_helper_secondary_key_on_name() -> None:
 
 
 def test_estimators_perm_mi_uses_lexsort() -> None:
+    """Estimators perm mi uses lexsort."""
     src = _read("feature_selection/filters/estimators.py")
     assert "significant[np.lexsort((significant, -_obs_sig))]" in src
 
@@ -156,6 +161,7 @@ def test_baseline_diagnostics_ablation_uses_lexsort() -> None:
 
 
 def test_numerical_top_modes_uses_lexsort() -> None:
+    """Numerical top modes uses lexsort."""
     src = _read("feature_engineering/numerical.py")
     assert "modes_indices = np.lexsort((vals, -counts))[:max_modes]" in src
 
@@ -163,15 +169,18 @@ def test_numerical_top_modes_uses_lexsort() -> None:
 def test_cat_interactions_topk_uses_lexsort() -> None:
     # ``_select_top_k_pairs`` moved to the ``_cat_kway_materialize.py``
     # sibling when ``cat_interactions.py`` was split below 1k LOC.
+    """Cat interactions topk uses lexsort."""
     src = _read("feature_selection/filters/_cat_kway_materialize.py")
     assert "top_idx = np.lexsort((np.arange(len(masked_score)), -masked_score))" in src
 
 
 def test_cat_interactions_kway_secondary_key() -> None:
+    """Cat interactions kway secondary key."""
     src = _read("feature_selection/filters/cat_interactions.py")
     assert "kway_results.sort(key=lambda r: (-r[3]," in src
 
 
 def test_evaluation_reports_precision_at_decile_uses_lexsort() -> None:
+    """Evaluation reports precision at decile uses lexsort."""
     src = _read("evaluation/reports.py")
     assert "idx = np.lexsort((np.arange(n), -preds))[:k]" in src

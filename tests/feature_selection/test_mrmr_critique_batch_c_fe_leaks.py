@@ -19,6 +19,7 @@ from mlframe.feature_selection.filters._temporal_agg_fe import (
 
 def test_temporal_entity_key_survives_int_to_float_dtype_drift():
     # fit with INT entity ids
+    """Temporal entity key survives int to float dtype drift."""
     Xtr = pd.DataFrame({"entity": np.array([1, 1, 1, 2, 2], dtype=np.int64), "tcol": [1, 2, 3, 1, 2], "x0": [10.0, 20.0, 30.0, 5.0, 7.0]})
     _enc, rec = generate_expanding_agg_features(Xtr, ["entity"], ["x0"], "tcol", stats=("count",))
     extra = next(iter(rec.values()))
@@ -31,6 +32,7 @@ def test_temporal_entity_key_survives_int_to_float_dtype_drift():
 
 
 def _te_inputs(n=200, seed=0):
+    """Te inputs."""
     rng = np.random.default_rng(seed)
     a = rng.integers(0, 6, n)
     b = rng.integers(0, 6, n)
@@ -41,6 +43,7 @@ def _te_inputs(n=200, seed=0):
 
 
 def test_naive_target_encoding_falls_back_to_oof_without_optin(caplog):
+    """Naive target encoding falls back to oof without option."""
     from mlframe.feature_selection.filters._cat_target_encoding_and_weighted import _compute_target_encoding
 
     factors, y, nbins = _te_inputs()

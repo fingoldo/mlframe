@@ -39,6 +39,7 @@ from mlframe.training.composite import CompositeTargetEstimator
 
 
 def _fit_linreg_wrapper(n: int = 60) -> CompositeTargetEstimator:
+    """Fit linreg wrapper."""
     rng = np.random.default_rng(0)
     base = rng.uniform(1.0, 5.0, size=n)
     X = pd.DataFrame({"base": base, "f1": rng.normal(size=n)})
@@ -49,6 +50,7 @@ def _fit_linreg_wrapper(n: int = 60) -> CompositeTargetEstimator:
 
 
 def _fit_rf_wrapper(n: int = 80) -> CompositeTargetEstimator:
+    """Fit rf wrapper."""
     rng = np.random.default_rng(1)
     base = rng.uniform(1.0, 5.0, size=n)
     X = pd.DataFrame({"base": base, "f1": rng.normal(size=n)})
@@ -73,9 +75,9 @@ def test_linreg_inner_missing_attr_is_not_advertised(attr):
     ``booster_``; the wrapper MUST report ``hasattr == False`` (was ``True``
     with a ``None`` value -- the trap)."""
     est = _fit_linreg_wrapper()
-    assert hasattr(est, attr) is False, (
-        f"hasattr(wrapper, {attr!r}) must be False when the fitted inner lacks it (pre-fix returned None, making hasattr True -- the trap)"
-    )
+    assert (
+        hasattr(est, attr) is False
+    ), f"hasattr(wrapper, {attr!r}) must be False when the fitted inner lacks it (pre-fix returned None, making hasattr True -- the trap)"
 
 
 @pytest.mark.parametrize("attr", ["feature_importances_", "booster_"])
@@ -135,6 +137,7 @@ def test_tree_inner_feature_importances_exposed():
 
 @pytest.mark.parametrize("attr", ["feature_importances_", "coef_", "intercept_", "booster_"])
 def test_prefit_access_raises_notfittederror(attr):
+    """Prefit access raises notfittederror."""
     est = CompositeTargetEstimator(base_estimator=LinearRegression(), transform_name="diff", base_column="base")
     with pytest.raises(NotFittedError):
         getattr(est, attr)

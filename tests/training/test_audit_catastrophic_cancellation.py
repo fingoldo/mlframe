@@ -33,7 +33,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # ---- #1: variance precision on large-mean small-spread input ------------
 
 

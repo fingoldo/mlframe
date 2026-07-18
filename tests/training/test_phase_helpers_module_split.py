@@ -18,6 +18,7 @@ from pathlib import Path
 
 
 def test_moved_phase_functions_importable_from_facade() -> None:
+    """Moved phase functions importable from facade."""
     from mlframe.training.core._phase_helpers import (
         _phase_auto_detect_feature_types,
         _phase_fit_pipeline,
@@ -29,6 +30,7 @@ def test_moved_phase_functions_importable_from_facade() -> None:
 
 
 def test_other_phase_helpers_still_importable() -> None:
+    """Other phase helpers still importable."""
     from mlframe.training.core._phase_helpers import (
         _phase_load_and_preprocess,
         _phase_pandas_conversion_and_cat_prep,
@@ -48,6 +50,7 @@ def test_other_phase_helpers_still_importable() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
+    """Facade below 1k line threshold."""
     root = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe" / "training" / "core"
     facade = root / "_phase_helpers.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())

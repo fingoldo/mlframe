@@ -60,6 +60,7 @@ def linear_regression_data_scaled():
 
 @pytest.fixture
 def binary_classification_data():
+    """Binary classification data."""
     X, y = make_classification(
         n_samples=400,
         n_features=6,
@@ -79,6 +80,7 @@ def binary_classification_data():
 
 @pytest.fixture
 def regressor_params():
+    """Regressor params."""
     return {
         "model_class": MLPTorchModel,
         "model_params": {"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-2},
@@ -111,6 +113,7 @@ def regressor_params():
 
 @pytest.fixture
 def classifier_params():
+    """Classifier params."""
     return {
         "model_class": MLPTorchModel,
         "model_params": {"loss_fn": torch.nn.CrossEntropyLoss(), "learning_rate": 1e-2},
@@ -198,9 +201,9 @@ def test_binary_predict_proba_rows_sum_to_one(
     row_sums = proba.sum(axis=1)
     max_dev = float(np.abs(row_sums - 1.0).max())
     print(f"\nBinary predict_proba row-sum: max|sum - 1.0| = {max_dev:.6e}")
-    assert max_dev < 1e-5, (
-        f"predict_proba rows do not sum to 1.0; max deviation = {max_dev:.6e}. sklearn classifier contract requires probabilities sum to 1 per row."
-    )
+    assert (
+        max_dev < 1e-5
+    ), f"predict_proba rows do not sum to 1.0; max deviation = {max_dev:.6e}. sklearn classifier contract requires probabilities sum to 1 per row."
 
     # Also sanity: predict_proba(X) and predict(X) must agree -- predict
     # should be classes_[argmax(predict_proba)]

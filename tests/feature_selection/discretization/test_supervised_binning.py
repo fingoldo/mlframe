@@ -22,7 +22,6 @@ from mlframe.feature_selection.filters.supervised_binning import (
     mdlp_bin_edges,
 )
 
-
 # ---- helpers ---------------------------------------------------------------
 
 
@@ -52,6 +51,7 @@ def _conditional_entropy(y: np.ndarray, bins: np.ndarray) -> float:
 
 @pytest.fixture
 def rng() -> np.random.Generator:
+    """Helper that rng."""
     return np.random.default_rng(20260514)
 
 
@@ -77,7 +77,9 @@ def noisy_boundary_xy(rng):
 
 
 class TestMDLPContract:
+    """Groups tests covering TestMDLPContract."""
     def test_returns_ndarray_with_inf_sentinels(self, separable_xy):
+        """Returns ndarray with inf sentinels."""
         x, y = separable_xy
         edges = mdlp_bin_edges(x, y)
         assert isinstance(edges, np.ndarray)
@@ -86,18 +88,21 @@ class TestMDLPContract:
         assert edges[-1] == np.inf
 
     def test_edges_are_sorted(self, noisy_boundary_xy):
+        """Edges are sorted."""
         x, y = noisy_boundary_xy
         edges = mdlp_bin_edges(x, y, max_depth=4, min_split_size=10)
         assert np.all(np.diff(edges) > 0)
 
     def test_at_least_two_edges_always(self, rng):
         # Even with zero splits we still return [-inf, +inf].
+        """At least two edges always."""
         x = rng.standard_normal(20)
         y = rng.integers(0, 2, size=20)
         edges = mdlp_bin_edges(x, y)
         assert len(edges) >= 2
 
     def test_length_mismatch_raises(self, rng):
+        """Length mismatch raises."""
         x = rng.standard_normal(50)
         y = rng.integers(0, 2, size=40)
         with pytest.raises(ValueError, match="len"):
@@ -105,6 +110,7 @@ class TestMDLPContract:
 
     def test_determinism(self, separable_xy):
         # No RNG inside mdlp_bin_edges; identical inputs must give identical edges.
+        """Helper that determinism."""
         x, y = separable_xy
         e1 = mdlp_bin_edges(x, y)
         e2 = mdlp_bin_edges(x.copy(), y.copy())
@@ -112,6 +118,7 @@ class TestMDLPContract:
 
     def test_accepts_list_input(self, separable_xy):
         # The function calls np.asarray; lists must work.
+        """Accepts list input."""
         x, y = separable_xy
         e_arr = mdlp_bin_edges(x, y)
         e_list = mdlp_bin_edges(x.tolist(), y.tolist())
@@ -122,7 +129,9 @@ class TestMDLPContract:
 
 
 class TestMDLStopping:
+    """Groups tests covering TestMDLStopping."""
     def test_perfect_separator_yields_split(self, separable_xy):
+        """Perfect separator yields split."""
         x, y = separable_xy
         edges = mdlp_bin_edges(x, y)
         inner = edges[1:-1]
@@ -131,6 +140,7 @@ class TestMDLStopping:
 
     def test_uniform_noise_yields_few_splits(self, rng):
         # y independent of x: Fayyad-Irani MDL should reject the split.
+        """Uniform noise yields few splits."""
         x = rng.uniform(0.0, 1.0, size=500)
         y = rng.integers(0, 2, size=500)
         edges = mdlp_bin_edges(x, y)
@@ -139,6 +149,7 @@ class TestMDLStopping:
         assert len(inner) <= 1
 
     def test_single_class_y_no_splits(self, rng):
+        """Single class y no splits."""
         x = rng.standard_normal(200)
         y = np.zeros(200, dtype=np.int64)
         edges = mdlp_bin_edges(x, y)
@@ -149,18 +160,22 @@ class TestMDLStopping:
 
 
 class TestKnobs:
+    """Groups tests covering TestKnobs."""
     def test_max_depth_zero_blocks_all_splits(self, separable_xy):
+        """Max depth zero blocks all splits."""
         x, y = separable_xy
         edges = mdlp_bin_edges(x, y, max_depth=0)
         assert len(edges) == 2
 
     def test_min_split_size_huge_blocks_all_splits(self, separable_xy):
+        """Min split size huge blocks all splits."""
         x, y = separable_xy
         # Need 2 * min_split_size <= n for recursion to enter; oversize blocks it.
         edges = mdlp_bin_edges(x, y, min_split_size=len(x))
         assert len(edges) == 2
 
     def test_deeper_max_depth_does_not_remove_splits(self, noisy_boundary_xy):
+        """Deeper max depth does not remove splits."""
         x, y = noisy_boundary_xy
         shallow = mdlp_bin_edges(x, y, max_depth=1)
         deeper = mdlp_bin_edges(x, y, max_depth=8)
@@ -174,7 +189,9 @@ class TestKnobs:
 
 
 class TestEntropyReduction:
+    """Groups tests covering TestEntropyReduction."""
     def test_split_reduces_conditional_entropy(self, separable_xy):
+        """Split reduces conditional entropy."""
         x, y = separable_xy
         edges = mdlp_bin_edges(x, y)
         bins = apply_bin_edges(x, edges)
@@ -188,12 +205,15 @@ class TestEntropyReduction:
 
 
 class TestEdgeCases:
+    """Groups tests covering TestEdgeCases."""
     def test_n_equals_two(self):
+        """N equals two."""
         edges = mdlp_bin_edges(np.array([0.0, 1.0]), np.array([0, 1]))
         # 2 * min_split_size = 10 > n=2, so no splits expected.
         assert len(edges) == 2
 
     def test_all_constant_x(self, rng):
+        """All constant x."""
         x = np.full(200, 3.14)
         y = rng.integers(0, 2, size=200)
         edges = mdlp_bin_edges(x, y)
@@ -203,6 +223,7 @@ class TestEdgeCases:
         assert edges[0] == -np.inf and edges[-1] == np.inf
 
     def test_single_value_x(self):
+        """Single value x."""
         edges = mdlp_bin_edges(np.array([1.0]), np.array([0]))
         assert list(edges) == [-np.inf, np.inf]
 
@@ -211,7 +232,9 @@ class TestEdgeCases:
 
 
 class TestApplyBinEdges:
+    """Groups tests covering TestApplyBinEdges."""
     def test_bin_count_matches_edges(self, separable_xy):
+        """Bin count matches edges."""
         x, y = separable_xy
         edges = mdlp_bin_edges(x, y)
         bins = apply_bin_edges(x, edges)
@@ -220,6 +243,7 @@ class TestApplyBinEdges:
         assert bins.max() < n_bins_expected
 
     def test_dtype_respected(self, separable_xy):
+        """Dtype respected."""
         x, y = separable_xy
         edges = mdlp_bin_edges(x, y)
         for dt in (np.int8, np.int16, np.int32, np.int64):
@@ -228,6 +252,7 @@ class TestApplyBinEdges:
 
     def test_train_val_share_edges(self, rng):
         # Leak-safe pattern from the module docstring: fit edges on train, apply to val.
+        """Train val share edges."""
         x_train = rng.uniform(0, 1, size=400)
         y_train = (x_train > 0.4).astype(np.int64)
         x_val = rng.uniform(0, 1, size=200)
@@ -240,6 +265,7 @@ class TestApplyBinEdges:
         assert bins_val.max() < n_bins
 
     def test_apply_monotone_in_x(self, separable_xy):
+        """Apply monotone in x."""
         x, y = separable_xy
         edges = mdlp_bin_edges(x, y)
         order = np.argsort(x)

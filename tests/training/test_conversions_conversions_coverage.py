@@ -107,6 +107,7 @@ def test_passthrough_cols_held_uses_arrow_bridge_for_pl_enum():
 
         def fit_transform(self, X, y=None, **kw):
             # X arrives as polars-stripped-of-passthrough (the 'reduced' frame).
+            """Fit transform."""
             if isinstance(X, pl.DataFrame):
                 return X.to_pandas()
             return X
@@ -141,6 +142,7 @@ def test_apply_extensions_pipeline_no_to_pandas_when_invoked_on_polars(monkeypat
     real_to_pandas = pl.DataFrame.to_pandas
 
     def _counting_to_pandas(self, *args, **kwargs):
+        """Counting to pandas."""
         calls["n"] += 1
         return real_to_pandas(self, *args, **kwargs)
 
@@ -202,6 +204,7 @@ def test_predict_native_probe_loads_each_model_once(monkeypatch, tmp_path):
     real_loader = predict_mod.load_mlframe_model
 
     def _counting_loader(path, *args, **kwargs):
+        """Counting loader."""
         call_counts[path] = call_counts.get(path, 0) + 1
         return real_loader(path, *args, **kwargs)
 

@@ -47,8 +47,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
-
 MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
@@ -75,6 +73,7 @@ def _read(rel: str) -> str:
 
 
 def test_locking_release_wrapped_in_try_except() -> None:
+    """Locking release wrapped in try except."""
     src = _read("training/feature_handling/locking.py")
     # The pre-fix bare release() inside the outer try is gone.
     # The post-fix wraps it explicitly.
@@ -84,6 +83,7 @@ def test_locking_release_wrapped_in_try_except() -> None:
 
 
 def test_composite_cache_evict_forwards_exc_info() -> None:
+    """Composite cache evict forwards exc info."""
     src = _read("training/composite/cache_store.py")
     # The pre-fix `__exit__(None, None, None)` is replaced with `__exit__(*_exc)`.
     assert "_lock_ctx.__exit__(None, None, None)" not in src
@@ -93,6 +93,7 @@ def test_composite_cache_evict_forwards_exc_info() -> None:
 
 
 def test_cache_backend_lru_filelock_forwards_exc_info() -> None:
+    """Cache backend lru filelock forwards exc info."""
     src = _read("training/feature_handling/cache_backend.py")
     assert "file_lock.__exit__(None, None, None)" not in src
     assert "file_lock.__exit__(*_exc)" in src
@@ -100,18 +101,21 @@ def test_cache_backend_lru_filelock_forwards_exc_info() -> None:
 
 
 def test_row_attention_free_device_wrapped() -> None:
+    """Row attention free device wrapped."""
     src = _read("feature_engineering/transformer/row_attention.py")
     # The fix wraps free_device in try/except WARN.
     assert "bank.free_device() failed (likely after upstream CUDA error)" in src
 
 
 def test_logging_transformers_psutil_wrapped() -> None:
+    """Logging transformers psutil wrapped."""
     src = _read("training/logging_transformers.py")
     # The fix wraps rss read in try/except defaulting to 0.0.
     assert "rss1 = proc.memory_info().rss / 1024 ** 2\n                except Exception:\n                    rss1 = 0.0" in src
 
 
 def test_pipeline_temp_target_drop_wrapped() -> None:
+    """Pipeline temp target drop wrapped."""
     src = _read("training/pipeline.py")
     # The fix wraps drop in try/except DEBUG.
     assert "pipeline: temp_target_col drop failed in finally" in src
@@ -128,7 +132,9 @@ def test_finally_with_raising_cleanup_does_not_mask_original_exception() -> None
     seen = []
 
     class FakeLock:
+        """Groups tests covering fake lock."""
         def release(self):
+            """Release."""
             raise OSError("simulated filelock release failure")
 
     fl = FakeLock()

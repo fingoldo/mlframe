@@ -27,10 +27,12 @@ import pytest
 
 
 def _module_source(mod) -> str:
+    """Module source."""
     return Path(mod.__file__).read_text(encoding="utf-8")
 
 
 class TestCarveInnerEvalSplitGroupAware:
+    """Groups tests covering carve inner eval split group aware."""
     def test_group_ids_keeps_groups_whole(self) -> None:
         """No group spans fit and eval slices when group_ids is given."""
         from mlframe.training.composite.ensemble import _carve_inner_eval_split
@@ -97,7 +99,9 @@ class TestCarveInnerEvalSplitGroupAware:
 
 
 class TestAR1FailsafeToleranceDefault:
+    """Groups tests covering a r1 failsafe tolerance default."""
     def test_default_tolerance_is_010(self) -> None:
+        """Default tolerance is 010."""
         from mlframe.training._composite_target_discovery_config import (
             CompositeTargetDiscoveryConfig,
         )
@@ -107,7 +111,9 @@ class TestAR1FailsafeToleranceDefault:
 
 
 class TestComputeOofPassesGroupIds:
+    """Groups tests covering compute oof passes group ids."""
     def test_external_holdout_signature_accepts_group_ids(self) -> None:
+        """External holdout signature accepts group ids."""
         import inspect
         from mlframe.training.composite.ensemble import (
             _compute_oof_with_external_holdout,
@@ -121,6 +127,7 @@ class TestComputeOofPassesGroupIds:
 
 
 class TestXgbValDmatrixModuleCache:
+    """Groups tests covering xgb val dmatrix module cache."""
     def test_val_cache_key_includes_train_key(self) -> None:
         """Sanity check: the val cache key composition mirrors train
         content so cross-train-content reuse isn't possible."""
@@ -141,6 +148,7 @@ class TestXgbValDmatrixModuleCache:
 
 
 class TestPipelineCacheRamAware:
+    """Groups tests covering pipeline cache ram aware."""
     def test_resolve_returns_value_above_2gb_when_ram_free(self) -> None:
         """On any developer machine with >10 GB RAM free the dynamic
         budget should exceed the legacy 2 GB hardcoded default."""
@@ -157,6 +165,7 @@ class TestPipelineCacheRamAware:
                 os.environ["MLFRAME_PIPELINE_CACHE_BYTES_LIMIT"] = prior
 
     def test_env_var_override_takes_priority(self) -> None:
+        """Env var override takes priority."""
         import os
         from mlframe.training.strategies import _resolve_pipeline_cache_budget
 
@@ -171,6 +180,7 @@ class TestPipelineCacheRamAware:
                 os.environ["MLFRAME_PIPELINE_CACHE_BYTES_LIMIT"] = prior
 
     def test_pipeline_cache_default_budget_is_dynamic(self) -> None:
+        """Pipeline cache default budget is dynamic."""
         import os
         from mlframe.training.strategies import PipelineCache
 
@@ -184,19 +194,23 @@ class TestPipelineCacheRamAware:
 
 
 class TestMatplotlibSuptitleNoOverlap:
+    """Groups tests covering matplotlib suptitle no overlap."""
     def test_renderer_forces_constrained_layout_with_suptitle(self) -> None:
+        """Renderer forces constrained layout with suptitle."""
         from mlframe.reporting.renderers import matplotlib as mpl_renderer
 
         src = _module_source(mpl_renderer)
         assert "spec.constrained_layout or spec.suptitle" in src
 
     def test_renderer_save_uses_bbox_tight(self) -> None:
+        """Renderer save uses bbox tight."""
         from mlframe.reporting.renderers import matplotlib as mpl_renderer
 
         src = _module_source(mpl_renderer)
         assert 'bbox_inches="tight"' in src
 
     def test_fi_plot_save_uses_bbox_tight(self) -> None:
+        """Fi plot save uses bbox tight."""
         from mlframe.feature_selection import importance
 
         src = _module_source(importance)

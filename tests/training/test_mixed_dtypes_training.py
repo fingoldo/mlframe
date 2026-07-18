@@ -1,5 +1,3 @@
-from mlframe.training import OutputConfig, ReportingConfig
-
 """
 Integration test: train CatBoost on a synthetic Polars DataFrame with mixed dtypes
 matching a real production dataset shape.
@@ -11,6 +9,9 @@ Real dataset dtypes:
 
 Total: ~576 feature columns + target source + metadata columns, 100k rows.
 """
+
+from mlframe.training import OutputConfig, ReportingConfig
+
 
 import numpy as np
 import polars as pl
@@ -87,6 +88,7 @@ class TestMixedDtypesTraining:
 
     @pytest.fixture(scope="class")
     def synthetic_df(self):
+        """Builds the shared 100k-row mixed-dtype synthetic frame once per test class."""
         return _make_synthetic_mixed_df(n_rows=100_000)
 
     def test_catboost_trains_on_mixed_dtypes(self, synthetic_df, tmp_path):

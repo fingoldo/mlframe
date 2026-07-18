@@ -56,6 +56,7 @@ from tests.conftest import is_fast_mode
 # tolerance bands on ``elkan_noto`` / ``prior_shift_correction`` flake.
 @pytest.fixture(autouse=True)
 def _stable_global_rng():
+    """Stable global rng."""
     import random
 
     np.random.seed(0)
@@ -259,9 +260,9 @@ def test_strategy_recovers_calibration_on_test(strategy, synthetic_pu):
         "elkan_noto": 0.30,
     }[strategy]
 
-    assert distance < tolerance, (
-        f"strategy={strategy}: PU mean_pred={pu_mean:.3f} too far from true prior {true_prior:.3f} (Δ={distance:.3f}, tolerance={tolerance})"
-    )
+    assert (
+        distance < tolerance
+    ), f"strategy={strategy}: PU mean_pred={pu_mean:.3f} too far from true prior {true_prior:.3f} (Δ={distance:.3f}, tolerance={tolerance})"
 
 
 @pytest.mark.parametrize(
@@ -409,6 +410,7 @@ def test_auto_falls_back_to_importance_weighted_when_subset_small():
 
 
 def test_predict_classes(synthetic_pu):
+    """Predict classes."""
     pu = PULearningWrapper(
         base_estimator=HistGradientBoostingClassifier(max_iter=50, random_state=0),
         strategy="unbiased_only",
@@ -425,6 +427,7 @@ def test_predict_classes(synthetic_pu):
 
 
 def test_predict_proba_shape(synthetic_pu):
+    """Predict proba shape."""
     pu = PULearningWrapper(
         base_estimator=HistGradientBoostingClassifier(max_iter=50, random_state=0),
         strategy="elkan_noto",
@@ -441,6 +444,7 @@ def test_predict_proba_shape(synthetic_pu):
 
 
 def test_decision_function_returns_pos_prob(synthetic_pu):
+    """Decision function returns pos prob."""
     pu = PULearningWrapper(
         base_estimator=HistGradientBoostingClassifier(max_iter=50, random_state=0),
         strategy="unbiased_only",
@@ -457,6 +461,7 @@ def test_decision_function_returns_pos_prob(synthetic_pu):
 
 
 def test_rejects_too_few_unbiased_positives():
+    """Rejects too few unbiased positives."""
     rng = np.random.default_rng(0)
     X = rng.standard_normal((200, 4))
     y = (rng.uniform(size=200) < 0.5).astype(np.int8)
@@ -472,6 +477,7 @@ def test_rejects_too_few_unbiased_positives():
 
 
 def test_rejects_non_binary_y():
+    """Rejects non binary y."""
     rng = np.random.default_rng(0)
     X = rng.standard_normal((300, 4))
     y = rng.integers(0, 3, size=300).astype(np.int8)
@@ -484,6 +490,7 @@ def test_rejects_non_binary_y():
 
 
 def test_estimate_c_methods():
+    """Estimate c methods."""
     proxy_probs = np.array([0.5, 0.6, 0.7, 0.8, 0.9])
     assert estimate_c_from_unbiased_positives(proxy_probs, "mean_unbiased_pos") == pytest.approx(0.7)
     assert estimate_c_from_unbiased_positives(proxy_probs, "max_unbiased_pos") == 0.9
@@ -496,6 +503,7 @@ def test_estimate_c_methods():
 
 
 def test_unfitted_raises():
+    """Unfitted raises."""
     from sklearn.exceptions import NotFittedError
 
     pu = PULearningWrapper(base_estimator=LogisticRegression())
@@ -525,6 +533,7 @@ def test_prior_shift_uses_provided_true_prior(synthetic_pu):
 
 
 def test_prior_shift_validates_prior_range(synthetic_pu):
+    """Prior shift validates prior range."""
     pu = PULearningWrapper(
         base_estimator=LogisticRegression(max_iter=200, random_state=0),
         strategy="prior_shift_correction",
@@ -540,6 +549,7 @@ def test_prior_shift_validates_prior_range(synthetic_pu):
 
 
 def test_elkan_noto_records_c_attribute(synthetic_pu):
+    """Elkan noto records c attribute."""
     pu = PULearningWrapper(
         base_estimator=HistGradientBoostingClassifier(max_iter=100, random_state=0),
         strategy="elkan_noto",

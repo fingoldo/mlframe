@@ -23,6 +23,7 @@ from mlframe.feature_selection.filters._binned_numeric_agg_fe import (
 
 def test_moment_aware_resolution_and_autodrop():
     # Large n: full panel at the base bin count.
+    """Moment aware resolution and autodrop."""
     nb, kept = resolve_nbins_and_stats(20000, ("mean", "std", "skew", "kurt"), 10, k=1)
     assert nb == 10 and kept == ["mean", "std", "skew", "kurt"]
     # Small n: cap from the highest moment binds (kurt n_min=100 -> nbins<=5).
@@ -34,6 +35,7 @@ def test_moment_aware_resolution_and_autodrop():
 
 
 def test_bincount_stats_match_numpy():
+    """Bincount stats match numpy."""
     rng = np.random.default_rng(0)
     codes = rng.integers(0, 4, 5000)
     v = rng.normal(0, 1, 5000)
@@ -45,6 +47,7 @@ def test_bincount_stats_match_numpy():
 
 
 def test_replay_is_leak_safe_and_deterministic():
+    """Replay is leak safe and deterministic."""
     rng = np.random.default_rng(1)
     n = 6000
     df = pd.DataFrame({"g": rng.uniform(0, 1, n), "aux": rng.normal(0, 1, n)})
@@ -64,6 +67,7 @@ def test_replay_is_leak_safe_and_deterministic():
 
 
 def test_std_column_recovers_cell_spread():
+    """Std column recovers cell spread."""
     rng = np.random.default_rng(2)
     n = 10000
     g = rng.uniform(0, 1, n)
@@ -81,6 +85,7 @@ def test_std_column_recovers_cell_spread():
 
 
 def test_biz_value_recovers_spread_driven_target():
+    """Biz value recovers spread driven target."""
     from sklearn.ensemble import GradientBoostingRegressor
     from sklearn.metrics import r2_score
 
@@ -96,6 +101,7 @@ def test_biz_value_recovers_spread_driven_target():
         tr, te = slice(0, cut), slice(cut, n)
 
         def _r2(stats):
+            """Fit/apply binned_numeric_agg with the given stats list on the train/test split and return held-out R^2."""
             feat_df, recipes = fit_binned_numeric_agg(df.iloc[tr], sigma[tr], group_num_cols=["g"], agg_num_cols=["aux"], stats=stats, nbins_base=10)  # noqa: B023 -- closure invoked twice below, same iteration, never stored
             Xtr = feat_df.to_numpy()
             Xte = np.column_stack([apply_binned_numeric_agg(df.iloc[te], recipes[c]) for c in feat_df.columns])  # noqa: B023 -- closure invoked twice below, same iteration, never stored
@@ -168,9 +174,9 @@ def test_redundancy_gate_drops_binagg_redundant_with_engineered_source_on_linear
     y = pd.Series(((x1 + 0.7 * x2) > 0).astype(int), name="y")
 
     on_appended = list(getattr(make_fast_mrmr().fit(X, y), "hybrid_orth_features_", []) or [])
-    assert not any(str(c).startswith("binagg_") for c in on_appended), (
-        f"redundancy gate (default ON) should drop binagg columns redundant with their source; got {on_appended}"
-    )
+    assert not any(
+        str(c).startswith("binagg_") for c in on_appended
+    ), f"redundancy gate (default ON) should drop binagg columns redundant with their source; got {on_appended}"
 
     off_appended = list(getattr(make_fast_mrmr(fe_binned_numeric_agg_redundancy_gate=False).fit(X, y), "hybrid_orth_features_", []) or [])
     assert any(str(c).startswith("binagg_") for c in off_appended), "with the redundancy gate OFF the Tier-1 MI floor admits the redundant binagg column(s)"

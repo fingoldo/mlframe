@@ -19,11 +19,13 @@ from mlframe.training.core._ensemble_chooser import _choose_ensemble_flavour
 
 
 class _FakeEns:
+    """Groups tests covering fake ens."""
     def __init__(self, metrics):
         self.metrics = metrics
 
 
 def _two_col(p):
+    """Two col."""
     p = np.clip(p, 1e-6, 1 - 1e-6)
     return np.column_stack([1.0 - p, p])
 
@@ -53,6 +55,7 @@ def _build_ensembles_from_members(members, y_oof, oof_i, y_test, test_i):
 
 
 def _mixed_skill_cell(seed=1):
+    """Mixed skill cell."""
     rng = np.random.default_rng(1000 + seed)
     n = 5000
     y = (rng.random(n) < 0.25).astype(int)
@@ -80,16 +83,16 @@ def test_biz_chooser_picks_higher_test_auc_flavour():
     best_flav = max(test_auc, key=test_auc.get)
 
     # Production (AUC-first) winner is the best-discriminating flavour on the honest split.
-    assert test_auc[winner] >= test_auc[best_flav] - 1e-6, (
-        f"chooser picked {winner} (test AUC {test_auc[winner]:.5f}) but best is {best_flav} ({test_auc[best_flav]:.5f})"
-    )
+    assert (
+        test_auc[winner] >= test_auc[best_flav] - 1e-6
+    ), f"chooser picked {winner} (test AUC {test_auc[winner]:.5f}) but best is {best_flav} ({test_auc[best_flav]:.5f})"
 
     # What ICE-first WOULD have picked (lowest OOF ice). It must be measurably worse on test AUC --
     # this is the regression guard: reverting the flip drops honest test AUC here.
     ice_pick = min(ensembles, key=lambda k: ensembles[k].metrics["oof"][1]["ice"])
-    assert test_auc[winner] > test_auc[ice_pick] + 1e-3, (
-        f"AUC-first winner {winner} ({test_auc[winner]:.5f}) should beat ICE-first pick {ice_pick} ({test_auc[ice_pick]:.5f}) by >1e-3"
-    )
+    assert (
+        test_auc[winner] > test_auc[ice_pick] + 1e-3
+    ), f"AUC-first winner {winner} ({test_auc[winner]:.5f}) should beat ICE-first pick {ice_pick} ({test_auc[ice_pick]:.5f}) by >1e-3"
 
 
 def test_biz_chooser_majority_win_across_seeds():

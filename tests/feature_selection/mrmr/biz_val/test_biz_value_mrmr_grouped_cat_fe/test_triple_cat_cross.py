@@ -137,9 +137,9 @@ class TestTripleSynergyVsPairwise:
             f"the 3-way XOR signal must be invisible to any PAIR "
             f"(per-seed max {[round(v, 4) for v in max_pair_ii]})."
         )
-        assert mean_ii3 > 4.0 * worst_pair, (
-            f"II3 ({mean_ii3:.4f}) should dwarf the best pairwise II ({worst_pair:.4f}); the genuine signal is third-order only."
-        )
+        assert (
+            mean_ii3 > 4.0 * worst_pair
+        ), f"II3 ({mean_ii3:.4f}) should dwarf the best pairwise II ({worst_pair:.4f}); the genuine signal is third-order only."
 
 
 # ---------------------------------------------------------------------------
@@ -325,9 +325,9 @@ class TestNonSynergisticExcluded:
                 min_interaction_info=0.001,
                 top_k=3,
             )
-            assert appended == [], (
-                f"seed={s}: independent cats produced engineered columns {appended} (II3={scores['ii3'].tolist() if not scores.empty else []})."
-            )
+            assert (
+                appended == []
+            ), f"seed={s}: independent cats produced engineered columns {appended} (II3={scores['ii3'].tolist() if not scores.empty else []})."
             assert recipes == []
 
 
@@ -375,9 +375,9 @@ class TestCardinalityControl:
         for r in recipes:
             n_cells = len(r.extra["mapping"])
             assert n_cells > 0.5 * len(X), f"recipe {r.name!r} has only {n_cells} cells; the high-card fixture should exceed the 0.5*n pre-screen threshold."
-            assert str(r.extra.get("encoding")) == "target", (
-                f"recipe {r.name!r} encoding is {r.extra.get('encoding')!r}; high-card triple must route through target encoding."
-            )
+            assert (
+                str(r.extra.get("encoding")) == "target"
+            ), f"recipe {r.name!r} encoding is {r.extra.get('encoding')!r}; high-card triple must route through target encoding."
             col = apply_recipe(r, X)
             assert col.dtype == np.float64
             assert np.isfinite(col).all()
@@ -509,13 +509,13 @@ class TestDefaultDisabledByteIdentical:
             fe_cat_triple_top_k=3,
         )
         m.fit(Xi, pd.Series(y, name="y"))
-        assert any(str(c).startswith("cross3_") for c in appended.get("cols", [])), (
-            "cat_triple FE did not fire (no cross3_ column appended) on the 3-way cat-XOR fixture."
-        )
+        assert any(
+            str(c).startswith("cross3_") for c in appended.get("cols", [])
+        ), "cat_triple FE did not fire (no cross3_ column appended) on the 3-way cat-XOR fixture."
         picks = list(m.get_feature_names_out())
-        assert any(("cat_a" in p and "cat_b" in p and "cat_c" in p) for p in picks), (
-            f"3-way cat-XOR signal not recovered by any engineered feature; picks={picks}"
-        )
+        assert any(
+            ("cat_a" in p and "cat_b" in p and "cat_c" in p) for p in picks
+        ), f"3-way cat-XOR signal not recovered by any engineered feature; picks={picks}"
 
 
 # ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ import pytest
 
 
 def _continuous_y_temporal_frame(n_entities=40, per=12, seed=0):
+    """Continuous y temporal frame."""
     rng = np.random.default_rng(seed)
     rows = []
     ys = []
@@ -33,6 +34,7 @@ def _continuous_y_temporal_frame(n_entities=40, per=12, seed=0):
 
 
 def test_temporal_fe_continuous_y_survives_gate_not_int_truncated():
+    """Temporal fe continuous y survives gate not int truncated."""
     from mlframe.feature_selection.filters._temporal_agg_fe import hybrid_temporal_agg_fe
 
     X, y = _continuous_y_temporal_frame()
@@ -56,6 +58,7 @@ def test_temporal_fe_continuous_y_survives_gate_not_int_truncated():
 
 
 def test_grouped_fe_continuous_y_not_int_truncated():
+    """Grouped fe continuous y not int truncated."""
     from mlframe.feature_selection.filters._grouped_agg_fe import (
         score_grouped_agg_by_cmi_uplift,
     )
@@ -83,6 +86,7 @@ def test_grouped_fe_continuous_y_not_int_truncated():
 
 
 def test_dcor_all_nan_column_scores_zero_not_nan():
+    """Dcor all nan column scores zero not nan."""
     from mlframe.feature_selection.filters._orthogonal_dcor_fe import (
         distance_correlation,
         _dcor_batch,
@@ -108,6 +112,7 @@ def test_dcor_all_nan_column_scores_zero_not_nan():
 
 
 def test_lasso_multiclass_not_driven_by_spurious_ordinal():
+    """Lasso multiclass not driven by spurious ordinal."""
     from mlframe.feature_selection.filters._orthogonal_lasso_fe import (
         score_features_by_lasso_coef,
     )
@@ -134,12 +139,11 @@ def test_lasso_multiclass_not_driven_by_spurious_ordinal():
 
     res = score_features_by_lasso_coef(raw_X, eng_X, cls, alpha=0.001)
     top = res.iloc[0]["engineered_col"]
-    assert top == "u0__sig", (
-        f"multiclass selection must be driven by the true class-1 signal, not the spurious ordinal column; got top={top}\n{res}"
-    )
+    assert top == "u0__sig", f"multiclass selection must be driven by the true class-1 signal, not the spurious ordinal column; got top={top}\n{res}"
 
 
 def test_ksg_gpu_cpu_parity_on_discrete_ties():
+    """Ksg gpu cpu parity on discrete ties."""
     pytest.importorskip("cupy")
     import cupy as cp
 

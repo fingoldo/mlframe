@@ -41,7 +41,6 @@ from mlframe.training.targets.target_temporal_audit import (
     plot_target_over_time,
 )
 
-
 # -----------------------------------------------------------------------------
 # Synthetic fixture
 # -----------------------------------------------------------------------------
@@ -87,6 +86,7 @@ def _gen_temporal_target_dataset(
 def synthetic_temporal_df():
     # Session-scoped: data is deterministic + read-only; built once per session
     # via local Generator (no global numpy RNG mutation).
+    """Synthetic temporal df."""
     return _gen_temporal_target_dataset()
 
 
@@ -191,6 +191,7 @@ def test_zscore_local_window_wider_than_dip_catches_it():
 
 
 def test_zscore_no_anomalies_in_stable_series():
+    """Zscore no anomalies in stable series."""
     rates = np.full(40, 0.50)
     rates += np.random.default_rng(0).normal(0, 0.005, size=40)
     boundaries = find_change_points_zscore(rates, z_threshold=3.0)
@@ -256,6 +257,7 @@ def test_audit_user_graph_finds_3_segments(synthetic_temporal_df):
 
 
 def test_audit_segment_rates_match_generator(synthetic_temporal_df):
+    """Audit segment rates match generator."""
     result = audit_target_over_time(
         synthetic_temporal_df,
         timestamp_col="job_posted_at",
@@ -269,6 +271,7 @@ def test_audit_segment_rates_match_generator(synthetic_temporal_df):
 
 
 def test_audit_actionable_recommends_recent_stable(synthetic_temporal_df):
+    """Audit actionable recommends recent stable."""
     result = audit_target_over_time(
         synthetic_temporal_df,
         timestamp_col="job_posted_at",
@@ -284,6 +287,7 @@ def test_audit_actionable_recommends_recent_stable(synthetic_temporal_df):
 
 
 def test_audit_polars_input(synthetic_temporal_df):
+    """Audit polars input."""
     pl = pytest.importorskip("polars")
     df = pl.from_pandas(synthetic_temporal_df)
     result = audit_target_over_time(
@@ -342,6 +346,7 @@ def test_audit_regression_target():
 
 
 def test_audit_format_report_includes_segments(synthetic_temporal_df):
+    """Audit format report includes segments."""
     result = audit_target_over_time(
         synthetic_temporal_df,
         timestamp_col="job_posted_at",
@@ -356,6 +361,7 @@ def test_audit_format_report_includes_segments(synthetic_temporal_df):
 
 
 def test_audit_plot_saves_to_disk(synthetic_temporal_df, tmp_path):
+    """Audit plot saves to disk."""
     result = audit_target_over_time(
         synthetic_temporal_df,
         timestamp_col="job_posted_at",
@@ -434,6 +440,7 @@ def test_audit_to_dict_round_trip(synthetic_temporal_df):
 
 
 def test_audit_default_z_threshold():
+    """Audit default z threshold."""
     assert DEFAULT_ZSCORE_THRESHOLD == 3.0
 
 
@@ -468,6 +475,7 @@ def test_pelt_detects_user_graph_pattern():
 
 
 def test_pelt_no_changes_in_constant_series():
+    """Pelt no changes in constant series."""
     rates = np.full(40, 0.50)
     rates += np.random.default_rng(0).normal(0, 0.005, size=40)
     boundaries = find_change_points_pelt(rates)
@@ -503,6 +511,7 @@ def test_pelt_explicit_penalty_overrides_auto():
 
 
 def test_dispatcher_default_pelt():
+    """Dispatcher default pelt."""
     rates = np.array([0.98] * 30 + [0.40] * 5 + [0.98] * 30, dtype=float)
     bk_default = find_change_points(rates)
     bk_pelt = find_change_points(rates, method="pelt")
@@ -515,6 +524,7 @@ def test_dispatcher_default_pelt():
 
 
 def test_dispatcher_unknown_method_raises():
+    """Dispatcher unknown method raises."""
     with pytest.raises(ValueError, match="Unknown change-point method"):
         find_change_points(np.array([1.0, 2.0]), method="bogus")
 
@@ -632,6 +642,7 @@ def test_recommended_mask_first_last(synthetic_temporal_df):
 
 
 def test_recommended_mask_unknown_selector_raises(synthetic_temporal_df):
+    """Recommended mask unknown selector raises."""
     result = audit_target_over_time(
         synthetic_temporal_df,
         timestamp_col="job_posted_at",
@@ -646,6 +657,7 @@ def test_recommended_mask_unknown_selector_raises(synthetic_temporal_df):
 
 
 def test_recommended_mask_polars_series_input(synthetic_temporal_df):
+    """Recommended mask polars series input."""
     pl = pytest.importorskip("polars")
     result = audit_target_over_time(
         synthetic_temporal_df,
@@ -688,6 +700,7 @@ def synthetic_multi_target_df():
 
 
 def test_audit_targets_returns_dict_keyed_by_name(synthetic_multi_target_df):
+    """Audit targets returns dict keyed by name."""
     results = audit_targets_over_time(
         synthetic_multi_target_df,
         timestamp_col="ts",
@@ -793,10 +806,12 @@ def test_audit_targets_polars_runs_one_aggregation(synthetic_multi_target_df, mo
     orig_single = mod._aggregate_by_time_polars
 
     def spy_multi(*args, **kwargs):
+        """Spy multi."""
         multi_calls.append((args, kwargs))
         return orig_multi(*args, **kwargs)
 
     def spy_single(*args, **kwargs):
+        """Spy single."""
         single_calls.append((args, kwargs))
         return orig_single(*args, **kwargs)
 
@@ -817,11 +832,13 @@ def test_audit_targets_polars_runs_one_aggregation(synthetic_multi_target_df, mo
 
 
 def test_audit_targets_empty_targets_returns_empty():
+    """Audit targets empty targets returns empty."""
     df = pd.DataFrame({"ts": pd.date_range("2024-01-01", periods=10, freq="D"), "y": np.zeros(10)})
     assert audit_targets_over_time(df, timestamp_col="ts", targets={}) == {}
 
 
 def test_audit_targets_invalid_spec_raises():
+    """Audit targets invalid spec raises."""
     df = pd.DataFrame({"ts": pd.date_range("2024-01-01", periods=10, freq="D"), "y": np.zeros(10)})
     with pytest.raises(ValueError, match="must be str or"):
         audit_targets_over_time(

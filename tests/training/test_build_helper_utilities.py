@@ -14,11 +14,11 @@ from mlframe.training.core import (
 )
 from mlframe.training.configs import TrainingBehaviorConfig, TargetTypes
 
-
 # ----- _initialize_training_defaults -----
 
 
 def test_init_defaults_all_none():
+    """Init defaults all none."""
     p, r, m = _initialize_training_defaults(None, None, None)
     assert p == {}
     assert r == []
@@ -34,6 +34,7 @@ def test_init_defaults_mrmr_max_runtime_mins_capped():
 
 def test_init_defaults_mutable_safety():
     # Calling twice with None must produce independent dicts (no shared mutable default)
+    """Init defaults mutable safety."""
     p1, r1, m1 = _initialize_training_defaults(None, None, None)
     p2, r2, m2 = _initialize_training_defaults(None, None, None)
     p1["x"] = 1
@@ -45,6 +46,7 @@ def test_init_defaults_mutable_safety():
 
 
 def test_init_defaults_preserves_user_values():
+    """Init defaults preserves user values."""
     user_p = {"a": 1}
     user_r = ["rf", "lgb"]
     user_m = {"n_workers": 99}
@@ -64,6 +66,7 @@ def test_init_defaults_preserves_user_values():
 
 
 def test_build_common_params_no_fairness_no_od(tmp_path):
+    """Build common params no fairness no od."""
     bc = TrainingBehaviorConfig()
     init = {"foo": 1, "train_target": [1, 2], "val_target": [3]}
     plot_path = str(tmp_path / "p")
@@ -89,6 +92,7 @@ def test_build_common_params_no_fairness_no_od(tmp_path):
 
 
 def test_build_common_params_with_fairness():
+    """Build common params with fairness."""
     bc = TrainingBehaviorConfig()
     fairness = {"group1": {"idx": [0, 1]}}
     _, cur_bc = _build_common_params_for_target(
@@ -111,6 +115,7 @@ def test_build_common_params_with_fairness():
 
 
 def test_build_common_params_with_od_passes_targets():
+    """Build common params with od passes targets."""
     bc = TrainingBehaviorConfig()
     tr_tgt = np.array([0, 1, 0])
     va_tgt = np.array([1, 0])
@@ -134,6 +139,7 @@ def test_build_common_params_with_od_passes_targets():
 
 
 def test_build_pre_pipelines_ordinary_only():
+    """Build pre pipelines ordinary only."""
     pipes, names = _build_pre_pipelines(
         use_ordinary_models=True,
         rfecv_models=[],
@@ -155,7 +161,9 @@ def test_build_pre_pipelines_rfecv_merge():
     # The suite-level overrides apply ``leakage_corr_threshold`` /
     # ``mbh_adaptive_threshold`` to the RFECV instance via setattr; we need a
     # real attribute-settable stand-in rather than a bare string.
+    """Build pre pipelines rfecv merge."""
     class _FakeRFECV:
+        """Groups tests covering fake r f e c v."""
         pass
 
     fake = _FakeRFECV()
@@ -174,6 +182,7 @@ def test_build_pre_pipelines_rfecv_merge():
 
 
 def test_build_pre_pipelines_unknown_rfecv_raises():
+    """Build pre pipelines unknown rfecv raises."""
     with pytest.raises(ValueError, match="Unknown RFECV"):
         _build_pre_pipelines(
             use_ordinary_models=False,
@@ -185,6 +194,7 @@ def test_build_pre_pipelines_unknown_rfecv_raises():
 
 
 def test_build_pre_pipelines_mrmr_included():
+    """Build pre pipelines mrmr included."""
     pipes, names = _build_pre_pipelines(
         use_ordinary_models=False,
         rfecv_models=[],
@@ -197,11 +207,15 @@ def test_build_pre_pipelines_mrmr_included():
 
 
 def test_build_pre_pipelines_custom():
+    """Build pre pipelines custom."""
     class DummyTrans:
+        """Groups tests covering dummy trans."""
         def fit(self, *a, **k):
+            """Fit."""
             return self
 
         def transform(self, x):
+            """Transform."""
             return x
 
     dummy = DummyTrans()
@@ -224,6 +238,7 @@ def test_build_pre_pipelines_rfecv_leakage_corr_threshold_applied():
     """``FeatureSelectionConfig.rfecv_leakage_corr_threshold`` must reach the RFECV instance; without the wiring the suite has no operator-facing knob for the leak-detection threshold (only the constructor default at 0.95). Use a plain object that accepts setattr to keep the test sklearn-free."""
 
     class FakeRFECV:
+        """Groups tests covering fake r f e c v."""
         leakage_corr_threshold = 0.95
 
     fake = FakeRFECV()
@@ -245,6 +260,7 @@ def test_build_pre_pipelines_rfecv_mbh_adaptive_threshold_applied():
     """``FeatureSelectionConfig.rfecv_mbh_adaptive_threshold`` must reach the RFECV instance so operators can shift the CB/ETR surrogate crossover off the hardcoded 30."""
 
     class FakeRFECV:
+        """Groups tests covering fake r f e c v."""
         mbh_adaptive_threshold = 30
 
     fake = FakeRFECV()
@@ -265,6 +281,7 @@ def test_build_pre_pipelines_rfecv_mbh_adaptive_threshold_applied():
 
 
 def test_build_process_model_kwargs_minimal():
+    """Build process model kwargs minimal."""
     kwargs = _build_process_model_kwargs(
         model_file="/m",
         model_name_with_weight="cb.0.5",
@@ -288,6 +305,7 @@ def test_build_process_model_kwargs_minimal():
 
 
 def test_build_process_model_kwargs_polars_pipeline_applied():
+    """Build process model kwargs polars pipeline applied."""
     kwargs = _build_process_model_kwargs(
         model_file="/m",
         model_name_with_weight="m",
@@ -309,6 +327,7 @@ def test_build_process_model_kwargs_polars_pipeline_applied():
 
 
 def test_build_process_model_kwargs_cached_dfs():
+    """Build process model kwargs cached dfs."""
     tr, va, te = pd.DataFrame({"a": [1]}), None, pd.DataFrame({"a": [2]})
     kwargs = _build_process_model_kwargs(
         model_file="/m",
@@ -333,6 +352,7 @@ def test_build_process_model_kwargs_cached_dfs():
 
 
 def test_build_process_model_kwargs_adds_model_category():
+    """Build process model kwargs adds model category."""
     common = {"existing": True}
     kwargs = _build_process_model_kwargs(
         model_file="/m",

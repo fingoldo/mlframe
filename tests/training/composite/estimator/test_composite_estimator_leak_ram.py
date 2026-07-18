@@ -23,20 +23,24 @@ from mlframe.training.composite.post_shim import PrePipelinePredictShim
 
 
 class _RecordingInner(BaseEstimator, RegressorMixin):
+    """Groups tests covering recording inner."""
     def __init__(self):
         self.fit_X_id = None
 
     def fit(self, X, y, **kw):
+        """Fit."""
         self.fit_X_id = id(X)
         self.n_features_in_ = X.shape[1]
         self._t = float(np.mean(np.asarray(y, dtype=np.float64)))
         return self
 
     def predict(self, X):
+        """Predict."""
         return np.full(X.shape[0], self._t, dtype=np.float64)
 
 
 class TestFitNoCopyOnAllValid:
+    """Groups tests covering fit no copy on all valid."""
     def test_inner_receives_same_frame_object_when_all_rows_valid(self) -> None:
         """E4: with no domain violations, fit() must pass X through to the
         inner WITHOUT materialising a row-subset copy."""
@@ -59,14 +63,18 @@ class TestFitNoCopyOnAllValid:
 
 
 class _RaisingPipeline(BaseEstimator, TransformerMixin):
+    """Groups tests covering raising pipeline."""
     def fit(self, X, y=None):
+        """Fit."""
         return self
 
     def transform(self, X):
+        """Transform."""
         raise ValueError("simulated scaler/frame-type failure")
 
 
 class TestShimReraises:
+    """Groups tests covering shim reraises."""
     def test_transform_failure_raises_not_silently_passthrough(self) -> None:
         """E5: a failing pre_pipeline.transform must raise (loud), never feed
         the untransformed X to the inner."""
@@ -80,13 +88,16 @@ class TestShimReraises:
             shim._transform(X)
 
     def test_no_pipeline_is_passthrough(self) -> None:
+        """No pipeline is passthrough."""
         shim = PrePipelinePredictShim(model=_RecordingInner(), pre_pipeline=None)
         X = pd.DataFrame({"a": [1.0, 2.0]})
         assert shim._transform(X) is X
 
 
 class TestPerModelEnvelopeTrainOnly:
+    """Groups tests covering per model envelope train only."""
     def _run_hook(self, train_idx):
+        """Run hook."""
         from mlframe.training.core._phase_composite_wrapping import (
             emit_per_model_composite_y_scale_test,
         )
@@ -102,6 +113,7 @@ class TestPerModelEnvelopeTrainOnly:
         test_df = X.iloc[test_idx].reset_index(drop=True)
 
         class _Entry:
+            """Groups tests covering entry."""
             pass
 
         entry = _Entry()

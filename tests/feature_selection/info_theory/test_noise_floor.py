@@ -17,6 +17,7 @@ def test_plateau_stops_at_signal_onset_then_flat():
     # real curve climbs to N=3 (idx 2) then is GENUINELY FLAT (no further real gain); permuted curve is ~flat noise
     # -> N* should be 3 (the onset of the flat = the plateau). Any post-N=3 wiggle that exceeds the noise envelope
     # would correctly NOT be a plateau, so the flat region must be truly flat to isolate the onset.
+    """Plateau stops at signal onset then flat."""
     n_grid = [1, 2, 3, 5, 8, 12]
     real = np.array([0.60, 0.75, 0.90, 0.90, 0.90, 0.90])
     perm = np.zeros((5, len(n_grid))) + np.linspace(0.50, 0.505, len(n_grid))  # flat ~0.5 noise
@@ -26,6 +27,7 @@ def test_plateau_stops_at_signal_onset_then_flat():
 
 def test_plateau_keeps_climbing_curve():
     # a curve that keeps genuinely climbing past the noise envelope -> N* at (near) the largest grid point.
+    """Plateau keeps climbing curve."""
     n_grid = [1, 2, 5, 10, 20]
     real = np.array([0.55, 0.62, 0.70, 0.78, 0.86])  # monotone real gains
     perm = np.tile(np.linspace(0.50, 0.51, len(n_grid)), (5, 1))  # tiny noise gains
@@ -35,6 +37,7 @@ def test_plateau_keeps_climbing_curve():
 
 def test_plateau_cuts_noise_only_curve_early():
     # real curve is itself within the noise envelope from the start -> stop at the very first grid point.
+    """Plateau cuts noise only curve early."""
     n_grid = [1, 5, 10, 50, 100]
     real = np.array([0.70, 0.705, 0.706, 0.707, 0.707])
     perm = np.tile([0.0, 0.01, 0.012, 0.013, 0.013], (6, 1)) + np.array([0.70, 0.71, 0.712, 0.713, 0.713])
@@ -44,6 +47,7 @@ def test_plateau_cuts_noise_only_curve_early():
 
 # --------------------------------------------------------------------- end-to-end cut (small, cheap)
 def test_select_features_noise_floor_cuts_overselected_ranking():
+    """Select features noise floor cuts overselected ranking."""
     from sklearn.linear_model import LogisticRegression
 
     rng = np.random.default_rng(0)
@@ -123,9 +127,9 @@ def test_select_features_noise_floor_warns_below_floor(caplog):
             n_perm=3,
             random_state=0,
         )
-    assert any("noise floor" in r.message.lower() or "percentile" in r.message.lower() for r in caplog.records), (
-        "expected a warning that n_perm=3 is too small for the 95th-percentile noise floor"
-    )
+    assert any(
+        "noise floor" in r.message.lower() or "percentile" in r.message.lower() for r in caplog.records
+    ), "expected a warning that n_perm=3 is too small for the 95th-percentile noise floor"
 
 
 if __name__ == "__main__":

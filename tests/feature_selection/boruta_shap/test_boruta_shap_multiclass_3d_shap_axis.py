@@ -23,6 +23,7 @@ pytest.importorskip("shap")
 
 
 def _make_multiclass_frame(n=300, n_features=8, n_classes=3, seed=0):
+    """Make multiclass frame."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(
         rng.normal(size=(n, n_features)),

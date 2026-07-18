@@ -87,6 +87,7 @@ def test_m_neu_03_multilabel_argmax_not_used() -> None:
     captured: dict = {}
 
     def _acc_like(y_true, y_score):
+        """Acc like."""
         captured["shape_score"] = tuple(y_score.shape) if hasattr(y_score, "shape") else None
         return 0.0
 
@@ -117,6 +118,7 @@ def test_m_neu_03_regression_argmax_skipped() -> None:
     called = {"n": 0}
 
     def _acc_like(y_true, y_score):
+        """Acc like."""
         called["n"] += 1
         return 0.0
 
@@ -147,11 +149,13 @@ def test_m_neu_03_cpu_cache_no_id_collision() -> None:
 
     def _argmax_metric(y_true, y_score):
         # argmax preds are 1-D (N,)
+        """Argmax metric."""
         seen_shapes.append(tuple(y_score.shape))
         return 0.0
 
     def _softmax_metric(y_true, y_score):
         # softmax preds are 2-D (N, K)
+        """Softmax metric."""
         seen_shapes.append(tuple(y_score.shape))
         return 0.0
 
@@ -444,6 +448,7 @@ def test_m_neu_14_set_epoch_called_each_epoch() -> None:
     callback = _SamplerSetEpochCallback(sampler)
 
     class _FakeTrainer:
+        """Groups tests covering fake trainer."""
         def __init__(self, ep: int) -> None:
             self.current_epoch = ep
 

@@ -20,6 +20,7 @@ from mlframe.feature_selection.filters.info_theory import mi
 
 
 def _old_form(data, binned, nbins, target, qnb, dtype=np.int32) -> float:
+    """Old form."""
     return float(
         mi(
             np.column_stack([data, binned.astype(data.dtype)]),
@@ -32,6 +33,7 @@ def _old_form(data, binned, nbins, target, qnb, dtype=np.int32) -> float:
 
 
 def _new_form(data, binned, nbins, target, qnb, dtype=np.int32) -> float:
+    """New form."""
     tcols = np.asarray(target, dtype=np.int64)
     compact = np.column_stack([data[:, tcols], binned.astype(data.dtype)])
     n_t = tcols.shape[0]
@@ -42,6 +44,7 @@ def _new_form(data, binned, nbins, target, qnb, dtype=np.int32) -> float:
 @pytest.mark.parametrize("n,n_features,nb", [(600, 20, 8), (2407, 200, 10), (5000, 50, 16)])
 @pytest.mark.parametrize("target_at", [0, 5, [0]])
 def test_compact_stack_mi_bit_identical(n, n_features, nb, target_at):
+    """Compact stack mi bit identical."""
     rng = np.random.default_rng(n + nb + (target_at if isinstance(target_at, int) else 99))
     data = rng.integers(0, nb, size=(n, n_features), dtype=np.int32)
     # Make the binned aggregate correlate with the target so MI is nonzero.

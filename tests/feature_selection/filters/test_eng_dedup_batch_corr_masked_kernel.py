@@ -20,6 +20,7 @@ from mlframe.feature_selection.filters._mrmr_fit_impl._eng_dedup_batch_corr impo
 
 
 def _brute_force_one_vs_many(a, buf, active):
+    """Brute force one vs many."""
     out = np.zeros(buf.shape[0], dtype=np.float64)
     for j in range(buf.shape[0]):
         if not active[j]:
@@ -33,6 +34,7 @@ def _brute_force_one_vs_many(a, buf, active):
 
 
 def test_one_vs_many_abs_corr_masked_matches_brute_force():
+    """One vs many abs corr masked matches brute force."""
     rng = np.random.default_rng(0)
     n, k = 4000, 30
     buf = rng.normal(size=(k, n))
@@ -48,6 +50,7 @@ def test_one_vs_many_abs_corr_masked_matches_brute_force():
 
 
 def test_one_vs_many_abs_corr_masked_empty_buffer_returns_empty():
+    """One vs many abs corr masked empty buffer returns empty."""
     a = np.zeros(10)
     buf = np.empty((0, 10))
     active = np.empty(0, dtype=bool)
@@ -56,6 +59,7 @@ def test_one_vs_many_abs_corr_masked_empty_buffer_returns_empty():
 
 
 def _eng_dedup_prefer(cand, kept, mig_set, eng_mi):
+    """Eng dedup prefer."""
     cand_mig = cand in mig_set
     kept_mig = kept in mig_set
     if cand_mig == kept_mig:
@@ -209,6 +213,7 @@ def _new_dedup(X, eng_cols_appended, mig_set, eng_mi):
 
 
 def _make_scenario(seed, n=2000, k=30, nan_frac=0.0):
+    """Make scenario."""
     rng = np.random.default_rng(seed)
     cols = {}
     base_pool = [rng.normal(size=n) for _ in range(max(3, k // 5))]
@@ -234,6 +239,7 @@ def _make_scenario(seed, n=2000, k=30, nan_frac=0.0):
 
 
 def test_eng_dedup_algorithm_matches_reference_across_random_configs():
+    """Eng dedup algorithm matches reference across random configs."""
     n_checks = 0
     for seed in range(15):
         for nan_frac in (0.0, 0.05, 0.2):

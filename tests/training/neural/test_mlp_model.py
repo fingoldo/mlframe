@@ -22,7 +22,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from mlframe.training.neural import MLPTorchModel, MetricSpec
 
-
 # ================================================================================================
 # Fixtures
 # ================================================================================================
@@ -53,6 +52,7 @@ def sample_metrics():
     """Create sample metrics."""
 
     def accuracy(y_true, y_score):
+        """Accuracy."""
         predictions = y_score.argmax(axis=1)
         return float((predictions == y_true).sum()) / len(y_true)
 

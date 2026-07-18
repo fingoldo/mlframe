@@ -18,6 +18,7 @@ from mlframe.training._nan_processing import remove_constant_columns
 
 
 def _columns(df) -> set:
+    """Columns."""
     return set(df.columns)
 
 
@@ -25,6 +26,7 @@ def _columns(df) -> set:
 
 
 def test_constant_numeric_dropped_both_backends():
+    """Constant numeric dropped both backends."""
     pd_df = pd.DataFrame({"x": [1, 2, 3], "const": [7.0, 7.0, 7.0]})
     pl_df = pl.DataFrame({"x": [1, 2, 3], "const": [7.0, 7.0, 7.0]})
     assert "const" not in _columns(remove_constant_columns(pd_df, verbose=0))
@@ -32,6 +34,7 @@ def test_constant_numeric_dropped_both_backends():
 
 
 def test_varying_numeric_kept_both_backends():
+    """Varying numeric kept both backends."""
     pd_df = pd.DataFrame({"x": [1.0, 2.0, 3.0]})
     pl_df = pl.DataFrame({"x": [1.0, 2.0, 3.0]})
     assert "x" in _columns(remove_constant_columns(pd_df, verbose=0))
@@ -111,12 +114,13 @@ def test_fused_numeric_constant_detection_matches_old_reference():
     expected_dropped = _old_pandas_numeric_constants(df)
     kept = _columns(remove_constant_columns(df, verbose=0))
     actually_dropped = set(df.columns) - kept
-    assert actually_dropped == expected_dropped, (
-        f"fused path diverged from reference:\n  fused dropped: {actually_dropped}\n  reference dropped: {expected_dropped}"
-    )
+    assert (
+        actually_dropped == expected_dropped
+    ), f"fused path diverged from reference:\n  fused dropped: {actually_dropped}\n  reference dropped: {expected_dropped}"
 
 
 def test_single_real_value_many_nulls_categorical_parity():
+    """Single real value many nulls categorical parity."""
     pd_df = pd.DataFrame(
         {
             "x": [1, 2, 3, 4, 5],

@@ -14,6 +14,7 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 def test_w12b_composite_discovery_methods_rebound():
+    """W12b composite discovery methods rebound."""
     cls = parent.CompositeTargetDiscovery
     assert cls._filter_features is filter_mod._filter_features
     assert cls.fit_stacked is stacked_mod.fit_stacked
@@ -21,17 +22,20 @@ def test_w12b_composite_discovery_methods_rebound():
 
 
 def test_w12b_composite_discovery_facade_under_budget():
+    """W12b composite discovery facade under budget."""
     facade_loc = sum(1 for _ in Path(parent.__file__).open(encoding="utf-8"))
     assert facade_loc < 750, f"composite_discovery.py LOC={facade_loc} exceeds 750 budget"
 
 
 def test_w12b_composite_discovery_class_identity_preserved():
+    """W12b composite discovery class identity preserved."""
     cfg = CompositeTargetDiscoveryConfig()
     disc = parent.CompositeTargetDiscovery(cfg)
     assert isinstance(disc, parent.CompositeTargetDiscovery)
 
 
 def test_w12b_composite_discovery_smoke_fit_runs():
+    """W12b composite discovery smoke fit runs."""
     cfg = CompositeTargetDiscoveryConfig()
     disc = parent.CompositeTargetDiscovery(cfg)
     rng = np.random.default_rng(0)

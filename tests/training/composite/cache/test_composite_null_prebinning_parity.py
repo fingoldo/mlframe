@@ -35,6 +35,7 @@ def _bin_codes(arr: np.ndarray, nbins: int) -> np.ndarray:
 @pytest.mark.parametrize("nbins", [5, 8, 16])
 @pytest.mark.parametrize("seed", [0, 1, 7])
 def test_prebinned_null_mi_is_bit_identical_to_mi_pair_bin(nbins: int, seed: int) -> None:
+    """Prebinned null mi is bit identical to mi pair bin."""
     rng = np.random.default_rng(seed)
     n = 4000
     y = rng.normal(size=n)

@@ -11,43 +11,52 @@ import numpy as np
 
 from mlframe.training.core._misc_helpers import _cfg_get, _compute_neural_max_time
 
-
 # ---------------------------------------------------------------------------
 # _cfg_get -- "Pydantic-or-dict-or-None" config accessor
 # ---------------------------------------------------------------------------
 
 
 class TestCfgGet:
+    """Groups tests covering cfg get."""
     def test_none_cfg_returns_default(self):
+        """None cfg returns default."""
         assert _cfg_get(None, "any_key", "fallback") == "fallback"
 
     def test_none_cfg_default_default_is_none(self):
+        """None cfg default default is none."""
         assert _cfg_get(None, "any_key") is None
 
     def test_dict_present_key_returns_value(self):
+        """Dict present key returns value."""
         assert _cfg_get({"k": 42}, "k", -1) == 42
 
     def test_dict_missing_key_returns_default(self):
+        """Dict missing key returns default."""
         assert _cfg_get({"k": 42}, "missing", -1) == -1
 
     def test_dict_present_key_with_falsy_value_preserved(self):
         # Don't conflate "missing" with "explicitly set to 0/False/empty".
+        """Dict present key with falsy value preserved."""
         assert _cfg_get({"k": 0}, "k", 999) == 0
         assert _cfg_get({"k": False}, "k", True) is False
         assert _cfg_get({"k": ""}, "k", "default") == ""
 
     def test_object_attr_returns_value(self):
+        """Object attr returns value."""
         ns = SimpleNamespace(iterations=300, learning_rate=0.05)
         assert _cfg_get(ns, "iterations", 100) == 300
         assert _cfg_get(ns, "learning_rate", 0.1) == 0.05
 
     def test_object_missing_attr_returns_default(self):
+        """Object missing attr returns default."""
         ns = SimpleNamespace(iterations=300)
         assert _cfg_get(ns, "missing", "fallback") == "fallback"
 
     def test_pydantic_like_object(self):
         # Pydantic v2 models behave like normal objects for getattr.
+        """Pydantic like object."""
         class _MockPydantic:
+            """Groups tests covering mock pydantic."""
             def __init__(self):
                 self.test_size = 0.2
                 self.val_size = 0.15
@@ -64,14 +73,18 @@ class TestCfgGet:
 
 
 class TestComputeNeuralMaxTime:
+    """Groups tests covering compute neural max time."""
     def test_empty_returns_none(self):
+        """Empty returns none."""
         assert _compute_neural_max_time([]) is None
 
     def test_none_returns_none(self):
+        """None returns none."""
         assert _compute_neural_max_time(None) is None
 
     def test_basic_p95_below_floor_clamped_to_300s(self):
         # All inputs <300s; P95 still <300s; floor at 300s kicks in.
+        """Basic p95 below floor clamped to 300s."""
         times = [10.0, 20.0, 30.0]
         result = _compute_neural_max_time(times)
         assert isinstance(result, tuple) and len(result) == 3, f"expected 3-tuple, got {result!r}"
@@ -82,6 +95,7 @@ class TestComputeNeuralMaxTime:
 
     def test_above_floor_p95_used(self):
         # P95 of [600] = 600s = 10 minutes, above the 300s floor.
+        """Above floor p95 used."""
         result = _compute_neural_max_time([600.0])
         assert isinstance(result, tuple) and len(result) == 3, f"expected 3-tuple, got {result!r}"
         max_time_dict, _p95, n = result
@@ -90,6 +104,7 @@ class TestComputeNeuralMaxTime:
 
     def test_hour_decomposition(self):
         # 3725s = 1h 2m 5s.
+        """Hour decomposition."""
         result = _compute_neural_max_time([3725.0])
         assert isinstance(result, tuple) and len(result) == 3, f"expected 3-tuple, got {result!r}"
         max_time_dict, _, _ = result
@@ -97,6 +112,7 @@ class TestComputeNeuralMaxTime:
 
     def test_day_decomposition(self):
         # 90061s = 1d 1h 1m 1s.
+        """Day decomposition."""
         result = _compute_neural_max_time([90061.0])
         assert result is not None
         max_time_dict, _, _ = result
@@ -104,6 +120,7 @@ class TestComputeNeuralMaxTime:
 
     def test_rounding_at_p95(self):
         # P95 of [100, 200, 300, 400, 500] = ~480s; floor 300s; output 8m 0s.
+        """Rounding at p95."""
         times = [100.0, 200.0, 300.0, 400.0, 500.0]
         result = _compute_neural_max_time(times)
         assert result is not None
@@ -115,21 +132,25 @@ class TestComputeNeuralMaxTime:
         assert total == max(round(p95), 300)
 
     def test_returns_tuple_of_three(self):
+        """Returns tuple of three."""
         result = _compute_neural_max_time([60.0, 120.0])
         assert isinstance(result, tuple)
         assert len(result) == 3
 
     def test_p95_is_float(self):
+        """P95 is float."""
         result = _compute_neural_max_time([42.0])
         assert isinstance(result[1], float)
 
     def test_n_is_count_of_input(self):
+        """N is count of input."""
         for n_inputs in (1, 5, 100):
             result = _compute_neural_max_time([1.0] * n_inputs)
             assert result is not None
             assert result[2] == n_inputs
 
     def test_numpy_array_input(self):
+        """Numpy array input."""
         result = _compute_neural_max_time(np.array([300.0, 600.0, 900.0]))
         assert result is not None
         _max_time_dict, p95, n = result

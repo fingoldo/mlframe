@@ -29,7 +29,6 @@ from sklearn.impute import SimpleImputer
 
 from mlframe.feature_selection.wrappers import RFECV
 
-
 # =====================================================================
 # (1) Input types
 # =====================================================================
@@ -55,6 +54,7 @@ class TestInputTypes:
         assert rfecv.n_features_ >= 1
 
     def test_sparse_X_csc(self):
+        """Sparse X csc."""
         from scipy.sparse import csc_matrix
 
         X, y = make_classification(n_samples=120, n_features=10, n_informative=4, random_state=0)
@@ -174,6 +174,7 @@ class TestCVEdge:
         np.testing.assert_array_equal(r1.support_, r2.support_)
 
     def test_joblib_threading_backend_smoke(self):
+        """Joblib threading backend smoke."""
         from joblib import parallel_backend
 
         X, y = make_classification(n_samples=150, n_features=6, n_informative=3, random_state=0)
@@ -272,6 +273,7 @@ class TestTransformerContract:
         from sklearn.metrics import make_scorer
 
         def const_scorer(y_true, y_pred):
+            """Const scorer."""
             return 1.0
 
         scorer = make_scorer(const_scorer, greater_is_better=True)
@@ -354,6 +356,7 @@ class TestOtherContract:
         assert is_classifier(rfecv), "RFECV around a classifier must satisfy is_classifier()"
 
     def test_is_regressor_passes_through(self):
+        """Is regressor passes through."""
         rfecv = RFECV(estimator=Ridge())
         assert is_regressor(rfecv), "RFECV around a regressor must satisfy is_regressor()"
 

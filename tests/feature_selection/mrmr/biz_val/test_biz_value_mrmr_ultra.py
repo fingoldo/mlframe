@@ -29,13 +29,13 @@ import warnings
 import numpy as np
 import pandas as pd
 
-
 # =============================================================================
 # Redundancy avoidance — the canonical MRMR contract
 # =============================================================================
 
 
 class TestRedundancyAvoidance:
+    """Groups tests covering TestRedundancyAvoidance."""
     def test_diverse_features_preferred_over_5_copies(self):
         """5 collinear copies of signal_a + 1 independent signal_b
         + 3 pure noise. y depends LINEARLY on both signal_a and
@@ -76,9 +76,9 @@ class TestRedundancyAvoidance:
         signal_b_recovered = any("signal_b" in nm for nm in names)
         signal_a_recovered = any("signal_a" in nm for nm in names)
         copies_count = sum(1 for nm in names if "sig_a_copy" in nm)
-        assert signal_b_recovered or signal_a_recovered, (
-            f"redundancy avoidance failed: neither signal_a nor signal_b recovered (raw or engineered); support={names} (copies={copies_count})"
-        )
+        assert (
+            signal_b_recovered or signal_a_recovered
+        ), f"redundancy avoidance failed: neither signal_a nor signal_b recovered (raw or engineered); support={names} (copies={copies_count})"
 
     def test_signal_b_picked_when_copies_dominate(self):
         """8 copies of sig_a (strongly informative) + 1 unique sig_b
@@ -120,9 +120,9 @@ class TestRedundancyAvoidance:
         # copy names. Measured (seed 101): selection 5-fold AUC 0.996 vs
         # 0.999 on {sig_a0,sig_b} -- the diverse signal is genuinely used.
         sig_b_recovered = any(re.search(r"sig_b(?![0-9])", nm) for nm in names)
-        assert sig_b_recovered or has_pc1, (
-            f"sig_b missed under 8-copy cluster pressure; neither a sig_b reference nor a DCD PC1 aggregate is present; support={names}"
-        )
+        assert (
+            sig_b_recovered or has_pc1
+        ), f"sig_b missed under 8-copy cluster pressure; neither a sig_b reference nor a DCD PC1 aggregate is present; support={names}"
 
 
 # =============================================================================
@@ -131,6 +131,7 @@ class TestRedundancyAvoidance:
 
 
 class TestSuppressorVariable:
+    """Groups tests covering TestSuppressorVariable."""
     def test_suppressor_pair_x1_x2(self):
         """Classic suppressor: y = x1 - x2 (linear combination).
         Neither x1 nor x2 alone has high MI with y (they're like
@@ -173,6 +174,7 @@ class TestSuppressorVariable:
 
 
 class TestTargetLeakageHandling:
+    """Groups tests covering TestTargetLeakageHandling."""
     def test_leaked_feature_99pct_correlated_picked(self):
         """A feature that's 99% correlated with y (e.g. a derived
         column accidentally included). MRMR will pick either the leak
@@ -215,6 +217,7 @@ class TestTargetLeakageHandling:
 
 
 class TestEngineeredFEMultivariate:
+    """Groups tests covering TestEngineeredFEMultivariate."""
     def test_product_of_two_features_surfaces_at_order_2(self):
         """y = sign((x1 + x2) * x3). Order 2 should catch (x1, x3)
         and (x2, x3) as informative joints.
@@ -255,6 +258,7 @@ class TestEngineeredFEMultivariate:
 
 
 class TestMultimodalDistributions:
+    """Groups tests covering TestMultimodalDistributions."""
     def test_bimodal_signal_detected(self):
         """Bimodal signal feature: gaussian mixture {N(-3, 0.5),
         N(3, 0.5)}. y depends on which mode the sample fell into.
@@ -292,6 +296,7 @@ class TestMultimodalDistributions:
 
 
 class TestDCDSwapRejection:
+    """Groups tests covering TestDCDSwapRejection."""
     def test_dcd_keeps_raw_anchor_when_pc1_weaker(self):
         """Cluster where the anchor has STRONG signal but the noisy
         cluster copies dilute the PC1 aggregate. DCD must REJECT
@@ -331,6 +336,7 @@ class TestDCDSwapRejection:
 
 
 class TestPipelineIntegration:
+    """Groups tests covering TestPipelineIntegration."""
     def test_sklearn_pipeline_fit_transform(self):
         """MRMR in sklearn Pipeline: fit + transform yields downstream
         model-trainable output.

@@ -31,8 +31,6 @@ import importlib
 import os
 from pathlib import Path
 
-
-
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
@@ -65,6 +63,7 @@ def _read(rel: str) -> str:
 
 
 def test_phase_helpers_ltr_save_dir_slugifies_model_name() -> None:
+    """Phase helpers ltr save dir slugifies model name."""
     src = _read("training/core/_phase_helpers.py")
     # Forbid the raw join.
     assert "os.path.join(_data_dir, _models_dir, ctx.model_name)" not in src, "LTR _save_dir must slugify ctx.model_name (path-traversal vector otherwise)."
@@ -73,6 +72,7 @@ def test_phase_helpers_ltr_save_dir_slugifies_model_name() -> None:
 
 
 def test_ranker_suite_artefact_basenames_slugify_model_name() -> None:
+    """Ranker suite artefact basenames slugify model name."""
     src = _read("training/ranking.py")
     # Forbid the raw f-string interpolation.
     assert 'f"{model_name}_{flavor}.joblib"' not in src
@@ -84,6 +84,7 @@ def test_ranker_suite_artefact_basenames_slugify_model_name() -> None:
 
 
 def test_calibration_post_final_models_dir_slugifies_all_components() -> None:
+    """Calibration post final models dir slugifies all components."""
     src = _read("calibration/post.py")
     # Forbid the raw 4-arg join.
     assert "join(models_dir, target_name, featureset_name, task_type, model_name)" not in src
@@ -96,6 +97,7 @@ def test_calibration_post_final_models_dir_slugifies_all_components() -> None:
 
 
 def test_phase_finalize_ct_ensemble_dir_slugified() -> None:
+    """Phase finalize ct ensemble dir slugified."""
     src = _read("training/core/_phase_finalize.py")
     # Forbid raw _dir_name = _tname assignment in this CT-ENSEMBLE branch; the post-fix form keeps the literal
     # prefix and slugifies the suffix. Whitespace-normalised so black's slice-colon spacing (``[len(...) :]``)
@@ -105,6 +107,7 @@ def test_phase_finalize_ct_ensemble_dir_slugified() -> None:
 
 
 def test_neural_base_default_root_dir_trust_contract_documented() -> None:
+    """Neural base default root dir trust contract documented."""
     src = _read("training/neural/base.py")
     # The Wave 46 documentation comment marks the trust contract explicitly.
     assert "default_root_dir" in src and "caller-controlled" in src
@@ -118,9 +121,9 @@ def test_hex_key_re_is_fully_anchored() -> None:
     from mlframe.training.composite.cache_store import _HEX_KEY_RE
 
     assert _HEX_KEY_RE.match("deadbeef") is not None
-    assert _HEX_KEY_RE.match("deadbeef/../etc") is None, (
-        "_HEX_KEY_RE must be fully anchored so a partial-hex string with trailing path-traversal characters fails the fast-path gate."
-    )
+    assert (
+        _HEX_KEY_RE.match("deadbeef/../etc") is None
+    ), "_HEX_KEY_RE must be fully anchored so a partial-hex string with trailing path-traversal characters fails the fast-path gate."
     assert _HEX_KEY_RE.match("deadbeef\nrogue") is None
     assert _HEX_KEY_RE.match("deadbeefXY") is None
 

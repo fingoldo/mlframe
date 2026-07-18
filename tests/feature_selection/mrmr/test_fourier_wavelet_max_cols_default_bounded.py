@@ -22,11 +22,13 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def test_fourier_adaptive_max_cols_defaults_to_bounded_value():
+    """Fourier adaptive max cols defaults to bounded value."""
     m = MRMR()
     assert m.fe_univariate_fourier_adaptive_max_cols == 100
 
 
 def test_wavelet_max_cols_defaults_to_bounded_value():
+    """Wavelet max cols defaults to bounded value."""
     m = MRMR()
     assert m.fe_wavelet_max_cols == 100
 

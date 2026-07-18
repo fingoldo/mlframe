@@ -47,9 +47,9 @@ def test_biz_val_magnitude_sample_weight_improves_auc_on_high_conviction_subset(
     auc_unweighted = roc_auc_score(y[high_conviction_mask], clf_unweighted.predict_proba(X[high_conviction_mask])[:, 1])
     auc_weighted = roc_auc_score(y[high_conviction_mask], clf_weighted.predict_proba(X[high_conviction_mask])[:, 1])
 
-    assert auc_weighted >= auc_unweighted - 0.01, (
-        f"expected magnitude-weighted training to be at least as good on high-conviction rows, got weighted={auc_weighted:.4f} unweighted={auc_unweighted:.4f}"
-    )
+    assert (
+        auc_weighted >= auc_unweighted - 0.01
+    ), f"expected magnitude-weighted training to be at least as good on high-conviction rows, got weighted={auc_weighted:.4f} unweighted={auc_unweighted:.4f}"
     assert auc_weighted > 0.85, f"expected strong AUC on the high-conviction subset with magnitude weighting, got {auc_weighted:.4f}"
 
 
@@ -74,12 +74,12 @@ def test_biz_val_magnitude_sample_weight_robust_reduces_outlier_weight_mass():
     outlier_mass_share_robust = weights_robust[outlier_idx].sum() / weights_robust.sum()
 
     assert outlier_mass_share_plain > 0.5, f"expected the 5 outlier rows to dominate plain weight mass, got {outlier_mass_share_plain:.4f}"
-    assert outlier_mass_share_robust < 0.05, (
-        f"expected robust winsorization to shrink the outliers' weight-mass share below 5%, got {outlier_mass_share_robust:.4f}"
-    )
-    assert outlier_mass_share_robust < outlier_mass_share_plain / 10, (
-        f"expected at least a 10x reduction in outlier weight-mass share, got plain={outlier_mass_share_plain:.4f} robust={outlier_mass_share_robust:.4f}"
-    )
+    assert (
+        outlier_mass_share_robust < 0.05
+    ), f"expected robust winsorization to shrink the outliers' weight-mass share below 5%, got {outlier_mass_share_robust:.4f}"
+    assert (
+        outlier_mass_share_robust < outlier_mass_share_plain / 10
+    ), f"expected at least a 10x reduction in outlier weight-mass share, got plain={outlier_mass_share_plain:.4f} robust={outlier_mass_share_robust:.4f}"
 
 
 def test_magnitude_sample_weight_robust_default_off_bit_identical():

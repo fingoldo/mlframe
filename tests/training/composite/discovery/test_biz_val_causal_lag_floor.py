@@ -66,12 +66,14 @@ def _ar_frame(n_groups: int = 40, per: int = 80, seed: int = 1, phi: float = 0.9
 
 
 def _split_upper_tail(groups, level, n_holdout_wells: int = 8):
+    """Split upper tail."""
     holdout_wells = set(np.argsort(level)[-n_holdout_wells:].tolist())
     hmask = np.array([g in holdout_wells for g in groups])
     return np.nonzero(~hmask)[0], np.nonzero(hmask)[0]
 
 
 def _spec(name, transform_name, base_column, params):
+    """Spec."""
     return CompositeSpec(
         name=name,
         target_col="y",
@@ -87,6 +89,7 @@ def _spec(name, transform_name, base_column, params):
 
 
 def _disc(groups, holdout_idx, **cfg_kw):
+    """Disc."""
     cfg = CompositeTargetDiscoveryConfig(
         enabled=True,
         random_state=0,
@@ -102,41 +105,50 @@ def _disc(groups, holdout_idx, **cfg_kw):
 
 @pytest.fixture(autouse=True)
 def _silence_lgbm_feature_name_warning():
+    """Silence lgbm feature name warning."""
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="X does not have valid feature names")
         yield
 
 
 class TestCausalLagHelperUnit:
+    """Groups tests covering causal lag helper unit."""
     def test_detect_finds_prev_suffix(self):
+        """Detect finds prev suffix."""
         df = pd.DataFrame({"TVT": [1.0], "TVT_prev": [0.0], "x": [0.0]})
         assert detect_causal_lag_column(df, "TVT") == "TVT_prev"
 
     def test_detect_returns_none_when_absent(self):
+        """Detect returns none when absent."""
         df = pd.DataFrame({"TVT": [1.0], "x": [0.0]})
         assert detect_causal_lag_column(df, "TVT") is None
 
     def test_detect_respects_suffix_priority(self):
         # _prev is first in CAUSAL_LAG_SUFFIXES, so it wins over _lag when both are present.
+        """Detect respects suffix priority."""
         assert CAUSAL_LAG_SUFFIXES[0] == "_prev"
         df = pd.DataFrame({"y": [1.0], "y_prev": [0.0], "y_lag": [9.0]})
         assert detect_causal_lag_column(df, "y") == "y_prev"
 
     def test_detect_polars_schema(self):
+        """Detect polars schema."""
         pl = pytest.importorskip("polars")
         df = pl.DataFrame({"y": [1.0, 2.0], "y_lag_1": [0.0, 1.0]})
         assert detect_causal_lag_column(df, "y") == "y_lag_1"
 
     def test_detect_empty_target(self):
+        """Detect empty target."""
         df = pd.DataFrame({"y_prev": [0.0]})
         assert detect_causal_lag_column(df, "") is None
 
     def test_lag_rmse_over_finite_rows(self):
+        """Lag rmse over finite rows."""
         y = np.array([1.0, 2.0, 3.0, 4.0] * 20, dtype=np.float64)
         lag = y + 0.5
         assert math.isclose(causal_lag_predict_rmse(lag, y), 0.5, rel_tol=1e-9)
 
     def test_lag_rmse_ignores_nonfinite(self):
+        """Lag rmse ignores nonfinite."""
         y = np.arange(100, dtype=np.float64)
         lag = y.copy()
         lag[0] = np.nan
@@ -144,14 +156,18 @@ class TestCausalLagHelperUnit:
         assert causal_lag_predict_rmse(lag, y) == 0.0  # remaining 98 rows are exact
 
     def test_lag_rmse_nan_when_too_few_rows(self):
+        """Lag rmse nan when too few rows."""
         assert math.isnan(causal_lag_predict_rmse(np.zeros(10), np.ones(10)))
 
     def test_lag_rmse_nan_on_shape_mismatch(self):
+        """Lag rmse nan on shape mismatch."""
         assert math.isnan(causal_lag_predict_rmse(np.zeros(60), np.ones(50)))
 
 
 class TestHonestOofLagFloor:
+    """Groups tests covering honest oof lag floor."""
     def test_lag_rmse_recorded_when_lag_column_present(self):
+        """Lag rmse recorded when lag column present."""
         df, groups, y, level = _ar_frame()
         screen_idx, holdout_idx = _split_upper_tail(groups, level)
         disc = _disc(groups, holdout_idx)
@@ -161,6 +177,7 @@ class TestHonestOofLagFloor:
         assert math.isfinite(disc._honest_oof_raw_rmse)
 
     def test_lag_rmse_nan_when_no_lag_column(self):
+        """Lag rmse nan when no lag column."""
         df, groups, y, level = _ar_frame()
         df = df.drop(columns=["y_prev"])  # remove the causal lag -> non-AR path, floor reduces to raw
         screen_idx, holdout_idx = _split_upper_tail(groups, level)

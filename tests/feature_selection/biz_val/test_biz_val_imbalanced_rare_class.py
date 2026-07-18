@@ -57,7 +57,6 @@ from tests.feature_selection._biz_val_synth import make_imbalanced, as_df
 from tests.feature_selection._selector_factories import _make_mrmr, _make_rfecv, selected_names
 from tests.feature_selection.conftest import fast_subset
 
-
 _SIG = re.compile(r"x(\d+)")
 
 
@@ -123,6 +122,7 @@ def _majority_recovery(mk, rate, n, seeds, p_signal=3, p_noise=8, fit_kw_fn=None
 
 
 def _median(vals):
+    """Helper that median."""
     s = sorted(vals)
     return s[len(s) // 2]
 
@@ -231,6 +231,7 @@ def test_biz_val_rfecv_class_weight_does_not_break_recovery():
     from mlframe.feature_selection.wrappers import RFECV
 
     def mk(task):
+        """Build a class_weight='balanced' LogisticRegression RFECV for the given task, to probe whether up-weighting harms recovery."""
         est = LogisticRegression(max_iter=200, random_state=0, class_weight="balanced")
         return RFECV(estimator=est, cv=3, max_refits=3, random_state=0, leakage_corr_threshold=None, n_features_selection_rule="argmax")
 

@@ -15,6 +15,7 @@ warnings.filterwarnings("ignore")
 
 
 def _fit(X, y, **kw):
+    """Helper that fit."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     base = dict(dcd_enable=True, dcd_tau_cluster=0.5, dcd_cluster_size_threshold=2, verbose=0, random_seed=0)
@@ -25,6 +26,7 @@ def _fit(X, y, **kw):
 def test_dcd_extreme_imbalance_no_crash():
     # ~1.5% positive rate + a redundancy cluster. The swap null + MI clustering
     # must not crash or emit garbage on the rare-positive regime.
+    """Dcd extreme imbalance no crash."""
     rng = np.random.default_rng(0)
     n = 6000
     z = rng.standard_normal(n)
@@ -52,6 +54,7 @@ def test_dcd_transform_under_distribution_drift_is_finite():
     # Fit on train, transform a DRIFTED test frame (shifted mean + inflated
     # scale). Replay of any cluster aggregate recipe must stay finite and not
     # crash even though the test distribution differs from fit.
+    """Dcd transform under distribution drift is finite."""
     rng = np.random.default_rng(1)
     n = 2000
     z = rng.standard_normal(n)
@@ -82,6 +85,7 @@ def test_dcd_transform_under_distribution_drift_is_finite():
 
 
 def test_dcd_transform_with_all_nan_test_column_no_crash():
+    """Dcd transform with all nan test column no crash."""
     rng = np.random.default_rng(3)
     n = 1500
     z = rng.standard_normal(n)

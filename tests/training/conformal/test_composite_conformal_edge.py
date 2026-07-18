@@ -18,24 +18,30 @@ from mlframe.training.composite.conformal import conformal_quantile
 
 
 class TestConformalQuantile:
+    """Groups tests covering conformal quantile."""
     def test_finite_sample_rank(self) -> None:
         # 99 residuals 1..99; alpha=0.1 -> rank ceil(100*0.9)=90 -> value 90.
+        """Finite sample rank."""
         r = np.arange(1, 100, dtype=float)
         assert conformal_quantile(r, 0.1) == pytest.approx(90.0)
 
     def test_too_few_points_returns_inf(self) -> None:
         # n=5, alpha=0.1 -> rank ceil(6*0.9)=6 > 5 -> inf (valid, uninformative).
+        """Too few points returns inf."""
         assert conformal_quantile(np.arange(5.0), 0.1) == float("inf")
 
     def test_empty_returns_inf(self) -> None:
+        """Empty returns inf."""
         assert conformal_quantile(np.array([]), 0.1) == float("inf")
 
     def test_alpha_out_of_range_raises(self) -> None:
+        """Alpha out of range raises."""
         with pytest.raises(ValueError):
             conformal_quantile(np.arange(10.0), 1.5)
 
 
 def _fit_calibrate(seed, alpha=0.1, n=3000):
+    """Fit calibrate."""
     rng = np.random.default_rng(seed)
     b = rng.normal(0.0, 1.0, n)
     f = rng.normal(0.0, 1.0, n)
@@ -55,6 +61,7 @@ def _fit_calibrate(seed, alpha=0.1, n=3000):
 
 
 class TestConformalCoverage:
+    """Groups tests covering conformal coverage."""
     def test_biz_marginal_coverage_at_least_1_minus_alpha(self) -> None:
         """Across seeds the calibrated band covers >= 1-alpha (with a small
         finite-sample slack)."""
@@ -63,13 +70,16 @@ class TestConformalCoverage:
         assert mean_cov >= 0.88, f"conformal under-covered: mean {mean_cov:.3f}"
 
     def test_tighter_alpha_widens_band(self) -> None:
+        """Tighter alpha widens band."""
         _, w10 = _fit_calibrate(0, 0.10)
         _, w02 = _fit_calibrate(0, 0.02)
         assert w02 > w10, "alpha=0.02 band must be wider than alpha=0.10"
 
 
 class TestConformalErrors:
+    """Groups tests covering conformal errors."""
     def test_predict_interval_without_calibration_raises(self) -> None:
+        """Predict interval without calibration raises."""
         rng = np.random.default_rng(0)
         X = pd.DataFrame({"b": rng.normal(size=200), "feat": rng.normal(size=200)})
         y = X["b"].to_numpy() + rng.normal(size=200)
@@ -82,6 +92,7 @@ class TestConformalErrors:
             est.predict_interval(X, 0.1)
 
     def test_calibrate_before_fit_raises(self) -> None:
+        """Calibrate before fit raises."""
         from sklearn.exceptions import NotFittedError
 
         est = CompositeTargetEstimator(

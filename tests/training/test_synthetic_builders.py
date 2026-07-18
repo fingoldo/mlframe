@@ -21,6 +21,7 @@ from tests.training.synthetic import (
 
 
 def test_make_simple_classification_data_shape_and_determinism():
+    """Make simple classification data shape and determinism."""
     df1, names1, cats1, y1 = make_simple_classification_data(n_samples=200, n_features=8, seed=7)
     df2, _names2, _cats2, y2 = make_simple_classification_data(n_samples=200, n_features=8, seed=7)
     assert df1.shape == (200, 8 + 1)
@@ -32,6 +33,7 @@ def test_make_simple_classification_data_shape_and_determinism():
 
 
 def test_make_simple_regression_data_shape_and_determinism():
+    """Make simple regression data shape and determinism."""
     df1, names1, y1 = make_simple_regression_data(n_samples=150, n_features=6, seed=11)
     _df2, _, y2 = make_simple_regression_data(n_samples=150, n_features=6, seed=11)
     assert df1.shape == (150, 7)
@@ -40,6 +42,7 @@ def test_make_simple_regression_data_shape_and_determinism():
 
 
 def test_make_categorical_classification_data_has_cat_features():
+    """Make categorical classification data has cat features."""
     df, _names, cats, y = make_categorical_classification_data(n_samples=300, n_numeric=4, seed=3)
     assert df.shape == (300, 4 + 3 + 1)
     assert set(cats).issubset(set(df.columns))
@@ -54,6 +57,7 @@ def test_make_categorical_classification_data_has_cat_features():
 
 
 def test_make_outlier_regression_data_has_outliers():
+    """Make outlier regression data has outliers."""
     df, _names, y = make_outlier_regression_data(n_samples=400, n_features=5, outlier_fraction=0.1, seed=0)
     assert df.shape == (400, 6)
     # 10% of rows should have |residual| much larger than the clean tail
@@ -63,6 +67,7 @@ def test_make_outlier_regression_data_has_outliers():
 
 
 def test_make_sklearn_classification_df_shape():
+    """Make sklearn classification df shape."""
     X_df, y, names = make_sklearn_classification_df(n_samples=100, n_features=12, n_informative=3, seed=5)
     assert X_df.shape == (100, 12)
     assert names == [f"f{i}" for i in range(12)]
@@ -70,17 +75,20 @@ def test_make_sklearn_classification_df_shape():
 
 
 def test_make_sklearn_classification_df_column_prefix():
+    """Make sklearn classification df column prefix."""
     _X_df, _, names = make_sklearn_classification_df(n_samples=20, n_features=4, n_informative=2, column_prefix="feature_", seed=0)
     assert names == ["feature_0", "feature_1", "feature_2", "feature_3"]
 
 
 def test_make_sklearn_regression_df_shape():
+    """Make sklearn regression df shape."""
     X_df, y, _names = make_sklearn_regression_df(n_samples=50, n_features=6, n_informative=3, seed=0)
     assert X_df.shape == (50, 6)
     assert y.shape == (50,)
 
 
 def test_make_informative_noise_classification_shape_and_balance():
+    """Make informative noise classification shape and balance."""
     X_df, y, informative_idx = make_informative_noise_classification(n_samples=400, n_informative=4, n_noise=6, seed=0)
     assert X_df.shape == (400, 10)
     assert informative_idx == [0, 1, 2, 3]
@@ -91,6 +99,7 @@ def test_make_informative_noise_classification_shape_and_balance():
 
 
 def test_make_informative_noise_classification_determinism():
+    """Make informative noise classification determinism."""
     a = make_informative_noise_classification(n_samples=100, seed=99)
     b = make_informative_noise_classification(n_samples=100, seed=99)
     pd.testing.assert_frame_equal(a[0], b[0])

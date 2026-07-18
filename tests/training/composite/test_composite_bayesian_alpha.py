@@ -21,7 +21,9 @@ from mlframe.training.composite import (
 
 
 class TestPosteriorMean:
+    """Groups tests covering posterior mean."""
     def test_posterior_mean_close_to_ols_on_clean_data(self) -> None:
+        """Posterior mean close to ols on clean data."""
         rng = np.random.default_rng(0)
         n = 1000
         base = rng.normal(loc=10.0, scale=2.0, size=n)
@@ -33,10 +35,12 @@ class TestPosteriorMean:
         assert abs(post["beta_mean"] - ols["beta"]) < 0.05
 
     def test_credible_interval_tightens_with_n(self) -> None:
+        """Credible interval tightens with n."""
         rng = np.random.default_rng(1)
         true_alpha = 0.85
 
         def _ci_width(n: int) -> float:
+            """Ci width."""
             base = rng.normal(loc=10.0, scale=2.0, size=n)
             y = true_alpha * base + rng.normal(scale=0.5, size=n)
             post = bayesian_alpha_fit(y, base, n_bootstrap=200, random_state=42)
@@ -48,7 +52,9 @@ class TestPosteriorMean:
 
 
 class TestReproducibility:
+    """Groups tests covering reproducibility."""
     def test_same_seed_same_samples(self) -> None:
+        """Same seed same samples."""
         rng = np.random.default_rng(0)
         base = rng.normal(size=500)
         y = base + rng.normal(scale=0.1, size=500)
@@ -58,6 +64,7 @@ class TestReproducibility:
         np.testing.assert_array_equal(p1["beta_samples"], p2["beta_samples"])
 
     def test_different_seed_different_samples(self) -> None:
+        """Different seed different samples."""
         rng = np.random.default_rng(0)
         base = rng.normal(size=500)
         y = base + rng.normal(scale=0.1, size=500)
@@ -67,6 +74,7 @@ class TestReproducibility:
 
 
 class TestSubsampleMode:
+    """Groups tests covering subsample mode."""
     def test_subsample_smaller_than_n(self) -> None:
         """``subsample_n`` < n bounds bootstrap-draw size; posterior moments still finite."""
         rng = np.random.default_rng(2)
@@ -90,7 +98,9 @@ class TestSubsampleMode:
 
 
 class TestDegenerate:
+    """Groups tests covering degenerate."""
     def test_n_lt_4_returns_point_estimate(self) -> None:
+        """N lt 4 returns point estimate."""
         y = np.array([1.0, 2.0, 3.0])
         base = np.array([1.0, 2.0, 3.0])
         post = bayesian_alpha_fit(y, base, n_bootstrap=100)
@@ -100,6 +110,7 @@ class TestDegenerate:
         assert np.isfinite(post["alpha_mean"])
 
     def test_ci_level_records(self) -> None:
+        """Ci level records."""
         rng = np.random.default_rng(4)
         base = rng.normal(size=200)
         y = base + rng.normal(scale=0.1, size=200)
@@ -119,6 +130,7 @@ class TestDegenerate:
 
 
 class TestBizValue:
+    """Groups tests covering biz value."""
     def test_high_noise_widens_posterior(self) -> None:
         """Increasing noise should widen the posterior for alpha. Reproducible lock that the bootstrap is doing real work, not just returning a constant point estimate."""
         rng = np.random.default_rng(0)
@@ -126,6 +138,7 @@ class TestBizValue:
         base = rng.normal(loc=10.0, scale=2.0, size=n)
 
         def _ci_width(noise_scale: float) -> float:
+            """Ci width."""
             y = 0.85 * base + rng.normal(scale=noise_scale, size=n)
             post = bayesian_alpha_fit(y, base, n_bootstrap=150, random_state=42)
             return post["alpha_ci_high"] - post["alpha_ci_low"]

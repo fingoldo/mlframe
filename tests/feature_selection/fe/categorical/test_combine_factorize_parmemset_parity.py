@@ -19,6 +19,7 @@ from mlframe.feature_selection.filters._mi_greedy_cmi_fe import (
 
 
 def _check(joint, c, mult):
+    """Assert the serial and parallel-memset combine_factorize njit kernels agree on nc and the inverse-index array."""
     a_inv, a_nc = _combine_factorize_serial_njit(joint, c, mult)
     b_inv, b_nc = _combine_factorize_njit(joint, c, mult)
     assert a_nc == b_nc
@@ -38,6 +39,7 @@ def _check(joint, c, mult):
     ],
 )
 def test_parmemset_matches_serial(n, jcard, ccard):
+    """Parmemset matches serial."""
     rng = np.random.default_rng(n + jcard + ccard)
     joint = rng.integers(0, jcard, n).astype(np.int64)
     c = rng.integers(0, ccard, n).astype(np.int64)
@@ -46,6 +48,7 @@ def test_parmemset_matches_serial(n, jcard, ccard):
 
 def test_heavy_ties_low_cardinality():
     # extreme ties: the partition is dominated by repeated joint values
+    """Heavy ties low cardinality."""
     rng = np.random.default_rng(7)
     n = 300_000
     joint = rng.integers(0, 5, n).astype(np.int64)
@@ -54,12 +57,14 @@ def test_heavy_ties_low_cardinality():
 
 
 def test_empty_input():
+    """Empty input."""
     e = np.zeros(0, dtype=np.int64)
     _check(e, e, 1)
 
 
 def test_hash_fallback_over_cap():
     # force kmax >= _FAC_ARRAY_CAP so both paths take the typed.Dict branch
+    """Hash fallback over cap."""
     rng = np.random.default_rng(11)
     n = 50_000
     mult = _FAC_ARRAY_CAP  # joint + c*mult immediately exceeds the cap for c>=1
@@ -70,5 +75,6 @@ def test_hash_fallback_over_cap():
 
 def test_gate_constant_sane():
     # the parallel fill only kicks in for buffers worth the thread spin-up
+    """Gate constant sane."""
     assert _FAC_PAR_MEMSET_MIN > 0
     assert _FAC_PAR_MEMSET_MIN < _FAC_ARRAY_CAP

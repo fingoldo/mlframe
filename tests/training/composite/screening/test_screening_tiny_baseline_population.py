@@ -64,6 +64,7 @@ def _partial_domain_dataset(
 
 
 class TestA5BaselinePopulationParity:
+    """Groups tests covering a5 baseline population parity."""
     def test_invalid_rows_are_scored_not_dropped(self) -> None:
         """A5: domain-invalid finite-y val rows now contribute to the RMSE via the
         production median fallback. With extreme invalid-row y, including them
@@ -114,9 +115,9 @@ class TestA5BaselinePopulationParity:
         # build returns ``valid_only`` for both calls (the masked input is the
         # ONLY thing it ever scored), so this ratio collapses to ~1.0 and the
         # test fails -- the regression sensor.
-        assert full_pop > valid_only * 5.0, (
-            f"A5 not applied: full-population RMSE={full_pop:.3f} should be >> valid-only RMSE={valid_only:.3f} (invalid rows must be scored)"
-        )
+        assert (
+            full_pop > valid_only * 5.0
+        ), f"A5 not applied: full-population RMSE={full_pop:.3f} should be >> valid-only RMSE={valid_only:.3f} (invalid rows must be scored)"
 
     def test_scored_population_size_matches_raw_baseline(self, monkeypatch) -> None:
         """A5: the per-fold val population now equals the finite-y population
@@ -133,6 +134,7 @@ class TestA5BaselinePopulationParity:
         real_per_bin = stp._per_bin_rmse
 
         def _spy_per_bin(y_true, y_hat, bin_var, n_bins=5):
+            """Spy per bin."""
             seen_val_sizes.append(int(np.asarray(y_true).shape[0]))
             return real_per_bin(y_true, y_hat, bin_var, n_bins=n_bins)
 
@@ -155,9 +157,9 @@ class TestA5BaselinePopulationParity:
         # Sum of fold val sizes == total finite-y population (600), NOT the
         # valid-only subset (480). Pre-fix the splits ran over the 480 masked
         # rows, so the sum would be 480.
-        assert sum(seen_val_sizes) == int(np.isfinite(y).sum()), (
-            f"scored val rows={sum(seen_val_sizes)} must equal the finite-y population={int(np.isfinite(y).sum())}, not the valid subset ({int(valid.sum())})"
-        )
+        assert sum(seen_val_sizes) == int(
+            np.isfinite(y).sum()
+        ), f"scored val rows={sum(seen_val_sizes)} must equal the finite-y population={int(np.isfinite(y).sum())}, not the valid subset ({int(valid.sum())})"
 
     def test_all_valid_is_bit_identical(self) -> None:
         """A5 must be a strict no-op when the transform's domain covers every row
@@ -201,6 +203,7 @@ class TestA5BaselinePopulationParity:
 
 
 class TestA12EarlyStopThreadedThroughMultiseed:
+    """Groups tests covering a12 early stop threaded through multiseed."""
     def test_multiseed_forwards_early_stop_threshold(self, monkeypatch) -> None:
         """A12/P11: ``early_stop_threshold`` must reach the underlying single-seed
         call through the multiseed wrapper (the conduit the rerank caller relies
@@ -210,6 +213,7 @@ class TestA12EarlyStopThreadedThroughMultiseed:
         real = st._tiny_cv_rmse_y_scale
 
         def _spy(*args, **kwargs):
+            """Spy."""
             seen_thresholds.append(kwargs.get("early_stop_threshold", float("inf")))
             return real(*args, **kwargs)
 

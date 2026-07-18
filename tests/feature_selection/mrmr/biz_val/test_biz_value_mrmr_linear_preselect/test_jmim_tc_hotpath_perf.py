@@ -540,6 +540,6 @@ class TestL73HigherOrderContractStillHolds:
         mi_pairs = [float(mutual_info_score(bins[i], bins[j])) for i in range(3) for j in range(i + 1, 3)]
         max_pairwise = float(max(mi_pairs))
         assert tc >= 0.3, f"seed={seed}: post-L86 TC({tc:.4f}) of XOR triple is at noise floor; higher-order detection regressed."
-        assert tc >= 3.0 * max_pairwise + 0.1, (
-            f"seed={seed}: post-L86 TC({tc:.4f}) not clearly above max pairwise MI ({max_pairwise:.4f}); the higher-order-only signal must dominate."
-        )
+        assert (
+            tc >= 3.0 * max_pairwise + 0.1
+        ), f"seed={seed}: post-L86 TC({tc:.4f}) not clearly above max pairwise MI ({max_pairwise:.4f}); the higher-order-only signal must dominate."

@@ -44,6 +44,7 @@ import pytest
 
 
 class TestPolarsDfHasNullInCategoricalDetector:
+    """Groups tests covering polars df has null in categorical detector."""
     def test_detects_single_null_in_categorical(self):
         """ONE null is enough — the trigger isn't 'mostly null', it's
         'has any null at all' in a Categorical."""
@@ -145,6 +146,7 @@ class TestPolarsNullableCategoricalColsDetector:
     Used directly by ``core.py`` at the upstream-fill site."""
 
     def test_returns_only_nullable_cat_cols(self):
+        """Returns only nullable cat cols."""
         from mlframe.training.trainer import _polars_nullable_categorical_cols
 
         df = pl.DataFrame(
@@ -193,6 +195,7 @@ class TestPolarsNullableCategoricalColsDetector:
         original_null_count = pl.DataFrame.null_count
 
         def _counted(self_):
+            """Counted."""
             calls["n"] += 1
             return original_null_count(self_)
 
@@ -202,6 +205,7 @@ class TestPolarsNullableCategoricalColsDetector:
         assert calls["n"] == 1, f"single-pass null_count regression: expected 1 call, got {calls['n']} (per-column loop pattern reintroduced)"
 
     def test_empty_input_returns_empty_list(self):
+        """Empty input returns empty list."""
         from mlframe.training.trainer import _polars_nullable_categorical_cols
         import pandas as pd
 
@@ -216,6 +220,7 @@ class TestPolarsFillNullInCategorical:
     column list so sentinel codes are consistent across splits."""
 
     def test_fills_nulls_with_sentinel(self):
+        """Fills nulls with sentinel."""
         from mlframe.training.trainer import _polars_fill_null_in_categorical
 
         df = pl.DataFrame(
@@ -237,6 +242,7 @@ class TestPolarsFillNullInCategorical:
         assert out is df
 
     def test_non_polars_input_returns_unchanged(self):
+        """Non polars input returns unchanged."""
         from mlframe.training.trainer import _polars_fill_null_in_categorical
         import pandas as pd
 
@@ -244,6 +250,7 @@ class TestPolarsFillNullInCategorical:
         assert _polars_fill_null_in_categorical(pdf, ["a"]) is pdf
 
     def test_custom_sentinel(self):
+        """Custom sentinel."""
         from mlframe.training.trainer import _polars_fill_null_in_categorical
 
         df = pl.DataFrame({"c": pl.Series("c", ["a", None]).cast(pl.Categorical)})
@@ -286,9 +293,9 @@ class TestFillNullPreservesFastpath:
         assert df["cat"].dtype == pl.Categorical
         filled = df.with_columns(pl.col("cat").fill_null("__MISSING__"))
         assert filled["cat"].null_count() == 0
-        assert filled["cat"].dtype == pl.Categorical, (
-            "fill_null must keep Categorical dtype; otherwise downstream CB cat_features dispatch breaks for a different reason"
-        )
+        assert (
+            filled["cat"].dtype == pl.Categorical
+        ), "fill_null must keep Categorical dtype; otherwise downstream CB cat_features dispatch breaks for a different reason"
         # __MISSING__ is now one of the categories.
         assert "__MISSING__" in filled["cat"].unique().to_list()
 

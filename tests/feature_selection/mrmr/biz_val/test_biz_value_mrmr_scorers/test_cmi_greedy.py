@@ -182,9 +182,9 @@ class TestDefaultDisabledByteIdentical:
         m = _make_mrmr()
         m.fit(X, y)
         assert m.fe_mi_greedy_cmi_enable is False
-        assert m.mi_greedy_features_ == [], (
-            f"seed={seed}: default fe_mi_greedy_cmi_enable=False should produce empty mi_greedy_features_, got {m.mi_greedy_features_}"
-        )
+        assert (
+            m.mi_greedy_features_ == []
+        ), f"seed={seed}: default fe_mi_greedy_cmi_enable=False should produce empty mi_greedy_features_, got {m.mi_greedy_features_}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_support_identical_to_explicit_off(self, seed):
@@ -235,9 +235,9 @@ class TestNoDuplicateSignal:
             f"Whole appended list: {appended}"
         )
         # And it should have picked at least one (the signal IS there).
-        assert len(x_family_picks) >= 1, (
-            f"seed={seed}: CMI-greedy picked ZERO |x|-family transforms on 'x' -- the signal was missed entirely. Appended: {appended}"
-        )
+        assert (
+            len(x_family_picks) >= 1
+        ), f"seed={seed}: CMI-greedy picked ZERO |x|-family transforms on 'x' -- the signal was missed entirely. Appended: {appended}"
 
 
 # ---------------------------------------------------------------------------

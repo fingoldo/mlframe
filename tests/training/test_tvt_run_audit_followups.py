@@ -40,6 +40,7 @@ class TestMLPBatchSizeProbeCache:
     memory budget."""
 
     def test_probe_cached_after_first_call(self) -> None:
+        """Probe cached after first call."""
         from mlframe.training import mlp_runtime_defaults as mrd
 
         # Reset the cache so the test runs from a known state.
@@ -48,11 +49,12 @@ class TestMLPBatchSizeProbeCache:
         # The cache is now populated; a second probe must return the SAME
         # value even if real free memory has fluctuated.
         cached = mrd._probe_available_memory_bytes(cuda_available=False)
-        assert first is None or first == cached, (
-            f"probe cache broken: first={first}, cached={cached}; should be identical to avoid 64x batch-size variance across MLPs"
-        )
+        assert (
+            first is None or first == cached
+        ), f"probe cache broken: first={first}, cached={cached}; should be identical to avoid 64x batch-size variance across MLPs"
 
     def test_probe_reprobe_via_env(self, monkeypatch) -> None:
+        """Probe reprobe via env."""
         from mlframe.training import mlp_runtime_defaults as mrd
 
         mrd._PROBE_MEM_CACHE = 12345
@@ -78,6 +80,7 @@ class TestRidgeTinyScreenerNaNHandling:
     SimpleImputer pipeline so NaN inputs don't crash every fold."""
 
     def test_linear_family_handles_nan_inputs(self) -> None:
+        """Linear family handles nan inputs."""
         from mlframe.training.composite.discovery._screening_tiny import _build_tiny_model
 
         model = _build_tiny_model(
@@ -120,9 +123,9 @@ class TestCompositeResidualStdDegeneracyFilter:
         _sib = Path(mod.__file__).parent / "_eval.py"
         if _sib.exists():
             src += "\n" + _sib.read_text(encoding="utf-8")
-        assert "_residual_ratio < 0.001" in src, (
-            "residual-std degeneracy check missing from _composite_discovery_fit.py -- the 0.001 threshold below which composites get rejected at fit time"
-        )
+        assert (
+            "_residual_ratio < 0.001" in src
+        ), "residual-std degeneracy check missing from _composite_discovery_fit.py -- the 0.001 threshold below which composites get rejected at fit time"
         assert "below noise floor" in src, "rejection reason string missing -- audit trail for the degeneracy filter"
 
     def test_compute_residual_ratio_logic(self) -> None:
@@ -151,6 +154,7 @@ class TestCollapseSensorGroupOODBranch:
     ``linear-extrapolation``."""
 
     def test_ridge_with_extrapolation_signature_tagged_group_ood(self, caplog, monkeypatch) -> None:
+        """Ridge with extrapolation signature tagged group ood."""
         from mlframe.training.reporting import _reporting
 
         # Bypass the envelope-clip so the wildly-out-of-range preds reach the
@@ -175,6 +179,7 @@ class TestCollapseSensorGroupOODBranch:
         ]
 
     def test_mlp_with_extrapolation_signature_still_tagged_linear_extrap(self, caplog, monkeypatch) -> None:
+        """Mlp with extrapolation signature still tagged linear extrap."""
         from mlframe.training.reporting import _reporting
 
         monkeypatch.setenv("MLFRAME_DISABLE_PREDICTION_ENVELOPE_CLIP", "1")
@@ -203,6 +208,7 @@ class TestMedianResidualTransform:
     function."""
 
     def test_registered_with_short_alias(self) -> None:
+        """Registered with short alias."""
         from mlframe.training.composite.transforms import (
             TRANSFORM_NAME_SHORT,
             get_transform,
@@ -213,12 +219,14 @@ class TestMedianResidualTransform:
         assert TRANSFORM_NAME_SHORT["median_residual"] == "medres"
 
     def test_in_default_transforms_list(self) -> None:
+        """In default transforms list."""
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
         cfg = CompositeTargetDiscoveryConfig()
         assert "median_residual" in cfg.transforms
 
     def test_forward_inverse_roundtrip(self) -> None:
+        """Forward inverse roundtrip."""
         from mlframe.training.composite.transforms import get_transform
 
         rng = np.random.default_rng(0)
@@ -255,7 +263,9 @@ class TestMedianResidualTransform:
 
 
 class TestYQuantileClipTransform:
+    """Groups tests covering y quantile clip transform."""
     def test_registered_with_short_alias(self) -> None:
+        """Registered with short alias."""
         from mlframe.training.composite.transforms import (
             TRANSFORM_NAME_SHORT,
             get_transform,
@@ -268,12 +278,14 @@ class TestYQuantileClipTransform:
         assert t.requires_base is False
 
     def test_in_default_transforms_list(self) -> None:
+        """In default transforms list."""
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
         cfg = CompositeTargetDiscoveryConfig()
         assert "y_quantile_clip" in cfg.transforms
 
     def test_clips_to_train_quantiles(self) -> None:
+        """Clips to train quantiles."""
         from mlframe.training.composite.transforms import get_transform
 
         rng = np.random.default_rng(0)
@@ -311,6 +323,7 @@ class TestForceInjectConfigKnob:
     """C1 force-inject config knob exists (full implementation deferred)."""
 
     def test_force_inject_default_disabled(self) -> None:
+        """Force inject default disabled."""
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
         cfg = CompositeTargetDiscoveryConfig()

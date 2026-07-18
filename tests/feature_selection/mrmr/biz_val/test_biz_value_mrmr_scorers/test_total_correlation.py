@@ -396,13 +396,13 @@ class TestPickleAndClone:
 
         recipes_before = _extract_orth_recipes(m)
         recipes_after = _extract_orth_recipes(m2)
-        assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_univariate recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
-        )
+        assert set(recipes_before.keys()) == set(
+            recipes_after.keys()
+        ), f"pickle dropped or added orth_univariate recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
             assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
-                assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
-                )
+                assert r_before.extra.get(key) == r_after.extra.get(
+                    key
+                ), f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"

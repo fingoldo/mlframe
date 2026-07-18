@@ -24,6 +24,7 @@ import pytest
 
 
 def test_xgb_config_uses_random_state_not_random_seed():
+    """Xgb config uses random state not random seed."""
     from mlframe.training._helpers_training_configs import get_training_configs
 
     cfg = get_training_configs(random_seed=42)
@@ -38,6 +39,7 @@ def test_xgb_config_uses_random_state_not_random_seed():
 
 
 def test_save_split_artifacts_positional_on_non_rangeindex(tmp_path):
+    """Save split artifacts positional on non rangeindex."""
     from mlframe.training.preprocessing import save_split_artifacts
 
     n = 10
@@ -75,6 +77,7 @@ def test_save_split_artifacts_positional_on_non_rangeindex(tmp_path):
 
 
 def test_composite_from_fitted_inner_envelope_gates_on_finite_count():
+    """Composite from fitted inner envelope gates on finite count."""
     from sklearn.linear_model import LinearRegression
 
     from mlframe.training.composite.estimator._estimator import CompositeTargetEstimator
@@ -93,6 +96,6 @@ def test_composite_from_fitted_inner_envelope_gates_on_finite_count():
         y_train=y,
     )
     fp = est.fitted_params_
-    assert fp["t_clip_low"] == float("-inf") and fp["t_clip_high"] == float("inf"), (
-        f"mostly-NaN y (3 finite < 10) must leave the T-clip envelope open; got [{fp['t_clip_low']}, {fp['t_clip_high']}]"
-    )
+    assert fp["t_clip_low"] == float("-inf") and fp["t_clip_high"] == float(
+        "inf"
+    ), f"mostly-NaN y (3 finite < 10) must leave the T-clip envelope open; got [{fp['t_clip_low']}, {fp['t_clip_high']}]"

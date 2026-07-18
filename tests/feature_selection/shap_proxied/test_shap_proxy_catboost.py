@@ -20,6 +20,7 @@ pytest.importorskip("catboost")
 
 
 def test_catboost_available_when_installed():
+    """Catboost available when installed."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_catboost import catboost_available, reset_catboost_available_cache
 
     reset_catboost_available_cache()
@@ -29,6 +30,7 @@ def test_catboost_available_when_installed():
 
 
 def test_make_catboost_estimator_classification_defaults():
+    """Make catboost estimator classification defaults."""
     from catboost import CatBoostClassifier
 
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_catboost import make_catboost_estimator
@@ -44,6 +46,7 @@ def test_make_catboost_estimator_classification_defaults():
 
 
 def test_make_catboost_estimator_regression_defaults():
+    """Make catboost estimator regression defaults."""
     from catboost import CatBoostRegressor
 
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_catboost import make_catboost_estimator
@@ -55,6 +58,7 @@ def test_make_catboost_estimator_regression_defaults():
 
 
 def test_make_catboost_estimator_cat_features_forwarded():
+    """Make catboost estimator cat features forwarded."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_catboost import make_catboost_estimator
 
     est = make_catboost_estimator(classification=True, cat_features=["a", "c"])
@@ -62,6 +66,7 @@ def test_make_catboost_estimator_cat_features_forwarded():
 
 
 def test_is_catboost_estimator_detection():
+    """Is catboost estimator detection."""
     from catboost import CatBoostClassifier, CatBoostRegressor
 
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_catboost import is_catboost_estimator
@@ -132,6 +137,7 @@ def test_make_default_estimator_dispatches_catboost():
 
 
 def test_make_default_estimator_rejects_unknown_kind():
+    """Make default estimator rejects unknown kind."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import make_default_estimator
 
     with pytest.raises(ValueError, match="booster_kind"):
@@ -158,6 +164,7 @@ def test_shap_phi_and_base_routes_catboost():
 
 
 def _make_informative_data(n_rows=400, n_features=30, n_informative=5, seed=0):
+    """Make informative data."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n_rows, n_features))
     coefs = np.zeros(n_features)
@@ -168,6 +175,7 @@ def _make_informative_data(n_rows=400, n_features=30, n_informative=5, seed=0):
 
 
 def _fit_and_recall(booster_kind, X, y, informative, *, cat_features=None, prefilter_method="univariate"):
+    """Fit and recall."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     fs = ShapProxiedFS(
@@ -236,6 +244,7 @@ def test_shap_proxied_fs_catboost_cat_features_pass_through():
 
 
 def test_shap_proxied_fs_unknown_booster_kind_raises():
+    """Shap proxied fs unknown booster kind raises."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     rng = np.random.default_rng(0)

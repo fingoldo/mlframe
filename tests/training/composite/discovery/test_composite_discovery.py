@@ -47,7 +47,6 @@ from mlframe.training.composite import (
 )
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
-
 # ----------------------------------------------------------------------
 # Synthetic data fixtures
 # ----------------------------------------------------------------------
@@ -105,7 +104,9 @@ def _no_dominant(n: int = 1500, seed: int = 0):
 
 
 class TestConfig:
+    """Groups tests covering config."""
     def test_defaults(self) -> None:
+        """Defaults."""
         cfg = CompositeTargetDiscoveryConfig()
         assert cfg.enabled is False
         assert cfg.base_candidates == "auto"
@@ -119,14 +120,17 @@ class TestConfig:
         assert cfg.fail_on_no_gain == "fallback_raw"
 
     def test_explicit_base_list(self) -> None:
+        """Explicit base list."""
         cfg = CompositeTargetDiscoveryConfig(base_candidates=["TVT_prev"])
         assert cfg.base_candidates == ["TVT_prev"]
 
     def test_fail_mode_normalisation(self) -> None:
+        """Fail mode normalisation."""
         cfg = CompositeTargetDiscoveryConfig(fail_on_no_gain="RAISE")
         assert cfg.fail_on_no_gain == "raise"
 
     def test_invalid_fail_mode_raises(self) -> None:
+        """Invalid fail mode raises."""
         with pytest.raises(ValueError):
             CompositeTargetDiscoveryConfig(fail_on_no_gain="explode")
 
@@ -137,7 +141,9 @@ class TestConfig:
 
 
 class TestAutoBase:
+    """Groups tests covering auto base."""
     def test_dominant_feature_surfaces_at_top(self) -> None:
+        """Dominant feature surfaces at top."""
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,
@@ -167,6 +173,7 @@ class TestAutoBase:
         # displaced -- this is correct behaviour, not a bug. The original
         # test intent was "discovery surfaces multiple distinct
         # transforms for a strong base column", which still holds.
+        """Discovery finds all 4 transforms when signal strong."""
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,
@@ -188,6 +195,7 @@ class TestAutoBase:
         assert len(transforms_kept) >= 4, f"discovery returned only {len(transforms_kept)} transforms on strong TVT_prev signal: {transforms_kept}"
 
     def test_explicit_base_passes_through_filters(self) -> None:
+        """Explicit base passes through filters."""
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,
@@ -260,12 +268,12 @@ class TestLeakageGuards:
 
         # alphas should reflect the slice-specific generative coefficients,
         # not converge to the full-df midpoint.
-        assert abs(alpha_first - 0.95) < 0.05, (
-            f"alpha_first={alpha_first:.3f} should be ~0.95; if it's ~1.025, the fit is using full-df data instead of train_idx -> LEAKAGE."
-        )
-        assert abs(alpha_second - 1.10) < 0.05, (
-            f"alpha_second={alpha_second:.3f} should be ~1.10; if it's ~1.025, the fit is using full-df data instead of train_idx -> LEAKAGE."
-        )
+        assert (
+            abs(alpha_first - 0.95) < 0.05
+        ), f"alpha_first={alpha_first:.3f} should be ~0.95; if it's ~1.025, the fit is using full-df data instead of train_idx -> LEAKAGE."
+        assert (
+            abs(alpha_second - 1.10) < 0.05
+        ), f"alpha_second={alpha_second:.3f} should be ~1.10; if it's ~1.025, the fit is using full-df data instead of train_idx -> LEAKAGE."
         # And they MUST differ.
         assert abs(alpha_first - alpha_second) > 0.05
 
@@ -365,7 +373,9 @@ class TestLeakageGuards:
 
 
 class TestForbiddenFilters:
+    """Groups tests covering forbidden filters."""
     def test_regex_pattern_drops_target_encoding_columns(self) -> None:
+        """Regex pattern drops target encoding columns."""
         df = _tvt_strong()
         df["target_enc_grp"] = df["TVT"] * 0.99 + 1.0  # mock target-encoded col
         cfg = CompositeTargetDiscoveryConfig(
@@ -382,6 +392,7 @@ class TestForbiddenFilters:
             assert s.base_column != "target_enc_grp"
 
     def test_high_correlation_with_y_drops_column(self) -> None:
+        """High correlation with y drops column."""
         df = _tvt_strong()
         # Column with corr(col, y) ≈ 1.0 -- look like derived from y.
         df["leaked"] = df["TVT"] + np.random.default_rng(0).normal(scale=1e-9, size=len(df))
@@ -398,6 +409,7 @@ class TestForbiddenFilters:
             assert s.base_column != "leaked"
 
     def test_constant_column_filtered(self) -> None:
+        """Constant column filtered."""
         df = _tvt_strong()
         df["const_col"] = 7.0  # zero variance
         cfg = CompositeTargetDiscoveryConfig(
@@ -412,6 +424,7 @@ class TestForbiddenFilters:
             assert s.base_column != "const_col"
 
     def test_non_numeric_column_filtered(self) -> None:
+        """Non numeric column filtered."""
         df = _tvt_strong()
         df["category"] = "abc"
         cfg = CompositeTargetDiscoveryConfig(
@@ -502,7 +515,9 @@ class TestForbiddenFilters:
 
 
 class TestDomainValidity:
+    """Groups tests covering domain validity."""
     def test_logratio_skipped_when_y_mostly_negative(self) -> None:
+        """Logratio skipped when y mostly negative."""
         df = _tvt_strong()
         df["TVT"] = df["TVT"] - 100  # shift y to be mostly negative
         cfg = CompositeTargetDiscoveryConfig(
@@ -528,11 +543,14 @@ class TestDomainValidity:
 
 
 class TestFailOnNoGain:
+    """Groups tests covering fail on no gain."""
     @pytest.fixture
     def no_signal_df(self):
+        """No signal df."""
         return _no_dominant()
 
     def test_fallback_raw_no_specs_no_raise(self, no_signal_df) -> None:
+        """Fallback raw no specs no raise."""
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,
             mi_sample_n=600,
@@ -546,6 +564,7 @@ class TestFailOnNoGain:
         assert disc.specs_ == []
 
     def test_raise_mode_propagates(self, no_signal_df) -> None:
+        """Raise mode propagates."""
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,
             mi_sample_n=600,
@@ -565,7 +584,9 @@ class TestFailOnNoGain:
 
 
 class TestIterTransform:
+    """Groups tests covering iter transform."""
     def test_iter_transform_yields_per_spec(self) -> None:
+        """Iter transform yields per spec."""
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,
@@ -586,6 +607,7 @@ class TestIterTransform:
             assert t.dtype == np.float64
 
     def test_iter_transform_empty_when_no_specs(self) -> None:
+        """Iter transform empty when no specs."""
         cfg = CompositeTargetDiscoveryConfig(enabled=False)
         disc = CompositeTargetDiscovery(cfg)
         disc.fit(_tvt_strong(), target_col="TVT", feature_cols=["TVT_prev", "x1", "x2"], train_idx=np.arange(1200))
@@ -598,7 +620,9 @@ class TestIterTransform:
 
 
 class TestSerialization:
+    """Groups tests covering serialization."""
     def test_export_specs_shape(self) -> None:
+        """Export specs shape."""
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,
@@ -620,6 +644,7 @@ class TestSerialization:
             assert isinstance(entry["fitted_params"], dict)
 
     def test_report_includes_rejected(self) -> None:
+        """Report includes rejected."""
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,
@@ -647,7 +672,9 @@ class TestSerialization:
 
 
 class TestPolarsAndEdgeCases:
+    """Groups tests covering polars and edge cases."""
     def test_polars_dataframe_accepted(self) -> None:
+        """Polars dataframe accepted."""
         df = pl.from_pandas(_tvt_strong())
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,
@@ -665,6 +692,7 @@ class TestPolarsAndEdgeCases:
         assert len(disc.specs_) >= 1
 
     def test_disabled_short_circuits(self) -> None:
+        """Disabled short circuits."""
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(enabled=False)
         disc = CompositeTargetDiscovery(cfg).fit(
@@ -677,6 +705,7 @@ class TestPolarsAndEdgeCases:
         assert disc.report_ == []
 
     def test_tiny_train_idx_returns_empty(self) -> None:
+        """Tiny train idx returns empty."""
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(enabled=True)
         disc = CompositeTargetDiscovery(cfg).fit(
@@ -688,6 +717,7 @@ class TestPolarsAndEdgeCases:
         assert disc.specs_ == []
 
     def test_random_state_reproducibility(self) -> None:
+        """Random state reproducibility."""
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,
@@ -747,6 +777,7 @@ class TestPolarsAndEdgeCases:
         assert len(disc.specs_) <= 2
 
     def test_screening_mi_only_skips_tiny_rerank(self) -> None:
+        """Screening mi only skips tiny rerank."""
         df = _tvt_strong()
         cfg_mi = CompositeTargetDiscoveryConfig(
             enabled=True,
@@ -800,6 +831,7 @@ class TestPolarsAndEdgeCases:
         assert len(disc.specs_) >= 1
 
     def test_unknown_transform_in_config_skipped(self) -> None:
+        """Unknown transform in config skipped."""
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,

@@ -20,6 +20,7 @@ from mlframe.training.strategies import LinearModelStrategy
 
 
 def _frame(n=200, seed=0):
+    """Frame."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(
         {
@@ -32,6 +33,7 @@ def _frame(n=200, seed=0):
 
 
 def test_linear_pipeline_encodes_before_feature_selector():
+    """Linear pipeline encodes before feature selector."""
     X, y = _frame()
     strat = LinearModelStrategy()
     pipe = strat.build_pipeline(
@@ -49,6 +51,7 @@ def test_linear_pipeline_encodes_before_feature_selector():
 
 
 def test_linear_pipeline_without_selector_still_encodes():
+    """Linear pipeline without selector still encodes."""
     X, y = _frame()
     strat = LinearModelStrategy()
     pipe = strat.build_pipeline(

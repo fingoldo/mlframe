@@ -203,9 +203,9 @@ class TestHeavyTailInvariance:
             mi_z = copula_mi((x - x.mean()) / x.std(), y, n_bins=20)
             mi_cube = copula_mi(x**3, y, n_bins=20)
             for tag, mi in [("log", mi_log), ("z", mi_z), ("cube", mi_cube)]:
-                assert mi == pytest.approx(mi_raw, abs=1e-12), (
-                    f"seed={s}: copula MI not invariant under monotone {tag} on heavy-tail x; mi(x,y)={mi_raw}, mi({tag}(x),y)={mi}"
-                )
+                assert mi == pytest.approx(
+                    mi_raw, abs=1e-12
+                ), f"seed={s}: copula MI not invariant under monotone {tag} on heavy-tail x; mi(x,y)={mi_raw}, mi({tag}(x),y)={mi}"
 
     def test_copula_mi_above_zero_on_heavy_tail_threshold(self):
         """Sanity: on the heavy-tail log-threshold fixture copula MI
@@ -374,13 +374,13 @@ class TestPickleAndClone:
 
         recipes_before = _extract_orth_recipes(m)
         recipes_after = _extract_orth_recipes(m2)
-        assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_univariate recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
-        )
+        assert set(recipes_before.keys()) == set(
+            recipes_after.keys()
+        ), f"pickle dropped or added orth_univariate recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
             assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
-                assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
-                )
+                assert r_before.extra.get(key) == r_after.extra.get(
+                    key
+                ), f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"

@@ -25,6 +25,7 @@ from mlframe.training.composite.discovery import CompositeTargetDiscovery
 
 
 def _frame(n: int, f: int, seed: int = 0, nan_cols=(3,)):
+    """Frame."""
     rng = np.random.default_rng(seed)
     data = {f"c{j}": rng.standard_normal(n).astype(np.float32) for j in range(f)}
     for j in nan_cols:
@@ -34,6 +35,7 @@ def _frame(n: int, f: int, seed: int = 0, nan_cols=(3,)):
 
 
 def _eager_codes(df, cols, rows, nbins):
+    """Eager codes."""
     from mlframe.training.composite.discovery.screening import _extract_column_array
 
     mat = np.column_stack([_extract_column_array(df, c, rows=rows) for c in cols])
@@ -47,6 +49,7 @@ def _eager_codes(df, cols, rows, nbins):
 
 @pytest.mark.parametrize("nbins", [16, 64, 200])  # 200 crosses the int16->int32 dtype boundary.
 def test_lazy_prebin_bit_identical_to_eager(nbins):
+    """Lazy prebin bit identical to eager."""
     df, cols = _frame(3000, 14, nan_cols=(3, 9))
     rng = np.random.default_rng(1)
     rows = np.sort(rng.choice(3000, 2500, replace=False))
@@ -59,6 +62,7 @@ def test_lazy_prebin_bit_identical_to_eager(nbins):
 
 def test_lazy_prebin_too_few_rows_returns_all_sentinel():
     # Below 5*nbins rows both paths return the all -1 sentinel matrix.
+    """Lazy prebin too few rows returns all sentinel."""
     df, cols = _frame(60, 5, nan_cols=())
     rows = np.arange(60)
     lazy = _prebin_feature_columns_lazy(df, cols, rows, nbins=16)
@@ -67,6 +71,7 @@ def test_lazy_prebin_too_few_rows_returns_all_sentinel():
 
 
 def test_lazy_prebin_all_nan_column_is_sentinel():
+    """Lazy prebin all nan column is sentinel."""
     df, cols = _frame(2000, 4, nan_cols=())
     # Force one column fully NaN -> both paths bin it to -1 everywhere.
     arr = df["c1"].to_numpy().copy()
@@ -113,9 +118,9 @@ def test_biz_val_lazy_prebin_peak_ram_below_float_plane():
 
     assert np.array_equal(eager, lazy)
     float_plane = n * f * 4
-    assert lazy_peak <= 0.60 * eager_peak, (
-        f"lazy peak {lazy_peak / 1e6:.1f} MB should be <=60% of eager {eager_peak / 1e6:.1f} MB (float plane {float_plane / 1e6:.1f} MB)"
-    )
+    assert (
+        lazy_peak <= 0.60 * eager_peak
+    ), f"lazy peak {lazy_peak / 1e6:.1f} MB should be <=60% of eager {eager_peak / 1e6:.1f} MB (float plane {float_plane / 1e6:.1f} MB)"
     # Lazy must avoid materialising a full float plane's worth of transient.
     assert lazy_peak < float_plane, f"lazy peak {lazy_peak / 1e6:.1f} MB should be below the avoided float plane {float_plane / 1e6:.1f} MB"
 
@@ -126,6 +131,7 @@ def test_biz_val_lazy_prebin_peak_ram_below_float_plane():
 
 
 def _fit_frame(n=4000, seed=7):
+    """Fit frame."""
     rng = np.random.default_rng(seed)
     base = rng.standard_normal(n).astype(np.float32)
     feats = {f"f{j}": rng.standard_normal(n).astype(np.float32) for j in range(6)}
@@ -136,6 +142,7 @@ def _fit_frame(n=4000, seed=7):
 
 
 def _run_fit(force_lazy: str, monkeypatch):
+    """Run fit."""
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
     monkeypatch.setenv("MLFRAME_DISCOVERY_LAZY_PREBIN", force_lazy)

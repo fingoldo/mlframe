@@ -29,7 +29,6 @@ from mlframe.metrics.core import (
     _pack_for_bitmap_kernel_par,
 )
 
-
 # ---------------------------------------------------------------------------
 # Bitmap packer: fused njit kernels must be bit-identical to the numpy
 # reference (np.packbits-pad64-view) across byte-aligned + non-aligned K,
@@ -39,6 +38,7 @@ from mlframe.metrics.core import (
 
 @pytest.mark.parametrize("K", [16, 17, 23, 24, 31, 32, 33, 40, 63, 64])
 def test_pack_for_bitmap_njit_bit_identical_to_numpy(K):
+    """Pack for bitmap njit bit identical to numpy."""
     rng = np.random.default_rng(K)
     for arr in (
         (rng.random((1000, K)) < 0.3).astype(np.uint8),
@@ -51,6 +51,7 @@ def test_pack_for_bitmap_njit_bit_identical_to_numpy(K):
 
 
 def test_pack_for_bitmap_dispatches_to_parallel_njit_above_threshold(monkeypatch):
+    """Pack for bitmap dispatches to parallel njit above threshold."""
     from mlframe.metrics import _multilabel_metrics as mlm
 
     thr = mlm._PARALLEL_MULTILABEL_THRESHOLD
@@ -58,10 +59,12 @@ def test_pack_for_bitmap_dispatches_to_parallel_njit_above_threshold(monkeypatch
     orig_par, orig_seq = mlm._pack_for_bitmap_kernel_par, mlm._pack_for_bitmap_kernel_seq
 
     def spy_par(arr):
+        """Spy par."""
         seen["par"] += 1
         return orig_par(arr)
 
     def spy_seq(arr):
+        """Spy seq."""
         seen["seq"] += 1
         return orig_seq(arr)
 
@@ -94,6 +97,7 @@ def test_pack_for_bitmap_dispatches_to_parallel_njit_above_threshold(monkeypatch
     ],
 )
 def test_hamming_loss_matches_sklearn(seed, N, K):
+    """Hamming loss matches sklearn."""
     from sklearn.metrics import hamming_loss as sk_hamming
 
     rng = np.random.default_rng(seed)
@@ -113,6 +117,7 @@ def test_hamming_loss_matches_sklearn(seed, N, K):
     ],
 )
 def test_subset_accuracy_matches_sklearn(seed, N, K):
+    """Subset accuracy matches sklearn."""
     from sklearn.metrics import accuracy_score
 
     rng = np.random.default_rng(seed)
@@ -132,6 +137,7 @@ def test_subset_accuracy_matches_sklearn(seed, N, K):
     ],
 )
 def test_jaccard_matches_sklearn_samples(seed, N, K):
+    """Jaccard matches sklearn samples."""
     from sklearn.metrics import jaccard_score as sk_jaccard
     import warnings
 
@@ -162,11 +168,13 @@ def test_jaccard_empty_union_returns_one():
 
 
 def test_jaccard_perfect_match():
+    """Jaccard perfect match."""
     y = np.array([[1, 0, 1], [0, 1, 1]], dtype=np.uint8)
     assert fast_jaccard_score(y, y) == 1.0
 
 
 def test_subset_accuracy_perfect_match_one_mismatch():
+    """Subset accuracy perfect match one mismatch."""
     y_true = np.array([[1, 0], [0, 1], [1, 1]], dtype=np.uint8)
     y_pred = np.array([[1, 0], [0, 1], [1, 0]], dtype=np.uint8)  # last row mismatch
     assert abs(fast_subset_accuracy(y_true, y_pred) - 2 / 3) < 1e-12
@@ -175,6 +183,7 @@ def test_subset_accuracy_perfect_match_one_mismatch():
 def test_hamming_loss_known_value():
     # 2 rows, 3 labels each. Mismatches: row0 col2 (1 mismatch); row1 cols 0,1 (2 mismatches).
     # Total 3 mismatches / 6 elements = 0.5
+    """Hamming loss known value."""
     y_true = np.array([[1, 0, 1], [0, 1, 1]], dtype=np.uint8)
     y_pred = np.array([[1, 0, 0], [1, 0, 1]], dtype=np.uint8)
     assert abs(fast_hamming_loss(y_true, y_pred) - 0.5) < 1e-12
@@ -186,6 +195,7 @@ def test_hamming_loss_known_value():
 
 
 def test_hamming_loss_shape_mismatch_raises():
+    """Hamming loss shape mismatch raises."""
     y_true = np.zeros((10, 3), dtype=np.uint8)
     y_pred = np.zeros((10, 5), dtype=np.uint8)
     with pytest.raises(ValueError, match="!="):
@@ -193,6 +203,7 @@ def test_hamming_loss_shape_mismatch_raises():
 
 
 def test_subset_accuracy_shape_mismatch_raises():
+    """Subset accuracy shape mismatch raises."""
     y_true = np.zeros((10, 3), dtype=np.uint8)
     y_pred = np.zeros((5, 3), dtype=np.uint8)
     with pytest.raises(ValueError, match="!="):
@@ -200,6 +211,7 @@ def test_subset_accuracy_shape_mismatch_raises():
 
 
 def test_jaccard_3d_input_raises():
+    """Jaccard 3d input raises."""
     y_true = np.zeros((10, 3, 2), dtype=np.uint8)
     with pytest.raises(ValueError, match="1-D or 2-D"):
         fast_jaccard_score(y_true, y_true)
@@ -211,6 +223,7 @@ def test_jaccard_3d_input_raises():
 
 
 def test_hamming_loss_1d_auto_reshape():
+    """Hamming loss 1d auto reshape."""
     y_true = np.array([1, 0, 1, 0])
     y_pred = np.array([1, 0, 0, 0])
     # 1 mismatch / 4 = 0.25
@@ -219,6 +232,7 @@ def test_hamming_loss_1d_auto_reshape():
 
 @pytest.mark.parametrize("dtype", [np.bool_, np.int8, np.int32, np.float32, np.float64])
 def test_dtype_coercion(dtype):
+    """Dtype coercion."""
     y_true = np.array([[1, 0], [0, 1]], dtype=dtype)
     y_pred = np.array([[1, 0], [0, 0]], dtype=dtype)
     # 1 mismatch / 4 = 0.25

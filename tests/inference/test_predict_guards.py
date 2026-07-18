@@ -58,9 +58,9 @@ def test_nan_guard_uses_persisted_stats_no_leakage():
     # The persisted imputer's statistics_ should be the train mean (~99.5 for arange(200)).
     train_mean = float(train_x.mean())
     persisted_imp = model._mlframe_nan_imputer
-    assert abs(float(persisted_imp.statistics_[0]) - train_mean) < 1e-6, (
-        f"persisted imputer mean must equal train mean; got {persisted_imp.statistics_[0]} vs {train_mean}"
-    )
+    assert (
+        abs(float(persisted_imp.statistics_[0]) - train_mean) < 1e-6
+    ), f"persisted imputer mean must equal train mean; got {persisted_imp.statistics_[0]} vs {train_mean}"
 
 
 def test_nan_guard_refuses_when_no_persisted_stats_and_fit_at_predict_false():

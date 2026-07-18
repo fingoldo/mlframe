@@ -26,7 +26,9 @@ from mlframe.training.composite import (
 
 
 class TestFit:
+    """Groups tests covering fit."""
     def test_default_knots(self) -> None:
+        """Default knots."""
         rng = np.random.default_rng(0)
         n = 2000
         base = rng.normal(loc=10.0, scale=2.0, size=n)
@@ -37,6 +39,7 @@ class TestFit:
         assert params["monotone_direction"] == 1  # positive Spearman
 
     def test_negative_correlation_yields_decreasing_g(self) -> None:
+        """Negative correlation yields decreasing g."""
         rng = np.random.default_rng(1)
         n = 1500
         base = rng.uniform(low=0.0, high=10.0, size=n)
@@ -48,6 +51,7 @@ class TestFit:
         assert np.all(diffs <= 1e-9)
 
     def test_degenerate_input(self) -> None:
+        """Degenerate input."""
         params = _monotonic_residual_fit(np.array([1.0]), np.array([5.0]))
         # Falls back to 2-knot anchor with constant value.
         assert params["n_knots_effective"] == 2
@@ -57,7 +61,9 @@ class TestFit:
 
 
 class TestMonotonicity:
+    """Groups tests covering monotonicity."""
     def test_g_non_decreasing_on_positive_dgp(self) -> None:
+        """G non decreasing on positive dgp."""
         rng = np.random.default_rng(2)
         n = 2000
         base = rng.uniform(low=0.0, high=10.0, size=n)
@@ -69,6 +75,7 @@ class TestMonotonicity:
         assert np.all(diffs >= -1e-9), f"g is not non-decreasing; min diff = {diffs.min():.6f}"
 
     def test_g_clips_outside_train_range(self) -> None:
+        """G clips outside train range."""
         rng = np.random.default_rng(3)
         n = 1500
         base = rng.uniform(low=0.0, high=10.0, size=n)
@@ -82,7 +89,9 @@ class TestMonotonicity:
 
 
 class TestRoundTrip:
+    """Groups tests covering round trip."""
     def test_round_trip_linear_dgp(self) -> None:
+        """Round trip linear dgp."""
         rng = np.random.default_rng(4)
         n = 1500
         base = rng.normal(loc=10.0, scale=2.0, size=n)
@@ -104,6 +113,7 @@ class TestRoundTrip:
         np.testing.assert_allclose(y, y_back, rtol=1e-7, atol=1e-7)
 
     def test_round_trip_via_registry(self) -> None:
+        """Round trip via registry."""
         rng = np.random.default_rng(6)
         n = 800
         base = rng.uniform(low=1.0, high=10.0, size=n)
@@ -116,7 +126,9 @@ class TestRoundTrip:
 
 
 class TestDomain:
+    """Groups tests covering domain."""
     def test_rejects_non_finite_base(self) -> None:
+        """Rejects non finite base."""
         base = np.array([1.0, np.nan, 3.0, np.inf])
         y = np.array([1.0, 2.0, 3.0, 4.0])
         mask = _monotonic_residual_domain(y, base)
@@ -127,12 +139,14 @@ class TestBizValueBeatsLinearOnSaturating:
     """On a saturating DGP, monotonic_residual sucks up the curvature linear_residual misses."""
 
     def _make_saturating_dgp(self, n: int = 3000, seed: int = 0):
+        """Make saturating dgp."""
         rng = np.random.default_rng(seed)
         base = rng.uniform(low=0.0, high=30.0, size=n)
         y = np.log1p(base) * 10.0 + rng.normal(scale=0.3, size=n)
         return y, base
 
     def test_monotonic_residual_variance_strictly_lower(self) -> None:
+        """Monotonic residual variance strictly lower."""
         y, base = self._make_saturating_dgp()
         # Linear residual (single-base OLS).
         from mlframe.training.composite import (
@@ -147,8 +161,8 @@ class TestBizValueBeatsLinearOnSaturating:
         T_mr = _monotonic_residual_forward(y, base, mr_params)
         var_lr = float(np.var(T_lr))
         var_mr = float(np.var(T_mr))
-        assert var_mr < var_lr * 0.5, (
-            f"monotonic_residual variance must be << linear_residual's on a saturating DGP; got var_lr={var_lr:.4f}, var_mr={var_mr:.4f}"
-        )
+        assert (
+            var_mr < var_lr * 0.5
+        ), f"monotonic_residual variance must be << linear_residual's on a saturating DGP; got var_lr={var_lr:.4f}, var_mr={var_mr:.4f}"
         # And close to noise variance (~0.09 here).
         assert var_mr < 0.5

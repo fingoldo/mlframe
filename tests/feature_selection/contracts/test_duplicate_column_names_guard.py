@@ -20,6 +20,7 @@ import pytest
 
 
 def _dup_frame(n: int = 80):
+    """Dup frame."""
     rng = np.random.RandomState(0)
     X = pd.DataFrame({"x": rng.randn(n), "x2": rng.randn(n), "c": rng.randn(n)})
     X.columns = ["x", "x", "c"]  # duplicate label
@@ -44,6 +45,7 @@ def test_pre_screen_handles_duplicate_column_names():
 
 
 def test_rfecv_raises_clear_error_on_duplicate_column_names():
+    """Rfecv raises clear error on duplicate column names."""
     from sklearn.tree import DecisionTreeClassifier
 
     from mlframe.feature_selection.wrappers.rfecv import RFECV
@@ -55,6 +57,7 @@ def test_rfecv_raises_clear_error_on_duplicate_column_names():
 
 
 def test_boruta_shap_raises_clear_error_on_duplicate_column_names():
+    """Boruta shap raises clear error on duplicate column names."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     X, y = _dup_frame()
@@ -64,6 +67,7 @@ def test_boruta_shap_raises_clear_error_on_duplicate_column_names():
 
 
 def test_shap_proxied_fs_raises_clear_error_on_duplicate_column_names():
+    """Shap proxied fs raises clear error on duplicate column names."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     X, y = _dup_frame()
@@ -73,6 +77,7 @@ def test_shap_proxied_fs_raises_clear_error_on_duplicate_column_names():
 
 
 def test_hybrid_selector_raises_clear_error_on_duplicate_column_names():
+    """Hybrid selector raises clear error on duplicate column names."""
     from mlframe.feature_selection.hybrid_selector import HybridSelector
 
     X, y = _dup_frame()

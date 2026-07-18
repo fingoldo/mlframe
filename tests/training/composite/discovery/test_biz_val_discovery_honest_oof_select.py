@@ -47,12 +47,14 @@ def _frame(n_groups: int = 40, per: int = 300, seed: int = 1):
 
 
 def _split_upper_tail(groups, well_level, n_holdout_wells: int = 8):
+    """Split upper tail."""
     holdout_wells = set(np.argsort(well_level)[-n_holdout_wells:].tolist())
     hmask = np.array([g in holdout_wells for g in groups])
     return np.nonzero(~hmask)[0], np.nonzero(hmask)[0]
 
 
 def _spec(name, transform_name, base_column, params):
+    """Spec."""
     return CompositeSpec(
         name=name,
         target_col="y",
@@ -68,6 +70,7 @@ def _spec(name, transform_name, base_column, params):
 
 
 def _disc(groups, holdout_idx):
+    """Disc."""
     cfg = CompositeTargetDiscoveryConfig(
         enabled=True,
         random_state=0,
@@ -81,6 +84,7 @@ def _disc(groups, holdout_idx):
 
 
 def _internal_cv(df, groups, screen_idx, y, spec):
+    """Internal cv."""
     base = df[spec.base_column].values[screen_idx]
     ff = [c for c in _FEATS if c != spec.base_column]
     return _tiny_cv_rmse_y_scale(
@@ -102,12 +106,14 @@ def _internal_cv(df, groups, screen_idx, y, spec):
 
 @pytest.fixture(autouse=True)
 def _silence_lgbm_feature_name_warning():
+    """Silence lgbm feature name warning."""
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="X does not have valid feature names")
         yield
 
 
 def test_biz_val_honest_oof_outranks_base_additive_that_wins_internal_cv():
+    """Biz val honest oof outranks base additive that wins internal cv."""
     df, groups, y, levels = _frame()
     screen_idx, holdout_idx = _split_upper_tail(groups, levels)
     disc = _disc(groups, holdout_idx)
@@ -123,12 +129,13 @@ def test_biz_val_honest_oof_outranks_base_additive_that_wins_internal_cv():
     assert int_add < res[additive.name], f"premise: additive internal CV ({int_add:.3f}) must be much lower than its honest OOF ({res[additive.name]:.3f})"
     # On internal CV the additive spec is competitive (legacy would keep it near the top); on honest OOF it is buried.
     assert int_add <= int_honest * 1.6, "additive must be competitive on the optimistic group-internal CV (legacy ranks it high)"
-    assert res[additive.name] >= 1.20 * res[honest.name], (
-        f"honest OOF must rank additive ({res[additive.name]:.3f}) >= 1.20x the honest spec ({res[honest.name]:.3f}); measured ratio ~4.2"
-    )
+    assert (
+        res[additive.name] >= 1.20 * res[honest.name]
+    ), f"honest OOF must rank additive ({res[additive.name]:.3f}) >= 1.20x the honest spec ({res[honest.name]:.3f}); measured ratio ~4.2"
 
 
 def test_biz_val_honest_oof_selection_full_fit_ranks_honest_above_additive():
+    """Biz val honest oof selection full fit ranks honest above additive."""
     df, groups, y, levels = _frame()
     screen_idx, holdout_idx = _split_upper_tail(groups, levels)
     disc = _disc(groups, holdout_idx)
@@ -188,12 +195,13 @@ def test_domain_check_crash_logs_warning(caplog, monkeypatch):
         res = honest_oof_reconstruction_rmse(disc, df, "y", [spec], _FEATS, screen_idx, holdout_idx, y)
 
     assert spec.name in res  # still scored (fails open, as before)
-    assert any("domain_check" in rec.message for rec in caplog.records), (
-        "a crashing domain_check must be logged at WARNING so a broken domain guard is operator-visible"
-    )
+    assert any(
+        "domain_check" in rec.message for rec in caplog.records
+    ), "a crashing domain_check must be logged at WARNING so a broken domain guard is operator-visible"
 
 
 def test_honest_oof_noop_without_group_ids():
+    """Honest oof noop without group ids."""
     df, groups, y, levels = _frame()
     screen_idx, holdout_idx = _split_upper_tail(groups, levels)
     cfg = CompositeTargetDiscoveryConfig(enabled=True, random_state=0, tiny_model_n_estimators=40)

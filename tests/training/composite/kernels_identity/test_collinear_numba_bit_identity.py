@@ -27,6 +27,7 @@ from mlframe.training.composite.discovery._eval_stats import (
 
 
 def _fast(fm: np.ndarray, thr: float) -> np.ndarray:
+    """Fast."""
     return near_collinear_keep_mask_fast(
         fm,
         corr_threshold=thr,
@@ -192,11 +193,13 @@ class TestAllFiniteFastPath:
     """The all-finite fast path precomputes per-column mean+ssq once, then costs ONE cross-term pass per kept pair (vs the two-pass per-pair mean/variance recompute of the general kernel). It must be selected on a finite matrix and produce a mask bit-identical to both the serial NaN-aware kernel and the numpy reference."""
 
     def test_allfinite_kernel_symbols_exist(self) -> None:
+        """Allfinite kernel symbols exist."""
         assert hasattr(_cn, "_keep_mask_kernel_allfinite")
         assert hasattr(_cn, "_column_stats_allfinite")
 
     @pytest.mark.parametrize("seed", range(12))
     def test_allfinite_fast_path_bit_identical_to_serial_and_reference(self, seed: int) -> None:
+        """Allfinite fast path bit identical to serial and reference."""
         rng = np.random.default_rng(seed)
         n = int(rng.integers(_MIN_ROWS, 4000))
         n_cols = int(rng.integers(_MIN_COLS, 40))
@@ -232,10 +235,12 @@ class TestAllFiniteFastPath:
         orig_gen = _cn._keep_mask_kernel
 
         def spy_af(*a, **k):
+            """Spy af."""
             calls["af"] += 1
             return orig_af(*a, **k)
 
         def spy_gen(*a, **k):
+            """Spy gen."""
             calls["general"] += 1
             return orig_gen(*a, **k)
 
@@ -270,6 +275,7 @@ class TestBlockShuffleGatherBitIdentity:
 
     @staticmethod
     def _legacy(arr, perm, block_len):
+        """Legacy."""
         m = arr.size
         idx = (perm[:, None] * block_len + np.arange(block_len)[None, :]).ravel()
         idx = idx[idx < m]
@@ -278,6 +284,7 @@ class TestBlockShuffleGatherBitIdentity:
     @pytest.mark.parametrize("m", [97, 256, 20000, 100003])
     @pytest.mark.parametrize("dtype", [np.int64, np.float32, np.float64])
     def test_block_shuffle_gather_bit_identical_to_numpy(self, m, dtype) -> None:
+        """Block shuffle gather bit identical to numpy."""
         from mlframe.training.composite.discovery._collinear_numba import block_shuffle_gather
 
         block_len = max(2, int(np.sqrt(m)))  # exercise the trailing-short-block path
@@ -300,6 +307,7 @@ class TestBlockShuffleGatherBitIdentity:
         orig = _ab.block_shuffle_gather
 
         def spy(arr, perm, block_len):
+            """Spy."""
             calls["n"] += 1
             return orig(arr, perm, block_len)
 

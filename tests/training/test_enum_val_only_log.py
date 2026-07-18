@@ -40,6 +40,7 @@ def _make_frames():
 
 
 def test_enum_domain_logs_val_only_categories(caplog) -> None:
+    """Enum domain logs val only categories."""
     from mlframe.training.core._phase_helpers_fit_split import (
         _phase_auto_detect_feature_types,
     )
@@ -47,10 +48,12 @@ def test_enum_domain_logs_val_only_categories(caplog) -> None:
     train, val, test = _make_frames()
 
     class _PipelineCfg:
+        """Groups tests covering pipeline cfg."""
         skip_categorical_encoding = True
 
     class _FeatureTypesCfg:
         # The auto-detect for text/embed uses several thresholds. Provide attributes that produce no auto-drops on this tiny frame.
+        """Groups tests covering feature types cfg."""
         auto_drop_high_cardinality = False
         text_detection_enabled = False
         embedding_detection_enabled = False

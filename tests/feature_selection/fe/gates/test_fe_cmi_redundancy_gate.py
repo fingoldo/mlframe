@@ -107,6 +107,7 @@ def _build(formula: str, seed: int = 0, n: int = _N_UNIT):
 
 
 def _bin_y(y):
+    """Bin y."""
     z = discretize_array(np.asarray(y, dtype=np.float64), n_bins=10, method="quantile", dtype=np.int64)
     _, inv = np.unique(z, return_inverse=True)
     return inv.astype(np.int64)
@@ -171,9 +172,9 @@ def test_gate_n_invariant_accepts_genuine_rejects_redundant(n, formula):
     assert diag["sub"]["cmi_excess"] < diag["sub"]["rel_bar"], f"[{formula} n={n}] sub excess should be below the relative bar: {diag['sub']}"
     # The genuine features keep a POSITIVE excess (real private interaction), so
     # the separation is not an artefact of everything collapsing to zero.
-    assert diag["div"]["cmi_excess"] > diag["sub"]["cmi_excess"], (
-        f"[{formula} n={n}] genuine div excess should exceed spurious sub excess: div={diag['div']} sub={diag['sub']}"
-    )
+    assert (
+        diag["div"]["cmi_excess"] > diag["sub"]["cmi_excess"]
+    ), f"[{formula} n={n}] genuine div excess should exceed spurious sub excess: div={diag['div']} sub={diag['sub']}"
 
 
 def test_relative_gap_leg_is_load_bearing():
@@ -222,6 +223,7 @@ def test_relative_gap_leg_is_load_bearing():
 
 
 def _disc(y, nbins=10):
+    """Helper that disc."""
     y = np.asarray(y, dtype=np.float64)
     edges = np.unique(np.quantile(y, np.linspace(0.0, 1.0, nbins + 1)))
     if edges.size <= 2:
@@ -230,6 +232,7 @@ def _disc(y, nbins=10):
 
 
 def _marg_cands(cols: dict, yb: np.ndarray) -> dict:
+    """Marg cands."""
     return {
         nm: (np.asarray(v, dtype=np.float64), float(_cmi_from_binned(_quantile_bin(np.asarray(v, dtype=np.float64), nbins=10), yb, None)))
         for nm, v in cols.items()
@@ -256,6 +259,7 @@ def _weak_complementary_fixture(seed: int = 1, n: int = 20_000, n_weak: int = 5,
 
 
 def cols_to_cands(cols, yb):
+    """Cols to cands."""
     return _marg_cands(cols, yb)
 
 
@@ -285,9 +289,9 @@ def test_complementary_weak_feature_not_falsely_rejected(seed):
     # THE FIX: none of the genuinely complementary weak drivers is dropped.
     accepted, diag = apply_cmi_redundancy_gate(cols_to_cands(cols, yb), yb, nbins=10, seed=seed)
     rejected = [nm for nm in weak if nm not in accepted]
-    assert not rejected, (
-        f"[seed={seed}] genuinely complementary weak drivers FALSELY REJECTED as redundant: {rejected}; diag={ {nm: diag[nm] for nm in rejected} }"
-    )
+    assert (
+        not rejected
+    ), f"[seed={seed}] genuinely complementary weak drivers FALSELY REJECTED as redundant: {rejected}; diag={ {nm: diag[nm] for nm in rejected} }"
 
 
 def test_strong_significance_escape_is_decisive_for_weak_complementary():
@@ -395,6 +399,7 @@ _BARE = re.compile(r"(?<![A-Za-z_])([a-e])(?![A-Za-z_])")
 
 
 def _bare_vars(name: str) -> set:
+    """Bare vars."""
     return set(_BARE.findall(name))
 
 
@@ -415,6 +420,7 @@ def _make_mrmr_fixture(seed=0, n=_N_E2E):
 
 
 def _engineered(fs):
+    """Helper that engineered."""
     raw = {"a", "b", "c", "d", "e"}
     return [n for n in (getattr(fs, "_engineered_features_", []) or []) if n not in raw]
 
@@ -443,6 +449,7 @@ def test_default_on_drops_redundant_keeps_genuine():
     # contract is "the genuine signal is recovered", and clean-vs-folded form is below that line; the
     # strict pure-form check was an artifact of the pre-subsumption pipeline.
     def _recovered(eng, va, vb):
+        """Helper that recovered."""
         return any({va, vb} <= _bare_vars(nm) for nm in eng) or (any(va in _bare_vars(nm) for nm in eng) and any(vb in _bare_vars(nm) for nm in eng))
 
     assert _recovered(eng_cmi, "a", "b"), f"(a,b) a**2/b signal not recovered in ANY form under CMI gate: {eng_cmi}"
@@ -451,9 +458,9 @@ def test_default_on_drops_redundant_keeps_genuine():
     # The CMI gate is the stricter, principled redundancy filter: it admits no MORE
     # engineered features than the legacy ratio, and strictly fewer when the ratio
     # path lets a redundant cross-signal/extra column through.
-    assert len(eng_cmi) <= len(eng_ratio), (
-        f"CMI gate admitted MORE engineered features than the legacy ratio (should be stricter): cmi={eng_cmi} ratio={eng_ratio}"
-    )
+    assert len(eng_cmi) <= len(
+        eng_ratio
+    ), f"CMI gate admitted MORE engineered features than the legacy ratio (should be stricter): cmi={eng_cmi} ratio={eng_ratio}"
 
 
 def _make_user_f2(seed=0, n=20_000):
@@ -529,6 +536,7 @@ def test_user_f2_e2e_recovers_genuine_drops_noise_and_cross_signal(n):
     support = list(fs.get_feature_names_out())
 
     def _covers(va, vb, exclude=()):
+        """Helper that covers."""
         want, excl = {va, vb}, set(exclude)
         return [nm for nm in support if want <= _bare_vars(nm) and not (_bare_vars(nm) & excl)]
 
@@ -552,9 +560,9 @@ def test_user_f2_e2e_recovers_genuine_drops_noise_and_cross_signal(n):
     ab_pure = _covers("a", "b", exclude=("c", "d"))
     ab_cross_mix = [nm for nm in support if {"a", "b"} <= _bare_vars(nm) and {"c", "d"} <= _bare_vars(nm)]
     ab_present_any_form = any("a" in _bare_vars(nm) for nm in support) and any("b" in _bare_vars(nm) for nm in support)
-    assert ab_pure or ab_cross_mix or ab_present_any_form, (
-        f"[F2 n={n}] (a,b) a**2/b signal not recovered in ANY form (a and b operands absent from support): support={support}"
-    )
+    assert (
+        ab_pure or ab_cross_mix or ab_present_any_form
+    ), f"[F2 n={n}] (a,b) a**2/b signal not recovered in ANY form (a and b operands absent from support): support={support}"
 
     # (2) The (c,d) signal must be recovered. The hardened pipeline folds it into a
     # cross-mix that ALSO carries the (a,b) operands (the max-MI subsumption), so accept
@@ -580,6 +588,7 @@ def test_user_f2_e2e_recovers_genuine_drops_noise_and_cross_signal(n):
         yb = yb.astype(np.int64)
 
         def _matched_mi(vals):
+            """Matched mi."""
             vb = _quantile_bin(np.asarray(vals, dtype=np.float64), nbins=nbins)
             return float(_cmi_from_binned(vb, yb, None))
 

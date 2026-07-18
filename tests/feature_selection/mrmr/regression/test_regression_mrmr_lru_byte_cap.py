@@ -26,6 +26,7 @@ class _FakeMRMR:
 
 
 def test_instance_state_size_walks_mi_scores():
+    """Instance state size walks mi scores."""
     from mlframe.feature_selection.filters._mrmr_fit_impl import _mrmr_instance_state_size_bytes
 
     inst = _FakeMRMR(nbytes=8_000)
@@ -34,6 +35,7 @@ def test_instance_state_size_walks_mi_scores():
 
 
 def test_cache_bytes_total_aggregates_across_cache():
+    """Cache bytes total aggregates across cache."""
     from mlframe.feature_selection.filters._mrmr_fit_impl import _mrmr_cache_bytes_total
     from mlframe.feature_selection.filters.mrmr import MRMR
 

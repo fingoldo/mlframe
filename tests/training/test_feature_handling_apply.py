@@ -41,7 +41,6 @@ from mlframe.training.feature_handling import (
     tfidf_only,
 )
 
-
 # =====================================================================
 # Fixtures
 # =====================================================================
@@ -49,6 +48,7 @@ from mlframe.training.feature_handling import (
 
 @pytest.fixture
 def synthetic_train_df():
+    """Synthetic train df."""
     rng = np.random.RandomState(0)
     n = 200
     return pl.DataFrame(
@@ -69,6 +69,7 @@ def synthetic_train_df():
 
 @pytest.fixture
 def synthetic_target():
+    """Synthetic target."""
     rng = np.random.RandomState(1)
     return rng.randint(0, 2, size=200).astype(np.int32)
 
@@ -79,7 +80,9 @@ def synthetic_target():
 
 
 class TestSparseAwarePath:
+    """Groups tests covering sparse aware path."""
     def test_xgb_two_track_output(self, synthetic_train_df):
+        """Xgb two track output."""
         fhc = tfidf_only(max_features=30)
         res = feature_handling_apply(
             train_df=synthetic_train_df,
@@ -94,6 +97,7 @@ class TestSparseAwarePath:
         assert all(n.startswith("review__tfidf__") for n in res.feature_names)
 
     def test_lgb_two_track_output(self, synthetic_train_df):
+        """Lgb two track output."""
         fhc = tfidf_only(max_features=20)
         res = feature_handling_apply(
             train_df=synthetic_train_df,
@@ -110,8 +114,10 @@ class TestSparseAwarePath:
 
 
 class TestDenseOnlyPath:
+    """Groups tests covering dense only path."""
     def test_hgb_single_track_dense_under_svd_threshold(self, synthetic_train_df):
         # 30 cols < 512 -> densify in place, no SVD.
+        """Hgb single track dense under svd threshold."""
         fhc = tfidf_only(max_features=30)
         res = feature_handling_apply(
             train_df=synthetic_train_df,
@@ -124,6 +130,7 @@ class TestDenseOnlyPath:
         assert res.train.dense_block.dtype == np.float32
 
     def test_hgb_auto_svd_above_threshold(self, synthetic_train_df, caplog):
+        """Hgb auto svd above threshold."""
         caplog.set_level(logging.WARNING)
         fhc = FeatureHandlingConfig(
             default_text=[
@@ -150,7 +157,9 @@ class TestDenseOnlyPath:
 
 
 class TestEndToEndModelFit:
+    """Groups tests covering end to end model fit."""
     def test_logreg_fits_on_assembled_matrix(self, synthetic_train_df, synthetic_target):
+        """Logreg fits on assembled matrix."""
         fhc = tfidf_only(max_features=30)
         res = feature_handling_apply(
             train_df=synthetic_train_df,
@@ -167,6 +176,7 @@ class TestEndToEndModelFit:
         assert hasattr(clf, "coef_")
 
     def test_logreg_with_numeric_block(self, synthetic_train_df, synthetic_target):
+        """Logreg with numeric block."""
         fhc = tfidf_only(max_features=20)
         # Dense numeric block from x_num
         num_block = synthetic_train_df.select("x_num").to_numpy().astype(np.float32)
@@ -191,7 +201,9 @@ class TestEndToEndModelFit:
 
 
 class TestCacheReuse:
+    """Groups tests covering cache reuse."""
     def test_one_handler_fit_across_three_models(self, synthetic_train_df, monkeypatch):
+        """One handler fit across three models."""
         from mlframe.training.feature_handling.text_encoder import TextColumnEncoder
 
         fhc = tfidf_only(max_features=20)
@@ -204,6 +216,7 @@ class TestCacheReuse:
         call_count = [0]
 
         def counted_fit(self, *args, **kwargs):
+            """Counted fit."""
             call_count[0] += 1
             return original_fit(self, *args, **kwargs)
 
@@ -254,7 +267,9 @@ class TestCacheReuse:
 
 
 class TestTargetEncoderIntegration:
+    """Groups tests covering target encoder integration."""
     def test_target_mean_yields_dense_block(self, synthetic_train_df, synthetic_target):
+        """Target mean yields dense block."""
         fhc = FeatureHandlingConfig(
             default_cat=[
                 CatHandlerSpec(
@@ -276,6 +291,7 @@ class TestTargetEncoderIntegration:
         assert res.train.dense_block.shape == (200, 1)
 
     def test_target_encoder_requires_train_target(self, synthetic_train_df):
+        """Target encoder requires train target."""
         fhc = FeatureHandlingConfig(
             default_cat=[
                 CatHandlerSpec(
@@ -301,8 +317,10 @@ class TestTargetEncoderIntegration:
 
 
 class TestAutoDetect:
+    """Groups tests covering auto detect."""
     def test_auto_detect_picks_text_column(self, synthetic_train_df):
         # No candidate_text_columns argument -> detector runs.
+        """Auto detect picks text column."""
         fhc = tfidf_only(max_features=10)
         res = feature_handling_apply(
             train_df=synthetic_train_df,
@@ -320,6 +338,7 @@ class TestAutoDetect:
 
 
 class TestSuiteKwarg:
+    """Groups tests covering suite kwarg."""
     def test_train_mlframe_models_suite_accepts_fhc_kwarg(self):
         """The kwarg must be present in the suite signature and
         accept a FeatureHandlingConfig instance without raising."""
@@ -360,8 +379,10 @@ class TestSuiteKwarg:
 
 
 class TestHeldOutTransform:
+    """Groups tests covering held out transform."""
     def test_train_val_test_use_train_fitted_encoder(self, synthetic_train_df, synthetic_target):
         # Split synthetic_train_df 60/20/20 by index
+        """Train val test use train fitted encoder."""
         train = synthetic_train_df.head(120)
         val = synthetic_train_df.slice(120, 40)
         test = synthetic_train_df.slice(160, 40)

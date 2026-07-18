@@ -21,7 +21,6 @@ import pytest
 
 from mlframe.feature_selection.wrappers import _univariate_ht as uht
 
-
 # ---------------------------------------------------------------------------
 # [7] _classify_target cardinality-ratio guard
 
@@ -32,6 +31,7 @@ def test_classify_high_cardinality_integer_regression_is_continuous():
     # 300-distinct-integer regression target was (wrongly) called 'multiclass' and
     # routed to Kruskal-Wallis. The absolute label cap (50) now sends it to
     # 'continuous' regardless of n.
+    """Classify high cardinality integer regression is continuous."""
     rng = np.random.default_rng(0)
     n = 200_000
     y = rng.integers(0, 300, size=n).astype(np.int64)
@@ -46,18 +46,21 @@ def test_classify_high_cardinality_integer_regression_is_continuous():
 
 def test_classify_genuine_multiclass_still_multiclass():
     # 5 classes over many rows: low cardinality, ratio ~0 -> multiclass preserved.
+    """Classify genuine multiclass still multiclass."""
     rng = np.random.default_rng(1)
     y = rng.integers(0, 5, size=5000).astype(np.int64)
     assert uht._classify_target(y) == "multiclass"
 
 
 def test_classify_binary_unchanged():
+    """Classify binary unchanged."""
     y = np.array([0, 1, 1, 0, 1, 0, 0, 1], dtype=np.int64)
     assert uht._classify_target(y) == "binary"
 
 
 def test_classify_float_integer_in_disguise_high_cardinality_is_continuous():
     # Float dtype but all-integer values, high cardinality relative to n -> continuous.
+    """Classify float integer in disguise high cardinality is continuous."""
     n = 800
     y = np.arange(n, dtype=np.float64) % 200  # 200 distinct, 25% ratio
     assert np.unique(y).size == 200
@@ -66,6 +69,7 @@ def test_classify_float_integer_in_disguise_high_cardinality_is_continuous():
 
 def test_is_multiclass_cardinality_helper_boundaries():
     # Below all caps -> multiclass.
+    """Is multiclass cardinality helper boundaries."""
     assert uht._is_multiclass_cardinality(5, 5000) is True
     # Exceeds the 5% ratio cap -> not multiclass even if below sqrt(n).
     assert uht._is_multiclass_cardinality(300, 1000) is False
@@ -80,6 +84,7 @@ def test_is_multiclass_cardinality_helper_boundaries():
 
 
 def test_regularized_upper_gamma_matches_scipy_chi2_sf_for_large_df():
+    """Regularized upper gamma matches scipy chi2 sf for large df."""
     scipy_stats = pytest.importorskip("scipy.stats")
     chi2 = scipy_stats.chi2
     # Exercise df well above 1, where the old erfc(sqrt(x/2)) collapse was wrong.
@@ -93,6 +98,7 @@ def test_regularized_upper_gamma_matches_scipy_chi2_sf_for_large_df():
 def test_chi2_sf_fallback_is_df_aware_not_df1_collapse(monkeypatch):
     # Force the scipy-free fallback branch by making the scipy import fail, then
     # confirm the fallback differs from the OLD df=1 formula for df>1.
+    """Chi2 sf fallback is df aware not df1 collapse."""
     scipy_stats = pytest.importorskip("scipy.stats")
     chi2_ref = scipy_stats.chi2
 
@@ -101,6 +107,7 @@ def test_chi2_sf_fallback_is_df_aware_not_df1_collapse(monkeypatch):
     real_import = builtins.__import__
 
     def _no_scipy_stats(name, *args, **kwargs):
+        """No scipy stats."""
         if name == "scipy.stats" or name.startswith("scipy.stats"):
             raise ImportError("forced: no scipy for fallback test")
         return real_import(name, *args, **kwargs)
@@ -120,6 +127,7 @@ def test_chi2_sf_fallback_is_df_aware_not_df1_collapse(monkeypatch):
 
 
 def test_chi2_sf_degenerate_inputs_return_one():
+    """Chi2 sf degenerate inputs return one."""
     assert uht._chi2_sf(float("nan"), 5) == 1.0
     assert uht._chi2_sf(-1.0, 5) == 1.0
     assert uht._chi2_sf(5.0, 0) == 1.0

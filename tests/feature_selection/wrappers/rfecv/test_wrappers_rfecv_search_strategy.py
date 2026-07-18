@@ -29,12 +29,13 @@ from mlframe.models.optimization import (
     OptimizationDirection,
 )
 
-
 # ----------------------------------------------------------------------- S1
 
 
 class TestSurrogateDedup:
+    """Groups tests covering TestSurrogateDedup."""
     def test_dedup_collapses_same_x_to_max_y_maximize(self):
+        """Dedup collapses same x to max y maximize."""
         opt = MBHOptimizer(
             search_space=np.arange(10),
             direction=OptimizationDirection.Maximize,
@@ -65,6 +66,7 @@ class TestSurrogateDedup:
 
     def test_dedup_opt_out_preserves_legacy(self):
         # With dedup_known_evaluations=False, the surrogate sees raw (xs, ys) including dup-x.
+        """Dedup opt out preserves legacy."""
         opt = MBHOptimizer(
             search_space=np.arange(10),
             direction=OptimizationDirection.Maximize,
@@ -81,8 +83,10 @@ class TestSurrogateDedup:
 
 
 class TestEpsilonKickDichotomic:
+    """Groups tests covering TestEpsilonKickDichotomic."""
     def test_epsilon_zero_matches_legacy(self):
         # epsilon=0 path identical to legacy dichotomic suggester.
+        """Epsilon zero matches legacy."""
         evaluated = {3: 0.5, 7: 0.7}
         remaining = [1, 2, 4, 5, 6, 8]
         # Without epsilon, dichotomic picks halfway from best (=7) to nearest neighbour in remaining.
@@ -92,6 +96,7 @@ class TestEpsilonKickDichotomic:
 
     def test_epsilon_kick_picks_far_from_best(self):
         # epsilon=1.0 (always kick) MUST pick from outside the neighbourhood of best.
+        """Epsilon kick picks far from best."""
         evaluated = {3: 0.5, 4: 0.6, 5: 0.7}
         remaining = [1, 2, 8, 9, 10]
         rng = np.random.default_rng(0)
@@ -103,7 +108,9 @@ class TestEpsilonKickDichotomic:
 
 
 class TestScipyAliasedToDichotomic:
+    """Groups tests covering TestScipyAliasedToDichotomic."""
     def test_scipy_local_now_dichotomic(self):
+        """Scipy local now dichotomic."""
         evaluated = {3: 0.5, 7: 0.7}
         remaining = [1, 2, 4, 5, 6, 8]
         out_local = _suggest_scipy_local(remaining, evaluated, n_total=8)
@@ -111,6 +118,7 @@ class TestScipyAliasedToDichotomic:
         assert out_local == out_dicho
 
     def test_scipy_global_now_dichotomic(self):
+        """Scipy global now dichotomic."""
         evaluated = {3: 0.5, 7: 0.7, 5: 0.6, 1: 0.3}
         remaining = [2, 4, 6, 8]
         out_global = _suggest_scipy_global(remaining, evaluated, n_total=8)
@@ -122,9 +130,11 @@ class TestScipyAliasedToDichotomic:
 
 
 class TestConvergenceTolerance:
+    """Groups tests covering TestConvergenceTolerance."""
     def test_tol_breaks_on_plateau(self):
         # Synthetic: feed RFECV a plateau-prone problem; convergence_tol should
         # cause an earlier break than legacy.
+        """Tol breaks on plateau."""
         X, y = make_regression(n_samples=200, n_features=15, n_informative=3, random_state=0)
         sel_legacy = RFECV(estimator=Ridge(), cv=3, max_refits=30, random_state=0)
         sel_legacy.fit(X, y)
@@ -149,22 +159,27 @@ class TestConvergenceTolerance:
 
 
 class TestOptimizerTargetMean:
+    """Groups tests covering TestOptimizerTargetMean."""
     def test_default_optimizer_target_is_mean(self):
+        """Default optimizer target is mean."""
         r = RFECV(estimator=Ridge())
         assert r.optimizer_target == "mean"
 
     def test_invalid_optimizer_target_rejected(self):
+        """Invalid optimizer target rejected."""
         with pytest.raises(ValueError, match="optimizer_target must be"):
             RFECV(estimator=Ridge(), optimizer_target="bogus")
 
     def test_optimizer_target_final_score_submits_adjusted(self, monkeypatch):
         # Capture what gets submitted to the MBH surrogate.
+        """Optimizer target final score submits adjusted."""
         from mlframe.models.optimization import MBHOptimizer
 
         captured: list = []
         orig = MBHOptimizer.submit_evaluations
 
         def tracked(self, candidates, evaluations, durations):
+            """Helper that tracked."""
             for c, v in zip(candidates, evaluations):
                 captured.append((int(c), float(v)))
             return orig(self, candidates, evaluations, durations)
@@ -203,7 +218,9 @@ class TestOptimizerTargetMean:
 
 
 class TestInitDesignSize:
+    """Groups tests covering TestInitDesignSize."""
     def test_auto_scales_with_p(self):
+        """Auto scales with p."""
         from mlframe.feature_selection.wrappers.rfecv._mbh_optimizer import _build_mbh_optimizer
 
         # Tiny p=8 -> K=2 (legacy + 1 anchor only).
@@ -218,6 +235,7 @@ class TestInitDesignSize:
         assert len(opt.seeded_inputs) <= 2
 
     def test_auto_larger_p_gets_more_seeds(self):
+        """Auto larger p gets more seeds."""
         from mlframe.feature_selection.wrappers.rfecv._mbh_optimizer import _build_mbh_optimizer
 
         r = RFECV(estimator=Ridge(), max_refits=50)
@@ -231,6 +249,7 @@ class TestInitDesignSize:
         assert len(opt.seeded_inputs) == 5
 
     def test_explicit_int_overrides_auto(self):
+        """Explicit int overrides auto."""
         from mlframe.feature_selection.wrappers.rfecv._mbh_optimizer import _build_mbh_optimizer
 
         r = RFECV(estimator=Ridge(), max_refits=10, init_design_size=3)
@@ -243,6 +262,7 @@ class TestInitDesignSize:
         assert len(opt.seeded_inputs) == 3
 
     def test_none_keeps_legacy_single_seed(self):
+        """None keeps legacy single seed."""
         from mlframe.feature_selection.wrappers.rfecv._mbh_optimizer import _build_mbh_optimizer
 
         r = RFECV(estimator=Ridge(), max_refits=10, init_design_size=None)
@@ -259,6 +279,7 @@ class TestInitDesignSize:
 
 
 def test_wave2_defaults_e2e_classification():
+    """Wave2 defaults e2e classification."""
     X, y = make_classification(n_samples=200, n_features=12, n_informative=6, random_state=0)
     sel = RFECV(
         estimator=LogisticRegression(max_iter=300),

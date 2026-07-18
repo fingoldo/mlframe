@@ -44,7 +44,6 @@ from __future__ import annotations
 
 import numpy as np
 
-
 # ---- Site 1: boruta_shap shadow threshold -------------------------------
 
 
@@ -157,9 +156,9 @@ def test_apriori_itemsets_handles_nan_column():
     import mlframe as _mlframe
 
     src = (pathlib.Path(_mlframe.__file__).resolve().parent / "feature_engineering" / "transformer" / "apriori_itemsets.py").read_text(encoding="utf-8")
-    assert "np.nanquantile(X_ref[:, j]" in src, (
-        "Wave 21 P0 regression: apriori_itemsets._discretize reverted to np.quantile; any NaN poisons every edge and collapses the entire discretised feature."
-    )
+    assert (
+        "np.nanquantile(X_ref[:, j]" in src
+    ), "Wave 21 P0 regression: apriori_itemsets._discretize reverted to np.quantile; any NaN poisons every edge and collapses the entire discretised feature."
 
 
 # ---- Cross-site invariant -----------------------------------------------

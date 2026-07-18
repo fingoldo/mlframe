@@ -347,9 +347,9 @@ class TestImbalancedMulticlassMinorityRecall:
         sel = _make_mrmr(random_seed=seed)
         _fit_quiet(sel, X.copy(), y)
         names = list(sel.get_feature_names_out())
-        assert "x1" in names and "x2" in names, (
-            f"imbalanced 3-class: signals missing from support_; seed={seed}, support={names}, class counts={np.bincount(y.to_numpy())}"
-        )
+        assert (
+            "x1" in names and "x2" in names
+        ), f"imbalanced 3-class: signals missing from support_; seed={seed}, support={names}, class counts={np.bincount(y.to_numpy())}"
         leaked = [n for n in names if n.startswith("noise_")]
         assert not leaked, f"imbalanced 3-class: noise leaked into support_ ({leaked}); seed={seed}, support={names}"
 

@@ -13,21 +13,22 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # ----------------------------------------------------------------------------
 # A8-04 -- strict _ensure_config dict path
 # ----------------------------------------------------------------------------
 
 
 def test_ensure_config_dict_unknown_key_raises():
+    """Ensure config dict unknown key raises."""
     from mlframe.training.core._setup_helpers import _ensure_config
     from mlframe.training.configs import ModelHyperparamsConfig
 
     with pytest.raises(ValueError, match="unknown config key"):
-        _ensure_config({"iteratoins": 100}, ModelHyperparamsConfig, {})
+        _ensure_config({"iterations": 100}, ModelHyperparamsConfig, {})
 
 
 def test_ensure_config_dict_known_field_ok():
+    """Ensure config dict known field ok."""
     from mlframe.training.core._setup_helpers import _ensure_config
     from mlframe.training.configs import ModelHyperparamsConfig
 
@@ -36,6 +37,7 @@ def test_ensure_config_dict_known_field_ok():
 
 
 def test_ensure_config_dict_known_extras_passthrough_ok():
+    """Ensure config dict known extras passthrough ok."""
     from mlframe.training.core._setup_helpers import _ensure_config
     from mlframe.training.configs import ModelHyperparamsConfig
 
@@ -44,6 +46,7 @@ def test_ensure_config_dict_known_extras_passthrough_ok():
 
 
 def test_ensure_config_none_path_filters_silently():
+    """Ensure config none path filters silently."""
     from mlframe.training.core._setup_helpers import _ensure_config
     from mlframe.training.configs import ModelHyperparamsConfig
 
@@ -57,6 +60,7 @@ def test_ensure_config_none_path_filters_silently():
 
 
 def test_build_configs_propagates_reporting_field_generically():
+    """Build configs propagates reporting field generically."""
     from mlframe.training.trainer import _build_configs_from_params
 
     configs = _build_configs_from_params(plot_dpi=144)
@@ -65,6 +69,7 @@ def test_build_configs_propagates_reporting_field_generically():
 
 
 def test_build_configs_drops_unknown_kwarg_without_raising(caplog):
+    """Build configs drops unknown kwarg without raising."""
     from mlframe.training.trainer import _build_configs_from_params
 
     # An unknown kwarg must be dropped (logged at DEBUG), not raised.
@@ -78,6 +83,7 @@ def test_build_configs_drops_unknown_kwarg_without_raising(caplog):
 
 
 def test_assert_suite_return_shape_accepts_2tuple_of_dicts():
+    """Assert suite return shape accepts 2tuple of dicts."""
     from mlframe.training.core._main_train_suite import _assert_suite_return_shape
 
     out = _assert_suite_return_shape(({"m": 1}, {"meta": 2}), source="test")
@@ -86,6 +92,7 @@ def test_assert_suite_return_shape_accepts_2tuple_of_dicts():
 
 @pytest.mark.parametrize("bad", [({"m": 1},), ({"m": 1}, {"x": 1}, {"y": 1}), ("a", "b"), [{"m": 1}, {"x": 1}]])
 def test_assert_suite_return_shape_rejects_bad_shapes(bad):
+    """Assert suite return shape rejects bad shapes."""
     from mlframe.training.core._main_train_suite import _assert_suite_return_shape
 
     with pytest.raises(TypeError):
@@ -98,6 +105,7 @@ def test_assert_suite_return_shape_rejects_bad_shapes(bad):
 
 
 def _Xy(n=5, k=3):
+    """Xy."""
     import pandas as pd
 
     X = pd.DataFrame(np.zeros((n, k)), columns=[f"c{i}" for i in range(k)])
@@ -106,12 +114,14 @@ def _Xy(n=5, k=3):
 
 
 def test_normalize_eval_set_none():
+    """Normalize eval set none."""
     from mlframe.training.lgb_shim import normalize_eval_set
 
     assert normalize_eval_set(None) is None
 
 
 def test_normalize_eval_set_bare_2tuple():
+    """Normalize eval set bare 2tuple."""
     from mlframe.training.lgb_shim import normalize_eval_set
 
     X, y = _Xy()
@@ -120,6 +130,7 @@ def test_normalize_eval_set_bare_2tuple():
 
 
 def test_normalize_eval_set_bare_3tuple():
+    """Normalize eval set bare 3tuple."""
     from mlframe.training.lgb_shim import normalize_eval_set
 
     X, y = _Xy()
@@ -129,6 +140,7 @@ def test_normalize_eval_set_bare_3tuple():
 
 
 def test_normalize_eval_set_bare_2list():
+    """Normalize eval set bare 2list."""
     from mlframe.training.lgb_shim import normalize_eval_set
 
     X, y = _Xy()
@@ -139,6 +151,7 @@ def test_normalize_eval_set_bare_2list():
 
 
 def test_normalize_eval_set_proper_list_of_pairs():
+    """Normalize eval set proper list of pairs."""
     from mlframe.training.lgb_shim import normalize_eval_set
 
     X1, y1 = _Xy()
@@ -148,6 +161,7 @@ def test_normalize_eval_set_proper_list_of_pairs():
 
 
 def test_normalize_eval_set_single_pair_in_list():
+    """Normalize eval set single pair in list."""
     from mlframe.training.lgb_shim import normalize_eval_set
 
     X, y = _Xy()
@@ -171,6 +185,7 @@ def test_composite_estimator_predict_methods_in_body():
 
 
 def test_composite_estimator_clone_refuses_from_fitted_inner():
+    """Composite estimator clone refuses from fitted inner."""
     from sklearn.linear_model import LinearRegression
     from sklearn.base import clone
     from mlframe.training.composite import CompositeTargetEstimator
@@ -194,6 +209,7 @@ def test_composite_estimator_clone_refuses_from_fitted_inner():
 
 
 def test_check_estimator_runs_clean_on_early_stop_wrapper():
+    """Check estimator runs clean on early stop wrapper."""
     from sklearn.utils.estimator_checks import check_estimator
     from sklearn.linear_model import Ridge
     from mlframe.estimators.base import EstimatorWithEarlyStopping
@@ -251,6 +267,7 @@ _CTE_EXPECTED_FAILED = {
 
 
 def test_check_estimator_runs_on_composite_with_pinned_failures():
+    """Check estimator runs on composite with pinned failures."""
     from sklearn.utils.estimator_checks import check_estimator
     from sklearn.linear_model import Ridge
     from mlframe.training.composite import CompositeTargetEstimator
@@ -266,6 +283,7 @@ def test_check_estimator_runs_on_composite_with_pinned_failures():
 
 
 def test_top_level_docstring_composite_import_path_truthful():
+    """Top level docstring composite import path truthful."""
     import mlframe
 
     doc = mlframe.__doc__ or ""
@@ -281,6 +299,7 @@ def test_top_level_docstring_composite_import_path_truthful():
 
 
 def test_tune_threshold_degenerate_returns_default():
+    """Tune threshold degenerate returns default."""
     from mlframe.training.core._setup_helpers import tune_decision_threshold, DEFAULT_PROBABILITY_THRESHOLD
 
     # single-class
@@ -292,6 +311,7 @@ def test_tune_threshold_degenerate_returns_default():
 
 
 def test_get_decision_threshold_fallbacks():
+    """Get decision threshold fallbacks."""
     from mlframe.training.core._setup_helpers import get_decision_threshold
 
     assert get_decision_threshold(None) == 0.5
@@ -302,6 +322,7 @@ def test_get_decision_threshold_fallbacks():
 
 
 def _imbalanced_synth(seed=42, n=6000):
+    """Imbalanced synth."""
     rng = np.random.default_rng(seed)
     y = (rng.random(n) < 0.06).astype(int)
     p = np.where(y == 1, rng.beta(2.5, 6.0, n), rng.beta(1.2, 12.0, n))
@@ -355,6 +376,7 @@ def test_tune_threshold_never_reads_test_only_given_inputs():
 
 
 def _balanced_synth(seed=42, n=6000):
+    """Balanced synth."""
     rng = np.random.default_rng(seed)
     y = (rng.random(n) < 0.5).astype(int)
     p = np.where(y == 1, rng.beta(2.5, 6.0, n), rng.beta(1.2, 12.0, n))
@@ -362,6 +384,7 @@ def _balanced_synth(seed=42, n=6000):
 
 
 def test_is_target_imbalanced_detects_skew():
+    """Is target imbalanced detects skew."""
     from mlframe.training.core._setup_helpers import is_target_imbalanced, DECISION_THRESHOLD_IMBALANCE_FRACTION
 
     y_imb, _ = _imbalanced_synth()  # ~6% positive
@@ -399,6 +422,7 @@ def test_should_tune_decision_threshold_tristate():
 
 
 def test_config_default_tune_decision_threshold_is_auto():
+    """Config default tune decision threshold is auto."""
     from mlframe.training.configs import TrainingBehaviorConfig
 
     assert TrainingBehaviorConfig().tune_decision_threshold == "auto"

@@ -30,14 +30,15 @@ from mlframe.training.feature_handling import (
     validate_custom_transformer,
 )
 
-
 # =====================================================================
 # Phase O: PolynomialFeatureExpander
 # =====================================================================
 
 
 class TestPolynomialFeatureShape:
+    """Groups tests covering polynomial feature shape."""
     def test_degree_2_no_interaction_only(self):
+        """Degree 2 no interaction only."""
         rng = np.random.RandomState(0)
         X = rng.randn(50, 3).astype(np.float32)
         expander = PolynomialFeatureExpander(degree=2)
@@ -46,6 +47,7 @@ class TestPolynomialFeatureShape:
         assert out.shape == (50, 9)
 
     def test_degree_2_interaction_only(self):
+        """Degree 2 interaction only."""
         rng = np.random.RandomState(0)
         X = rng.randn(20, 4).astype(np.float32)
         expander = PolynomialFeatureExpander(degree=2, interaction_only=True)
@@ -54,6 +56,7 @@ class TestPolynomialFeatureShape:
         assert out.shape == (20, 10)
 
     def test_with_bias(self):
+        """With bias."""
         X = np.zeros((10, 2), dtype=np.float32)
         expander = PolynomialFeatureExpander(degree=1, include_bias=True)
         out = expander.fit_transform(X)
@@ -61,6 +64,7 @@ class TestPolynomialFeatureShape:
         assert out.shape == (10, 3)
 
     def test_feature_names_out(self):
+        """Feature names out."""
         X = np.zeros((5, 2), dtype=np.float32)
         expander = PolynomialFeatureExpander(degree=2)
         expander.fit(X, feature_names=["a", "b"])
@@ -70,7 +74,9 @@ class TestPolynomialFeatureShape:
 
 
 class TestPolynomialMemoryWarning:
+    """Groups tests covering polynomial memory warning."""
     def test_large_expansion_warns(self, caplog):
+        """Large expansion warns."""
         caplog.set_level(logging.WARNING)
         # 100 inputs, degree 2 (full poly, no interaction_only) ->
         # 100 + C(101, 2) = 100 + 5050 = 5150 cols. Crosses 5000
@@ -83,6 +89,7 @@ class TestPolynomialMemoryWarning:
         assert any("polynomial expansion" in m and "5150" in m for m in msgs), f"large expansion should warn; got messages: {msgs}"
 
     def test_small_expansion_logs_info(self, caplog):
+        """Small expansion logs info."""
         caplog.set_level(logging.INFO)
         X = np.zeros((10, 5), dtype=np.float32)
         expander = PolynomialFeatureExpander(degree=2)
@@ -92,11 +99,14 @@ class TestPolynomialMemoryWarning:
 
 
 class TestPolynomialErrors:
+    """Groups tests covering polynomial errors."""
     def test_degree_below_1_raises(self):
+        """Degree below 1 raises."""
         with pytest.raises(ValueError, match=">= 1"):
             PolynomialFeatureExpander(degree=0)
 
     def test_transform_before_fit_raises(self):
+        """Transform before fit raises."""
         from sklearn.exceptions import NotFittedError
 
         e = PolynomialFeatureExpander(degree=2)
@@ -107,6 +117,7 @@ class TestPolynomialErrors:
             e.transform(np.zeros((1, 2)))
 
     def test_1d_input_raises(self):
+        """1d input raises."""
         e = PolynomialFeatureExpander(degree=2)
         with pytest.raises(ValueError, match="2-D"):
             e.fit(np.array([1, 2, 3]))
@@ -118,11 +129,14 @@ class TestPolynomialErrors:
 
 
 class TestCustomTransformerValidator:
+    """Groups tests covering custom transformer validator."""
     def test_valid_sklearn_estimator(self):
         # Should not raise
+        """Valid sklearn estimator."""
         validate_custom_transformer(StandardScaler())
 
     def test_valid_pipeline(self):
+        """Valid pipeline."""
         pipe = Pipeline([("scale", StandardScaler())])
         validate_custom_transformer(pipe)
 
@@ -133,25 +147,33 @@ class TestCustomTransformerValidator:
             validate_custom_transformer(lambda x: x)
 
     def test_function_rejected(self):
+        """Function rejected."""
         def my_transform(x):
+            """My transform."""
             return x
 
         with pytest.raises(TypeError):
             validate_custom_transformer(my_transform)
 
     def test_object_with_fit_no_transform_rejected(self):
+        """Object with fit no transform rejected."""
         class FitOnly:
+            """Groups tests covering fit only."""
             def fit(self, X, y=None):
+                """Fit."""
                 return self
 
         with pytest.raises(TypeError, match=r"\.transform\(\)"):
             validate_custom_transformer(FitOnly())
 
     def test_non_callable_fit_rejected(self):
+        """Non callable fit rejected."""
         class WeirdFit:
+            """Groups tests covering weird fit."""
             fit = "not callable"
 
             def transform(self, X):
+                """Transform."""
                 return X
 
         with pytest.raises(TypeError):
@@ -159,7 +181,9 @@ class TestCustomTransformerValidator:
 
 
 class TestCustomHandlerEndToEnd:
+    """Groups tests covering custom handler end to end."""
     def test_sklearn_pipeline_fits_and_transforms(self):
+        """Sklearn pipeline fits and transforms."""
         rng = np.random.RandomState(0)
         df = pl.DataFrame({"x": rng.randn(50).astype(np.float32)})
 
@@ -177,6 +201,7 @@ class TestCustomHandlerEndToEnd:
         assert handler.is_fitted
 
     def test_unfitted_transform_raises(self):
+        """Unfitted transform raises."""
         from sklearn.exceptions import NotFittedError
 
         df = pl.DataFrame({"x": [1.0, 2.0, 3.0]})
@@ -196,11 +221,13 @@ class TestCustomHandlerEndToEnd:
             CustomHandler(column="x", params=params)
 
     def test_output_kind_propagated(self):
+        """Output kind propagated."""
         params = CustomParams(transformer=StandardScaler(), output_kind="embedding")
         handler = CustomHandler(column="x", params=params)
         assert handler.output_kind == "embedding"
 
     def test_signature_includes_transformer_type(self):
+        """Signature includes transformer type."""
         params = CustomParams(transformer=StandardScaler(), output_kind="dense")
         handler = CustomHandler(column="x", params=params)
         sig = handler.signature()
@@ -209,6 +236,7 @@ class TestCustomHandlerEndToEnd:
         assert "dense" in sig
 
     def test_group_columns_stored(self):
+        """Group columns stored."""
         params = CustomParams(transformer=StandardScaler(), output_kind="dense")
         handler = CustomHandler(column="x", params=params, group_columns=["user_id"])
         assert handler.group_columns == ["user_id"]

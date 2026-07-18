@@ -26,6 +26,7 @@ pytest.importorskip("xgboost")
 
 
 def _make_dataset(seed=0, n=3000):
+    """Make dataset."""
     rng = np.random.default_rng(seed)
     inf = rng.normal(size=(n, 5))  # 5 informative
     noise = rng.normal(size=(n, 4))  # 4 pure noise
@@ -41,6 +42,7 @@ def _make_dataset(seed=0, n=3000):
 
 @pytest.mark.slow
 def test_biz_val_shap_proxied_fs_recovers_informative_and_beats_baselines():
+    """Biz val shap proxied fs recovers informative and beats baselines."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     X, y = _make_dataset(seed=0)
@@ -72,8 +74,8 @@ def test_biz_val_shap_proxied_fs_recovers_informative_and_beats_baselines():
     assert rep["trust"]["spearman"] > 0.7, rep["trust"]
 
     # Unique value: proxy subset at least ties SHAP-importance-top-k (measured: proxy strictly wins).
-    abl = rep["importance_ablation"]
-    assert abl["proxy_at_least_ties"], abl
+    able = rep["importance_ablation"]
+    assert able["proxy_at_least_ties"], able
 
     # Honest win over a random same-size subset by a wide margin.
     best = rep["revalidation"]["ranked"][0]["honest_loss"]
@@ -182,6 +184,7 @@ def test_biz_val_fast_prefilter_does_not_worsen_recovery_vs_model():
     informative = {f"inf{i}" for i in range(n_informative)}
 
     def _fit(method):
+        """Helper that fit."""
         sel = ShapProxiedFS(
             classification=True,
             metric="brier",
@@ -229,6 +232,7 @@ def test_biz_val_fast_prefilter_does_not_worsen_recovery_vs_model():
     ys = pd.Series(y)
 
     def _min_prefilter_secs(method, n_trials=3):
+        """Min prefilter secs."""
         best = float("inf")
         for _ in range(n_trials):
             t0 = time.perf_counter()
@@ -272,6 +276,7 @@ def test_biz_val_prefilter_cap_faster_with_preserved_recovery():
     informative = {f"inf{i}" for i in range(n_informative)}
 
     def _fit(cap):
+        """Helper that fit."""
         sel = ShapProxiedFS(
             classification=True,
             metric="brier",
@@ -306,9 +311,9 @@ def test_biz_val_prefilter_cap_faster_with_preserved_recovery():
     # Speed: the capped prefilter must be measurably faster than the uncapped one.
     # (Measured ~2-3x on dev; floor 1.2x leaves Windows-build variance headroom.)
     assert pf_capped < pf_uncapped, f"capped prefilter ({pf_capped:.2f}s) not faster than uncapped ({pf_uncapped:.2f}s)"
-    assert pf_capped <= 0.85 * pf_uncapped, (
-        f"capped prefilter speedup too small: {pf_uncapped / pf_capped:.2f}x (uncapped={pf_uncapped:.2f}s vs capped={pf_capped:.2f}s)"
-    )
+    assert (
+        pf_capped <= 0.85 * pf_uncapped
+    ), f"capped prefilter speedup too small: {pf_uncapped / pf_capped:.2f}x (uncapped={pf_uncapped:.2f}s vs capped={pf_capped:.2f}s)"
 
     # Quality: recovery must not be materially worse (within 1 informative).
     assert rec_capped >= rec_uncapped - 1, f"cap worsened recovery: capped={rec_capped}/{n_informative} vs uncapped={rec_uncapped}/{n_informative}"
@@ -318,6 +323,7 @@ def test_biz_val_prefilter_cap_faster_with_preserved_recovery():
 
 @pytest.mark.slow
 def test_biz_val_regression_recovers_informative():
+    """Biz val regression recovers informative."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     rng = np.random.default_rng(1)
@@ -389,6 +395,7 @@ def test_biz_val_stratified_anchors_preserve_recovery_at_6k_no_catastrophic_spea
     informative = {f"inf{i}" for i in range(n_informative)}
 
     def _fit(stratified: bool):
+        """Helper that fit."""
         sel = ShapProxiedFS(
             classification=True,
             metric="brier",
@@ -559,6 +566,7 @@ def test_biz_val_zipf_cardinality_preserves_recovery_no_catastrophic_spearman_dr
     informative = {f"inf{i}" for i in range(n_informative)}
 
     def _fit(cardinality_dist: str):
+        """Helper that fit."""
         sel = ShapProxiedFS(
             classification=True,
             metric="brier",
@@ -638,6 +646,7 @@ def test_biz_val_oof_shap_cap_faster_with_preserved_recovery():
     informative = {f"inf{i}" for i in range(n_informative)}
 
     def _fit(cap):
+        """Helper that fit."""
         sel = ShapProxiedFS(
             classification=True,
             metric="brier",
@@ -671,9 +680,9 @@ def test_biz_val_oof_shap_cap_faster_with_preserved_recovery():
     # Speed floor: capped OOF-SHAP must be measurably faster than uncapped.
     assert oof_capped < oof_uncapped, f"capped OOF-SHAP ({oof_capped:.2f}s) not faster than uncapped ({oof_uncapped:.2f}s)"
     # Stronger floor: at least 1.3x faster (dev measures 2-3x; 1.3 leaves Windows-build variance room).
-    assert oof_capped <= 0.77 * oof_uncapped, (
-        f"capped OOF-SHAP speedup too small: {oof_uncapped / oof_capped:.2f}x (uncapped={oof_uncapped:.2f}s vs capped={oof_capped:.2f}s)"
-    )
+    assert (
+        oof_capped <= 0.77 * oof_uncapped
+    ), f"capped OOF-SHAP speedup too small: {oof_uncapped / oof_capped:.2f}x (uncapped={oof_uncapped:.2f}s vs capped={oof_capped:.2f}s)"
 
     # Quality: recovery preserved (within 1 informative slack for cross-platform variance).
     assert rec_capped >= rec_uncapped - 1, f"cap worsened recovery: capped={rec_capped}/{n_informative} vs uncapped={rec_uncapped}/{n_informative}"

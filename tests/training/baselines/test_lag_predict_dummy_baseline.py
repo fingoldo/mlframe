@@ -46,6 +46,7 @@ def _ar_synthetic_frame(n: int = 2000, seed: int = 0):
 
 
 def _dummy_config():
+    """Dummy config."""
     return SimpleNamespace(
         per_group_max_cardinality_ratio=0.5,
         per_group_min_val_coverage_pct=50.0,
@@ -55,7 +56,9 @@ def _dummy_config():
 
 
 class TestLagPredictBaseline:
+    """Groups tests covering lag predict baseline."""
     def test_lag_predict_added_for_ar_target(self) -> None:
+        """Lag predict added for ar target."""
         from mlframe.training.baselines._dummy_baseline_regression import (
             _compute_regression_baselines,
         )
@@ -117,11 +120,12 @@ class TestLagPredictBaseline:
         )
         rmse_lag = float(np.sqrt(np.mean((val_preds["lag_predict"] - val_y) ** 2)))
         rmse_mean = float(np.sqrt(np.mean((val_preds["mean"] - val_y) ** 2)))
-        assert rmse_lag < 0.1 * rmse_mean, (
-            f"lag_predict ({rmse_lag:.3f}) should crush mean ({rmse_mean:.3f}) on AR(1) data with autocorr=0.999; expected >=10x improvement"
-        )
+        assert (
+            rmse_lag < 0.1 * rmse_mean
+        ), f"lag_predict ({rmse_lag:.3f}) should crush mean ({rmse_mean:.3f}) on AR(1) data with autocorr=0.999; expected >=10x improvement"
 
     def test_lag_predict_skipped_when_no_lag_column(self) -> None:
+        """Lag predict skipped when no lag column."""
         from mlframe.training.baselines._dummy_baseline_regression import (
             _compute_regression_baselines,
         )

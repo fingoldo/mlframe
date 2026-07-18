@@ -29,10 +29,12 @@ class _DtypeRejectingModel:
     """Raises the exact CB/LGB unsupported-dtype message on fit."""
 
     def fit(self, *args, **kwargs):
+        """Fit."""
         raise ValueError("pandas dtypes must be int, float or bool")
 
 
 def test_dtype_error_reraises_not_silent_none(caplog):
+    """Dtype error reraises not silent none."""
     model = _DtypeRejectingModel()
     df = pd.DataFrame({"a": pd.to_datetime(["2020-01-01", "2020-01-02"])})
     target = pd.Series([0, 1])
@@ -57,6 +59,7 @@ class _DtypeRaisingSeries:
 
     @property
     def dtype(self):
+        """Dtype."""
         raise KeyError("simulated dtype-resolution failure")
 
 
@@ -69,6 +72,7 @@ class _DfWithBadCol(pd.DataFrame):
 
     @property
     def _constructor(self):
+        """Constructor."""
         return _DfWithBadCol
 
     def __getitem__(self, key):
@@ -78,12 +82,13 @@ class _DfWithBadCol(pd.DataFrame):
 
 
 def test_align_dtype_access_failure_warns_not_silent(caplog):
+    """Align dtype access failure warns not silent."""
     df = _DfWithBadCol({"bad": [1, 2], "ok": [3, 4]})
 
     with caplog.at_level(logging.WARNING):
         # XGB model name so alignment loop runs over the pandas frame.
         _align_xgb_cat_categories("XGBClassifier", df)
 
-    assert any("dtype access failed for col='bad'" in r.getMessage() and r.levelno == logging.WARNING for r in caplog.records), (
-        "expected a WARNING surfacing the skipped column, not a silent debug"
-    )
+    assert any(
+        "dtype access failed for col='bad'" in r.getMessage() and r.levelno == logging.WARNING for r in caplog.records
+    ), "expected a WARNING surfacing the skipped column, not a silent debug"

@@ -43,7 +43,6 @@ from mlframe.training.baselines.diagnostics import (
 )
 from mlframe.training.configs import BaselineDiagnosticsConfig
 
-
 # ----------------------------------------------------------------------
 # Synthetic data
 # ----------------------------------------------------------------------
@@ -96,7 +95,9 @@ def _make_no_dominant_regression(n: int = 600, seed: int = 0):
 
 
 class TestBaselineDiagnosticsConfig:
+    """Groups tests covering baseline diagnostics config."""
     def test_defaults(self) -> None:
+        """Defaults."""
         cfg = BaselineDiagnosticsConfig()
         assert cfg.enabled is True
         assert cfg.ablation_top_k == 5
@@ -111,11 +112,13 @@ class TestBaselineDiagnosticsConfig:
     def test_dict_construction_via_baseconfig(self) -> None:
         # BaseConfig allows extra fields with a warning; pure dict construction
         # still produces a valid config.
+        """Dict construction via baseconfig."""
         cfg = BaselineDiagnosticsConfig(**{"ablation_top_k": 3, "sample_n": 1000})
         assert cfg.ablation_top_k == 3
         assert cfg.sample_n == 1000
 
     def test_apply_to_target_types_immutable_tuple(self) -> None:
+        """Apply to target types immutable tuple."""
         cfg = BaselineDiagnosticsConfig(apply_to_target_types=("regression",))
         assert cfg.apply_to_target_types == ("regression",)
 
@@ -126,27 +129,34 @@ class TestBaselineDiagnosticsConfig:
 
 
 class TestDeltaPct:
+    """Groups tests covering delta pct."""
     def test_lower_is_better_drop_hurts(self) -> None:
         # RMSE goes 1.0 -> 1.5 means drop hurt -> +50% (positive).
+        """Lower is better drop hurts."""
         assert _delta_pct(1.0, 1.5, higher_is_better=False) == pytest.approx(50.0)
 
     def test_lower_is_better_drop_helps(self) -> None:
         # RMSE goes 1.0 -> 0.8 means drop helped -> -20% (negative).
+        """Lower is better drop helps."""
         assert _delta_pct(1.0, 0.8, higher_is_better=False) == pytest.approx(-20.0)
 
     def test_higher_is_better_drop_hurts(self) -> None:
         # AUC goes 0.9 -> 0.7 means drop hurt -> +22.22% (positive).
+        """Higher is better drop hurts."""
         assert _delta_pct(0.9, 0.7, higher_is_better=True) == pytest.approx(22.22, abs=0.05)
 
     def test_higher_is_better_drop_helps(self) -> None:
+        """Higher is better drop helps."""
         assert _delta_pct(0.9, 0.95, higher_is_better=True) < 0
 
     def test_zero_baseline_fallback(self) -> None:
         # ``baseline ≈ 0`` -> absolute pp fallback (no division blow-up).
+        """Zero baseline fallback."""
         out = _delta_pct(0.0, 0.5, higher_is_better=False)
         assert math.isfinite(out)
 
     def test_nan_input_propagates(self) -> None:
+        """Nan input propagates."""
         assert math.isnan(_delta_pct(float("nan"), 1.0, higher_is_better=False))
         assert math.isnan(_delta_pct(1.0, float("nan"), higher_is_better=False))
 
@@ -157,7 +167,9 @@ class TestDeltaPct:
 
 
 class TestSkipPaths:
+    """Groups tests covering skip paths."""
     def test_disabled_config_returns_skipped_report(self) -> None:
+        """Disabled config returns skipped report."""
         df, feats, y = _make_dominant_regression(n=200)
         bd = BaselineDiagnostics(BaselineDiagnosticsConfig(enabled=False))
         rep = bd.fit_and_report(
@@ -171,6 +183,7 @@ class TestSkipPaths:
         assert "enabled=False" in rep.skip_reason
 
     def test_unsupported_target_type_skipped(self) -> None:
+        """Unsupported target type skipped."""
         df, feats, y = _make_dominant_regression(n=200)
         bd = BaselineDiagnostics(BaselineDiagnosticsConfig())
         rep = bd.fit_and_report(
@@ -184,6 +197,7 @@ class TestSkipPaths:
         assert "apply_to_target_types" in rep.skip_reason
 
     def test_empty_feature_cols_skipped(self) -> None:
+        """Empty feature cols skipped."""
         df, _feats, y = _make_dominant_regression(n=200)
         bd = BaselineDiagnostics(BaselineDiagnosticsConfig())
         rep = bd.fit_and_report(
@@ -196,6 +210,7 @@ class TestSkipPaths:
         assert rep.skipped is True
 
     def test_length_mismatch_skipped(self) -> None:
+        """Length mismatch skipped."""
         df, feats, y = _make_dominant_regression(n=200)
         bd = BaselineDiagnostics(BaselineDiagnosticsConfig())
         rep = bd.fit_and_report(
@@ -215,8 +230,10 @@ class TestSkipPaths:
 
 
 class TestRegressionHappyPath:
+    """Groups tests covering regression happy path."""
     @pytest.fixture(scope="class")
     def report(self) -> BaselineDiagnosticsReport:
+        """Report."""
         df, feats, y = _make_dominant_regression(n=500)
         cfg = BaselineDiagnosticsConfig(
             ablation_top_k=4,
@@ -232,6 +249,7 @@ class TestRegressionHappyPath:
         )
 
     def test_not_skipped(self, report: BaselineDiagnosticsReport) -> None:
+        """Not skipped."""
         assert report.skipped is False
         assert report.skip_reason == ""
 
@@ -239,6 +257,7 @@ class TestRegressionHappyPath:
         self,
         report: BaselineDiagnosticsReport,
     ) -> None:
+        """Headline metric is rmse finite."""
         assert report.headline_metric_name == "RMSE"
         assert report.headline_metric_higher_is_better is False
         assert math.isfinite(report.headline_metric_value)
@@ -250,6 +269,7 @@ class TestRegressionHappyPath:
     ) -> None:
         # The dominant feature MUST come out on top of the ablation
         # ranking. If it doesn't, the diagnostic is broken.
+        """Ablation ranks base first."""
         assert report.ablation, "ablation should not be empty"
         top = report.ablation[0]
         assert top.feature == "base", f"expected 'base' top of ablation, got {top.feature}; full: {[(e.feature, e.delta_pct) for e in report.ablation]}"
@@ -259,6 +279,7 @@ class TestRegressionHappyPath:
         self,
         report: BaselineDiagnosticsReport,
     ) -> None:
+        """Ablation ranks descending by dominance."""
         deltas = [e.delta_pct for e in report.ablation]
         # Should be sorted descending by Δ% (post-sort in implementation).
         assert deltas == sorted(deltas, reverse=True)
@@ -268,6 +289,7 @@ class TestRegressionHappyPath:
         report: BaselineDiagnosticsReport,
     ) -> None:
         # Regression -> init_score baseline runs by default.
+        """Init score baseline present."""
         assert report.init_score_baseline is not None
         assert report.init_score_baseline.feature_used == "base"
 
@@ -278,6 +300,7 @@ class TestRegressionHappyPath:
         # Synthetic structure has a clear dominant feature; init_score
         # baseline catches most of it but not all (residual structural
         # signal in x1/x2). Should land somewhere actionable.
+        """Recommendation high potential."""
         assert report.composite_recommendation in ("high_potential", "unlikely_to_help"), (
             f"got {report.composite_recommendation}: {report.composite_recommendation_reason}"
         )
@@ -289,7 +312,9 @@ class TestRegressionHappyPath:
 
 
 class TestBinaryHappyPath:
+    """Groups tests covering binary happy path."""
     def test_runs_and_uses_auc(self) -> None:
+        """Runs and uses auc."""
         df, feats, y = _make_dominant_binary(n=600)
         cfg = BaselineDiagnosticsConfig(
             quick_model_n_estimators=80,
@@ -348,7 +373,9 @@ class TestBinaryHappyPath:
 
 
 class TestNoDominantFeature:
+    """Groups tests covering no dominant feature."""
     def test_recommendation_unlikely_to_help(self) -> None:
+        """Recommendation unlikely to help."""
         df, feats, y = _make_no_dominant_regression(n=600)
         cfg = BaselineDiagnosticsConfig(
             quick_model_n_estimators=60,
@@ -374,7 +401,9 @@ class TestNoDominantFeature:
 
 
 class TestPolarsInput:
+    """Groups tests covering polars input."""
     def test_polars_dataframe_accepted(self) -> None:
+        """Polars dataframe accepted."""
         df, feats, y = _make_dominant_regression(n=300)
         pl_df = pl.from_pandas(df.drop(columns=["y"]))
         cfg = BaselineDiagnosticsConfig(
@@ -399,7 +428,9 @@ class TestPolarsInput:
 
 
 class TestSerialization:
+    """Groups tests covering serialization."""
     def test_to_dict_round_trip(self) -> None:
+        """To dict round trip."""
         rep = BaselineDiagnosticsReport(
             target_name="t",
             target_type="regression",
@@ -423,6 +454,7 @@ class TestSerialization:
         assert d["composite_recommendation"] == "high_potential"
 
     def test_skipped_to_dict(self) -> None:
+        """Skipped to dict."""
         rep = BaselineDiagnosticsReport(
             target_name="t",
             target_type="regression",
@@ -440,7 +472,9 @@ class TestSerialization:
 
 
 class TestFormatter:
+    """Groups tests covering formatter."""
     def test_skipped_report_renders(self) -> None:
+        """Skipped report renders."""
         rep = BaselineDiagnosticsReport(
             target_name="y",
             target_type="regression",
@@ -456,6 +490,7 @@ class TestFormatter:
         assert "config.enabled=False" in text
 
     def test_full_report_renders_all_sections(self) -> None:
+        """Full report renders all sections."""
         rep = BaselineDiagnosticsReport(
             target_name="y",
             target_type="regression",
@@ -486,10 +521,13 @@ class TestFormatter:
 
 
 class TestRecommendationClassifier:
+    """Groups tests covering recommendation classifier."""
     def _bd(self, **overrides) -> BaselineDiagnostics:
+        """Bd."""
         return BaselineDiagnostics(BaselineDiagnosticsConfig(**overrides))
 
     def test_high_potential_when_strong_dominance_and_residual_structure(self) -> None:
+        """High potential when strong dominance and residual structure."""
         bd = self._bd()
         ablation = [AblationEntry("base", 1.5, 20.0, 1)]
         # init_score baseline still 5% off raw -> residual has structure.
@@ -499,6 +537,7 @@ class TestRecommendationClassifier:
         assert "20" in reason or "residual" in reason
 
     def test_unlikely_when_init_score_matches_raw(self) -> None:
+        """Unlikely when init score matches raw."""
         bd = self._bd()
         ablation = [AblationEntry("base", 1.5, 20.0, 1)]
         # init_score baseline within 0.5% of raw -> already optimal.
@@ -508,6 +547,7 @@ class TestRecommendationClassifier:
         assert "init_score" in reason
 
     def test_unlikely_when_no_dominance(self) -> None:
+        """Unlikely when no dominance."""
         bd = self._bd()
         ablation = [
             AblationEntry("a", 1.01, 1.0, 1),
@@ -517,12 +557,14 @@ class TestRecommendationClassifier:
         assert rec == "unlikely_to_help"
 
     def test_marginal_band(self) -> None:
+        """Marginal band."""
         bd = self._bd()  # defaults: marginal=2.0, high=5.0
         ablation = [AblationEntry("a", 1.03, 3.0, 1)]
         rec, _reason = bd._build_recommendation(ablation, init_score_baseline=None)
         assert rec == "marginal"
 
     def test_empty_ablation_yields_unlikely(self) -> None:
+        """Empty ablation yields unlikely."""
         bd = self._bd()
         rec, reason = bd._build_recommendation([], init_score_baseline=None)
         assert rec == "unlikely_to_help"

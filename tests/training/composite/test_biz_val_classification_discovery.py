@@ -40,6 +40,7 @@ def _make_data(n: int, seed: int, n_noise: int = 18):
 
 
 def _tiny_capacity_booster(seed: int):
+    """Builds a deliberately low-capacity LGBMClassifier, so composite discovery has room to add value over it."""
     from lightgbm import LGBMClassifier
 
     return LGBMClassifier(n_estimators=25, num_leaves=7, learning_rate=0.1, random_state=seed, verbose=-1, n_jobs=1, min_child_samples=15)
@@ -72,6 +73,7 @@ def test_discovered_composite_beats_plain_booster_oos_aggregated():
 
 
 def test_discovery_finds_the_anchor_column():
+    """Composite classification discovery identifies the planted anchor column as its best base."""
     X, y = _make_data(1200, seed=0)
     inner = _tiny_capacity_booster(0)
     _, result = discover_and_wrap_classification(X, y, inner_estimator=inner, random_state=0, holdout_frac=0.25)

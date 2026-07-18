@@ -49,6 +49,7 @@ class _DriftingFeaturesAndTargetsExtractor:
         self.target_carrier = "numpy"
 
     def transform(self, df):
+        """Transform."""
         target_by_type = {self.target_type: {}}
         y = df[self.target_column].values if isinstance(df, pd.DataFrame) else df[self.target_column].to_numpy()
         target_by_type[self.target_type][self.target_column] = y
@@ -153,6 +154,7 @@ def test_feature_drift_auto_action_e2e_regression():
     _orig_train_one = pt._train_one_target
 
     def _stash_ctx(ctx, target_type, targets, cur_target_name, cur_target_values):
+        """Stash ctx."""
         captured_ctx_holder["ctx"] = ctx
         return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)
 
@@ -249,6 +251,7 @@ def test_feature_drift_auto_action_default_off_warn_only():
     _orig_train_one = pt._train_one_target
 
     def _stash_ctx(ctx, target_type, targets, cur_target_name, cur_target_values):
+        """Stash ctx."""
         captured_ctx_holder["ctx"] = ctx
         return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)
 
@@ -293,9 +296,9 @@ def test_feature_drift_auto_action_default_off_warn_only():
     assert metadata.get("feature_distribution_drift"), "drift report missing"
 
     # Auto-apply MUST NOT have fired (flag is OFF).
-    assert not metadata.get("feature_drift_auto_action"), (
-        f"feature_drift_auto_action must be empty when the auto-apply flag defaults to OFF; got {metadata.get('feature_drift_auto_action')}"
-    )
+    assert not metadata.get(
+        "feature_drift_auto_action"
+    ), f"feature_drift_auto_action must be empty when the auto-apply flag defaults to OFF; got {metadata.get('feature_drift_auto_action')}"
 
     # Skip-stamp MUST be present so dashboards can show what WOULD have been
     # applied if the operator had opted in.
@@ -336,6 +339,7 @@ def test_feature_drift_auto_action_e2e_with_mlp_opt_in():
     _orig_train_one = pt._train_one_target
 
     def _stash_ctx(ctx, target_type, targets, cur_target_name, cur_target_values):
+        """Stash ctx."""
         captured_ctx_holder["ctx"] = ctx
         return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)
 
@@ -377,9 +381,9 @@ def test_feature_drift_auto_action_e2e_with_mlp_opt_in():
     metadata = ctx.metadata or {}
 
     auto_action = metadata.get("feature_drift_auto_action", {})
-    assert auto_action, (
-        f"feature_drift_auto_action missing despite opt-in flag set + drifted regression target + mlp in model set. metadata keys: {list(metadata.keys())}"
-    )
+    assert (
+        auto_action
+    ), f"feature_drift_auto_action missing despite opt-in flag set + drifted regression target + mlp in model set. metadata keys: {list(metadata.keys())}"
     by_type = next(iter(auto_action.values()))
     by_target = next(iter(by_type.values()))
     assert by_target["sklearn_override"].get("activation") == "identity"
@@ -431,6 +435,7 @@ def test_feature_drift_auto_action_e2e_binary_classification_no_auto_apply():
     _orig_train_one = pt._train_one_target
 
     def _stash_ctx(ctx, target_type, targets, cur_target_name, cur_target_values):
+        """Stash ctx."""
         captured_ctx_holder["ctx"] = ctx
         return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)
 

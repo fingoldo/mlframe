@@ -17,22 +17,27 @@ from mlframe.feature_selection.filters._numba_utils import (
 
 @pytest.mark.fast
 def test_arr2str_int64_basic():
+    """Arr2str int64 basic."""
     assert isinstance(arr2str(np.array([1, 2, 3], dtype=np.int64)), str)
 
 
 def test_arr2str_int32():
+    """Arr2str int32."""
     assert isinstance(arr2str(np.array([1, 2], dtype=np.int32)), str)
 
 
 def test_arr2str_int8():
+    """Arr2str int8."""
     assert isinstance(arr2str(np.array([1, 2], dtype=np.int8)), str)
 
 
 def test_arr2str_int16():
+    """Arr2str int16."""
     assert isinstance(arr2str(np.array([1, 2], dtype=np.int16)), str)
 
 
 def test_arr2str_uint8():
+    """Arr2str uint8."""
     try:
         out = arr2str(np.array([1, 2], dtype=np.uint8))
         assert isinstance(out, str)
@@ -42,12 +47,14 @@ def test_arr2str_uint8():
 
 
 def test_arr2str_equal_arrays_equal_strings():
+    """Arr2str equal arrays equal strings."""
     a = np.array([7, 3, 5, 9], dtype=np.int64)
     b = np.array([7, 3, 5, 9], dtype=np.int64)
     assert arr2str(a) == arr2str(b)
 
 
 def test_arr2str_different_arrays_different_strings():
+    """Arr2str different arrays different strings."""
     a = np.array([1, 2, 3], dtype=np.int64)
     b = np.array([4, 5, 6], dtype=np.int64)
     assert arr2str(a) != arr2str(b)
@@ -62,6 +69,7 @@ def test_arr2str_order_matters():
 
 
 def test_count_cand_nbins_returns_int():
+    """Count cand nbins returns int."""
     nbins = np.array([3, 5, 4, 2], dtype=np.int64)
     cand = np.array([0, 1, 2], dtype=np.int64)
     out = count_cand_nbins(cand, nbins)
@@ -70,6 +78,7 @@ def test_count_cand_nbins_returns_int():
 
 
 def test_count_cand_nbins_single():
+    """Count cand nbins single."""
     nbins = np.array([7], dtype=np.int64)
     cand = np.array([0], dtype=np.int64)
     assert count_cand_nbins(cand, nbins) == 7

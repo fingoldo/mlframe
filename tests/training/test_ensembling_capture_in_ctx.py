@@ -8,8 +8,6 @@ local that nothing read. Ensemble models were built then thrown away.
 from __future__ import annotations
 
 
-
-
 def test_training_context_has_ensembles_slot():
     """TrainingContext exposes an ensembles field defaulting to an empty dict."""
     # Verifies the new TrainingContext.ensembles field exists with the

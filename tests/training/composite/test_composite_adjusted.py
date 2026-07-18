@@ -27,6 +27,7 @@ from mlframe.training.composite.discovery.screening import (
 
 
 class TestSeedInvariantCollapse:
+    """Groups tests covering seed invariant collapse."""
     def test_time_aware_runs_once(self) -> None:
         """A3: with time_aware=True the multi-seed wrapper returns a per_seed
         array of length 1 (one honest measurement), not n_seed_repeats."""
@@ -72,6 +73,7 @@ class TestSeedInvariantCollapse:
 
 
 class TestMiDecomposition:
+    """Groups tests covering mi decomposition."""
     @pytest.mark.parametrize("aggregation", ["mean", "sum"])
     def test_excluded_column_matches_direct(self, aggregation: str) -> None:
         """P3: aggregating the per-feature MI vector with one column removed
@@ -98,6 +100,7 @@ class TestMiDecomposition:
 
 
 class TestWilcoxonPowerThreshold:
+    """Groups tests covering wilcoxon power threshold."""
     def test_min_seeds_formula(self) -> None:
         """A2: the minimum seed count for a one-sided Wilcoxon to reach
         p<=alpha is ceil(log2(1/alpha)); at alpha=0.05 that is 5 (so the

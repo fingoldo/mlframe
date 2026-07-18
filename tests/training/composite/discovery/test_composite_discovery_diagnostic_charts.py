@@ -39,6 +39,7 @@ def _tvt_strong(n: int = 1500, seed: int = 0):
 
 
 def test_inv44_discovery_renders_winning_spec_diagnostics_on_disk(tmp_path):
+    """Inv44 discovery renders winning spec diagnostics on disk."""
     feats_df, y = _tvt_strong()
     n = len(feats_df)
     full_idx = np.arange(n)

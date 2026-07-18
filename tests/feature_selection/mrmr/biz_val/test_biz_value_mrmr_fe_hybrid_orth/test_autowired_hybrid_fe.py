@@ -200,13 +200,13 @@ class TestDefaultIsLegacyByteIdentical:
         X, _y, m = _linear_off_fit(seed)
         assert m.fe_hybrid_orth_enable is False
         # No hybrid features lifted under the explicit opt-out.
-        assert m.hybrid_orth_features_ == [], (
-            f"seed={seed}: explicit fe_hybrid_orth_enable=False should produce empty hybrid_orth_features_, got {m.hybrid_orth_features_}"
-        )
+        assert (
+            m.hybrid_orth_features_ == []
+        ), f"seed={seed}: explicit fe_hybrid_orth_enable=False should produce empty hybrid_orth_features_, got {m.hybrid_orth_features_}"
         # feature_names_in_ matches the raw input columns exactly.
-        assert list(m.feature_names_in_) == list(X.columns), (
-            f"seed={seed}: feature_names_in_ must equal raw X.columns when hybrid FE is off; got {list(m.feature_names_in_)} vs {list(X.columns)}"
-        )
+        assert list(m.feature_names_in_) == list(
+            X.columns
+        ), f"seed={seed}: feature_names_in_ must equal raw X.columns when hybrid FE is off; got {list(m.feature_names_in_)} vs {list(X.columns)}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_explicit_off_support_deterministic(self, seed):
@@ -252,9 +252,9 @@ class TestEnableAddsQuadraticDetector:
         )
         m.fit(X, y)
         appended = list(m.hybrid_orth_features_)
-        assert any(("x1__He2" == c) or ("x1__He3" == c) for c in appended), (
-            f"seed={seed}: x1__He2 (the quadratic detector) should be in hybrid_orth_features_={appended}"
-        )
+        assert any(
+            ("x1__He2" == c) or ("x1__He3" == c) for c in appended
+        ), f"seed={seed}: x1__He2 (the quadratic detector) should be in hybrid_orth_features_={appended}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_he2_in_engineered_features_or_recipes(self, seed):
@@ -500,6 +500,6 @@ class TestPairAppendOrderStable:
         )
         m1.fit(X, y)
         m2.fit(X, y)
-        assert list(m1.hybrid_orth_features_) == list(m2.hybrid_orth_features_), (
-            f"seed={seed}: hybrid_orth_features_ should be deterministic; got m1={m1.hybrid_orth_features_} vs m2={m2.hybrid_orth_features_}"
-        )
+        assert list(m1.hybrid_orth_features_) == list(
+            m2.hybrid_orth_features_
+        ), f"seed={seed}: hybrid_orth_features_ should be deterministic; got m1={m1.hybrid_orth_features_} vs m2={m2.hybrid_orth_features_}"

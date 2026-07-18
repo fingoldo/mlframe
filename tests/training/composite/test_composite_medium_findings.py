@@ -37,7 +37,6 @@ from mlframe.training.composite import cache as _cc
 from mlframe.training.composite import ensemble as _cen
 from mlframe.training.composite import discovery as _cd
 
-
 # ---------------------------------------------------------------------------
 # M-COMP-M1: duplicate deque import inside `.update`
 # ---------------------------------------------------------------------------
@@ -50,9 +49,9 @@ def test_m1_update_uses_module_level_deque_no_local_reimport():
     """
     from collections import deque as _deque
 
-    assert getattr(_ce, "deque", None) is _deque, (
-        "composite_ensemble.deque is not bound at module level to collections.deque - update() must use a lazy local reimport"
-    )
+    assert (
+        getattr(_ce, "deque", None) is _deque
+    ), "composite_ensemble.deque is not bound at module level to collections.deque - update() must use a lazy local reimport"
 
 
 # ---------------------------------------------------------------------------
@@ -95,14 +94,18 @@ def test_m2_dropout_predict_is_deterministic_no_refit():
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
     class _Const:
+        """Groups tests covering const."""
         def __init__(self, v):
             self.v = float(v)
 
         def predict(self, X):
+            """Predict."""
             return np.full(len(X), self.v, dtype=np.float64)
 
     class _Fail:
+        """Groups tests covering fail."""
         def predict(self, X):
+            """Predict."""
             raise RuntimeError("component down this batch")
 
     ens = CompositeCrossTargetEnsemble(
@@ -149,6 +152,7 @@ def test_m3_spearman_demoter_handles_ties_with_rankdata():
 
     # Pearson correlation against row index.
     def _abs_corr(a, b):
+        """Abs corr."""
         a = a - a.mean()
         b = b - b.mean()
         denom = float(np.sqrt((a * a).sum() * (b * b).sum()))
@@ -238,6 +242,7 @@ def test_m4_no_local_stdlib_reimports_in_composite_cache():
 
 
 def test_m5_booster_raises_notfitted_before_fit():
+    """M5 booster raises notfitted before fit."""
     est = _ce.CompositeTargetEstimator(transform_name="diff", base_column="b")
     with pytest.raises(NotFittedError):
         _ = est.booster_
@@ -254,6 +259,7 @@ def test_m5_n_features_in_returns_none_before_fit():
 
 
 def test_m5_get_booster_raises_notfitted_before_fit():
+    """M5 get booster raises notfitted before fit."""
     est = _ce.CompositeTargetEstimator(transform_name="diff", base_column="b")
     with pytest.raises(NotFittedError):
         est.get_booster()

@@ -23,10 +23,12 @@ class _Col:
         self.col = col
 
     def predict(self, X):
+        """Predict."""
         return np.asarray(X)[:, self.col]
 
 
 def _toy(n=300, k=3, seed=0):
+    """Toy."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, k))
     y = X @ np.array([0.6, 0.3, 0.1]) + 0.05 * rng.normal(size=n)
@@ -34,6 +36,7 @@ def _toy(n=300, k=3, seed=0):
 
 
 def _models(k):
+    """Models."""
     return [_Col(i) for i in range(k)], ["c%d" % i for i in range(k)]
 
 
@@ -42,6 +45,7 @@ def _models(k):
 
 @pytest.mark.parametrize("stacker", ["ridge", "lasso", "elasticnet", "gbm"])
 def test_meta_stack_predict_shape(stacker):
+    """Meta stack predict shape."""
     from mlframe.training.composite.ensemble import (
         CompositeCrossTargetEnsemble as E,
         build_meta_stack_ensemble,
@@ -58,6 +62,7 @@ def test_meta_stack_predict_shape(stacker):
 
 
 def test_nnls_via_dispatcher_equals_direct():
+    """Nnls via dispatcher equals direct."""
     from mlframe.training.composite.ensemble import (
         CompositeCrossTargetEnsemble as E,
         build_meta_stack_ensemble,
@@ -117,6 +122,7 @@ def test_meta_fit_uses_only_passed_oof_matrix():
 
 
 def test_ridge_non_negative_constraint():
+    """Ridge non negative constraint."""
     from mlframe.training.composite.ensemble import fit_ridge_meta_stacker
 
     rng = np.random.default_rng(3)
@@ -135,13 +141,16 @@ def test_ridge_non_negative_constraint():
 
 
 def test_component_dropout_graceful_degradation():
+    """Component dropout graceful degradation."""
     from mlframe.training.composite.ensemble import (
         CompositeCrossTargetEnsemble as E,
         build_meta_stack_ensemble,
     )
 
     class _Boom:
+        """Groups tests covering boom."""
         def predict(self, X):
+            """Predict."""
             raise RuntimeError("component down")
 
     X, y = _toy(k=3)
@@ -158,6 +167,7 @@ def test_component_dropout_graceful_degradation():
 
 
 def test_sample_weight_validation():
+    """Sample weight validation."""
     from mlframe.training.composite.ensemble import fit_ridge_meta_stacker
 
     X, y = _toy()
@@ -170,6 +180,7 @@ def test_sample_weight_validation():
 
 
 def test_bad_stacker_name_raises():
+    """Bad stacker name raises."""
     from mlframe.training.composite.ensemble import (
         CompositeCrossTargetEnsemble as E,
         build_meta_stack_ensemble,
@@ -182,6 +193,7 @@ def test_bad_stacker_name_raises():
 
 
 def test_degenerate_too_few_rows_falls_back_to_mean():
+    """Degenerate too few rows falls back to mean."""
     from mlframe.training.composite.ensemble import (
         CompositeCrossTargetEnsemble as E,
         build_meta_stack_ensemble,
@@ -196,6 +208,7 @@ def test_degenerate_too_few_rows_falls_back_to_mean():
 
 
 def test_matrix_shape_mismatch_raises():
+    """Matrix shape mismatch raises."""
     from mlframe.training.composite.ensemble import fit_gbm_meta_stacker
 
     X, y = _toy(k=3)
@@ -208,6 +221,7 @@ def test_matrix_shape_mismatch_raises():
 
 @pytest.mark.parametrize("stacker", ["ridge", "lasso", "elasticnet", "gbm"])
 def test_meta_stack_pickle_roundtrip(stacker):
+    """Meta stack pickle roundtrip."""
     from mlframe.training.composite.ensemble import (
         CompositeCrossTargetEnsemble as E,
         build_meta_stack_ensemble,

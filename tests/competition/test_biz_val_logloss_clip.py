@@ -88,9 +88,9 @@ def test_biz_val_logloss_clip_reduces_logloss_under_overconfident_misses() -> No
     # measured improvement is large (the few near-0/1 misses dominate unclipped loss);
     # assert a real, threshold'd reduction, not just "some" improvement
     relative_improvement = (unclipped_loss - clipped_loss) / unclipped_loss
-    assert relative_improvement >= 0.40, (
-        f"expected >=40% log-loss reduction from clipping, got {relative_improvement:.2%} (unclipped={unclipped_loss:.4f}, clipped={clipped_loss:.4f})"
-    )
+    assert (
+        relative_improvement >= 0.40
+    ), f"expected >=40% log-loss reduction from clipping, got {relative_improvement:.2%} (unclipped={unclipped_loss:.4f}, clipped={clipped_loss:.4f})"
 
 
 def _make_mostly_confident_correct_scenario(n_correct: int = 300, n_wrong: int = 3, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:

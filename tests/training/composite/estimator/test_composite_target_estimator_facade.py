@@ -13,6 +13,7 @@ import pytest
 
 @pytest.fixture(scope="module")
 def parent_module():
+    """Parent module."""
     from mlframe.training.composite.estimator import _estimator
 
     return _estimator
@@ -20,6 +21,7 @@ def parent_module():
 
 @pytest.fixture(scope="module")
 def siblings():
+    """Siblings."""
     from mlframe.training.composite.estimator import (
         _predict,
         _update,
@@ -34,6 +36,7 @@ def siblings():
 
 
 def test_predict_method_identity(parent_module, siblings):
+    """Predict method identity."""
     cls = parent_module.CompositeTargetEstimator
     p = siblings["predict"]
     # ``_predict_unclipped`` is a private helper, still class-attr bound to the
@@ -66,6 +69,7 @@ def test_predict_stubs_delegate_to_sibling(parent_module, siblings):
     real_predict = p.predict
 
     def spy(self, X):
+        """Spy."""
         calls["predict"] += 1
         return real_predict(self, X)
 
@@ -108,6 +112,7 @@ def test_update_method_delegates_to_sibling(parent_module, siblings):
     real_update = u.update
 
     def spy(self, y_recent, base_recent):
+        """Spy."""
         calls["update"] += 1
         return real_update(self, y_recent, base_recent)
 
@@ -134,6 +139,7 @@ def test_update_method_delegates_to_sibling(parent_module, siblings):
 
 
 def test_utils_require_fitted_identity(parent_module, siblings):
+    """Utils require fitted identity."""
     cls = parent_module.CompositeTargetEstimator
     util = siblings["utils"]
     # ``_require_fitted`` / ``_require_inner_attr`` are private helpers, still
@@ -149,12 +155,14 @@ def test_utils_require_fitted_identity(parent_module, siblings):
 
 
 def test_facade_loc_budget(parent_module):
+    """Facade loc budget."""
     path = Path(parent_module.__file__)
     n_lines = len(path.read_text(encoding="utf-8").splitlines())
     assert n_lines < 1000, f"facade is {n_lines} LOC, expected < 1000"
 
 
 def test_isinstance_preserved(parent_module):
+    """Isinstance preserved."""
     from sklearn.linear_model import LinearRegression
 
     cls = parent_module.CompositeTargetEstimator
@@ -196,6 +204,7 @@ def test_smoke_fit_predict_round_trip(parent_module):
 
 
 def test_update_not_enabled_raises(parent_module):
+    """Update not enabled raises."""
     import pandas as pd
     from sklearn.linear_model import LinearRegression
 

@@ -59,6 +59,7 @@ def _cat_numeric_frame(seed: int = 0, n: int = 600):
 
 
 def _fit_select(seed: int):
+    """Fit select."""
     X, y = _cat_numeric_frame(seed)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

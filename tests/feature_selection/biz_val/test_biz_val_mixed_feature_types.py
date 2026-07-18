@@ -37,7 +37,6 @@ import pytest
 
 from tests.feature_selection.conftest import is_fast_mode, fast_subset
 
-
 # ---------------------------------------------------------------------------
 # generators
 # ---------------------------------------------------------------------------
@@ -94,6 +93,7 @@ def _make_text_signal(n: int, seed: int):
 
 
 def _fast_mrmr(**overrides):
+    """Fast mrmr."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     kw = dict(min_relevance_gain=0.0, cv=3, run_additional_rfecv_minutes=False, full_npermutations=7, random_seed=0, min_features_fallback=1, verbose=False)

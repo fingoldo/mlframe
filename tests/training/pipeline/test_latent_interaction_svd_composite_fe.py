@@ -23,6 +23,7 @@ from mlframe.training.pipeline._latent_interaction_svd_composite_fe import (
 
 
 def _events_and_frame(n_customers=50, n_items=20, n_events=500, n=100, seed=0):
+    """Events and frame."""
     rng = np.random.default_rng(seed)
     events = pd.DataFrame(
         {
@@ -37,6 +38,7 @@ def _events_and_frame(n_customers=50, n_items=20, n_events=500, n=100, seed=0):
 
 
 def test_apply_latent_interaction_svd_composite_fe_noop_when_entities_unset():
+    """Apply latent interaction svd composite fe noop when entities unset."""
     events, df, group_ids = _events_and_frame()
     cfg = PreprocessingExtensionsConfig()
     train, _val, _test = apply_latent_interaction_svd_composite_fe(
@@ -55,6 +57,7 @@ def test_apply_latent_interaction_svd_composite_fe_noop_when_entities_unset():
 
 
 def test_apply_latent_interaction_svd_composite_fe_noop_without_auxiliary_events_or_group_ids():
+    """Apply latent interaction svd composite fe noop without auxiliary events or group ids."""
     _events, df, group_ids = _events_and_frame()
     cfg = PreprocessingExtensionsConfig(latent_interaction_svd_row_entity="customer_id", latent_interaction_svd_col_entity="item_id")
     train, _, _ = apply_latent_interaction_svd_composite_fe(df, None, None, cfg, None, group_ids, np.arange(len(df)), None, None, verbose=0)
@@ -64,6 +67,7 @@ def test_apply_latent_interaction_svd_composite_fe_noop_without_auxiliary_events
 
 
 def test_apply_latent_interaction_svd_composite_fe_schema_aligned_across_splits():
+    """Apply latent interaction svd composite fe schema aligned across splits."""
     events, df, group_ids = _events_and_frame()
     train_idx, val_idx, test_idx = np.arange(0, 70), np.arange(70, 85), np.arange(85, 100)
     cfg = PreprocessingExtensionsConfig(
@@ -93,6 +97,7 @@ def test_apply_latent_interaction_svd_composite_fe_schema_aligned_across_splits(
 
 
 def test_replay_latent_interaction_svd_composite_fe_uses_fresh_events_no_refit():
+    """Replay latent interaction svd composite fe uses fresh events no refit."""
     events, df, group_ids = _events_and_frame()
     train_idx = np.arange(0, 100)
     cfg = PreprocessingExtensionsConfig(
@@ -114,6 +119,7 @@ def test_replay_latent_interaction_svd_composite_fe_uses_fresh_events_no_refit()
 
 
 def test_replay_latent_interaction_svd_composite_fe_cold_start_entity_gets_zero_vector():
+    """Replay latent interaction svd composite fe cold start entity gets zero vector."""
     events, df, group_ids = _events_and_frame(n_customers=10)
     train_idx = np.arange(0, 100)
     cfg = PreprocessingExtensionsConfig(
@@ -171,6 +177,7 @@ def test_biz_val_latent_interaction_svd_composite_wiring_recovers_customer_clust
     svd_cols = [c for c in out_df.columns if "svd" in c]
 
     def _auc(cols):
+        """Auc."""
         clf = LogisticRegression(max_iter=1000)
         clf.fit(out_df.iloc[train_idx][cols], y[train_idx])
         return roc_auc_score(y[test_idx], clf.predict_proba(out_df.iloc[test_idx][cols])[:, 1])
@@ -178,6 +185,6 @@ def test_biz_val_latent_interaction_svd_composite_wiring_recovers_customer_clust
     auc_raw = _auc(["customer_id_raw"])
     auc_wired = _auc(svd_cols)
 
-    assert auc_wired > auc_raw + 0.2, (
-        f"wired SVD embedding should recover the customer cluster far better than the raw id, got auc_wired={auc_wired:.3f} vs auc_raw={auc_raw:.3f}"
-    )
+    assert (
+        auc_wired > auc_raw + 0.2
+    ), f"wired SVD embedding should recover the customer cluster far better than the raw id, got auc_wired={auc_wired:.3f} vs auc_raw={auc_raw:.3f}"

@@ -138,7 +138,7 @@ class Leaderboard:
                 election_result = func()
                 result.append((f"Method: {method}, Params: {{}}", election_result, len(election_result)))
         final = pd.DataFrame(result, columns=["method", "winners", "n_winners"])
-        final["method"].replace(PRETTY_NAMES, inplace=True)
+        final["method"] = final["method"].replace(PRETTY_NAMES)
         return final
 
     def rank_all(self, task_groups=None, group_weights=None, insert_nan=True, use_methods: Optional[Dict[str, Any]] = None, drop_mean=False, return_tie_numbers=False):

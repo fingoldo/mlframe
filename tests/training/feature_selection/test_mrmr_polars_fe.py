@@ -44,6 +44,7 @@ def _build_pair_signal_data(n=500, seed=0, frame_type="polars"):
 
 
 def _mrmr_kwargs_quick_fe():
+    """Returns MRMR kwargs tuned for a fast FE-enabled fit (minimal presets, few permutations/steps)."""
     return dict(
         verbose=0,
         max_runtime_mins=1,
@@ -86,6 +87,7 @@ def test_mrmr_fe_zero_copy_polars():
     orig = _pl.DataFrame.to_pandas
 
     def _spy(self, *args, **kwargs):
+        """Counts calls to pl.DataFrame.to_pandas, to prove the FE-enabled polars path never copies the full frame."""
         call_count["n"] += 1
         return orig(self, *args, **kwargs)
 
@@ -118,9 +120,9 @@ def test_mrmr_fe_transform_returns_polars_when_input_polars():
     # must be an original input column.
     _fe_markers = ("*", "__", "(")
     raw_out_cols = [c for c in out.columns if not any(m in c for m in _fe_markers)]
-    assert set(raw_out_cols).issubset(set(df.columns)), (
-        f"non-engineered transform outputs must be original columns; unexpected={sorted(set(raw_out_cols) - set(df.columns))}"
-    )
+    assert set(raw_out_cols).issubset(
+        set(df.columns)
+    ), f"non-engineered transform outputs must be original columns; unexpected={sorted(set(raw_out_cols) - set(df.columns))}"
 
 
 def test_mrmr_fe_caller_frame_not_mutated_on_polars():

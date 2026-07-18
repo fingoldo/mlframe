@@ -15,6 +15,7 @@ from pathlib import Path
 
 
 def _read_phase_body() -> str:
+    """Read phase body."""
     p = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "training" / "core" / "_phase_train_one_target_body.py"
     return p.read_text(encoding="utf-8")
 
@@ -68,9 +69,9 @@ def test_S47_cb_extra_fit_invariant_carries_filter_result_into_loop():
         "the hoist contract is: filter result lands in _cb_extra_fit_invariant['cat_features']; "
         "the weight loop then merges _cb_extra_fit_invariant into current_model_params['fit_params']."
     )
-    assert 'current_model_params["fit_params"] = {**current_model_params["fit_params"], **_cb_extra_fit_invariant}' in src, (
-        "the weight loop must merge _cb_extra_fit_invariant into fit_params instead of re-running the filter."
-    )
+    assert (
+        'current_model_params["fit_params"] = {**current_model_params["fit_params"], **_cb_extra_fit_invariant}' in src
+    ), "the weight loop must merge _cb_extra_fit_invariant into fit_params instead of re-running the filter."
 
 
 def test_S47_ngb_fallback_snapshot_cached_outside_loop():

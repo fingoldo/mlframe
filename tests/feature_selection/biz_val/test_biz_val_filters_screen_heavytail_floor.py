@@ -38,7 +38,6 @@ from mlframe.feature_selection.filters._permutation_null import (
 )
 from mlframe.feature_selection.filters.discretization import categorize_dataset
 
-
 N_TOTAL = 2_500
 N_NOISE = 6
 SEEDS = (1, 7, 42)
@@ -85,6 +84,7 @@ def _build_dense_weak_regression(seed: int, n: int = 330):
 
 
 def _categorize(X, y):
+    """Helper that categorize."""
     df = X.copy()
     df["targ_y"] = y.values
     data, cols, nbins = categorize_dataset(
@@ -103,6 +103,7 @@ def _categorize(X, y):
 
 
 def _corrected_marginal_mi(data, nbins, ci, y_idx):
+    """Corrected marginal mi."""
     n = data.shape[0]
     inv_n = 1.0 / n
     nbx = int(nbins[ci])
@@ -128,8 +129,10 @@ def _corrected_marginal_mi(data, nbins, ci, y_idx):
 
 
 class TestLognormalOversplitFloorFires:
+    """Groups tests covering TestLognormalOversplitFloorFires."""
     @pytest.mark.parametrize("seed", SEEDS)
     def test_gate_fires_on_lognormal_narrow_pool(self, seed):
+        """Gate fires on lognormal narrow pool."""
         X, y = _build_lognormal(seed)
         data, _cols, nbins, y_idx, cand = _categorize(X, y)
         # Narrow pool: 9 features, below the wide-pool gate of 30.
@@ -147,6 +150,7 @@ class TestLognormalOversplitFloorFires:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_floor_rejects_all_noise_keeps_all_signal(self, seed):
+        """Floor rejects all noise keeps all signal."""
         X, y = _build_lognormal(seed)
         data, cols, nbins, y_idx, cand = _categorize(X, y)
         floor = pooled_permutation_null_gain_floor(
@@ -174,6 +178,7 @@ class TestLognormalEndToEndNoNoiseLeaks:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_mrmr_fit_excludes_noise_on_lognormal(self, seed):
+        """Mrmr fit excludes noise on lognormal."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_lognormal(seed)
@@ -192,8 +197,10 @@ class TestLognormalEndToEndNoNoiseLeaks:
 
 
 class TestDenseWeakSignalFloorStaysOff:
+    """Groups tests covering TestDenseWeakSignalFloorStaysOff."""
     @pytest.mark.parametrize("seed", SEEDS)
     def test_gate_stays_off_on_dense_weak_signal_pool(self, seed):
+        """Gate stays off on dense weak signal pool."""
         X, y = _build_dense_weak_regression(seed)
         data, _cols, nbins, y_idx, cand = _categorize(X, y)
         nby = int(nbins[y_idx])
@@ -203,9 +210,9 @@ class TestDenseWeakSignalFloorStaysOff:
         # reliability predicate must keep the gate OFF -- preserving the legacy
         # narrow-pool behaviour (no floor) and all 10 weak features.
         rows_per_joint = data.shape[0] / (nby * float(np.median(feat)))
-        assert rows_per_joint < 8.0, (
-            f"test bug: dense-weak pool unexpectedly dense (rows/joint={rows_per_joint:.1f}); the no-regression case must be the sparse-occupancy regime; seed={seed}"
-        )
+        assert (
+            rows_per_joint < 8.0
+        ), f"test bug: dense-weak pool unexpectedly dense (rows/joint={rows_per_joint:.1f}); the no-regression case must be the sparse-occupancy regime; seed={seed}"
         assert not target_oversplit_floor_applies(
             nbins,
             cand,
@@ -245,6 +252,7 @@ class TestDenseWeakSignalFloorStaysOff:
 
 
 class TestGateThresholdSemantics:
+    """Groups tests covering TestGateThresholdSemantics."""
     def test_low_cardinality_target_never_over_split(self):
         """A binary / 3-class classification target (nbins_y in {2,3}) is never over-split relative to multi-bin features, so the gate stays OFF regardless of n."""
         nbins = np.array([5, 5, 5, 3], dtype=np.int64)  # 3 features + 3-class target
@@ -266,6 +274,7 @@ class TestGateThresholdSemantics:
         assert target_oversplit_floor_applies(nbins, cand, 3, 2500)
 
     def test_degenerate_pool_returns_false(self):
+        """Degenerate pool returns false."""
         nbins = np.array([1, 30], dtype=np.int64)  # only a constant feature + target
         assert not target_oversplit_floor_applies(nbins, [0], 1, 2500)
         # Single-class target.

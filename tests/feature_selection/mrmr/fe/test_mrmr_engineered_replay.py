@@ -71,6 +71,7 @@ class TestPickleBC:
         # Fit a fresh MRMR, then mutate its dict to simulate an older
         # pickle that lacked the recipe field. Round-trip and verify
         # the default kicks in.
+        """Legacy pickle without recipes field loads."""
         mrmr = MRMR(
             full_npermutations=2,
             baseline_npermutations=2,
@@ -112,6 +113,7 @@ class TestRecipeBuilding:
 
     @pytest.mark.slow
     def test_fe_max_steps_2_records_recipe_for_selected_engineered(self, multiplicative_synergy_train_test):
+        """Fe max steps 2 records recipe for selected engineered."""
         df_tr, y_tr, _df_te, _y_te = multiplicative_synergy_train_test
         mrmr = MRMR(
             full_npermutations=5,

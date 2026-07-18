@@ -20,6 +20,7 @@ from mlframe.training.composite import predicted_group_aggregate_feature
 
 
 def _make_macro_panel_dataset(n_groups: int, n_per_group: int, seed: int):
+    """Make macro panel dataset."""
     rng = np.random.default_rng(seed)
     group_ids = np.repeat(np.arange(n_groups), n_per_group)
     macro = rng.normal(scale=2.0, size=n_groups)
@@ -31,6 +32,7 @@ def _make_macro_panel_dataset(n_groups: int, n_per_group: int, seed: int):
 
 
 def test_biz_val_predicted_group_aggregate_feature_beats_entity_only_baseline():
+    """Biz val predicted group aggregate feature beats entity only baseline."""
     X, y, group_ids = _make_macro_panel_dataset(n_groups=300, n_per_group=20, seed=0)
     kf = KFold(n_splits=5, shuffle=True, random_state=0)
 
@@ -42,12 +44,13 @@ def test_biz_val_predicted_group_aggregate_feature_beats_entity_only_baseline():
     augmented_mse = -cross_val_score(LinearRegression(), X_aug, y, cv=kf, scoring="neg_mean_squared_error").mean()
 
     improvement = 1.0 - augmented_mse / baseline_mse
-    assert improvement > 0.6, (
-        f"expected >60% MSE reduction from adding the predicted macro feature, got {improvement:.4f} (baseline={baseline_mse:.4f}, augmented={augmented_mse:.4f})"
-    )
+    assert (
+        improvement > 0.6
+    ), f"expected >60% MSE reduction from adding the predicted macro feature, got {improvement:.4f} (baseline={baseline_mse:.4f}, augmented={augmented_mse:.4f})"
 
 
 def test_predicted_group_aggregate_feature_output_shape_and_broadcast():
+    """Predicted group aggregate feature output shape and broadcast."""
     X, y, group_ids = _make_macro_panel_dataset(n_groups=50, n_per_group=10, seed=1)
     result = predicted_group_aggregate_feature(X, y, group_ids, macro_estimator_factory=lambda: LinearRegression(), n_splits=5, random_state=0)
     assert result.shape[0] == X.shape[0]
@@ -58,6 +61,7 @@ def test_predicted_group_aggregate_feature_output_shape_and_broadcast():
 
 
 def test_predicted_group_aggregate_feature_median_agg():
+    """Predicted group aggregate feature median agg."""
     X, y, group_ids = _make_macro_panel_dataset(n_groups=60, n_per_group=8, seed=2)
     result_mean = predicted_group_aggregate_feature(X, y, group_ids, macro_estimator_factory=lambda: LinearRegression(), agg="mean", n_splits=5, random_state=0)
     result_median = predicted_group_aggregate_feature(
@@ -121,9 +125,11 @@ def test_biz_val_predicted_group_aggregate_feature_multi_agg_speedup_over_per_ca
     n_reps = 7
 
     def _multi_call() -> None:
+        """Multi call."""
         predicted_group_aggregate_feature(X, y, group_ids, macro_estimator_factory=lambda: LinearRegression(), n_splits=5, random_state=0, aggs=aggs)
 
     def _per_stat_calls() -> None:
+        """Per stat calls."""
         for a in aggs:
             predicted_group_aggregate_feature(
                 X, y, group_ids, macro_estimator_factory=lambda: LinearRegression(), agg="mean" if a == "std" else a, n_splits=5, random_state=0

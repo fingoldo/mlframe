@@ -60,9 +60,9 @@ def test_compare_ensembles_warns_when_caller_overrides_to_test(caplog):
             sort_metric="test.1.integral_error",
             show_plot=False,
         )
-    assert any("test-set selection bias" in rec.message for rec in caplog.records), (
-        f"Explicit test.* sort_metric must emit a WARN; got records: {[r.message for r in caplog.records]}"
-    )
+    assert any(
+        "test-set selection bias" in rec.message for rec in caplog.records
+    ), f"Explicit test.* sort_metric must emit a WARN; got records: {[r.message for r in caplog.records]}"
 
 
 def test_compare_ensembles_warns_on_val_override():

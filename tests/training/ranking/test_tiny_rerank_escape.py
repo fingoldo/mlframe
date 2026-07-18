@@ -22,7 +22,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 
-
 def _make_self_stub(kept_specs):
     """Build the minimum-viable ``self`` stub the function needs to early-return."""
     return SimpleNamespace(
@@ -36,6 +35,7 @@ def _make_self_stub(kept_specs):
 
 
 def test_skip_env_var_short_circuits_rerank(caplog):
+    """Skip env var short circuits rerank."""
     from mlframe.training.composite.discovery._tiny_rerank import _tiny_model_rerank
 
     kept = [SimpleNamespace(name="spec_a", base_column="b1", transform_name="diff", fitted_params={})]
@@ -69,6 +69,7 @@ def test_skip_env_var_truthy_variants():
 
 
 def test_ram_checkpoint_helper_emits_three_signals(caplog):
+    """Ram checkpoint helper emits three signals."""
     from mlframe.training.composite.discovery._tiny_rerank import _tiny_rerank_ram_checkpoint
 
     with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery._tiny_rerank"):

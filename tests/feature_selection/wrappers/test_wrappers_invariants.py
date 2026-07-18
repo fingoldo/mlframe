@@ -40,6 +40,7 @@ from tests.feature_selection.conftest import fast_subset
 
 # Common minimal RFECV factory: fast, deterministic, log-quiet.
 def _make_rfecv(**overrides):
+    """Make rfecv."""
     base = dict(
         estimator=LogisticRegression(max_iter=300, random_state=0),
         max_refits=4,
@@ -92,6 +93,7 @@ class TestEvalFoldClosureCapture:
         return name.lstrip("_")
 
     def test_eval_fold_signature_uses_default_arg_capture(self):
+        """Eval fold signature uses default arg capture."""
         fn = self._find_eval_fold()
         param_names = [self._normalize_param(a.arg) for a in fn.args.args]
         # We don't assert positional order beyond presence; pytest can adapt if a wrapping layer renames positional args.
@@ -115,9 +117,9 @@ class TestEvalFoldClosureCapture:
         # Each default expression must reference the outer-scope ``Name(<normalized>)`` -- that's the def-time binding.
         for outer_name in ("current_features", "scores"):
             _, d = normalized[outer_name]
-            assert isinstance(d, ast.Name) and d.id == outer_name, (
-                f"default-arg for {outer_name} must reference outer-scope Name({outer_name!r}); got {ast.dump(d)}"
-            )
+            assert (
+                isinstance(d, ast.Name) and d.id == outer_name
+            ), f"default-arg for {outer_name} must reference outer-scope Name({outer_name!r}); got {ast.dump(d)}"
 
 
 class TestEvalFoldBehavior:
@@ -269,9 +271,9 @@ class TestCoverageGaps:
             with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers.rfecv"):
                 rfecv.fit(X, y)
         msgs = [r.message for r in caplog.records]
-        assert any("SFFS swap pass:" in m for m in msgs), (
-            f"swap_top_k=2 did not exercise _sffs_swap_pass (no swap-summary log line found). Messages: {msgs[-3:]}"
-        )
+        assert any(
+            "SFFS swap pass:" in m for m in msgs
+        ), f"swap_top_k=2 did not exercise _sffs_swap_pass (no swap-summary log line found). Messages: {msgs[-3:]}"
 
     @pytest.mark.slow
     def test_plot_file_writes_matplotlib_artifact(self, tmp_path):

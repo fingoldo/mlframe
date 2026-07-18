@@ -38,9 +38,9 @@ def test_biz_val_band_correction_improves_calibration_on_held_out_split():
     brier_before = float(brier_score_loss(y_true[test_idx], y_pred_biased[test_idx]))
     brier_after = float(brier_score_loss(y_true[test_idx], corrected[test_idx]))
 
-    assert brier_after < brier_before * 0.97, (
-        f"expected the band correction to improve Brier score on held-out data by >=3%, got after={brier_after:.4f} before={brier_before:.4f}"
-    )
+    assert (
+        brier_after < brier_before * 0.97
+    ), f"expected the band correction to improve Brier score on held-out data by >=3%, got after={brier_after:.4f} before={brier_before:.4f}"
 
 
 def test_band_correction_does_not_hurt_already_calibrated_predictions():

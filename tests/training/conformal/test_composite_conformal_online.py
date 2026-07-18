@@ -39,12 +39,14 @@ def _make_fitted_estimator(n=400, seed=0):
 
 
 def pd_or_np(base, feat):
+    """Pd or np."""
     import pandas as pd
 
     return pd.DataFrame({"base": base, "feat": feat})
 
 
 def _coverage(est, X, y):
+    """Coverage."""
     lo, hi = est.predict_interval_online(X, clip=False)
     y = np.asarray(y, dtype=np.float64).reshape(-1)
     return float(np.mean((lo <= y) & (y <= hi)))
@@ -56,6 +58,7 @@ def _coverage(est, X, y):
 
 
 def test_rolling_quantile_radius_basic():
+    """Rolling quantile radius basic."""
     r = np.arange(1, 101, dtype=np.float64)  # 1..100
     rad = _rolling_quantile_radius(r, alpha=0.1)
     # finite-sample rank ceil(101*0.9)=91 -> 91st order stat = 91
@@ -63,6 +66,7 @@ def test_rolling_quantile_radius_basic():
 
 
 def test_rolling_quantile_radius_saturation():
+    """Rolling quantile radius saturation."""
     r = np.arange(1, 51, dtype=np.float64)
     assert _rolling_quantile_radius(r, alpha=0.0) == float("inf")
     assert _rolling_quantile_radius(r, alpha=1.0) == 0.0
@@ -81,6 +85,7 @@ def test_aci_step_controller_direction():
 
 
 def test_alpha_t_stays_in_unit_interval_under_drift():
+    """Alpha t stays in unit interval under drift."""
     st = _aci_default_state(alpha=0.1, gamma=0.5, buffer_n=50)
     rng = np.random.default_rng(1)
     for _ in range(2000):
@@ -95,6 +100,7 @@ def test_alpha_t_stays_in_unit_interval_under_drift():
 
 
 def test_init_required_before_use():
+    """Init required before use."""
     est = _make_fitted_estimator()
     with pytest.raises(RuntimeError):
         est.predict_interval_online(pd_or_np([0.0], [0.0]))

@@ -42,6 +42,7 @@ def _assert_canonical_on_disk(raw: str, doc: dict) -> None:
     assert raw.endswith("\n")
 
     def _keys_sorted(obj) -> bool:
+        """Keys sorted."""
         if isinstance(obj, dict):
             keys = list(obj.keys())
             return keys == sorted(keys) and all(_keys_sorted(v) for v in obj.values())
@@ -71,6 +72,7 @@ def _fake_spec(kernel_name="fake_kernel", *, gpu=True, salt=3):
     is a tiny local function so ``code_version()`` is stable + non-None."""
 
     def _ref(x):  # body hashed into code_version
+        """Helper that ref."""
         return x + 1
 
     return TunerSpec(
@@ -164,10 +166,12 @@ def patched_registry():
     ],
 )
 def test_classify_device(token, expected):
+    """Classify device."""
     assert gdt.classify_device(token) == expected
 
 
 def test_anonymize_drops_wall_ms_adds_device_keeps_caps():
+    """Anonymize drops wall ms adds device keeps caps."""
     anon = gdt.anonymize_regions(_seed_regions())
     assert len(anon) == 3
     for r in anon:
@@ -182,6 +186,7 @@ def test_anonymize_drops_wall_ms_adds_device_keeps_caps():
 
 
 def test_anonymize_does_not_mutate_input():
+    """Anonymize does not mutate input."""
     src = _seed_regions()
     before = orjson.dumps(src, option=orjson.OPT_SORT_KEYS)
     gdt.anonymize_regions(src)
@@ -194,6 +199,7 @@ def test_anonymize_does_not_mutate_input():
 
 
 def test_generate_emits_valid_sorted_json(tmp_cache, patched_registry):
+    """Generate emits valid sorted json."""
     reg = patched_registry
     spec = reg.spec
     out = str(tmp_cache / "default_kernel_tuning.json")
@@ -224,6 +230,7 @@ def test_generate_emits_valid_sorted_json(tmp_cache, patched_registry):
 
 
 def test_generate_kernels_sorted_by_name(tmp_cache):
+    """Generate kernels sorted by name."""
     a = _fake_spec("zzz_kernel")
     b = _fake_spec("aaa_kernel")
     for s in (a, b):
@@ -242,6 +249,7 @@ def test_generate_kernels_sorted_by_name(tmp_cache):
 
 
 def test_register_default_cache_loads_and_local_miss_returns_default(tmp_path, tmp_cache, patched_registry, monkeypatch):
+    """Register default cache loads and local miss returns default."""
     reg = patched_registry
     spec = reg.spec
     out = str(tmp_cache / "default_kernel_tuning.json")
@@ -303,6 +311,7 @@ def test_default_ignored_when_code_version_stale(tmp_path, tmp_cache, patched_re
 
 
 def test_skip_existing_skips_present_kernel(tmp_cache, patched_registry):
+    """Skip existing skips present kernel."""
     reg = patched_registry
     spec = reg.spec
     out = str(tmp_cache / "default_kernel_tuning.json")
@@ -328,6 +337,7 @@ def test_skip_existing_skips_present_kernel(tmp_cache, patched_registry):
 
 
 def test_force_resweeps_even_if_present(tmp_cache, patched_registry):
+    """Force resweeps even if present."""
     reg = patched_registry
     spec = reg.spec
     out = str(tmp_cache / "default_kernel_tuning.json")
@@ -358,6 +368,7 @@ def test_force_resweeps_even_if_present(tmp_cache, patched_registry):
 
 
 def test_check_ignores_timestamp(tmp_cache, patched_registry):
+    """Check ignores timestamp."""
     reg = patched_registry
     spec = reg.spec
     out = str(tmp_cache / "default_kernel_tuning.json")

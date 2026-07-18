@@ -35,17 +35,18 @@ import pandas as pd
 
 from tests.conftest import is_fast_mode
 
-
 GENUINE_OPERANDS = {"x1", "x2", "x3", "x4", "x5", "x6"}
 
 
 def _parents_of(name: str) -> set:
+    """Parents of."""
     import re
 
     return set(re.findall(r"(x[1-6]|noise_\d+)", name))
 
 
 def _classify(engineered) -> tuple[list, list]:
+    """Helper that classify."""
     genuine, spurious = [], []
     for nm in engineered:
         ps = _parents_of(nm)
@@ -85,6 +86,7 @@ def _wide_synergy_frame(n=None, n_noise=74, seed=20260603):
     # (floor-OFF surfaces 0 spurious -> the ``assert len(spur_off) >= 1`` premise of the wide-noise test fails
     # vacuously); at 1600 the floor-OFF run surfaces 2 spurious + all 3 genuine (still ~8s, well inside the budget),
     # so the floor's spurious-reduction is observable.
+    """Wide synergy frame."""
     if n is None:
         n = 1600 if is_fast_mode() else 2000
     # 6 genuine operands feeding 3 genuine synergy pairs (XOR sign product /
@@ -147,12 +149,14 @@ def _fit_engineered(perms, *, n_noise=40, **overrides):
 
 
 class TestOrder2MaxTFloorWideNoise:
+    """Groups tests covering TestOrder2MaxTFloorWideNoise."""
     def test_floor_reduces_spurious_pairs_keeps_genuine(self):
         # Pin fe_acceptance='prevalence_ratio' (as the sibling test_default_gates_floor_removes_spurious_keeps_genuine does): under the
         # default 'conditional_mi' a downstream CMI-redundancy gate removes the spurious noise pairs irrespective of the maxT floor, so
         # floor-OFF would surface 0 spurious pairs and this test (whose subject is the floor) could not exercise it.
         # n_noise=74 (not the prior 40): the FE per-pair gates now filter clean noise more aggressively, so at n_noise=40 the floor-OFF
         # run surfaces 0 spurious pairs and cannot exercise the floor. The wider noise pool restores several best-of-pool chance-max hits.
+        """Floor reduces spurious pairs keeps genuine."""
         eng_off = _fit_engineered(perms=0, n_noise=74, fe_acceptance="prevalence_ratio")
         eng_on = _fit_engineered(perms=25, n_noise=74, fe_acceptance="prevalence_ratio")
         gen_off, spur_off = _classify(eng_off)
@@ -171,9 +175,9 @@ class TestOrder2MaxTFloorWideNoise:
         # (fused compound OR separate features), not raw feature count -- escalation may fuse two pairs into one.
         cov_on = _covered_genuine_pairs(eng_on)
         cov_off = _covered_genuine_pairs(eng_off)
-        assert len(cov_on) >= len(cov_off) and len(cov_on) >= 3, (
-            f"order-2 floor dropped genuine synergy pairs: OFF covered={sorted(cov_off)} ({gen_off}) ON covered={sorted(cov_on)} ({gen_on})"
-        )
+        assert (
+            len(cov_on) >= len(cov_off) and len(cov_on) >= 3
+        ), f"order-2 floor dropped genuine synergy pairs: OFF covered={sorted(cov_off)} ({gen_off}) ON covered={sorted(cov_on)} ({gen_on})"
 
 
 # =============================================================================
@@ -182,7 +186,9 @@ class TestOrder2MaxTFloorWideNoise:
 
 
 class TestOrder2MaxTFloorSelfGating:
+    """Groups tests covering TestOrder2MaxTFloorSelfGating."""
     def _small_xor_engineered(self, perms):
+        """Small xor engineered."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         rng = np.random.default_rng(11)
@@ -212,6 +218,7 @@ class TestOrder2MaxTFloorSelfGating:
     def test_small_pool_below_min_pairs_byte_identical(self):
         # 4-feature frame => at most C(4,2)=6 candidate pairs < fe_pair_maxt_min_pairs (30),
         # so the floor is 0.0 (no-op): floor-on and floor-off must be identical.
+        """Small pool below min pairs byte identical."""
         sup_off, eng_off = self._small_xor_engineered(perms=0)
         sup_on, eng_on = self._small_xor_engineered(perms=25)
         assert sup_off == sup_on, f"small-p XOR support changed under the floor (should be no-op): OFF={sup_off} ON={sup_on}"
@@ -224,11 +231,13 @@ class TestOrder2MaxTFloorSelfGating:
 
 
 class TestOrder2MaxTFloorDisabled:
+    """Groups tests covering TestOrder2MaxTFloorDisabled."""
     def test_perms_zero_matches_explicit_disable(self):
         # Two perms=0 runs are trivially identical; the meaningful check is that
         # perms=0 takes the no-op path (floor never computed). We assert the
         # engineered set is exactly the 3 genuine pairs (the loose-gate fixture's
         # floor-OFF output minus nothing): proves the disable path is live.
+        """Perms zero matches explicit disable."""
         eng = _fit_engineered(perms=0)
         gen, _spur = _classify(eng)
         assert len(gen) >= 3, f"floor-disabled run lost genuine pairs: {eng}"
@@ -262,7 +271,7 @@ class TestOrder2MaxTFloorDisabled:
         floor backstops -- so floor-OFF would admit 0 spurious and the test could no
         longer EXERCISE the floor. To measure the floor's contribution IN ISOLATION
         (the actual subject of this test), pin ``fe_acceptance='prevalence_ratio'`` so
-        the CMI gate does not pre-empt it. The CMI gate's own spurious-rejection is
+        the CMI gate does not preempt it. The CMI gate's own spurious-rejection is
         covered separately by ``test_fe_cmi_redundancy_gate``. This is the legacy
         acceptance path -- intentionally selected here to keep the floor observable.
         """
@@ -301,9 +310,9 @@ class TestOrder2MaxTFloorDisabled:
         # (fused compound OR separate features), not raw feature count -- escalation may fuse two pairs into one.
         cov_on = _covered_genuine_pairs(eng_on)
         cov_off = _covered_genuine_pairs(eng_off)
-        assert len(cov_on) >= len(cov_off) and len(cov_on) >= 3, (
-            f"order-2 floor dropped genuine synergy pairs: OFF covered={sorted(cov_off)} ({gen_off}) ON covered={sorted(cov_on)} ({gen_on})"
-        )
+        assert (
+            len(cov_on) >= len(cov_off) and len(cov_on) >= 3
+        ), f"order-2 floor dropped genuine synergy pairs: OFF covered={sorted(cov_off)} ({gen_off}) ON covered={sorted(cov_on)} ({gen_on})"
 
 
 # =============================================================================
@@ -312,7 +321,9 @@ class TestOrder2MaxTFloorDisabled:
 
 
 class TestPooledPairPermutationNullHelper:
+    """Groups tests covering TestPooledPairPermutationNullHelper."""
     def _discretize(self, X, y, n_bins=8):
+        """Helper that discretize."""
         from mlframe.feature_selection.filters.discretization import categorize_dataset
         from mlframe.feature_selection.filters.info_theory import merge_vars
 
@@ -331,6 +342,7 @@ class TestPooledPairPermutationNullHelper:
         return data, nbins, cols, classes_y, freqs_y
 
     def test_genuine_joint_mi_above_null_noise_at_or_below(self):
+        """Genuine joint mi above null noise at or below."""
         from mlframe.feature_selection.filters.info_theory import batch_pair_mi_prange
         from mlframe.feature_selection.filters._permutation_null import (
             pooled_pair_permutation_null_joint_mi_floor,
@@ -377,6 +389,7 @@ class TestPooledPairPermutationNullHelper:
         assert below >= 0.95, f"only {below:.2%} of noise pairs at/below the null floor {floor}; noise max={noise_mis.max():.5f}"
 
     def test_degenerate_pool_returns_zero_floor(self):
+        """Degenerate pool returns zero floor."""
         from mlframe.feature_selection.filters._permutation_null import (
             pooled_pair_permutation_null_joint_mi_floor,
         )

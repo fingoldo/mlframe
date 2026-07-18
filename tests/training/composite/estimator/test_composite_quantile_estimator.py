@@ -34,11 +34,13 @@ class _StubQuantileInner(BaseEstimator, RegressorMixin):
         self.scale = scale
 
     def fit(self, X, y, sample_weight=None):
+        """Fit."""
         self._mean_ = float(np.mean(np.asarray(y, dtype=np.float64)))
         self.n_features_in_ = X.shape[1] if hasattr(X, "shape") else len(X.columns)
         return self
 
     def predict(self, X):
+        """Predict."""
         n = X.shape[0] if hasattr(X, "shape") else len(X)
         # Map alpha in (0,1) to a symmetric quantile offset via the logit-ish
         # scale; monotone increasing in alpha -> ascending heads.
@@ -47,6 +49,7 @@ class _StubQuantileInner(BaseEstimator, RegressorMixin):
 
 
 def _make_xy(n: int = 200, seed: int = 0):
+    """Make xy."""
     rng = np.random.default_rng(seed)
     base = rng.normal(0.0, 1.0, n)
     x1 = rng.normal(0.0, 1.0, n)
@@ -55,6 +58,7 @@ def _make_xy(n: int = 200, seed: int = 0):
 
 
 def _fit_stub(quantiles=(0.1, 0.5, 0.9), transform_name="linear_residual", **kw):
+    """Fit stub."""
     X, y = _make_xy()
     est = CompositeQuantileEstimator(
         base_estimator=_StubQuantileInner(),
@@ -73,12 +77,14 @@ def _fit_stub(quantiles=(0.1, 0.5, 0.9), transform_name="linear_residual", **kw)
 
 
 def test_predict_quantile_shape():
+    """Predict quantile shape."""
     est, X, _ = _fit_stub(quantiles=(0.1, 0.25, 0.5, 0.75, 0.9))
     Q = est.predict_quantile(X)
     assert Q.shape == (len(X), 5)
 
 
 def test_non_crossing_rows_monotone():
+    """Non crossing rows monotone."""
     est, X, _ = _fit_stub(quantiles=(0.1, 0.25, 0.5, 0.75, 0.9))
     Q = est.predict_quantile(X)
     assert np.all(np.diff(Q, axis=1) >= -1e-9), "rows must be non-decreasing across quantiles"
@@ -89,7 +95,9 @@ def test_non_crossing_restores_order_when_heads_cross():
     per-row sort must restore ascending order."""
 
     class _Inverted(_StubQuantileInner):
+        """Groups tests covering inverted."""
         def predict(self, X):
+            """Predict."""
             n = X.shape[0] if hasattr(X, "shape") else len(X)
             # DECREASING in alpha -> high quantile predicts LOWER -> crossing.
             offset = -self.scale * (float(self.alpha) - 0.5) * 4.0
@@ -126,18 +134,21 @@ def test_non_crossing_restores_order_when_heads_cross():
 
 
 def test_predict_subset_of_fitted_quantiles():
+    """Predict subset of fitted quantiles."""
     est, X, _ = _fit_stub(quantiles=(0.1, 0.25, 0.5, 0.75, 0.9))
     Q = est.predict_quantile(X, quantiles=(0.25, 0.75))
     assert Q.shape == (len(X), 2)
 
 
 def test_predict_unfitted_quantile_raises():
+    """Predict unfitted quantile raises."""
     est, X, _ = _fit_stub(quantiles=(0.1, 0.5, 0.9))
     with pytest.raises(ValueError, match="was not fitted"):
         est.predict_quantile(X, quantiles=(0.42,))
 
 
 def test_predict_median_point():
+    """Predict median point."""
     est, X, _ = _fit_stub(quantiles=(0.1, 0.5, 0.9))
     p = est.predict(X)
     q = est.predict_quantile(X, quantiles=(0.5,))[:, 0]
@@ -166,6 +177,7 @@ def test_nan_safe_out_of_domain_base_routes_to_fallback():
 
 
 def test_set_inner_quantile_alpha_sklearn_quantile_regressor():
+    """Set inner quantile alpha sklearn quantile regressor."""
     from sklearn.linear_model import QuantileRegressor
 
     inner = _set_inner_quantile_alpha(QuantileRegressor(), 0.3)
@@ -173,6 +185,7 @@ def test_set_inner_quantile_alpha_sklearn_quantile_regressor():
 
 
 def test_set_inner_quantile_alpha_gbr_loss_quantile():
+    """Set inner quantile alpha gbr loss quantile."""
     from sklearn.ensemble import GradientBoostingRegressor
 
     inner = _set_inner_quantile_alpha(GradientBoostingRegressor(), 0.7)
@@ -181,6 +194,7 @@ def test_set_inner_quantile_alpha_gbr_loss_quantile():
 
 
 def test_set_inner_quantile_alpha_rejects_non_quantile_estimator():
+    """Set inner quantile alpha rejects non quantile estimator."""
     from sklearn.linear_model import LinearRegression
 
     with pytest.raises(ValueError, match="no recognised quantile knob"):
@@ -188,6 +202,7 @@ def test_set_inner_quantile_alpha_rejects_non_quantile_estimator():
 
 
 def test_each_head_has_distinct_alpha():
+    """Each head has distinct alpha."""
     est, _, _ = _fit_stub(quantiles=(0.1, 0.5, 0.9))
     alphas = {q: head.base_estimator.alpha for q, head in est.estimators_.items()}
     assert alphas == {0.1: 0.1, 0.5: 0.5, 0.9: 0.9}
@@ -199,18 +214,21 @@ def test_each_head_has_distinct_alpha():
 
 
 def test_predict_before_fit_raises():
+    """Predict before fit raises."""
     est = CompositeQuantileEstimator(base_estimator=_StubQuantileInner())
     with pytest.raises(NotFittedError):
         est.predict_quantile(pd.DataFrame({"base": [1.0]}))
 
 
 def test_none_base_estimator_raises():
+    """None base estimator raises."""
     est = CompositeQuantileEstimator(base_estimator=None, base_column="base")
     with pytest.raises(ValueError, match="base_estimator must not be None"):
         est.fit(*_make_xy())
 
 
 def test_bad_quantiles_raise():
+    """Bad quantiles raise."""
     X, y = _make_xy()
     with pytest.raises(ValueError, match="strictly in"):
         CompositeQuantileEstimator(
@@ -227,6 +245,7 @@ def test_bad_quantiles_raise():
 
 
 def test_unknown_transform_raises_at_fit():
+    """Unknown transform raises at fit."""
     X, y = _make_xy()
     with pytest.raises(UnknownTransformError):
         CompositeQuantileEstimator(
@@ -237,6 +256,7 @@ def test_unknown_transform_raises_at_fit():
 
 
 def test_default_quantiles_five_level_grid():
+    """Default quantiles five level grid."""
     X, y = _make_xy()
     est = CompositeQuantileEstimator(
         base_estimator=_StubQuantileInner(),

@@ -15,6 +15,7 @@ from mlframe.training import OverlappingWalkForwardCV, cv_stability_check
 
 
 def _mean_abs_error_cv(splitter, y: np.ndarray) -> float:
+    """Mean abs error cv."""
     errors = []
     for train_idx, test_idx in splitter.split(y):
         pred = float(np.mean(y[train_idx]))
@@ -23,6 +24,7 @@ def _mean_abs_error_cv(splitter, y: np.ndarray) -> float:
 
 
 def test_biz_val_overlapping_walk_forward_cv_lowers_estimate_variance():
+    """Biz val overlapping walk forward cv lowers estimate variance."""
     n_samples = 260
     window_length, gap, test_length = 40, 5, 5
     overlapping = OverlappingWalkForwardCV(window_length=window_length, step=10, gap=gap, test_length=test_length)
@@ -42,12 +44,13 @@ def test_biz_val_overlapping_walk_forward_cv_lowers_estimate_variance():
     overlap_std = float(np.std(overlap_estimates, ddof=1))
     non_overlap_std = float(np.std(non_overlap_estimates, ddof=1))
 
-    assert overlap_std < non_overlap_std, (
-        f"overlapping-window CV should give a lower-variance mean-metric estimate: overlap_std={overlap_std:.4f} non_overlap_std={non_overlap_std:.4f}"
-    )
+    assert (
+        overlap_std < non_overlap_std
+    ), f"overlapping-window CV should give a lower-variance mean-metric estimate: overlap_std={overlap_std:.4f} non_overlap_std={non_overlap_std:.4f}"
 
 
 def test_overlapping_walk_forward_cv_folds_respect_gap_and_length():
+    """Overlapping walk forward cv folds respect gap and length."""
     y = np.arange(100)
     splitter = OverlappingWalkForwardCV(window_length=20, step=10, gap=3, test_length=5)
     folds = list(splitter.split(y))
@@ -59,6 +62,7 @@ def test_overlapping_walk_forward_cv_folds_respect_gap_and_length():
 
 
 def test_biz_val_cv_stability_check_separates_smooth_from_jagged_curves():
+    """Biz val cv stability check separates smooth from jagged curves."""
     rng = np.random.default_rng(0)
     hp_grid = np.linspace(0, 1, 15)
 
@@ -74,6 +78,7 @@ def test_biz_val_cv_stability_check_separates_smooth_from_jagged_curves():
 
 
 def test_cv_stability_check_too_few_seeds_raises():
+    """Cv stability check too few seeds raises."""
     import pytest
 
     with pytest.raises(ValueError):

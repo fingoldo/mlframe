@@ -28,22 +28,24 @@ from mlframe.training.neural._lookahead_optimizer import (
     wrap_with_lookahead,
 )
 
-
 # --- Unit tests --------------------------------------------------------------
 
 
 def test_lookahead_rejects_non_optimizer_base():
+    """Lookahead rejects non optimizer base."""
     with pytest.raises(TypeError, match="base_optimizer must be"):
         Lookahead("not an optimizer", k=5, alpha=0.5)  # type: ignore[arg-type]
 
 
 def test_lookahead_rejects_invalid_k():
+    """Lookahead rejects invalid k."""
     base = torch.optim.AdamW([torch.zeros(1, requires_grad=True)], lr=1e-3)
     with pytest.raises(ValueError, match="k must be >= 1"):
         Lookahead(base, k=0, alpha=0.5)
 
 
 def test_lookahead_rejects_invalid_alpha():
+    """Lookahead rejects invalid alpha."""
     base = torch.optim.AdamW([torch.zeros(1, requires_grad=True)], lr=1e-3)
     with pytest.raises(ValueError, match=r"alpha must be in \(0, 1\]"):
         Lookahead(base, k=5, alpha=0.0)
@@ -214,6 +216,7 @@ def test_lookahead_param_groups_forward_to_base():
 
 
 def test_wrap_with_lookahead_idempotent_when_off():
+    """Wrap with lookahead idempotent when off."""
     base = torch.optim.AdamW(
         [torch.zeros(1, requires_grad=True)],
         lr=1e-3,
@@ -223,6 +226,7 @@ def test_wrap_with_lookahead_idempotent_when_off():
 
 
 def test_wrap_with_lookahead_returns_lookahead_when_on():
+    """Wrap with lookahead returns lookahead when on."""
     base = torch.optim.AdamW(
         [torch.zeros(1, requires_grad=True)],
         lr=1e-3,
@@ -433,6 +437,7 @@ def test_mlp_lookahead_converges_on_linear_regression():
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, random_state=0)
 
     def fit_score(use_lookahead: bool) -> float:
+        """Fit score."""
         torch.manual_seed(0)
         np.random.seed(0)
         reg = PytorchLightningRegressor(
@@ -481,6 +486,6 @@ def test_mlp_lookahead_converges_on_linear_regression():
     # At 100 epochs Lookahead's alpha-damping has fully amortised; it
     # should match plain within 0.03 R^2 (standalone bench: -0.003 to
     # +0.011, mean +0.004 across 4 seeds).
-    assert r2_lh > r2_plain - 0.03, (
-        f"Lookahead-wrapped R^2={r2_lh:.4f} regressed >0.03 vs plain R^2={r2_plain:.4f} at 100 epochs (this is well past the early-anchor-damping window)."
-    )
+    assert (
+        r2_lh > r2_plain - 0.03
+    ), f"Lookahead-wrapped R^2={r2_lh:.4f} regressed >0.03 vs plain R^2={r2_plain:.4f} at 100 epochs (this is well past the early-anchor-damping window)."

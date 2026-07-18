@@ -40,6 +40,7 @@ from mlframe.training.composite.post_shim import PrePipelinePredictShim
 
 
 def _make_xy(n: int = 600, seed: int = 0):
+    """Make xy."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame({"f0": rng.normal(size=n), "f1": rng.normal(size=n)})
     y = (X["f0"].values * 2.0 - X["f1"].values + rng.normal(size=n) * 0.1).astype(np.float64)
@@ -47,6 +48,7 @@ def _make_xy(n: int = 600, seed: int = 0):
 
 
 def _fitted_shim(X, y, name="raw#0"):
+    """Fitted shim."""
     pp = Pipeline([("imp", SimpleImputer()), ("sc", StandardScaler())])
     Xt = pp.fit_transform(X)
     inner = Ridge(alpha=1.0).fit(Xt, y)
@@ -54,10 +56,12 @@ def _fitted_shim(X, y, name="raw#0"):
 
 
 def _count_fallback_warnings(caplog) -> int:
+    """Count fallback warnings."""
     return sum(1 for r in caplog.records if "pre_pipeline.transform failed" in r.getMessage())
 
 
 class TestTransformPairVia:
+    """Groups tests covering transform pair via."""
     def test_fitted_pp_bit_identical_to_deployment_transform(self) -> None:
         """FITTED pp (suite-normal): both slices are bit-identical to the
         deployed ``pp.transform`` projection -- production path unchanged."""
@@ -94,6 +98,7 @@ class TestTransformPairVia:
         assert not _pp_is_fitted(pp)
 
     def test_none_pp_passthrough(self) -> None:
+        """None pp passthrough."""
         X, y = _make_xy(n=20)
         Xho, _ = _make_xy(n=8, seed=3)
         tr, ho = _transform_pair_via(None, X, Xho, y_train=y)
@@ -105,6 +110,7 @@ class TestNoNotFittedFallbackInOOFLoop:
     BOTH a fitted and an unfitted pre_pipeline, single-split and kfold."""
 
     def _assert_clean(self, caplog, shim, X, y, kfold):
+        """Assert clean."""
         caplog.clear()
         with caplog.at_level(logging.WARNING, logger=oof_mod.logger.name):
             preds, y_oof, names = compute_oof_holdout_predictions(
@@ -127,16 +133,19 @@ class TestNoNotFittedFallbackInOOFLoop:
         assert np.all(np.isfinite(preds))
 
     def test_fitted_pp_single_split(self, caplog) -> None:
+        """Fitted pp single split."""
         X, y = _make_xy()
         shim, _ = _fitted_shim(X, y)
         self._assert_clean(caplog, shim, X, y, kfold=1)
 
     def test_fitted_pp_kfold(self, caplog) -> None:
+        """Fitted pp kfold."""
         X, y = _make_xy()
         shim, _ = _fitted_shim(X, y)
         self._assert_clean(caplog, shim, X, y, kfold=3)
 
     def test_unfitted_pp_single_split(self, caplog) -> None:
+        """Unfitted pp single split."""
         X, y = _make_xy()
         _, inner = _fitted_shim(X, y)
         pp_unfit = Pipeline([("imp", SimpleImputer()), ("sc", StandardScaler())])
@@ -144,6 +153,7 @@ class TestNoNotFittedFallbackInOOFLoop:
         self._assert_clean(caplog, shim, X, y, kfold=1)
 
     def test_unfitted_pp_kfold(self, caplog) -> None:
+        """Unfitted pp kfold."""
         X, y = _make_xy()
         _, inner = _fitted_shim(X, y)
         pp_unfit = Pipeline([("imp", SimpleImputer()), ("sc", StandardScaler())])
@@ -152,6 +162,7 @@ class TestNoNotFittedFallbackInOOFLoop:
 
 
 class TestOOFSpaceMatchesDeployment:
+    """Groups tests covering o o f space matches deployment."""
     def test_oof_preds_in_deployed_space_not_raw(self) -> None:
         """The single-split OOF holdout predictions for a fitted-pp component
         equal what the deployed shim predicts on the same holdout rows --

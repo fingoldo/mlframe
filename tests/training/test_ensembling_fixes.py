@@ -27,6 +27,7 @@ from mlframe.models.ensembling import compare_ensembles, score_ensemble
 
 
 def _reg_member(preds: np.ndarray) -> types.SimpleNamespace:
+    """Reg member."""
     return types.SimpleNamespace(
         val_probs=None,
         test_probs=None,
@@ -42,6 +43,7 @@ def _reg_member(preds: np.ndarray) -> types.SimpleNamespace:
 
 
 def _named_reg_member(preds: np.ndarray, name: str) -> types.SimpleNamespace:
+    """Named reg member."""
     m = _reg_member(preds)
     m.model_name = name
     return m
@@ -49,6 +51,7 @@ def _named_reg_member(preds: np.ndarray, name: str) -> types.SimpleNamespace:
 
 # Finding #1 -- diversity auto-drop uses gate-MAE
 def test_w9e_f1_diversity_auto_drop_picks_higher_mae_member():
+    """W9e f1 diversity auto drop picks higher mae member."""
     rng = np.random.default_rng(0)
     n = 200
     base = rng.normal(size=n)
@@ -86,6 +89,7 @@ def test_w9e_f1_diversity_auto_drop_picks_higher_mae_member():
 
 # Finding #2 -- K=2 deterministic alphabetical tiebreak
 def test_w9e_f2_k2_catastrophic_tiebreak_is_alphabetical():
+    """W9e f2 k2 catastrophic tiebreak is alphabetical."""
     n = 200
     target = np.zeros(n, dtype=np.float64)
     # Both members produce identical absolute-error vector -> MAE tie.
@@ -174,6 +178,7 @@ def test_w9e_f3_compare_ensembles_no_deepcopy_of_inner_arrays():
     # Construct a fake ensemble result whose metrics dict carries a large feature_importances
     # ndarray. The pre-fix code did copy.deepcopy on the whole metrics dict, materialising the
     # ndarray; the post-fix code drops the key via a comprehension without copying anything else.
+    """W9e f3 compare ensembles no deepcopy of inner arrays."""
     big_arr = np.zeros(1_000_000, dtype=np.float64)  # 8 MB
     fake_ens = types.SimpleNamespace(
         metrics={
@@ -200,6 +205,7 @@ def test_w9e_f3_compare_ensembles_no_deepcopy_of_inner_arrays():
 # Finding #4 -- chooser available as top-level leaf import
 def test_w9e_f4_chooser_importable_at_module_load():
     # Import path 1: leaf module.
+    """W9e f4 chooser importable at module load."""
     from mlframe.training.core._ensemble_chooser import (
         _choose_ensemble_flavour,
     )
@@ -221,6 +227,7 @@ def test_w9e_f4_chooser_importable_at_module_load():
 
 # Finding #5 -- rrf_k stamped only when RRF is iterated
 def test_w9e_f5_rrf_k_only_stamped_when_rrf_used():
+    """W9e f5 rrf k only stamped when rrf used."""
     from mlframe.training.core._phase_train_one_target_ensembling import (
         _finalize_per_target_ensembling,
     )
@@ -236,6 +243,7 @@ def test_w9e_f5_rrf_k_only_stamped_when_rrf_used():
     ens_models = [m1, m2]
 
     class _Ctx:
+        """Groups tests covering ctx."""
         ensembles: dict = {}
         sample_weights = None
         group_ids = None
@@ -254,9 +262,11 @@ def test_w9e_f5_rrf_k_only_stamped_when_rrf_used():
 
     def _fake_score_ensemble_no_rrf(*args, **kwargs):
         # Return shape matching the real one: dict of flavour -> ens_result-like
+        """Fake score ensemble no rrf."""
         return {"arithm": types.SimpleNamespace(metrics={"oof": {"rmse": 1.0}})}
 
     def _fake_score_ensemble_with_rrf(*args, **kwargs):
+        """Fake score ensemble with rrf."""
         return {
             "arithm": types.SimpleNamespace(metrics={"oof": {"rmse": 1.0}}),
             "rrf": types.SimpleNamespace(metrics={"oof": {"rmse": 0.9}}),

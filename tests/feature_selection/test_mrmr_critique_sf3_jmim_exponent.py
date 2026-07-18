@@ -12,6 +12,7 @@ import os
 
 def test_jmim_exponent_discount_only_is_off_by_default():
     # The gate is read once at import as a numba compile-time constant; with no env override it must be OFF (exponent applied).
+    """Jmim exponent discount only is off by default."""
     assert os.environ.get("MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY", "0") == "0"
     from mlframe.feature_selection.filters import evaluation
 

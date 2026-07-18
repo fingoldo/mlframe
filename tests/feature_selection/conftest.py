@@ -11,11 +11,11 @@ import numpy as np
 import pandas as pd
 from sklearn.datasets import make_classification, make_regression
 
-
 _MRMR_MOD_NAME = "mlframe.feature_selection.filters.mrmr"
 
 
 def _cuda_available_for_tests() -> bool:
+    """Cuda available for tests."""
     try:
         from mlframe.feature_selection.filters._fe_gpu_strict import _cuda_usable
 
@@ -84,6 +84,7 @@ def _clear_mrmr_fit_cache_between_tests():
 
 
 class _NullCtx:
+    """Groups tests covering NullCtx."""
     def __enter__(self):
         return self
 
@@ -188,6 +189,7 @@ COVERAGE_ACTIVE = _coverage_active()
 # the live ``is_fast_mode()`` check (not the import-time snapshot, so a
 # mid-session env mutation is observed correctly).
 def fast_subset(seq, n: int = 1):
+    """Fast subset."""
     items = list(seq)
     if is_fast_mode() and len(items) > n:
         return items[:n]
@@ -197,6 +199,7 @@ def fast_subset(seq, n: int = 1):
 # Marker for tests that are too slow to run under fast mode (e.g. multi-thousand-row benches, multi-seed h2h vs sklearn). Test bodies stay
 # untouched; the collection hook below skips them when MLFRAME_FAST=1.
 def _register_slow_marker(config):
+    """Register slow marker."""
     config.addinivalue_line(
         "markers",
         "slow: skip when MLFRAME_FAST=1 (heavy bench / multi-seed / etc.)",
@@ -208,6 +211,7 @@ def _register_slow_marker(config):
 # tests wiping numba __pycache__) must skip when pytest-xdist parallelism is
 # active so workers don't compete for the same cache directory.
 def pytest_configure(config):
+    """Pytest configure."""
     config.addinivalue_line(
         "markers",
         "no_xdist: skip when pytest-xdist is collecting workers in parallel",
@@ -216,6 +220,7 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
+    """Pytest collection modifyitems."""
     skip_xdist = pytest.mark.skip(reason="requires sequential execution (numba cache lock)")
     skip_slow = pytest.mark.skip(reason="MLFRAME_FAST=1 set; slow-marked test skipped for fast iteration")
     dist = getattr(config.option, "dist", "no")

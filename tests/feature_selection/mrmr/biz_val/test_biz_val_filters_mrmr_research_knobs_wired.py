@@ -147,9 +147,9 @@ def test_biz_val_mrmr_pid_synergy_bonus_surfaces_xor_pair_over_redundant():
     assert syn_xor >= 0.60, f"XOR synergy must be >=0.60 nats (measured 0.693); got {syn_xor:.4f}"
     assert syn_copy < 0.05, f"redundant copy pair must carry ~0 synergy; got {syn_copy:.4f}"
     assert bonus_xor >= 3.0, f"bonus=5 on the XOR pair must add >=3.0 relevance (measured 3.466); got {bonus_xor:.4f}"
-    assert bonus_xor - bonus_copy >= 3.0, (
-        f"the synergy bonus must select the XOR pair over a redundant pair by >=3.0; got xor={bonus_xor:.4f}, copy={bonus_copy:.4f}"
-    )
+    assert (
+        bonus_xor - bonus_copy >= 3.0
+    ), f"the synergy bonus must select the XOR pair over a redundant pair by >=3.0; got xor={bonus_xor:.4f}, copy={bonus_copy:.4f}"
 
 
 def test_biz_val_mrmr_pid_synergy_bonus_wired_into_threadlocal():
@@ -227,16 +227,16 @@ def test_biz_val_mrmr_cmi_perm_stop_drops_conditionally_redundant_keeps_informat
         seed=1,
     )
 
-    assert not sig_red and p_red >= 0.5, (
-        f"conditionally-redundant candidate must be dropped (not significant, p>=0.5); got significant={sig_red}, obs={obs_red:.4f}, p={p_red:.3f}"
-    )
-    assert sig_inf and obs_inf >= 0.55, (
-        f"conditionally-informative candidate must survive (significant, CMI>=0.55); got significant={sig_inf}, obs={obs_inf:.4f}, p={p_inf:.3f}"
-    )
+    assert (
+        not sig_red and p_red >= 0.5
+    ), f"conditionally-redundant candidate must be dropped (not significant, p>=0.5); got significant={sig_red}, obs={obs_red:.4f}, p={p_red:.3f}"
+    assert (
+        sig_inf and obs_inf >= 0.55
+    ), f"conditionally-informative candidate must survive (significant, CMI>=0.55); got significant={sig_inf}, obs={obs_inf:.4f}, p={p_inf:.3f}"
     # The DELTA: the stop cleanly separates the two by conditional CMI.
-    assert obs_inf - obs_red >= 0.5, (
-        f"the stop must separate informative from redundant by >=0.5 conditional CMI; got informative={obs_inf:.4f}, redundant={obs_red:.4f}"
-    )
+    assert (
+        obs_inf - obs_red >= 0.5
+    ), f"the stop must separate informative from redundant by >=0.5 conditional CMI; got informative={obs_inf:.4f}, redundant={obs_red:.4f}"
 
 
 def test_biz_val_mrmr_cmi_perm_stop_wired_into_threadlocal():

@@ -15,6 +15,7 @@ from mlframe.training.strategies.neural import NeuralNetStrategy
 
 
 def test_build_pipeline_no_emb_text_has_no_extra_step():
+    """With no embedding/text features declared, the neural pipeline has no neural_emb_text step."""
     pipe = NeuralNetStrategy().build_pipeline(
         None,
         cat_features=[],
@@ -27,6 +28,7 @@ def test_build_pipeline_no_emb_text_has_no_extra_step():
 
 
 def test_build_pipeline_inserts_emb_text_step_and_outputs_numeric():
+    """Declaring embedding/text features inserts a neural_emb_text pipeline step that outputs purely numeric arrays."""
     s = NeuralNetStrategy()
     pipe = s.build_pipeline(
         None,

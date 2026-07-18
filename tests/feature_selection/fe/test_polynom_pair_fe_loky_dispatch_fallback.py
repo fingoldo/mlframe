@@ -27,9 +27,11 @@ def test_loky_dispatch_failure_falls_back_to_serial(monkeypatch, caplog):
     calls = {"parallel": 0}
 
     def _boom_parallel(*args, **kwargs):
+        """Boom parallel."""
         calls["parallel"] += 1
 
         def _run(_tasks):
+            """Simulate a poisoned-CUDA-context pickling failure so the caller must fall back to the serial path."""
             raise RuntimeError("simulated poisoned-CUDA-context pickling failure")
 
         return _run
@@ -85,9 +87,9 @@ def test_loky_dispatch_failure_falls_back_to_serial(monkeypatch, caplog):
 
     assert calls["parallel"] == 1, "the patched Parallel must have been reached (parallel branch taken)"
     assert result is not None, "run_polynom_pair_fe must return a result via the serial fallback, not raise"
-    assert any("falling back to the serial" in rec.message for rec in caplog.records), (
-        "the fallback must be logged so a real production failure is diagnosable, not silent"
-    )
+    assert any(
+        "falling back to the serial" in rec.message for rec in caplog.records
+    ), "the fallback must be logged so a real production failure is diagnosable, not silent"
 
 
 if __name__ == "__main__":

@@ -22,11 +22,13 @@ _GiB = 1024**3
 
 
 def _clear_env():
+    """Clear env."""
     for k in ("MLFRAME_PIPELINE_CACHE_BYTES_LIMIT", "MLFRAME_PIPELINE_CACHE_RAM_FRACTION"):
         os.environ.pop(k, None)
 
 
 def test_absolute_bytes_env_override_wins():
+    """Absolute bytes env override wins."""
     _clear_env()
     os.environ["MLFRAME_PIPELINE_CACHE_BYTES_LIMIT"] = "1234567"
     try:
@@ -36,6 +38,7 @@ def test_absolute_bytes_env_override_wins():
 
 
 def test_budget_never_exceeds_available_or_total_fraction():
+    """Budget never exceeds available or total fraction."""
     _clear_env()
     try:
         vm = psutil.virtual_memory()
@@ -52,6 +55,7 @@ def test_budget_never_exceeds_available_or_total_fraction():
 
 
 def test_fraction_env_is_read_when_no_arg():
+    """Fraction env is read when no arg."""
     _clear_env()
     os.environ["MLFRAME_PIPELINE_CACHE_RAM_FRACTION"] = "0.05"
     try:
@@ -64,6 +68,7 @@ def test_fraction_env_is_read_when_no_arg():
 
 
 def test_fraction_clamped_to_sane_band():
+    """Fraction clamped to sane band."""
     _clear_env()
     try:
         # Negative / >0.9 fractions must not crash and stay within the band.

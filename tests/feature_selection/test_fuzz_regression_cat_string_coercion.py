@@ -19,6 +19,7 @@ import pytest
 
 
 def _mixed_frame(n: int = 200, seed: int = 0) -> pd.DataFrame:
+    """Mixed frame."""
     rng = np.random.default_rng(seed)
     return pd.DataFrame(
         {
@@ -37,6 +38,7 @@ class TestGroupAwareRedundancyOnStringCats:
 
     @pytest.mark.parametrize("method", ["spearman", "pearson", "su"])
     def test_cluster_features_by_correlation_tolerates_string_cats(self, method):
+        """Cluster features by correlation tolerates string cats."""
         from mlframe.feature_selection.filters.group_aware import (
             cluster_features_by_correlation,
         )
@@ -54,6 +56,7 @@ class TestBorutaPremergeOnStringCats:
     factor-code string categoricals first (fuzz c0149)."""
 
     def test_premerge_collapse_tolerates_string_cats(self):
+        """Premerge collapse tolerates string cats."""
         from mlframe.feature_selection.boruta_shap._fit_explain import _premerge_collapse
 
         X = _mixed_frame()
@@ -70,6 +73,7 @@ class TestMrmrFeStepNumericGuard:
     c0114 -- Hermite pair FE hit ``ufunc 'isfinite'`` on a string column)."""
 
     def test_non_numeric_column_indices_pandas(self):
+        """Non numeric column indices pandas."""
         from mlframe.feature_selection.filters._mrmr_fe_step import (
             _non_numeric_column_indices,
         )
@@ -80,6 +84,7 @@ class TestMrmrFeStepNumericGuard:
         assert idx == {2}
 
     def test_non_numeric_column_indices_all_numeric(self):
+        """Non numeric column indices all numeric."""
         from mlframe.feature_selection.filters._mrmr_fe_step import (
             _non_numeric_column_indices,
         )
@@ -126,6 +131,7 @@ class TestMrmrOrphanRecipeReplay:
     reject NaN), see ``_mrmr_validate_transform`` orphan-recipe handling."""
 
     def test_orphan_recipe_emits_neutral_zero_not_keyerror(self):
+        """Orphan recipe emits neutral zero not keyerror."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
 
@@ -190,16 +196,19 @@ class TestMrmrNbinsQuantileAlias:
     ('qs') and must be accepted by the validator + dispatcher (fuzz c0149)."""
 
     def test_quantile_alias_resolves_to_qs(self):
+        """Quantile alias resolves to qs."""
         from mlframe.feature_selection.filters._adaptive_nbins import _METHOD_ALIASES
 
         assert _METHOD_ALIASES["quantile"] == "qs"
 
     def test_quantile_in_mrmr_valid_strategies(self):
+        """Quantile in mrmr valid strategies."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         assert "quantile" in MRMR._VALID_NBINS_STRATEGIES
 
     def test_per_feature_edges_accepts_quantile(self):
+        """Per feature edges accepts quantile."""
         from mlframe.feature_selection.filters._adaptive_nbins import per_feature_edges
 
         rng = np.random.default_rng(7)
@@ -208,6 +217,7 @@ class TestMrmrNbinsQuantileAlias:
         assert len(edges) == 2
 
     def test_mrmr_validate_accepts_quantile_strategy(self):
+        """Mrmr validate accepts quantile strategy."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         sel = MRMR(nbins_strategy="quantile")

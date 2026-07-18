@@ -24,6 +24,7 @@ from mlframe.feature_selection.filters import _fe_resident_operands as R
 
 @pytest.fixture(autouse=True)
 def _clear():
+    """Helper that clear."""
     R.clear_fe_resident_operands()
     yield
     R.clear_fe_resident_operands()
@@ -35,6 +36,7 @@ def test_same_content_hits_uploaded_once(monkeypatch):
     orig = cp.asarray
 
     def spy(a, *args, **kw):
+        """Helper that spy."""
         if not isinstance(a, cp.ndarray):
             n_uploads["n"] += 1
         return orig(a, *args, **kw)
@@ -73,6 +75,7 @@ def test_dtype_folded_into_key():
 
 
 def test_clear_empties_table():
+    """Clear empties table."""
     R.resident_operand(np.arange(8, dtype=np.int64), "y_test", dtype=np.int64)
     assert len(R._FE_RESIDENT_OPERANDS) >= 1
     R.clear_fe_resident_operands()
@@ -102,6 +105,7 @@ def test_disable_switch_forces_fresh_upload(monkeypatch):
 def test_content_hash_njit_fallback_deterministic_and_sensitive():
     # When xxhash is absent, _content_hash uses the copy-free njit word hash. It must be deterministic,
     # sensitive to any 1-element change (the stale-alias guard), and collision-free in practice across dtypes.
+    """Content hash njit fallback deterministic and sensitive."""
     import numpy as np
     import mlframe.feature_selection.filters._fe_resident_operands as R
 

@@ -21,6 +21,7 @@ warnings.filterwarnings("ignore")
 
 
 def _to_df(X, y):
+    """To df."""
     df = pd.DataFrame(X, columns=[f"x{i}" for i in range(X.shape[1])])
     return df, pd.Series(y, name="y")
 
@@ -44,6 +45,7 @@ def test_biz_val_mrmr_interactions_max_order_3way_xor_recovery():
     df, ys = _to_df(X, y)
 
     def _top5_overlap(order):
+        """Top5 overlap."""
         sel = MRMR(interactions_max_order=order, verbose=0, random_seed=42)
         sel.fit(df, ys)
         return len(set(int(i) for i in sel.support_[:5]) & {0, 1, 2})
@@ -76,6 +78,7 @@ def test_biz_val_mrmr_quantization_nbins_finer_grid_better_mi_on_smooth():
     y = (x**2 + 0.3 * rng.normal(size=n) > 1.0).astype(np.int64)
 
     def _binned_mi(nbins):
+        """Binned mi."""
         x_bin = discretize_array(arr=x, n_bins=nbins, method="quantile", dtype=np.int32)
         # Run pyutilz-style MI via merge_vars + compute_mi_from_classes.
         factors_data = np.column_stack([x_bin, y]).astype(np.int32)
@@ -174,9 +177,9 @@ def test_biz_val_mrmr_n_workers_threading_no_crash_no_regression():
     # match regardless. The top-3 (by clearest gain) should also
     # match. Catches regressions in the parallel code path while
     # tolerating expected non-determinism in tied-rank ordering.
-    assert set(int(i) for i in sel_1.support_) == set(int(i) for i in sel_4.support_), (
-        f"n_workers=4 support set must equal n_workers=1; got 1={sorted(sel_1.support_.tolist())}, 4={sorted(sel_4.support_.tolist())}"
-    )
+    assert set(int(i) for i in sel_1.support_) == set(
+        int(i) for i in sel_4.support_
+    ), f"n_workers=4 support set must equal n_workers=1; got 1={sorted(sel_1.support_.tolist())}, 4={sorted(sel_4.support_.tolist())}"
     # Top-3 must be identical (the strongest signal features have
     # large enough gain margin that thread ordering doesn't shuffle them).
     assert set(int(i) for i in sel_1.support_[:3]) == set(int(i) for i in sel_4.support_[:3]), f"top-3 supports differ across n_workers values"
@@ -355,9 +358,9 @@ def test_biz_val_mrmr_full_npermutations_low_value_faster_same_topk():
     # de-duplicated out). Both perm budgets must recover >=2 of 3 signal.
     overlap_low = signal_recovery_count(sel_low, signal, top_k=3)
     overlap_high = signal_recovery_count(sel_high, signal, top_k=3)
-    assert overlap_low >= 2 and overlap_high >= 2, (
-        f"signal recovery must be robust to permutation budget; got low overlap={overlap_low}, high overlap={overlap_high}"
-    )
+    assert (
+        overlap_low >= 2 and overlap_high >= 2
+    ), f"signal recovery must be robust to permutation budget; got low overlap={overlap_low}, high overlap={overlap_high}"
     # Lower perms must be at-or-below high perms in wall. On small synthetic
     # frames the per-permutation cost is a tiny slice of total wall (cat-FE,
     # fingerprinting, candidate scoring dominate); cache warm-up order across
@@ -849,15 +852,15 @@ def test_biz_val_mrmr_fe_binary_preset_parametrize(preset):
         pytest.fail(f"required preset={preset!r} missing from registry: {e}")
     # The preset's FE must reference a signal column and beat the
     # near-chance raw-signal baseline by a wide margin.
-    assert signal_recovery_count(sel, signal, top_k=5) >= 1, (
-        f"binary preset={preset!r} FE must reference a signal col; got names={list(sel.get_feature_names_out())}"
-    )
+    assert (
+        signal_recovery_count(sel, signal, top_k=5) >= 1
+    ), f"binary preset={preset!r} FE must reference a signal col; got names={list(sel.get_feature_names_out())}"
     auc_sel = downstream_auc(sel, df, ys)
     auc_base = baseline_signal_auc(df, ys, signal)
     assert auc_sel >= 0.75, f"binary preset={preset!r} selected set must reach >=0.75 AUC on the saddle target; got {auc_sel:.4f}"
-    assert auc_sel >= auc_base + 0.15, (
-        f"binary preset={preset!r} FE must lift AUC >=0.15 over the raw baseline; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}"
-    )
+    assert (
+        auc_sel >= auc_base + 0.15
+    ), f"binary preset={preset!r} FE must lift AUC >=0.15 over the raw baseline; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}"
 
 
 @pytest.mark.parametrize("max_pair_features", [1, 2, 3])
@@ -1159,6 +1162,7 @@ def test_biz_val_mrmr_property_no_crash_on_random_configs():
     )
     @settings(max_examples=6, deadline=None, suppress_health_check=[HealthCheck.too_slow])
     def _property(n, p_signal, p_noise, seed):
+        """Helper that property."""
         X, y, _ = make_signal_plus_noise(
             n=n,
             p_signal=p_signal,
@@ -1278,6 +1282,7 @@ def test_biz_val_mrmr_min_relevance_gain_relative_mode_scales_with_target_entrop
     pattern = re.compile(r"effective floor=([0-9eE.+\-]+)")
 
     def _resolved_floor(df, ys):
+        """Resolved floor."""
         sel = MRMR(verbose=2, random_seed=42, min_relevance_gain_frac=0.01)
         with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters.mrmr"):
             caplog.clear()
@@ -1291,9 +1296,9 @@ def test_biz_val_mrmr_min_relevance_gain_relative_mode_scales_with_target_entrop
     floor_low = _resolved_floor(df_low, ys_low)
     floor_high = _resolved_floor(df_high, ys_high)
     # High-entropy floor must be strictly larger -- frac * H(y) scales with H(y).
-    assert floor_high > floor_low, (
-        f"High-entropy target should give a larger absolute floor than low-entropy at the same frac; got floor_low={floor_low:.4g}, floor_high={floor_high:.4g}"
-    )
+    assert (
+        floor_high > floor_low
+    ), f"High-entropy target should give a larger absolute floor than low-entropy at the same frac; got floor_low={floor_low:.4g}, floor_high={floor_high:.4g}"
     # Sanity: the ratio of resolved floors should roughly track the ratio of entropies (log(10) / 0.056 ~= 41). Allow a wide band -- the binner's bin-occupancy can drift the empirical H(y) -- but the ratio must be >= 5x to confirm scaling.
     assert floor_high / max(floor_low, 1e-12) >= 5.0, f"Resolved-floor ratio must reflect entropy ratio; got {floor_high / max(floor_low, 1e-12):.2f}x"
 
@@ -1321,6 +1326,7 @@ def test_biz_val_mrmr_min_relevance_gain_relative_mode_wins_on_low_entropy_targe
     X_train, X_test, y_train, y_test = train_test_split(df, ys, test_size=0.3, random_state=0, stratify=ys)
 
     def _fit_and_score(mode):
+        """Fit and score."""
         kwargs = dict(verbose=0, random_seed=42, min_relevance_gain_mode=mode)
         if mode == "absolute":
             kwargs["min_relevance_gain"] = 0.0001
@@ -1358,9 +1364,9 @@ def test_biz_val_mrmr_min_relevance_gain_relative_mode_wins_on_low_entropy_targe
     # Relative mode picks <= features than absolute mode on this low-entropy target (the absolute floor over-permits noise into support_).
     assert k_rel <= k_abs, f"relative mode should select <= features than absolute; got k_rel={k_rel}, k_abs={k_abs}"
     # Relative-mode AUC must not regress materially; typically it is at-or-above absolute-mode because LR is hurt by noise features the absolute floor admitted.
-    assert auc_rel >= auc_abs - 0.01, (
-        f"relative-mode AUC must not be more than 0.01 below absolute-mode AUC; got auc_rel={auc_rel:.4f}, auc_abs={auc_abs:.4f} (k_rel={k_rel}, k_abs={k_abs})"
-    )
+    assert (
+        auc_rel >= auc_abs - 0.01
+    ), f"relative-mode AUC must not be more than 0.01 below absolute-mode AUC; got auc_rel={auc_rel:.4f}, auc_abs={auc_abs:.4f} (k_rel={k_rel}, k_abs={k_abs})"
 
 
 # ---------------------------------------------------------------------------
@@ -1414,6 +1420,7 @@ def test_biz_val_mrmr_sample_weight_flips_top_feature_under_recency_vs_uniform()
         # We therefore ALSO disable the conditional-gate operator plus the binned_numeric_agg (``binagg(A|qbin(B))``) and k-fold-TE families. Verified: with
         # ``fe_conditional_gate_enable=False`` added, uniform top-1 = B (matching the raw binned MI B=0.34 >> A=0.02) and recency top-1 = A. These FE families
         # are measured-better defaults elsewhere but orthogonal to the weight -> raw-feature mechanism this sensor isolates.
+        """Top1 with weights."""
         sel = MRMR(
             verbose=0,
             random_seed=11,
@@ -1435,6 +1442,6 @@ def test_biz_val_mrmr_sample_weight_flips_top_feature_under_recency_vs_uniform()
     # The biz-value claim: recency weighting selects a different top-1, AND that top-1 is A (recent driver),
     # i.e. the encoder-style "stable across schemas" assumption is violated when the operator opts in.
     assert top1_recency == "A", f"recency-weighted MRMR should surface feature A (recent-regime driver) as top-1; got {top1_recency!r}"
-    assert top1_uniform != top1_recency, (
-        f"uniform-weight top-1 must differ from recency-weighted top-1 to demonstrate the biz-value win; got uniform={top1_uniform!r}, recency={top1_recency!r}"
-    )
+    assert (
+        top1_uniform != top1_recency
+    ), f"uniform-weight top-1 must differ from recency-weighted top-1 to demonstrate the biz-value win; got uniform={top1_uniform!r}, recency={top1_recency!r}"

@@ -25,7 +25,6 @@ import warnings
 import numpy as np
 import pytest
 
-
 # ----------------------------------------------------------------------------
 # show_calibration_plot
 # ----------------------------------------------------------------------------
@@ -63,7 +62,7 @@ class TestShowCalibrationPlot:
         assert os.path.exists(tmp_path / "legacy.png")
 
     def test_dsl_optin_matplotlib(self, calib_inputs, tmp_path):
-        """Dsl optin matplotlib."""
+        """Dsl option matplotlib."""
         from mlframe.metrics.core import show_calibration_plot
 
         fp, ft, h = calib_inputs
@@ -83,7 +82,7 @@ class TestShowCalibrationPlot:
         assert os.path.getsize(tmp_path / "dsl.png") > 5000
 
     def test_dsl_optin_plotly(self, calib_inputs, tmp_path):
-        """Dsl optin plotly."""
+        """Dsl option plotly."""
         from mlframe.metrics.core import show_calibration_plot
 
         fp, ft, h = calib_inputs
@@ -157,7 +156,7 @@ class TestPlotResidualDiagnostics:
         plt.close(fig)
 
     def test_dsl_optin_matplotlib(self, reg_inputs, tmp_path):
-        """Dsl optin matplotlib."""
+        """Dsl option matplotlib."""
         from mlframe.training.targets.regression_residual_audit import plot_residual_diagnostics
 
         y, yp = reg_inputs
@@ -177,7 +176,7 @@ class TestPlotResidualDiagnostics:
         assert os.path.getsize(tmp_path / "resid.png") > 5000
 
     def test_dsl_optin_plotly(self, reg_inputs, tmp_path):
-        """Dsl optin plotly."""
+        """Dsl option plotly."""
         from mlframe.training.targets.regression_residual_audit import plot_residual_diagnostics
 
         y, yp = reg_inputs
@@ -250,7 +249,7 @@ class TestPlotTargetOverTime:
         assert os.path.exists(tmp_path / "legacy.png")
 
     def test_dsl_optin_matplotlib(self, temporal_audit_result, tmp_path):
-        """Dsl optin matplotlib."""
+        """Dsl option matplotlib."""
         from mlframe.training.targets.target_temporal_audit import plot_target_over_time
 
         with warnings.catch_warnings():
@@ -264,7 +263,7 @@ class TestPlotTargetOverTime:
         assert os.path.exists(tmp_path / "dsl.png")
 
     def test_dsl_optin_plotly(self, temporal_audit_result, tmp_path):
-        """Dsl optin plotly."""
+        """Dsl option plotly."""
         from mlframe.training.targets.target_temporal_audit import plot_target_over_time
 
         with warnings.catch_warnings():

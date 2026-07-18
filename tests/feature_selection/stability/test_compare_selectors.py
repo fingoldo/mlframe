@@ -32,6 +32,7 @@ class _NamesOutSelector:
         self._kept = list(kept)
 
     def get_feature_names_out(self, input_features=None):
+        """Get feature names out."""
         return np.asarray(self._kept, dtype=object)
 
 
@@ -63,6 +64,7 @@ class _UnavailableSelector:
     """Un-fitted, raises on fit (mimics missing dep / GPU-only path)."""
 
     def fit(self, X, y=None, **kw):
+        """Helper that fit."""
         raise ImportError("optional dependency not installed")
 
 
@@ -73,6 +75,7 @@ class _FittableSelector:
         self._kept = list(kept)
 
     def fit(self, X, y=None, **kw):
+        """Helper that fit."""
         self.feature_names_in_ = np.asarray([str(c) for c in X.columns], dtype=object)
         self.support_ = np.asarray([str(c) in set(self._kept) for c in X.columns], dtype=bool)
         return self
@@ -82,11 +85,13 @@ class _FittableSelector:
 # UNIT: matrix / Jaccard / consensus correct on a constructed agreement pattern.
 # --------------------------------------------------------------------------- #
 def _frame(names, n=50):
+    """Helper that frame."""
     rng = np.random.default_rng(0)
     return pd.DataFrame(rng.normal(size=(n, len(names))), columns=names)
 
 
 def test_agreement_matrix_jaccard_consensus_correct():
+    """Agreement matrix jaccard consensus correct."""
     names = ["f0", "f1", "f2", "f3", "f4"]
     X = _frame(names)
     # A keeps f0,f1,f2 ; B keeps f1,f2,f3 ; C keeps f1,f2 (all four accessor shapes)
@@ -127,6 +132,7 @@ def test_agreement_matrix_jaccard_consensus_correct():
 
 
 def test_graceful_skip_on_unavailable_selector():
+    """Graceful skip on unavailable selector."""
     names = ["f0", "f1", "f2"]
     X = _frame(names)
     selectors = {
@@ -143,6 +149,7 @@ def test_graceful_skip_on_unavailable_selector():
 
 
 def test_all_unavailable_returns_empty_not_error():
+    """All unavailable returns empty not error."""
     names = ["f0", "f1"]
     X = _frame(names)
     r = compare_selectors(X, selectors=[_UnavailableSelector(), _UnavailableSelector()])
@@ -152,6 +159,7 @@ def test_all_unavailable_returns_empty_not_error():
 
 
 def test_fit_path_on_unfitted_selector():
+    """Fit path on unfitted selector."""
     names = ["f0", "f1", "f2"]
     X = _frame(names)
     y = pd.Series(np.r_[np.zeros(25), np.ones(25)])
@@ -161,6 +169,7 @@ def test_fit_path_on_unfitted_selector():
 
 
 def test_duplicate_class_names_disambiguated():
+    """Duplicate class names disambiguated."""
     names = ["f0", "f1"]
     X = _frame(names)
     s1 = _SupportMaskSelector(names, ["f0"])
@@ -176,6 +185,7 @@ def test_duplicate_class_names_disambiguated():
 # must be visible in the matrix + Jaccard.
 # --------------------------------------------------------------------------- #
 def _madelon_like(n=600, n_informative=4, n_redundant=4, n_noise=20, seed=7):
+    """Madelon like."""
     rng = np.random.default_rng(seed)
     info = rng.normal(size=(n, n_informative))
     w = rng.normal(size=n_informative)
@@ -190,6 +200,7 @@ def _madelon_like(n=600, n_informative=4, n_redundant=4, n_noise=20, seed=7):
 
 
 def test_biz_value_mrmr_vs_rfecv_disagreement_surfaced():
+    """Biz value mrmr vs rfecv disagreement surfaced."""
     pytest.importorskip("sklearn")
     from sklearn.feature_selection import RFECV as SkRFECV
     from sklearn.ensemble import RandomForestClassifier
@@ -201,7 +212,9 @@ def test_biz_value_mrmr_vs_rfecv_disagreement_surfaced():
     # naturally avoids redundant copies (small k). We use the real mlframe MRMR if it
     # fits cheaply, else a SelectKBest stand-in -- the report logic is selector-agnostic.
     class _ParsimoniousMRMR:
+        """Groups tests covering ParsimoniousMRMR."""
         def fit(self, X, y=None, **kw):
+            """Helper that fit."""
             skb = SelectKBest(f_classif, k=4).fit(X.values, y)
             self.feature_names_in_ = np.asarray([str(c) for c in X.columns], dtype=object)
             self.support_ = skb.get_support()
@@ -209,7 +222,9 @@ def test_biz_value_mrmr_vs_rfecv_disagreement_surfaced():
 
     # RFECV that tends to over-retain (forgiving min_features) -> keeps noise.
     class _OverRFECV:
+        """Groups tests covering OverRFECV."""
         def fit(self, X, y=None, **kw):
+            """Helper that fit."""
             rf = RandomForestClassifier(n_estimators=40, random_state=0, n_jobs=1)
             sel = SkRFECV(rf, step=0.3, min_features_to_select=12, cv=3).fit(X.values, y)
             self.feature_names_in_ = np.asarray([str(c) for c in X.columns], dtype=object)
@@ -242,6 +257,7 @@ def test_biz_value_mrmr_vs_rfecv_disagreement_surfaced():
 # cPROFILE: on PRE-FITTED selectors, report assembly is near-0 (no fitting).
 # --------------------------------------------------------------------------- #
 def test_cprofile_report_assembly_is_cheap():
+    """Cprofile report assembly is cheap."""
     names = [f"f{i}" for i in range(40)]
     X = _frame(names, n=2000)
     rng = np.random.default_rng(1)

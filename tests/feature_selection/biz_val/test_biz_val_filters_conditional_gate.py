@@ -46,6 +46,7 @@ from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
 
 
 def _argmax_target(seed: int, n: int = 4000):
+    """Argmax target."""
     rng = np.random.default_rng(seed)
     a, b, c = rng.normal(0, 1, n), rng.normal(0, 1, n), rng.normal(0, 1, n)
     y = np.argmax(np.stack([a, b, c], axis=1), axis=1)
@@ -53,6 +54,7 @@ def _argmax_target(seed: int, n: int = 4000):
 
 
 def _gate_target(seed: int, n: int = 4000):
+    """Gate target."""
     rng = np.random.default_rng(seed)
     a, b, c = rng.normal(0, 1, n), rng.normal(0, 1, n), rng.normal(0, 1, n)
     sel = np.where(c > 0.0, a, b)
@@ -61,30 +63,36 @@ def _gate_target(seed: int, n: int = 4000):
 
 
 def _smooth_control(seed: int, n: int = 4000):
+    """Smooth control."""
     rng = np.random.default_rng(seed)
     a, b, c = rng.normal(0, 1, n), rng.normal(0, 1, n), rng.normal(0, 1, n)
     return pd.DataFrame({"a": a, "b": b, "c": c}), ((a + 0.5 * b) > 0).astype(int)
 
 
 def _ordinary_mul_control(seed: int, n: int = 4000):
+    """Ordinary mul control."""
     rng = np.random.default_rng(seed)
     a, b, c = rng.normal(0, 1, n), rng.normal(0, 1, n), rng.normal(0, 1, n)
     return pd.DataFrame({"a": a, "b": b, "c": c}), ((a * b) > 0).astype(int)
 
 
 class TestPrototypeDirect:
+    """Groups tests covering TestPrototypeDirect."""
     def test_argmax_detects_target(self):
+        """Argmax detects target."""
         X, y = _argmax_target(7)
         hits = detect_row_argmax(X, y, seed=7)
         assert hits, "no responded hit on the row-argmax target."
         assert max(h["margin"] for h in hits) >= 0.30, "argmax MI lift below the measured floor."
 
     def test_argmax_silent_on_controls(self):
+        """Argmax silent on controls."""
         for gen in (_smooth_control, _ordinary_mul_control):
             X, y = gen(7)
             assert detect_row_argmax(X, y, seed=7) == [], f"argmax fired on {gen.__name__} control."
 
     def test_gate_detects_regime_target(self):
+        """Gate detects regime target."""
         X, y = _gate_target(13)
         hits = detect_conditional_gate(X, y, seed=13)
         assert hits, "no responded hit on the regime-switch target."
@@ -106,6 +114,7 @@ class TestPrototypeDirect:
         signal so the gate cannot manufacture lift over it. Pins 0 emission on binary + 10-bin-regression + 4-driver additive."""
 
         def _additive(seed, ndrivers, ttype, n=2000):
+            """Helper that additive."""
             rng = np.random.default_rng(seed)
             X = pd.DataFrame({f"x{i}": rng.normal(0, 1, n) for i in range(6)})
             sig = sum(X[f"x{i}"].to_numpy() for i in range(ndrivers))
@@ -124,7 +133,9 @@ class TestPrototypeDirect:
 
 
 class TestRecipeReplay:
+    """Groups tests covering TestRecipeReplay."""
     def test_argmax_recipe_replay_bit_identical(self):
+        """Argmax recipe replay bit identical."""
         X, y = _argmax_target(1)
         _appended, recipes = hybrid_row_argmax_fe_with_recipes(X, y, seed=1)
         assert recipes, "no row-argmax recipes emitted."
@@ -133,6 +144,7 @@ class TestRecipeReplay:
             np.testing.assert_array_equal(direct, apply_recipe(r, X))
 
     def test_gate_recipe_replay_bit_identical_with_frozen_tau(self):
+        """Gate recipe replay bit identical with frozen tau."""
         X, y = _gate_target(1)
         _appended, recipes = hybrid_conditional_gate_fe_with_recipes(X, y, seed=1)
         assert recipes, "no conditional-gate recipes emitted."
@@ -152,6 +164,7 @@ class TestRecipeReplay:
         np.testing.assert_array_equal(on_train[:500], apply_recipe(r, Xte))
 
     def test_recipe_pickle_round_trip(self):
+        """Recipe pickle round trip."""
         X, y = _gate_target(1)
         _, gate_recipes = hybrid_conditional_gate_fe_with_recipes(X, y, seed=1)
         Xa, ya = _argmax_target(1)
@@ -164,7 +177,9 @@ class TestRecipeReplay:
 
 
 class TestMRMRIntegration:
+    """Groups tests covering TestMRMRIntegration."""
     def test_argmax_opt_out_is_no_op(self):
+        """Argmax opt out is no op."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _argmax_target(42, n=2000)
@@ -198,6 +213,7 @@ class TestMRMRIntegration:
         assert not any(str(c).startswith("argmax_") for c in sel[0])
 
     def test_gate_opt_out_is_no_op(self):
+        """Gate opt out is no op."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _gate_target(42, n=2000)
@@ -208,6 +224,7 @@ class TestMRMRIntegration:
         assert not any(str(c).startswith("gate_") for c in out.columns)
 
     def test_argmax_default_on_selects_feature(self):
+        """Argmax default on selects feature."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _argmax_target(7, n=4000)
@@ -228,6 +245,7 @@ class TestMRMRIntegration:
         assert int(getattr(m, "fe_conditional_gate_k_operand", 0)) == 10
 
     def test_gate_default_on_selects_feature_and_replays(self):
+        """Gate default on selects feature and replays."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _gate_target(13, n=4000)
@@ -263,6 +281,7 @@ class TestMRMRIntegration:
         assert not nan_cols, f"replay emitted NaN columns (nested-engineered recipe): {nan_cols}"
 
     def test_argmax_budget_guard_skips_and_logs(self, caplog):
+        """Argmax budget guard skips and logs."""
         rng = np.random.default_rng(7)
         n = 2000
         cols = {f"c{i}": rng.normal(0, 1, n) for i in range(35)}
@@ -274,6 +293,7 @@ class TestMRMRIntegration:
         assert appended == [] and recipes == []
 
     def test_gate_budget_guard_skips_and_logs(self, caplog):
+        """Gate budget guard skips and logs."""
         rng = np.random.default_rng(7)
         n = 2000
         cols = {f"c{i}": rng.normal(0, 1, n) for i in range(25)}
@@ -302,11 +322,12 @@ class TestMRMRIntegration:
         m = MRMR(verbose=0, random_seed=42)
         assert bool(m.fe_conditional_gate_enable) is True
         m.fit(X, pd.Series(y, name="y"))
-        assert list(getattr(m, "conditional_gate_features_", []) or []) == [], (
-            "conditional-gate FE must emit nothing on a single-driver smooth regression target (specificity on binned y, no regime structure)."
-        )
+        assert (
+            list(getattr(m, "conditional_gate_features_", []) or []) == []
+        ), "conditional-gate FE must emit nothing on a single-driver smooth regression target (specificity on binned y, no regime structure)."
 
     def test_clone_preserves_params(self):
+        """Clone preserves params."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         m = MRMR(
@@ -336,6 +357,7 @@ class TestRelevancePruning:
     column c (marginally y-independent -> ranked by conditional divergence, NOT raw MI) must stay in their top-k pools."""
 
     def _gate_with_noise(self, seed: int, n_noise: int = 25, n: int = 4000):
+        """Gate with noise."""
         rng = np.random.default_rng(seed)
         a, b, c = rng.normal(0, 1, n), rng.normal(0, 1, n), rng.normal(0, 1, n)
         sel = np.where(c > 0.0, a, b)
@@ -380,6 +402,7 @@ class TestRelevancePruning:
 
 
 class TestBizValue:
+    """Groups tests covering TestBizValue."""
     def test_biz_val_row_argmax_end_to_end_recovers_feature_with_mi_lift(self):
         """MRMR(fe_row_argmax_enable=True) recovers + SELECTS the argmax-of-(a,b,c) column, and that single engineered column
         carries the target's structure with a large MI lift over the best raw / pairwise op (the catalog gap the operator fills).
@@ -460,6 +483,7 @@ class TestArgmaxAndGateTargetTypeRobustness:
     target stays SPECIFIC (0 emission). A 2D y stays SKIPPED (label-matrix binning out of scope). No crash / no >30s hang on any target type."""
 
     def _xy(self, kind, n=600, seed=0):
+        """Build an (X, y) fixture of the requested target-type kind (continuous/2d/etc) to probe the argmax+gate operators."""
         rng = np.random.default_rng(seed)
         xi = rng.integers(0, 20, size=(n, 4)).astype(float)
         xf = rng.normal(size=(n, 4))
@@ -478,6 +502,7 @@ class TestArgmaxAndGateTargetTypeRobustness:
         return df, y
 
     def _mrmr(self, **flags):
+        """Helper that mrmr."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         return MRMR(
@@ -497,6 +522,7 @@ class TestArgmaxAndGateTargetTypeRobustness:
 
     @pytest.mark.parametrize("kind", ["quantile", "count"])
     def test_row_argmax_specific_on_smooth_continuous_target_no_crash_or_hang(self, kind):
+        """Row argmax specific on smooth continuous target no crash or hang."""
         import time
 
         df, y = self._xy(kind)
@@ -505,12 +531,13 @@ class TestArgmaxAndGateTargetTypeRobustness:
         t0 = time.time()
         m.fit(df, y)
         assert time.time() - t0 < 30.0, f"row-argmax fit on {kind} exceeded 30s wall (hang-class bug)"
-        assert list(getattr(m, "row_argmax_features_", []) or []) == [], (
-            f"row-argmax FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
-        )
+        assert (
+            list(getattr(m, "row_argmax_features_", []) or []) == []
+        ), f"row-argmax FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
 
     @pytest.mark.parametrize("kind", ["multilabel", "multitarget"])
     def test_row_argmax_skipped_on_2d_target_no_crash_or_hang(self, kind):
+        """Row argmax skipped on 2d target no crash or hang."""
         import time
 
         df, y = self._xy(kind)
@@ -518,12 +545,13 @@ class TestArgmaxAndGateTargetTypeRobustness:
         t0 = time.time()
         m.fit(df, y)
         assert time.time() - t0 < 30.0, f"row-argmax fit on {kind} exceeded 30s wall (hang-class bug)"
-        assert list(getattr(m, "row_argmax_features_", []) or []) == [], (
-            f"row-argmax FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
-        )
+        assert (
+            list(getattr(m, "row_argmax_features_", []) or []) == []
+        ), f"row-argmax FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
 
     @pytest.mark.parametrize("kind", ["quantile", "count"])
     def test_conditional_gate_specific_on_smooth_continuous_target_no_crash_or_hang(self, kind):
+        """Conditional gate specific on smooth continuous target no crash or hang."""
         import time
 
         df, y = self._xy(kind)
@@ -532,12 +560,13 @@ class TestArgmaxAndGateTargetTypeRobustness:
         t0 = time.time()
         m.fit(df, y)
         assert time.time() - t0 < 30.0, f"conditional-gate fit on {kind} exceeded 30s wall (hang-class bug)"
-        assert list(getattr(m, "conditional_gate_features_", []) or []) == [], (
-            f"conditional-gate FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
-        )
+        assert (
+            list(getattr(m, "conditional_gate_features_", []) or []) == []
+        ), f"conditional-gate FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
 
     @pytest.mark.parametrize("kind", ["multilabel", "multitarget"])
     def test_conditional_gate_skipped_on_2d_target_no_crash_or_hang(self, kind):
+        """Conditional gate skipped on 2d target no crash or hang."""
         import time
 
         df, y = self._xy(kind)
@@ -545,9 +574,9 @@ class TestArgmaxAndGateTargetTypeRobustness:
         t0 = time.time()
         m.fit(df, y)
         assert time.time() - t0 < 30.0, f"conditional-gate fit on {kind} exceeded 30s wall (hang-class bug)"
-        assert list(getattr(m, "conditional_gate_features_", []) or []) == [], (
-            f"conditional-gate FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
-        )
+        assert (
+            list(getattr(m, "conditional_gate_features_", []) or []) == []
+        ), f"conditional-gate FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
 
     def test_row_argmax_detects_on_argmax_regression_target(self):
         """Continuous-1D y driven by which of 3 cols is the row-max (y = 5*argmax + noise) DETECTS + emits the argmax feature on binned y."""

@@ -55,6 +55,6 @@ def test_biz_val_knn_flagged_as_diverse_lower_accuracy_and_genuinely_improves_bl
     flagged = {entry["model"]: entry for entry in report}
 
     assert "knn" in flagged, f"expected KNN to be flagged as a low-correlation-but-lower-accuracy diversity candidate, got {list(flagged)}"
-    assert flagged["knn"]["ablation_improvement"] > 0, (
-        f"expected including KNN to genuinely improve the blend despite its worse individual score, got {flagged['knn']['ablation_improvement']:.4f}"
-    )
+    assert (
+        flagged["knn"]["ablation_improvement"] > 0
+    ), f"expected including KNN to genuinely improve the blend despite its worse individual score, got {flagged['knn']['ablation_improvement']:.4f}"

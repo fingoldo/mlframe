@@ -25,6 +25,7 @@ def _softmax_probs(rng, n, k=3, signal=2.0):
 
 
 def test_lac_sets_achieve_marginal_coverage():
+    """Lac sets achieve marginal coverage."""
     rng = np.random.default_rng(0)
     cp, ct = _softmax_probs(rng, 6000)
     tp, tt = _softmax_probs(rng, 6000)
@@ -44,6 +45,7 @@ def test_lac_sets_achieve_marginal_coverage():
 
 
 def test_aps_sets_achieve_marginal_coverage():
+    """Aps sets achieve marginal coverage."""
     rng = np.random.default_rng(1)
     cp, ct = _softmax_probs(rng, 6000)
     tp, tt = _softmax_probs(rng, 6000)
@@ -61,6 +63,7 @@ def test_aps_sets_achieve_marginal_coverage():
 
 
 def test_classification_report_rejects_shape_mismatch():
+    """Classification report rejects shape mismatch."""
     rng = np.random.default_rng(2)
     cp, ct = _softmax_probs(rng, 100)
     import pytest
@@ -77,6 +80,7 @@ def test_classification_report_rejects_shape_mismatch():
 
 
 def test_finalize_hook_stamps_classification_sets():
+    """Finalize hook stamps classification sets."""
     rng = np.random.default_rng(3)
     cp, ct = _softmax_probs(rng, 4000)
     tp, tt = _softmax_probs(rng, 4000)
@@ -105,6 +109,7 @@ def test_finalize_hook_stamps_classification_sets():
 
 
 def test_finalize_hook_classification_mode_off_skips():
+    """Finalize hook classification mode off skips."""
     rng = np.random.default_rng(4)
     cp, ct = _softmax_probs(rng, 2000)
     tp, tt = _softmax_probs(rng, 2000)

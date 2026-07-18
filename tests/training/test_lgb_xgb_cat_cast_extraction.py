@@ -20,15 +20,18 @@ import pytest
 
 
 def test_helper_is_module_level_callable() -> None:
+    """Helper is module level callable."""
     from mlframe.training.core.predict import _coerce_cat_dtype_for_lgb_xgb
 
     assert callable(_coerce_cat_dtype_for_lgb_xgb)
 
 
 def test_passthrough_when_no_cat_features() -> None:
+    """Passthrough when no cat features."""
     from mlframe.training.core.predict import _coerce_cat_dtype_for_lgb_xgb
 
     class _FakeLGB:
+        """Groups tests covering fake l g b."""
         pass
 
     _FakeLGB.__module__ = "lightgbm.sklearn"
@@ -40,9 +43,11 @@ def test_passthrough_when_no_cat_features() -> None:
 
 
 def test_passthrough_for_non_lgb_xgb_model() -> None:
+    """Passthrough for non lgb xgb model."""
     from mlframe.training.core.predict import _coerce_cat_dtype_for_lgb_xgb
 
     class _HGB:
+        """Groups tests covering h g b."""
         pass
 
     _HGB.__module__ = "sklearn.ensemble._hist_gradient_boosting.gradient_boosting"
@@ -54,9 +59,11 @@ def test_passthrough_for_non_lgb_xgb_model() -> None:
 
 
 def test_lgb_pandas_path_casts_to_category() -> None:
+    """Lgb pandas path casts to category."""
     from mlframe.training.core.predict import _coerce_cat_dtype_for_lgb_xgb
 
     class _LGB:
+        """Groups tests covering l g b."""
         pass
 
     _LGB.__module__ = "lightgbm.sklearn"
@@ -70,9 +77,11 @@ def test_lgb_pandas_path_casts_to_category() -> None:
 
 
 def test_xgb_pandas_path_casts_to_category() -> None:
+    """Xgb pandas path casts to category."""
     from mlframe.training.core.predict import _coerce_cat_dtype_for_lgb_xgb
 
     class _XGB:
+        """Groups tests covering x g b."""
         pass
 
     _XGB.__module__ = "xgboost.sklearn"
@@ -84,10 +93,12 @@ def test_xgb_pandas_path_casts_to_category() -> None:
 
 
 def test_xgb_polars_path_casts_to_pl_categorical() -> None:
+    """Xgb polars path casts to pl categorical."""
     pl = pytest.importorskip("polars")
     from mlframe.training.core.predict import _coerce_cat_dtype_for_lgb_xgb
 
     class _XGB:
+        """Groups tests covering x g b."""
         pass
 
     _XGB.__module__ = "xgboost.sklearn"
@@ -101,9 +112,11 @@ def test_xgb_polars_path_casts_to_pl_categorical() -> None:
 
 
 def test_already_categorical_column_not_recast() -> None:
+    """Already categorical column not recast."""
     from mlframe.training.core.predict import _coerce_cat_dtype_for_lgb_xgb
 
     class _LGB:
+        """Groups tests covering l g b."""
         pass
 
     _LGB.__module__ = "lightgbm.sklearn"

@@ -27,7 +27,6 @@ from mlframe.training.composite.ensemble._calibration import (
 )
 from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
-
 # --------------------------------------------------------------------------
 # Fixtures / helpers
 # --------------------------------------------------------------------------
@@ -40,6 +39,7 @@ class _ConstColModel:
         self._col = np.asarray(col, dtype=np.float64)
 
     def predict(self, X) -> np.ndarray:
+        """Predict."""
         n = len(X) if hasattr(X, "__len__") else self._col.shape[0]
         if self._col.shape[0] == n:
             return self._col
@@ -47,6 +47,7 @@ class _ConstColModel:
 
 
 def _rmse(a, b) -> float:
+    """Rmse."""
     a = np.asarray(a, dtype=np.float64)
     b = np.asarray(b, dtype=np.float64)
     return float(np.sqrt(np.mean((a - b) ** 2)))
@@ -73,6 +74,7 @@ def _s_shaped_miscal(y: np.ndarray) -> np.ndarray:
 
 @pytest.mark.parametrize("method", ["isotonic", "sigmoid", "linear"])
 def test_calibrator_is_monotone(method):
+    """Calibrator is monotone."""
     rng = np.random.default_rng(0)
     y = np.sort(rng.uniform(-5, 5, size=500))
     raw = _s_shaped_miscal(y) + rng.normal(0, 0.05, size=y.shape)
@@ -85,6 +87,7 @@ def test_calibrator_is_monotone(method):
 
 @pytest.mark.parametrize("method", ["isotonic", "sigmoid", "linear"])
 def test_calibrator_fit_predict_lowers_rmse(method):
+    """Calibrator fit predict lowers rmse."""
     rng = np.random.default_rng(1)
     y = rng.uniform(0, 10, size=2000)
     raw = _s_shaped_miscal(y) + rng.normal(0, 0.1, size=y.shape)
@@ -96,6 +99,7 @@ def test_calibrator_fit_predict_lowers_rmse(method):
 
 def test_calibrator_identity_on_degenerate_input():
     # Too few rows -> identity pass-through.
+    """Calibrator identity on degenerate input."""
     cal = OutputCalibrator(method="isotonic").fit(np.array([1.0, 2.0]), np.array([5.0, 6.0]))
     got = cal.predict(np.array([1.0, 2.0, 3.0]))
     assert np.allclose(got, [1.0, 2.0, 3.0])
@@ -105,16 +109,19 @@ def test_calibrator_identity_on_degenerate_input():
 
 
 def test_calibrator_rejects_bad_method():
+    """Calibrator rejects bad method."""
     with pytest.raises(ValueError):
         OutputCalibrator(method="quadratic")
 
 
 def test_fit_output_calibrator_returns_none_on_tiny():
+    """Fit output calibrator returns none on tiny."""
     assert fit_output_calibrator(np.array([1.0, 2.0]), np.array([1.0, 2.0])) is None
     assert fit_output_calibrator(np.array([]), np.array([])) is None
 
 
 def test_calibrator_non_finite_passthrough():
+    """Calibrator non finite passthrough."""
     rng = np.random.default_rng(3)
     y = rng.uniform(0, 5, size=300)
     raw = _s_shaped_miscal(y)
@@ -146,6 +153,7 @@ def _build_ensemble_with_oof(n=2000, seed=7):
 
 
 def test_off_is_identity_bit_for_bit():
+    """Off is identity bit for bit."""
     ens, _oof_matrix, y, blend = _build_ensemble_with_oof()
     X = np.zeros((len(y), 1))
     raw_pred = ens.predict(X)
@@ -157,6 +165,7 @@ def test_off_is_identity_bit_for_bit():
 
 
 def test_fit_output_calibrator_attaches_and_lowers_oof_rmse():
+    """Fit output calibrator attaches and lowers oof rmse."""
     ens, oof_matrix, y, _blend = _build_ensemble_with_oof()
     X = np.zeros((len(y), 1))
     raw_pred = ens.predict(X)
@@ -173,6 +182,7 @@ def test_fit_output_calibrator_attaches_and_lowers_oof_rmse():
 
 
 def test_calibrator_survives_pickle():
+    """Calibrator survives pickle."""
     import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     ens, oof_matrix, y, _ = _build_ensemble_with_oof()
@@ -186,6 +196,7 @@ def test_calibrator_survives_pickle():
 
 
 def test_cap_components_drops_stale_calibrator():
+    """Cap components drops stale calibrator."""
     ens, oof_matrix, y, _ = _build_ensemble_with_oof()
     ens.fit_output_calibrator(oof_matrix, y, method="isotonic")
     capped = ens.cap_inference_components(1)
@@ -198,6 +209,7 @@ def test_cap_components_drops_stale_calibrator():
 
 
 def test_export_metadata_includes_calibration():
+    """Export metadata includes calibration."""
     ens, oof_matrix, y, _ = _build_ensemble_with_oof()
     md_off = ens.export_metadata()
     assert md_off["calibrate_output"] is False
@@ -247,13 +259,14 @@ def test_biz_val_isotonic_recalibration_lowers_holdout_rmse():
     cal_hold = ens.predict(X_hold)
     rmse_cal = _rmse(cal_hold, y_all[hold_idx])
 
-    assert rmse_cal <= 0.85 * rmse_raw, (
-        f"isotonic OOF recalibration should cut holdout RMSE to <=0.85x; raw={rmse_raw:.4f}, cal={rmse_cal:.4f} (ratio={rmse_cal / rmse_raw:.3f})"
-    )
+    assert (
+        rmse_cal <= 0.85 * rmse_raw
+    ), f"isotonic OOF recalibration should cut holdout RMSE to <=0.85x; raw={rmse_raw:.4f}, cal={rmse_cal:.4f} (ratio={rmse_cal / rmse_raw:.3f})"
 
     # Calibration-curve straightness: slope of (binned mean pred vs binned mean
     # truth) should be closer to 1.0 after recalibration.
     def _curve_slope(pred):
+        """Curve slope."""
         order = np.argsort(pred)
         bins = np.array_split(order, 10)
         px = np.array([pred[b].mean() for b in bins])
@@ -314,6 +327,7 @@ def test_biz_val_isotonic_beats_sigmoid_on_small_oof_holdout(n_oof):
     n_hold = 4000
 
     def _surface(m):
+        """Surface."""
         s = rng.normal(0.0, 1.0, size=m)
         y = 2.0 * s + rng.normal(0.0, 0.3, size=m)
         p = 3.0 * np.tanh(0.8 * s) + rng.normal(0.0, 0.1, size=m)
@@ -327,9 +341,9 @@ def test_biz_val_isotonic_beats_sigmoid_on_small_oof_holdout(n_oof):
     rmse_iso = _rmse(iso.predict(p_hold), y_hold)
     rmse_sig = _rmse(sig.predict(p_hold), y_hold)
 
-    assert rmse_iso <= 0.85 * rmse_sig, (
-        f"isotonic must beat sigmoid on the n_oof={n_oof} honest holdout (iso={rmse_iso:.4f}, sig={rmse_sig:.4f}, ratio={rmse_iso / rmse_sig:.3f})"
-    )
+    assert (
+        rmse_iso <= 0.85 * rmse_sig
+    ), f"isotonic must beat sigmoid on the n_oof={n_oof} honest holdout (iso={rmse_iso:.4f}, sig={rmse_sig:.4f}, ratio={rmse_iso / rmse_sig:.3f})"
 
 
 # --------------------------------------------------------------------------
@@ -368,9 +382,9 @@ def test_biz_val_platt_sigmoid_beats_ols_logit_and_raw_on_holdout(n_oof):
     rmse_ols = _rmse(ols.predict(p_hold), y_hold)
     rmse_raw = _rmse(p_hold, y_hold)
 
-    assert rmse_platt <= 0.98 * rmse_ols, (
-        f"MLE Platt must beat the legacy OLS-logit sigmoid at n_oof={n_oof} (platt={rmse_platt:.4f}, ols_logit={rmse_ols:.4f})"
-    )
+    assert (
+        rmse_platt <= 0.98 * rmse_ols
+    ), f"MLE Platt must beat the legacy OLS-logit sigmoid at n_oof={n_oof} (platt={rmse_platt:.4f}, ols_logit={rmse_ols:.4f})"
     assert rmse_platt <= 0.98 * rmse_raw, f"MLE Platt must beat the raw blend at n_oof={n_oof} (platt={rmse_platt:.4f}, raw={rmse_raw:.4f})"
 
 
@@ -382,6 +396,7 @@ def test_default_sigmoid_fit_is_platt():
 
 
 def test_sigmoid_platt_is_monotone_and_rejects_bad_fit():
+    """Sigmoid platt is monotone and rejects bad fit."""
     rng = np.random.default_rng(11)
     p_oof, y_oof = _logistic_miscal_surface(800, rng)
     cal = OutputCalibrator(method="sigmoid", sigmoid_fit="platt").fit(p_oof, y_oof)

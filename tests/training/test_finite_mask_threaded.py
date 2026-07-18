@@ -31,6 +31,7 @@ from mlframe.training.composite.transforms.nonlinear import (
 
 
 def _make_finite_pair(n: int = 1000, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
+    """Make finite pair."""
     rng = np.random.default_rng(seed)
     y = rng.normal(size=n).astype(np.float64)
     base = rng.normal(loc=2.0, scale=1.0, size=n).astype(np.float64) + 5.0  # positive for ratio/logratio
@@ -67,6 +68,7 @@ def test_AP2_finite_mask_kwarg_accepted_by_all_threaded_fits(name, fit_fn, extra
 
 
 def _assert_param_dicts_close(a: dict, b: dict, name: str, atol: float = 1e-9):
+    """Assert param dicts close."""
     assert set(a.keys()) == set(b.keys()), f"{name}: param keys differ {a.keys()} vs {b.keys()}"
     for k in a.keys():
         va, vb = a[k], b[k]
@@ -92,6 +94,7 @@ def test_AP2_finite_mask_skips_internal_isfinite_when_supplied(monkeypatch, name
     real_isfinite = _np.isfinite
 
     def _counting_isfinite(*args, **kwargs):
+        """Counting isfinite."""
         counter["calls"] += 1
         return real_isfinite(*args, **kwargs)
 
@@ -106,6 +109,6 @@ def test_AP2_finite_mask_skips_internal_isfinite_when_supplied(monkeypatch, name
     threaded_calls = counter["calls"]
 
     assert baseline_calls > 0, f"{name}: baseline made zero isfinite calls; test is degenerate"
-    assert threaded_calls < baseline_calls, (
-        f"{name}: expected fewer isfinite calls when _finite_mask supplied (baseline={baseline_calls}, with_mask={threaded_calls})"
-    )
+    assert (
+        threaded_calls < baseline_calls
+    ), f"{name}: expected fewer isfinite calls when _finite_mask supplied (baseline={baseline_calls}, with_mask={threaded_calls})"

@@ -25,9 +25,11 @@ from tests.conftest import running_under_xdist
 
 
 def _make_data(seed: int = 0, n_train: int = 300, n_val: int = 200, n_test: int = 200, d: int = 5):
+    """Make data."""
     rng = np.random.default_rng(seed)
 
     def gen(n):
+        """Gen."""
         X = rng.uniform(0, 1, (n, d))
         y = np.sum(np.sin(2 * np.pi * X), axis=1) + rng.normal(0, 0.3, n)
         return pd.DataFrame(X, columns=[f"f{i}" for i in range(d)]), y

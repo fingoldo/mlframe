@@ -30,13 +30,14 @@ from mlframe.feature_selection.wrappers._helpers import (
 )
 from mlframe.feature_selection.wrappers._enums import VotesAggregation
 
-
 # --------------------------------------------------------------------- F1+F2+F3
 
 
 class TestFiMissingPolicy:
+    """Groups tests covering TestFiMissingPolicy."""
     def test_worst_imputation_pushes_missing_below_min(self):
         # Ragged: feature B missing from run r1.
+        """Worst imputation pushes missing below min."""
         feature_importances = {
             "r0": {"A": 0.1, "B": 0.9},
             "r1": {"A": 0.5, "C": 0.4},
@@ -54,12 +55,14 @@ class TestFiMissingPolicy:
         assert imputed.loc["C", "r1"] == pytest.approx(0.4)
 
     def test_skip_policy_preserves_nan(self):
+        """Skip policy preserves nan."""
         feature_importances = {"r0": {"A": 0.1, "B": 0.9}, "r1": {"A": 0.5, "C": 0.4}}
         table = pd.DataFrame(feature_importances)
         imputed = _impute_ragged_fi_table(table, policy="skip")
         assert imputed.isna().to_numpy().any()
 
     def test_median_policy_uses_column_median(self):
+        """Median policy uses column median."""
         feature_importances = {"r0": {"A": 0.1, "B": 0.3, "C": 0.5}, "r1": {"A": 0.2, "C": 0.6}}
         table = pd.DataFrame(feature_importances)
         imputed = _impute_ragged_fi_table(table, policy="median")
@@ -69,6 +72,7 @@ class TestFiMissingPolicy:
     def test_borda_under_worst_policy_penalises_partial_voters(self):
         # A: top in 3/3 runs. B: top in only 1/3 (missing from r1, r2).
         # Under 'worst' B is treated as last in r1, r2 -> A clearly wins.
+        """Borda under worst policy penalises partial voters."""
         feature_importances = {
             "r0": {"A": 1.0, "B": 0.9, "C": 0.1},
             "r1": {"A": 1.0, "C": 0.5},
@@ -85,6 +89,7 @@ class TestFiMissingPolicy:
 
     def test_borda_under_skip_policy_keeps_legacy_bias(self):
         # Demonstrates the bias 'skip' inherits from the legacy code path.
+        """Borda under skip policy keeps legacy bias."""
         feature_importances = {
             "r0": {"A": 1.0, "B": 0.9, "C": 0.1},
             "r1": {"A": 1.0, "C": 0.5},
@@ -104,7 +109,9 @@ class TestFiMissingPolicy:
 
 
 class TestFeatureGroupsOverlapAssert:
+    """Groups tests covering TestFeatureGroupsOverlapAssert."""
     def test_overlap_raises_at_init(self):
+        """Overlap raises at init."""
         with pytest.raises(ValueError, match="appears in BOTH group"):
             RFECV(
                 estimator=LogisticRegression(),
@@ -115,6 +122,7 @@ class TestFeatureGroupsOverlapAssert:
             )
 
     def test_disjoint_groups_init_fine(self):
+        """Disjoint groups init fine."""
         RFECV(
             estimator=LogisticRegression(),
             feature_groups={"g1": ["a", "b"], "g2": ["c", "d"]},
@@ -125,11 +133,14 @@ class TestFeatureGroupsOverlapAssert:
 
 
 class TestNewInitKnobs:
+    """Groups tests covering TestNewInitKnobs."""
     def test_invalid_fi_missing_policy_rejected(self):
+        """Invalid fi missing policy rejected."""
         with pytest.raises(ValueError, match="fi_missing_policy"):
             RFECV(estimator=LogisticRegression(), fi_missing_policy="bogus")
 
     def test_default_knobs_match_new_safe_values(self):
+        """Default knobs match new safe values."""
         r = RFECV(estimator=LogisticRegression())
         assert r.keep_loser_subset_fi is False
         assert r.fi_missing_policy == "worst"
@@ -143,7 +154,9 @@ class TestNewInitKnobs:
 
 
 class TestMustIncludeOverridesLeakage:
+    """Groups tests covering TestMustIncludeOverridesLeakage."""
     def _leaky_frame(self):
+        """Leaky frame."""
         X, y = make_classification(
             n_samples=200,
             n_features=8,
@@ -156,6 +169,7 @@ class TestMustIncludeOverridesLeakage:
         return X, y
 
     def test_must_include_overrides_exclude_keeps_pinned_leaky(self, caplog):
+        """Must include overrides exclude keeps pinned leaky."""
         X, y = self._leaky_frame()
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=400),
@@ -174,6 +188,7 @@ class TestMustIncludeOverridesLeakage:
         assert any("must_include pins" in rec.getMessage() for rec in caplog.records)
 
     def test_must_include_overrides_raise_downgrades_when_all_pinned(self):
+        """Must include overrides raise downgrades when all pinned."""
         X, y = self._leaky_frame()
         # Single leak, pinned -> 'raise' must downgrade to warn.
         rfecv = RFECV(
@@ -201,6 +216,7 @@ class TestAutoRuleResolution:
 
     def test_auto_resolves_to_one_se_max(self):
         # Verify by checking N is within the 1-SE band of argmax mean.
+        """Auto resolves to one se max."""
         X, y = make_regression(n_samples=120, n_features=8, n_informative=3, random_state=0)
         rfecv = RFECV(estimator=Ridge(), cv=3, max_refits=5)
         rfecv.fit(X, y)
@@ -218,6 +234,7 @@ class TestAutoRuleResolution:
             assert rfecv.n_features_ == int(in_band.max())
 
     def test_explicit_argmax_still_picks_argmax(self):
+        """Explicit argmax still picks argmax."""
         X, y = make_regression(n_samples=120, n_features=8, n_informative=3, random_state=0)
         rfecv = RFECV(estimator=Ridge(), cv=3, max_refits=5, n_features_selection_rule="argmax")
         rfecv.fit(X, y)
@@ -240,12 +257,14 @@ class TestDummySubmitKnob:
     """
 
     def test_opt_out_suppresses_dummy_submission(self, monkeypatch):
+        """Opt out suppresses dummy submission."""
         from mlframe.models.optimization import MBHOptimizer
 
         submitted: list = []
         orig = MBHOptimizer.submit_evaluations
 
         def tracked(self, candidates, evaluations, durations):
+            """Helper that tracked."""
             submitted.extend(list(candidates))
             return orig(self, candidates, evaluations, durations)
 
@@ -262,12 +281,14 @@ class TestDummySubmitKnob:
         assert 0 not in submitted, f"submit_dummy_to_optimizer=False should suppress N=0; got {submitted}"
 
     def test_default_submits_dummy(self, monkeypatch):
+        """Default submits dummy."""
         from mlframe.models.optimization import MBHOptimizer
 
         submitted: list = []
         orig = MBHOptimizer.submit_evaluations
 
         def tracked(self, candidates, evaluations, durations):
+            """Helper that tracked."""
             submitted.extend(list(candidates))
             return orig(self, candidates, evaluations, durations)
 
@@ -283,9 +304,11 @@ class TestDummySubmitKnob:
 
 
 class TestFiRollbackOnLoserSubset:
+    """Groups tests covering TestFiRollbackOnLoserSubset."""
     def test_loser_subset_fi_not_kept_by_default(self):
         # Direct unit on the rollback machinery: simulate two iters writing FI at the same N,
         # second one losing the gate. After the loop the loser's FI runs must be gone.
+        """Loser subset fi not kept by default."""
         from mlframe.feature_selection.wrappers.rfecv._fit_outer_loop import OuterLoopState
 
         state = OuterLoopState()
@@ -311,9 +334,11 @@ class TestFiRollbackOnLoserSubset:
 
 
 class TestSwapTopKGatedOnValCv:
+    """Groups tests covering TestSwapTopKGatedOnValCv."""
     def test_swap_not_skipped_when_estimator_lacks_es(self):
         # Ridge does NOT support early stopping -> val_cv is dead even if
         # early_stopping_val_nsplits is truthy. swap MUST run.
+        """Swap not skipped when estimator lacks es."""
         X, y = make_regression(n_samples=200, n_features=8, n_informative=4, random_state=0)
         rfecv = RFECV(
             estimator=Ridge(),
@@ -327,6 +352,7 @@ class TestSwapTopKGatedOnValCv:
 
     def test_swap_skipped_with_es_estimator(self, monkeypatch, caplog):
         # Simulate "estimator supports ES" by patching has_early_stopping_support.
+        """Swap skipped with es estimator."""
         import mlframe.core.helpers as _helpers
 
         monkeypatch.setattr(_helpers, "has_early_stopping_support", lambda name: True)
@@ -344,12 +370,13 @@ class TestSwapTopKGatedOnValCv:
         )
         with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(X, y)
-        assert any("swap_top_k=" in rec.getMessage() and "skipped" in rec.getMessage() for rec in caplog.records), (
-            f"Expected the swap_top_k skip log; got: {[r.getMessage() for r in caplog.records[-10:]]}"
-        )
+        assert any(
+            "swap_top_k=" in rec.getMessage() and "skipped" in rec.getMessage() for rec in caplog.records
+        ), f"Expected the swap_top_k skip log; got: {[r.getMessage() for r in caplog.records[-10:]]}"
 
     def test_opt_in_override_runs_swap(self, monkeypatch):
         # Force ES estimator detection so the gate kicks in.
+        """Opt in override runs swap."""
         import mlframe.core.helpers as _helpers
 
         monkeypatch.setattr(_helpers, "has_early_stopping_support", lambda name: True)

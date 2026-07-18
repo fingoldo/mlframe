@@ -181,6 +181,6 @@ def test_biz_val_adversarial_feature_audit_stability_folds_distinguishes_robust_
     robust_distance_from_unanimous = min(robust["keep_frac"], 1.0 - robust["keep_frac"])
     borderline_distance_from_unanimous = min(borderline["keep_frac"], 1.0 - borderline["keep_frac"])
     assert robust_distance_from_unanimous == 0.0
-    assert borderline_distance_from_unanimous >= 0.25, (
-        f"borderline feature's verdict should flip on a substantial share of folds, not just a fluke: {borderline}"
-    )
+    assert (
+        borderline_distance_from_unanimous >= 0.25
+    ), f"borderline feature's verdict should flip on a substantial share of folds, not just a fluke: {borderline}"

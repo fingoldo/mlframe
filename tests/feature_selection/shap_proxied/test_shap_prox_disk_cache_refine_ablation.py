@@ -160,9 +160,9 @@ def test_within_cluster_refine_cache_hit_identical_subset_and_populates_dir(tmp_
     files = list(cache_dir.iterdir())
     assert len(files) >= 1, "refine cache_dir should have honest_loss_ entries after the cold call"
     valid_prefixes = ("honest_loss_", "perm_imp_fit_")
-    assert all(f.name.startswith(valid_prefixes) for f in files), (
-        f"all refine entries should be in the honest_loss_ / perm_imp_fit_ namespaces, got {[f.name for f in files]}"
-    )
+    assert all(
+        f.name.startswith(valid_prefixes) for f in files
+    ), f"all refine entries should be in the honest_loss_ / perm_imp_fit_ namespaces, got {[f.name for f in files]}"
     assert any(f.name.startswith("honest_loss_") for f in files), f"refine should have written at least one honest_loss_ entry, got {[f.name for f in files]}"
 
     refined_warm = within_cluster_refine(
@@ -247,6 +247,7 @@ def test_shapproxiedfs_two_fit_cache_dir_refine_path_identical_subset(tmp_path: 
     cache_dir = tmp_path / "e2e_refine_cache"
 
     def _fit():
+        """Helper that fit."""
         sel = ShapProxiedFS(
             classification=True,
             metric="brier",

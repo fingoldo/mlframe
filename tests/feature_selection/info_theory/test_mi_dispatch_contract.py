@@ -20,7 +20,6 @@ import pytest
 from mlframe.feature_selection.filters._mi_dispatch import score_pair_mi
 from tests.feature_selection.conftest import fast_subset
 
-
 # ---------------------------------------------------------------------------
 # Estimator inventory. Fast ids run unconditionally; neural ids are slow + need
 # torch (+ a downloaded checkpoint for infonet / the mist-statinf package for mist).
@@ -112,6 +111,6 @@ def test_estimator_kwargs_forwarded_to_routed_fn():
     mi_k15 = score_pair_mi(x, y_sig, estimator="mixed_ksg", estimator_kwargs={"k": 15})
     assert np.isfinite(mi_k3), f"k=3 MI must be finite, got {mi_k3!r}"
     assert np.isfinite(mi_k15), f"k=15 MI must be finite, got {mi_k15!r}"
-    assert mi_k3 != mi_k15, (
-        f"estimator_kwargs not forwarded: mixed_ksg k=3 ({mi_k3}) and k=15 ({mi_k15}) returned the same value, so k never reached the routed fn"
-    )
+    assert (
+        mi_k3 != mi_k15
+    ), f"estimator_kwargs not forwarded: mixed_ksg k=3 ({mi_k3}) and k=15 ({mi_k15}) returned the same value, so k never reached the routed fn"

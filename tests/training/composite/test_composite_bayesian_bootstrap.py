@@ -19,7 +19,6 @@ import numpy as np
 
 from mlframe.training.composite.discovery.bayesian import bayesian_alpha_fit_bootstrap
 
-
 _REQUIRED_KEYS = {
     "alpha_mean",
     "alpha_std",
@@ -37,6 +36,7 @@ _REQUIRED_KEYS = {
 
 
 def _synthetic_linear(n: int = 500, alpha: float = 2.5, beta: float = -1.0, noise_sd: float = 0.3, seed: int = 0):
+    """Synthetic linear."""
     rng = np.random.default_rng(seed)
     base = rng.normal(size=n)
     y = alpha * base + beta + rng.normal(scale=noise_sd, size=n)
@@ -44,6 +44,7 @@ def _synthetic_linear(n: int = 500, alpha: float = 2.5, beta: float = -1.0, nois
 
 
 def test_bootstrap_returns_documented_dict_shape():
+    """Bootstrap returns documented dict shape."""
     y, base = _synthetic_linear(n=200, seed=1)
     out = bayesian_alpha_fit_bootstrap(y, base, n_bootstrap=50, random_state=7)
     missing = _REQUIRED_KEYS - set(out.keys())
@@ -56,6 +57,7 @@ def test_bootstrap_returns_documented_dict_shape():
 
 
 def test_bootstrap_seed_determinism():
+    """Bootstrap seed determinism."""
     y, base = _synthetic_linear(n=300, seed=11)
     a = bayesian_alpha_fit_bootstrap(y, base, n_bootstrap=60, random_state=42)
     b = bayesian_alpha_fit_bootstrap(y, base, n_bootstrap=60, random_state=42)
@@ -66,6 +68,7 @@ def test_bootstrap_seed_determinism():
 
 
 def test_bootstrap_n_bootstrap_one_edge_nan_std():
+    """Bootstrap n bootstrap one edge nan std."""
     y, base = _synthetic_linear(n=200, seed=2)
     out = bayesian_alpha_fit_bootstrap(y, base, n_bootstrap=1, random_state=0)
     assert out["n_bootstrap"] == 1
@@ -78,6 +81,7 @@ def test_bootstrap_n_bootstrap_one_edge_nan_std():
 
 
 def test_bootstrap_ci_contains_truth_on_well_specified_dgp():
+    """Bootstrap ci contains truth on well specified dgp."""
     alpha_true, beta_true = 2.5, -1.0
     y, base = _synthetic_linear(n=2000, alpha=alpha_true, beta=beta_true, noise_sd=0.3, seed=3)
     out = bayesian_alpha_fit_bootstrap(y, base, n_bootstrap=300, random_state=0)
@@ -94,6 +98,7 @@ def test_bootstrap_ci_contains_truth_on_well_specified_dgp():
 def test_bootstrap_degenerate_n_lt_4():
     # 3 observations is below the floor n>=4; the function pins a documented
     # NaN-std degenerate-posterior return so callers can detect the case.
+    """Bootstrap degenerate n lt 4."""
     y = np.array([1.0, 2.0, 3.0])
     base = np.array([0.5, 1.0, 1.5])
     out = bayesian_alpha_fit_bootstrap(y, base, n_bootstrap=10)
@@ -108,6 +113,7 @@ def test_bootstrap_degenerate_n_lt_4():
 
 
 def test_bootstrap_subsample_n_caps_per_draw_size():
+    """Bootstrap subsample n caps per draw size."""
     y, base = _synthetic_linear(n=1000, seed=4)
     # subsample_n smaller than n: each bootstrap draw uses subsample_n rows.
     # The result must still be valid (finite, sensible CIs).
@@ -127,6 +133,7 @@ def test_bootstrap_subsample_n_caps_per_draw_size():
 
 def test_bootstrap_ci_level_parameter_widens_or_narrows():
     # Wider CI level -> wider interval. 99% must be wider than 50% on the same data.
+    """Bootstrap ci level parameter widens or narrows."""
     y, base = _synthetic_linear(n=500, seed=5)
     narrow = bayesian_alpha_fit_bootstrap(y, base, n_bootstrap=200, ci_level=0.50, random_state=0)
     wide = bayesian_alpha_fit_bootstrap(y, base, n_bootstrap=200, ci_level=0.99, random_state=0)

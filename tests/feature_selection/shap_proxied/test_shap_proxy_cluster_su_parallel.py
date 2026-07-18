@@ -25,6 +25,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import (
 
 
 def _quantile_bin(col: np.ndarray, n_bins: int) -> np.ndarray:
+    """Quantile bin."""
     col = np.asarray(col, dtype=np.float64)
     if np.unique(col).size <= 1:
         return np.zeros_like(col, dtype=np.int32)
@@ -36,6 +37,7 @@ def _quantile_bin(col: np.ndarray, n_bins: int) -> np.ndarray:
 
 
 def _build_synthetic_bins(n_samples: int, n_features: int, n_bins: int, seed: int):
+    """Build synthetic bins."""
     rng = np.random.default_rng(seed)
     # mix of correlated clusters + noise so the partition is non-trivial.
     n_blocks = max(1, n_features // 6)
@@ -137,6 +139,7 @@ def test_parallel_kernel_speedup_at_f500():
     n_trials = 5
 
     def _min_wall(use_parallel: bool):
+        """Min wall."""
         best = float("inf")
         labels = None
         for _ in range(n_trials):
@@ -155,6 +158,6 @@ def test_parallel_kernel_speedup_at_f500():
 
     assert np.array_equal(serial_labels, parallel_labels), "labels diverge at f=500"
     ratio = t_serial / max(t_parallel, 1e-9)
-    assert ratio >= 2.0, (
-        f"parallel kernel not fast enough: serial={t_serial:.3f}s, parallel={t_parallel:.3f}s, ratio={ratio:.2f}x (need >= 2x), threads={n_threads}"
-    )
+    assert (
+        ratio >= 2.0
+    ), f"parallel kernel not fast enough: serial={t_serial:.3f}s, parallel={t_parallel:.3f}s, ratio={ratio:.2f}x (need >= 2x), threads={n_threads}"

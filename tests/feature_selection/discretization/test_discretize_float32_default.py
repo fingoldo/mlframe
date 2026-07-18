@@ -25,14 +25,17 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 @pytest.fixture(autouse=True)
 def _clear_discretize_env(monkeypatch):
+    """Clear discretize env."""
     monkeypatch.delenv("MLFRAME_DISCRETIZE_FLOAT32", raising=False)
 
 
 def test_default_dtype_is_float32():
+    """Default dtype is float32."""
     assert _discretize_input_dtype() is np.float32
 
 
 def test_env_zero_forces_float64():
+    """Env zero forces float64."""
     import os
 
     os.environ["MLFRAME_DISCRETIZE_FLOAT32"] = "0"
@@ -44,6 +47,7 @@ def test_env_zero_forces_float64():
 
 @pytest.mark.parametrize("env_value", ["false", "False"])
 def test_env_false_variants_force_float64(env_value):
+    """Env false variants force float64."""
     import os
 
     os.environ["MLFRAME_DISCRETIZE_FLOAT32"] = env_value
@@ -65,6 +69,7 @@ def test_env_one_still_selects_float32():
 
 
 def _make_signal_dataset(n: int = 4000, seed: int = 123):
+    """Make signal dataset."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(
         {
@@ -98,6 +103,6 @@ def test_float32_default_selection_matches_float64_forced():
     m32 = MRMR(n_jobs=1, n_workers=1, random_seed=13, verbose=0, fe_max_steps=0)
     m32.fit(X, y)
 
-    assert list(m64.support_) == list(m32.support_), (
-        f"selection diverged between float64-forced and float32-default: {np.asarray(X.columns)[m64.support_]} vs {np.asarray(X.columns)[m32.support_]}"
-    )
+    assert list(m64.support_) == list(
+        m32.support_
+    ), f"selection diverged between float64-forced and float32-default: {np.asarray(X.columns)[m64.support_]} vs {np.asarray(X.columns)[m32.support_]}"

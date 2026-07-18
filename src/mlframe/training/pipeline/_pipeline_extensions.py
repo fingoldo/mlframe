@@ -229,7 +229,7 @@ def _apply_pysr_fe(
         # Wrap drop in try/except so a pandas KeyError chain on a corrupted MultiIndex column or a read-only frame doesn't mask the in-flight exception (errors="ignore" covers the missing-column case but not deeper pandas-internal failures). Skip the drop when injection itself failed -- nothing to remove.
         if _column_was_injected:
             try:
-                train_df.drop(columns=[temp_target_col], inplace=True, errors="ignore")
+                train_df.drop(columns=[temp_target_col], inplace=True, errors="ignore")  # noqa: PD002 -- must mutate the caller's train_df object in place; a rebind here would not propagate outside this function
             except Exception as _drop_err:
                 logger.debug("pipeline: temp_target_col drop failed in finally: %s", _drop_err)
 
@@ -281,7 +281,7 @@ def _apply_pysr_fe(
             for _frame in (train_df, val_df, test_df):
                 if _frame is not None and col_name in getattr(_frame, "columns", []):
                     try:
-                        _frame.drop(columns=[col_name], inplace=True)
+                        _frame.drop(columns=[col_name], inplace=True)  # noqa: PD002 -- _frame is a loop var aliasing train_df/val_df/test_df; a rebind would not propagate the rollback to the caller's actual frames
                     except (TypeError, ValueError):
                         # polars (no inplace=) or unusual frame -- best-effort drop.
                         pass

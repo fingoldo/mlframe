@@ -15,13 +15,13 @@ import pandas as pd
 
 from mlframe.training.reporting import _reporting as R
 
-
 # ---------------------------------------------------------------------------
 # INV-52: _maybe_display logs a text frame when no IPython kernel is present
 # ---------------------------------------------------------------------------
 
 
 def test_maybe_display_logs_frame_when_no_ipython(monkeypatch, caplog):
+    """Maybe display logs frame when no ipython."""
     monkeypatch.setattr(R, "_ipython_display", None)
     df = pd.DataFrame({"segment": ["a", "b"], "acc": [0.9, 0.6]})
     with caplog.at_level(logging.INFO, logger=R.logger.name):
@@ -31,6 +31,7 @@ def test_maybe_display_logs_frame_when_no_ipython(monkeypatch, caplog):
 
 
 def test_maybe_display_logs_styler_underlying_frame(monkeypatch, caplog):
+    """Maybe display logs styler underlying frame."""
     monkeypatch.setattr(R, "_ipython_display", None)
     df = pd.DataFrame({"x": [1, 2], "y": [3, 4]})
     styler = R._style_with_caption(df, "caption")  # a Styler when jinja2 present, else the bare frame
@@ -41,6 +42,7 @@ def test_maybe_display_logs_styler_underlying_frame(monkeypatch, caplog):
 
 
 def test_maybe_display_ignores_non_frame(monkeypatch, caplog):
+    """Maybe display ignores non frame."""
     monkeypatch.setattr(R, "_ipython_display", None)
     with caplog.at_level(logging.INFO, logger=R.logger.name):
         R._maybe_display("not a frame")  # str has no .to_string returning a frame layout
@@ -49,6 +51,7 @@ def test_maybe_display_ignores_non_frame(monkeypatch, caplog):
 
 
 def test_frame_to_text_handles_dataframe():
+    """Frame to text handles dataframe."""
     df = pd.DataFrame({"a": [1]})
     out = R._frame_to_text(df)
     assert out is not None and "a" in out
@@ -60,12 +63,14 @@ def test_frame_to_text_handles_dataframe():
 
 
 class _FakeLGB:
+    """Groups tests covering fake l g b."""
     def __init__(self, evals, best_iter):
         self.evals_result_ = evals
         self.best_iteration_ = best_iter
 
 
 def _synthetic_evals(n=60, es=40):
+    """Synthetic evals."""
     it = np.arange(n)
     train = 1.0 / (1.0 + it)
     val = 1.0 / (1.0 + it) + np.maximum(0.0, (it - es)) * 0.002
@@ -73,12 +78,14 @@ def _synthetic_evals(n=60, es=40):
 
 
 def test_training_curve_stamps_path_and_keeps_spec(tmp_path):
+    """Training curve stamps path and keeps spec."""
     from mlframe.reporting.spec import FigureSpec
 
     evals, es = _synthetic_evals()
     base = os.path.join(str(tmp_path), "m")
 
     class _Cfg:
+        """Groups tests covering cfg."""
         training_curves = True
         keep_figure_handles = True
 
@@ -99,9 +106,11 @@ def test_training_curve_stamps_path_and_keeps_spec(tmp_path):
 
 
 def test_keep_figure_handles_off_by_default(tmp_path):
+    """Keep figure handles off by default."""
     evals, es = _synthetic_evals()
 
     class _Cfg:
+        """Groups tests covering cfg."""
         training_curves = True
         # no keep_figure_handles attr -> getattr default False
 
@@ -119,11 +128,13 @@ def test_keep_figure_handles_off_by_default(tmp_path):
 
 
 def test_kept_figure_spec_is_picklable(tmp_path):
+    """Kept figure spec is picklable."""
     import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     evals, es = _synthetic_evals()
 
     class _Cfg:
+        """Groups tests covering cfg."""
         training_curves = True
         keep_figure_handles = True
 
@@ -148,9 +159,11 @@ def test_kept_figure_spec_is_picklable(tmp_path):
 
 
 def test_panel_grid_suptitle_carries_shape_annotation(tmp_path, monkeypatch):
+    """Panel grid suptitle carries shape annotation."""
     captured = {}
 
     def _fake_dispatch(*args, **kwargs):
+        """Fake dispatch."""
         captured["suptitle"] = kwargs.get("suptitle")
         return "multiclass"
 
@@ -192,6 +205,7 @@ def test_panel_grid_suptitle_carries_shape_annotation(tmp_path, monkeypatch):
 
 
 def test_log_chart_summary_reports_saved_count(caplog):
+    """Log chart summary reports saved count."""
     from mlframe.training.core._setup_helpers import log_chart_summary
 
     metadata = {"charts": {"saved": ["multiclass_panels", "training_curve"], "failed": []}}
@@ -202,6 +216,7 @@ def test_log_chart_summary_reports_saved_count(caplog):
 
 
 def test_log_chart_summary_hints_when_nothing_saved(caplog):
+    """Log chart summary hints when nothing saved."""
     from mlframe.training.core._setup_helpers import log_chart_summary
 
     with caplog.at_level(logging.INFO):

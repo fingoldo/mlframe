@@ -20,11 +20,11 @@ import polars as pl
 
 from mlframe.training.feature_handling.text_detection import detect_cat_columns_by_dtype
 
-
 # ---- pandas paths --------------------------------------------------------
 
 
 def test_pandas_category_dtype_detected():
+    """Pandas category dtype detected."""
     df = pd.DataFrame(
         {
             "num": np.arange(10),
@@ -37,6 +37,7 @@ def test_pandas_category_dtype_detected():
 
 
 def test_pandas_object_dtype_detected():
+    """Pandas object dtype detected."""
     df = pd.DataFrame(
         {
             "num": np.arange(5),
@@ -48,6 +49,7 @@ def test_pandas_object_dtype_detected():
 
 
 def test_pandas_string_dtype_detected():
+    """Pandas string dtype detected."""
     df = pd.DataFrame(
         {
             "num": np.arange(5),
@@ -59,6 +61,7 @@ def test_pandas_string_dtype_detected():
 
 
 def test_pandas_pure_numeric_excluded():
+    """Pandas pure numeric excluded."""
     df = pd.DataFrame(
         {
             "f": np.arange(5, dtype=np.float64),
@@ -87,6 +90,7 @@ def test_pandas_exclude_columns_dropped_from_output():
 
 
 def test_polars_categorical_dtype_detected():
+    """Polars categorical dtype detected."""
     df = pl.DataFrame(
         {
             "num": list(range(10)),
@@ -99,6 +103,7 @@ def test_polars_categorical_dtype_detected():
 
 
 def test_polars_enum_dtype_detected():
+    """Polars enum dtype detected."""
     enum = pl.Enum(["A", "B"])
     df = pl.DataFrame(
         {
@@ -111,6 +116,7 @@ def test_polars_enum_dtype_detected():
 
 
 def test_polars_string_utf8_detected():
+    """Polars string utf8 detected."""
     df = pl.DataFrame(
         {
             "num": [1.0, 2.0],
@@ -122,6 +128,7 @@ def test_polars_string_utf8_detected():
 
 
 def test_polars_pure_numeric_excluded():
+    """Polars pure numeric excluded."""
     df = pl.DataFrame(
         {
             "f": [1.0, 2.0, 3.0],
@@ -133,6 +140,7 @@ def test_polars_pure_numeric_excluded():
 
 
 def test_polars_exclude_text_cols():
+    """Polars exclude text cols."""
     df = pl.DataFrame(
         {
             "cat_x": pl.Series(["A", "B"] * 3, dtype=pl.Categorical),

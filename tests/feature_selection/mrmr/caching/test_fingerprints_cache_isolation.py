@@ -31,6 +31,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _make_xy(n: int = 220, seed: int = 0):
+    """Make xy."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(
         {
@@ -45,6 +46,7 @@ def _make_xy(n: int = 220, seed: int = 0):
 
 
 def _cold_fit(X, y):
+    """Cold fit."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return MRMR(verbose=0, random_seed=42, fe_max_pair_features=0).fit(X, y)
@@ -82,9 +84,9 @@ def test_d1_fe_provenance_dataframe_not_shared_with_cache_source(_isolated_cache
     src, replayed = _fit_src_then_replay(X, y)
     assert isinstance(src.fe_provenance_, pd.DataFrame)
     assert isinstance(replayed.fe_provenance_, pd.DataFrame)
-    assert replayed.fe_provenance_ is not src.fe_provenance_, (
-        "fe_provenance_ DataFrame is shared by reference with the cached source -- in-place mutation leaks"
-    )
+    assert (
+        replayed.fe_provenance_ is not src.fe_provenance_
+    ), "fe_provenance_ DataFrame is shared by reference with the cached source -- in-place mutation leaks"
 
 
 def test_d1_replayed_dataframe_mutation_does_not_corrupt_future_replays(_isolated_cache):
@@ -94,9 +96,9 @@ def test_d1_replayed_dataframe_mutation_does_not_corrupt_future_replays(_isolate
     # In-place mutation on the replayed instance's DataFrame (add a sentinel column).
     replayed.fe_provenance_["__phantom_audit__"] = 1
     third = _cold_fit(X, y)
-    assert "__phantom_audit__" not in third.fe_provenance_.columns, (
-        "phantom column leaked into a freshly-replayed instance -- the cache source DataFrame was corrupted"
-    )
+    assert (
+        "__phantom_audit__" not in third.fe_provenance_.columns
+    ), "phantom column leaked into a freshly-replayed instance -- the cache source DataFrame was corrupted"
     assert "__phantom_audit__" not in src.fe_provenance_.columns, "phantom column leaked back into the cached source DataFrame"
 
 
@@ -138,6 +140,6 @@ def test_d7_cold_and_replayed_support_behave_identically(_isolated_cache):
     cold_writeable = cold.support_.flags.writeable
     MRMR.clear_fit_cache()
     _src, replayed = _fit_src_then_replay(X, y)
-    assert replayed.support_.flags.writeable is True and cold_writeable is True, (
-        "cold-fit and cache-replayed support_ have different writeable flags -- cache-state-dependent behaviour"
-    )
+    assert (
+        replayed.support_.flags.writeable is True and cold_writeable is True
+    ), "cold-fit and cache-replayed support_ have different writeable flags -- cache-state-dependent behaviour"

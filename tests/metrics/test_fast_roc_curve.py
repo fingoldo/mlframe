@@ -24,7 +24,6 @@ import pytest
 
 from mlframe.metrics.core import fast_roc_curve, fast_roc_auc
 
-
 # ---------------------------------------------------------------------------
 # Unit / edge cases (no sklearn)
 # ---------------------------------------------------------------------------

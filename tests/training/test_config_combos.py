@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import pytest
 
-
 COMBOS = [
     (3, "isotonic", True),
     (5, None, False),

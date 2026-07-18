@@ -25,8 +25,10 @@ from mlframe.feature_selection.wrappers._helpers import (
 
 
 class TestAdaptiveStepSuggester:
+    """Groups tests covering TestAdaptiveStepSuggester."""
     def test_auto_strides_far_on_flat_wide_pool(self):
         # Best at 50, an immediate flat neighbour at 80, 200-wide pool: auto must stride well past the midpoint.
+        """Auto strides far on flat wide pool."""
         ev = {50: 0.80, 80: 0.801}
         remaining = sorted(set(range(1, 201)) - set(ev))
         auto = _suggest_dichotomic(remaining, ev, n_total=200, step="auto")
@@ -35,6 +37,7 @@ class TestAdaptiveStepSuggester:
         assert auto > 80, "auto should jump beyond the nearest evaluated neighbour"
 
     def test_midpoint_is_legacy_bisection(self):
+        """Midpoint is legacy bisection."""
         ev = {50: 0.80, 80: 0.801}
         remaining = sorted(set(range(1, 201)) - set(ev))
         mid = _suggest_dichotomic(remaining, ev, n_total=200, step="midpoint")
@@ -44,16 +47,19 @@ class TestAdaptiveStepSuggester:
 
     def test_auto_tapers_to_fine_when_pool_small(self):
         # Pool nearly drained around the best -> no big stride possible; falls through to midpoint refinement.
+        """Auto tapers to fine when pool small."""
         ev = {n: 0.5 + 0.001 * n for n in range(1, 198)}
         remaining = sorted(set(range(1, 201)) - set(ev))  # {198, 199, 200}
         auto = _suggest_dichotomic(remaining, ev, n_total=200, step="auto")
         assert auto in remaining
 
     def test_curve_flat_detector(self):
+        """Curve flat detector."""
         assert _curve_is_flat_near_best({50: 0.80, 80: 0.8005}, 50) is True
         assert _curve_is_flat_near_best({50: 0.80, 51: 0.95}, 50) is False
 
     def test_first_call_probes_midpoint_both_modes(self):
+        """First call probes midpoint both modes."""
         ev = {30: 0.5}
         remaining = sorted(set(range(1, 61)) - set(ev))
         a = _suggest_dichotomic(remaining, ev, n_total=60, step="auto")
@@ -63,16 +69,20 @@ class TestAdaptiveStepSuggester:
 
 
 class TestRFECVWiring:
+    """Groups tests covering TestRFECVWiring."""
     def test_constructor_rejects_bad_step(self):
+        """Constructor rejects bad step."""
         with pytest.raises(ValueError, match="dichotomic_step"):
             RFECV(estimator=LogisticRegression(), dichotomic_step="bogus")
 
     def test_default_is_midpoint(self):
         # 'auto' was bench-rejected as default (no replicated wall win); legacy midpoint stays default, auto opt-in.
+        """Default is midpoint."""
         sel = RFECV(estimator=LogisticRegression())
         assert sel.dichotomic_step == "midpoint"
 
     def test_search_config_validates_step(self):
+        """Search config validates step."""
         from mlframe.feature_selection.wrappers.rfecv._configs import SearchConfig, _PYDANTIC_AVAILABLE
 
         if not _PYDANTIC_AVAILABLE:
@@ -81,6 +91,7 @@ class TestRFECVWiring:
             SearchConfig(dichotomic_step="bogus")
 
     def test_both_modes_fit_and_select_on_dichotomic(self):
+        """Both modes fit and select on dichotomic."""
         X, y = make_classification(n_samples=600, n_features=40, n_informative=8, n_redundant=6, random_state=0)
         X = pd.DataFrame(X, columns=[f"f{i}" for i in range(40)])
         out = {}

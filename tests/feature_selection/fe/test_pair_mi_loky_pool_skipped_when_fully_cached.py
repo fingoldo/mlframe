@@ -22,6 +22,7 @@ import mlframe.feature_selection.filters._mrmr_fe_step._step_pairmi as step_pair
 
 
 def test_all_pairs_precomputed_flag_true_when_cache_fully_covers_pool():
+    """All pairs precomputed flag true when cache fully covers pool."""
     k = 6
     numeric_vars_to_consider = set(range(k))
     all_pairs = list(combinations(range(k), 2))
@@ -34,6 +35,7 @@ def test_all_pairs_precomputed_flag_true_when_cache_fully_covers_pool():
 
 
 def test_all_pairs_precomputed_flag_false_when_one_pair_missing():
+    """All pairs precomputed flag false when one pair missing."""
     k = 6
     numeric_vars_to_consider = set(range(k))
     all_pairs = list(combinations(range(k), 2))
@@ -51,6 +53,7 @@ def test_loky_pool_never_constructed_when_pool_fully_precomputed(monkeypatch):
     calls = []
 
     class _BoomBackend:
+        """Groups tests covering BoomBackend."""
         def __init__(self, *a, **kw):
             calls.append((a, kw))
             raise AssertionError("LokyBackend must not be constructed when the pool is fully precomputed")
@@ -72,6 +75,7 @@ def test_loky_pool_never_constructed_when_pool_fully_precomputed(monkeypatch):
     cached_confident_MIs: dict = {}
 
     class _Fake:
+        """Groups tests covering Fake."""
         fe_max_engineered_operands = -1
         fe_escalation_feedforward_enable = True
         _fe_synergy_exhaustive_active_ = False

@@ -23,16 +23,19 @@ class _RecordingEstimator(BaseEstimator, RegressorMixin):
         # sklearn.compose's TTR clones via __init__ kwargs; nothing needed here.
 
     def fit(self, X, y, **fit_params):
+        """Fit."""
         self.last_y = np.asarray(y).copy()
         self.last_eval_set = fit_params.get("eval_set")
         return self
 
     def predict(self, X):
         # Return zeros in standardised scale; TTR's inverse_transform should rescale.
+        """Predict."""
         return np.zeros(len(X), dtype=np.float64)
 
 
 def _make_data(n: int = 200, seed: int = 0) -> tuple:
+    """Make data."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 3))
     y = 0.95 * X[:, 0] * 100.0 + 11500.0 + rng.normal(scale=10.0, size=n)
@@ -45,7 +48,9 @@ def _import_ttr_with_eval_set_scaling():
     from sklearn.base import clone as _clone
 
     class _TTRWithEvalSetScaling(TransformedTargetRegressor):
+        """Groups tests covering t t r with eval set scaling."""
         def fit(self, X, y, **fit_params):
+            """Fit."""
             y_arr = np.asarray(y, dtype=np.float64)
             y_arr_2d = y_arr.reshape(-1, 1) if y_arr.ndim == 1 else y_arr
             self.transformer_ = _clone(self.transformer) if self.transformer is not None else None
@@ -77,6 +82,7 @@ def _import_ttr_with_eval_set_scaling():
 
 
 class TestEvalSetScaled:
+    """Groups tests covering eval set scaled."""
     def test_tuple_eval_set_y_val_is_scaled(self) -> None:
         """``eval_set=(X_val, y_val)`` form: y_val must reach the inner regressor on STANDARDISED scale (same as y_train), not raw."""
         TTR = _import_ttr_with_eval_set_scaling()
@@ -155,6 +161,7 @@ class TestEvalSetScaled:
 
 
 class TestRegressionAgainstUnpatchedTTR:
+    """Groups tests covering regression against unpatched t t r."""
     def test_unpatched_ttr_LEAVES_eval_set_raw(self) -> None:
         """Sanity / regression sensor: the STOCK sklearn TransformedTargetRegressor does NOT scale eval_set -- demonstrating the bug F7 fixes. If sklearn ever changes this behavior the test will fail loudly and we can drop the custom subclass."""
         from sklearn.compose import TransformedTargetRegressor

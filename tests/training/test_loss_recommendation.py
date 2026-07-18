@@ -18,14 +18,17 @@ from mlframe.training.loss_recommendation import recommend_boosting_regression_l
 
 
 def _gaussian(n: int = 5000, seed: int = 0) -> np.ndarray:
+    """Gaussian."""
     return np.random.default_rng(seed).standard_normal(n)
 
 
 def _laplace(n: int = 5000, seed: int = 1) -> np.ndarray:
+    """Laplace."""
     return np.random.default_rng(seed).laplace(loc=0.0, scale=1.0, size=n)
 
 
 def _student_t(n: int = 5000, df: float = 3.0, seed: int = 2) -> np.ndarray:
+    """Student t."""
     return np.random.default_rng(seed).standard_t(df=df, size=n)
 
 
@@ -47,7 +50,9 @@ def _contaminated(
 
 
 class TestRecommendation:
+    """Groups tests covering recommendation."""
     def test_gaussian_picks_rmse(self) -> None:
+        """Gaussian picks rmse."""
         rec = recommend_boosting_regression_loss(_gaussian())
         assert rec["cb"] == "RMSE"
         assert rec["lgb"] == "regression"

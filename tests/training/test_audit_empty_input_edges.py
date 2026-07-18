@@ -36,13 +36,13 @@ from __future__ import annotations
 
 import numpy as np
 
-
 # ---------------------------------------------------------------------------
 # Behavioural sensors: each fix should return a clean result on empty input.
 # ---------------------------------------------------------------------------
 
 
 def test_clip_to_quantiles_empty_array_returns_empty() -> None:
+    """Clip to quantiles empty array returns empty."""
     from mlframe.estimators.custom import clip_to_quantiles
 
     arr = np.array([], dtype=np.float64)
@@ -53,6 +53,7 @@ def test_clip_to_quantiles_empty_array_returns_empty() -> None:
 
 
 def test_clip_to_quantiles_empty_array_winsor_linear() -> None:
+    """Clip to quantiles empty array winsor linear."""
     from mlframe.estimators.custom import clip_to_quantiles
 
     arr = np.array([], dtype=np.float32)
@@ -61,6 +62,7 @@ def test_clip_to_quantiles_empty_array_winsor_linear() -> None:
 
 
 def test_compute_prior_empty_y_returns_zero_no_warning() -> None:
+    """Compute prior empty y returns zero no warning."""
     from mlframe.training.feature_handling.target_encoders import _compute_prior
 
     out_mean = _compute_prior(np.array([], dtype=np.float64), "mean")
@@ -70,6 +72,7 @@ def test_compute_prior_empty_y_returns_zero_no_warning() -> None:
 
 
 def test_compute_prior_empty_y_weighted_branch() -> None:
+    """Compute prior empty y weighted branch."""
     from mlframe.training.feature_handling.target_encoders import _compute_prior
 
     out = _compute_prior(
@@ -98,6 +101,7 @@ def test_rfecv_n_features_bootstrap_ci_zero_bootstrap_no_crash() -> None:
 
 
 def test_rfecv_n_features_bootstrap_ci_negative_bootstrap_no_crash() -> None:
+    """Rfecv n features bootstrap ci negative bootstrap no crash."""
     from mlframe.feature_selection.wrappers.rfecv import RFECV
 
     rf = RFECV.__new__(RFECV)
@@ -147,30 +151,35 @@ MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
 def _read(rel: str) -> str:
+    """Read."""
     return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
 
 
 def test_metrics_calibration_plot_guards_empty_freqs_predicted() -> None:
     # ``show_calibration_plot`` was moved to ``_calibration_plot.py`` when
     # ``metrics/core.py`` was split into siblings.
+    """Metrics calibration plot guards empty freqs predicted."""
     src = _read("metrics/calibration/_calibration_plot.py")
-    assert "if freqs_predicted.size == 0:" in src, (
-        "metrics/calibration/_calibration_plot.py: show_calibration_plot must guard freqs_predicted before np.min/np.max."
-    )
+    assert (
+        "if freqs_predicted.size == 0:" in src
+    ), "metrics/calibration/_calibration_plot.py: show_calibration_plot must guard freqs_predicted before np.min/np.max."
 
 
 def test_clip_to_quantiles_guards_empty_input() -> None:
+    """Clip to quantiles guards empty input."""
     src = _read("estimators/custom.py")
     # The fix introduces an early-return on empty array before the np.quantile call.
     assert "arr_arr.size == 0" in src, "estimators/custom.py: clip_to_quantiles must guard empty input before np.quantile."
 
 
 def test_conformal_locally_adaptive_guards_tiny_train() -> None:
+    """Conformal locally adaptive guards tiny train."""
     src = _read("feature_engineering/transformer/conformal_locally_adaptive.py")
     assert "if n < 4:" in src, "conformal_locally_adaptive.py: _process must guard tiny-train (n<4) before half-split."
 
 
 def test_target_encoders_compute_prior_guards_empty_y() -> None:
+    """Target encoders compute prior guards empty y."""
     src = _read("training/feature_handling/target_encoders.py")
     # The fix prints a warning and returns 0.0 on empty y.
     helper_idx = src.find("def _compute_prior")

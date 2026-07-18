@@ -24,6 +24,7 @@ from mlframe.feature_selection.wrappers._helpers_importance import get_actual_fe
 
 def test_biz_tree_variance_downweight_beats_raw_mean():
     # steady true feature: gain 1.0 every fold. noisy decoy: same mean 1.0 but swings 0<->2.
+    """Biz tree variance downweight beats raw mean."""
     fi = {f"r{k}": {"true": 1.0, "noisy": (2.0 if k % 2 == 0 else 0.0)} for k in range(6)}
     disp = aggregate_tree(fi, k_cv=1.0)
     ratio = disp["true"] / max(disp["noisy"], 1e-9)
@@ -36,6 +37,7 @@ def test_biz_tree_variance_downweight_beats_raw_mean():
 
 def test_biz_linear_sign_harmony_beats_abs_mean_vote():
     # consistent true feature: coef +0.8 every fold. flipper decoy: |coef|=1.0 but sign 3+/3-.
+    """Biz linear sign harmony beats abs mean vote."""
     {
         "true": {f"r{k}": 0.8 for k in range(6)},
     }
@@ -44,9 +46,9 @@ def test_biz_linear_sign_harmony_beats_abs_mean_vote():
     abs_fi = {f"r{k}": {"true": 0.8, "flip": 1.0} for k in range(6)}
 
     disp = aggregate_linear(sg)
-    assert disp["true"] > disp["flip"], (
-        f"sign-harmony must demote the sign-flipper below the weaker consistent feature: true={disp['true']:.3f} flip={disp['flip']:.3f}"
-    )
+    assert (
+        disp["true"] > disp["flip"]
+    ), f"sign-harmony must demote the sign-flipper below the weaker consistent feature: true={disp['true']:.3f} flip={disp['flip']:.3f}"
     # The flipper's signed mean is ~0 -> score ~0; the consistent feature keeps ~0.8.
     assert disp["true"] >= 0.7
     assert disp["flip"] <= 0.1
@@ -67,6 +69,7 @@ def test_biz_linear_sign_harmony_beats_abs_mean_vote():
 
 def test_biz_kernel_no_regression_vs_legacy():
     # kernel family must produce EXACTLY the legacy ranking (defers) -> zero regression risk.
+    """Biz kernel no regression vs legacy."""
     fi = {"r0": {"a": 0.9, "b": 0.3, "c": 0.1}, "r1": {"a": 0.8, "b": 0.4, "c": 0.05}}
     legacy = get_actual_features_ranking(fi, votes_aggregation_method=VotesAggregation.Borda)
     disp = aggregate_importances_dispatched(fi, family="kernel", votes_aggregation_method=VotesAggregation.Borda)

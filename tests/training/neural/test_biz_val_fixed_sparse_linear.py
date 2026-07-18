@@ -27,6 +27,7 @@ from mlframe.training.neural.fixed_sparse_linear import FixedSparseLinear, _buil
 
 
 def test_biz_val_fixed_sparse_linear_guarantees_exact_effective_parameter_reduction():
+    """Biz val fixed sparse linear guarantees exact effective parameter reduction."""
     in_features, out_features, sparsity = 200, 256, 0.9
     layer = FixedSparseLinear(in_features, out_features, sparsity=sparsity, random_state=0)
 
@@ -36,9 +37,9 @@ def test_biz_val_fixed_sparse_linear_guarantees_exact_effective_parameter_reduct
 
     # The mask is FIXED (not stochastic dropout), so this reduction is a guaranteed property of every
     # forward/backward pass -- not merely an expected value averaged over random samples.
-    assert abs(effective_fraction - (1.0 - sparsity)) < 0.02, (
-        f"expected the layer's effective nonzero-weight fraction to match the configured (1-sparsity) target, got {effective_fraction:.4f} vs target {1.0 - sparsity:.4f}"
-    )
+    assert (
+        abs(effective_fraction - (1.0 - sparsity)) < 0.02
+    ), f"expected the layer's effective nonzero-weight fraction to match the configured (1-sparsity) target, got {effective_fraction:.4f} vs target {1.0 - sparsity:.4f}"
 
     optimizer = torch.optim.Adam(layer.parameters(), lr=0.05)
     x = torch.randn(32, in_features)
@@ -49,12 +50,13 @@ def test_biz_val_fixed_sparse_linear_guarantees_exact_effective_parameter_reduct
         optimizer.step()
 
     n_nonzero_after_training = int((layer.linear.weight * layer.mask != 0).sum().item())
-    assert n_nonzero_after_training <= n_nonzero, (
-        "expected the guaranteed sparsity bound to hold after training (masked positions can only be zero, gradient updates can't reintroduce nonzero values there)"
-    )
+    assert (
+        n_nonzero_after_training <= n_nonzero
+    ), "expected the guaranteed sparsity bound to hold after training (masked positions can only be zero, gradient updates can't reintroduce nonzero values there)"
 
 
 def test_fixed_sparse_linear_maintains_sparsity_through_training():
+    """Fixed sparse linear maintains sparsity through training."""
     layer = FixedSparseLinear(20, 40, sparsity=0.9, random_state=0)
     assert abs(layer.actual_sparsity - 0.9) < 0.02
 
@@ -74,6 +76,7 @@ def test_fixed_sparse_linear_maintains_sparsity_through_training():
 
 
 def test_fixed_sparse_linear_invalid_sparsity_raises():
+    """Fixed sparse linear invalid sparsity raises."""
     import pytest
 
     with pytest.raises(ValueError):
@@ -90,12 +93,13 @@ def test_fixed_sparse_linear_default_mask_construction_unchanged_when_importance
     # Pin against the exact construction formula used before this change existed, replicated here.
     generator = torch.Generator().manual_seed(7)
     expected_mask = (torch.rand(20, 30, generator=generator) < 0.2).to(torch.float32)
-    assert torch.equal(layer_a.mask, expected_mask), (
-        "default (no `importance`) mask construction changed -- must stay bit-identical to the prior uniform-random formula"
-    )
+    assert torch.equal(
+        layer_a.mask, expected_mask
+    ), "default (no `importance`) mask construction changed -- must stay bit-identical to the prior uniform-random formula"
 
 
 def test_fixed_sparse_linear_importance_mask_keeps_top_ranked_inputs():
+    """Fixed sparse linear importance mask keeps top ranked inputs."""
     in_features, out_features, sparsity = 50, 16, 0.8
     importance = torch.arange(in_features, dtype=torch.float32)  # feature i has importance i -> top n_keep are the highest indices
     layer = FixedSparseLinear(in_features, out_features, sparsity=sparsity, importance=importance)
@@ -109,6 +113,7 @@ def test_fixed_sparse_linear_importance_mask_keeps_top_ranked_inputs():
 
 
 def test_fixed_sparse_linear_importance_mask_wrong_length_raises():
+    """Fixed sparse linear importance mask wrong length raises."""
     import pytest
 
     with pytest.raises(ValueError):
@@ -128,6 +133,7 @@ def test_biz_val_fixed_sparse_linear_importance_mask_beats_random_mask_on_sparse
     true_weights = torch.randn(n_informative)
 
     def make_batch(n: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """Make batch."""
         x = torch.randn(n, in_features)
         y = (x[:, informative_idx] @ true_weights).unsqueeze(1) + 0.1 * torch.randn(n, 1)
         return x, y
@@ -141,6 +147,7 @@ def test_biz_val_fixed_sparse_linear_importance_mask_beats_random_mask_on_sparse
     importance = (x_centered * y_centered).mean(dim=0).abs() / (x_train.std(dim=0) * y_train.std() + 1e-8)
 
     def fit_and_eval(layer: FixedSparseLinear, seed: int) -> float:
+        """Fit and eval."""
         torch.manual_seed(seed)
         optimizer = torch.optim.Adam(layer.parameters(), lr=0.02)
         for _ in range(300):
@@ -164,12 +171,13 @@ def test_biz_val_fixed_sparse_linear_importance_mask_beats_random_mask_on_sparse
 
     # Threshold set below the measured margin (importance-ranked mask reliably keeps all 6 informative
     # inputs; random uniform sampling over 60 columns at 10% keep-rate frequently drops several of them).
-    assert mean_importance_mse < mean_random_mse * 0.7, (
-        f"expected importance-ranked mask to beat random mask by a real margin, got importance={mean_importance_mse:.4f} vs random={mean_random_mse:.4f}"
-    )
+    assert (
+        mean_importance_mse < mean_random_mse * 0.7
+    ), f"expected importance-ranked mask to beat random mask by a real margin, got importance={mean_importance_mse:.4f} vs random={mean_random_mse:.4f}"
 
 
 def test_build_importance_mask_helper_respects_keep_count():
+    """Build importance mask helper respects keep count."""
     generator = torch.Generator().manual_seed(1)
     mask = _build_importance_mask(torch.rand(40), out_features=5, in_features=40, sparsity=0.75, generator=generator)
     n_kept_per_row = int(mask[0].sum().item())

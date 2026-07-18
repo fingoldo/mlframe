@@ -39,7 +39,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # ---- #1 _resolve_use_gpu ------------------------------------------------
 
 
@@ -52,12 +51,14 @@ def test_resolve_use_gpu_accepts_numpy_bool_false():
 
 
 def test_resolve_use_gpu_accepts_python_bool_false():
+    """Resolve use gpu accepts python bool false."""
     from mlframe.feature_engineering.transformer.random_features import _resolve_use_gpu
 
     assert _resolve_use_gpu(use_gpu=False, work=100, threshold=None) == False  # noqa: E712
 
 
 def test_resolve_use_gpu_string_auto_still_works():
+    """Resolve use gpu string auto still works."""
     from mlframe.feature_engineering.transformer.random_features import _resolve_use_gpu
 
     # Without GPU available, "auto" returns False.
@@ -66,6 +67,7 @@ def test_resolve_use_gpu_string_auto_still_works():
 
 
 def test_resolve_use_gpu_invalid_string_raises():
+    """Resolve use gpu invalid string raises."""
     from mlframe.feature_engineering.transformer.random_features import _resolve_use_gpu
 
     with pytest.raises(ValueError, match="must be True, False, or 'auto'"):

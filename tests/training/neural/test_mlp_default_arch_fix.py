@@ -34,7 +34,6 @@ from types import SimpleNamespace
 
 import pytest
 
-
 pytest.importorskip("pytorch_lightning")
 
 
@@ -54,9 +53,11 @@ class _RecorderEstimator:
     # ``_TTRWithEvalSetScaling`` for regression -- TTR's __init__ is
     # tolerant of any "regressor" object.
     def fit(self, X, y=None, **kwargs):
+        """Fit."""
         return self
 
     def predict(self, X):
+        """Predict."""
         import numpy as np
 
         return np.zeros(len(X))
@@ -100,15 +101,18 @@ def _drive_configurator(use_regression: bool, monkeypatch) -> dict:
 
 
 class TestMlpDefaultArchFix:
+    """Groups tests covering mlp default arch fix."""
     def test_use_batchnorm_default_is_true(self, monkeypatch) -> None:
+        """Use batchnorm default is true."""
         params = _drive_configurator(use_regression=True, monkeypatch=monkeypatch)
         assert params.get("use_batchnorm") is True, "use_batchnorm must default to True after the 2026-05-26 fix"
 
     def test_output_activation_default_is_tanh_train_range(self, monkeypatch) -> None:
+        """Output activation default is tanh train range."""
         params = _drive_configurator(use_regression=True, monkeypatch=monkeypatch)
-        assert params.get("output_activation") == "tanh_train_range", (
-            "output_activation must default to 'tanh_train_range' so the regression head is hard-capped without the extreme-AR gate"
-        )
+        assert (
+            params.get("output_activation") == "tanh_train_range"
+        ), "output_activation must default to 'tanh_train_range' so the regression head is hard-capped without the extreme-AR gate"
 
     def test_use_layernorm_stays_false(self, monkeypatch) -> None:
         """Wave 2026-05-21 rationale is unchanged: LN_in destroys

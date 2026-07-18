@@ -39,6 +39,7 @@ def _legacy_handle_missing(arr: np.ndarray, strategy: str) -> np.ndarray:
 
 
 def _make_nan_array(seed: int = 42, shape=(500, 6)) -> np.ndarray:
+    """Make nan array."""
     rng = np.random.default_rng(seed)
     arr = rng.normal(size=shape).astype(np.float64)
     nan_mask = rng.random(shape) < 0.15
@@ -48,6 +49,7 @@ def _make_nan_array(seed: int = 42, shape=(500, 6)) -> np.ndarray:
 
 @pytest.mark.parametrize("strategy", ["separate_bin", "propagate", "fillna_zero"])
 def test_output_matches_legacy_where_based_fill(strategy):
+    """Output matches legacy where based fill."""
     arr = _make_nan_array()
     legacy = _legacy_handle_missing(arr.copy(), strategy)
     mask = np.isnan(arr)
@@ -73,6 +75,7 @@ def _count_full_array_isnan_calls(monkeypatch, fn, arr) -> int:
     orig_isnan = np.isnan
 
     def counting_isnan(x, *a, **kw):
+        """Counting isnan."""
         full_shape_calls.append(np.shape(x))
         return orig_isnan(x, *a, **kw)
 
@@ -98,9 +101,9 @@ def test_no_full_array_isnan_rescan_when_mask_supplied(monkeypatch):
     new_calls = _count_full_array_isnan_calls(monkeypatch, lambda: _handle_missing(arr.copy(), strategy="separate_bin", nan_mask=mask), arr)
 
     assert legacy_calls == 3, f"sanity: the legacy path should make 3 full-array isnan calls (early-exit + nanmedian + final np.where); got {legacy_calls}"
-    assert new_calls == 1, (
-        f"expected exactly 1 full-array isnan call (nanmedian's own unavoidable internal scan) when a precomputed mask is supplied; got {new_calls}"
-    )
+    assert (
+        new_calls == 1
+    ), f"expected exactly 1 full-array isnan call (nanmedian's own unavoidable internal scan) when a precomputed mask is supplied; got {new_calls}"
     assert new_calls < legacy_calls, f"mask reuse must reduce full-array isnan calls: new={new_calls} vs legacy={legacy_calls}"
 
 
@@ -113,6 +116,7 @@ def test_isnan_still_called_internally_when_no_mask_supplied(monkeypatch):
     orig_isnan = np.isnan
 
     def counting_isnan(x, *a, **kw):
+        """Counting isnan."""
         full_shape_calls.append(np.shape(x))
         return orig_isnan(x, *a, **kw)
 

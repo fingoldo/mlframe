@@ -21,6 +21,7 @@ from mlframe.feature_selection.stochastic_bandit_selection_ensemble import stoch
 
 
 def _make_overparameterized_regression(n: int, n_signal: int, n_noise: int, seed: int):
+    """Make overparameterized regression."""
     rng = np.random.default_rng(seed)
     X_signal = rng.normal(size=(n, n_signal))
     beta = rng.normal(size=n_signal) * 3.0
@@ -32,6 +33,7 @@ def _make_overparameterized_regression(n: int, n_signal: int, n_noise: int, seed
 
 
 def _plain_random_subset_search(X, y, cv, subset_size, n_epochs, seed):
+    """Plain random subset search."""
     rng = np.random.default_rng(seed)
     best_score, best_subset = -np.inf, None
     for _ in range(n_epochs):
@@ -47,6 +49,7 @@ def _plain_random_subset_search(X, y, cv, subset_size, n_epochs, seed):
 
 
 def test_biz_val_bandit_selection_beats_plain_random_search_on_average():
+    """Biz val bandit selection beats plain random search on average."""
     n_seeds = 10
     bandit_scores, random_scores = [], []
 
@@ -66,9 +69,9 @@ def test_biz_val_bandit_selection_beats_plain_random_search_on_average():
     mean_bandit = float(np.mean(bandit_scores))
     mean_random = float(np.mean(random_scores))
 
-    assert mean_bandit > mean_random, (
-        f"expected adaptive-weighted search to beat plain random search on average across {n_seeds} seeds, got bandit={mean_bandit:.4f} random={mean_random:.4f}"
-    )
+    assert (
+        mean_bandit > mean_random
+    ), f"expected adaptive-weighted search to beat plain random search on average across {n_seeds} seeds, got bandit={mean_bandit:.4f} random={mean_random:.4f}"
     assert mean_bandit >= 0.96, f"expected the bandit selector to recover a strong held-out R2, got {mean_bandit:.4f}"
 
 
@@ -90,6 +93,7 @@ def _make_mixed_signal_regression(n: int, n_strong: int, n_weak: int, n_noise: i
 
 
 def test_biz_val_bandit_selection_ensemble_recovers_more_signal_than_single_seed():
+    """Biz val bandit selection ensemble recovers more signal than single seed."""
     X, y, true_signal = _make_mixed_signal_regression(n=200, n_strong=3, n_weak=5, n_noise=40, seed=7)
     cv = KFold(n_splits=3, shuffle=True, random_state=0)
     seeds = list(range(8))
@@ -126,6 +130,7 @@ def test_biz_val_bandit_selection_ensemble_recovers_more_signal_than_single_seed
 
 
 def test_stochastic_bandit_selection_returns_requested_subset_size():
+    """Stochastic bandit selection returns requested subset size."""
     X, y = _make_overparameterized_regression(n=100, n_signal=2, n_noise=10, seed=0)
     cv = KFold(n_splits=3, shuffle=True, random_state=0)
     subset = stochastic_bandit_selection(Ridge(alpha=0.1), X, y, scoring=r2_score, subset_size=5, n_epochs=20, cv=cv, random_state=0)

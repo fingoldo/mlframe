@@ -15,6 +15,7 @@ import pytest
 
 
 def _data(n=800, seed=0):
+    """Helper that data."""
     rng = np.random.default_rng(seed)
     z = rng.standard_normal((n, 4))
     y = pd.Series((rng.random(n) < 1.0 / (1.0 + np.exp(-(z @ np.array([1.5, -1.2, 1.0, 0.9]))))).astype(int))
@@ -24,6 +25,7 @@ def _data(n=800, seed=0):
 
 
 def test_public_import_paths_resolve_to_one_class():
+    """Public import paths resolve to one class."""
     from mlframe.feature_selection import HybridSelector as H_pkg
     from mlframe.feature_selection.hybrid_selector import HybridSelector as H_prod
     from mlframe.feature_selection._benchmarks.fs_hybrid.hybrid_selector import HybridSelector as H_bench
@@ -32,6 +34,7 @@ def test_public_import_paths_resolve_to_one_class():
 
 
 def test_selector_interface_and_defaults():
+    """Selector interface and defaults."""
     import inspect
     from mlframe.feature_selection.hybrid_selector import HybridSelector
 
@@ -44,6 +47,7 @@ def test_selector_interface_and_defaults():
 
 @pytest.mark.timeout(900)
 def test_fit_transform_support_and_pickle_roundtrip():
+    """Fit transform support and pickle roundtrip."""
     from mlframe.feature_selection.hybrid_selector import HybridSelector
 
     X, y = _data()

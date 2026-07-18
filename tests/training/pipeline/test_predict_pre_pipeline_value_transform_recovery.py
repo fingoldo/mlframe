@@ -62,6 +62,7 @@ def _build_value_transform_suite():
     df = pd.DataFrame({"x0": x0, "x1": x1})
 
     def _broken(_X, *_a, **_k):
+        """Broken."""
         raise RuntimeError("simulated stale pre_pipeline state at predict")
 
     # --- value-transform model (must be dropped) ---
@@ -127,9 +128,9 @@ def test_value_transform_pre_pipeline_failure_drops_model_not_silent_raw(caplog)
     assert any("y_selector" in _n for _n in _names), f"the pure-selector model's raw-subset recovery is value-correct and must survive; got {_names}"
     (sel_pred,) = [v for k, v in preds_map.items() if "y_selector" in k]
     assert np.allclose(np.asarray(sel_pred), expected_sel), "pure-selector recovery must reproduce inner.predict(df[['x0','x1']])"
-    assert any("value-transforms features" in rec.getMessage() for rec in caplog.records), (
-        "expected the 'value-transforms features' re-raise warning; got: " + repr([r.getMessage() for r in caplog.records])
-    )
+    assert any(
+        "value-transforms features" in rec.getMessage() for rec in caplog.records
+    ), "expected the 'value-transforms features' re-raise warning; got: " + repr([r.getMessage() for r in caplog.records])
 
 
 def test_pure_selector_recovery_still_works():

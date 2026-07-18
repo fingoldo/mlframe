@@ -30,6 +30,7 @@ def _signature_payload_versions() -> dict:
     real_dumps = json_module.dumps
 
     def capturing_dumps(obj, *a, **kw):
+        """Capturing dumps."""
         if isinstance(obj, dict) and "versions" in obj:
             captured["versions"] = dict(obj["versions"])
         return real_dumps(obj, *a, **kw)
@@ -37,7 +38,9 @@ def _signature_payload_versions() -> dict:
     with mock.patch.object(json_module, "dumps", side_effect=capturing_dumps):
         # Pass a no-op config (only the versions side is under test).
         class _Cfg:
+            """Groups tests covering cfg."""
             def model_dump(self, mode="json"):
+                """Model dump."""
                 return {}
 
         _discovery_config_signature(_Cfg())
@@ -46,6 +49,7 @@ def _signature_payload_versions() -> dict:
 
 
 def test_discovery_cache_version_tuple_covers_polars_numpy_pandas_scipy_xgboost_python():
+    """Discovery cache version tuple covers polars numpy pandas scipy xgboost python."""
     versions = _signature_payload_versions()
 
     # Existing libs (regression: don't drop them).
@@ -71,7 +75,9 @@ def test_discovery_cache_signature_changes_when_simulated_polars_version_bumps()
     )
 
     class _Cfg:
+        """Groups tests covering cfg."""
         def model_dump(self, mode="json"):
+            """Model dump."""
             return {}
 
     real_signature = _discovery_config_signature(_Cfg())

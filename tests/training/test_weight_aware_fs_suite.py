@@ -96,6 +96,7 @@ class _WeightedSubpopExtractor(SimpleFeaturesAndTargetsExtractor):
         super().__init__(target_column="target", regression=True, weight_schemas=weight_schemas)
 
     def transform(self, df):
+        """Transform."""
         out = list(super().transform(df))
         # out = (df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, cols_to_drop, sample_weights)
         df.shape[0]
@@ -139,6 +140,7 @@ def _install_mrmr_fit_spy(monkeypatch):
     real_fit = MRMR.fit
 
     def spy_fit(self, X, y, groups=None, sample_weight=None, **fit_params):
+        """Spy fit."""
         result = real_fit(self, X, y, groups=groups, sample_weight=sample_weight, **fit_params)
         selected = None
         try:
@@ -159,6 +161,7 @@ def _install_mrmr_fit_spy(monkeypatch):
 
 
 def _run_suite(df, fs_config, temp_data_dir, common_init_params, fast_iterations, weight_schemas):
+    """Run suite."""
     fte = _WeightedSubpopExtractor(weight_schemas=weight_schemas)
     models, metadata = train_mlframe_models_suite(
         df=df,

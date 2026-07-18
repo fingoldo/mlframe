@@ -50,18 +50,22 @@ class _FixedMTRComponent:
         self.preds = preds
 
     def get_params(self, deep=True):
+        """Get params."""
         return {"preds": self.preds}
 
     def set_params(self, **params):
+        """Set params."""
         for k, v in params.items():
             setattr(self, k, v)
         return self
 
     def fit(self, X, y):
+        """Fit."""
         self._k = int(np.asarray(y).reshape(len(y), -1).shape[1])
         return self
 
     def predict(self, X):
+        """Predict."""
         n = len(X) if hasattr(X, "__len__") else self.preds.shape[0]
         base = np.asarray(self.preds, dtype=np.float64)
         return np.tile(base, (n, 1))
@@ -77,14 +81,17 @@ class _LinearMTRComponent:
         self._coef = None
 
     def get_params(self, deep=True):
+        """Get params."""
         return {"cols": self.cols, "jitter": self.jitter}
 
     def set_params(self, **params):
+        """Set params."""
         for k, v in params.items():
             setattr(self, k, v)
         return self
 
     def fit(self, X, y):
+        """Fit."""
         X = np.asarray(X, dtype=np.float64)
         y = np.asarray(y, dtype=np.float64)
         if y.ndim == 1:
@@ -97,6 +104,7 @@ class _LinearMTRComponent:
         return self
 
     def predict(self, X):
+        """Predict."""
         X = np.asarray(X, dtype=np.float64)
         out = X[:, self._cols] @ self._coef
         if self.jitter:
@@ -108,6 +116,7 @@ class _RaisingComponent(_FixedMTRComponent):
     """Raises inside ``fit`` so the OOF fold-refit hits the failure exit."""
 
     def fit(self, X, y):
+        """Fit."""
         raise RuntimeError("synthetic fold-refit failure")
 
 
@@ -115,12 +124,14 @@ class _NonFiniteComponent(_FixedMTRComponent):
     """Fits fine but predicts a NaN column so the OOF stack is non-finite."""
 
     def predict(self, X):
+        """Predict."""
         out = super().predict(X)
         out[:, 0] = np.nan
         return out
 
 
 def _make_problem(n=80, k=2):
+    """Make problem."""
     rng = np.random.default_rng(0)
     X = rng.normal(size=(n, 3))
     y = rng.normal(size=(n, k))
@@ -128,6 +139,7 @@ def _make_problem(n=80, k=2):
 
 
 def _make_linear_problem(n=120, k=2, p=4, seed=1):
+    """Make linear problem."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, p))
     coef = rng.normal(size=(p, k))
@@ -347,6 +359,6 @@ def test_biz_val_excluded_component_salvage_beats_equal_mean():
     rmse_eq = float(np.sqrt(np.mean((pred_eq - yte) ** 2)))
 
     improvement = (rmse_eq - rmse_nnls) / rmse_eq
-    assert improvement >= 0.08, (
-        f"salvaged honest-OOF NNLS should beat equal-mean by >=8%; got {improvement:.1%} (nnls={rmse_nnls:.4f}, equal_mean={rmse_eq:.4f})"
-    )
+    assert (
+        improvement >= 0.08
+    ), f"salvaged honest-OOF NNLS should beat equal-mean by >=8%; got {improvement:.1%} (nnls={rmse_nnls:.4f}, equal_mean={rmse_eq:.4f})"

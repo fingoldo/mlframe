@@ -25,21 +25,25 @@ from mlframe.feature_selection.wrappers._helpers_importance_agg import (
 
 
 def test_detect_family_linear():
+    """Detect family linear."""
     assert detect_estimator_family(LogisticRegression()) == "linear"
     assert detect_estimator_family(Ridge()) == "linear"
 
 
 def test_detect_family_tree():
+    """Detect family tree."""
     assert detect_estimator_family(RandomForestClassifier()) == "tree"
 
 
 def test_detect_family_kernel():
+    """Detect family kernel."""
     assert detect_estimator_family(SVC()) == "kernel"
     assert detect_estimator_family(SVR()) == "kernel"
 
 
 def test_aggregate_tree_downweights_high_variance():
     # A and B have identical mean (1.0); B has high fold-to-fold variance -> ranked lower.
+    """Aggregate tree downweights high variance."""
     fi = {
         "r0": {"A": 1.0, "B": 2.0},
         "r1": {"A": 1.0, "B": 0.0},
@@ -53,6 +57,7 @@ def test_aggregate_tree_downweights_high_variance():
 
 
 def test_aggregate_tree_single_run_is_raw_mean():
+    """Aggregate tree single run is raw mean."""
     fi = {"r0": {"A": 0.7, "B": 0.3}}
     scores = aggregate_tree(fi, k_cv=1.0)
     assert scores["A"] == pytest.approx(0.7)
@@ -61,6 +66,7 @@ def test_aggregate_tree_single_run_is_raw_mean():
 
 def test_aggregate_linear_sign_harmony_demotes_flipper():
     # A consistently positive; B flips sign (3 pos, 2 neg) -> heavily demoted.
+    """Aggregate linear sign harmony demotes flipper."""
     sg = {
         "r0": {"A": 1.0, "B": 1.0},
         "r1": {"A": 1.0, "B": 1.0},
@@ -76,6 +82,7 @@ def test_aggregate_linear_sign_harmony_demotes_flipper():
 
 
 def test_aggregate_linear_consistent_sign_keeps_magnitude():
+    """Aggregate linear consistent sign keeps magnitude."""
     sg = {"r0": {"A": -2.0}, "r1": {"A": -2.0}, "r2": {"A": -2.0}}
     scores = aggregate_linear(sg)
     assert scores["A"] == pytest.approx(2.0)  # all negative -> agreement 1.0, magnitude 2.0
@@ -84,11 +91,13 @@ def test_aggregate_linear_consistent_sign_keeps_magnitude():
 def test_aggregate_linear_vectorized_matches_per_row_reference():
     # Pins the vectorised numpy aggregation bit-identical to the original per-row loop, including
     # the NaN-finite, all-zero (agreement 1.0), and all-non-finite (score 0.0) edge rows.
+    """Aggregate linear vectorized matches per row reference."""
     import math
     import numpy as np
     import pandas as pd
 
     def _reference(signed_importances, eps=1e-12):
+        """Helper that reference."""
         table = pd.DataFrame(signed_importances)
         if table.empty:
             return {}
@@ -122,6 +131,7 @@ def test_aggregate_linear_vectorized_matches_per_row_reference():
 
 
 def test_dispatcher_tree_path_ranks_by_downweighted_mean():
+    """Dispatcher tree path ranks by downweighted mean."""
     fi = {
         "r0": {"A": 1.0, "B": 2.0},
         "r1": {"A": 1.0, "B": 0.0},
@@ -133,6 +143,7 @@ def test_dispatcher_tree_path_ranks_by_downweighted_mean():
 
 
 def test_dispatcher_linear_uses_signed_when_present():
+    """Dispatcher linear uses signed when present."""
     fi = {"r0": {"A": 1.0, "B": 1.0}}  # abs'd values (B looks equal to A)
     sg = {
         "r0": {"A": 1.0, "B": 1.0},
@@ -150,6 +161,7 @@ def test_dispatcher_linear_uses_signed_when_present():
 
 def test_dispatcher_linear_falls_back_to_legacy_without_signed():
     # No signed_importances -> cannot do sign-harmony -> must defer to legacy vote (not crash).
+    """Dispatcher linear falls back to legacy without signed."""
     fi = {"r0": {"A": 0.9, "B": 0.1}, "r1": {"A": 0.8, "B": 0.2}}
     ranks = aggregate_importances_dispatched(
         fi,
@@ -162,12 +174,14 @@ def test_dispatcher_linear_falls_back_to_legacy_without_signed():
 
 
 def test_dispatcher_kernel_defers_to_legacy():
+    """Dispatcher kernel defers to legacy."""
     fi = {"r0": {"A": 0.9, "B": 0.1}, "r1": {"A": 0.8, "B": 0.2}}
     ranks = aggregate_importances_dispatched(fi, family="kernel", votes_aggregation_method=VotesAggregation.Borda)
     assert ranks[0] == "A"
 
 
 def test_get_signed_linear_coef_preserves_sign():
+    """Get signed linear coef preserves sign."""
     rng = np.random.default_rng(0)
     X = rng.normal(size=(300, 3))
     y = (X[:, 0] * 2 - X[:, 1] * 2 > 0).astype(int)
@@ -178,6 +192,7 @@ def test_get_signed_linear_coef_preserves_sign():
 
 
 def test_get_signed_linear_coef_none_for_tree():
+    """Get signed linear coef none for tree."""
     rng = np.random.default_rng(0)
     X = rng.normal(size=(100, 3))
     y = (X[:, 0] > 0).astype(int)
@@ -186,6 +201,7 @@ def test_get_signed_linear_coef_none_for_tree():
 
 
 def test_rfecv_constructor_validates_importance_agg():
+    """Rfecv constructor validates importance agg."""
     from mlframe.feature_selection.wrappers.rfecv import RFECV
 
     with pytest.raises(ValueError):
@@ -195,6 +211,7 @@ def test_rfecv_constructor_validates_importance_agg():
 
 
 def test_rfecv_default_is_dispatched():
+    """Rfecv default is dispatched."""
     from mlframe.feature_selection.wrappers.rfecv import RFECV
 
     r = RFECV(estimator=LogisticRegression())
@@ -202,6 +219,7 @@ def test_rfecv_default_is_dispatched():
 
 
 def test_rfecv_end_to_end_dispatched_tree_runs():
+    """Rfecv end to end dispatched tree runs."""
     from mlframe.feature_selection.wrappers.rfecv import RFECV
 
     rng = np.random.default_rng(0)
@@ -221,6 +239,7 @@ def test_rfecv_end_to_end_dispatched_tree_runs():
 
 
 def test_rfecv_end_to_end_dispatched_linear_collects_signed():
+    """Rfecv end to end dispatched linear collects signed."""
     from mlframe.feature_selection.wrappers.rfecv import RFECV
 
     rng = np.random.default_rng(1)

@@ -43,6 +43,7 @@ def _make_frame(seed: int = 7, n: int = 8000):
 
 
 def _col_specs_from_recipes(enc_df, recipes):
+    """Col specs from recipes."""
     return [
         {
             "name": c,
@@ -58,6 +59,7 @@ def _col_specs_from_recipes(enc_df, recipes):
 
 
 def _build_host(seed, n, kinds=("absz", "z2")):
+    """Build host."""
     X, y = _make_frame(seed=seed, n=n)
     num_cols = ["g", "aux", "g2", "aux2"]
     enc_df, recipes = generate_conditional_dispersion_features(X, num_cols, n_bins=10, kinds=kinds)
@@ -65,6 +67,7 @@ def _build_host(seed, n, kinds=("absz", "z2")):
 
 
 def test_device_dispersion_matrix_matches_host_columns():
+    """Device dispersion matrix matches host columns."""
     X, _y, enc_df, recipes = _build_host(seed=7, n=8000)
     assert enc_df.shape[1] > 0
     col_specs = _col_specs_from_recipes(enc_df, recipes)

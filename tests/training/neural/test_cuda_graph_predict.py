@@ -27,7 +27,6 @@ from mlframe.training.neural import (
 )
 from mlframe.training.neural.flat import _BoundedTanhOutput, generate_mlp
 
-
 # --- F-37: BoundedTanh no longer branches on is_cuda -------------------------
 
 
@@ -43,6 +42,7 @@ def test_bounded_tanh_forward_data_independent_path():
     real_tanh = torch.tanh
 
     def spy(t):  # type: ignore[no-untyped-def]
+        """Spy."""
         seen.append(bool(getattr(t, "is_cuda", False)))
         return real_tanh(t)
 
@@ -113,6 +113,7 @@ def test_bounded_tanh_works_inside_generate_mlp():
 
 
 def _make_module() -> MLPTorchModel:
+    """Make module."""
     network = generate_mlp(
         num_features=4,
         num_classes=1,
@@ -129,6 +130,7 @@ def _make_module() -> MLPTorchModel:
 
 
 def test_cuda_graph_cache_initialised_empty():
+    """Cuda graph cache initialised empty."""
     module = _make_module()
     assert hasattr(module, "_cuda_graph_predict_cache")
     assert module._cuda_graph_predict_cache == {}
@@ -215,6 +217,7 @@ def test_predict_step_routes_through_cuda_graph_helper(monkeypatch):
         # the ``logits.dim()`` check; production callers of
         # ``_maybe_cuda_graph_forward`` always return a tensor (the eager
         # fallback path returns ``self(x)``).
+        """Fake graph."""
         seen.append("graph")
         return self.network(t)
 
@@ -229,6 +232,7 @@ def test_predict_step_routes_through_cuda_graph_helper(monkeypatch):
 
 @pytest.fixture
 def reg_data():
+    """Reg data."""
     X, y = make_regression(n_samples=64, n_features=4, random_state=0)
     X = X.astype(np.float32)
     y = y.astype(np.float32)

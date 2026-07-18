@@ -94,14 +94,14 @@ def test_biz_val_gaussian_power_transform_search_target_guard_rejects_signal_des
 
     guarded_result = gaussian_power_transform_search(df, y=y, require_target_correlation_retention=0.9)
     guarded_pick = guarded_result["x"]["best_transform"]
-    assert naive_pick in guarded_result["x"]["target_correlation_rejected"], (
-        f"expected the naive skew-only pick ({naive_pick}) to be rejected by the target-correlation guard"
-    )
+    assert (
+        naive_pick in guarded_result["x"]["target_correlation_rejected"]
+    ), f"expected the naive skew-only pick ({naive_pick}) to be rejected by the target-correlation guard"
     assert guarded_pick != naive_pick, "expected the guard to steer away from the signal-destroying naive pick"
     guarded_pick_corr = guarded_result["x"]["all_target_corr"][guarded_pick]
-    assert guarded_pick_corr >= 0.9 * raw_target_corr, (
-        f"expected the guarded pick ({guarded_pick}) to retain >=90% of the raw target correlation ({raw_target_corr:.4f}), got {guarded_pick_corr:.4f}"
-    )
+    assert (
+        guarded_pick_corr >= 0.9 * raw_target_corr
+    ), f"expected the guarded pick ({guarded_pick}) to retain >=90% of the raw target correlation ({raw_target_corr:.4f}), got {guarded_pick_corr:.4f}"
 
 
 def _apply_transform_for_test(x: np.ndarray, transform_name: str) -> np.ndarray:

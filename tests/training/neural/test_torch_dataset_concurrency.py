@@ -35,7 +35,6 @@ import torch
 
 from mlframe.training.neural.data import TorchDataset
 
-
 # ---------------------------------------------------------------------------
 # Correctness: eager conversion
 # ---------------------------------------------------------------------------
@@ -45,6 +44,7 @@ class TestEagerConversion:
     """Eager-tensor-at-__init__ semantics."""
 
     def test_numpy_features_eager_converted(self):
+        """Numpy features eager converted."""
         features = np.random.rand(100, 4).astype(np.float32)
         labels = np.random.rand(100).astype(np.float32)
         ds = TorchDataset(features=features, labels=labels, batch_size=10)
@@ -53,6 +53,7 @@ class TestEagerConversion:
         assert ds._eager_features is True
 
     def test_pandas_dataframe_features_eager_converted(self):
+        """Pandas dataframe features eager converted."""
         features = pd.DataFrame(np.random.rand(100, 4).astype(np.float32))
         labels = np.random.rand(100).astype(np.float32)
         ds = TorchDataset(features=features, labels=labels, batch_size=10)
@@ -60,6 +61,7 @@ class TestEagerConversion:
         assert ds._eager_features is True
 
     def test_polars_dataframe_features_eager_converted(self):
+        """Polars dataframe features eager converted."""
         features = pl.DataFrame({"a": np.arange(100), "b": np.arange(100) * 0.5})
         labels = np.arange(100, dtype=np.float32)
         ds = TorchDataset(features=features, labels=labels, batch_size=10)
@@ -67,6 +69,7 @@ class TestEagerConversion:
         assert ds._eager_features is True
 
     def test_torch_tensor_features_passes_through(self):
+        """Torch tensor features passes through."""
         features = torch.rand(100, 4)
         labels = torch.rand(100)
         ds = TorchDataset(features=features, labels=labels, batch_size=10)
@@ -74,6 +77,7 @@ class TestEagerConversion:
         assert ds._eager_features is True
 
     def test_getitem_returns_correct_tensor_shape_batched(self):
+        """Getitem returns correct tensor shape batched."""
         features = np.arange(100 * 4).reshape(100, 4).astype(np.float32)
         labels = np.arange(100, dtype=np.float32)
         ds = TorchDataset(features=features, labels=labels, batch_size=8)
@@ -104,6 +108,7 @@ class TestByteCap:
     """Byte-cap fallback for huge frames."""
 
     def test_small_ndarray_uses_eager_path(self):
+        """Small ndarray uses eager path."""
         features = np.random.rand(100, 4).astype(np.float32)
         ds = TorchDataset(features=features, labels=None, batch_size=10)
         assert ds._eager_features is True
@@ -119,8 +124,10 @@ class TestByteCap:
         """
 
         class BigBytesArray(np.ndarray):
+            """Groups tests covering big bytes array."""
             @property
             def nbytes(self):
+                """Nbytes."""
                 return 3 * 1024**3  # 3 GB
 
         base = np.random.rand(100, 4).astype(np.float32)
@@ -137,8 +144,10 @@ class TestByteCap:
         via per-batch conversion. Ensures byte-cap doesn't break the API."""
 
         class BigBytesArray(np.ndarray):
+            """Groups tests covering big bytes array."""
             @property
             def nbytes(self):
+                """Nbytes."""
                 return 3 * 1024**3
 
         base = np.arange(100 * 3).reshape(100, 3).astype(np.float32)
@@ -174,17 +183,20 @@ class TestSharedMemory:
     """``share_memory_()`` promotion semantics."""
 
     def test_default_features_shared(self):
+        """Default features shared."""
         features = np.random.rand(100, 4).astype(np.float32)
         ds = TorchDataset(features=features, labels=None, batch_size=10)
         assert ds.features.is_shared(), "Default share_memory=True should promote CPU features tensor"
 
     def test_default_labels_shared(self):
+        """Default labels shared."""
         features = np.random.rand(100, 4).astype(np.float32)
         labels = np.random.rand(100).astype(np.float32)
         ds = TorchDataset(features=features, labels=labels, batch_size=10)
         assert ds.labels.is_shared(), "Default share_memory=True should promote labels tensor"
 
     def test_default_sample_weight_shared(self):
+        """Default sample weight shared."""
         features = np.random.rand(100, 4).astype(np.float32)
         labels = np.random.rand(100).astype(np.float32)
         sample_weight = np.random.rand(100).astype(np.float32)
@@ -197,6 +209,7 @@ class TestSharedMemory:
         assert ds.sample_weight.is_shared(), "Default share_memory=True should promote sample_weight tensor"
 
     def test_share_memory_disabled_keeps_unshared(self):
+        """Share memory disabled keeps unshared."""
         features = np.random.rand(100, 4).astype(np.float32)
         labels = np.random.rand(100).astype(np.float32)
         ds = TorchDataset(
@@ -226,8 +239,10 @@ class TestSharedMemory:
         """
 
         class BigBytesArray(np.ndarray):
+            """Groups tests covering big bytes array."""
             @property
             def nbytes(self):
+                """Nbytes."""
                 return 3 * 1024**3
 
         base = np.random.rand(100, 4).astype(np.float32)
@@ -251,6 +266,7 @@ class TestEagerVsLazyPerformance:
 
     def _bench_getitem(self, ds, n_batches: int = 500) -> float:
         # Warm
+        """Bench getitem."""
         for i in range(min(5, n_batches)):
             _ = ds[i]
         # Timed
@@ -291,6 +307,7 @@ class TestEagerVsLazyPerformance:
 
             @property
             def nbytes(self):
+                """Nbytes."""
                 return 3 * 1024**3
 
             def __len__(self):
@@ -298,6 +315,7 @@ class TestEagerVsLazyPerformance:
 
             @property
             def iloc(self):
+                """Iloc."""
                 return self._df.iloc
 
         ds_eager = TorchDataset(features=features_df, labels=labels, batch_size=128)
@@ -410,6 +428,7 @@ class TestPersistentWorkersWiring:
     """``persistent_workers=True`` is set IFF ``num_workers > 0``."""
 
     def test_persistent_set_when_workers_gt_zero(self):
+        """Persistent set when workers gt zero."""
         from mlframe.training.neural.data import TorchDataModule
 
         # Minimal datamodule construction; the assertion is on
@@ -426,6 +445,7 @@ class TestPersistentWorkersWiring:
         assert loader.persistent_workers is True, "num_workers=2 should auto-enable persistent_workers"
 
     def test_persistent_not_set_when_workers_zero(self):
+        """Persistent not set when workers zero."""
         from mlframe.training.neural.data import TorchDataModule
 
         n = 100

@@ -22,7 +22,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Public symbols survive the comment / docstring scrubs.
 # ---------------------------------------------------------------------------
@@ -157,10 +156,13 @@ def test_low_composite_predictions_as_feature_pandas_roundtrip() -> None:
     )
 
     class _FakeWrapper:
+        """Stand-in composite wrapper exposing only the transform_name/base_column/predict surface needed by the feature helper."""
+
         transform_name = "linear_residual"
         base_column = "x"
 
         def predict(self, df):
+            """Returns a deterministic 0..N-1 ramp as the fake composite prediction."""
             return np.arange(len(df), dtype=np.float64)
 
     df = pd.DataFrame({"x": [1.0, 2.0, 3.0]})

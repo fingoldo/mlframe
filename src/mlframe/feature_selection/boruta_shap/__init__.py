@@ -131,6 +131,11 @@ class BorutaShap(BaseEstimator, TransformerMixin):
     history_x: "np.ndarray | pd.DataFrame"
     # tentative starts as a plain list (set difference at fit entry), then TentativeRoughFix() rebinds it to an ndarray for boolean-mask filtering.
     tentative: "list | np.ndarray"
+    # Set in _fit_explain.py's fit() (``self.X = X.copy()``) -- a different module in this cross-file
+    # mixin pattern, invisible to mypy without this class-level annotation (found 2026-07-18: a
+    # `self.X = self.X.drop(...)` self-referential assignment in __init__.py can't infer self.X's
+    # type without it).
+    X: pd.DataFrame
 
     def __init__(
         self,
@@ -296,7 +301,8 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         the explicit choices; for ``"auto"`` it is the per-fit resolution (gini/permutation) computed
         once in ``fit`` via the cheap noise/overfit probe (``_resolved_importance_measure_``). Falls
         back to the raw value if accessed before resolution (e.g. a direct helper call in a test)."""
-        return str(getattr(self, "_resolved_importance_measure_", None) or self.importance_measure).lower()
+        _resolved = getattr(self, "_resolved_importance_measure_", None)
+        return str(_resolved if _resolved is not None else self.importance_measure).lower()
 
     def _resolve_auto_importance_measure(self, X, y) -> None:
         """When ``importance_measure='auto'``, probe (X, y) ONCE and pin the concrete driver for this
@@ -322,10 +328,13 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             self._auto_forced_test_split_ = True
             self._train_or_test_ = "test"
         if self.verbose:
+            _reasons_str = ", ".join(diag.get("reasons", []))
+            if not _reasons_str:
+                _reasons_str = "clean"
             logger.info(
                 "BorutaShap importance_measure='auto' -> '%s' (n/p=%.1f, oob_gap=%.3f, shadow_gap=%.3f; %s)",
                 measure, diag.get("np_ratio", float("nan")), diag.get("oob_gap", float("nan")),
-                diag.get("shadow_gap", float("nan")), ", ".join(diag.get("reasons", [])) or "clean",
+                diag.get("shadow_gap", float("nan")), _reasons_str,
             )
 
     def check_model(self):
@@ -493,7 +502,8 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         # Read the RESOLVED working copy (``_train_or_test_``), not the verbatim param: 'auto' importance may
         # pin it to 'test' for held-out permutation without mutating the clone-able constructor arg. Falls back
         # to the param for direct helper calls that bypass ``_resolve_auto_importance_measure``.
-        train_or_test = getattr(self, "_train_or_test_", None) or self.train_or_test
+        _resolved_train_or_test = getattr(self, "_train_or_test_", None)
+        train_or_test = _resolved_train_or_test if _resolved_train_or_test is not None else self.train_or_test
         if train_or_test.lower() == "test":
             # keeping the same naming convenetion as to not add complexit later on
             self.X_boruta_train, self.X_boruta_test, self.y_train, self.y_test = train_test_split(
@@ -705,7 +715,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             # per-feature ``except KeyError: pass`` exactly (a feature already dropped in a prior trial is
             # skipped), and the resulting column set + ORDER is bit-identical to the loop (drop preserves the
             # surviving columns' relative order regardless of how many are removed per call).
-            self.X.drop(list(self.features_to_remove), axis=1, inplace=True, errors="ignore")
+            self.X = self.X.drop(list(self.features_to_remove), axis=1, errors="ignore")
 
         else:
             pass

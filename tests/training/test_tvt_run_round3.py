@@ -32,7 +32,9 @@ import numpy as np
 
 
 class TestOOFRefitEvalSetPassthrough:
+    """Groups tests covering o o f refit eval set passthrough."""
     def test_maybe_pass_sample_weight_accepts_eval_set(self) -> None:
+        """Maybe pass sample weight accepts eval set."""
         from mlframe.training.composite.ensemble import _maybe_pass_sample_weight
 
         sig = inspect.signature(_maybe_pass_sample_weight)
@@ -43,6 +45,7 @@ class TestOOFRefitEvalSetPassthrough:
         )
 
     def test_carve_inner_eval_split_returns_tail(self) -> None:
+        """Carve inner eval split returns tail."""
         import pandas as pd
         from mlframe.training.composite.ensemble import _carve_inner_eval_split
 
@@ -58,6 +61,7 @@ class TestOOFRefitEvalSetPassthrough:
         assert int(y_eval[-1]) == 1999
 
     def test_carve_inner_eval_split_skips_below_threshold(self) -> None:
+        """Carve inner eval split skips below threshold."""
         import pandas as pd
         from mlframe.training.composite.ensemble import _carve_inner_eval_split
 
@@ -76,7 +80,9 @@ class TestOOFRefitEvalSetPassthrough:
         calls = []
 
         class Fake:
+            """Groups tests covering fake."""
             def fit(self, X, y, sample_weight=None, eval_set=None):
+                """Fit."""
                 calls.append({"sw": sample_weight, "es": eval_set})
 
         m = Fake()
@@ -97,6 +103,7 @@ class TestOOFRefitEvalSetPassthrough:
 
 
 class TestLossRecommendationHuberBand:
+    """Groups tests covering loss recommendation huber band."""
     def test_kurt_threshold_back_to_1_5_with_huber_unified_band(self) -> None:
         """Round-5 (2026-05-23 evening): threshold lowered back 3.0 -> 1.5
         AND the pure-L1 (3.0, 10.0] band was collapsed into the Huber
@@ -158,6 +165,7 @@ class TestXGBShimContentFingerprint:
     hit the cache."""
 
     def test_signature_does_not_depend_on_id(self) -> None:
+        """Signature does not depend on id."""
         from mlframe.training.xgb_shim import _signature_of
         import pandas as pd
 
@@ -176,6 +184,7 @@ class TestXGBShimContentFingerprint:
         assert sig_a == sig_b, f"content fingerprint mismatch on identical data: {sig_a} vs {sig_b}"
 
     def test_signature_distinguishes_different_content(self) -> None:
+        """Signature distinguishes different content."""
         from mlframe.training.xgb_shim import _signature_of
         import pandas as pd
 
@@ -187,6 +196,7 @@ class TestXGBShimContentFingerprint:
 
 
 class TestLGBLearningRatePlumbing:
+    """Groups tests covering l g b learning rate plumbing."""
     def test_lgb_general_params_contains_learning_rate(self) -> None:
         """LGB_GENERAL_PARAMS must include ``learning_rate`` so the
         suite's ``learning_rate=`` kwarg actually overrides LightGBM's

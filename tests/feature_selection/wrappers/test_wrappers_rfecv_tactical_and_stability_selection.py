@@ -19,12 +19,14 @@ from tests.training.synthetic import make_sklearn_classification_df
 
 
 def _rfecv(**kw):
+    """Helper that rfecv."""
     from mlframe.feature_selection.wrappers import RFECV as _RFECV
 
     return _RFECV(**kw)
 
 
 def _get_feature_importances(*a, **kw):
+    """Get feature importances."""
     from mlframe.feature_selection.wrappers import get_feature_importances as _gfi
 
     return _gfi(*a, **kw)
@@ -34,6 +36,7 @@ def _get_feature_importances(*a, **kw):
 # T1: coefficient z-scoring for linear `coef_` path
 # ----------------------------------------------------------------------------
 class TestT1_CoefZScoring:
+    """Groups tests covering TestT1_CoefZScoring."""
     def test_high_variance_feature_with_same_effect_not_unfairly_penalised(self):
         """Construct two features with the SAME effect on y but different scales:
         f_small (std=1) and f_big (std=100). Pre-fix np.abs(coef_) would rank
@@ -71,7 +74,9 @@ class TestT1_CoefZScoring:
 # T2: must_exclude
 # ----------------------------------------------------------------------------
 class TestT2_MustExclude:
+    """Groups tests covering TestT2_MustExclude."""
     def test_excluded_features_never_in_support(self):
+        """Excluded features never in support."""
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((150, 6)), columns=list("abcdef"))
         y = (X["a"] + X["b"] > 0).astype(int).values
@@ -125,7 +130,9 @@ class TestT2_MustExclude:
 # T3: target-leakage detection
 # ----------------------------------------------------------------------------
 class TestT3_LeakageDetection:
+    """Groups tests covering TestT3_LeakageDetection."""
     def test_leak_column_gets_warning(self, caplog):
+        """Leak column gets warning."""
         rng = np.random.default_rng(0)
         n = 300
         X = pd.DataFrame(rng.standard_normal((n, 5)), columns=list("abcde"))
@@ -146,6 +153,7 @@ class TestT3_LeakageDetection:
         assert leak_warnings, f"Expected a leakage WARNING; got records: {[r.getMessage()[:120] for r in caplog.records]}"
 
     def test_no_warning_when_threshold_none(self, caplog):
+        """No warning when threshold none."""
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((100, 4)), columns=list("abcd"))
         y = (X["a"] > 0).astype(int).values
@@ -167,6 +175,7 @@ class TestT3_LeakageDetection:
 # T4: feature_groups all-or-nothing
 # ----------------------------------------------------------------------------
 class TestT4_FeatureGroups:
+    """Groups tests covering TestT4_FeatureGroups."""
     def test_group_expands_to_all_or_nothing(self):
         """Construct 5 collinear copies as a group; without feature_groups
         RFECV may pick any subset; with it, either all 5 are in or all 5 are out."""
@@ -225,7 +234,9 @@ class TestT4_FeatureGroups:
 # T5: bootstrap CI on best n_features_
 # ----------------------------------------------------------------------------
 class TestT5_BootstrapCI:
+    """Groups tests covering TestT5_BootstrapCI."""
     def test_returns_low_n_high_triple(self):
+        """Returns low n high triple."""
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((200, 8)), columns=list("abcdefgh"))
         y = (X["a"] + X["b"] > 0).astype(int).values
@@ -246,7 +257,9 @@ class TestT5_BootstrapCI:
 # T6: Stability Selection
 # ----------------------------------------------------------------------------
 class TestT6_StabilitySelection:
+    """Groups tests covering TestT6_StabilitySelection."""
     def test_stability_selection_recovers_informative_features(self):
+        """Stability selection recovers informative features."""
         Xdf, y, _ = make_sklearn_classification_df(
             n_samples=400,
             n_features=30,
@@ -272,6 +285,7 @@ class TestT6_StabilitySelection:
         assert recall >= 0.6, f"Stability selection should recover most informative features; got recall={recall:.2f} ({names & informative})"
 
     def test_stability_selection_freq_attribute_populated(self):
+        """Stability selection freq attribute populated."""
         Xdf, y, _ = make_sklearn_classification_df(
             n_samples=200,
             n_features=10,
@@ -312,15 +326,16 @@ class TestT6_StabilitySelection:
         r_low.fit(Xdf, y)
         r_high = _rfecv(stability_threshold=0.9, **common)
         r_high.fit(Xdf, y)
-        assert r_high.n_features_ <= r_low.n_features_, (
-            f"Higher threshold (0.9) should select <= than lower (0.3); got high={r_high.n_features_}, low={r_low.n_features_}"
-        )
+        assert (
+            r_high.n_features_ <= r_low.n_features_
+        ), f"Higher threshold (0.9) should select <= than lower (0.3); got high={r_high.n_features_}, low={r_low.n_features_}"
 
 
 # ----------------------------------------------------------------------------
 # T7: Multi-estimator voting in MBH path
 # ----------------------------------------------------------------------------
 class TestT7_MultiEstimator:
+    """Groups tests covering TestT7_MultiEstimator."""
     def test_estimators_list_increases_fi_runs(self):
         """With M estimators we get M FI runs per fold (vs 1 with singular)."""
         Xdf, y, _ = make_sklearn_classification_df(
@@ -363,6 +378,7 @@ class TestT7_MultiEstimator:
         # Larger n + more refits so MBH has room to converge; multi-estimator
         # paths intrinsically have more variance per probe (mean across
         # heterogeneous models) so we need a slightly easier setup.
+        """Multi estimator recovers informative on synthetic."""
         Xdf, y, _ = make_sklearn_classification_df(
             n_samples=800,
             n_features=15,
@@ -411,7 +427,9 @@ class TestT7_MultiEstimator:
 # T8: Stability + Multi-estimator combined (the headliner)
 # ----------------------------------------------------------------------------
 class TestT8_StabilityPlusMultiEstimator:
+    """Groups tests covering TestT8_StabilityPlusMultiEstimator."""
     def test_combined_path(self):
+        """Combined path."""
         Xdf, y, _ = make_sklearn_classification_df(
             n_samples=500,
             n_features=25,

@@ -17,7 +17,6 @@ import pytest
 
 from mlframe.training._cv_aggregation import aggregate_fold_scores
 
-
 # Per-fold RMSE (direction="min": lower is better).
 # unstable_lucky: lower mean but broad spread across ALL folds (high std AND high MAD,
 # so even the median/MAD-robust mode penalises it -- not a single outlier fold).
@@ -27,6 +26,7 @@ STABLE_MEDIOCRE = [0.94, 0.96, 0.98, 1.00]  # mean 0.970, tight
 
 
 def _argmin(score_fn):
+    """Argmin."""
     return min(
         ("unstable", "stable"),
         key=lambda name: score_fn(UNSTABLE_LUCKY if name == "unstable" else STABLE_MEDIOCRE),

@@ -46,7 +46,6 @@ except Exception as exc:  # pragma: no cover
 
 from .shared import SimpleFeaturesAndTargetsExtractor
 
-
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
@@ -84,6 +83,7 @@ def _extract_auroc(model_entry) -> float | None:
 
 
 def _run_suite(df, models_list, tmp_path, ext_cfg, iters=80):
+    """Run suite."""
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     models, _metadata = train_mlframe_models_suite(
         df=df,
@@ -113,6 +113,7 @@ def _run_suite(df, models_list, tmp_path, ext_cfg, iters=80):
 
 @pytest.mark.parametrize("seed", [42, 7, 99])
 def test_suite_pca_dim_reducer_within_5pct_of_baseline(tmp_path, seed):
+    """Suite pca dim reducer within 5pct of baseline."""
     rng = np.random.default_rng(seed)  # seed-parametrized; companion file uses same set
     n, k_signal, k_redundant, k_noise = 2500, 6, 24, 10  # 40 features total
     X_signal = rng.standard_normal((n, k_signal))
@@ -154,6 +155,7 @@ def test_suite_pca_dim_reducer_within_5pct_of_baseline(tmp_path, seed):
 
 @pytest.mark.parametrize("seed", [42, 7, 99])
 def test_suite_polynomial_features_lift_on_xor(tmp_path, seed):
+    """Suite polynomial features lift on xor."""
     rng = np.random.default_rng(seed)  # seed-parametrized
     n = 2000
     x1 = rng.standard_normal(n)
@@ -177,9 +179,9 @@ def test_suite_polynomial_features_lift_on_xor(tmp_path, seed):
 
     print(f"\n[SuiteTest2 Poly] baseline AUROC={auroc_a:.4f}  poly AUROC={auroc_b:.4f}  delta={auroc_b - auroc_a:+.4f}")
 
-    assert auroc_b > auroc_a + 0.05, (
-        f"PolynomialFeatures(degree=2, interaction_only) failed to lift AUROC by 0.05 on XOR-like data: A={auroc_a:.4f} B={auroc_b:.4f}"
-    )
+    assert (
+        auroc_b > auroc_a + 0.05
+    ), f"PolynomialFeatures(degree=2, interaction_only) failed to lift AUROC by 0.05 on XOR-like data: A={auroc_a:.4f} B={auroc_b:.4f}"
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +197,7 @@ def test_suite_polynomial_features_lift_on_xor(tmp_path, seed):
 # baseline) -- the contract this test enforces is finally honest.
 @pytest.mark.parametrize("seed", [42, 7, 99])
 def test_suite_tfidf_column_path_lifts_auroc(tmp_path, seed):
+    """Suite tfidf column path lifts auroc."""
     pytest.importorskip("sklearn.feature_extraction.text")
     # Pragmatic fix: baseline drops the text column manually; TF-IDF run keeps
     # it and routes via `tfidf_columns` + `feature_types_config.text_features`.
@@ -218,6 +221,7 @@ def test_suite_tfidf_column_path_lifts_auroc(tmp_path, seed):
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
     def _run(use_text):
+        """Trains the suite with the TF-IDF text extension on or off and returns the fitted models."""
         cur_df = df if use_text else df_baseline
         ext_cfg = PreprocessingExtensionsConfig(tfidf_columns=["text"], tfidf_max_features=50) if use_text else None
         feat_cfg = {"text_features": ["text"]} if use_text else None

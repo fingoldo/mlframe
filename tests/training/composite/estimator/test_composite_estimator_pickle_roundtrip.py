@@ -32,13 +32,13 @@ from sklearn.linear_model import LinearRegression
 
 from mlframe.training.composite import CompositeTargetEstimator
 
-
 # ----------------------------------------------------------------------
 # Synthetic frames -- one per transform family, all deterministic.
 # ----------------------------------------------------------------------
 
 
 def _base_frame(n: int = 800, seed: int = 0) -> tuple[pd.DataFrame, np.ndarray]:
+    """Base frame."""
     rng = np.random.default_rng(seed)
     base = np.linspace(1.0, 20.0, n) + rng.normal(0.0, 0.05, n)
     feat = rng.normal(0.0, 1.0, n)
@@ -47,6 +47,7 @@ def _base_frame(n: int = 800, seed: int = 0) -> tuple[pd.DataFrame, np.ndarray]:
 
 
 def _grouped_frame(n: int = 900, seed: int = 1) -> tuple[pd.DataFrame, np.ndarray]:
+    """Grouped frame."""
     rng = np.random.default_rng(seed)
     g = rng.integers(0, 3, n)
     base = rng.normal(5.0, 1.0, n)
@@ -58,6 +59,7 @@ def _grouped_frame(n: int = 900, seed: int = 1) -> tuple[pd.DataFrame, np.ndarra
 
 
 def _make_estimator(transform: str) -> CompositeTargetEstimator:
+    """Make estimator."""
     if transform == "linear_residual_grouped":
         return CompositeTargetEstimator(
             base_estimator=LinearRegression(),
@@ -73,6 +75,7 @@ def _make_estimator(transform: str) -> CompositeTargetEstimator:
 
 
 def _fit(transform: str) -> tuple[CompositeTargetEstimator, pd.DataFrame]:
+    """Fit."""
     if transform == "linear_residual_grouped":
         X, y = _grouped_frame()
     else:

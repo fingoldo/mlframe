@@ -36,7 +36,6 @@ from mlframe.feature_selection.filters._fe_subsample import (
     _HAVE_NUMBA,
 )
 
-
 # =====================================================================================
 # UNIT
 # =====================================================================================
@@ -128,11 +127,13 @@ def test_unit_njit_vs_numpy_same_guarantees():
 
 
 def test_unit_size_ge_n_returns_arange():
+    """Unit size ge n returns arange."""
     y = np.array([0, 1, 0, 1, 0], dtype=np.int64)
     assert np.array_equal(stratified_subsample_idx(np.random.default_rng(0), y, 99, is_clf=True), np.arange(5))
 
 
 def test_unit_single_class_falls_back_uniform():
+    """Unit single class falls back uniform."""
     y = np.ones(100, dtype=np.int64)
     idx = stratified_subsample_idx(np.random.default_rng(0), y, 20, is_clf=True)
     assert idx.shape[0] == 20 and np.unique(idx).shape[0] == 20
@@ -142,6 +143,7 @@ def test_unit_single_class_falls_back_uniform():
 # BIZ_VALUE
 # =====================================================================================
 def _auc(y_true, score):
+    """Helper that auc."""
     from sklearn.metrics import roc_auc_score
 
     return float(roc_auc_score(y_true, score))
@@ -203,6 +205,7 @@ def test_biz_value_rare_class_screen_recovers_signal_uniform_blind():
 
         # MI of the signal feature with the label, AS SEEN by the screen on each subsample.
         def _mi(idx):
+            """Compute the signal feature's MI with the label restricted to the given row subsample, 0 if the subsample is single-class."""
             ys = y[idx]  # noqa: B023 -- closure over y/sig invoked immediately below, same iteration, never stored
             if np.unique(ys).shape[0] < 2:
                 return 0.0  # single-class sample -> screen is blind, MI undefined -> 0
@@ -233,6 +236,7 @@ def test_biz_value_heavy_tail_regression_stratified_beats_uniform():
     from sklearn.metrics import r2_score
 
     def make(seed):
+        """Helper that make."""
         rng = np.random.default_rng(seed)
         n = 8000
         a = rng.standard_normal(n)
@@ -299,6 +303,7 @@ def test_why_no_end_to_end_clf_margin_single_var_basis_reconstructs():
     feats_with_cross = np.column_stack([a, b, a**2, b**2, a * b])
 
     def _auc_split(F):
+        """Auc split."""
         mdl = LogisticRegression(max_iter=1000, class_weight="balanced").fit(F[:ntr], y[:ntr])
         return _auc(y[ntr:], mdl.predict_proba(F[ntr:])[:, 1])
 

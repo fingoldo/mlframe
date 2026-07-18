@@ -55,13 +55,13 @@ import pytest
 
 from .shared import SimpleFeaturesAndTargetsExtractor
 
-
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
 
 
 def _has_lightning() -> bool:
+    """Returns whether pytorch-lightning is importable, to gate tests that require the neural backend."""
     try:
         import lightning.pytorch  # noqa: F401
 
@@ -216,6 +216,7 @@ def _flatten_entries(models: dict) -> list:
 
 
 def _collapse_sensor_fired(log_records) -> bool:
+    """Checks whether the regression-collapse-sensor warning appears among the captured log records."""
     return any("regression-collapse-sensor" in str(r.getMessage()) for r in log_records if r.levelno >= logging.WARNING)
 
 
@@ -260,9 +261,9 @@ def test_scenario01_near_perfect_autoregressive(tmp_path, caplog):
     entries = _flatten_entries(models)
     assert entries, "scenario01: suite returned no model entries"
     r2_by_model = {getattr(e, "model_name", None) or getattr(e, "name", "?"): _r2_from_entry(e) for e in entries}
-    assert any((r2 is not None and r2 > 0.0) for r2 in r2_by_model.values()), (
-        f"scenario01: every model failed to beat the constant-mean dummy. R2 per model: {r2_by_model}"
-    )
+    assert any(
+        (r2 is not None and r2 > 0.0) for r2 in r2_by_model.values()
+    ), f"scenario01: every model failed to beat the constant-mean dummy. R2 per model: {r2_by_model}"
     assert not _collapse_sensor_fired(recs), (
         f"scenario01: regression-collapse-sensor fired on a near-perfect AR "
         f"signal -- defaults are wrong for this scenario. Records: "
@@ -470,9 +471,9 @@ def test_scenario05_mixed_scale_features(tmp_path, caplog):
     r2s = [(getattr(e, "model_name", None) or getattr(e, "name", "?"), _r2_from_entry(e)) for e in entries]
     # With proper scaling, a tree or linear model should achieve R^2>=0.5.
     best_r2 = max((r for _n, r in r2s if r is not None), default=None)
-    assert best_r2 is not None and best_r2 > 0.0, (
-        f"scenario05: NO model beat dummy on mixed-scale features. per-model R2: {r2s}. Pre-pipeline scaler may not be wired."
-    )
+    assert (
+        best_r2 is not None and best_r2 > 0.0
+    ), f"scenario05: NO model beat dummy on mixed-scale features. per-model R2: {r2s}. Pre-pipeline scaler may not be wired."
     # No collapse from the non-MLP models is a tighter contract than
     # before; lgb / linear must not trip the sensor on z-scored input.
     assert not _collapse_sensor_fired(recs), (
@@ -554,9 +555,9 @@ def test_scenario06_constant_feature(tmp_path, caplog):
     r2s = [(getattr(e, "model_name", None) or getattr(e, "name", "?"), _r2_from_entry(e)) for e in entries]
     # Strong linear signal in f0/f1 -> models should still hit R^2 > 0.5.
     best_r2 = max((r for _n, r in r2s if r is not None), default=None)
-    assert best_r2 is not None and best_r2 > 0.5, (
-        f"scenario06: best R^2={best_r2} below 0.5 despite strong signal in f0/f1. Constant feature handling may be broken. per-model R2: {r2s}"
-    )
+    assert (
+        best_r2 is not None and best_r2 > 0.5
+    ), f"scenario06: best R^2={best_r2} below 0.5 despite strong signal in f0/f1. Constant feature handling may be broken. per-model R2: {r2s}"
 
 
 # ---------------------------------------------------------------------------
@@ -643,6 +644,6 @@ def test_scenario08_multilabel_three_binary(tmp_path, caplog):
     aucs = [(getattr(e, "model_name", None) or getattr(e, "name", "?"), _auc_from_entry(e)) for e in entries]
     best_auc = max((a for _n, a in aucs if a is not None), default=None)
     # 0.55 is a soft floor (the strong feature signal should yield ~0.85+).
-    assert best_auc is not None and best_auc > 0.55, (
-        f"scenario08: best AUC={best_auc} below 0.55 on multilabel with strong per-label signal. Defaults may be wrong. per-model AUC: {aucs}"
-    )
+    assert (
+        best_auc is not None and best_auc > 0.55
+    ), f"scenario08: best AUC={best_auc} below 0.55 on multilabel with strong per-label signal. Defaults may be wrong. per-model AUC: {aucs}"

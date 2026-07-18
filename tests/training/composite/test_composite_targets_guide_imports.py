@@ -12,7 +12,6 @@ import importlib
 
 import pytest
 
-
 GUIDE_SYMBOLS = [
     # estimators / discovery / ensemble
     "CompositeTargetEstimator",
@@ -105,17 +104,20 @@ GUIDE_DIAGNOSTICS_FUNCS = [
 
 @pytest.mark.parametrize("name", GUIDE_SYMBOLS)
 def test_guide_symbol_importable_from_composite(name):
+    """Guide symbol importable from composite."""
     mod = importlib.import_module("mlframe.training.composite")
     assert hasattr(mod, name), f"composite guide references missing symbol {name!r}"
 
 
 @pytest.mark.parametrize("dotted", GUIDE_MODULES)
 def test_guide_dotted_module_smoke_imports(dotted):
+    """Guide dotted module smoke imports."""
     assert importlib.import_module(dotted) is not None
 
 
 @pytest.mark.parametrize("tname", GUIDE_TRANSFORMS)
 def test_guide_transform_registered(tname):
+    """Guide transform registered."""
     from mlframe.training.composite import get_transform, list_transforms
 
     assert tname in list_transforms(), f"guide names unregistered transform {tname!r}"
@@ -124,12 +126,14 @@ def test_guide_transform_registered(tname):
 
 @pytest.mark.parametrize("attr", GUIDE_ESTIMATOR_ATTRS)
 def test_guide_estimator_method_present(attr):
+    """Guide estimator method present."""
     from mlframe.training.composite import CompositeTargetEstimator
 
     assert hasattr(CompositeTargetEstimator, attr), f"guide calls CompositeTargetEstimator.{attr} but it is absent"
 
 
 def test_common_usage_block_in_class_docstring():
+    """Common usage block in class docstring."""
     from mlframe.training.composite import CompositeTargetEstimator
 
     doc = CompositeTargetEstimator.__doc__ or ""
@@ -138,11 +142,13 @@ def test_common_usage_block_in_class_docstring():
 
 @pytest.mark.parametrize("fn", GUIDE_AUTOCONFIG_FUNCS)
 def test_guide_autoconfig_func_present(fn):
+    """Guide autoconfig func present."""
     mod = importlib.import_module("mlframe.training.composite.autoconfig")
     assert hasattr(mod, fn)
 
 
 @pytest.mark.parametrize("fn", GUIDE_DIAGNOSTICS_FUNCS)
 def test_guide_diagnostics_func_present(fn):
+    """Guide diagnostics func present."""
     mod = importlib.import_module("mlframe.training.composite.diagnostics")
     assert hasattr(mod, fn)

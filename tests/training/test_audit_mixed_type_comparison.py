@@ -33,12 +33,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
-
 MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
 def _read(rel: str) -> str:
+    """Read."""
     _path = MLFRAME_ROOT / rel
     if not _path.exists() and _path.suffix == ".py":
         # Monolith-split compat: the flat module became a subpackage
@@ -60,16 +59,19 @@ def _read(rel: str) -> str:
 
 
 def test_fingerprint_cols_sort_uses_str_key() -> None:
+    """Fingerprint cols sort uses str key."""
     src = _read("training/feature_handling/fingerprint.py")
     assert "cols_sorted = sorted(cols, key=str)" in src
 
 
 def test_polars_fixes_union_sort_uses_str_key() -> None:
+    """Polars fixes union sort uses str key."""
     src = _read("training/core/_phase_polars_fixes.py")
     assert "union_sorted = sorted(union, key=str)" in src
 
 
 def test_neural_base_classes_sort_dtype_aware() -> None:
+    """Neural base classes sort dtype aware."""
     src = _read("training/neural/base.py")
     assert 'if hasattr(_y_arr, "dtype") and _y_arr.dtype != object:' in src
     assert "self.classes_ = np.sort(_y_arr)" in src
@@ -77,6 +79,7 @@ def test_neural_base_classes_sort_dtype_aware() -> None:
 
 
 def test_custom_feature_selector_classes_sort_dtype_aware() -> None:
+    """Custom feature selector classes sort dtype aware."""
     src = _read("estimators/custom.py")
     assert "self.classes_ = np.array(sorted(_y_arr, key=lambda v: (v is None, str(v))))" in src
 
@@ -85,6 +88,7 @@ def test_optimization_sampled_inputs_sort_uses_str_key() -> None:
     # Monolith split (2026-07-12): the sort_key logic moved from optimization.py into the sibling
     # _optimization_search.py; optimization.py now only re-exports. _read()'s compat shim only
     # handles the X.py -> X/__init__.py subpackage form, not this flat-sibling form, so read both.
+    """Optimization sampled inputs sort uses str key."""
     src = _read("models/optimization.py") + _read("models/_optimization_search.py")
     assert "def _sort_key(v):" in src
     assert "return (v is None, str(v))" in src

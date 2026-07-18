@@ -13,6 +13,7 @@ import numpy as np
 
 
 def _naive_top(phi, base, y, metric, max_card):
+    """Naive top."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import coalition_margin, proxy_loss
 
     best = []
@@ -26,6 +27,7 @@ def _naive_top(phi, base, y, metric, max_card):
 
 
 def test_brute_force_matches_itertools_regression():
+    """Brute force matches itertools regression."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_force_top_n
 
     rng = np.random.default_rng(0)
@@ -46,6 +48,7 @@ def test_brute_force_matches_itertools_regression():
 
 
 def test_brute_force_classification_brier_matches_itertools():
+    """Brute force classification brier matches itertools."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_force_top_n
 
     rng = np.random.default_rng(3)
@@ -61,6 +64,7 @@ def test_brute_force_classification_brier_matches_itertools():
 
 
 def test_serial_parallel_agree():
+    """Serial parallel agree."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_force_top_n
 
     rng = np.random.default_rng(1)
@@ -98,6 +102,7 @@ def test_brute_force_n_chunks_bit_identical_to_default():
 
 
 def test_total_subsets_count():
+    """Total subsets count."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import total_subsets
 
     # sum_{r=1}^{n} C(n, r) == 2^n - 1

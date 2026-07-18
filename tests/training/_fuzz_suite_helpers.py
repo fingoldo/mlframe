@@ -68,6 +68,7 @@ def _config_for_models(
     cb_grow_policy: str = "SymmetricTree",
     cb_lossguide_max_leaves: int = 31,
 ) -> dict:
+    """Config for models."""
     cfg: dict = {"iterations": iterations}
     if early_stopping_rounds is not None:
         cfg["early_stopping_rounds"] = early_stopping_rounds
@@ -414,9 +415,7 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
                 force_native_xgb_multilabel=combo.multilabel_force_native_xgb_cfg,
                 # iter180 DEPTH-4 list-typed: per_label_thresholds (uniform 0.4 vs None),
                 # chain_seeds (deterministic per-chain seeds vs None).
-                per_label_thresholds=(
-                    None if combo.multilabel_per_label_thresholds_cfg is None else [0.4, 0.4, 0.4]  # K=3 default labels in fuzz frame
-                ),
+                per_label_thresholds=(None if combo.multilabel_per_label_thresholds_cfg is None else [0.4, 0.4, 0.4]),  # K=3 default labels in fuzz frame
                 chain_seeds=(None if combo.multilabel_chain_seeds_cfg is None else list(range(combo.multilabel_n_chains_cfg))),
             ),
         ),
@@ -698,6 +697,7 @@ def _custom_pre_pipelines_for_combo(combo: FuzzCombo):
 # axes still vary + drive dedup; they simply no-op into BorutaShap until the knob
 # is available). Mirrors the validator's own inspect.signature(BorutaShap.__init__).
 def _live_boruta_shap_params() -> set[str]:
+    """Live boruta shap params."""
     import inspect
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
@@ -828,6 +828,7 @@ def _preprocessing_for_combo(combo: FuzzCombo):
 
 
 def _skip_if_deps_missing(models: tuple[str, ...]) -> None:
+    """Skip if deps missing."""
     pkg = {
         "cb": "catboost",
         "xgb": "xgboost",

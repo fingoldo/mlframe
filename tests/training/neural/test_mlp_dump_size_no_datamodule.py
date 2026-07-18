@@ -26,7 +26,6 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 
-
 # The heavy tensor attributes the fit-cleanup nulls inside the datamodule
 # shell. Mirrors the list in ``neural/base.py`` _fit_internal cleanup.
 _TENSOR_ATTRS = (
@@ -44,6 +43,7 @@ _TENSOR_ATTRS = (
 
 
 def _make_dm_with_tensors() -> SimpleNamespace:
+    """Make dm with tensors."""
     dm = SimpleNamespace()
     for _attr in _TENSOR_ATTRS:
         setattr(dm, _attr, "heavy-tensor-payload")
@@ -63,6 +63,7 @@ def _run_cleanup(estimator) -> None:
 
 
 def test_fit_drops_prediction_datamodule_tensors_by_default(monkeypatch) -> None:
+    """Fit drops prediction datamodule tensors by default."""
     monkeypatch.delenv("MLFRAME_KEEP_PREDICTION_DATAMODULE", raising=False)
     estimator = SimpleNamespace()
     estimator.trainer = "dummy-trainer-state"
@@ -81,6 +82,7 @@ def test_fit_drops_prediction_datamodule_tensors_by_default(monkeypatch) -> None
 
 
 def test_fit_keeps_prediction_datamodule_when_env_set(monkeypatch) -> None:
+    """Fit keeps prediction datamodule when env set."""
     monkeypatch.setenv("MLFRAME_KEEP_PREDICTION_DATAMODULE", "1")
     estimator = SimpleNamespace()
     estimator.trainer = "dummy"
@@ -90,9 +92,9 @@ def test_fit_keeps_prediction_datamodule_when_env_set(monkeypatch) -> None:
 
     # Env opt-out: every tensor stays put.
     for _attr in _TENSOR_ATTRS:
-        assert getattr(estimator.prediction_datamodule, _attr) == "heavy-tensor-payload", (
-            "MLFRAME_KEEP_PREDICTION_DATAMODULE=1 must preserve the full datamodule (tensors included) for backwards compatibility."
-        )
+        assert (
+            getattr(estimator.prediction_datamodule, _attr) == "heavy-tensor-payload"
+        ), "MLFRAME_KEEP_PREDICTION_DATAMODULE=1 must preserve the full datamodule (tensors included) for backwards compatibility."
 
 
 def test_source_grep_drop_dm_present() -> None:

@@ -22,7 +22,6 @@ import logging
 import numpy as np
 import pandas as pd
 
-
 # ---------------------------------------------------------------------------
 # Minimal FTE stand-ins
 # ---------------------------------------------------------------------------
@@ -41,6 +40,7 @@ class _FTEWithTsField:
         self.ts_field = ts_field
 
     def transform(self, df):
+        """Transform."""
         from mlframe.training.configs import TargetTypes
 
         target = df[self.target_col].to_numpy() if hasattr(df[self.target_col], "to_numpy") else df[self.target_col].values
@@ -68,6 +68,7 @@ class _FTEWithoutTsField:
         # No self.ts_field attribute.
 
     def transform(self, df):
+        """Transform."""
         from mlframe.training.configs import TargetTypes
 
         target = df[self.target_col].to_numpy() if hasattr(df[self.target_col], "to_numpy") else df[self.target_col].values

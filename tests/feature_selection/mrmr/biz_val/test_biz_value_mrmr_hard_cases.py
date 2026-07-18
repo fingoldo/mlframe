@@ -19,13 +19,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # =============================================================================
 # Signal detection — synergy / collinearity / imbalance
 # =============================================================================
 
 
 class TestSignalDetection:
+    """Groups tests covering TestSignalDetection."""
     def test_xor_synergy_both_features_selected(self):
         """y = x1 XOR x2. Neither x1 nor x2 alone predicts y; both are
         needed. MRMR with JMIM (synergy-preserving) must select BOTH
@@ -181,6 +181,7 @@ class TestSignalDetection:
 
 
 class TestClusterDiscovery:
+    """Groups tests covering TestClusterDiscovery."""
     def test_three_latent_factors_with_copies(self):
         """3 latent factors, each with 4 collinear copies + 3 pure
         noise. y depends on factor 0 only. DCD must:
@@ -251,6 +252,7 @@ class TestClusterDiscovery:
 
 
 class TestRobustness:
+    """Groups tests covering TestRobustness."""
     def test_single_unique_value_column_ignored(self):
         """Constant column carries zero MI. Should NEVER be selected."""
         from mlframe.feature_selection.filters.mrmr import MRMR
@@ -366,6 +368,7 @@ class TestRobustness:
 
 
 class TestStability:
+    """Groups tests covering TestStability."""
     def test_same_seed_same_support_across_runs(self):
         """Same X, y, random_seed -> identical support_ across runs."""
         from mlframe.feature_selection.filters.mrmr import MRMR
@@ -395,6 +398,7 @@ class TestStability:
 
 
 class TestNaNAsSignal:
+    """Groups tests covering TestNaNAsSignal."""
     def test_nan_pattern_perfectly_predicts_y(self):
         """The PRESENCE of NaN in a column perfectly predicts y. After
         iter 11/9/31 NaN-handling fixes, MRMR should rank this feature

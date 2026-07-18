@@ -25,7 +25,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from mlframe.training.neural import generate_mlp, MLPNeuronsByLayerArchitecture
 
-
 # ================================================================================================
 # Helper functions
 # ================================================================================================
@@ -888,6 +887,7 @@ def test_weight_init_applies_to_2d_weights():
     init_value = 0.12345
 
     def custom_init(tensor):
+        """Custom init."""
         with torch.no_grad():
             tensor.fill_(init_value)
 

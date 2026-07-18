@@ -20,6 +20,7 @@ from mlframe.feature_selection.filters._fe_matrix_io import (
 
 
 def test_gate_default_off(monkeypatch):
+    """Gate default off."""
     monkeypatch.delenv("MLFRAME_FE_MATRIX_P0", raising=False)
     assert fe_matrix_p0_enabled() is False
     monkeypatch.setenv("MLFRAME_FE_MATRIX_P0", "1")
@@ -28,12 +29,14 @@ def test_gate_default_off(monkeypatch):
 
 def test_non_pure_family_contract_enumerated():
     # The streaming phase relies on this list to know which families need a full-column anchor.
+    """Non pure family contract enumerated."""
     for fam in ("smart_log", "safe_div", "grad1", "grad2", "prewarp"):
         assert fam in NON_PURE_FE_FAMILIES
 
 
 @pytest.mark.parametrize("dist", ["uniform", "normal", "lognormal", "heavytail"])
 def test_numeric_pandas_float32_roundtrip(dist):
+    """Numeric pandas float32 roundtrip."""
     rng = np.random.default_rng(0)
     n = 2000
     if dist == "uniform":
@@ -53,6 +56,7 @@ def test_numeric_pandas_float32_roundtrip(dist):
 
 
 def test_nullable_numeric_roundtrip():
+    """Nullable numeric roundtrip."""
     n = 500
     a = np.arange(n, dtype=np.float64)
     a[::7] = np.nan
@@ -66,6 +70,7 @@ def test_nullable_numeric_roundtrip():
 
 
 def test_categorical_pandas_kept_in_int_plane_not_float():
+    """Categorical pandas kept in int plane not float."""
     n = 1000
     cats = pd.Categorical(np.array(["x", "y", "z"])[np.arange(n) % 3])
     df = pd.DataFrame({"g": cats, "v": np.arange(n, dtype=float)})
@@ -80,6 +85,7 @@ def test_categorical_pandas_kept_in_int_plane_not_float():
 
 def test_high_cardinality_categorical_no_float_aliasing():
     # > 2**24 distinct codes would alias in a float32 mantissa; the int plane must keep them exact.
+    """High cardinality categorical no float aliasing."""
     n = 5000
     codes = np.arange(n) + 20_000_000  # large integer labels
     df = pd.DataFrame({"id": pd.Categorical(codes)})
@@ -101,6 +107,7 @@ def test_pandas_string_object_column_factorized_not_crashed():
 
 
 def test_numpy_roundtrip():
+    """Numpy roundtrip."""
     rng = np.random.default_rng(3)
     arr = rng.normal(size=(300, 4))
     fm = to_feature_matrix(arr, dtype=np.float32)
@@ -109,6 +116,7 @@ def test_numpy_roundtrip():
 
 
 def test_polars_numeric_and_categorical_roundtrip():
+    """Polars numeric and categorical roundtrip."""
     pl = pytest.importorskip("polars")
     n = 800
     rng = np.random.default_rng(5)

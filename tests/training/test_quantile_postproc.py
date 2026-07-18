@@ -9,31 +9,37 @@ from mlframe.training.quantile_postproc import fix_quantile_crossing
 
 
 class TestFixCrossing:
+    """Groups tests covering fix crossing."""
     def test_sort_fixes_crossings(self):
+        """Sort fixes crossings."""
         P = np.array([[0.5, 0.3, 0.7], [0.1, 0.2, 0.15]])
         out = fix_quantile_crossing(P, [0.1, 0.5, 0.9], mode="sort")
         expected = np.array([[0.3, 0.5, 0.7], [0.1, 0.15, 0.2]])
         assert np.allclose(out, expected)
 
     def test_sort_idempotent(self):
+        """Sort idempotent."""
         P = np.array([[0.1, 0.5, 0.9]])
         once = fix_quantile_crossing(P, [0.1, 0.5, 0.9], mode="sort")
         twice = fix_quantile_crossing(once, [0.1, 0.5, 0.9], mode="sort")
         assert np.allclose(once, twice)
 
     def test_sort_already_monotone_unchanged(self):
+        """Sort already monotone unchanged."""
         P = np.array([[1.0, 2.0, 3.0]])
         out = fix_quantile_crossing(P, [0.1, 0.5, 0.9], mode="sort")
         assert np.allclose(out, P)
 
     def test_isotonic_strictly_monotone(self):
         # Crossings on every row.
+        """Isotonic strictly monotone."""
         rng = np.random.default_rng(0)
         P = rng.standard_normal((50, 3))
         out = fix_quantile_crossing(P, [0.1, 0.5, 0.9], mode="isotonic")
         assert np.all(np.diff(out, axis=1) >= -1e-9)
 
     def test_isotonic_idempotent(self):
+        """Isotonic idempotent."""
         P = np.array([[0.5, 0.3, 0.7]])
         once = fix_quantile_crossing(P, [0.1, 0.5, 0.9], mode="isotonic")
         twice = fix_quantile_crossing(once, [0.1, 0.5, 0.9], mode="isotonic")
@@ -43,6 +49,7 @@ class TestFixCrossing:
         # The njit PAVA must reproduce sklearn's equal-weight L2 isotonic
         # projection to FP pooling round-off across many crossing patterns,
         # varied K, and rows that are already monotone (mono-shortcut path).
+        """Isotonic matches sklearn isotonic regression."""
         isotonic_regression = pytest.importorskip("sklearn.isotonic").isotonic_regression
         rng = np.random.default_rng(12345)
         for K in (2, 3, 7, 9):
@@ -59,21 +66,25 @@ class TestFixCrossing:
             assert np.allclose(got.sum(1), P.sum(1))
 
     def test_none_no_op(self):
+        """None no op."""
         P = np.array([[0.5, 0.3, 0.7]])
         out = fix_quantile_crossing(P, [0.1, 0.5, 0.9], mode="none")
         assert np.allclose(out, P)
 
     def test_invalid_mode_raises(self):
+        """Invalid mode raises."""
         P = np.array([[0.5, 0.3, 0.7]])
         with pytest.raises(ValueError, match="mode must be"):
             fix_quantile_crossing(P, [0.1, 0.5, 0.9], mode="quantile-snap")
 
     def test_shape_mismatch_raises(self):
+        """Shape mismatch raises."""
         P = np.array([[0.5, 0.3]])
         with pytest.raises(ValueError, match="preds_NK.shape\\[1\\]"):
             fix_quantile_crossing(P, [0.1, 0.5, 0.9], mode="sort")
 
     def test_1d_input_raises(self):
+        """1d input raises."""
         with pytest.raises(ValueError, match="2-D"):
             fix_quantile_crossing(np.array([0.1, 0.5, 0.9]), [0.1, 0.5, 0.9])
 
@@ -86,6 +97,7 @@ pl = pytest.importorskip("polars")
 @pytest.mark.parametrize("frame_kind", ["numpy", "polars_df", "polars_lazy"])
 @pytest.mark.parametrize("mode", ["sort", "isotonic"])
 def test_fix_quantile_crossing_accepts_frame_kinds(frame_kind: str, mode: str):
+    """Fix quantile crossing accepts frame kinds."""
     P = np.array([[0.5, 0.3, 0.7], [0.1, 0.2, 0.15]])
     if frame_kind == "polars_df":
         arr = pl.DataFrame(P, schema=["q1", "q5", "q9"]).to_numpy()

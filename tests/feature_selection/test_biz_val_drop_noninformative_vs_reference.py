@@ -20,6 +20,7 @@ from mlframe.feature_selection.drop_noninformative_vs_reference import drop_noni
 
 
 def _make_control_treated_dataset(n: int, n_signal: int, n_noise: int, seed: int):
+    """Make control treated dataset."""
     rng = np.random.default_rng(seed)
     is_treated = rng.integers(0, 2, n).astype(bool)
 
@@ -38,19 +39,21 @@ def _make_control_treated_dataset(n: int, n_signal: int, n_noise: int, seed: int
 
 
 def test_biz_val_drop_noninformative_vs_reference_correctly_identifies_noise_columns():
+    """Biz val drop noninformative vs reference correctly identifies noise columns."""
     df, reference_mask, _y = _make_control_treated_dataset(n=2000, n_signal=5, n_noise=15, seed=0)
 
     kept = drop_noninformative_vs_reference(df, reference_mask, alpha=0.1)
 
     n_signal_kept = sum(1 for c in kept if c.startswith("signal"))
     n_noise_kept = sum(1 for c in kept if c.startswith("noise"))
-    assert n_signal_kept == 0, (
-        f"expected the drop-candidate list to contain NO genuinely-shifting signal columns, got {[c for c in kept if c.startswith('signal')]}"
-    )
+    assert (
+        n_signal_kept == 0
+    ), f"expected the drop-candidate list to contain NO genuinely-shifting signal columns, got {[c for c in kept if c.startswith('signal')]}"
     assert n_noise_kept >= 12, f"expected most pure-noise columns to be correctly flagged as drop candidates, got {n_noise_kept}/15"
 
 
 def test_biz_val_dropping_noninformative_columns_preserves_downstream_auc():
+    """Biz val dropping noninformative columns preserves downstream auc."""
     df, reference_mask, y = _make_control_treated_dataset(n=2000, n_signal=5, n_noise=15, seed=1)
     drop_candidates = drop_noninformative_vs_reference(df, reference_mask, alpha=0.1)
     kept_cols = [c for c in df.columns if c not in drop_candidates]
@@ -59,9 +62,9 @@ def test_biz_val_dropping_noninformative_columns_preserves_downstream_auc():
     auc_pruned = cross_val_score(LogisticRegression(max_iter=500), df[kept_cols], y, cv=5, scoring="roc_auc").mean()
 
     assert len(kept_cols) < df.shape[1], "expected the pruned set to be strictly smaller than the full feature set"
-    assert auc_pruned >= auc_full - 0.02, (
-        f"expected pruning non-informative columns to not meaningfully hurt downstream AUC, got pruned={auc_pruned:.4f} full={auc_full:.4f}"
-    )
+    assert (
+        auc_pruned >= auc_full - 0.02
+    ), f"expected pruning non-informative columns to not meaningfully hurt downstream AUC, got pruned={auc_pruned:.4f} full={auc_full:.4f}"
 
 
 def _make_two_cohort_dataset(seed: int):
@@ -119,15 +122,15 @@ def test_biz_val_drop_noninformative_vs_reference_multi_cohort_avoids_false_drop
     single_rate = single_false_drops / n_seeds
     multi_rate = multi_false_drops / n_seeds
     assert single_rate >= 0.3, f"expected single-cohort mode to falsely drop the informative column often (weak shift at n=20), got rate={single_rate:.2f}"
-    assert multi_rate == 0.0, (
-        f"expected multi-cohort mode to NEVER falsely drop the informative column (protected by the large cohort's clear shift), got rate={multi_rate:.2f}"
-    )
-    assert single_noise_hits >= n_seeds - 6, (
-        f"expected single-cohort mode to still correctly flag genuine noise most of the time (n=20 KS test has some irreducible false-negative rate), got {single_noise_hits}/{n_seeds}"
-    )
+    assert (
+        multi_rate == 0.0
+    ), f"expected multi-cohort mode to NEVER falsely drop the informative column (protected by the large cohort's clear shift), got rate={multi_rate:.2f}"
+    assert (
+        single_noise_hits >= n_seeds - 6
+    ), f"expected single-cohort mode to still correctly flag genuine noise most of the time (n=20 KS test has some irreducible false-negative rate), got {single_noise_hits}/{n_seeds}"
     # multi-cohort mode requires the noise column to fail to differ against BOTH cohorts, so its hit rate is
     # necessarily <= the single-cohort rate (the small n=20 cohort alone already has a nontrivial miss rate) --
     # it should still catch a clear majority, never falling anywhere close to the false-drop-avoidance floor.
-    assert multi_noise_hits >= n_seeds * 0.6, (
-        f"expected multi-cohort mode to still correctly flag genuine noise in a clear majority of seeds, got {multi_noise_hits}/{n_seeds}"
-    )
+    assert (
+        multi_noise_hits >= n_seeds * 0.6
+    ), f"expected multi-cohort mode to still correctly flag genuine noise in a clear majority of seeds, got {multi_noise_hits}/{n_seeds}"

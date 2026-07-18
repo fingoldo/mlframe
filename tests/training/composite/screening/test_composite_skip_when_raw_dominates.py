@@ -21,35 +21,44 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 class TestComposiSkipConfig:
+    """Groups tests covering composi skip config."""
     def test_raw_dominates_ratio_default_is_off(self) -> None:
+        """Raw dominates ratio default is off."""
         cfg = CompositeTargetDiscoveryConfig()
         assert cfg.composite_skip_when_raw_dominates_ratio == 0.0
 
     def test_ablation_delta_pct_default_is_off(self) -> None:
+        """Ablation delta pct default is off."""
         cfg = CompositeTargetDiscoveryConfig()
         assert cfg.composite_skip_when_ablation_delta_pct == 0.0
 
     def test_require_beats_raw_baseline_default_is_off(self) -> None:
+        """Require beats raw baseline default is off."""
         cfg = CompositeTargetDiscoveryConfig()
         assert cfg.require_beats_raw_baseline is False
 
     def test_per_bin_n_bins_default_is_off(self) -> None:
+        """Per bin n bins default is off."""
         cfg = CompositeTargetDiscoveryConfig()
         assert cfg.per_bin_n_bins == 0
 
     def test_config_flag_accepts_positive_ratio(self) -> None:
+        """Config flag accepts positive ratio."""
         cfg = CompositeTargetDiscoveryConfig(composite_skip_when_raw_dominates_ratio=0.05)
         assert cfg.composite_skip_when_raw_dominates_ratio == 0.05
 
     def test_config_flag_accepts_positive_ablation_pct(self) -> None:
+        """Config flag accepts positive ablation pct."""
         cfg = CompositeTargetDiscoveryConfig(composite_skip_when_ablation_delta_pct=500.0)
         assert cfg.composite_skip_when_ablation_delta_pct == 500.0
 
     def test_config_flag_accepts_require_beats_raw_baseline(self) -> None:
+        """Config flag accepts require beats raw baseline."""
         cfg = CompositeTargetDiscoveryConfig(require_beats_raw_baseline=True)
         assert cfg.require_beats_raw_baseline is True
 
     def test_config_flag_accepts_per_bin_n_bins(self) -> None:
+        """Config flag accepts per bin n bins."""
         cfg = CompositeTargetDiscoveryConfig(per_bin_n_bins=5)
         assert cfg.per_bin_n_bins == 5
 
@@ -58,6 +67,7 @@ class TestDiscoveryHonoursSkipFlag:
     """Wiring smoke: discovery sees the config knob without crash."""
 
     def test_discovery_with_skip_flag_does_not_crash(self) -> None:
+        """Discovery with skip flag does not crash."""
         from mlframe.training.composite.discovery import CompositeTargetDiscovery
 
         rng = np.random.default_rng(2)

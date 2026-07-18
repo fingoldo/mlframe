@@ -17,10 +17,12 @@ from tests.feature_selection._biz_val_synth import make_signal_plus_noise, as_df
 
 
 def _logreg():
+    """Helper that logreg."""
     return LogisticRegression(max_iter=200, random_state=0)
 
 
 def _base(**over):
+    """Helper that base."""
     kw = dict(cv=3, random_state=0, leakage_corr_threshold=None, n_features_selection_rule="argmax", max_refits=4)
     kw.update(over)
     return kw
@@ -30,6 +32,7 @@ def _base(**over):
 # into the universe, and small fold-train n (~60 of 90) makes noise that spuriously correlates with y over the FULL
 # sample fail the per-fold train-only prescreen -- exactly the leakage the nested pass removes.
 def _fit(nested, n=90, p_signal=2, p_noise=100, seed=1):
+    """Helper that fit."""
     X, y, sig = make_signal_plus_noise(n=n, p_signal=p_signal, p_noise=p_noise, seed=seed)
     Xdf, ys = as_df(X, y)
     r = RFECV(estimator=_logreg(), **_base(prescreen="univariate_ht", prescreen_top_k=15, prescreen_fdr_level=0.99, prescreen_nested=nested))
@@ -38,10 +41,12 @@ def _fit(nested, n=90, p_signal=2, p_noise=100, seed=1):
 
 
 def _best(r):
+    """Helper that best."""
     return max(r.cv_results_["cv_mean_perf"])
 
 
 def test_nested_precomputes_fold_universes_and_flag_off_disables():
+    """Nested precomputes fold universes and flag off disables."""
     r_on, _ = _fit(nested=True)
     assert isinstance(r_on._prescreen_fold_universes, dict) and len(r_on._prescreen_fold_universes) >= 1
     # every fold universe is a subset of the full pre-prescreen feature set
@@ -80,6 +85,7 @@ def test_nested_never_more_optimistic_than_leaky(seed):
 
 
 def test_nested_prescreen_selects_reasonable_support():
+    """Nested prescreen selects reasonable support."""
     r, sig = _fit(nested=True, seed=1)
     signal_cols = {f"x{i}" for i in sig}
     # true signal features remain in the searched universe under nested scoring

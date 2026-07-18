@@ -25,6 +25,7 @@ from mlframe.training.neural import MLPTorchModel, PytorchLightningRegressor, To
 
 
 def _mlp():
+    """Helper that mlp."""
     return PytorchLightningRegressor(
         model_class=MLPTorchModel,
         model_params={"loss_fn": torch.nn.MSELoss(), "learning_rate": 5e-3},
@@ -50,6 +51,7 @@ def _mlp():
 
 
 def _make_data(n=600, d=4, seed=0):
+    """Make data."""
     rng = np.random.default_rng(seed)
     embs = np.vstack([rng.normal(size=d) for _ in range(n)]).astype(np.float32)
     # Signal lives ENTIRELY in the embedding; the scalar columns are pure noise.
@@ -91,11 +93,13 @@ def _rmse_dropping_embedding(df, y):
 
 
 def _split(df, y):
+    """Helper that split."""
     cut = int(len(df) * 0.75)
     return df.iloc[:cut], df.iloc[cut:], y[:cut], y[cut:]
 
 
 def _fit_predict_rmse(tr_sel, tr_y, te_sel, te_y, emb_in):
+    """Fit predict rmse."""
     reg = _mlp()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -115,6 +119,7 @@ def test_biz_val_mrmr_embedding_passthrough_legacy_drops_then_crashes():
 
 
 def test_biz_val_mrmr_embedding_passthrough_beats_dropping_it():
+    """Biz val mrmr embedding passthrough beats dropping it."""
     df, y = _make_data()
 
     rmse_keep, emb_keep = _rmse_via_mrmr_passthrough(df, y)

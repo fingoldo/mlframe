@@ -22,6 +22,7 @@ cp = pytest.importorskip("cupy")
 
 
 def _need_cuda() -> bool:
+    """Need cuda."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -36,6 +37,7 @@ def _need_cuda() -> bool:
 @pytest.mark.gpu
 @pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 def test_dedup_edges_writes_exactly_ne_plus_one_rows():
+    """Dedup edges writes exactly ne plus one rows."""
     from mlframe.feature_selection.filters._fe_batched_mi import _get_dedup_edges_kernel
 
     nbins = 10

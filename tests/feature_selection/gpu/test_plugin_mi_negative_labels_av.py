@@ -16,6 +16,7 @@ from mlframe.feature_selection.filters.hermite_fe import (
 
 
 def _negative_label_inputs():
+    """Negative label inputs."""
     rng = np.random.default_rng(24)
     n = 744
     y = rng.integers(-10, 7, size=n).astype(np.int64)  # non-dense, negative labels
@@ -25,12 +26,14 @@ def _negative_label_inputs():
 
 
 def test_plugin_mi_classif_njit_negative_labels_no_av():
+    """Plugin mi classif njit negative labels no av."""
     x, _, y = _negative_label_inputs()
     mi = _plugin_mi_classif_njit(np.ascontiguousarray(x), np.ascontiguousarray(y), 12)
     assert np.isfinite(mi) and mi >= 0.0
 
 
 def test_plugin_mi_batch_njit_negative_labels_no_av():
+    """Plugin mi batch njit negative labels no av."""
     x, x_const, y = _negative_label_inputs()
     X = np.ascontiguousarray(np.column_stack([x, x_const]))
     mis = _plugin_mi_classif_batch_njit(X, np.ascontiguousarray(y), 12)

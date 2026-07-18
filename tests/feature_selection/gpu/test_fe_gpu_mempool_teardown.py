@@ -24,24 +24,28 @@ from mlframe.feature_selection.filters._mrmr_fe_step._step_core import _free_gpu
 
 
 def test_helper_inert_without_gpu_flags(monkeypatch):
+    """Helper inert without gpu flags."""
     monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
     monkeypatch.delenv("MLFRAME_CMI_GPU", raising=False)
     assert _free_gpu_fe_mempool() is False
 
 
 def test_helper_issues_free_under_strict(monkeypatch):
+    """Helper issues free under strict."""
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
     monkeypatch.delenv("MLFRAME_CMI_GPU", raising=False)
     assert _free_gpu_fe_mempool() is True
 
 
 def test_helper_issues_free_under_cmi_gpu(monkeypatch):
+    """Helper issues free under cmi gpu."""
     monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
     monkeypatch.setenv("MLFRAME_CMI_GPU", "1")
     assert _free_gpu_fe_mempool() is True
 
 
 def _need_cuda() -> bool:
+    """Need cuda."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -53,6 +57,7 @@ def _need_cuda() -> bool:
 @pytest.mark.gpu
 @pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 def test_helper_actually_releases_retained_blocks(monkeypatch):
+    """Helper actually releases retained blocks."""
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
     # Isolate from sibling-test pool state. The helper reclaims whatever ``cupy.get_default_memory_pool()``
     # returns, so point that (and ``cp.empty``'s allocator) at a FRESH pool this test fully owns: a prior MRMR

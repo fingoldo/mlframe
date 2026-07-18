@@ -20,16 +20,19 @@ from mlframe.training._nan_processing import get_categorical_columns
 
 
 def test_ndarray_input_returns_empty_list_instead_of_raising():
+    """Ndarray input returns empty list instead of raising."""
     arr = np.random.default_rng(0).normal(size=(20, 4))
     assert get_categorical_columns(arr) == []
     assert get_categorical_columns(arr, include_string=False) == []
 
 
 def test_pandas_path_still_works():
+    """Pandas path still works."""
     df = pd.DataFrame({"num": [1.0, 2.0], "cat": pd.Categorical(["a", "b"])})
     assert get_categorical_columns(df, include_string=False) == ["cat"]
 
 
 def test_polars_path_still_works():
+    """Polars path still works."""
     df = pl.DataFrame({"num": [1.0, 2.0], "cat": pl.Series(["a", "b"], dtype=pl.Categorical)})
     assert get_categorical_columns(df, include_string=False) == ["cat"]

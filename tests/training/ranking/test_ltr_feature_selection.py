@@ -54,6 +54,7 @@ def _ndcg_at_k(y_true, y_score, groups, k=10):
 
 
 def test_group_aware_relevance_zeros_query_confounder():
+    """Group aware relevance zeros query confounder."""
     from mlframe.training.ranking._ranker_fs import group_aware_relevance
 
     df, gcol, signal, conf, noise = _query_confounded_frame(0)
@@ -113,6 +114,7 @@ def test_biz_val_group_aware_fs_beats_pointwise_on_ndcg():
     pointwise_cols = [conf]
 
     def _ndcg_for(feat_cols):
+        """Ndcg for."""
         train_pool = Pool(df[feat_cols][tr], label=y[tr], group_id=qids[tr])
         rk = CatBoostRanker(iterations=80, loss_function="YetiRank", verbose=False, random_seed=0)
         rk.fit(train_pool)
@@ -121,15 +123,16 @@ def test_biz_val_group_aware_fs_beats_pointwise_on_ndcg():
 
     ndcg_ga = _ndcg_for(ga_cols)
     ndcg_pw = _ndcg_for(pointwise_cols)
-    assert ndcg_ga >= ndcg_pw + 0.10, (
-        f"group-aware FS must beat the pointwise pick on NDCG@10: group_aware={ndcg_ga:.4f} pointwise(confounder)={ndcg_pw:.4f} (ga_cols={ga_cols})"
-    )
+    assert (
+        ndcg_ga >= ndcg_pw + 0.10
+    ), f"group-aware FS must beat the pointwise pick on NDCG@10: group_aware={ndcg_ga:.4f} pointwise(confounder)={ndcg_pw:.4f} (ga_cols={ga_cols})"
 
 
 # --- e2e through the suite (common feature_selection_config, group-aware by default) ---------------
 
 
 def test_e2e_ltr_suite_group_aware_fs_drops_confounder():
+    """E2e ltr suite group aware fs drops confounder."""
     pytest.importorskip("catboost")
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.configs import TargetTypes, ReportingConfig, OutputConfig

@@ -19,7 +19,6 @@ import pytest
 
 from tests._pysr_gate import pysr_works
 
-
 pytestmark = [
     pytest.mark.skipif(
         not pysr_works(),
@@ -35,6 +34,7 @@ pytestmark = [
 
 
 def test_pysr_replay_parity(tmp_path):
+    """Pysr replay parity."""
     from mlframe.training.pipeline import (
         apply_preprocessing_extensions,
         PreprocessingExtensionsBundle,

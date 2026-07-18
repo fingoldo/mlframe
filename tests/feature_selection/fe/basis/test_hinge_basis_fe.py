@@ -48,6 +48,7 @@ N = 4000
 
 
 def _heldout_r2(feat_cols, y):
+    """Fit a held-out (1-in-3 split) Ridge on the given feature columns and return R^2 on the validation fold."""
     from sklearn.linear_model import Ridge
 
     A = np.column_stack([np.ones(len(y))] + [np.asarray(c, float) for c in feat_cols])
@@ -147,6 +148,7 @@ def test_detect_hinge_fwl_rank1_taus_bit_identical_to_lstsq_per_cut():
     from mlframe.feature_selection.filters._hinge_basis_fe import _detect_hinge_breakpoints
 
     def legacy(x, y, *, max_breakpoints=2, min_heldout_r2_uplift=0.02):
+        """Reference full-lstsq-per-cut breakpoint scan that the FWL rank-1-update optimisation must reproduce bit-exactly."""
         x = np.asarray(x, float).ravel()
         y = np.asarray(y, float).ravel()
         n = x.size
@@ -218,6 +220,7 @@ def test_detect_hinge_fwl_rank1_taus_bit_identical_to_lstsq_per_cut():
 
 
 def test_bad_side_raises():
+    """An unrecognized side kwarg to build_hinge_basis_recipe raises ValueError."""
     from mlframe.feature_selection.filters._hinge_basis_fe import (
         build_hinge_basis_recipe,
     )

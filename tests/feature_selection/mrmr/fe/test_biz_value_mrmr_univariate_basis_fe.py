@@ -50,6 +50,7 @@ def _make(make_true, n: int = 4000, seed: int = 0, noise: float = 0.1):
 
 
 def _best_corr(fs, df, true):
+    """Best corr."""
     names = list(fs.get_feature_names_out())
     if not names:
         return 0.0, None
@@ -148,6 +149,7 @@ _ROUTING_BASES = ["hermite", "legendre", "chebyshev", "laguerre"]
 
 
 def _basis_best_corr(x, y, basis, degrees=(2, 3, 4)):
+    """Basis best corr."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         _evaluate_basis_column,
     )
@@ -182,9 +184,9 @@ class TestSignalAdaptiveBasisRouting:
         y = (x * x) + 0.25 * np.std(x * x) * rng.standard_normal(n)  # even, non-monotone
         chosen = basis_route_by_signal(x, y, degrees=(2, 3, 4))
         recov = {b: _basis_best_corr(x, y, b) for b in _ROUTING_BASES}
-        assert chosen == max(recov, key=recov.get), (
-            f"signal routing must return the max-|corr| basis; chose {chosen!r}, recov={ {b: round(v, 3) for b, v in recov.items()} }"
-        )
+        assert chosen == max(
+            recov, key=recov.get
+        ), f"signal routing must return the max-|corr| basis; chose {chosen!r}, recov={ {b: round(v, 3) for b, v in recov.items()} }"
         assert recov[chosen] >= 0.85, f"chosen basis under-recovers: {recov}"
 
     def test_fixes_moment_misroute_on_heavy_tail(self):
@@ -205,9 +207,9 @@ class TestSignalAdaptiveBasisRouting:
         b_sig = basis_route_by_signal(x, y, degrees=(2, 3, 4))
         c_mom = _basis_best_corr(x, y, b_mom)
         c_sig = _basis_best_corr(x, y, b_sig)
-        assert b_sig != b_mom and c_sig >= c_mom + 0.20, (
-            f"signal routing should materially beat moment routing on a heavy-tailed cubic: moment={b_mom}({c_mom:.3f}) signal={b_sig}({c_sig:.3f})"
-        )
+        assert (
+            b_sig != b_mom and c_sig >= c_mom + 0.20
+        ), f"signal routing should materially beat moment routing on a heavy-tailed cubic: moment={b_mom}({c_mom:.3f}) signal={b_sig}({c_sig:.3f})"
 
     def test_falls_back_to_moments_without_usable_y(self):
         """Degenerate y (constant) -> fall back to moment routing, so callers
@@ -229,6 +231,7 @@ class TestIntAsCatBasisSkip:
     floods the candidate pool and displaces the genuinely-useful grouped aggregates of that key (the fe_auto grouped_agg failure)."""
 
     def test_is_int_as_cat_axis_classifies_correctly(self):
+        """Is int as cat axis classifies correctly."""
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             _is_int_as_cat_axis,
         )
@@ -241,6 +244,7 @@ class TestIntAsCatBasisSkip:
         assert _is_int_as_cat_axis(np.array([1.0, 2.0, 3.0])) is False  # n < 8
 
     def test_basis_expansion_skips_int_as_cat_column(self):
+        """Basis expansion skips int as cat column."""
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             generate_univariate_basis_features,
         )
@@ -255,6 +259,7 @@ class TestIntAsCatBasisSkip:
         assert any(c.startswith("x__") for c in out.columns), f"basis expansion must still fire on the continuous 'x': {list(out.columns)}"
 
     def test_adaptive_fourier_skips_int_as_cat_column(self):
+        """Adaptive fourier skips int as cat column."""
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             generate_extra_basis_features,
         )

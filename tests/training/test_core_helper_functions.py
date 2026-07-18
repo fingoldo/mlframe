@@ -28,11 +28,11 @@ from mlframe.training.core import (
 )
 from mlframe.training.configs import FeatureTypesConfig
 
-
 # ----- _df_shape_str / _elapsed_str -----
 
 
 def test_df_shape_str_pandas():
+    """Df shape str pandas."""
     df = pd.DataFrame({"a": range(1234), "b": range(1234)})
     out = _df_shape_str(df)
     assert "1_234" in out
@@ -40,16 +40,19 @@ def test_df_shape_str_pandas():
 
 
 def test_df_shape_str_polars():
+    """Df shape str polars."""
     df = pl.DataFrame({"a": [1, 2, 3]})
     # ASCII x (was Unicode U+00D7 ×) per encoding cleanup pass.
     assert _df_shape_str(df) == "3x1"
 
 
 def test_df_shape_str_none():
+    """Df shape str none."""
     assert _df_shape_str(None) == "None"
 
 
 def test_elapsed_str_seconds():
+    """Elapsed str seconds."""
     t0 = time.perf_counter() - 0.5
     out = _elapsed_str(t0)
     assert out.endswith("s")
@@ -57,6 +60,7 @@ def test_elapsed_str_seconds():
 
 
 def test_elapsed_str_minutes():
+    """Elapsed str minutes."""
     t0 = time.perf_counter() - 125.0
     out = _elapsed_str(t0)
     assert out.endswith("min")
@@ -66,24 +70,28 @@ def test_elapsed_str_minutes():
 
 
 def test_drop_cols_pandas():
+    """Drop cols pandas."""
     df = pd.DataFrame({"a": [1, 2], "b": [3, 4], "c": [5, 6]})
     out = _drop_cols_df(df, ["b", "missing"])
     assert list(out.columns) == ["a", "c"]
 
 
 def test_drop_cols_polars():
+    """Drop cols polars."""
     df = pl.DataFrame({"a": [1, 2], "b": [3, 4]})
     out = _drop_cols_df(df, ["b"])
     assert out.columns == ["a"]
 
 
 def test_drop_cols_empty_list_noop():
+    """Drop cols empty list noop."""
     df = pd.DataFrame({"a": [1]})
     assert _drop_cols_df(df, []) is df
     assert _drop_cols_df(df, None) is df
 
 
 def test_drop_cols_all_missing_noop():
+    """Drop cols all missing noop."""
     df = pd.DataFrame({"a": [1]})
     out = _drop_cols_df(df, ["x", "y"])
     assert out is df
@@ -94,20 +102,24 @@ def test_drop_cols_all_missing_noop():
 
 def test_exclusivity_ok():
     # no overlap -> returns None
+    """Exclusivity ok."""
     assert _validate_feature_type_exclusivity(["t1"], ["e1"], ["c1"]) is None
 
 
 def test_exclusivity_text_cat_overlap():
+    """Exclusivity text cat overlap."""
     with pytest.raises(ValueError, match="text_features and cat_features"):
         _validate_feature_type_exclusivity(["a"], [], ["a"])
 
 
 def test_exclusivity_embedding_cat_overlap():
+    """Exclusivity embedding cat overlap."""
     with pytest.raises(ValueError, match="embedding_features and cat_features"):
         _validate_feature_type_exclusivity([], ["a"], ["a"])
 
 
 def test_exclusivity_text_embedding_overlap():
+    """Exclusivity text embedding overlap."""
     with pytest.raises(ValueError, match="text_features and embedding_features"):
         _validate_feature_type_exclusivity(["a"], ["a"], [])
 
@@ -137,6 +149,7 @@ def test_exclusivity_none_still_catches_real_overlap():
 
 
 def test_auto_detect_disabled_returns_user_lists():
+    """Auto detect disabled returns user lists."""
     cfg = FeatureTypesConfig(auto_detect_feature_types=False, text_features=["t"], embedding_features=["e"])
     df = pd.DataFrame({"t": ["x"], "e": [[1.0]]})
     t, e, _ = _auto_detect_feature_types(df, cfg, cat_features=[])
@@ -145,6 +158,7 @@ def test_auto_detect_disabled_returns_user_lists():
 
 
 def test_auto_detect_pandas_high_cardinality_text():
+    """Auto detect pandas high cardinality text."""
     cfg = FeatureTypesConfig(auto_detect_feature_types=True, cat_text_cardinality_threshold=3)
     rng = np.random.default_rng(0)
     df = pd.DataFrame(
@@ -310,6 +324,7 @@ def test_auto_detect_accepts_cat_features_none():
 
 
 def test_auto_detect_polars_embedding():
+    """Auto detect polars embedding."""
     cfg = FeatureTypesConfig(auto_detect_feature_types=True, cat_text_cardinality_threshold=100)
     df = pl.DataFrame(
         {
@@ -322,6 +337,7 @@ def test_auto_detect_polars_embedding():
 
 
 def test_auto_detect_polars_high_card_text():
+    """Auto detect polars high card text."""
     cfg = FeatureTypesConfig(auto_detect_feature_types=True, cat_text_cardinality_threshold=3)
     df = pl.DataFrame({"s": [f"v_{i}" for i in range(10)]})
     t, _e, _ = _auto_detect_feature_types(df, cfg, cat_features=[])
@@ -332,15 +348,18 @@ def test_auto_detect_polars_high_card_text():
 
 
 class _Strategy:
+    """Groups tests covering strategy."""
     def __init__(self, text=True, emb=True):
         self.supports_text_features = text
         self.supports_embedding_features = emb
 
     def feature_tier(self):
+        """Feature tier."""
         return (self.supports_text_features, self.supports_embedding_features)
 
 
 def test_build_tier_dfs_full_support_no_copy():
+    """Build tier dfs full support no copy."""
     base = {
         "train_df": pd.DataFrame({"a": [1], "t": ["x"], "e": [[1.0]]}),
         "val_df": None,
@@ -353,6 +372,7 @@ def test_build_tier_dfs_full_support_no_copy():
 
 
 def test_build_tier_dfs_drops_unsupported_pandas():
+    """Build tier dfs drops unsupported pandas."""
     base = {
         "train_df": pd.DataFrame({"a": [1], "t": ["x"], "e": [[1.0]]}),
         "val_df": pd.DataFrame({"a": [2], "t": ["y"], "e": [[2.0]]}),
@@ -367,6 +387,7 @@ def test_build_tier_dfs_drops_unsupported_pandas():
 
 
 def test_build_tier_dfs_drops_unsupported_polars():
+    """Build tier dfs drops unsupported polars."""
     base = {
         "train_df": pl.DataFrame({"a": [1], "t": ["x"]}),
         "val_df": None,
@@ -378,6 +399,7 @@ def test_build_tier_dfs_drops_unsupported_polars():
 
 
 def test_build_tier_dfs_cache_hit():
+    """Build tier dfs cache hit."""
     base = {"train_df": pd.DataFrame({"a": [1]}), "val_df": None, "test_df": None}
     strat = _Strategy(True, True)
     cache = {}
@@ -390,6 +412,7 @@ def test_build_tier_dfs_cache_hit():
 
 
 def test_convert_dfs_pandas_passthrough():
+    """Convert dfs pandas passthrough."""
     df = pd.DataFrame({"a": [1, 2]})
     tr, va, te = _convert_dfs_to_pandas(df, None, None)
     assert tr is df
@@ -397,6 +420,7 @@ def test_convert_dfs_pandas_passthrough():
 
 
 def test_convert_dfs_polars_to_pandas():
+    """Convert dfs polars to pandas."""
     pdf = pl.DataFrame({"a": [1, 2]})
     tr, va, _te = _convert_dfs_to_pandas(pdf, pdf, None)
     assert isinstance(tr, pd.DataFrame)
@@ -404,5 +428,6 @@ def test_convert_dfs_polars_to_pandas():
 
 
 def test_convert_dfs_invalid_type():
+    """Convert dfs invalid type."""
     with pytest.raises(TypeError, match="train_df"):
         _convert_dfs_to_pandas(np.array([1, 2, 3]), None, None)

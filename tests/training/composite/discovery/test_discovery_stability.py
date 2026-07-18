@@ -218,9 +218,9 @@ def test_m3_legacy_full_sample_opt_out(monkeypatch):
     expected_pool = np.setdiff1d(full_train, shared_holdout)
     for _, ti in calls:
         assert set(ti.tolist()).issubset(set(full_train.tolist())), "opt-out rows must still come from train_idx"
-        assert np.array_equal(np.sort(ti), expected_pool), (
-            "frac=1.0 must use the full SCREEN POOL (train_idx minus the shared honest holdout), identically across all runs"
-        )
+        assert np.array_equal(
+            np.sort(ti), expected_pool
+        ), "frac=1.0 must use the full SCREEN POOL (train_idx minus the shared honest holdout), identically across all runs"
     # Seeds are still decorrelated even on the opt-out path.
     seeds = [s for s, _ in calls]
     assert len(set(seeds)) == 4
@@ -289,8 +289,8 @@ def test_biz_val_subsampling_improves_lucky_spec_filtering():
     fixed_kept = _kept(0.5)  # M-B 50% subsample per run (the new default)
 
     # The fixed gate never keeps MORE noise specs than the legacy gate.
-    assert fixed_kept <= legacy_kept, (
-        f"subsampled gate kept MORE noise specs ({fixed_kept}) than the legacy full-sample gate ({legacy_kept}) -- regression in M-B filtering"
-    )
+    assert (
+        fixed_kept <= legacy_kept
+    ), f"subsampled gate kept MORE noise specs ({fixed_kept}) than the legacy full-sample gate ({legacy_kept}) -- regression in M-B filtering"
     # And on pure noise it should keep essentially nothing.
     assert fixed_kept <= 1, f"subsampled stability gate kept {fixed_kept} noise specs -- lucky-split survivors not filtered"

@@ -23,6 +23,7 @@ from mlframe.training.reporting._reporting_probabilistic import (
 
 
 def _run(target_labels):
+    """Builds a weak-signal binary probability report under the given non-0/1 target_labels and runs the fairness ROC-AUC report."""
     rng = np.random.default_rng(1)
     n = 2000
     g = rng.integers(0, 2, n)
@@ -65,6 +66,7 @@ def _run(target_labels):
 
 @pytest.mark.parametrize("labels", [[0, 1], [1, 2], ["neg", "pos"]])
 def test_fairness_roc_auc_uses_positive_class_indicator(labels):
+    """Fairness roc auc uses positive class indicator."""
     got, expected = _run(labels)
     assert np.isfinite(got), f"fairness ROC AUC is non-finite for labels={labels}"
     # pre-fix: labels {1,2} / strings fed raw into fast_roc_auc -> NaN / wrong.

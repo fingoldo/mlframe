@@ -36,6 +36,7 @@ def _ece(probs_pos: np.ndarray, y: np.ndarray, n_bins: int = 10) -> float:
 
 
 def _brier(probs_pos: np.ndarray, y: np.ndarray) -> float:
+    """Brier."""
     return float(np.mean((np.asarray(probs_pos) - np.asarray(y)) ** 2))
 
 
@@ -45,6 +46,7 @@ def _brier(probs_pos: np.ndarray, y: np.ndarray) -> float:
 
 
 def test_calib_carve_disjoint_from_test_val_and_train():
+    """Calib carve disjoint from test val and train."""
     df = pd.DataFrame({"f": np.arange(2000)})
     tr, va, te, _, _, _, calib_idx, _ = make_train_test_split(
         df,
@@ -65,6 +67,7 @@ def test_calib_carve_disjoint_from_test_val_and_train():
 
 
 def test_calib_carve_group_aware_no_group_spans_boundary():
+    """Calib carve group aware no group spans boundary."""
     n = 2000
     df = pd.DataFrame({"f": np.arange(n)})
     groups = np.repeat(np.arange(n // 5), 5)
@@ -85,6 +88,7 @@ def test_calib_carve_group_aware_no_group_spans_boundary():
 
 
 def test_calib_carve_temporal_takes_oldest_train_rows():
+    """Calib carve temporal takes oldest train rows."""
     n = 1000
     df = pd.DataFrame({"f": np.arange(n)})
     ts = pd.Series(pd.date_range("2021-01-01", periods=n, freq="h"))
@@ -104,6 +108,7 @@ def test_calib_carve_temporal_takes_oldest_train_rows():
 
 
 def test_calibrate_namespace_model_raises_on_calib_equals_test():
+    """Calibrate namespace model raises on calib equals test."""
     from mlframe.training._calibration_models import calibrate_namespace_model
     from sklearn.linear_model import LogisticRegression
 
@@ -196,6 +201,7 @@ def test_biz_val_calib_size_posthoc_improves_ece_and_brier():
 
 
 def test_calib_size_zero_leaves_split_unchanged():
+    """Calib size zero leaves split unchanged."""
     df = pd.DataFrame({"f": np.arange(1500)})
     # Legacy 6-tuple path (no calib args).
     base6 = make_train_test_split(df, test_size=0.2, val_size=0.1, random_seed=99)
@@ -302,6 +308,7 @@ def _run_calib_suite(tmp_path, calib_size, seed=17):
 
 
 def _first_binary_entry(models):
+    """First binary entry."""
     for _by_name in models.values():
         for _entries in _by_name.values():
             if isinstance(_entries, list) and _entries:
@@ -342,9 +349,9 @@ def test_e2e_calib_size_activates_posthoc_calibration_and_no_worse_ece(tmp_path)
     ece_uncalibrated = _ece(raw_test[:, 1], y_test_no)
     # Tolerance band absorbs the small test-slice/seed variation between the two runs; the load-bearing assertion is
     # that calibration ACTIVATED (above) and does not materially degrade calibration on honest test.
-    assert ece_calibrated <= ece_uncalibrated + 0.05, (
-        f"post-hoc calibration degraded test ECE: calibrated={ece_calibrated:.4f} uncalibrated={ece_uncalibrated:.4f}"
-    )
+    assert (
+        ece_calibrated <= ece_uncalibrated + 0.05
+    ), f"post-hoc calibration degraded test ECE: calibrated={ece_calibrated:.4f} uncalibrated={ece_uncalibrated:.4f}"
 
 
 def test_e2e_calib_size_zero_adds_no_calib_predict(tmp_path):

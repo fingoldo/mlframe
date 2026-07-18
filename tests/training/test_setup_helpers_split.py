@@ -11,19 +11,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
-
 PARENT = "mlframe.training.core._setup_helpers"
 FACADE_LOC_BUDGET = 800
 
 
 def test_setup_helpers_facade_loc_budget():
+    """Setup helpers facade loc budget."""
     import mlframe.training.core._setup_helpers as parent
 
     n = len(Path(parent.__file__).read_text(encoding="utf-8").splitlines())
-    assert n <= FACADE_LOC_BUDGET, (
-        f"{PARENT} grew back over the budget ({n} > {FACADE_LOC_BUDGET}); carve another sibling rather than letting the facade bloat."
-    )
+    assert (
+        n <= FACADE_LOC_BUDGET
+    ), f"{PARENT} grew back over the budget ({n} > {FACADE_LOC_BUDGET}); carve another sibling rather than letting the facade bloat."
 
 
 def test_setup_helpers_re_exports_resolve():
@@ -45,6 +44,7 @@ def test_setup_helpers_re_exports_resolve():
 
 
 def test_setup_helpers_identity_pipeline_cache():
+    """Setup helpers identity pipeline cache."""
     import mlframe.training.core._setup_helpers as parent
     from mlframe.training.core import _setup_helpers_pipeline_cache as sib
 
@@ -57,6 +57,7 @@ def test_setup_helpers_identity_pipeline_cache():
 
 
 def test_setup_helpers_identity_outliers():
+    """Setup helpers identity outliers."""
     import mlframe.training.core._setup_helpers as parent
     from mlframe.training.core import _setup_helpers_outliers as sib
 
@@ -64,6 +65,7 @@ def test_setup_helpers_identity_outliers():
 
 
 def test_setup_helpers_identity_pre_pipelines():
+    """Setup helpers identity pre pipelines."""
     import mlframe.training.core._setup_helpers as parent
     from mlframe.training.core import _setup_helpers_pre_pipelines as sib
 
@@ -71,6 +73,7 @@ def test_setup_helpers_identity_pre_pipelines():
 
 
 def test_setup_helpers_identity_metadata():
+    """Setup helpers identity metadata."""
     import mlframe.training.core._setup_helpers as parent
     from mlframe.training.core import _setup_helpers_metadata as sib
 
@@ -89,6 +92,7 @@ def test_setup_helpers_smoke_pipeline_disk_cache_path():
 
 
 def test_setup_helpers_smoke_pipeline_disk_cache_version_tag():
+    """Setup helpers smoke pipeline disk cache version tag."""
     from mlframe.training.core._setup_helpers import _pipeline_disk_cache_version_tag
 
     tag = _pipeline_disk_cache_version_tag()
@@ -96,6 +100,7 @@ def test_setup_helpers_smoke_pipeline_disk_cache_version_tag():
 
 
 def test_setup_helpers_smoke_initialize_training_defaults():
+    """Setup helpers smoke initialize training defaults."""
     from mlframe.training.core._setup_helpers import _initialize_training_defaults
 
     common, rfecv, mrmr = _initialize_training_defaults(None, None, None, suite_verbose=0)

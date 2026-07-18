@@ -75,9 +75,9 @@ def test_biz_val_honest_rmse_gate_rejects_mi_positive_ratio_pair():
     # Gate ON (default): the same MI-positive ratio pair is rejected on honest y-scale OOS RMSE.
     disc_on = CompositeTargetDiscovery(_mi_config(transforms=["ratio"]))
     disc_on.fit(df, "y", ["base", "x0", "x1"], train_idx)
-    assert not [s for s in disc_on.specs_ if s.transform_name == "ratio"], (
-        "honest RMSE gate must reject the noise-amplifying ratio spec on the mi screening path"
-    )
+    assert not [
+        s for s in disc_on.specs_ if s.transform_name == "ratio"
+    ], "honest RMSE gate must reject the noise-amplifying ratio spec on the mi screening path"
     stages = {row["stage"] for row in disc_on.rejection_ledger}
     assert "honest_rmse" in stages, "the rejection must be attributed to the honest_rmse ledger stage"
 
@@ -91,9 +91,9 @@ def test_biz_val_honest_rmse_gate_keeps_genuinely_helpful_linear_residual():
     assert kept, "helpful linear_residual on the dominant additive base must survive the gate"
     spec = kept[0]
     assert spec.honest_holdout_rmse is not None and spec.honest_holdout_raw_rmse is not None
-    assert spec.honest_holdout_rmse_gain is not None and spec.honest_holdout_rmse_gain > 0.0, (
-        f"the surviving composite must beat raw y OOS (gain={spec.honest_holdout_rmse_gain})"
-    )
+    assert (
+        spec.honest_holdout_rmse_gain is not None and spec.honest_holdout_rmse_gain > 0.0
+    ), f"the surviving composite must beat raw y OOS (gain={spec.honest_holdout_rmse_gain})"
     # The wide-range base defeats the tiny tree on raw y; the residual composite should win by a wide margin.
     assert spec.honest_holdout_rmse < 0.5 * spec.honest_holdout_raw_rmse
 

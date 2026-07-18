@@ -25,17 +25,20 @@ class _RejectAllValDetector:
         self._n_train = 0
 
     def fit(self, X):
+        """Fit."""
         self._n_train = len(X)
         return self
 
     def predict(self, X):
         # Train frame (seen at fit) -> all inliers; anything else (val) -> all outliers.
+        """Predict."""
         if len(X) == self._n_train:
             return np.ones(len(X), dtype=int)
         return -np.ones(len(X), dtype=int)
 
 
 def _frames(n_train: int = 200, n_val: int = 80):
+    """Frames."""
     rng = np.random.default_rng(0)
     train_df = pd.DataFrame({"x0": rng.normal(size=n_train), "x1": rng.normal(size=n_train)})
     val_df = pd.DataFrame({"x0": rng.normal(size=n_val), "x1": rng.normal(size=n_val)})
@@ -43,6 +46,7 @@ def _frames(n_train: int = 200, n_val: int = 80):
 
 
 def test_val_side_raises_when_outlier_detection_collapses_val_below_min_keep():
+    """Val side raises when outlier detection collapses val below min keep."""
     train_df, val_df = _frames()
     train_idx = np.arange(len(train_df))
     val_idx = np.arange(len(val_df))

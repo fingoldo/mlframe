@@ -28,6 +28,7 @@ import pandas as pd
 
 
 def test_target_dist_stats_identity_preserved():
+    """Target dist stats identity preserved."""
     from mlframe.training.targets import _target_distribution_analyzer as parent
     from mlframe.training.targets import _target_distribution_analyzer_stats as stats
 
@@ -44,6 +45,7 @@ def test_target_dist_stats_identity_preserved():
 
 
 def test_target_dist_modes_identity_preserved():
+    """Target dist modes identity preserved."""
     from mlframe.training.targets import _target_distribution_analyzer as parent
     from mlframe.training.targets import _target_distribution_analyzer_modes as modes
 
@@ -56,6 +58,7 @@ def test_target_dist_modes_identity_preserved():
 
 
 def test_target_dist_target_fn_identity_preserved():
+    """Target dist target fn identity preserved."""
     from mlframe.training.targets import _target_distribution_analyzer as parent
     from mlframe.training.targets import _target_distribution_analyzer_target_fn as tfn
 
@@ -63,6 +66,7 @@ def test_target_dist_target_fn_identity_preserved():
 
 
 def test_target_dist_features_identity_preserved():
+    """Target dist features identity preserved."""
     from mlframe.training.targets import _target_distribution_analyzer as parent
     from mlframe.training.targets import _target_distribution_analyzer_features as feats
 
@@ -76,6 +80,7 @@ def test_target_dist_features_identity_preserved():
 
 
 def test_target_dist_facade_loc_budget():
+    """Target dist facade loc budget."""
     parent_path = Path(__file__).resolve().parents[3] / "src" / "mlframe" / "training" / "targets" / "_target_distribution_analyzer.py"
     n_lines = len(parent_path.read_text(encoding="utf-8").splitlines())
     # Plan target: <750; current carve lands ~190.
@@ -83,6 +88,7 @@ def test_target_dist_facade_loc_budget():
 
 
 def test_target_dist_smoke_stats_via_parent():
+    """Target dist smoke stats via parent."""
     from mlframe.training.targets._target_distribution_analyzer import (
         _excess_kurtosis,
         _lag1_autocorr,
@@ -97,6 +103,7 @@ def test_target_dist_smoke_stats_via_parent():
 
 
 def test_target_dist_smoke_modes_via_parent():
+    """Target dist smoke modes via parent."""
     from mlframe.training.targets._target_distribution_analyzer import (
         _classify_target_type,
         _detect_multi_modal,
@@ -112,6 +119,7 @@ def test_target_dist_smoke_modes_via_parent():
 
 
 def test_target_dist_smoke_target_fn_via_parent():
+    """Target dist smoke target fn via parent."""
     from mlframe.training.targets._target_distribution_analyzer import (
         TargetDistributionReport,
         analyze_target_distribution,
@@ -125,6 +133,7 @@ def test_target_dist_smoke_target_fn_via_parent():
 
 
 def test_target_dist_smoke_features_via_parent():
+    """Target dist smoke features via parent."""
     from mlframe.training.targets._target_distribution_analyzer import (
         FeatureDistributionReport,
         analyze_feature_distribution,

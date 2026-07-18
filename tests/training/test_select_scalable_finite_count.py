@@ -26,6 +26,7 @@ from mlframe.training.pipeline import _select_scalable_numeric_columns
 
 
 def _mixed_frame(n: int = 2000) -> pl.DataFrame:
+    """Mixed frame."""
     rng = np.random.default_rng(7)
     good = rng.normal(size=n)
     lowvar = rng.normal(size=n) * 1e-9  # tiny but non-zero spread
@@ -72,6 +73,7 @@ _EXPECTED = {
 
 @pytest.mark.parametrize("method", ["robust", "standard", "min_max", "abs_max"])
 def test_selected_set_unchanged(method):
+    """Selected set unchanged."""
     df = _mixed_frame()
     got = set(_select_scalable_numeric_columns(df, method=method))
     assert got == _EXPECTED[method], (method, sorted(got))
@@ -92,6 +94,7 @@ def test_batched_matches_fallback(method, monkeypatch):
     real_select = pl.LazyFrame.select
 
     def boom(self, *a, **k):
+        """Boom."""
         raise RuntimeError("force fallback")
 
     monkeypatch.setattr(pl.LazyFrame, "select", boom)
@@ -128,10 +131,12 @@ def test_perf_sentinel_fused_count_faster():
     cols = df.columns
 
     def old():
+        """Old."""
         e = [pl.col(c).drop_nulls().drop_nans().filter(pl.col(c).drop_nulls().drop_nans().is_finite()).len().alias("n" + c) for c in cols]
         return df.lazy().select(e).collect()
 
     def new():
+        """New."""
         e = [pl.col(c).is_finite().sum().alias("n" + c) for c in cols]
         return df.lazy().select(e).collect()
 
@@ -139,6 +144,7 @@ def test_perf_sentinel_fused_count_faster():
     new()  # warm
 
     def bench(f, k=7):
+        """Bench."""
         best = float("inf")
         for _ in range(k):
             t0 = time.perf_counter()

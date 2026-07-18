@@ -27,6 +27,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_prox
 
 
 def _make_xy(n=2000, p=24, seed=0):
+    """Make xy."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(rng.normal(size=(n, p)), columns=[f"feat_{i}" for i in range(p)])
     logit = X.iloc[:, 0] - 0.7 * X.iloc[:, 1] + 0.4 * X.iloc[:, 3]
@@ -35,6 +36,7 @@ def _make_xy(n=2000, p=24, seed=0):
 
 
 def test_slice_cols_to_numpy_dataframe_and_ndarray_equivalent():
+    """Slice cols to numpy dataframe and ndarray equivalent."""
     X, _ = _make_xy()
     cols = [2, 5, 0, 11]
     from_df = _slice_cols_to_numpy(X, cols)
@@ -60,6 +62,7 @@ def _honest_loss_named_reference(model_template, X_tr, y_tr, X_ev, y_ev, idx, me
 
 
 def test_honest_loss_numpy_bit_identical_to_named_dataframe():
+    """Honest loss numpy bit identical to named dataframe."""
     X, y = _make_xy()
     Xtr, Xev = X.iloc[:1500], X.iloc[1500:]
     ytr, yev = y[:1500], y[1500:]

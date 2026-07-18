@@ -33,7 +33,6 @@ from mlframe.training.baselines.dummy import (
     format_suite_end_summary,
 )
 
-
 # ---------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------
@@ -41,6 +40,7 @@ from mlframe.training.baselines.dummy import (
 
 @pytest.fixture
 def cfg():
+    """Cfg."""
     return DummyBaselinesConfig()
 
 
@@ -79,6 +79,7 @@ def reg_data(sample_regression_data):
 
 @pytest.fixture
 def binary_data():
+    """Binary data."""
     rng = np.random.default_rng(0)
     n_tr, n_va, n_te = 500, 100, 100
     y_tr = rng.integers(0, 2, n_tr)
@@ -100,6 +101,7 @@ def binary_data():
 
 @pytest.fixture
 def multiclass_data():
+    """Multiclass data."""
     rng = np.random.default_rng(1)
     n_tr, n_va, n_te = 500, 100, 100
     y_tr = rng.integers(0, 4, n_tr)
@@ -121,6 +123,7 @@ def multiclass_data():
 
 @pytest.fixture
 def multilabel_data():
+    """Multilabel data."""
     rng = np.random.default_rng(2)
     K = 4
     return {
@@ -137,6 +140,7 @@ def multilabel_data():
 
 @pytest.fixture
 def ltr_data():
+    """Ltr data."""
     rng = np.random.default_rng(3)
     n_tr, n_va, n_te = 500, 100, 100
     return {
@@ -160,56 +164,63 @@ def ltr_data():
 
 
 class TestDispatcher:
+    """Groups tests covering dispatcher."""
     def test_regression_returns_strongest(self, reg_data, cfg):
+        """Regression returns strongest."""
         rep = compute_dummy_baselines(config=cfg, **reg_data)
-        assert isinstance(rep.strongest, str) and rep.strongest in rep.table.index, (
-            f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
-        )
+        assert (
+            isinstance(rep.strongest, str) and rep.strongest in rep.table.index
+        ), f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
         assert rep.primary_metric == "val_RMSE"
         assert "mean" in rep.table.index
         assert "median" in rep.table.index
 
     def test_binary_returns_strongest(self, binary_data, cfg):
+        """Binary returns strongest."""
         rep = compute_dummy_baselines(config=cfg, **binary_data)
-        assert isinstance(rep.strongest, str) and rep.strongest in rep.table.index, (
-            f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
-        )
+        assert (
+            isinstance(rep.strongest, str) and rep.strongest in rep.table.index
+        ), f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
         # D5: log_loss is the headline classification metric, not AUC
         assert rep.primary_metric == "val_log_loss"
         assert "prior" in rep.table.index
         assert "most_frequent" in rep.table.index
 
     def test_multiclass_returns_strongest(self, multiclass_data, cfg):
+        """Multiclass returns strongest."""
         rep = compute_dummy_baselines(config=cfg, **multiclass_data)
-        assert isinstance(rep.strongest, str) and rep.strongest in rep.table.index, (
-            f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
-        )
+        assert (
+            isinstance(rep.strongest, str) and rep.strongest in rep.table.index
+        ), f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
         assert rep.primary_metric == "val_log_loss"
         assert "uniform" in rep.table.index
 
     def test_multilabel_returns_strongest(self, multilabel_data, cfg):
+        """Multilabel returns strongest."""
         rep = compute_dummy_baselines(config=cfg, **multilabel_data)
-        assert isinstance(rep.strongest, str) and rep.strongest in rep.table.index, (
-            f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
-        )
+        assert (
+            isinstance(rep.strongest, str) and rep.strongest in rep.table.index
+        ), f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
         # D5 multilabel: macro log-loss is the headline
         assert rep.primary_metric == "val_log_loss_macro"
 
     def test_ltr_returns_strongest(self, ltr_data, cfg):
+        """Ltr returns strongest."""
         rep = compute_dummy_baselines(config=cfg, **ltr_data)
-        assert isinstance(rep.strongest, str) and rep.strongest in rep.table.index, (
-            f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
-        )
+        assert (
+            isinstance(rep.strongest, str) and rep.strongest in rep.table.index
+        ), f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
         # NDCG@k is a maximize metric — we use NDCG@10 as primary
         assert "NDCG" in rep.primary_metric
 
     def test_quantile_routes_through_regression(self, reg_data, cfg):
         # quantile_regression currently shares regression dispatcher.
+        """Quantile routes through regression."""
         d = dict(reg_data, target_type="quantile_regression", target_name="q")
         rep = compute_dummy_baselines(config=cfg, **d)
-        assert isinstance(rep.strongest, str) and rep.strongest in rep.table.index, (
-            f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
-        )
+        assert (
+            isinstance(rep.strongest, str) and rep.strongest in rep.table.index
+        ), f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
         assert rep.primary_metric == "val_RMSE"
 
 
@@ -219,6 +230,7 @@ class TestDispatcher:
 
 
 class TestHeadlineLogLoss:
+    """Groups tests covering headline log loss."""
     def test_constant_classifiers_have_auc_eq_half(self, binary_data, cfg):
         """All constant-prediction classifiers (prior/most_frequent/all_zeros/
         all_ones) collapse to AUC=0.5 by construction → AUC cannot
@@ -232,6 +244,7 @@ class TestHeadlineLogLoss:
                         assert abs(auc - 0.5) < 0.05, f"{name} AUC should ≈ 0.5 by construction, got {auc}"
 
     def test_multilabel_macro_and_micro_explicitly_named(self, multilabel_data, cfg):
+        """Multilabel macro and micro explicitly named."""
         rep = compute_dummy_baselines(config=cfg, **multilabel_data)
         # D5/C#9 explicit naming: macro/micro log-loss columns. Sample-AUC
         # was deliberately out of scope (cost > budget in plan v3).
@@ -245,6 +258,7 @@ class TestHeadlineLogLoss:
 
 
 class TestPerGroupLeakage:
+    """Groups tests covering per group leakage."""
     def test_high_cardinality_skipped(self, cfg):
         """D1 cardinality cap: cat with n_unique > 0.5*n_train (row-id-like)
         must be skipped — it would silently overfit to perfect train predictions."""
@@ -275,6 +289,7 @@ class TestPerGroupLeakage:
         assert any("per_group" in str(idx) for idx in rep.table.index)
 
     def test_no_cat_features_no_per_group(self, reg_data, cfg):
+        """No cat features no per group."""
         d = dict(reg_data, cat_features=None)
         rep = compute_dummy_baselines(config=cfg, **d)
         assert not any("per_group" in str(idx) for idx in rep.table.index)
@@ -286,7 +301,9 @@ class TestPerGroupLeakage:
 
 
 class TestTimeSeriesDetection:
+    """Groups tests covering time series detection."""
     def test_no_timestamps_no_ts_baselines(self, reg_data, cfg):
+        """No timestamps no ts baselines."""
         rep = compute_dummy_baselines(config=cfg, **reg_data)
         ts_rows = [
             idx
@@ -296,6 +313,7 @@ class TestTimeSeriesDetection:
         assert ts_rows == []
 
     def test_monotonic_daily_series_emits_ts_baselines(self, cfg):
+        """Monotonic daily series emits ts baselines."""
         rng = np.random.default_rng(0)
         n_tr, n_va, n_te = 400, 80, 80
         ts_tr = pd.date_range("2024-01-01", periods=n_tr, freq="D")
@@ -355,6 +373,7 @@ class TestTimeSeriesDetection:
         assert ts_rows == [], f"Interleaved split must skip TS baselines: {list(rep.table.index)}"
 
     def test_temporally_monotonic_helper(self):
+        """Temporally monotonic helper."""
         ts1 = pd.date_range("2024-01-01", periods=50, freq="D")
         ts2 = pd.date_range("2024-02-20", periods=50, freq="D")
         ts3 = pd.date_range("2024-04-10", periods=50, freq="D")
@@ -368,6 +387,7 @@ class TestTimeSeriesDetection:
 
 
 class TestStrongestPickRobustness:
+    """Groups tests covering strongest pick robustness."""
     def test_all_one_class_val_falls_back_to_test(self, cfg):
         """val with single class → strongest-pick falls back to test split."""
         rng = np.random.default_rng(0)
@@ -391,6 +411,7 @@ class TestStrongestPickRobustness:
         assert rep.strongest is not None or rep.primary_metric is not None
 
     def test_both_splits_degenerate_strongest_none(self, cfg):
+        """Both splits degenerate strongest none."""
         rng = np.random.default_rng(0)
         # All-constant val + test → no signal anywhere
         y_tr = rng.integers(0, 2, 500)
@@ -419,7 +440,9 @@ class TestStrongestPickRobustness:
 
 
 class TestLTRGroupSanity:
+    """Groups tests covering l t r group sanity."""
     def test_misaligned_group_ids_raises_or_skips(self, cfg):
+        """Misaligned group ids raises or skips."""
         rng = np.random.default_rng(0)
         n_tr = 500
         with pytest.raises((AssertionError, ValueError)):
@@ -440,6 +463,7 @@ class TestLTRGroupSanity:
             )
 
     def test_ltr_emits_random_within_query_baseline(self, ltr_data, cfg):
+        """Ltr emits random within query baseline."""
         rep = compute_dummy_baselines(config=cfg, **ltr_data)
         assert any("random_within_query" in str(idx) for idx in rep.table.index)
         assert any("identity_input_order" in str(idx) for idx in rep.table.index)
@@ -451,7 +475,9 @@ class TestLTRGroupSanity:
 
 
 class TestPerCellMetricIsolation:
+    """Groups tests covering per cell metric isolation."""
     def test_failed_column_present(self, reg_data, cfg):
+        """Failed column present."""
         rep = compute_dummy_baselines(config=cfg, **reg_data)
         assert "failed" in rep.table.columns
         # Healthy run → all rows should have failed=False
@@ -464,12 +490,15 @@ class TestPerCellMetricIsolation:
 
 
 class TestSerialization:
+    """Groups tests covering serialization."""
     def test_to_dict_has_schema_version(self, reg_data, cfg):
+        """To dict has schema version."""
         rep = compute_dummy_baselines(config=cfg, **reg_data)
         d = rep.to_dict()
         assert d["schema_version"] == SCHEMA_VERSION
 
     def test_to_dict_json_roundtrip(self, reg_data, cfg):
+        """To dict json roundtrip."""
         rep = compute_dummy_baselines(config=cfg, **reg_data)
         d = rep.to_dict()
         # D15: must be JSON-serializable (NaN replaced with None)
@@ -480,6 +509,7 @@ class TestSerialization:
 
     def test_nan_scrubbed_to_none(self):
         # Manually construct a report with NaN to exercise scrubbing
+        """Nan scrubbed to none."""
         rep = BaselineReport(
             target_type="regression",
             target_name="y",
@@ -509,7 +539,9 @@ class TestSerialization:
 
 
 class TestDtypeVariants:
+    """Groups tests covering dtype variants."""
     def test_polars_dataframe_X(self, cfg):
+        """Polars dataframe x."""
         pl = pytest.importorskip("polars")
         rng = np.random.default_rng(0)
         n_tr, n_va, n_te = 200, 50, 50
@@ -525,11 +557,12 @@ class TestDtypeVariants:
             config=cfg,
         )
         # Polars X must be accepted and produce a valid strongest-baseline row label.
-        assert isinstance(rep.strongest, str) and rep.strongest in rep.table.index, (
-            f"strongest={rep.strongest!r} must be a row label of {list(rep.table.index)}"
-        )
+        assert (
+            isinstance(rep.strongest, str) and rep.strongest in rep.table.index
+        ), f"strongest={rep.strongest!r} must be a row label of {list(rep.table.index)}"
 
     def test_polars_series_y(self, cfg):
+        """Polars series y."""
         pl = pytest.importorskip("polars")
         rng = np.random.default_rng(0)
         n_tr, n_va, n_te = 200, 50, 50
@@ -545,9 +578,9 @@ class TestDtypeVariants:
             config=cfg,
         )
         # Polars Series y must be accepted and produce a valid strongest-baseline row label.
-        assert isinstance(rep.strongest, str) and rep.strongest in rep.table.index, (
-            f"strongest={rep.strongest!r} must be a row label of {list(rep.table.index)}"
-        )
+        assert (
+            isinstance(rep.strongest, str) and rep.strongest in rep.table.index
+        ), f"strongest={rep.strongest!r} must be a row label of {list(rep.table.index)}"
 
 
 # ---------------------------------------------------------------------
@@ -556,7 +589,10 @@ class TestDtypeVariants:
 
 
 class TestHelpers:
+    """Groups tests covering the dummy-baseline module's small internal utility functions."""
+
     def test_baseline_inputs_hash_deterministic(self):
+        """Baseline inputs hash deterministic."""
         rng = np.random.default_rng(0)
         y_tr = rng.normal(size=100)
         y_va = rng.normal(size=20)
@@ -569,6 +605,7 @@ class TestHelpers:
         assert h1 != h3
 
     def test_baseline_inputs_hash_changes_on_input_change(self):
+        """Baseline inputs hash changes on input change."""
         rng = np.random.default_rng(0)
         y_tr = rng.normal(size=100)
         y_va = rng.normal(size=20)
@@ -580,6 +617,7 @@ class TestHelpers:
         assert h1 != h2
 
     def test_per_target_seed_deterministic(self):
+        """Per target seed deterministic."""
         s1 = _per_target_seed(42, "TVT")
         s2 = _per_target_seed(42, "TVT")
         assert s1 == s2
@@ -589,6 +627,7 @@ class TestHelpers:
 
     def test_slugify(self):
         # Valid characters preserved; problematic chars replaced.
+        """Slugify."""
         assert _slugify("simple_name") == "simple_name"
         # Path separator + spaces + colons → safe path component
         slug = _slugify("Bad/Name: with spaces")
@@ -597,9 +636,11 @@ class TestHelpers:
         assert " " not in slug
 
     def test_normalize_timestamps_handles_none(self):
+        """Normalize timestamps handles none."""
         assert _normalize_timestamps(None) is None
 
     def test_normalize_timestamps_datetime(self):
+        """Normalize timestamps datetime."""
         ts = pd.date_range("2024-01-01", periods=10, freq="D")
         out = _normalize_timestamps(ts)
         # Behavioural: a 10-element pandas datetime range must round-trip to a 10-element numeric-or-datetime
@@ -618,7 +659,9 @@ class TestHelpers:
 
 
 class TestVerdictFormat:
+    """Groups tests covering verdict format."""
     def test_verdict_line_under_three_lines_default(self, reg_data, cfg):
+        """Verdict line under three lines default."""
         rep = compute_dummy_baselines(config=cfg, **reg_data)
         text = rep.format_text()
         # Operator Contract guarantee 1: ≤ 2 verdict lines + optional plot path.
@@ -628,6 +671,7 @@ class TestVerdictFormat:
         assert n_lines <= 4, f"Verdict text too verbose ({n_lines} lines):\n{text}"
 
     def test_verdict_line_contains_canonical_token(self, reg_data, cfg):
+        """Verdict line contains canonical token."""
         rep = compute_dummy_baselines(config=cfg, **reg_data)
         text = rep.format_text()
         assert "[DUMMY_BASELINES]" in text
@@ -650,8 +694,10 @@ class TestVerdictFormat:
 
 
 class TestSuiteEndSummary:
+    """Groups tests covering suite end summary."""
     @pytest.fixture
     def md(self):
+        """Md."""
         return {
             "regression": {
                 "TVT": {
@@ -674,10 +720,12 @@ class TestSuiteEndSummary:
         }
 
     def test_summary_emits_canonical_header(self, md):
+        """Summary emits canonical header."""
         text = format_suite_end_summary(md)
         assert "[DUMMY_BASELINES] CROSS-TARGET VERDICT" in text
 
     def test_summary_emits_one_row_per_target(self, md):
+        """Summary emits one row per target."""
         text = format_suite_end_summary(md)
         # Two data targets → at least 2 verdict rows past the header line.
         assert "TVT" in text
@@ -685,6 +733,7 @@ class TestSuiteEndSummary:
 
     def test_best_model_below_dummy_warn_fires(self, md):
         # EGFDU model lift = dummy/model = 12.50/12.40 ≈ 1.008 < 1.5 → WARN
+        """Best model below dummy warn fires."""
         text = format_suite_end_summary(
             md,
             best_model_metrics_by_target={
@@ -698,6 +747,7 @@ class TestSuiteEndSummary:
 
     def test_ts_beats_trees_warn_fires(self, md):
         # TVT model RMSE > seasonal_naive RMSE → TS_BEATS_TREES
+        """Ts beats trees warn fires."""
         text = format_suite_end_summary(
             md,
             best_model_metrics_by_target={
@@ -708,6 +758,7 @@ class TestSuiteEndSummary:
         assert "WARN TS_BEATS_TREES" in text
 
     def test_partial_failure_warn_fires(self, md):
+        """Partial failure warn fires."""
         text = format_suite_end_summary(
             md,
             failures_metadata={
@@ -718,6 +769,7 @@ class TestSuiteEndSummary:
         assert "BROKEN" in text
 
     def test_all_baselines_below_random_fires_for_binary(self):
+        """All baselines below random fires for binary."""
         md = {
             "binary_classification": {
                 "T": {
@@ -740,7 +792,9 @@ class TestSuiteEndSummary:
 
 
 class TestObjectDtypeGate:
+    """Groups tests covering object dtype gate."""
     def test_string_object_target_returns_empty_report(self, cfg):
+        """String object target returns empty report."""
         rng = np.random.default_rng(0)
         # Object-dtype with string content — incompatible with regression.
         y_tr = np.array(["a"] * 100, dtype=object)
@@ -768,7 +822,9 @@ class TestObjectDtypeGate:
 
 
 class TestMultiOutputRegression:
+    """Groups tests covering multi output regression."""
     def test_multi_output_emits_per_output_strongest(self, cfg):
+        """Multi output emits per output strongest."""
         rng = np.random.default_rng(0)
         n_tr, n_va, n_te = 500, 100, 100
         K = 3
@@ -796,6 +852,7 @@ class TestMultiOutputRegression:
             assert {"output", "name", "primary_metric", "primary_value", "normalized"} <= entry.keys()
 
     def test_multi_output_emits_cross_output_strongest(self, cfg):
+        """Multi output emits cross output strongest."""
         rng = np.random.default_rng(0)
         n_tr, n_va, n_te = 500, 100, 100
         K = 3
@@ -826,8 +883,10 @@ class TestMultiOutputRegression:
 
 
 class TestBootstrapCI:
+    """Groups tests covering bootstrap c i."""
     def test_ci_emitted_for_small_n(self, reg_data, cfg):
         # reg_data uses n_val=100 < 2000 → CI should fire.
+        """Ci emitted for small n."""
         rep = compute_dummy_baselines(config=cfg, **reg_data)
         # CI may not always populate (best-effort); but extras has it when emitted.
         ci = rep.extras.get("bootstrap_ci")
@@ -841,6 +900,7 @@ class TestBootstrapCI:
 
     def test_ci_suppressed_for_large_n(self, cfg):
         # n_val >= bootstrap_ci_threshold (2000) → CI suppressed.
+        """Ci suppressed for large n."""
         rng = np.random.default_rng(0)
         n_tr, n_va, n_te = 5000, 3000, 3000
         rep = compute_dummy_baselines(
@@ -863,6 +923,7 @@ class TestBootstrapCI:
 
 
 class TestStatsmodelsFallback:
+    """Groups tests covering statsmodels fallback."""
     def test_acf_returns_empty_when_statsmodels_missing(self, monkeypatch):
         """When statsmodels is unavailable, _detect_acf_periods returns []
         without raising; the rest of TS detection (step-size defaults)
@@ -875,6 +936,7 @@ class TestStatsmodelsFallback:
         real_import = builtins.__import__
 
         def fake_import(name, *args, **kwargs):
+            """Fake import."""
             if "statsmodels" in name:
                 raise ImportError("simulated: statsmodels not installed")
             return real_import(name, *args, **kwargs)
@@ -893,7 +955,9 @@ class TestStatsmodelsFallback:
 
 
 class TestAllNaNValTarget:
+    """Groups tests covering all na n val target."""
     def test_all_nan_val_falls_back_to_test(self, cfg):
+        """All nan val falls back to test."""
         rng = np.random.default_rng(0)
         n_tr, n_va, n_te = 500, 50, 100
         rep = compute_dummy_baselines(
@@ -913,6 +977,7 @@ class TestAllNaNValTarget:
         # Crucially, must not crash.
 
     def test_both_splits_all_nan_returns_empty_report(self, cfg):
+        """Both splits all nan returns empty report."""
         rng = np.random.default_rng(0)
         n_tr, n_va, n_te = 500, 50, 50
         rep = compute_dummy_baselines(
@@ -936,6 +1001,7 @@ class TestAllNaNValTarget:
 
 
 class TestTSPredictionRules:
+    """Groups tests covering t s prediction rules."""
     def test_naive_lag7_uses_train_tail(self, cfg):
         """naive_lag7 should produce constant prediction = y_train[-7]
         (or appropriate cycle), differs from `mean` baseline."""
@@ -982,6 +1048,7 @@ class TestTSPredictionRules:
 
 
 class TestNRepeatsVariance:
+    """Groups tests covering n repeats variance."""
     def test_stratified_baseline_runs_with_n_repeats(self, binary_data, cfg):
         """stratified baseline averages over n_repeats=20 by default;
         verify it runs cleanly + appears in the table."""
@@ -997,6 +1064,7 @@ class TestNRepeatsVariance:
 
 
 class TestPolarsMultilabel:
+    """Groups tests covering polars multilabel."""
     def test_polars_list_float32_multilabel_thresholded(self, cfg):
         """pl.List(pl.Float32) source must be coerced via >=0.5 threshold (D-inline / A#22)."""
         pl = pytest.importorskip("polars")
@@ -1025,6 +1093,7 @@ class TestPolarsMultilabel:
         assert np.isfinite(rep.table[rep.primary_metric].iloc[0])
 
     def test_polars_list_int8_multilabel(self, cfg):
+        """Polars list int8 multilabel."""
         pl = pytest.importorskip("polars")
         rng = np.random.default_rng(0)
         K = 3
@@ -1058,6 +1127,7 @@ class TestPolarsMultilabel:
 
 
 class TestPairedBootstrap:
+    """Groups tests covering paired bootstrap."""
     def test_paired_bootstrap_emits_delta_and_p(self, cfg):
         """On strongly-seasonal series, strongest TS baseline should beat
         runner-up convincingly (P ≈ 1.0); paired_bootstrap dict populated."""
@@ -1125,7 +1195,9 @@ class TestPairedBootstrap:
 
 
 class TestQuantilePerAlpha:
+    """Groups tests covering quantile per alpha."""
     def test_quantile_per_alpha_emits_pinball_columns(self, cfg):
+        """Quantile per alpha emits pinball columns."""
         rng = np.random.default_rng(0)
         n = 500
         y = rng.normal(0, 1, n)
@@ -1178,6 +1250,7 @@ class TestQuantilePerAlpha:
 
 
 class TestPlotPathSlugify:
+    """Groups tests covering plot path slugify."""
     def test_unicode_target_name_slugified(self, reg_data, cfg, tmp_path):
         """D11: target name with unicode / spaces / colons must slugify
         to a safe path component."""
@@ -1199,6 +1272,7 @@ class TestPlotPathSlugify:
 
 
 class TestSklearnVersionAssertion:
+    """Groups tests covering sklearn version assertion."""
     def test_sklearn_version_check_passes(self):
         """Module load already enforces sklearn >= 1.0 via assert.
         This test simply confirms the module imported cleanly."""
@@ -1216,7 +1290,9 @@ class TestSklearnVersionAssertion:
 
 
 class TestSmallNGate:
+    """Groups tests covering small n gate."""
     def test_n_val_below_10_falls_back_to_test(self, cfg):
+        """N val below 10 falls back to test."""
         rng = np.random.default_rng(0)
         n_tr = 500
         n_va = 5  # below 10 → degenerate
@@ -1242,6 +1318,7 @@ class TestSmallNGate:
 
 
 class TestNumbaAcceleration:
+    """Groups tests covering numba acceleration."""
     def test_multilabel_macro_log_loss_finite(self, multilabel_data, cfg):
         """Numba-accelerated path must produce finite, plausible values."""
         rep = compute_dummy_baselines(config=cfg, **multilabel_data)
@@ -1262,6 +1339,7 @@ class TestNumbaBootstrapKernelsEquivalence:
     margin on the resample distribution moments)."""
 
     def test_paired_bootstrap_rmse_distribution_matches_sklearn(self):
+        """Paired bootstrap rmse distribution matches sklearn."""
         from mlframe.training.baselines.dummy import (
             _NUMBA_AVAILABLE,
             _numba_paired_bootstrap_rmse,
@@ -1310,6 +1388,7 @@ class TestNumbaBootstrapKernelsEquivalence:
         assert abs(p_n - p_s) < 0.05
 
     def test_bootstrap_rmse_samples_match_sklearn_distribution(self):
+        """Bootstrap rmse samples match sklearn distribution."""
         from mlframe.training.baselines.dummy import (
             _NUMBA_AVAILABLE,
             _numba_bootstrap_rmse_samples,
@@ -1406,6 +1485,7 @@ class TestNumbaJITWarmup:
     multi_output_regression call doesn't pay the 6-10s cold-start cost."""
 
     def test_warmup_is_idempotent_and_returns_silently(self):
+        """Warmup is idempotent and returns silently."""
         from mlframe.training.baselines.dummy import _warmup_numba_kernels
 
         # First call may JIT-compile (~2-5s); second call is cached and fast.
@@ -1445,6 +1525,7 @@ class TestLTRPopularityBaseline:
     ``group_ids`` = qid)."""
 
     def test_popularity_emitted_when_doc_ids_provided(self, ltr_data, cfg):
+        """Popularity emitted when doc ids provided."""
         np.random.default_rng(0)
         n_tr, n_va, n_te = (
             len(ltr_data["train_y"]),
@@ -1568,11 +1649,13 @@ class TestAugmentWithDroppedHighCardCols:
     to OD-filtered frames, sliced by train_od_idx / val_od_idx masks."""
 
     def _import_helper(self):
+        """Import helper."""
         from mlframe.training.core import _augment_with_dropped_high_card_cols
 
         return _augment_with_dropped_high_card_cols
 
     def test_no_dropped_data_returns_frames_unchanged(self):
+        """No dropped data returns frames unchanged."""
         aug = self._import_helper()
         train = pd.DataFrame({"x": [1, 2, 3]})
         val = pd.DataFrame({"x": [4]})
@@ -1585,6 +1668,7 @@ class TestAugmentWithDroppedHighCardCols:
         assert te is test
 
     def test_pandas_passthrough_no_od_mask(self):
+        """Pandas passthrough no od mask."""
         aug = self._import_helper()
         train = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0]})
         val = pd.DataFrame({"x": [10.0]})
@@ -1640,6 +1724,7 @@ class TestAugmentWithDroppedHighCardCols:
         assert "col_bad" not in t.columns
 
     def test_polars_frame_supported(self):
+        """Polars frame supported."""
         pl = pytest.importorskip("polars")
         aug = self._import_helper()
         train = pl.DataFrame({"x": [1.0, 2.0, 3.0]})
@@ -1666,6 +1751,7 @@ class TestPerGroupOnDroppedHighCardCol:
     `mean` on group-structured synthetic data."""
 
     def test_per_group_mean_on_high_card_cat(self, cfg):
+        """Per group mean on high card cat."""
         rng = np.random.default_rng(0)
         n_groups = 600
         n_tr, n_va, n_te = 4000, 500, 500

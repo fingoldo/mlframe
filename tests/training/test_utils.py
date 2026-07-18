@@ -28,7 +28,6 @@ from mlframe.training.io import (
     load_mlframe_model,
 )
 
-
 # ================================================================================================
 # Save/Load Model Tests
 # ================================================================================================
@@ -1189,6 +1188,7 @@ class TestHypothesisRemoveConstant:
 
 
 class TestProcessNansHypothesis:
+    """Groups tests covering process nans hypothesis."""
     @given(
         n_rows=st.integers(1, 100),
         n_cols=st.integers(1, 10),
@@ -1196,6 +1196,7 @@ class TestProcessNansHypothesis:
     )
     @settings(max_examples=30, deadline=None)
     def test_no_nans_remain(self, n_rows, n_cols, nan_fraction):
+        """No nans remain."""
         data = np.random.randn(n_rows, n_cols)
         mask = np.random.random((n_rows, n_cols)) < nan_fraction
         data[mask] = np.nan
@@ -1205,12 +1206,14 @@ class TestProcessNansHypothesis:
 
 
 class TestProcessInfinitiesHypothesis:
+    """Groups tests covering process infinities hypothesis."""
     @given(
         n_rows=st.integers(1, 50),
         n_cols=st.integers(1, 5),
     )
     @settings(max_examples=20, deadline=None)
     def test_no_infs_remain(self, n_rows, n_cols):
+        """No infs remain."""
         data = np.random.randn(n_rows, n_cols)
         # Inject some infinities
         data[0, 0] = np.inf
@@ -1222,6 +1225,7 @@ class TestProcessInfinitiesHypothesis:
 
 
 class TestRemoveConstantColumnsHypothesis:
+    """Groups tests covering remove constant columns hypothesis."""
     @given(
         n_rows=st.integers(2, 50),
         n_varying=st.integers(1, 5),
@@ -1229,6 +1233,7 @@ class TestRemoveConstantColumnsHypothesis:
     )
     @settings(max_examples=30, deadline=None)
     def test_only_varying_columns_remain(self, n_rows, n_varying, n_constant):
+        """Only varying columns remain."""
         cols = {}
         for i in range(n_varying):
             cols[f"vary_{i}"] = np.random.randn(n_rows)

@@ -46,6 +46,7 @@ def _old_strat(n_val, n_test, n_classes, n_repeats, seed, train_prior):
 
 
 class _Cfg:
+    """Groups tests covering cfg."""
     random_state = 7
     stratified_n_repeats = 12
     per_group_max_cardinality_ratio = 0.5
@@ -54,6 +55,7 @@ class _Cfg:
 
 
 def test_stratified_accumulator_matches_legacy_implementation():
+    """Stratified accumulator matches legacy implementation."""
     from mlframe.training.baselines._dummy_baseline_classification import (
         _compute_classification_baselines,
     )
@@ -134,6 +136,7 @@ def test_stratified_mean_converges_to_train_prior():
     train_y = rng.integers(0, n_classes, size=n_train)
 
     class _CfgMany(_Cfg):
+        """Groups tests covering cfg many."""
         stratified_n_repeats = 100  # enough for empirical convergence
 
     val_probs, _, _ = _compute_classification_baselines(
@@ -154,6 +157,6 @@ def test_stratified_mean_converges_to_train_prior():
     bincounts = np.bincount(train_y, minlength=n_classes).astype(np.float64)
     train_prior = bincounts / bincounts.sum()
     mean_per_class = val_probs["stratified"].mean(axis=0)
-    assert np.abs(mean_per_class - train_prior).max() < 0.01, (
-        f"empirical mean {mean_per_class} should approximate train_prior {train_prior} within 0.01 at n_val=10k n_repeats=100"
-    )
+    assert (
+        np.abs(mean_per_class - train_prior).max() < 0.01
+    ), f"empirical mean {mean_per_class} should approximate train_prior {train_prior} within 0.01 at n_val=10k n_repeats=100"

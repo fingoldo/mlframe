@@ -17,7 +17,6 @@ from pathlib import Path
 
 import pytest
 
-
 LOC_LIMIT = 1000
 
 # Carving budget exempts. Each entry carries a FIXME tag for the next carve
@@ -159,18 +158,35 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # conditional kernel block the transforms reference. Tightly coupled (the transform functions close over the
     # conditionally-defined kernels); a clean carve must move the kernel block + its consumers together. Pending.
     "src/mlframe/training/composite/transforms/nonlinear.py",
+    # FIXME(carve-wave-next): filters/_mrmr_fe_step/_step_core.py -- the residual body of
+    # ``_run_fe_step_impl`` after the operand-pool / pair-MI-floor / pair-rank / candidate-scoring
+    # stages were already carved to _step_pool.py / _step_pairmi.py / _step_pairs_rank.py /
+    # _step_score.py (same carve wave as _pairs_core.py / _fit_impl_core.py). What remains is one
+    # long sequential orchestration function threading ~40 fit-scoped locals (data/cols/nbins/X,
+    # the prewarp/gate-med spec accumulators, the polynom-pair injection indices, the serial-vs-
+    # joblib dispatch branch) through non-early-exit control flow with a `try/except` RNG-safe
+    # subsample resolution and two structurally-different call shapes (serial single dict vs.
+    # joblib per-chunk merge-with-reserved-key). Assessed 2026-07-18: the joblib branch (~140 LOC)
+    # is the only block that reads as visually separable, but it still closes over ~25 of those same
+    # locals (X, classes_y, cols, original_cols, numeric_vars_to_consider, every fe_pair_prewarp_*
+    # knob, the shared subsample index) that the serial branch right above it also needs -- lifting
+    # it out would mean threading the same ~25-argument list the sibling carves already show is the
+    # ceiling of what stays a safe verbatim move, for a block that is two-thirds a literal copy of
+    # the arguments to `check_prospective_fe_pairs` already visible in the serial branch. Left exempt
+    # BY DESIGN, same class as `_pairs_core.py` / `_fit_impl_core.py` above.
+    "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_core.py",
 }
 
 
 def _src_root() -> Path:
-    """Helper that src root."""
+    """Path to src/mlframe, resolved relative to this test file."""
     here = Path(__file__).resolve()
     # tests/test_meta/test_no_file_over_1k_loc.py -> repo root -> src/mlframe
     return here.parents[2] / "src" / "mlframe"
 
 
 def _scan_src_for_oversize() -> list[tuple[str, int]]:
-    """Helper that scan src for oversize."""
+    """(relpath, line-count) for every non-exempt src/mlframe file exceeding LOC_LIMIT, largest first."""
     root = _src_root()
     if not root.is_dir():
         pytest.skip(f"src tree not found at {root}; running from installed wheel?")
@@ -189,7 +205,7 @@ def _scan_src_for_oversize() -> list[tuple[str, int]]:
 
 
 def test_no_mlframe_file_exceeds_1k_loc():
-    """No mlframe file exceeds 1k loc."""
+    """No non-exempt src/mlframe file exceeds the LOC_LIMIT line-count budget."""
     over = _scan_src_for_oversize()
     if over:
         lines = [f"  {n:5d} LOC  {p}" for p, n in over]

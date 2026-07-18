@@ -25,14 +25,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # ----------------------------------------------------------------------
 # 1) Shared helper math
 # ----------------------------------------------------------------------
 
 
 class TestSharedFingerprintHelper:
+    """Groups tests covering shared fingerprint helper."""
     def test_identical_content_same_key(self) -> None:
+        """Identical content same key."""
         from mlframe.training._dataset_cache_fingerprint import compute_signature
 
         df1 = pd.DataFrame(
@@ -58,6 +59,7 @@ class TestSharedFingerprintHelper:
         assert compute_signature(view_a) == compute_signature(view_b)
 
     def test_different_content_different_key(self) -> None:
+        """Different content different key."""
         from mlframe.training._dataset_cache_fingerprint import compute_signature
 
         df1 = pd.DataFrame({"a": np.linspace(0, 1, 1000)})
@@ -65,6 +67,7 @@ class TestSharedFingerprintHelper:
         assert compute_signature(df1) != compute_signature(df2)
 
     def test_different_columns_different_key(self) -> None:
+        """Different columns different key."""
         from mlframe.training._dataset_cache_fingerprint import compute_signature
 
         df1 = pd.DataFrame({"a": np.zeros(100), "b": np.zeros(100)})
@@ -72,6 +75,7 @@ class TestSharedFingerprintHelper:
         assert compute_signature(df1) != compute_signature(df2)
 
     def test_different_shape_different_key(self) -> None:
+        """Different shape different key."""
         from mlframe.training._dataset_cache_fingerprint import compute_signature
 
         df1 = pd.DataFrame({"a": np.zeros(100)})
@@ -79,6 +83,7 @@ class TestSharedFingerprintHelper:
         assert compute_signature(df1) != compute_signature(df2)
 
     def test_extra_participates_in_key(self) -> None:
+        """Extra participates in key."""
         from mlframe.training._dataset_cache_fingerprint import compute_signature
 
         df = pd.DataFrame({"a": np.zeros(100)})
@@ -90,6 +95,7 @@ class TestSharedFingerprintHelper:
         assert k2 != k3
 
     def test_ndarray_input_works(self) -> None:
+        """Ndarray input works."""
         from mlframe.training._dataset_cache_fingerprint import compute_signature
 
         arr1 = np.zeros((100, 5))
@@ -118,6 +124,7 @@ class TestSharedFingerprintHelper:
         real_to_numpy = df.to_numpy
 
         def trap(*args, **kwargs):
+            """Trap."""
             called["to_numpy"] += 1
             raise AssertionError("polars to_numpy must not be called for row sampling; the .row(idx) fast path should handle this case.")
 
@@ -152,7 +159,9 @@ class TestSharedFingerprintHelper:
 
 
 class TestXGBShimUsesSharedHelper:
+    """Groups tests covering x g b shim uses shared helper."""
     def test_xgb_signature_of_delegates(self) -> None:
+        """Xgb signature of delegates."""
         from mlframe.training import xgb_shim
         from mlframe.training._dataset_cache_fingerprint import compute_signature
 
@@ -186,7 +195,9 @@ class TestXGBShimUsesSharedHelper:
 
 
 class TestLGBShimUsesSharedHelper:
+    """Groups tests covering l g b shim uses shared helper."""
     def test_lgb_signature_stable_across_iloc(self) -> None:
+        """Lgb signature stable across iloc."""
         from mlframe.training import lgb_shim
 
         df = pd.DataFrame({"a": np.arange(1000.0), "b": np.zeros(1000)})
@@ -197,6 +208,7 @@ class TestLGBShimUsesSharedHelper:
         assert sig_a == sig_b
 
     def test_lgb_signature_distinguishes_categorical_feature(self) -> None:
+        """Lgb signature distinguishes categorical feature."""
         from mlframe.training import lgb_shim
 
         df = pd.DataFrame({"a": np.zeros(100), "b": np.zeros(100)})
@@ -212,6 +224,7 @@ class TestCBTrainPoolCacheKeyUsesHelper:
     shared helper. Source-grep verifies no ``id(train_df)`` left."""
 
     def test_no_id_train_df_in_cache_key_construction(self) -> None:
+        """No id train df in cache key construction."""
         from pathlib import Path
         import mlframe.training.cb._cb_pool_build as mod
 
@@ -232,6 +245,7 @@ class TestCBValPoolCacheKeyUsesHelper:
     Pool cache key via the shared helper."""
 
     def test_no_id_val_df_in_cache_key_construction(self) -> None:
+        """No id val df in cache key construction."""
         from pathlib import Path
         import mlframe.training.cb._cb_pool as mod
 
@@ -255,6 +269,7 @@ class TestCrossShimInvariant:
     ``sklearn.clone()`` + ``.iloc[]`` reuse hits across the board."""
 
     def test_xgb_and_lgb_agree_on_content_when_extras_match(self) -> None:
+        """Xgb and lgb agree on content when extras match."""
         from mlframe.training import xgb_shim, lgb_shim
 
         df_a = pd.DataFrame(

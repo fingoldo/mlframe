@@ -21,12 +21,12 @@ from mlframe.training.composite._value_report import (
 )
 from mlframe.training.composite.report import composite_value_report
 
-
 # --------------------------------------------------------------------------- unit: per-group RMSE
 
 
 def test_per_group_rmse_correctness():
     # Group A: y=[0,0], raw=[2,2] -> rmse 2; comp=[1,1] -> rmse 1. Group B: y=[0], raw=[1], comp=[2].
+    """Per group rmse correctness."""
     y = np.array([0.0, 0.0, 0.0])
     raw = np.array([2.0, 2.0, 1.0])
     comp = np.array([1.0, 1.0, 2.0])
@@ -43,6 +43,7 @@ def test_per_group_rmse_correctness():
 
 def test_helped_hurt_tied_classification():
     # helped: comp err < raw err; hurt: comp err > raw err; tied: identical.
+    """Helped hurt tied classification."""
     y = np.zeros(6)
     raw = np.array([2.0, 2.0, 2.0, 2.0, 2.0, 2.0])
     comp = np.array([1.0, 1.0, 3.0, 3.0, 2.0, 2.0])
@@ -59,6 +60,7 @@ def test_helped_hurt_tied_classification():
 
 def test_row_weighted_net_lift():
     # Group A (3 rows) lift +0.5; group B (1 row) lift -1.0. Net = (3*0.5 + 1*-1)/4 = 0.125.
+    """Row weighted net lift."""
     y = np.zeros(4)
     raw = np.array([2.0, 2.0, 2.0, 1.0])
     comp = np.array([1.0, 1.0, 1.0, 2.0])
@@ -72,6 +74,7 @@ def test_row_weighted_net_lift():
 
 def test_worse_than_lag_group_count():
     # Group A: comp rmse 2 > lag rmse 1 -> worse. Group B: comp 0.5 < lag 1 -> not worse.
+    """Worse than lag group count."""
     y = np.zeros(4)
     raw = np.array([3.0, 3.0, 3.0, 3.0])
     comp = np.array([2.0, 2.0, 0.5, 0.5])
@@ -88,6 +91,7 @@ def test_worse_than_lag_group_count():
 
 
 def test_winner_and_lag_lift():
+    """Winner and lag lift."""
     y = np.zeros(2)
     raw = np.array([2.0, 2.0])
     comp = np.array([0.5, 0.5])
@@ -104,6 +108,7 @@ def test_winner_and_lag_lift():
 
 
 def test_single_group():
+    """Single group."""
     y = np.zeros(5)
     raw = np.full(5, 2.0)
     comp = np.full(5, 1.0)
@@ -114,6 +119,7 @@ def test_single_group():
 
 
 def test_empty_report():
+    """Empty report."""
     empty = np.array([], dtype=float)
     rep = build_composite_value_report(empty, empty, empty, np.array([], dtype=int))
     assert rep["n_groups"] == 0
@@ -125,6 +131,7 @@ def test_empty_report():
 
 
 def test_all_nan_report():
+    """All nan report."""
     y = np.array([np.nan, np.nan])
     rep = build_composite_value_report(y, np.array([1.0, 2.0]), np.array([1.0, 2.0]), np.array([0, 1]))
     assert rep["n_groups"] == 0
@@ -133,6 +140,7 @@ def test_all_nan_report():
 
 def test_nan_rows_dropped_from_matched_comparison():
     # Group 0 has a NaN in composite on the 2nd row -> that row drops from ALL series (matched).
+    """Nan rows dropped from matched comparison."""
     y = np.array([0.0, 0.0, 0.0, 0.0])
     raw = np.array([2.0, 100.0, 2.0, 2.0])
     comp = np.array([1.0, np.nan, 1.0, 1.0])
@@ -146,6 +154,7 @@ def test_nan_rows_dropped_from_matched_comparison():
 
 
 def test_json_roundtrip_sorted_keys():
+    """Json roundtrip sorted keys."""
     rng = np.random.default_rng(0)
     n = 300
     g = rng.integers(0, 5, n)
@@ -160,6 +169,7 @@ def test_json_roundtrip_sorted_keys():
 
 
 def test_markdown_is_ascii_only_even_with_unicode_group_label():
+    """Markdown is ascii only even with unicode group label."""
     y = np.zeros(4)
     raw = np.full(4, 2.0)
     comp = np.full(4, 1.0)
@@ -173,17 +183,20 @@ def test_markdown_is_ascii_only_even_with_unicode_group_label():
 
 
 def test_surface_function_config_gate():
+    """Surface function config gate."""
     y = np.zeros(4)
     raw = np.full(4, 2.0)
     comp = np.full(4, 1.0)
     g = np.array([0, 0, 1, 1])
 
     class _Cfg:
+        """Groups tests covering cfg."""
         emit_composite_value_report = False
 
     assert composite_value_report(y, raw, comp, g, config=_Cfg()) is None
 
     class _CfgOn:
+        """Groups tests covering cfg on."""
         emit_composite_value_report = True
 
     rep = composite_value_report(y, raw, comp, g, config=_CfgOn())
@@ -216,6 +229,7 @@ def test_bincount_fallback_matches_njit_default(monkeypatch):
 
 
 def test_expected_vs_realized_calibration():
+    """Expected vs realized calibration."""
     y = np.zeros(4)
     raw = np.full(4, 2.0)
     comp = np.full(4, 1.0)  # realized lift = 0.5
@@ -257,6 +271,7 @@ def _make_split_synthetic(seed=0):
 
 
 def test_biz_val_value_report_identifies_helped_and_hurt_split():
+    """Biz val value report identifies helped and hurt split."""
     y, raw, comp, lag, g, helped, hurt = _make_split_synthetic()
     rep = build_composite_value_report(y, raw, comp, g, y_pred_lag=lag)
     by = {e["group"]: e for e in rep["per_group"]}
@@ -275,6 +290,7 @@ def test_biz_val_value_report_identifies_helped_and_hurt_split():
 
 
 def test_biz_val_value_report_worse_than_lag_set():
+    """Biz val value report worse than lag set."""
     y, raw, comp, lag, g, _helped, hurt = _make_split_synthetic()
     rep = build_composite_value_report(y, raw, comp, g, y_pred_lag=lag)
     agg = rep["aggregate"]
@@ -284,6 +300,7 @@ def test_biz_val_value_report_worse_than_lag_set():
 
 
 def test_biz_val_value_report_net_lift_sign_positive_when_helped_rows_dominate():
+    """Biz val value report net lift sign positive when helped rows dominate."""
     y, raw, comp, lag, g, _helped, _hurt = _make_split_synthetic()
     rep = build_composite_value_report(y, raw, comp, g, y_pred_lag=lag)
     net = rep["aggregate"]["net_weighted_lift_over_raw"]

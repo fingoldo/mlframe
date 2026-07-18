@@ -38,12 +38,11 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
-
-
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
 def _read(rel: str) -> str:
+    """Read."""
     _path = MLFRAME_ROOT / rel
     if not _path.exists() and _path.suffix == ".py":
         # Monolith-split compat: the flat module became a subpackage
@@ -68,6 +67,7 @@ def _read(rel: str) -> str:
 def test_io_save_uses_logger_exception() -> None:
     # ``save_mlframe_model`` was carved from ``io.py`` into the ``_io_save.py`` sibling;
     # read both so the structural pin matches wherever the save-fail handler lives.
+    """Io save uses logger exception."""
     src = _read("training/io.py") + "\n" + _read("training/_io_save.py")
     # The bad pattern (f-string with {e}) must be gone for the save-fail path.
     assert 'logger.error(f"Could not save model to file {file}: {e}")' not in src
@@ -80,6 +80,7 @@ def test_predict_per_model_loop_uses_exc_info() -> None:
     # sibling ``_predict_main_from_models.py`` during the 2026-05-22
     # predict-monolith split. Read both modules so the structural pin
     # tolerates either location.
+    """Predict per model loop uses exc info."""
     import pathlib
     import mlframe as _mlframe
 
@@ -98,6 +99,7 @@ def test_predict_per_model_loop_uses_exc_info() -> None:
 
 
 def test_inference_predict_uses_raise_from() -> None:
+    """Inference predict uses raise from."""
     src = _read("inference/predict.py")
     # The fix wraps the original ValueError with `from e`.
     assert "is not inside trusted_root" in src
@@ -111,6 +113,7 @@ def test_trainer_cache_load_preserves_traceback() -> None:
     # The cache-load helper moved out of ``trainer.py`` into the sibling
     # ``_trainer_train_and_evaluate.py`` during the 2026-05-22 trainer split.
     # Read both so the structural pin tolerates either location.
+    """Trainer cache load preserves traceback."""
     import pathlib
     import mlframe as _mlframe
 
@@ -129,6 +132,7 @@ def test_flat_metric_compute_uses_logger_exception() -> None:
     # MLPTorchModel (and its _compute_metric body) was carved out of
     # neural/flat.py into sibling neural/_flat_torch_module.py; check both
     # files so the sensor remains valid after the monolith split.
+    """Flat metric compute uses logger exception."""
     src = _read("training/neural/flat.py") + "\n" + _read("training/neural/_flat_torch_module.py")
     assert 'logger.error(f"Failed to compute metric {prefix}_{metric.name}: {e}")' not in src
     assert 'logger.exception("Failed to compute metric %s_%s", prefix, metric.name)' in src
@@ -137,17 +141,20 @@ def test_flat_metric_compute_uses_logger_exception() -> None:
 def test_recurrent_checkpoint_load_preserves_traceback() -> None:
     # The fit/checkpoint loop was carved from ``recurrent.py`` into the
     # ``recurrent_dataset_helpers.py`` sibling; read both for the structural pin.
+    """Recurrent checkpoint load preserves traceback."""
     src = _read("training/neural/recurrent.py") + "\n" + _read("training/neural/recurrent_dataset_helpers.py")
     assert 'logger.warning(f"Failed to load checkpoint, using final model: {e}")' not in src
     assert 'logger.warning("Failed to load checkpoint, using final model", exc_info=True)' in src
 
 
 def test_mlflow_start_run_final_giveup_logs_traceback() -> None:
+    """Mlflow start run final giveup logs traceback."""
     src = _read("integrations/mlflow.py")
     assert 'logger.exception("mlflow.start_run failed after %d retries", nfailed)' in src
 
 
 def test_automl_import_uses_logger_exception() -> None:
+    """Automl import uses logger exception."""
     src = _read("training/automl.py")
     assert 'logger.error(f"AutoGluon not available: {e}")' not in src
     assert 'logger.exception("AutoGluon not available")' in src
@@ -156,6 +163,7 @@ def test_automl_import_uses_logger_exception() -> None:
 
 
 def test_automl_auc_fi_use_exc_info() -> None:
+    """Automl auc fi use exc info."""
     src = _read("training/automl.py")
     # 4 sites total: 2 AUC + 2 FI, both AutoGluon and LAMA paths.
     assert src.count('logger.warning("Could not compute AUC", exc_info=True)') == 2
@@ -166,6 +174,7 @@ def test_evaluation_plot_fi_uses_exc_info() -> None:
     # ``plot_model_feature_importances`` was carved out of training/evaluation.py
     # into sibling training/_feature_importances.py (1k-LOC monolith split);
     # check both files so the source sensor remains valid after the split.
+    """Evaluation plot fi uses exc info."""
     src = _read("training/evaluation.py")
     sibling = MLFRAME_ROOT / "training/_feature_importances.py"
     if sibling.exists():
@@ -185,12 +194,14 @@ def test_reporting_predict_proba_fallback_uses_exc_info() -> None:
 
 
 def test_training_loop_best_iter_uses_exc_info() -> None:
+    """Training loop best iter uses exc info."""
     src = _read("training/_training_loop.py")
     assert 'logger.warning(f"Could not get best iteration: {e}")' not in src
     assert 'logger.warning("Could not get best iteration", exc_info=True)' in src
 
 
 def test_neural_base_example_input_uses_exc_info() -> None:
+    """Neural base example input uses exc info."""
     src = _read("training/neural/base.py")
     assert 'logger.warning(f"Failed to prepare example_input_array: {e}")' not in src
     assert 'logger.warning("Failed to prepare example_input_array", exc_info=True)' in src
@@ -200,12 +211,14 @@ def test_neural_flat_compile_fallback_uses_exc_info() -> None:
     # MLPTorchModel was carved out of neural/flat.py into sibling
     # neural/_flat_torch_module.py; the torch.compile fallback line moved
     # with it. Concatenate both so the source sensor still works.
+    """Neural flat compile fallback uses exc info."""
     src = _read("training/neural/flat.py") + "\n" + _read("training/neural/_flat_torch_module.py")
     assert 'logger.warning(f"Failed to apply torch.compile: {e}. Using uncompiled network.")' not in src
     assert 'logger.warning("Failed to apply torch.compile. Using uncompiled network.", exc_info=True)' in src
 
 
 def test_pipeline_polars_ds_import_narrowed_and_exc_info() -> None:
+    """Pipeline polars ds import narrowed and exc info."""
     src = _read("training/pipeline.py")
     # Must be narrowed to ImportError and must use exc_info.
     assert 'logger.warning(f"Could not import polars-ds: {e}")' not in src
@@ -213,6 +226,7 @@ def test_pipeline_polars_ds_import_narrowed_and_exc_info() -> None:
 
 
 def test_mps_print_replaced_with_logger_exception() -> None:
+    """Mps print replaced with logger exception."""
     src = _read("feature_engineering/mps.py")
     # The print line at :652 must be gone.
     assert 'print(f"Error with {f}: {e}")' not in src

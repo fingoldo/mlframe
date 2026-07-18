@@ -52,6 +52,7 @@ pytestmark = pytest.mark.uses_matplotlib
     ],
 )
 def test_sanitize_strips_path_and_reserved_chars(raw, banned_substrings):
+    """Sanitize strips path and reserved chars."""
     out = _sanitize_for_filename(raw)
     for bad in banned_substrings:
         assert bad not in out, f"sanitized {raw!r} -> {out!r} still contains banned substring {bad!r}"

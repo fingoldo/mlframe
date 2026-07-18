@@ -25,6 +25,7 @@ from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
 
 
 def _state(distance, fd, fn, target_indices=None):
+    """Helper that state."""
     return make_dcd_state(
         X_raw=None,
         factors_data=fd,
@@ -52,6 +53,7 @@ def _redundant_and_target_informative(seed=0, n=3000):
 
 
 def test_sotoca_pla_membership_score_equals_su():
+    """Sotoca pla membership score equals su."""
     fd, fn = _redundant_and_target_informative()
     tgt = np.array([2], dtype=np.int64)
     s_soto = _state("sotoca_pla", fd, fn, target_indices=tgt)
@@ -72,6 +74,6 @@ def test_sotoca_pla_score_invariant_to_target_choice():
     s2 = _state("sotoca_pla", fd2, fn2, target_indices=np.array([2], dtype=np.int64))
     sc1 = pair_su(s1, 0, 1, entropy_cache=None, factors_data=fd, factors_nbins=fn)
     sc2 = pair_su(s2, 0, 1, entropy_cache=None, factors_data=fd2, factors_nbins=fn2)
-    assert abs(float(sc1) - float(sc2)) < 1e-9, (
-        f"sotoca_pla membership score changed with the target column ({sc1} vs {sc2}) -- y is still leaking into unsupervised pruning"
-    )
+    assert (
+        abs(float(sc1) - float(sc2)) < 1e-9
+    ), f"sotoca_pla membership score changed with the target column ({sc1} vs {sc2}) -- y is still leaking into unsupervised pruning"

@@ -20,6 +20,7 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 def _grouped_df(n: int = 900, n_groups: int = 30, seed: int = 0):
+    """Grouped df."""
     rng = np.random.default_rng(seed)
     g = np.repeat(np.arange(n_groups), n // n_groups)
     level = rng.uniform(0.0, 40.0, n_groups)[g]
@@ -36,17 +37,20 @@ def _grouped_df(n: int = 900, n_groups: int = 30, seed: int = 0):
 
 @pytest.fixture(autouse=True)
 def _silence():
+    """Silence."""
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore")
         yield
 
 
 def _run(monkeypatch, *, group_column, group_aware):
+    """Fits discovery's stability-selection stage with group-aware subsampling toggled, spying on how many times it's invoked."""
     df, n = _grouped_df()
     calls = {"group": 0}
     real = _stab._subsample_groups
 
     def _spy(*a, **k):
+        """Spy."""
         calls["group"] += 1
         return real(*a, **k)
 
@@ -73,14 +77,17 @@ def _run(monkeypatch, *, group_column, group_aware):
 
 
 def test_inline_uses_group_resampling_when_group_column_set(monkeypatch):
+    """Inline uses group resampling when group column set."""
     assert _run(monkeypatch, group_column="well", group_aware=True) >= 1, "inline stability must draw whole groups when a group key is configured"
 
 
 def test_inline_falls_back_to_row_draw_without_group_column(monkeypatch):
-    assert _run(monkeypatch, group_column=None, group_aware=True) == 0, (
-        "no group key -> the row draw runs, not the group draw (bit-identical to the prior behaviour)"
-    )
+    """Inline falls back to row draw without group column."""
+    assert (
+        _run(monkeypatch, group_column=None, group_aware=True) == 0
+    ), "no group key -> the row draw runs, not the group draw (bit-identical to the prior behaviour)"
 
 
 def test_inline_group_aware_toggle_off_uses_row_draw(monkeypatch):
+    """Inline group aware toggle off uses row draw."""
     assert _run(monkeypatch, group_column="well", group_aware=False) == 0, "stability_group_aware=False forces the legacy row draw even with a group column"

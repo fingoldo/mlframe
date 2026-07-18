@@ -20,6 +20,7 @@ from mlframe.training.composite import GatedRegressionMixture
 
 
 def _make_outlier_severity_dataset(n: int, seed: int):
+    """Builds a dataset where 15% of rows are outliers with a severity-scaled shock, plus a noisy observable proxy for it."""
     rng = np.random.default_rng(seed)
     is_outlier = rng.random(n) < 0.15
     x = rng.normal(size=n)
@@ -31,6 +32,7 @@ def _make_outlier_severity_dataset(n: int, seed: int):
 
 
 def test_biz_val_gated_regression_mixture_beats_single_global_regressor_mse():
+    """GatedRegressionMixture, which routes outlier-severity rows to a dedicated sub-model, beats a single global regressor on test MSE."""
     X, y, is_outlier = _make_outlier_severity_dataset(3000, seed=0)
     rng = np.random.default_rng(1)
     perm = rng.permutation(len(y))
@@ -54,9 +56,9 @@ def test_biz_val_gated_regression_mixture_beats_single_global_regressor_mse():
     mse_mixture = mean_squared_error(y_test, mixture.predict(X_test))
 
     improvement = 1.0 - mse_mixture / mse_baseline
-    assert improvement > 0.15, (
-        f"expected >15% MSE reduction vs. a single global regressor, got {improvement:.4f} (baseline={mse_baseline:.4f}, mixture={mse_mixture:.4f})"
-    )
+    assert (
+        improvement > 0.15
+    ), f"expected >15% MSE reduction vs. a single global regressor, got {improvement:.4f} (baseline={mse_baseline:.4f}, mixture={mse_mixture:.4f})"
 
 
 def test_gated_regression_mixture_gate_feature_ablation_improves_high_branch():
@@ -146,9 +148,9 @@ def test_biz_val_gated_regression_mixture_soft_routing_reduces_boundary_error():
     mse_soft_band = mean_squared_error(y_test[band], pred_soft[band])
 
     improvement = 1.0 - mse_soft_band / mse_hard_band
-    assert improvement > 0.05, (
-        f"expected >5% boundary-band MSE reduction from soft routing, got {improvement:.4f} (hard={mse_hard_band:.4f}, soft={mse_soft_band:.4f})"
-    )
+    assert (
+        improvement > 0.05
+    ), f"expected >5% boundary-band MSE reduction from soft routing, got {improvement:.4f} (hard={mse_hard_band:.4f}, soft={mse_soft_band:.4f})"
 
     # Rows OUTSIDE the band must be untouched by soft routing (single-branch hard route either way).
     assert np.allclose(pred_hard[~band], pred_soft[~band])

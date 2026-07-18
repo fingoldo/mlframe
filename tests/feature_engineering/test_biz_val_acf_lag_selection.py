@@ -77,9 +77,9 @@ def test_biz_val_select_significant_lags_per_group_consensus_recovers_both_lags(
     assert 7 in per_group_result["significant_lags"], per_group_result["significant_lags"]
 
     global_result = select_significant_lags(series, max_lag=15)
-    assert not ({3, 7} <= set(global_result["significant_lags"])), (
-        f"expected the pooled global-only result to miss at least one of {{3, 7}}, got {global_result['significant_lags']}"
-    )
+    assert not (
+        {3, 7} <= set(global_result["significant_lags"])
+    ), f"expected the pooled global-only result to miss at least one of {{3, 7}}, got {global_result['significant_lags']}"
 
 
 def test_select_significant_lags_default_unchanged_when_groups_omitted():

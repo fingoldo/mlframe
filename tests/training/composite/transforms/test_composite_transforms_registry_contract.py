@@ -27,7 +27,6 @@ import pytest
 
 from mlframe.training.composite.transforms import TRANSFORMS_REGISTRY
 
-
 _RNG = np.random.default_rng(0)
 _N = 200
 _BASE = np.linspace(1.0, 10.0, _N)
@@ -98,6 +97,7 @@ _TRANSFORM_RTOL: dict[str, float] = {
 # the signal, no numeric base), in which case it still needs groups and takes
 # base=None.
 def _call_fit(t, y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
+    """Call fit."""
     if t.requires_groups:
         return t.fit(y, base if t.requires_base else None, groups=_GROUPS[: len(y)])
     if not t.requires_base:
@@ -106,6 +106,7 @@ def _call_fit(t, y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
 
 
 def _call_forward(t, y: np.ndarray, base: np.ndarray, params: Mapping[str, Any]) -> np.ndarray:
+    """Call forward."""
     if t.requires_groups:
         return t.forward(y, base if t.requires_base else None, params, groups=_GROUPS[: len(y)])
     if not t.requires_base:
@@ -114,6 +115,7 @@ def _call_forward(t, y: np.ndarray, base: np.ndarray, params: Mapping[str, Any])
 
 
 def _call_inverse(t, t_hat: np.ndarray, base: np.ndarray, params: Mapping[str, Any]) -> np.ndarray:
+    """Call inverse."""
     if t.requires_groups:
         return t.inverse(t_hat, base if t.requires_base else None, params, groups=_GROUPS[: len(t_hat)])
     if not t.requires_base:
@@ -122,6 +124,7 @@ def _call_inverse(t, t_hat: np.ndarray, base: np.ndarray, params: Mapping[str, A
 
 
 def _call_domain(t, y: np.ndarray, base: np.ndarray) -> np.ndarray:
+    """Call domain."""
     if not t.requires_base:
         return t.domain_check(y, None)
     return t.domain_check(y, base)
@@ -141,6 +144,7 @@ def test_transform_fit_returns_json_serializable_dict(name: str):
     # through a thin coercion to numpy -> list so we exercise the same
     # encoder path used downstream by io.save_mlframe_model.
     def _coerce(o):
+        """Coerce."""
         if isinstance(o, np.ndarray):
             return o.tolist()
         if isinstance(o, (np.integer, np.floating, np.bool_)):

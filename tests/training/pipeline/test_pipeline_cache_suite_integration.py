@@ -40,6 +40,7 @@ from ..shared import SimpleFeaturesAndTargetsExtractor
 
 
 def _build_small_classif_df(seed: int = 11, n: int = 600) -> pd.DataFrame:
+    """Build small classif df."""
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
@@ -86,6 +87,7 @@ class TestPipelineCacheHitAtSuiteLevel:
         tmp_path,
         caplog,
     ) -> None:
+        """Suite emits at least one pipeline cache hit."""
         df = _build_small_classif_df()
         fte = SimpleFeaturesAndTargetsExtractor(
             target_column="target",
@@ -184,6 +186,6 @@ class TestPipelineCacheHitAtSuiteLevel:
         # new MISSes that have nothing to do with the content-key fix).
         # The original bug had hits=0 by construction, so any positive
         # floor catches it.
-        assert hits >= max(1, misses // 2), (
-            f"PipelineCache hit rate too low for shared-requirement pair: hits={hits}, misses={misses}. Floor: hits >= max(1, misses // 2)"
-        )
+        assert hits >= max(
+            1, misses // 2
+        ), f"PipelineCache hit rate too low for shared-requirement pair: hits={hits}, misses={misses}. Floor: hits >= max(1, misses // 2)"

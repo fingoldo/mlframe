@@ -38,6 +38,7 @@ from mlframe.training.composite.discovery._stability import (
 
 
 class _Spec:
+    """Groups tests covering spec."""
     def __init__(self, name: str) -> None:
         self.name = name
 
@@ -62,6 +63,7 @@ class _RecordingDiscovery:
         self.specs_ = []
 
     def fit(self, df, target, feature_cols, train_idx):
+        """Fit."""
         sub = np.asarray(train_idx).copy()
         self._recorder.append(sub)
         names = self._selector(sub) if self._selector is not None else ["g"]
@@ -70,6 +72,7 @@ class _RecordingDiscovery:
 
 
 def _factory(recorder, **kw):
+    """Factory."""
     return lambda: _RecordingDiscovery(recorder, **kw)
 
 
@@ -95,6 +98,7 @@ def _row_reference(train_idx, frac, n_replicates, random_state):
 
 
 def _grouped_df(n_groups=20, per=100, seed=0):
+    """Grouped df."""
     rng = np.random.default_rng(seed)
     groups = np.repeat(np.arange(n_groups), per)
     n = groups.size
@@ -109,6 +113,7 @@ def _grouped_df(n_groups=20, per=100, seed=0):
 
 @pytest.mark.parametrize("frac", [0.5, 0.3, 1.0])
 def test_no_group_path_bit_identical_to_row_reference(frac):
+    """No group path bit identical to row reference."""
     df, idx, _ = _grouped_df()
     rec = []
     res = stability_select_specs(
@@ -176,6 +181,7 @@ def test_group_aware_with_no_key_falls_back_bit_identical():
 
 
 def _assert_whole_groups(recorded, train_idx, groups):
+    """Assert whole groups."""
     train_idx = np.asarray(train_idx)
     for sub in recorded:
         subset = set(sub.tolist())
@@ -186,6 +192,7 @@ def _assert_whole_groups(recorded, train_idx, groups):
 
 
 def test_group_replicates_are_whole_groups():
+    """Group replicates are whole groups."""
     df, idx, groups = _grouped_df(n_groups=20, per=100)
     rec = []
     res = stability_select_specs(
@@ -208,6 +215,7 @@ def test_group_replicates_are_whole_groups():
 
 
 def test_group_ids_via_explicit_arg_and_column_agree():
+    """Group ids via explicit arg and column agree."""
     df, idx, groups = _grouped_df(n_groups=12, per=80)
     rec_arg, rec_col = [], []
     stability_select_specs(
@@ -264,10 +272,12 @@ def test_full_length_group_ids_indexed_by_train_idx():
 
 
 def test_threshold_semantics_group_path():
+    """Threshold semantics group path."""
     df, idx, groups = _grouped_df(n_groups=20, per=50)
     calls = {"i": 0}  # shared across the per-replicate fresh instances.
 
     def selector(sub):
+        """Selector."""
         names = ["always"]
         # "sometimes" selected in only 3 of 8 replicates -> freq 0.375 < 0.6.
         if calls["i"] < 3:
@@ -301,6 +311,7 @@ def test_threshold_semantics_group_path():
 
 
 def test_single_group_falls_back_to_row_path():
+    """Single group falls back to row path."""
     df, idx, _ = _grouped_df(n_groups=1, per=300)
     one = np.zeros(idx.size, dtype=int)
     rec = []
@@ -321,6 +332,7 @@ def test_single_group_falls_back_to_row_path():
 
 
 def test_all_groups_identical_label_falls_back():
+    """All groups identical label falls back."""
     df, idx, _ = _grouped_df(n_groups=1, per=200)
     same = np.full(idx.size, 42)
     res = stability_select_specs(
@@ -337,6 +349,7 @@ def test_all_groups_identical_label_falls_back():
 
 
 def test_fewer_groups_than_replicates_ok():
+    """Fewer groups than replicates ok."""
     df, idx, groups = _grouped_df(n_groups=3, per=100)
     rec = []
     res = stability_select_specs(
@@ -357,6 +370,7 @@ def test_fewer_groups_than_replicates_ok():
 
 
 def test_config_toggle_off_disables_group_path():
+    """Config toggle off disables group path."""
     df, idx, groups = _grouped_df(n_groups=10, per=60)
     rec = []
     res = stability_select_specs(
@@ -376,6 +390,7 @@ def test_config_toggle_off_disables_group_path():
 
 
 def test_subsample_groups_helper_degenerate_and_frac_one():
+    """Subsample groups helper degenerate and frac one."""
     groups = np.array([0, 0, 1, 1, 2, 2])
     idx = np.arange(6)
     rng = np.random.default_rng(0)
@@ -391,10 +406,12 @@ def test_subsample_groups_helper_degenerate_and_frac_one():
 
 
 def _rmse(a, b):
+    """Rmse."""
     return float(np.sqrt(np.mean((a - b) ** 2)))
 
 
 def _gain(y_comp, pred, base):
+    """Gain."""
     denom = _rmse(y_comp, base)
     if denom < 1e-12:
         return 0.0
@@ -402,6 +419,7 @@ def _gain(y_comp, pred, base):
 
 
 def _robust_gain(y, x0, sub, comp):
+    """Robust gain."""
     coef = np.polyfit(x0[sub], y[sub], 1)
     pred = np.polyval(coef, x0[comp])
     base = np.full(comp.shape, float(y[sub].mean()))
@@ -409,6 +427,7 @@ def _robust_gain(y, x0, sub, comp):
 
 
 def _fragile_gain(y, groups, sub, comp):
+    """Fragile gain."""
     glob = float(y[sub].mean())
     means = {int(g): float(y[sub][groups[sub] == g].mean()) for g in np.unique(groups[sub])}
     pred = np.array([means.get(int(g), glob) for g in groups[comp]])
@@ -432,6 +451,7 @@ class _CompDiscovery:
         self.specs_ = []
 
     def fit(self, df, target, feature_cols, train_idx):
+        """Fit."""
         y = df["y"].to_numpy().astype(float)
         x0 = df["x0"].to_numpy().astype(float)
         g = self._group_ids_for_rerank
@@ -448,6 +468,7 @@ class _CompDiscovery:
 
 
 def _make_grouped_biz(n_groups=20, per=100, seed=0):
+    """Make grouped biz."""
     rng = np.random.default_rng(seed)
     well_level = rng.normal(0.0, 3.0, n_groups)  # large per-well offsets (fragile signal)
     groups = np.repeat(np.arange(n_groups), per)
@@ -469,6 +490,7 @@ def test_biz_val_group_aware_demotes_fragile_keeps_robust():
     kw = dict(n_replicates=6, subsample_frac=0.5, freq_threshold=0.6, random_state=13)
 
     def factory():
+        """Factory."""
         return _CompDiscovery(idx, groups, gate=gate, config=_Cfg(True))
 
     group_res = stability_select_specs(factory, df, "y", ["x0"], idx, group_ids=groups, **kw)
@@ -530,6 +552,7 @@ def _profile_stability_sweep(n_groups=200, per=200, n_replicates=5):
 
 
 def test_profile_harness_runs_fast():
+    """Profile harness runs fast."""
     out = _profile_stability_sweep(n_groups=40, per=100, n_replicates=5)
     assert "stability_select_specs" in out
 

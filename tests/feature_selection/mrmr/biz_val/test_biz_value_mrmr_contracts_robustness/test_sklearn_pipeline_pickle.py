@@ -304,9 +304,9 @@ class TestFitTransformConsistency:
             b.fit(X, y)
             out_b = b.transform(X)
         # Same return type.
-        assert isinstance(out_a, type(out_b)) or isinstance(out_b, type(out_a)), (
-            f"fit_transform / fit-then-transform return types differ: {type(out_a).__name__} vs {type(out_b).__name__}"
-        )
+        assert isinstance(out_a, type(out_b)) or isinstance(
+            out_b, type(out_a)
+        ), f"fit_transform / fit-then-transform return types differ: {type(out_a).__name__} vs {type(out_b).__name__}"
         # Same selected columns.
         assert list(a.get_feature_names_out()) == list(b.get_feature_names_out())
         # Same values.
@@ -334,9 +334,9 @@ class TestSetOutputPandas:
         X, _y, sel = _set_output_pandas_fit()
         out = sel.transform(X)
         assert isinstance(out, pd.DataFrame)
-        assert len(out.columns) == len(sel.get_feature_names_out()), (
-            f"set_output(pandas) DataFrame column count ({len(out.columns)}) != len(get_feature_names_out()) ({len(sel.get_feature_names_out())})"
-        )
+        assert len(out.columns) == len(
+            sel.get_feature_names_out()
+        ), f"set_output(pandas) DataFrame column count ({len(out.columns)}) != len(get_feature_names_out()) ({len(sel.get_feature_names_out())})"
 
 
 # ---------------------------------------------------------------------------
@@ -365,9 +365,9 @@ class TestPipelineEndToEnd:
         """
         _X_tr, X_te, _y_tr, y_te, pipe = _pipeline_fit()
         score = pipe.score(X_te, y_te)
-        assert score > 0.80, (
-            f"Pipeline test-accuracy {score:.3f} is implausibly low for a clean two-signal logistic dataset; MRMR likely dropped x1/x2 from the support."
-        )
+        assert (
+            score > 0.80
+        ), f"Pipeline test-accuracy {score:.3f} is implausibly low for a clean two-signal logistic dataset; MRMR likely dropped x1/x2 from the support."
 
 
 # ---------------------------------------------------------------------------

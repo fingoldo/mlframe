@@ -26,6 +26,7 @@ from mlframe.feature_selection.filters._mrmr_explain import _GATE_TO_FLIP_BAND
 
 
 def _mrmr(**overrides):
+    """Helper that mrmr."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     defaults = dict(
@@ -43,6 +44,7 @@ def _mrmr(**overrides):
 
 
 def _canonical_frame(n: int = 800, seed: int = 7):
+    """Canonical frame."""
     rng = np.random.default_rng(int(seed))
     a = rng.standard_normal(n)
     b = rng.uniform(0.5, 2.5, n)
@@ -64,6 +66,7 @@ def _canonical_frame(n: int = 800, seed: int = 7):
 
 
 def _fe_on(**overrides):
+    """Fe on."""
     return _mrmr(fe_hybrid_orth_enable=True, fe_auto=True, **overrides)
 
 
@@ -144,9 +147,9 @@ def test_whatif_preview_matches_actual_flag_flip_refit():
         still_dropped = set(led_relaxed.loc[gr, "candidate"].astype(str)) & recorded_cands
     actual_readmit = len(recorded_cands - still_dropped)
 
-    assert preview_count == actual_readmit, (
-        f"what-if preview {preview_count} != actual flag-flip re-admit {actual_readmit} (recorded={len(recorded_cands)}, still_dropped={len(still_dropped)})"
-    )
+    assert (
+        preview_count == actual_readmit
+    ), f"what-if preview {preview_count} != actual flag-flip re-admit {actual_readmit} (recorded={len(recorded_cands)}, still_dropped={len(still_dropped)})"
 
 
 # ---------------------------------------------------------------------------

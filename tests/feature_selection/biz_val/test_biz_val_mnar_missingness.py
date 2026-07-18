@@ -63,7 +63,6 @@ from tests.feature_selection._selector_factories import (
 )
 from tests.feature_selection.conftest import fast_subset
 
-
 # ---------------------------------------------------------------------------
 # Synthetic builders. All small (n<=1500), fixed-seed, deterministic.
 # ---------------------------------------------------------------------------
@@ -191,6 +190,7 @@ SEEDS = [0, 1, 2, 3, 4]
 
 
 def _majority(flags: list[bool]) -> bool:
+    """Helper that majority."""
     return sum(bool(f) for f in flags) > len(flags) // 2
 
 
@@ -337,6 +337,7 @@ def test_biz_val_rfecv_nan_free_selection_unchanged():
     df = df.fillna(0.0)  # remove all NaN -> impute must be a no-op
 
     def _mk(policy):
+        """Build an RFECV configured with the given leakage/imputation policy, on a NaN-free frame where imputation must be a no-op."""
         return RFECV(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             cv=3,

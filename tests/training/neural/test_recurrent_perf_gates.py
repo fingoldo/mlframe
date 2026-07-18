@@ -34,6 +34,7 @@ from mlframe.training.neural._recurrent_perf import (
 def test_auto_precision_passes_through_explicit_user_choice():
     # An explicit non-"16-mixed" choice MUST NOT be rewritten by the promoter.
     # The promoter only acts on the implicit Lightning default ("16-mixed").
+    """Auto precision passes through explicit user choice."""
     for explicit in ("32-true", "bf16-mixed", "16-true", "64-true"):
         assert auto_precision(explicit) == explicit
 
@@ -41,6 +42,7 @@ def test_auto_precision_passes_through_explicit_user_choice():
 def test_auto_precision_pre_ampere_keeps_16_mixed():
     # On a host without CUDA we know cc-detection returns nothing usable,
     # so the function must fall back to the user-supplied value.
+    """Auto precision pre ampere keeps 16 mixed."""
     if torch.cuda.is_available():
         cc = torch.cuda.get_device_capability()
         if cc >= (8, 0):
@@ -72,6 +74,7 @@ def test_f44_fused_adamw_skipped_when_trainer_runs_16_mixed(monkeypatch):
     model = RecurrentTorchModel(cfg, aux_input_size=4, is_regression=True)
 
     class _FakeTrainer:
+        """Groups tests covering fake trainer."""
         precision = "16-mixed"
         estimated_stepping_batches = 0
 
@@ -105,6 +108,7 @@ def test_f44_fused_adamw_skipped_under_bf16_mixed():
     model = RecurrentTorchModel(cfg, aux_input_size=4, is_regression=True)
 
     class _FakeTrainer:
+        """Groups tests covering fake trainer."""
         precision = "bf16-mixed"
         estimated_stepping_batches = 0
 
@@ -112,9 +116,9 @@ def test_f44_fused_adamw_skipped_under_bf16_mixed():
     out = model.configure_optimizers()
     opt = out["optimizer"] if isinstance(out, dict) else out
     fused = opt.param_groups[0].get("fused", False)
-    assert fused is not True, (
-        f"F-44 gate failed: fused={fused!r} under bf16-mixed -> AMP plugin grad-clip rejection. The gate must skip fused for any 'mixed' precision."
-    )
+    assert (
+        fused is not True
+    ), f"F-44 gate failed: fused={fused!r} under bf16-mixed -> AMP plugin grad-clip rejection. The gate must skip fused for any 'mixed' precision."
 
 
 def test_f44_fused_adamw_active_under_fp32():
@@ -135,6 +139,7 @@ def test_f44_fused_adamw_active_under_fp32():
     model = RecurrentTorchModel(cfg, aux_input_size=4, is_regression=True)
 
     class _FakeTrainer:
+        """Groups tests covering fake trainer."""
         precision = "32-true"
         estimated_stepping_batches = 0
 
@@ -148,6 +153,7 @@ def test_f44_fused_adamw_active_under_fp32():
 def test_f45_cudnn_autotune_skipped_for_transformer():
     # Transformer path doesn't use the cuDNN RNN persistent-kernel; the
     # helper must early-return without mutating cudnn.benchmark.
+    """F45 cudnn autotune skipped for transformer."""
     prev = torch.backends.cudnn.benchmark
     try:
         torch.backends.cudnn.benchmark = False
@@ -160,6 +166,7 @@ def test_f45_cudnn_autotune_skipped_for_transformer():
 def test_f45_cudnn_autotune_skipped_pre_ampere():
     # On Pascal/Turing/Volta (cc < 8.0) the persistent-RNN kernel doesn't
     # exist and benchmark autotune costs more than it returns.
+    """F45 cudnn autotune skipped pre ampere."""
     if not torch.cuda.is_available():
         pytest.skip("CUDA required to read compute capability")
     cc = torch.cuda.get_device_capability()

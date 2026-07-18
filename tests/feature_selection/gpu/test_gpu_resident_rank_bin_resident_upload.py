@@ -26,6 +26,7 @@ from mlframe.feature_selection.filters.hermite_fe import _quantile_bin_njit
 
 @pytest.fixture(autouse=True)
 def _clear_cache():
+    """Clear cache."""
     _BIN_BOUNDARIES_CACHE.clear()
     yield
     _BIN_BOUNDARIES_CACHE.clear()
@@ -57,6 +58,7 @@ def test_boundaries_dedup_across_calls_same_n_nbins(monkeypatch):
     orig_asarray = cp.asarray
 
     def _counting_asarray(arr, *a, **kw):
+        """Counting asarray."""
         if isinstance(arr, np.ndarray) and arr.shape == bnd_host.shape and arr.dtype == bnd_host.dtype and np.array_equal(arr, bnd_host):
             upload_calls["n"] += 1
         return orig_asarray(arr, *a, **kw)
@@ -84,6 +86,7 @@ def test_boundaries_dedup_batch_variant_shares_cache_with_single_column(monkeypa
     orig_asarray = cp.asarray
 
     def _counting_asarray(arr, *a, **kw):
+        """Counting asarray."""
         if isinstance(arr, np.ndarray) and arr.shape == bnd_host.shape and arr.dtype == bnd_host.dtype and np.array_equal(arr, bnd_host):
             upload_calls["n"] += 1
         return orig_asarray(arr, *a, **kw)

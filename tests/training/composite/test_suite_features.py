@@ -21,6 +21,7 @@ except ImportError:  # pragma: no cover
 
 
 def _make_spec(base_column: str = "base") -> CompositeSpec:
+    """Make spec."""
     return CompositeSpec(
         name="y-linres-base",
         target_col="y",
@@ -68,6 +69,7 @@ def test_oof_feature_is_leakage_free():
 
 
 def test_transform_on_new_data():
+    """Transform on new data."""
     df, y = _base_dominated_data(n=800)
     train, test = df.iloc[:600], df.iloc[600:]
     gen = CompositeFeatureGenerator(spec=_make_spec(), base_estimator=LinearRegression())
@@ -81,6 +83,7 @@ def test_transform_on_new_data():
 
 
 def test_sklearn_fit_transform_surface():
+    """Sklearn fit transform surface."""
     df, y = _base_dominated_data(n=500)
     gen = CompositeFeatureGenerator(spec=_make_spec(), base_estimator=LinearRegression())
     out = gen.fit_transform(df, y)
@@ -92,6 +95,7 @@ def test_sklearn_fit_transform_surface():
 
 
 def test_wrapper_factory_path_and_custom_name():
+    """Wrapper factory path and custom name."""
     from mlframe.training.composite.estimator import CompositeTargetEstimator
 
     df, y = _base_dominated_data(n=400)
@@ -102,6 +106,7 @@ def test_wrapper_factory_path_and_custom_name():
 
 
 def test_fit_requires_y():
+    """Fit requires y."""
     df, _ = _base_dominated_data(n=100)
     gen = CompositeFeatureGenerator(spec=_make_spec())
     with pytest.raises(ValueError):
@@ -109,6 +114,7 @@ def test_fit_requires_y():
 
 
 def test_transform_without_final_fit_raises():
+    """Transform without final fit raises."""
     df, y = _base_dominated_data(n=300)
     gen = CompositeFeatureGenerator(spec=_make_spec(), base_estimator=LinearRegression(), fit_final_on_all=False)
     gen.fit(df, y)
@@ -120,6 +126,7 @@ def test_transform_without_final_fit_raises():
 
 @pytest.mark.skipif(not _HAS_POLARS, reason="polars not installed")
 def test_polars_frame_support():
+    """Polars frame support."""
     df, y = _base_dominated_data(n=500)
     pdf = pl.from_pandas(df)
     gen = CompositeFeatureGenerator(spec=_make_spec(), base_estimator=LinearRegression())

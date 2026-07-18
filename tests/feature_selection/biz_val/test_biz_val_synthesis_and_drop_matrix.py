@@ -60,7 +60,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 from tests.feature_selection.conftest import fast_subset
 from tests.feature_selection._selector_factories import _make_rfecv, selected_names
 
-
 # ---------------------------------------------------------------------------
 # MRMR configs: raw-only (every default-ON FE generator OFF) vs FE-full.
 # ---------------------------------------------------------------------------
@@ -124,6 +123,7 @@ def _sel_auc(kw, df, y):
 
 
 def _has_engineered(names) -> bool:
+    """Has engineered."""
     return any(("(" in n) or ("__" in n) for n in names)
 
 
@@ -177,6 +177,7 @@ _SYNTH_FAMILIES = [
 
 
 def _build_synth(family, score_fn, thr):
+    """Build synth."""
     if family == "CONDITIONAL":
         # y = (x0 if x2>0 else x1) > 0.  Neither x0 nor x1 alone is usable; the
         # gating by x3>0 is what a conditional generator must recover.
@@ -244,9 +245,9 @@ def test_synthesis_xor3_recovered_by_triplet_synthesizer():
     print(f"XOR3 triplet FE_auc={fe_auc:.3f} raw_auc={raw_auc:.3f} pair_auc={pair_auc:.3f} fe_names={fe_names[:4]}")
     assert fe_auc > 0.90, f"triplet synthesizer must carry 3-way XOR (FE_auc={fe_auc:.3f}); names={fe_names}"
     assert fe_auc - raw_auc >= 0.40, f"triplet FE must beat raw-only by >=0.40 on 3-way XOR; got {fe_auc - raw_auc:+.3f}"
-    assert fe_auc - pair_auc >= 0.30, (
-        f"triplet FE must beat PAIR-only FE by >=0.30 on 3-way XOR (pairs cannot synthesize it); got {fe_auc - pair_auc:+.3f}; pair_names={pair_names}"
-    )
+    assert (
+        fe_auc - pair_auc >= 0.30
+    ), f"triplet FE must beat PAIR-only FE by >=0.30 on 3-way XOR (pairs cannot synthesize it); got {fe_auc - pair_auc:+.3f}; pair_names={pair_names}"
     assert any("__He1_He1_He1" in n or "*" in n for n in fe_names), f"a 3-way cross-basis triplet column must be selected; got {fe_names}"
 
 
@@ -264,6 +265,7 @@ def test_synthesis_xor3_recovered_by_triplet_synthesizer():
 #     awareness the raw filter does not have -> documented GAP.
 # ===========================================================================
 def _drop_dataset(decoy, *, seed: int = 7):
+    """Drop dataset."""
     rng = np.random.default_rng(seed)
     x_real = rng.normal(size=_N)
     y = pd.Series((x_real + 0.2 * rng.normal(size=_N) > 0).astype(int), name="y")
@@ -404,6 +406,7 @@ def test_rfecv_id_like_sequence_guard():
     from mlframe.feature_selection.wrappers import RFECV
 
     def _tree_rfecv(**kw):
+        """Tree rfecv."""
         return RFECV(
             estimator=RandomForestClassifier(n_estimators=30, random_state=0),
             cv=3,
@@ -432,9 +435,9 @@ def test_rfecv_id_like_sequence_guard():
     sel_off.fit(df_id, y)
     names_off = selected_names(sel_off)
     print(f"ID-GUARD off sel={names_off}")
-    assert "decoy" in names_off, (
-        f"regression sensor is blind: tree must admit the ID decoy with the guard OFF (else the test does not prove the guard does the work): {names_off}"
-    )
+    assert (
+        "decoy" in names_off
+    ), f"regression sensor is blind: tree must admit the ID decoy with the guard OFF (else the test does not prove the guard does the work): {names_off}"
 
     # (2) PB-5 SAFETY: a weak low-card-binnable signal must NOT be dropped.
     wl = rng.integers(0, 5, _N).astype(float)
@@ -470,6 +473,7 @@ def test_rfecv_near_dup_corr_guard():
     from mlframe.feature_selection.wrappers import RFECV
 
     def _rfecv(**kw):
+        """Helper that rfecv."""
         return RFECV(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             cv=3,
@@ -499,9 +503,9 @@ def test_rfecv_near_dup_corr_guard():
     sel_off.fit(df, y)
     names_off = selected_names(sel_off)
     print(f"NEAR-DUP off sel={names_off}")
-    assert "decoy" in names_off, (
-        f"regression sensor is blind: RFECV must admit the scaled copy with the guard OFF (else the test does not prove the guard does the work): {names_off}"
-    )
+    assert (
+        "decoy" in names_off
+    ), f"regression sensor is blind: RFECV must admit the scaled copy with the guard OFF (else the test does not prove the guard does the work): {names_off}"
 
     # (3) PB-5 SAFETY: a legitimately-distinct corr~0.7 pair must BOTH survive (0.999 default is far above 0.7).
     a = rng.normal(size=_N)

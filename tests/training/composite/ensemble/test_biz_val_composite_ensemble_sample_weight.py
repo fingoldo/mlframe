@@ -17,11 +17,14 @@ warnings.filterwarnings("ignore")
 
 
 class _NullModel:
+    """Groups tests covering null model."""
     def predict(self, X):
+        """Predict."""
         return np.zeros(len(X))
 
 
 def _components(k):
+    """Components."""
     return [_NullModel() for _ in range(k)], [f"c{i}" for i in range(k)]
 
 
@@ -90,6 +93,7 @@ def test_biz_val_nnls_weighted_predictor_outperforms_unweighted_on_recent_slice(
     weighted = CompositeCrossTargetEnsemble.from_nnls_stack(models, names, X, y, sample_weight=sw_recency)
 
     def _rmse_on_recent(w):
+        """Rmse on recent."""
         recent_X = X[is_recent]
         recent_y = y[is_recent]
         preds = recent_X @ w.weights
@@ -97,6 +101,6 @@ def test_biz_val_nnls_weighted_predictor_outperforms_unweighted_on_recent_slice(
 
     rmse_uniform = _rmse_on_recent(unweighted)
     rmse_recency = _rmse_on_recent(weighted)
-    assert rmse_recency < rmse_uniform, (
-        f"recency-weighted NNLS must beat unweighted NNLS on recent-slice RMSE; got uniform={rmse_uniform:.4f}, weighted={rmse_recency:.4f}"
-    )
+    assert (
+        rmse_recency < rmse_uniform
+    ), f"recency-weighted NNLS must beat unweighted NNLS on recent-slice RMSE; got uniform={rmse_uniform:.4f}, weighted={rmse_recency:.4f}"

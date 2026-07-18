@@ -44,9 +44,9 @@ def test_biz_val_recency_weighted_rolling_tracks_regime_shift_better_than_unifor
     mse_weighted = float(np.mean((weighted[near_shift] - df["true_rate"].to_numpy()[near_shift]) ** 2))
     mse_uniform = float(np.mean((uniform[near_shift] - df["true_rate"].to_numpy()[near_shift]) ** 2))
 
-    assert mse_weighted < mse_uniform * 0.8, (
-        f"expected recency-weighted rolling mean to track the regime shift better, got weighted={mse_weighted:.5f} uniform={mse_uniform:.5f}"
-    )
+    assert (
+        mse_weighted < mse_uniform * 0.8
+    ), f"expected recency-weighted rolling mean to track the regime shift better, got weighted={mse_weighted:.5f} uniform={mse_uniform:.5f}"
 
 
 def _make_volatility_shift_dataset(n_entities: int, rows_per_entity: int, seed: int):
@@ -78,9 +78,9 @@ def test_biz_val_recency_weighted_rolling_std_tracks_volatility_shift_better_tha
     mse_weighted = float(np.mean((weighted[near_shift] - df["true_std"].to_numpy()[near_shift]) ** 2))
     mse_uniform = float(np.mean((uniform[near_shift] - df["true_std"].to_numpy()[near_shift]) ** 2))
 
-    assert mse_weighted < mse_uniform * 0.8, (
-        f"expected recency-weighted rolling std to track the volatility shift better, got weighted={mse_weighted:.5f} uniform={mse_uniform:.5f}"
-    )
+    assert (
+        mse_weighted < mse_uniform * 0.8
+    ), f"expected recency-weighted rolling std to track the volatility shift better, got weighted={mse_weighted:.5f} uniform={mse_uniform:.5f}"
 
 
 def test_recency_weighted_rolling_std_identity_param_matches_uniform_rolling():

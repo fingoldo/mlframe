@@ -14,6 +14,7 @@ import pytest
 
 
 def _fit_chain():
+    """Fit chain."""
     lgb = pytest.importorskip("lightgbm")
     from mlframe.training._classif_helpers import _ChainEnsemble
 
@@ -31,12 +32,14 @@ def _fit_chain():
 
 
 def test_chain_ensemble_fit_primes_nan_guard():
+    """Chain ensemble fit primes nan guard."""
     model, _X, _n = _fit_chain()
     assert hasattr(model, "_mlframe_nan_imputer"), "fit must prime the NaN-guard imputer"
     assert hasattr(model, "_mlframe_nan_scaler"), "fit must prime the NaN-guard scaler"
 
 
 def test_chain_ensemble_nan_predict_frame_not_refused():
+    """Chain ensemble nan predict frame not refused."""
     model, X, n = _fit_chain()
     from mlframe.training._predict_guards import _apply_nan_guard, NanGuardNotPrimedError
 

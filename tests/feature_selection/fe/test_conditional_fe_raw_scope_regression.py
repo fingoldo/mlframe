@@ -77,6 +77,7 @@ def _replay_all(recipes, appended, X_raw):
 
 
 def test_conditional_residual_recipe_on_engineered_source_keyerrors_on_raw():
+    """Conditional residual recipe on engineered source keyerrors on raw."""
     aug, y, raw_cols, eng = _augmented_num_frame(seed=1)
     _, appended, recipes, _ = hybrid_conditional_residual_fe(
         aug,
@@ -87,9 +88,9 @@ def test_conditional_residual_recipe_on_engineered_source_keyerrors_on_raw():
         max_pair_cols=6,
         mi_gate=False,
     )
-    assert any(eng in r.src_names for r in recipes if r.name in appended), (
-        "fixture must produce at least one engineered-source recipe to be a meaningful sensor for the bug class"
-    )
+    assert any(
+        eng in r.src_names for r in recipes if r.name in appended
+    ), "fixture must produce at least one engineered-source recipe to be a meaningful sensor for the bug class"
     X_raw = aug[raw_cols]
     _bad_recipe, exc = _replay_all(recipes, appended, X_raw)
     assert isinstance(exc, KeyError), f"expected KeyError replaying engineered-source recipe on raw X; got {exc!r}"
@@ -97,6 +98,7 @@ def test_conditional_residual_recipe_on_engineered_source_keyerrors_on_raw():
 
 
 def test_conditional_dispersion_recipe_on_engineered_source_keyerrors_on_raw():
+    """Conditional dispersion recipe on engineered source keyerrors on raw."""
     aug, y, raw_cols, eng = _augmented_num_frame(seed=2)
     _, appended, recipes, _ = hybrid_conditional_dispersion_fe(
         aug,
@@ -115,6 +117,7 @@ def test_conditional_dispersion_recipe_on_engineered_source_keyerrors_on_raw():
 
 
 def test_grouped_quantile_recipe_on_engineered_source_keyerrors_on_raw():
+    """Grouped quantile recipe on engineered source keyerrors on raw."""
     rng = np.random.default_rng(5)
     n = 900
     g = rng.integers(0, 6, size=n).astype("int64")
@@ -144,6 +147,7 @@ def test_grouped_quantile_recipe_on_engineered_source_keyerrors_on_raw():
 
 @pytest.fixture
 def _mrmr_cls():
+    """Mrmr cls."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     return MRMR
@@ -158,6 +162,7 @@ def _capture_family_cols(monkeypatch, target_module, func_name, captured):
     orig = getattr(mod, func_name)
 
     def _wrapper(X, y, *args, **kwargs):
+        """Stand-in for the wrapped FE function: record its num_cols/group_cols kwargs then return an empty no-op augmentation."""
         captured.append(
             {
                 "num_cols": kwargs.get("num_cols"),
@@ -171,6 +176,7 @@ def _capture_family_cols(monkeypatch, target_module, func_name, captured):
 
 
 def _fit_with_families(MRMR, X, y, **flags):
+    """Fit with families."""
     m = MRMR(
         fe_pairwise_ratio_enable=True,
         fe_grouped_agg_enable=True,
@@ -183,6 +189,7 @@ def _fit_with_families(MRMR, X, y, **flags):
 
 
 def test_fit_conditional_residual_only_passes_raw_columns(_mrmr_cls, monkeypatch):
+    """Fit conditional residual only passes raw columns."""
     rng = np.random.default_rng(7)
     n = 700
     X = pd.DataFrame({c: rng.normal(size=n) for c in ("a", "b", "c", "d")})
@@ -207,6 +214,7 @@ def test_fit_conditional_residual_only_passes_raw_columns(_mrmr_cls, monkeypatch
 
 
 def test_fit_conditional_dispersion_only_passes_raw_columns(_mrmr_cls, monkeypatch):
+    """Fit conditional dispersion only passes raw columns."""
     rng = np.random.default_rng(8)
     n = 700
     X = pd.DataFrame({c: rng.normal(size=n) for c in ("a", "b", "c", "d")})
@@ -231,6 +239,7 @@ def test_fit_conditional_dispersion_only_passes_raw_columns(_mrmr_cls, monkeypat
 
 
 def test_fit_grouped_quantile_only_passes_raw_columns(_mrmr_cls, monkeypatch):
+    """Fit grouped quantile only passes raw columns."""
     rng = np.random.default_rng(9)
     n = 700
     X = pd.DataFrame({c: rng.normal(size=n) for c in ("a", "b", "c", "d")})

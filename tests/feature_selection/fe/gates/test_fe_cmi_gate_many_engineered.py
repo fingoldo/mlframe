@@ -51,12 +51,14 @@ _N = 20_000
 
 
 def _bin_y(y):
+    """Bin y."""
     z = discretize_array(np.asarray(y, dtype=np.float64), n_bins=10, method="quantile", dtype=np.int64)
     _, inv = np.unique(z, return_inverse=True)
     return inv.astype(np.int64)
 
 
 def _mk(v, yb):
+    """Quantile-bin v and return (v, CMI-with-yb) for the many-engineered CMI-gate fixture."""
     vb = _quantile_bin(np.asarray(v, dtype=np.float64), nbins=10)
     return (np.asarray(v, dtype=np.float64), float(_cmi_from_binned(vb, yb, None)))
 
@@ -106,9 +108,9 @@ def test_partition_duplicates_collapse_one_rep_per_driver(n_remaps):
     for drv in base:
         forms = {drv} | {nm for nm in cands if nm.startswith(f"red_{drv}_")}
         n_adm = len(forms & accepted)
-        assert n_adm == 1, (
-            f"driver {drv}: expected exactly 1 admitted form, got {n_adm} (0 = starvation, >1 = redundancy leak). admitted={sorted(forms & accepted)}"
-        )
+        assert (
+            n_adm == 1
+        ), f"driver {drv}: expected exactly 1 admitted form, got {n_adm} (0 = starvation, >1 = redundancy leak). admitted={sorted(forms & accepted)}"
     # The redundant remaps are explicitly labelled, not silently absent.
     collapsed = [nm for nm, d in diag.items() if d.get("reason") == "redundant_partition_duplicate"]
     assert collapsed, "exact-partition redundant remaps should be flagged redundant_partition_duplicate"
@@ -124,9 +126,9 @@ def test_no_driver_starvation_with_tied_marginal_mi_remaps(seed):
     assert len(cands) > _DEFAULT_MAX_CANDIDATES  # the pool exceeds the cap (cap path exercised)
     accepted, _diag = apply_cmi_redundancy_gate(cands, yb, nbins=10, retain_frac=0.15, seed=0)
     captured = {drv for drv in base if (drv in accepted) or any(nm in accepted for nm in cands if nm.startswith(f"red_{drv}_"))}
-    assert captured == set(base), (
-        f"[seed={seed}] driver(s) starved by the cost cap: captured={captured} expected={set(base)}. The partition dedup must run BEFORE the marginal-MI cap."
-    )
+    assert captured == set(
+        base
+    ), f"[seed={seed}] driver(s) starved by the cost cap: captured={captured} expected={set(base)}. The partition dedup must run BEFORE the marginal-MI cap."
 
 
 def test_canonical_form_preferred_over_redundant_remap():
@@ -158,6 +160,7 @@ def test_cost_is_bounded_as_K_grows():
     on a shared box -- the point is sub-quadratic, not a tight constant)."""
 
     def _time(n_remaps):
+        """Helper that time."""
         cands, yb, _ = _pool_with_remaps(seed=0, n_remaps=n_remaps)
         t0 = time.perf_counter()
         apply_cmi_redundancy_gate(cands, yb, nbins=10, retain_frac=0.15, seed=0)

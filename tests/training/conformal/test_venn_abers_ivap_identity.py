@@ -40,6 +40,7 @@ def _sklearn_refit_envelopes(s_sorted, y_sorted):
 @pytest.mark.parametrize("n", [5, 30, 150, 400])
 @pytest.mark.parametrize("ties", [False, True])
 def test_ivap_envelopes_match_sklearn_refit(seed, n, ties):
+    """Ivap envelopes match sklearn refit."""
     rng = np.random.default_rng(seed)
     s = np.sort(rng.uniform(0, 1, n))
     if ties:

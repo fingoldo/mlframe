@@ -59,6 +59,7 @@ def _make_cheap_mrmr(**overrides):
 
 
 class TestAdditionalRfecvSelectionRuleValidated:
+    """Groups tests covering TestAdditionalRfecvSelectionRuleValidated."""
     def test_bad_rule_raises_at_fit_start(self):
         """A typo'd additional_rfecv_selection_rule must fail in
         _validate_string_params (fit() start), not deep inside RFECV."""
@@ -98,6 +99,7 @@ class TestAdditionalRfecvSelectionRuleValidated:
 
 
 class TestRescuePoolExcludesEngineeredColumns:
+    """Groups tests covering TestRescuePoolExcludesEngineeredColumns."""
     def test_engineered_columns_excluded_from_rescue_pool(self):
         """The rescue pool (``temp_columns``) must exclude engineered FE columns
         so RFECV can never select one (then crash at
@@ -133,9 +135,9 @@ class TestRescuePoolExcludesEngineeredColumns:
 
         # No engineered column may survive into the rescue candidate pool.
         for eng in ("a__T2", "hybrid_x", "mi_greedy_z"):
-            assert eng not in temp_columns, (
-                f"engineered column {eng!r} leaked into the rescue pool; RFECV could select it then crash on feature_names_in_.index({eng!r})"
-            )
+            assert (
+                eng not in temp_columns
+            ), f"engineered column {eng!r} leaked into the rescue pool; RFECV could select it then crash on feature_names_in_.index({eng!r})"
         # Genuinely-discarded RAW columns are still reconsidered.
         assert set(temp_columns) == {"b", "c"}
 
@@ -159,7 +161,9 @@ class TestRescuePoolExcludesEngineeredColumns:
 
 
 class TestExtraBasisGatedOnHybridEnable:
+    """Groups tests covering TestExtraBasisGatedOnHybridEnable."""
     def _build_simple(self, seed: int = 0, n: int = 300):
+        """Build simple."""
         rng = np.random.default_rng(seed)
         x1 = rng.standard_normal(n)
         x2 = rng.standard_normal(n)
@@ -179,6 +183,7 @@ class TestExtraBasisGatedOnHybridEnable:
         _orig = ofe.hybrid_orth_extra_basis_fe_with_recipes
 
         def _spy(*args, **kwargs):
+            """Helper that spy."""
             calls["n"] += 1
             return _orig(*args, **kwargs)
 
@@ -192,9 +197,9 @@ class TestExtraBasisGatedOnHybridEnable:
             fe_hybrid_orth_extra_bases=("bspline",),
         )
         m.fit(X, y)
-        assert calls["n"] == 0, (
-            "config extra-basis FE ran with fe_hybrid_orth_enable=False; the bspline extra-basis must stay gated on the master hybrid switch"
-        )
+        assert (
+            calls["n"] == 0
+        ), "config extra-basis FE ran with fe_hybrid_orth_enable=False; the bspline extra-basis must stay gated on the master hybrid switch"
 
     def test_extra_basis_runs_when_hybrid_enabled(self, monkeypatch):
         """With fe_hybrid_orth_enable=True and a non-empty extra_bases tuple the
@@ -205,6 +210,7 @@ class TestExtraBasisGatedOnHybridEnable:
         _orig = ofe.hybrid_orth_extra_basis_fe_with_recipes
 
         def _spy(*args, **kwargs):
+            """Helper that spy."""
             calls["n"] += 1
             return _orig(*args, **kwargs)
 
@@ -224,6 +230,7 @@ class TestExtraBasisGatedOnHybridEnable:
 
 
 class TestPolarsFeRunsViaBridge:
+    """Groups tests covering TestPolarsFeRunsViaBridge."""
     def test_polars_fe_enabled_does_not_emit_skip_warning(self):
         """A polars frame with FE enabled must NOT emit a 'not a pandas DataFrame; FE skipped' warning: MRMR.fit bridges
         polars to an Arrow-backed zero-copy pandas view whenever any FE stage will run, so FE runs -- it is not skipped.

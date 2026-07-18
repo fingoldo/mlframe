@@ -46,6 +46,7 @@ def no_cache(monkeypatch):
 
 def test_corr_fallback_is_hardcoded_size_gate(no_cache):
     # Both dims clear the gate -> numba; either below -> numpy. Exactly the old gate.
+    """Corr fallback is hardcoded size gate."""
     assert kd.choose_corr_backend(CORR_MIN_ROWS, CORR_MIN_COLS, **_CORR_KW) == "numba"
     assert kd.choose_corr_backend(CORR_MIN_ROWS - 1, CORR_MIN_COLS, **_CORR_KW) == "numpy"
     assert kd.choose_corr_backend(CORR_MIN_ROWS, CORR_MIN_COLS - 1, **_CORR_KW) == "numpy"
@@ -53,6 +54,7 @@ def test_corr_fallback_is_hardcoded_size_gate(no_cache):
 
 
 def test_collinear_fallback_is_hardcoded_size_gate(no_cache):
+    """Collinear fallback is hardcoded size gate."""
     assert kd.choose_collinear_backend(COLL_MIN_ROWS, COLL_MIN_COLS, **_COLL_KW) == "numba"
     assert kd.choose_collinear_backend(COLL_MIN_ROWS - 1, COLL_MIN_COLS, **_COLL_KW) == "numpy"
     assert kd.choose_collinear_backend(COLL_MIN_ROWS, COLL_MIN_COLS - 1, **_COLL_KW) == "numpy"
@@ -61,6 +63,7 @@ def test_collinear_fallback_is_hardcoded_size_gate(no_cache):
 
 def test_corr_env_override_pins_backend(no_cache, monkeypatch):
     # numba forced even on a tiny input that the size gate would route to numpy.
+    """Corr env override pins backend."""
     monkeypatch.setenv(kd._CORR_ENV, "numba")
     assert kd.choose_corr_backend(10, 4, **_CORR_KW) == "numba"
     # numpy forced even on a huge input that the size gate would route to numba.
@@ -72,6 +75,7 @@ def test_corr_env_override_pins_backend(no_cache, monkeypatch):
 
 
 def test_collinear_env_override_pins_backend(no_cache, monkeypatch):
+    """Collinear env override pins backend."""
     monkeypatch.setenv(kd._COLLINEAR_ENV, "numba")
     assert kd.choose_collinear_backend(8, 2, **_COLL_KW) == "numba"
     monkeypatch.setenv(kd._COLLINEAR_ENV, "numpy")
@@ -80,6 +84,7 @@ def test_collinear_env_override_pins_backend(no_cache, monkeypatch):
 
 def test_unrecognised_env_value_is_ignored(no_cache, monkeypatch):
     # A typo must NOT silently pin a backend -- it falls through to the size gate.
+    """Unrecognised env value is ignored."""
     monkeypatch.setenv(kd._CORR_ENV, "gpu")
     assert kd.choose_corr_backend(CORR_MIN_ROWS, CORR_MIN_COLS, **_CORR_KW) == "numba"
     assert kd.choose_corr_backend(10, 4, **_CORR_KW) == "numpy"
@@ -89,8 +94,11 @@ def test_unrecognised_env_value_is_ignored(no_cache, monkeypatch):
 
 def test_cache_exception_falls_back(monkeypatch):
     # A cache that raises on get_or_tune must degrade to the hardcoded gate, not crash.
+    """Cache exception falls back."""
     class _Boom:
+        """Groups tests covering boom."""
         def lookup(self, *a, **k):
+            """Lookup."""
             raise RuntimeError("cache exploded")
 
     monkeypatch.setattr(kd, "_get_cache", lambda: _Boom())
@@ -101,11 +109,14 @@ def test_cache_exception_falls_back(monkeypatch):
 
 def test_cache_backend_choice_is_honoured(monkeypatch):
     # When the cache returns a valid backend_choice, the lookup uses it over the gate.
+    """Cache backend choice is honoured."""
     class _Fake:
+        """Groups tests covering fake."""
         def __init__(self, choice):
             self.choice = choice
 
         def lookup(self, *a, **k):
+            """Lookup."""
             return {"backend_choice": self.choice}
 
     monkeypatch.setattr(kd, "_get_cache", lambda: _Fake("numpy"))
@@ -126,6 +137,7 @@ def test_dispatchers_still_bit_identical_through_ktc_path(monkeypatch):
     # End-to-end: with the cache absent the dispatchers must still produce results
     # identical to forcing each backend via the env override (bit-identity invariant
     # holds regardless of which backend the lookup picks).
+    """Dispatchers still bit identical through ktc path."""
     monkeypatch.setattr(kd, "_get_cache", lambda: None)
     rng = np.random.default_rng(0)
     n, f = max(CORR_MIN_ROWS, 20_000), max(CORR_MIN_COLS, 64)
@@ -133,6 +145,7 @@ def test_dispatchers_still_bit_identical_through_ktc_path(monkeypatch):
     y = X[:, 0] * 0.7 + rng.standard_normal(n) * 0.3
 
     def _ref(yv, Xv):
+        """Ref."""
         Xc = Xv - Xv.mean(0)
         yc = yv - yv.mean()
         denom = np.sqrt((Xc * Xc).sum(0) * float(np.dot(yc, yc)))
@@ -149,6 +162,7 @@ def test_dispatchers_still_bit_identical_through_ktc_path(monkeypatch):
 
 
 def test_collinear_dispatch_bit_identical_through_ktc_path(monkeypatch):
+    """Collinear dispatch bit identical through ktc path."""
     monkeypatch.setattr(kd, "_get_cache", lambda: None)
     rng = np.random.default_rng(1)
     n, b = max(COLL_MIN_ROWS, 300), max(COLL_MIN_COLS, 12)
@@ -156,6 +170,7 @@ def test_collinear_dispatch_bit_identical_through_ktc_path(monkeypatch):
     M[:, 1] = M[:, 0] * 0.999 + rng.standard_normal(n) * 1e-3  # near-collinear pair
 
     def _ref(fm, *, corr_threshold):
+        """Ref."""
         keep = np.ones(fm.shape[1], dtype=bool)
         kept = []
         for j in range(fm.shape[1]):

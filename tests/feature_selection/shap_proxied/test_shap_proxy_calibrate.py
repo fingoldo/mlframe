@@ -21,6 +21,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_calibrate import (
 
 
 def test_subset_redundancy_basic():
+    """Subset redundancy basic."""
     rng = np.random.default_rng(0)
     base = rng.normal(size=(500, 1))
     # 3 near-duplicate columns (high redundancy) vs 3 independent (low)
@@ -45,6 +46,7 @@ def test_subset_redundancy_many_matches_single():
 
 
 def test_biz_val_corrector_beats_raw_proxy_under_redundancy_bias():
+    """Biz val corrector beats raw proxy under redundancy bias."""
     rng = np.random.default_rng(0)
     n = 160
     # Anchor design matching the documented failure mode: the honest loss is DOMINATED by a
@@ -69,6 +71,7 @@ def test_biz_val_corrector_beats_raw_proxy_under_redundancy_bias():
 
 
 def test_corrector_falls_back_with_too_few_anchors():
+    """Corrector falls back with too few anchors."""
     rng = np.random.default_rng(1)
     proxy = rng.uniform(0, 1, size=5)
     corrector = fit_proxy_corrector(proxy, proxy + 0.1, np.full(5, 3.0), np.zeros(5), min_anchors=12)
@@ -78,6 +81,7 @@ def test_corrector_falls_back_with_too_few_anchors():
 
 
 def test_rerank_preserves_stored_proxy_loss():
+    """Rerank preserves stored proxy loss."""
     rng = np.random.default_rng(2)
     phi = rng.normal(size=(200, 6))
     candidates = [(0.5, (0, 1)), (0.3, (2, 3)), (0.7, (4, 5))]

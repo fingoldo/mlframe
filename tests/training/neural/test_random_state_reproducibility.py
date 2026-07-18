@@ -37,6 +37,7 @@ from mlframe.training.neural import (
 
 @pytest.fixture
 def regression_data():
+    """Regression data."""
     X, y = make_regression(n_samples=200, n_features=5, noise=1.0, random_state=42)
     X_tr, X_te, y_tr, _y_te = train_test_split(
         X.astype(np.float32),
@@ -49,6 +50,7 @@ def regression_data():
 
 @pytest.fixture
 def binary_data():
+    """Binary data."""
     X, y = make_classification(
         n_samples=200,
         n_features=5,
@@ -67,6 +69,7 @@ def binary_data():
 
 
 def _regressor_params(random_state=None):
+    """Regressor params."""
     return {
         "model_class": MLPTorchModel,
         "model_params": {"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-2},
@@ -99,6 +102,7 @@ def _regressor_params(random_state=None):
 
 
 def _classifier_params(random_state=None):
+    """Classifier params."""
     p = _regressor_params(random_state=random_state)
     p["model_params"] = {"loss_fn": torch.nn.CrossEntropyLoss(), "learning_rate": 1e-2}
     p["datamodule_params"]["labels_dtype"] = torch.int64

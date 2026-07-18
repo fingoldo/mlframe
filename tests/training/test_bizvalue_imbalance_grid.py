@@ -48,7 +48,6 @@ from mlframe.training.core import train_mlframe_models_suite, predict_mlframe_mo
 from mlframe.training.grid import run_grid
 from .shared import SimpleFeaturesAndTargetsExtractor
 
-
 # --------------------------------------------------------------------------------------
 # Data builders
 # --------------------------------------------------------------------------------------
@@ -84,6 +83,7 @@ def _make_imbalanced_classification(n_train=8000, n_test=4000, n_features=15, po
 
 
 def _make_balanced_classification(n_train=2000, n_test=500, n_features=15, seed=7):
+    """Make balanced classification."""
     rng = np.random.RandomState(seed)
     n_total = n_train + n_test
     X = rng.randn(n_total, n_features)
@@ -122,6 +122,7 @@ def _train_and_predict_classification(
     lgb_kwargs=None,
     extra_hyperparams=None,
 ):
+    """Train and predict classification."""
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     data_dir = str(tmp_path / "data" / model_name)
     hp = {"iterations": iterations}
@@ -283,6 +284,7 @@ def test_run_grid_sweep_beats_baseline_auroc(tmp_path, common_init_params, seed)
 
     # Each variant gets its own data_dir + model_name to avoid path collisions.
     def _variant(label, *, num_leaves=None, learning_rate=None, iters=120, extra_lgb=None):
+        """Variant."""
         lgb_kw = {}
         if num_leaves is not None:
             lgb_kw["num_leaves"] = num_leaves

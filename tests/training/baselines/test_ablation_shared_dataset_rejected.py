@@ -27,6 +27,7 @@ lgb = pytest.importorskip("lightgbm")
 
 
 def _data(n: int = 3000, nf: int = 8, seed: int = 0):
+    """Data."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, nf)).astype(np.float64)
     y = (X[:, 0] + 0.5 * X[:, 3] - 0.3 * X[:, 5] + rng.normal(size=n) > 0).astype(int)
@@ -69,6 +70,6 @@ def test_ignore_column_not_bit_identical_to_drop():
 
     max_abs_div = float(np.max(np.abs(p_drop - p_ignore)))
     # Selection/score-altering divergence (>> 1e-9 reduction-order noise).
-    assert max_abs_div > 1e-2, (
-        "ignore_column unexpectedly matched column-drop; if a LightGBM version makes this bit-identical, re-open the amortization lead with a bench."
-    )
+    assert (
+        max_abs_div > 1e-2
+    ), "ignore_column unexpectedly matched column-drop; if a LightGBM version makes this bit-identical, re-open the amortization lead with a bench."

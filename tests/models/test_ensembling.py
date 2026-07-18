@@ -151,9 +151,9 @@ def test_multi_target_ensemble_preserves_row_count(K):
     )
     assert ens_good.shape[0] == N, f"row-preserving reshape must keep N={N} rows, got {ens_good.shape}"
     if conf_good is not None and len(conf_good):
-        assert int(np.max(conf_good)) < N, (
-            f"confident_indices must stay per-row (< {N}); got max {int(np.max(conf_good))} -- these index the size-N test_idx / *_target arrays downstream"
-        )
+        assert (
+            int(np.max(conf_good)) < N
+        ), f"confident_indices must stay per-row (< {N}); got max {int(np.max(conf_good))} -- these index the size-N test_idx / *_target arrays downstream"
 
     # Root-cause sanity: the old reshape(-1, 1) flattens (N, K) -> (N*K, 1), so the ensembled
     # output (and confident_indices range) blows up to N*K rows -- the overflow the fix removes.

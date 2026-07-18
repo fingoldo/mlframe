@@ -44,6 +44,7 @@ class TestPluginMIClassifEquivalence:
         k: int,
         n_classes: int,
     ) -> None:
+        """Batch cuda matches njit."""
         rng = np.random.default_rng(seed=11 + n + k + n_classes)
         X = rng.normal(size=(n, k))
         y = rng.integers(0, n_classes, size=n).astype(np.int64)
@@ -58,6 +59,7 @@ class TestPluginMIClassifEquivalence:
 
     @pytest.mark.parametrize("n", [1_000, 50_000, 100_000])
     def test_single_cuda_matches_njit(self, n: int) -> None:
+        """Single cuda matches njit."""
         rng = np.random.default_rng(seed=11 + n)
         x = rng.normal(size=n)
         y = rng.integers(0, 4, size=n).astype(np.int64)
@@ -70,6 +72,7 @@ class TestPluginMIClassifDispatcher:
     """Dispatcher routes to the right backend based on n and env override."""
 
     def test_dispatcher_routes_to_njit_below_threshold(self) -> None:
+        """Dispatcher routes to njit below threshold."""
         rng = np.random.default_rng(11)
         # n=5_000, k=10: under the kernel_tuning_cache fallback this is
         # below the batch (k>1) crossover (~10k on cc 6.1) so the
@@ -86,6 +89,7 @@ class TestPluginMIClassifDispatcher:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        """Dispatcher env override cuda."""
         monkeypatch.setenv("MLFRAME_MI_BACKEND", "cuda")
         rng = np.random.default_rng(11)
         n = 5_000
@@ -102,6 +106,7 @@ class TestPluginMIClassifDispatcher:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        """Dispatcher env override njit."""
         monkeypatch.setenv("MLFRAME_MI_BACKEND", "njit")
         rng = np.random.default_rng(11)
         n = 500_000  # well ABOVE the batch CUDA threshold
@@ -135,6 +140,7 @@ class TestPluginMIDispatchGroundTruthNjitOverride:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        """Batch dispatcher does not consult ktc."""
         from mlframe.feature_selection._benchmarks.kernel_tuning_cache import (
             dispatch as _ktc_dispatch,
         )
@@ -148,6 +154,7 @@ class TestPluginMIDispatchGroundTruthNjitOverride:
         original = _ktc_dispatch.lookup_mi_classif_backend
 
         def _spy(n_samples, k_arg, **kwargs):
+            """Helper that spy."""
             calls.append((n_samples, k_arg))
             return original(n_samples, k_arg, **kwargs)
 
@@ -170,6 +177,7 @@ class TestPluginMIDispatchGroundTruthNjitOverride:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        """Single dispatcher does not consult ktc."""
         from mlframe.feature_selection._benchmarks.kernel_tuning_cache import (
             dispatch as _ktc_dispatch,
         )
@@ -183,6 +191,7 @@ class TestPluginMIDispatchGroundTruthNjitOverride:
         original = _ktc_dispatch.lookup_mi_classif_backend
 
         def _spy(n_samples, k_arg, **kwargs):
+            """Helper that spy."""
             calls.append((n_samples, k_arg))
             return original(n_samples, k_arg, **kwargs)
 
@@ -216,6 +225,7 @@ class TestPluginMIDispatchGroundTruthNjitOverride:
         calls: list = []
 
         def _spy(*args, **kwargs):
+            """Helper that spy."""
             calls.append(args)
             return "cuda"  # would route to cuda if called
 
@@ -252,6 +262,7 @@ class TestPluginMIPerHostRegionOverridesFallback:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        """Persisted region cuda at 20k batch overrides njit fallback."""
         from mlframe.feature_selection._benchmarks.kernel_tuning_cache import (
             dispatch as _ktc_dispatch,
         )
@@ -264,12 +275,15 @@ class TestPluginMIPerHostRegionOverridesFallback:
         class _FakeCache:
             # The default (run_auto_tune=False) dispatch path is a PURE cache.lookup() (plus a
             # code_version_stale() pre-check), not get_or_tune -- mirror both here.
+            """Groups tests covering FakeCache."""
             def code_version_stale(self, name, code_version):
+                """Code version stale."""
                 return False
 
             def lookup(self, name, **dims):
                 # Emulate a persisted per-host region whose contention-aware
                 # measurement found cuda faster at batch n<=20k on this host.
+                """Helper that lookup."""
                 if dims["n_samples"] <= 20_000:
                     return {"backend_choice": "cuda"}
                 return {"backend_choice": "njit"}
@@ -295,6 +309,7 @@ class TestPluginMIClassifFastSplitArgsort:
     @pytest.mark.parametrize("n", [500, 1_500, 50_000])
     @pytest.mark.parametrize("n_classes", [2, 3, 5])
     def test_fast_single_col_matches_njit(self, n: int, n_classes: int) -> None:
+        """Fast single col matches njit."""
         from mlframe.feature_selection.filters.hermite_fe import (
             _plugin_mi_classif_njit,
             plugin_mi_classif_fast,
@@ -310,6 +325,7 @@ class TestPluginMIClassifFastSplitArgsort:
     @pytest.mark.parametrize("n", [500, 1_500, 50_000])
     @pytest.mark.parametrize("k", [1, 5, 20])
     def test_fast_batch_matches_njit(self, n: int, k: int) -> None:
+        """Fast batch matches njit."""
         from mlframe.feature_selection.filters.hermite_fe import (
             _plugin_mi_classif_batch_njit,
             plugin_mi_classif_batch_fast,
@@ -331,6 +347,7 @@ class TestPluginMIClassifBizValue:
     """
 
     def test_cuda_faster_than_njit_at_production_scale(self) -> None:
+        """Cuda faster than njit at production scale."""
         import time
 
         rng = np.random.default_rng(11)

@@ -51,6 +51,7 @@ def _make_no_signal(n=5000, seed=42):
 
 
 def _classes_and_mi(x_bin, y):
+    """Classes and mi."""
     from mlframe.feature_selection.filters.info_theory import (
         compute_mi_from_classes,
         merge_vars,
@@ -106,9 +107,9 @@ def test_biz_val_permutation_besag_clifford_2x_faster_strong_signal():
     # Two small back-to-back timings; the ratio compresses under ``-n`` parallel CPU contention.
     if running_under_xdist():
         pytest.skip("timing assertion unreliable under -n contention")
-    assert speedup >= 2.0, (
-        f"Besag-Clifford must be >=2x faster than full on strong-signal target; got {speedup:.1f}x ({t_full * 1000:.1f}ms vs {t_bc * 1000:.1f}ms)"
-    )
+    assert (
+        speedup >= 2.0
+    ), f"Besag-Clifford must be >=2x faster than full on strong-signal target; got {speedup:.1f}x ({t_full * 1000:.1f}ms vs {t_bc * 1000:.1f}ms)"
 
 
 def test_biz_val_permutation_besag_clifford_stops_before_full_budget():
@@ -292,9 +293,9 @@ def test_biz_val_null_mean_demotes_noise_keeps_signal():
 
     debiased_sig = max(0.0, obs_s - null_s)
     debiased_noise = max(0.0, obs_n - null_n)
-    assert debiased_sig > 10.0 * max(debiased_noise, 1e-9), (
-        f"debiased signal relevance ({debiased_sig:.5f}) must dominate debiased noise ({debiased_noise:.5f})"
-    )
+    assert debiased_sig > 10.0 * max(
+        debiased_noise, 1e-9
+    ), f"debiased signal relevance ({debiased_sig:.5f}) must dominate debiased noise ({debiased_noise:.5f})"
 
 
 def test_biz_val_significance_gate_keeps_weak_signal_demotes_noise():

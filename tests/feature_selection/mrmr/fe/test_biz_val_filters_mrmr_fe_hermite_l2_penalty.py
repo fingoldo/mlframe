@@ -23,7 +23,6 @@ import numpy as np
 
 from mlframe.feature_selection.filters.hermite_fe import _l2_penalty_value
 
-
 LAMBDA = 0.05  # the fe_hermite_l2_penalty default
 SAT_DEFAULT = 1.0  # _L2_PENALTY_SATURATION_DEFAULT
 MI_PEAK = 1.5  # measured MI of the genuine F-POLY reconstruction
@@ -31,6 +30,7 @@ MI_PEAK = 1.5  # measured MI of the genuine F-POLY reconstruction
 
 def _genuine_high_coef():
     # ||c_a||^2 + ||c_b||^2 ~ 86, the measured magnitude of the separable Chebyshev reconstruction of (a**3-2a)(b**2-b).
+    """Genuine high coef."""
     ca = np.array([0.0, -2.0, 0.0, 6.0, 0.0, 0.0], dtype=np.float64)  # ||.||^2 = 40
     cb = np.array([0.0, -1.0, 6.78, 0.0, 0.0, 0.0], dtype=np.float64)  # ||.||^2 ~ 46
     s = float(np.sum(ca**2) + np.sum(cb**2))
@@ -39,6 +39,7 @@ def _genuine_high_coef():
 
 
 def _noise_scale_coef():
+    """Noise scale coef."""
     rng = np.random.default_rng(0)
     ca = 0.1 * rng.standard_normal(6)
     cb = 0.1 * rng.standard_normal(6)
@@ -46,6 +47,7 @@ def _noise_scale_coef():
 
 
 def test_saturating_penalty_preserves_genuine_high_coef_solution_raw_crushes_it():
+    """Saturating penalty preserves genuine high coef solution raw crushes it."""
     ca, cb = _genuine_high_coef()
     pen_sat = _l2_penalty_value(ca, cb, LAMBDA, l2_penalty_saturation=SAT_DEFAULT)
     pen_raw = _l2_penalty_value(ca, cb, LAMBDA, l2_penalty_saturation=-1.0)
@@ -57,6 +59,7 @@ def test_saturating_penalty_preserves_genuine_high_coef_solution_raw_crushes_it(
 
 
 def test_noise_scale_coef_both_regimes_pay_small_comparable_penalty():
+    """Noise scale coef both regimes pay small comparable penalty."""
     ca, cb = _noise_scale_coef()
     pen_sat = _l2_penalty_value(ca, cb, LAMBDA, l2_penalty_saturation=SAT_DEFAULT)
     pen_raw = _l2_penalty_value(ca, cb, LAMBDA, l2_penalty_saturation=-1.0)
@@ -66,6 +69,7 @@ def test_noise_scale_coef_both_regimes_pay_small_comparable_penalty():
 
 
 def test_penalty_disabled_when_lambda_nonpositive():
+    """Penalty disabled when lambda nonpositive."""
     ca, cb = _genuine_high_coef()
     assert _l2_penalty_value(ca, cb, 0.0, l2_penalty_saturation=SAT_DEFAULT) == 0.0
     assert _l2_penalty_value(ca, cb, -1.0, l2_penalty_saturation=-1.0) == 0.0
@@ -73,6 +77,7 @@ def test_penalty_disabled_when_lambda_nonpositive():
 
 def test_saturating_penalty_monotone_and_ceiling_bounded():
     # The saturating penalty rises monotonically with ||c||^2 but never reaches the lambda ceiling.
+    """Saturating penalty monotone and ceiling bounded."""
     prev = -1.0
     for scale in (0.1, 1.0, 5.0, 50.0, 500.0):
         ca = np.full(6, scale, dtype=np.float64)

@@ -18,6 +18,7 @@ from mlframe.feature_selection.drop_near_noise_univariate_auc import drop_near_n
 
 
 def _make_mixed_signal_dataset(n: int, n_signal: int, n_noise: int, seed: int):
+    """Make mixed signal dataset."""
     rng = np.random.default_rng(seed)
     y = rng.integers(0, 2, n)
     signal_direction = np.where(y == 1, 1.0, -1.0)
@@ -33,6 +34,7 @@ def _make_mixed_signal_dataset(n: int, n_signal: int, n_noise: int, seed: int):
 
 
 def test_biz_val_drop_near_noise_correctly_identifies_noise_columns():
+    """Biz val drop near noise correctly identifies noise columns."""
     df, y = _make_mixed_signal_dataset(n=3000, n_signal=5, n_noise=15, seed=0)
 
     dropped = drop_near_noise_univariate_auc(df, y, tolerance=0.03)
@@ -44,6 +46,7 @@ def test_biz_val_drop_near_noise_correctly_identifies_noise_columns():
 
 
 def test_biz_val_dropping_near_noise_columns_preserves_downstream_auc():
+    """Biz val dropping near noise columns preserves downstream auc."""
     df, y = _make_mixed_signal_dataset(n=3000, n_signal=5, n_noise=15, seed=1)
     dropped = drop_near_noise_univariate_auc(df, y, tolerance=0.03)
     kept_cols = [c for c in df.columns if c not in dropped]
@@ -52,9 +55,9 @@ def test_biz_val_dropping_near_noise_columns_preserves_downstream_auc():
     auc_pruned = cross_val_score(LogisticRegression(max_iter=500), df[kept_cols], y, cv=5, scoring="roc_auc").mean()
 
     assert len(kept_cols) < df.shape[1]
-    assert auc_pruned >= auc_full - 0.02, (
-        f"expected pruning near-noise columns to not meaningfully hurt downstream AUC, got pruned={auc_pruned:.4f} full={auc_full:.4f}"
-    )
+    assert (
+        auc_pruned >= auc_full - 0.02
+    ), f"expected pruning near-noise columns to not meaningfully hurt downstream AUC, got pruned={auc_pruned:.4f} full={auc_full:.4f}"
 
 
 def _make_weak_signal_dataset(n: int, seed: int, effect: float):
@@ -117,9 +120,9 @@ def test_biz_val_drop_near_noise_bootstrap_stability_retains_weak_real_signal():
         f"expected bootstrap-stability mode to at least halve the single-pass false-drop rate, got "
         f"bootstrap={bootstrap_false_drop_rate:.2f} vs single-pass={single_pass_false_drop_rate:.2f}"
     )
-    assert bootstrap_noise_misses <= 5, (
-        f"expected bootstrap mode to still correctly drop pure-noise columns, missed on {bootstrap_noise_misses}/{n_seeds} seeds"
-    )
+    assert (
+        bootstrap_noise_misses <= 5
+    ), f"expected bootstrap mode to still correctly drop pure-noise columns, missed on {bootstrap_noise_misses}/{n_seeds} seeds"
 
 
 def test_biz_val_drop_near_noise_bootstrap_mode_is_opt_in_and_bit_identical_by_default():

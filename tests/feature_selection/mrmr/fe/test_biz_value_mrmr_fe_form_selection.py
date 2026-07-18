@@ -103,6 +103,7 @@ def test_select_single_best_usability_ranks_above_secondary():
 
 
 def test_select_single_best_empty_returns_none():
+    """Select single best empty returns none."""
     assert _select_single_best({}, _COLS) is None
 
 
@@ -120,6 +121,7 @@ def test_select_single_best_no_secondary_is_pure_max_primary():
 # still order correctly. These pin the contract in ``_fe_mi_contract``.
 # ---------------------------------------------------------------------------
 def test_quantize_mi_tiebreak_collapses_subgrid_preserves_genuine():
+    """Quantize mi tiebreak collapses subgrid preserves genuine."""
     from mlframe.feature_selection.filters._fe_mi_contract import quantize_mi_tiebreak
 
     # sub-grid jitter (< 1e-7) -> identical key
@@ -155,9 +157,9 @@ def test_select_single_best_exact_mi_leg_still_resolves_genuine_within_band_gap(
     band = 0.004
     primary = {_CFG_TRUE: 0.1180, _CFG_ALT: 0.1167}
     winner = _select_single_best(primary, _COLS, mi_band=band)
-    assert winner == _CFG_TRUE, (
-        "the exact-MI leg must still pick the higher within-band MI form; quantisation only collapses sub-grid (1e-7) jitter, not a 1.3e-3 genuine gap"
-    )
+    assert (
+        winner == _CFG_TRUE
+    ), "the exact-MI leg must still pick the higher within-band MI form; quantisation only collapses sub-grid (1e-7) jitter, not a 1.3e-3 genuine gap"
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +176,7 @@ NB = 10
 
 
 def _binned(arr):
+    """Helper that binned."""
     from mlframe.feature_selection.filters.discretization import discretize_array
 
     arr = np.nan_to_num(np.asarray(arr, float), nan=0.0, posinf=0.0, neginf=0.0)
@@ -181,6 +184,7 @@ def _binned(arr):
 
 
 def _mi(xb, yb):
+    """Compute the plug-in MI between two already-binned columns xb and yb."""
     from mlframe.feature_selection.filters.info_theory import compute_mi_from_classes, merge_vars
 
     fd = np.column_stack([xb, yb]).astype(np.int32)
@@ -238,11 +242,12 @@ def test_search_recovers_near_optimal_cd_form(seed):
     import re
 
     def bare(nm):
+        """Helper that bare."""
         return set(re.findall(r"(?<![A-Za-z_])([a-e])(?![A-Za-z_])", nm))
 
     cd_cols = [i for i, nm in enumerate(names) if "(" in nm and {"c", "d"} <= bare(nm)]
     assert cd_cols, f"no (c,d) engineered feature found in {names}"
     best_cd_mi = max(_mi(_binned(Xt[:, i]), yb) for i in cd_cols)
-    assert best_cd_mi >= 0.90 * true_mi, (
-        f"[seed={seed}] chosen (c,d) form MI={best_cd_mi:.4f} is far below the true mul(log(c),sin(d)) MI={true_mi:.4f}; search picked a suboptimal form"
-    )
+    assert (
+        best_cd_mi >= 0.90 * true_mi
+    ), f"[seed={seed}] chosen (c,d) form MI={best_cd_mi:.4f} is far below the true mul(log(c),sin(d)) MI={true_mi:.4f}; search picked a suboptimal form"

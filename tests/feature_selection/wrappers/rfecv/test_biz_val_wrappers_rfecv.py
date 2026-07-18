@@ -94,9 +94,9 @@ def test_biz_val_rfecv_n_features_selection_rule_one_se_min_picks_smaller():
     sel_one_se = RFECV(n_features_selection_rule="one_se_min", **common)
     sel_argmax.fit(df, y)
     sel_one_se.fit(df, y)
-    assert sel_one_se.n_features_ <= sel_argmax.n_features_, (
-        f"one_se_min picked {sel_one_se.n_features_}, argmax picked {sel_argmax.n_features_}; one_se_min must be <= argmax"
-    )
+    assert (
+        sel_one_se.n_features_ <= sel_argmax.n_features_
+    ), f"one_se_min picked {sel_one_se.n_features_}, argmax picked {sel_argmax.n_features_}; one_se_min must be <= argmax"
 
 
 # ---------------------------------------------------------------------------
@@ -240,9 +240,9 @@ def test_biz_val_rfecv_feature_cost_penalizes_large_subsets():
     sel_cost = RFECV(feature_cost=0.5, **common)
     sel_free.fit(df, y)
     sel_cost.fit(df, y)
-    assert sel_cost.n_features_ <= sel_free.n_features_, (
-        f"feature_cost=0.5 must pick <= features than =0.0; got cost={sel_cost.n_features_}, free={sel_free.n_features_}"
-    )
+    assert (
+        sel_cost.n_features_ <= sel_free.n_features_
+    ), f"feature_cost=0.5 must pick <= features than =0.0; got cost={sel_cost.n_features_}, free={sel_free.n_features_}"
 
 
 def test_biz_val_rfecv_leakage_corr_threshold_detects_target_leak():
@@ -446,9 +446,9 @@ def test_biz_val_rfecv_random_state_reproducibility(seed):
     sel_b = RFECV(**common)
     sel_a.fit(df, y)
     sel_b.fit(df, y)
-    assert _support_indices(sel_a) == _support_indices(sel_b), (
-        f"random_state={seed} must produce identical support_; got a={_support_indices(sel_a)}, b={_support_indices(sel_b)}"
-    )
+    assert _support_indices(sel_a) == _support_indices(
+        sel_b
+    ), f"random_state={seed} must produce identical support_; got a={_support_indices(sel_a)}, b={_support_indices(sel_b)}"
 
 
 @pytest.mark.parametrize("cv_folds", [2, 3, 5])
@@ -887,6 +887,7 @@ def test_biz_val_rfecv_property_no_crash_on_random_configs():
     )
     @settings(max_examples=5, deadline=None)
     def _property(n, p_signal, p_noise, cv, seed):
+        """Helper that property."""
         X, y, _ = make_signal_plus_noise(
             n=n,
             p_signal=p_signal,
@@ -1068,9 +1069,9 @@ def test_biz_val_rfecv_sample_weight_changes_support_under_recency():
     # Lower log-loss = better. Under uniform, B wins; under recency, A wins.
     best_uniform = min(scores_uniform, key=scores_uniform.get)
     best_recency = min(scores_recency, key=scores_recency.get)
-    assert best_uniform == "B", (
-        f"uniform CV should pick B as the better single feature (older regime is 2x bigger); got scores={scores_uniform}, best={best_uniform!r}"
-    )
+    assert (
+        best_uniform == "B"
+    ), f"uniform CV should pick B as the better single feature (older regime is 2x bigger); got scores={scores_uniform}, best={best_uniform!r}"
     assert best_recency == "A", (
         f"recency-weighted CV should pick A as the better single feature (recent regime dominates the weighted "
         f"distribution); got scores={scores_recency}, best={best_recency!r}"
@@ -1080,6 +1081,7 @@ def test_biz_val_rfecv_sample_weight_changes_support_under_recency():
     # wrapper end-to-end -- the cloned estimator's fit() must accept the per-fold sample_weight (this is the
     # ENTRY POINT being tested) and the scorer must accept the per-fold sample_weight on the test slice.
     def _rfecv_chosen(sw):
+        """Rfecv chosen."""
         est = LogisticRegression(max_iter=300, random_state=0)
         sel = RFECV(estimator=est, cv=3, verbose=0, random_state=42, max_runtime_mins=0.5)
         sel.fit(df, ys, sample_weight=sw)

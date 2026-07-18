@@ -25,11 +25,11 @@ from mlframe.feature_selection.wrappers.rfecv import RFECV
 
 from tests.conftest import fast_n_estimators
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
 
 
 def _make_many_steady(seed=1, n=900):
+    """Make many steady."""
     rng = np.random.default_rng(seed)
     n_strong, n_steady, n_noise = 1, 6, 20
     cols, logit = {}, np.zeros(n)
@@ -51,6 +51,7 @@ def _make_many_steady(seed=1, n=900):
 
 
 def _fit_select(X, y, rule, seed=1):
+    """Fit select."""
     r = RFECV(
         estimator=RandomForestClassifier(n_estimators=fast_n_estimators(80), max_depth=6, n_jobs=-1, random_state=seed),
         cv=3,
@@ -67,6 +68,7 @@ def _fit_select(X, y, rule, seed=1):
 
 
 def _holdout_auc(X, y, rule, seed=1):
+    """Holdout auc."""
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=seed, stratify=y)
     cols = _fit_select(Xtr, ytr, rule, seed)
     m = RandomForestClassifier(n_estimators=fast_n_estimators(250, fast=100), max_depth=8, n_jobs=-1, random_state=seed)
@@ -76,6 +78,7 @@ def _holdout_auc(X, y, rule, seed=1):
 
 @pytest.mark.slow
 def test_biz_val_rfecv_stability_beats_importance_on_many_steady():
+    """Biz val rfecv stability beats importance on many steady."""
     X, y = _make_many_steady(seed=1)
     auc_imp, cols_imp = _holdout_auc(X, y, "importance")
     auc_stab, cols_stab = _holdout_auc(X, y, "stability")

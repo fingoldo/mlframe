@@ -25,12 +25,14 @@ class TestLinearAndNeuralShareCacheKey:
     def _content_key(s, cat_features):
         # Mirror the in-source EFFECTIVE-encoding content key: the encoding bit is ``requires_encoding AND there are cats to encode`` (see
         # _phase_train_one_target_body.py). On an all-numeric frame the target-encoder is a no-op, so the bit folds to 0 regardless of the flag.
+        """Content key."""
         eff_enc = bool(s.requires_encoding) and bool(cat_features)
         return f"imp{int(s.requires_imputation)}_scale{int(s.requires_scaling)}_enc{int(eff_enc)}"
 
     def test_content_key_matches_for_linear_and_neural_on_numeric_frame(self) -> None:
         # All-numeric frame (cat_features empty): Linear (requires_encoding True) and the MLP with learnable cat embeddings (False) produce the
         # IDENTICAL imp+scale frame, so they MUST share the content key -> one cache slot, no redundant pre-pipeline pass for the second model.
+        """Content key matches for linear and neural on numeric frame."""
         from mlframe.training.strategies import (
             LinearModelStrategy,
             NeuralNetStrategy,
@@ -48,6 +50,7 @@ class TestLinearAndNeuralShareCacheKey:
     def test_content_key_differs_for_linear_and_neural_with_cats(self) -> None:
         # With categorical columns present, Linear target-encodes them while the MLP (learnable cat embeddings, the default) keeps them raw, so
         # the produced frames DIFFER -> distinct content keys -> the MLP never receives Linear's target-encoded frame.
+        """Content key differs for linear and neural with cats."""
         from mlframe.training.strategies import (
             LinearModelStrategy,
             NeuralNetStrategy,
@@ -112,10 +115,12 @@ class TestPipelineCacheKeyMatchesAcrossStrategiesWithIdenticalRequirements:
 
         def _content_key(s, cat_features):
             # EFFECTIVE-encoding content key (mirrors production): the encoding bit is ``requires_encoding AND there are cats to encode``.
+            """Content key."""
             eff_enc = bool(s.requires_encoding) and bool(cat_features)
             return f"imp{int(s.requires_imputation)}_scale{int(s.requires_scaling)}_enc{int(eff_enc)}"
 
         def _key(s, cat_features):
+            """Key."""
             return _compute_pipeline_cache_key(
                 _content_key(s, cat_features),
                 pre_pipeline_name="imp_scaler",
@@ -128,9 +133,9 @@ class TestPipelineCacheKeyMatchesAcrossStrategiesWithIdenticalRequirements:
 
         # All-numeric frame: identical content-keyed lookups (Linear's target-encoder is a no-op when there are no cats), so the second
         # strategy HITs the first's slot. With cats, Linear encodes / the MLP keeps raw -> distinct keys (covered by the next class).
-        assert _key(lin, ()) == _key(neu, ()), (
-            f"content-keyed cache lookups MUST match for Linear and Neural on an all-numeric frame. Got: lin={_key(lin, ())!r}, neu={_key(neu, ())!r}"
-        )
+        assert _key(lin, ()) == _key(
+            neu, ()
+        ), f"content-keyed cache lookups MUST match for Linear and Neural on an all-numeric frame. Got: lin={_key(lin, ())!r}, neu={_key(neu, ())!r}"
         assert _key(lin, ("c1",)) != _key(neu, ("c1",))
 
     def test_strategies_with_different_requirements_get_distinct_keys(self) -> None:
@@ -149,6 +154,7 @@ class TestPipelineCacheKeyMatchesAcrossStrategiesWithIdenticalRequirements:
         tree = TreeModelStrategy()
 
         def _content_key(s):
+            """Content key."""
             return f"imp{int(s.requires_imputation)}_scale{int(s.requires_scaling)}_enc{int(s.requires_encoding)}"
 
         lin_key = _compute_pipeline_cache_key(
@@ -195,6 +201,7 @@ class TestPipelineCacheRealHitOnSecondStrategy:
         neu = NeuralNetStrategy()
 
         def _content_key(s, cat_features):
+            """Content key."""
             eff_enc = bool(s.requires_encoding) and bool(cat_features)
             return f"imp{int(s.requires_imputation)}_scale{int(s.requires_scaling)}_enc{int(eff_enc)}"
 

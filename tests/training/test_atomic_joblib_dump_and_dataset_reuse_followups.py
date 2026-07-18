@@ -36,14 +36,15 @@ import numpy as np
 import polars as pl
 import pytest
 
-
 # =============================================================================
 # Fix #1 — atomic_write_bytes
 # =============================================================================
 
 
 class TestAtomicWriteBytes:
+    """Groups tests covering atomic write bytes."""
     def test_writes_target_atomically(self, tmp_path):
+        """Writes target atomically."""
         from mlframe.training.io import atomic_write_bytes
 
         target = str(tmp_path / "out.bin")
@@ -72,6 +73,7 @@ class TestAtomicWriteBytes:
         target = str(tmp_path / "wont_exist.bin")
 
         def _bad_writer(f):
+            """Bad writer."""
             f.write(b"partial data")
             raise RuntimeError("boom")
 
@@ -112,6 +114,7 @@ class TestAtomicWriteBytes:
         open(target, "wb").write(b"IMPORTANT EXISTING DATA")
 
         def _bad_writer(f):
+            """Bad writer."""
             raise RuntimeError("fail before write")
 
         with pytest.raises(RuntimeError):
@@ -127,6 +130,7 @@ class TestAtomicWriteBytes:
 
 
 class TestPolarsBridgeNestedTypesWarn:
+    """Groups tests covering polars bridge nested types warn."""
     def test_list_float_column_triggers_warning(self, caplog):
         """pl.List[pl.Float32] embedding column must produce a WARN
         naming it — downstream CatBoost fastpath rejects object dtype
@@ -206,7 +210,9 @@ class TestPolarsBridgeNestedTypesWarn:
 
 
 class TestGetFeatureImportancesNaNWarn:
+    """Groups tests covering get feature importances na n warn."""
     def test_nan_importance_emits_warning(self, caplog):
+        """Nan importance emits warning."""
         from mlframe.feature_selection.wrappers import get_feature_importances
 
         class _DegenModel:
@@ -226,9 +232,11 @@ class TestGetFeatureImportancesNaNWarn:
         assert any("NaN" in m and "2 / 4" in m for m in warns), warns
 
     def test_all_finite_no_warning(self, caplog):
+        """All finite no warning."""
         from mlframe.feature_selection.wrappers import get_feature_importances
 
         class _CleanModel:
+            """Groups tests covering clean model."""
             feature_importances_ = np.array([0.3, 0.2, 0.5])
 
         with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers"):
@@ -247,7 +255,9 @@ class TestGetFeatureImportancesNaNWarn:
 
 
 class TestPipelineSchemaDriftWarn:
+    """Groups tests covering pipeline schema drift warn."""
     def _train_schema(self):
+        """Train schema."""
         return {
             "a": pl.Int32,
             "b": pl.Float64,
@@ -255,6 +265,7 @@ class TestPipelineSchemaDriftWarn:
         }
 
     def test_missing_column_warns(self, caplog):
+        """Missing column warns."""
         from mlframe.training.pipeline import _warn_on_schema_drift
 
         other = pl.DataFrame({"a": [1], "b": [1.0]})  # 'c' missing
@@ -264,6 +275,7 @@ class TestPipelineSchemaDriftWarn:
         assert any("missing" in m and "'c'" in m for m in msgs), msgs
 
     def test_extra_column_warns(self, caplog):
+        """Extra column warns."""
         from mlframe.training.pipeline import _warn_on_schema_drift
 
         other = pl.DataFrame(
@@ -280,6 +292,7 @@ class TestPipelineSchemaDriftWarn:
         assert any("extra" in m and "surprise" in m for m in msgs), msgs
 
     def test_dtype_mismatch_warns(self, caplog):
+        """Dtype mismatch warns."""
         from mlframe.training.pipeline import _warn_on_schema_drift
 
         # 'a' was Int32 at fit, now Int64

@@ -245,9 +245,9 @@ def test_biz_val_remediate_drifting_features_tiered_drop_beats_uniform_on_downst
 
     # Real numeric threshold, set well below the measured margin (~0.125) to tolerate seed noise while still
     # catching a broken/no-op tiered policy.
-    assert auc_tiered > auc_uniform + 0.08, (
-        f"severity-tiered drop should measurably beat uniform rank-transform-only on downstream AUC: uniform={auc_uniform:.3f} tiered={auc_tiered:.3f}"
-    )
+    assert (
+        auc_tiered > auc_uniform + 0.08
+    ), f"severity-tiered drop should measurably beat uniform rank-transform-only on downstream AUC: uniform={auc_uniform:.3f} tiered={auc_tiered:.3f}"
 
 
 def test_remediate_drifting_features_auto_tune_drop_threshold_finds_best_of_its_candidates():
@@ -279,6 +279,6 @@ def test_remediate_drifting_features_auto_tune_drop_threshold_finds_best_of_its_
     auc_auto, *_ = adversarial_auc(auto_train[auto_cols], auto_test[auto_cols], feature_names=auto_cols, **kw)
 
     # Tolerance covers the discretisation of the candidate grid, not a free pass for a bad search.
-    assert auc_auto <= best_manual_auc + 0.01, (
-        f"auto-tuned threshold should match the best of its own candidate grid: auto={auc_auto:.4f} best_candidate={best_manual_auc:.4f}"
-    )
+    assert (
+        auc_auto <= best_manual_auc + 0.01
+    ), f"auto-tuned threshold should match the best of its own candidate grid: auto={auc_auto:.4f} best_candidate={best_manual_auc:.4f}"

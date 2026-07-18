@@ -23,6 +23,7 @@ import numpy as np
 
 
 def _classic_floor(pool: np.ndarray, sigma: float = 3.5) -> float:
+    """Classic floor."""
     a = np.asarray(pool, dtype=np.float64)
     med = float(np.median(a))
     mad = float(np.median(np.abs(a - med)))
@@ -30,6 +31,7 @@ def _classic_floor(pool: np.ndarray, sigma: float = 3.5) -> float:
 
 
 def _upper_trimmed_floor(pool: np.ndarray, sigma: float = 3.5, trim_frac: float = 0.10) -> float:
+    """Upper trimmed floor."""
     a = np.sort(np.asarray(pool, dtype=np.float64))
     n = a.size
     n_trim = max(1, min(int(np.ceil(trim_frac * n)), n - 1))
@@ -41,6 +43,7 @@ def _upper_trimmed_floor(pool: np.ndarray, sigma: float = 3.5, trim_frac: float 
 
 def test_pooled_floor_is_k1_robust_admits_lone_signal_tight_noise():
     # Realistic MI pool: 15 tight-noise MIs ~0.010 + one genuine signal 0.040.
+    """Pooled floor is k1 robust admits lone signal tight noise."""
     noise = 0.010 + np.array([-0.001, 0.001, -0.0005, 0.0005, 0, 0.0008, -0.0008, 0.0003, -0.0003, 0.0006, -0.0006, 0.0002, -0.0002, 0.0009, -0.0009])
     sig = 0.040
     pool = np.concatenate([[sig], noise])
@@ -57,6 +60,7 @@ def test_upper_trim_leaks_noise_on_at_least_one_all_noise_pool():
     # single pool. Instead we confirm the failure mode EXISTS: there is an
     # all-noise pool the classic floor rejects entirely but the trimmed "fix"
     # leaks. Its existence is why the lever fails the all-noise ship gate.
+    """Upper trim leaks noise on at least one all noise pool."""
     rng = np.random.default_rng(7)
     found = False
     for _ in range(2000):
@@ -73,6 +77,7 @@ def test_upper_trim_leaks_noise_on_at_least_one_all_noise_pool():
 def test_monte_carlo_trim_regresses_all_noise_leak():
     # Aggregate evidence (small, deterministic): across many all-noise pools the
     # upper-trimmed floor admits strictly MORE noise pools than the classic floor.
+    """Monte carlo trim regresses all noise leak."""
     rng = np.random.default_rng(7)
     classic_leaks = 0
     trim_leaks = 0

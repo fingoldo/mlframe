@@ -38,7 +38,6 @@ from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
 
 from tests.feature_selection.conftest import fast_subset
 
-
 # Each mechanism is isolated by toggling OFF the default univariate basis where
 # it would otherwise dominate, so the named flag is the one driving the FE.
 # (Values measured once during development on the float64 run; see module
@@ -96,6 +95,7 @@ def _make_probe_frame(n: int = 400, seed: int = 7):
 
 
 def _fit_mrmr(flags: dict, dtype) -> MRMR:
+    """Fit mrmr."""
     m = MRMR(
         full_npermutations=10,
         baseline_npermutations=10,
@@ -111,6 +111,7 @@ def _fit_mrmr(flags: dict, dtype) -> MRMR:
 
 
 def _selected_nameset(m: MRMR) -> set:
+    """Selected nameset."""
     return set(str(nm) for nm in m.get_feature_names_out())
 
 

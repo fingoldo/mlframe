@@ -24,23 +24,28 @@ class _CountingRegressor:
 
     # sklearn clone needs get_params / set_params.
     def get_params(self, deep=True):
+        """Get params."""
         return {}
 
     def set_params(self, **kwargs):
+        """Set params."""
         return self
 
     def fit(self, X, y, **fit_params):
+        """Fit."""
         self.fit_calls += 1
         self._n_features = X.shape[1]
         return self
 
     def predict(self, X, **predict_params):
+        """Predict."""
         self.predict_call_count += 1
         # Return zeros in scaled space; TTR.inverse_transform maps back to mean(y).
         return np.zeros(len(X), dtype=np.float64)
 
 
 def _make_data(n=300, seed=0):
+    """Make data."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 3))
     y = 0.95 * X[:, 0] * 100.0 + 11500.0 + rng.normal(scale=10.0, size=n)
@@ -103,7 +108,9 @@ def test_ttr_predict_2d_output_squeeze():
     from mlframe.training.targets._ttr_eval_set_scaling import _TTRWithEvalSetScaling
 
     class _2DOutputRegressor(_CountingRegressor):
+        """Groups tests covering 2 d output regressor."""
         def predict(self, X, **predict_params):
+            """Predict."""
             self.predict_call_count += 1
             return np.zeros((len(X), 1), dtype=np.float64)
 

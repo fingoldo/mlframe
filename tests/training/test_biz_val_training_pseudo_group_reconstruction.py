@@ -20,6 +20,7 @@ from mlframe.training._pseudo_group_reconstruction import reconstruct_pseudo_gro
 
 
 def _make_replicate_data(n_entities: int, n_replicates: int, n_features: int, seed: int, noise_std: float = 0.0):
+    """Make replicate data."""
     rng = np.random.default_rng(seed)
     centers = rng.standard_normal((n_entities, n_features)) * 5.0
     true_entity_id = np.repeat(np.arange(n_entities), n_replicates)
@@ -30,18 +31,21 @@ def _make_replicate_data(n_entities: int, n_replicates: int, n_features: int, se
 
 
 def test_reconstruct_pseudo_group_ids_exact_duplicates_recovers_true_partition():
+    """Reconstruct pseudo group ids exact duplicates recovers true partition."""
     X, _, true_entity_id = _make_replicate_data(n_entities=30, n_replicates=4, n_features=6, seed=0, noise_std=0.0)
     reconstructed = reconstruct_pseudo_group_ids(X)
     assert adjusted_rand_score(true_entity_id, reconstructed) == 1.0
 
 
 def test_reconstruct_pseudo_group_ids_unique_rows_get_singleton_groups():
+    """Reconstruct pseudo group ids unique rows get singleton groups."""
     X = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [10.0, 20.0, 30.0]})
     ids = reconstruct_pseudo_group_ids(X)
     assert len(set(ids.tolist())) == 3
 
 
 def test_reconstruct_pseudo_group_ids_respects_feature_cols_subset():
+    """Reconstruct pseudo group ids respects feature cols subset."""
     X = pd.DataFrame({"a": [1.0, 1.0, 2.0], "b": [10.0, 99.0, 20.0]})
     ids = reconstruct_pseudo_group_ids(X, feature_cols=["a"])
     assert ids[0] == ids[1]  # match on "a" only, "b" differs but is ignored
@@ -49,6 +53,7 @@ def test_reconstruct_pseudo_group_ids_respects_feature_cols_subset():
 
 
 def test_reconstruct_pseudo_group_ids_empty_feature_cols_raises():
+    """Reconstruct pseudo group ids empty feature cols raises."""
     import pytest
 
     X = pd.DataFrame({"a": [1.0, 2.0]})
@@ -60,6 +65,7 @@ def test_biz_val_reconstructed_groups_close_a_real_leakage_gap():
     # noise_std << the decimals=1 rounding bucket width (0.1) so no replicate can cross a rounding boundary
     # in any of the 8 feature dims (that boundary-crossing fragility is a distinct concern from what this
     # test measures -- exact-duplicate recovery is already covered by a dedicated unit test above).
+    """Biz val reconstructed groups close a real leakage gap."""
     X, y, true_entity_id = _make_replicate_data(n_entities=150, n_replicates=5, n_features=8, seed=42, noise_std=0.0005)
     reconstructed = reconstruct_pseudo_group_ids(X, decimals=1)
     assert adjusted_rand_score(true_entity_id, reconstructed) > 0.95  # near-perfect recovery despite noise
@@ -79,15 +85,16 @@ def test_biz_val_reconstructed_groups_close_a_real_leakage_gap():
     honest_acc = float(np.mean(honest_scores))
 
     assert leaky_acc > 0.90, f"sanity: row-level KFold should show inflated near-perfect accuracy from the leak, got {leaky_acc:.3f}"
-    assert honest_acc < leaky_acc - 0.15, (
-        f"GroupKFold on reconstructed ids should show a materially lower, more honest accuracy: leaky={leaky_acc:.3f} honest={honest_acc:.3f}"
-    )
+    assert (
+        honest_acc < leaky_acc - 0.15
+    ), f"GroupKFold on reconstructed ids should show a materially lower, more honest accuracy: leaky={leaky_acc:.3f} honest={honest_acc:.3f}"
 
 
 def test_biz_val_fuzzy_radius_recovers_partition_exact_rounding_fragments():
     # noise_std deliberately larger than the decimals=1 rounding-bucket width (0.1): replicate rows
     # routinely straddle a rounding-grid boundary, so exact rounding-based matching fragments many entities
     # into several groups even though every replicate is within a small Euclidean distance of its siblings.
+    """Biz val fuzzy radius recovers partition exact rounding fragments."""
     X, _, true_entity_id = _make_replicate_data(n_entities=120, n_replicates=5, n_features=8, seed=7, noise_std=0.35)
 
     exact = reconstruct_pseudo_group_ids(X, decimals=1)
@@ -103,6 +110,7 @@ def test_biz_val_fuzzy_radius_recovers_partition_exact_rounding_fragments():
 
 def test_reconstruct_pseudo_group_ids_fuzzy_radius_omitted_matches_exact_default():
     # bit-identical default behavior: omitting fuzzy_radius must reproduce the pre-existing exact path.
+    """Reconstruct pseudo group ids fuzzy radius omitted matches exact default."""
     X, _, _ = _make_replicate_data(n_entities=30, n_replicates=4, n_features=6, seed=0, noise_std=0.0)
     baseline = reconstruct_pseudo_group_ids(X)
     with_default_fuzzy_off = reconstruct_pseudo_group_ids(X, decimals=6)

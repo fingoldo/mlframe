@@ -26,6 +26,7 @@ from mlframe.feature_selection.filters.engineered_recipes._recipe_dispatch impor
 
 
 def test_mean_only_is_backcompat():
+    """Mean only is backcompat."""
     rng = np.random.default_rng(0)
     df = pd.DataFrame({"c": rng.integers(0, 10, 2000)})
     y = rng.normal(0, 1, 2000)
@@ -36,6 +37,7 @@ def test_mean_only_is_backcompat():
 
 
 def test_multistat_emits_one_column_and_recipe_per_stat():
+    """Multistat emits one column and recipe per stat."""
     rng = np.random.default_rng(1)
     df = pd.DataFrame({"c": rng.integers(0, 10, 3000)})
     y = rng.normal(0, 1, 3000)
@@ -66,6 +68,7 @@ def test_std_column_recovers_within_cell_spread():
 
 
 def test_multistat_replay_is_leak_safe_and_finite():
+    """Multistat replay is leak safe and finite."""
     rng = np.random.default_rng(3)
     df = pd.DataFrame({"c": rng.integers(0, 8, 3000)})
     y = rng.normal(0, 1, 3000)
@@ -99,6 +102,7 @@ def test_biz_value_multistat_lifts_varying_slope_regression():
         tr, te = slice(0, cut), slice(cut, n)
 
         def _encode(stats):
+            """Helper that encode."""
             te_df, recipes = kfold_target_encode_fit(df.iloc[tr], y[tr], ["cell"], stats=stats)  # noqa: B023 -- closure invoked twice below, same iteration, never stored
             from mlframe.feature_selection.filters.engineered_recipes import build_kfold_target_encoded_recipe
 

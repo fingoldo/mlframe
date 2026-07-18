@@ -34,6 +34,7 @@ from mlframe.training.composite.discovery.screening import (
 
 
 def _make_matrix(n=4000, f=12, seed=11, nan_frac=0.0):
+    """Make matrix."""
     rng = np.random.default_rng(seed)
     x = rng.standard_normal((n, f)).astype(np.float32)
     if nan_frac > 0:
@@ -152,6 +153,6 @@ def test_biz_val_prebin_cache_second_call_faster():
     t_cached = (time.perf_counter() - t0) / 5
 
     speedup = t_recompute / max(t_cached, 1e-9)
-    assert speedup >= 3.0, (
-        f"prebin cache hit should be >=3x faster than recompute; recompute={t_recompute * 1e3:.2f}ms cached={t_cached * 1e3:.2f}ms speedup={speedup:.1f}x"
-    )
+    assert (
+        speedup >= 3.0
+    ), f"prebin cache hit should be >=3x faster than recompute; recompute={t_recompute * 1e3:.2f}ms cached={t_cached * 1e3:.2f}ms speedup={speedup:.1f}x"

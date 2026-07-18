@@ -28,7 +28,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # ----------------------------------------------------------------------------
 # Linear multi_class kwarg fix (sklearn 1.7 deprecated / 1.8 removed)
 # ----------------------------------------------------------------------------
@@ -39,6 +38,7 @@ class TestLinearMultiClassKwargFix:
     include ``multi_class`` (removed from LogisticRegression in 1.8)."""
 
     def test_helper_output_excludes_multi_class(self):
+        """Helper output excludes multi class."""
         from mlframe.training.helpers import _classif_objective_kwargs
         from mlframe.training.configs import TargetTypes
 
@@ -199,12 +199,15 @@ pytest.importorskip("lightning")
 
 
 class TestRecurrentStrategyFlags:
+    """Groups tests covering recurrent strategy flags."""
     def test_supports_native_multiclass(self):
+        """Supports native multiclass."""
         from mlframe.training.strategies import RecurrentModelStrategy
 
         assert RecurrentModelStrategy().supports_native_multiclass is True
 
     def test_supports_native_multilabel(self):
+        """Supports native multilabel."""
         from mlframe.training.strategies import RecurrentModelStrategy
 
         assert RecurrentModelStrategy().supports_native_multilabel is True
@@ -223,6 +226,7 @@ class TestRecurrentMultilabelDispatch:
     RecurrentTorchModel to switch loss + activation."""
 
     def test_multilabel_returns_task_type_kwarg(self):
+        """Multilabel returns task type kwarg."""
         from mlframe.training.strategies import RecurrentModelStrategy
         from mlframe.training.configs import TargetTypes
 
@@ -233,6 +237,7 @@ class TestRecurrentMultilabelDispatch:
         assert out == {"task_type": "multilabel"}
 
     def test_binary_and_multiclass_return_empty(self):
+        """Binary and multiclass return empty."""
         from mlframe.training.strategies import RecurrentModelStrategy
         from mlframe.training.configs import TargetTypes
 

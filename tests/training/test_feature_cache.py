@@ -37,7 +37,6 @@ from mlframe.training.feature_handling import (
 )
 from typing import Optional
 
-
 # =====================================================================
 # Fixtures
 # =====================================================================
@@ -45,6 +44,7 @@ from typing import Optional
 
 @pytest.fixture
 def small_df():
+    """Small df."""
     return pl.DataFrame(
         {
             "txt": ["hello world", "foo bar", "baz qux", "another row", "fifth"],
@@ -55,6 +55,7 @@ def small_df():
 
 @pytest.fixture
 def small_pandas_df():
+    """Small pandas df."""
     import pandas as pd
 
     return pd.DataFrame(
@@ -67,16 +68,19 @@ def small_pandas_df():
 
 @pytest.fixture
 def cache_off():
+    """Cache off."""
     return FeatureCache(CacheConfig(persistence="off"))
 
 
 @pytest.fixture
 def cache_on(tmp_path):
+    """Cache on."""
     cfg = CacheConfig(persistence="auto", dir=str(tmp_path / "cache"))
     return FeatureCache(cfg, content_fingerprint=None)
 
 
 def _build_in_mem_key(df, column: str, params: Optional[dict] = None) -> InMemoryKey:
+    """Build in mem key."""
     sess = current_session()
     return InMemoryKey(
         session_id=sess.session_id,
@@ -94,18 +98,22 @@ def _build_in_mem_key(df, column: str, params: Optional[dict] = None) -> InMemor
 
 
 class TestFingerprint:
+    """Groups tests covering fingerprint."""
     def test_fingerprint_deterministic(self, small_df):
+        """Fingerprint deterministic."""
         fp1 = fingerprint_df(small_df)
         fp2 = fingerprint_df(small_df)
         assert fp1 == fp2
 
     def test_fingerprint_changes_with_content(self, small_df):
+        """Fingerprint changes with content."""
         fp1 = fingerprint_df(small_df)
         df2 = small_df.with_columns(pl.col("num") * 2)
         fp2 = fingerprint_df(df2)
         assert fp1 != fp2
 
     def test_fingerprint_changes_with_schema(self, small_df):
+        """Fingerprint changes with schema."""
         fp1 = fingerprint_df(small_df)
         df2 = small_df.with_columns(pl.col("num").cast(pl.Int32))
         fp2 = fingerprint_df(df2)
@@ -116,6 +124,7 @@ class TestFingerprint:
         # Fingerprints are NOT required to match across backends (the
         # CSV-based hashing for stable round-tripping makes them
         # near-equal but not byte-equal).
+        """Fingerprint pandas polars independent."""
         fp_pl = fingerprint_df(small_df)
         fp_pd = fingerprint_df(small_pandas_df)
         # n_rows + n_cols match
@@ -131,6 +140,7 @@ class TestFingerprint:
         assert fp.n_rows == 4
 
     def test_fingerprint_handles_empty_df(self):
+        """Fingerprint handles empty df."""
         df = pl.DataFrame({"x": []}, schema={"x": pl.Int64})
         fp = fingerprint_df(df)
         assert fp.n_rows == 0
@@ -161,12 +171,15 @@ class TestFingerprint:
 
 
 class TestSession:
+    """Groups tests covering session."""
     def test_reset_session_yields_new_id(self):
+        """Reset session yields new id."""
         s1 = reset_session()
         s2 = reset_session()
         assert s1.session_id != s2.session_id
 
     def test_current_session_stable_until_reset(self):
+        """Current session stable until reset."""
         reset_session()
         a = current_session()
         b = current_session()
@@ -210,11 +223,14 @@ class TestSession:
 
 
 class TestInMemory:
+    """Groups tests covering in memory."""
     def test_call_count_one_across_lookups(self, small_df, cache_off):
+        """Call count one across lookups."""
         key = _build_in_mem_key(small_df, "txt")
         calls = [0]
 
         def compute():
+            """Compute."""
             calls[0] += 1
             return np.zeros((100, 10), dtype=np.float32)
 
@@ -232,6 +248,7 @@ class TestInMemory:
         assert v1 is v2
 
     def test_different_keys_get_different_values(self, small_df, cache_off):
+        """Different keys get different values."""
         k1 = _build_in_mem_key(small_df, "col_a")
         k2 = _build_in_mem_key(small_df, "col_b")
         v1 = cache_off.get_or_compute(k1, lambda: np.array([1, 2, 3]))
@@ -240,6 +257,7 @@ class TestInMemory:
         np.testing.assert_array_equal(v2, [4, 5, 6])
 
     def test_stats_reflect_hits_and_misses(self, small_df, cache_off):
+        """Stats reflect hits and misses."""
         key = _build_in_mem_key(small_df, "txt")
         cache_off.get_or_compute(key, lambda: np.zeros((10, 10)))  # miss
         cache_off.get_or_compute(key, lambda: np.zeros((10, 10)))  # hit
@@ -256,7 +274,9 @@ class TestInMemory:
 
 
 class TestEviction:
+    """Groups tests covering eviction."""
     def _populate(self, cache, n_keys: int, value_size_bytes: int = 1_000_000):
+        """Populate."""
         keys = []
         for i in range(n_keys):
             sess = current_session()
@@ -274,6 +294,7 @@ class TestEviction:
 
     def test_lru_evicts_oldest(self, tmp_path):
         # Force RAM cap to 3 MB so 4 1-MB entries triggers eviction.
+        """Lru evicts oldest."""
         cfg = CacheConfig(
             persistence="off",
             ram_max_gb=0.003,  # 3 MB
@@ -289,6 +310,7 @@ class TestEviction:
         assert keys[3] in cached_keys
 
     def test_lfu_evicts_least_used(self, tmp_path):
+        """Lfu evicts least used."""
         cfg = CacheConfig(
             persistence="off",
             ram_max_gb=0.003,  # 3 MB total
@@ -314,12 +336,14 @@ class TestEviction:
 
 
 class TestDiskPersistence:
+    """Groups tests covering disk persistence."""
     def test_disk_write_and_read_back_ndarray(self, small_df, tmp_path):
         # ``allow_pickle=True`` so the cache also tolerates the legacy
         # pickle-fallback path on Windows long-path corners (the npz codec
         # writes correctly but the read-back ``np.load`` occasionally trips
         # on the ``\\?\`` extended-path prefix under pytest's tmp_path; the
         # pickle fallback recovers transparently).
+        """Disk write and read back ndarray."""
         cfg = CacheConfig(persistence="auto", dir=str(tmp_path / "cache"), allow_pickle=True)
         cache = FeatureCache(cfg)
 
@@ -356,6 +380,7 @@ class TestDiskPersistence:
         # isn't supported by ``np.savez``); the cache refuses to deserialise
         # pickle by default for security. Opt in to ``allow_pickle=True``
         # for this test's sparse-input scenario.
+        """Disk roundtrip sparse matrix."""
         cfg = CacheConfig(persistence="auto", dir=str(tmp_path / "cache"), allow_pickle=True)
         cache = FeatureCache(cfg)
         in_mem_key = _build_in_mem_key(small_df, "txt")
@@ -375,6 +400,7 @@ class TestDiskPersistence:
         np.testing.assert_array_equal(v.toarray(), sparse_data.toarray())
 
     def test_persistence_off_skips_disk(self, small_df, tmp_path):
+        """Persistence off skips disk."""
         cfg = CacheConfig(persistence="off", dir=str(tmp_path / "cache"))
         cache = FeatureCache(cfg)
         in_mem_key = _build_in_mem_key(small_df, "txt")
@@ -416,6 +442,7 @@ class TestDiskPersistence:
 
 
 class TestHitCorrectness:
+    """Groups tests covering hit correctness."""
     def test_two_lookups_yield_identical_arrays(self, small_df, cache_off):
         """Round-3 T4: cache hit should not mutate the stored value."""
         key = _build_in_mem_key(small_df, "txt")
@@ -440,7 +467,9 @@ class TestHitCorrectness:
 
 
 class TestClear:
+    """Groups tests covering clear."""
     def test_clear_wipes_in_memory(self, small_df, cache_off):
+        """Clear wipes in memory."""
         key = _build_in_mem_key(small_df, "txt")
         cache_off.get_or_compute(key, lambda: np.zeros(10))
         assert cache_off.stats()["n_keys"] == 1

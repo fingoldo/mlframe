@@ -34,6 +34,7 @@ from mlframe.feature_selection.filters.cat_interactions import (
 
 
 def _build_inputs(n: int = 50_000):
+    """Build inputs."""
     rng = np.random.default_rng(20260520)
     K_pair, K_x1, K_x2, K_y = 10, 5, 5, 3
     classes_pair = rng.integers(0, K_pair, n).astype(np.int32)
@@ -57,6 +58,7 @@ def _build_inputs(n: int = 50_000):
 
 
 def test_bulk_output_shape_and_finite():
+    """Bulk output shape and finite."""
     cp_, fp_, cx1, fx1, cx2, fx2, cy, fy = _build_inputs()
     n_perms = 8
     ip, ix1, ix2 = _bulk_shuffle_and_compute_three_mis(
@@ -140,9 +142,9 @@ def test_bulk_mi_distribution_matches_serial_within_range():
         # Both must be in the same order of magnitude.
         assert bulk_mean > 0 and ser_mean > 0, f"{name}: MI under random shuffle should be small but positive (bulk={bulk_mean}, ser={ser_mean})"
         ratio = bulk_mean / ser_mean
-        assert 0.6 < ratio < 1.4, (
-            f"{name}: bulk_mean/ser_mean = {ratio:.3f} (bulk={bulk_mean:.6f}, ser={ser_mean:.6f}) outside the Monte Carlo noise band [0.6, 1.4]"
-        )
+        assert (
+            0.6 < ratio < 1.4
+        ), f"{name}: bulk_mean/ser_mean = {ratio:.3f} (bulk={bulk_mean:.6f}, ser={ser_mean:.6f}) outside the Monte Carlo noise band [0.6, 1.4]"
 
 
 def test_bulk_deterministic_for_same_seed():
@@ -253,6 +255,6 @@ def test_biz_value_bulk_faster_than_serial():
     t_bulk = time.perf_counter() - t0
 
     speedup = t_serial / t_bulk
-    assert speedup >= 2.0, (
-        f"bulk parallel-prange not delivering: speedup={speedup:.2f}x (serial={t_serial * 1000 / iters:.2f}ms, bulk={t_bulk * 1000 / iters:.2f}ms)"
-    )
+    assert (
+        speedup >= 2.0
+    ), f"bulk parallel-prange not delivering: speedup={speedup:.2f}x (serial={t_serial * 1000 / iters:.2f}ms, bulk={t_bulk * 1000 / iters:.2f}ms)"

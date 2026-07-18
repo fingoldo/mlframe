@@ -12,7 +12,6 @@ the updated doc.
 import importlib.util
 from pathlib import Path
 
-
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _GEN_PATH = _REPO_ROOT / "scripts" / "gen_composite_config_reference.py"
 _DOC_PATH = _REPO_ROOT / "docs" / "composite_config_reference.md"
@@ -58,9 +57,9 @@ def test_committed_doc_matches_generated():
     # keeps the sensor cross-platform while still catching any real field/text drift.
     committed = _DOC_PATH.read_text(encoding="utf-8", newline="").replace("\r\n", "\n")
     generated = module.render_markdown().replace("\r\n", "\n")
-    assert committed == generated, (
-        "docs/composite_config_reference.md is out of date; run `python scripts/gen_composite_config_reference.py` and commit the result."
-    )
+    assert (
+        committed == generated
+    ), "docs/composite_config_reference.md is out of date; run `python scripts/gen_composite_config_reference.py` and commit the result."
 
 
 def test_dict_config_acceptance_documented():

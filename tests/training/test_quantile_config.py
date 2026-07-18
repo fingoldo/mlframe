@@ -12,10 +12,13 @@ from mlframe.training.configs import (
 
 
 class TestEnum:
+    """Groups tests covering enum."""
     def test_enum_value(self):
+        """Enum value."""
         assert TargetTypes.QUANTILE_REGRESSION.value == "quantile_regression"
 
     def test_is_quantile_predicate(self):
+        """Is quantile predicate."""
         assert TargetTypes.QUANTILE_REGRESSION.is_quantile is True
         assert TargetTypes.REGRESSION.is_quantile is False
         assert TargetTypes.BINARY_CLASSIFICATION.is_quantile is False
@@ -24,6 +27,7 @@ class TestEnum:
     def test_quantile_is_not_regression_or_classification(self):
         # QR is its own class; distinguishes from plain regression because
         # the consumer needs to know to expect (N, K) preds, not (N,).
+        """Quantile is not regression or classification."""
         qr = TargetTypes.QUANTILE_REGRESSION
         assert qr.is_regression is False
         assert qr.is_classification is False
@@ -37,7 +41,9 @@ class TestEnum:
 
 
 class TestConfig:
+    """Groups tests covering config."""
     def test_defaults(self):
+        """Defaults."""
         cfg = QuantileRegressionConfig()
         assert cfg.alphas == (0.1, 0.5, 0.9)
         assert cfg.crossing_fix == "sort"
@@ -46,6 +52,7 @@ class TestConfig:
         assert cfg.wrapper_n_jobs == "auto"
 
     def test_custom_alphas(self):
+        """Custom alphas."""
         cfg = QuantileRegressionConfig(
             alphas=(0.05, 0.25, 0.5, 0.75, 0.95),
             point_estimate_alpha=0.5,
@@ -54,14 +61,17 @@ class TestConfig:
         assert cfg.alphas == (0.05, 0.25, 0.5, 0.75, 0.95)
 
     def test_empty_alphas_rejected(self):
+        """Empty alphas rejected."""
         with pytest.raises(ValueError, match="non-empty"):
             QuantileRegressionConfig(alphas=())
 
     def test_unsorted_alphas_rejected(self):
+        """Unsorted alphas rejected."""
         with pytest.raises(ValueError, match="sorted"):
             QuantileRegressionConfig(alphas=(0.5, 0.1, 0.9))
 
     def test_out_of_range_alphas_rejected(self):
+        """Out of range alphas rejected."""
         with pytest.raises(ValueError, match=r"\(0, 1\)"):
             QuantileRegressionConfig(alphas=(0.1, 0.5, 1.5))
         with pytest.raises(ValueError, match=r"\(0, 1\)"):
@@ -70,15 +80,18 @@ class TestConfig:
             QuantileRegressionConfig(alphas=(0.5, 1.0))
 
     def test_duplicate_alphas_rejected(self):
+        """Duplicate alphas rejected."""
         with pytest.raises(ValueError, match="unique"):
             QuantileRegressionConfig(alphas=(0.1, 0.5, 0.5, 0.9))
 
     def test_invalid_crossing_fix_rejected(self):
+        """Invalid crossing fix rejected."""
         with pytest.raises(ValueError, match="crossing_fix"):
             QuantileRegressionConfig(crossing_fix="quantile-snap")
 
     def test_point_estimate_alpha_snaps_to_nearest(self):
         # User asks for 0.45; closest alpha in defaults is 0.5.
+        """Point estimate alpha snaps to nearest."""
         cfg = QuantileRegressionConfig(
             alphas=(0.1, 0.5, 0.9),
             point_estimate_alpha=0.45,
@@ -86,6 +99,7 @@ class TestConfig:
         assert cfg.point_estimate_alpha == 0.5
 
     def test_coverage_pair_must_be_in_alphas(self):
+        """Coverage pair must be in alphas."""
         with pytest.raises(ValueError, match="not in alphas"):
             QuantileRegressionConfig(
                 alphas=(0.1, 0.5, 0.9),
@@ -93,6 +107,7 @@ class TestConfig:
             )
 
     def test_coverage_pair_lo_lt_hi_enforced(self):
+        """Coverage pair lo lt hi enforced."""
         with pytest.raises(ValueError, match="lo=.*must be < hi"):
             QuantileRegressionConfig(
                 alphas=(0.1, 0.5, 0.9),
@@ -101,15 +116,19 @@ class TestConfig:
 
 
 class TestReportingConfigQuantilePanels:
+    """Groups tests covering reporting config quantile panels."""
     def test_default_quantile_panels(self):
+        """Default quantile panels."""
         cfg = ReportingConfig()
         assert "RELIABILITY" in cfg.quantile_panels
         assert "PIT_HIST" in cfg.quantile_panels
 
     def test_unknown_quantile_token_rejected(self):
+        """Unknown quantile token rejected."""
         with pytest.raises(ValueError, match="Unknown quantile"):
             ReportingConfig(quantile_panels="RELIABILITY NOPE")
 
     def test_subset_quantile_template(self):
+        """Subset quantile template."""
         cfg = ReportingConfig(quantile_panels="RELIABILITY WIDTH_DIST")
         assert cfg.quantile_panels == "RELIABILITY WIDTH_DIST"

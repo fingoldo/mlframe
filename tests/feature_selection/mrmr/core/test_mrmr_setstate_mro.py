@@ -24,9 +24,9 @@ def test_setstate_defined_on_mrmr_not_shadowed_by_baseestimator():
     """MRMR.__setstate__ resolves to MRMR itself in the MRO, not to BaseEstimator's plain __dict__-update, so the legacy-pickle default injection keeps running."""
     assert "__setstate__" in BaseEstimator.__dict__, "precondition: BaseEstimator defines __setstate__"
     owner = _defining_class(MRMR, "__setstate__")
-    assert owner is MRMR, (
-        f"MRMR.__setstate__ resolves in {owner.__name__}, not MRMR -- a post-BaseEstimator mixin is shadowing the custom legacy-pickle __setstate__"
-    )
+    assert (
+        owner is MRMR
+    ), f"MRMR.__setstate__ resolves in {owner.__name__}, not MRMR -- a post-BaseEstimator mixin is shadowing the custom legacy-pickle __setstate__"
 
 
 def test_setstate_injects_missing_legacy_ctor_default():

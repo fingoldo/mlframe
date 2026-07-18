@@ -19,6 +19,7 @@ from mlframe.training.strategies import (
 
 
 def test_resolve_string_alias_unchanged():
+    """Resolve string alias unchanged."""
     key, est, strat = _resolve_model_spec("cb")
     assert key == "cb"
     assert est is None
@@ -26,6 +27,7 @@ def test_resolve_string_alias_unchanged():
 
 
 def test_resolve_string_linear():
+    """Resolve string linear."""
     key, est, strat = _resolve_model_spec("ridge")
     assert key == "ridge"
     assert est is None
@@ -33,6 +35,7 @@ def test_resolve_string_linear():
 
 
 def test_resolve_lgbm_instance_key_is_class_name():
+    """Resolve lgbm instance key is class name."""
     lightgbm = pytest.importorskip("lightgbm")
     est = lightgbm.LGBMClassifier()
     key, resolved_est, strat = _resolve_model_spec(est)
@@ -43,6 +46,7 @@ def test_resolve_lgbm_instance_key_is_class_name():
 
 
 def test_resolve_tuple_uses_explicit_name():
+    """Resolve tuple uses explicit name."""
     lightgbm = pytest.importorskip("lightgbm")
     est = lightgbm.LGBMClassifier()
     key, resolved_est, strat = _resolve_model_spec(("my_model", est))
@@ -52,6 +56,7 @@ def test_resolve_tuple_uses_explicit_name():
 
 
 def test_resolve_catboost_instance():
+    """Resolve catboost instance."""
     catboost = pytest.importorskip("catboost")
     est = catboost.CatBoostClassifier(verbose=0)
     key, _resolved_est, strat = _resolve_model_spec(est)
@@ -60,6 +65,7 @@ def test_resolve_catboost_instance():
 
 
 def test_resolve_xgboost_instance():
+    """Resolve xgboost instance."""
     xgboost = pytest.importorskip("xgboost")
     est = xgboost.XGBClassifier()
     key, _, strat = _resolve_model_spec(est)
@@ -68,6 +74,7 @@ def test_resolve_xgboost_instance():
 
 
 def test_resolve_hgb_instance():
+    """Resolve hgb instance."""
     from sklearn.ensemble import HistGradientBoostingRegressor
 
     est = HistGradientBoostingRegressor()
@@ -77,6 +84,7 @@ def test_resolve_hgb_instance():
 
 
 def test_resolve_unknown_estimator_falls_back_linear_with_warning(caplog):
+    """Resolve unknown estimator falls back linear with warning."""
     est = DummyClassifier()
     with caplog.at_level(logging.WARNING, logger="mlframe.training.strategies"):
         key, resolved_est, strat = _resolve_model_spec(est)
@@ -88,6 +96,7 @@ def test_resolve_unknown_estimator_falls_back_linear_with_warning(caplog):
 
 
 def test_duplicate_keys_get_suffixed():
+    """Duplicate keys get suffixed."""
     lightgbm = pytest.importorskip("lightgbm")
     used = set()
     k1, _, _ = _resolve_model_spec(lightgbm.LGBMClassifier(), used_keys=used)
@@ -99,6 +108,7 @@ def test_duplicate_keys_get_suffixed():
 
 
 def test_tuple_name_is_slugified():
+    """Tuple name is slugified."""
     from sklearn.linear_model import Ridge
 
     used = set()
@@ -111,6 +121,7 @@ def test_tuple_name_is_slugified():
 
 
 def test_tuple_with_non_string_name_raises():
+    """Tuple with non string name raises."""
     from sklearn.linear_model import Ridge
 
     with pytest.raises(TypeError):
@@ -118,12 +129,14 @@ def test_tuple_with_non_string_name_raises():
 
 
 def test_get_strategy_accepts_estimator_instance():
+    """Get strategy accepts estimator instance."""
     lightgbm = pytest.importorskip("lightgbm")
     strat = get_strategy(lightgbm.LGBMRegressor())
     assert isinstance(strat, TreeModelStrategy)
 
 
 def test_get_strategy_accepts_tuple():
+    """Get strategy accepts tuple."""
     from sklearn.linear_model import Ridge
 
     strat = get_strategy(("custom", Ridge()))

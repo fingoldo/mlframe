@@ -19,6 +19,7 @@ from mlframe.training.composite.bagging import BaggedCompositeEstimator
 
 
 def _make_composite_data(n=300, seed=0):
+    """Make composite data."""
     rng = np.random.RandomState(seed)
     base = rng.normal(5.0, 1.0, size=n)
     feat = rng.normal(0.0, 1.0, size=n)
@@ -28,6 +29,7 @@ def _make_composite_data(n=300, seed=0):
 
 
 def _make_composite_proto():
+    """Make composite proto."""
     return CompositeTargetEstimator(
         base_estimator=DecisionTreeRegressor(max_depth=4, random_state=0),
         transform_name="diff",
@@ -36,6 +38,7 @@ def _make_composite_proto():
 
 
 def test_fits_n_members():
+    """Fits n members."""
     X, y = _make_composite_data()
     bag = BaggedCompositeEstimator(
         base_estimator=_make_composite_proto(),
@@ -48,6 +51,7 @@ def test_fits_n_members():
 
 
 def test_predict_shape_and_std_nonneg():
+    """Predict shape and std nonneg."""
     X, y = _make_composite_data()
     bag = BaggedCompositeEstimator(
         base_estimator=_make_composite_proto(),
@@ -64,6 +68,7 @@ def test_predict_shape_and_std_nonneg():
 def test_std_zero_for_identical_members():
     # Deterministic linear inner + no bootstrap + no seed variation -> every
     # member is identical -> spread is exactly 0.
+    """Std zero for identical members."""
     X, y = _make_composite_data()
     proto = CompositeTargetEstimator(
         base_estimator=LinearRegression(),
@@ -82,6 +87,7 @@ def test_std_zero_for_identical_members():
 
 
 def test_predict_interval_epistemic_brackets_mean():
+    """Predict interval epistemic brackets mean."""
     X, y = _make_composite_data()
     bag = BaggedCompositeEstimator(
         base_estimator=_make_composite_proto(),
@@ -96,6 +102,7 @@ def test_predict_interval_epistemic_brackets_mean():
 
 
 def test_clone_roundtrip():
+    """Clone roundtrip."""
     proto = _make_composite_proto()
     bag = BaggedCompositeEstimator(
         base_estimator=proto,
@@ -111,6 +118,7 @@ def test_clone_roundtrip():
 
 
 def test_aggregation_param_defaults_and_validation():
+    """Aggregation param defaults and validation."""
     bag = BaggedCompositeEstimator(base_estimator=_make_composite_proto())
     assert bag.aggregation == "trimmed_mean"
     assert bag.trim_fraction == 0.2
@@ -126,6 +134,7 @@ def test_aggregation_param_defaults_and_validation():
 
 
 def test_pickle_replay_legacy_model_aggregates_by_mean():
+    """Pickle replay legacy model aggregates by mean."""
     import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     X, y = _make_composite_data()
@@ -142,6 +151,7 @@ def test_pickle_replay_legacy_model_aggregates_by_mean():
 
 
 def test_aggregation_variants_match_their_definitions():
+    """Aggregation variants match their definitions."""
     X, y = _make_composite_data()
     bag = BaggedCompositeEstimator(
         base_estimator=_make_composite_proto(),
@@ -161,6 +171,7 @@ def test_aggregation_variants_match_their_definitions():
 
 
 def test_deterministic_with_fixed_seed():
+    """Deterministic with fixed seed."""
     X, y = _make_composite_data()
     p1 = (
         BaggedCompositeEstimator(
@@ -184,6 +195,7 @@ def test_deterministic_with_fixed_seed():
 
 
 def test_fit_validation_errors():
+    """Fit validation errors."""
     X, y = _make_composite_data(n=50)
     with pytest.raises(ValueError):
         BaggedCompositeEstimator(base_estimator=None).fit(X, y)
@@ -200,6 +212,7 @@ def test_fit_validation_errors():
 
 
 def test_predict_before_fit_raises():
+    """Predict before fit raises."""
     from sklearn.exceptions import NotFittedError
 
     bag = BaggedCompositeEstimator(base_estimator=_make_composite_proto())

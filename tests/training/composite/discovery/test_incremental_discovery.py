@@ -38,7 +38,6 @@ from mlframe.training.composite.discovery._incremental import (
 )
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
-
 _FEATURES = ["TVT_prev", "x1", "x2", "x3"]
 
 
@@ -73,6 +72,7 @@ def _shifted_dgp(n: int, seed: int) -> pd.DataFrame:
 
 
 def _fit_prior(df: pd.DataFrame, cfg: CompositeTargetDiscoveryConfig):
+    """Fit prior."""
     disc = CompositeTargetDiscovery(cfg)
     disc.fit(df, target_col="TVT", feature_cols=_FEATURES, train_idx=np.arange(len(df)))
     sig = data_signature(df, "TVT", _FEATURES)
@@ -80,6 +80,7 @@ def _fit_prior(df: pd.DataFrame, cfg: CompositeTargetDiscoveryConfig):
 
 
 def _cfg() -> CompositeTargetDiscoveryConfig:
+    """Cfg."""
     return CompositeTargetDiscoveryConfig(
         enabled=True,
         mi_sample_n=800,
@@ -96,7 +97,9 @@ def _cfg() -> CompositeTargetDiscoveryConfig:
 
 
 class TestIncrementalUnit:
+    """Groups tests covering incremental unit."""
     def test_signature_identical_trivial_reuse(self) -> None:
+        """Signature identical trivial reuse."""
         df = _same_dgp(1500, seed=0)
         cfg = _cfg()
         disc, sig = _fit_prior(df, cfg)
@@ -117,6 +120,7 @@ class TestIncrementalUnit:
         assert dec.new_signature == dec.prior_signature == sig
 
     def test_no_prior_specs_forces_full_discovery(self) -> None:
+        """No prior specs forces full discovery."""
         df = _same_dgp(800, seed=1)
         cfg = _cfg()
         dec = incremental_discovery_check([], "", df, "TVT", _FEATURES, cfg)
@@ -126,6 +130,7 @@ class TestIncrementalUnit:
         assert "no prior specs" in dec.reason
 
     def test_empty_new_frame_forces_full_discovery(self) -> None:
+        """Empty new frame forces full discovery."""
         df = _same_dgp(800, seed=2)
         cfg = _cfg()
         disc, sig = _fit_prior(df, cfg)
@@ -142,6 +147,7 @@ class TestIncrementalUnit:
         assert dec.specs is None
 
     def test_decision_reports_per_spec_gains(self) -> None:
+        """Decision reports per spec gains."""
         df = _same_dgp(1500, seed=3)
         cfg = _cfg()
         disc, sig = _fit_prior(df, cfg)
@@ -168,6 +174,7 @@ class TestIncrementalUnit:
 
 
 class TestIncrementalBizValue:
+    """Groups tests covering incremental biz value."""
     def test_biz_val_same_dgp_reuses_specs_and_is_cheaper(self) -> None:
         """Appended data under the SAME DGP: prior specs stay valid (spec
         equality) AND the incremental check is much cheaper than a full

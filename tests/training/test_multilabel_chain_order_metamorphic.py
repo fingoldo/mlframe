@@ -33,7 +33,6 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 from sklearn.multioutput import ClassifierChain, MultiOutputClassifier
 
-
 # Small, conditioned-enough that per-label AUROCs land in [0.7, 0.95]; large
 # enough that the noise envelope on macro-AUROC is reliably < 0.05.
 _N_SAMPLES = 1500
@@ -55,10 +54,12 @@ def _make_synthetic(seed: int):
 
 
 def _permute_labels(y: np.ndarray, perm: np.ndarray) -> np.ndarray:
+    """Reorders y's label columns according to perm, for the classifier-chain order-invariance metamorphic test."""
     return y[:, perm]
 
 
 def _inverse_perm(perm: np.ndarray) -> np.ndarray:
+    """Returns the permutation that undoes perm, so permuted predictions can be mapped back to original label order."""
     inv = np.empty_like(perm)
     inv[perm] = np.arange(len(perm))
     return inv

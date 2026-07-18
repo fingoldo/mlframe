@@ -32,6 +32,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _fitted_mrmr_with_recipe(names, support, recipe):
+    """Fitted mrmr with recipe."""
     m = MRMR()
     m.feature_names_in_ = np.array(names)
     m.n_features_in_ = len(names)
@@ -41,6 +42,7 @@ def _fitted_mrmr_with_recipe(names, support, recipe):
 
 
 def test_polars_transform_missing_recipe_source_degrades_like_pandas():
+    """Polars transform missing recipe source degrades like pandas."""
     recipe = EngineeredRecipe(
         name="sqr(num_1)",
         kind="orth_univariate",

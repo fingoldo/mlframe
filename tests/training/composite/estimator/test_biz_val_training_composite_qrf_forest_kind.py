@@ -30,10 +30,12 @@ def _smooth_noisy(seed: int, n: int = 1200):
 
 
 def _rmse(a: np.ndarray, b: np.ndarray) -> float:
+    """Plain RMSE between two arrays."""
     return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
 
 
 def _fit_predict(kind: str, Xtr, ytr, Xte) -> np.ndarray:
+    """Fits a CompositeQRFEstimator of the given forest_kind and returns its predictions on Xte."""
     est = CompositeQRFEstimator(
         base_column="base",
         forest_kind=kind,

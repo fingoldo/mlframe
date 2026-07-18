@@ -17,32 +17,38 @@ from mlframe.training.core._phase_finalize import _stamp_composite_estimator_rec
 
 
 def test_heavy_tail_recommends_tail_composite():
+    """Heavy tail recommends tail composite."""
     rec = recommend_composite_estimator(["heavy_tail(excess_kurt=12.3)"])
     assert rec["estimator"] == "TailCompositeEstimator"
     assert "extremes" in rec["module"]
 
 
 def test_skew_also_recommends_tail_composite():
+    """Skew also recommends tail composite."""
     rec = recommend_composite_estimator(["skewed_target(skew=3.1)"])
     assert rec["estimator"] == "TailCompositeEstimator"
 
 
 def test_multimodal_recommends_distribution():
+    """Multimodal recommends distribution."""
     rec = recommend_composite_estimator(["multi_modal_target(peaks=3, max_sep=4.0 stds)"])
     assert rec["estimator"] == "CompositeDistributionEstimator"
 
 
 def test_heavy_tail_priority_over_multimodal():
+    """Heavy tail priority over multimodal."""
     rec = recommend_composite_estimator(["multi_modal_target(peaks=2)", "heavy_tail(excess_kurt=9)"])
     assert rec["estimator"] == "TailCompositeEstimator"
 
 
 def test_no_match_returns_none():
+    """No match returns none."""
     assert recommend_composite_estimator(["class_imbalance(max/min=5x)"]) is None
     assert recommend_composite_estimator([]) is None
 
 
 def test_finalize_stamps_recommendation():
+    """Finalize stamps recommendation."""
     ctx = SimpleNamespace(
         metadata={"target_distribution_report": {"pathologies": ["heavy_tail(excess_kurt=20)"]}},
         verbose=0,
@@ -52,22 +58,26 @@ def test_finalize_stamps_recommendation():
 
 
 def test_finalize_noop_without_analyzer_report():
+    """Finalize noop without analyzer report."""
     ctx = SimpleNamespace(metadata={}, verbose=0)
     _stamp_composite_estimator_recommendation(ctx)
     assert "composite_estimator_recommendation" not in ctx.metadata
 
 
 def test_instantiate_recommended_estimator_builds_class():
+    """Instantiate recommended estimator builds class."""
     rec = recommend_composite_estimator(["heavy_tail(excess_kurt=20)"])
     est = instantiate_recommended_estimator(rec)
     assert type(est).__name__ == "TailCompositeEstimator"
 
 
 def test_instantiate_none_returns_none():
+    """Instantiate none returns none."""
     assert instantiate_recommended_estimator(None) is None
 
 
 def test_pick_base_column_selects_max_corr_feature():
+    """Pick base column selects max corr feature."""
     rng = np.random.default_rng(0)
     n = 400
     f_signal = rng.normal(size=n)
@@ -78,16 +88,19 @@ def test_pick_base_column_selects_max_corr_feature():
 
 
 def test_pick_base_column_none_when_no_numeric_or_constant():
+    """Pick base column none when no numeric or constant."""
     df = pd.DataFrame({"c": np.ones(10)})  # zero-variance column
     assert _pick_base_column(df, np.arange(10.0)) is None
     assert _pick_base_column(pd.DataFrame(index=range(5)), np.arange(5.0)) is None
 
 
 def _ctx():
+    """Ctx."""
     return SimpleNamespace(strategy_by_model={}, sorted_mlframe_models=[], mlframe_models=["xgb"])
 
 
 def test_maybe_inject_noop_when_flag_off():
+    """Maybe inject noop when flag off."""
     ctx = _ctx()
     out = maybe_inject_distribution_driven_estimator(
         ctx=ctx,
@@ -102,6 +115,7 @@ def test_maybe_inject_noop_when_flag_off():
 
 
 def test_maybe_inject_noop_when_no_recommendation():
+    """Maybe inject noop when no recommendation."""
     ctx = _ctx()
     out = maybe_inject_distribution_driven_estimator(
         ctx=ctx,
@@ -116,6 +130,7 @@ def test_maybe_inject_noop_when_no_recommendation():
 
 
 def test_maybe_inject_appends_estimator_and_updates_ctx():
+    """Maybe inject appends estimator and updates ctx."""
     from mlframe.training._configs_base import TargetTypes
     from mlframe.training.composite.extremes import TailCompositeEstimator
 

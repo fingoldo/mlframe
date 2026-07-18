@@ -32,6 +32,7 @@ import pytest
 
 
 def _setup_valid_xor():
+    """Setup valid xor."""
     rng = np.random.default_rng(0)
     n = 500
     x1 = rng.integers(0, 2, n).astype(np.int64)
@@ -51,6 +52,7 @@ def test_negative_x1_raises():
 
 
 def test_negative_x2_raises():
+    """Negative x2 raises."""
     from mlframe.feature_selection.filters._pid_decomposition import pid_decomposition
 
     x1, x2, y = _setup_valid_xor()
@@ -60,6 +62,7 @@ def test_negative_x2_raises():
 
 
 def test_negative_y_raises():
+    """Negative y raises."""
     from mlframe.feature_selection.filters._pid_decomposition import pid_decomposition
 
     x1, x2, y = _setup_valid_xor()

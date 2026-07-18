@@ -49,6 +49,7 @@ def _build_problem(n: int = 600, seed: int = 11):
 
 
 def _run(*, n_jobs: int, transforms: list[str]):
+    """Fits CompositeTargetDiscovery with the given n_jobs/transforms and returns the fitted discovery object, for parallel-vs-serial identity checks."""
     df, y = _build_problem()
     df_with_y = df.copy()
     df_with_y["y"] = y
@@ -83,6 +84,7 @@ class TestParallelDiscoveryEquivalence:
     """Parallel path must produce candidates that match the serial path."""
 
     def test_kept_specs_match_serial(self) -> None:
+        """Kept specs match serial."""
         transforms = ["linear_residual", "diff", "ratio", "logratio"]
 
         serial, _ = _run(n_jobs=1, transforms=transforms)
@@ -96,9 +98,9 @@ class TestParallelDiscoveryEquivalence:
         # Per-spec mi_gain / mi_t / mi_y must match bit-for-bit (deterministic
         # numpy ops, same input). Pre-binning is deterministic; bootstrap is off.
         for ser_spec, par_spec in zip(serial.specs_, parallel.specs_):
-            assert np.isclose(ser_spec.mi_gain, par_spec.mi_gain, atol=1e-12), (
-                f"mi_gain diverged for '{ser_spec.name}': serial={ser_spec.mi_gain}, parallel={par_spec.mi_gain}"
-            )
+            assert np.isclose(
+                ser_spec.mi_gain, par_spec.mi_gain, atol=1e-12
+            ), f"mi_gain diverged for '{ser_spec.name}': serial={ser_spec.mi_gain}, parallel={par_spec.mi_gain}"
             assert np.isclose(ser_spec.mi_t, par_spec.mi_t, atol=1e-12)
             assert np.isclose(ser_spec.mi_y, par_spec.mi_y, atol=1e-12)
 
@@ -112,6 +114,7 @@ class TestParallelDiscoveryBizValue:
     """
 
     def test_parallel_not_slower_than_serial(self) -> None:
+        """Parallel not slower than serial."""
         transforms = [
             "linear_residual",
             "diff",
@@ -212,14 +215,15 @@ class TestParallelRerankEquivalence:
     """
 
     def test_rerank_scores_match_serial(self) -> None:
+        """Rerank scores match serial."""
         serial = _run_rerank(n_jobs=1)
         parallel = _run_rerank(n_jobs=4)
 
         ser_scores = dict(getattr(serial, "_tiny_rerank_scores", {}))
         par_scores = dict(getattr(parallel, "_tiny_rerank_scores", {}))
-        assert set(ser_scores) == set(par_scores), (
-            f"parallel rerank produced a different spec set:\n  serial:   {sorted(ser_scores)}\n  parallel: {sorted(par_scores)}"
-        )
+        assert set(ser_scores) == set(
+            par_scores
+        ), f"parallel rerank produced a different spec set:\n  serial:   {sorted(ser_scores)}\n  parallel: {sorted(par_scores)}"
         for name, ser_rmse in ser_scores.items():
             par_rmse = par_scores[name]
             if np.isfinite(ser_rmse) and np.isfinite(par_rmse):
@@ -228,6 +232,7 @@ class TestParallelRerankEquivalence:
                 assert np.isnan(ser_rmse) == np.isnan(par_rmse), f"finiteness mismatch for '{name}'"
 
     def test_wilcoxon_per_seed_matches_serial(self) -> None:
+        """Wilcoxon per seed matches serial."""
         serial = _run_rerank(n_jobs=1, seed_repeats=3)
         parallel = _run_rerank(n_jobs=4, seed_repeats=3)
 

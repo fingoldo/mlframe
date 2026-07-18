@@ -26,12 +26,14 @@ from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_dedup imp
 
 @pytest.fixture(autouse=True)
 def _clear_cache():
+    """Clear cache."""
     clear_fe_resident_operands()
     yield
     clear_fe_resident_operands()
 
 
 def _blocks(q=5, r=6, n=400, seed=0, dtype=np.float64):
+    """Helper that blocks."""
     rng = np.random.default_rng(seed)
     Q = rng.normal(size=(q, n)).astype(dtype)
     R = rng.normal(size=(r, n)).astype(dtype)
@@ -55,6 +57,7 @@ def test_pc_corr_cupy_uploads_q_and_r_once_across_calls():
     orig_asarray = cp.asarray
 
     def _counting(arr, *a, **kw):
+        """Helper that counting."""
         shp = getattr(arr, "shape", None)
         if shp == Q.shape:
             upload_calls["q"] += 1
@@ -86,6 +89,7 @@ def test_pc_corr_cupy_different_content_is_a_plain_cache_miss():
     orig_asarray = cp.asarray
 
     def _counting(arr, *a, **kw):
+        """Helper that counting."""
         if getattr(arr, "shape", None) == Q1.shape:
             upload_calls["q"] += 1
         return orig_asarray(arr, *a, **kw)

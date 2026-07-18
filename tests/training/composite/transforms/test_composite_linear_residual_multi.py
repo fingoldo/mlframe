@@ -30,13 +30,13 @@ from mlframe.training.composite import (
     get_transform,
 )
 
-
 # ---------------------------------------------------------------------------
 # Unit: round-trip / fit / forward / inverse
 # ---------------------------------------------------------------------------
 
 
 class TestRoundTrip:
+    """Groups tests covering round trip."""
     def test_k1_matches_single_base_linear_residual(self) -> None:
         """K=1 multi-base must be numerically identical to single-base
         ``linear_residual``. This is the 'no regression' lock for
@@ -76,6 +76,7 @@ class TestRoundTrip:
         np.testing.assert_allclose(y, y_back, rtol=1e-7, atol=1e-7)
 
     def test_k3_round_trip(self) -> None:
+        """K3 round trip."""
         rng = np.random.default_rng(2)
         n = 500
         b1 = rng.normal(loc=10.0, scale=2.0, size=n)
@@ -104,6 +105,7 @@ class TestRoundTrip:
 
 
 class TestFitContract:
+    """Groups tests covering fit contract."""
     def test_recovers_true_coefficients_on_clean_data(self) -> None:
         """When the DGP is exactly the linear combination + small noise,
         fitted alphas should be close to the true ones."""
@@ -122,6 +124,7 @@ class TestFitContract:
         assert p["collinear_fallback"] is False
 
     def test_sample_weight_uniform_matches_unweighted(self) -> None:
+        """Sample weight uniform matches unweighted."""
         rng = np.random.default_rng(7)
         n = 300
         b1 = rng.normal(size=n)
@@ -155,9 +158,9 @@ class TestFitContract:
         y = 0.95 * b1 + rng.normal(scale=0.3, size=n)
         base = np.column_stack([b1, b2])
         p = _linear_residual_multi_fit(y, base)
-        assert p["collinear_fallback"] is True, (
-            f"expected fallback for cond={p['condition_number']:.2e}; tightly collinear bases must NOT produce extreme alphas"
-        )
+        assert (
+            p["collinear_fallback"] is True
+        ), f"expected fallback for cond={p['condition_number']:.2e}; tightly collinear bases must NOT produce extreme alphas"
         assert p["alphas"] == [0.0, 0.0]
         # Round-trip still works (T = y - mean(y), inverse adds it back).
         T = _linear_residual_multi_forward(y, base, p)
@@ -179,7 +182,9 @@ class TestFitContract:
 
 
 class TestDomain:
+    """Groups tests covering domain."""
     def test_domain_rejects_nan_in_any_base_column(self) -> None:
+        """Domain rejects nan in any base column."""
         b1 = np.array([1.0, 2.0, np.nan, 4.0])
         b2 = np.array([1.0, 2.0, 3.0, 4.0])
         base = np.column_stack([b1, b2])
@@ -188,6 +193,7 @@ class TestDomain:
         np.testing.assert_array_equal(mask, [True, True, False, True])
 
     def test_domain_rejects_inf_in_any_base_column(self) -> None:
+        """Domain rejects inf in any base column."""
         b1 = np.array([1.0, 2.0, 3.0, 4.0])
         b2 = np.array([1.0, np.inf, 3.0, 4.0])
         base = np.column_stack([b1, b2])
@@ -196,6 +202,7 @@ class TestDomain:
         np.testing.assert_array_equal(mask, [True, False, True, True])
 
     def test_domain_y_none_only_checks_base(self) -> None:
+        """Domain y none only checks base."""
         b1 = np.array([1.0, np.nan, 3.0])
         b2 = np.array([1.0, 2.0, 3.0])
         base = np.column_stack([b1, b2])
@@ -204,7 +211,9 @@ class TestDomain:
 
 
 class TestForwardInverseValidation:
+    """Groups tests covering forward inverse validation."""
     def test_forward_raises_on_alpha_count_mismatch(self) -> None:
+        """Forward raises on alpha count mismatch."""
         rng = np.random.default_rng(11)
         n = 100
         base = np.column_stack([rng.normal(size=n), rng.normal(size=n)])
@@ -216,6 +225,7 @@ class TestForwardInverseValidation:
             _linear_residual_multi_forward(y, base_3d, p)
 
     def test_inverse_raises_on_alpha_count_mismatch(self) -> None:
+        """Inverse raises on alpha count mismatch."""
         rng = np.random.default_rng(12)
         n = 100
         base = np.column_stack([rng.normal(size=n), rng.normal(size=n)])
@@ -257,6 +267,7 @@ class TestBizValueMultiBaseBeatsSingle:
         return b1, b2, y
 
     def test_multi_base_residual_variance_strictly_lower(self) -> None:
+        """Multi base residual variance strictly lower."""
         b1, b2, y = self._make_two_base_dgp()
         single = get_transform("linear_residual")
         multi = get_transform("linear_residual_multi")
@@ -269,13 +280,14 @@ class TestBizValueMultiBaseBeatsSingle:
         # Multi-base residual is just epsilon (variance ~= 0.09).
         var_single = float(np.var(T_single))
         var_multi = float(np.var(T_multi))
-        assert var_multi < var_single * 0.5, (
-            f"expected multi-base residual variance to be <50% of single-base; got var_single={var_single:.4f}, var_multi={var_multi:.4f}"
-        )
+        assert (
+            var_multi < var_single * 0.5
+        ), f"expected multi-base residual variance to be <50% of single-base; got var_single={var_single:.4f}, var_multi={var_multi:.4f}"
         # And reasonably close to the true epsilon variance (~0.09).
         assert var_multi < 0.5
 
     def test_multi_base_residual_decorrelated_from_b2(self) -> None:
+        """Multi base residual decorrelated from b2."""
         b1, b2, y = self._make_two_base_dgp()
         single = get_transform("linear_residual")
         multi = get_transform("linear_residual_multi")
@@ -316,6 +328,7 @@ class TestCompositeTargetEstimatorMultiBase:
     ``base_columns`` constructor argument."""
 
     def _make_dataset(self, n: int = 800, seed: int = 0) -> tuple:
+        """Make dataset."""
         rng = np.random.default_rng(seed)
         b1 = rng.normal(loc=10.0, scale=2.0, size=n)
         b2 = rng.normal(loc=0.0, scale=3.0, size=n)
@@ -331,6 +344,7 @@ class TestCompositeTargetEstimatorMultiBase:
         return df, y
 
     def test_fit_predict_round_trip(self) -> None:
+        """Fit predict round trip."""
         from mlframe.training.composite import CompositeTargetEstimator
 
         df, y = self._make_dataset(n=600)
@@ -387,6 +401,7 @@ class TestCompositeTargetEstimatorMultiBase:
         assert np.all(np.isfinite(preds))
 
     def test_fit_requires_base_column_or_base_columns(self) -> None:
+        """Fit requires base column or base columns."""
         from mlframe.training.composite import CompositeTargetEstimator
 
         df, y = self._make_dataset(n=200)
@@ -410,6 +425,7 @@ class TestCompositeTargetEstimatorMultiBase:
         train_y, test_y = y[:1000], y[1000:]
 
         def _rmse(base_columns):
+            """Rmse."""
             inner = lgb.LGBMRegressor(
                 n_estimators=80,
                 num_leaves=15,
@@ -427,6 +443,6 @@ class TestCompositeTargetEstimatorMultiBase:
 
         rmse_single = _rmse(("b1",))
         rmse_multi = _rmse(("b1", "b2"))
-        assert rmse_multi < rmse_single, (
-            f"multi-base must beat single-base on a DGP where b2 carries orthogonal signal; got single={rmse_single:.4f}, multi={rmse_multi:.4f}"
-        )
+        assert (
+            rmse_multi < rmse_single
+        ), f"multi-base must beat single-base on a DGP where b2 carries orthogonal signal; got single={rmse_single:.4f}, multi={rmse_multi:.4f}"

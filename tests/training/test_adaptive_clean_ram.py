@@ -15,7 +15,6 @@ import polars as pl
 
 from mlframe.training import _ram_helpers as u
 
-
 # ----------------------------- helpers ----------------------------------------
 
 
@@ -47,6 +46,7 @@ def _install_fake_psutil(monkeypatch, fake):
 class TestAdaptiveCleanRam:
     # ---- should_clean_ram threshold boundaries -------------------------------
 
+    """Groups tests covering adaptive clean ram."""
     def test_growth_exactly_500_does_not_trigger(self, monkeypatch):
         """Boundary: growth == 500.0 must NOT fire (strict `>`)."""
         fake = _fake_psutil(rss_mb=1500.0, free_mb=32_000.0)
@@ -54,6 +54,7 @@ class TestAdaptiveCleanRam:
         assert u.should_clean_ram(baseline_rss_mb=1000.0, df_size_mb=10.0) is False
 
     def test_growth_just_above_500_triggers(self, monkeypatch):
+        """Growth just above 500 triggers."""
         fake = _fake_psutil(rss_mb=1500.001, free_mb=32_000.0)
         _install_fake_psutil(monkeypatch, fake)
         assert u.should_clean_ram(baseline_rss_mb=1000.0, df_size_mb=10.0) is True
@@ -113,6 +114,7 @@ class TestAdaptiveCleanRam:
         real_import = builtins.__import__
 
         def fake_import(name, *a, **kw):
+            """Fake import."""
             if name == "psutil":
                 raise ImportError("simulated")
             return real_import(name, *a, **kw)
@@ -128,10 +130,13 @@ class TestAdaptiveCleanRam:
         the prod try/except then falls back to the 0.0 sentinel."""
 
         class _PsutilRaises:
+            """Groups tests covering psutil raises."""
             def Process(self):
+                """Process."""
                 raise OSError("simulated psutil failure")
 
             def virtual_memory(self):
+                """Virtual memory."""
                 raise OSError("simulated psutil failure")
 
         monkeypatch.setattr(u, "psutil", _PsutilRaises())
@@ -147,10 +152,13 @@ class TestAdaptiveCleanRam:
         """
 
         class _PsutilRaises:
+            """Groups tests covering psutil raises."""
             def Process(self):
+                """Process."""
                 raise OSError("simulated psutil failure")
 
             def virtual_memory(self):
+                """Virtual memory."""
                 raise OSError("simulated psutil failure")
 
         monkeypatch.setattr(u, "psutil", _PsutilRaises())
@@ -190,6 +198,7 @@ class TestAdaptiveCleanRam:
         loop_state = {"iter": 0}
 
         def fake_rss_bytes():
+            """Fake rss bytes."""
             return (1000.0 + 100.0 * loop_state["iter"]) * 1024**2
 
         fake = MagicMock()
@@ -218,6 +227,7 @@ class TestAdaptiveCleanRam:
         assert len(calls) == 4
 
     def test_verbose_logs_reason_when_fires(self, monkeypatch, caplog):
+        """Verbose logs reason when fires."""
         fake = _fake_psutil(rss_mb=2000.0, free_mb=32_000.0)  # big growth
         _install_fake_psutil(monkeypatch, fake)
         monkeypatch.setattr(u, "clean_ram_and_gpu", lambda verbose=False: None)
@@ -227,6 +237,7 @@ class TestAdaptiveCleanRam:
         assert any("post-feature-eng" in r.message for r in caplog.records)
 
     def test_skip_produces_no_log(self, monkeypatch, caplog):
+        """Skip produces no log."""
         fake = _fake_psutil(rss_mb=1000.0, free_mb=32_000.0)
         _install_fake_psutil(monkeypatch, fake)
         monkeypatch.setattr(u, "clean_ram_and_gpu", lambda verbose=False: None)
@@ -240,6 +251,7 @@ class TestAdaptiveCleanRam:
     # ---- estimate_df_size_mb -------------------------------------------------
 
     def test_estimate_df_size_variants(self):
+        """Estimate df size variants."""
         pdf = pd.DataFrame({"a": np.arange(10_000), "b": ["xyz"] * 10_000})
         assert u.estimate_df_size_mb(pdf) > 0.0
 
@@ -256,5 +268,6 @@ class TestAdaptiveCleanRam:
         assert math.isinf(u.estimate_df_size_mb({"a": [1, 2]}))
 
     def test_empty_df_size_is_small(self):
+        """Empty df size is small."""
         assert u.estimate_df_size_mb(pd.DataFrame()) < 1.0
         assert u.estimate_df_size_mb(pl.DataFrame()) < 1.0

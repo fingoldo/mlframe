@@ -6,7 +6,6 @@ from typing import Callable
 
 from .combo import FuzzCombo
 
-
 # _rule_cb_pool_reuse_with_mrmr_small_n_filtered REMOVED 2026-04-27 — fixed
 # by empty-target + length-mismatch guards in
 # trainer._maybe_get_or_build_cb_pool (rebuild on mismatch / empty target).
@@ -62,6 +61,7 @@ KNOWN_XFAIL_RULES: list[tuple[Callable[[FuzzCombo], bool], str]] = [
 
 
 def xfail_reason(combo: FuzzCombo) -> str | None:
+    """Xfail reason."""
     for predicate, reason in KNOWN_XFAIL_RULES:
         if predicate(combo):
             return reason

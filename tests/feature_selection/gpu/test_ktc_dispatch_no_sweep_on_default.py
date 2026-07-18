@@ -55,6 +55,7 @@ def _no_sweep_disable(monkeypatch):
 
 
 def test_lookup_joint_hist_default_never_logs_sweep_starting(_fresh_dispatch_cache, monkeypatch, caplog):
+    """Lookup joint hist default never logs sweep starting."""
     _no_sweep_disable(monkeypatch)
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache import dispatch
 
@@ -67,6 +68,7 @@ def test_lookup_joint_hist_default_never_logs_sweep_starting(_fresh_dispatch_cac
 
 
 def test_lookup_mi_classif_backend_default_never_logs_sweep_starting(_fresh_dispatch_cache, monkeypatch, caplog):
+    """Lookup mi classif backend default never logs sweep starting."""
     _no_sweep_disable(monkeypatch)
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache import dispatch
 
@@ -79,6 +81,7 @@ def test_lookup_mi_classif_backend_default_never_logs_sweep_starting(_fresh_disp
 
 
 def test_lookup_fe_mi_split_backend_default_never_logs_sweep_starting(_fresh_dispatch_cache, monkeypatch, caplog):
+    """Lookup fe mi split backend default never logs sweep starting."""
     _no_sweep_disable(monkeypatch)
     monkeypatch.delenv("MLFRAME_FE_MI_SPLIT", raising=False)
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache import dispatch
@@ -102,6 +105,7 @@ def test_run_auto_tune_true_passes_async_sweep(_fresh_dispatch_cache, monkeypatc
     captured: dict = {}
 
     def _fake_get_or_tune(self, kernel_name, **kwargs):
+        """Fake get or tune."""
         captured[kernel_name] = kwargs
         fb = kwargs.get("fallback")
         return fb() if callable(fb) else fb
@@ -114,9 +118,9 @@ def test_run_auto_tune_true_passes_async_sweep(_fresh_dispatch_cache, monkeypatc
 
     for kernel_name in ("joint_hist_batched", "plugin_mi_classif_dispatch", "fe_mi_split_launch"):
         assert kernel_name in captured, f"{kernel_name} did not reach get_or_tune under run_auto_tune=True"
-        assert captured[kernel_name].get("async_sweep") is True, (
-            f"{kernel_name}'s run_auto_tune=True branch must pass async_sweep=True so a real tuner never blocks a live fit"
-        )
+        assert (
+            captured[kernel_name].get("async_sweep") is True
+        ), f"{kernel_name}'s run_auto_tune=True branch must pass async_sweep=True so a real tuner never blocks a live fit"
 
 
 def test_lookup_pairwise_corr_backend_honors_region_size_caps(_fresh_dispatch_cache):

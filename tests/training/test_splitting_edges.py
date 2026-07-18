@@ -26,7 +26,6 @@ import pytest
 
 from mlframe.training.splitting import make_train_test_split
 
-
 # ---------------------------------------------------------------------------
 # Input validation — negative / out-of-range args must fail loudly
 # ---------------------------------------------------------------------------
@@ -46,6 +45,7 @@ from mlframe.training.splitting import make_train_test_split
     ],
 )
 def test_invalid_args_raise_with_clear_message(kwargs, error_frag):
+    """Invalid args raise with clear message."""
     df = pd.DataFrame({"x": range(50)})
     with pytest.raises(ValueError, match=error_frag):
         make_train_test_split(df, **kwargs)

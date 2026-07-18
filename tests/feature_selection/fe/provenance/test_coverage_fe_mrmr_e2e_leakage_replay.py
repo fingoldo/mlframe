@@ -59,10 +59,12 @@ def fitted_mrmr_with_fe():
 
 
 def _engineered_recipes(mrmr):
+    """Engineered recipes."""
     return list(getattr(mrmr, "_engineered_recipes_", []) or [])
 
 
 def test_fit_freezes_engineered_recipes(fitted_mrmr_with_fe):
+    """Fit freezes engineered recipes."""
     mrmr, _X, _Xh, _y = fitted_mrmr_with_fe
     recipes = _engineered_recipes(mrmr)
     # The interaction target should produce at least one engineered recipe.
@@ -100,6 +102,7 @@ def test_transform_ignores_y_argument(fitted_mrmr_with_fe):
 
 
 def test_transform_is_deterministic_across_calls(fitted_mrmr_with_fe):
+    """Transform is deterministic across calls."""
     mrmr, _X, Xh, _y = fitted_mrmr_with_fe
     a = mrmr.transform(Xh)
     b = mrmr.transform(Xh)

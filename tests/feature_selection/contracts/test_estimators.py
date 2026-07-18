@@ -24,7 +24,6 @@ from mlframe.feature_selection.filters.estimators import (
     nsb_mi,
 )
 
-
 # ================================================================================================
 # Shared fixtures
 # ================================================================================================
@@ -69,7 +68,9 @@ def informative_xy_regress():
 
 
 class TestKsgMiWithTarget:
+    """Groups tests covering TestKsgMiWithTarget."""
     def test_returns_ndarray_of_correct_shape(self, informative_xy_classif):
+        """Returns ndarray of correct shape."""
         X, y = informative_xy_classif
         mi = ksg_mi_with_target(X, y, feature_indices=[0, 1, 2], n_neighbors=3)
         assert isinstance(mi, np.ndarray)
@@ -93,6 +94,7 @@ class TestKsgMiWithTarget:
         assert (mi >= 0).all()
 
     def test_regression_path(self, informative_xy_regress):
+        """Regression path."""
         X, y = informative_xy_regress
         mi = ksg_mi_with_target(X, y, feature_indices=[0, 1, 2], discrete_target=False)
         assert mi.shape == (3,)
@@ -122,7 +124,9 @@ class TestKsgMiWithTarget:
 
 
 class TestKsgMiPair:
+    """Groups tests covering TestKsgMiPair."""
     def test_returns_python_float(self):
+        """Returns python float."""
         rng = np.random.default_rng(0)
         n = 300
         y = rng.integers(0, 2, n).astype(np.int64)
@@ -148,7 +152,9 @@ class TestKsgMiPair:
 
 
 class TestKsgMiWithSignificance:
+    """Groups tests covering TestKsgMiWithSignificance."""
     def test_returns_three_tuple_of_correct_shapes(self, informative_xy_classif):
+        """Returns three tuple of correct shapes."""
         X, y = informative_xy_classif
         n_feat = X.shape[1]
         mi, p, support = ksg_mi_with_significance(
@@ -166,6 +172,7 @@ class TestKsgMiWithSignificance:
         assert set(support.tolist()).issubset(set(range(n_feat)))
 
     def test_pvalues_in_valid_range(self, informative_xy_classif):
+        """Pvalues in valid range."""
         X, y = informative_xy_classif
         _, p, _ = ksg_mi_with_significance(
             X,
@@ -217,6 +224,7 @@ class TestNsbMi:
     """``nsb_mi`` requires optional ``ndd`` dep."""
 
     def test_raises_importerror_when_ndd_missing(self):
+        """Raises importerror when ndd missing."""
         try:
             import ndd  # noqa: F401
         except ImportError:
@@ -229,6 +237,7 @@ class TestNsbMi:
             pytest.skip("ndd is installed; ImportError path not exercised")
 
     def test_basic_call_when_ndd_installed(self):
+        """Basic call when ndd installed."""
         pytest.importorskip("ndd")
         # Two perfectly correlated discrete vars: MI should be > 0.
         rng = np.random.default_rng(0)
@@ -252,6 +261,7 @@ class TestKsgMiBizValue:
     to provide -- if it fails, the estimator is broken regardless of API hygiene."""
 
     def test_informative_beats_noise_classification(self):
+        """Informative beats noise classification."""
         rng = np.random.default_rng(0)
         n = 600
         y = rng.integers(0, 2, n).astype(np.int64)
@@ -267,6 +277,7 @@ class TestKsgMiBizValue:
         assert mi[0] > mi[2] + 0.05
 
     def test_significance_filter_keeps_signal_drops_noise(self):
+        """Significance filter keeps signal drops noise."""
         rng = np.random.default_rng(0)
         n = 600
         y = rng.integers(0, 2, n).astype(np.int64)

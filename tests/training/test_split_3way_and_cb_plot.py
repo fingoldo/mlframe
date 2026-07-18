@@ -17,12 +17,14 @@ from mlframe.training._training_loop import _maybe_disable_cb_plot, _in_interact
 
 
 def _make_multilabel(n=4000, k=5, seed=0):
+    """Make multilabel."""
     rng = np.random.default_rng(seed)
     y = (rng.random((n, k)) < 0.25).astype(int)
     return np.arange(n), y
 
 
 def test_3way_is_valid_disjoint_partition():
+    """3way is valid disjoint partition."""
     idx, y = _make_multilabel()
     tr, va, te = _stratified_split_3way(idx, test_size=0.2, val_size=0.2, stratify_y=y, random_state=7)
     allp = np.concatenate([tr, va, te])
@@ -33,6 +35,7 @@ def test_3way_is_valid_disjoint_partition():
 
 
 def test_3way_is_deterministic_for_fixed_seed():
+    """3way is deterministic for fixed seed."""
     idx, y = _make_multilabel()
     a = _stratified_split_3way(idx, 0.2, 0.2, y, random_state=11)
     b = _stratified_split_3way(idx, 0.2, 0.2, y, random_state=11)
@@ -41,6 +44,7 @@ def test_3way_is_deterministic_for_fixed_seed():
 
 
 def test_3way_label_balance_comparable_to_two_call_path():
+    """3way label balance comparable to two call path."""
     idx, y = _make_multilabel(n=6000, k=6, seed=3)
     glob = y.mean(0)
 
@@ -62,6 +66,7 @@ def test_3way_label_balance_comparable_to_two_call_path():
 
 
 def test_3way_sizes_match_whole_dataset_fractions():
+    """3way sizes match whole dataset fractions."""
     idx, y = _make_multilabel(n=10000, k=4, seed=1)
     tr, va, te = _stratified_split_3way(idx, 0.2, 0.2, y, random_state=0)
     assert abs(len(te) / len(idx) - 0.2) < 0.02
@@ -70,6 +75,7 @@ def test_3way_sizes_match_whole_dataset_fractions():
 
 
 def test_3way_1d_fallback_is_disjoint_and_stratified():
+    """3way 1d fallback is disjoint and stratified."""
     rng = np.random.default_rng(2)
     n = 4000
     idx = np.arange(n)
@@ -86,18 +92,21 @@ def test_3way_1d_fallback_is_disjoint_and_stratified():
 
 
 def test_cb_plot_disabled_headless():
+    """Cb plot disabled headless."""
     fp: dict = {}
     _maybe_disable_cb_plot("CatBoostClassifier", fp, verbose=False)
     assert fp.get("plot") is False
 
 
 def test_cb_plot_respects_explicit_user_value():
+    """Cb plot respects explicit user value."""
     fp = {"plot": True}
     _maybe_disable_cb_plot("CatBoostClassifier", fp, verbose=False)
     assert fp["plot"] is True, "must not override an explicit user plot setting"
 
 
 def test_non_catboost_untouched():
+    """Non catboost untouched."""
     fp: dict = {}
     _maybe_disable_cb_plot("LGBMClassifier", fp, verbose=False)
     assert "plot" not in fp
@@ -105,11 +114,13 @@ def test_non_catboost_untouched():
 
 def test_interactive_detector_false_under_pytest():
     # pytest runs in a plain interpreter, never a ZMQ Jupyter kernel.
+    """Interactive detector false under pytest."""
     assert _in_interactive_notebook() is False
 
 
 @pytest.mark.parametrize("mtype", ["CatBoostClassifier", "CatBoostRegressor"])
 def test_cb_smoke_fit_with_plot_disabled(mtype):
+    """Cb smoke fit with plot disabled."""
     cb = pytest.importorskip("catboost")
     rng = np.random.default_rng(0)
     X = rng.random((300, 6))

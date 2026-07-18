@@ -26,7 +26,6 @@ import pytest
 
 from mlframe.training.core._phase_config_setup import setup_configuration
 
-
 # Sentinel marker objects for the config-typed kwargs. These don't need to be
 # real Pydantic dataclasses; they just need to be distinguishable from None so
 # the round-trip assertion can confirm propagation. linear_model_config and

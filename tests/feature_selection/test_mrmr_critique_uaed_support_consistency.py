@@ -13,6 +13,7 @@ import pytest
 
 
 def _signal_frame(n=600, seed=0):
+    """Signal frame."""
     rng = np.random.default_rng(seed)
     # 3 strong signal cols + several weak/noise cols so the greedy gain trace has a clear elbow
     x = rng.integers(0, 5, size=(n, 10)).astype(float)
@@ -23,6 +24,7 @@ def _signal_frame(n=600, seed=0):
 
 @pytest.mark.parametrize("with_fe", [False, True])
 def test_uaed_support_transform_gains_consistent(with_fe):
+    """Uaed support transform gains consistent."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y = _signal_frame()
@@ -37,8 +39,8 @@ def test_uaed_support_transform_gains_consistent(with_fe):
     n_out = len(m.get_feature_names_out())
     n_feat = int(m.n_features_)
     width = m.transform(X).shape[1]
-    assert n_out == n_feat == width, (
-        f"UAED support/output desync (with_fe={with_fe}): get_feature_names_out={n_out}, n_features_={n_feat}, transform_width={width}"
-    )
+    assert (
+        n_out == n_feat == width
+    ), f"UAED support/output desync (with_fe={with_fe}): get_feature_names_out={n_out}, n_features_={n_feat}, transform_width={width}"
     if getattr(m, "mrmr_gains_", None) is not None:
         assert len(np.asarray(m.mrmr_gains_)) == n_feat, "mrmr_gains_ length != n_features_ after UAED trim"

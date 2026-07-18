@@ -65,7 +65,6 @@ from sklearn.metrics import roc_auc_score
 from mlframe.feature_selection.filters.mrmr import MRMR
 from tests.feature_selection.conftest import fast_subset
 
-
 # Permuted-y engineered-only holdout AUC must stay at/under this. Chance is 0.5; the +0.06 band
 # absorbs n=800-holdout sampling noise (measured worst-case null across families x seeds was 0.532).
 _LEAK_AUC_CEIL = 0.56
@@ -195,6 +194,7 @@ def make_kitchen_sink(n: int = _TOTAL_N, seed: int = 42):
 
 
 def _split(df, y, n_holdout: int = _HOLDOUT_N):
+    """Helper that split."""
     n = len(df)
     X_tr = df.iloc[: n - n_holdout].reset_index(drop=True)
     X_ho = df.iloc[n - n_holdout :].reset_index(drop=True)
@@ -204,6 +204,7 @@ def _split(df, y, n_holdout: int = _HOLDOUT_N):
 
 
 def _permute(y: pd.Series, seed: int) -> pd.Series:
+    """Helper that permute."""
     rng = np.random.default_rng(seed)
     return pd.Series(y.to_numpy()[rng.permutation(len(y))], name="y")
 
@@ -224,6 +225,7 @@ def _engineered_only(mrmr, X_ho, names_in):
 
 
 def _downstream_auc(eng: np.ndarray, y_target: np.ndarray) -> float:
+    """Downstream auc."""
     eng = np.nan_to_num(eng.astype(np.float64), nan=0.0, posinf=0.0, neginf=0.0)
     clf = LogisticRegression(max_iter=400)
     clf.fit(eng, y_target)

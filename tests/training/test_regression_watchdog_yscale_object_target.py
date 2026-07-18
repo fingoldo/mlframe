@@ -14,6 +14,7 @@ from mlframe.training.core._phase_composite_wrapping import _watchdog_y_scale
 
 def test_object_dtype_numeric_target_yields_finite_scale():
     # numeric values stored in an object array (the schema-drift case that broke np.std/np.isfinite).
+    """Object dtype numeric target yields finite scale."""
     y = np.array([1.0, 2.0, 3.0, 4.0, np.nan], dtype=object)
     # Pre-fix shape raised on the object array:
     try:
@@ -28,11 +29,13 @@ def test_object_dtype_numeric_target_yields_finite_scale():
 
 
 def test_float_target_matches_plain_std():
+    """Float target matches plain std."""
     y = np.array([1.0, 5.0, 9.0, np.inf])
     expected = float(np.std(y[np.isfinite(y)])) or 1.0
     assert _watchdog_y_scale(y) == expected
 
 
 def test_genuinely_nonnumeric_target_falls_back_to_one():
+    """Genuinely nonnumeric target falls back to one."""
     y = np.array(["a", "b", "c"], dtype=object)
     assert _watchdog_y_scale(y) == 1.0

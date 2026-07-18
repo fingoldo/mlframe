@@ -824,7 +824,7 @@ def analyse_and_clean_features(
     if constant_features:
         logger.info("%s columns are constant: %s.", len(constant_features), constant_features)
         if update_data:
-            df.drop(columns=constant_features, inplace=True)
+            df.drop(columns=constant_features, inplace=True)  # noqa: PD002 -- update_data=True is documented as "mutate the caller's frame in place (legacy behaviour)"
             logger.info("Dropped %s columns.", len(constant_features))
 
     if verbose:
@@ -884,7 +884,7 @@ def apply_features_cleaning(df: pd.DataFrame, features_cleaning: dict, update_da
         for col, repl_instructions in transforms.items():
             df[col] = df[col].replace(repl_instructions).astype(head[col].dtype.name)
         if constant_features:
-            df.drop(columns=constant_features, inplace=True)
+            df.drop(columns=constant_features, inplace=True)  # noqa: PD002 -- update_data=True is documented as mutating the caller's frame in place
         return df
 
     # Non-mutating path: compose the replacements into a new frame without touching the caller's columns.

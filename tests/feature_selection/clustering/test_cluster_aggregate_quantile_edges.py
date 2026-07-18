@@ -36,6 +36,7 @@ import pandas as pd
 
 
 def _frames():
+    """Helper that frames."""
     rng = np.random.default_rng(0)
     n = 200
     train = pd.DataFrame(
@@ -59,6 +60,7 @@ def _frames():
 
 
 def _build_recipe_with_edges(train, member_names):
+    """Build recipe with edges."""
     from mlframe.feature_selection.filters._cluster_aggregate import (
         _continuous_cols,
         _standardize_align,
@@ -94,6 +96,7 @@ def _build_recipe_with_edges(train, member_names):
 
 
 def _build_recipe_no_edges(train, member_names):
+    """Build recipe no edges."""
     from mlframe.feature_selection.filters._cluster_aggregate import (
         _continuous_cols,
         _standardize_align,
@@ -129,9 +132,9 @@ def test_replay_output_is_continuous_not_quantized():
     recipe, _ = _build_recipe_with_edges(train, ["c1", "c2", "c3"])
     out = np.asarray(_apply_cluster_aggregate(recipe, train), dtype=np.float64)
     assert np.issubdtype(out.dtype, np.floating)
-    assert np.unique(out).size > recipe.quantization["nbins"], (
-        f"replay output has only {np.unique(out).size} distinct values -- looks quantized to ~{recipe.quantization['nbins']} bins, not continuous."
-    )
+    assert (
+        np.unique(out).size > recipe.quantization["nbins"]
+    ), f"replay output has only {np.unique(out).size} distinct values -- looks quantized to ~{recipe.quantization['nbins']} bins, not continuous."
 
 
 def test_identical_row_same_value_under_drift():
@@ -163,7 +166,7 @@ def test_legacy_recipe_without_edges_also_continuous_and_drift_free():
         warnings.simplefilter("always")
         out_train = _apply_cluster_aggregate(recipe, train)
         out_test = _apply_cluster_aggregate(recipe, test)
-    assert not any("fit-time quantile edges" in str(w.message) for w in caught), (
-        f"replay no longer quantises, so the legacy-edge leak warning must be gone; got {[str(w.message) for w in caught]}"
-    )
+    assert not any(
+        "fit-time quantile edges" in str(w.message) for w in caught
+    ), f"replay no longer quantises, so the legacy-edge leak warning must be gone; got {[str(w.message) for w in caught]}"
     assert out_train[0] == out_test[0], f"continuous replay must give the identical row the same value under drift; train={out_train[0]}, test={out_test[0]}"

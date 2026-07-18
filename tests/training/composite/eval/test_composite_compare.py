@@ -15,6 +15,7 @@ class _ConstModel:
         self.c = float(c)
 
     def predict(self, X):
+        """Predict."""
         return np.full(np.asarray(X).shape[0], self.c)
 
 
@@ -26,10 +27,12 @@ class _NoisyTruth:
         self._pred = y + rng.normal(0, eps, size=y.shape[0])
 
     def predict(self, X):
+        """Predict."""
         return self._pred
 
 
 def _reg_data(n=2000, seed=0):
+    """Reg data."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 3))
     y = X[:, 0] * 2.0 - X[:, 1] + rng.normal(0, 0.3, size=n)
@@ -40,6 +43,7 @@ def _reg_data(n=2000, seed=0):
 
 
 def test_identical_models_delta_zero_p_high():
+    """Identical models delta zero p high."""
     X, y = _reg_data()
     m = _NoisyTruth(y, 0.5, seed=1)
     res = compare_models(m, m, X, y, n_boot=500)
@@ -52,6 +56,7 @@ def test_identical_models_delta_zero_p_high():
 def test_bootstrap_ci_brackets_true_delta():
     # Challenger strictly better -> true RMSE delta is positive & the CI
     # (loss-difference scale) should sit above zero.
+    """Bootstrap ci brackets true delta."""
     X, y = _reg_data()
     champ = _NoisyTruth(y, 1.0, seed=2)
     chall = _NoisyTruth(y, 0.2, seed=3)
@@ -62,6 +67,7 @@ def test_bootstrap_ci_brackets_true_delta():
 
 
 def test_classification_accuracy_path():
+    """Classification accuracy path."""
     rng = np.random.default_rng(7)
     n = 2000
     X = rng.normal(size=(n, 2))
@@ -79,6 +85,7 @@ def test_classification_accuracy_path():
 
 
 def test_ttest_and_wilcoxon_paths():
+    """Ttest and wilcoxon paths."""
     X, y = _reg_data()
     champ = _NoisyTruth(y, 1.0, seed=2)
     chall = _NoisyTruth(y, 0.2, seed=3)
@@ -90,6 +97,7 @@ def test_ttest_and_wilcoxon_paths():
 
 
 def test_should_promote_min_effect_gate():
+    """Should promote min effect gate."""
     X, y = _reg_data()
     champ = _NoisyTruth(y, 0.55, seed=2)
     chall = _NoisyTruth(y, 0.45, seed=3)
@@ -103,6 +111,7 @@ def test_should_promote_min_effect_gate():
 
 
 def test_custom_callable_metric():
+    """Custom callable metric."""
     X, y = _reg_data()
     champ = _NoisyTruth(y, 1.0, seed=2)
     chall = _NoisyTruth(y, 0.2, seed=3)

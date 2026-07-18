@@ -379,12 +379,19 @@ dev = [
     "coverage>=7.2",
     "hypothesis>=6.80",
     "freezegun>=1.2",             # frozen-time fixtures in tests/perf and tests/training calibration suites
-    "ruff>=0.1",
-    "black>=23.0",
+    "ruff==0.15.20",               # pinned exact, matching .pre-commit-config.yaml's ruff-pre-commit rev AND
+                                    # CI's `uvx ruff==0.15.20` (ruff-blocking.yml) -- an open range here is
+                                    # exactly how the prior v0.8.6 pre-commit-vs-CI drift went unnoticed (2026-07-18).
+    "black==26.5.1",                # pinned exact, matching CI's `BLACK_CMD: uvx black==26.5.1` (black-filtered.yml)
+                                    # -- same rationale as ruff above; verified 2026-07-18 this exact version is
+                                    # already filtered-Black-clean across the whole src/mlframe tree (no reformat).
     "mypy>=1.0",
     "bandit>=1.7",
     "pre-commit>=3.3",
     "pip-audit>=2.7",             # known-CVE scan of installed/declared deps; run via `python -m pip_audit --local` (or `-r pyproject.toml` for the declared-only, non-transitive set)
+    "import-linter>=2.0",         # architectural-boundary contracts (see [tool.importlinter]); run via `lint-imports`
+    "pydoclint>=0.5",             # docstring-vs-signature consistency (params/returns/raises actually match); run via `pydoclint src/mlframe`
+    "semgrep>=1.70",               # custom org-specific static rules (see .semgrep.yml); run via `semgrep --config .semgrep.yml src/mlframe`
     # IPython is imported unconditionally by src/mlframe/evaluation/reports.py
     # and training/evaluation.py (for display_html / rich-shell detection).
     # Required so test collection of the modules that import them succeeds.
@@ -541,6 +548,17 @@ skips = ["B101"]
 # (strat/ser/clen/fo/anc/mis/numer/sav/bu/ans/ot/qest/OLL), or a hyphenated spelling
 # choice that is not a typo (re-use/re-used/re-using/re-uses).
 ignore-words-list = "nd,hist,te,ith,ba,thi,fpr,tre,strat,ser,clen,fo,anc,mis,als,mis,mape,lama,aci,coo,oll,ot,qest,ttest,disjointness,unparseable,numer,sav,bu,ans,re-use,re-used,re-using,re-uses,compilability,accreting,lightening,addres,categor"
+# Migration to per-line `# codespell:ignore <word>` (2026-07-18 architecture review suggestion)
+# evaluated for the short/collision-prone entries (nd/te/fo/ba/ot/bu et al.) and NOT done: a
+# spot-check (temporarily dropping them from this list and re-running codespell) showed hundreds
+# of hits each, overwhelmingly matching legitimate code identifiers in this numerics-heavy
+# codebase -- "nd" as ndarray-dimension shorthand, "TE"/"te" as target-encoding abbreviation,
+# "fo" as a substring inside longer identifiers -- not English prose. Per-line-annotating every
+# one of those call sites would add hundreds of noisy comments for a real-typo-masking risk that's
+# genuinely low here (these tokens rarely appear as actual English words in this codebase's
+# comments). The longer, unambiguous multi-char domain acronyms (mape/lama/aci/coo/disjointness/
+# unparseable/compilability/etc.) stay global for the same reason the review itself endorsed: they
+# are never going to collide with a genuine typo anywhere in this codebase.
 
 # ---------------------------------------------------------------------------
 # Deptry (unused / missing / transitive dependency scan). Blocking since 2026-07-09 (see the CI
@@ -580,6 +598,48 @@ ignore-private = true
 exclude = ["tests", "scripts", "docs", "build", "dist", "**/_benchmarks/**", "**/benchmarks/**"]
 verbose = 1
 
+# ---------------------------------------------------------------------------
+# import-linter (architectural-boundary contracts). Added 2026-07-18 CI/CD architecture review --
+# advisory only (see .github/workflows/lint-advisory.yml / lint-advisory-warn pre-commit hook),
+# not blocking: only 1 contract exists so far, chosen because it's genuinely safe (verified 0
+# findings via a quick import-graph spot-check before adding) rather than a full layered-
+# architecture policy this codebase hasn't been designed against from the start. Run via
+# `lint-imports`.
+#
+# A "vendored third-party code stays isolated" contract was ATTEMPTED but dropped: grimp (the
+# graph library import-linter uses) never discovers leading-underscore SUBDIRECTORIES as packages
+# during its filesystem scan (confirmed: `_vendored/infonet` never appears in
+# `grimp.build_graph('mlframe').modules` even with an `__init__.py` added, while sibling
+# non-underscore subpackages like `filters.mrmr`/`filters.discretization` are found fine) -- a
+# grimp/import-linter tool limitation, not a config mistake. Revisit if a future grimp release
+# fixes underscore-directory discovery.
+# ---------------------------------------------------------------------------
+[tool.importlinter]
+root_packages = ["mlframe"]
+
+[[tool.importlinter.contracts]]
+name = "Kernel-sibling modules split off the 1k-LOC ceiling must not import back their facade"
+type = "forbidden"
+source_modules = [
+    "mlframe.feature_selection.filters._gpu_resident_select_kernels",
+    "mlframe.training.composite.provenance_formulas",
+]
+forbidden_modules = [
+    "mlframe.feature_selection.filters._gpu_resident_select",
+    "mlframe.training.composite.provenance",
+]
+# allow_indirect_imports=true restricts the check to DIRECT imports only: this is a flat, densely
+# cross-referenced package (everything transitively reaches almost everything else through
+# unrelated legitimate chains), so the default transitive check flagged real-but-irrelevant long
+# paths (e.g. kernels -> radix_ktc -> select -> ... -> composite -> provenance, none of which is
+# the sibling literally importing its own facade back). Only a genuine direct back-import is the
+# real circular-import risk the monolith-split pattern needs to avoid.
+allow_indirect_imports = true
+# Both siblings were carved out of an over-1k-LOC parent (CLAUDE.md's monolith-split convention)
+# specifically so the parent could re-export their names -- a back-import would create a real
+# circular-import risk the split was designed to avoid. Add each new facade/sibling pair here as
+# the monolith-split pattern is applied to more files.
+
 [tool.deptry.per_rule_ignores]
 # DEP002 (unused declared dependency): many optional extras are declared for callers who reach
 # the underlying package directly (or via a lazily-imported code path deptry's static scan can't
@@ -596,7 +656,7 @@ verbose = 1
 # GHSA comment next to each declaration in [project.optional-dependencies]/[build-system] above)
 # -- never imported directly by mlframe itself, by design.
 DEP002 = [
-    "catboost", "xgboost", "lightgbm", "torch", "pytorch-lightning", "cupy", "shap", "optuna",
+    "catboost", "xgboost", "lightgbm", "torch", "cupy", "shap", "optuna",
     "tqdm", "portalocker", "sentencepiece", "flaml", "altair", "hvplot", "vegafusion", "vl-convert-python", "ipywidgets",
     "sqlalchemy", "psycopg2-binary", "pymongo", "duckdb", "hdbscan",
     "nvidia-cuda-nvcc-cu12", "gpu-info", "cupy-cuda11x", "nvidia-cuda-nvcc-cu11",
@@ -604,6 +664,7 @@ DEP002 = [
     "pytest", "pytest-cov", "pytest-xdist", "pytest-timeout", "pytest-benchmark", "pytest-order",
     "pytest-randomly", "pytest-instafail", "pytest-progress", "pytest-split", "coverage", "freezegun",
     "ruff", "black", "mypy", "bandit", "pre-commit", "pip-audit",
+    "import-linter", "pydoclint", "semgrep",  # invoked as `lint-imports`/`pydoclint`/`semgrep` CLI commands, never imported
     "pillow", "setuptools", "tornado", "aiohttp", "cryptography", "starlette",
     "py-ci-shared",  # invoked as `python -m py_ci_shared.*` CLI/pre-commit-hook commands, never `import py_ci_shared`
 ]
@@ -618,6 +679,13 @@ DEP001 = [
     "powershap", "ngboost", "autogluon", "lightautoml", "quantile_forest", "sksurv", "tensorflow",
     "keras", "experiment_impact_tracker", "concepts", "gudhi", "loky", "mist_statinf",
     "infer", "model", "finance", "pyod",
+    # pytorch_lightning (2026-07-18, moved here from a stale DEP002 entry -- found via the new
+    # test_deptry_ignores_not_stale meta-test): this is genuinely a missing-declared-dep case, not
+    # unused-declared -- the package is deliberately NOT depended on (see the `lightning>=2.0`
+    # comment above; installing both invites version-skew), but 3 call sites still import it
+    # defensively as a legacy-name fallback, each guarded by `importlib.util.find_spec(...) is
+    # not None` + try/except.
+    "pytorch_lightning",
     # tests/-scoped additions (2026-07-17, when tests/ started being deptry-scanned separately via
     # `deptry . --exclude ... ` overriding the tests/ exclude below): LOCAL test-helper modules
     # imported by bare filename from a sibling file in the same tests/ subdirectory (e.g.
@@ -657,6 +725,12 @@ DEP003 = [
     # spacy's transitive engine, pydantic_core is pydantic's own transitive Rust core, tomli comes
     # in via a pytest-plugin's transitive chain, packaging is ubiquitous across the whole toolchain.
     "thinc", "pydantic_core", "tomli", "packaging",
+    # colorama (2026-07-17): numba's OWN transitive dependency (numba.core.errors uses it directly for
+    # warning-message highlighting) -- mlframe/__init__.py's _patch_colorama_reinit_storm imports it
+    # directly to fix a numba-side performance bug (see that function's docstring), but never NEEDS it
+    # installed independently of numba, which already guarantees its presence whenever the GPU path
+    # (the only place this patch runs) is reachable at all.
+    "colorama",
 ]
 
 # ---------------------------------------------------------------------------
@@ -695,9 +769,36 @@ target-version = "py39"
 exclude = ["tests", "scripts", ".git", "__pycache__", "build", "dist", "legacy", "benchmarks", "_benchmarks", "profiling"]
 
 [tool.ruff.lint]
+extend-select = [
+    "PD002",  # pandas inplace=True: real correctness footgun (silently no-ops on a view/copy in some
+              # pandas versions/configs). Added 2026-07-18; triaged to 0 findings -- every genuine
+              # inplace-on-caller's-object-by-identity call site got a documented # noqa, every plain
+              # local-var mutation got rewritten to `df = df.method(...)`. The rest of the PD (pandas-vet)
+              # category stays off: PD011 (.values, 115 hits) / PD013 (.stack) / PD003/PD009/PD010/PD101
+              # are stylistic-only on this codebase (no correctness delta found in a spot-check), not
+              # worth the mass-rewrite diff/review risk right now.
+]
+# SIM/RET/TRY (2026-07-18 architecture review suggestion) evaluated and NOT enabled this pass:
+# `ruff check --select SIM,RET,TRY` surfaces 3803 findings, 69% of them TRY003 (raise-vanilla-args)
+# -- confirmed noisy exactly as the review itself flagged ("TRY003 on long exception messages is
+# often noisy"), plus large stylistic-only categories (SIM108 if-else-block, RET505 superfluous-
+# else-return, TRY300 try-consider-else). The 6 RET503 (implicit-return) findings are genuinely
+# worth fixing (a function whose control flow can fall through without hitting `return` is a real
+# "did I mean to return None here" question) but each needs its actual ~100+-line body read to
+# place an explicit `return None` correctly, not a batch mechanical edit -- deferred as a real,
+# tracked follow-up rather than rushed. Revisit with a scoped triage pass (start with RET503/
+# TRY004/SIM101, the smallest and highest-signal codes) before considering broader adoption.
 extend-ignore = [
     "UP035",  # collections.abc import modernization: 640 hits, pure import-source churn, no correctness value
     "N815",   # mixedCase class-scope variable: flags domain-abbreviation names like cached_MIs (MIs = mutual-information values)
+    "NPY002", # legacy np.random.* over np.random.Generator: triaged 2026-07-18, all 15 findings are structurally
+              # load-bearing, not accidental -- numba njit kernels (Generator isn't nopython-mode compatible),
+              # utils.misc.set_random_seed's documented global-seed contract (relied on throughout the test
+              # suite), and screen.py's np.random.get_state/set_state snapshot-restore pattern (Generator has no
+              # equivalent global-state API). Migrating any of these changes the RNG's output STREAM even at an
+              # identical seed, silently invalidating every determinism-pinned test/fixture that depends on it --
+              # a real, not hypothetical, correctness risk from "fixing" this rule. NPY (all other subcategories,
+              # e.g. NPY201 deprecated-API removal) stays selected via ruff-base.toml; only NPY002 is ignored here.
 ]
 
 [tool.ruff.lint.mccabe]

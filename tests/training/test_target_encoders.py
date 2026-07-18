@@ -30,7 +30,6 @@ import pytest
 
 from mlframe.training.feature_handling import LeakageSafeEncoder
 
-
 # =====================================================================
 # 1. Headline leakage probe (round-3 T14)
 # =====================================================================
@@ -48,6 +47,7 @@ class TestLeakageProbe:
     """
 
     def test_oof_breaks_naive_memorisation(self):
+        """Oof breaks naive memorisation."""
         from sklearn.metrics import roc_auc_score
 
         rng = np.random.RandomState(0)
@@ -106,6 +106,7 @@ class TestLeakageProbe:
 
 @pytest.fixture
 def synthetic_train():
+    """Synthetic train."""
     rng = np.random.RandomState(0)
     n = 200
     cats = rng.choice(["A", "B", "C", "D", "E"], size=n)
@@ -114,6 +115,7 @@ def synthetic_train():
 
 
 class TestMethodShape:
+    """Groups tests covering method shape."""
     @pytest.mark.parametrize(
         "method",
         [
@@ -125,6 +127,7 @@ class TestMethodShape:
         ],
     )
     def test_fit_transform_returns_correct_shape(self, method, synthetic_train):
+        """Fit transform returns correct shape."""
         cats, y = synthetic_train
         enc = LeakageSafeEncoder(method=method, smoothing=5.0, cv=5, random_state=0)
         out = enc.fit_transform(cats, y)
@@ -141,6 +144,7 @@ class TestMethodShape:
         ],
     )
     def test_transform_returns_correct_shape(self, method, synthetic_train):
+        """Transform returns correct shape."""
         cats, y = synthetic_train
         enc = LeakageSafeEncoder(method=method, smoothing=5.0, cv=5, random_state=0)
         enc.fit(cats, y)
@@ -155,7 +159,9 @@ class TestMethodShape:
 
 
 class TestSmoothing:
+    """Groups tests covering smoothing."""
     def test_high_smoothing_pulls_toward_prior(self):
+        """High smoothing pulls toward prior."""
         cats = np.array(["A"] * 5 + ["B"] * 100)
         y = np.array([1.0] * 5 + [0.0] * 100)  # A has 100% pos, B has 0%
         prior = y.mean()  # 5/105 ~ 0.048
@@ -179,7 +185,9 @@ class TestSmoothing:
 
 
 class TestUnseenCategories:
+    """Groups tests covering unseen categories."""
     def test_unseen_at_transform_returns_prior(self, synthetic_train):
+        """Unseen at transform returns prior."""
         cats, y = synthetic_train
         enc = LeakageSafeEncoder(method="target_mean", smoothing=5.0, cv=3)
         enc.fit(cats, y)
@@ -188,6 +196,7 @@ class TestUnseenCategories:
         np.testing.assert_allclose(out, [prior, prior], atol=1e-9)
 
     def test_none_and_nan_share_a_category(self, synthetic_train):
+        """None and nan share a category."""
         cats, y = synthetic_train
         # Augment with None / NaN
         cats_with_nulls = np.concatenate([cats, np.array([None, float("nan"), None], dtype=object)])
@@ -206,7 +215,9 @@ class TestUnseenCategories:
 
 
 class TestReproducibility:
+    """Groups tests covering reproducibility."""
     def test_same_random_state_yields_identical_encodings(self, synthetic_train):
+        """Same random state yields identical encodings."""
         cats, y = synthetic_train
         enc1 = LeakageSafeEncoder(method="target_mean", smoothing=5.0, cv=5, random_state=42)
         enc2 = LeakageSafeEncoder(method="target_mean", smoothing=5.0, cv=5, random_state=42)
@@ -215,6 +226,7 @@ class TestReproducibility:
         np.testing.assert_array_equal(out1, out2)
 
     def test_different_random_state_different_encodings(self, synthetic_train):
+        """Different random state different encodings."""
         cats, y = synthetic_train
         enc1 = LeakageSafeEncoder(method="target_mean", smoothing=5.0, cv=5, random_state=0)
         enc2 = LeakageSafeEncoder(method="target_mean", smoothing=5.0, cv=5, random_state=999)
@@ -230,7 +242,9 @@ class TestReproducibility:
 
 
 class TestWoE:
+    """Groups tests covering wo e."""
     def test_woe_rejects_non_binary(self):
+        """Woe rejects non binary."""
         cats = np.array(["A", "B"] * 50)
         y_continuous = np.linspace(0, 10, 100)
         enc = LeakageSafeEncoder(method="woe", smoothing=1.0, cv=2)
@@ -238,6 +252,7 @@ class TestWoE:
             enc.fit(cats, y_continuous)
 
     def test_woe_binary_works(self):
+        """Woe binary works."""
         rng = np.random.RandomState(0)
         cats = np.array(["good", "bad"]).repeat(50)
         y = np.concatenate([np.ones(40), np.zeros(10), np.ones(5), np.zeros(45)])
@@ -255,19 +270,24 @@ class TestWoE:
 
 
 class TestValidation:
+    """Groups tests covering validation."""
     def test_invalid_method_raises(self):
+        """Invalid method raises."""
         with pytest.raises(ValueError, match="unknown method"):
             LeakageSafeEncoder(method="not_a_method")
 
     def test_cv_below_2_raises(self):
+        """Cv below 2 raises."""
         with pytest.raises(ValueError, match="cv must be >= 2"):
             LeakageSafeEncoder(method="target_mean", cv=1)
 
     def test_negative_smoothing_raises(self):
+        """Negative smoothing raises."""
         with pytest.raises(ValueError, match="smoothing must be >= 0"):
             LeakageSafeEncoder(method="target_mean", smoothing=-1.0)
 
     def test_x_y_length_mismatch_raises(self):
+        """X y length mismatch raises."""
         cats = np.array(["A", "B", "C"])
         y = np.array([0.0, 1.0])  # one too few
         enc = LeakageSafeEncoder(method="target_mean", cv=2)
@@ -275,6 +295,7 @@ class TestValidation:
             enc.fit(cats, y)
 
     def test_transform_before_fit_raises(self):
+        """Transform before fit raises."""
         enc = LeakageSafeEncoder(method="target_mean", cv=2)
         with pytest.raises(RuntimeError, match="before fit"):
             enc.transform(["A", "B"])

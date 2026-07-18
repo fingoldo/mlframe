@@ -32,6 +32,7 @@ def _numpy_reference(factors_data, idx_a, idx_b, nbins_a, nbins_b, classes_pair_
 
 
 def _make(n, nba, nbb, seed):
+    """Helper that make."""
     rng = np.random.default_rng(seed)
     fd = np.empty((n, 2), dtype=np.int32)
     fd[:, 0] = rng.integers(0, nba, n)
@@ -49,6 +50,7 @@ def _make(n, nba, nbb, seed):
 @pytest.mark.parametrize("n", [37, 600, 2407, 10000])
 @pytest.mark.parametrize("nba,nbb", [(10, 10), (20, 16), (3, 7), (1, 5)])
 def test_scatter_bit_identical_to_numpy(n, nba, nbb):
+    """Scatter bit identical to numpy."""
     fd, cls = _make(n, nba, nbb, seed=n * 97 + nba * 13 + nbb)
     ref = _numpy_reference(fd, 0, 1, nba, nbb, cls)
     got = _scatter_factorize_lookup(fd, 0, 1, nba, nbb, cls)
@@ -57,6 +59,7 @@ def test_scatter_bit_identical_to_numpy(n, nba, nbb):
 
 def test_build_factorize_lookup_unseen_codes_preserved():
     # Data covering only a subset of codes -> -1 sentinels must survive raise mode.
+    """Build factorize lookup unseen codes preserved."""
     fd, cls = _make(50, 10, 10, seed=1)
     lookup, _n_eff = _build_factorize_lookup(
         factors_data=fd,
@@ -75,6 +78,7 @@ def test_build_factorize_lookup_unseen_codes_preserved():
 def test_scatter_last_write_wins_on_duplicate_codes():
     # Two rows share code (a=2,b=3) but carry different post-prune classes;
     # numpy fancy-index and the njit loop both keep the LAST row's value.
+    """Scatter last write wins on duplicate codes."""
     fd = np.array([[2, 3], [2, 3], [4, 1]], dtype=np.int32)
     cls = np.array([5, 9, 1], dtype=np.int32)  # row1 (=9) must win for code 2+3*10
     ref = _numpy_reference(fd, 0, 1, 10, 10, cls)

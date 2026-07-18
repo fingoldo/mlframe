@@ -14,11 +14,13 @@ import pytest
 
 
 def _make_tiny_df(n=200):
+    """Builds a tiny two-column numeric frame with no timestamp column, for the backward-split downgrade-warning test."""
     return pd.DataFrame({"x": np.arange(n, dtype=np.float32), "y": np.arange(n, dtype=np.float32)})
 
 
 @pytest.mark.fast
 def test_backward_without_timestamps_warns(caplog):
+    """Requesting a backward split with no timestamp column emits a WARNING as it downgrades to a non-temporal split."""
     from mlframe.training.splitting import make_train_test_split
 
     df = _make_tiny_df()

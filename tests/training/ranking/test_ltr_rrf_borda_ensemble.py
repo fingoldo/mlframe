@@ -101,36 +101,43 @@ def test_ltr_ensemble_method_rejects_unknown():
 
 
 def test_rrf_fuse_rejects_empty_list():
+    """Rrf fuse rejects empty list."""
     with pytest.raises(ValueError, match="empty"):
         rrf_fuse([])
 
 
 def test_rrf_fuse_rejects_nonpositive_k():
+    """Rrf fuse rejects nonpositive k."""
     with pytest.raises(ValueError, match="must be > 0"):
         rrf_fuse([np.array([1, 2])], k=0)
 
 
 def test_rrf_fuse_rejects_nonpositive_ranks():
+    """Rrf fuse rejects nonpositive ranks."""
     with pytest.raises(ValueError, match="non-positive ranks"):
         rrf_fuse([np.array([0, 1, 2])])
 
 
 def test_rrf_fuse_rejects_shape_mismatch():
+    """Rrf fuse rejects shape mismatch."""
     with pytest.raises(ValueError, match="shape"):
         rrf_fuse([np.array([1, 2]), np.array([1, 2, 3])])
 
 
 def test_borda_fuse_rejects_empty():
+    """Borda fuse rejects empty."""
     with pytest.raises(ValueError, match="empty"):
         borda_fuse([])
 
 
 def test_borda_fuse_rejects_nonpositive_ranks():
+    """Borda fuse rejects nonpositive ranks."""
     with pytest.raises(ValueError, match="non-positive ranks"):
         borda_fuse([np.array([0, 1])])
 
 
 def test_borda_fuse_rejects_group_sizes_shape_mismatch():
+    """Borda fuse rejects group sizes shape mismatch."""
     with pytest.raises(ValueError, match="group_sizes shape"):
         borda_fuse([np.array([1, 2, 3])], group_sizes=np.array([3, 3]))
 

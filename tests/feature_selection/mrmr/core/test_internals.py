@@ -35,7 +35,6 @@ from mlframe.feature_selection.filters import (
 )
 from mlframe.feature_selection.filters.permutation import parallel_mi_prange
 
-
 # =============================================================================
 # arr2str (B12 silent correctness regression)
 # =============================================================================
@@ -51,11 +50,13 @@ class TestArr2StrCollisions:
     """
 
     def test_distinct_multisets_yield_distinct_keys(self):
+        """Distinct multisets yield distinct keys."""
         a = arr2str(np.array([1, 11], dtype=np.int64))
         b = arr2str(np.array([1, 1, 1], dtype=np.int64))
         assert a != b, f"collision: arr2str([1,11])={a!r} == arr2str([1,1,1])={b!r}"
 
     def test_arr2str_deterministic(self):
+        """Arr2str deterministic."""
         a = arr2str(np.array([3, 1, 2], dtype=np.int64))
         b = arr2str(np.array([3, 1, 2], dtype=np.int64))
         assert a == b
@@ -71,6 +72,7 @@ class TestMiDirect:
 
     @pytest.fixture
     def factor_data(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Factor data."""
         rng = np.random.default_rng(42)
         n = 1000
         # Dependent x->y; mi should be > 0.
@@ -83,6 +85,7 @@ class TestMiDirect:
         return a, b, factors, nbins
 
     def test_mi_direct_dependent_returns_positive(self, factor_data):
+        """Mi direct dependent returns positive."""
         _a, _b, factors, nbins = factor_data
         original_mi, conf = mi_direct(
             factors_data=factors,
@@ -96,6 +99,7 @@ class TestMiDirect:
         assert 0 <= conf <= 1
 
     def test_mi_direct_independent_returns_low_or_zero(self):
+        """Mi direct independent returns low or zero."""
         rng = np.random.default_rng(123)
         n = 1000
         a = rng.integers(0, 5, size=n).astype(np.int32)
@@ -143,6 +147,7 @@ class TestPhase1PrangeReproducibility:
 
     @pytest.fixture
     def perm_data(self):
+        """Perm data."""
         rng = np.random.default_rng(0)
         n = 2000
         cx = rng.integers(0, 4, size=n).astype(np.int32)
@@ -152,12 +157,14 @@ class TestPhase1PrangeReproducibility:
         return cx, fx, cy, fy
 
     def test_parallel_mi_prange_deterministic(self, perm_data):
+        """Parallel mi prange deterministic."""
         cx, fx, cy, fy = perm_data
         a = parallel_mi_prange(cx, fx, cy, fy, npermutations=50, original_mi=0.5, base_seed=np.uint64(42))
         b = parallel_mi_prange(cx, fx, cy, fy, npermutations=50, original_mi=0.5, base_seed=np.uint64(42))
         assert a == b, f"non-deterministic: {a} vs {b}"
 
     def test_parallel_mi_prange_different_seeds_diverge(self, perm_data):
+        """Parallel mi prange different seeds diverge."""
         cx, fx, cy, fy = perm_data
         # original_mi=0.001 -- small enough that random permutations can
         # exceed it on a shuffle that happens to be slightly correlated.
@@ -168,13 +175,16 @@ class TestPhase1PrangeReproducibility:
         assert a != b, f"expected divergence on different seeds: {a} vs {b}"
 
     def test_parallel_mi_prange_zero_permutations(self, perm_data):
+        """Parallel mi prange zero permutations."""
         cx, fx, cy, fy = perm_data
         nfailed, nchecked = parallel_mi_prange(cx, fx, cy, fy, npermutations=0, original_mi=0.5, base_seed=np.uint64(1))
         assert nfailed == 0 and nchecked == 0
 
 
 class TestParallelMi:
+    """Groups tests covering TestParallelMi."""
     def test_parallel_mi_zero_permutations_no_crash(self):
+        """Parallel mi zero permutations no crash."""
         rng = np.random.default_rng(7)
         n = 100
         cx = rng.integers(0, 3, size=n).astype(np.int32)
@@ -200,17 +210,20 @@ class TestParallelMi:
 
 
 class TestDistributePermutations:
+    """Groups tests covering TestDistributePermutations."""
     @pytest.mark.parametrize(
         "n,workers",
         [(10, 4), (100, 4), (1, 1), (5, 5), (100, 1)],
     )
     def test_workload_sums_to_n(self, n, workers):
+        """Workload sums to n."""
         wl = distribute_permutations(n, workers)
         assert sum(wl) == n
         assert len(wl) == workers
 
     def test_workload_balance_extreme_remainder(self):
         # 11 permutations across 4 workers: 2,2,2,5 (last absorbs extra) or similar.
+        """Workload balance extreme remainder."""
         wl = distribute_permutations(11, 4)
         assert sum(wl) == 11
         assert len(wl) == 4
@@ -224,7 +237,9 @@ class TestDistributePermutations:
 
 
 class TestMergeVars:
+    """Groups tests covering TestMergeVars."""
     def test_single_var_round_trips(self):
+        """Single var round trips."""
         rng = np.random.default_rng(0)
         n = 500
         a = rng.integers(0, 4, size=n).astype(np.int32)
@@ -241,6 +256,7 @@ class TestMergeVars:
         assert np.isclose(freqs.sum(), 1.0, atol=1e-6)
 
     def test_two_var_merge_yields_higher_cardinality(self):
+        """Two var merge yields higher cardinality."""
         rng = np.random.default_rng(1)
         n = 1000
         a = rng.integers(0, 3, size=n).astype(np.int32)
@@ -270,7 +286,9 @@ class TestMergeVars:
 
 
 class TestComputeMiFromClasses:
+    """Groups tests covering TestComputeMiFromClasses."""
     def test_mi_self_equals_entropy(self):
+        """Mi self equals entropy."""
         rng = np.random.default_rng(5)
         n = 1000
         a = rng.integers(0, 5, size=n).astype(np.int32)
@@ -280,6 +298,7 @@ class TestComputeMiFromClasses:
         assert np.isclose(mi_self, h, rtol=1e-9)
 
     def test_mi_independent_near_zero(self):
+        """Mi independent near zero."""
         rng = np.random.default_rng(10)
         n = 5000
         a = rng.integers(0, 4, size=n).astype(np.int32)
@@ -296,7 +315,9 @@ class TestComputeMiFromClasses:
 
 
 class TestDiscretizeArray:
+    """Groups tests covering TestDiscretizeArray."""
     def test_uniform_method_smoke(self):
+        """Uniform method smoke."""
         rng = np.random.default_rng(0)
         x = rng.normal(size=2000).astype(np.float64)
         out = discretize_array(arr=x, n_bins=10, method="uniform", dtype=np.int32)
@@ -306,6 +327,7 @@ class TestDiscretizeArray:
         assert out.max() < 10
 
     def test_quantile_method_smoke(self):
+        """Quantile method smoke."""
         rng = np.random.default_rng(0)
         x = rng.normal(size=2000).astype(np.float64)
         out = discretize_array(arr=x, n_bins=10, method="quantile", dtype=np.int32)
@@ -331,7 +353,9 @@ class TestDiscretizeArray:
 
 
 class TestCategorizeDataset:
+    """Groups tests covering TestCategorizeDataset."""
     def test_pandas_numeric_smoke(self):
+        """Pandas numeric smoke."""
         rng = np.random.default_rng(0)
         df = pd.DataFrame({f"f_{i}": rng.normal(size=500) for i in range(5)})
         cat, cols, nbins = categorize_dataset(df=df, n_bins=8, method="quantile")
@@ -347,13 +371,16 @@ class TestCategorizeDataset:
 
 
 class TestMrmrPickle:
+    """Groups tests covering TestMrmrPickle."""
     def test_unfitted_pickle_round_trip(self):
+        """Unfitted pickle round trip."""
         m = MRMR(quantization_nbins=8, n_jobs=1, verbose=0)
         blob = pickle.dumps(m)
         m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert m2.quantization_nbins == 8
 
     def test_fitted_pickle_round_trip_smoke(self):
+        """Fitted pickle round trip smoke."""
         rng = np.random.default_rng(0)
         n, p = 200, 10
         X = pd.DataFrame(rng.normal(size=(n, p)), columns=[f"f_{i}" for i in range(p)])
@@ -379,10 +406,13 @@ class TestMrmrPickle:
 
 
 class TestEntropyEdges:
+    """Groups tests covering TestEntropyEdges."""
     def test_single_bin_entropy_zero(self):
+        """Single bin entropy zero."""
         freqs = np.array([1.0])
         assert entropy(freqs) == 0.0
 
     def test_two_bin_uniform_entropy_ln2(self):
+        """Two bin uniform entropy ln2."""
         freqs = np.array([0.5, 0.5])
         assert math.isclose(entropy(freqs), math.log(2), rel_tol=1e-9)

@@ -20,11 +20,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # -------------------- ShapProxiedFS / compute_shap_matrix --------------------
 
 
 def _make_clf_data(n=200, f=12, seed=0):
+    """Make clf data."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, f)).astype(np.float64)
     # Linear signal on first 3 columns + noise.

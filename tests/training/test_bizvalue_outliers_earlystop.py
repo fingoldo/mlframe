@@ -1,5 +1,3 @@
-from mlframe.training import OutlierDetectionConfig, OutputConfig
-
 """Business-value integration tests for mlframe outlier detection and early stopping.
 
 NOTE: These are regression sensors, not scientific benchmarks. Synthetic data parameters
@@ -16,6 +14,9 @@ test set (RMSE / AUROC computed manually on out-of-suite hold-out, since the sui
 not surface a clean post-fit test metric in returned metadata).
 """
 
+from mlframe.training import OutlierDetectionConfig, OutputConfig
+
+
 import os
 import time
 import numpy as np
@@ -28,7 +29,6 @@ from sklearn.metrics import mean_squared_error, roc_auc_score
 from mlframe.training.core import train_mlframe_models_suite, predict_mlframe_models_suite
 from .shared import SimpleFeaturesAndTargetsExtractor
 from tests.conftest import fast_subset
-
 
 # --------------------------------------------------------------------------------------
 # Helpers
@@ -104,6 +104,7 @@ def _make_classification(n_train=3000, n_test=600, n_features=15, seed=42, noise
 
 
 def _train_and_score_regression(train_df, test_df, tmp_path, *, model_name, outlier_detector, common_init_params, iterations=100):
+    """Train and score regression."""
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
     data_dir = str(tmp_path / "data" / model_name)
     _models, metadata = train_mlframe_models_suite(
@@ -160,6 +161,7 @@ def _n_trees_trained(models_path, mlframe_model):
 
 
 def _train_and_score_classification(train_df, test_df, tmp_path, *, model_name, iterations, early_stopping_rounds, common_init_params, mlframe_model="lgb"):
+    """Train and score classification."""
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     data_dir = str(tmp_path / "data" / model_name)
     hp = {"iterations": iterations, "early_stopping_rounds": early_stopping_rounds}
@@ -214,6 +216,7 @@ _OD_LIFT_SEED = 42
 
 
 def test_outlier_detection_improves_regression_rmse(tmp_path, common_init_params):
+    """Outlier detection improves regression rmse."""
     pytest.importorskip("lightgbm")
     pytest.importorskip("sklearn")
 
@@ -258,6 +261,7 @@ def test_outlier_detection_improves_regression_rmse(tmp_path, common_init_params
 
 @pytest.mark.parametrize("seed", fast_subset([42, 7, 99], representative=42))
 def test_outlier_detection_surfaces_metadata(tmp_path, common_init_params, seed):
+    """Outlier detection surfaces metadata."""
     pytest.importorskip("lightgbm")
     pytest.importorskip("sklearn")
 
@@ -290,6 +294,7 @@ def test_outlier_detection_surfaces_metadata(tmp_path, common_init_params, seed)
 @pytest.mark.parametrize("seed", fast_subset([42, 7, 99], representative=42))
 @pytest.mark.parametrize("mlframe_model", fast_subset(["lgb", "cb", "xgb"], representative="lgb"))
 def test_early_stopping_saves_time_without_auroc_loss(tmp_path, common_init_params, seed, mlframe_model):
+    """Early stopping saves time without auroc loss."""
     pytest.importorskip({"lgb": "lightgbm", "cb": "catboost", "xgb": "xgboost"}[mlframe_model])
 
     # Time the suite with the expensive diagnostics OFF. shap/pdp/slice-finder/calibration-drift/

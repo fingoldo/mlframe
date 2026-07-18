@@ -21,6 +21,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _no_fe(**kw):
+    """No fe."""
     base = dict(
         random_seed=0,
         verbose=0,
@@ -42,6 +43,7 @@ def _no_fe(**kw):
 
 
 def _data(n=600, seed=7):
+    """Helper that data."""
     rng = np.random.default_rng(seed)
     x0 = rng.normal(size=n)
     x1 = rng.normal(size=n)
@@ -60,6 +62,7 @@ def _data(n=600, seed=7):
 
 
 def _selected_names(m):
+    """Selected names."""
     return [str(m.feature_names_in_[i]) for i in np.sort(np.asarray(m.support_, dtype=np.intp))]
 
 

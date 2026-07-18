@@ -42,9 +42,8 @@ def preprocess_glue(glue, head=None):
     if head is not None:
         glue = glue.head(head)
 
-    glue.rename(
+    glue = glue.rename(
         {"BERT: 24-layers, 16-heads, 1024-hidden": "BERT 24-layers, 16-heads, 1024-hidden"},
-        inplace=True,
     )
 
     return glue, glue_weights

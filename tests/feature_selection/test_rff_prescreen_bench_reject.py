@@ -51,6 +51,7 @@ def _discretize(X, nb=8):
 
 
 def _discretize_1d(col, nb=8):
+    """Discretize 1d."""
     qs = np.quantile(col, np.linspace(0, 1, nb + 1)[1:-1])
     codes = np.searchsorted(qs, col, side="right")
     uniq = np.unique(codes)
@@ -59,6 +60,7 @@ def _discretize_1d(col, nb=8):
 
 
 def _y_classes(y_cont, nb=8):
+    """Y classes."""
     c, k = _discretize_1d(y_cont, nb)
     n = c.shape[0]
     fy = np.bincount(c.astype(np.int64), minlength=k).astype(np.float64) / n
@@ -72,6 +74,7 @@ def _joint_mi(D, nbins, i, j, yc, fy):
 
 
 def _marginal_mi(D, nbins, j, yc, fy):
+    """Marginal mi."""
     cl, fx, _ = merge_vars(D, np.array([j]), None, nbins, dtype=np.int64)
     return compute_mi_from_classes(cl.astype(np.int64), fx, yc, fy)
 
@@ -85,7 +88,9 @@ def _marginal_mi(D, nbins, j, yc, fy):
 
 
 class TestJointMISweepHasNoBlindSpot:
+    """Groups tests covering TestJointMISweepHasNoBlindSpot."""
     def _sweep_rank(self, X, y_cont, needle, *, extra_pairs=400, seed=0):
+        """Sweep rank."""
         rng = np.random.default_rng(seed)
         _n, p = X.shape
         D, nbins = _discretize(X, nb=8)
@@ -108,6 +113,7 @@ class TestJointMISweepHasNoBlindSpot:
         return ranked.index(tuple(needle)), dict(scored), (D, nbins, yc, fy)
 
     def test_joint_mi_sweep_recovers_zero_marginal_product(self):
+        """Joint mi sweep recovers zero marginal product."""
         rng = np.random.default_rng(1)
         n, p = 1500, 120
         X = rng.standard_normal((n, p))
@@ -122,6 +128,7 @@ class TestJointMISweepHasNoBlindSpot:
     def test_joint_mi_sweep_recovers_smooth_interaction(self):
         # The RFF "smooth-interaction sweet spot" claim: the joint-MI sweep ALSO recovers
         # ``sin(x_a*x_b)`` as the rank-0 pair, so RFF has no exclusive smooth-interaction win.
+        """Joint mi sweep recovers smooth interaction."""
         rng = np.random.default_rng(2)
         n, p = 1500, 120
         X = rng.standard_normal((n, p))
@@ -146,10 +153,12 @@ class TestJointMISweepHasNoBlindSpot:
 
 
 class TestRandomSupportCoverageIsTheWall:
+    """Groups tests covering TestRandomSupportCoverageIsTheWall."""
     def test_specific_needle_hit_probability_is_R_over_Cp2(self):
         # Closed-form hit probability of a FIXED size-2 support among R random size-2 draws,
         # validated against a quick empirical estimate. This is the quantity that makes #9
         # coverage-bound for a localized needle.
+        """Specific needle hit probability is R over Cp2."""
         p = 500
         Cp2 = math.comb(p, 2)
         for R in (2000, 16000):
@@ -173,15 +182,16 @@ class TestRandomSupportCoverageIsTheWall:
                     break  # already clearly tiny; don't burn the full 3000 on a ~1% event
             emp = hits / max(1, (_ + 1))
             # analytic must be in the expected small-coverage regime AND match empirical loosely.
-            assert analytic < 0.13, (
-                f"R={R}: specific-needle hit prob {analytic:.3f} should be small (<0.13) at p={p} -- random supports cannot guarantee localized-needle recall"
-            )
+            assert (
+                analytic < 0.13
+            ), f"R={R}: specific-needle hit prob {analytic:.3f} should be small (<0.13) at p={p} -- random supports cannot guarantee localized-needle recall"
             assert abs(emp - analytic) < 0.05, f"R={R}: empirical hit rate {emp:.3f} disagrees with analytic {analytic:.3f}"
 
     def test_full_coverage_requires_enumerating_all_pairs(self):
         # 0.95 recall of ONE specific needle needs R ~ C(p,2)*ln(20) random draws -- i.e. MORE than
         # the full enumeration the direct joint-MI sweep does deterministically. This is the
         # quantitative statement of "random-support prescreen buys nothing for a localized needle".
+        """Full coverage requires enumerating all pairs."""
         p = 500
         Cp2 = math.comb(p, 2)
         R_for_95 = Cp2 * math.log(20.0)  # solve 1-(1-1/Cp2)^R = 0.95

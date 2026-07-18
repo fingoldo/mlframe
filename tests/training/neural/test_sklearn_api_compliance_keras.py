@@ -17,6 +17,7 @@ from mlframe.training.neural.keras_compat import KerasCompatibleMLP
 
 def test_sk5_constructs_without_tf_and_no_learned_attr_in_init():
     # Must not raise even when TF is unavailable.
+    """Sk5 constructs without tf and no learned attr in init."""
     est = KerasCompatibleMLP()
     # __init__ must not set the learned attr (trailing-underscore convention).
     assert not hasattr(est, "model_")
@@ -26,6 +27,7 @@ def test_sk5_constructs_without_tf_and_no_learned_attr_in_init():
 
 
 def test_sk5_fit_raises_clear_error_when_tf_absent():
+    """Sk5 fit raises clear error when tf absent."""
     if keras_compat._HAS_TF:
         pytest.skip("tensorflow installed; the missing-TF fit error path is not exercised here")
     est = KerasCompatibleMLP()

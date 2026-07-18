@@ -20,6 +20,7 @@ from mlframe.training.composite.dual_direction import DualDirectionCompositeEsti
 
 
 def _make_shape_scale_dataset(n: int, seed: int, scale_noise: float = 0.0):
+    """Make shape scale dataset."""
     rng = np.random.default_rng(seed)
     x1 = rng.uniform(0, 1, n)
     x2 = rng.uniform(0, 1, n)
@@ -35,6 +36,7 @@ def _make_shape_scale_dataset(n: int, seed: int, scale_noise: float = 0.0):
 
 
 def test_biz_val_dual_direction_beats_single_linear_model_on_multiplicative_target():
+    """Biz val dual direction beats single linear model on multiplicative target."""
     df, y, scale = _make_shape_scale_dataset(n=3000, seed=0)
     df_train, df_test, y_train, y_test, scale_train, _ = train_test_split(df, y, scale, test_size=0.3, random_state=0)
 
@@ -45,12 +47,13 @@ def test_biz_val_dual_direction_beats_single_linear_model_on_multiplicative_targ
     dual.fit(df_train, y_train, scale_train)
     rmse_dual = float(mean_squared_error(y_test, dual.predict(df_test)) ** 0.5)
 
-    assert rmse_dual < rmse_baseline * 0.5, (
-        f"expected the dual-direction estimator to cut RMSE by >=50% vs a single linear model on the multiplicative target, got dual={rmse_dual:.4f} baseline={rmse_baseline:.4f}"
-    )
+    assert (
+        rmse_dual < rmse_baseline * 0.5
+    ), f"expected the dual-direction estimator to cut RMSE by >=50% vs a single linear model on the multiplicative target, got dual={rmse_dual:.4f} baseline={rmse_baseline:.4f}"
 
 
 def test_dual_direction_predict_scale_returns_reasonable_scale_estimate():
+    """Dual direction predict scale returns reasonable scale estimate."""
     df, y, scale = _make_shape_scale_dataset(n=2000, seed=1)
     df_train, df_test, y_train, _, scale_train, scale_test = train_test_split(df, y, scale, test_size=0.3, random_state=1)
 
@@ -63,6 +66,7 @@ def test_dual_direction_predict_scale_returns_reasonable_scale_estimate():
 
 
 def test_dual_direction_predict_before_fit_raises():
+    """Dual direction predict before fit raises."""
     import pytest
 
     df, _, _ = _make_shape_scale_dataset(n=10, seed=2)
@@ -87,15 +91,15 @@ def test_biz_val_dual_direction_oof_scale_score_diagnoses_weak_vs_strong_scale_r
         dual_noisy = DualDirectionCompositeEstimator(scale_estimator=Ridge(), shape_estimator=Ridge(), n_splits=5, random_state=0)
         dual_noisy.fit(df_noisy, y_noisy, scale_noisy)
 
-        assert dual_clean.oof_scale_score_ > 0.99, (
-            f"seed={seed}: expected the clean scale relationship's OOF R^2 to read near-perfect, got {dual_clean.oof_scale_score_:.4f}"
-        )
-        assert dual_noisy.oof_scale_score_ < 0.05, (
-            f"seed={seed}: expected the noise-drowned scale relationship's OOF R^2 to read low/negative, got {dual_noisy.oof_scale_score_:.4f}"
-        )
-        assert dual_clean.oof_scale_score_ - dual_noisy.oof_scale_score_ > 0.9, (
-            f"seed={seed}: expected oof_scale_score_ to clearly separate the two variants, got clean={dual_clean.oof_scale_score_:.4f} noisy={dual_noisy.oof_scale_score_:.4f}"
-        )
+        assert (
+            dual_clean.oof_scale_score_ > 0.99
+        ), f"seed={seed}: expected the clean scale relationship's OOF R^2 to read near-perfect, got {dual_clean.oof_scale_score_:.4f}"
+        assert (
+            dual_noisy.oof_scale_score_ < 0.05
+        ), f"seed={seed}: expected the noise-drowned scale relationship's OOF R^2 to read low/negative, got {dual_noisy.oof_scale_score_:.4f}"
+        assert (
+            dual_clean.oof_scale_score_ - dual_noisy.oof_scale_score_ > 0.9
+        ), f"seed={seed}: expected oof_scale_score_ to clearly separate the two variants, got clean={dual_clean.oof_scale_score_:.4f} noisy={dual_noisy.oof_scale_score_:.4f}"
 
         # oof_scale_predictions_ / shape_transform_target_ are aligned to the training row order and finite
         # wherever the scale prediction is positive (guaranteed here since true scale is always > 0).
@@ -105,6 +109,7 @@ def test_biz_val_dual_direction_oof_scale_score_diagnoses_weak_vs_strong_scale_r
 
 
 def test_dual_direction_rejects_misaligned_inputs():
+    """Dual direction rejects misaligned inputs."""
     import pytest
 
     df, y, scale = _make_shape_scale_dataset(n=50, seed=3)

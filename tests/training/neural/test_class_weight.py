@@ -65,6 +65,7 @@ def imbalanced_binary_data():
 
 
 def _classifier_params(class_weight=None, random_state=0):
+    """Classifier params."""
     return {
         "model_class": MLPTorchModel,
         "model_params": {

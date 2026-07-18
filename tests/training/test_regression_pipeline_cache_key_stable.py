@@ -14,6 +14,7 @@ from mlframe.training.core._setup_helpers_pipeline_cache import pipeline_json_ca
 
 
 def test_pipeline_cache_key_is_content_only_not_builtin_hash():
+    """Pipeline cache key is content only not builtin hash."""
     js = '{"steps": [{"name": "yeo_johnson"}, {"name": "ordinal_encode"}]}'
     # Stable across calls in the same process.
     assert pipeline_json_cache_key(js) == pipeline_json_cache_key(js)
