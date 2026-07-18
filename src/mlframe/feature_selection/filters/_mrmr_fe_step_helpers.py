@@ -510,7 +510,26 @@ def run_cluster_aggregate_emission(
     """
     if getattr(self, "cluster_aggregate_enable", False) and num_fs_steps == 0:
         try:
-            from ._cluster_aggregate import run_cluster_aggregate_step
+            from ._cluster_aggregate import (
+                CLUSTER_AGGREGATE_CORR_THRESHOLD_DEFAULT,
+                CLUSTER_AGGREGATE_HOMOGENEITY_TAU_DEFAULT,
+                _kernel_tuning_cache_lookup_cluster_threshold,
+                run_cluster_aggregate_step,
+            )
+
+            # kernel_tuning_cache-route the two threshold knobs when the user left them at the
+            # package default (explicit user overrides always win) -- docs backlog: "kernel_tuning_
+            # cache for cluster thresholds", mirroring the DCD layer's existing pattern.
+            _corr_threshold = self.cluster_aggregate_corr_threshold
+            if _corr_threshold == CLUSTER_AGGREGATE_CORR_THRESHOLD_DEFAULT:
+                _corr_threshold = _kernel_tuning_cache_lookup_cluster_threshold(
+                    "cluster_aggregate_corr_threshold", data, CLUSTER_AGGREGATE_CORR_THRESHOLD_DEFAULT
+                )
+            _homogeneity_tau = self.cluster_aggregate_homogeneity_tau
+            if _homogeneity_tau == CLUSTER_AGGREGATE_HOMOGENEITY_TAU_DEFAULT:
+                _homogeneity_tau = _kernel_tuning_cache_lookup_cluster_threshold(
+                    "cluster_aggregate_homogeneity_tau", data, CLUSTER_AGGREGATE_HOMOGENEITY_TAU_DEFAULT
+                )
 
             data, cols, nbins, X, _ca_added, _ca_removed, _ca_indices, _ca_summary = run_cluster_aggregate_step(
                 data=data, cols=cols, nbins=nbins, X=X, target_indices=target_indices,
@@ -523,8 +542,8 @@ def run_cluster_aggregate_emission(
                 min_member_relevance=self.cluster_aggregate_min_member_relevance,
                 min_cluster_size=self.cluster_aggregate_min_cluster_size,
                 max_cluster_size=self.cluster_aggregate_max_cluster_size,
-                corr_threshold=self.cluster_aggregate_corr_threshold,
-                homogeneity_tau=self.cluster_aggregate_homogeneity_tau,
+                corr_threshold=_corr_threshold,
+                homogeneity_tau=_homogeneity_tau,
                 max_candidates=self.cluster_aggregate_max_candidates,
                 mode=self.cluster_aggregate_mode, is_polars_input=_is_polars_input,
                 verbose=verbose, dtype=self.dtype,
