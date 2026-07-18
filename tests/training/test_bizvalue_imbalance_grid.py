@@ -48,7 +48,6 @@ from mlframe.training.core import train_mlframe_models_suite, predict_mlframe_mo
 from mlframe.training.grid import run_grid
 from .shared import SimpleFeaturesAndTargetsExtractor
 
-
 # --------------------------------------------------------------------------------------
 # Data builders
 # --------------------------------------------------------------------------------------

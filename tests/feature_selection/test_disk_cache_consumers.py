@@ -20,7 +20,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # -------------------- ShapProxiedFS / compute_shap_matrix --------------------
 
 

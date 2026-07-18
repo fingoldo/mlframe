@@ -27,7 +27,6 @@ from mlframe.training.neural import (
 )
 from mlframe.training.neural.flat import _BoundedTanhOutput, generate_mlp
 
-
 # --- F-37: BoundedTanh no longer branches on is_cuda -------------------------
 
 

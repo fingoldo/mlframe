@@ -36,9 +36,9 @@ def test_early_return_is_four_tuple_with_frames_passed_through():
         val_df="VAL",
         test_df="TEST",
     )
-    assert isinstance(out, tuple) and len(out) == 4, (
-        f"_run_target_distribution_analyzer must return a 4-tuple (hyperparams_config, train_df, val_df, test_df); got {out!r}"
-    )
+    assert (
+        isinstance(out, tuple) and len(out) == 4
+    ), f"_run_target_distribution_analyzer must return a 4-tuple (hyperparams_config, train_df, val_df, test_df); got {out!r}"
     hp, tr, va, te = out
     assert hp is sentinel, "hyperparams_config must pass through unchanged"
     assert (tr, va, te) == ("TRAIN", "VAL", "TEST"), "train/val/test frames must pass through unchanged when the analyzer is off"

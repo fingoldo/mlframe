@@ -109,6 +109,6 @@ def test_AP2_finite_mask_skips_internal_isfinite_when_supplied(monkeypatch, name
     threaded_calls = counter["calls"]
 
     assert baseline_calls > 0, f"{name}: baseline made zero isfinite calls; test is degenerate"
-    assert threaded_calls < baseline_calls, (
-        f"{name}: expected fewer isfinite calls when _finite_mask supplied (baseline={baseline_calls}, with_mask={threaded_calls})"
-    )
+    assert (
+        threaded_calls < baseline_calls
+    ), f"{name}: expected fewer isfinite calls when _finite_mask supplied (baseline={baseline_calls}, with_mask={threaded_calls})"

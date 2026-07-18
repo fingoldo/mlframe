@@ -276,9 +276,9 @@ class TestDCDDuplicateDecoyPruning:
         # over-pruning to noise (or nothing) collapses the AUC.
         auc_sel = _selected_auc(sel, X, y)
         auc_base = _two_col_auc(X, y)
-        assert auc_sel >= auc_base - 0.04, (
-            f"DCD over-pruned: surviving selection lost the signal; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}, support={names}"
-        )
+        assert (
+            auc_sel >= auc_base - 0.04
+        ), f"DCD over-pruned: surviving selection lost the signal; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}, support={names}"
 
 
 class TestDecoySeedRobustness:
@@ -305,9 +305,9 @@ class TestDecoySeedRobustness:
         # (only noise selected) drops the AUC below the band.
         auc_sel = _selected_auc(sel, X, y)
         auc_base = _two_col_auc(X, y)
-        assert auc_sel >= auc_base - 0.04, (
-            f"seed={seed}: de-duplicated selection lost the signal; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}, support={names}"
-        )
+        assert (
+            auc_sel >= auc_base - 0.04
+        ), f"seed={seed}: de-duplicated selection lost the signal; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}, support={names}"
 
     @pytest.mark.parametrize("noise_scale", [0.1, 0.25, 0.5, 1.0])
     def test_clean_components_survive_across_decoy_noise(self, noise_scale):
@@ -328,6 +328,6 @@ class TestDecoySeedRobustness:
         # Falsifiable: a noise level where the signal is lost drops the AUC.
         auc_sel = _selected_auc(sel, X, y)
         auc_base = _two_col_auc(X, y)
-        assert auc_sel >= auc_base - 0.04, (
-            f"noise_scale={noise_scale}: de-duplicated selection lost the signal; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}, support={names}"
-        )
+        assert (
+            auc_sel >= auc_base - 0.04
+        ), f"noise_scale={noise_scale}: de-duplicated selection lost the signal; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}, support={names}"

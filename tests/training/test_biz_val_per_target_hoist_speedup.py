@@ -26,7 +26,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 NOISE_PCT_FLOOR = 25.0  # Post-fix wall-time may not exceed pre-fix by >25%.
 
 
@@ -131,6 +130,6 @@ def test_per_target_hoist_does_not_regress_wall_time():
 
     overhead_pct = 100.0 * (t_post - t_pre) / t_pre
     print(f"[biz_val per-target hoist] pre={t_pre:.2f}s post={t_post:.2f}s overhead={overhead_pct:+.1f}% (floor: <={NOISE_PCT_FLOOR}%)")
-    assert overhead_pct <= NOISE_PCT_FLOOR, (
-        f"per-target hoist regressed wall-time by {overhead_pct:.1f}% (pre={t_pre:.2f}s, post={t_post:.2f}s); floor is {NOISE_PCT_FLOOR}%"
-    )
+    assert (
+        overhead_pct <= NOISE_PCT_FLOOR
+    ), f"per-target hoist regressed wall-time by {overhead_pct:.1f}% (pre={t_pre:.2f}s, post={t_post:.2f}s); floor is {NOISE_PCT_FLOOR}%"

@@ -140,6 +140,6 @@ class TestCorrNumbaBizValue:
         t_np = _best(_safe_abs_corr_all_numpy)
         t_nb = _best(_dispatch)
         speedup = t_np / t_nb if t_nb > 0 else float("inf")
-        assert speedup >= 1.5, (
-            f"numba corr kernel should be >=1.5x numpy at n={n} F={f}; got {speedup:.2f}x (numpy {t_np * 1e3:.1f}ms, numba {t_nb * 1e3:.1f}ms)"
-        )
+        assert (
+            speedup >= 1.5
+        ), f"numba corr kernel should be >=1.5x numpy at n={n} F={f}; got {speedup:.2f}x (numpy {t_np * 1e3:.1f}ms, numba {t_nb * 1e3:.1f}ms)"

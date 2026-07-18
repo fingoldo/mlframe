@@ -84,9 +84,9 @@ def test_biz_val_odds_ratio_combine_beats_naive_mean_on_conditionally_independen
     # the same conditional-independence combination rule), while naive averaging discards the "multiple
     # independent members agreeing" signal and is measurably worse. Floor set with margin below the measured gap.
     assert ll_combined == pytest.approx(ll_true, abs=1e-6)
-    assert ll_naive > ll_combined + 0.05, (
-        f"naive mean log-loss ({ll_naive:.4f}) should be clearly worse than odds-ratio-combined log-loss ({ll_combined:.4f}) under conditional independence"
-    )
+    assert (
+        ll_naive > ll_combined + 0.05
+    ), f"naive mean log-loss ({ll_naive:.4f}) should be clearly worse than odds-ratio-combined log-loss ({ll_combined:.4f}) under conditional independence"
 
 
 def _make_correlated_duplicate_members(n: int, k: int, seed: int, noise: float = 0.05):

@@ -58,9 +58,9 @@ def test_biz_val_forward_select_patience_stops_near_signal_boundary_avoiding_noi
     # the exhaustive run must walk the full noise tail (all 44 candidates get at least one round of
     # evaluation before the pool is exhausted), while the early-stop run gives up well before that.
     assert len(selected_exhaustive) >= n_signal
-    assert pool_fraction_evaluated_early <= 0.5, (
-        f"expected early-stop to evaluate at most half the candidate pool, evaluated fraction={pool_fraction_evaluated_early:.2f}"
-    )
+    assert (
+        pool_fraction_evaluated_early <= 0.5
+    ), f"expected early-stop to evaluate at most half the candidate pool, evaluated fraction={pool_fraction_evaluated_early:.2f}"
     assert rounds_early < (n_signal + n_noise), f"expected early-stop rounds ({rounds_early}) to be fewer than the full pool ({n_signal + n_noise})"
 
 

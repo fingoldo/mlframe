@@ -18,7 +18,6 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-
 pl = pytest.importorskip("polars")
 
 
@@ -127,6 +126,6 @@ def test_biz_val_per_group_baseline_polars_faster_than_pandas_at_1m_rows():
     pd_med = float(np.median(pd_times))
     speedup = pd_med / pl_med
     print(f"\n[biz_val] per_group_baseline n=1M: polars={pl_med * 1000:.1f}ms pandas={pd_med * 1000:.1f}ms speedup={speedup:.2f}x")
-    assert speedup >= 1.7, (
-        f"polars-native should be >=1.7x faster than pandas at n=1M; got {speedup:.2f}x (polars={pl_med * 1000:.1f}ms pandas={pd_med * 1000:.1f}ms)"
-    )
+    assert (
+        speedup >= 1.7
+    ), f"polars-native should be >=1.7x faster than pandas at n=1M; got {speedup:.2f}x (polars={pl_med * 1000:.1f}ms pandas={pd_med * 1000:.1f}ms)"

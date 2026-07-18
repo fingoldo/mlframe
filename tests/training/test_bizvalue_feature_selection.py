@@ -48,7 +48,6 @@ from mlframe.training import FeatureSelectionConfig, OutputConfig, ReportingConf
 
 from .shared import SimpleFeaturesAndTargetsExtractor
 
-
 # ---------------------------------------------------------------------------
 # Data builders & helpers
 # ---------------------------------------------------------------------------
@@ -318,9 +317,9 @@ def test_mrmr_preserves_auroc_and_speeds_up_wide_training(tmp_path, seed):
         # 10x catastrophic-slowdown guard standalone; widened under the full ``-n`` run where the FS stage can be
         # starved relative to the baseline boosting fit (the accuracy contract above is the load-robust gate).
         bound = 25.0 if running_under_xdist() else 10.0
-        assert t_fs <= t_baseline * bound, (
-            f"FS run took disproportionately longer: baseline={t_baseline:.2f}s fs={t_fs:.2f}s. MRMR overhead should not exceed {bound:.0f}x on wide data."
-        )
+        assert (
+            t_fs <= t_baseline * bound
+        ), f"FS run took disproportionately longer: baseline={t_baseline:.2f}s fs={t_fs:.2f}s. MRMR overhead should not exceed {bound:.0f}x on wide data."
 
 
 # ---------------------------------------------------------------------------
@@ -419,13 +418,13 @@ def test_mrmr_drops_uninformative_features_on_polars_input(tmp_path):
         return _re_info.search(r"(?<![A-Za-z0-9])" + _re_info.escape(comp) + r"(?![0-9])", str(feat)) is not None
 
     recovered_signals = {c for c in signal_cols if any(_feat_uses(f, c) for f in selected)}
-    assert recovered_signals, (
-        f"MRMR on Polars failed to recover any signal feature (raw or engineered). Selected: {selected}. Expected at least one of: {signal_cols}"
-    )
+    assert (
+        recovered_signals
+    ), f"MRMR on Polars failed to recover any signal feature (raw or engineered). Selected: {selected}. Expected at least one of: {signal_cols}"
     # And at least one NOISE column should have been dropped (selector
     # should not keep every single noise col). _make_noisy_classification
     # uses 'x_*' or similar naming — we assert the selected count is less
     # than the total column count as a coarse sanity bound.
-    assert len(selected) < len(pl_df.columns) - 1, (
-        f"MRMR on Polars kept almost every column ({len(selected)} of {len(pl_df.columns) - 1}) — selector not functioning on polars input."
-    )
+    assert (
+        len(selected) < len(pl_df.columns) - 1
+    ), f"MRMR on Polars kept almost every column ({len(selected)} of {len(pl_df.columns) - 1}) — selector not functioning on polars input."

@@ -224,9 +224,9 @@ def test_regression_collapse_sensor_fires(caplog):
     # more comprehensive set rooted in the actual production failure mode
     # (group-aware split + feature distribution shift drives the collapse,
     # NOT a missing layernorm).
-    assert any(("composite-target" in m) or ("tree booster" in m) or ("group-aware split" in m) for m in msgs), (
-        f"Sensor warning must hint at a fix; got: {msgs}"
-    )
+    assert any(
+        ("composite-target" in m) or ("tree booster" in m) or ("group-aware split" in m) for m in msgs
+    ), f"Sensor warning must hint at a fix; got: {msgs}"
 
 
 def test_regression_collapse_sensor_silent_on_healthy_predictions(caplog):
@@ -271,9 +271,9 @@ def test_mlp_suite_default_use_layernorm_is_false():
 
     src = Path("src/mlframe/training/trainer.py").read_text(encoding="utf-8")
     # Find the mlp_network_params block (literal dict near line ~1262).
-    assert "mlp_network_params = dict(" in src, (
-        "trainer.py: mlp_network_params dict literal missing -- the suite-level MLP construction was refactored. Update the pin."
-    )
+    assert (
+        "mlp_network_params = dict(" in src
+    ), "trainer.py: mlp_network_params dict literal missing -- the suite-level MLP construction was refactored. Update the pin."
     # Extract the dict block (between ``mlp_network_params = dict(`` and
     # the matching closing paren).
     start = src.index("mlp_network_params = dict(")

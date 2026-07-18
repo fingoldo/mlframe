@@ -44,9 +44,9 @@ def test_biz_val_overlapping_walk_forward_cv_lowers_estimate_variance():
     overlap_std = float(np.std(overlap_estimates, ddof=1))
     non_overlap_std = float(np.std(non_overlap_estimates, ddof=1))
 
-    assert overlap_std < non_overlap_std, (
-        f"overlapping-window CV should give a lower-variance mean-metric estimate: overlap_std={overlap_std:.4f} non_overlap_std={non_overlap_std:.4f}"
-    )
+    assert (
+        overlap_std < non_overlap_std
+    ), f"overlapping-window CV should give a lower-variance mean-metric estimate: overlap_std={overlap_std:.4f} non_overlap_std={non_overlap_std:.4f}"
 
 
 def test_overlapping_walk_forward_cv_folds_respect_gap_and_length():

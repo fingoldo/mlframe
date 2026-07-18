@@ -271,9 +271,9 @@ class TestXor4WayDiscovery:
         sc = score_quad(X[["x1", "x2", "x3", "x4"]], eng, y.values)
         assert not sc.empty, "score frame empty"
         top = sc.iloc[0]
-        assert top["engineered_col"] == "x1*x2*x3*x4__He1_He1_He1_He1", (
-            f"seed={seed}: top quadruplet winner should be x1*x2*x3*x4__He1_He1_He1_He1, got {top['engineered_col']}; full ranking:\n{sc}"
-        )
+        assert (
+            top["engineered_col"] == "x1*x2*x3*x4__He1_He1_He1_He1"
+        ), f"seed={seed}: top quadruplet winner should be x1*x2*x3*x4__He1_He1_He1_He1, got {top['engineered_col']}; full ranking:\n{sc}"
         assert top["engineered_mi"] >= 0.2, f"seed={seed}: 4-way XOR He_1^4 engineered_mi {top['engineered_mi']:.3f} should clear 0.2 at n=4000"
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -331,9 +331,9 @@ class TestVolumeDiscovery:
             y.values,
         )
         top = sc.iloc[0]
-        assert top["engineered_col"] == ("price*qty*count*discount__He1_He1_He1_He1"), (
-            f"seed={seed}: top volume winner should be the He_1^4 quadruplet, got {top['engineered_col']}"
-        )
+        assert top["engineered_col"] == (
+            "price*qty*count*discount__He1_He1_He1_He1"
+        ), f"seed={seed}: top volume winner should be the He_1^4 quadruplet, got {top['engineered_col']}"
         assert top["engineered_mi"] >= 0.2, f"seed={seed}: volume He_1^4 engineered_mi {top['engineered_mi']:.3f} should clear 0.2 at n=4000"
 
 
@@ -373,9 +373,9 @@ class TestXorLogRegLift:
         m_aug = LogisticRegression(max_iter=500).fit(Xtr_aug.to_numpy(), ytr.to_numpy())
         auc_aug = roc_auc_score(yte.to_numpy(), m_aug.predict_proba(Xte_aug.to_numpy())[:, 1])
         assert auc_raw < 0.60, f"seed={seed}: raw LogReg AUC {auc_raw:.3f} should hover at 0.50 -- 4-way XOR is linearly unsolvable"
-        assert auc_aug >= 0.80, (
-            f"seed={seed}: augmented LogReg AUC {auc_aug:.3f} should clear 0.80 on 4-way XOR with quadruplet FE; quad_sc:\n{quad_sc.head(5)}"
-        )
+        assert (
+            auc_aug >= 0.80
+        ), f"seed={seed}: augmented LogReg AUC {auc_aug:.3f} should clear 0.80 on 4-way XOR with quadruplet FE; quad_sc:\n{quad_sc.head(5)}"
         assert auc_aug > auc_raw + 0.15, f"seed={seed}: quadruplet FE should lift LogReg AUC >= +0.15. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
 
 
@@ -417,9 +417,9 @@ class TestNoiseQuadrupletPruned:
             return all(leg.startswith("noise_") for leg in legs)
 
         noise_added = [c for c in quad_added if _all_legs_noise(c)]
-        assert not noise_added, (
-            f"seed={seed}: pure-noise quadruplets should be filtered by the absolute MI floor; got {noise_added}; quad_sc:\n{quad_sc.head(8)}"
-        )
+        assert (
+            not noise_added
+        ), f"seed={seed}: pure-noise quadruplets should be filtered by the absolute MI floor; got {noise_added}; quad_sc:\n{quad_sc.head(8)}"
 
 
 # ---------------------------------------------------------------------------
@@ -487,9 +487,9 @@ class TestDefaultDisabledByteIdentical:
             fe_hybrid_orth_quadruplet_top_count=2,
         ).fit(X, y)
         quad_added = [n for n in (getattr(m, "hybrid_orth_features_", None) or []) if str(n).split("__", 1)[0].count("*") == 3]
-        assert quad_added, (
-            f"seed={seed}: quadruplet flag ON should append at least one quadruplet column to hybrid_orth_features_; got {list(m.hybrid_orth_features_ or [])}"
-        )
+        assert (
+            quad_added
+        ), f"seed={seed}: quadruplet flag ON should append at least one quadruplet column to hybrid_orth_features_; got {list(m.hybrid_orth_features_ or [])}"
 
 
 # ---------------------------------------------------------------------------
@@ -529,6 +529,6 @@ class TestPickleAndClone:
         blob = pickle.dumps(m)
         m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
-        assert list(getattr(m2, "hybrid_orth_features_", []) or []) == list(getattr(m, "hybrid_orth_features_", []) or []), (
-            "pickle changed hybrid_orth_features_"
-        )
+        assert list(getattr(m2, "hybrid_orth_features_", []) or []) == list(
+            getattr(m, "hybrid_orth_features_", []) or []
+        ), "pickle changed hybrid_orth_features_"

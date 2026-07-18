@@ -205,9 +205,9 @@ def test_fs_recovery_branch_is_load_bearing_when_no_inner_feature_names(caplog) 
         )
 
     preds_map = result["predictions"]
-    assert len(preds_map) == 1, (
-        "recovery must keep the model alive even without inner feature_names_in_; an empty predictions dict would mean the model was dropped (recovery absent)"
-    )
+    assert (
+        len(preds_map) == 1
+    ), "recovery must keep the model alive even without inner feature_names_in_; an empty predictions dict would mean the model was dropped (recovery absent)"
     (got,) = preds_map.values()
     assert np.allclose(np.asarray(got), expected)
     assert any("Skipping pre_pipeline" in rec.getMessage() for rec in caplog.records)

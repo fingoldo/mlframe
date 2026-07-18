@@ -41,7 +41,6 @@ import sys
 
 import pytest
 
-
 _TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 # repo root (parent of ``tests/``) so the worker can ``import tests.feature_selection.*``.
 _REPO_ROOT = os.path.dirname(os.path.dirname(_TEST_DIR))

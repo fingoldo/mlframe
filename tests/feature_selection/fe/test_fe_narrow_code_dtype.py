@@ -87,6 +87,6 @@ def test_batch_mi_byte_identical_int8_vs_int32(n_rows, K, n_bins, use_su):
     mi_mixed = run(disc32, np.int8)  # int32 disc + int8 classes_dense
     # BYTE-identical floats (view as uint64 so any last-bit drift is caught).
     for name, mi in (("int8+int8", mi_narrow), ("int32+int8", mi_mixed)):
-        assert np.array_equal(np.asarray(mi_ref).view(np.uint64), np.asarray(mi).view(np.uint64)), (
-            f"{name} gave different MI than the int32 reference -- would flip the noise-gate / selection"
-        )
+        assert np.array_equal(
+            np.asarray(mi_ref).view(np.uint64), np.asarray(mi).view(np.uint64)
+        ), f"{name} gave different MI than the int32 reference -- would flip the noise-gate / selection"

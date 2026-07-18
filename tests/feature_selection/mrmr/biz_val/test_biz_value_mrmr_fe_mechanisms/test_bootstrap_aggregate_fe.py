@@ -192,9 +192,9 @@ class TestStableSignalHasHighFrequency:
         x_he2_freq = float(freq.loc[freq["engineered_name"] == "x__He2", "selection_frequency"].iloc[0])
         assert x_he2_freq >= 0.8, f"x__He2 selection_frequency {x_he2_freq:.2f} below the 0.8 contract;\nfull freq table:\n{freq}"
         # And the stable set should include it.
-        assert "x__He2" in result["stable_set"], (
-            f"x__He2 freq={x_he2_freq:.2f} >= 0.8 but did not enter the stable_set (threshold={SUPPORT_THRESHOLD}); stable_set={result['stable_set']}"
-        )
+        assert (
+            "x__He2" in result["stable_set"]
+        ), f"x__He2 freq={x_he2_freq:.2f} >= 0.8 but did not enter the stable_set (threshold={SUPPORT_THRESHOLD}); stable_set={result['stable_set']}"
 
 
 # ---------------------------------------------------------------------------

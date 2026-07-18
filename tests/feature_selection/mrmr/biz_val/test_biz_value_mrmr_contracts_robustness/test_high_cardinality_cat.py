@@ -247,9 +247,9 @@ class TestHighCardCatFEDisabledRegionSurvives:
     def test_region_in_support(self):
         """region (medium-card categorical with real signal) is not crowded out."""
         _X, _y, names = _build_and_fit_layer10(101)
-        assert "region" in names, (
-            f"region (medium-card cat with real signal) dropped; the high-card user_id likely crowded it out via false redundancy. support={names}"
-        )
+        assert (
+            "region" in names
+        ), f"region (medium-card cat with real signal) dropped; the high-card user_id likely crowded it out via false redundancy. support={names}"
 
 
 class TestHighCardCatFEDisabledSeedRobustness:

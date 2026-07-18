@@ -88,9 +88,9 @@ def test_conditional_residual_recipe_on_engineered_source_keyerrors_on_raw():
         max_pair_cols=6,
         mi_gate=False,
     )
-    assert any(eng in r.src_names for r in recipes if r.name in appended), (
-        "fixture must produce at least one engineered-source recipe to be a meaningful sensor for the bug class"
-    )
+    assert any(
+        eng in r.src_names for r in recipes if r.name in appended
+    ), "fixture must produce at least one engineered-source recipe to be a meaningful sensor for the bug class"
     X_raw = aug[raw_cols]
     _bad_recipe, exc = _replay_all(recipes, appended, X_raw)
     assert isinstance(exc, KeyError), f"expected KeyError replaying engineered-source recipe on raw X; got {exc!r}"

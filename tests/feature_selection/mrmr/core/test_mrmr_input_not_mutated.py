@@ -77,9 +77,9 @@ def test_fit_does_not_append_columns_to_caller_frame():
     cols_before = list(X.columns)
     shape_before = X.shape
     _fit(X, y)
-    assert list(X.columns) == cols_before, (
-        f"MRMR.fit appended columns to the caller's DataFrame (before={cols_before}, after={list(X.columns)}); fit must not mutate its input."
-    )
+    assert (
+        list(X.columns) == cols_before
+    ), f"MRMR.fit appended columns to the caller's DataFrame (before={cols_before}, after={list(X.columns)}); fit must not mutate its input."
     assert X.shape == shape_before, f"MRMR.fit changed the caller frame shape {shape_before} -> {X.shape}."
     # No engineered / target columns leaked under any naming convention.
     leaked = [c for c in X.columns if ("__" in str(c)) or str(c).startswith("targ")]
@@ -136,9 +136,9 @@ def test_second_fit_on_same_frame_is_independent_of_first():
     # Sanity: the first fit was itself a clean fit on a pristine frame, so its
     # selection should also match the fresh reference (guards against the test
     # silently passing because BOTH reused fits are equally corrupted).
-    assert np.array_equal(support_first, support_fresh), (
-        f"First fit support {support_first.tolist()} already differs from the fresh-copy reference {support_fresh.tolist()}."
-    )
+    assert np.array_equal(
+        support_first, support_fresh
+    ), f"First fit support {support_first.tolist()} already differs from the fresh-copy reference {support_fresh.tolist()}."
     assert names_first == names_fresh
 
 

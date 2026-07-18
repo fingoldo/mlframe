@@ -64,15 +64,15 @@ def test_biz_val_elasticnet_meta_stacker_keeps_correlated_group_together_more_of
 
     # Measured on this synthetic: lasso=0.07 (2-3/40), elasticnet=0.33 (13/40) -- threshold set below the measured
     # elasticnet value and above the measured lasso value, with margin.
-    assert en_together >= 0.20, (
-        f"expected ElasticNet to keep/drop the correlated group together in >=20% of resamples, got {en_together:.2f} (patterns={Counter(en_patterns)})"
-    )
-    assert lasso_together <= 0.15, (
-        f"sanity check on the synthetic: expected Lasso's arbitrary single-member pick to keep the group together in <=15% of resamples, got {lasso_together:.2f} (patterns={Counter(lasso_patterns)})"
-    )
-    assert en_together > lasso_together, (
-        f"expected ElasticNet to be strictly more stable than Lasso on the correlated group, got en={en_together:.2f} lasso={lasso_together:.2f}"
-    )
+    assert (
+        en_together >= 0.20
+    ), f"expected ElasticNet to keep/drop the correlated group together in >=20% of resamples, got {en_together:.2f} (patterns={Counter(en_patterns)})"
+    assert (
+        lasso_together <= 0.15
+    ), f"sanity check on the synthetic: expected Lasso's arbitrary single-member pick to keep the group together in <=15% of resamples, got {lasso_together:.2f} (patterns={Counter(lasso_patterns)})"
+    assert (
+        en_together > lasso_together
+    ), f"expected ElasticNet to be strictly more stable than Lasso on the correlated group, got en={en_together:.2f} lasso={lasso_together:.2f}"
 
 
 def test_biz_val_elasticnet_meta_stacker_lower_zero_indicator_variance_than_lasso():

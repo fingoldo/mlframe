@@ -43,7 +43,6 @@ from pathlib import Path
 
 import pytest
 
-
 TESTS_DIR = Path(__file__).resolve().parent.parent
 
 # Files known to use the primitives ONLY against non-mlframe stub modules
@@ -256,6 +255,6 @@ def test_no_unpaired_module_reload_in_tests():
 def test_known_stub_only_files_actually_exist():
     """Guard against the allowlist going stale (file renames / removals)."""
     for rel in _KNOWN_STUB_ONLY_FILES:
-        assert (TESTS_DIR / rel).exists(), (
-            f"_KNOWN_STUB_ONLY_FILES entry {rel!r} no longer exists; prune the allowlist in tests/test_meta/test_no_unsafe_module_reload.py"
-        )
+        assert (
+            TESTS_DIR / rel
+        ).exists(), f"_KNOWN_STUB_ONLY_FILES entry {rel!r} no longer exists; prune the allowlist in tests/test_meta/test_no_unsafe_module_reload.py"

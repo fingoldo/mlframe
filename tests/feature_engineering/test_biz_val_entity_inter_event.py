@@ -118,9 +118,9 @@ def test_biz_val_entity_windowed_time_delta_tracks_recent_tempo_shift_vs_whole_h
 
     # measured mae_whole ~= 17.9, mae_windowed ~= 10.5 (windowed/whole ratio ~= 0.59); threshold set with
     # headroom above the measured ratio so the test isn't pinned to the exact synthetic seed.
-    assert mae_windowed < mae_whole * 0.75, (
-        f"windowed feature should track the recent regime much more tightly, got mae_whole={mae_whole:.2f} mae_windowed={mae_windowed:.2f}"
-    )
+    assert (
+        mae_windowed < mae_whole * 0.75
+    ), f"windowed feature should track the recent regime much more tightly, got mae_whole={mae_whole:.2f} mae_windowed={mae_windowed:.2f}"
     assert mae_whole > 15.0, f"whole-history feature should stay diluted by the long baseline history, got mae_whole={mae_whole:.2f}"
     assert mae_windowed < 12.0, f"windowed feature should closely track the true recent-regime gap, got mae_windowed={mae_windowed:.2f}"
 

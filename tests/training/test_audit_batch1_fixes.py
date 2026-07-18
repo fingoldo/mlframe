@@ -96,6 +96,6 @@ def test_composite_from_fitted_inner_envelope_gates_on_finite_count():
         y_train=y,
     )
     fp = est.fitted_params_
-    assert fp["t_clip_low"] == float("-inf") and fp["t_clip_high"] == float("inf"), (
-        f"mostly-NaN y (3 finite < 10) must leave the T-clip envelope open; got [{fp['t_clip_low']}, {fp['t_clip_high']}]"
-    )
+    assert fp["t_clip_low"] == float("-inf") and fp["t_clip_high"] == float(
+        "inf"
+    ), f"mostly-NaN y (3 finite < 10) must leave the T-clip envelope open; got [{fp['t_clip_low']}, {fp['t_clip_high']}]"

@@ -41,7 +41,6 @@ import numpy as np
 import polars as pl
 import pytest
 
-
 # =====================================================================
 # #1 PipelineCache: no polars/pandas cross-stream leakage
 # =====================================================================

@@ -116,9 +116,9 @@ def test_f44_fused_adamw_skipped_under_bf16_mixed():
     out = model.configure_optimizers()
     opt = out["optimizer"] if isinstance(out, dict) else out
     fused = opt.param_groups[0].get("fused", False)
-    assert fused is not True, (
-        f"F-44 gate failed: fused={fused!r} under bf16-mixed -> AMP plugin grad-clip rejection. The gate must skip fused for any 'mixed' precision."
-    )
+    assert (
+        fused is not True
+    ), f"F-44 gate failed: fused={fused!r} under bf16-mixed -> AMP plugin grad-clip rejection. The gate must skip fused for any 'mixed' precision."
 
 
 def test_f44_fused_adamw_active_under_fp32():

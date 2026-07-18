@@ -38,7 +38,6 @@ from mlframe.feature_selection.filters._permutation_null import (
 )
 from mlframe.feature_selection.filters.discretization import categorize_dataset
 
-
 N_TOTAL = 2_500
 N_NOISE = 6
 SEEDS = (1, 7, 42)
@@ -211,9 +210,9 @@ class TestDenseWeakSignalFloorStaysOff:
         # reliability predicate must keep the gate OFF -- preserving the legacy
         # narrow-pool behaviour (no floor) and all 10 weak features.
         rows_per_joint = data.shape[0] / (nby * float(np.median(feat)))
-        assert rows_per_joint < 8.0, (
-            f"test bug: dense-weak pool unexpectedly dense (rows/joint={rows_per_joint:.1f}); the no-regression case must be the sparse-occupancy regime; seed={seed}"
-        )
+        assert (
+            rows_per_joint < 8.0
+        ), f"test bug: dense-weak pool unexpectedly dense (rows/joint={rows_per_joint:.1f}); the no-regression case must be the sparse-occupancy regime; seed={seed}"
         assert not target_oversplit_floor_applies(
             nbins,
             cand,

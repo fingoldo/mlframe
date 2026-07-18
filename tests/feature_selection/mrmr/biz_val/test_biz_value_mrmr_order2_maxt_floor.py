@@ -35,7 +35,6 @@ import pandas as pd
 
 from tests.conftest import is_fast_mode
 
-
 GENUINE_OPERANDS = {"x1", "x2", "x3", "x4", "x5", "x6"}
 
 
@@ -176,9 +175,9 @@ class TestOrder2MaxTFloorWideNoise:
         # (fused compound OR separate features), not raw feature count -- escalation may fuse two pairs into one.
         cov_on = _covered_genuine_pairs(eng_on)
         cov_off = _covered_genuine_pairs(eng_off)
-        assert len(cov_on) >= len(cov_off) and len(cov_on) >= 3, (
-            f"order-2 floor dropped genuine synergy pairs: OFF covered={sorted(cov_off)} ({gen_off}) ON covered={sorted(cov_on)} ({gen_on})"
-        )
+        assert (
+            len(cov_on) >= len(cov_off) and len(cov_on) >= 3
+        ), f"order-2 floor dropped genuine synergy pairs: OFF covered={sorted(cov_off)} ({gen_off}) ON covered={sorted(cov_on)} ({gen_on})"
 
 
 # =============================================================================
@@ -311,9 +310,9 @@ class TestOrder2MaxTFloorDisabled:
         # (fused compound OR separate features), not raw feature count -- escalation may fuse two pairs into one.
         cov_on = _covered_genuine_pairs(eng_on)
         cov_off = _covered_genuine_pairs(eng_off)
-        assert len(cov_on) >= len(cov_off) and len(cov_on) >= 3, (
-            f"order-2 floor dropped genuine synergy pairs: OFF covered={sorted(cov_off)} ({gen_off}) ON covered={sorted(cov_on)} ({gen_on})"
-        )
+        assert (
+            len(cov_on) >= len(cov_off) and len(cov_on) >= 3
+        ), f"order-2 floor dropped genuine synergy pairs: OFF covered={sorted(cov_off)} ({gen_off}) ON covered={sorted(cov_on)} ({gen_on})"
 
 
 # =============================================================================

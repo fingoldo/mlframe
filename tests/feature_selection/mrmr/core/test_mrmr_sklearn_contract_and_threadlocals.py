@@ -13,8 +13,6 @@ and asserts the post-fix contract:
   hardcoded literals, so an inner fit cannot clobber an outer fit's toggles.
 """
 
-import warnings
-
 import numpy as np
 import pandas as pd
 import pytest

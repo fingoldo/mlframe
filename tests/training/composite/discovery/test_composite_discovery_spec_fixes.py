@@ -46,7 +46,6 @@ from mlframe.training.composite import (
 )
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
-
 # ----------------------------------------------------------------------
 # Shared helpers
 # ----------------------------------------------------------------------
@@ -232,9 +231,9 @@ class TestBug4EnsemblePrePipeline:
         tree_pred = _shim_predict(tree_entry, X)
         linear_pred = _shim_predict(linear_entry, X)
         assert np.all(np.isfinite(tree_pred))
-        assert np.all(np.isfinite(linear_pred)), (
-            "regression: linear component must work via shim on raw X with NaN (pre_pipeline imputes); this was the production TVT failure mode"
-        )
+        assert np.all(
+            np.isfinite(linear_pred)
+        ), "regression: linear component must work via shim on raw X with NaN (pre_pipeline imputes); this was the production TVT failure mode"
 
 
 # ======================================================================
@@ -282,9 +281,9 @@ class TestBug1SpatialDemoterFalsePositive:
         # should appear as base candidates in the report.
         report_bases = {r["base_column"] for r in disc.report()}
         geo_in_bases = [c for c in report_bases if c.startswith("geo_")]
-        assert len(geo_in_bases) >= 1, (
-            f"regression: geo features with pairwise corr ~0.55 were ALL demoted (false positive on threshold 0.5). Bases evaluated: {report_bases}"
-        )
+        assert (
+            len(geo_in_bases) >= 1
+        ), f"regression: geo features with pairwise corr ~0.55 were ALL demoted (false positive on threshold 0.5). Bases evaluated: {report_bases}"
 
     def test_biz_value_real_spatial_triplet_still_demoted(self) -> None:
         """Sanity counterpart: a tight X/Y/Z triplet with pairwise
@@ -407,9 +406,9 @@ class TestBug2HintImmunity:
         disc = CompositeTargetDiscovery(cfg)
         disc.fit(df, target_col="y", feature_cols=["hint", "c1", "c2", "c3", "x_other"], train_idx=np.arange(1600))
         report_bases = {r["base_column"] for r in disc.report()}
-        assert "hint" in report_bases, (
-            f"regression: hint feature was demoted by spatial detector despite being on the BD hint list. report bases: {report_bases}"
-        )
+        assert (
+            "hint" in report_bases
+        ), f"regression: hint feature was demoted by spatial detector despite being on the BD hint list. report bases: {report_bases}"
 
 
 # ======================================================================
@@ -449,9 +448,9 @@ class TestBug5AdaptiveHintCap:
         disc.fit(df, target_col="y", feature_cols=["f1", "f2", "f3", "f4"], train_idx=np.arange(1200))
         # All three hint features should appear as bases (no cap).
         report_bases = {r["base_column"] for r in disc.report()}
-        assert {"f1", "f2", "f3"}.issubset(report_bases), (
-            f"regression: strong hint (max strength=200% >= 50% threshold) should bypass cap; got bases {report_bases}"
-        )
+        assert {"f1", "f2", "f3"}.issubset(
+            report_bases
+        ), f"regression: strong hint (max strength=200% >= 50% threshold) should bypass cap; got bases {report_bases}"
 
     def test_unit_weak_hint_applies_cap(self) -> None:
         """When strength signal is weak (max < threshold), the

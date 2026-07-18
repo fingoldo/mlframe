@@ -70,9 +70,9 @@ class TestClusterMembersAccessor:
             # Anchor: either a raw column or an engineered DCD-PC1
             # aggregate. Track the latter for member resolution below.
             if anchor_name not in fitted_cols:
-                assert anchor_name.startswith("_dcd_pc1_") or anchor_name.startswith("col_"), (
-                    f"Unknown anchor name {anchor_name!r}: not in raw columns and not a known engineered prefix."
-                )
+                assert anchor_name.startswith("_dcd_pc1_") or anchor_name.startswith(
+                    "col_"
+                ), f"Unknown anchor name {anchor_name!r}: not in raw columns and not a known engineered prefix."
                 engineered_anchors.add(anchor_name)
             for member_name in members:
                 assert isinstance(member_name, str) and len(member_name) > 0
@@ -121,9 +121,9 @@ class TestClusterMembersAccessor:
         # cluster_members_ is the same content as cluster_anchors_names.
         assert m.cluster_members_ == name_anchors, "cluster_members_ must equal dcd_['cluster_anchors_names'] exactly (both are derived from the same source)."
         # Cardinalities must match.
-        assert len(int_anchors) == len(name_anchors), (
-            f"int-map len ({len(int_anchors)}) != name-map len ({len(name_anchors)}); the two views of DCD's cluster state have drifted."
-        )
+        assert len(int_anchors) == len(
+            name_anchors
+        ), f"int-map len ({len(int_anchors)}) != name-map len ({len(name_anchors)}); the two views of DCD's cluster state have drifted."
         # Length of each member list must match.
         int_sizes = sorted(len(v) for v in int_anchors.values())
         name_sizes = sorted(len(v) for v in name_anchors.values())
@@ -174,9 +174,9 @@ class TestClusterMembersAccessor:
         # User-supplied non-default value bypasses the cache lookup, so
         # the surfaced tau matches the ctor argument exactly.
         assert eff is not None
-        assert abs(float(eff) - 0.55) < 1e-9, (
-            f"tau_cluster surfaced ({eff}) does not match user-supplied non-default value (0.55); cache override fired when it shouldn't have."
-        )
+        assert (
+            abs(float(eff) - 0.55) < 1e-9
+        ), f"tau_cluster surfaced ({eff}) does not match user-supplied non-default value (0.55); cache override fired when it shouldn't have."
 
 
 # ---------------------------------------------------------------------------
@@ -266,9 +266,9 @@ class TestNoRegressionLayer12Stability:
         m = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0, random_seed=0).fit(X, y)
         # Round-trip.
         m_re = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
-        assert m_re.cluster_members_ == m.cluster_members_, (
-            "cluster_members_ did not survive pickle round-trip; the attribute is not a real first-class fitted citizen."
-        )
+        assert (
+            m_re.cluster_members_ == m.cluster_members_
+        ), "cluster_members_ did not survive pickle round-trip; the attribute is not a real first-class fitted citizen."
         assert m_re.dcd_["cluster_anchors_names"] == m.dcd_["cluster_anchors_names"]
         assert m_re.dcd_["cluster_diagnostics"] == m.dcd_["cluster_diagnostics"]
         assert m_re.dcd_["tau_cluster"] == m.dcd_["tau_cluster"]

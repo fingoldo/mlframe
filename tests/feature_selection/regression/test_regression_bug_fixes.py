@@ -8,7 +8,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Bug 1: polygamma late-binding (feature_engineering.py:621-623)
 # ---------------------------------------------------------------------------

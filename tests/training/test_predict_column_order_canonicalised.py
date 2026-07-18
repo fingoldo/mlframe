@@ -17,7 +17,6 @@ import pytest
 from mlframe.training.core._misc_helpers import _validate_input_columns_against_metadata
 from mlframe.training.core._predict_main_from_models import predict_from_models
 
-
 _META = {
     "raw_input_columns": ["a", "b", "c"],
     "cat_features": [],

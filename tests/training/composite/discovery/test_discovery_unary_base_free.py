@@ -36,7 +36,6 @@ from mlframe.training.composite.discovery import CompositeTargetDiscovery
 from mlframe.training.composite.transforms.naming import is_composite_target_name
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
-
 _UNARY_TRANSFORMS = ("cbrt_y", "log_y", "yeo_johnson_y", "quantile_normal_y")
 
 

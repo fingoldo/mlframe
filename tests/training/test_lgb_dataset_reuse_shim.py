@@ -106,9 +106,9 @@ class TestLGBClassifierShimAPIParity:
     def test_subclass_of_LGBMClassifier(self):
         """Subclass of l g b m classifier."""
         m = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
-        assert isinstance(m, LGBMClassifier), (
-            "shim must subclass LGBMClassifier so isinstance checks downstream (sklearn pipelines, mlframe strategy) keep passing"
-        )
+        assert isinstance(
+            m, LGBMClassifier
+        ), "shim must subclass LGBMClassifier so isinstance checks downstream (sklearn pipelines, mlframe strategy) keep passing"
 
     def test_get_params_includes_lgb_params(self):
         """Get params includes lgb params."""
@@ -369,9 +369,9 @@ class TestLGBShimSetLabelSetWeight:
         m.fit(X, y, sample_weight=recency)
         second_id = id(m._cached_train_dataset)
 
-        assert first_id == second_id, (
-            "Second fit with new sample_weight rebuilt the Dataset -- the in-place set_weight path is not firing. This is the weight-schema-loop saving target."
-        )
+        assert (
+            first_id == second_id
+        ), "Second fit with new sample_weight rebuilt the Dataset -- the in-place set_weight path is not firing. This is the weight-schema-loop saving target."
 
 
 # =====================================================================
@@ -588,9 +588,9 @@ class TestLGBShimCacheHandoffInCoreLoop:
         # generic forward helper carries them across clone(). If somebody
         # drops them, dataset reuse silently dies for the LGB shim.
         for _attr in ("_cached_train_dataset", "_cached_val_dataset"):
-            assert _attr in _DATASET_REUSE_CACHE_ATTRS, (
-                f"{_attr!r} missing from _DATASET_REUSE_CACHE_ATTRS -- the forward helper will not propagate the LGB cache."
-            )
+            assert (
+                _attr in _DATASET_REUSE_CACHE_ATTRS
+            ), f"{_attr!r} missing from _DATASET_REUSE_CACHE_ATTRS -- the forward helper will not propagate the LGB cache."
 
         X, y = small_classification_data
         X_val = X.iloc[:100].copy()
@@ -753,9 +753,9 @@ class TestLGBShimPickleAndCacheLifecycle:
             "_cached_train_key",
             "_cached_val_key",
         ):
-            assert state.get(_attr) is None, (
-                f"__getstate__ must null {_attr!r} before pickling -- the lightgbm.Dataset holds ctypes pointers that can't be serialised."
-            )
+            assert (
+                state.get(_attr) is None
+            ), f"__getstate__ must null {_attr!r} before pickling -- the lightgbm.Dataset holds ctypes pointers that can't be serialised."
         # But the LIVE instance's cache is untouched -- getstate must
         # not have mutated ``self.__dict__`` as a side effect.
         assert m._cached_train_dataset is not None

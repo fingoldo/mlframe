@@ -337,9 +337,9 @@ class TestLassoAgreesWithMIOnLinearTop1:
             f"linear He_2(x_1) signal; got {top1_lasso!r}. "
             f"scores head:\n{scores_lasso.head(5).to_string()}"
         )
-        assert top1_mi == "x1__He2", (
-            f"seed={seed}: MI top-1 engineered should be x1__He2 on linear He_2(x_1) signal; got {top1_mi!r}. scores head:\n{scores_mi.head(5).to_string()}"
-        )
+        assert (
+            top1_mi == "x1__He2"
+        ), f"seed={seed}: MI top-1 engineered should be x1__He2 on linear He_2(x_1) signal; got {top1_mi!r}. scores head:\n{scores_mi.head(5).to_string()}"
 
 
 # ---------------------------------------------------------------------------
@@ -384,9 +384,9 @@ class TestLassoUnderperformsOnNonMonotone:
         )
         # MI's qualifier for x1__He3: in the top-3 by ranking.
         mi_top3 = list(scores_mi.sort_values("engineered_mi", ascending=False)["engineered_col"].iloc[:3])
-        assert "x1__He3" in mi_top3, (
-            f"seed={seed}: MI did not rank x1__He3 in its top-3 on sin(5*x_1) signal; non-monotone-MI claim regressed. mi_top3={mi_top3!r}"
-        )
+        assert (
+            "x1__He3" in mi_top3
+        ), f"seed={seed}: MI did not rank x1__He3 in its top-3 on sin(5*x_1) signal; non-monotone-MI claim regressed. mi_top3={mi_top3!r}"
         # Lasso's top-1 should NOT be x1__He3 (since Lasso can't see
         # oscillatory dependence). Pinning STRICT INEQUALITY: MI's |coef|
         # of x1__He3 isn't the metric; check that Lasso's top-1 is a noise

@@ -22,7 +22,6 @@ from mlframe.training.composite import (
 )
 from mlframe.training.composite.transforms import UnknownTransformError
 
-
 # ---------------------------------------------------------------------------
 # Synthetic data: K outputs, each with its OWN dominant affine base column.
 # ---------------------------------------------------------------------------
@@ -279,6 +278,6 @@ def test_biz_val_multi_output_beats_plain_per_column_regressor():
     plain_rmse = np.mean([_rmse(plain_pred[:, j], Yte[:, j]) for j in range(3)])
 
     assert comp_rmse < plain_rmse, f"composite mean RMSE {comp_rmse:.4f} should beat plain {plain_rmse:.4f}"
-    assert plain_rmse / comp_rmse >= 1.5, (
-        f"composite should beat plain by >=1.5x; got {plain_rmse / comp_rmse:.2f}x (comp={comp_rmse:.4f}, plain={plain_rmse:.4f})"
-    )
+    assert (
+        plain_rmse / comp_rmse >= 1.5
+    ), f"composite should beat plain by >=1.5x; got {plain_rmse / comp_rmse:.2f}x (comp={comp_rmse:.4f}, plain={plain_rmse:.4f})"

@@ -16,7 +16,6 @@ import os
 from unittest import mock
 
 
-
 def test_discovery_cache_set_fsyncs_before_replace(tmp_path):
     """``DiscoveryCache.set`` must fsync the tmp fd before the atomic rename."""
     from mlframe.training.composite.cache import DiscoveryCache

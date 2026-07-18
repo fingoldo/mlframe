@@ -11,7 +11,6 @@ import numpy as np
 
 from mlframe.training.core._misc_helpers import _cfg_get, _compute_neural_max_time
 
-
 # ---------------------------------------------------------------------------
 # _cfg_get -- "Pydantic-or-dict-or-None" config accessor
 # ---------------------------------------------------------------------------

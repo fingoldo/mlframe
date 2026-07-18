@@ -33,7 +33,6 @@ from mlframe.training.baselines.dummy import (
     format_suite_end_summary,
 )
 
-
 # ---------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------
@@ -169,9 +168,9 @@ class TestDispatcher:
     def test_regression_returns_strongest(self, reg_data, cfg):
         """Regression returns strongest."""
         rep = compute_dummy_baselines(config=cfg, **reg_data)
-        assert isinstance(rep.strongest, str) and rep.strongest in rep.table.index, (
-            f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
-        )
+        assert (
+            isinstance(rep.strongest, str) and rep.strongest in rep.table.index
+        ), f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
         assert rep.primary_metric == "val_RMSE"
         assert "mean" in rep.table.index
         assert "median" in rep.table.index
@@ -179,9 +178,9 @@ class TestDispatcher:
     def test_binary_returns_strongest(self, binary_data, cfg):
         """Binary returns strongest."""
         rep = compute_dummy_baselines(config=cfg, **binary_data)
-        assert isinstance(rep.strongest, str) and rep.strongest in rep.table.index, (
-            f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
-        )
+        assert (
+            isinstance(rep.strongest, str) and rep.strongest in rep.table.index
+        ), f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
         # D5: log_loss is the headline classification metric, not AUC
         assert rep.primary_metric == "val_log_loss"
         assert "prior" in rep.table.index
@@ -190,27 +189,27 @@ class TestDispatcher:
     def test_multiclass_returns_strongest(self, multiclass_data, cfg):
         """Multiclass returns strongest."""
         rep = compute_dummy_baselines(config=cfg, **multiclass_data)
-        assert isinstance(rep.strongest, str) and rep.strongest in rep.table.index, (
-            f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
-        )
+        assert (
+            isinstance(rep.strongest, str) and rep.strongest in rep.table.index
+        ), f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
         assert rep.primary_metric == "val_log_loss"
         assert "uniform" in rep.table.index
 
     def test_multilabel_returns_strongest(self, multilabel_data, cfg):
         """Multilabel returns strongest."""
         rep = compute_dummy_baselines(config=cfg, **multilabel_data)
-        assert isinstance(rep.strongest, str) and rep.strongest in rep.table.index, (
-            f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
-        )
+        assert (
+            isinstance(rep.strongest, str) and rep.strongest in rep.table.index
+        ), f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
         # D5 multilabel: macro log-loss is the headline
         assert rep.primary_metric == "val_log_loss_macro"
 
     def test_ltr_returns_strongest(self, ltr_data, cfg):
         """Ltr returns strongest."""
         rep = compute_dummy_baselines(config=cfg, **ltr_data)
-        assert isinstance(rep.strongest, str) and rep.strongest in rep.table.index, (
-            f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
-        )
+        assert (
+            isinstance(rep.strongest, str) and rep.strongest in rep.table.index
+        ), f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
         # NDCG@k is a maximize metric — we use NDCG@10 as primary
         assert "NDCG" in rep.primary_metric
 
@@ -219,9 +218,9 @@ class TestDispatcher:
         """Quantile routes through regression."""
         d = dict(reg_data, target_type="quantile_regression", target_name="q")
         rep = compute_dummy_baselines(config=cfg, **d)
-        assert isinstance(rep.strongest, str) and rep.strongest in rep.table.index, (
-            f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
-        )
+        assert (
+            isinstance(rep.strongest, str) and rep.strongest in rep.table.index
+        ), f"strongest={rep.strongest!r} must be a row label of rep.table.index={list(rep.table.index)}"
         assert rep.primary_metric == "val_RMSE"
 
 
@@ -558,9 +557,9 @@ class TestDtypeVariants:
             config=cfg,
         )
         # Polars X must be accepted and produce a valid strongest-baseline row label.
-        assert isinstance(rep.strongest, str) and rep.strongest in rep.table.index, (
-            f"strongest={rep.strongest!r} must be a row label of {list(rep.table.index)}"
-        )
+        assert (
+            isinstance(rep.strongest, str) and rep.strongest in rep.table.index
+        ), f"strongest={rep.strongest!r} must be a row label of {list(rep.table.index)}"
 
     def test_polars_series_y(self, cfg):
         """Polars series y."""
@@ -579,9 +578,9 @@ class TestDtypeVariants:
             config=cfg,
         )
         # Polars Series y must be accepted and produce a valid strongest-baseline row label.
-        assert isinstance(rep.strongest, str) and rep.strongest in rep.table.index, (
-            f"strongest={rep.strongest!r} must be a row label of {list(rep.table.index)}"
-        )
+        assert (
+            isinstance(rep.strongest, str) and rep.strongest in rep.table.index
+        ), f"strongest={rep.strongest!r} must be a row label of {list(rep.table.index)}"
 
 
 # ---------------------------------------------------------------------

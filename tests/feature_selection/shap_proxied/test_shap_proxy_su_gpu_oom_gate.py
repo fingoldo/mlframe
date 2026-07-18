@@ -93,6 +93,6 @@ def test_gpu_cpu_parity_and_no_oom_on_wide_config():
     labels_gpu = cluster_correlated_features_su(bins, use_gpu=True, **common)
     labels_cpu = cluster_correlated_features_su(bins, use_gpu=False, **common)
     # Single-linkage SU partitions must be identical (label-permutation invariant).
-    assert adjusted_rand_score(labels_cpu, labels_gpu) == 1.0, (
-        f"GPU partition != CPU partition; gpu_clusters={len(set(labels_gpu.tolist()))} cpu_clusters={len(set(labels_cpu.tolist()))}"
-    )
+    assert (
+        adjusted_rand_score(labels_cpu, labels_gpu) == 1.0
+    ), f"GPU partition != CPU partition; gpu_clusters={len(set(labels_gpu.tolist()))} cpu_clusters={len(set(labels_cpu.tolist()))}"

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "numba-coverage.yml"
 
@@ -31,9 +30,9 @@ def test_numba_coverage_workflow_sets_numba_disable_jit_env() -> None:
     """Numba coverage workflow sets numba disable jit env."""
     text = _workflow_text()
     assert "NUMBA_DISABLE_JIT" in text, "workflow must set NUMBA_DISABLE_JIT env var to disable JIT"
-    assert 'NUMBA_DISABLE_JIT: "1"' in text or "NUMBA_DISABLE_JIT: '1'" in text or "NUMBA_DISABLE_JIT: 1" in text, (
-        "NUMBA_DISABLE_JIT must be set to 1 in the workflow env so kernels execute as pure Python"
-    )
+    assert (
+        'NUMBA_DISABLE_JIT: "1"' in text or "NUMBA_DISABLE_JIT: '1'" in text or "NUMBA_DISABLE_JIT: 1" in text
+    ), "NUMBA_DISABLE_JIT must be set to 1 in the workflow env so kernels execute as pure Python"
 
 
 def test_numba_coverage_workflow_has_nightly_cron() -> None:

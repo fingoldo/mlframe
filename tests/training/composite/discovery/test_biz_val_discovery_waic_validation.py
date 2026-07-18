@@ -81,6 +81,6 @@ def test_waic_prefers_generalising_over_overfit_transform():
     w_signal = compute_transform_waic(signal, x, n_folds=4, random_state=0)
     w_noise = compute_transform_waic(noise, x, n_folds=4, random_state=0)
     assert w_signal.valid and w_noise.valid
-    assert w_signal.waic > w_noise.waic, (
-        f"generalising signal target should out-WAIC the memorise-only noise target; signal={w_signal.waic:.3f} noise={w_noise.waic:.3f}"
-    )
+    assert (
+        w_signal.waic > w_noise.waic
+    ), f"generalising signal target should out-WAIC the memorise-only noise target; signal={w_signal.waic:.3f} noise={w_noise.waic:.3f}"

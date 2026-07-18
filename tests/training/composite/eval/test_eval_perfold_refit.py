@@ -40,7 +40,6 @@ import numpy as np
 from mlframe.training.composite.discovery._eval import refit_transform_on_fold
 from mlframe.training.composite.transforms import Transform
 
-
 # ----------------------------------------------------------------------
 # A flexible polynomial-residual transform whose global fit overfits a
 # small noisy sample. ``T = y - poly_d(base)`` where ``poly_d`` is the
@@ -218,9 +217,9 @@ def test_biz_val_perfold_refit_removes_global_fit_optimism():
     # And per seed the honest number is never BETTER than the leaky one by
     # more than tiny noise -- the leak can only inflate (lower) the score.
     for o, h in zip(opt_rmses, hon_rmses):
-        assert h >= o * 0.98, (
-            f"honest RMSE {h:.4f} cannot be meaningfully better than the leaky global-fit RMSE {o:.4f}; the leak only ever flatters the score."
-        )
+        assert (
+            h >= o * 0.98
+        ), f"honest RMSE {h:.4f} cannot be meaningfully better than the leaky global-fit RMSE {o:.4f}; the leak only ever flatters the score."
 
 
 # ----------------------------------------------------------------------

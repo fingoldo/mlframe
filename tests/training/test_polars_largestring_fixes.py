@@ -293,9 +293,9 @@ class TestFillNullPreservesFastpath:
         assert df["cat"].dtype == pl.Categorical
         filled = df.with_columns(pl.col("cat").fill_null("__MISSING__"))
         assert filled["cat"].null_count() == 0
-        assert filled["cat"].dtype == pl.Categorical, (
-            "fill_null must keep Categorical dtype; otherwise downstream CB cat_features dispatch breaks for a different reason"
-        )
+        assert (
+            filled["cat"].dtype == pl.Categorical
+        ), "fill_null must keep Categorical dtype; otherwise downstream CB cat_features dispatch breaks for a different reason"
         # __MISSING__ is now one of the categories.
         assert "__MISSING__" in filled["cat"].unique().to_list()
 

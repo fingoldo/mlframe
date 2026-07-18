@@ -14,7 +14,6 @@ from __future__ import annotations
 import math
 
 
-
 def _mappings():
     """Helper: Mappings."""
     from mlframe.feature_engineering.pysr_operators import _make_extra_sympy_mappings

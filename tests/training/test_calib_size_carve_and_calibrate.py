@@ -349,9 +349,9 @@ def test_e2e_calib_size_activates_posthoc_calibration_and_no_worse_ece(tmp_path)
     ece_uncalibrated = _ece(raw_test[:, 1], y_test_no)
     # Tolerance band absorbs the small test-slice/seed variation between the two runs; the load-bearing assertion is
     # that calibration ACTIVATED (above) and does not materially degrade calibration on honest test.
-    assert ece_calibrated <= ece_uncalibrated + 0.05, (
-        f"post-hoc calibration degraded test ECE: calibrated={ece_calibrated:.4f} uncalibrated={ece_uncalibrated:.4f}"
-    )
+    assert (
+        ece_calibrated <= ece_uncalibrated + 0.05
+    ), f"post-hoc calibration degraded test ECE: calibrated={ece_calibrated:.4f} uncalibrated={ece_uncalibrated:.4f}"
 
 
 def test_e2e_calib_size_zero_adds_no_calib_predict(tmp_path):

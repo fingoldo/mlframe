@@ -50,9 +50,9 @@ def _assert_trained_target_entries(entries, *, target_type_label: str):
         assert m is not None, f"{target_type_label}: entries[{i}] missing .model handle: {entry!r}"
         has_predict = callable(getattr(m, "predict", None))
         has_predict_proba = callable(getattr(m, "predict_proba", None))
-        assert has_predict or has_predict_proba, (
-            f"{target_type_label}: entries[{i}].model is not a fitted estimator: no predict / predict_proba on {type(m).__name__}"
-        )
+        assert (
+            has_predict or has_predict_proba
+        ), f"{target_type_label}: entries[{i}].model is not a fitted estimator: no predict / predict_proba on {type(m).__name__}"
 
 
 class TestTrainMLFrameModelsSuiteBasic:
@@ -4223,9 +4223,9 @@ class TestTextAndEmbeddingFeatures:
             output_config=OutputConfig(data_dir=temp_data_dir),
         )
 
-        assert "text_feat" in metadata.get("text_features", []), (
-            f"With threshold=10 and 20 unique values, text_feat should be text. Got: {metadata.get('text_features')}"
-        )
+        assert "text_feat" in metadata.get(
+            "text_features", []
+        ), f"With threshold=10 and 20 unique values, text_feat should be text. Got: {metadata.get('text_features')}"
 
     # -----------------------------------------------------------------------
     # B: Feature tier ordering

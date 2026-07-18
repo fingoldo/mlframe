@@ -24,7 +24,6 @@ import logging
 import numpy as np
 import pytest
 
-
 # ---- mlframe.utils.nan_safe contract -----------------------------------
 
 

@@ -34,7 +34,6 @@ from sklearn.linear_model import Ridge
 from sklearn.metrics import r2_score
 from sklearn.model_selection import train_test_split
 
-
 warnings.filterwarnings("ignore")
 
 SEEDS = (0, 5, 11)

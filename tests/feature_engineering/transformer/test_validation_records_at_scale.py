@@ -42,7 +42,6 @@ from tests.feature_engineering.transformer.test_validation_records import (
     _measure_lift_seeded,
 )
 
-
 # Earlier pytestmark = pytest.mark.fast was here -- removed because the
 # slow_only marker at module top (line 35) is correct for this 30-min suite
 # and the later assignment silently overrode it.

@@ -48,7 +48,6 @@ from mlframe.training.feature_handling import (
     validate_handler_for_model,
 )
 
-
 # =====================================================================
 # 1. Per-method TypedDict params + extra="forbid"
 # =====================================================================

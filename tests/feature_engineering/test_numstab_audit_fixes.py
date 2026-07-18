@@ -5,7 +5,6 @@ cubic-mean negative-base NaN, Pearson product-overflow collapse, and chao-shen
 bincount crash / rare-category cancellation.
 """
 
-
 import numpy as np
 
 from mlframe.feature_engineering._numerical_numba import compute_numerical_aggregates_numba
@@ -19,9 +18,9 @@ def test_cubic_mean_net_negative_column_is_signed_cube_root_not_nan():
     neg = np.array([-2.0, -3.0, -1.0, -4.0], dtype=np.float64)
     res = list(compute_numerical_aggregates_numba(neg, whiten_means=False))
     expected_qubic = -(25.0 ** (1.0 / 3.0))  # mean of cubes = -100/4 = -25
-    assert any(np.isfinite(v) and abs(v - expected_qubic) < 1e-6 for v in res), (
-        f"signed cubic-mean {expected_qubic:.4f} not found among finite aggregates {res}"
-    )
+    assert any(
+        np.isfinite(v) and abs(v - expected_qubic) < 1e-6 for v in res
+    ), f"signed cubic-mean {expected_qubic:.4f} not found among finite aggregates {res}"
 
 
 def test_quadratic_cubic_mean_large_scale_do_not_overflow_to_inf():

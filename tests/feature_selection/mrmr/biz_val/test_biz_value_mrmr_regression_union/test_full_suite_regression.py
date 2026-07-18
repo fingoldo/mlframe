@@ -271,9 +271,9 @@ class TestPriorLayerRoster:
         # count below (both flat and one level into the themed subpackages) is the direct,
         # rename-immune silent-delete guard for the family.
         module_count = len(sorted(root.glob("test_biz_value_*.py"))) + len(sorted(root.glob("test_biz_value_mrmr_*/test_*.py")))
-        assert module_count >= 110, (
-            f"biz_value test-module roster shrank to {module_count} (floor 110); a prior-layer test module was likely dropped or renamed."
-        )
+        assert (
+            module_count >= 110
+        ), f"biz_value test-module roster shrank to {module_count} (floor 110); a prior-layer test module was likely dropped or renamed."
 
 
 # ---------------------------------------------------------------------------

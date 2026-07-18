@@ -40,7 +40,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
@@ -77,9 +76,9 @@ def test_categorize_dataset_auto_promotes_high_cardinality() -> None:
         }
     )
     data, _cols, nbins = categorize_dataset(high_card, dtype=np.int8)
-    assert int(data.max()) == 199, (
-        f"categorize_dataset must auto-promote int8 to fit 200 categories; got max code {int(data.max())} (wrap-symptom = negative or <199)."
-    )
+    assert (
+        int(data.max()) == 199
+    ), f"categorize_dataset must auto-promote int8 to fit 200 categories; got max code {int(data.max())} (wrap-symptom = negative or <199)."
     assert int(nbins[0]) == 200
 
 
@@ -179,6 +178,6 @@ def test_robustness_bins_uses_range_aware_dtype() -> None:
     """Robustness bins uses range aware dtype."""
     src = _read("metrics/_fairness_metrics.py")
     # The fix introduces a 3-way dispatch on cont_nbins width.
-    assert "_bin_dtype = np.int8" in src and "_bin_dtype = np.int16" in src, (
-        "create_robustness_standard_bins must dispatch on cont_nbins for narrowest safe dtype."
-    )
+    assert (
+        "_bin_dtype = np.int8" in src and "_bin_dtype = np.int16" in src
+    ), "create_robustness_standard_bins must dispatch on cont_nbins for narrowest safe dtype."

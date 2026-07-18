@@ -28,7 +28,6 @@ from mlframe.metrics._drift import (
 from mlframe.metrics.quantile import crps_from_quantiles
 from mlframe.metrics._ranking_extras import expected_reciprocal_rank, precision_at_k
 
-
 # ----- SA22: near-constant reference must not silently report "no drift" -----
 
 

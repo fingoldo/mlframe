@@ -307,6 +307,6 @@ def test_biz_val_conditional_space_explores_wider_effective_range_than_flat_spac
         conditional_inner_space_fn=_conditional_space,
     )
     max_depth_seen = max(t[1]["max_depth"] for t in res.trials)
-    assert max_depth_seen > 6, (
-        f"expected the conditional bonus branch to push max_depth beyond the flat space's cap of 6 at least once across {len(res.trials)} trials, max seen={max_depth_seen}"
-    )
+    assert (
+        max_depth_seen > 6
+    ), f"expected the conditional bonus branch to push max_depth beyond the flat space's cap of 6 at least once across {len(res.trials)} trials, max seen={max_depth_seen}"

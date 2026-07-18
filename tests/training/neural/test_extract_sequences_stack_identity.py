@@ -15,7 +15,6 @@ pl = pytest.importorskip("polars")
 
 from mlframe.training.neural import extract_sequences
 
-
 COLUMNS = ("mjd", "mag", "magerr", "norm")
 
 

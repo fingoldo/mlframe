@@ -223,9 +223,9 @@ def test_simpson_paradox_sign_flip_feature(seed):
     rel = df["rel"].to_numpy(np.float64)
     g = df[gcol].to_numpy()
 
-    assert _pooled_pair_mi(arr[:, 1], rel) > _pooled_pair_mi(arr[:, 0], rel) * 0.5, (
-        "sanity: the Simpson feature must carry substantial POOLED MI with relevance"
-    )
+    assert (
+        _pooled_pair_mi(arr[:, 1], rel) > _pooled_pair_mi(arr[:, 0], rel) * 0.5
+    ), "sanity: the Simpson feature must carry substantial POOLED MI with relevance"
 
     ga = group_aware_relevance(cols, arr, rel, g, bins=8)
     assert ga[signal] > 3 * ga[simpson], f"group-aware relevance must rank the true signal far above the Simpson feature: {ga}"
@@ -273,6 +273,6 @@ def test_biz_val_group_aware_fs_beats_pooled_on_ndcg_medium_scale():
 
     ndcg_ga = _ndcg_for(ga_cols)
     ndcg_pw = _ndcg_for(pooled_cols)
-    assert ndcg_ga >= ndcg_pw + 0.10, (
-        f"group-aware FS must beat the pooled pick on NDCG@10: group_aware={ndcg_ga:.4f} pooled={ndcg_pw:.4f} (ga_cols={ga_cols}, pooled_cols={pooled_cols})"
-    )
+    assert (
+        ndcg_ga >= ndcg_pw + 0.10
+    ), f"group-aware FS must beat the pooled pick on NDCG@10: group_aware={ndcg_ga:.4f} pooled={ndcg_pw:.4f} (ga_cols={ga_cols}, pooled_cols={pooled_cols})"

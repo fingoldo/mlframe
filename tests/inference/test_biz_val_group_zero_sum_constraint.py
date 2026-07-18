@@ -131,9 +131,9 @@ def test_biz_val_apply_group_zero_sum_constraint_preserve_rank_order_reduces_vio
 
     violation_multi = total_violation_depth(multi_corrected)
     violation_preserved = total_violation_depth(preserved_corrected)
-    assert violation_preserved < violation_multi * 0.7, (
-        f"preserve_rank_order should cut total inversion magnitude by >=30%: preserved={violation_preserved:.2f} multi={violation_multi:.2f}"
-    )
+    assert (
+        violation_preserved < violation_multi * 0.7
+    ), f"preserve_rank_order should cut total inversion magnitude by >=30%: preserved={violation_preserved:.2f} multi={violation_multi:.2f}"
 
     # both variants must still satisfy both constraints exactly -- rank preservation is best-effort, exactness is not.
     for corrected in (multi_corrected, preserved_corrected):

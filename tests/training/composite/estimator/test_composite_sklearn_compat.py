@@ -25,7 +25,6 @@ from mlframe.training.composite.sklearn_compat import (
     make_composite_regressor,
 )
 
-
 # ---- smoke import ----------------------------------------------------
 
 

@@ -115,9 +115,9 @@ def test_batch_bit_identical_to_mi_direct(n, K, nbins, npermutations, min_nonzer
 
     assert got.shape == ref.shape
     # EXACT float equality -- bit-identity is the contract.
-    assert np.array_equal(got, ref), (
-        f"mismatch n={n} K={K} nbins={nbins} nperm={npermutations} mnc={min_nonzero_confidence}\n ref={ref}\n got={got}\n diff={got - ref}"
-    )
+    assert np.array_equal(
+        got, ref
+    ), f"mismatch n={n} K={K} nbins={nbins} nperm={npermutations} mnc={min_nonzero_confidence}\n ref={ref}\n got={got}\n diff={got - ref}"
 
 
 def test_pure_noise_zeroed_identically():

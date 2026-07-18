@@ -167,9 +167,9 @@ class TestGridSearchCVOverFEParams:
         )
         grid.fit(X, y)
         # 2 x 2 = 4 candidates evaluated.
-        assert len(grid.cv_results_["params"]) == 4, (
-            f"expected 4 grid candidates (2 x 2), got {len(grid.cv_results_['params'])}; params={grid.cv_results_['params']}"
-        )
+        assert (
+            len(grid.cv_results_["params"]) == 4
+        ), f"expected 4 grid candidates (2 x 2), got {len(grid.cv_results_['params'])}; params={grid.cv_results_['params']}"
         # Every candidate produced a finite mean_test_score.
         assert np.all(np.isfinite(grid.cv_results_["mean_test_score"])), f"non-finite mean_test_score among candidates: {grid.cv_results_['mean_test_score']}"
 
@@ -238,9 +238,9 @@ class TestGridSearchCVOverFEParams:
             f"mean_test_scores={grid.cv_results_['mean_test_score']}"
         )
         # And it must crush the legacy linear baseline (no symmetric-in-x1 fix).
-        assert best_score >= legacy_score + 0.15, (
-            f"Engineered FE must clear the legacy linear baseline by a wide margin on the quadratic; best={best_score:.4f}, legacy={legacy_score:.4f}"
-        )
+        assert (
+            best_score >= legacy_score + 0.15
+        ), f"Engineered FE must clear the legacy linear baseline by a wide margin on the quadratic; best={best_score:.4f}, legacy={legacy_score:.4f}"
 
     def test_gridsearch_best_estimator_serializes(self):
         """Refit + pickle of the best estimator round-trips cleanly.
@@ -404,9 +404,9 @@ class TestCrossValWithHybridFE:
                 fe_hybrid_orth_top_k=5,
             )
             m.fit(X.iloc[tr_idx], y.iloc[tr_idx])
-            assert len(m.hybrid_orth_features_) > 0, (
-                f"fold={fold_idx}: hybrid_orth_features_ empty on a quadratic signal; FE pipeline failed to engage on this fold's training slice"
-            )
+            assert (
+                len(m.hybrid_orth_features_) > 0
+            ), f"fold={fold_idx}: hybrid_orth_features_ empty on a quadratic signal; FE pipeline failed to engage on this fold's training slice"
 
     def test_no_y_leakage_across_folds(self):
         """Permuting the target inside the holdout slice MUST NOT
@@ -440,9 +440,9 @@ class TestCrossValWithHybridFE:
         )
         m2.fit(Xtr, y_holdout_scrambled.iloc[tr_idx])
         # Training slice y is unchanged so the recipe must match.
-        assert list(m2.hybrid_orth_features_) == feats_baseline, (
-            f"holdout-y scramble leaked into training fit: baseline={feats_baseline} vs scrambled-holdout={m2.hybrid_orth_features_}"
-        )
+        assert (
+            list(m2.hybrid_orth_features_) == feats_baseline
+        ), f"holdout-y scramble leaked into training fit: baseline={feats_baseline} vs scrambled-holdout={m2.hybrid_orth_features_}"
 
 
 # ---------------------------------------------------------------------------
@@ -563,9 +563,9 @@ class TestSetOutputPandasWithHybrid:
         ).set_output(transform="pandas")
         m.fit(X, y)
         out = m.transform(X)
-        assert list(out.columns) == list(m.get_feature_names_out()), (
-            f"transform DataFrame columns disagree with get_feature_names_out():\n  columns={list(out.columns)}\n  names_out={list(m.get_feature_names_out())}"
-        )
+        assert list(out.columns) == list(
+            m.get_feature_names_out()
+        ), f"transform DataFrame columns disagree with get_feature_names_out():\n  columns={list(out.columns)}\n  names_out={list(m.get_feature_names_out())}"
 
     def test_engineered_column_values_finite(self):
         """Every engineered hybrid_orth_features_ column value in transform() output is finite."""
@@ -573,9 +573,9 @@ class TestSetOutputPandasWithHybrid:
         for eng_name in m.hybrid_orth_features_:
             if eng_name in out.columns:
                 col = out[eng_name].to_numpy()
-                assert np.all(np.isfinite(col)), (
-                    f"engineered column {eng_name!r} has non-finite values; first bad rows: {np.flatnonzero(~np.isfinite(col))[:5]}"
-                )
+                assert np.all(
+                    np.isfinite(col)
+                ), f"engineered column {eng_name!r} has non-finite values; first bad rows: {np.flatnonzero(~np.isfinite(col))[:5]}"
 
 
 # ---------------------------------------------------------------------------

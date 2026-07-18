@@ -26,7 +26,6 @@ from mlframe.training.neural._recurrent_config import (
     RNNType,
 )
 
-
 # --- Config surface --------------------------------------------------------
 
 
@@ -116,9 +115,9 @@ def test_recurrent_ema_callback_attached_when_use_ema_true(monkeypatch):
     from lightning.pytorch.callbacks import StochasticWeightAveraging
 
     expected_type = WeightAveraging if _native else StochasticWeightAveraging  # type: ignore[possibly-unbound]
-    assert any(isinstance(cb, expected_type) for cb in trainer.callbacks), (
-        f"use_ema=True did not attach {expected_type.__name__} to Trainer.callbacks; observed: {[type(cb).__name__ for cb in trainer.callbacks]}"
-    )
+    assert any(
+        isinstance(cb, expected_type) for cb in trainer.callbacks
+    ), f"use_ema=True did not attach {expected_type.__name__} to Trainer.callbacks; observed: {[type(cb).__name__ for cb in trainer.callbacks]}"
 
 
 def test_recurrent_no_ema_callback_when_use_ema_false():

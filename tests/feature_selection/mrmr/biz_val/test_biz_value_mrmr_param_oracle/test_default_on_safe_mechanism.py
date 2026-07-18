@@ -194,9 +194,9 @@ class TestSignalSurvivesNewDefault:
         assert m_def.fe_local_mi_gate is True
 
         assert "pred_cat__count" in m_off.count_encoding_features_, f"seed={seed}: ungated path should select the predictive count"
-        assert "pred_cat__count" in m_def.count_encoding_features_, (
-            f"seed={seed}: NEW-default gate dropped the real signal pred_cat__count; survivors={m_def.count_encoding_features_}"
-        )
+        assert (
+            "pred_cat__count" in m_def.count_encoding_features_
+        ), f"seed={seed}: NEW-default gate dropped the real signal pred_cat__count; survivors={m_def.count_encoding_features_}"
 
 
 # ---------------------------------------------------------------------------

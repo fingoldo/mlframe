@@ -40,7 +40,6 @@ from mlframe.training.composite.discovery._eval_stats import (
     near_collinear_keep_mask,
 )
 
-
 # ----------------------------------------------------------------------
 # M4: Benjamini-Hochberg FDR step-up
 # ----------------------------------------------------------------------
@@ -145,9 +144,9 @@ def test_biz_val_fdr_reduces_false_positives_on_all_null_specs() -> None:
     mean_bh = float(np.mean(bh_fp))
     assert mean_naive >= 1.5, f"uncorrected gate should admit ~alpha*m={alpha * m:.1f} false positives, got {mean_naive:.2f}; test not exercising the inflation"
     assert mean_bh <= 0.5, f"BH FDR control should admit ~0 false positives on all-null specs, got {mean_bh:.2f}"
-    assert mean_bh <= 0.3 * mean_naive, (
-        f"BH false-positive rate {mean_bh:.2f} is not materially below the uncorrected {mean_naive:.2f}; the multiplicity correction is gone"
-    )
+    assert (
+        mean_bh <= 0.3 * mean_naive
+    ), f"BH false-positive rate {mean_bh:.2f} is not materially below the uncorrected {mean_naive:.2f}; the multiplicity correction is gone"
 
 
 # ----------------------------------------------------------------------

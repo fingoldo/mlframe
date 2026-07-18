@@ -119,6 +119,6 @@ def test_biz_val_threshold_range_rescaler_noop_when_no_genuine_subgroup_miscalib
             assert abs(correction.multiplier - 1.0) < 0.15, f"expected near-no-op multiplier on well-calibrated data, got {correction.multiplier}"
 
     # held-out AUC must not meaningfully move (CV-fit noise should not survive to held-out data)
-    assert abs(corrected_test_auc - baseline_test_auc) < 0.01, (
-        f"expected negligible held-out AUC change on well-calibrated data, baseline={baseline_test_auc:.4f}, corrected={corrected_test_auc:.4f}"
-    )
+    assert (
+        abs(corrected_test_auc - baseline_test_auc) < 0.01
+    ), f"expected negligible held-out AUC change on well-calibrated data, baseline={baseline_test_auc:.4f}, corrected={corrected_test_auc:.4f}"

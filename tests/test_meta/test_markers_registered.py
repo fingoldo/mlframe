@@ -21,7 +21,6 @@ import ast
 import re
 from pathlib import Path
 
-
 # Built-in pytest markers that don't need explicit registration.
 _BUILTIN_MARKERS = frozenset(
     {
@@ -151,9 +150,9 @@ def test_pyproject_marker_parser_picks_up_known_entries():
     """
     pyproject_markers = _parse_pyproject_markers()
     for required in ("slow", "fast", "gpu", "no_xdist"):
-        assert required in pyproject_markers, (
-            f"Marker {required!r} missing from pyproject.toml registration; either pyproject was edited or the parser is broken."
-        )
+        assert (
+            required in pyproject_markers
+        ), f"Marker {required!r} missing from pyproject.toml registration; either pyproject was edited or the parser is broken."
 
 
 def test_conftest_marker_parser_picks_up_known_entries():
@@ -168,6 +167,6 @@ def test_conftest_marker_parser_picks_up_known_entries():
     """
     conftest_markers = _parse_conftest_markers()
     for required in ("fuzz", "biz_transformer"):
-        assert required in conftest_markers, (
-            f"Marker {required!r} missing from conftest.py addinivalue_line; either conftest was edited or the parser is broken."
-        )
+        assert (
+            required in conftest_markers
+        ), f"Marker {required!r} missing from conftest.py addinivalue_line; either conftest was edited or the parser is broken."

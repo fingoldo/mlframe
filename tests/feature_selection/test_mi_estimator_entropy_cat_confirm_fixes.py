@@ -19,7 +19,6 @@ import logging
 import numpy as np
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Bug 3: joint_freqs_2var / joint_entropy_2var empty-frame guard
 # ---------------------------------------------------------------------------

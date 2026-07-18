@@ -35,7 +35,6 @@ from mlframe.training.composite.transforms.categorical import (
     _target_encoding_residual_inverse,
 )
 
-
 # ---------------------------------------------------------------------------
 # Unit: fit / forward / inverse / smoothing
 # ---------------------------------------------------------------------------

@@ -33,7 +33,6 @@ from mlframe.training.composite.transforms.unary import (
     chain_bivariate_then_unary_inverse,
 )
 
-
 # ----------------------------------------------------------------------
 # Pack J: unary round-trip
 # ----------------------------------------------------------------------

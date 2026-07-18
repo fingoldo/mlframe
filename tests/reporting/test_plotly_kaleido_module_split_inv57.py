@@ -14,7 +14,6 @@ from __future__ import annotations
 import os
 
 
-
 def test_inv57_public_kaleido_surface_reexported_from_plotly():
     """Inv57 public kaleido surface reexported from plotly."""
     from mlframe.reporting.renderers import _kaleido, plotly

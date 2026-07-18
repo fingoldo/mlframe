@@ -20,7 +20,6 @@ import polars as pl
 
 from mlframe.training.feature_handling.text_detection import detect_cat_columns_by_dtype
 
-
 # ---- pandas paths --------------------------------------------------------
 
 

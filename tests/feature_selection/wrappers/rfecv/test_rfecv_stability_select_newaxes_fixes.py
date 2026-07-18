@@ -22,9 +22,9 @@ def _load_func():
 def test_fit_stability_selection_has_docstring():
     """The Stability-Selection literal is now bound to __doc__, not a dead string."""
     func = _load_func()
-    assert func.__doc__ is not None, (
-        "_fit_stability_selection.__doc__ is None: the docstring is still placed below the n_samples guard and is being evaluated-and-discarded."
-    )
+    assert (
+        func.__doc__ is not None
+    ), "_fit_stability_selection.__doc__ is None: the docstring is still placed below the n_samples guard and is being evaluated-and-discarded."
     # The exact wording that was intended as the docstring must be reachable via
     # standard introspection (help()/IDE) now.
     assert "Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B)." in func.__doc__

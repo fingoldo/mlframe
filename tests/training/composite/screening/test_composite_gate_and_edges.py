@@ -126,9 +126,9 @@ class TestRawYBaselineGate:
         if disc.specs_:
             for s in disc.specs_:
                 composite_rmse = disc.tiny_rerank_scores_[s.name]
-                assert composite_rmse < disc.raw_y_baseline_rmse_, (
-                    f"Gate failed: {s.name} kept with RMSE {composite_rmse:.4f} >= raw {disc.raw_y_baseline_rmse_:.4f}"
-                )
+                assert (
+                    composite_rmse < disc.raw_y_baseline_rmse_
+                ), f"Gate failed: {s.name} kept with RMSE {composite_rmse:.4f} >= raw {disc.raw_y_baseline_rmse_:.4f}"
 
     def test_dominant_lag_passes_gate(self) -> None:
         """Sanity counterpart: when the base actually dominates (slow
@@ -949,9 +949,9 @@ class TestIntegrationEdges:
         # alpha is fitted to ~1.0 so the two T sequences are nearly
         # identical; their mi_gain values should differ only by MI
         # estimation noise (< 0.05).
-        assert abs(rep["diff"] - rep["linear_residual"]) < 0.10, (
-            f"diff={rep['diff']:.4f} vs linear_residual={rep['linear_residual']:.4f} should be near-equal when alpha=1.0"
-        )
+        assert (
+            abs(rep["diff"] - rep["linear_residual"]) < 0.10
+        ), f"diff={rep['diff']:.4f} vs linear_residual={rep['linear_residual']:.4f} should be near-equal when alpha=1.0"
 
     # ----------------------------------------------------------------------
     # Multilabel regression (R3.18)

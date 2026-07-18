@@ -33,7 +33,6 @@ from mlframe.training.feature_handling import (
     detect_text_columns,
 )
 
-
 # =====================================================================
 # Trigger 1: definite_long (mean_chars >= 100)
 # =====================================================================

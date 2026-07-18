@@ -26,7 +26,6 @@ from mlframe.training import OutputConfig
 from .shared import SimpleFeaturesAndTargetsExtractor
 from tests.conftest import fast_subset
 
-
 # --------------------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------------------

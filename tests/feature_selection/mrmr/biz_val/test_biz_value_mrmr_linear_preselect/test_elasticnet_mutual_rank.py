@@ -497,9 +497,9 @@ class TestDefaultDisabledByteIdentical:
         m2.fit(X, y)
         sup1 = list(m1.feature_names_in_)
         sup2 = list(m2.feature_names_in_)
-        assert sup1 == sup2, (
-            f"seed={seed}: explicit fe_hybrid_orth_elasticnet_enable=False diverged from implicit-default fit. implicit={sup1}, explicit={sup2}"
-        )
+        assert (
+            sup1 == sup2
+        ), f"seed={seed}: explicit fe_hybrid_orth_elasticnet_enable=False diverged from implicit-default fit. implicit={sup1}, explicit={sup2}"
 
 
 # ---------------------------------------------------------------------------

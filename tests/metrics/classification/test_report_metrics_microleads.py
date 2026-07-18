@@ -31,7 +31,6 @@ from mlframe.training._benchmarks.bench_report_one_hot import (
     build_vectorized,
 )
 
-
 # ---------- Lead 1: report one-hot bit-identity ----------
 
 

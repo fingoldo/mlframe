@@ -114,9 +114,9 @@ def test_fused_numeric_constant_detection_matches_old_reference():
     expected_dropped = _old_pandas_numeric_constants(df)
     kept = _columns(remove_constant_columns(df, verbose=0))
     actually_dropped = set(df.columns) - kept
-    assert actually_dropped == expected_dropped, (
-        f"fused path diverged from reference:\n  fused dropped: {actually_dropped}\n  reference dropped: {expected_dropped}"
-    )
+    assert (
+        actually_dropped == expected_dropped
+    ), f"fused path diverged from reference:\n  fused dropped: {actually_dropped}\n  reference dropped: {expected_dropped}"
 
 
 def test_single_real_value_many_nulls_categorical_parity():

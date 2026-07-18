@@ -21,7 +21,6 @@ import numpy as np
 import pandas as pd
 from hypothesis import HealthCheck, given, settings, strategies as st
 
-
 # ---------------------------------------------------------------------------
 # prepare_df_for_catboost — NaN handling, mixed dtypes, empty input.
 # ---------------------------------------------------------------------------
@@ -64,9 +63,9 @@ def test_prepare_df_for_catboost_nan_handling(n_rows, n_cat, null_frac, seed):
         # frac) avoids flake on small n_rows where the random draw happens
         # to produce zero nulls.
         if had_nan[col]:
-            assert "__MISSING__" in set(df[col].cat.categories), (
-                f"col {col} missing the __MISSING__ sentinel after NaN injection (null_frac={null_frac}, n_rows={n_rows})"
-            )
+            assert "__MISSING__" in set(
+                df[col].cat.categories
+            ), f"col {col} missing the __MISSING__ sentinel after NaN injection (null_frac={null_frac}, n_rows={n_rows})"
 
 
 @settings(deadline=None, max_examples=10)

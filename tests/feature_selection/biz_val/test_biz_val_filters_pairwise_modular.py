@@ -204,9 +204,9 @@ class TestMRMRIntegration:
         X = pd.DataFrame(cols)
         with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters._pairwise_modular_fe"):
             appended, recipes = hybrid_pairwise_modular_fe_with_recipes(X, y, seed=7)
-        assert any("skipping the pairwise/n-way modular sweep" in r.message for r in caplog.records), (
-            "expected a whole-sweep-skipped budget log line for 35 int columns."
-        )
+        assert any(
+            "skipping the pairwise/n-way modular sweep" in r.message for r in caplog.records
+        ), "expected a whole-sweep-skipped budget log line for 35 int columns."
         assert appended == [] and recipes == [], "above max_int_cols nothing should be emitted."
 
     def test_clone_preserves_params(self):
@@ -418,18 +418,18 @@ class TestPairwiseModularTargetTypeRobustness:
         """Continuous-1D SMOOTH/noise target: now eligible (binned), MUST stay specific -- 0 spurious modular column + no hang/crash."""
         df, y = self._xy(kind)
         m = self._fit(df, y)
-        assert list(getattr(m, "pairwise_modular_features_", []) or []) == [], (
-            f"pairwise-modular FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
-        )
+        assert (
+            list(getattr(m, "pairwise_modular_features_", []) or []) == []
+        ), f"pairwise-modular FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
 
     @pytest.mark.parametrize("kind", ["multilabel", "multitarget"])
     def test_pairwise_modular_skipped_on_2d_target_no_crash_or_hang(self, kind):
         """2D y stays SKIPPED (binning a label matrix is out of scope); no hang/crash, no engineered column."""
         df, y = self._xy(kind)
         m = self._fit(df, y)
-        assert list(getattr(m, "pairwise_modular_features_", []) or []) == [], (
-            f"pairwise-modular FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
-        )
+        assert (
+            list(getattr(m, "pairwise_modular_features_", []) or []) == []
+        ), f"pairwise-modular FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
 
     def test_pairwise_modular_detects_on_modular_regression_target(self):
         """Continuous-1D y with TRUE modular structure (y = scale*(a mod 7) + noise) DETECTS + emits the residue feature on the binned y."""

@@ -112,9 +112,9 @@ class TestPartA_RecipeWiring:
         agg_entries = [
             e for e in m.dcd_["swap_log"] if e.get("branch") == "aggregate" and "_dcd_pc1_" in str(e.get("aggregate_name", "")) and e.get("method") == "pca_pc1"
         ]
-        assert len(agg_entries) >= 1, (
-            f"a pinned pca_pc1 aggregate swap must record a _dcd_pc1_ aggregate_name with method='pca_pc1'; got swap_log={m.dcd_['swap_log']}"
-        )
+        assert (
+            len(agg_entries) >= 1
+        ), f"a pinned pca_pc1 aggregate swap must record a _dcd_pc1_ aggregate_name with method='pca_pc1'; got swap_log={m.dcd_['swap_log']}"
 
     def test_produced_recipes_contains_cluster_aggregate(self):
         """The swap MUST produce a ``cluster_aggregate`` recipe named with
@@ -149,9 +149,9 @@ class TestPartA_RecipeWiring:
         assert len(dcd_recipes) >= 1, f"Expected >=1 produced cluster_aggregate recipe with a _dcd_pc1_ name; got produced={produced}"
         # Sourced from the duplicate cluster members (the recipe replays
         # the aggregate from these raw columns).
-        assert all(set(r.src_names) <= {"dup_a", "dup_b", "dup_c"} for r in dcd_recipes), (
-            f"cluster_aggregate src_names must be the dup members; got {[r.src_names for r in dcd_recipes]}"
-        )
+        assert all(
+            set(r.src_names) <= {"dup_a", "dup_b", "dup_c"} for r in dcd_recipes
+        ), f"cluster_aggregate src_names must be the dup members; got {[r.src_names for r in dcd_recipes]}"
 
     def test_transform_deterministic_and_aggregate_replay_finite(self):
         """``transform`` on the training data must be deterministic, and
@@ -283,18 +283,18 @@ class TestPartB_AutoMethod:
         scores = entry.get("kfold_scores", {})
         assert scores, f"auto mode must record kfold_scores; got {entry}"
         # mean_inv_var or pca_pc1 must >= mean_z under heterogeneous loadings.
-        assert scores.get("mean_inv_var", 0.0) >= scores.get("mean_z", 0.0) or scores.get("pca_pc1", 0.0) >= scores.get("mean_z", 0.0), (
-            f"under heterogeneous loadings a reliability-weighted combiner should score >= mean_z; got {scores}"
-        )
+        assert scores.get("mean_inv_var", 0.0) >= scores.get("mean_z", 0.0) or scores.get("pca_pc1", 0.0) >= scores.get(
+            "mean_z", 0.0
+        ), f"under heterogeneous loadings a reliability-weighted combiner should score >= mean_z; got {scores}"
         # And the chosen winner is not the uniform mean. Layer 44: the bake-off
         # pool now includes pca_pc2 / median_z / signed_max_abs / signed_l2_sum
         # — any of those can also legitimately surface as the winner since they
         # are also variance / magnitude-aware combiners; the contract here is
         # only that ``mean_z`` is NOT the uniform winner under heterogeneous
         # loadings.
-        assert entry["method"] != "mean_z", (
-            f"under heterogeneous loadings, expected a variance-aware combiner to win over uniform mean_z; got {entry['method']!r} with scores {scores}"
-        )
+        assert (
+            entry["method"] != "mean_z"
+        ), f"under heterogeneous loadings, expected a variance-aware combiner to win over uniform mean_z; got {entry['method']!r} with scores {scores}"
 
     def test_kfold_scoring_stable_across_seeds(self):
         """The OOF bake-off is seeded by member names so cluster-level
@@ -494,9 +494,9 @@ class TestNoRegressionPriorLayers:
         # swap_log (the PART A guarantee -- the marker lives in the swap_log,
         # not necessarily in the post-redundancy final selection surface).
         if m.dcd_["n_swaps"] >= 1:
-            assert any("_dcd_pc1_" in str(e.get("aggregate_name", "")) for e in m.dcd_["swap_log"] if e.get("branch") == "aggregate"), (
-                f"pinned pca_pc1 swap must log a _dcd_pc1_ aggregate; got {m.dcd_['swap_log']}"
-            )
+            assert any(
+                "_dcd_pc1_" in str(e.get("aggregate_name", "")) for e in m.dcd_["swap_log"] if e.get("branch") == "aggregate"
+            ), f"pinned pca_pc1 swap must log a _dcd_pc1_ aggregate; got {m.dcd_['swap_log']}"
 
 
 # ---------------------------------------------------------------------------
@@ -784,9 +784,9 @@ class TestLayer44_BakeoffWins:
         )
         assert scores, f"empty bake-off scores: {scores}"
         # PC2's MI with y must dominate PC1's on this fixture (target ~ L2).
-        assert scores.get("pca_pc2", 0.0) > scores.get("pca_pc1", 0.0), (
-            f"expected pca_pc2 to outscore pca_pc1 when y depends on the 2nd PC; got scores={scores}"
-        )
+        assert scores.get("pca_pc2", 0.0) > scores.get(
+            "pca_pc1", 0.0
+        ), f"expected pca_pc2 to outscore pca_pc1 when y depends on the 2nd PC; got scores={scores}"
 
     def test_median_z_beats_mean_z_on_outlier_members(self):
         """One row per ~20 is corrupted with a heavy-tail spike per member;

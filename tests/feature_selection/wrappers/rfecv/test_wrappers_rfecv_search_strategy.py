@@ -29,7 +29,6 @@ from mlframe.models.optimization import (
     OptimizationDirection,
 )
 
-
 # ----------------------------------------------------------------------- S1
 
 

@@ -22,9 +22,9 @@ def test_linear_regressor_uses_sparse_cg_solver() -> None:
 
     cfg = LinearModelConfig(random_state=0)
     model = _build_linear_regressor(cfg)
-    assert model.get_params()["solver"] == "sparse_cg", (
-        f"linear_regressor must pin solver='sparse_cg' to avoid the 44+ min SVD-auto path on 4M x 323 prod data; got {model.get_params()['solver']!r}"
-    )
+    assert (
+        model.get_params()["solver"] == "sparse_cg"
+    ), f"linear_regressor must pin solver='sparse_cg' to avoid the 44+ min SVD-auto path on 4M x 323 prod data; got {model.get_params()['solver']!r}"
 
 
 def test_ridge_regressor_uses_sparse_cg_solver() -> None:

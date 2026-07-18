@@ -148,9 +148,9 @@ class TestD19_NoSignal:
         # Random labels - we can't predict which features get picked, but
         # n_features_ shouldn't blow up to ~p (which would indicate the
         # selector is fooled into thinking ALL features carry signal).
-        assert rfecv.n_features_ <= 20, (
-            f"On no-signal data, selector picked {rfecv.n_features_} of 20 features - upper bound only, but if blown past is suspicious."
-        )
+        assert (
+            rfecv.n_features_ <= 20
+        ), f"On no-signal data, selector picked {rfecv.n_features_} of 20 features - upper bound only, but if blown past is suspicious."
 
 
 # ----------------------------------------------------------------------------

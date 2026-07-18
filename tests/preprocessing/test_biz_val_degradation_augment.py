@@ -59,9 +59,9 @@ def test_biz_val_degradation_augment_reduces_mse_under_measurement_noise_mismatc
         rel_improvements.append((mse_baseline - mse_augmented) / mse_baseline)
 
     mean_rel_improvement = float(np.mean(rel_improvements))
-    assert mean_rel_improvement > 0.45, (
-        f"expected >45% mean MSE reduction from noise-matching augmentation across 5 seeds, got {mean_rel_improvement:.4f} (per-seed: {rel_improvements})"
-    )
+    assert (
+        mean_rel_improvement > 0.45
+    ), f"expected >45% mean MSE reduction from noise-matching augmentation across 5 seeds, got {mean_rel_improvement:.4f} (per-seed: {rel_improvements})"
     assert min(rel_improvements) > 0, f"expected a positive MSE reduction on every seed, got {rel_improvements}"
 
 

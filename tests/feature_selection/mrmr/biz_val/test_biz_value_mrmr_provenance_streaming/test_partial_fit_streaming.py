@@ -186,9 +186,9 @@ class TestLayer53_C1_FirstCallEquivalence:
         m_fit = _fast_mrmr().fit(X, y)
         m_pf = _fast_mrmr().partial_fit(X, y)
         # Support contents (not insertion order) must match.
-        assert set(m_fit.support_.tolist()) == set(m_pf.support_.tolist()), (
-            f"partial_fit first-call support {m_pf.support_.tolist()!r} differs from fit support {m_fit.support_.tolist()!r}"
-        )
+        assert set(m_fit.support_.tolist()) == set(
+            m_pf.support_.tolist()
+        ), f"partial_fit first-call support {m_pf.support_.tolist()!r} differs from fit support {m_fit.support_.tolist()!r}"
         # n_features_in_ contract preserved.
         assert m_fit.n_features_in_ == m_pf.n_features_in_
 

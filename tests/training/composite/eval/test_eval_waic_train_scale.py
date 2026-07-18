@@ -53,9 +53,9 @@ def test_overfit_candidate_penalized_with_train_scale_but_hidden_when_self_norma
     p_of = waic_from_oof_residuals(of_oof, target_scale=1.0)
     selfnorm_sep = p_gen.waic - p_of.waic
     trainscale_sep = s_gen.waic - s_of.waic
-    assert trainscale_sep > 10.0 * selfnorm_sep, (
-        f"train-scale must penalise the overfit far harder than self-norm: trainscale gap={trainscale_sep:.2f} vs selfnorm gap={selfnorm_sep:.2f}"
-    )
+    assert (
+        trainscale_sep > 10.0 * selfnorm_sep
+    ), f"train-scale must penalise the overfit far harder than self-norm: trainscale gap={trainscale_sep:.2f} vs selfnorm gap={selfnorm_sep:.2f}"
 
 
 def test_compute_transform_waic_rewards_better_predictor():

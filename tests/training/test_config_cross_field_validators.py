@@ -17,7 +17,6 @@ from mlframe.training.configs import (
     MultilabelDispatchConfig,
 )
 
-
 # ---- FeatureSelectionConfig ------------------------------------------------
 
 

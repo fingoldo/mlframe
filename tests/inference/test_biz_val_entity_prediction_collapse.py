@@ -41,9 +41,9 @@ def test_biz_val_collapse_predictions_by_group_beats_noisy_per_row():
     collapsed_mean = collapse_predictions_by_group(row_predictions, entity_ids, stat="mean")
     auc_collapsed = roc_auc_score(y_row, collapsed_mean)
 
-    assert auc_collapsed > auc_per_row, (
-        f"expected group-mean collapse to beat noisy per-row predictions when the label is an entity-level property, got collapsed={auc_collapsed:.4f} per_row={auc_per_row:.4f}"
-    )
+    assert (
+        auc_collapsed > auc_per_row
+    ), f"expected group-mean collapse to beat noisy per-row predictions when the label is an entity-level property, got collapsed={auc_collapsed:.4f} per_row={auc_per_row:.4f}"
 
 
 def test_collapse_predictions_by_group_broadcasts_consistently():

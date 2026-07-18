@@ -19,7 +19,6 @@ import torch.nn as nn
 
 from mlframe.training.neural._mixup import mixup_batch
 
-
 # --- Unit tests --------------------------------------------------------------
 
 

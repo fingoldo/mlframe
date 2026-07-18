@@ -260,9 +260,9 @@ def test_strategy_recovers_calibration_on_test(strategy, synthetic_pu):
         "elkan_noto": 0.30,
     }[strategy]
 
-    assert distance < tolerance, (
-        f"strategy={strategy}: PU mean_pred={pu_mean:.3f} too far from true prior {true_prior:.3f} (Δ={distance:.3f}, tolerance={tolerance})"
-    )
+    assert (
+        distance < tolerance
+    ), f"strategy={strategy}: PU mean_pred={pu_mean:.3f} too far from true prior {true_prior:.3f} (Δ={distance:.3f}, tolerance={tolerance})"
 
 
 @pytest.mark.parametrize(

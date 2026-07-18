@@ -69,9 +69,9 @@ def test_biz_val_row_level_then_average_beats_mean_aggregation_baseline_auc():
     auc_row_level = roc_auc_score(y_entity, avg_pred)
 
     assert auc_row_level > 0.8, f"expected row-level-then-average AUC > 0.8, got {auc_row_level:.4f}"
-    assert auc_row_level - auc_baseline > 0.25, (
-        f"expected row-level-then-average to beat the mean-aggregation baseline by >0.25 AUC, got row_level={auc_row_level:.4f} vs baseline={auc_baseline:.4f}"
-    )
+    assert (
+        auc_row_level - auc_baseline > 0.25
+    ), f"expected row-level-then-average to beat the mean-aggregation baseline by >0.25 AUC, got row_level={auc_row_level:.4f} vs baseline={auc_baseline:.4f}"
 
 
 def test_row_level_then_average_mode_b_external_query():
@@ -200,9 +200,9 @@ def test_biz_val_row_level_low_confidence_flag_identifies_less_reliable_entities
     # The flagged group's aggregate predictions should be materially less accurate than the unflagged group's.
     err_flagged = np.abs(pred[flagged] - y_entity[flagged])
     err_unflagged = np.abs(pred[~flagged] - y_entity[~flagged])
-    assert err_flagged.mean() - err_unflagged.mean() > 0.15, (
-        f"expected flagged-entity error to exceed unflagged-entity error by >0.15, got flagged={err_flagged.mean():.4f} vs unflagged={err_unflagged.mean():.4f}"
-    )
+    assert (
+        err_flagged.mean() - err_unflagged.mean() > 0.15
+    ), f"expected flagged-entity error to exceed unflagged-entity error by >0.15, got flagged={err_flagged.mean():.4f} vs unflagged={err_unflagged.mean():.4f}"
 
 
 def test_row_level_then_average_default_flag_off_is_bit_identical():

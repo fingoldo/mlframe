@@ -415,9 +415,7 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
                 force_native_xgb_multilabel=combo.multilabel_force_native_xgb_cfg,
                 # iter180 DEPTH-4 list-typed: per_label_thresholds (uniform 0.4 vs None),
                 # chain_seeds (deterministic per-chain seeds vs None).
-                per_label_thresholds=(
-                    None if combo.multilabel_per_label_thresholds_cfg is None else [0.4, 0.4, 0.4]  # K=3 default labels in fuzz frame
-                ),
+                per_label_thresholds=(None if combo.multilabel_per_label_thresholds_cfg is None else [0.4, 0.4, 0.4]),  # K=3 default labels in fuzz frame
                 chain_seeds=(None if combo.multilabel_chain_seeds_cfg is None else list(range(combo.multilabel_n_chains_cfg))),
             ),
         ),

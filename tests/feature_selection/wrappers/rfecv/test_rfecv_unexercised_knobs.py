@@ -37,7 +37,6 @@ from tests.feature_selection._biz_val_synth import (
     as_df,
 )
 
-
 # Compiled once at module scope (project rule: pre-compile regex).
 _XCOL_RE = re.compile(r"x(\d+)")
 
@@ -277,9 +276,9 @@ def _cpi_depth_body(fast: bool = False):
     v_full = _cpi(None)
 
     max_abs_diff = float(np.max(np.abs(v_stump - v_full)))
-    assert max_abs_diff >= 0.015, (
-        f"cpi_max_depth had no effect on the conditional-permutation FI vector (max abs diff {max_abs_diff:.4f}); the aux-tree depth knob is not wired."
-    )
+    assert (
+        max_abs_diff >= 0.015
+    ), f"cpi_max_depth had no effect on the conditional-permutation FI vector (max abs diff {max_abs_diff:.4f}); the aux-tree depth knob is not wired."
 
 
 def test_cpi_min_samples_leaf_changes_conditional_permutation_fi_vector():

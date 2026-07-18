@@ -33,7 +33,6 @@ from tests.feature_selection._selector_factories import (
     spec_params,
 )
 
-
 # --- shared data (built once) ----------------------------------------------
 
 
@@ -302,9 +301,9 @@ class TestIndexAlignment:
         informative = {f"f{i}" for i in range(5)}
         # If the selector silently aligned y by pandas index instead of positionally,
         # the labels would be scrambled and signal recovery collapses to ~noise.
-        assert names & informative, (
-            f"{spec.name}: non-default-index fit recovered no informative feature (selected {sorted(names)}) -- possible silent index misalignment"
-        )
+        assert (
+            names & informative
+        ), f"{spec.name}: non-default-index fit recovered no informative feature (selected {sorted(names)}) -- possible silent index misalignment"
 
 
 # ===========================================================================

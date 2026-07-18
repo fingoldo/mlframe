@@ -46,9 +46,9 @@ def test_biz_linear_sign_harmony_beats_abs_mean_vote():
     abs_fi = {f"r{k}": {"true": 0.8, "flip": 1.0} for k in range(6)}
 
     disp = aggregate_linear(sg)
-    assert disp["true"] > disp["flip"], (
-        f"sign-harmony must demote the sign-flipper below the weaker consistent feature: true={disp['true']:.3f} flip={disp['flip']:.3f}"
-    )
+    assert (
+        disp["true"] > disp["flip"]
+    ), f"sign-harmony must demote the sign-flipper below the weaker consistent feature: true={disp['true']:.3f} flip={disp['flip']:.3f}"
     # The flipper's signed mean is ~0 -> score ~0; the consistent feature keeps ~0.8.
     assert disp["true"] >= 0.7
     assert disp["flip"] <= 0.1

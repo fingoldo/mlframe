@@ -63,7 +63,6 @@ from tests.feature_selection._selector_factories import (
 )
 from tests.feature_selection.conftest import fast_subset
 
-
 # ---------------------------------------------------------------------------
 # Synthetic builders. All small (n<=1500), fixed-seed, deterministic.
 # ---------------------------------------------------------------------------

@@ -29,7 +29,7 @@ def test_fast_classification_report_macro_and_weighted_avgs_match_sklearn():
     y_true = rng.integers(0, k, n)
     y_pred = rng.integers(0, k, n)
 
-    (_hits, _misses, _accuracy, balanced_accuracy, _supports, _precisions, _recalls, _f1s, macro_avgs, weighted_avgs) = fast_classification_report(
+    _hits, _misses, _accuracy, balanced_accuracy, _supports, _precisions, _recalls, _f1s, macro_avgs, weighted_avgs = fast_classification_report(
         y_true, y_pred, nclasses=k
     )
 

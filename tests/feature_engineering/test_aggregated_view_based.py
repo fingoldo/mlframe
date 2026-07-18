@@ -15,7 +15,6 @@ import pytest
 
 from mlframe.feature_engineering.timeseries import create_aggregated_features
 
-
 _BASELINE_PATH = Path(__file__).parent / "_w16c_aggregated_baseline.npz"
 
 

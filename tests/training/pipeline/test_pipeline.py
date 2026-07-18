@@ -169,9 +169,9 @@ class TestCategoricalFeatureDetection:
             )
 
         # Even with polars-ds unavailable, cat_features must be detected
-        assert "cat_feature" in cat_features, (
-            f"Categorical features not detected when polars-ds is unavailable. Got cat_features={cat_features}. This is a critical bug for CatBoost."
-        )
+        assert (
+            "cat_feature" in cat_features
+        ), f"Categorical features not detected when polars-ds is unavailable. Got cat_features={cat_features}. This is a critical bug for CatBoost."
 
 
 class TestFitAndTransformPipeline:
@@ -302,9 +302,9 @@ class TestFitAndTransformPipeline:
         )
 
         # CRITICAL: cat_features must be detected from Polars Categorical columns
-        assert "cat_feature" in cat_features, (
-            f"Expected 'cat_feature' in cat_features, got {cat_features}. Polars Categorical columns must be detected when prefer_polarsds=False."
-        )
+        assert (
+            "cat_feature" in cat_features
+        ), f"Expected 'cat_feature' in cat_features, got {cat_features}. Polars Categorical columns must be detected when prefer_polarsds=False."
         assert len(cat_features) == 1
 
     def test_fit_pipeline_with_polars_string_no_pipeline(self):

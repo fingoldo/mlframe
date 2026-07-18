@@ -34,7 +34,6 @@ import pandas as pd
 import polars as pl
 import pytest
 
-
 # =====================================================================
 # Fix 1: get_pandas_view_of_polars_df — nullable Boolean coercion
 # =====================================================================
@@ -453,9 +452,9 @@ class TestPipelineCacheKindIsolation:
 
         xgb_key = _build_key(xgb_strat)
         lgb_key = _build_key(lgb_strat)
-        assert xgb_key != lgb_key, (
-            f"pipeline_cache keys must differ for polars-native vs pandas-consuming strategies sharing cache_key+tier. xgb={xgb_key}, lgb={lgb_key}"
-        )
+        assert (
+            xgb_key != lgb_key
+        ), f"pipeline_cache keys must differ for polars-native vs pandas-consuming strategies sharing cache_key+tier. xgb={xgb_key}, lgb={lgb_key}"
         assert xgb_key.endswith("_kindpl")
         assert lgb_key.endswith("_kindpd")
 
@@ -809,9 +808,9 @@ class TestCategoryDriftHealingSuggestions:
                 healing = "target-encoding"
             else:
                 healing = "__UNSEEN__"
-            assert healing == expected_keyword, (
-                f"cardinality {card_tr}: expected {expected_keyword!r}, got {healing!r} — the suggestion tiers in core.py must match this test's expectations."
-            )
+            assert (
+                healing == expected_keyword
+            ), f"cardinality {card_tr}: expected {expected_keyword!r}, got {healing!r} — the suggestion tiers in core.py must match this test's expectations."
 
 
 # =====================================================================
@@ -1104,10 +1103,10 @@ class TestPolarsReleaseBeforeNonNativeStrategy:
             None,
         )
         if lazy_conv_idx is not None:
-            assert release_idx < lazy_conv_idx, (
-                f"Polars-release must precede lazy conversion for LGB. "
-                f"release_idx={release_idx}, lazy_conv_idx={lazy_conv_idx}\n"
-                + "\n".join(msgs[min(release_idx, lazy_conv_idx) : max(release_idx, lazy_conv_idx) + 1])
+            assert (
+                release_idx < lazy_conv_idx
+            ), f"Polars-release must precede lazy conversion for LGB. " f"release_idx={release_idx}, lazy_conv_idx={lazy_conv_idx}\n" + "\n".join(
+                msgs[min(release_idx, lazy_conv_idx) : max(release_idx, lazy_conv_idx) + 1]
             )
 
 
@@ -1449,9 +1448,9 @@ class TestCatBoostStickyFlagDefensiveAtCreation:
         # The "set sticky flag" step is what prod does at
         # _trainer_configure.py:446. Assert it can land on a fresh CB.
         cb_model._mlframe_polars_fastpath_broken = True
-        assert getattr(cb_model, "_mlframe_polars_fastpath_broken", False) is True, (
-            "CB instance refused the sticky attribute -- _trainer_configure's defensive set would be silently inert on this build."
-        )
+        assert (
+            getattr(cb_model, "_mlframe_polars_fastpath_broken", False) is True
+        ), "CB instance refused the sticky attribute -- _trainer_configure's defensive set would be silently inert on this build."
 
     def test_clone_in_strategy_loop_preserves_flag(self):
         """Behavioural: sklearn.clone() strips non-param attributes, and the
@@ -1465,9 +1464,9 @@ class TestCatBoostStickyFlagDefensiveAtCreation:
         base = LogisticRegression()
         base._mlframe_polars_fastpath_broken = True
         cloned = clone(base)
-        assert not getattr(cloned, "_mlframe_polars_fastpath_broken", False), (
-            "sklearn.clone() should strip the non-param attribute (invariant the production preservation block relies on)."
-        )
+        assert not getattr(
+            cloned, "_mlframe_polars_fastpath_broken", False
+        ), "sklearn.clone() should strip the non-param attribute (invariant the production preservation block relies on)."
         # Production preservation predicate (mirrors _phase_train_one_target.py).
         if getattr(base, "_mlframe_polars_fastpath_broken", False):
             cloned._mlframe_polars_fastpath_broken = True
@@ -1610,9 +1609,9 @@ class TestCBValPoolCacheContentFallback:
             pass
 
         # If the content-fallback fired, fn was called with our fake Pool.
-        assert calls == ["_FakePool"], (
-            f"content-fallback didn't fire — fn was called with {calls!r} instead of the cached Pool. The 2026-04-24 cache-miss regression has returned."
-        )
+        assert calls == [
+            "_FakePool"
+        ], f"content-fallback didn't fire — fn was called with {calls!r} instead of the cached Pool. The 2026-04-24 cache-miss regression has returned."
 
         # Cleanup.
         _CB_VAL_POOL_CACHE.clear()

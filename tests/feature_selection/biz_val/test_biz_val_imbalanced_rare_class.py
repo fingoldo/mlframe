@@ -57,7 +57,6 @@ from tests.feature_selection._biz_val_synth import make_imbalanced, as_df
 from tests.feature_selection._selector_factories import _make_mrmr, _make_rfecv, selected_names
 from tests.feature_selection.conftest import fast_subset
 
-
 _SIG = re.compile(r"x(\d+)")
 
 

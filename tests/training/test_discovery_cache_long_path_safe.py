@@ -14,7 +14,6 @@ from __future__ import annotations
 import sys
 
 
-
 def test_discovery_cache_cache_dir_uses_long_path_prefix_on_windows(tmp_path):
     r"""The ``cache_dir`` attribute must carry the ``\\?\`` prefix on
     Windows. ``LocalDiskBackend`` does this; ``DiscoveryCache`` did not

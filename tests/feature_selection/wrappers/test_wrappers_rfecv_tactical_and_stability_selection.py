@@ -326,9 +326,9 @@ class TestT6_StabilitySelection:
         r_low.fit(Xdf, y)
         r_high = _rfecv(stability_threshold=0.9, **common)
         r_high.fit(Xdf, y)
-        assert r_high.n_features_ <= r_low.n_features_, (
-            f"Higher threshold (0.9) should select <= than lower (0.3); got high={r_high.n_features_}, low={r_low.n_features_}"
-        )
+        assert (
+            r_high.n_features_ <= r_low.n_features_
+        ), f"Higher threshold (0.9) should select <= than lower (0.3); got high={r_high.n_features_}, low={r_low.n_features_}"
 
 
 # ----------------------------------------------------------------------------

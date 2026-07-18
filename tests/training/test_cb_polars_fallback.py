@@ -32,7 +32,6 @@ import pytest
 
 from mlframe.training.trainer import _train_model_with_fallback
 
-
 # ---------------------------------------------------------------------------
 # Fake CatBoost: raises Polars-style TypeError on the first fit, succeeds on
 # the second. Records every fit invocation so tests can inspect what ended
@@ -188,9 +187,9 @@ def test_fallback_decategorizes_text_columns_before_retry(polars_frame_with_text
     )
     retry = model.calls[1]
     for col, dtype_str in retry["text_dtypes"].items():
-        assert "category" not in dtype_str.lower(), (
-            f"text column {col!r} arrived at retry with dtype {dtype_str!r}; must be object/string (text columns are decategorized before CB retry)"
-        )
+        assert (
+            "category" not in dtype_str.lower()
+        ), f"text column {col!r} arrived at retry with dtype {dtype_str!r}; must be object/string (text columns are decategorized before CB retry)"
 
 
 def test_fallback_rewrites_eval_set_to_pandas(polars_frame_with_text_cats):

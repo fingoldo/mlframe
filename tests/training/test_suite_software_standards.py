@@ -13,7 +13,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # ----------------------------------------------------------------------------
 # A8-04 -- strict _ensure_config dict path
 # ----------------------------------------------------------------------------

@@ -393,9 +393,9 @@ def test_c8_zero_weight_sum_returns_zero_loss_without_sync(caplog) -> None:
     # cost was the dominant overhead). No WARN should fire on the
     # all-zero-weight path; the operator notices via flat val loss.
     warn_lines = [r for r in caplog.records if "sample_weight.sum()=0" in r.getMessage()]
-    assert not warn_lines, (
-        f"C8: per-batch zero-weight WARN was re-introduced; that re-adds a forced GPU->CPU sync per batch. Got: {[r.getMessage() for r in warn_lines]}"
-    )
+    assert (
+        not warn_lines
+    ), f"C8: per-batch zero-weight WARN was re-introduced; that re-adds a forced GPU->CPU sync per batch. Got: {[r.getMessage() for r in warn_lines]}"
 
 
 # ---------------------------------------------------------------------------
@@ -546,9 +546,9 @@ def test_wave15_third_party_patches_not_applied_at_bare_import() -> None:
         env=_env,
     )
     assert _res.returncode == 0, f"probe subprocess failed: {_res.stderr}"
-    assert _res.stdout.strip() == "False", (
-        f"Wave 1.5: third-party patches were applied at import time (probe printed {_res.stdout!r}). Did someone re-add the import-time call?"
-    )
+    assert (
+        _res.stdout.strip() == "False"
+    ), f"Wave 1.5: third-party patches were applied at import time (probe printed {_res.stdout!r}). Did someone re-add the import-time call?"
 
 
 def test_wave15_factory_applies_patches_on_first_call() -> None:

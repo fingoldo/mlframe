@@ -23,7 +23,6 @@ from mlframe.feature_selection.filters.fleuret import (
 )
 from typing import Optional
 
-
 # ================================================================================================
 # Fixtures: synthetic factor matrices.
 # ================================================================================================

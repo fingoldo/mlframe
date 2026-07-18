@@ -37,7 +37,6 @@ from mlframe.reporting.charts.multilabel import (
 )
 from mlframe.reporting.spec import FigureSpec
 
-
 # ----------------------------------------------------------------------------
 # Hypothesis strategies for panel templates
 # ----------------------------------------------------------------------------

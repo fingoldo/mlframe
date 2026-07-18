@@ -43,7 +43,6 @@ from mlframe.training.baselines.diagnostics import (
 )
 from mlframe.training.configs import BaselineDiagnosticsConfig
 
-
 # ----------------------------------------------------------------------
 # Synthetic data
 # ----------------------------------------------------------------------

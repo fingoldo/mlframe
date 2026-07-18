@@ -25,7 +25,6 @@ from mlframe.reporting.charts.calibration_drift import (
 )
 from mlframe.reporting.spec import FigureSpec, LinePanelSpec
 
-
 # -----------------------------------------------------------------------------
 # Synthetic generators
 # -----------------------------------------------------------------------------

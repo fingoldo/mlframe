@@ -16,7 +16,6 @@ import pytest
 
 from tests.conftest import fast_subset
 
-
 # ---------------------------------------------------------------------------
 # §8.2 P1: _phase_train_one_target.py:640 FHC validated only against sorted_models[0]
 # ---------------------------------------------------------------------------

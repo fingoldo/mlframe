@@ -553,9 +553,9 @@ class TestNoFalsePositiveBinningArtefact:
             f"this grid is 1. >= 2 indicates the relevance gate is "
             f"collapsing at rare-class. kept={kept}"
         )
-        assert "x_signal" in kept, (
-            f"seed={seed} imbalance={imbalance} n_pos={n_pos}: any noise leakage must sit alongside x_signal, not replace it; x_signal missing. kept={kept}"
-        )
+        assert (
+            "x_signal" in kept
+        ), f"seed={seed} imbalance={imbalance} n_pos={n_pos}: any noise leakage must sit alongside x_signal, not replace it; x_signal missing. kept={kept}"
         # Leaked noise must not have cost real downstream signal.
         auc_sel = downstream_auc(sel, X, y.to_numpy(), cv=5)
         auc_base = baseline_signal_auc(
@@ -595,9 +595,9 @@ class TestNoFalsePositiveBinningArtefact:
         kept = set(_selected_names(sel))
         signals = {"x_signal", "x_uniform_signal"}
         non_signal = kept - signals
-        assert "x_signal" in kept, (
-            f"seed={seed} imbalance={imbalance} n_pos={n_pos}: x_signal missing from support; strong signal must be recovered. kept={kept}"
-        )
+        assert (
+            "x_signal" in kept
+        ), f"seed={seed} imbalance={imbalance} n_pos={n_pos}: x_signal missing from support; strong signal must be recovered. kept={kept}"
         assert len(non_signal) <= 1, (
             f"seed={seed} imbalance={imbalance} n_pos={n_pos}: support "
             f"contains {len(non_signal)} non-signal columns {non_signal!r}; "

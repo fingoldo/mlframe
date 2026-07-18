@@ -31,7 +31,6 @@ from __future__ import annotations
 import pathlib
 
 
-
 def _read_src(rel_path: str) -> str:
     """Read a source file under src/mlframe. A flat module that became a
     subpackage (``X.py`` -> ``X/__init__.py`` + submodules) is read as the
@@ -69,9 +68,9 @@ def test_calibrator_post_dump_writes_sidecar():
     """calibration/post.py joblib.dump for each calibrator now triggers
     the sidecar write."""
     src = _read_src("calibration/post.py")
-    assert "_write_save_meta_sidecar as _wsms" in src, (
-        "Wave 19 P1 regression: calibration/post no longer imports the _write_save_meta_sidecar helper; per-calibrator dumps have no version envelope."
-    )
+    assert (
+        "_write_save_meta_sidecar as _wsms" in src
+    ), "Wave 19 P1 regression: calibration/post no longer imports the _write_save_meta_sidecar helper; per-calibrator dumps have no version envelope."
     assert "_wsms(calib_fpath, durable=False)" in src, "Wave 19 P1 regression: sidecar call site missing in calibrator post-hoc save loop."
 
 

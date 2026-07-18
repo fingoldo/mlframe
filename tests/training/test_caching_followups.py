@@ -18,7 +18,6 @@ from mlframe.training.suite_artefact_cache import (
     SuiteKeyBuilder,
 )
 
-
 # ---------------------------------------------------------------------------
 # AP1 SuiteArtefactCache eviction bug: orphan sidecar leak
 # ---------------------------------------------------------------------------
@@ -124,9 +123,9 @@ def test_pre_pipeline_cache_key_distinguishes_x_content_with_shared_sample_cells
     key_b = _pre_pipeline_cache_key(df_b, df_b, pipeline=None, train_target=y, target_name="t")
     # Without a stronger X discriminator the two keys collide because the 4-row sample stays identical.
     # The fix folds a full-frame blake2b into the key so any unsampled-row drift busts the cache.
-    assert key_a != key_b, (
-        "pre-pipeline cache key collides when X frames differ only at unsampled rows -- would replay the wrong fit-transform output across targets"
-    )
+    assert (
+        key_a != key_b
+    ), "pre-pipeline cache key collides when X frames differ only at unsampled rows -- would replay the wrong fit-transform output across targets"
 
 
 # ---------------------------------------------------------------------------

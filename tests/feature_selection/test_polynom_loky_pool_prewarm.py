@@ -209,9 +209,9 @@ def test_idle_worker_timeout_exceeds_joblib_default_and_is_shared_with_real_disp
         verbose=0,
     )
 
-    assert captured.get("idle_worker_timeout") == POLYNOM_LOKY_IDLE_WORKER_TIMEOUT, (
-        f"run_polynom_pair_fe's real LokyBackend construction must reference the SAME shared constant maybe_prewarm_polynom_loky_pool uses; got {captured}"
-    )
+    assert (
+        captured.get("idle_worker_timeout") == POLYNOM_LOKY_IDLE_WORKER_TIMEOUT
+    ), f"run_polynom_pair_fe's real LokyBackend construction must reference the SAME shared constant maybe_prewarm_polynom_loky_pool uses; got {captured}"
 
 
 if __name__ == "__main__":

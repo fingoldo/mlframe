@@ -100,9 +100,9 @@ class TestCvAutoDetect:
         )
         with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(Xdf, y)
-        assert any("DatetimeIndex" in rec.getMessage() for rec in caplog.records), (
-            f"DatetimeIndex auto-detect log not seen; got: {[r.getMessage() for r in caplog.records]}"
-        )
+        assert any(
+            "DatetimeIndex" in rec.getMessage() for rec in caplog.records
+        ), f"DatetimeIndex auto-detect log not seen; got: {[r.getMessage() for r in caplog.records]}"
 
     def test_non_monotonic_datetime_index_does_not_trigger_tss(self, caplog):
         """If the DatetimeIndex is shuffled (not monotonic), KFold should be used."""
@@ -338,9 +338,9 @@ class TestSffsSwap:
         ).fit(Xdf, y)
         baseline_max = max(baseline.cv_results_["cv_mean_perf"])
         swapped_max = max(swapped.cv_results_["cv_mean_perf"])
-        assert swapped_max >= baseline_max - 1e-9, (
-            f"swap_top_k=3 produced a worse best score than disabled: baseline_max={baseline_max:.4f}, swapped_max={swapped_max:.4f}"
-        )
+        assert (
+            swapped_max >= baseline_max - 1e-9
+        ), f"swap_top_k=3 produced a worse best score than disabled: baseline_max={baseline_max:.4f}, swapped_max={swapped_max:.4f}"
 
     def test_swap_top_k_with_regression(self):
         """Smoke: regression target works through the swap pass."""
@@ -498,6 +498,6 @@ class TestAdaptiveOptimizerSurrogate:
         # sub-second timings from the contention noise floor; the structural direction gate stays live standalone.
         on_ci = bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")) or running_under_xdist()
         if not on_ci:
-            assert t_auto < t_legacy * 0.97, (
-                f"auto-tune (GP) should be faster than legacy CB iter=150 on this tiny problem; got auto={t_auto:.3f}s vs legacy={t_legacy:.3f}s (best-of-3)."
-            )
+            assert (
+                t_auto < t_legacy * 0.97
+            ), f"auto-tune (GP) should be faster than legacy CB iter=150 on this tiny problem; got auto={t_auto:.3f}s vs legacy={t_legacy:.3f}s (best-of-3)."

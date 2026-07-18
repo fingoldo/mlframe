@@ -102,9 +102,9 @@ def test_cache_size_holds_realistic_ltr_workload():
     PR that cuts the cap back triggers this gate."""
     from mlframe.training.neural.ranker import _RANKNET_PAIR_CACHE_SIZE
 
-    assert _RANKNET_PAIR_CACHE_SIZE >= 20_000, (
-        f"cache cap {_RANKNET_PAIR_CACHE_SIZE} is below the typical 200k-row LTR working set (~20k unique queries); see iter104 regression notes"
-    )
+    assert (
+        _RANKNET_PAIR_CACHE_SIZE >= 20_000
+    ), f"cache cap {_RANKNET_PAIR_CACHE_SIZE} is below the typical 200k-row LTR working set (~20k unique queries); see iter104 regression notes"
 
 
 def test_cache_bypassed_for_large_n():

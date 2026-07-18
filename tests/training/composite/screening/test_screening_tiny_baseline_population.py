@@ -115,9 +115,9 @@ class TestA5BaselinePopulationParity:
         # build returns ``valid_only`` for both calls (the masked input is the
         # ONLY thing it ever scored), so this ratio collapses to ~1.0 and the
         # test fails -- the regression sensor.
-        assert full_pop > valid_only * 5.0, (
-            f"A5 not applied: full-population RMSE={full_pop:.3f} should be >> valid-only RMSE={valid_only:.3f} (invalid rows must be scored)"
-        )
+        assert (
+            full_pop > valid_only * 5.0
+        ), f"A5 not applied: full-population RMSE={full_pop:.3f} should be >> valid-only RMSE={valid_only:.3f} (invalid rows must be scored)"
 
     def test_scored_population_size_matches_raw_baseline(self, monkeypatch) -> None:
         """A5: the per-fold val population now equals the finite-y population
@@ -157,9 +157,9 @@ class TestA5BaselinePopulationParity:
         # Sum of fold val sizes == total finite-y population (600), NOT the
         # valid-only subset (480). Pre-fix the splits ran over the 480 masked
         # rows, so the sum would be 480.
-        assert sum(seen_val_sizes) == int(np.isfinite(y).sum()), (
-            f"scored val rows={sum(seen_val_sizes)} must equal the finite-y population={int(np.isfinite(y).sum())}, not the valid subset ({int(valid.sum())})"
-        )
+        assert sum(seen_val_sizes) == int(
+            np.isfinite(y).sum()
+        ), f"scored val rows={sum(seen_val_sizes)} must equal the finite-y population={int(np.isfinite(y).sum())}, not the valid subset ({int(valid.sum())})"
 
     def test_all_valid_is_bit_identical(self) -> None:
         """A5 must be a strict no-op when the transform's domain covers every row

@@ -39,7 +39,6 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 
-
 # ----------------------------------------------------------------------------------------------------------------------------
 # Helpers / fixtures (tiny: n<=800, p<=4 -- RAM-light by design)
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -161,9 +160,9 @@ def test_mrmr_refit_on_changed_param_same_data_reflects_new_param():
         m.set_params(factors_names_to_use=["good1"])
         m.fit(X, y)
         names_2 = list(m.get_feature_names_out())
-    assert "good2" not in names_2, (
-        f"stale replay: selection still contains 'good2' after restricting factors_names_to_use to ['good1'] on identical data; got {names_2}"
-    )
+    assert (
+        "good2" not in names_2
+    ), f"stale replay: selection still contains 'good2' after restricting factors_names_to_use to ['good1'] on identical data; got {names_2}"
 
 
 def test_mrmr_refit_on_changed_param_via_attribute_assignment():

@@ -28,7 +28,6 @@ from mlframe.training.neural._lookahead_optimizer import (
     wrap_with_lookahead,
 )
 
-
 # --- Unit tests --------------------------------------------------------------
 
 
@@ -487,6 +486,6 @@ def test_mlp_lookahead_converges_on_linear_regression():
     # At 100 epochs Lookahead's alpha-damping has fully amortised; it
     # should match plain within 0.03 R^2 (standalone bench: -0.003 to
     # +0.011, mean +0.004 across 4 seeds).
-    assert r2_lh > r2_plain - 0.03, (
-        f"Lookahead-wrapped R^2={r2_lh:.4f} regressed >0.03 vs plain R^2={r2_plain:.4f} at 100 epochs (this is well past the early-anchor-damping window)."
-    )
+    assert (
+        r2_lh > r2_plain - 0.03
+    ), f"Lookahead-wrapped R^2={r2_lh:.4f} regressed >0.03 vs plain R^2={r2_plain:.4f} at 100 epochs (this is well past the early-anchor-damping window)."

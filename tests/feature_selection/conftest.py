@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 from sklearn.datasets import make_classification, make_regression
 
-
 _MRMR_MOD_NAME = "mlframe.feature_selection.filters.mrmr"
 
 

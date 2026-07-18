@@ -93,12 +93,12 @@ class TestComposePairFERegression:
         a_bytes, b_bytes = x_a.tobytes(), x_b.tobytes()
         n_single_mi_calls_for_a = sum(1 for c in call_log if c == a_bytes)
         n_single_mi_calls_for_b = sum(1 for c in call_log if c == b_bytes)
-        assert n_single_mi_calls_for_a <= 1, (
-            f"x_a's single-feature MI recomputed {n_single_mi_calls_for_a} times across {n_rounds} rounds; expected <=1 (cached after round 1)"
-        )
-        assert n_single_mi_calls_for_b <= 1, (
-            f"x_b's single-feature MI recomputed {n_single_mi_calls_for_b} times across {n_rounds} rounds; expected <=1 (cached after round 1)"
-        )
+        assert (
+            n_single_mi_calls_for_a <= 1
+        ), f"x_a's single-feature MI recomputed {n_single_mi_calls_for_a} times across {n_rounds} rounds; expected <=1 (cached after round 1)"
+        assert (
+            n_single_mi_calls_for_b <= 1
+        ), f"x_b's single-feature MI recomputed {n_single_mi_calls_for_b} times across {n_rounds} rounds; expected <=1 (cached after round 1)"
         assert set(out.keys()) == {"X_aug", "names", "rounds"}
 
     def test_equivalence_cached_single_mi_matches_direct_computation(self):

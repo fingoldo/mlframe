@@ -239,9 +239,9 @@ class TestFuzzFitPredictNeverCrashes:
             hi = est.fitted_params_["y_clip_high"]
             if np.isfinite(lo) and np.isfinite(hi):
                 tol = 1e-6 * (1.0 + abs(hi - lo))
-                assert np.all(y_hat >= lo - tol) and np.all(y_hat <= hi + tol), (
-                    f"prediction escaped train envelope [{ctx}] lo={lo} hi={hi} pmin={y_hat.min()} pmax={y_hat.max()}"
-                )
+                assert np.all(y_hat >= lo - tol) and np.all(
+                    y_hat <= hi + tol
+                ), f"prediction escaped train envelope [{ctx}] lo={lo} hi={hi} pmin={y_hat.min()} pmax={y_hat.max()}"
             n_checked += 1
         assert n_checked == 50
 

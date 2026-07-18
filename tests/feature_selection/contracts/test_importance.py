@@ -80,9 +80,9 @@ def test_compute_permutation_biz_value_signal_ranks_top():
     model = LinearRegression().fit(X, y)
     out = compute_permutation_importances(model, X, y, columns=cols, n_repeats=5, random_state=0)
     top_feature = out["feature"][0]
-    assert top_feature == "signal", (
-        f"signal column must rank #1; got {top_feature} (full importances_mean: {dict(zip(out['feature'].to_list(), out['importances_mean'].to_list()))})"
-    )
+    assert (
+        top_feature == "signal"
+    ), f"signal column must rank #1; got {top_feature} (full importances_mean: {dict(zip(out['feature'].to_list(), out['importances_mean'].to_list()))})"
     # Tighter biz_value: signal importance must be MUCH larger than any noise importance
     sig_imp = out.filter(pl.col("feature") == "signal")["importances_mean"][0]
     noise_imps = [out.filter(pl.col("feature") == f"noise_{i}")["importances_mean"][0] for i in range(5)]

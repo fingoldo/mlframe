@@ -49,7 +49,6 @@ from mlframe.metrics.core import (
 import functools
 import operator
 
-
 # =============================================================================
 # Test Strategies
 # =============================================================================
@@ -577,9 +576,9 @@ class TestCalibration:
                     y_pred=y_pred,
                     nbins=10,
                 )
-                assert abs(br_binned - (rel - res + unc)) < 1e-12, (
-                    f"identity broke: seed={seed} p_pos={p_pos} br_binned={br_binned:.12f} REL-RES+UNC={rel - res + unc:.12f}"
-                )
+                assert (
+                    abs(br_binned - (rel - res + unc)) < 1e-12
+                ), f"identity broke: seed={seed} p_pos={p_pos} br_binned={br_binned:.12f} REL-RES+UNC={rel - res + unc:.12f}"
 
     def test_brier_decomp_perfect_calibration_zero_reliability(self):
         """When predictions equal observed frequencies per bin, REL ~= 0."""
@@ -731,9 +730,7 @@ class TestCalibration:
         assert len(out) == 17
 
         # Positional unpacking still works exactly as the historical flat 17-tuple.
-        (brier_loss, cal_mae, cal_std, cal_cov, ece, brier_rel, brier_res, brier_unc, roc_auc, pr_auc, ice, ll, precision, recall, f1, metrics_string, fig) = (
-            out
-        )
+        brier_loss, cal_mae, cal_std, cal_cov, ece, brier_rel, brier_res, brier_unc, roc_auc, pr_auc, ice, ll, precision, recall, f1, metrics_string, fig = out
 
         # Named access must equal both the unpacked names AND positional indexing, field for field.
         expected = [

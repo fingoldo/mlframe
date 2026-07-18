@@ -101,9 +101,9 @@ def test_no_full_array_isnan_rescan_when_mask_supplied(monkeypatch):
     new_calls = _count_full_array_isnan_calls(monkeypatch, lambda: _handle_missing(arr.copy(), strategy="separate_bin", nan_mask=mask), arr)
 
     assert legacy_calls == 3, f"sanity: the legacy path should make 3 full-array isnan calls (early-exit + nanmedian + final np.where); got {legacy_calls}"
-    assert new_calls == 1, (
-        f"expected exactly 1 full-array isnan call (nanmedian's own unavoidable internal scan) when a precomputed mask is supplied; got {new_calls}"
-    )
+    assert (
+        new_calls == 1
+    ), f"expected exactly 1 full-array isnan call (nanmedian's own unavoidable internal scan) when a precomputed mask is supplied; got {new_calls}"
     assert new_calls < legacy_calls, f"mask reuse must reduce full-array isnan calls: new={new_calls} vs legacy={legacy_calls}"
 
 

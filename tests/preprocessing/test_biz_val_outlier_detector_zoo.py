@@ -42,9 +42,9 @@ def test_biz_val_lof_and_isolation_forest_rank_outliers_differently():
     iso_scores = iso.decision_function(X)  # higher = more normal
 
     rho, _ = spearmanr(lof_scores, iso_scores)
-    assert rho < 0.85, (
-        f"expected LOF and IsolationForest anomaly-score rankings to diverge meaningfully (measured rho~0.61 on this synthetic), got rho={rho:.4f} -- pluggability would be cosmetic if the two backends always agreed"
-    )
+    assert (
+        rho < 0.85
+    ), f"expected LOF and IsolationForest anomaly-score rankings to diverge meaningfully (measured rho~0.61 on this synthetic), got rho={rho:.4f} -- pluggability would be cosmetic if the two backends always agreed"
 
     lof_labels = lof.fit_predict(X)
     assert lof_labels[outlier_row] == -1, "expected LOF (density-based) to flag the planted local-density outlier"

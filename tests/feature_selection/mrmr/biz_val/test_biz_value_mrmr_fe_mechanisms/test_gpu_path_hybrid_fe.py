@@ -292,9 +292,9 @@ class TestGPUSpeedup:
         # path is still t_cuda <= 0.7 * t_par on Ampere+, and the 10x
         # bound still fires on a real regression (kernel decompile, sync
         # storm).
-        assert t_cuda <= 10.0 * t_par + 0.1, (
-            f"C cuda regressed vs njit_par at n=5e6 chebyshev: t_cuda={t_cuda:.3f}s, t_par={t_par:.3f}s (ratio {t_cuda / t_par:.2f}x). Bound: <= 10x."
-        )
+        assert (
+            t_cuda <= 10.0 * t_par + 0.1
+        ), f"C cuda regressed vs njit_par at n=5e6 chebyshev: t_cuda={t_cuda:.3f}s, t_par={t_par:.3f}s (ratio {t_cuda / t_par:.2f}x). Bound: <= 10x."
 
 
 # ---------------------------------------------------------------------------
@@ -341,9 +341,9 @@ class TestEnvVarFallback:
         x, c = _make_inputs(800, basis, seed=5)
         out = hfe.polyeval_dispatch(basis, x, c)
         assert out.shape == x.shape
-        assert np.all(np.isfinite(out)), (
-            f"D fallback basis={basis}: forced-cuda with masked cupy must silently route to a CPU backend and return finite output."
-        )
+        assert np.all(
+            np.isfinite(out)
+        ), f"D fallback basis={basis}: forced-cuda with masked cupy must silently route to a CPU backend and return finite output."
 
 
 # ---------------------------------------------------------------------------

@@ -82,9 +82,9 @@ def test_regression_neighbor_unique_target_cached_mis_equivalence():
         fg.mi = orig_mi
 
     assert n_after_first == 1, f"expected exactly 1 mi() call for the first side, got {n_after_first}"
-    assert n_after_second == n_after_first, (
-        f"second side re-called mi() for the same (i,j) pair despite the shared cache (n_after_first={n_after_first}, n_after_second={n_after_second})"
-    )
+    assert (
+        n_after_second == n_after_first
+    ), f"second side re-called mi() for the same (i,j) pair despite the shared cache (n_after_first={n_after_first}, n_after_second={n_after_second})"
     assert total_i_cached == total_i_uncached
     assert total_j_cached == total_j_uncached
     assert detail_i_cached == detail_i_uncached
@@ -198,6 +198,6 @@ def test_f3_debiased_threshold_changes_red_flag_on_small_n_highcard():
         # The shipped classification must match the debiased decision (this is what build_friend_graph now computes).
         assert (nd.klass == "red") == db_red, f"node {nd.name}: shipped klass={nd.klass} disagrees with debiased red={db_red}"
 
-    assert raw_flags != debiased_flags, (
-        f"expected the bias mismatch to flip at least one red flag on small-n high-cardinality data; raw={raw_flags} debiased={debiased_flags}"
-    )
+    assert (
+        raw_flags != debiased_flags
+    ), f"expected the bias mismatch to flip at least one red flag on small-n high-cardinality data; raw={raw_flags} debiased={debiased_flags}"

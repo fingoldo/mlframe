@@ -26,7 +26,6 @@ from mlframe.training.composite.discovery.auto_detect import (
     sort_df_by_time_column,
 )
 
-
 # ----------------------------------------------------------------------------
 # detect_time_column_candidates
 # ----------------------------------------------------------------------------

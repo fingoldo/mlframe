@@ -153,6 +153,6 @@ def test_biz_val_add_sentinel_missing_count_feature_auto_detect_sentinels():
 
     assert auc_auto > 0.85, f"expected auto-detected per-column sentinels to carry strong signal, got AUC={auc_auto:.4f}"
     # Measured gap on this fixture is ~0.028 (AUC_auto~0.995 vs AUC_global~0.967); threshold set below that with margin.
-    assert auc_auto > auc_global + 0.02, (
-        f"auto-detection (AUC={auc_auto:.4f}) should beat a single global sentinel blind to the second block (AUC={auc_global:.4f})"
-    )
+    assert (
+        auc_auto > auc_global + 0.02
+    ), f"auto-detection (AUC={auc_auto:.4f}) should beat a single global sentinel blind to the second block (AUC={auc_global:.4f})"

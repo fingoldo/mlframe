@@ -56,9 +56,9 @@ def test_biz_val_matched_subset_beats_naive_subset_on_target_regime():
     rmse_matched = float(mean_squared_error(target_y_true, model_matched.predict(target_df[["x"]])) ** 0.5)
     rmse_naive = float(mean_squared_error(target_y_true, model_naive.predict(target_df[["x"]])) ** 0.5)
 
-    assert rmse_matched < rmse_naive * 0.5, (
-        f"expected the distribution-matched subset to beat a naive random subset by >=50% RMSE on the target regime, got matched={rmse_matched:.4f} naive={rmse_naive:.4f}"
-    )
+    assert (
+        rmse_matched < rmse_naive * 0.5
+    ), f"expected the distribution-matched subset to beat a naive random subset by >=50% RMSE on the target regime, got matched={rmse_matched:.4f} naive={rmse_naive:.4f}"
     assert result["best_score"] < 0.3, f"expected the best-found subset's mean KS statistic to indicate a genuinely close match, got {result['best_score']:.4f}"
 
 
@@ -121,9 +121,9 @@ def test_biz_val_greedy_swap_beats_random_at_equal_budget():
         f"expected greedy_swap's best_score to beat random's by >=10% at equal budget, "
         f"got greedy={result_greedy['best_score']:.4f} random={result_random['best_score']:.4f}"
     )
-    assert rmse_greedy <= rmse_random * 0.95, (
-        f"expected greedy_swap's downstream RMSE to beat random's by >=5% at equal budget, got greedy={rmse_greedy:.4f} random={rmse_random:.4f}"
-    )
+    assert (
+        rmse_greedy <= rmse_random * 0.95
+    ), f"expected greedy_swap's downstream RMSE to beat random's by >=5% at equal budget, got greedy={rmse_greedy:.4f} random={rmse_random:.4f}"
 
 
 def _make_correlated_blocks(n_blocks: int, rows_per_block: int, block_offset: int, seed: int) -> pd.DataFrame:

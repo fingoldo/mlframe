@@ -151,9 +151,9 @@ def test_per_group_discovery_leakage_guard_independent_groups():
 
     assert corrupted_a_spec.base_column == baseline_a_spec.base_column
     assert corrupted_a_spec.transform_name == baseline_a_spec.transform_name
-    assert corrupted_a_spec.fitted_params == baseline_a_spec.fitted_params, (
-        "corrupting group B's rows changed group A's fitted transform params -- per-group discovery is leaking rows across groups."
-    )
+    assert (
+        corrupted_a_spec.fitted_params == baseline_a_spec.fitted_params
+    ), "corrupting group B's rows changed group A's fitted transform params -- per-group discovery is leaking rows across groups."
 
 
 def test_per_group_discovery_default_off_is_byte_identical():

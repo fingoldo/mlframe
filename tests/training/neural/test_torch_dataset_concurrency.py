@@ -35,7 +35,6 @@ import torch
 
 from mlframe.training.neural.data import TorchDataset
 
-
 # ---------------------------------------------------------------------------
 # Correctness: eager conversion
 # ---------------------------------------------------------------------------

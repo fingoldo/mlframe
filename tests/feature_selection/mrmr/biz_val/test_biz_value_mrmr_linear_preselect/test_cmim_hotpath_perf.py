@@ -393,6 +393,6 @@ class TestEmptySupportFallback:
         _, y_bin = np.unique(y.astype(np.int64), return_inverse=True)
         y_bin = y_bin.astype(np.int64)
         expected = float(_cmi_from_binned(x_bin, y_bin, None))
-        assert s_map["x1__He2"] == pytest.approx(expected, rel=1e-12), (
-            f"empty-support fallback path drifted: got {s_map['x1__He2']:.10f}, expected marginal MI {expected:.10f}."
-        )
+        assert s_map["x1__He2"] == pytest.approx(
+            expected, rel=1e-12
+        ), f"empty-support fallback path drifted: got {s_map['x1__He2']:.10f}, expected marginal MI {expected:.10f}."

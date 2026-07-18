@@ -55,7 +55,6 @@ def test_f1_stability_selection_does_not_count_zero_fi_noise():
             """Helper that fit."""
             return self
 
-
     orig_clone = ss.clone
     orig_getfi = ss.get_feature_importances
     ss.clone = lambda est: _FakeEst()

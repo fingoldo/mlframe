@@ -72,6 +72,6 @@ def test_cat_codes_naive_per_split_cast_drifts():
     # demonstrates the divergence:
     train_code_for_B = int(train["x"].cat.codes.iloc[1])  # B in train is code 1
     val_code_for_C = int(val["x"].cat.codes.iloc[1])  # C in val is code 1
-    assert train_code_for_B == val_code_for_C, (
-        "sanity probe expected per-split cast to confuse different values to the same code (B in train vs C in val); fix the probe."
-    )
+    assert (
+        train_code_for_B == val_code_for_C
+    ), "sanity probe expected per-split cast to confuse different values to the same code (B in train vs C in val); fix the probe."

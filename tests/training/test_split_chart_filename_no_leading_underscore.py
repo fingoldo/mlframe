@@ -31,7 +31,7 @@ def test_split_plot_file_basename_has_no_leading_underscore(tmp_path):
         split_plot_file = os.path.join(plot_file, split)
         perfplot = split_plot_file + "_perfplot.png"
         base = os.path.basename(perfplot)
-        assert not base.startswith("_"), (
-            f"split chart basename {base!r} must not start with '_'; the join-based naming should produce e.g. 'val_perfplot.png' (INV-54)"
-        )
+        assert not base.startswith(
+            "_"
+        ), f"split chart basename {base!r} must not start with '_'; the join-based naming should produce e.g. 'val_perfplot.png' (INV-54)"
         assert base == f"{split}_perfplot.png"

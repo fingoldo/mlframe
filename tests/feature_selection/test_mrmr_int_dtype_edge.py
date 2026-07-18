@@ -17,7 +17,6 @@ from mlframe.feature_selection.filters.discretization import (
 )
 from mlframe.feature_selection.filters.info_theory._class_encoding import merge_vars
 
-
 # --------------------------------------------------------------------------------------------------
 # cap_categorical_cardinality: int8 boundary + NaN sentinel + degenerate columns
 # --------------------------------------------------------------------------------------------------

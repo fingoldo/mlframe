@@ -53,7 +53,6 @@ from tests.feature_engineering.transformer.test_biz_val_real_datasets import (
     _load_mammography,
 )
 
-
 pytestmark = [pytest.mark.fast, pytest.mark.biz_transformer]
 
 # Seeds for validation.

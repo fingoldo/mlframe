@@ -39,7 +39,6 @@ import pandas as pd
 from mlframe.training.configs import FeatureTypesConfig
 from mlframe.training.core import _auto_detect_feature_types
 
-
 # ---------------------------------------------------------------------------
 # Proactive guard in _auto_detect_feature_types
 # ---------------------------------------------------------------------------
@@ -83,9 +82,9 @@ class TestMinNonNullTextPromotionGuard:
             cat_text_cardinality_threshold=50,
         )
         text, _emb, _ = _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
-        assert "sparse_text" not in text, (
-            "n_unique=60>50 but non_null_fraction=0.06%<1% floor — must stay as cat_feature to avoid CatBoost 'Dictionary size is 0'"
-        )
+        assert (
+            "sparse_text" not in text
+        ), "n_unique=60>50 but non_null_fraction=0.06%<1% floor — must stay as cat_feature to avoid CatBoost 'Dictionary size is 0'"
 
     def test_dense_fraction_still_promoted(self):
         """Same n_unique (60) but 60% non-null fraction — well above

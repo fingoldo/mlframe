@@ -32,9 +32,9 @@ def test_lgb_shim_stamps_lgb_version_on_pickle():
 
     inst = LGBMClassifierWithDatasetReuse(n_estimators=2, verbosity=-1)
     state = inst.__getstate__()
-    assert "_saved_lgb_version" in state, (
-        "Wave 19 P1 regression: lgb_shim.__getstate__ no longer stamps _saved_lgb_version. Booster JSON inside __dict__ is library-version-sensitive."
-    )
+    assert (
+        "_saved_lgb_version" in state
+    ), "Wave 19 P1 regression: lgb_shim.__getstate__ no longer stamps _saved_lgb_version. Booster JSON inside __dict__ is library-version-sensitive."
     assert state["_saved_lgb_version"] not in (None, ""), "stamp must be non-empty"
 
 

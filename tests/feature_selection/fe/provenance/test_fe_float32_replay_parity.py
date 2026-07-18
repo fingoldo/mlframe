@@ -38,7 +38,6 @@ from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
 
 from tests.feature_selection.conftest import fast_subset
 
-
 # Each mechanism is isolated by toggling OFF the default univariate basis where
 # it would otherwise dominate, so the named flag is the one driving the FE.
 # (Values measured once during development on the float64 run; see module

@@ -21,9 +21,9 @@ def test_api1_sibling_selectors_share_random_state_default():
 
     hybrid_default = inspect.signature(HybridSelector.__init__).parameters["random_state"].default
     efs_default = inspect.signature(estimate_features_relevancy).parameters["random_state"].default
-    assert hybrid_default == efs_default, (
-        f"sibling selectors disagree on random_state default: HybridSelector={hybrid_default!r} vs estimate_features_relevancy={efs_default!r}"
-    )
+    assert (
+        hybrid_default == efs_default
+    ), f"sibling selectors disagree on random_state default: HybridSelector={hybrid_default!r} vs estimate_features_relevancy={efs_default!r}"
 
 
 # --------------------------------------------------------------------------- API14

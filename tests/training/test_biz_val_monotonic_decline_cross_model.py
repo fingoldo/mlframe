@@ -25,7 +25,6 @@ import pytest
 
 from sklearn.metrics import roc_auc_score
 
-
 N_ROUNDS = 400
 SEED = 17
 

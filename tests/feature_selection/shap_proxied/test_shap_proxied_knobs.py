@@ -198,9 +198,9 @@ def test_su_seeded_snr_z_absurdly_high_is_byte_identical_no_op():
     # ... but the absurd gate admitted NO pair.
     assert rep.get("n_kept_pairs", 99) == 0, f"expected SNR-gate no-op at snr_z=500 but kept {rep.get('kept_pairs')}: {rep}"
     # No pair seeded => byte-identical selection to the additive default.
-    assert sel_hi.selected_features_ == sel_off.selected_features_, (
-        f"high-snr_z no-op changed the additive default:\n off={sel_off.selected_features_}\n on ={sel_hi.selected_features_}"
-    )
+    assert (
+        sel_hi.selected_features_ == sel_off.selected_features_
+    ), f"high-snr_z no-op changed the additive default:\n off={sel_off.selected_features_}\n on ={sel_hi.selected_features_}"
 
 
 # --------------------------------------------------------------------------------------------------
@@ -281,9 +281,9 @@ def test_min_selected_ratio_floors_selection_in_proxy_column_space():
         f"< floor {floor} (n_proxy={n_proxy}); selected={sorted(map(str, sel.selected_features_))}"
     )
     # The floor actually CHANGED the outcome: it kept strictly more than the unconstrained pick.
-    assert len(sel.selected_features_) > len(sel0.selected_features_), (
-        f"ratio floor did not enlarge the subset: ratio={len(sel.selected_features_)} vs default={len(sel0.selected_features_)}"
-    )
+    assert len(sel.selected_features_) > len(
+        sel0.selected_features_
+    ), f"ratio floor did not enlarge the subset: ratio={len(sel.selected_features_)} vs default={len(sel0.selected_features_)}"
     # Never empty (the code falls back to the unfiltered candidates if the ratio empties the pool).
     assert len(sel.selected_features_) >= 1
 

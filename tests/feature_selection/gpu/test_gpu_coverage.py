@@ -48,7 +48,6 @@ from mlframe.feature_selection.filters.gpu import (
 )
 from mlframe.feature_selection.filters.permutation import mi_direct
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

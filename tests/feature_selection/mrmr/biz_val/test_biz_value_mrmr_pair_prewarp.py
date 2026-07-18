@@ -238,12 +238,12 @@ def test_fpoly_unary_binary_with_prewarp_recovers():
     df, _y, true = _poly_data()
     fs = _poly_unb_fit(True)
     name, corr = _best_engineered_corr(fs, df, true)
-    assert name is not None, (
-        "F-POLY/UNB+prewarp engineered nothing; the per-operand pre-warp is expected to recover the non-monotone inner via the unary/binary path"
-    )
-    assert "prewarp" in name, (
-        f"F-POLY recovery used '{name}' which does NOT involve the prewarp pseudo-unary; the recovery should be attributable to the prewarp"
-    )
+    assert (
+        name is not None
+    ), "F-POLY/UNB+prewarp engineered nothing; the per-operand pre-warp is expected to recover the non-monotone inner via the unary/binary path"
+    assert (
+        "prewarp" in name
+    ), f"F-POLY recovery used '{name}' which does NOT involve the prewarp pseudo-unary; the recovery should be attributable to the prewarp"
     assert corr >= 0.70, f"F-POLY/UNB+prewarp best engineered |corr|={corr:.3f} < 0.70 ({name}); the per-operand pre-warp recovery regressed"
 
 
@@ -272,9 +272,9 @@ def test_fpoly_prewarp_is_the_lever_vs_no_prewarp_control():
     # Prewarp ON must reach a near-exact reconstruction AND use the prewarp pseudo-
     # unary -- this is what makes it the lever (not a generic library unary).
     assert corr_on >= 0.85, f"F-POLY/UNB+prewarp best engineered |corr|={corr_on:.3f} < 0.85 ({n_on}); the per-operand prewarp recovery regressed"
-    assert n_on is not None and "prewarp" in n_on, (
-        f"F-POLY recovery used '{n_on}' which does NOT involve the prewarp pseudo-unary; the recovery should be attributable to the prewarp"
-    )
+    assert (
+        n_on is not None and "prewarp" in n_on
+    ), f"F-POLY recovery used '{n_on}' which does NOT involve the prewarp pseudo-unary; the recovery should be attributable to the prewarp"
     # The lever margin: prewarp ON beats the best the library does WITHOUT it. A
     # 0.20 margin tolerates the control's partial-recovery ceiling (OFF reaches
     # ~0.74 once escalation partially reconstructs the quadratic) while still failing
@@ -356,9 +356,9 @@ def test_noise_control_prewarp_engineers_nothing():
     # Downstream stays at the (near-zero) noise baseline.
     raw_r2 = _ridge_r2(df.values, y)
     sel_r2 = _ridge_r2(np.asarray(fs_on.transform(df)), y)
-    assert sel_r2 <= raw_r2 + 0.10, (
-        f"noise control downstream R^2={sel_r2:.3f} beats the raw noise baseline {raw_r2:.3f}: a spurious prewarp feature is leaking signal"
-    )
+    assert (
+        sel_r2 <= raw_r2 + 0.10
+    ), f"noise control downstream R^2={sel_r2:.3f} beats the raw noise baseline {raw_r2:.3f}: a spurious prewarp feature is leaking signal"
 
 
 def test_linear_control_prewarp_adds_no_spurious_overfit_feature():
@@ -371,14 +371,14 @@ def test_linear_control_prewarp_adds_no_spurious_overfit_feature():
     fs_off = _fit(lambda: _unb(prewarp=False), df, y)
     eng_on = _eng_names(fs_on)
     prewarp_cols = [nm for nm in eng_on if "prewarp" in nm]
-    assert not prewarp_cols, (
-        f"linear control fabricated prewarp feature(s) {prewarp_cols}; the prewarp over-fit a linear target the elementary library already covers"
-    )
+    assert (
+        not prewarp_cols
+    ), f"linear control fabricated prewarp feature(s) {prewarp_cols}; the prewarp over-fit a linear target the elementary library already covers"
     r2_on = _ridge_r2(np.asarray(fs_on.transform(df)), y)
     r2_off = _ridge_r2(np.asarray(fs_off.transform(df)), y)
-    assert r2_on >= r2_off - 0.05, (
-        f"linear control downstream R^2 with prewarp ON ({r2_on:.3f}) is worse than OFF ({r2_off:.3f}); the prewarp degraded a linear target"
-    )
+    assert (
+        r2_on >= r2_off - 0.05
+    ), f"linear control downstream R^2 with prewarp ON ({r2_on:.3f}) is worse than OFF ({r2_off:.3f}); the prewarp degraded a linear target"
 
 
 # ---------------------------------------------------------------------------

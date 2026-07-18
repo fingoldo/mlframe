@@ -30,7 +30,6 @@ import sys
 
 import pytest
 
-
 _FILTERS_MODULE = "mlframe.feature_selection.filters"
 
 
@@ -85,9 +84,9 @@ def test_setup_helpers_module_has_no_top_level_mrmr_attribute():
     """
     from mlframe.training.core import _setup_helpers
 
-    assert not hasattr(_setup_helpers, "MRMR"), (
-        "_setup_helpers must NOT re-export MRMR at module level -- that would force the ~16s feature_selection.filters import on every caller"
-    )
+    assert not hasattr(
+        _setup_helpers, "MRMR"
+    ), "_setup_helpers must NOT re-export MRMR at module level -- that would force the ~16s feature_selection.filters import on every caller"
 
 
 def test_filters_subgraph_not_loaded_after_setup_helpers_import():

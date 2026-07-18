@@ -118,9 +118,9 @@ def test_run_auto_tune_true_passes_async_sweep(_fresh_dispatch_cache, monkeypatc
 
     for kernel_name in ("joint_hist_batched", "plugin_mi_classif_dispatch", "fe_mi_split_launch"):
         assert kernel_name in captured, f"{kernel_name} did not reach get_or_tune under run_auto_tune=True"
-        assert captured[kernel_name].get("async_sweep") is True, (
-            f"{kernel_name}'s run_auto_tune=True branch must pass async_sweep=True so a real tuner never blocks a live fit"
-        )
+        assert (
+            captured[kernel_name].get("async_sweep") is True
+        ), f"{kernel_name}'s run_auto_tune=True branch must pass async_sweep=True so a real tuner never blocks a live fit"
 
 
 def test_lookup_pairwise_corr_backend_honors_region_size_caps(_fresh_dispatch_cache):

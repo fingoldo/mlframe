@@ -26,7 +26,6 @@ from mlframe.training.neural.recurrent import (
 from mlframe.training.neural._recurrent_config import RecurrentConfig, InputMode, RNNType
 from mlframe.training.neural._categorical_embeddings import CategoricalEmbedding
 
-
 # n=256 / batch=32 / 3 epochs keeps total stepping batches comfortably > 1 (OneCycleLR divides by (end-start) steps; a handful of total steps
 # trips a ZeroDivisionError inside torch's scheduler -- unrelated to cat embeddings, just degenerate-tiny-data scheduler math).
 _N = 256
@@ -241,6 +240,6 @@ def test_biz_value_learnable_embeddings_beat_ordinal_on_nonmonotone_signal():
     assert np.all(np.isfinite(pred_emb)) and np.all(np.isfinite(pred_ord))
     assert reg_emb._cat_cardinalities_ == [4]
     assert reg_ord._cat_cardinalities_ is None
-    assert rmse_emb < rmse_ord / 1.10, (
-        f"learnable embeddings (RMSE {rmse_emb:.4f}) should beat ordinal cat-code (RMSE {rmse_ord:.4f}) by >=1.10x on the non-monotone signal"
-    )
+    assert (
+        rmse_emb < rmse_ord / 1.10
+    ), f"learnable embeddings (RMSE {rmse_emb:.4f}) should beat ordinal cat-code (RMSE {rmse_ord:.4f}) by >=1.10x on the non-monotone signal"

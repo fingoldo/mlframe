@@ -15,8 +15,6 @@ _mlframe_callback_cache_installed (neural/base iter189) patterns.
 """
 
 
-
-
 def test_pipeline_json_roundtrip_cache_skips_second_validation():
     """First call populates the cache, second call with same JSON hash
     short-circuits without re-invoking ``Pipeline.from_json``."""

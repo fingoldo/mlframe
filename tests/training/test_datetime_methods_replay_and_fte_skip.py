@@ -138,9 +138,9 @@ def test_predict_replays_suite_owned_datetime_decomposition_byte_identical():
         return_probabilities=False,
         verbose=0,
     )
-    assert results["models_used"], (
-        "predict_from_models produced no successful models -- the datetime replay likely failed and the pipeline saw a raw datetime col it could not handle."
-    )
+    assert results[
+        "models_used"
+    ], "predict_from_models produced no successful models -- the datetime replay likely failed and the pipeline saw a raw datetime col it could not handle."
     assert results["ensemble_predictions"] is not None
     preds = results["ensemble_predictions"]
     assert len(preds) == len(df)

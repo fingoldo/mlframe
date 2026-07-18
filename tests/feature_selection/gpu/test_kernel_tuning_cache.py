@@ -120,9 +120,9 @@ def test_streamed_uses_multiple_streams_and_independent_rngs():
         )
 
     assert len(n_streams_created) >= 2, f"streamed variant should create >=2 streams; got {len(n_streams_created)}"
-    assert len(n_generators_created) >= 2, (
-        f"streamed variant should create >=2 per-stream RNGs; got {len(n_generators_created)} (regression -- per-stream RNG protection may have been reverted)"
-    )
+    assert (
+        len(n_generators_created) >= 2
+    ), f"streamed variant should create >=2 per-stream RNGs; got {len(n_generators_created)} (regression -- per-stream RNG protection may have been reverted)"
 
 
 # --------------------------------------------------------------------------

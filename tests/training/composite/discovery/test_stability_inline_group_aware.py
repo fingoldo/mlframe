@@ -83,9 +83,9 @@ def test_inline_uses_group_resampling_when_group_column_set(monkeypatch):
 
 def test_inline_falls_back_to_row_draw_without_group_column(monkeypatch):
     """Inline falls back to row draw without group column."""
-    assert _run(monkeypatch, group_column=None, group_aware=True) == 0, (
-        "no group key -> the row draw runs, not the group draw (bit-identical to the prior behaviour)"
-    )
+    assert (
+        _run(monkeypatch, group_column=None, group_aware=True) == 0
+    ), "no group key -> the row draw runs, not the group draw (bit-identical to the prior behaviour)"
 
 
 def test_inline_group_aware_toggle_off_uses_row_draw(monkeypatch):

@@ -84,9 +84,9 @@ def test_pre_fix_psi_nx_convention_is_more_biased():
         [_ksg_lnc_prefix(np.random.default_rng(s).standard_normal(800), np.random.default_rng(s + 1000).standard_normal(800), seed=s) for s in range(8)]
     )
     fixed = _independent_mi_estimates()
-    assert prefix.mean() > 2.0 * fixed.mean(), (
-        f"pre-fix psi(n_x) convention should be markedly more biased on X⊥Y: prefix mean {prefix.mean():.4f} vs fixed {fixed.mean():.4f}"
-    )
+    assert (
+        prefix.mean() > 2.0 * fixed.mean()
+    ), f"pre-fix psi(n_x) convention should be markedly more biased on X⊥Y: prefix mean {prefix.mean():.4f} vs fixed {fixed.mean():.4f}"
 
 
 def test_known_mi_gaussian_within_tolerance():

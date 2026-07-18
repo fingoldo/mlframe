@@ -258,9 +258,9 @@ class TestPIT:
             y = base + rng.normal(scale=0.5, size=4000)
             got = pit_values(y, P, alphas)
             ref = reference(np.asarray(y, dtype=np.float64), np.asarray(P, dtype=np.float64), alphas)
-            assert np.array_equal(got, ref), (
-                f"PIT njit kernel diverged from numpy reference (tied={tied}, nonmono={nonmono}); maxdiff={np.max(np.abs(got - ref)):.2e}"
-            )
+            assert np.array_equal(
+                got, ref
+            ), f"PIT njit kernel diverged from numpy reference (tied={tied}, nonmono={nonmono}); maxdiff={np.max(np.abs(got - ref)):.2e}"
 
 
 class TestSummary:

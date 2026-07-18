@@ -149,9 +149,9 @@ def test_locking_holder_pid_atomic_write(tmp_path, monkeypatch) -> None:
         pass
 
     # Atomic write fingerprint: at least one of os.replace / os.rename was used.
-    assert called_atomic["replace"] or called_atomic["rename"], (
-        "_write_holder_pid did not use os.replace/os.rename - implementation is not atomic; SIGKILL race re-introduced"
-    )
+    assert (
+        called_atomic["replace"] or called_atomic["rename"]
+    ), "_write_holder_pid did not use os.replace/os.rename - implementation is not atomic; SIGKILL race re-introduced"
 
 
 def test_pl_isinstance_guard_in_utils() -> None:

@@ -96,6 +96,6 @@ def test_biz_val_precompute_bundle_skips_stats_compute(tmp_path):
     # to stay 5-15% below the measured value while leaving room for jitter on a busy box.
     # Per the directive: precomputed run saves >=50% on the stats step (we measure far higher),
     # floor pinned 5-15% below measured (we use a conservative 90% floor for headroom).
-    assert saving_pct >= 90.0, (
-        f"precompute bundle should save >=90% on the stats step; got {saving_pct:.2f}% (inline={inline_s * 1000:.3f}ms, bundle={bundle_s * 1000:.6f}ms)"
-    )
+    assert (
+        saving_pct >= 90.0
+    ), f"precompute bundle should save >=90% on the stats step; got {saving_pct:.2f}% (inline={inline_s * 1000:.3f}ms, bundle={bundle_s * 1000:.6f}ms)"

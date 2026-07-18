@@ -22,7 +22,6 @@ import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 
-
 N = 4000
 RAW = {"a", "b", "c", "e"}
 _LEAN = dict(dcd_enable=False, build_friend_graph=False, cluster_aggregate_enable=False)

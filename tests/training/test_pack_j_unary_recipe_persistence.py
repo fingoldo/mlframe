@@ -29,7 +29,6 @@ import pickle  # nosec B403 -- test-only local pickle round-trip, never untruste
 import numpy as np
 import pytest
 
-
 _PACK_J_UNARY_NAMES = ["cbrt_y", "log_y", "yeo_johnson_y", "quantile_normal_y"]
 
 

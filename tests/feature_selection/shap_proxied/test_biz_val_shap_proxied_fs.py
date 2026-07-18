@@ -311,9 +311,9 @@ def test_biz_val_prefilter_cap_faster_with_preserved_recovery():
     # Speed: the capped prefilter must be measurably faster than the uncapped one.
     # (Measured ~2-3x on dev; floor 1.2x leaves Windows-build variance headroom.)
     assert pf_capped < pf_uncapped, f"capped prefilter ({pf_capped:.2f}s) not faster than uncapped ({pf_uncapped:.2f}s)"
-    assert pf_capped <= 0.85 * pf_uncapped, (
-        f"capped prefilter speedup too small: {pf_uncapped / pf_capped:.2f}x (uncapped={pf_uncapped:.2f}s vs capped={pf_capped:.2f}s)"
-    )
+    assert (
+        pf_capped <= 0.85 * pf_uncapped
+    ), f"capped prefilter speedup too small: {pf_uncapped / pf_capped:.2f}x (uncapped={pf_uncapped:.2f}s vs capped={pf_capped:.2f}s)"
 
     # Quality: recovery must not be materially worse (within 1 informative).
     assert rec_capped >= rec_uncapped - 1, f"cap worsened recovery: capped={rec_capped}/{n_informative} vs uncapped={rec_uncapped}/{n_informative}"
@@ -680,9 +680,9 @@ def test_biz_val_oof_shap_cap_faster_with_preserved_recovery():
     # Speed floor: capped OOF-SHAP must be measurably faster than uncapped.
     assert oof_capped < oof_uncapped, f"capped OOF-SHAP ({oof_capped:.2f}s) not faster than uncapped ({oof_uncapped:.2f}s)"
     # Stronger floor: at least 1.3x faster (dev measures 2-3x; 1.3 leaves Windows-build variance room).
-    assert oof_capped <= 0.77 * oof_uncapped, (
-        f"capped OOF-SHAP speedup too small: {oof_uncapped / oof_capped:.2f}x (uncapped={oof_uncapped:.2f}s vs capped={oof_capped:.2f}s)"
-    )
+    assert (
+        oof_capped <= 0.77 * oof_uncapped
+    ), f"capped OOF-SHAP speedup too small: {oof_uncapped / oof_capped:.2f}x (uncapped={oof_uncapped:.2f}s vs capped={oof_capped:.2f}s)"
 
     # Quality: recovery preserved (within 1 informative slack for cross-platform variance).
     assert rec_capped >= rec_uncapped - 1, f"cap worsened recovery: capped={rec_capped}/{n_informative} vs uncapped={rec_uncapped}/{n_informative}"

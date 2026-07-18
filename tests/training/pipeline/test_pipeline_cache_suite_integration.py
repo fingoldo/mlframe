@@ -186,6 +186,6 @@ class TestPipelineCacheHitAtSuiteLevel:
         # new MISSes that have nothing to do with the content-key fix).
         # The original bug had hits=0 by construction, so any positive
         # floor catches it.
-        assert hits >= max(1, misses // 2), (
-            f"PipelineCache hit rate too low for shared-requirement pair: hits={hits}, misses={misses}. Floor: hits >= max(1, misses // 2)"
-        )
+        assert hits >= max(
+            1, misses // 2
+        ), f"PipelineCache hit rate too low for shared-requirement pair: hits={hits}, misses={misses}. Floor: hits >= max(1, misses // 2)"

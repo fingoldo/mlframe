@@ -72,9 +72,9 @@ def test_biz_val_mtr_shared_trunk_matches_independent(seed):
         indep_preds.append(m.predict(X_te))
     rmse_indep = _macro_rmse(y_te, np.stack(indep_preds, axis=1))
 
-    assert rmse_shared <= rmse_indep * 1.02, (
-        f"shared-trunk MultiRMSE regressed vs K independent CatBoost: shared={rmse_shared:.4f} indep={rmse_indep:.4f} ratio={rmse_shared / rmse_indep:.4f}"
-    )
+    assert (
+        rmse_shared <= rmse_indep * 1.02
+    ), f"shared-trunk MultiRMSE regressed vs K independent CatBoost: shared={rmse_shared:.4f} indep={rmse_indep:.4f} ratio={rmse_shared / rmse_indep:.4f}"
 
 
 @pytest.mark.parametrize("seed", [0, 7])

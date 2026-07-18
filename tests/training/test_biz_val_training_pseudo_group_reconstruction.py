@@ -85,9 +85,9 @@ def test_biz_val_reconstructed_groups_close_a_real_leakage_gap():
     honest_acc = float(np.mean(honest_scores))
 
     assert leaky_acc > 0.90, f"sanity: row-level KFold should show inflated near-perfect accuracy from the leak, got {leaky_acc:.3f}"
-    assert honest_acc < leaky_acc - 0.15, (
-        f"GroupKFold on reconstructed ids should show a materially lower, more honest accuracy: leaky={leaky_acc:.3f} honest={honest_acc:.3f}"
-    )
+    assert (
+        honest_acc < leaky_acc - 0.15
+    ), f"GroupKFold on reconstructed ids should show a materially lower, more honest accuracy: leaky={leaky_acc:.3f} honest={honest_acc:.3f}"
 
 
 def test_biz_val_fuzzy_radius_recovers_partition_exact_rounding_fragments():

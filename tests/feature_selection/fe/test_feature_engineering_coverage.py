@@ -34,7 +34,6 @@ from mlframe.feature_selection.filters.feature_engineering import (
 )
 from mlframe.feature_selection.filters._internals import njit_functions_dict
 
-
 # ---------------------------------------------------------------------------
 # create_unary_transformations / create_binary_transformations
 # ---------------------------------------------------------------------------

@@ -49,9 +49,9 @@ def test_biz_val_recency_weighted_std_separates_recent_volatility_regime_change_
     auc_weighted = roc_auc_score(label, weighted_std)
 
     assert auc_weighted >= 0.90, f"expected recency-weighted std to separate recent-regime-change entities, got auc={auc_weighted:.4f}"
-    assert auc_weighted > auc_plain + 0.3, (
-        f"expected recency-weighted std to beat plain std by a wide margin, got weighted={auc_weighted:.4f} plain={auc_plain:.4f}"
-    )
+    assert (
+        auc_weighted > auc_plain + 0.3
+    ), f"expected recency-weighted std to beat plain std by a wide margin, got weighted={auc_weighted:.4f} plain={auc_plain:.4f}"
 
 
 def test_per_group_recency_weighted_agg_var_is_squared_std():

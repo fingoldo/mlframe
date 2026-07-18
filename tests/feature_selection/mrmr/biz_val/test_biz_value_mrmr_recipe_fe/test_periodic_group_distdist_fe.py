@@ -138,9 +138,9 @@ class TestPeriodicSignal:
             mi_mod = _mi_one(apply_modular(t, 24.0, "mod"), y)
             gains.append(mi_mod - mi_raw)
         mean_gain = float(np.mean(gains))
-        assert mean_gain >= 0.15, (
-            f"modular MI gain {mean_gain:.4f} < 0.15 over raw t (per-seed {[round(g, 4) for g in gains]}); x mod 24 is not recovering the hour-of-day signal."
-        )
+        assert (
+            mean_gain >= 0.15
+        ), f"modular MI gain {mean_gain:.4f} < 0.15 over raw t (per-seed {[round(g, 4) for g in gains]}); x mod 24 is not recovering the hour-of-day signal."
 
     def test_logreg_auc_lift(self):
         """LogReg AUC on modular-augmented features beats raw t by >= 0.10 on the hour-of-day fixture."""

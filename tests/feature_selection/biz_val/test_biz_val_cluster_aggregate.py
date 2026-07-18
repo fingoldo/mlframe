@@ -21,7 +21,6 @@ warnings.filterwarnings("ignore")
 from tests.feature_selection._biz_val_synth import make_latent_reflections, make_two_latent_groups, as_df
 from sklearn.metrics import roc_auc_score
 
-
 pytestmark = pytest.mark.timeout(
     240
 )  # untimed biz_val real-fit tier: hang-detector, not a perf budget. The module-scoped full-mode MRMR fixture fits legitimately run ~75-90s on many-core/contended hosts; 60s killed a progressing fit mid-way. 240s stays well under the coarse 600s global backstop while still surfacing a true hang fast.

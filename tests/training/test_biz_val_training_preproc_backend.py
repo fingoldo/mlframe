@@ -60,9 +60,9 @@ def test_biz_val_backend_robust_quantile_spread_bounds_outliers():
     wide = _robust_scaled_max_abs(x, 0.01, 0.99)
 
     assert wide < 10.0, f"wide-quantile robust scale should bound outliers, got max|z|={wide:.2f}"
-    assert tight / wide >= 20.0, (
-        f"robust_q_low/high must change outlier bounding: tight={tight:.2f} wide={wide:.2f} ratio={tight / wide:.1f} (<20x means the quantiles were ignored)"
-    )
+    assert (
+        tight / wide >= 20.0
+    ), f"robust_q_low/high must change outlier bounding: tight={tight:.2f} wide={wide:.2f} ratio={tight / wide:.1f} (<20x means the quantiles were ignored)"
 
 
 def test_biz_val_backend_polynomial_max_features_caps_engineered_set():
@@ -84,6 +84,6 @@ def test_biz_val_backend_polynomial_max_features_caps_engineered_set():
     assert cols_unc > 1000, f"degree-3 on 20 inputs should explode; got {cols_unc} cols"
     assert cols_cap <= 200, f"cap=200 must hold: engineered set has {cols_cap} cols"
     assert cols_cap < cols_unc, "cap must shrink the engineered set vs uncapped"
-    assert capped.effective_degree < uncapped.effective_degree or bool(capped.effective_interaction_only), (
-        f"cap should auto-tune degree down or flip interaction_only; eff_degree={capped.effective_degree} eff_io={capped.effective_interaction_only}"
-    )
+    assert capped.effective_degree < uncapped.effective_degree or bool(
+        capped.effective_interaction_only
+    ), f"cap should auto-tune degree down or flip interaction_only; eff_degree={capped.effective_degree} eff_io={capped.effective_interaction_only}"

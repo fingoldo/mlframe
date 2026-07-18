@@ -72,9 +72,9 @@ def test_biz_val_group_causal_mask_blocks_future_group_leakage_at_attention_leve
 
     # No future-group leakage: positions 0, 1, 2 (all earlier-or-equal groups than 3) must be UNCHANGED when
     # only position 3's input changes.
-    assert torch.allclose(out1[:, :3, :], out_future_changed[:, :3, :], atol=1e-6), (
-        "changing the latest-group position leaked into an earlier-group position's attention output"
-    )
+    assert torch.allclose(
+        out1[:, :3, :], out_future_changed[:, :3, :], atol=1e-6
+    ), "changing the latest-group position leaked into an earlier-group position's attention output"
     # Position 3 itself must change (it attends to itself).
     assert not torch.allclose(out1[:, 3, :], out_future_changed[:, 3, :], atol=1e-6)
 

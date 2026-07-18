@@ -88,9 +88,9 @@ def test_predict_from_models_polars_fastpath_cb_keeps_polars():
             verbose=0,
         )
     assert results["models_used"], "no models produced predictions"
-    assert call_counter["n"] == 0, (
-        f"polars fastpath broken: get_pandas_view_of_polars_df was invoked {call_counter['n']} time(s) even though every loaded model is CB-native."
-    )
+    assert (
+        call_counter["n"] == 0
+    ), f"polars fastpath broken: get_pandas_view_of_polars_df was invoked {call_counter['n']} time(s) even though every loaded model is CB-native."
 
 
 def test_predict_from_models_polars_fastpath_xgb_keeps_polars():

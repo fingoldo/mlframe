@@ -47,7 +47,6 @@ from tests.feature_selection._selector_factories import (
 )
 from tests.feature_selection.conftest import fast_subset
 
-
 # Module-level compiled regex: parse a parallelism kwarg out of a "key=val|..."
 # child-line, kept compiled per the project convention even though it is only a
 # guard here.

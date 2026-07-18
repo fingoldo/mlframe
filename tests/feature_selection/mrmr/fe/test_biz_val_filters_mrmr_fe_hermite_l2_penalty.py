@@ -23,7 +23,6 @@ import numpy as np
 
 from mlframe.feature_selection.filters.hermite_fe import _l2_penalty_value
 
-
 LAMBDA = 0.05  # the fe_hermite_l2_penalty default
 SAT_DEFAULT = 1.0  # _L2_PENALTY_SATURATION_DEFAULT
 MI_PEAK = 1.5  # measured MI of the genuine F-POLY reconstruction

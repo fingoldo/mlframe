@@ -18,7 +18,6 @@ from sklearn.linear_model import LogisticRegression, Ridge
 from mlframe.feature_selection.wrappers import RFECV
 from mlframe.feature_selection.wrappers._helpers import make_gaussian_knockoffs
 
-
 # ----------------------------------------------------------------------- E5
 
 
@@ -44,9 +43,9 @@ class TestHighCardinalityIntDetector:
         )
         with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(X, y)
-        assert any("cardinality" in rec.getMessage() and "ID" in rec.getMessage() for rec in caplog.records), (
-            f"Expected high-card warning; got: {[r.getMessage() for r in caplog.records[-5:]]}"
-        )
+        assert any(
+            "cardinality" in rec.getMessage() and "ID" in rec.getMessage() for rec in caplog.records
+        ), f"Expected high-card warning; got: {[r.getMessage() for r in caplog.records[-5:]]}"
 
 
 # ----------------------------------------------------------------------- E6

@@ -16,7 +16,6 @@ import pytest
 
 from mlframe.reporting import render_multi_target_panels
 
-
 # ----------------------------------------------------------------------------
 # Synthetic input fixtures (mirror the chart-test fixtures)
 # ----------------------------------------------------------------------------

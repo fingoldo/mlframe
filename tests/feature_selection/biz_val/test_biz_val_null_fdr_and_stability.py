@@ -44,7 +44,6 @@ from tests.feature_selection._biz_val_synth import (
 )
 from tests.feature_selection.conftest import is_fast_mode
 
-
 # ---------------------------------------------------------------------------
 # Pure-null dataset + measured per-family selected-noise calibration.
 # n=1000, p=15 iid N(0,1) columns, y = random binary (independent of X).
@@ -359,9 +358,9 @@ def test_biz_val_bootstrap_stability_mrmr_beats_mi_redundant_cluster():
         deltas.append(round(sm - si, 4))
         if sm >= si + 0.10:
             wins += 1
-    assert wins >= (len(seeds) + 1) // 2, (
-        f"MRMR not more bootstrap-stable than fair-budget MI on a majority of seeds: deltas={deltas} (need stab_mrmr >= stab_mi + 0.10 on majority of {seeds})"
-    )
+    assert (
+        wins >= (len(seeds) + 1) // 2
+    ), f"MRMR not more bootstrap-stable than fair-budget MI on a majority of seeds: deltas={deltas} (need stab_mrmr >= stab_mi + 0.10 on majority of {seeds})"
 
 
 @pytest.mark.slow

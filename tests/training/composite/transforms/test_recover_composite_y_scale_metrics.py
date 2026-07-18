@@ -210,15 +210,15 @@ class TestRecoveryNoDoubleWrap:
 
         entry = models["regression"]["y-linres-base"][0]
         inner_before = getattr(entry, "model", entry)
-        assert isinstance(inner_before, CompositeTargetEstimator), (
-            "after skip_predict=True wrap, inner must already be a CompositeTargetEstimator (wrap step succeeded)"
-        )
+        assert isinstance(
+            inner_before, CompositeTargetEstimator
+        ), "after skip_predict=True wrap, inner must already be a CompositeTargetEstimator (wrap step succeeded)"
         # The inner of THAT wrapper must be the original raw model (not a
         # nested CompositeTargetEstimator).
         nested = getattr(inner_before, "estimator_", None)
-        assert not isinstance(nested, CompositeTargetEstimator), (
-            "wrapper.estimator_ is already a CompositeTargetEstimator - wrap was double-applied even on the first pass"
-        )
+        assert not isinstance(
+            nested, CompositeTargetEstimator
+        ), "wrapper.estimator_ is already a CompositeTargetEstimator - wrap was double-applied even on the first pass"
 
         # Now call the recovery helper. It must NOT double-wrap.
         recover_composite_y_scale_metrics(
@@ -261,9 +261,9 @@ class TestSkipPredictLeavesMetricsEmpty:
         _, _metadata, snapshot, _, _ = _skipped_then_recovered_run(problem)
         # After the skip_predict=True call but BEFORE recovery, metadata
         # should not carry y-scale metrics for the composite.
-        assert "composite_target_y_scale_metrics" not in snapshot, (
-            f"skip_predict=True should NOT populate composite_target_y_scale_metrics; got snapshot={snapshot}"
-        )
+        assert (
+            "composite_target_y_scale_metrics" not in snapshot
+        ), f"skip_predict=True should NOT populate composite_target_y_scale_metrics; got snapshot={snapshot}"
 
 
 class TestRecoverComposeYScaleMetrics:

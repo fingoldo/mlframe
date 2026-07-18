@@ -12,7 +12,6 @@ import importlib
 
 import pytest
 
-
 GUIDE_SYMBOLS = [
     # estimators / discovery / ensemble
     "CompositeTargetEstimator",

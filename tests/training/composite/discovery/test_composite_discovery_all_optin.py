@@ -58,13 +58,16 @@ def _fit(cfg):
     """Fit."""
     df = _temporal_frame()
     disc = CompositeTargetDiscovery(cfg)
-    return disc.fit(
+    return (
+        disc.fit(
+            df,
+            "y",
+            ["lag", "feat", "feat2"],
+            np.arange(len(df)),
+            time_ordering=df["ts"].to_numpy(),
+        ),
         df,
-        "y",
-        ["lag", "feat", "feat2"],
-        np.arange(len(df)),
-        time_ordering=df["ts"].to_numpy(),
-    ), df
+    )
 
 
 class TestAllOptInKitchenSink:

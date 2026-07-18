@@ -42,9 +42,9 @@ def test_safe_div_is_exact_on_nonzero_denominators(modname, div):
     got = np.asarray(div(x, y), dtype=np.float64)
     exact = x / y
     # EXACT (to f64 round-off), not merely close: the heavy-tail point must not be perturbed.
-    assert np.allclose(got, exact, rtol=1e-12, atol=0.0), (
-        f"{modname}._safe_div perturbs nonzero denominators (max rel err {np.max(np.abs(got - exact) / np.abs(exact)):.2e})"
-    )
+    assert np.allclose(
+        got, exact, rtol=1e-12, atol=0.0
+    ), f"{modname}._safe_div perturbs nonzero denominators (max rel err {np.max(np.abs(got - exact) / np.abs(exact)):.2e})"
 
 
 @pytest.mark.parametrize("modname,div", _impls())

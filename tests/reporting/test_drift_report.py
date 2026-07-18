@@ -23,7 +23,6 @@ from mlframe.training.drift_report import (
     format_drift_report,
 )
 
-
 # -----------------------------------------------------------------------------
 # Binary classification — the user's main use case
 # -----------------------------------------------------------------------------

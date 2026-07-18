@@ -354,9 +354,9 @@ def test_pair_search_residency_codes_resident_into_mi_gate(pair_search_audit):
 
     # (2) The MI gate consumed the DEVICE codes in place on every GPU dispatch -- it never fell back to a host
     #     codes re-upload (which would have re-paid the (n, K) codes H2D the residency path exists to skip).
-    assert cnt["gate_no_devcodes"] == 0, (
-        f"the noise-gate MI re-uploaded host codes on {cnt['gate_no_devcodes']} dispatch(es) instead of consuming the resident device copy; counters={cnt}"
-    )
+    assert (
+        cnt["gate_no_devcodes"] == 0
+    ), f"the noise-gate MI re-uploaded host codes on {cnt['gate_no_devcodes']} dispatch(es) instead of consuming the resident device copy; counters={cnt}"
     assert cnt["gate_with_devcodes"] >= 1, f"the resident-codes gate never ran; counters={cnt}"
 
 

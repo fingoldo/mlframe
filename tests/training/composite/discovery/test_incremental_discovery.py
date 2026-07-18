@@ -38,7 +38,6 @@ from mlframe.training.composite.discovery._incremental import (
 )
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
-
 _FEATURES = ["TVT_prev", "x1", "x2", "x3"]
 
 

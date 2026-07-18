@@ -19,7 +19,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Finding 1: reciprocal-power unary transforms get an epsilon floor at x=0
 # (feature_engineering.py: _safe_pow + create_unary_transformations).

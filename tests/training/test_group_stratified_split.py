@@ -29,7 +29,6 @@ import pytest
 
 from mlframe.training.splitting import make_train_test_split
 
-
 _RNG = np.random.default_rng(20260526)
 
 

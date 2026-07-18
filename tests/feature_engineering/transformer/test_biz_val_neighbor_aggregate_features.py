@@ -45,9 +45,9 @@ def test_biz_val_neighbor_aggregate_features_beats_global_mean_baseline():
     mse_global = float(np.mean((y.mean() - y) ** 2))
     improvement = 1.0 - mse_neighbor / mse_global
 
-    assert improvement > 0.6, (
-        f"expected >60% MSE reduction vs. global-mean baseline, got {improvement:.4f} (neighbor={mse_neighbor:.2f}, global={mse_global:.2f})"
-    )
+    assert (
+        improvement > 0.6
+    ), f"expected >60% MSE reduction vs. global-mean baseline, got {improvement:.4f} (neighbor={mse_neighbor:.2f}, global={mse_global:.2f})"
 
 
 def test_neighbor_aggregate_features_multiple_agg_columns_and_stats():

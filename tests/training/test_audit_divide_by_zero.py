@@ -29,7 +29,6 @@ from pathlib import Path
 
 import numpy as np
 
-
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 

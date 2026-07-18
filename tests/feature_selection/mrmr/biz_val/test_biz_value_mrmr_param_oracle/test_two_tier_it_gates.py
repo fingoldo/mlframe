@@ -318,9 +318,9 @@ class TestMRMRIntegration:
         # the redundant count-encoding is correctly pruned. The discriminating contract is that the count signal
         # is RECOVERED via some pred_cat-derived encoding (count or TE), not the specific count column.
         picks = list(m_on.get_feature_names_out())
-        assert any(str(p).startswith("pred_cat") and str(p) != "pred_cat" for p in picks), (
-            f"seed={seed}: count-driven pred_cat signal not recovered by any engineered encoding; picks={picks}"
-        )
+        assert any(
+            str(p).startswith("pred_cat") and str(p) != "pred_cat" for p in picks
+        ), f"seed={seed}: count-driven pred_cat signal not recovered by any engineered encoding; picks={picks}"
 
     def test_unified_gate_drops_count_or_freq(self):
         """With BOTH count and freq encoding enabled on the same cats, the

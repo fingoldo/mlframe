@@ -170,9 +170,9 @@ class TestKsgVsPlugInContinuousY:
         # a few percent on a single seed), but it must be STRICTLY positive;
         # the aggregate 10 % uplift claim lives in
         # ``TestSmoothHe3WinsUnderKsg.test_aggregate_ksg_he3_uplift_vs_plugin``.
-        assert ksg_he3 > pi_he3, (
-            f"seed={seed}: KSG MI({ksg_he3:.4f}) not above plug-in MI({pi_he3:.4f}) on x1__He3; the smooth-y win the k-NN estimator promises was not realised."
-        )
+        assert (
+            ksg_he3 > pi_he3
+        ), f"seed={seed}: KSG MI({ksg_he3:.4f}) not above plug-in MI({pi_he3:.4f}) on x1__He3; the smooth-y win the k-NN estimator promises was not realised."
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_ksg_mi_nonnegative_finite(self, seed):
@@ -419,16 +419,16 @@ class TestPickleAndClone:
 
         recipes_before = _extract_orth_recipes(m)
         recipes_after = _extract_orth_recipes(m2)
-        assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_univariate recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
-        )
+        assert set(recipes_before.keys()) == set(
+            recipes_after.keys()
+        ), f"pickle dropped or added orth_univariate recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
             assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
-                assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
-                )
+                assert r_before.extra.get(key) == r_after.extra.get(
+                    key
+                ), f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
 
 
 # ---------------------------------------------------------------------------
@@ -477,6 +477,6 @@ class TestRecipeReplay:
             )
             replayed = apply_recipe(r, X)
             fit_time = X_aug[r.name].to_numpy()
-            assert np.allclose(replayed, fit_time, rtol=1e-9, atol=1e-12), (
-                f"seed={seed}: recipe {r.name!r} replay drift: max|replayed - fit| = {float(np.max(np.abs(replayed - fit_time)))}; extra={dict(r.extra)}"
-            )
+            assert np.allclose(
+                replayed, fit_time, rtol=1e-9, atol=1e-12
+            ), f"seed={seed}: recipe {r.name!r} replay drift: max|replayed - fit| = {float(np.max(np.abs(replayed - fit_time)))}; extra={dict(r.extra)}"

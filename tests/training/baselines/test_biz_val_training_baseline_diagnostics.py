@@ -153,9 +153,9 @@ def test_biz_val_baseline_diagnostics_n_estimators_100_preserves_dominant_verdic
     pytest.importorskip("lightgbm")
     from mlframe.training.configs import BaselineDiagnosticsConfig
 
-    assert BaselineDiagnosticsConfig().quick_model_n_estimators == 100, (
-        "ablation provisioning flip: quick_model_n_estimators default must be 100 (bench-verified verdict-stable + ~1.8x faster vs 200)"
-    )
+    assert (
+        BaselineDiagnosticsConfig().quick_model_n_estimators == 100
+    ), "ablation provisioning flip: quick_model_n_estimators default must be 100 (bench-verified verdict-stable + ~1.8x faster vs 200)"
 
     n = 4000
     feature_cols = [f"x{i}" for i in range(8)]
@@ -234,9 +234,9 @@ def test_biz_val_baseline_diagnostics_sample_n_caps_runtime():
     # Behavioural: a sample_n=500 fit must produce a real diagnostics record (not just any object), and the
     # ablation summary must surface the dominant feature so the runtime-vs-quality tradeoff is verifiable.
     assert report is not None, "fit_and_report returned None on sample_n=500 path"
-    assert hasattr(report, "ablation") or hasattr(report, "feature_ranks"), (
-        f"report missing ablation / feature_ranks attribute on sample_n path; got dir={dir(report)[:10]}"
-    )
+    assert hasattr(report, "ablation") or hasattr(
+        report, "feature_ranks"
+    ), f"report missing ablation / feature_ranks attribute on sample_n path; got dir={dir(report)[:10]}"
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +298,6 @@ def test_biz_val_baseline_diagnostics_report_has_init_score_field():
     # Public attrs related to init-score / dominance.
     expected_any = ("init_score", "dominant_features", "high_potential", "ablation", "feature_importance", "marginal")
     public_attrs = [a for a in dir(report) if not a.startswith("_")]
-    assert any(any(e in a.lower() for e in expected_any) for a in public_attrs), (
-        f"BaselineDiagnostics report must expose at least one of {expected_any}; got attrs={public_attrs[:15]}"
-    )
+    assert any(
+        any(e in a.lower() for e in expected_any) for a in public_attrs
+    ), f"BaselineDiagnostics report must expose at least one of {expected_any}; got attrs={public_attrs[:15]}"

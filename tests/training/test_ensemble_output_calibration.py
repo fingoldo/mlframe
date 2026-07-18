@@ -27,7 +27,6 @@ from mlframe.training.composite.ensemble._calibration import (
 )
 from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
-
 # --------------------------------------------------------------------------
 # Fixtures / helpers
 # --------------------------------------------------------------------------
@@ -260,9 +259,9 @@ def test_biz_val_isotonic_recalibration_lowers_holdout_rmse():
     cal_hold = ens.predict(X_hold)
     rmse_cal = _rmse(cal_hold, y_all[hold_idx])
 
-    assert rmse_cal <= 0.85 * rmse_raw, (
-        f"isotonic OOF recalibration should cut holdout RMSE to <=0.85x; raw={rmse_raw:.4f}, cal={rmse_cal:.4f} (ratio={rmse_cal / rmse_raw:.3f})"
-    )
+    assert (
+        rmse_cal <= 0.85 * rmse_raw
+    ), f"isotonic OOF recalibration should cut holdout RMSE to <=0.85x; raw={rmse_raw:.4f}, cal={rmse_cal:.4f} (ratio={rmse_cal / rmse_raw:.3f})"
 
     # Calibration-curve straightness: slope of (binned mean pred vs binned mean
     # truth) should be closer to 1.0 after recalibration.
@@ -342,9 +341,9 @@ def test_biz_val_isotonic_beats_sigmoid_on_small_oof_holdout(n_oof):
     rmse_iso = _rmse(iso.predict(p_hold), y_hold)
     rmse_sig = _rmse(sig.predict(p_hold), y_hold)
 
-    assert rmse_iso <= 0.85 * rmse_sig, (
-        f"isotonic must beat sigmoid on the n_oof={n_oof} honest holdout (iso={rmse_iso:.4f}, sig={rmse_sig:.4f}, ratio={rmse_iso / rmse_sig:.3f})"
-    )
+    assert (
+        rmse_iso <= 0.85 * rmse_sig
+    ), f"isotonic must beat sigmoid on the n_oof={n_oof} honest holdout (iso={rmse_iso:.4f}, sig={rmse_sig:.4f}, ratio={rmse_iso / rmse_sig:.3f})"
 
 
 # --------------------------------------------------------------------------
@@ -383,9 +382,9 @@ def test_biz_val_platt_sigmoid_beats_ols_logit_and_raw_on_holdout(n_oof):
     rmse_ols = _rmse(ols.predict(p_hold), y_hold)
     rmse_raw = _rmse(p_hold, y_hold)
 
-    assert rmse_platt <= 0.98 * rmse_ols, (
-        f"MLE Platt must beat the legacy OLS-logit sigmoid at n_oof={n_oof} (platt={rmse_platt:.4f}, ols_logit={rmse_ols:.4f})"
-    )
+    assert (
+        rmse_platt <= 0.98 * rmse_ols
+    ), f"MLE Platt must beat the legacy OLS-logit sigmoid at n_oof={n_oof} (platt={rmse_platt:.4f}, ols_logit={rmse_ols:.4f})"
     assert rmse_platt <= 0.98 * rmse_raw, f"MLE Platt must beat the raw blend at n_oof={n_oof} (platt={rmse_platt:.4f}, raw={rmse_raw:.4f})"
 
 

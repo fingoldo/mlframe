@@ -44,7 +44,6 @@ import pytest
 
 from tests.feature_selection.conftest import is_fast_mode
 
-
 # ---------------------------------------------------------------------------
 # CASE2 -- the user's exact reproduction (uniform inputs; ``f`` is a HIDDEN noise
 # variable present in y but NOT in X; ``e`` is a pure-noise feature in X).
@@ -124,9 +123,9 @@ def test_engineered_unary_binary_transform_is_continuous():
         f"a**2/b engineered column {ab_col!r} looks QUANTIZED (nunique={nuniq}); transform must "
         f"emit the continuous value, not the MI bin code. vals[:5]={vals[:5]}"
     )
-    assert np.issubdtype(out[ab_col].to_numpy().dtype, np.floating), (
-        f"a**2/b engineered column {ab_col!r} dtype is {out[ab_col].dtype}; expected a floating continuous feature, not an integer code."
-    )
+    assert np.issubdtype(
+        out[ab_col].to_numpy().dtype, np.floating
+    ), f"a**2/b engineered column {ab_col!r} dtype is {out[ab_col].dtype}; expected a floating continuous feature, not an integer code."
     # MAGNITUDE preserved: the continuous a**2/b column correlates ~ +-1 with the true
     # a**2/b. The 10-bin code had |Pearson| ~ 0.03 (rank preserved, magnitude destroyed) --
     # this is the precise discriminator between the bug and the fix.

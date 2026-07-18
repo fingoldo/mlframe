@@ -221,9 +221,9 @@ class TestLayer54_C1_ProvenancePopulated:
         """fe_provenance_ columns are exactly _PROV_COLUMNS, in order."""
         X, y = _simple_binary_frame(n=300, seed=2)
         m = _fast_mrmr().fit(X, y)
-        assert tuple(m.fe_provenance_.columns) == _PROV_COLUMNS, (
-            f"fe_provenance_ column order pinned to {_PROV_COLUMNS!r}; got {tuple(m.fe_provenance_.columns)!r}"
-        )
+        assert (
+            tuple(m.fe_provenance_.columns) == _PROV_COLUMNS
+        ), f"fe_provenance_ column order pinned to {_PROV_COLUMNS!r}; got {tuple(m.fe_provenance_.columns)!r}"
 
     def test_non_empty_for_a_real_fit(self):
         """fe_provenance_ has at least one row when screening selects a column."""
@@ -248,9 +248,9 @@ class TestLayer54_C2_RowPerSupportFeature:
         m = _fast_mrmr().fit(X, y)
         n_raw = int(np.asarray(m.support_).size)
         n_eng = len(getattr(m, "_engineered_recipes_", []) or [])
-        assert len(m.fe_provenance_) == n_raw + n_eng, (
-            f"fe_provenance_ rows={len(m.fe_provenance_)}, expected n_raw+n_eng={n_raw + n_eng} (support_={n_raw}, engineered_recipes={n_eng})"
-        )
+        assert (
+            len(m.fe_provenance_) == n_raw + n_eng
+        ), f"fe_provenance_ rows={len(m.fe_provenance_)}, expected n_raw+n_eng={n_raw + n_eng} (support_={n_raw}, engineered_recipes={n_eng})"
 
     def test_feature_names_match_final_output_order(self):
         """Order in fe_provenance_ must mirror transform()'s column order:
@@ -296,9 +296,9 @@ class TestLayer54_C2_RowPerSupportFeature:
         )
         eng_names = {r.name for r in m._engineered_recipes_}
         prov_eng_rows = m.fe_provenance_[m.fe_provenance_["feature_name"].isin(eng_names)]
-        assert len(prov_eng_rows) == len(eng_names), (
-            f"Every engineered name must have a row in fe_provenance_; missing: {eng_names - set(prov_eng_rows['feature_name'])!r}"
-        )
+        assert len(prov_eng_rows) == len(
+            eng_names
+        ), f"Every engineered name must have a row in fe_provenance_; missing: {eng_names - set(prov_eng_rows['feature_name'])!r}"
         # None of the engineered rows should be labelled "raw".
         assert not (prov_eng_rows["origin"] == "raw").any(), f"Engineered rows must not carry origin=='raw'; prov_eng_rows=\n{prov_eng_rows!r}"
 
@@ -368,9 +368,9 @@ class TestLayer54_C4_GainAlignsWithMrmrGains:
         for _, row in m.fe_provenance_.iterrows():
             rank = int(row["support_rank"])
             if 0 <= rank < gains_arr.size:
-                assert np.isfinite(row["mrmr_gain"]), (
-                    f"Row for {row['feature_name']!r} has rank={rank} but mrmr_gain is NaN; mrmr_gains_={gains_arr.tolist()!r}"
-                )
+                assert np.isfinite(
+                    row["mrmr_gain"]
+                ), f"Row for {row['feature_name']!r} has rank={rank} but mrmr_gain is NaN; mrmr_gains_={gains_arr.tolist()!r}"
                 np.testing.assert_allclose(
                     row["mrmr_gain"],
                     gains_arr[rank],

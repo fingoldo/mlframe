@@ -157,6 +157,6 @@ def test_stratified_mean_converges_to_train_prior():
     bincounts = np.bincount(train_y, minlength=n_classes).astype(np.float64)
     train_prior = bincounts / bincounts.sum()
     mean_per_class = val_probs["stratified"].mean(axis=0)
-    assert np.abs(mean_per_class - train_prior).max() < 0.01, (
-        f"empirical mean {mean_per_class} should approximate train_prior {train_prior} within 0.01 at n_val=10k n_repeats=100"
-    )
+    assert (
+        np.abs(mean_per_class - train_prior).max() < 0.01
+    ), f"empirical mean {mean_per_class} should approximate train_prior {train_prior} within 0.01 at n_val=10k n_repeats=100"

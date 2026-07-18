@@ -148,9 +148,9 @@ def test_oof_fit_column_differs_from_naive_allrows_replay(fit_recipe, fit_data):
     oof_col = enc_df[name].to_numpy()
     allrows_replay = apply_recipe(rec, X)
     # Some rows must differ (OOF vs all-rows edges are not identical per group).
-    assert not np.array_equal(oof_col, allrows_replay), (
-        "OOF fit column equals the all-rows replay -- OOF discipline may be broken (fit value would then be in-fold, a leak)"
-    )
+    assert not np.array_equal(
+        oof_col, allrows_replay
+    ), "OOF fit column equals the all-rows replay -- OOF discipline may be broken (fit value would then be in-fold, a leak)"
 
 
 def test_replay_is_pure_no_state_mutation(fit_recipe, fit_data):

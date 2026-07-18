@@ -34,7 +34,6 @@ from mlframe.testing.parametric import (
 from mlframe.training.core import _auto_detect_feature_types
 from mlframe.training.configs import FeatureTypesConfig
 
-
 # ---------------------------------------------------------------------------
 # _auto_detect_feature_types — round 11/12 hot zone
 # ---------------------------------------------------------------------------

@@ -98,9 +98,9 @@ class TestModularMILift:
             f"(per-seed {[round(x, 3) for x in lifts]}); the residue is not recovering structure a "
             f"poly/Fourier leg can't."
         )
-        assert float(np.mean(mods_ok)) >= 0.8, (
-            f"detected modulus matched the true period (or a multiple) in only {float(np.mean(mods_ok)):.0%} of seeds for m={true_m}."
-        )
+        assert (
+            float(np.mean(mods_ok)) >= 0.8
+        ), f"detected modulus matched the true period (or a multiple) in only {float(np.mean(mods_ok)):.0%} of seeds for m={true_m}."
 
 
 class TestSpecificity:

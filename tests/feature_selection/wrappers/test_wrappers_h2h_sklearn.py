@@ -205,9 +205,9 @@ def test_h2h_subset_size_on_redundant_clf():
     # we should never pick MORE than ~80% of all features, and never less
     # than 1 feature.
     upper_bound = max(round(X.shape[1] * 0.8), sk.n_features_ + 6)
-    assert ours.n_features_ <= upper_bound, (
-        f"Our RFECV picked {ours.n_features_} features (cap {upper_bound}) vs sklearn's {sk.n_features_}; selector is much too inclusive."
-    )
+    assert (
+        ours.n_features_ <= upper_bound
+    ), f"Our RFECV picked {ours.n_features_} features (cap {upper_bound}) vs sklearn's {sk.n_features_}; selector is much too inclusive."
     assert ours.n_features_ >= 1, "Our RFECV picked zero features"
 
 
@@ -238,6 +238,6 @@ def test_h2h_informative_recall():
     recall = overlap / max(1, len(informative_idx))
 
     print(f"\n[h2h:informative-recall] our recall={recall:.2f} ({overlap}/{n_informative})")
-    assert recall >= 0.5, (
-        f"Our RFECV recovered only {overlap}/{n_informative} informative features (recall={recall:.2f}). This is below the regression threshold of 0.5."
-    )
+    assert (
+        recall >= 0.5
+    ), f"Our RFECV recovered only {overlap}/{n_informative} informative features (recall={recall:.2f}). This is below the regression threshold of 0.5."

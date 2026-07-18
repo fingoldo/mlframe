@@ -68,9 +68,9 @@ def test_text_object_column_excluded_from_cat_features():
     # future.infer_string), all of which leave the column as a string column
     # for the auto-detect text-features step to handle.
     _dtype_name = str(train_out["text_col"].dtype)
-    assert _dtype_name not in ("category", "categorical") and "category" not in _dtype_name.lower(), (
-        f"text_col must remain a string-like dtype (not category); got {_dtype_name}"
-    )
+    assert (
+        _dtype_name not in ("category", "categorical") and "category" not in _dtype_name.lower()
+    ), f"text_col must remain a string-like dtype (not category); got {_dtype_name}"
 
 
 def test_low_card_object_column_stays_categorical():

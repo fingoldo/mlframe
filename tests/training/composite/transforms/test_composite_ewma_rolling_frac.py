@@ -28,7 +28,6 @@ from mlframe.training.composite import (
     get_transform,
 )
 
-
 # ===========================================================================
 # ewma_residual
 # ===========================================================================
@@ -101,9 +100,9 @@ class TestEWMA:
         # Diff residual: y - y_prev.
         T_diff = y - base
         # On smooth drift, EWMA smooths through lag noise; diff doubles the noise (Var(y - y_prev) ~= 2 * sigma^2).
-        assert np.var(T_ewma) < np.var(T_diff), (
-            f"EWMA residual variance should be < diff residual on smooth drift; got ewma={np.var(T_ewma):.4f}, diff={np.var(T_diff):.4f}"
-        )
+        assert np.var(T_ewma) < np.var(
+            T_diff
+        ), f"EWMA residual variance should be < diff residual on smooth drift; got ewma={np.var(T_ewma):.4f}, diff={np.var(T_diff):.4f}"
 
 
 # ===========================================================================

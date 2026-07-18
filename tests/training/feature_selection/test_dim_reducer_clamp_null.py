@@ -85,9 +85,9 @@ def test_all_null_columns_dropped_before_pipeline(caplog) -> None:
     assert "x_null_0" not in out_train.columns
     assert "x_null_1" not in out_train.columns
     # WARN must name them.
-    assert any("all-null" in rec.message and "x_null_0" in rec.message for rec in caplog.records), (
-        f"expected all-null WARN; got: {[r.message for r in caplog.records]}"
-    )
+    assert any(
+        "all-null" in rec.message and "x_null_0" in rec.message for rec in caplog.records
+    ), f"expected all-null WARN; got: {[r.message for r in caplog.records]}"
 
 
 def test_clamp_plus_null_filter_together() -> None:

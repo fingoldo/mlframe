@@ -63,9 +63,9 @@ def test_regression_ensemble_fallback_uses_mean_not_mode(monkeypatch):
         result = result.flatten()
 
     # For float input, mode must NOT be called by the patch logic above.
-    assert mode_call_count["n"] == 0, (
-        "regression ensemble fallback unexpectedly called scipy.stats.mode on float predictions; the dtype dispatch must route to np.mean."
-    )
+    assert (
+        mode_call_count["n"] == 0
+    ), "regression ensemble fallback unexpectedly called scipy.stats.mode on float predictions; the dtype dispatch must route to np.mean."
     # Mean of [1.5, 1.7], [2.5, 2.3], [3.5, 3.6], [4.5, 4.4] = [1.6, 2.4, 3.55, 4.45]
     np.testing.assert_allclose(result, [1.6, 2.4, 3.55, 4.45], rtol=1e-12)
 
@@ -102,9 +102,9 @@ def test_classification_ensemble_fallback_still_uses_mode(monkeypatch):
             result = result.flatten()
 
     # For int input, mode MUST be called and produce the majority vote.
-    assert mode_call_count["n"] >= 1, (
-        "classification ensemble fallback did NOT call scipy.stats.mode on int predictions; the dtype dispatch removed the majority-voting fallback semantics."
-    )
+    assert (
+        mode_call_count["n"] >= 1
+    ), "classification ensemble fallback did NOT call scipy.stats.mode on int predictions; the dtype dispatch removed the majority-voting fallback semantics."
     # Per-column majority: col0=0 (3x0), col1=1 (2x1 vs 1x0), col2=0 (2x0 vs 1x1),
     # col3=1 (3x1), col4=1 (2x1 vs 1x0). Expected [0, 1, 0, 1, 1].
     np.testing.assert_array_equal(np.asarray(result).flatten(), [0, 1, 0, 1, 1])

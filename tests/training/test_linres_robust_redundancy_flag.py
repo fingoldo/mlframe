@@ -35,9 +35,9 @@ class TestLinresRobustRedundancyFlag:
         outlier_idx = rng.choice(n, size=n // 20, replace=False)
         y[outlier_idx] += rng.standard_cauchy(size=len(outlier_idx)) * 50.0
         result = _linear_residual_robust_fit(y, base)
-        assert result.get("is_redundant_with_linres", False) is False, (
-            "With genuine outliers the second-pass OLS differs from plain linres; should NOT be flagged redundant."
-        )
+        assert (
+            result.get("is_redundant_with_linres", False) is False
+        ), "With genuine outliers the second-pass OLS differs from plain linres; should NOT be flagged redundant."
 
     def test_degenerate_constant_residual_marks_redundant(self) -> None:
         """Degenerate constant residual marks redundant."""

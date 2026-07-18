@@ -27,7 +27,6 @@ import polars as pl
 
 from mlframe.training.trainer import run_confidence_analysis
 
-
 # ---------------------------------------------------------------------------
 # Bug 1: pl.Utf8 / pl.List / pl.Array / pl.Struct columns leak into CB Pool
 # ---------------------------------------------------------------------------

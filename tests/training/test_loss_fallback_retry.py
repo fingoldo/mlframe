@@ -20,8 +20,6 @@ from __future__ import annotations
 
 import logging
 
-
-
 # ---------------------------------------------------------------------------
 # Stand-in booster: minimal CB / LGB / XGB interface needed by the helper.
 # ---------------------------------------------------------------------------

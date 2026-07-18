@@ -23,7 +23,6 @@ pytest.importorskip("sklearn")
 
 from mlframe.training.core._phase_train_one_target import _compute_pipeline_cache_key
 
-
 _BASE_KW = dict(
     strategy_cache_key="imp1_scale1_enc1",
     feature_tier=(False, False),

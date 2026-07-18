@@ -158,9 +158,9 @@ def test_perf_mi_direct_n10k_cached_under_threshold():
     if running_under_xdist():
         pytest.skip("timing assertion unreliable under -n contention")
     threshold = 0.050  # 50ms
-    assert elapsed < threshold, (
-        f"mi_direct warm call took {elapsed * 1000:.2f}ms, threshold {threshold * 1000:.0f}ms. Possible regression on the MI permutation hot path."
-    )
+    assert (
+        elapsed < threshold
+    ), f"mi_direct warm call took {elapsed * 1000:.2f}ms, threshold {threshold * 1000:.0f}ms. Possible regression on the MI permutation hot path."
 
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -207,9 +207,9 @@ def test_perf_prewarm_eliminates_cold_start():
     t_warm = time.perf_counter() - t0
 
     # 100ms ceiling: cleanly below any cold-compile budget (~8s), well above warm-cache baseline (~2-3ms).
-    assert t_warm < 0.1, (
-        f"post-prewarm mi_direct took {t_warm * 1000:.2f}ms — expected sub-100ms on a warmed numba cache. Possible prewarm regression or cache eviction."
-    )
+    assert (
+        t_warm < 0.1
+    ), f"post-prewarm mi_direct took {t_warm * 1000:.2f}ms — expected sub-100ms on a warmed numba cache. Possible prewarm regression or cache eviction."
 
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -372,6 +372,6 @@ def test_perf_discretize_array_n100k_under_50ms():
     elapsed = time.perf_counter() - t0
 
     threshold = 0.050  # 50ms
-    assert elapsed < threshold, (
-        f"discretize_array warm call took {elapsed * 1000:.2f}ms, threshold {threshold * 1000:.0f}ms. Possible regression on the quantile-binning fast path."
-    )
+    assert (
+        elapsed < threshold
+    ), f"discretize_array warm call took {elapsed * 1000:.2f}ms, threshold {threshold * 1000:.0f}ms. Possible regression on the quantile-binning fast path."

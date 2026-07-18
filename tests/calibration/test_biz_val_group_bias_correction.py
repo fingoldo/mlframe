@@ -32,9 +32,9 @@ def test_biz_val_group_bias_correction_fixes_opposite_direction_biases():
     y_true, y_pred, groups = _make_opposite_bias_dataset(n_per_group=200, seed=0)
 
     global_ratio = float(y_true.mean() / y_pred.mean())
-    assert abs(global_ratio - 1.0) < 0.05, (
-        f"sanity check: expected the opposite-direction biases to roughly cancel in the global mean ratio, got {global_ratio:.4f}"
-    )
+    assert (
+        abs(global_ratio - 1.0) < 0.05
+    ), f"sanity check: expected the opposite-direction biases to roughly cancel in the global mean ratio, got {global_ratio:.4f}"
 
     global_corrected = y_pred * global_ratio
     mae_global_correction = float(np.mean(np.abs(y_true - global_corrected)))
@@ -45,12 +45,12 @@ def test_biz_val_group_bias_correction_fixes_opposite_direction_biases():
 
     mae_uncorrected = float(np.mean(np.abs(y_true - y_pred)))
 
-    assert mae_group_correction < mae_global_correction * 0.5, (
-        f"expected per-group correction to far outperform a global correction (which can't see the canceling biases), got group={mae_group_correction:.2f} global={mae_global_correction:.2f}"
-    )
-    assert mae_group_correction < mae_uncorrected * 0.5, (
-        f"expected per-group correction to materially reduce error vs uncorrected predictions, got corrected={mae_group_correction:.2f} uncorrected={mae_uncorrected:.2f}"
-    )
+    assert (
+        mae_group_correction < mae_global_correction * 0.5
+    ), f"expected per-group correction to far outperform a global correction (which can't see the canceling biases), got group={mae_group_correction:.2f} global={mae_global_correction:.2f}"
+    assert (
+        mae_group_correction < mae_uncorrected * 0.5
+    ), f"expected per-group correction to materially reduce error vs uncorrected predictions, got corrected={mae_group_correction:.2f} uncorrected={mae_uncorrected:.2f}"
 
 
 def test_fit_group_bias_correction_falls_back_for_small_groups():
@@ -160,10 +160,10 @@ def test_biz_val_group_bias_correction_shrinkage_beats_naive_on_small_noisy_grou
     mae_shrunk_large = float(np.mean(np.abs(y_true_ho[is_large_ho] - corrected_shrunk[is_large_ho])))
 
     # shrinkage must meaningfully reduce held-out error on tiny/noisy groups (avoids overfitting validation noise)...
-    assert mae_shrunk_tiny < mae_naive_tiny * 0.85, (
-        f"expected shrinkage to reduce held-out error on tiny noisy groups, got shrunk={mae_shrunk_tiny:.2f} naive={mae_naive_tiny:.2f}"
-    )
+    assert (
+        mae_shrunk_tiny < mae_naive_tiny * 0.85
+    ), f"expected shrinkage to reduce held-out error on tiny noisy groups, got shrunk={mae_shrunk_tiny:.2f} naive={mae_naive_tiny:.2f}"
     # ...while matching (not materially degrading) accuracy on large groups with real, well-estimated bias.
-    assert mae_shrunk_large < mae_naive_large * 1.1, (
-        f"expected shrinkage to match naive correction on large groups with real bias, got shrunk={mae_shrunk_large:.2f} naive={mae_naive_large:.2f}"
-    )
+    assert (
+        mae_shrunk_large < mae_naive_large * 1.1
+    ), f"expected shrinkage to match naive correction on large groups with real bias, got shrunk={mae_shrunk_large:.2f} naive={mae_naive_large:.2f}"

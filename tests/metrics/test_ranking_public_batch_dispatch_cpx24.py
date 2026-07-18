@@ -26,7 +26,6 @@ import pytest
 
 from mlframe.metrics import ranking as rk
 
-
 _METRICS = [
     ("ndcg_at_k", "_per_query_ndcg_kernel", rk._ndcg_one_query, True),
     ("map_at_k", "_per_query_map_kernel", rk._map_one_query, True),

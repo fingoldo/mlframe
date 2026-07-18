@@ -89,9 +89,9 @@ def test_predict_from_models_with_dim_reducer_extension_does_not_drop_raw_input_
 
     # Sanity-check the metadata captures the RAW input schema (the contract
     # downstream consumers like _validate_input_columns_against_metadata rely on).
-    assert "input_columns" in metadata, (
-        "metadata must carry input_columns (raw pre-pipeline schema) so predict-time validation can compare against the user-supplied frame"
-    )
+    assert (
+        "input_columns" in metadata
+    ), "metadata must carry input_columns (raw pre-pipeline schema) so predict-time validation can compare against the user-supplied frame"
     raw_cols = set(metadata["input_columns"])
     # cat_low / x0..x1 are the user-supplied columns; y is the target which the
     # FTE strips before pipeline runs. The exact set after FTE may exclude y.

@@ -34,7 +34,6 @@ from mlframe.training.composite.extremes import TailCompositeEstimator
 from mlframe.training.composite.estimator import CompositeTargetEstimator
 from mlframe.training.quantile_wrapper import _QuantileMultiOutputWrapper
 
-
 N = 80
 N_FEATURES = 4  # cols: base, f1, f2, f3
 

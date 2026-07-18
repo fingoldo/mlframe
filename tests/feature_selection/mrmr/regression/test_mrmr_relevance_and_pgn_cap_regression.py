@@ -20,7 +20,6 @@ import warnings
 import numpy as np
 import pandas as pd
 
-
 _RAW_ONLY = dict(
     fe_max_steps=0,
     fe_univariate_basis_enable=False,

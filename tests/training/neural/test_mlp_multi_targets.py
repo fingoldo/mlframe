@@ -32,7 +32,6 @@ from mlframe.training import train_mlframe_models_suite, TargetTypes
 from mlframe.training.strategies import NeuralNetStrategy
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
-
 # ----------------------------------------------------------------------------
 # Strategy flag + dispatch helper
 # ----------------------------------------------------------------------------
@@ -168,9 +167,9 @@ class TestMLPMulticlassEndToEnd:
                 for ns in ns_list:
                     inner = getattr(ns, "model", None)
                     if inner is not None and hasattr(inner, "classes_"):
-                        assert isinstance(inner.classes_, np.ndarray), (
-                            f"classes_ for {type(inner).__name__} is {type(inner.classes_).__name__}, expected ndarray"
-                        )
+                        assert isinstance(
+                            inner.classes_, np.ndarray
+                        ), f"classes_ for {type(inner).__name__} is {type(inner.classes_).__name__}, expected ndarray"
 
 
 # ----------------------------------------------------------------------------
