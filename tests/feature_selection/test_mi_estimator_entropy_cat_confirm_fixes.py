@@ -156,7 +156,7 @@ def test_cmi_perm_stop_warns_on_conditioning_truncation(caplog):
             alpha=0.05,
             seed=0,
         )
-    assert any("cardinality" in r.message.lower() or "truncat" in r.message.lower() for r in caplog.records), "modulo truncation of conditioning code must warn"
+    assert any("cardinality" in r.message.lower() or "truncate" in r.message.lower() for r in caplog.records), "modulo truncation of conditioning code must warn"
 
 
 # ---------------------------------------------------------------------------

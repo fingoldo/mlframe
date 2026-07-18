@@ -408,7 +408,7 @@ def _binq(x, nb: int = 10):
 class TestWarpLinearTiebreakDirect:
     """Unit-level proof that the DCD cluster-pruning tie-break keeps the linearly-
     usable leg of a strictly-monotone twin pair. Probes ``discover_cluster_members``
-    directly with g (the exp-warp, linear-unusable) pre-selected as the anchor and f
+    directly with g (the exp-warp, linear-unusable) preselected as the anchor and f
     (the linear-usable twin) as the candidate about to be pruned -- the regime the
     end-to-end greedy hides because its relevance-tie ordering already happens to
     pick f first, so this is the only place the mechanism is observable in isolation.

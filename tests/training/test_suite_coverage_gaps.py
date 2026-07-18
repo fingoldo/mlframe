@@ -1128,7 +1128,7 @@ def test_prepare_polars_called_once_per_model_per_pipeline(tmp_path, monkeypatch
 def test_strict_configs_reject_unknown_fields():
     """Configs declared with ``extra='forbid'`` must raise a clean
     ``ValidationError`` on typo'd field names — this prevents the
-    silent-absorption bug where ``iteratoins=100`` (typo) slipped
+    silent-absorption bug where ``iterations=100`` (typo) slipped
     through as an unused extra.
 
     mlframe has TWO strict configs (explicit ``extra='forbid'`` at
@@ -1143,7 +1143,7 @@ def test_strict_configs_reject_unknown_fields():
 
     # PreprocessingConfig declares extra='forbid' (configs.py:138).
     with pytest.raises(ValidationError):
-        PreprocessingConfig(fillna_vlue=0)  # typo: vlue → value
+        PreprocessingConfig(fillna_vlue=0)  # deliberate typo, tests extra='forbid' rejection  # codespell:ignore
 
     # FeatureTypesConfig declares extra='forbid' (configs.py:406).
     with pytest.raises(ValidationError):
@@ -1152,7 +1152,7 @@ def test_strict_configs_reject_unknown_fields():
 
 def test_permissive_configs_warn_on_unknown_fields(caplog):
     """Permissive configs (extra='allow') must WARN on unknown fields
-    — silent absorption is the real prod-risk (``iteratoins=100``
+    — silent absorption is the real prod-risk (``iterations=100``
     typo slipping through unused). ``PreprocessingBackendConfig`` and
     ``TrainingBehaviorConfig`` are permissive; typos must still
     produce a visible WARNING via ``_warn_on_unknown_extras``.

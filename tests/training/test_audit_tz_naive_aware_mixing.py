@@ -95,7 +95,7 @@ def test_recommended_filter_mask_handles_tz_aware_segments():
 
 def test_cleaning_datetime_probe_strips_tz_before_astype():
     """The pandas-2.x raise on tz-aware Series .astype('datetime64[D]')
-    is pre-empted by an upfront tz strip."""
+    is preempted by an upfront tz strip."""
     import pathlib
     import mlframe as _mlframe
 

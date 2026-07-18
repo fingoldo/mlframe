@@ -132,7 +132,7 @@ def test_fallback_is_no_drop_default():
 def test_optin_fractions_monotone_in_pool_size():
     # The recommended OPT-IN aggressive fractions are monotone: larger pool -> smaller fraction
     # (signal concentrates at the top), tiny pool -> keep all.
-    """Optin fractions monotone in pool size."""
+    """Option fractions monotone in pool size."""
     assert _optin_keep_frac(50) <= _optin_keep_frac(20) <= _optin_keep_frac(5)
     assert _optin_keep_frac(5) == 1.0
 

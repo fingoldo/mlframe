@@ -32,7 +32,7 @@ class TestSearchConfig:
     """Groups tests covering TestSearchConfig."""
     def test_default_doesnt_clobber_flat(self):
         # Flat max_refits=100 must survive when only a default SearchConfig() is passed.
-        """Default doesnt clobber flat."""
+        """Default doesn't clobber flat."""
         r = RFECV(estimator=Ridge(), max_refits=100, search_config=SearchConfig())
         assert r.max_refits == 100
 

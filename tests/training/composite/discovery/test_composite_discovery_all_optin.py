@@ -73,7 +73,7 @@ def _fit(cfg):
 class TestAllOptInKitchenSink:
     """Groups tests covering all opt in kitchen sink."""
     def test_all_optin_runs_clean_and_produces_valid_specs(self) -> None:
-        """All optin runs clean and produces valid specs."""
+        """All option runs clean and produces valid specs."""
         disc, df = _fit(_all_on_config())
         assert isinstance(disc.specs_, list)
         # Every kept spec round-trips fit->predict to finite y.
@@ -95,7 +95,7 @@ class TestAllOptInKitchenSink:
         assert hasattr(disc, "interaction_bases_")
 
     def test_all_optin_is_deterministic(self) -> None:
-        """All optin is deterministic."""
+        """All option is deterministic."""
         a, _ = _fit(_all_on_config())
         b, _ = _fit(_all_on_config())
         assert [s.name for s in a.specs_] == [s.name for s in b.specs_]

@@ -271,7 +271,7 @@ class TestOrder2MaxTFloorDisabled:
         floor backstops -- so floor-OFF would admit 0 spurious and the test could no
         longer EXERCISE the floor. To measure the floor's contribution IN ISOLATION
         (the actual subject of this test), pin ``fe_acceptance='prevalence_ratio'`` so
-        the CMI gate does not pre-empt it. The CMI gate's own spurious-rejection is
+        the CMI gate does not preempt it. The CMI gate's own spurious-rejection is
         covered separately by ``test_fe_cmi_redundancy_gate``. This is the legacy
         acceptance path -- intentionally selected here to keep the floor observable.
         """

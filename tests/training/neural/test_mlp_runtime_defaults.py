@@ -310,7 +310,7 @@ class TestPredictBatchSize:
             cuda_available=False,
         ) in (_PREDICT_BATCH_FALLBACK, _PREDICT_BATCH_MAX)
         # The first form (constant) fires when psutil + torch are both
-        # unprobable. On a typical dev box psutil is installed -> memory IS
+        # unavailable to probe. On a typical dev box psutil is installed -> memory IS
         # probed and the resolver picks the adaptive size; that path is
         # locked by the explicit-memory tests below.
 

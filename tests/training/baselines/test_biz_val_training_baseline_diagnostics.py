@@ -80,11 +80,11 @@ def test_biz_val_baseline_diagnostics_ablation_finds_dominant_feature():
     )
     # report.ablation is a list of AblationEntry(feature, ..., rank)
     assert hasattr(report, "ablation")
-    abl = report.ablation
-    assert len(abl) >= 1
+    able = report.ablation
+    assert len(able) >= 1
     # Find the rank=1 entry
-    rank_1 = [e for e in abl if getattr(e, "rank", None) == 1]
-    assert len(rank_1) == 1, f"ablation must have exactly one rank-1 entry; got {abl}"
+    rank_1 = [e for e in able if getattr(e, "rank", None) == 1]
+    assert len(rank_1) == 1, f"ablation must have exactly one rank-1 entry; got {able}"
     assert rank_1[0].feature == "x_dominant", f"rank-1 feature must be x_dominant; got {rank_1[0].feature}"
 
 

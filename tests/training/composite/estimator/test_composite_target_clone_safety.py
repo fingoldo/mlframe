@@ -3,7 +3,7 @@ assigns ``estimator_`` / ``fitted_params_`` outside the ``__init__`` signature.
 ``sklearn.base.clone()`` copies only init params, so a clone of a
 from_fitted_inner-built instance is a SILENT unfitted estimator — the first
 ``predict`` call on the clone raises ``NotFittedError`` (or, worse, returns a
-garbage prediction if the inner base_estimator happens to be re-usable).
+garbage prediction if the inner base_estimator happens to be reusable).
 
 Fix (Variant A from the audit): override ``__sklearn_clone__`` on the
 class so a clone-attempt on a from_fitted_inner instance raises with a

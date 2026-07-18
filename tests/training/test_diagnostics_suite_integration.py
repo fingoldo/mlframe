@@ -465,7 +465,7 @@ def test_multiclass_confusion_margins_panel_in_default_grid():
     spec = compose_multiclass_figure(y_true, proba, classes=list(range(k)), panels_template=template)
     titles = [getattr(p, "title", "") for row in spec.panels for p in row if p is not None]
     assert any(
-        "upport" in t or "argin" in t.lower() or "onfusion" in t.lower() for t in titles
+        "support" in t or "argin" in t.lower() or "onfusion" in t.lower() for t in titles
     ), f"CONFUSION_MARGINS panel not present in default multiclass grid; titles={titles}"
 
 

@@ -74,8 +74,8 @@ def test_biz_val_shap_proxied_fs_recovers_informative_and_beats_baselines():
     assert rep["trust"]["spearman"] > 0.7, rep["trust"]
 
     # Unique value: proxy subset at least ties SHAP-importance-top-k (measured: proxy strictly wins).
-    abl = rep["importance_ablation"]
-    assert abl["proxy_at_least_ties"], abl
+    able = rep["importance_ablation"]
+    assert able["proxy_at_least_ties"], able
 
     # Honest win over a random same-size subset by a wide margin.
     best = rep["revalidation"]["ranked"][0]["honest_loss"]
