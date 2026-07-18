@@ -111,5 +111,50 @@ saved)` re-derives `cur = getattr(self, attr, None)` and re-checks `attr in defa
 defaults[attr]` (the SAME guard already evaluated inline just above the call site), then does the
 identical `saved[attr] = cur; setattr(self, attr, new_value)`. No behavior changes; this is a pure
 mechanical extraction. This failure is therefore pre-existing, same as the two `fast_search`
-failures above -- not investigated further here (out of scope; needs its own FE-redundancy-quality
-pass).
+failures above.
+
+### Follow-up investigation (2026-07-18, "fix all 3" pass)
+
+Root-caused precisely via `_fe_rejection_records_` trace on seed=4: the correct fused composite
+`sub(div(sqr(a),neg(b)),mul(log(c),sin(d)))` for source pair `(b,c)`-equivalent (index pair
+`(1, 2)`) IS discovered by the search and scores `observed=0.8777` against the
+`engineered_mi_prevalence` gate's `threshold=0.9` (`fe_min_engineered_mi_prevalence`, default
+0.90) -- a narrow 2.2-point miss, `margin=-0.0223`. The existing "Pack #5" adaptive-relaxation
+retry (`_fit_impl_core.py`, `fe_adaptive_threshold_relax`) would comfortably clear this margin
+(`0.9 * fe_adaptive_relax_factor(0.9) = 0.81 < 0.8777`) but never fires here because its trigger
+is `n_recommended_features == 0` -- and seed=4's FIRST FE step already accepts ONE other pair
+(`(a,f)`/similar, unrelated to the missed `(b,c)` pair), so `n_recommended_features == 1`, not 0.
+A frame with MULTIPLE independent signal groups can have one group's pair clear the gate while a
+DIFFERENT group's pair is rejected by a margin the SAME relaxed threshold would clear -- the first
+group's success silently masks the second group's narrow miss.
+
+**Attempted fix (implemented, tested, then reverted -- inert, not a regression risk, but zero
+measured benefit)**: broadened the retry trigger to `n_recommended_features == 0 OR
+<any pair on this step rejected by engineered_mi_prevalence within the relax-factor margin>`,
+reusing the existing, already-validated retry machinery (no changes to the multi-gate accept/veto
+logic in `_feature_engineering_pairs/_pairs_score.py` itself -- confirmed via direct trace that
+this candidate already fails ALL FOUR existing acceptance paths there: `_passes_joint_gate`,
+`_prewarp_accept`, `_marginal_uplift_accept`, `_usability_accept`). The trigger correctly fired
+(confirmed via instrumentation: `narrow_miss=True`, retry ran with `_relaxed_engineered=0.81`) --
+but the retry's `checked_pairs=set()` reset causes a FULL re-scan of ALL pairs under the relaxed
+threshold, not just the one narrow-miss candidate, and a DIFFERENT pair (`(b,e)`-equivalent,
+`mul(reciproc(b),prewarp(e))`) won the relaxed-threshold admission instead of the target `(b,c)`
+pair. Even where the retry DOES admit more candidates (`n_recommended_features` rose 1 -> 2), the
+FINAL selection after later pipeline stages (redundancy drop / gate-composite-overmaterialization
+pruning / subsumption, further downstream in `_fit_impl_core.py` and
+`_mrmr_fe_step_helpers.py`) converges back to the IDENTICAL 3-feature result regardless -- meaning
+those later stages independently re-derive the same (incomplete) answer and absorb/discard
+whatever the retry changed. The narrow-miss trigger is REVERTED (not shipped) since it changes
+nothing measurable at the final-selection level; shipping an inert code path just for its own sake
+violates "no complexity without validated benefit."
+
+**Concrete next action** (genuinely needs its own dedicated pass, confirming the ORIGINAL
+scoping call): the real fix point is downstream of the admission gate, in whichever stage decides
+the FINAL selection converges to `["d", "div(sqr(a),neg(b))",
+"mul(reciproc(d),neg(gate_mask__c__b__t...))"]` regardless of what extra candidates an earlier
+retry admits. Trace forward from `run_cluster_aggregate_step`'s and the FE step's
+redundancy/subsumption passes (`_mrmr_fe_step_helpers.py`, `_finalise.py`) to find WHERE the
+`(b,c)`-equivalent composite (or an admitted substitute covering the same two raw operands) gets
+dropped even when present in the post-retry candidate pool, with a multi-seed A/B (seeds 0-9,
+isolated subprocess per seed, matching this test's own harness) validating the eventual fix
+doesn't regress the 9/10 seeds that already pass.
