@@ -52,6 +52,15 @@ from ._mrmr_param_constants import (
     _VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS,
 )
 from ._mrmr_setstate_defaults import build_setstate_defaults
+from ._mrmr_config_dataclasses import (
+    FastSearchConfig,
+    StabilitySelectionConfig,
+    SynergyRedundancyConfig,
+    GroupAwareConfig,
+    DCDConfig,
+    HybridOrthConfig,
+    apply_mrmr_config_objects,
+)
 
 from .._mrmr_fingerprints import (
     _mrmr_compute_y_fingerprint_sample,
@@ -2880,6 +2889,18 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # 'union' (default): fit one single-target selector per output column (the 1D path, which is correct) and UNION the selected raw columns.
         # 'intersect': keep only columns selected for EVERY output column. None / 'joint': legacy merged-target behaviour (byte-identical to pre-2026-06-20).
         multioutput_strategy: Optional[str] = "union",
+        # Nested config-dataclass alternative to the individual flat kwargs above (finding #1,
+        # 10_config_dataclass_proposal.md). Purely ADDITIVE: every flat kwarg above keeps working
+        # unchanged forever (this migration's blast radius -- ~50+ existing call sites -- rules out a
+        # breaking rename). When a config IS passed, its fields override that cluster's flat defaults;
+        # mirrors the existing ``cat_fe_config`` precedent (``cat_fe_state.CatFEConfig``). See
+        # ``_mrmr_config_dataclasses.py`` for field definitions / pydantic validation.
+        fast_search_config: Optional[FastSearchConfig] = None,
+        stability_config: Optional[StabilitySelectionConfig] = None,
+        synergy_config: Optional[SynergyRedundancyConfig] = None,
+        group_aware_config: Optional[GroupAwareConfig] = None,
+        dcd_config: Optional[DCDConfig] = None,
+        hybrid_orth_config: Optional[HybridOrthConfig] = None,
     ):
 
         # assert isinstance(estimator, (BaseEstimator,))
@@ -2927,6 +2948,21 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # save params
         store_params_in_object(obj=self, params=get_parent_func_args())
         self.signature: tuple | str | None = None
+        # Nested config-dataclass overrides (finding #1, 10_config_dataclass_proposal.md): apply
+        # AFTER store_params_in_object so a passed config wins over its cluster's individual flat
+        # kwargs, which are already set on self by this point. self.fast_search_config etc. (the raw
+        # config objects, possibly None) are themselves stored by store_params_in_object above like
+        # any other ctor param -- this call only expands a non-None config's fields onto the matching
+        # flat attrs; it does not touch self.fast_search_config etc. themselves.
+        apply_mrmr_config_objects(
+            self,
+            fast_search_config=fast_search_config,
+            stability_config=stability_config,
+            synergy_config=synergy_config,
+            group_aware_config=group_aware_config,
+            dcd_config=dcd_config,
+            hybrid_orth_config=hybrid_orth_config,
+        )
 
     def __repr__(self, N_CHAR_MAX: int = 700) -> str:
         # ``n_workers`` (candidate-MI evaluation parallelism; default 1 = SERIAL, the fast path) is hidden by sklearn's
