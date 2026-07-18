@@ -45,9 +45,9 @@ def test_compute_quantile_baselines_defined_only_in_compute_module():
 
     # Identity: dummy_baselines._compute_quantile_baselines IS the function
     # from the compute module - not a wrapper, not a shadow.
-    assert dummy_baselines._compute_quantile_baselines is _dummy_baseline_compute._compute_quantile_baselines, (
-        "dummy_baselines._compute_quantile_baselines was shadowed by a local def"
-    )
+    assert (
+        dummy_baselines._compute_quantile_baselines is _dummy_baseline_compute._compute_quantile_baselines
+    ), "dummy_baselines._compute_quantile_baselines was shadowed by a local def"
 
 
 def test_compute_quantile_baselines_callable_via_dummy_baselines():

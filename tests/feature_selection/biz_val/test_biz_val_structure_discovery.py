@@ -16,7 +16,6 @@ import pytest
 
 from mlframe.feature_selection import discover_structure, StructureReport
 
-
 N = 2000
 
 
@@ -192,9 +191,9 @@ def test_biz_val_max_int_cols_budget_guard_skips_above_cap():
     y = np.gcd(a, b)
 
     capped = discover_structure(X, y, significance_n_perm=0, max_int_cols=5)
-    assert not any(r.kind == "gcd" for r in capped.relations), (
-        f"10 integer columns > cap 5 must skip the lattice sweep -> no gcd; got {[r.kind for r in capped.relations]}"
-    )
+    assert not any(
+        r.kind == "gcd" for r in capped.relations
+    ), f"10 integer columns > cap 5 must skip the lattice sweep -> no gcd; got {[r.kind for r in capped.relations]}"
 
     uncapped = discover_structure(X, y, significance_n_perm=0, max_int_cols=10)
     gcd = [r for r in uncapped.relations if r.kind == "gcd"]
@@ -223,9 +222,9 @@ def test_biz_val_nbins_resolution_recovers_multivalued_structure():
     mi_coarse, mi_fine = gcd_coarse[0].mi, gcd_fine[0].mi
     assert mi_coarse <= 0.30, f"nbins=2 must crush the multi-valued gcd MI (measured ~0.20); got {mi_coarse}"
     assert mi_fine >= 0.90, f"nbins=20 must resolve the gcd structure (measured ~1.05); got {mi_fine}"
-    assert mi_fine >= 3.0 * mi_coarse, (
-        f"finer binning must lift the recovered gcd MI >=3x over coarse (measured ~5x); coarse={mi_coarse:.3f} fine={mi_fine:.3f}"
-    )
+    assert (
+        mi_fine >= 3.0 * mi_coarse
+    ), f"finer binning must lift the recovered gcd MI >=3x over coarse (measured ~5x); coarse={mi_coarse:.3f} fine={mi_fine:.3f}"
 
 
 def test_top_k_cap():

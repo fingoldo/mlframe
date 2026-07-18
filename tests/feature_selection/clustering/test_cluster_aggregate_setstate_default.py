@@ -24,9 +24,9 @@ def test_legacy_pickle_refits_mode_to_replace():
     """Legacy pickle refits mode to replace."""
     m = MRMR.__new__(MRMR)
     m.__setstate__({})  # empty legacy state -> all defaults injected
-    assert m.cluster_aggregate_mode == "replace", (
-        f"attribute-less legacy pickle must refit to the corrected 'replace' mode, not 'augment'; got {m.cluster_aggregate_mode!r}"
-    )
+    assert (
+        m.cluster_aggregate_mode == "replace"
+    ), f"attribute-less legacy pickle must refit to the corrected 'replace' mode, not 'augment'; got {m.cluster_aggregate_mode!r}"
 
 
 def test_legacy_pickle_preserves_explicit_mode():

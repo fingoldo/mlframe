@@ -23,7 +23,6 @@ from mlframe.feature_selection.filters.fleuret import (
 )
 from typing import Optional
 
-
 # ================================================================================================
 # Fixtures: synthetic factor matrices.
 # ================================================================================================
@@ -387,6 +386,7 @@ def test_parallel_pool_n_workers_one_bypasses_joblib_parallel(xor_factors, monke
     import mlframe.feature_selection.filters.fleuret as _fleuret_mod
 
     def _boom(*args, **kwargs):
+        """Sensor stub: any call proves the n_workers<=1 fast path did not bypass ``Parallel``."""
         raise AssertionError("Parallel() must not be constructed when n_workers<=1")
 
     monkeypatch.setattr(_fleuret_mod, "Parallel", _boom)

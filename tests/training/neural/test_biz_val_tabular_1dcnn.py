@@ -137,9 +137,9 @@ def test_biz_val_1dcnn_classifier_beats_mlp_on_local_pathway_interactions():
     naive_auc = 0.5  # majority/coin-flip baseline for a balanced binary target.
     assert auc_cnn >= 0.80, f"expected the correlation-ordered 1D-CNN classifier to recover most of the local-interaction signal, got auc={auc_cnn:.4f}"
     assert auc_cnn > naive_auc + 0.25, f"expected the classifier to clearly beat the naive coin-flip baseline, got auc={auc_cnn:.4f}"
-    assert auc_cnn > auc_mlp + 0.05, (
-        f"expected the 1D-CNN classifier to beat a comparably-sized MLP at the same training budget, got cnn={auc_cnn:.4f} mlp={auc_mlp:.4f}"
-    )
+    assert (
+        auc_cnn > auc_mlp + 0.05
+    ), f"expected the 1D-CNN classifier to beat a comparably-sized MLP at the same training budget, got cnn={auc_cnn:.4f} mlp={auc_mlp:.4f}"
 
 
 def test_biz_val_1dcnn_classifier_predict_matches_argmax_proba():

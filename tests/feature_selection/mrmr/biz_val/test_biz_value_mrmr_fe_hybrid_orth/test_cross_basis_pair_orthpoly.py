@@ -241,9 +241,9 @@ class TestXorDiscovery:
         sc = score_pair(X[["x1", "x2"]], eng, y.values)
         # Top winner by uplift must be the He_1 * He_1 cell.
         top = sc.iloc[0]
-        assert top["engineered_col"] == "x1*x2__He1_He1", (
-            f"seed={seed}: top cross-basis winner should be x1*x2__He1_He1, got {top['engineered_col']}; full ranking:\n{sc}"
-        )
+        assert (
+            top["engineered_col"] == "x1*x2__He1_He1"
+        ), f"seed={seed}: top cross-basis winner should be x1*x2__He1_He1, got {top['engineered_col']}; full ranking:\n{sc}"
         # MI should be substantial (>= 0.4 nats on a clean XOR with n=2500).
         assert top["engineered_mi"] >= 0.4, f"seed={seed}: XOR He_1*He_1 engineered_mi {top['engineered_mi']:.3f} should clear 0.4 on n=2500"
 
@@ -350,9 +350,9 @@ class TestMixedSignalsBothSurfaced:
         # Univariate-side: x_solo__He2 (the univariate He_2 signal) must
         # have entered.
         uni_added = [c for c in added_cols if "*" not in c]
-        assert any("x_solo__He2" == c for c in uni_added), (
-            f"seed={seed}: x_solo__He2 should be in augmented frame as the univariate He_2 winner; uni_added={uni_added}; uni_sc:\n{uni_sc.head(6)}"
-        )
+        assert any(
+            "x_solo__He2" == c for c in uni_added
+        ), f"seed={seed}: x_solo__He2 should be in augmented frame as the univariate He_2 winner; uni_added={uni_added}; uni_sc:\n{uni_sc.head(6)}"
         # Pair-side: x_pa*x_pb__He1_He1 (or x_pb*x_pa__He1_He1) must be there.
         pair_added = [c for c in added_cols if "*" in c]
         ok_pair = any((("x_pa*x_pb__He1_He1" == c) or ("x_pb*x_pa__He1_He1" == c)) for c in pair_added)
@@ -453,9 +453,9 @@ class TestNoisePairPruned:
             return a.startswith("noise_") and b.startswith("noise_")
 
         noise_pair_added = [c for c in pair_added if _both_legs_noise(c)]
-        assert not noise_pair_added, (
-            f"seed={seed}: noise-noise cross-basis terms should be filtered by the absolute MI floor; got {noise_pair_added}; cross_sc:\n{cross_sc.head(8)}"
-        )
+        assert (
+            not noise_pair_added
+        ), f"seed={seed}: noise-noise cross-basis terms should be filtered by the absolute MI floor; got {noise_pair_added}; cross_sc:\n{cross_sc.head(8)}"
 
 
 class TestMixedBasisPairCrossReplay:
@@ -503,9 +503,9 @@ class TestMixedBasisPairCrossReplay:
         for r in pair_recipes:
             basis_i = r.extra.get("basis_i")
             basis_j = r.extra.get("basis_j")
-            assert basis_i is not None and basis_j is not None, (
-                f"orth_pair_cross recipe {r.name!r} must carry both per-leg bases in extra (not derive from the lossy name); extra={dict(r.extra)}"
-            )
+            assert (
+                basis_i is not None and basis_j is not None
+            ), f"orth_pair_cross recipe {r.name!r} must carry both per-leg bases in extra (not derive from the lossy name); extra={dict(r.extra)}"
             if basis_i != basis_j:
                 saw_mixed = True
             # Replay must reproduce the fit-time engineered column, using the per-leg bases from

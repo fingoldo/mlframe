@@ -32,7 +32,6 @@ warnings.filterwarnings("ignore")
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 
-
 # ---------------------------------------------------------------------------
 # Path 2: CATEGORICAL -- the regression
 # ---------------------------------------------------------------------------
@@ -85,9 +84,9 @@ def test_regression_categorical_factorize_replay_not_constant(as_categorical):
     r = recipes[0]
 
     # The fix stamps the fit-time category->code map onto the recipe.
-    assert "cat_code_maps" in r.extra, (
-        "factorize recipe over categorical source is missing the cat_code_maps replay table -- transform will all-zero string sources"
-    )
+    assert (
+        "cat_code_maps" in r.extra
+    ), "factorize recipe over categorical source is missing the cat_code_maps replay table -- transform will all-zero string sources"
 
     out_tr = sel.transform(df_tr)
     assert r.name in out_tr.columns
@@ -104,9 +103,9 @@ def test_regression_categorical_factorize_replay_not_constant(as_categorical):
     pair_to_code = {}
     for p, c in zip(pairs_tr, col_tr):
         prev = pair_to_code.get(p)
-        assert prev is None or prev == c, (
-            f"value-pair {p} mapped to two different codes ({prev}, {c}) on the SAME train transform -- replay is not a deterministic function of X"
-        )
+        assert (
+            prev is None or prev == c
+        ), f"value-pair {p} mapped to two different codes ({prev}, {c}) on the SAME train transform -- replay is not a deterministic function of X"
         pair_to_code[p] = c
 
     # Disjoint holdout drawn from the same universe must reuse the train mapping.
@@ -115,9 +114,9 @@ def test_regression_categorical_factorize_replay_not_constant(as_categorical):
     col_te = np.asarray(out_te[r.name].to_numpy())
     pairs_te = list(zip(df_te["cat_a"].astype(str), df_te["cat_b"].astype(str)))
     mismatches = sum(1 for p, c in zip(pairs_te, col_te) if p in pair_to_code and pair_to_code[p] != c)
-    assert mismatches == 0, (
-        f"{mismatches} holdout rows got a DIFFERENT code than the train mapping for the same value-pair -- train/serve skew in factorize replay"
-    )
+    assert (
+        mismatches == 0
+    ), f"{mismatches} holdout rows got a DIFFERENT code than the train mapping for the same value-pair -- train/serve skew in factorize replay"
 
 
 def test_build_category_code_map_reproduces_discretiser_codes():
@@ -235,9 +234,9 @@ def test_block_nan_shift_applies_to_nanfree_partner_column(as_categorical):
     replay_a = _coerce_to_int_with_nan_handling(np.asarray(s_a.to_numpy(), dtype=object), nb_a, "r", "cat_a", "clip", m_a)
     replay_b = _coerce_to_int_with_nan_handling(np.asarray(s_b.to_numpy(), dtype=object), nb_b, "r", "cat_b", "clip", m_b)
     assert np.array_equal(fit_a, replay_a), f"cat_a replay {replay_a[:8].tolist()} != fit {fit_a[:8].tolist()}"
-    assert np.array_equal(fit_b, replay_b), (
-        f"NaN-free partner cat_b replay {replay_b[:8].tolist()} != fit {fit_b[:8].tolist()} -- block +1 shift not applied (off-by-one skew)"
-    )
+    assert np.array_equal(
+        fit_b, replay_b
+    ), f"NaN-free partner cat_b replay {replay_b[:8].tolist()} != fit {fit_b[:8].tolist()} -- block +1 shift not applied (off-by-one skew)"
 
 
 def _combined_frame(seed, n, n_classes, p_numeric, nan_in_cat_b=False):
@@ -297,9 +296,9 @@ def test_combined_cat_nan_wide_clf_no_serve_skew(n_classes):
     # off-by-one (partner left unshifted).
     map_b = r.extra["cat_code_maps"].get("cat_b")
     assert map_b, "cat_b code map absent"
-    assert min(int(v) for v in map_b.values()) >= 1, (
-        f"NaN-free partner cat_b not block-shifted (min code {min(int(v) for v in map_b.values())}); off-by-one serve skew"
-    )
+    assert (
+        min(int(v) for v in map_b.values()) >= 1
+    ), f"NaN-free partner cat_b not block-shifted (min code {min(int(v) for v in map_b.values())}); off-by-one serve skew"
 
     out_tr = sel.transform(df_tr)
     assert r.name in out_tr.columns

@@ -73,9 +73,9 @@ def test_biz_val_default_ece_nbins_beats_15_on_rmse():
     """
     rmse_default = _aggregate_rmse(DEFAULT_ECE_NBINS)
     rmse_15 = _aggregate_rmse(15)
-    assert rmse_default < rmse_15 * 0.97, (
-        f"DEFAULT_ECE_NBINS={DEFAULT_ECE_NBINS} rmse={rmse_default:.5f} must beat nbins=15 rmse={rmse_15:.5f} by >=3% on ground-truth ECE-RMSE"
-    )
+    assert (
+        rmse_default < rmse_15 * 0.97
+    ), f"DEFAULT_ECE_NBINS={DEFAULT_ECE_NBINS} rmse={rmse_default:.5f} must beat nbins=15 rmse={rmse_15:.5f} by >=3% on ground-truth ECE-RMSE"
 
 
 def test_biz_val_default_ece_nbins_is_10():

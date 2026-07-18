@@ -234,9 +234,9 @@ class TestSkipPandasConversion:
             verbose=0,
             output_config=OutputConfig(data_dir=temp_data_dir),
         )
-        assert counter["lazy"] + counter["upfront"] >= 1, (
-            f"ridge must have received pandas — either upfront or lazily. Neither call fired: lazy={counter['lazy']}, upfront={counter['upfront']}"
-        )
+        assert (
+            counter["lazy"] + counter["upfront"] >= 1
+        ), f"ridge must have received pandas — either upfront or lazily. Neither call fired: lazy={counter['lazy']}, upfront={counter['upfront']}"
 
 
 # ======================================================================
@@ -245,7 +245,6 @@ class TestSkipPandasConversion:
 class TestShowcaseVerboseGate:
     """Groups tests covering showcase verbose gate."""
     def test_showcase_hidden_at_verbose_1(self, monkeypatch):
-
         """Showcase hidden at verbose 1."""
         called = {"n": 0}
         monkeypatch.setattr(

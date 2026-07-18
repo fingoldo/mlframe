@@ -106,9 +106,9 @@ class TestRankingQuality:
             cv=5,
             scoring="roc_auc",
         ).mean()
-        assert auc_sel >= auc_base - 0.03, (
-            f"selection downstream AUC={auc_sel:.4f} vs all-signal baseline {auc_base:.4f} (gap > 0.03); selection lost signal. selected={selected}"
-        )
+        assert (
+            auc_sel >= auc_base - 0.03
+        ), f"selection downstream AUC={auc_sel:.4f} vs all-signal baseline {auc_base:.4f} (gap > 0.03); selection lost signal. selected={selected}"
 
     def test_no_noise_in_top_3_with_strong_signal(self):
         """3 STRONG signals + 10 weak noise. Top-3 must be pure

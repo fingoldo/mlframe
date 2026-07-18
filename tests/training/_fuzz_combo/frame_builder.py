@@ -6,7 +6,6 @@ from typing import Any
 
 from .combo import FuzzCombo
 
-
 # Column names the grouped_delta / lagged_diff MRMR-FE kinds consume. Emitted into the synthetic frame (and wired into the MRMR ctor via
 # builders.build_mrmr_kwargs) only when ``mrmr_fe_ratio_delta_diff_cfg`` selects one of those kinds, so the two FE kinds actually run in the
 # sweep instead of being canonicalised to "off" for lack of a group / time column. ``MRMR_FE_GROUP_COL`` is a low-cardinality repeating int key
@@ -18,7 +17,7 @@ MRMR_FE_ORDER_COL = "mrmr_fe_order"
 MRMR_FE_LAG_VAL_COL = "mrmr_fe_lval"
 
 
-def build_frame_for_combo(combo: FuzzCombo):  # noqa: C901 -- fuzz frame synthesis fans out over every axis of FuzzCombo by design; splitting would scatter the single source of truth for what each axis emits
+def build_frame_for_combo(combo: FuzzCombo):
     """Build a pd / pl DataFrame matching the combo's input spec.
 
     Returns (df, target_col_name, cat_feature_names: list[str]).

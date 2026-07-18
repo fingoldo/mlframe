@@ -19,7 +19,6 @@ import logging
 import numpy as np
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Bug 3: joint_freqs_2var / joint_entropy_2var empty-frame guard
 # ---------------------------------------------------------------------------
@@ -157,7 +156,7 @@ def test_cmi_perm_stop_warns_on_conditioning_truncation(caplog):
             alpha=0.05,
             seed=0,
         )
-    assert any("cardinality" in r.message.lower() or "truncat" in r.message.lower() for r in caplog.records), "modulo truncation of conditioning code must warn"
+    assert any("cardinality" in r.message.lower() or "truncate" in r.message.lower() for r in caplog.records), "modulo truncation of conditioning code must warn"
 
 
 # ---------------------------------------------------------------------------

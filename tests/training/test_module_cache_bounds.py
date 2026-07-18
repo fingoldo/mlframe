@@ -12,7 +12,6 @@ import threading
 
 import numpy as np
 
-
 # ---- _PROXY_CLS_CACHE ------------------------------------------------------
 
 

@@ -278,7 +278,6 @@ class TestBorutaNullHitCalibration:
         rng = _np.random.default_rng(0)
         hits = rng.binomial(n_trials, null_p, size=n_features).astype(float)
 
-
         def _binom(array, n, p, alternative):
             """Helper that binom."""
             from scipy.stats import binomtest

@@ -17,7 +17,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Low-level: unit tests on the SU formula itself
 # ---------------------------------------------------------------------------

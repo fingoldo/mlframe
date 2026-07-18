@@ -30,7 +30,6 @@ from mlframe.training.composite.discovery.screening import (
     _prebin_feature_columns,
 )
 
-
 # --- Legacy reference (pre-P15 int64 prebin + non-upcast combo) -------------
 
 

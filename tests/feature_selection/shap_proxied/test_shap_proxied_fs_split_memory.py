@@ -96,9 +96,9 @@ def test_split_path_drops_parent_frame_reference():
         n_jobs=1,
     )
     sel.fit(X, y)
-    assert sel._deferred_holdout is None, (
-        "selector leaked a reference to the parent X via _deferred_holdout; this would keep the wide block alive past fit and defeat the iter46 memory lever"
-    )
+    assert (
+        sel._deferred_holdout is None
+    ), "selector leaked a reference to the parent X via _deferred_holdout; this would keep the wide block alive past fit and defeat the iter46 memory lever"
 
 
 def test_split_path_works_without_prefilter():

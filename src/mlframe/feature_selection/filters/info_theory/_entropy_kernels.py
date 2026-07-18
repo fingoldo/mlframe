@@ -258,6 +258,79 @@ def mi_miller_madow(
     return float(mi_miller_madow_correct(mi_plugin, k_x, k_y, n_samples))
 
 
+@njit(cache=True)
+def entropy_chao_shen(freqs: np.ndarray, n: int) -> float:
+    """Chao & Shen (2003) coverage-adjusted entropy from a normalized frequency vector ``freqs``
+    (``freqs[i] = count_i / n``, as returned by ``merge_vars``) and the sample size ``n``. Recovers
+    integer per-bin counts via ``round(freqs * n)`` (exact for the ``count/n`` divisions ``merge_vars``
+    produces) and re-estimates entropy with the coverage correction ``C_hat = 1 - f1/n`` (``f1`` = number
+    of singleton bins) instead of the plug-in estimator's implicit ``C_hat=1``. See finding #7,
+    05_concurrency_and_statistics.md."""
+    occ = freqs[freqs > 0]
+    counts = np.rint(occ * n).astype(np.int64)
+    f1 = 0
+    for i in range(len(counts)):
+        if counts[i] == 1:
+            f1 += 1
+    if f1 >= n:
+        c_hat = (n - 1.0) / n if n > 1 else 1.0
+    else:
+        c_hat = 1.0 - f1 / n
+    h = 0.0
+    for i in range(len(counts)):
+        ni = counts[i]
+        if ni <= 0:
+            continue
+        p_tilde = c_hat * ni / n
+        if p_tilde <= 0.0:
+            continue
+        lam = 1.0 - (1.0 - p_tilde) ** n
+        term = -p_tilde * np.log(p_tilde)
+        if lam > 1e-12:
+            term = term / lam
+        h += term
+    return float(h)
+
+
+@njit(cache=True)
+def mi_chao_shen(
+    factors_data,
+    x: np.ndarray,
+    y: np.ndarray,
+    factors_nbins: np.ndarray,
+    verbose: bool = False,
+    dtype=np.int32,
+) -> float:
+    """Chao-Shen (2003) coverage-adjusted mutual information ``I_cs(X;Y) = H_cs(X) + H_cs(Y) -
+    H_cs(X,Y)``, floored at 0. Unlike ``mi_miller_madow``'s closed-form additive bias term (a function
+    only of occupied-bin COUNTS), Chao-Shen re-estimates each entropy term from its own observed-category
+    coverage -- better tracks bias on sparse high-cardinality joints (many singleton cells) where
+    Miller-Madow's bias term systematically under-corrects."""
+    x = np.asarray(x, dtype=np.int64)
+    y = np.asarray(y, dtype=np.int64)
+    factors_nbins = np.asarray(factors_nbins, dtype=np.int64)
+
+    _, freqs_x, _ = merge_vars(
+        factors_data=factors_data, vars_indices=x, var_is_nominal=None,
+        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+    )
+    _, freqs_y, _ = merge_vars(
+        factors_data=factors_data, vars_indices=y, var_is_nominal=None,
+        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+    )
+    vars_xy = np.unique(np.concatenate((x, y)))
+    _, freqs_xy, _ = merge_vars(
+        factors_data=factors_data, vars_indices=vars_xy, var_is_nominal=None,
+        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+    )
+    n_samples = factors_data.shape[0] if factors_data.ndim > 1 else len(factors_data)
+    h_x = entropy_chao_shen(freqs_x, n_samples)
+    h_y = entropy_chao_shen(freqs_y, n_samples)
+    h_xy = entropy_chao_shen(freqs_xy, n_samples)
+    mi_cs = h_x + h_y - h_xy
+    return float(mi_cs) if mi_cs > 0.0 else 0.0
+
+
 @njit(nogil=True, cache=True)
 def symmetric_uncertainty(
     factors_data,

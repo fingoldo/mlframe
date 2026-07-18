@@ -21,7 +21,6 @@ from mlframe.training.extractors import (
     _smallest_safe_int_dtype,
 )
 
-
 # ----- _smallest_safe_int_dtype --------------------------------------------------
 
 

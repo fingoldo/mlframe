@@ -271,9 +271,9 @@ def test_collect_lib_versions_memoised_avoids_metadata_reparse(monkeypatch):
     after_first = calls["n"]
     assert after_first > 0, "first call must consult importlib.metadata"
     second = _io._collect_lib_versions()
-    assert calls["n"] == after_first, (
-        f"second call must be served from the memo without re-parsing METADATA (saw {calls['n'] - after_first} extra importlib.metadata.version calls)"
-    )
+    assert (
+        calls["n"] == after_first
+    ), f"second call must be served from the memo without re-parsing METADATA (saw {calls['n'] - after_first} extra importlib.metadata.version calls)"
     assert first == second
     # Callers may mutate the returned dict; the memo must be insulated.
     second["__scratch__"] = "x"

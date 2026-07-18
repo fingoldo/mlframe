@@ -42,9 +42,9 @@ def test_biz_val_hull_ma_tracks_step_change_with_lower_lag_than_sma():
     mae_hma = float(np.mean(np.abs(true_level[valid] - hma[valid])))
     mae_sma = float(np.mean(np.abs(true_level[valid] - sma[valid])))
 
-    assert mae_hma < mae_sma, (
-        f"expected Hull MA to track the step-change trend with lower lag error than plain SMA, got hma_mae={mae_hma:.4f} sma_mae={mae_sma:.4f}"
-    )
+    assert (
+        mae_hma < mae_sma
+    ), f"expected Hull MA to track the step-change trend with lower lag error than plain SMA, got hma_mae={mae_hma:.4f} sma_mae={mae_sma:.4f}"
 
 
 def test_hull_ma_deviation_spikes_at_regime_shift():
@@ -63,9 +63,9 @@ def test_hull_ma_deviation_spikes_at_regime_shift():
     mean_abs_pre = float(np.mean(np.abs(deviation[pre_change_region])))
     mean_abs_post_spike = float(np.mean(np.abs(deviation[post_change_spike_region])))
 
-    assert mean_abs_post_spike > mean_abs_pre * 3, (
-        f"expected the deviation feature to spike right after the regime shift relative to the stable pre-change region, got post={mean_abs_post_spike:.4f} pre={mean_abs_pre:.4f}"
-    )
+    assert (
+        mean_abs_post_spike > mean_abs_pre * 3
+    ), f"expected the deviation feature to spike right after the regime shift relative to the stable pre-change region, got post={mean_abs_post_spike:.4f} pre={mean_abs_pre:.4f}"
 
 
 def test_hull_moving_average_nan_prefix_length():
@@ -135,9 +135,9 @@ def test_biz_val_hull_moving_average_multi_crossover_beats_single_window_signal(
     crossover_false_flips = _sign_flip_count(crossover_signal, burst_region, valid)
 
     assert naive_false_flips > 0, "test setup should make the single-window signal flip on noise bursts"
-    assert crossover_false_flips < naive_false_flips, (
-        f"expected the fast/slow crossover signal to flip less often than the single-window signal on noise bursts, got crossover={crossover_false_flips} naive={naive_false_flips}"
-    )
+    assert (
+        crossover_false_flips < naive_false_flips
+    ), f"expected the fast/slow crossover signal to flip less often than the single-window signal on noise bursts, got crossover={crossover_false_flips} naive={naive_false_flips}"
 
     # detection latency: index of the first crossover flip to the new (upward) trend direction after the real shift.
     pre_change_idx = np.where(valid & (np.arange(n) < change_point))[0]

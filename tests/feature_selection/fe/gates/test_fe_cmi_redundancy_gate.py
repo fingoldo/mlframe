@@ -172,9 +172,9 @@ def test_gate_n_invariant_accepts_genuine_rejects_redundant(n, formula):
     assert diag["sub"]["cmi_excess"] < diag["sub"]["rel_bar"], f"[{formula} n={n}] sub excess should be below the relative bar: {diag['sub']}"
     # The genuine features keep a POSITIVE excess (real private interaction), so
     # the separation is not an artefact of everything collapsing to zero.
-    assert diag["div"]["cmi_excess"] > diag["sub"]["cmi_excess"], (
-        f"[{formula} n={n}] genuine div excess should exceed spurious sub excess: div={diag['div']} sub={diag['sub']}"
-    )
+    assert (
+        diag["div"]["cmi_excess"] > diag["sub"]["cmi_excess"]
+    ), f"[{formula} n={n}] genuine div excess should exceed spurious sub excess: div={diag['div']} sub={diag['sub']}"
 
 
 def test_relative_gap_leg_is_load_bearing():
@@ -289,9 +289,9 @@ def test_complementary_weak_feature_not_falsely_rejected(seed):
     # THE FIX: none of the genuinely complementary weak drivers is dropped.
     accepted, diag = apply_cmi_redundancy_gate(cols_to_cands(cols, yb), yb, nbins=10, seed=seed)
     rejected = [nm for nm in weak if nm not in accepted]
-    assert not rejected, (
-        f"[seed={seed}] genuinely complementary weak drivers FALSELY REJECTED as redundant: {rejected}; diag={ {nm: diag[nm] for nm in rejected} }"
-    )
+    assert (
+        not rejected
+    ), f"[seed={seed}] genuinely complementary weak drivers FALSELY REJECTED as redundant: {rejected}; diag={ {nm: diag[nm] for nm in rejected} }"
 
 
 def test_strong_significance_escape_is_decisive_for_weak_complementary():
@@ -458,9 +458,9 @@ def test_default_on_drops_redundant_keeps_genuine():
     # The CMI gate is the stricter, principled redundancy filter: it admits no MORE
     # engineered features than the legacy ratio, and strictly fewer when the ratio
     # path lets a redundant cross-signal/extra column through.
-    assert len(eng_cmi) <= len(eng_ratio), (
-        f"CMI gate admitted MORE engineered features than the legacy ratio (should be stricter): cmi={eng_cmi} ratio={eng_ratio}"
-    )
+    assert len(eng_cmi) <= len(
+        eng_ratio
+    ), f"CMI gate admitted MORE engineered features than the legacy ratio (should be stricter): cmi={eng_cmi} ratio={eng_ratio}"
 
 
 def _make_user_f2(seed=0, n=20_000):
@@ -560,9 +560,9 @@ def test_user_f2_e2e_recovers_genuine_drops_noise_and_cross_signal(n):
     ab_pure = _covers("a", "b", exclude=("c", "d"))
     ab_cross_mix = [nm for nm in support if {"a", "b"} <= _bare_vars(nm) and {"c", "d"} <= _bare_vars(nm)]
     ab_present_any_form = any("a" in _bare_vars(nm) for nm in support) and any("b" in _bare_vars(nm) for nm in support)
-    assert ab_pure or ab_cross_mix or ab_present_any_form, (
-        f"[F2 n={n}] (a,b) a**2/b signal not recovered in ANY form (a and b operands absent from support): support={support}"
-    )
+    assert (
+        ab_pure or ab_cross_mix or ab_present_any_form
+    ), f"[F2 n={n}] (a,b) a**2/b signal not recovered in ANY form (a and b operands absent from support): support={support}"
 
     # (2) The (c,d) signal must be recovered. The hardened pipeline folds it into a
     # cross-mix that ALSO carries the (a,b) operands (the max-MI subsumption), so accept

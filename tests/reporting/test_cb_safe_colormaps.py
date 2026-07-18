@@ -18,7 +18,6 @@ from mlframe.reporting.colors import (
 from mlframe.reporting.renderers.plotly import _mpl_to_plotly_cmap
 from mlframe.reporting.spec import HeatmapPanelSpec
 
-
 _TAB10 = (
     "#1f77b4",
     "#ff7f0e",

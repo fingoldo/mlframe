@@ -37,7 +37,6 @@ import pytest
 
 from tests.feature_selection.conftest import is_fast_mode, fast_subset
 
-
 # ---------------------------------------------------------------------------
 # generators
 # ---------------------------------------------------------------------------

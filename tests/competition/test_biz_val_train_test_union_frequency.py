@@ -190,11 +190,11 @@ def test_biz_val_hierarchical_split_helps_novel_full_version_strings():
 
     assert abs(corr_flat) < 0.35, f"expected near-uninformative flat correlation, got {corr_flat:.3f}"
     assert corr_major_minor >= 0.70, f"expected major_minor correlation >= 0.70, got {corr_major_minor:.3f}"
-    assert corr_major_minor > abs(corr_flat) + 0.30, (
-        f"expected major_minor to beat flat by a real margin: major_minor={corr_major_minor:.3f} flat={corr_flat:.3f}"
-    )
-    assert corr_hier_combined > abs(corr_flat), (
-        f"expected combined hierarchical feature to still beat flat: combined={corr_hier_combined:.3f} flat={corr_flat:.3f}"
-    )
+    assert (
+        corr_major_minor > abs(corr_flat) + 0.30
+    ), f"expected major_minor to beat flat by a real margin: major_minor={corr_major_minor:.3f} flat={corr_flat:.3f}"
+    assert corr_hier_combined > abs(
+        corr_flat
+    ), f"expected combined hierarchical feature to still beat flat: combined={corr_hier_combined:.3f} flat={corr_flat:.3f}"
 
     assert len(hier_train_encoded) == len(train_series)

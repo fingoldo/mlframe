@@ -5,21 +5,24 @@ Three parallel research agents produced MRMR / feature-selection findings. Below
 **Shipping status (verified against `feature_selection/filters/`).** ✅ **DONE:**
 JMIM (`_jmim_scorer.py`, `_orthogonal_jmim_fe.py`), RelaxMRMR / 3-way redundancy
 (`_relaxmrmr_3d.py`), MRwMR-BUR (`_bur_term.py`), Chao-Shen entropy (`_chao_shen.py`),
-KSG estimator (`_ksg.py`, `mi_estimator="ksg"`), CMI-permutation stop + UAED elbow
+KSG estimator (`_ksg.py`, `mi_estimator="mixed_ksg"`), CMI-permutation stop + UAED elbow
 (`_cmi_perm_stop.py`), Conditional Permutation Test (`_conditional_permutation.py`),
 PID decomposition (`_pid_decomposition.py`), adaptive bin-count + Knuth / Bayesian-Blocks
 binning (`_adaptive_nbins.py`, `discretization/`), interaction-information / JMI term
 (`_interaction_information.py`), Cluster Stability + Complementary-Pairs SS
 (`_stability_cluster.py`, `stability_selection_method='complementary_pairs'`), Sotoca-Pla
 hierarchical CMI clustering (`_dynamic_cluster_discovery/`, `dcd_distance='sotoca_pla'`),
-and kernel_tuning_cache'd cluster thresholds (new DCD layer). The six FS methods mapped in
+and kernel_tuning_cache'd cluster thresholds (DCD layer's `dcd_tau_cluster`, and
+`_cluster_aggregate.py`'s `corr_threshold`/`homogeneity_tau`). The six FS methods mapped in
 Agent C's competition matrix all exist (`boruta_shap`, `wrappers/_knockoffs`,
 `wrappers/_univariate_ht`, `shap_proxied_fs`, `wrappers/rfecv`, MRMR filters); the synthetic
 bench scenarios are partially realized under `_benchmarks/`.
 
 **Still forward research (NOT started):** matrix-based Rényi α-entropy CMI estimator (#5),
-Quadratic-MI / Cauchy-Schwarz plugin-free estimator (#4, QMIFS), FCBF-style ordered pruning
-of `_cluster_aggregate`, and Inf-FS eigenvector-centrality re-ranking (Agent B rec).
+Quadratic-MI / Cauchy-Schwarz plugin-free estimator (#4, QMIFS), and Inf-FS
+eigenvector-centrality re-ranking (Agent B rec). FCBF-style ordered pruning of
+`_cluster_aggregate` shipped 2026-07-18 (rejects chain-transitivity artifacts in
+`_discover_clusters`; see `audits/mrmr_audit_2026-07-16/06_docs_backlog_drift.md`).
 Everything else below has landed — the surveys, weakness analyses, and the 6-method ×
 15-relationship competition matrix are kept for reference and future estimator work.
 
@@ -35,7 +38,7 @@ This file consolidates the final reports for easier reading.
 
 **1. JMIM — Bennasar, Hua, Setchi 2015** ("Feature selection using Joint Mutual Information Maximisation", *Expert Systems with Applications* 42(22), ~1500+ citations). Replaces JMI's *sum* of pairwise joint MI with the *minimum*: `J_JMIM(X_k) = min_{X_j in S} I(X_k, X_j ; Y)`. Brown 2012's framework shows JMI/CMIM/DISR are all special cases of conditional likelihood maximisation; JMIM reduces relative classification error by ~6% vs the next best in the original paper.
 - **Why us:** plugs directly alongside existing `fleuret.py`; the `min` aggregator is more robust than Fleuret's sum when one already-selected feature is strongly correlated.
-- **LoC:** ~80, sibling `_jmim_scorer.py`. **Risk:** changes selected order → repro break behind opt-in `redundancy_criterion="jmim"`. **Priority: HIGH.**
+- **LoC:** ~80, sibling `_jmim_scorer.py`. **Risk:** changes selected order → repro break behind opt-in `redundancy_aggregator="jmim"`. **Priority: HIGH.**
 
 **2. RelaxMRMR / FJMI — Vinh, Zhou, Chan, Bailey 2016** (*Pattern Recognition* 53, ~300 citations). Adds a 3-D MI redundancy term `I(X_k;X_j;X_i|Y)` — relaxes the conditional-independence assumption Fleuret uses.
 - **Why us:** mlframe already computes 2-D joint histograms via `batch_pair_mi_gpu.py`; extending to a 3-D batched joint hist on GPU is incremental and would catch higher-order redundancy that single-pair Fleuret misses.
@@ -58,6 +61,7 @@ This file consolidates the final reports for easier reading.
 **6. KSG / Kraskov estimator (NeurIPS 2023 evaluation)** — Czyż et al., "Beyond Normal: On the Evaluation of MI Estimators". Confirms KSG has the *lowest sample requirements* among non-neural estimators on smooth continuous distributions.
 - **Why us:** mlframe's MI is histogram-only (quantile/uniform binning); KSG removes binning bias on continuous features and is already shipped in sklearn (`feature_selection.mutual_info_regression`).
 - **LoC:** ~60 (wrapper in `_ksg_estimator.py` calling sklearn). **Risk:** zero new dep (sklearn already in deps); ~5-20× slower per pair so only use for screened shortlist, not the full O(p²) pass. **Priority: HIGH** (cheap and orthogonal to the SU win).
+- **Status (2026-07):** ✅ Shipped as `_ksg.py`'s `mixed_ksg_mi`/`ksg_lnc_mi`, opt-in via `mi_estimator="mixed_ksg"`/`"ksg_lnc"` in `_mi_dispatch.py`.
 
 **7. Bayesian-block / Knuth adaptive binning** — Scargle Bayesian Blocks (cited 1000+), Knuth 2019 rule. Used in astropy. Optimises bin edges to maximise a marginal likelihood, handles skewed/multimodal data where Freedman-Diaconis fails.
 - **Why us:** mlframe's `discretization.py` ships only quantile + uniform; for heavy-tailed regression targets both produce singleton-mass bins that inflate MI estimates.
@@ -94,6 +98,14 @@ This file consolidates the final reports for easier reading.
 **13. Mutual Information Estimator empirical study — Pawluszek-Filipiak et al. 2025** (*MDPI Information* 16(9):724). Benchmarks Miller-Madow, Chao-Shen, Shrinkage, Jackknife on mRMR; concludes corrected estimators (esp. **Chao-Shen** and **Shrinkage / James-Stein**) outperform Miller-Madow on small/sparse contingency tables.
 - **Why us:** mlframe currently exposes only Miller-Madow as the opt-in correction; Chao-Shen handles unseen-symbol bias that MM doesn't.
 - **LoC:** ~80 added to `info_theory.py` (sibling `_chao_shen_entropy.py`). **Risk:** none, gated by `entropy_correction='chao_shen'`. **Priority: HIGH** (direct extension of the just-shipped SU work, same shape of win).
+- **Status (2026-07-16):** ✅ Shipped: `info_theory/_entropy_kernels.py`'s `entropy_chao_shen`/`mi_chao_shen`
+  + `_class_mi_kernels.py`'s classes-based path, opt-in via `set_mi_chao_shen(True)` (thread-local,
+  mirrors `use_mi_miller_madow`). Benchmarked against Miller-Madow and plug-in
+  (`_benchmarks/bench_mi_correction_chao_shen_vs_miller_madow.py`, see
+  `audits/mrmr_audit_2026-07-16/12_chao_shen_benchmark_results.md`): no measurable accuracy
+  difference on the tested scenarios, so the package default stays `"none"` — this is a validated
+  opt-in, not a default-flip candidate. Independent of `_chao_shen.py`'s pre-existing
+  `chao_shen_entropy_from_counts`/`_joint_chao_shen_mi_njit`, which back a separate joint-MI path.
 
 **14. PID-based redundancy/relevance — Wollstadt, Schmitt, Wibral 2023** ("A rigorous information-theoretic definition of redundancy and relevancy in feature selection based on (partial) information decomposition", *JMLR* 24(131):1-44, ~50 citations). Decomposes `I(X_set;Y)` into **unique** / **redundant** / **synergistic** components via Williams-Beer PID.
 - **Why us:** mlframe's `cat_interactions` step finds synergistic pairs *after* the fact; PID provides a principled criterion to detect synergy *during* selection so synergistic features aren't filtered out.
@@ -101,11 +113,8 @@ This file consolidates the final reports for easier reading.
 
 ## Recommended next steps (cheap-now ordering)
 
-1. **Finding #13 (Chao-Shen entropy)** — same impact shape as the SU win just shipped; ~80 LOC.
-2. **Finding #1 (JMIM)** — drop-in alternative aggregator to Fleuret; ~80 LOC.
-3. **Finding #6 (KSG wrapper)** — zero new deps, sklearn already present; ~60 LOC.
-4. **Finding #8 (CMI-permutation stop)** — eliminates one hyperparameter; ~90 LOC.
-5. **Finding #11 (Cluster Stability Selection)** — leverages existing mlframe cluster infra.
+Findings #13 (Chao-Shen), #1 (JMIM), #6 (KSG wrapper), #8 (CMI-permutation stop), and
+#11 (Cluster Stability Selection) have all shipped — see the per-finding ✅ status notes above.
 
 All can land as sibling files under `feature_selection/filters/` per the monolith-split rule.
 
@@ -356,12 +365,12 @@ Items ranked by cost/benefit, combining all 3 agents.
 
 | Pri | Item | Source | LOC | Expected biz value |
 |---|---|---|---|---|
-| 🔴 P0 | **JMIM redundancy** as `mrmr_redundancy_algo='jmim'` | Agent A #1 + Agent B critic | ~80 | Fixes Fleuret-CMIM brittleness on multi-collinear (acknowledged TODO) |
-| 🔴 P0 | **Chao-Shen entropy** correction | Agent A #13 | ~80 | Same impact-shape as SU; sparse-contingency bias fix |
-| 🔴 P0 | **FCBF ordered pruning** in `_cluster_aggregate.py` | Agent B #2 | ~40 | Replaces chaining-prone single-linkage |
-| 🟡 P1 | **Adaptive nbins** (Sturges / Freedman-Diaconis / Knuth / Bayesian Blocks / Fayyad-Irani / OptimalJoint) | User Q1 + Agent A #7 (partial done) | ~250 | Forces SU-on as default; eliminates fixed-10-bin compromise |
+| ✅ done | **JMIM redundancy** as `redundancy_aggregator='jmim'` | Agent A #1 + Agent B critic | ~80 | Fixes Fleuret-CMIM brittleness on multi-collinear (acknowledged TODO) |
+| ✅ done | **Chao-Shen entropy** correction (opt-in, no measured default-flip win — see finding #13 above) | Agent A #13 | ~80 | Same impact-shape as SU; sparse-contingency bias fix |
+| ✅ done | **FCBF ordered pruning** in `_cluster_aggregate.py` | Agent B #2 | ~40 | Replaces chaining-prone single-linkage |
+| 🟡 P1 | **Adaptive nbins** (Sturges / Freedman-Diaconis / Knuth / Bayesian Blocks / Fayyad-Irani / OptimalJoint) | User Q1 + Agent A #7 (partial done) | ~250 | Eliminates fixed-10-bin compromise (SU normalization default is `mi_normalization="none"`, not forced-on) |
 | 🟡 P1 | **15 synthetic bench scenarios** from Agent C | Agent C | ~600 | Foundation for auto-tune (DataFingerprint → best method) |
-| 🟡 P1 | **kernel_tuning_cache for cluster thresholds** | Agent B #5 | ~50 | Per memory rule; eliminates hardcoded magic |
+| ✅ done | **kernel_tuning_cache for cluster thresholds** | Agent B #5 | ~50 | Per memory rule; eliminates hardcoded magic |
 | 🟢 P2 | **Conditional Permutation Test** | Agent A #10 (Berrett 2020) | ~160 | Methodologically correct test for MRMR's redundancy |
 | 🟢 P2 | **Inf-FS centrality re-rank** | Agent B #4 | ~60 | Global structural score replaces local degree heuristic |
 | 🟢 P2 | **KSG estimator wrapper** | Agent A #6 | ~60 | Bypasses binning for continuous-y |

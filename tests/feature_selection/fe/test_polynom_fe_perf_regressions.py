@@ -109,9 +109,9 @@ class TestNewATrivialBaselineHoist:
                     precomputed_trivial_baseline=trivial_mi,
                     precomputed_trivial_name=trivial_name,
                 )
-        assert call_count_with["n"] == 0, (
-            f"precomputed_trivial_baseline did NOT elide internal call: got {call_count_with['n']} calls (expected 0). NEW-A regressed."
-        )
+        assert (
+            call_count_with["n"] == 0
+        ), f"precomputed_trivial_baseline did NOT elide internal call: got {call_count_with['n']} calls (expected 0). NEW-A regressed."
 
 
 class TestNewBBasisMatrixGate:

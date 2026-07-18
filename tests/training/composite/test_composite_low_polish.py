@@ -22,7 +22,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Public symbols survive the comment / docstring scrubs.
 # ---------------------------------------------------------------------------

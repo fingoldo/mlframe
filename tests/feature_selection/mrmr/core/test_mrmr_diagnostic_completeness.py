@@ -45,7 +45,6 @@ from mlframe.feature_selection.filters._unified_fe_gate import (
     raw_mi_noise_floor,
 )
 
-
 # ===========================================================================
 # W2 -- provenance self-audit accessor
 # ===========================================================================

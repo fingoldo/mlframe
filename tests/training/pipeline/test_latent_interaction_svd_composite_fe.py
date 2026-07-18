@@ -185,6 +185,6 @@ def test_biz_val_latent_interaction_svd_composite_wiring_recovers_customer_clust
     auc_raw = _auc(["customer_id_raw"])
     auc_wired = _auc(svd_cols)
 
-    assert auc_wired > auc_raw + 0.2, (
-        f"wired SVD embedding should recover the customer cluster far better than the raw id, got auc_wired={auc_wired:.3f} vs auc_raw={auc_raw:.3f}"
-    )
+    assert (
+        auc_wired > auc_raw + 0.2
+    ), f"wired SVD embedding should recover the customer cluster far better than the raw id, got auc_wired={auc_wired:.3f} vs auc_raw={auc_raw:.3f}"

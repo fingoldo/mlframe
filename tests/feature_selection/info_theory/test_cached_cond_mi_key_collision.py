@@ -90,6 +90,6 @@ def test_e2e_no_wrong_answer_cache_hit():
     key2 = arr2str(X2) + "|" + arr2str(Z2)
     # Pre-fix bug: this lookup would HIT (wrong-answer reuse).
     # Post-fix: it must MISS so a fresh CMI computation runs.
-    assert key2 not in cache, (
-        f"X=[1] Z=[2,3,4] must NOT hit a cache populated by X=[1,2] Z=[3,4]; these are different conditional MI queries with different values."
-    )
+    assert (
+        key2 not in cache
+    ), f"X=[1] Z=[2,3,4] must NOT hit a cache populated by X=[1,2] Z=[3,4]; these are different conditional MI queries with different values."

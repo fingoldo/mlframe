@@ -207,9 +207,9 @@ class TestSaveSizePrecheckThreshold:
         sig = inspect.signature(save_mlframe_model)
         assert "auto_lean_pre_check_mb" in sig.parameters
         param = sig.parameters["auto_lean_pre_check_mb"]
-        assert param.default == 50.0, (
-            f"save-size pre-check threshold must be 50 MB to match the post-save sensor's 50 MB suspicious-threshold; got {param.default}"
-        )
+        assert (
+            param.default == 50.0
+        ), f"save-size pre-check threshold must be 50 MB to match the post-save sensor's 50 MB suspicious-threshold; got {param.default}"
 
 
 class TestOutsideTrainYEnvelopeSensorBranch:

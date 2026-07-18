@@ -719,9 +719,9 @@ class TestValPlacementBackward:
             val_placement="backward",
         )
         msgs = [r.getMessage() for r in caplog.records if r.name == "mlframe.training.splitting"]
-        assert any("val_placement='backward'" in m and "Mazzanti" in m for m in msgs), (
-            f"backward placement must emit a visible 'val_placement=...' INFO line; captured messages from splitting:\n  " + "\n  ".join(msgs)
-        )
+        assert any(
+            "val_placement='backward'" in m and "Mazzanti" in m for m in msgs
+        ), f"backward placement must emit a visible 'val_placement=...' INFO line; captured messages from splitting:\n  " + "\n  ".join(msgs)
 
     def test_backward_downgrade_emits_visible_warning(self, caplog):
         """Defensive: when caller asks for backward but the function

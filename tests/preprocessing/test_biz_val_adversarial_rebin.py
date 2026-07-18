@@ -56,9 +56,9 @@ def test_biz_val_adversarial_rebin_reduces_adversarial_auc():
         pd.DataFrame({"cat_col": result["train_rebinned"]}), pd.DataFrame({"cat_col": result["test_rebinned"]}), seed=0
     )
 
-    assert auc_after < auc_before - 0.1, (
-        f"rebinning the most skewed categories should substantially reduce adversarial AUC: before={auc_before:.4f} after={auc_after:.4f}"
-    )
+    assert (
+        auc_after < auc_before - 0.1
+    ), f"rebinning the most skewed categories should substantially reduce adversarial AUC: before={auc_before:.4f} after={auc_after:.4f}"
 
 
 def test_adversarial_rebin_leaves_balanced_categories_untouched():

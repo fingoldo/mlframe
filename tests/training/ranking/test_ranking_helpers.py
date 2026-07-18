@@ -19,7 +19,6 @@ from mlframe.training.ranking import (
     qid_to_group_sizes,
 )
 
-
 # ----- qid_to_group_sizes --------------------------------------------------
 
 

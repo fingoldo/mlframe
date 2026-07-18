@@ -144,7 +144,6 @@ from mlframe.feature_engineering.transformer import (
     compute_target_quantile_attention,
 )
 
-
 # Earlier pytestmark = pytest.mark.fast was here -- replaced by the slow_only
 # marker at module top (the file's ~10-15 min wall budget makes fast-mode
 # inappropriate; a stale "fast" marker silently overrides the new slow_only).

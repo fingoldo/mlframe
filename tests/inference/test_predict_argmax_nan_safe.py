@@ -56,12 +56,12 @@ def test_no_bare_argmax_on_combined_or_avg_probs() -> None:
     src = _read_predict_core_combined_source()
     # The 4 audit-flagged sites (per-target + suite-wide in both predict
     # entries) must NOT use np.argmax(_combined, ...) or np.argmax(avg_probs, ...).
-    assert "np.argmax(_combined" not in src, (
-        "bare np.argmax(_combined) found in predict core sources -- one of the 4 wave-91 audit sites regressed; use argmax_classes_safe instead."
-    )
-    assert "np.argmax(avg_probs" not in src, (
-        "bare np.argmax(avg_probs) found in predict core sources -- one of the 4 wave-91 audit sites regressed; use argmax_classes_safe instead."
-    )
+    assert (
+        "np.argmax(_combined" not in src
+    ), "bare np.argmax(_combined) found in predict core sources -- one of the 4 wave-91 audit sites regressed; use argmax_classes_safe instead."
+    assert (
+        "np.argmax(avg_probs" not in src
+    ), "bare np.argmax(avg_probs) found in predict core sources -- one of the 4 wave-91 audit sites regressed; use argmax_classes_safe instead."
 
 
 def test_argmax_classes_safe_imports_present() -> None:

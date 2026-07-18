@@ -1221,9 +1221,9 @@ def test_iter18_fidelity_floor_default_is_calibrated_value():
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     sig = inspect.signature(proxy_trust_guard)
-    assert sig.parameters["fidelity_floor"].default == 0.5, (
-        f"iter18 calibration default drifted: proxy_trust_guard.fidelity_floor default is {sig.parameters['fidelity_floor'].default!r}, expected 0.5."
-    )
+    assert (
+        sig.parameters["fidelity_floor"].default == 0.5
+    ), f"iter18 calibration default drifted: proxy_trust_guard.fidelity_floor default is {sig.parameters['fidelity_floor'].default!r}, expected 0.5."
 
     facade_sig = inspect.signature(ShapProxiedFS.__init__)
     assert facade_sig.parameters["fidelity_floor"].default is None, (
@@ -1301,12 +1301,12 @@ def test_fidelity_floor_default_passes_interaction_heavy_composite():
     floor_default = 0.5
     interaction_heavy_composite = 0.5384
     xor_composite = 0.4742
-    assert interaction_heavy_composite >= floor_default, (
-        f"iter18 floor must NOT trip on interaction_heavy (recovery_rate 0.75, PASS group). composite={interaction_heavy_composite} floor={floor_default}."
-    )
-    assert xor_composite < floor_default, (
-        f"iter18 floor MUST trip on xor_interaction (recovery_rate 0.333, FAIL group). composite={xor_composite} floor={floor_default}."
-    )
+    assert (
+        interaction_heavy_composite >= floor_default
+    ), f"iter18 floor must NOT trip on interaction_heavy (recovery_rate 0.75, PASS group). composite={interaction_heavy_composite} floor={floor_default}."
+    assert (
+        xor_composite < floor_default
+    ), f"iter18 floor MUST trip on xor_interaction (recovery_rate 0.333, FAIL group). composite={xor_composite} floor={floor_default}."
 
 
 # ----------------------------------------------------- iter28 revalidation_n_estimators cap
@@ -1460,9 +1460,9 @@ def test_biz_value_revalidation_cap_faster_recovery_preserved():
     # Quantitative biz-value contract: revalidation stage at least 30% faster (allows headroom over
     # the iter28 measured 2.12x speedup for HW jitter / load variance), recovery within 1 of legacy.
     assert reval_after < reval_before, f"capped revalidation must be faster than legacy: {reval_after:.2f}s vs {reval_before:.2f}s"
-    assert reval_before / max(1e-9, reval_after) >= 1.30, (
-        f"capped revalidation must be >=1.30x faster than legacy: speedup={reval_before / max(1e-9, reval_after):.2f}x"
-    )
+    assert (
+        reval_before / max(1e-9, reval_after) >= 1.30
+    ), f"capped revalidation must be >=1.30x faster than legacy: speedup={reval_before / max(1e-9, reval_after):.2f}x"
     assert a_rec >= b_rec - 1, f"capped recovery {a_rec}/{n_inf} must be within 1 of legacy {b_rec}/{n_inf}"
 
 

@@ -94,9 +94,9 @@ def test_D_release_clears_dataset_reuse_cache():
             verbose=False,
             reason="test",
         )
-    assert ctx.artifacts["dataset_reuse_cache"] == {}, (
-        "dataset_reuse_cache must be emptied; otherwise XGB/LGB/CB wrappers pin the polars buffers and the polars-release is a no-op."
-    )
+    assert (
+        ctx.artifacts["dataset_reuse_cache"] == {}
+    ), "dataset_reuse_cache must be emptied; otherwise XGB/LGB/CB wrappers pin the polars buffers and the polars-release is a no-op."
 
 
 # ---------------------------------------------------------------------------
@@ -280,9 +280,9 @@ def test_I_mape_warmup_does_not_emit_zero_y_warning(caplog):
                 # If warmup signature differs, importing the module already executed it.
                 pass
     zero_warns = [r for r in caplog.records if "y_true entries are zero" in r.getMessage()]
-    assert not zero_warns, (
-        f"MAPE zero-y warning fired during numba warmup; warmup y_true must be a non-zero vector. Captured: {[r.getMessage() for r in zero_warns]}"
-    )
+    assert (
+        not zero_warns
+    ), f"MAPE zero-y warning fired during numba warmup; warmup y_true must be a non-zero vector. Captured: {[r.getMessage() for r in zero_warns]}"
 
 
 # ---------------------------------------------------------------------------

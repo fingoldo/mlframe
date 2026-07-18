@@ -55,7 +55,6 @@ from sklearn.model_selection import cross_val_score
 from tests.feature_selection._biz_val_synth import as_df, make_signal_plus_noise
 from tests.feature_selection.conftest import fast_subset, is_fast_mode
 
-
 # ---------------------------------------------------------------------------
 # Config + helpers
 # ---------------------------------------------------------------------------
@@ -274,9 +273,9 @@ def test_biz_val_mrmr_ties_or_beats_selectkbest_at_matched_k():
 
     assert valid >= 1, f"MRMR produced no usable selection on any seed; rows={rows}"
     need = _majority(valid)
-    assert wins >= need, (
-        f"MRMR should tie-or-beat SelectKBest within {margin} at matched K on a majority of seeds; got {wins}/{valid} (need {need}). rows={rows}"
-    )
+    assert (
+        wins >= need
+    ), f"MRMR should tie-or-beat SelectKBest within {margin} at matched K on a majority of seeds; got {wins}/{valid} (need {need}). rows={rows}"
 
 
 @pytest.mark.slow
@@ -319,9 +318,9 @@ def test_biz_val_mrmr_top4_beats_random_and_undercuts_allfeatures():
 
     assert valid >= 1, f"MRMR produced no usable top-4 on any seed; rows={rows}"
     need = _majority(valid)
-    assert beats_rand >= need, (
-        f"MRMR top-4 should beat the random-K floor by >= {rand_margin} on a majority of seeds; got {beats_rand}/{valid} (need {need}). rows={rows}"
-    )
+    assert (
+        beats_rand >= need
+    ), f"MRMR top-4 should beat the random-K floor by >= {rand_margin} on a majority of seeds; got {beats_rand}/{valid} (need {need}). rows={rows}"
 
 
 # ---------------------------------------------------------------------------

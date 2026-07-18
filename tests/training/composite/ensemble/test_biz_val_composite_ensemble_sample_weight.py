@@ -101,6 +101,6 @@ def test_biz_val_nnls_weighted_predictor_outperforms_unweighted_on_recent_slice(
 
     rmse_uniform = _rmse_on_recent(unweighted)
     rmse_recency = _rmse_on_recent(weighted)
-    assert rmse_recency < rmse_uniform, (
-        f"recency-weighted NNLS must beat unweighted NNLS on recent-slice RMSE; got uniform={rmse_uniform:.4f}, weighted={rmse_recency:.4f}"
-    )
+    assert (
+        rmse_recency < rmse_uniform
+    ), f"recency-weighted NNLS must beat unweighted NNLS on recent-slice RMSE; got uniform={rmse_uniform:.4f}, weighted={rmse_recency:.4f}"

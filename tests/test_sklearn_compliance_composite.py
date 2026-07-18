@@ -41,7 +41,6 @@ pytest.importorskip("sklearn")
 from sklearn.base import clone, BaseEstimator
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-
 # ---------------------------------------------------------------------------
 # Common helpers
 # ---------------------------------------------------------------------------

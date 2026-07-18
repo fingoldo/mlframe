@@ -269,15 +269,15 @@ class TestSkipNoUplift:
         assert len(srcs) == len(set(srcs)), f"seed={seed}: per-source argmax must emit at most one column per source; got duplicates in {srcs}"
         # Bound the count: never more than the input source count.
         n_sources = X.shape[1]
-        assert eng.shape[1] <= n_sources, (
-            f"seed={seed}: adaptive on noise should emit <= n_sources={n_sources} columns; got {eng.shape[1]}: {list(eng.columns)}"
-        )
+        assert (
+            eng.shape[1] <= n_sources
+        ), f"seed={seed}: adaptive on noise should emit <= n_sources={n_sources} columns; got {eng.shape[1]}: {list(eng.columns)}"
         # Engineered MI must remain at the noise floor (well below any
         # real-signal MI which is typically >= 0.05 nats at n=2000).
         for name, info in meta.items():
-            assert info["engineered_mi"] < 0.05, (
-                f"seed={seed}: noise survivor {name!r} has engineered_mi {info['engineered_mi']:.4f} -- should sit at noise floor (< 0.05 nats)"
-            )
+            assert (
+                info["engineered_mi"] < 0.05
+            ), f"seed={seed}: noise survivor {name!r} has engineered_mi {info['engineered_mi']:.4f} -- should sit at noise floor (< 0.05 nats)"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_skip_outperforms_fixed_sweep_on_noise(self, seed):
@@ -304,9 +304,9 @@ class TestSkipNoUplift:
         # of MI; adaptive should emit STRICTLY FEWER on pure noise (the
         # uplift gate drops most sources; survivors are capped at one per
         # source by the per-col argmax).
-        assert eng_ad.shape[1] < eng_fixed.shape[1], (
-            f"seed={seed}: on pure noise adaptive should emit < fixed sweep; adaptive={eng_ad.shape[1]}, fixed={eng_fixed.shape[1]}"
-        )
+        assert (
+            eng_ad.shape[1] < eng_fixed.shape[1]
+        ), f"seed={seed}: on pure noise adaptive should emit < fixed sweep; adaptive={eng_ad.shape[1]}, fixed={eng_fixed.shape[1]}"
 
 
 # ---------------------------------------------------------------------------
@@ -384,9 +384,9 @@ class TestComparedToFixedDegrees:
         # (one per source).
         assert eng_fixed.shape[1] == 15, f"seed={seed}: fixed sweep should emit 15 cols (3 * 5); got {eng_fixed.shape[1]}"
         assert eng_ad.shape[1] <= 3, f"seed={seed}: adaptive should emit at most 3 cols (one per source); got {eng_ad.shape[1]}: {list(eng_ad.columns)}"
-        assert eng_ad.shape[1] < eng_fixed.shape[1], (
-            f"seed={seed}: adaptive must emit strictly fewer columns than the fixed sweep; ad={eng_ad.shape[1]}, fixed={eng_fixed.shape[1]}"
-        )
+        assert (
+            eng_ad.shape[1] < eng_fixed.shape[1]
+        ), f"seed={seed}: adaptive must emit strictly fewer columns than the fixed sweep; ad={eng_ad.shape[1]}, fixed={eng_fixed.shape[1]}"
 
 
 # ---------------------------------------------------------------------------
@@ -404,9 +404,9 @@ class TestDefaultDisabledByteIdentical:
         m = _make_mrmr().fit(X, y)
         # No adaptive-degree-engineered columns surfaced.
         adaptive_added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert adaptive_added == [], (
-            f"seed={seed}: default fe_hybrid_orth_adaptive_degree_enable=False should NOT append any engineered columns; got {adaptive_added}"
-        )
+        assert (
+            adaptive_added == []
+        ), f"seed={seed}: default fe_hybrid_orth_adaptive_degree_enable=False should NOT append any engineered columns; got {adaptive_added}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_enable_adaptive_appends_engineered(self, seed):
@@ -467,12 +467,12 @@ class TestPickleAndClone:
         # the per-column chosen degree.
         recipes_before = {r.name: r for r in getattr(m, "_engineered_recipes_", []) or [] if r.kind == "orth_univariate"}
         recipes_after = {r.name: r for r in getattr(m2, "_engineered_recipes_", []) or [] if r.kind == "orth_univariate"}
-        assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
-        )
+        assert set(recipes_before.keys()) == set(
+            recipes_after.keys()
+        ), f"pickle dropped or added recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
-            assert r_before.extra.get("degree") == r_after.extra.get("degree"), (
-                f"pickle changed chosen degree for {name!r}: before={r_before.extra}, after={r_after.extra}"
-            )
+            assert r_before.extra.get("degree") == r_after.extra.get(
+                "degree"
+            ), f"pickle changed chosen degree for {name!r}: before={r_before.extra}, after={r_after.extra}"
             assert r_before.extra.get("basis") == r_after.extra.get("basis"), f"pickle changed chosen basis for {name!r}"

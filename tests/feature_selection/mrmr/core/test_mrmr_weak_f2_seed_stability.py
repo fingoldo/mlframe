@@ -299,9 +299,9 @@ def test_weak_f2_stability_summary():
     # The genuine (a,b) ratio form is recovered on a majority of seeds (the term is
     # dominant), while the genuine (c,d) JOINT log*sin is recovered far less often
     # -- it survives mostly as two raw columns. This asymmetry IS the instability.
-    assert g_ab >= g_cd, (
-        f"expected genuine (a,b) ratio recovered at least as often as genuine (c,d) joint on the weak target; got genuine_ab={g_ab} < genuine_cd={g_cd}"
-    )
+    assert (
+        g_ab >= g_cd
+    ), f"expected genuine (a,b) ratio recovered at least as often as genuine (c,d) joint on the weak target; got genuine_ab={g_ab} < genuine_cd={g_cd}"
     # Aggregate FLOOR (same union-token invariant as the per-cell floor): every
     # uniform seed recovers at least one operand of EACH genuine term somewhere in
     # the selection (raw OR inside an engineered/cross-mix feature). We use the flat

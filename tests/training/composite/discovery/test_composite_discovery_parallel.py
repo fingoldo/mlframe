@@ -98,9 +98,9 @@ class TestParallelDiscoveryEquivalence:
         # Per-spec mi_gain / mi_t / mi_y must match bit-for-bit (deterministic
         # numpy ops, same input). Pre-binning is deterministic; bootstrap is off.
         for ser_spec, par_spec in zip(serial.specs_, parallel.specs_):
-            assert np.isclose(ser_spec.mi_gain, par_spec.mi_gain, atol=1e-12), (
-                f"mi_gain diverged for '{ser_spec.name}': serial={ser_spec.mi_gain}, parallel={par_spec.mi_gain}"
-            )
+            assert np.isclose(
+                ser_spec.mi_gain, par_spec.mi_gain, atol=1e-12
+            ), f"mi_gain diverged for '{ser_spec.name}': serial={ser_spec.mi_gain}, parallel={par_spec.mi_gain}"
             assert np.isclose(ser_spec.mi_t, par_spec.mi_t, atol=1e-12)
             assert np.isclose(ser_spec.mi_y, par_spec.mi_y, atol=1e-12)
 
@@ -221,9 +221,9 @@ class TestParallelRerankEquivalence:
 
         ser_scores = dict(getattr(serial, "_tiny_rerank_scores", {}))
         par_scores = dict(getattr(parallel, "_tiny_rerank_scores", {}))
-        assert set(ser_scores) == set(par_scores), (
-            f"parallel rerank produced a different spec set:\n  serial:   {sorted(ser_scores)}\n  parallel: {sorted(par_scores)}"
-        )
+        assert set(ser_scores) == set(
+            par_scores
+        ), f"parallel rerank produced a different spec set:\n  serial:   {sorted(ser_scores)}\n  parallel: {sorted(par_scores)}"
         for name, ser_rmse in ser_scores.items():
             par_rmse = par_scores[name]
             if np.isfinite(ser_rmse) and np.isfinite(par_rmse):

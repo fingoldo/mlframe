@@ -25,7 +25,6 @@ from mlframe.training.composite.transforms.unary import (
     signed_power_y_inverse,
 )
 
-
 # ----------------------------------------------------------------------
 # signed_power_y -- unit + biz_value
 # ----------------------------------------------------------------------

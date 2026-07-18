@@ -17,7 +17,6 @@ from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_materia
 )
 from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
 
-
 # Every registry-coded binary op (0..8). Includes div/ratio_abs (float64-promoted) + signed (sign*|b|).
 _ALL_OPS = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8], dtype=np.int8)
 

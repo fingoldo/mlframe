@@ -22,7 +22,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 
-
 def _make_self_stub(kept_specs):
     """Build the minimum-viable ``self`` stub the function needs to early-return."""
     return SimpleNamespace(

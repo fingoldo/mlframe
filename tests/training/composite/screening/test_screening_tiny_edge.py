@@ -31,7 +31,6 @@ from mlframe.training.composite.discovery._screening_tiny import (
 )
 from mlframe.training.composite.transforms import get_transform
 
-
 _SEED_STRIDE = 7919  # base_random_state + s_idx * 7919
 
 

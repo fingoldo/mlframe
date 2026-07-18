@@ -553,9 +553,15 @@ def _replay_fitted_state(target: MRMR, source: MRMR) -> int:
     # must be too). Larger internal ndarrays keep the read-only freeze-and-share fast-path for density.
     _WRITEABLE_PUBLIC_INDEX_ARRAYS = ("support_", "ranking_")
     _IMMUTABLE_SCALAR_TYPES = (bool, int, float, complex, str, bytes, type(None), frozenset)
+    # Per-instance transient runtime state that must NEVER be copied from ``source`` onto ``target``:
+    # each instance's OWN lazily-created re-entrancy lock (finding #5, 05_concurrency_and_statistics.md)
+    # guards ITS OWN concurrent-fit() detection. Replaying the cached source's lock object here would
+    # alias the target's ``fit()`` wrapper (which already acquired the target's own, different, lock) to
+    # release a lock it never acquired -- "release unlocked lock" RuntimeError on every cache-hit replay.
+    _TRANSIENT_INSTANCE_KEYS = frozenset({"_fit_reentrancy_lock_", "_pre_fit_ctor_params_snapshot_"})
     n_replayed = 0
     for k, v in source.__dict__.items():
-        if k in _MRMR_INIT_PARAM_NAMES:
+        if k in _MRMR_INIT_PARAM_NAMES or k in _TRANSIENT_INSTANCE_KEYS:
             continue
         if isinstance(v, np.ndarray):
             if k in _WRITEABLE_PUBLIC_INDEX_ARRAYS:

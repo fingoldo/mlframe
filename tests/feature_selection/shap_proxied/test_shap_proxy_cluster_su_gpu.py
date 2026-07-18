@@ -208,9 +208,9 @@ def test_gpu_kernel_parity_against_cpu():
         use_gpu=True,
         gpu_min_features=10,
     )
-    assert np.array_equal(cpu, gpu), (
-        f"GPU SU clustering diverges from CPU at width=200: first diff at index {int(np.where(cpu != gpu)[0][0]) if (cpu != gpu).any() else -1}"
-    )
+    assert np.array_equal(
+        cpu, gpu
+    ), f"GPU SU clustering diverges from CPU at width=200: first diff at index {int(np.where(cpu != gpu)[0][0]) if (cpu != gpu).any() else -1}"
 
 
 @pytest.mark.gpu

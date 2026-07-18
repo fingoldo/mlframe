@@ -176,9 +176,9 @@ def test_multilabel_hgb_uses_per_child_permutation_not_wrapper():
     wrapper_id = id(model)
     child_ids = {id(c) for c in model.estimators_}
     for child_id, _, _ in call_records:
-        assert child_id in child_ids and child_id != wrapper_id, (
-            f"Per-child permutation must receive a child estimator, not the wrapper. Got id={child_id}, wrapper={wrapper_id}, children={child_ids}"
-        )
+        assert (
+            child_id in child_ids and child_id != wrapper_id
+        ), f"Per-child permutation must receive a child estimator, not the wrapper. Got id={child_id}, wrapper={wrapper_id}, children={child_ids}"
 
 
 def test_standalone_estimator_still_uses_direct_feature_importances():

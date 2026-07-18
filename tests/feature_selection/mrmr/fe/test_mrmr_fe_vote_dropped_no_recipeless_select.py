@@ -89,9 +89,9 @@ def test_mrmr_fe_vote_dropped_feature_not_select_then_dropped(n):
 
     # (2) Every advertised output feature must actually be produced by transform().
     missing_from_transform = [nm for nm in names_out if nm not in out_cols]
-    assert not missing_from_transform, (
-        f"get_feature_names_out advertises feature(s) that transform() does not produce: {missing_from_transform} (out_cols={out_cols})"
-    )
+    assert (
+        not missing_from_transform
+    ), f"get_feature_names_out advertises feature(s) that transform() does not produce: {missing_from_transform} (out_cols={out_cols})"
 
     # (3) Every discovered engineered feature must survive transform() (no silent drop).
     discovered_missing = [nm for nm in discovered if nm not in out_cols]

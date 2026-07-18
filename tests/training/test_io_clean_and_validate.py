@@ -26,7 +26,6 @@ from mlframe.training.io import (
     validate_load_meta_sidecar,
 )
 
-
 # ----- clean_mlframe_model -----------------------------------------------
 
 

@@ -204,9 +204,9 @@ class TestBetterPreprocessParams:
         err_p = abs(params_p["mean"]) + abs(params_p["std"] - 1.0)
         # The concat-pool error should be smaller (more rows -> smaller
         # sampling noise around the true 0/1).
-        assert err_p < err_l, (
-            f"seed={seed}: concat-pool z-score params no closer to truth than labeled-only. labeled-only err={err_l:.4f}, concat err={err_p:.4f}"
-        )
+        assert (
+            err_p < err_l
+        ), f"seed={seed}: concat-pool z-score params no closer to truth than labeled-only. labeled-only err={err_l:.4f}, concat err={err_p:.4f}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_basis_column_uses_pool_params(self, seed):
@@ -230,9 +230,9 @@ class TestBetterPreprocessParams:
         # mean/std by a measurable amount, so the two He_2 outputs must
         # differ. (Equality would mean the aux path silently did nothing.)
         assert vals_labeled_only.shape == vals_with_aux.shape
-        assert not np.allclose(vals_labeled_only, vals_with_aux), (
-            f"seed={seed}: aux_for_fit had no effect on basis output; max abs diff = {np.max(np.abs(vals_labeled_only - vals_with_aux)):.2e}"
-        )
+        assert not np.allclose(
+            vals_labeled_only, vals_with_aux
+        ), f"seed={seed}: aux_for_fit had no effect on basis output; max abs diff = {np.max(np.abs(vals_labeled_only - vals_with_aux)):.2e}"
 
 
 # ---------------------------------------------------------------------------
@@ -457,9 +457,9 @@ class TestDefaultDisabledByteIdentical:
             fit_with_unlabeled(m1, X_l, y, X_unlabeled=X_u)
         # Exactly one UserWarning about the disabled flag must surface.
         flag_warns = [w for w in wlist if issubclass(w.category, UserWarning) and "fe_semi_supervised_enable=False" in str(w.message)]
-        assert flag_warns, (
-            f"seed={seed}: expected UserWarning when fit_with_unlabeled is called with X_unlabeled but the flag is off; got {[str(w.message) for w in wlist]}"
-        )
+        assert (
+            flag_warns
+        ), f"seed={seed}: expected UserWarning when fit_with_unlabeled is called with X_unlabeled but the flag is off; got {[str(w.message) for w in wlist]}"
 
         # Byte-equivalence: plain fit() produces the same selected support.
         m2 = _make_mrmr()
@@ -487,9 +487,9 @@ class TestDefaultDisabledByteIdentical:
         assert not flag_warns, f"seed={seed}: unexpected flag-related warning when X_unlabeled=None: {[str(w.message) for w in flag_warns]}"
         m2 = _make_mrmr(fe_semi_supervised_enable=True)
         m2.fit(X_l, y)
-        assert list(m1.feature_names_in_) == list(m2.feature_names_in_), (
-            f"seed={seed}: flag-on + X_unlabeled=None diverged from plain fit (no augmentation should have happened)"
-        )
+        assert list(m1.feature_names_in_) == list(
+            m2.feature_names_in_
+        ), f"seed={seed}: flag-on + X_unlabeled=None diverged from plain fit (no augmentation should have happened)"
 
     def test_thread_local_pool_empty_by_default(self):
         """Outside ``unlabeled_pool_active``, ``get_unlabeled_pool``

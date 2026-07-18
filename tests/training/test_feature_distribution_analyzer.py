@@ -20,7 +20,6 @@ from mlframe.training.targets._target_distribution_analyzer import (
     analyze_feature_distribution,
 )
 
-
 # ---------------------------------------------------------------------------
 # Clean baseline
 # ---------------------------------------------------------------------------

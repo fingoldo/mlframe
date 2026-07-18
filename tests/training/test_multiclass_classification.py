@@ -33,7 +33,6 @@ from mlframe.training.strategies import (
     LinearModelStrategy,
 )
 
-
 # ---------------------------------------------------------------------------
 # TargetTypes helpers — guards the 8 call-sites that previously hardcoded
 # `target_type == BINARY_CLASSIFICATION`.

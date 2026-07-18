@@ -52,9 +52,9 @@ class TestHermiteInjectionWiring:
         )
         m.fit(df, y)
         # Back-compat: attribute should not exist (or be empty if pre-initialised).
-        assert not getattr(m, "_hermite_features_", None), (
-            f"expected no Hermite features for fe_smart_polynom_iters=0; got {getattr(m, '_hermite_features_', None)}"
-        )
+        assert not getattr(
+            m, "_hermite_features_", None
+        ), f"expected no Hermite features for fe_smart_polynom_iters=0; got {getattr(m, '_hermite_features_', None)}"
 
     def test_with_smart_polynom_does_not_crash(self) -> None:
         """When fe_smart_polynom_iters>0 the new injection branch runs without raising. May or may not inject features depending on whether pairs pass the gate -- but MUST NOT crash."""

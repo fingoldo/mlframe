@@ -15,7 +15,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-
 _PHASE_HELPERS_PATH = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "training" / "core" / "_phase_helpers.py"
 
 
@@ -61,12 +60,12 @@ def test_S49_size_compute_skips_when_polars_cache_present():
     """
     src = _read_phase_helpers()
     # Behavioural contract pinned in the new comment + ``is None`` guard.
-    assert "train_df_size_bytes_cached is None" in src, (
-        "Expected a guard 'train_df_size_bytes_cached is None' so the polars-cached value is preserved when present (skip the pandas fallback)."
-    )
-    assert "val_df_size_bytes_cached is None" in src, (
-        "Expected a guard 'val_df_size_bytes_cached is None' so the polars-cached value is preserved when present (skip the pandas fallback)."
-    )
+    assert (
+        "train_df_size_bytes_cached is None" in src
+    ), "Expected a guard 'train_df_size_bytes_cached is None' so the polars-cached value is preserved when present (skip the pandas fallback)."
+    assert (
+        "val_df_size_bytes_cached is None" in src
+    ), "Expected a guard 'val_df_size_bytes_cached is None' so the polars-cached value is preserved when present (skip the pandas fallback)."
 
 
 def test_S49_shallow_memory_usage_is_fast_and_returns_finite_bytes():

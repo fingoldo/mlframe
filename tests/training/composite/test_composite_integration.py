@@ -188,9 +188,9 @@ class TestCompositeIntegration:
             assert np.all(np.isfinite(preds))
             # y-scale predictions: most values should be within the y envelope.
             # T-scale (residual) predictions would cluster near zero, far below.
-            assert preds.min() > 0.5 * y_range[0], (
-                f"prediction min {preds.min():.2f} far below y_range {y_range}; looks like T-scale (residual) instead of y-scale"
-            )
+            assert (
+                preds.min() > 0.5 * y_range[0]
+            ), f"prediction min {preds.min():.2f} far below y_range {y_range}; looks like T-scale (residual) instead of y-scale"
             assert preds.max() < 1.5 * y_range[1]
 
     def test_oof_holdout_gate_runs_without_crashing(self, tmp_path) -> None:
@@ -334,9 +334,9 @@ class TestCompositeIntegration:
         regression_models_via_enum = models.get(_TT.REGRESSION) or {}
         regression_models_via_str = models.get("regression") or {}
         # StrEnum invariant: both lookups must agree.
-        assert regression_models_via_enum.keys() == regression_models_via_str.keys(), (
-            "models dict has divergent string vs enum keys -- StrEnum invariant violated; cross-target ensemble write path likely used wrong key type."
-        )
+        assert (
+            regression_models_via_enum.keys() == regression_models_via_str.keys()
+        ), "models dict has divergent string vs enum keys -- StrEnum invariant violated; cross-target ensemble write path likely used wrong key type."
         regression_models = regression_models_via_enum
         # Look for the ensemble key.
         ensemble_keys = [k for k in regression_models if k.startswith("_CT_ENSEMBLE__")]
@@ -367,9 +367,9 @@ class TestCompositeIntegration:
         # ``predict`` and emits finite y-scale predictions. Assert the real
         # contract (callable predict + downstream finite-prediction check)
         # rather than pin a specific fallback layer.
-        assert ens_model is not None and callable(getattr(ens_model, "predict", None)), (
-            f"_CT_ENSEMBLE__ aggregate entry missing predict(); got {type(ens_model).__name__}"
-        )
+        assert ens_model is not None and callable(
+            getattr(ens_model, "predict", None)
+        ), f"_CT_ENSEMBLE__ aggregate entry missing predict(); got {type(ens_model).__name__}"
         # Predict on a sample row.
         sample_X = df.drop(columns=["target"]).iloc[:5]
         preds = ens_model.predict(sample_X)

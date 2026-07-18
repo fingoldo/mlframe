@@ -177,12 +177,12 @@ class TestRfecvRamAwareCleanup:
         )
         rfecv.fit(X, y)
         # Under the post-fix routing both spies should see zero calls; under the pre-fix routing ``pre_fix_calls["n"]`` would have been >0.
-        assert pre_fix_calls["n"] == 0, (
-            f"pyutilz clean_ram invoked {pre_fix_calls['n']} times from RFECV inner loop -- the iter-mod-5 unconditional trigger has regressed."
-        )
-        assert post_fix_calls["n"] == 0, (
-            f"maybe_clean_ram_and_gpu invoked clean_ram_and_gpu {post_fix_calls['n']} times despite should_clean_ram=False -- routing regressed."
-        )
+        assert (
+            pre_fix_calls["n"] == 0
+        ), f"pyutilz clean_ram invoked {pre_fix_calls['n']} times from RFECV inner loop -- the iter-mod-5 unconditional trigger has regressed."
+        assert (
+            post_fix_calls["n"] == 0
+        ), f"maybe_clean_ram_and_gpu invoked clean_ram_and_gpu {post_fix_calls['n']} times despite should_clean_ram=False -- routing regressed."
 
 
 class TestSkipRetrainingYContent:
@@ -221,9 +221,9 @@ class TestSkipRetrainingYContent:
         rfecv.fit(X, y_b)
         support_b = rfecv.support_.copy()
         # Without the y-content fingerprint these two arrays would be identical (same signature -> early return).
-        assert not np.array_equal(support_a, support_b), (
-            "RFECV.skip_retraining_on_same_shape must distinguish two semantically different targets at the same shape; got identical support_ across fits"
-        )
+        assert not np.array_equal(
+            support_a, support_b
+        ), "RFECV.skip_retraining_on_same_shape must distinguish two semantically different targets at the same shape; got identical support_ across fits"
 
 
 class TestG33_RandomStateDeterminism:
@@ -477,9 +477,9 @@ class TestS4_TiedImportanceOrdering:
         sig_names = {f"sig{i}" for i in range(5)}
         sig_in_s1 = len(s1 & sig_names)
         sig_in_s2 = len(s2 & sig_names)
-        assert sig_in_s1 >= 1 and sig_in_s2 >= 1, (
-            f"S4: each ordering should pick at least one sig feature; r1 sig count={sig_in_s1}, r2 sig count={sig_in_s2}: s1={s1}, s2={s2}"
-        )
+        assert (
+            sig_in_s1 >= 1 and sig_in_s2 >= 1
+        ), f"S4: each ordering should pick at least one sig feature; r1 sig count={sig_in_s1}, r2 sig count={sig_in_s2}: s1={s1}, s2={s2}"
 
 
 # ----------------------------------------------------------------------------

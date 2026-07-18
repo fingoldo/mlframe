@@ -18,7 +18,6 @@ from mlframe.reporting.charts._sampling import _finite_argmin_argmax, subsample_
 from mlframe.reporting.renderers import get_renderer
 from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpec
 
-
 BACKENDS = ["matplotlib", "plotly"]
 
 

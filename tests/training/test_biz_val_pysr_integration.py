@@ -24,7 +24,6 @@ warnings.filterwarnings("ignore")
 
 from tests._pysr_gate import pysr_works
 
-
 # PySR fits trigger Julia compilation + symbolic regression - 30-60s per fit.
 # On Windows the Julia FFI has also access-violated and torn down the xdist
 # worker (observed 2026-05-15, 2026-05-20). The shared gate runs ``import
@@ -176,6 +175,6 @@ def test_biz_val_pysr_pipeline_improves_downstream_model():
     preds_pysr = m_pysr.predict(train_out[all_feats])
     rmse_pysr_train = float(np.sqrt(mean_squared_error(y_train, preds_pysr)))
     # On TRAIN data with engineered features, fit should be no worse.
-    assert rmse_pysr_train <= rmse_raw * 1.2, (
-        f"PySR features must not catastrophically hurt train fit; raw_train_rmse={rmse_raw:.4f}, pysr_train_rmse={rmse_pysr_train:.4f}"
-    )
+    assert (
+        rmse_pysr_train <= rmse_raw * 1.2
+    ), f"PySR features must not catastrophically hurt train fit; raw_train_rmse={rmse_raw:.4f}, pysr_train_rmse={rmse_pysr_train:.4f}"

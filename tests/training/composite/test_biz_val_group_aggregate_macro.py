@@ -44,9 +44,9 @@ def test_biz_val_predicted_group_aggregate_feature_beats_entity_only_baseline():
     augmented_mse = -cross_val_score(LinearRegression(), X_aug, y, cv=kf, scoring="neg_mean_squared_error").mean()
 
     improvement = 1.0 - augmented_mse / baseline_mse
-    assert improvement > 0.6, (
-        f"expected >60% MSE reduction from adding the predicted macro feature, got {improvement:.4f} (baseline={baseline_mse:.4f}, augmented={augmented_mse:.4f})"
-    )
+    assert (
+        improvement > 0.6
+    ), f"expected >60% MSE reduction from adding the predicted macro feature, got {improvement:.4f} (baseline={baseline_mse:.4f}, augmented={augmented_mse:.4f})"
 
 
 def test_predicted_group_aggregate_feature_output_shape_and_broadcast():

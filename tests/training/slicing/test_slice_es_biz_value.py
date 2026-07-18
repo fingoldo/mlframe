@@ -173,9 +173,9 @@ def test_biz_value_lgb_temporal_K5_mean_observed_gap_documented() -> None:
         f"(NOT a value-prop gate; see test docstring)"
     )
     # Catastrophic-regression guard only.
-    assert gap_pct >= -5.0, (
-        f"slice-stable catastrophic regression on the LGB-temporal-K5-mean scenario: baseline median={med_b:.4f}, slice median={med_s:.4f}, gap={gap_pct:+.2f}%"
-    )
+    assert (
+        gap_pct >= -5.0
+    ), f"slice-stable catastrophic regression on the LGB-temporal-K5-mean scenario: baseline median={med_b:.4f}, slice median={med_s:.4f}, gap={gap_pct:+.2f}%"
 
 
 def test_biz_value_default_config_is_disabled() -> None:

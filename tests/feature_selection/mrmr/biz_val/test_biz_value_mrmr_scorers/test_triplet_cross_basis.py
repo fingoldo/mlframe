@@ -271,9 +271,9 @@ class TestXor3WayDiscovery:
         sc = score_triplet(X[["x1", "x2", "x3"]], eng, y.values)
         assert not sc.empty, "score frame empty"
         top = sc.iloc[0]
-        assert top["engineered_col"] == "x1*x2*x3__He1_He1_He1", (
-            f"seed={seed}: top triplet winner should be x1*x2*x3__He1_He1_He1, got {top['engineered_col']}; full ranking:\n{sc}"
-        )
+        assert (
+            top["engineered_col"] == "x1*x2*x3__He1_He1_He1"
+        ), f"seed={seed}: top triplet winner should be x1*x2*x3__He1_He1_He1, got {top['engineered_col']}; full ranking:\n{sc}"
         assert top["engineered_mi"] >= 0.3, f"seed={seed}: 3-way XOR He_1^3 engineered_mi {top['engineered_mi']:.3f} should clear 0.3 at n=3000"
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -305,9 +305,9 @@ class TestXor3WayDiscovery:
             if legs == {"x1", "x2", "x3"} and c.endswith("__He1_He1_He1"):
                 ok = True
                 break
-        assert ok, (
-            f"seed={seed}: 3-way XOR triplet He_1*He_1*He_1 should be in augmented frame, got triplet_cols={triplet_cols}; triplet_sc:\n{triplet_sc.head(6)}"
-        )
+        assert (
+            ok
+        ), f"seed={seed}: 3-way XOR triplet He_1*He_1*He_1 should be in augmented frame, got triplet_cols={triplet_cols}; triplet_sc:\n{triplet_sc.head(6)}"
 
 
 # ---------------------------------------------------------------------------
@@ -331,9 +331,9 @@ class TestVolumeDiscovery:
         )
         sc = score_triplet(X[["price", "quantity", "count"]], eng, y.values)
         top = sc.iloc[0]
-        assert top["engineered_col"] == "price*quantity*count__He1_He1_He1", (
-            f"seed={seed}: top volume winner should be the He_1^3 triplet, got {top['engineered_col']}"
-        )
+        assert (
+            top["engineered_col"] == "price*quantity*count__He1_He1_He1"
+        ), f"seed={seed}: top volume winner should be the He_1^3 triplet, got {top['engineered_col']}"
         assert top["engineered_mi"] >= 0.3, f"seed={seed}: volume He_1^3 engineered_mi {top['engineered_mi']:.3f} should clear 0.3 at n=3000"
 
 
@@ -376,9 +376,9 @@ class TestXorLogRegLift:
         m_aug = LogisticRegression(max_iter=500).fit(Xtr_aug.to_numpy(), ytr.to_numpy())
         auc_aug = roc_auc_score(yte.to_numpy(), m_aug.predict_proba(Xte_aug.to_numpy())[:, 1])
         assert auc_raw < 0.60, f"seed={seed}: raw LogReg AUC {auc_raw:.3f} should hover at 0.50 -- 3-way XOR is linearly unsolvable"
-        assert auc_aug >= 0.85, (
-            f"seed={seed}: augmented LogReg AUC {auc_aug:.3f} should clear 0.85 on 3-way XOR with triplet FE; triplet_sc:\n{triplet_sc.head(5)}"
-        )
+        assert (
+            auc_aug >= 0.85
+        ), f"seed={seed}: augmented LogReg AUC {auc_aug:.3f} should clear 0.85 on 3-way XOR with triplet FE; triplet_sc:\n{triplet_sc.head(5)}"
         assert auc_aug > auc_raw + 0.20, f"seed={seed}: triplet FE should lift LogReg AUC >= +0.20. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
 
 
@@ -421,9 +421,9 @@ class TestNoiseTripletPruned:
             return all(leg.startswith("noise_") for leg in legs)
 
         noise_added = [c for c in triplet_added if _all_legs_noise(c)]
-        assert not noise_added, (
-            f"seed={seed}: pure-noise triplets should be filtered by the absolute MI floor; got {noise_added}; triplet_sc:\n{triplet_sc.head(8)}"
-        )
+        assert (
+            not noise_added
+        ), f"seed={seed}: pure-noise triplets should be filtered by the absolute MI floor; got {noise_added}; triplet_sc:\n{triplet_sc.head(8)}"
 
 
 # ---------------------------------------------------------------------------
@@ -445,9 +445,9 @@ class TestDefaultDisabledByteIdentical:
         assert not triplet_names, f"seed={seed}: default fe_hybrid_orth_triplet_enable=False should NOT inject triplet columns; got {triplet_names}"
         # ``hybrid_orth_features_`` is the standard list; with both master
         # and triplet OFF it must be empty.
-        assert list(getattr(m, "hybrid_orth_features_", []) or []) == [], (
-            f"seed={seed}: hybrid_orth_features_ should be empty when both master and triplet flags are off"
-        )
+        assert (
+            list(getattr(m, "hybrid_orth_features_", []) or []) == []
+        ), f"seed={seed}: hybrid_orth_features_ should be empty when both master and triplet flags are off"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_enable_triplet_appends_engineered(self, seed):
@@ -460,9 +460,9 @@ class TestDefaultDisabledByteIdentical:
             fe_hybrid_orth_triplet_top_count=2,
         ).fit(X, y)
         triplet_added = [n for n in (getattr(m, "hybrid_orth_features_", None) or []) if str(n).split("__", 1)[0].count("*") == 2]
-        assert triplet_added, (
-            f"seed={seed}: triplet flag ON should append at least one triplet column to hybrid_orth_features_; got {list(m.hybrid_orth_features_ or [])}"
-        )
+        assert (
+            triplet_added
+        ), f"seed={seed}: triplet flag ON should append at least one triplet column to hybrid_orth_features_; got {list(m.hybrid_orth_features_ or [])}"
 
 
 # ---------------------------------------------------------------------------
@@ -502,6 +502,6 @@ class TestPickleAndClone:
         blob = pickle.dumps(m)
         m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
-        assert list(getattr(m2, "hybrid_orth_features_", []) or []) == list(getattr(m, "hybrid_orth_features_", []) or []), (
-            "pickle changed hybrid_orth_features_"
-        )
+        assert list(getattr(m2, "hybrid_orth_features_", []) or []) == list(
+            getattr(m, "hybrid_orth_features_", []) or []
+        ), "pickle changed hybrid_orth_features_"

@@ -142,7 +142,6 @@ class TestRankerCategoricalRobustness:
         pytest.importorskip("lightgbm")
         from mlframe.training.ranking.ranking import _fit_lgb_ranker, predict_ranker_scores
 
-
         Xtr, ytr, _gtr, Xva = self._ranker_frames(
             [["A", "B", "C"][i % 3] for i in range(60)],
             [["A", "B"][i % 2] for i in range(40)],

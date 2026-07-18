@@ -81,9 +81,9 @@ def test_biz_val_relational_dfs_cutoff_safe_beats_leaky_join_at_serving_time():
     mse_safe_serving = mean_squared_error(y, reg_safe.predict(safe_test))
 
     improvement = (mse_leaky_serving - mse_safe_serving) / mse_leaky_serving
-    assert improvement > 0.5, (
-        f"expected >50% MSE reduction at serving time vs the leaky-trained model, got {improvement:.4f} (leaky={mse_leaky_serving:.4f}, safe={mse_safe_serving:.4f})"
-    )
+    assert (
+        improvement > 0.5
+    ), f"expected >50% MSE reduction at serving time vs the leaky-trained model, got {improvement:.4f} (leaky={mse_leaky_serving:.4f}, safe={mse_safe_serving:.4f})"
 
 
 def test_compute_relational_features_excludes_post_cutoff_rows():
@@ -241,6 +241,6 @@ def test_biz_val_stack_relational_chain_depth_3_recovers_signal_invisible_to_dep
     mse_depth2 = mean_squared_error(y, reg_depth2.predict(X_depth2))
 
     improvement = (mse_depth2 - mse_depth3) / mse_depth2
-    assert improvement > 0.85, (
-        f"expected >85% MSE reduction from the depth-3 event-aware rollup vs the depth-2-limited one, got {improvement:.4f} (depth2={mse_depth2:.4f}, depth3={mse_depth3:.4f})"
-    )
+    assert (
+        improvement > 0.85
+    ), f"expected >85% MSE reduction from the depth-3 event-aware rollup vs the depth-2-limited one, got {improvement:.4f} (depth2={mse_depth2:.4f}, depth3={mse_depth3:.4f})"

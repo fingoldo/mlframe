@@ -19,7 +19,6 @@ from enum import Enum
 
 import pytest
 
-
 PUBLIC_NAMES = [
     # Permuted-y noise-floor post-hoc cut of an over-selected feature ranking (wrappers/_noise_floor.py).
     "select_features_noise_floor",

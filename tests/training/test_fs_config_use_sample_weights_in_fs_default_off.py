@@ -12,7 +12,6 @@ must not see a weight-aware refit silently invalidate every cached selection.
 from __future__ import annotations
 
 
-
 def _rfecv_selectors(pipelines):
     """The suite's RFECV is wrapped in GroupAwareMRMR (cluster-medoid pre-reduction, default-ON) before it
     enters pre_pipelines, with the suite markers stamped on the OUTER wrapper. Identify the RFECV-kind

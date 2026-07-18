@@ -20,7 +20,6 @@ from sklearn.base import BaseEstimator
 
 from mlframe.feature_selection.filters.stability import StabilityMRMR
 
-
 # ----------------------------------------------------------------------------------------------------------------------------------------------------
 # Minimal stub selectors: emulate the ``MRMR``-like contract (``fit`` + ``support_``) without pulling the real estimator.
 # sklearn.clone deep-copies via ``get_params`` so the stub must accept its config through ``__init__``.

@@ -71,9 +71,9 @@ def test_biz_val_holiday_name_target_encode_cross_locale_cold_start_country_beat
     rmse_same_country = mean_squared_error(true_y, same_country_only[cold_mask]) ** 0.5
     rmse_cross_locale = mean_squared_error(true_y, cross_locale[cold_mask]) ** 0.5
 
-    assert rmse_cross_locale < rmse_same_country * 0.35, (
-        f"expected cross-locale shrinkage to cut cold-start RMSE by >65%, got same_country={rmse_same_country:.2f} cross_locale={rmse_cross_locale:.2f}"
-    )
+    assert (
+        rmse_cross_locale < rmse_same_country * 0.35
+    ), f"expected cross-locale shrinkage to cut cold-start RMSE by >65%, got same_country={rmse_same_country:.2f} cross_locale={rmse_cross_locale:.2f}"
     # The true Christmas-Day multiplier is 3.0x baseline (300); a converged 28-year cross-country prior
     # should land close to it, not merely closer-than-baseline.
     assert rmse_cross_locale < 20.0, f"expected cross-locale RMSE near the ~4% noise floor, got {rmse_cross_locale:.2f}"

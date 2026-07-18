@@ -63,9 +63,9 @@ def test_stale_identity_flag_does_not_skip_reducing_test_transform():
 
     # Post-fix: the selector transformed the raw 8-col test frame down to 4.
     # Pre-fix the stale identity flag skipped the transform -> 8 columns remained.
-    assert out_test_df.shape[1] == 4, (
-        f"test frame must be reduced 8->4 by the fitted selector; got {out_test_df.shape[1]} columns (stale identity flag skipped the transform)"
-    )
+    assert (
+        out_test_df.shape[1] == 4
+    ), f"test frame must be reduced 8->4 by the fitted selector; got {out_test_df.shape[1]} columns (stale identity flag skipped the transform)"
 
 
 def test_already_transformed_test_frame_is_not_double_transformed():

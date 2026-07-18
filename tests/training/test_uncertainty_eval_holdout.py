@@ -83,7 +83,7 @@ def test_e2e_uncertainty_eval_stamped_in_suite(tmp_path):
 
     _, metadata = train_mlframe_models_suite(
         df=_reg_frame(),
-        target_name="ue",
+        target_name="ue",  # codespell:ignore
         model_name="ue_run",
         features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True),
         mlframe_models=["xgb"],

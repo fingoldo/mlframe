@@ -48,7 +48,6 @@ import pandas as pd
 import psutil
 import pytest
 
-
 warnings.filterwarnings("ignore")
 
 
@@ -215,9 +214,9 @@ class TestRecipeCountParity:
         m.fit(X_tr, y_tr)
         eng_feats = list(getattr(m, "_engineered_features_", []) or [])
         eng_recipes = list(getattr(m, "_engineered_recipes_", []) or [])
-        assert len(eng_feats) == len(eng_recipes), (
-            f"seed={seed}: recipe-count parity FAILED: {len(eng_feats)} engineered features but {len(eng_recipes)} recipes; _engineered_features_={eng_feats}"
-        )
+        assert len(eng_feats) == len(
+            eng_recipes
+        ), f"seed={seed}: recipe-count parity FAILED: {len(eng_feats)} engineered features but {len(eng_recipes)} recipes; _engineered_features_={eng_feats}"
 
     @pytest.mark.parametrize("seed", (HEADLINE_SEED, *AUX_SEEDS))
     def test_every_recipe_replays_to_an_output_column(self, seed):
@@ -236,9 +235,9 @@ class TestRecipeCountParity:
         # Every engineered name in _engineered_features_ that also has a
         # recipe MUST land in transform output.
         for col, recipe in zip(eng_feats, eng_recipes):
-            assert col in out_cols, (
-                f"seed={seed}: engineered col {col!r} has a recipe ({type(recipe).__name__}) but did NOT materialise in transform output ({sorted(out_cols)})"
-            )
+            assert (
+                col in out_cols
+            ), f"seed={seed}: engineered col {col!r} has a recipe ({type(recipe).__name__}) but did NOT materialise in transform output ({sorted(out_cols)})"
 
     def test_hinge_gate_skips_selected_raw_categorical(self):
         """A selected RAW categorical (string labels like 'R22'/'U_055') must not
@@ -393,6 +392,6 @@ class TestPriorLayerRosterSize:
 
     def test_at_least_33_prior_layer_modules_discoverable(self):
         """At least 33 prior layer modules discoverable."""
-        assert len(_LAYER_MODULES) >= 33, (
-            f"Discovered only {len(_LAYER_MODULES)} prior-layer biz_value test modules; expected >= 33. Modules found: {[m for m, _, _ in _LAYER_MODULES]}"
-        )
+        assert (
+            len(_LAYER_MODULES) >= 33
+        ), f"Discovered only {len(_LAYER_MODULES)} prior-layer biz_value test modules; expected >= 33. Modules found: {[m for m, _, _ in _LAYER_MODULES]}"

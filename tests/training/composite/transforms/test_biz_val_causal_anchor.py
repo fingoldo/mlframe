@@ -36,7 +36,6 @@ from mlframe.training.composite.transforms._causal_anchor import (
     _causal_anchor_residual_fit,
 )
 
-
 # ---------------------------------------------------------------------------
 # Unit: registry wiring, round-trip, [0,1] clamp, domain, serialisation.
 # ---------------------------------------------------------------------------

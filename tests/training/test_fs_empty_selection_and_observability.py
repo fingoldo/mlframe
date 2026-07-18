@@ -221,9 +221,9 @@ def test_empty_selection_degrades_to_no_trained_entry_and_warns(noise_binary_6fe
             for entries in by_name.values():
                 if isinstance(entries, list):
                     total_entries += len(entries)
-    assert total_entries == 0, (
-        f"expected NO trained entries when MRMR empties selection and use_ordinary_models=False; got {total_entries} entry/entries: {models!r}"
-    )
+    assert (
+        total_entries == 0
+    ), f"expected NO trained entries when MRMR empties selection and use_ordinary_models=False; got {total_entries} entry/entries: {models!r}"
 
     # The prod WARNING at _trainer_train_and_evaluate.py:421 explains the empty-selection skip.
     _msgs = "\n".join(r.getMessage() for r in caplog.records)
@@ -358,9 +358,9 @@ def test_report_against_real_fitted_rfecv_surfaces_scores(informative_binary_6fe
     )
 
     scores = report["scores"]
-    assert isinstance(scores, dict) and scores, (
-        "RFECV report['scores'] must be a non-empty {feature: float} dict built from the selector's per-fold feature importances"
-    )
+    assert (
+        isinstance(scores, dict) and scores
+    ), "RFECV report['scores'] must be a non-empty {feature: float} dict built from the selector's per-fold feature importances"
     assert all(isinstance(v, float) for v in scores.values())
 
 

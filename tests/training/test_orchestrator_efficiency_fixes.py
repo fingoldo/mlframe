@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pytest
 
-
 CORE = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "training" / "core"
 
 
@@ -126,9 +125,9 @@ def test_main_setattr_block_has_why_comment():
     doc = _bulk_setattr_to_ctx.__doc__
     assert doc, "_bulk_setattr_to_ctx must carry a docstring with the migration WHY"
     low = doc.lower()
-    assert "migration" in low or "phase-extraction" in low or "ctx-form" in low or "phase->ctx" in low, (
-        f"expected migration-debt WHY rationale in _bulk_setattr_to_ctx.__doc__; got: {doc!r}"
-    )
+    assert (
+        "migration" in low or "phase-extraction" in low or "ctx-form" in low or "phase->ctx" in low
+    ), f"expected migration-debt WHY rationale in _bulk_setattr_to_ctx.__doc__; got: {doc!r}"
 
     # Behavioural pin on the helper's fail-loud contract: a missing slot must raise rather
     # than silently degrade into an ``AttributeError: 'NoneType' has no attribute ...`` later.
@@ -273,6 +272,6 @@ def test_main_del_df_has_why_comment():
         idx = src.find("del df")
     assert idx >= 0, "del df line not found"
     window = src[max(0, idx - 400) : idx]
-    assert "gc" in window.lower() or "decref" in window.lower() or "reclaim" in window.lower() or "free" in window.lower(), (
-        "expected WHY comment on `del df; ctx.df = None`"
-    )
+    assert (
+        "gc" in window.lower() or "decref" in window.lower() or "reclaim" in window.lower() or "free" in window.lower()
+    ), "expected WHY comment on `del df; ctx.df = None`"

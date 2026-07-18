@@ -110,9 +110,9 @@ def test_cheap_first_recovers_hard_pair_and_does_not_bloat():
     assert _covers_cd_hard(sup_on), f"cheap-first gate ON dropped the hard (c,d) poly recovery; support={sup_on}"
     # The gate must do strictly no MORE expensive work: no more _polynom_ features
     # than the gate-OFF run (the easy pair's redundant poly duplicate is skipped).
-    assert _n_poly(sup_on) <= _n_poly(sup_off), (
-        f"cheap-first gate ON carried MORE poly features than OFF ({_n_poly(sup_on)} > {_n_poly(sup_off)}); it should skip, not add. on={sup_on} off={sup_off}"
-    )
+    assert _n_poly(sup_on) <= _n_poly(
+        sup_off
+    ), f"cheap-first gate ON carried MORE poly features than OFF ({_n_poly(sup_on)} > {_n_poly(sup_off)}); it should skip, not add. on={sup_on} off={sup_off}"
 
 
 def test_cheap_first_preserves_downstream_quality():

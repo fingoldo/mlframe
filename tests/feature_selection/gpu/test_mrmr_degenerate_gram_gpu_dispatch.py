@@ -44,7 +44,7 @@ def test_gram_matrix_gpu_forced_matches_cpu(monkeypatch):
     """Forcing STRICT GPU mode on a frame that clears the work floor must route through cupy and produce
     a Gram matrix numerically equivalent to the CPU GEMM (both are the same float64 contraction, order
     differences are within the 1e-9 collinearity tolerance the caller applies)."""
-    cp = pytest.importorskip("cupy")
+    pytest.importorskip("cupy")
     rng = np.random.default_rng(2)
     p, n = 80, 20000  # p*n = 1.6M >= the 1M strict work floor
     M = rng.normal(size=(p, n))
@@ -81,6 +81,8 @@ def test_gram_matrix_gpu_oom_falls_back_to_cpu(monkeypatch):
     import mlframe.feature_selection.filters._mrmr_degenerate as mod
 
     class _BoomCupy:
+        """Fake ``cupy`` module stand-in: any attribute access raises, simulating a cupy failure."""
+
         def __getattr__(self, name):
             raise RuntimeError("simulated cupy failure")
 

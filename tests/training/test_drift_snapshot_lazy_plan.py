@@ -17,7 +17,6 @@ import polars as pl
 
 from mlframe.training.core._phase_helpers import _log_cardinality_and_drift_snapshot
 
-
 _DRIFT_SKIP_CARD = 100_000
 
 
@@ -99,9 +98,9 @@ def test_drift_snapshot_output_identical_pre_vs_post():
     assert legacy["pairs"] == new["pairs"], "cardinality pairs diverged between legacy and lazy-plan paths"
     # Drift rows ordering is the same because both sort 'pairs' identically; compare set to be order-insensitive
     # against any future re-ordering, but the values per (col -> counts) must match exactly.
-    assert {row[0]: row[1:] for row in legacy["drift_rows"]} == {row[0]: row[1:] for row in new["drift_rows"]}, (
-        "drift counts diverged between legacy and lazy-plan paths"
-    )
+    assert {row[0]: row[1:] for row in legacy["drift_rows"]} == {
+        row[0]: row[1:] for row in new["drift_rows"]
+    }, "drift counts diverged between legacy and lazy-plan paths"
 
 
 def test_drift_snapshot_single_collect():
@@ -179,6 +178,6 @@ def test_biz_val_drift_snapshot_lazy_speedup():
     new_s = time.perf_counter() - t0
 
     ratio = new_s / max(legacy_s, 1e-9)
-    assert ratio <= 0.5, (
-        f"drift-snapshot lazy plan regressed: new={new_s * 1000:.1f}ms legacy={legacy_s * 1000:.1f}ms ratio={ratio:.2f} (target<=0.5; bench-of-record ~0.28)"
-    )
+    assert (
+        ratio <= 0.5
+    ), f"drift-snapshot lazy plan regressed: new={new_s * 1000:.1f}ms legacy={legacy_s * 1000:.1f}ms ratio={ratio:.2f} (target<=0.5; bench-of-record ~0.28)"

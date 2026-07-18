@@ -40,7 +40,6 @@ import logging
 
 import pytest
 
-
 # ---- direction lookup ---------------------------------------------------
 
 
@@ -111,9 +110,9 @@ def test_metric_name_higher_is_better_known(name, expected):
     """Metric name higher is better known."""
     from mlframe.training.metrics_registry import metric_name_higher_is_better
 
-    assert metric_name_higher_is_better(name) is expected, (
-        f"direction for {name!r} should be higher_is_better={expected}; got {metric_name_higher_is_better(name)}"
-    )
+    assert (
+        metric_name_higher_is_better(name) is expected
+    ), f"direction for {name!r} should be higher_is_better={expected}; got {metric_name_higher_is_better(name)}"
 
 
 def test_metric_name_higher_is_better_unknown_returns_none():

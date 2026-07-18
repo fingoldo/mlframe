@@ -89,6 +89,6 @@ def test_align_dtype_access_failure_warns_not_silent(caplog):
         # XGB model name so alignment loop runs over the pandas frame.
         _align_xgb_cat_categories("XGBClassifier", df)
 
-    assert any("dtype access failed for col='bad'" in r.getMessage() and r.levelno == logging.WARNING for r in caplog.records), (
-        "expected a WARNING surfacing the skipped column, not a silent debug"
-    )
+    assert any(
+        "dtype access failed for col='bad'" in r.getMessage() and r.levelno == logging.WARNING for r in caplog.records
+    ), "expected a WARNING surfacing the skipped column, not a silent debug"

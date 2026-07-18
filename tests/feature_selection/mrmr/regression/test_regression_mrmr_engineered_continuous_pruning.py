@@ -36,7 +36,6 @@ import pytest
 from mlframe.feature_selection.filters._mrmr_fit_impl import _helpers as _h
 from mlframe.feature_selection.filters.mrmr import MRMR
 
-
 # ---------------------------------------------------------------------------
 # DIRECT: _prune_engineered_continuous_store against controlled before/after state.
 # ---------------------------------------------------------------------------
@@ -132,9 +131,9 @@ def test_prune_bounds_peak_store_size_across_simulated_rounds():
         peak_with_pruning = max(peak_with_pruning, len(store))
 
     assert total_ever_created == 20, "fixture sanity: 5 rounds x 4 candidates"
-    assert peak_with_pruning < total_ever_created, (
-        f"pruning must bound the store below the cumulative candidate count: peak={peak_with_pruning} vs total_ever_created={total_ever_created}"
-    )
+    assert (
+        peak_with_pruning < total_ever_created
+    ), f"pruning must bound the store below the cumulative candidate count: peak={peak_with_pruning} vs total_ever_created={total_ever_created}"
     # With pruning each round keeps at most ~2 entries alive (1 new + 1 carried survivor).
     assert peak_with_pruning <= 3, f"expected pruning to keep the store small across rounds; peak={peak_with_pruning}"
 
@@ -180,9 +179,9 @@ def test_prune_hook_fires_during_real_multi_round_fit():
         m.fit(df, y)
 
     assert calls, "expected the prune hook to run at least once during a multi-round FE fit"
-    assert any(store_len > 0 for _cols_len, store_len in calls), (
-        f"expected at least one prune-hook call to see a populated _engineered_continuous_ store; calls={calls}"
-    )
+    assert any(
+        store_len > 0 for _cols_len, store_len in calls
+    ), f"expected at least one prune-hook call to see a populated _engineered_continuous_ store; calls={calls}"
 
 
 @pytest.mark.slow

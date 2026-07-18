@@ -103,9 +103,9 @@ def test_early_stopping_constructed_silently(monkeypatch):
     es_instantiations = [kw for kw in instantiations if "monitor" in kw]
     assert es_instantiations, "EarlyStopping was expected to be constructed during fit with eval_set"
     for kw in es_instantiations:
-        assert kw.get("verbose") is False, (
-            f"EarlyStopping(verbose=...) must be False to avoid duplicate 'Metric X improved' logs. Got verbose={kw.get('verbose')!r}."
-        )
+        assert (
+            kw.get("verbose") is False
+        ), f"EarlyStopping(verbose=...) must be False to avoid duplicate 'Metric X improved' logs. Got verbose={kw.get('verbose')!r}."
 
 
 if __name__ == "__main__":

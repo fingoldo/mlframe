@@ -72,7 +72,6 @@ from mlframe.feature_selection.filters.hermite_fe import (
     _CUDA_THRESHOLD,
 )
 
-
 # ---------------------------------------------------------------------------
 # Tiny shared synthetics. Keep n small (optimise_hermite_pair is O(n*n_trials)).
 # ---------------------------------------------------------------------------

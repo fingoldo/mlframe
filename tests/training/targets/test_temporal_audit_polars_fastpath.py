@@ -93,15 +93,15 @@ def test_run_temporal_audit_batch_builds_polars_input(_audit_call_recorder):
     )
 
     assert _audit_call_recorder["df_type"] is not None, "run_temporal_audit_batch did not invoke audit_targets_over_time at all"
-    assert "polars" in _audit_call_recorder["df_type"].lower(), (
-        f"expected a polars.DataFrame to reach audit_targets_over_time (unlocks the multi-target single-pass fastpath), got {_audit_call_recorder['df_type']!r}"
-    )
+    assert (
+        "polars" in _audit_call_recorder["df_type"].lower()
+    ), f"expected a polars.DataFrame to reach audit_targets_over_time (unlocks the multi-target single-pass fastpath), got {_audit_call_recorder['df_type']!r}"
     assert _audit_call_recorder["n_targets"] == 2, f"expected 2 targets (y + y2), got {_audit_call_recorder['n_targets']}"
     # Timestamp column must arrive as polars Datetime so dt.truncate works.
     _ts_dtype = (_audit_call_recorder["df_dtypes"] or {}).get("ts", "")
-    assert "Datetime" in _ts_dtype, (
-        f"timestamp column 'ts' must be polars Datetime (so _aggregate_by_time_polars_multi can call dt.truncate); got {_ts_dtype!r}"
-    )
+    assert (
+        "Datetime" in _ts_dtype
+    ), f"timestamp column 'ts' must be polars Datetime (so _aggregate_by_time_polars_multi can call dt.truncate); got {_ts_dtype!r}"
 
 
 def test_pick_granularity_accepts_min_max_tuple_shortcut():
@@ -126,9 +126,9 @@ def test_pick_granularity_accepts_min_max_tuple_shortcut():
     granularity_from_full = _pick_granularity(full)
     granularity_from_minmax = _pick_granularity((full[0], full[-1]))
 
-    assert granularity_from_minmax == granularity_from_full, (
-        f"(min, max) shortcut must match the full-sequence path: shortcut={granularity_from_minmax!r}, full={granularity_from_full!r}"
-    )
+    assert (
+        granularity_from_minmax == granularity_from_full
+    ), f"(min, max) shortcut must match the full-sequence path: shortcut={granularity_from_minmax!r}, full={granularity_from_full!r}"
 
 
 def test_pick_granularity_minmax_zero_span_returns_month():

@@ -20,7 +20,6 @@ from mlframe.training.core._phase_composite_post_xt_ensemble import (
     _build_mtr_per_column_ensemble,
 )
 
-
 # --- E2: MTRPerColumnEqualMeanEnsemble ---------------------------------------
 
 

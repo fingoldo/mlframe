@@ -161,9 +161,9 @@ def test_exclude_col_peak_alloc_strictly_lower_than_delete() -> None:
 
     old_peak = min(_peak_bytes(_old) for _ in range(3))
     new_peak = min(_peak_bytes(_new) for _ in range(3))
-    assert new_peak * 1.5 <= old_peak, (
-        f"exclude_col peak {new_peak / 1e6:.2f} MB not >=1.5x below np.delete peak {old_peak / 1e6:.2f} MB -- the per-base matrix copy may have crept back."
-    )
+    assert (
+        new_peak * 1.5 <= old_peak
+    ), f"exclude_col peak {new_peak / 1e6:.2f} MB not >=1.5x below np.delete peak {old_peak / 1e6:.2f} MB -- the per-base matrix copy may have crept back."
 
 
 def test_discovery_fit_still_produces_specs_end_to_end() -> None:

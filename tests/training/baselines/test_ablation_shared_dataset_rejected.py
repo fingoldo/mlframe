@@ -70,6 +70,6 @@ def test_ignore_column_not_bit_identical_to_drop():
 
     max_abs_div = float(np.max(np.abs(p_drop - p_ignore)))
     # Selection/score-altering divergence (>> 1e-9 reduction-order noise).
-    assert max_abs_div > 1e-2, (
-        "ignore_column unexpectedly matched column-drop; if a LightGBM version makes this bit-identical, re-open the amortization lead with a bench."
-    )
+    assert (
+        max_abs_div > 1e-2
+    ), "ignore_column unexpectedly matched column-drop; if a LightGBM version makes this bit-identical, re-open the amortization lead with a bench."

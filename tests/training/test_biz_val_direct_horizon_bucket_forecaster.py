@@ -74,9 +74,9 @@ def test_biz_val_direct_horizon_bucket_forecaster_beats_recursive_forecasting():
     direct_preds = forecaster.predict(X_test, np.arange(1, horizon + 1))
     direct_rmse = _rmse(true_future, direct_preds)
 
-    assert direct_rmse < recursive_rmse * 0.3, (
-        f"direct per-bucket forecasting should avoid recursive error accumulation: direct={direct_rmse:.4f} recursive={recursive_rmse:.4f}"
-    )
+    assert (
+        direct_rmse < recursive_rmse * 0.3
+    ), f"direct per-bucket forecasting should avoid recursive error accumulation: direct={direct_rmse:.4f} recursive={recursive_rmse:.4f}"
 
     # the accumulation signature itself: recursive error in the LAST bucket should be much worse than in
     # the FIRST bucket, while direct error stays roughly flat across the horizon.
@@ -163,9 +163,9 @@ def test_biz_val_direct_horizon_bucket_forecaster_edge_blend_reduces_boundary_di
     hard_excess_jump = abs((hard_preds[7] - hard_preds[6]) - true_step)
     smooth_excess_jump = abs((smooth_preds[7] - smooth_preds[6]) - true_step)
     assert hard_excess_jump > 0.01, f"fixture should produce a visible hard-boundary excess jump, got {hard_excess_jump:.4f}"
-    assert smooth_excess_jump < hard_excess_jump * 0.5, (
-        f"edge blending should meaningfully shrink the boundary discontinuity: hard_excess={hard_excess_jump:.4f} smooth_excess={smooth_excess_jump:.4f}"
-    )
+    assert (
+        smooth_excess_jump < hard_excess_jump * 0.5
+    ), f"edge blending should meaningfully shrink the boundary discontinuity: hard_excess={hard_excess_jump:.4f} smooth_excess={smooth_excess_jump:.4f}"
 
     hard_rmse = _rmse(true_future, hard_preds)
     smooth_rmse = _rmse(true_future, smooth_preds)

@@ -157,8 +157,8 @@ class TestBizValueMultiplicativeDGP:
         corr_synth = abs(float(np.corrcoef(synthetics["b1__mul__b2"], y)[0, 1]))
         corr_b1 = abs(float(np.corrcoef(b1, y)[0, 1]))
         corr_b2 = abs(float(np.corrcoef(b2, y)[0, 1]))
-        assert corr_synth > max(corr_b1, corr_b2), (
-            f"mul-synthetic must correlate more strongly with y than either parent; got synth={corr_synth:.3f}, b1={corr_b1:.3f}, b2={corr_b2:.3f}"
-        )
+        assert corr_synth > max(
+            corr_b1, corr_b2
+        ), f"mul-synthetic must correlate more strongly with y than either parent; got synth={corr_synth:.3f}, b1={corr_b1:.3f}, b2={corr_b2:.3f}"
         # And the corr is high (the DGP IS the synthetic).
         assert corr_synth > 0.95

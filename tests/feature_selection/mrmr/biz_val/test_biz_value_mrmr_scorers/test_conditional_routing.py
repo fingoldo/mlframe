@@ -263,9 +263,9 @@ class TestBoundedSignalChebyshev:
             min_uplift=1.10,
             top_k=5,
         )
-        assert "x" in {info["src"] for info in meta.values()}, (
-            f"seed={seed}: bounded T_3 signal on 'x' must produce a routing column for 'x'; survivors={list(meta.values())}"
-        )
+        assert "x" in {
+            info["src"] for info in meta.values()
+        }, f"seed={seed}: bounded T_3 signal on 'x' must produce a routing column for 'x'; survivors={list(meta.values())}"
         # The Chebyshev T_3 target is best captured by Chebyshev-of-degree-3.
         # We require the basis to be chebyshev (other bases can produce
         # numerically equivalent MI under quantile binning when the support
@@ -353,9 +353,9 @@ class TestNoSpuriousNoise:
             min_uplift=1.10,
             top_k=5,
         )
-        assert eng.shape[1] == 0, (
-            f"seed={seed}: p=20 pure-noise frame should clear no routing columns through the noise-aware floor; got {eng.shape[1]}: {list(eng.columns)}"
-        )
+        assert (
+            eng.shape[1] == 0
+        ), f"seed={seed}: p=20 pure-noise frame should clear no routing columns through the noise-aware floor; got {eng.shape[1]}: {list(eng.columns)}"
 
 
 # ---------------------------------------------------------------------------
@@ -435,15 +435,15 @@ class TestPickleAndClone:
         # Recipes: per chosen (basis, degree, pre_transform) triple survives.
         recipes_before = {r.name: r for r in getattr(m, "_engineered_recipes_", []) or [] if r.kind == "orth_univariate"}
         recipes_after = {r.name: r for r in getattr(m2, "_engineered_recipes_", []) or [] if r.kind == "orth_univariate"}
-        assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
-        )
+        assert set(recipes_before.keys()) == set(
+            recipes_after.keys()
+        ), f"pickle dropped or added recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
             for key in ("basis", "degree", "pre_transform"):
-                assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
-                )
+                assert r_before.extra.get(key) == r_after.extra.get(
+                    key
+                ), f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
 
 
 # ---------------------------------------------------------------------------
@@ -487,9 +487,9 @@ class TestRecipeReplay:
             assert r.name in appended, f"seed={seed}: recipe {r.name!r} not in appended columns {appended}"
             replayed = apply_recipe(r, X)
             fit_time = X_aug[r.name].to_numpy()
-            assert np.allclose(replayed, fit_time, rtol=1e-9, atol=1e-12), (
-                f"seed={seed}: recipe {r.name!r} replay drift: max|replayed - fit| = {float(np.max(np.abs(replayed - fit_time)))}; extra={dict(r.extra)}"
-            )
+            assert np.allclose(
+                replayed, fit_time, rtol=1e-9, atol=1e-12
+            ), f"seed={seed}: recipe {r.name!r} replay drift: max|replayed - fit| = {float(np.max(np.abs(replayed - fit_time)))}; extra={dict(r.extra)}"
 
 
 class TestRoutingCriterionCorrDefault:
@@ -508,9 +508,9 @@ class TestRoutingCriterionCorrDefault:
         import inspect
 
         gen = _import_routing_fe()[0]
-        assert inspect.signature(gen).parameters["routing_criterion"].default == "corr", (
-            "the conditional-routing argmax must default to linear-usability (corr)"
-        )
+        assert (
+            inspect.signature(gen).parameters["routing_criterion"].default == "corr"
+        ), "the conditional-routing argmax must default to linear-usability (corr)"
 
     def test_corr_routing_generalises_at_least_as_well_as_mi(self):
         """Route on a TRAIN slice, replay the chosen (pre,basis,degree) cell on a

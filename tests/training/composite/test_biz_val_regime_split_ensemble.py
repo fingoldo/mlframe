@@ -142,9 +142,9 @@ def test_biz_val_regime_split_ensemble_blend_smooths_regime_boundary_mse():
     mse_blend_band = mean_squared_error(y_test[band_mask], pred_blend[band_mask])
 
     improvement = 1.0 - mse_blend_band / mse_route_band
-    assert improvement > 0.4, (
-        f"expected blend to cut boundary-band MSE by >20% vs. hard routing, got {improvement:.4f} (route={mse_route_band:.4f}, blend={mse_blend_band:.4f})"
-    )
+    assert (
+        improvement > 0.4
+    ), f"expected blend to cut boundary-band MSE by >20% vs. hard routing, got {improvement:.4f} (route={mse_route_band:.4f}, blend={mse_blend_band:.4f})"
 
 
 def test_regime_split_ensemble_blend_requires_regime_proba_fn():

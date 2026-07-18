@@ -302,9 +302,9 @@ def test_resolve_auto_routes_two_stage_at_wide_threshold_no_gpu(monkeypatch):
     monkeypatch.setattr(PF, "gpu_model_available", lambda: False)
     afw = PF._auto_fast_width()
     tsmw = PF._two_stage_min_width()
-    assert tsmw <= afw, (
-        "default tsmw must not exceed afw -- iter21 unified them; if you raise tsmw via kernel_tuning_cache, the fast_model fallback test covers that branch."
-    )
+    assert (
+        tsmw <= afw
+    ), "default tsmw must not exceed afw -- iter21 unified them; if you raise tsmw via kernel_tuning_cache, the fast_model fallback test covers that branch."
 
     # Below auto_fast_width -> "model"
     assert PF.resolve_prefilter_method("auto", n_features=afw - 1, n_rows=4000) == "model"
@@ -591,9 +591,9 @@ def test_biz_value_cached_f_scores_avoid_recomputation():
         f"[iter13 f_cache] cached={t_cached * 1e3:.3f}ms recompute={t_fresh * 1e3:.3f}ms speedup={t_fresh / max(t_cached, 1e-9):.1f}x width={width} n={n}",
         flush=True,
     )
-    assert t_fresh > t_cached * 10, (
-        f"cached F-score lookup is not measurably faster than recompute: cached={t_cached * 1e3:.2f}ms vs recompute={t_fresh * 1e3:.2f}ms"
-    )
+    assert (
+        t_fresh > t_cached * 10
+    ), f"cached F-score lookup is not measurably faster than recompute: cached={t_cached * 1e3:.2f}ms vs recompute={t_fresh * 1e3:.2f}ms"
 
 
 @pytest.mark.parametrize("method", ["model", "fast_model"])

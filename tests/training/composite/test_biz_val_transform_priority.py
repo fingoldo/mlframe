@@ -44,9 +44,9 @@ def test_biz_val_ratio_transform_beats_diff_on_volatility_style_target():
     T_diff = _diff_forward(y, base, {})
     auc_diff = float(np.mean(cross_val_score(Ridge(alpha=1.0), X, T_diff, cv=5, scoring="r2")))
 
-    assert auc_ratio > auc_diff + 0.1, (
-        f"expected ratio to materially beat diff on a volatility-style multiplicative target, got ratio_r2={auc_ratio:.4f} vs diff_r2={auc_diff:.4f}"
-    )
+    assert (
+        auc_ratio > auc_diff + 0.1
+    ), f"expected ratio to materially beat diff on a volatility-style multiplicative target, got ratio_r2={auc_ratio:.4f} vs diff_r2={auc_diff:.4f}"
 
 
 def test_recommend_transform_candidates_drops_additive_for_positive_scale_pair():

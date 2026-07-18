@@ -17,7 +17,6 @@ import pytest
 
 from unittest import mock
 
-
 # ---------------------------------------------------------------------------
 # ENS-P1-7: composite_feature_stacking - set(train_idx) hoisted, np.isin used
 # ---------------------------------------------------------------------------
@@ -409,9 +408,9 @@ class TestENS_Low_2_3_OLS_SE:
         # different on a high-R^2 fit.
         y_std = float(y.std())
         se_alpha_old = y_std / (math.sqrt(n) * base_std)
-        assert abs(se_alpha_correct - se_alpha_old) / se_alpha_old > 0.1, (
-            "On a strong-signal fixture the pre-fix SE should differ from the residual-based SE by >10% (otherwise the bug doesn't matter)."
-        )
+        assert (
+            abs(se_alpha_correct - se_alpha_old) / se_alpha_old > 0.1
+        ), "On a strong-signal fixture the pre-fix SE should differ from the residual-based SE by >10% (otherwise the bug doesn't matter)."
 
 
 # ---------------------------------------------------------------------------

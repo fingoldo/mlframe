@@ -225,7 +225,7 @@ def test_opt_in_steps_parallel_matches_serial_specs(monkeypatch):
     feature matrix is built once then sliced per base via np.delete, so the discovered specs must
     be order- and content-identical whether the loop runs serial (1 core) or parallel (N cores).
     """
-    import mlframe.training.composite.discovery._opt_in_steps as ois
+    import mlframe.training.composite.discovery._opt_in_steps as ois_mod  # codespell:ignore
 
     cfg = dict(
         region_adaptive_enabled=True,
@@ -234,10 +234,10 @@ def test_opt_in_steps_parallel_matches_serial_specs(monkeypatch):
         base_candidates=["base", "x1", "x2"],  # >=2 kept bases so the parallel branch fires
     )
 
-    monkeypatch.setattr(ois, "cpu_count_physical", lambda *a, **k: 1)
+    monkeypatch.setattr(ois_mod, "cpu_count_physical", lambda *a, **k: 1)
     serial = _fit(_base_config(**cfg))
 
-    monkeypatch.setattr(ois, "cpu_count_physical", lambda *a, **k: 8)
+    monkeypatch.setattr(ois_mod, "cpu_count_physical", lambda *a, **k: 8)
     parallel = _fit(_base_config(**cfg))
 
     assert _spec_keys(serial.specs_) == _spec_keys(parallel.specs_)

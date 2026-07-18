@@ -31,9 +31,9 @@ def test_biz_val_eci_miller_madow_closer_to_zero_on_calibrated(bins):
             mm_wins += 1
     assert mm_wins >= 5, f"MM should beat plug-in on majority of 7 seeds (bins={bins}); got {mm_wins}"
     # Aggregate: measured ~3.4x reduction; require at least ~2x closer to 0.
-    assert np.mean(mm_errs) <= 0.55 * np.mean(plugin_errs), (
-        f"MM mean |ECI| {np.mean(mm_errs):.5f} should be <= 0.55x plug-in {np.mean(plugin_errs):.5f} (bins={bins})"
-    )
+    assert np.mean(mm_errs) <= 0.55 * np.mean(
+        plugin_errs
+    ), f"MM mean |ECI| {np.mean(mm_errs):.5f} should be <= 0.55x plug-in {np.mean(plugin_errs):.5f} (bins={bins})"
 
 
 def test_biz_val_eci_default_is_miller_madow():

@@ -15,7 +15,6 @@ import pytest
 
 from tests.feature_selection import _synthetic_distributions as sd
 
-
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------

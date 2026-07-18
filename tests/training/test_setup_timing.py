@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 
-
 # The instrumented setup-timing block lives inline inside _phase_config_setup.
 # To exercise it without instantiating the full suite, replicate the helper's
 # shape and verify the contract directly.

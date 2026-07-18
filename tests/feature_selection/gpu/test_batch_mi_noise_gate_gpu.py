@@ -114,9 +114,9 @@ def test_gpu_bit_identical_to_cpu(backend_name, backend_fn, n, K, nbins, npermut
         np.int32,
     )
     assert got.shape == ref.shape
-    assert np.array_equal(got, ref), (
-        f"{backend_name} mismatch n={n} K={K} nbins={nbins} nperm={npermutations} mnc={min_nonzero_confidence}\n ref={ref}\n got={got}\n diff={got - ref}"
-    )
+    assert np.array_equal(
+        got, ref
+    ), f"{backend_name} mismatch n={n} K={K} nbins={nbins} nperm={npermutations} mnc={min_nonzero_confidence}\n ref={ref}\n got={got}\n diff={got - ref}"
 
 
 @pytest.mark.skipif(not (_CUDA_AVAIL or _CUPY_AVAIL), reason="no GPU backend available")

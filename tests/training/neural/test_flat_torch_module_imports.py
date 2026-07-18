@@ -18,7 +18,6 @@ from __future__ import annotations
 import importlib
 
 
-
 def test_flat_torch_module_on_train_end_names_are_resolvable():
     """``ModelCheckpoint`` and ``os.path`` must be importable inside
     ``_flat_torch_module``'s ``on_train_end`` body."""
@@ -29,9 +28,9 @@ def test_flat_torch_module_on_train_end_names_are_resolvable():
     os_mod = getattr(mod, "os", None)
     assert os_mod is not None and hasattr(os_mod, "path"), "_flat_torch_module no longer imports os; on_train_end will raise NameError on checkpoint-load path."
     model_checkpoint_cls = getattr(mod, "ModelCheckpoint", None)
-    assert model_checkpoint_cls is not None and isinstance(model_checkpoint_cls, type), (
-        "_flat_torch_module no longer imports ModelCheckpoint; on_train_end will raise NameError on callback scan."
-    )
+    assert model_checkpoint_cls is not None and isinstance(
+        model_checkpoint_cls, type
+    ), "_flat_torch_module no longer imports ModelCheckpoint; on_train_end will raise NameError on callback scan."
 
 
 def test_flat_torch_module_mlp_class_exposes_on_train_end():

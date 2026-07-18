@@ -108,9 +108,9 @@ def test_biz_value_work_cut_on_fully_recoverable_signal():
     # DETERMINISTIC work-cut: ON executes STRICTLY FEWER FE operator-search steps than OFF
     # (it stops before any -- the entire FE search is skipped on this fully-recoverable
     # signal). This is the robust work-saved proof; it does not depend on timing.
-    assert fs_on._fe_steps_executed_ < fs_off._fe_steps_executed_, (
-        f"early-stop did not cut FE work: on={fs_on._fe_steps_executed_} steps, off={fs_off._fe_steps_executed_} steps"
-    )
+    assert (
+        fs_on._fe_steps_executed_ < fs_off._fe_steps_executed_
+    ), f"early-stop did not cut FE work: on={fs_on._fe_steps_executed_} steps, off={fs_off._fe_steps_executed_} steps"
     assert fs_on._fe_steps_executed_ == 0, f"expected the stop to skip ALL FE steps on a fully-recoverable linear signal, got {fs_on._fe_steps_executed_}"
 
     # DPI-correctness: whatever extra engineered feature(s) the OFF run admitted carry ~0

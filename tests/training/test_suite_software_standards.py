@@ -13,7 +13,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # ----------------------------------------------------------------------------
 # A8-04 -- strict _ensure_config dict path
 # ----------------------------------------------------------------------------
@@ -25,7 +24,7 @@ def test_ensure_config_dict_unknown_key_raises():
     from mlframe.training.configs import ModelHyperparamsConfig
 
     with pytest.raises(ValueError, match="unknown config key"):
-        _ensure_config({"iteratoins": 100}, ModelHyperparamsConfig, {})
+        _ensure_config({"iterations": 100}, ModelHyperparamsConfig, {})
 
 
 def test_ensure_config_dict_known_field_ok():

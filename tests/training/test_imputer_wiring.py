@@ -409,9 +409,9 @@ class TestAllNullColumnFilledNotSurvived:
         pipe = create_polarsds_pipeline(df, cfg, verbose=0)
         assert pipe is not None
         out = pipe.transform(df)
-        assert out["f_all_null"].null_count() == 0, (
-            "all-NULL column must be filled to a finite value, not left NULL relying on the constant-column dropper (which may be disabled)"
-        )
+        assert (
+            out["f_all_null"].null_count() == 0
+        ), "all-NULL column must be filled to a finite value, not left NULL relying on the constant-column dropper (which may be disabled)"
         assert out["f0"].null_count() == 0
 
     def test_all_null_column_filled_zero(self):

@@ -26,7 +26,6 @@ from mlframe.training.composite.discovery.auto_detect import (
     sort_df_by_time_column,
 )
 
-
 # ----------------------------------------------------------------------------
 # detect_time_column_candidates
 # ----------------------------------------------------------------------------
@@ -371,7 +370,7 @@ def test_cat_detect_regression_pre_fix_monotone_bonus_inverts_ranking():
 
 def test_cat_detect_sweet_spot_peak_is_tunable():
     """The peak is configurable: shifting it moves which cardinality scores
-    highest, so a dataset with very granular categoricals can be retuned."""
+    highest, so a dataset with very granular categoricals can be returned."""
     from mlframe.training.composite.discovery.auto_detect import _cat_info_bonus
 
     # With a high peak, a 200-level column beats a 20-level column...

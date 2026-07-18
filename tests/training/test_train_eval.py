@@ -9,7 +9,6 @@ import pandas as pd
 from mlframe.training.configs import TargetTypes
 from mlframe.training.train_eval import optimize_model_for_storage, select_target
 
-
 # =============================================================================
 # optimize_model_for_storage
 # =============================================================================

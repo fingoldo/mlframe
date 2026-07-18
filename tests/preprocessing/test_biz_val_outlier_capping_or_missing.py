@@ -50,12 +50,12 @@ def test_biz_val_outlier_cap_or_missing_beats_untreated_outliers():
     df_test_missing = outlier_cap_or_missing(df_test, mode="missing_impute")
     rmse_missing = _fit_rmse(df_train_missing[["x"]], y_train, df_test_missing[["x"]], y_test)
 
-    assert rmse_cap < rmse_untreated * 0.5, (
-        f"expected capping to cut RMSE by >=50% vs untreated outliers, got cap={rmse_cap:.4f} untreated={rmse_untreated:.4f}"
-    )
-    assert rmse_missing < rmse_untreated * 0.5, (
-        f"expected missing-impute to cut RMSE by >=50% vs untreated outliers, got missing={rmse_missing:.4f} untreated={rmse_untreated:.4f}"
-    )
+    assert (
+        rmse_cap < rmse_untreated * 0.5
+    ), f"expected capping to cut RMSE by >=50% vs untreated outliers, got cap={rmse_cap:.4f} untreated={rmse_untreated:.4f}"
+    assert (
+        rmse_missing < rmse_untreated * 0.5
+    ), f"expected missing-impute to cut RMSE by >=50% vs untreated outliers, got missing={rmse_missing:.4f} untreated={rmse_untreated:.4f}"
 
 
 def test_outlier_cap_or_missing_cap_mode_clips_within_bounds():
@@ -107,12 +107,12 @@ def test_biz_val_outlier_cap_or_missing_high_contamination_auto_beats_untreated(
     rmse_mad = _fit_rmse(df_train_mad[["x"]], y_train, df_test_mad[["x"]], y_test)
 
     # measured: rmse_untreated~2.044, rmse_auto~1.788 (ratio ~0.875), rmse_mad~1.823 (ratio ~0.892)
-    assert rmse_auto < rmse_untreated * 0.90, (
-        f"expected auto (IQR fallback) to cut RMSE by >=10% at 20% contamination, got auto={rmse_auto:.4f} untreated={rmse_untreated:.4f}"
-    )
-    assert rmse_mad < rmse_untreated * 0.95, (
-        f"expected mad rule to still improve on untreated at 20% contamination, got mad={rmse_mad:.4f} untreated={rmse_untreated:.4f}"
-    )
+    assert (
+        rmse_auto < rmse_untreated * 0.90
+    ), f"expected auto (IQR fallback) to cut RMSE by >=10% at 20% contamination, got auto={rmse_auto:.4f} untreated={rmse_untreated:.4f}"
+    assert (
+        rmse_mad < rmse_untreated * 0.95
+    ), f"expected mad rule to still improve on untreated at 20% contamination, got mad={rmse_mad:.4f} untreated={rmse_untreated:.4f}"
 
 
 def test_outlier_cap_or_missing_skewness_driven_rule_selection():

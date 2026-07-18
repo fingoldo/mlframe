@@ -1,5 +1,11 @@
 # MRMR critique — completeness verification (READ-ONLY audit)
 
+**SUPERSEDED.** This snapshot caught the tracker mid-flight at 11/38 done. `_TRACKER.md`'s
+"MRMR CRITIQUE STATUS: COMPLETE" section (bottom of that file) now records all 38 findings at a
+terminal disposition (DONE / FUTURE-with-bench-path / DOC / reverted), including every item this
+file flagged as a stale-table or missing-row defect. Kept for its finding-by-finding
+code-verification methodology, not as a current status source — read `_TRACKER.md` for live state.
+
 Cross-checked every finding ID in all 7 per-agent reports against `_TRACKER.md` (PROGRESS LOG + disposition tables) and against the actual code (grep/read + `git log`/`git show`).
 
 ## Finding-by-finding table

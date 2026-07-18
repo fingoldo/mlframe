@@ -25,7 +25,6 @@ from mlframe.training.composite.transforms.linear import (
     _theilsen_residual_fit,
 )
 
-
 # ---------------------------------------------------------------------------
 # Unit: registry wiring, fit contract, round-trip.
 # ---------------------------------------------------------------------------
@@ -153,9 +152,9 @@ def test_biz_val_theilsen_recovers_slope_3x_better_than_ols():
         ols_errs.append(abs(p_ols["alpha"] - true_alpha))
     ts_err = float(np.median(ts_errs))
     ols_err = float(np.median(ols_errs))
-    assert ols_err / max(ts_err, 1e-9) >= 3.0, (
-        f"Theil-Sen slope err {ts_err:.4f} should be >=3x better than OLS {ols_err:.4f} (ratio {ols_err / max(ts_err, 1e-9):.2f})"
-    )
+    assert (
+        ols_err / max(ts_err, 1e-9) >= 3.0
+    ), f"Theil-Sen slope err {ts_err:.4f} should be >=3x better than OLS {ols_err:.4f} (ratio {ols_err / max(ts_err, 1e-9):.2f})"
     assert ts_err < 0.15, f"Theil-Sen slope err {ts_err:.4f} too high"
 
 

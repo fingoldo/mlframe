@@ -148,6 +148,6 @@ def test_predict_uses_chosen_flavour_for_per_target_probs():
 
     np.testing.assert_allclose(combined_harm, expected_harm, rtol=1e-5, atol=1e-7)
     # And the chosen-flavour replay must NOT be equal to arithmetic mean (sanity: harm and arith must visibly differ).
-    assert not np.allclose(combined_harm, expected_arith), (
-        "harm-flavoured per-target probability is identical to arithmetic mean -- replay likely fell through to the default code path."
-    )
+    assert not np.allclose(
+        combined_harm, expected_arith
+    ), "harm-flavoured per-target probability is identical to arithmetic mean -- replay likely fell through to the default code path."

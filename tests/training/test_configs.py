@@ -410,7 +410,7 @@ class TestTrainingSplitAgingValidator:
 class TestTypoWarningOnUnknownExtras:
     """``extra='allow'`` is kept for legitimate pass-through kwargs
     (ICE-metric weights, scoring configs, etc.). Typos like
-    ``iteratoins=100`` used to be silently swallowed; the new
+    ``iterations=100`` used to be silently swallowed; the new
     ``_warn_on_unknown_extras`` validator emits a WARNING so a typo
     is at least visible in the log.
     """
@@ -422,9 +422,9 @@ class TestTypoWarningOnUnknownExtras:
         with caplog.at_level(logging.WARNING, logger="mlframe.training.configs"):
             from mlframe.training.configs import TrainingBehaviorConfig
 
-            TrainingBehaviorConfig(iteratoins=100)  # typo: iterations
+            TrainingBehaviorConfig(iterations=100)  # typo: iterations
         warnings = [r for r in caplog.records if r.levelname == "WARNING"]
-        assert any("iteratoins" in r.message for r in warnings), "typo 'iteratoins' must produce a WARNING about unknown field"
+        assert any("iterations" in r.message for r in warnings), "typo 'iterations' must produce a WARNING about unknown field"
 
     def test_known_extras_dont_warn(self, caplog):
         """``ModelHyperparamsConfig`` accepts ICE-metric weights as

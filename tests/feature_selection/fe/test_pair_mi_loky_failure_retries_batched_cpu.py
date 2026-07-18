@@ -106,9 +106,9 @@ def test_loky_failure_retries_batched_cpu_before_legacy_sweep(monkeypatch, caplo
 
     assert call_log["batch_precompute_calls"] == 1, "primary batch precompute must have been attempted (and forced to fail)"
     assert call_log["retry_calls"] == 1, "the batched-CPU retry must fire after the loky pool fails"
-    assert any("batched CPU retry covered" in rec.message for rec in caplog.records), (
-        "the retry's coverage must be logged so a real production run is diagnosable"
-    )
+    assert any(
+        "batched CPU retry covered" in rec.message for rec in caplog.records
+    ), "the retry's coverage must be logged so a real production run is diagnosable"
     assert result is not None
 
 

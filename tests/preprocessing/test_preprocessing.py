@@ -26,7 +26,6 @@ import pytest
 
 from mlframe.preprocessing.transforms import prepare_df_for_catboost
 
-
 # ---------------------------------------------------------------------------
 # pandas dtype preservation
 # ---------------------------------------------------------------------------

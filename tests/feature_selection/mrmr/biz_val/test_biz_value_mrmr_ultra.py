@@ -29,7 +29,6 @@ import warnings
 import numpy as np
 import pandas as pd
 
-
 # =============================================================================
 # Redundancy avoidance — the canonical MRMR contract
 # =============================================================================
@@ -77,9 +76,9 @@ class TestRedundancyAvoidance:
         signal_b_recovered = any("signal_b" in nm for nm in names)
         signal_a_recovered = any("signal_a" in nm for nm in names)
         copies_count = sum(1 for nm in names if "sig_a_copy" in nm)
-        assert signal_b_recovered or signal_a_recovered, (
-            f"redundancy avoidance failed: neither signal_a nor signal_b recovered (raw or engineered); support={names} (copies={copies_count})"
-        )
+        assert (
+            signal_b_recovered or signal_a_recovered
+        ), f"redundancy avoidance failed: neither signal_a nor signal_b recovered (raw or engineered); support={names} (copies={copies_count})"
 
     def test_signal_b_picked_when_copies_dominate(self):
         """8 copies of sig_a (strongly informative) + 1 unique sig_b
@@ -121,9 +120,9 @@ class TestRedundancyAvoidance:
         # copy names. Measured (seed 101): selection 5-fold AUC 0.996 vs
         # 0.999 on {sig_a0,sig_b} -- the diverse signal is genuinely used.
         sig_b_recovered = any(re.search(r"sig_b(?![0-9])", nm) for nm in names)
-        assert sig_b_recovered or has_pc1, (
-            f"sig_b missed under 8-copy cluster pressure; neither a sig_b reference nor a DCD PC1 aggregate is present; support={names}"
-        )
+        assert (
+            sig_b_recovered or has_pc1
+        ), f"sig_b missed under 8-copy cluster pressure; neither a sig_b reference nor a DCD PC1 aggregate is present; support={names}"
 
 
 # =============================================================================

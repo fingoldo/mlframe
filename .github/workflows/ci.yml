@@ -179,6 +179,41 @@ jobs:
     with:
       source-path: src/mlframe
 
+  # tests/ is intentionally EXCLUDED from the src-scoped jobs above (root pyproject.toml's
+  # [tool.ruff] / [tool.interrogate] both list "tests" in their exclude) -- it carries its own,
+  # deliberately looser configs (tests/ruff.toml, tests/interrogate.toml) reached via a 2026-07-17
+  # cleanup pass (rename, ruff format+fix, black, docstrings to 100%). These jobs gate that
+  # subtree separately so it isn't silently unchecked; check-path/interrogate-config on the
+  # reusable workflows (py-ci-shared v1.1.0+) point them at tests/ instead of the whole repo.
+  tests-ruff-blocking:
+    name: Ruff tests/ (real bugs - blocking)
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@bd504156abd3e63dc53c189b9c61fedf1a289c02  # v1.1.0
+    with:
+      check-path: tests
+      ignore: "C901"
+
+  tests-black-filtered:
+    name: Black tests/ (filtered, blocking)
+    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@acf3f712ec7e00fd23880cf20be8842bc5c2cc07  # v1.0.1
+    with:
+      check-path: tests
+
+  tests-lint-blocking:
+    name: lint + security tests/ (blocking)
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@bd504156abd3e63dc53c189b9c61fedf1a289c02  # v1.1.0
+    with:
+      source-path: tests
+      codespell-paths: tests
+      interrogate-source-path: tests
+      interrogate-config: tests/interrogate.toml
+      # deptry is project-wide (installed deps are the same regardless of which tree imports
+      # them) and already checked once by lint-blocking above -- running it again here would
+      # just duplicate that result, not add coverage.
+      deptry-install-command: ""
+      # zizmor scans .github/workflows/ regardless of source-path -- already covered by the
+      # src-scoped lint-blocking job above; skip the duplicate run here.
+      run-zizmor: false
+
   build:
     name: build sdist + wheel + install smoke
     runs-on: ubuntu-latest

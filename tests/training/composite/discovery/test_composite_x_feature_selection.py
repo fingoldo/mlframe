@@ -41,7 +41,6 @@ from mlframe.training.composite import (
 )
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
-
 # ----------------------------------------------------------------------
 # Synthetic generators
 # ----------------------------------------------------------------------

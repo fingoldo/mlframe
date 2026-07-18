@@ -330,9 +330,9 @@ class TestLayer49_ScenarioA_SensorMesh:
         # Path (b): L48 hierarchy non-empty.
         ch = m_on.cluster_hierarchy_ or {}
         hierarchical = bool(ch)
-        assert collapsed_directly or hierarchical, (
-            f"Scenario A: neither direct collapse nor hierarchy surfaced the sensor structure; cluster_members_={cm}, hierarchy={ch}"
-        )
+        assert (
+            collapsed_directly or hierarchical
+        ), f"Scenario A: neither direct collapse nor hierarchy surfaced the sensor structure; cluster_members_={cm}, hierarchy={ch}"
 
 
 # ---------------------------------------------------------------------------

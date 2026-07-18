@@ -17,7 +17,6 @@ import pytest
 
 from mlframe.metrics.ranking import ndcg_at_k, map_at_k, compute_ranking_summary
 
-
 _YT = np.array([1.0, 1.0, 0.0, 0.0])
 _YS = np.array([0.9, 0.8, 0.7, 0.6])
 _G = np.zeros(4)

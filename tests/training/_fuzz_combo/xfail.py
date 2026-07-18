@@ -6,7 +6,6 @@ from typing import Callable
 
 from .combo import FuzzCombo
 
-
 # _rule_cb_pool_reuse_with_mrmr_small_n_filtered REMOVED 2026-04-27 — fixed
 # by empty-target + length-mismatch guards in
 # trainer._maybe_get_or_build_cb_pool (rebuild on mismatch / empty target).

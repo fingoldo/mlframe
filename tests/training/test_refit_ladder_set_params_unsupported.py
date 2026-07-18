@@ -100,9 +100,9 @@ def test_refit_ladder_handles_set_params_rejection() -> None:
     )
     # The refit must have produced a new best_iter (the fallback path
     # rebuilds and fits, so best_iteration_ should now be 133 per our fake).
-    assert new_best_iter == 133, (
-        f"refit ladder did not run / new_best_iter={new_best_iter}; set_params_attempts={model_obj.set_params_attempts}, fit_calls={model_obj.fit_calls}"
-    )
+    assert (
+        new_best_iter == 133
+    ), f"refit ladder did not run / new_best_iter={new_best_iter}; set_params_attempts={model_obj.set_params_attempts}, fit_calls={model_obj.fit_calls}"
     # The original model_obj reference must reflect the RMSE-refit state
     # (atomic __dict__ swap from the rebuild fallback).
     assert model_obj._stored.get("loss_function") == "RMSE", f"model_obj state not swapped to RMSE: {model_obj._stored}"

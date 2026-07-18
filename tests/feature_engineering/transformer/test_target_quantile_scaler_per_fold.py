@@ -17,7 +17,6 @@ from sklearn.model_selection import KFold
 
 from mlframe.feature_engineering.transformer import compute_target_quantile_attention
 
-
 pytestmark = pytest.mark.fast
 
 

@@ -184,9 +184,9 @@ class TestSignalAdaptiveBasisRouting:
         y = (x * x) + 0.25 * np.std(x * x) * rng.standard_normal(n)  # even, non-monotone
         chosen = basis_route_by_signal(x, y, degrees=(2, 3, 4))
         recov = {b: _basis_best_corr(x, y, b) for b in _ROUTING_BASES}
-        assert chosen == max(recov, key=recov.get), (
-            f"signal routing must return the max-|corr| basis; chose {chosen!r}, recov={ {b: round(v, 3) for b, v in recov.items()} }"
-        )
+        assert chosen == max(
+            recov, key=recov.get
+        ), f"signal routing must return the max-|corr| basis; chose {chosen!r}, recov={ {b: round(v, 3) for b, v in recov.items()} }"
         assert recov[chosen] >= 0.85, f"chosen basis under-recovers: {recov}"
 
     def test_fixes_moment_misroute_on_heavy_tail(self):
@@ -207,9 +207,9 @@ class TestSignalAdaptiveBasisRouting:
         b_sig = basis_route_by_signal(x, y, degrees=(2, 3, 4))
         c_mom = _basis_best_corr(x, y, b_mom)
         c_sig = _basis_best_corr(x, y, b_sig)
-        assert b_sig != b_mom and c_sig >= c_mom + 0.20, (
-            f"signal routing should materially beat moment routing on a heavy-tailed cubic: moment={b_mom}({c_mom:.3f}) signal={b_sig}({c_sig:.3f})"
-        )
+        assert (
+            b_sig != b_mom and c_sig >= c_mom + 0.20
+        ), f"signal routing should materially beat moment routing on a heavy-tailed cubic: moment={b_mom}({c_mom:.3f}) signal={b_sig}({c_sig:.3f})"
 
     def test_falls_back_to_moments_without_usable_y(self):
         """Degenerate y (constant) -> fall back to moment routing, so callers

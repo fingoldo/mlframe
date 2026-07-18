@@ -185,6 +185,6 @@ def test_biz_value_recall_conservation_auto_vs_pearson():
     recall_su = _recall(sel_su, roles)
     recall_p = _recall(sel_p, roles)
 
-    assert recall_su >= recall_p - 1e-9, (
-        f"iter75 recall regression: SU auto={recall_su:.3f} < Pearson={recall_p:.3f}\n  selected_su={sorted(sel_su)}\n  selected_p={sorted(sel_p)}"
-    )
+    assert (
+        recall_su >= recall_p - 1e-9
+    ), f"iter75 recall regression: SU auto={recall_su:.3f} < Pearson={recall_p:.3f}\n  selected_su={sorted(sel_su)}\n  selected_p={sorted(sel_p)}"

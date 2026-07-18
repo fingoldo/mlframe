@@ -36,7 +36,6 @@ from mlframe.training.configs import OutputConfig, TargetTypes
 from mlframe.training.core import train_mlframe_models_suite
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
-
 pytestmark = pytest.mark.slow
 
 
@@ -169,6 +168,6 @@ def test_each_ensemble_method_writes_distinct_filename(ensembling_dataset, tmp_p
             if f.startswith("Ens") and "_perfplot" in f and f.endswith(".png"):
                 ens_pngs.append(f)
 
-    assert len(ens_pngs) == len(set(ens_pngs)), (
-        f"Duplicate ensemble perfplot filenames -- different methods are overwriting each other's charts. Files: {sorted(ens_pngs)}"
-    )
+    assert len(ens_pngs) == len(
+        set(ens_pngs)
+    ), f"Duplicate ensemble perfplot filenames -- different methods are overwriting each other's charts. Files: {sorted(ens_pngs)}"

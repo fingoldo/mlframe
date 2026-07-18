@@ -48,7 +48,6 @@ import pytest
 
 from tests.feature_selection._mrmr_realistic_data import default_fuzz_grid
 
-
 # These are heavy integration fits at realistic n (see _DEFAULT_CASE_N): a single
 # subprocess fit can run a few minutes, well past the repo-global 60s per-test
 # timeout. The worker already enforces its own 600s budget in _run_case, so lift
@@ -390,12 +389,12 @@ def test_I1_every_advertised_feature_survives_transform(case_idx, case, _results
     """I1 every advertised feature survives transform."""
     r = _get(case_idx, case, _results_cache)
     missing = [nm for nm in r["names_out"] if nm not in r["out_cols"]]
-    assert not missing, (
-        f"I1 [{_INVARIANT_MAP['I1']}]: get_feature_names_out advertises feature(s) transform() does not produce: {missing} (out_cols={r['out_cols']})"
-    )
-    assert not r["recipeless_warnings"], (
-        f"I1 [{_INVARIANT_MAP['I1']}]: a selected engineered feature lacked a replayable recipe (select-then-drop): {r['recipeless_warnings']}"
-    )
+    assert (
+        not missing
+    ), f"I1 [{_INVARIANT_MAP['I1']}]: get_feature_names_out advertises feature(s) transform() does not produce: {missing} (out_cols={r['out_cols']})"
+    assert not r[
+        "recipeless_warnings"
+    ], f"I1 [{_INVARIANT_MAP['I1']}]: a selected engineered feature lacked a replayable recipe (select-then-drop): {r['recipeless_warnings']}"
     assert r["n_out_features"] >= 1, "fit produced zero output features (vacuous)"
 
 
@@ -406,9 +405,9 @@ def test_I1_every_advertised_feature_survives_transform(case_idx, case, _results
 def test_I2_feature_names_out_equals_transform_columns(case_idx, case, _results_cache):
     """I2 feature names out equals transform columns."""
     r = _get(case_idx, case, _results_cache)
-    assert r["names_out"] == r["out_ho_cols"], (
-        f"I2 [{_INVARIANT_MAP['I2']}]: get_feature_names_out() != transform(holdout).columns.\n names_out={r['names_out']}\n transform_cols={r['out_ho_cols']}"
-    )
+    assert (
+        r["names_out"] == r["out_ho_cols"]
+    ), f"I2 [{_INVARIANT_MAP['I2']}]: get_feature_names_out() != transform(holdout).columns.\n names_out={r['names_out']}\n transform_cols={r['out_ho_cols']}"
 
 
 # ===========================================================================
@@ -420,9 +419,9 @@ def test_I3_slice_replay_byte_exact(case_idx, case, _results_cache):
     r = _get(case_idx, case, _results_cache)
     assert r["slice_shapes_ok"], "I3: slice/full transform shapes diverged"
     bad = [c for c, ok in r["slice_replay"].items() if not ok]
-    assert not bad, (
-        f"I3 [{_INVARIANT_MAP['I3']}]: engineered column(s) replayed NON-byte-exact on a row-slice (bin edges recomputed from the slice, not frozen): {bad}"
-    )
+    assert (
+        not bad
+    ), f"I3 [{_INVARIANT_MAP['I3']}]: engineered column(s) replayed NON-byte-exact on a row-slice (bin edges recomputed from the slice, not frozen): {bad}"
 
 
 # ===========================================================================

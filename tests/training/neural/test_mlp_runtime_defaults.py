@@ -52,7 +52,6 @@ from mlframe.training.mlp_runtime_defaults import (
     resolve_mlp_train_batch_size,
 )
 
-
 # ---------------------------------------------------------------------------
 # DataLoader defaults
 # ---------------------------------------------------------------------------
@@ -68,9 +67,9 @@ class TestDataLoaderDefaultsWindows:
             cuda_available=True,
             force_windows=True,
         )
-        assert res["num_workers"] == 0, (
-            "Windows must keep num_workers=0 by default; raising auto on Windows hits spawn + CUDA-tensor-sharing bugs the user has previously been bitten by."
-        )
+        assert (
+            res["num_workers"] == 0
+        ), "Windows must keep num_workers=0 by default; raising auto on Windows hits spawn + CUDA-tensor-sharing bugs the user has previously been bitten by."
 
     def test_windows_zero_workers_implies_no_persistent_no_prefetch(self) -> None:
         """Windows zero workers implies no persistent no prefetch."""
@@ -311,7 +310,7 @@ class TestPredictBatchSize:
             cuda_available=False,
         ) in (_PREDICT_BATCH_FALLBACK, _PREDICT_BATCH_MAX)
         # The first form (constant) fires when psutil + torch are both
-        # unprobable. On a typical dev box psutil is installed -> memory IS
+        # unavailable to probe. On a typical dev box psutil is installed -> memory IS
         # probed and the resolver picks the adaptive size; that path is
         # locked by the explicit-memory tests below.
 

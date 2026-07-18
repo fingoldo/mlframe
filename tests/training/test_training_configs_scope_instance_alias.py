@@ -17,9 +17,9 @@ from mlframe.training._helpers_training_configs import get_training_configs
 def test_recurrent_alias_builds_mlp_config(recurrent_alias):
     """Recurrent alias builds mlp config."""
     cfg = get_training_configs(has_gpu=False, enabled_models=[recurrent_alias])
-    assert cfg.MLP_GENERAL_PARAMS is not None, (
-        f"recurrent alias {recurrent_alias!r} needs the torch MLP config path (was None pre-fix -- literal 'recurrent' never matched)"
-    )
+    assert (
+        cfg.MLP_GENERAL_PARAMS is not None
+    ), f"recurrent alias {recurrent_alias!r} needs the torch MLP config path (was None pre-fix -- literal 'recurrent' never matched)"
 
 
 def test_mlp_alias_builds_mlp_config_and_ngb_does_not():

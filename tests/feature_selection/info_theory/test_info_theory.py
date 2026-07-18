@@ -13,7 +13,6 @@ import numpy as np
 
 from hypothesis import given, settings, strategies as st, HealthCheck
 
-
 # Import the module under test
 from mlframe.feature_selection.filters import (
     entropy,

@@ -182,9 +182,9 @@ class TestRandomSupportCoverageIsTheWall:
                     break  # already clearly tiny; don't burn the full 3000 on a ~1% event
             emp = hits / max(1, (_ + 1))
             # analytic must be in the expected small-coverage regime AND match empirical loosely.
-            assert analytic < 0.13, (
-                f"R={R}: specific-needle hit prob {analytic:.3f} should be small (<0.13) at p={p} -- random supports cannot guarantee localized-needle recall"
-            )
+            assert (
+                analytic < 0.13
+            ), f"R={R}: specific-needle hit prob {analytic:.3f} should be small (<0.13) at p={p} -- random supports cannot guarantee localized-needle recall"
             assert abs(emp - analytic) < 0.05, f"R={R}: empirical hit rate {emp:.3f} disagrees with analytic {analytic:.3f}"
 
     def test_full_coverage_requires_enumerating_all_pairs(self):

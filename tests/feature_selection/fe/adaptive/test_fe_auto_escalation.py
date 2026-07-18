@@ -332,9 +332,9 @@ def test_target_rebin_guard_fires_on_heavy_tailed_continuous_target(caplog):
     sel = MRMR(verbose=1, random_seed=42)
     with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters.mrmr"):
         sel.fit(df, pd.Series(y, name="y"))
-    assert any("target-rebin guard" in r.message for r in caplog.records), (
-        "the target-rebin guard must fire on a heavy-tailed continuous target under the adaptive nbins_strategy default"
-    )
+    assert any(
+        "target-rebin guard" in r.message for r in caplog.records
+    ), "the target-rebin guard must fire on a heavy-tailed continuous target under the adaptive nbins_strategy default"
 
 
 # ---------------------------------------------------------------------------

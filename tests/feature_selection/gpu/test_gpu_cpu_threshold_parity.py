@@ -36,13 +36,13 @@ def test_signature_exposes_min_nonzero_confidence():
     )
 
     sig_batched = inspect.signature(mi_direct_gpu_batched)
-    assert "min_nonzero_confidence" in sig_batched.parameters, (
-        "mi_direct_gpu_batched must accept min_nonzero_confidence -- without it the function silently hardcodes 0.05 and diverges from the CPU path."
-    )
+    assert (
+        "min_nonzero_confidence" in sig_batched.parameters
+    ), "mi_direct_gpu_batched must accept min_nonzero_confidence -- without it the function silently hardcodes 0.05 and diverges from the CPU path."
     sig_streamed = inspect.signature(mi_direct_gpu_batched_streamed)
-    assert "min_nonzero_confidence" in sig_streamed.parameters, (
-        "mi_direct_gpu_batched_streamed must accept min_nonzero_confidence (same bug applied to the streamed variant)."
-    )
+    assert (
+        "min_nonzero_confidence" in sig_streamed.parameters
+    ), "mi_direct_gpu_batched_streamed must accept min_nonzero_confidence (same bug applied to the streamed variant)."
 
 
 # -- GPU parity test (skipped when no CUDA device) ---------------------------

@@ -54,6 +54,6 @@ def test_mrmr_warns_when_chao_shen_requested(caplog):
     y = (X["f0"] % 2).to_numpy()
     with caplog.at_level(logging.WARNING):
         MRMR(mi_correction="chao_shen", max_runtime_mins=0.2).fit(X, y)
-    assert any("chao_shen" in r.message and "plug-in" in r.message for r in caplog.records), (
-        "MRMR did not warn that mi_correction='chao_shen' falls back to plug-in"
-    )
+    assert any(
+        "chao_shen" in r.message and "plug-in" in r.message for r in caplog.records
+    ), "MRMR did not warn that mi_correction='chao_shen' falls back to plug-in"

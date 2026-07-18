@@ -117,9 +117,9 @@ def test_shared_cache_from_mm_rerank_is_bit_identical_in_confirm_pairs():
 
     assert set(conf_base) == set(conf_shared)
     for key in conf_base:
-        assert conf_base[key] == conf_shared[key], (
-            f"shared single-merge cache changed confidence for {key}: {conf_shared[key]!r} != baseline {conf_base[key]!r}"
-        )
+        assert (
+            conf_base[key] == conf_shared[key]
+        ), f"shared single-merge cache changed confidence for {key}: {conf_shared[key]!r} != baseline {conf_base[key]!r}"
 
 
 def test_shared_cache_avoids_recomputing_merge_vars_for_precached_columns(monkeypatch):
@@ -174,6 +174,6 @@ def test_shared_cache_avoids_recomputing_merge_vars_for_precached_columns(monkey
     )
 
     single_col_calls_on_precached = [c for c in calls if len(c) == 1 and c[0] in precached_cols]
-    assert not single_col_calls_on_precached, (
-        f"confirm_pairs re-derived merge_vars for column(s) already precached by the MM rerank: {single_col_calls_on_precached}"
-    )
+    assert (
+        not single_col_calls_on_precached
+    ), f"confirm_pairs re-derived merge_vars for column(s) already precached by the MM rerank: {single_col_calls_on_precached}"

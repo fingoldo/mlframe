@@ -17,7 +17,6 @@ import pytest
 
 from mlframe.training._cv_aggregation import aggregate_fold_scores
 
-
 # Per-fold RMSE (direction="min": lower is better).
 # unstable_lucky: lower mean but broad spread across ALL folds (high std AND high MAD,
 # so even the median/MAD-robust mode penalises it -- not a single outlier fold).

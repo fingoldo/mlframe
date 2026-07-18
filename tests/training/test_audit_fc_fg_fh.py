@@ -24,7 +24,6 @@ import torch
 
 from mlframe.training.neural._lookahead_optimizer import Lookahead
 
-
 # --- F-C --------------------------------------------------------------------
 
 
@@ -161,9 +160,9 @@ def test_recurrent_dataset_getitem_independent_of_source_numpy():
     # In PyTorch 2.x, a non-zero-copy convert produces a tensor whose
     # .data_ptr() differs from the source array.
     src_ptr = seqs[0].__array_interface__["data"][0]
-    assert seq_t.data_ptr() != src_ptr, (
-        "F-H: __getitem__ returned a zero-copy view; an in-place op on the per-sample tensor would silently corrupt the source array."
-    )
+    assert (
+        seq_t.data_ptr() != src_ptr
+    ), "F-H: __getitem__ returned a zero-copy view; an in-place op on the per-sample tensor would silently corrupt the source array."
 
     # Mutate the returned tensor in place; source array must stay intact.
     seq_t.add_(100.0)

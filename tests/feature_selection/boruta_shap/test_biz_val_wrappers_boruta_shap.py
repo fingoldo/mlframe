@@ -63,16 +63,16 @@ def test_biz_val_boruta_shap_optimistic_recovers_tentative_tail():
     opt.fit(X, y)
 
     inf = {"inf_0", "inf_1", "inf_2"}
-    assert set(opt.selected_features_) >= set(cons.selected_features_), (
-        "optimistic must be a superset of the conservative selection (it only ADDS the tentative bucket)"
-    )
+    assert set(opt.selected_features_) >= set(
+        cons.selected_features_
+    ), "optimistic must be a superset of the conservative selection (it only ADDS the tentative bucket)"
     # The optimistic superset must recover at least as much of the informative set.
     assert len(set(opt.selected_features_) & inf) >= len(set(cons.selected_features_) & inf)
     # If anything was tentative, optimistic strictly grows the selection -- the load-bearing behavioural delta.
     if len(opt.tentative) > 0:
-        assert len(opt.selected_features_) > len(cons.selected_features_), (
-            "with a non-empty tentative tail, optimistic must select strictly more than conservative"
-        )
+        assert len(opt.selected_features_) > len(
+            cons.selected_features_
+        ), "with a non-empty tentative tail, optimistic must select strictly more than conservative"
 
 
 def test_biz_val_boruta_shap_normalize_keeps_scale_disparate_signal():
@@ -95,13 +95,13 @@ def test_biz_val_boruta_shap_normalize_keeps_scale_disparate_signal():
     on = _mk(normalize=True)
     on.fit(X, y)
 
-    assert len(set(on.selected_features_) & inf) >= len(set(off.selected_features_) & inf), (
-        f"normalize=True recovered fewer informative columns: on={sorted(set(on.selected_features_) & inf)} off={sorted(set(off.selected_features_) & inf)}"
-    )
+    assert len(set(on.selected_features_) & inf) >= len(
+        set(off.selected_features_) & inf
+    ), f"normalize=True recovered fewer informative columns: on={sorted(set(on.selected_features_) & inf)} off={sorted(set(off.selected_features_) & inf)}"
     # normalize=True should recover BOTH scale-disparate signals.
-    assert (set(on.selected_features_) & inf) == inf, (
-        f"normalize=True must recover both scale-disparate informative columns; got {sorted(set(on.selected_features_) & inf)}"
-    )
+    assert (
+        set(on.selected_features_) & inf
+    ) == inf, f"normalize=True must recover both scale-disparate informative columns; got {sorted(set(on.selected_features_) & inf)}"
 
 
 def test_biz_val_boruta_shap_premerge_corr_thr_low_collapses_cluster():
@@ -132,8 +132,8 @@ def test_biz_val_boruta_shap_premerge_corr_thr_low_collapses_cluster():
     high_members = cluster & set(high.selected_features_)
     # Low threshold collapses+re-expands -> when the rep is accepted the whole cluster comes back; must recover
     # at least as many members, and strictly more than the (non-collapsing) high threshold when the rep is kept.
-    assert len(low_members) >= len(high_members), (
-        f"low premerge_corr_thr recovered fewer cluster members: low={sorted(low_members)} high={sorted(high_members)}"
-    )
+    assert len(low_members) >= len(
+        high_members
+    ), f"low premerge_corr_thr recovered fewer cluster members: low={sorted(low_members)} high={sorted(high_members)}"
     if low_members:
         assert len(low_members) >= 2, "an accepted collapsed cluster must re-expand to >= 2 members under a below-correlation threshold"

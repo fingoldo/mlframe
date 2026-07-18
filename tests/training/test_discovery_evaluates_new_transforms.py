@@ -18,7 +18,6 @@ import pytest
 from mlframe.training.composite.discovery import CompositeTargetDiscovery
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
-
 EXPECTED_TRANSFORMS = frozenset(
     {
         "diff",

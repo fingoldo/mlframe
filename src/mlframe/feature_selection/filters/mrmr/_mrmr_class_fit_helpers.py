@@ -9,6 +9,7 @@ stay reachable via the MRO.
 from __future__ import annotations
 
 import logging
+import threading
 import warnings
 from typing import TYPE_CHECKING, Any, Callable, Optional, cast
 
@@ -29,6 +30,15 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 if TYPE_CHECKING:
     from ._mrmr_class import MRMR
 
+# Process-wide count of in-flight MRMR.fit() calls (05_concurrency_and_statistics.md finding #1).
+# Guards the GPU circuit-breaker re-arm: unconditionally clearing the breaker at every fit() entry
+# clobbers a breaker another concurrently-running fit() legitimately tripped (poisoned CUDA context),
+# reintroducing the retry-storm the breaker exists to prevent. Re-arming only on the 0->1 transition
+# (the first fit to start after ALL prior fits finished) preserves the "one extra failed attempt per
+# fit" cost bound in the common single-threaded/sequential case while never clobbering a live breaker.
+_ACTIVE_FIT_COUNT_LOCK = threading.Lock()
+_ACTIVE_FIT_COUNT = 0
+
 
 class _MRMRFitHelpersMixin:
     """Fit-time helpers for :class:`MRMR` (see module docstring).
@@ -43,6 +53,8 @@ class _MRMRFitHelpersMixin:
         get_params: Callable[..., dict]
         fit: Callable[..., "MRMR"]
         random_seed: Optional[int]
+        verbose: bool | int
+        _skip_fit_cache: bool
         get_feature_names_out: Callable[..., np.ndarray]
 
         def _effective_random_seed(self) -> Optional[int]:
@@ -54,15 +66,38 @@ class _MRMRFitHelpersMixin:
             """Type-checking-only stub; resolves at runtime via the concrete ``_MRMRConfigMixin`` MRO."""
             ...
 
+    def _enter_active_fit_scope(self) -> None:
+        """Increment the process-wide in-flight-fit counter and re-arm the GPU circuit breakers ONLY on
+        the 0->1 transition (concurrency audit finding #1). Pairs with ``_exit_active_fit_scope()`` in
+        the outer ``fit()`` wrapper's ``finally``. See ``_rearm_gpu_circuit_breakers`` for the rationale;
+        the fix here is that unconditionally re-arming at EVERY fit() entry (the pre-fix behavior) races
+        against a concurrently in-flight fit that legitimately tripped a breaker on a poisoned CUDA
+        context -- clearing it out from under that fit reintroduces the retry-storm the breaker exists to
+        prevent. Re-arming only when no other fit is currently running preserves the single-threaded
+        "one extra failed attempt per fit" cost bound while never clobbering a live breaker."""
+        global _ACTIVE_FIT_COUNT
+        with _ACTIVE_FIT_COUNT_LOCK:
+            _ACTIVE_FIT_COUNT += 1
+            _should_rearm = _ACTIVE_FIT_COUNT == 1
+        if _should_rearm:
+            self._rearm_gpu_circuit_breakers()
+
+    def _exit_active_fit_scope(self) -> None:
+        """Decrement the process-wide in-flight-fit counter; pairs with ``_enter_active_fit_scope()``."""
+        global _ACTIVE_FIT_COUNT
+        with _ACTIVE_FIT_COUNT_LOCK:
+            _ACTIVE_FIT_COUNT = max(0, _ACTIVE_FIT_COUNT - 1)
+
     def _rearm_gpu_circuit_breakers(self) -> None:
-        """Re-arm the process-global CMI / mi_direct / pair-maxT GPU circuit breakers at the start of a
-        fit (finding #2 decomposition; behavior moved verbatim from ``fit()``'s opening block, 2026-07-09
-        fix, MRMR audit finding #31). These breakers are process-global and, once tripped by one launch
-        fault, permanently disable GPU for the rest of the process -- silently degrading every LATER fit
-        in a long-lived worker (notebook, service), not just the one that hit the transient fault.
-        Re-arming here bounds the cost of a genuinely-broken GPU to one extra failed attempt per fit (the
-        breaker still protects WITHIN a fit from thousands of repeated attempts), while a transient fault
-        (contention, a momentary driver hiccup) no longer sticks forever."""
+        """Re-arm the process-global CMI / mi_direct / pair-maxT GPU circuit breakers. Only called by
+        ``_enter_active_fit_scope()`` on the 0->1 in-flight-fit transition (concurrency audit finding #1;
+        originally called unconditionally at every fit() entry, 2026-07-09 fix, MRMR audit finding #31).
+        These breakers are process-global and, once tripped by one launch fault, permanently disable GPU
+        for the rest of the process -- silently degrading every LATER fit in a long-lived worker
+        (notebook, service), not just the one that hit the transient fault. Re-arming here bounds the
+        cost of a genuinely-broken GPU to one extra failed attempt per fit (the breaker still protects
+        WITHIN a fit from thousands of repeated attempts), while a transient fault (contention, a
+        momentary driver hiccup) no longer sticks forever."""
         try:
             reset_cmi_gpu_circuit_breaker()
         except Exception as exc:  # nosec B110 - optional GPU module; re-arm is a resilience nicety, not a hard dependency
@@ -135,10 +170,7 @@ class _MRMRFitHelpersMixin:
                     logger.debug("mrmr: polars Struct-column detection failed; assuming none: %r", exc, exc_info=True)
                     _struct_cols = []
                 if _struct_cols:
-                    raise ValueError(
-                        f"MRMR.fit: polars Struct column(s) {_struct_cols} are not supported -- a Struct "
-                        f"has no scalar value for MI estimation. Unnest/flatten them before fitting."
-                    )
+                    raise ValueError(f"MRMR.fit: polars Struct column(s) {_struct_cols} are not supported -- a Struct has no scalar value for MI estimation. Unnest/flatten them before fitting.")
 
         _fe_max_steps = getattr(self, "fe_max_steps", 0)
         _fe_max_steps = int(_fe_max_steps) if _fe_max_steps is not None else 0
@@ -155,9 +187,13 @@ class _MRMRFitHelpersMixin:
                     if str(type(y).__module__).startswith("polars"):
                         y = y.to_pandas()
                 except Exception as _pl_exc:  # fall through to the native path on any bridge failure
+                    # 09_error_messages_ux.md: the raw internal exception repr (an AttributeError/KeyError
+                    # from get_pandas_view_of_polars_df with column-internal attribute names) is meaningless
+                    # to an end user -- keep the user-facing UserWarning high-level and route the repr to
+                    # logger.warning for whoever needs to actually debug it.
+                    logger.warning("MRMR.fit: polars->pandas FE bridge failed: %r", _pl_exc, exc_info=True)
                     warnings.warn(
-                        f"MRMR.fit: polars->pandas FE bridge failed ({_pl_exc!r}); proceeding on the "
-                        f"native path -- feature engineering may be skipped for this polars input.",
+                        "MRMR.fit: feature engineering was skipped for this polars input due to an internal error bridging to pandas; see logs for the underlying exception.",
                         UserWarning,
                         stacklevel=2,
                     )
@@ -214,6 +250,11 @@ class _MRMRFitHelpersMixin:
             # Use a fresh sibling instance with classic method to avoid
             # recursion AND drop bootstrap-incompatible settings.
             sub = type(self)(**_sub_base_params)
+            # 07_memory_scalability.md finding #2: this replicate fits a DIFFERENT row-subsample every
+            # call, so its cache key is a guaranteed future miss -- skip storing it in the shared
+            # process-wide _FIT_CACHE so stability_n_bootstrap (default 50) replicates don't thrash out
+            # a legitimately-reusable entry belonging to an unrelated concurrent caller.
+            sub._skip_fit_cache = True
             sub.fit(X_sub_df, y_sub_s)
             if not hasattr(sub, "support_") or sub.support_ is None:
                 return np.asarray([], dtype=np.int64)
@@ -236,7 +277,7 @@ class _MRMRFitHelpersMixin:
                 rng_seed=int(self._effective_random_seed() or 0),
             )
         else:
-            raise ValueError(f"unknown stability_selection_method={method!r}")
+            raise ValueError(f"unknown stability_selection_method={method!r}; expected one of 'classic', 'cluster', 'complementary_pairs'.")
 
         # Persist the standard MRMR public-API attributes from the chosen set.
         self.support_ = np.asarray(sel, dtype=np.int64)
@@ -453,7 +494,7 @@ class _MRMRFitHelpersMixin:
         self.provenance_: Optional[dict] = None
         self._feature_names_in_synthesized_ = not hasattr(X, "columns")
         # Mark for transform() to know we're in shortcut state. Some downstream code looks at .signature; safe-default to a stable string.
-        self.signature: Optional[str] = f"_mrmr_identity_shortcut_n{n_cols}"
+        self.signature: tuple | str | None = f"_mrmr_identity_shortcut_n{n_cols}"
 
     def _fit_multioutput(
         self,
@@ -476,12 +517,30 @@ class _MRMRFitHelpersMixin:
         n_features = len(feature_names)
 
         per_column_selected: dict[str, list] = {}
-        for label, y_col in _mrmr_y_columns(y):
+        _n_targets = y.shape[1] if hasattr(y, "shape") and len(getattr(y, "shape", ())) > 1 else None
+        for _target_pos, (label, y_col) in enumerate(_mrmr_y_columns(y)):
+            # 07_memory_scalability.md finding #3 (confirmed not a bug -- different targets can be
+            # impacted by totally different factors, so a sequential per-target sub-fit is the correct
+            # design): log which target is currently running so a long multioutput fit's progress is
+            # legible from the outside, mirroring the format other MRMR stages already log with.
+            if self.verbose:
+                logger.info(
+                    "MRMR multioutput: fitting target %d/%s (%r)...",
+                    _target_pos + 1, _n_targets if _n_targets is not None else "?", label,
+                )
             sub = clone(self)
             sub.multioutput_strategy = None  # the per-column sub-fit is single-target; force the legacy path so it does not recurse.
+            # Same guaranteed-cache-miss reasoning as the stability-selection bootstrap replicates
+            # (07_memory_scalability.md finding #2): each target's y_col differs, so this sub-fit's
+            # cache key never repeats -- skip storing it to avoid thrashing the shared _FIT_CACHE.
+            sub._skip_fit_cache = True
             sub.fit(X, y_col, groups=groups, sample_weight=sample_weight, **(fit_params or {}))
             sub_names = [str(feature_names[i]) for i in np.asarray(sub.support_, dtype=np.intp)]
             per_column_selected[label] = sub_names
+            if self.verbose:
+                logger.info(
+                    "MRMR multioutput: target %r selected %d feature(s).", label, len(sub_names),
+                )
 
         if not per_column_selected:
             raise ValueError("MRMR multioutput: y has no output columns to fit.")

@@ -63,9 +63,9 @@ def test_biz_val_persistence_floor_smooths_isolated_flicker():
     acc_raw = accuracy_score(true_state, _simulate_sequential(probs, floor=0.0))
     acc_floored = accuracy_score(true_state, _simulate_sequential(probs, floor=0.45))
 
-    assert acc_floored > acc_raw + 0.05, (
-        f"expected the persistence floor to improve accuracy on isolated flicker by >=0.05, got floored={acc_floored:.4f} raw={acc_raw:.4f}"
-    )
+    assert (
+        acc_floored > acc_raw + 0.05
+    ), f"expected the persistence floor to improve accuracy on isolated flicker by >=0.05, got floored={acc_floored:.4f} raw={acc_raw:.4f}"
 
 
 def test_apply_sticky_state_persistence_floor_preserves_row_sums():
@@ -149,9 +149,9 @@ def test_biz_val_optimize_persistence_floor_per_class_beats_global_scalar_compro
     per_class_floored = apply_sticky_state_persistence_floor(probs, active, per_class_result["floor"])
     acc_per_class = balanced_accuracy_score(true_state, np.argmax(per_class_floored, axis=1))
 
-    assert per_class_result["floor"][0] != per_class_result["floor"][1], (
-        f"expected the two classes to genuinely need different floors, got {per_class_result['floor']}"
-    )
+    assert (
+        per_class_result["floor"][0] != per_class_result["floor"][1]
+    ), f"expected the two classes to genuinely need different floors, got {per_class_result['floor']}"
     assert acc_per_class > acc_scalar + 0.012, (
         f"expected per-class floor tuning to beat the best single global scalar floor by >=0.012 balanced "
         f"accuracy, got per_class={acc_per_class:.4f} scalar={acc_scalar:.4f}"

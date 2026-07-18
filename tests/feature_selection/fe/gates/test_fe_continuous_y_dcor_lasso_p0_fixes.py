@@ -139,9 +139,7 @@ def test_lasso_multiclass_not_driven_by_spurious_ordinal():
 
     res = score_features_by_lasso_coef(raw_X, eng_X, cls, alpha=0.001)
     top = res.iloc[0]["engineered_col"]
-    assert top == "u0__sig", (
-        f"multiclass selection must be driven by the true class-1 signal, not the spurious ordinal column; got top={top}\n{res}"
-    )
+    assert top == "u0__sig", f"multiclass selection must be driven by the true class-1 signal, not the spurious ordinal column; got top={top}\n{res}"
 
 
 def test_ksg_gpu_cpu_parity_on_discrete_ties():

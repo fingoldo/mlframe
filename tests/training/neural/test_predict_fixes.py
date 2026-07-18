@@ -81,9 +81,9 @@ def test_setup_predict_batch_size_overrides_dataloader_auto():
     X = np.random.default_rng(0).normal(size=(40, 5)).astype(np.float32)
     dm.setup_predict(X, batch_size=128)
     # Pre-fix dataloader_params['batch_size'] stayed 'auto' and shadowed self.batch_size.
-    assert dm.dataloader_params.get("batch_size") == 128, (
-        f"predict batch override must be mirrored into dataloader_params; got {dm.dataloader_params.get('batch_size')!r}"
-    )
+    assert (
+        dm.dataloader_params.get("batch_size") == 128
+    ), f"predict batch override must be mirrored into dataloader_params; got {dm.dataloader_params.get('batch_size')!r}"
 
 
 def test_predict_device_arg_honored_in_post_fit_path():
@@ -113,6 +113,6 @@ def test_predict_device_arg_honored_in_post_fit_path():
     with _mock.patch.object(_bp.L, "Trainer", _spy_trainer):
         clf.predict(X, device="cpu")
 
-    assert captured.get("accelerator") == "cpu", (
-        f"predict(device='cpu') must set accelerator='cpu' in the post-fit path; captured trainer_params accelerator={captured.get('accelerator')!r}"
-    )
+    assert (
+        captured.get("accelerator") == "cpu"
+    ), f"predict(device='cpu') must set accelerator='cpu' in the post-fit path; captured trainer_params accelerator={captured.get('accelerator')!r}"

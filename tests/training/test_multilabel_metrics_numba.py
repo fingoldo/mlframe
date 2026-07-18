@@ -29,7 +29,6 @@ from mlframe.metrics.core import (
     _pack_for_bitmap_kernel_par,
 )
 
-
 # ---------------------------------------------------------------------------
 # Bitmap packer: fused njit kernels must be bit-identical to the numpy
 # reference (np.packbits-pad64-view) across byte-aligned + non-aligned K,

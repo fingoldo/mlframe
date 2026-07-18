@@ -37,9 +37,9 @@ def test_provenance_seed_records_when_user_passes_random_seed():
 
     X, y = _frame()
     sel = MRMR(random_seed=42, verbose=0).fit(X, y)
-    assert sel.provenance_["seed"] == 42, (
-        f"random_seed=42 must produce provenance seed=42; got {sel.provenance_['seed']!r} - reproducibility audit trail silently lost."
-    )
+    assert (
+        sel.provenance_["seed"] == 42
+    ), f"random_seed=42 must produce provenance seed=42; got {sel.provenance_['seed']!r} - reproducibility audit trail silently lost."
 
 
 def test_provenance_seed_records_when_user_passes_random_state():

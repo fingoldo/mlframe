@@ -36,7 +36,6 @@ from sklearn.linear_model import (
 
 from mlframe.feature_selection.wrappers import RFECV
 
-
 # ----------------------------------------------------------------------------
 # Estimator registries. Anything that's a routinely-used sklearn estimator
 # should be in these lists; anything that fails is a bug, not a "configure

@@ -158,9 +158,9 @@ class TestGetFeatureNamesOutInputFeatures:
         raw_out = [nm for nm in out if (nm in set(user)) or (nm in synth)]
         if not raw_out or all(nm in synth for nm in raw_out):
             pytest.xfail(f"{spec.name}: ndarray-fit get_feature_names_out kept synthesized placeholders, ignored user names (declared parity gap)")
-        assert any(nm in set(user) for nm in raw_out), (
-            f"{spec.name}: ndarray-fit gfno(user_names) did not propagate any user name into the selected raw columns -- got {out[:8]}"
-        )
+        assert any(
+            nm in set(user) for nm in raw_out
+        ), f"{spec.name}: ndarray-fit gfno(user_names) did not propagate any user name into the selected raw columns -- got {out[:8]}"
 
 
 # ===========================================================================
@@ -187,9 +187,9 @@ class TestSetOutputPandas:
         assert out.shape[0] == _BINARY_X.shape[0]
         if spec.has_gfno:
             expected = [str(x) for x in sel.get_feature_names_out()]
-            assert [str(c) for c in out.columns] == expected, (
-                f"{spec.name}: set_output columns != get_feature_names_out() -- {list(out.columns)[:6]} vs {expected[:6]}"
-            )
+            assert [
+                str(c) for c in out.columns
+            ] == expected, f"{spec.name}: set_output columns != get_feature_names_out() -- {list(out.columns)[:6]} vs {expected[:6]}"
 
     def test_default_dataframe_in_dataframe_out(self, spec):
         """Without ``set_output``, a DataFrame input must still yield a DataFrame output."""
@@ -221,9 +221,9 @@ class TestRegressionTask:
         Xt = sel.transform(_REGRESSION_X)
         assert Xt.shape[0] == _REGRESSION_X.shape[0]
         n_eng = len(getattr(sel, "_engineered_recipes_", []))
-        assert Xt.shape[1] == int(mask.sum()) + n_eng, (
-            f"{spec.name}: regression transform width {Xt.shape[1]} != selected {int(mask.sum())} + engineered {n_eng}"
-        )
+        assert (
+            Xt.shape[1] == int(mask.sum()) + n_eng
+        ), f"{spec.name}: regression transform width {Xt.shape[1]} != selected {int(mask.sum())} + engineered {n_eng}"
 
 
 # ===========================================================================

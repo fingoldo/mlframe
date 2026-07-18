@@ -15,7 +15,6 @@ import pandas as pd
 
 from mlframe.training.reporting import _reporting as R
 
-
 # ---------------------------------------------------------------------------
 # INV-52: _maybe_display logs a text frame when no IPython kernel is present
 # ---------------------------------------------------------------------------

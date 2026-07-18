@@ -25,7 +25,6 @@ from mlframe.estimators.custom import (
     MyDecorrelator,
 )
 
-
 # --------------------------------------------------------------------------- #
 # API9: ArithmAvgClassifier clips out-of-[0,1] inputs
 # --------------------------------------------------------------------------- #

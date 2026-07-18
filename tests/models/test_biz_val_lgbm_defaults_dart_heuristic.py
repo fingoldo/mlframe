@@ -52,9 +52,9 @@ def test_biz_val_dart_heuristic_beats_gbdt_on_many_redundant_features():
     rmse_gbdt = float(mean_squared_error(yte, LGBMRegressor(**gbdt_params).fit(Xtr, ytr).predict(Xte)) ** 0.5)
     rmse_dart = float(mean_squared_error(yte, LGBMRegressor(**dart_params).fit(Xtr, ytr).predict(Xte)) ** 0.5)
 
-    assert rmse_dart < rmse_gbdt * 0.97, (
-        f"expected the n_features-driven dart preset to beat gbdt by >=3% RMSE on a redundant-feature regime, got dart={rmse_dart:.4f} gbdt={rmse_gbdt:.4f}"
-    )
+    assert (
+        rmse_dart < rmse_gbdt * 0.97
+    ), f"expected the n_features-driven dart preset to beat gbdt by >=3% RMSE on a redundant-feature regime, got dart={rmse_dart:.4f} gbdt={rmse_gbdt:.4f}"
 
 
 def test_dart_at_equal_unscaled_n_estimators_underperforms_gbdt():
@@ -68,9 +68,9 @@ def test_dart_at_equal_unscaled_n_estimators_underperforms_gbdt():
     rmse_gbdt = float(mean_squared_error(yte, LGBMRegressor(**gbdt_params).fit(Xtr, ytr).predict(Xte)) ** 0.5)
     rmse_unscaled_dart = float(mean_squared_error(yte, LGBMRegressor(**unscaled_dart_params).fit(Xtr, ytr).predict(Xte)) ** 0.5)
 
-    assert rmse_unscaled_dart > rmse_gbdt, (
-        f"expected dart at equal (unscaled) n_estimators to underperform gbdt, got dart={rmse_unscaled_dart:.4f} gbdt={rmse_gbdt:.4f}"
-    )
+    assert (
+        rmse_unscaled_dart > rmse_gbdt
+    ), f"expected dart at equal (unscaled) n_estimators to underperform gbdt, got dart={rmse_unscaled_dart:.4f} gbdt={rmse_gbdt:.4f}"
 
 
 def test_default_lgbm_params_below_threshold_stays_gbdt():

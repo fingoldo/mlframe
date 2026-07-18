@@ -148,9 +148,9 @@ def test_su_seeded_facade_recovers_pure_interaction_operands():
     off_set = set(sel_off.selected_features_)
     on_recall = len({"op_a", "op_b"} & on_set)
     off_recall = len({"op_a", "op_b"} & off_set)
-    assert on_recall > off_recall, (
-        f"su_seeded recall {on_recall} did not beat additive-default recall {off_recall} (off={sorted(off_set)}, on={sorted(on_set)})"
-    )
+    assert (
+        on_recall > off_recall
+    ), f"su_seeded recall {on_recall} did not beat additive-default recall {off_recall} (off={sorted(off_set)}, on={sorted(on_set)})"
 
 
 @pytest.mark.slow
@@ -191,6 +191,6 @@ def test_su_seeded_no_op_leaves_additive_default_byte_identical():
     # Premise of THIS test: the buried interaction is below the SNR floor -> nothing seeded.
     assert rep.get("n_kept_pairs", 0) == 0, f"expected SNR-gate no-op but kept {rep.get('kept_pairs')}; tune the bed if the floor moved"
     # No-op => byte-identical selection to the additive default.
-    assert sel_on.selected_features_ == sel_off.selected_features_, (
-        f"no-op path changed the additive default:\n off={sel_off.selected_features_}\n on ={sel_on.selected_features_}"
-    )
+    assert (
+        sel_on.selected_features_ == sel_off.selected_features_
+    ), f"no-op path changed the additive default:\n off={sel_off.selected_features_}\n on ={sel_on.selected_features_}"

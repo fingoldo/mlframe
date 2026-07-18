@@ -9,7 +9,6 @@ import importlib
 
 import pytest
 
-
 # (module path, attribute) pairs, one per documented public symbol.
 PUBLIC_SYMBOLS = [
     # estimator families

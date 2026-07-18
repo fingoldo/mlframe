@@ -42,7 +42,6 @@ from mlframe.feature_selection.optbinning import get_binningprocess_featureselec
 
 from tests.feature_selection.conftest import fast_subset
 
-
 # A strong-noisy-logistic signal yields signal IV ~3.0-3.6 (never 0); a 2-valued
 # perfect separator yields IV 0 (optbinning keeps one bin) -- see module docstring.
 _SIGNAL_IV_FLOOR = 2.7  # 5-15% below the measured per-seed minimum 3.08
@@ -117,9 +116,9 @@ def test_fs_pipeline_fit_drops_noise_keeps_signal(seed):
 
     noise_cols = [c for c in df.columns if c.startswith("noise_")]
     dropped_noise = [c for c in noise_cols if c not in support]
-    assert len(dropped_noise) >= len(noise_cols) / 2, (
-        f"IV gate must drop >= half the noise; dropped {len(dropped_noise)}/{len(noise_cols)}; support={sorted(support)}"
-    )
+    assert (
+        len(dropped_noise) >= len(noise_cols) / 2
+    ), f"IV gate must drop >= half the noise; dropped {len(dropped_noise)}/{len(noise_cols)}; support={sorted(support)}"
 
 
 def test_fs_pipeline_fit_drops_noise_keeps_signal_fast():
@@ -164,9 +163,9 @@ def test_biz_value_signal_iv_dominates_noise_no_skip(seed):
 
     assert signal_iv >= _SIGNAL_IV_FLOOR, f"signal IV {signal_iv:.3f} below floor {_SIGNAL_IV_FLOOR}; iv_map={iv_map}"
     assert signal_iv > 0.0, "noisy-logistic signal must never collapse to IV==0 (the de-flake invariant)"
-    assert signal_iv >= _IV_RATIO_FLOOR * max_noise_iv, (
-        f"signal IV {signal_iv:.3f} must be >= {_IV_RATIO_FLOOR}x max noise IV {max_noise_iv:.3f}; iv_map={iv_map}"
-    )
+    assert (
+        signal_iv >= _IV_RATIO_FLOOR * max_noise_iv
+    ), f"signal IV {signal_iv:.3f} must be >= {_IV_RATIO_FLOOR}x max noise IV {max_noise_iv:.3f}; iv_map={iv_map}"
 
 
 def test_biz_value_signal_iv_dominates_noise_fast():
@@ -199,9 +198,9 @@ def test_perfect_separator_collapses_to_zero_iv_documents_skip_smell():
     bp_nocats_fs.fit(df, ys)
     bp = dict(bp_nocats_fs.steps)["BP"]
     sep_table = bp.get_binned_variable("signal_step").binning_table
-    assert float(sep_table.iv) == 0.0, (
-        f"perfect 2-valued separator must collapse to IV==0 (no split) -- the de-flake rationale; got IV={float(sep_table.iv):.4f}"
-    )
+    assert (
+        float(sep_table.iv) == 0.0
+    ), f"perfect 2-valued separator must collapse to IV==0 (no split) -- the de-flake rationale; got IV={float(sep_table.iv):.4f}"
 
 
 # ---------------------------------------------------------------------------

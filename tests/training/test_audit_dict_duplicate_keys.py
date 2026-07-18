@@ -41,7 +41,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-
 MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 

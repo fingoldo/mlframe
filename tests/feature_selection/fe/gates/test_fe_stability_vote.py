@@ -47,7 +47,6 @@ from mlframe.feature_selection.filters._fe_stability_vote import (
 )
 from mlframe.feature_selection.filters.mrmr import MRMR
 
-
 # Relaxed-gate config: simulate the regime where chance-max noise pairs slip the
 # in-fit per-pair gate (maxT floor off, lenient prevalence), so the cross-fold
 # quorum has fold-specific noise winners to cut.
@@ -359,6 +358,6 @@ def test_cprofile_replay_cost_negligible():
             vote_cum = stat[3]  # cumulative time
             break
     # The vote must be a small fraction of total fit time (no refit).
-    assert vote_cum <= 0.25 * total, (
-        f"stability vote took {vote_cum:.3f}s of {total:.3f}s total fit ({100 * vote_cum / max(total, 1e-9):.1f}%); expected negligible (replay only)"
-    )
+    assert (
+        vote_cum <= 0.25 * total
+    ), f"stability vote took {vote_cum:.3f}s of {total:.3f}s total fit ({100 * vote_cum / max(total, 1e-9):.1f}%); expected negligible (replay only)"

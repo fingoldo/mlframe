@@ -66,9 +66,9 @@ def test_biz_val_randomize_as_of_lag_beats_freshest_only_training_under_serve_st
     mse_randomized = mean_squared_error(y_test, randomized_model.predict(X_test.to_numpy()))
 
     improvement = 1.0 - mse_randomized / mse_baseline
-    assert improvement > 0.3, (
-        f"expected >30% MSE reduction vs. freshest-only training under a fixed serving staleness, got {improvement:.4f} (baseline={mse_baseline:.2f}, randomized={mse_randomized:.2f})"
-    )
+    assert (
+        improvement > 0.3
+    ), f"expected >30% MSE reduction vs. freshest-only training under a fixed serving staleness, got {improvement:.4f} (baseline={mse_baseline:.2f}, randomized={mse_randomized:.2f})"
 
 
 def test_biz_val_randomize_as_of_lag_histogram_beats_uniform_under_skewed_serving_lag():
@@ -115,9 +115,9 @@ def test_biz_val_randomize_as_of_lag_histogram_beats_uniform_under_skewed_servin
     mse_hist = mean_squared_error(y_test, hist_model.predict(X_test.to_numpy()))
 
     improvement = 1.0 - mse_hist / mse_uniform
-    assert improvement > 0.15, (
-        f"expected >15% MSE reduction vs. uniform-lag training under skewed serving staleness, got {improvement:.4f} (uniform={mse_uniform:.2f}, histogram={mse_hist:.2f})"
-    )
+    assert (
+        improvement > 0.15
+    ), f"expected >15% MSE reduction vs. uniform-lag training under skewed serving staleness, got {improvement:.4f} (uniform={mse_uniform:.2f}, histogram={mse_hist:.2f})"
 
 
 def test_randomize_as_of_lag_histogram_requires_both_edges_and_counts():

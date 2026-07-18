@@ -55,9 +55,9 @@ def test_biz_val_polars_dynamic_window_aggregate_beats_pandas_resample_speed():
     df.set_index("t").groupby("entity")["x"].resample("7D").mean()
     t_pandas = time.perf_counter() - t0
 
-    assert t_polars < t_pandas * 0.5, (
-        f"polars group_by_dynamic should be substantially faster than pandas groupby().resample() at panel scale: polars={t_polars:.4f}s pandas={t_pandas:.4f}s"
-    )
+    assert (
+        t_polars < t_pandas * 0.5
+    ), f"polars group_by_dynamic should be substantially faster than pandas groupby().resample() at panel scale: polars={t_polars:.4f}s pandas={t_pandas:.4f}s"
 
 
 def test_polars_dynamic_window_aggregate_per_group_independent_windows():
@@ -141,6 +141,6 @@ def test_biz_val_polars_dynamic_window_aggregate_multi_window_beats_per_window_l
         polars_dynamic_window_aggregate(df, "t", ["x"], every="7d", period=p, group_col="entity", agg_funcs=["mean", "std"])
     t_loop = time.perf_counter() - t0
 
-    assert t_multi < t_loop * 0.85, (
-        f"periods= multi-window mode should beat a naive per-window loop by reusing the shared lazy prep: multi={t_multi:.4f}s loop={t_loop:.4f}s"
-    )
+    assert (
+        t_multi < t_loop * 0.85
+    ), f"periods= multi-window mode should beat a naive per-window loop by reusing the shared lazy prep: multi={t_multi:.4f}s loop={t_loop:.4f}s"

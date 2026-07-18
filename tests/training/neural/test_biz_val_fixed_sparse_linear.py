@@ -37,9 +37,9 @@ def test_biz_val_fixed_sparse_linear_guarantees_exact_effective_parameter_reduct
 
     # The mask is FIXED (not stochastic dropout), so this reduction is a guaranteed property of every
     # forward/backward pass -- not merely an expected value averaged over random samples.
-    assert abs(effective_fraction - (1.0 - sparsity)) < 0.02, (
-        f"expected the layer's effective nonzero-weight fraction to match the configured (1-sparsity) target, got {effective_fraction:.4f} vs target {1.0 - sparsity:.4f}"
-    )
+    assert (
+        abs(effective_fraction - (1.0 - sparsity)) < 0.02
+    ), f"expected the layer's effective nonzero-weight fraction to match the configured (1-sparsity) target, got {effective_fraction:.4f} vs target {1.0 - sparsity:.4f}"
 
     optimizer = torch.optim.Adam(layer.parameters(), lr=0.05)
     x = torch.randn(32, in_features)
@@ -50,9 +50,9 @@ def test_biz_val_fixed_sparse_linear_guarantees_exact_effective_parameter_reduct
         optimizer.step()
 
     n_nonzero_after_training = int((layer.linear.weight * layer.mask != 0).sum().item())
-    assert n_nonzero_after_training <= n_nonzero, (
-        "expected the guaranteed sparsity bound to hold after training (masked positions can only be zero, gradient updates can't reintroduce nonzero values there)"
-    )
+    assert (
+        n_nonzero_after_training <= n_nonzero
+    ), "expected the guaranteed sparsity bound to hold after training (masked positions can only be zero, gradient updates can't reintroduce nonzero values there)"
 
 
 def test_fixed_sparse_linear_maintains_sparsity_through_training():
@@ -93,9 +93,9 @@ def test_fixed_sparse_linear_default_mask_construction_unchanged_when_importance
     # Pin against the exact construction formula used before this change existed, replicated here.
     generator = torch.Generator().manual_seed(7)
     expected_mask = (torch.rand(20, 30, generator=generator) < 0.2).to(torch.float32)
-    assert torch.equal(layer_a.mask, expected_mask), (
-        "default (no `importance`) mask construction changed -- must stay bit-identical to the prior uniform-random formula"
-    )
+    assert torch.equal(
+        layer_a.mask, expected_mask
+    ), "default (no `importance`) mask construction changed -- must stay bit-identical to the prior uniform-random formula"
 
 
 def test_fixed_sparse_linear_importance_mask_keeps_top_ranked_inputs():
@@ -171,9 +171,9 @@ def test_biz_val_fixed_sparse_linear_importance_mask_beats_random_mask_on_sparse
 
     # Threshold set below the measured margin (importance-ranked mask reliably keeps all 6 informative
     # inputs; random uniform sampling over 60 columns at 10% keep-rate frequently drops several of them).
-    assert mean_importance_mse < mean_random_mse * 0.7, (
-        f"expected importance-ranked mask to beat random mask by a real margin, got importance={mean_importance_mse:.4f} vs random={mean_random_mse:.4f}"
-    )
+    assert (
+        mean_importance_mse < mean_random_mse * 0.7
+    ), f"expected importance-ranked mask to beat random mask by a real margin, got importance={mean_importance_mse:.4f} vs random={mean_random_mse:.4f}"
 
 
 def test_build_importance_mask_helper_respects_keep_count():

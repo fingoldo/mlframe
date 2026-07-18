@@ -112,9 +112,9 @@ def test_iter80_lgb_hgb_polars_cat_both_predict_succeed():
         return_probabilities=True,
         verbose=0,
     )
-    assert len(results["models_used"]) >= 2, (
-        f"Expected both LGB and HGB to predict; got {results['models_used']}. Pre-fix one or both crashed silently (the iter#80 bug)."
-    )
+    assert (
+        len(results["models_used"]) >= 2
+    ), f"Expected both LGB and HGB to predict; got {results['models_used']}. Pre-fix one or both crashed silently (the iter#80 bug)."
     # ``model_name`` format is ``<target_type>_<target_name>[_<pre_pipeline_cls>]``.
     # LGB has no pre_pipeline -> bare base name; HGB has Pipeline pre_pipeline
     # -> ``..._Pipeline`` suffix. Both must yield predictions plus a non-None

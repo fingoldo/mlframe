@@ -109,9 +109,9 @@ class TestSmokeL56_63Imports:
         )
         # Belt-and-braces: the named attribute must be callable (a
         # silent ``= None`` reassignment would still pass hasattr).
-        assert callable(getattr(mod, expected_callable)), (
-            f"L{layer} {module_name}.{expected_callable} is no longer callable; got {type(getattr(mod, expected_callable))!r}"
-        )
+        assert callable(
+            getattr(mod, expected_callable)
+        ), f"L{layer} {module_name}.{expected_callable} is no longer callable; got {type(getattr(mod, expected_callable))!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -538,9 +538,9 @@ class TestLayerRoster:
         module_count = len(glob.glob(os.path.join(this_dir, "test_biz_value_*.py"))) + len(
             glob.glob(os.path.join(this_dir, "test_biz_value_mrmr_*", "test_*.py"))
         )
-        assert module_count >= 110, (
-            f"biz_value test-module roster shrank to {module_count} (floor 110); a prior-layer test module was likely dropped or renamed."
-        )
+        assert (
+            module_count >= 110
+        ), f"biz_value test-module roster shrank to {module_count} (floor 110); a prior-layer test module was likely dropped or renamed."
 
 
 # ---------------------------------------------------------------------------

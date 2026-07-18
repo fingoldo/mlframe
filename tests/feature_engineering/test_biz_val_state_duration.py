@@ -133,9 +133,9 @@ def test_biz_val_cancellation_duration_beats_raw_lag1_flag_on_recency_dependent_
     # cancellation_duration should show strong recency-driven correlation; lag1 (constant False for every
     # "currently cancelled" row regardless of recency) should show far weaker correlation on the same rows.
     assert abs(corr_duration) > 0.15, f"cancellation_duration should predict the recency-dependent target, got corr={corr_duration:.3f}"
-    assert abs(corr_duration) > abs(corr_lag1) + 0.10, (
-        f"cancellation_duration should carry materially more signal than a raw lag-1 flag: duration_corr={corr_duration:.3f} lag1_corr={corr_lag1:.3f}"
-    )
+    assert (
+        abs(corr_duration) > abs(corr_lag1) + 0.10
+    ), f"cancellation_duration should carry materially more signal than a raw lag-1 flag: duration_corr={corr_duration:.3f} lag1_corr={corr_lag1:.3f}"
 
 
 def _make_churn_recidivism_panel(n_entities: int, seed: int, cancel_run_length: int = 4, acquire_run_length: int = 3):

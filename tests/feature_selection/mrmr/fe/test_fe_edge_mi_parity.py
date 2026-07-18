@@ -107,9 +107,9 @@ def test_edge_equals_rank_on_continuous():
     X, y, nb = _continuous_fixture()
     cpu_edge = plugin_mi_classif_batch_edge_njit(X, y, nb)
     cpu_rank = _plugin_mi_classif_batch_njit(X, y, nb)
-    assert np.allclose(cpu_edge, cpu_rank, atol=1e-12, rtol=0), (
-        f"edge vs rank must be bit-identical on continuous data: max|d|={np.max(np.abs(cpu_edge - cpu_rank)):.3e}"
-    )
+    assert np.allclose(
+        cpu_edge, cpu_rank, atol=1e-12, rtol=0
+    ), f"edge vs rank must be bit-identical on continuous data: max|d|={np.max(np.abs(cpu_edge - cpu_rank)):.3e}"
 
 
 def test_edge_differs_from_rank_on_tied():

@@ -23,7 +23,6 @@ import pytest
 from mlframe.feature_engineering.anchor import anchor_ewm_features
 from mlframe.feature_engineering.spatial import knn_label_dispersion_features
 
-
 # ----------------------------- CPX2: anchor EWMA -----------------------------
 
 

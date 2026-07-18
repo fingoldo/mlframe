@@ -26,7 +26,6 @@ from mlframe.training.core._phase_temporal_audit import run_temporal_audit_batch
 from mlframe.training.core._training_context import TrainingContext
 from mlframe.training.core.predict import predict_from_models
 
-
 # ---------------------------------------------------------------------------
 # apply_polars_categorical_fixes — enabled path: nullable Categorical column gets filled
 # ---------------------------------------------------------------------------

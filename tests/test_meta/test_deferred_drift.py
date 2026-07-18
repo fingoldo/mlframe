@@ -43,7 +43,7 @@ def _refresh_requested() -> bool:
 
 
 def test_user_deferred_lists_havent_grown():
-    """User deferred lists havent grown."""
+    """User deferred lists haven't grown."""
     current = count_user_deferred_entries(TEST_META_DIR)
 
     if _refresh_requested() or not _BASELINE_PATH.exists():

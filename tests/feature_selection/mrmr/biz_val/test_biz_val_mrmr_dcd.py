@@ -24,7 +24,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -114,9 +113,9 @@ class TestDCDPoolPrune:
         import re as _re_f0
 
         _dcd_names = list(dcd.get_feature_names_out())
-        assert any(str(s) == "f0" or "f0" in _re_f0.split(r"[^A-Za-z0-9]+", str(s)) for s in _dcd_names), (
-            f"strong signal f0 not recovered (raw or f0-derived); support={_dcd_names}"
-        )
+        assert any(
+            str(s) == "f0" or "f0" in _re_f0.split(r"[^A-Za-z0-9]+", str(s)) for s in _dcd_names
+        ), f"strong signal f0 not recovered (raw or f0-derived); support={_dcd_names}"
 
     def test_dcd_cluster_anchors_keyed_by_selected(self):
         """cluster_anchors keys correspond to selected indices."""

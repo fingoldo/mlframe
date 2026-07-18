@@ -196,7 +196,7 @@ def test_pareto_plot_plotly_backend_writes_html(tmp_path) -> None:
 
 
 def test_pareto_plot_save_failure_warns_doesnt_raise(tmp_path, caplog, monkeypatch) -> None:
-    """Pareto plot save failure warns doesnt raise."""
+    """Pareto plot save failure warns, doesn't raise."""
     import logging
     from mlframe.training.slicing import _slice_pareto_plot as mod
 

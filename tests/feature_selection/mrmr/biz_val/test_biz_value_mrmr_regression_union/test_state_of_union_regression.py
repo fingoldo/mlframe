@@ -132,9 +132,9 @@ class TestPriorLayerDiscoverability:
         # shipped floor. A glob count over the tree catches a dropped/renamed module directly,
         # without depending on docstring provenance markers (which a source-text grep would).
         module_count = len(sorted(root.glob("test_biz_value_*.py"))) + len(sorted(root.glob("test_biz_value_mrmr_*/test_*.py")))
-        assert module_count >= 110, (
-            f"biz_value test-module roster shrank to {module_count} (floor 110); a prior-layer test module was likely dropped or renamed."
-        )
+        assert (
+            module_count >= 110
+        ), f"biz_value test-module roster shrank to {module_count} (floor 110); a prior-layer test module was likely dropped or renamed."
 
     def test_layer_count_matches_expected_78(self):
         """The biz_value module roster (flat + themed subpackages) matches the expected floor."""

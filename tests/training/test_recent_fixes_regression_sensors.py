@@ -26,7 +26,6 @@ import pandas as pd
 import polars as pl
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fix: process_infinities must skip integer columns (af66424).
 # Pre-fix used cs.numeric().replace([inf,-inf], 0.0) which crashed polars
@@ -185,9 +184,9 @@ def test_catboost_default_does_not_create_catboost_info():
     include ``allow_writing_files=False`` so CatBoost never tries to write
     ``catboost_info/`` under the CWD."""
     cb_general = _get_cb_general_params()
-    assert cb_general.get("allow_writing_files") is False, (
-        "CB_GENERAL_PARAMS must default allow_writing_files=False to avoid xdist worker collision on catboost_info/catboost_training.json"
-    )
+    assert (
+        cb_general.get("allow_writing_files") is False
+    ), "CB_GENERAL_PARAMS must default allow_writing_files=False to avoid xdist worker collision on catboost_info/catboost_training.json"
 
 
 def test_catboost_real_fit_writes_no_files_with_default():

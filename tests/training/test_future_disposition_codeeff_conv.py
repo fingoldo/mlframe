@@ -10,7 +10,6 @@ import inspect
 from pathlib import Path
 
 
-
 def _read(rel: str) -> str:
     """Read a module source file from the mlframe src tree.
 
@@ -185,9 +184,9 @@ def test_codep112_train_recurrent_models_reads_from_ctx():
     if rec_line:
         # Either it reads from ctx or there is no recurrent_models= line at all.
         for l in rec_line:
-            assert "ctx.recurrent_models" in l, (
-                "CODE-P1-12 regression: train_recurrent_models() still receives the closed-over param instead of reading ctx.recurrent_models at call time"
-            )
+            assert (
+                "ctx.recurrent_models" in l
+            ), "CODE-P1-12 regression: train_recurrent_models() still receives the closed-over param instead of reading ctx.recurrent_models at call time"
 
 
 # ---------- CODE-P2-8: inspect import at module top ----------
@@ -199,9 +198,9 @@ def test_codep28_inspect_imported_at_module_top():
     inflating per-call dispatch cost in tight loops)."""
     from mlframe.training.core import _phase_train_one_target as pt
 
-    assert hasattr(pt, "inspect"), (
-        "CODE-P2-8 regression: ``inspect`` not bound at module level of _phase_train_one_target; expected `import inspect` at module top."
-    )
+    assert hasattr(
+        pt, "inspect"
+    ), "CODE-P2-8 regression: ``inspect`` not bound at module level of _phase_train_one_target; expected `import inspect` at module top."
     import inspect as _inspect_canonical
 
     assert pt.inspect is _inspect_canonical, "module-level ``inspect`` is not the std-lib module"
@@ -328,9 +327,9 @@ def test_codelow6_profile_harness_module_present():
     harness = repo_root / "tests" / "perf" / "profile_train_mlframe_models_suite.py"
     assert harness.is_file(), f"CODE-LOW-6 regression: profile harness missing at {harness}"
     txt = harness.read_text(encoding="utf-8")
-    assert "cProfile" in txt and "tests/perf/results" in txt.replace("\\", "/"), (
-        "CODE-LOW-6 regression: harness must invoke cProfile and write to tests/perf/results/"
-    )
+    assert "cProfile" in txt and "tests/perf/results" in txt.replace(
+        "\\", "/"
+    ), "CODE-LOW-6 regression: harness must invoke cProfile and write to tests/perf/results/"
 
 
 # ---------- CODE-P1-13: tqdmu_lazy_start audit ----------
@@ -365,6 +364,6 @@ def test_convhigh1_clone_gate_documented():
     src = _read("training/core/_phase_helpers.py")
     if "needs_polars_pre_clone" in src and ".clone()" in src:
         # If the gated clone still exists, a CONV-HIGH-1 marker must be present documenting why.
-        assert "CONV-HIGH-1" in src, (
-            "CONV-HIGH-1 regression: gated clone()s still present but no CONV-HIGH-1 TODO/marker explains the destructive operation that requires them"
-        )
+        assert (
+            "CONV-HIGH-1" in src
+        ), "CONV-HIGH-1 regression: gated clone()s still present but no CONV-HIGH-1 TODO/marker explains the destructive operation that requires them"

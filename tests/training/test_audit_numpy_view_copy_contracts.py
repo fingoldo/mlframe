@@ -32,7 +32,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
@@ -45,22 +44,22 @@ def test_mps_nan_to_num_does_not_write_back_into_view() -> None:
     """mps.py optimal-profit scrub must not mutate the source 'profits' array."""
     src = _read("feature_engineering/mps.py")
     # No copy=False on the np.nan_to_num call for OPTIMAL_PROFIT.
-    assert "np.nan_to_num(profits[:-1], copy=False" not in src, (
-        "feature_engineering/mps.py: np.nan_to_num(profits[:-1], copy=False, ...) writes scrubbed values back into the source 'profits' slice; drop copy=False."
-    )
+    assert (
+        "np.nan_to_num(profits[:-1], copy=False" not in src
+    ), "feature_engineering/mps.py: np.nan_to_num(profits[:-1], copy=False, ...) writes scrubbed values back into the source 'profits' slice; drop copy=False."
     # The fixed form must be present.
-    assert "np.nan_to_num(profits[:-1], nan=0.0, posinf=0.0, neginf=0.0)" in src, (
-        "feature_engineering/mps.py: expected np.nan_to_num(profits[:-1], nan=0.0, ...) (without copy=False) so a fresh array is returned."
-    )
+    assert (
+        "np.nan_to_num(profits[:-1], nan=0.0, posinf=0.0, neginf=0.0)" in src
+    ), "feature_engineering/mps.py: expected np.nan_to_num(profits[:-1], nan=0.0, ...) (without copy=False) so a fresh array is returned."
 
 
 def test_extract_column_array_documents_read_only_contract() -> None:
     """composite_screening._extract_column_array must document its zero-copy contract."""
     src = _read("training/composite/discovery/screening.py")
     # The docstring must warn about read-only contract.
-    assert "read-only" in src.lower(), (
-        "training/composite_screening.py: _extract_column_array returns a zero-copy view when dtype matches; docstring must warn callers."
-    )
+    assert (
+        "read-only" in src.lower()
+    ), "training/composite_screening.py: _extract_column_array returns a zero-copy view when dtype matches; docstring must warn callers."
 
 
 def test_coerce_y_to_float64_documents_read_only_contract() -> None:
@@ -71,9 +70,9 @@ def test_coerce_y_to_float64_documents_read_only_contract() -> None:
     assert helper_idx != -1, "Helper _coerce_y_to_float64 must exist."
     # Read 40 lines after the def signature.
     snippet = src[helper_idx : helper_idx + 1500]
-    assert "read-only" in snippet.lower(), (
-        "training/feature_handling/target_encoders.py: _coerce_y_to_float64 returns a zero-copy view when y is already float64; docstring must warn callers."
-    )
+    assert (
+        "read-only" in snippet.lower()
+    ), "training/feature_handling/target_encoders.py: _coerce_y_to_float64 returns a zero-copy view when y is already float64; docstring must warn callers."
 
 
 # ---------------------------------------------------------------------------

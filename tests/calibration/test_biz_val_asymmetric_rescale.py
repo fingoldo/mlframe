@@ -40,12 +40,12 @@ def test_biz_val_asymmetric_rescale_generalizes_to_held_out_split():
     metric_rescaled = _neg_mse(y_true_test, rescaled_test)
     metric_uncorrected = _neg_mse(y_true_test, y_pred_test)
 
-    assert fit_result["factor"] > 1.0, (
-        f"expected the fitted factor to genuinely correct the asymmetric shrinkage (factor > 1.0), got {fit_result['factor']:.4f}"
-    )
-    assert metric_rescaled > metric_uncorrected, (
-        f"expected the rescale (fit on a SEPARATE validation split) to generalize to held-out test data, got rescaled={metric_rescaled:.4f} uncorrected={metric_uncorrected:.4f}"
-    )
+    assert (
+        fit_result["factor"] > 1.0
+    ), f"expected the fitted factor to genuinely correct the asymmetric shrinkage (factor > 1.0), got {fit_result['factor']:.4f}"
+    assert (
+        metric_rescaled > metric_uncorrected
+    ), f"expected the rescale (fit on a SEPARATE validation split) to generalize to held-out test data, got rescaled={metric_rescaled:.4f} uncorrected={metric_uncorrected:.4f}"
 
 
 def test_apply_asymmetric_rescale_exact_values():
@@ -97,6 +97,6 @@ def test_cross_validate_asymmetric_rescale_does_not_change_default_fit_behavior(
     cross_validate_asymmetric_rescale(y_true_val, y_pred_val, _neg_mse, n_folds=5, factor_range=(1.0, 2.0), n_factors=50)
     fit_after = fit_asymmetric_rescale(y_true_val, y_pred_val, _neg_mse, factor_range=(1.0, 2.0), n_factors=50)
 
-    assert fit_before == fit_after, (
-        f"expected fit_asymmetric_rescale to be bit-identical before/after using cross_validate_asymmetric_rescale, got {fit_before} vs {fit_after}"
-    )
+    assert (
+        fit_before == fit_after
+    ), f"expected fit_asymmetric_rescale to be bit-identical before/after using cross_validate_asymmetric_rescale, got {fit_before} vs {fit_after}"

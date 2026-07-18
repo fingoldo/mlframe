@@ -268,9 +268,9 @@ class TestHybridDiscoversQuadraticSignal:
             min_uplift=1.05,
         )
         x1_he2 = scores[scores["engineered_col"] == "x1__He2"].iloc[0]
-        assert x1_he2["engineered_mi"] > x1_he2["baseline_mi"], (
-            f"He_2(x1) MI {x1_he2['engineered_mi']:.4f} should exceed raw x1 MI {x1_he2['baseline_mi']:.4f} on a y=sign(x1^2-1) signal; seed={seed}"
-        )
+        assert (
+            x1_he2["engineered_mi"] > x1_he2["baseline_mi"]
+        ), f"He_2(x1) MI {x1_he2['engineered_mi']:.4f} should exceed raw x1 MI {x1_he2['baseline_mi']:.4f} on a y=sign(x1^2-1) signal; seed={seed}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_noise_transforms_filtered_by_absolute_gate(self, seed):
@@ -322,9 +322,9 @@ class TestHybridDiscoversCubicUniform:
         # or Legendre (L) depending on which "bounded" branch fires. Accept
         # any non-trivial basis_code suffix for the cubic.
         aug_cols = [c for c in X_aug.columns if c.startswith("x_uni__")]
-        assert len(aug_cols) >= 1 or all(scores[scores["source_col"] == "x_uni"]["uplift"] < 1.02), (
-            f"expected at least one x_uni basis transform under cubic target; seed={seed}, X_aug={list(X_aug.columns)}, scores=\n{scores}"
-        )
+        assert len(aug_cols) >= 1 or all(
+            scores[scores["source_col"] == "x_uni"]["uplift"] < 1.02
+        ), f"expected at least one x_uni basis transform under cubic target; seed={seed}, X_aug={list(X_aug.columns)}, scores=\n{scores}"
 
 
 # ---------------------------------------------------------------------------
@@ -378,7 +378,7 @@ class TestHybridDownstreamLogRegLift:
         auc_aug = roc_auc_score(yte.to_numpy(), m_aug.predict_proba(Xte_aug.to_numpy())[:, 1])
         # On y = sign(x^2 - 1) linear LogReg has near-50% AUC on raw x1.
         # With He_2(x1) (= x1^2 - 1) it should jump to >= 0.85.
-        assert auc_aug > auc_raw + 0.10, (
-            f"seed={seed}: hybrid FE should lift LogReg holdout AUC by >= 0.10 on a quadratic-signal target. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
-        )
+        assert (
+            auc_aug > auc_raw + 0.10
+        ), f"seed={seed}: hybrid FE should lift LogReg holdout AUC by >= 0.10 on a quadratic-signal target. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
         assert auc_aug >= 0.80, f"seed={seed}: augmented LogReg AUC {auc_aug:.3f} should clear 0.80 on a clean quadratic signal"

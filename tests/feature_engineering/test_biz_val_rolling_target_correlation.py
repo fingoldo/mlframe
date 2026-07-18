@@ -43,9 +43,9 @@ def test_biz_val_rolling_target_correlation_tracker_beats_static_selection_mse()
     mse_static = mean_squared_error(y[valid], X.loc[valid, best_static])
 
     improvement = 1.0 - mse_dynamic / mse_static
-    assert improvement > 0.7, (
-        f"expected >70% MSE reduction vs. a static one-time feature selection, got {improvement:.4f} (static={mse_static:.4f}, dynamic={mse_dynamic:.4f})"
-    )
+    assert (
+        improvement > 0.7
+    ), f"expected >70% MSE reduction vs. a static one-time feature selection, got {improvement:.4f} (static={mse_static:.4f}, dynamic={mse_dynamic:.4f})"
 
     # The tracker should have actually detected the regime switch (both features get selected at some point).
     feature_counts = tracker.loc[valid, "dyn_target_corr_feature"].value_counts()

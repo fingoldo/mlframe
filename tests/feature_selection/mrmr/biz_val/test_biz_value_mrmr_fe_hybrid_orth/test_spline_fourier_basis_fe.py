@@ -297,9 +297,9 @@ class TestSplineLogRegAUCLift:
         # Spline-augmented LogReg must clear a meaningful threshold;
         # raw is ~0.55 (random-ish on a box), spline should hit 0.85+.
         assert auc_aug >= 0.85, f"seed={seed}: spline-augmented LogReg AUC {auc_aug:.3f} should clear 0.85 on box-detector target. raw AUC {auc_raw:.3f}"
-        assert auc_aug > auc_raw + 0.12, (
-            f"seed={seed}: spline FE should lift LogReg holdout AUC by >= +0.12 on box-detector target. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
-        )
+        assert (
+            auc_aug > auc_raw + 0.12
+        ), f"seed={seed}: spline FE should lift LogReg holdout AUC by >= +0.12 on box-detector target. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
 
 
 # ---------------------------------------------------------------------------

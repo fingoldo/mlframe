@@ -30,7 +30,6 @@ from mlframe.preprocessing.outliers import (
 from mlframe.metrics.core import brier_and_precision_score, make_brier_precision_scorer
 from mlframe.training.callbacks import stop_file
 
-
 # ---------------------------------------------------------------------------
 # predictions_beautify_linear
 # ---------------------------------------------------------------------------
@@ -236,9 +235,9 @@ def test_count_num_outofranges_is_parallel_and_matches_numpy():
     The per-row count is an order-invariant integer reduction, so parallelisation cannot change the result; this pins both the parallel signature
     (a serial revert drops the n=10M win) and the bit-identity against numpy.
     """
-    assert getattr(count_num_outofranges, "targetoptions", {}).get("parallel") is True, (
-        "count_num_outofranges must be njit(parallel=True) for the n=10M row-parallel win"
-    )
+    assert (
+        getattr(count_num_outofranges, "targetoptions", {}).get("parallel") is True
+    ), "count_num_outofranges must be njit(parallel=True) for the n=10M row-parallel win"
 
     rng = np.random.default_rng(7)
     X = rng.normal(size=(40_000, 6))

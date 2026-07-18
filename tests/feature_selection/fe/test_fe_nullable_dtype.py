@@ -190,9 +190,9 @@ def test_mrmr_recovers_ab_signal_on_nullable_frame_majority_seeds(dtype):
         assert full_pair_hits >= 1
     else:
         # Majority of seeds recover the FULL (a, b) pair. Measured 3/3; floor 2/3.
-        assert full_pair_hits >= 2, (
-            f"{dtype}: (a,b) pair recovered on only {full_pair_hits}/{len(seeds)} seeds on the nullable frame; expected >= 2 (measured 3/3)."
-        )
+        assert (
+            full_pair_hits >= 2
+        ), f"{dtype}: (a,b) pair recovered on only {full_pair_hits}/{len(seeds)} seeds on the nullable frame; expected >= 2 (measured 3/3)."
 
 
 # ---------------------------------------------------------------------------
@@ -219,9 +219,9 @@ def test_transform_nullable_matches_float64_baseline_selection(dtype):
 
     base_names = list(m_base.get_feature_names_out())
     null_names = list(m_null.get_feature_names_out())
-    assert null_names == base_names, (
-        f"{dtype}: nullable-frame selection {null_names} diverged from the float64 baseline {base_names}; nullable path altered scoring."
-    )
+    assert (
+        null_names == base_names
+    ), f"{dtype}: nullable-frame selection {null_names} diverged from the float64 baseline {base_names}; nullable path altered scoring."
 
     # Transform a (small) nullable test slice. Output must keep the selected base
     # columns; engineered-recipe columns (if any) come out as plain float.
@@ -249,9 +249,9 @@ def test_transform_nullable_matches_float64_baseline_selection(dtype):
         )
         if na_positions.size:
             checked_a_missing_col = True
-    assert checked_a_missing_col, (
-        "at least one selected column should have carried pd.NA in the test slice; fixture / selection did not exercise the missingness path"
-    )
+    assert (
+        checked_a_missing_col
+    ), "at least one selected column should have carried pd.NA in the test slice; fixture / selection did not exercise the missingness path"
 
     # Engineered-recipe columns (orthogonal-basis hinge / spline etc. can appear
     # even at fe_max_steps=0) come out as a dense float column, never object.
@@ -328,9 +328,9 @@ def test_unary_binary_recipe_replays_on_nullable_frame(dtype):
     # Documented contract: missing-source rows are scrubbed to 0.0 (fit-time and
     # transform-time agree), so they are finite -- not NaN, not pd.NA.
     missing = np.array(sorted(set(na_rows_a) | set(na_rows_b)))
-    assert np.all(col[missing] == 0.0), (
-        f"{dtype}: missing-source rows must scrub to 0.0 to match fit-time check_prospective_fe_pairs (got {col[missing].tolist()})."
-    )
+    assert np.all(
+        col[missing] == 0.0
+    ), f"{dtype}: missing-source rows must scrub to 0.0 to match fit-time check_prospective_fe_pairs (got {col[missing].tolist()})."
     assert np.isfinite(col).all(), "replay output must be finite after NaN scrubbing"
 
 
@@ -352,9 +352,9 @@ def test_fit_produced_recipes_replay_on_nullable_transform_frame(dtype):
     assert list(out.columns) == list(m.get_feature_names_out())
     for r in m._engineered_recipes_:
         if r.name in out.columns:
-            assert out[r.name].dtype.kind == "f", (
-                f"{dtype}: replayed recipe {r.name!r} (kind={r.kind}) produced a non-float column ({out[r.name].dtype}) on a nullable frame."
-            )
+            assert (
+                out[r.name].dtype.kind == "f"
+            ), f"{dtype}: replayed recipe {r.name!r} (kind={r.kind}) produced a non-float column ({out[r.name].dtype}) on a nullable frame."
 
 
 # ---------------------------------------------------------------------------

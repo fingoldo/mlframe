@@ -175,9 +175,9 @@ def test_in_memory_and_disk_predict_agree_on_simple_suite(tmp_path):
     from mlframe.training.core.predict import load_mlframe_suite
 
     loaded_models, loaded_metadata = load_mlframe_suite(models_path)
-    assert loaded_models, (
-        f"shimmed disk save produced no .dump files under {models_path}; present: {os.listdir(models_path) if os.path.isdir(models_path) else 'MISSING DIR'}"
-    )
+    assert (
+        loaded_models
+    ), f"shimmed disk save produced no .dump files under {models_path}; present: {os.listdir(models_path) if os.path.isdir(models_path) else 'MISSING DIR'}"
 
     results_disk = predict_from_models(
         df=df,

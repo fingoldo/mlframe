@@ -20,7 +20,6 @@ from sklearn.model_selection import KFold
 
 from mlframe.feature_engineering.transformer import compute_residual_attention
 
-
 pytestmark = pytest.mark.fast
 
 

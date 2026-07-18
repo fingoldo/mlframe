@@ -101,7 +101,7 @@ def find_source_proxy_sites(path: Path) -> list[tuple[int, str]]:
         for node in _iter_scope_nodes(scope):
             if not isinstance(node, ast.Compare) or id(node) in seen:
                 continue
-            if len(node.ops) != 1 or not isinstance(node.ops[0], (ast.In, ast.NotIn)):
+            if len(node.ops) != 1 or not isinstance(node.ops[0], (ast.In, ast.NotIn)):  # codespell:ignore
                 continue
             left = node.left
             if not (isinstance(left, ast.Constant) and isinstance(left.value, (str, bytes))):

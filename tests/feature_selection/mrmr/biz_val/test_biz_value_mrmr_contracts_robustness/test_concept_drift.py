@@ -647,6 +647,6 @@ class TestBaselinePlainMRMRRecoversStable:
         """Contract 8: non-wrapped MRMR baseline also picks stable_x."""
         X, y, flaky_slices = _build_drifty_data(seed=seed)
         names = _fit_plain_mrmr(X, y)
-        assert "stable_x" in names, (
-            f"seed={seed} flaky_slices={flaky_slices}: plain MRMR baseline dropped stable_x; layer-12 contracts are vacuous. support={names}"
-        )
+        assert (
+            "stable_x" in names
+        ), f"seed={seed} flaky_slices={flaky_slices}: plain MRMR baseline dropped stable_x; layer-12 contracts are vacuous. support={names}"

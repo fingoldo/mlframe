@@ -99,6 +99,6 @@ def test_seeded_path_rescored_on_this_data():
     cold = optimise_hermite_pair(x_a=a, x_b=b, y=y, **_COMMON)
     warm = optimise_hermite_pair(x_a=a, x_b=b, y=y, cross_fit_prior_seeds=prior, **_COMMON)
     # On a noise target both must agree on admission (None == not admitted).
-    assert (cold is None) == (warm is None), (
-        f"cross-fit prior changed ADMISSION on a noise target -- LEAK BUG: cold={'None' if cold is None else 'kept'} warm={'None' if warm is None else 'kept'}"
-    )
+    assert (cold is None) == (
+        warm is None
+    ), f"cross-fit prior changed ADMISSION on a noise target -- LEAK BUG: cold={'None' if cold is None else 'kept'} warm={'None' if warm is None else 'kept'}"

@@ -228,9 +228,9 @@ class TestExtremeOutliersX1SignalSurvives:
         """1%/5% 1000x-scale outliers in x1 keep x1's signal (raw or a derived child) and leak no noise column."""
         names = _build_and_fit_layer11(seed, outlier_frac=frac)
         assert names, f"seed={seed} frac={frac}: empty support"
-        assert any(n == "x1" or n.split("__")[0] == "x1" for n in names), (
-            f"seed={seed} extreme_frac={frac}: x1 signal lost entirely -- neither raw x1 nor an x1-derived child survived. support={names}"
-        )
+        assert any(
+            n == "x1" or n.split("__")[0] == "x1" for n in names
+        ), f"seed={seed} extreme_frac={frac}: x1 signal lost entirely -- neither raw x1 nor an x1-derived child survived. support={names}"
         noise_leaked = [n for n in names if n.split("__")[0].startswith("noise_")]
         assert not noise_leaked, f"seed={seed} extreme_frac={frac}: noise column(s) {noise_leaked} leaked into support under outlier injection. support={names}"
 

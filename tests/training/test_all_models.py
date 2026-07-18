@@ -26,7 +26,6 @@ from mlframe.training.configs import PreprocessingBackendConfig
 from mlframe.training.configs import TargetTypes
 from .shared import SimpleFeaturesAndTargetsExtractor, get_cpu_config, skip_if_dependency_missing
 
-
 # ================================================================================================
 # Model Lists & Constants
 # ================================================================================================
@@ -57,9 +56,9 @@ def _assert_trained_target_entries(entries, *, target_type_label: str):
         # Most fitted estimators expose predict OR predict_proba; require at least one.
         has_predict = callable(getattr(m, "predict", None))
         has_predict_proba = callable(getattr(m, "predict_proba", None))
-        assert has_predict or has_predict_proba, (
-            f"{target_type_label}: entries[{i}].model is not a fitted estimator: no predict / predict_proba on {type(m).__name__}"
-        )
+        assert (
+            has_predict or has_predict_proba
+        ), f"{target_type_label}: entries[{i}].model is not a fitted estimator: no predict / predict_proba on {type(m).__name__}"
 
 
 # Models that support categorical features natively (HGB excluded per user request)

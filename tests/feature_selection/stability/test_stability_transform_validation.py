@@ -79,9 +79,9 @@ def test_transform_reordered_columns_realigned():
     out_shuffled = sel.transform(X_shuffled)
     # Both outputs must reference the SAME underlying columns by name.
     if hasattr(out_ordered, "columns"):
-        assert list(out_ordered.columns) == list(out_shuffled.columns), (
-            f"transform on reordered columns gave different output names: {list(out_ordered.columns)} vs {list(out_shuffled.columns)}"
-        )
+        assert list(out_ordered.columns) == list(
+            out_shuffled.columns
+        ), f"transform on reordered columns gave different output names: {list(out_ordered.columns)} vs {list(out_shuffled.columns)}"
         # And the values per column must match.
         for col in out_ordered.columns:
             np.testing.assert_allclose(

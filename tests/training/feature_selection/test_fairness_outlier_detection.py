@@ -13,7 +13,6 @@ from mlframe.training.core import (
 )
 from mlframe.training.configs import TrainingBehaviorConfig
 
-
 # ----- _compute_fairness_subgroups -----
 
 

@@ -246,6 +246,39 @@ class _MRMRConfigMixin:
             seed = getattr(self, "random_seed", None)
         return seed
 
+    def _effective_n_jobs(self) -> int:
+        """Resolve ``n_jobs`` (sentinel ``-1`` -> physical core count) at the point of use, not at
+        construction time (08_sklearn_joblib_compat.md finding #1). ``self.n_jobs`` is stored UNMODIFIED
+        by ``__init__`` per the sklearn contract (mirrors ``_effective_random_seed``'s ``random_state``/
+        ``random_seed`` reconciliation), so a pickled/cloned estimator re-resolves ``-1`` against
+        WHICHEVER machine actually runs the fit instead of carrying the constructing machine's core
+        count forever."""
+        import psutil
+
+        n_jobs = getattr(self, "n_jobs", -1)
+        if n_jobs == -1:
+            return int(psutil.cpu_count(logical=False))
+        return int(n_jobs)
+
+    def _effective_parallel_kwargs(self) -> dict:
+        """Resolve ``parallel_kwargs`` (sentinel ``None`` -> the threading-backend default) at the point
+        of use, not at construction time (08_sklearn_joblib_compat.md finding #1, same reasoning as
+        ``_effective_n_jobs``). ``backend="threading"``: joblib uses a ThreadPoolExecutor in the same
+        process instead of the default loky ProcessPoolExecutor. Data arrays are shared in memory (zero
+        copy, no memmap_folder, no paging-file pressure); numba kernels in mi_direct / parallel_mi_prange
+        / compute_mi_from_classes already release the GIL so threads run truly parallel on CPU cores.
+        Pre-fix iter-371 1M cb multiclass + MRMR + binary=medium: 3 joblib loky workers each memmap'd the
+        1M-row dataset (3GB RAM total), then Windows WinError 1455 (paging file too small) cascaded into
+        MemoryError + dangling joblib_memmapping_folder temp files the resource tracker could not clean
+        up. ``max_nbytes`` is silently ignored by joblib's threading backend (a memmap-spill threshold
+        for loky workers only); kept for symmetry with a caller-supplied loky ``parallel_kwargs``."""
+        from .._internals import MAX_JOBLIB_NBYTES
+
+        kwargs = getattr(self, "parallel_kwargs", None)
+        if kwargs is None:
+            return dict(max_nbytes=MAX_JOBLIB_NBYTES, backend="threading")
+        return dict(kwargs)
+
     def _resolve_target_prefix(self) -> str:
         """Stable, seedable prefix for the temporary target columns injected during fit.
 
@@ -283,11 +316,15 @@ class _MRMRConfigMixin:
             if self.verbose:
                 logger.info("Converted targets from int64 to int16.")
             return vals.astype(np.int16)
-        if self.verbose:
-            logger.warning(
-                "MRMR: keeping int64 targets (range [%d, %d] exceeds int16 [%d, %d]); skipping memory-saving downcast.",
-                int(vmin), int(vmax), info.min, info.max,
-            )
+        # 09_error_messages_ux.md: this warning reports a real behavioral notice (the memory-saving
+        # downcast was skipped) -- gating it behind ``self.verbose`` was a one-off pattern not used
+        # elsewhere in the module (most warnings fire unconditionally) and meant a default (verbose=0)
+        # caller got no notice at all, compounding logger.warning's own default invisibility. Ungated;
+        # the message itself is cheap and already actionable (shows both ranges).
+        logger.warning(
+            "MRMR: keeping int64 targets (range [%d, %d] exceeds int16 [%d, %d]); skipping memory-saving downcast.",
+            int(vmin), int(vmax), info.min, info.max,
+        )
         return vals
 
     def _rfecv_cv_kwargs(self) -> dict:
@@ -340,11 +377,17 @@ class _MRMRConfigMixin:
     @classmethod
     def _resolve_fresh_instance_defaults(cls) -> Optional[dict]:
         """Cached snapshot of a freshly-constructed instance's ``__dict__``, used by
-        ``__setstate__`` to source ctor params whose ``__init__`` BODY resolves them to a
-        concrete value (``n_jobs=-1`` -> ``psutil.cpu_count()``, ``parallel_kwargs=None`` ->
-        a dict) rather than leaving them at the raw signature default -- ``_ctor_defaults()``
-        alone would inject the unresolved sentinel (``-1``/``None``) for those two keys,
-        diverging from what a real fresh instance actually carries.
+        ``__setstate__`` to source ctor params whose ``__init__`` BODY resolves to a concrete
+        value rather than leaving them at the raw signature default, so a legacy pickle missing
+        that key matches what a real fresh instance actually carries. As of
+        08_sklearn_joblib_compat.md finding #1, ``n_jobs``/``parallel_kwargs`` are NO LONGER
+        resolved at construction time (they're stored raw like every other ctor param and
+        resolved lazily via ``_effective_n_jobs()``/``_effective_parallel_kwargs()``) -- this
+        also closes finding #3's adjacent hazard, where a worker-process unpickle used to bake
+        the WORKER's own ``psutil.cpu_count()`` into ``self.n_jobs`` for any legacy pickle
+        missing that key, diverging from the value on the driver process that pickled the
+        original instance. This cache remains for any FUTURE ctor param that does genuinely
+        resolve at construction time.
 
         These resolved values are host-constant (same install, same machine) for the
         lifetime of the process, so constructing a throwaway ``MRMR()`` -- which pays the

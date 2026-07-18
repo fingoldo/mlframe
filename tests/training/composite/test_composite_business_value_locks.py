@@ -239,9 +239,9 @@ class TestLockWrapperAware:
         assert np.all(np.isfinite(y_hat)), "regression: wrapper produced non-finite predictions on outlier base"
         # Loose bound: predictions stay within 100x of train y_max.
         y_train_max = float(df["y"].iloc[:cut].max())
-        assert np.all(np.abs(y_hat) < 100 * y_train_max), (
-            f"regression: wrapper y-clip not bounding predictions; max|y_hat|={np.abs(y_hat).max():.2f}, 100*y_train_max={100 * y_train_max:.2f}"
-        )
+        assert np.all(
+            np.abs(y_hat) < 100 * y_train_max
+        ), f"regression: wrapper y-clip not bounding predictions; max|y_hat|={np.abs(y_hat).max():.2f}, 100*y_train_max={100 * y_train_max:.2f}"
 
 
 # ----------------------------------------------------------------------
@@ -327,9 +327,9 @@ class TestLockEnsembleNNLS:
         nnls_rmse = float(np.sqrt(mean_squared_error(y_te, nnls_pred)))
         # Lock: NNLS not worse than 1.5% over best_single (allows
         # for jitter; demo showed NNLS +1.1% better).
-        assert nnls_rmse < best_single * 1.015, (
-            f"regression: NNLS stack ({nnls_rmse:.4f}) much worse than best_single ({best_single:.4f}); expected within 1.5%"
-        )
+        assert (
+            nnls_rmse < best_single * 1.015
+        ), f"regression: NNLS stack ({nnls_rmse:.4f}) much worse than best_single ({best_single:.4f}); expected within 1.5%"
 
 
 # ----------------------------------------------------------------------
@@ -384,9 +384,9 @@ class TestLockTimeIndexDemoter:
         if d_off.specs_:
             assert d_off.specs_[0].base_column == "base_time", "fixture broken: OFF should pick base_time (highest MI)"
         if d_on.specs_:
-            assert d_on.specs_[0].base_column != "base_time", (
-                f"regression: time-index demoter failed to push base_time down; got '{d_on.specs_[0].base_column}'"
-            )
+            assert (
+                d_on.specs_[0].base_column != "base_time"
+            ), f"regression: time-index demoter failed to push base_time down; got '{d_on.specs_[0].base_column}'"
 
 
 # ----------------------------------------------------------------------
@@ -453,9 +453,9 @@ class TestLockMedianSeeds:
         # Demo showed 47.8% reduction. Lock at >=30%.
         if std_single > 1e-6:
             reduction = (std_single - std_median) / std_single
-            assert reduction >= 0.3, (
-                f"regression: median-of-5 reduced std by only {reduction * 100:.0f}% (single={std_single:.4f}, median={std_median:.4f}); expected >= 30%"
-            )
+            assert (
+                reduction >= 0.3
+            ), f"regression: median-of-5 reduced std by only {reduction * 100:.0f}% (single={std_single:.4f}, median={std_median:.4f}); expected >= 30%"
 
 
 # ----------------------------------------------------------------------

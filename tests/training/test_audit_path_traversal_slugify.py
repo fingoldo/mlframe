@@ -31,8 +31,6 @@ import importlib
 import os
 from pathlib import Path
 
-
-
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
@@ -123,9 +121,9 @@ def test_hex_key_re_is_fully_anchored() -> None:
     from mlframe.training.composite.cache_store import _HEX_KEY_RE
 
     assert _HEX_KEY_RE.match("deadbeef") is not None
-    assert _HEX_KEY_RE.match("deadbeef/../etc") is None, (
-        "_HEX_KEY_RE must be fully anchored so a partial-hex string with trailing path-traversal characters fails the fast-path gate."
-    )
+    assert (
+        _HEX_KEY_RE.match("deadbeef/../etc") is None
+    ), "_HEX_KEY_RE must be fully anchored so a partial-hex string with trailing path-traversal characters fails the fast-path gate."
     assert _HEX_KEY_RE.match("deadbeef\nrogue") is None
     assert _HEX_KEY_RE.match("deadbeefXY") is None
 

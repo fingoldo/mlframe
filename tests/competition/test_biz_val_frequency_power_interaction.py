@@ -61,9 +61,9 @@ def test_biz_val_frequency_power_interaction_beats_raw_plus_count():
     baseline_auc = _oof_auc(baseline_features, y, seed=0)
     interaction_auc = _oof_auc(interaction_features, y, seed=0)
 
-    assert interaction_auc > baseline_auc, (
-        f"expected power-interaction feature to improve OOF AUC over raw+count alone, baseline_auc={baseline_auc:.4f}, interaction_auc={interaction_auc:.4f}"
-    )
+    assert (
+        interaction_auc > baseline_auc
+    ), f"expected power-interaction feature to improve OOF AUC over raw+count alone, baseline_auc={baseline_auc:.4f}, interaction_auc={interaction_auc:.4f}"
     improvement = interaction_auc - baseline_auc
     # measured ~0.10 absolute AUC improvement on this fixture; threshold set well below that
     assert improvement >= 0.06, f"expected >=0.06 absolute AUC improvement, got {improvement:.4f}"

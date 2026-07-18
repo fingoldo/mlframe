@@ -74,9 +74,9 @@ def test_optimised_gradient_matches_dense_reference():
     _ranknet_reference_dense(s_ref, relevance).backward()
     ranknet_pairwise_loss(s_opt, relevance).backward()
     max_abs = (s_ref.grad - s_opt.grad).abs().max().item()
-    assert max_abs <= _GRAD_ATOL, (
-        f"gradient max-abs diff {max_abs:.2e} exceeds tolerance {_GRAD_ATOL:.0e}; the indexed form should preserve gradients within fp32 summation-order noise"
-    )
+    assert (
+        max_abs <= _GRAD_ATOL
+    ), f"gradient max-abs diff {max_abs:.2e} exceeds tolerance {_GRAD_ATOL:.0e}; the indexed form should preserve gradients within fp32 summation-order noise"
 
 
 @pytest.mark.slow_only
@@ -120,6 +120,6 @@ def test_biz_value_speedup_at_n256():
     t_old = _bench(_ranknet_reference_dense)
     t_new = _bench(ranknet_pairwise_loss)
     speedup = t_old / t_new
-    assert speedup >= 1.05, (
-        f"expected >=1.05x speedup at N={n_docs}; got {speedup:.2f}x (old={t_old * 1000:.1f}ms, new={t_new * 1000:.1f}ms over {n_calls} calls)"
-    )
+    assert (
+        speedup >= 1.05
+    ), f"expected >=1.05x speedup at N={n_docs}; got {speedup:.2f}x (old={t_old * 1000:.1f}ms, new={t_new * 1000:.1f}ms over {n_calls} calls)"

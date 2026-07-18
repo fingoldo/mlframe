@@ -132,7 +132,7 @@ def test_fallback_is_no_drop_default():
 def test_optin_fractions_monotone_in_pool_size():
     # The recommended OPT-IN aggressive fractions are monotone: larger pool -> smaller fraction
     # (signal concentrates at the top), tiny pool -> keep all.
-    """Optin fractions monotone in pool size."""
+    """Option fractions monotone in pool size."""
     assert _optin_keep_frac(50) <= _optin_keep_frac(20) <= _optin_keep_frac(5)
     assert _optin_keep_frac(5) == 1.0
 
@@ -398,9 +398,9 @@ def test_bizvalue_equal_wall_deeper_needle():
     # recovers at least the (c,d) needle plus one more engineered form (here 2). The flat
     # count is recorded for the report but not used as a floor -- a higher flat count is a
     # cross-mix-retention artefact, not a recovery advantage.
-    assert rung_eng >= 2, (
-        f"rung deeper-search recovered too few engineered features ({rung_eng}); expected >= 2 (the (c,d) needle + at least one more). flat_eng={flat_eng}"
-    )
+    assert (
+        rung_eng >= 2
+    ), f"rung deeper-search recovered too few engineered features ({rung_eng}); expected >= 2 (the (c,d) needle + at least one more). flat_eng={flat_eng}"
 
 
 # ===========================================================================

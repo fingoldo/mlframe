@@ -20,7 +20,6 @@ from mlframe.training.configs import (
     MultilabelDispatchConfig,
 )
 
-
 # ---- TreeModelConfig -------------------------------------------------------
 
 

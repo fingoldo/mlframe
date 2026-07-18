@@ -102,9 +102,9 @@ def test_biz_val_aggregate_curve_selection_beats_naive_per_fold_average():
     # stack at any single round); averaging per-fold argmaxes cannot undo a fold that already committed to
     # its own spurious peak. Floor set well below the measured ~7.3x gap (2.52 vs 18.45) to absorb seed
     # variance while still catching a regression toward parity.
-    assert mean_aggregate_error < mean_naive_error / 2.0, (
-        f"mean aggregate error ({mean_aggregate_error:.2f}) should be far lower than mean naive error ({mean_naive_error:.2f}) across {n_trials} trials"
-    )
+    assert (
+        mean_aggregate_error < mean_naive_error / 2.0
+    ), f"mean aggregate error ({mean_aggregate_error:.2f}) should be far lower than mean naive error ({mean_naive_error:.2f}) across {n_trials} trials"
     assert win_rate >= 0.9, f"aggregate selection should win nearly every trial in this regime, got win_rate={win_rate:.2f}"
 
 
@@ -149,9 +149,9 @@ def test_biz_val_aggregate_curve_selection_trimmed_mean_beats_plain_mean_with_ou
     median_result = select_best_iteration_by_aggregate_cv(curves, maximize=True, aggregation="median")
 
     # sanity: the outlier really does hijack the plain-mean curve's argmax away from the true optimum.
-    assert mean_result["best_round"] == anomaly_round, (
-        f"sanity: plain mean should be hijacked by the single-fold spike at round {anomaly_round}, got best_round={mean_result['best_round']}"
-    )
+    assert (
+        mean_result["best_round"] == anomaly_round
+    ), f"sanity: plain mean should be hijacked by the single-fold spike at round {anomaly_round}, got best_round={mean_result['best_round']}"
 
     trimmed_error = abs(trimmed_result["best_round"] - true_best_round)
     median_error = abs(median_result["best_round"] - true_best_round)

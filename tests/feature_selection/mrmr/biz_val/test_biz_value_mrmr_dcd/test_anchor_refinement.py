@@ -255,9 +255,9 @@ class TestLayer45_ScenarioB_MemberSwap:
                 assert entry.get("aggregate_name", "") == "", "member-swap entry must have empty aggregate_name"
                 assert "member_relevance" in entry, "member-swap entry must record member_relevance"
                 # member_relevance must exceed anchor_relevance_in_ctx.
-                assert float(entry["member_relevance"]) >= float(entry["anchor_relevance_in_ctx"]), (
-                    f"member-swap must only fire when member CMI > anchor CMI; got {entry}"
-                )
+                assert float(entry["member_relevance"]) >= float(
+                    entry["anchor_relevance_in_ctx"]
+                ), f"member-swap must only fire when member CMI > anchor CMI; got {entry}"
 
     def test_commit_swap_member_branch_updates_state_correctly(self):
         """Drive the full ``evaluate_swap_candidate`` -> ``commit_swap``
@@ -364,9 +364,9 @@ class TestLayer45_ScenarioB_MemberSwap:
         )
         assert new_idx == member_idx
         # 1. Matrix is NOT extended.
-        assert state.factors_data.shape[1] == n_cols_before, (
-            f"member-swap must NOT extend factors_data; got {state.factors_data.shape[1]} vs pre={n_cols_before}"
-        )
+        assert (
+            state.factors_data.shape[1] == n_cols_before
+        ), f"member-swap must NOT extend factors_data; got {state.factors_data.shape[1]} vs pre={n_cols_before}"
         # 2. selected_vars contains the member (replacement of anchor).
         assert member_idx in selected_vars
         assert 1 not in selected_vars, f"old anchor must be removed from selected_vars; got {selected_vars}"
@@ -522,9 +522,9 @@ class TestLayer45_DirectDecision:
             assert decision.aggregate_name == ""
             assert decision.binned_rep is None
             # member_relevance must beat anchor_relevance by the gain.
-            assert decision.member_relevance > (decision.anchor_relevance_in_ctx * 1.05), (
-                f"member-swap requires member_rel > anchor_rel * 1.05; got member={decision.member_relevance}, anchor={decision.anchor_relevance_in_ctx}"
-            )
+            assert decision.member_relevance > (
+                decision.anchor_relevance_in_ctx * 1.05
+            ), f"member-swap requires member_rel > anchor_rel * 1.05; got member={decision.member_relevance}, anchor={decision.anchor_relevance_in_ctx}"
 
     def test_evaluate_returns_none_branch_when_anchor_dominates(self):
         """When the anchor's CMI strictly dominates every member's and

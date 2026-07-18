@@ -30,7 +30,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 _TEXT_VOCAB = [
     "python",
     "rust",

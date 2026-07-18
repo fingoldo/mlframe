@@ -133,9 +133,9 @@ class TestPipelineCacheKeyMatchesAcrossStrategiesWithIdenticalRequirements:
 
         # All-numeric frame: identical content-keyed lookups (Linear's target-encoder is a no-op when there are no cats), so the second
         # strategy HITs the first's slot. With cats, Linear encodes / the MLP keeps raw -> distinct keys (covered by the next class).
-        assert _key(lin, ()) == _key(neu, ()), (
-            f"content-keyed cache lookups MUST match for Linear and Neural on an all-numeric frame. Got: lin={_key(lin, ())!r}, neu={_key(neu, ())!r}"
-        )
+        assert _key(lin, ()) == _key(
+            neu, ()
+        ), f"content-keyed cache lookups MUST match for Linear and Neural on an all-numeric frame. Got: lin={_key(lin, ())!r}, neu={_key(neu, ())!r}"
         assert _key(lin, ("c1",)) != _key(neu, ("c1",))
 
     def test_strategies_with_different_requirements_get_distinct_keys(self) -> None:

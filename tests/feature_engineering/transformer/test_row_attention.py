@@ -30,7 +30,6 @@ from mlframe.feature_engineering.transformer import (
     compute_row_attention,
 )
 
-
 pytestmark = pytest.mark.fast
 
 

@@ -41,9 +41,9 @@ def test_biz_val_row_wise_summary_stats_beats_raw_columns_alone_mse():
     mse_augmented = mean_squared_error(y[test_idx], augmented.predict(X_augmented.iloc[test_idx]))
 
     improvement = 1.0 - mse_augmented / mse_baseline
-    assert improvement > 0.7, (
-        f"expected >70% MSE reduction from row-wise summary features, got {improvement:.4f} (baseline={mse_baseline:.4f}, augmented={mse_augmented:.4f})"
-    )
+    assert (
+        improvement > 0.7
+    ), f"expected >70% MSE reduction from row-wise summary features, got {improvement:.4f} (baseline={mse_baseline:.4f}, augmented={mse_augmented:.4f})"
 
 
 def test_row_wise_summary_stats_output_shape_and_columns():

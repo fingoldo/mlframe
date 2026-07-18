@@ -561,9 +561,9 @@ class TestAutoDetectNumColRelevance:
             )
             assert appended, f"seed={s}: auto-detect produced no aggregates"
             sources = {a.split("|")[0].split("(")[-1] for a in appended}
-            assert sources == {"x"}, (
-                f"seed={s}: auto-detected aggregates of non-signal sources {sources}; the y-relevance filter should restrict to 'x'. appended={appended}"
-            )
+            assert sources == {
+                "x"
+            }, f"seed={s}: auto-detected aggregates of non-signal sources {sources}; the y-relevance filter should restrict to 'x'. appended={appended}"
 
     def test_auto_detect_skips_already_engineered_grp_columns(self):
         """A ``grp*``-prefixed column already engineered by an earlier grouped-FE stage must NOT be re-aggregated: it is constant

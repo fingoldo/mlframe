@@ -386,9 +386,9 @@ class TestEnsembleVsAutoComparison:
         # robustness-add should NOT regress the AUC win that L68 already
         # delivers; if it does, the rank aggregation is destroying
         # signal that the LCB winner-take-all kept.
-        assert ens_mean >= auto_mean - 0.01, (
-            f"ensemble AUC mean ({ens_mean:.4f}) regressed vs L68 auto mean ({auto_mean:.4f}); per-seed ens={aucs_ens}, auto={aucs_auto}"
-        )
+        assert (
+            ens_mean >= auto_mean - 0.01
+        ), f"ensemble AUC mean ({ens_mean:.4f}) regressed vs L68 auto mean ({auto_mean:.4f}); per-seed ens={aucs_ens}, auto={aucs_auto}"
 
 
 # ---------------------------------------------------------------------------

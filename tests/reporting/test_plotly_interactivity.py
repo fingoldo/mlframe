@@ -29,7 +29,7 @@ def _layout(fig):
 
 
 def _rangeslider_visibles(fig):
-    """Helper: Rangeslider visibles."""
+    """Helper: Rangeslider visible."""
     lay = _layout(fig)
     return [lay[k].get("rangeslider", {}).get("visible") for k in lay if k.startswith("xaxis")]
 

@@ -26,7 +26,6 @@ from mlframe.training.composite.transforms import (
     is_composite_target_name,
 )
 
-
 # ---------------------------------------------------------------------------
 # Unit: registry wiring, round-trip, base contract, domain, serialisation.
 # ---------------------------------------------------------------------------

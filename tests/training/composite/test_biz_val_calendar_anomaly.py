@@ -114,7 +114,7 @@ def test_biz_val_detect_calendar_anomalies_recurrence_separates_weekly_pattern_f
     # The weekly-peak days must overwhelmingly land in 'recurring', not 'rare'.
     recurring_days_set = set(recurring_days.tolist())
     correctly_recurring = len(recurring_days_set & recurring_flagged)
-    assert correctly_recurring >= len(recurring_days_set) * 0.95, (
-        f"expected >=95% of the {len(recurring_days_set)} genuine weekly-peak days classified 'recurring', got {correctly_recurring}"
-    )
+    assert (
+        correctly_recurring >= len(recurring_days_set) * 0.95
+    ), f"expected >=95% of the {len(recurring_days_set)} genuine weekly-peak days classified 'recurring', got {correctly_recurring}"
     assert len(recurring_days_set & rare_flagged) == 0

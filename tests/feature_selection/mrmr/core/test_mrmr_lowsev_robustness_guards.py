@@ -18,7 +18,6 @@ from mlframe.feature_selection.filters._mrmr_artifacts import _assert_nonneg_cod
 from mlframe.feature_selection.filters.mrmr import MRMR
 import mlframe.feature_selection.filters._mrmr_validate_transform as VT
 
-
 # --------------------------------------------------------------------------
 # B11: categorize_dataset must not crash on a frame that yields zero usable
 # columns OR an empty reduction axis (the final ``data.max(axis=0)`` and the

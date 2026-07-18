@@ -35,6 +35,6 @@ def test_cupy_stage4_softmax_temp_zero_no_inf():
 
     row_attention_stage4_cupy(q_proj, k_proj, y_train, topk_ids, 0.0, y_mean, y_std, x_mean)
 
-    assert np.isfinite(y_mean).all() and np.isfinite(y_std).all() and np.isfinite(x_mean).all(), (
-        "softmax_temp=0 produced non-finite output; the cupy kernel must guard 1/softmax_temp like its njit twin."
-    )
+    assert (
+        np.isfinite(y_mean).all() and np.isfinite(y_std).all() and np.isfinite(x_mean).all()
+    ), "softmax_temp=0 produced non-finite output; the cupy kernel must guard 1/softmax_temp like its njit twin."

@@ -61,9 +61,9 @@ def test_biz_val_nearest_holiday_name_target_encoding_beats_blanket_is_holiday_f
     rmse_name = mean_squared_error(y[eval_mask], encoded_name[eval_mask]) ** 0.5
     rmse_blanket = mean_squared_error(y[eval_mask], encoded_blanket[eval_mask]) ** 0.5
 
-    assert rmse_name < rmse_blanket * 0.5, (
-        f"expected per-name target encoding to roughly halve RMSE vs blanket flag, got name={rmse_name:.2f} blanket={rmse_blanket:.2f}"
-    )
+    assert (
+        rmse_name < rmse_blanket * 0.5
+    ), f"expected per-name target encoding to roughly halve RMSE vs blanket flag, got name={rmse_name:.2f} blanket={rmse_blanket:.2f}"
     assert rmse_name < 12.0, f"expected per-name encoding RMSE close to the {_BASELINE * 0.03:.1f} noise floor, got {rmse_name:.2f}"
 
 

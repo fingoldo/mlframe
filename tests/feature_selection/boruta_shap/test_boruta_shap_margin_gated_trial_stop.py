@@ -17,7 +17,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # Cap kept modest (70) so two fits stay well under the pytest timeout while still leaving a residual tentative tail
 # at the cap (full resolution on this bed needs ~110 trials). The fs_hybrid round4_adaptive_n_trials_bench.py runs
 # the production-scale recipe (n=5000, cap=120) and confirms the larger wall-savings (synth ~72%, hard_synth ~63%).

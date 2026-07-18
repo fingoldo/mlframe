@@ -26,7 +26,6 @@ pytestmark = pytest.mark.sklearn_matrix
 
 from mlframe.training.composite import CompositeCrossTargetEnsemble
 
-
 # ----------------------------------------------------------------------
 # Mock components
 # ----------------------------------------------------------------------

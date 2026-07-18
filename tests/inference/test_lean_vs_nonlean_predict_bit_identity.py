@@ -32,7 +32,6 @@ import pytest
 from mlframe.training.io import save_mlframe_model, load_mlframe_model, _LEAN_STRIP_FIELDS
 from mlframe.training.core.predict import predict_from_models
 
-
 # Single-threaded zstd avoids the Windows multi-thread ``flush of closed file`` quirk
 # in atomic_write_bytes; the lean strip + dill graph are identical regardless of thread count.
 _ZSTD = dict(level=4, write_checksum=True, write_content_size=True, threads=0)

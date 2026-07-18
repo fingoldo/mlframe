@@ -118,9 +118,9 @@ def test_biz_val_lazy_prebin_peak_ram_below_float_plane():
 
     assert np.array_equal(eager, lazy)
     float_plane = n * f * 4
-    assert lazy_peak <= 0.60 * eager_peak, (
-        f"lazy peak {lazy_peak / 1e6:.1f} MB should be <=60% of eager {eager_peak / 1e6:.1f} MB (float plane {float_plane / 1e6:.1f} MB)"
-    )
+    assert (
+        lazy_peak <= 0.60 * eager_peak
+    ), f"lazy peak {lazy_peak / 1e6:.1f} MB should be <=60% of eager {eager_peak / 1e6:.1f} MB (float plane {float_plane / 1e6:.1f} MB)"
     # Lazy must avoid materialising a full float plane's worth of transient.
     assert lazy_peak < float_plane, f"lazy peak {lazy_peak / 1e6:.1f} MB should be below the avoided float plane {float_plane / 1e6:.1f} MB"
 

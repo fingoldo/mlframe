@@ -26,7 +26,6 @@ import pytest
 
 from mlframe.training.trainer import _append_split_rate_suffix
 
-
 # -----------------------------------------------------------------------------
 # Binary classification — the user's main use case
 # -----------------------------------------------------------------------------

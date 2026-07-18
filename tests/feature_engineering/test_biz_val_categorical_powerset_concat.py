@@ -50,9 +50,9 @@ def test_biz_val_categorical_powerset_concat_recovers_pairwise_random_mapping():
 
     assert acc_marginal < 0.65, f"expected marginal-only one-hot to stay far below the composite's accuracy on a pairwise-random target, got {acc_marginal:.4f}"
     assert acc_composite > 0.9, f"expected the composite A_B categorical to recover the pairwise mapping, got {acc_composite:.4f}"
-    assert acc_composite - acc_marginal > 0.3, (
-        f"expected the composite feature to beat marginal-only features by a wide margin, got composite={acc_composite:.4f} marginal={acc_marginal:.4f}"
-    )
+    assert (
+        acc_composite - acc_marginal > 0.3
+    ), f"expected the composite feature to beat marginal-only features by a wide margin, got composite={acc_composite:.4f} marginal={acc_marginal:.4f}"
 
 
 def test_categorical_powerset_concat_column_count_and_names():
@@ -111,6 +111,6 @@ def test_biz_val_categorical_powerset_concat_prune_against_target_keeps_informat
     assert informative_cols.issubset(kept_composites), f"expected the informative A_B composite to survive pruning, kept={kept_composites}"
     kept_noise = kept_composites & noise_cols
     dropped_noise_fraction = 1.0 - (len(kept_noise) / len(noise_cols))
-    assert dropped_noise_fraction >= 0.8, (
-        f"expected pruning to drop >=80% of the {len(noise_cols)} noise composites, dropped only {dropped_noise_fraction:.2%} (kept {kept_noise})"
-    )
+    assert (
+        dropped_noise_fraction >= 0.8
+    ), f"expected pruning to drop >=80% of the {len(noise_cols)} noise composites, dropped only {dropped_noise_fraction:.2%} (kept {kept_noise})"

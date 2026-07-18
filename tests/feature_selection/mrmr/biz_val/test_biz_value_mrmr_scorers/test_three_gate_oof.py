@@ -201,9 +201,9 @@ class TestOofMiVsPlugIn:
                 n_seeds_with_reduction += 1
         # Bias regularisation must fire on the strict majority of seeds.
         # Not 100 % -- finite-sample variance can flip a borderline seed.
-        assert n_seeds_with_reduction >= 4, (
-            f"OOF MI failed to reduce mean engineered MI on noise frames on {6 - n_seeds_with_reduction} of 6 seeds; bias-regularisation claim violated."
-        )
+        assert (
+            n_seeds_with_reduction >= 4
+        ), f"OOF MI failed to reduce mean engineered MI on noise frames on {6 - n_seeds_with_reduction} of 6 seeds; bias-regularisation claim violated."
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_oof_mi_signal_still_high(self, seed):
@@ -221,9 +221,9 @@ class TestOofMiVsPlugIn:
         signal_oof = float(row["engineered_mi_oof"].iloc[0])
         noise = sc[sc["engineered_col"].str.startswith("noise_")]
         noise_max = float(noise["engineered_mi_oof"].max()) if not noise.empty else 0.0
-        assert signal_oof > noise_max, (
-            f"seed={seed}: x1__He2 OOF MI={signal_oof:.4f} not above max noise OOF MI={noise_max:.4f}; OOF over-regularised the genuine signal."
-        )
+        assert (
+            signal_oof > noise_max
+        ), f"seed={seed}: x1__He2 OOF MI={signal_oof:.4f} not above max noise OOF MI={noise_max:.4f}; OOF over-regularised the genuine signal."
 
 
 # ---------------------------------------------------------------------------
@@ -314,9 +314,9 @@ class TestThreeGateRejectsAlreadyExplained:
             seed=seed,
         )
         appended = [c for c in X_aug.columns if c not in X.columns]
-        assert "x1__T2" not in appended, (
-            f"seed={seed}: x1__T2 was appended despite being a basis-equivalent duplicate of x1__He2 in support; got appended={appended}"
-        )
+        assert (
+            "x1__T2" not in appended
+        ), f"seed={seed}: x1__T2 was appended despite being a basis-equivalent duplicate of x1__He2 in support; got appended={appended}"
 
 
 # ---------------------------------------------------------------------------
@@ -413,9 +413,9 @@ class TestEnableAppendsEngineered:
         ).fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
         assert added, f"seed={seed}: three-gate flag ON should append at least one engineered column to hybrid_orth_features_; got {added}"
-        assert any(c.startswith("x1__") for c in added), (
-            f"seed={seed}: three-gate winners should include an x1 basis column for a clean He_2 signal; got {added}"
-        )
+        assert any(
+            c.startswith("x1__") for c in added
+        ), f"seed={seed}: three-gate winners should include an x1 basis column for a clean He_2 signal; got {added}"
 
 
 # ---------------------------------------------------------------------------
@@ -471,16 +471,16 @@ class TestPickleAndClone:
 
         recipes_before = _orth_recipes(m)
         recipes_after = _orth_recipes(m2)
-        assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_univariate recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
-        )
+        assert set(recipes_before.keys()) == set(
+            recipes_after.keys()
+        ), f"pickle dropped or added orth_univariate recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
             assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
-                assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
-                )
+                assert r_before.extra.get(key) == r_after.extra.get(
+                    key
+                ), f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
 
 
 # ---------------------------------------------------------------------------
@@ -522,6 +522,6 @@ class TestRecipeReplay:
             )
             replayed = apply_recipe(r, X)
             fit_time = X_aug[r.name].to_numpy()
-            assert np.allclose(replayed, fit_time, rtol=1e-9, atol=1e-12), (
-                f"seed={seed}: recipe {r.name!r} replay drift: max|replayed - fit| = {float(np.max(np.abs(replayed - fit_time)))}; extra={dict(r.extra)}"
-            )
+            assert np.allclose(
+                replayed, fit_time, rtol=1e-9, atol=1e-12
+            ), f"seed={seed}: recipe {r.name!r} replay drift: max|replayed - fit| = {float(np.max(np.abs(replayed - fit_time)))}; extra={dict(r.extra)}"

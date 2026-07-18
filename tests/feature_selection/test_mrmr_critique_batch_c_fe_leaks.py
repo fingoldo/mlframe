@@ -43,7 +43,7 @@ def _te_inputs(n=200, seed=0):
 
 
 def test_naive_target_encoding_falls_back_to_oof_without_optin(caplog):
-    """Naive target encoding falls back to oof without optin."""
+    """Naive target encoding falls back to oof without option."""
     from mlframe.feature_selection.filters._cat_target_encoding_and_weighted import _compute_target_encoding
 
     factors, y, nbins = _te_inputs()

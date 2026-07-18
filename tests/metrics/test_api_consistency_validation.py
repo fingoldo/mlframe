@@ -19,7 +19,6 @@ warnings.filterwarnings("ignore")
 import numpy as np
 import pytest
 
-
 # --------------------------------------------------------------------------- #
 # API-P0-1: equal-length validation in fast_* wrappers
 # --------------------------------------------------------------------------- #

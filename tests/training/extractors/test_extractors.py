@@ -23,7 +23,6 @@ from mlframe.training.extractors import (
 )
 from mlframe.training.configs import TargetTypes
 
-
 # =============================================================================
 # Helper Function Tests
 # =============================================================================

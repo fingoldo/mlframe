@@ -29,7 +29,6 @@ from mlframe.training.pipeline._pipeline_helpers import (
     _apply_pre_pipeline_transforms,
 )
 
-
 # Module-level call recorder so the FunctionSampler callables stay picklable/clonable.
 _RESAMPLE_ROW_COUNTS: list[int] = []
 

@@ -39,7 +39,6 @@ from mlframe.training.evaluation import (
 )
 from mlframe.training.targets import coerce_timestamps_for_audit as _coerce_ts
 
-
 # ---------------------------------------------------------------------------
 # plot_qq decimation
 # ---------------------------------------------------------------------------

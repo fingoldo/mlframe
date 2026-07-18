@@ -317,9 +317,9 @@ class TestGainRatioAuditSignal:
     def test_gains_attribute_exposed_and_aligned(self, seed):
         """mrmr_gains_ is exposed, length-aligned to support_, finite and non-negative."""
         _X, _y, sel = _build_and_fit_layer17(seed)
-        assert hasattr(sel, "mrmr_gains_"), (
-            "MRMR.mrmr_gains_ must be exposed for user-level leak auditing (gain[top] / gain[median] is the canonical audit heuristic)."
-        )
+        assert hasattr(
+            sel, "mrmr_gains_"
+        ), "MRMR.mrmr_gains_ must be exposed for user-level leak auditing (gain[top] / gain[median] is the canonical audit heuristic)."
         gains = np.asarray(sel.mrmr_gains_, dtype=np.float64)
         assert gains.shape == (sel.n_features_,), (
             f"mrmr_gains_ length {gains.shape} != n_features_ "
@@ -327,9 +327,9 @@ class TestGainRatioAuditSignal:
             f"aligned to support_ for user-level leak attribution. "
             f"seed={seed}"
         )
-        assert np.all(np.isfinite(gains)), (
-            f"mrmr_gains_ contains non-finite entries {gains} -- a user can't divide top/median on a NaN/Inf gain vector. seed={seed}"
-        )
+        assert np.all(
+            np.isfinite(gains)
+        ), f"mrmr_gains_ contains non-finite entries {gains} -- a user can't divide top/median on a NaN/Inf gain vector. seed={seed}"
         assert np.all(gains >= 0.0), f"mrmr_gains_ has negative entries {gains}; gains are defined as marginal MI deltas and must be >= 0. seed={seed}"
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -493,9 +493,9 @@ class TestSupportGainsAlignment:
         # A non-empty support is a hard contract on the leaky frame (the direct
         # leak alone has near-perfect MI with y); an empty gains array means MRMR
         # selected nothing, which is a regression, not a skippable case.
-        assert gains.size >= 1, (
-            f"empty support on the leaky frame (seed={seed}); MRMR selected no feature despite the direct leak having near-perfect MI with y."
-        )
+        assert (
+            gains.size >= 1
+        ), f"empty support on the leaky frame (seed={seed}); MRMR selected no feature despite the direct leak having near-perfect MI with y."
         # gain[0] is the FIRST greedy pick == largest relevance gain.
         # The remaining picks have STRICTLY non-increasing gains (relative-gain
         # stop). So argmax of the gains array must be index 0.
@@ -512,7 +512,7 @@ class TestSupportGainsAlignment:
         the sklearn-contract length check is a single explicit assertion.
         """
         _X, _y, sel = _build_and_fit_layer17(1)
-        assert len(sel.mrmr_gains_) == len(sel.support_), (
-            f"mrmr_gains_ length {len(sel.mrmr_gains_)} != support_ length {len(sel.support_)}; bit-alignment broken."
-        )
+        assert len(sel.mrmr_gains_) == len(
+            sel.support_
+        ), f"mrmr_gains_ length {len(sel.mrmr_gains_)} != support_ length {len(sel.support_)}; bit-alignment broken."
         assert len(sel.mrmr_gains_) == sel.n_features_, f"mrmr_gains_ length {len(sel.mrmr_gains_)} != n_features_ {sel.n_features_}."

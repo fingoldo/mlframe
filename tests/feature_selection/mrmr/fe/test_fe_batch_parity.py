@@ -117,9 +117,9 @@ def test_cpu_batcher_matches_gpu_batcher(fixture):
     cpu = cpu_fe_batch_mi(X, y, nb)
     gpu = gpu_fe_batch_mi(X, y, nb)
     cp.get_default_memory_pool().free_all_blocks()
-    assert np.allclose(cpu, gpu, atol=1e-9, rtol=0), (
-        f"CPU vs GPU batcher diverged: max|d|={np.max(np.abs(cpu - gpu)):.3e} (the two FE paths must select identically)"
-    )
+    assert np.allclose(
+        cpu, gpu, atol=1e-9, rtol=0
+    ), f"CPU vs GPU batcher diverged: max|d|={np.max(np.abs(cpu - gpu)):.3e} (the two FE paths must select identically)"
 
 
 @pytest.mark.gpu

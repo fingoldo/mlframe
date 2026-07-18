@@ -20,7 +20,6 @@ import torch.nn as nn
 
 from mlframe.training.neural._sam_optimizer import SAM
 
-
 # --- Unit tests --------------------------------------------------------------
 
 

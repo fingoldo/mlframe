@@ -21,7 +21,6 @@ import polars as pl
 
 from mlframe.feature_selection.pre_screen import apply_drops, compute_unsupervised_drops
 
-
 # ----------------------------------------------------------------------------
 # compute_unsupervised_drops — edge / type cases
 # ----------------------------------------------------------------------------

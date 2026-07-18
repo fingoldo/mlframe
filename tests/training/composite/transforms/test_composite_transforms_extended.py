@@ -48,7 +48,6 @@ from mlframe.training.composite.transforms.extended import (
     _smoothing_spline_residual_forward,
 )
 
-
 _RNG = np.random.default_rng(20260526)
 
 

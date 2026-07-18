@@ -158,6 +158,6 @@ def test_apply_outlier_policy_unwrap_pipeline_routes_wrapped_tree_model_correctl
     model_fixed = lgb.LGBMClassifier(n_estimators=100, verbosity=-1).fit(fixed_train, y_train)
     auc_fixed = roc_auc_score(y_test, model_fixed.predict_proba(fixed_test)[:, 1])
 
-    assert auc_fixed > auc_misrouted + 0.14, (
-        f"unwrap_pipeline=True should recover the tree-aware-policy win lost to misrouting: fixed={auc_fixed:.4f} misrouted={auc_misrouted:.4f}"
-    )
+    assert (
+        auc_fixed > auc_misrouted + 0.14
+    ), f"unwrap_pipeline=True should recover the tree-aware-policy win lost to misrouting: fixed={auc_fixed:.4f} misrouted={auc_misrouted:.4f}"

@@ -78,9 +78,9 @@ def test_biz_val_extra_trees_reduces_holdout_rmse_at_large_tree_count():
     mean_rmse_default = float(np.mean(rmse_default))
     win_rate = float(np.mean(np.array(rmse_extra) < np.array(rmse_default)))
 
-    assert mean_rmse_extra < mean_rmse_default, (
-        f"extra_trees=True should reduce mean held-out RMSE at large n_estimators: extra_trees={mean_rmse_extra:.4f} default={mean_rmse_default:.4f}"
-    )
+    assert (
+        mean_rmse_extra < mean_rmse_default
+    ), f"extra_trees=True should reduce mean held-out RMSE at large n_estimators: extra_trees={mean_rmse_extra:.4f} default={mean_rmse_default:.4f}"
     assert win_rate >= 0.5, f"extra_trees=True should win at least half of {n_seeds} seeds, got win_rate={win_rate:.2f}"
 
 

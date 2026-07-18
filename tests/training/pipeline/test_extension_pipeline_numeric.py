@@ -72,14 +72,14 @@ def test_polynomial_with_string_column_drops_string_no_crash(caplog) -> None:
     for _df, _label in ((out_train, "train"), (out_val, "val"), (out_test, "test")):
         if _df is None:
             continue
-        assert "cat_mid" not in _df.columns, (
-            f"cat_mid leaked into {_label} output -- the numeric-only filter at apply_preprocessing_extensions entry did not fire."
-        )
+        assert (
+            "cat_mid" not in _df.columns
+        ), f"cat_mid leaked into {_label} output -- the numeric-only filter at apply_preprocessing_extensions entry did not fire."
     # The drop must be visible in the log (single WARN line with
     # the dropped column names).
-    assert any("dropped" in rec.message and "cat_mid" in rec.message for rec in caplog.records), (
-        f"expected dropped-non-numeric WARN; got: {[r.message for r in caplog.records]}"
-    )
+    assert any(
+        "dropped" in rec.message and "cat_mid" in rec.message for rec in caplog.records
+    ), f"expected dropped-non-numeric WARN; got: {[r.message for r in caplog.records]}"
 
 
 def test_scaler_with_object_column_no_truth_value_error() -> None:

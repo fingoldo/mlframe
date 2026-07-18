@@ -40,9 +40,9 @@ def test_biz_val_detect_expanding_window_feature_leakage_detects_planted_leak():
     result = detect_expanding_window_feature_leakage(df, "t", y, _frequency_count_fit_transform, lambda: LinearRegression(), n_splits=5, scoring="r2")
 
     assert result["leak_detected"] is True
-    assert result["inflation"] > 0.03, (
-        f"expected the leaky full-dataset feature to score materially higher than the honest per-fold one, got inflation={result['inflation']:.4f}"
-    )
+    assert (
+        result["inflation"] > 0.03
+    ), f"expected the leaky full-dataset feature to score materially higher than the honest per-fold one, got inflation={result['inflation']:.4f}"
     # The inflation should be most visible in the EARLIEST fold, where the honest per-fold count has the
     # fewest observations to estimate the true rate from.
     early_gap = result["leaky_scores"][0] - result["honest_scores"][0]
@@ -104,9 +104,9 @@ def test_biz_val_detect_expanding_window_feature_leakage_auto_remediate_eliminat
         df, "t", y, _remediated_lookup_fit_transform, lambda: LinearRegression(), n_splits=5, scoring="r2"
     )
     assert remediated_rerun["leak_detected"] is False
-    assert remediated_rerun["inflation"] < baseline["inflation"] - 0.02, (
-        f"expected remediation to materially shrink inflation, got baseline={baseline['inflation']:.4f} remediated={remediated_rerun['inflation']:.4f}"
-    )
+    assert (
+        remediated_rerun["inflation"] < baseline["inflation"] - 0.02
+    ), f"expected remediation to materially shrink inflation, got baseline={baseline['inflation']:.4f} remediated={remediated_rerun['inflation']:.4f}"
 
 
 def test_detect_expanding_window_feature_leakage_auto_remediate_default_off_is_bit_identical():

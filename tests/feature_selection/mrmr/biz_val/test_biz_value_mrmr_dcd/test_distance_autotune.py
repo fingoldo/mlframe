@@ -252,9 +252,9 @@ class TestLayer46_NonLinearCluster:
         _X2, _y2, m_vi = _nonlinear_fit("vi")
         n_pruned_su = int((m_su.dcd_ or {}).get("n_pruned", 0))
         n_pruned_vi = int((m_vi.dcd_ or {}).get("n_pruned", 0))
-        assert n_pruned_vi >= n_pruned_su, (
-            f"VI must catch at least as many non-linear cluster members as SU; got n_pruned_vi={n_pruned_vi}, n_pruned_su={n_pruned_su}"
-        )
+        assert (
+            n_pruned_vi >= n_pruned_su
+        ), f"VI must catch at least as many non-linear cluster members as SU; got n_pruned_vi={n_pruned_vi}, n_pruned_su={n_pruned_su}"
 
     def test_auto_at_least_as_tight_as_either(self):
         """``"auto"`` returns max(SU, VI) per pair, so its pruned count

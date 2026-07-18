@@ -198,12 +198,12 @@ class TestDefaultIsLegacyByteIdentical:
         """Default fe_mi_greedy_enable=False produces empty mi_greedy_features_ and unchanged feature_names_in_."""
         X, _y, m = _linear_default_fit(seed)
         assert m.fe_mi_greedy_enable is False
-        assert m.mi_greedy_features_ == [], (
-            f"seed={seed}: default fe_mi_greedy_enable=False should produce empty mi_greedy_features_, got {m.mi_greedy_features_}"
-        )
-        assert list(m.feature_names_in_) == list(X.columns), (
-            f"seed={seed}: feature_names_in_ must equal raw X.columns when MI-greedy FE is off; got {list(m.feature_names_in_)}"
-        )
+        assert (
+            m.mi_greedy_features_ == []
+        ), f"seed={seed}: default fe_mi_greedy_enable=False should produce empty mi_greedy_features_, got {m.mi_greedy_features_}"
+        assert list(m.feature_names_in_) == list(
+            X.columns
+        ), f"seed={seed}: feature_names_in_ must equal raw X.columns when MI-greedy FE is off; got {list(m.feature_names_in_)}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_support_identical_to_explicit_off(self, seed):
@@ -400,9 +400,9 @@ class TestDownstreamLogRegLift:
             f"should clear 0.85 on XOR product; raw AUC {auc_raw:.3f}; "
             f"mi_greedy_features_={mrmr_mg.mi_greedy_features_}"
         )
-        assert auc_aug - auc_raw >= 0.20, (
-            f"seed={seed}: MI-greedy FE should lift LogReg holdout AUC by >= +0.20 on XOR product. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
-        )
+        assert (
+            auc_aug - auc_raw >= 0.20
+        ), f"seed={seed}: MI-greedy FE should lift LogReg holdout AUC by >= +0.20 on XOR product. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
 
 
 # ---------------------------------------------------------------------------

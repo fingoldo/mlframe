@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from .combo import FuzzCombo
 
-
 # ---------------------------------------------------------------------------
 # Frame builder — turns a combo into (df, target_col, cat_feature_names)
 # ---------------------------------------------------------------------------

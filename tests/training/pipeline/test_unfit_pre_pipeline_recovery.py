@@ -165,6 +165,6 @@ def test_recovery_branch_lives_in_predict_py():
 
     assert _has_ref("feature_names_in_"), "predict_from_models must reference feature_names_in_ (sklearn recovery)"
     assert _has_ref("feature_names_"), "predict_from_models must reference feature_names_ (CatBoost recovery)"
-    assert any("Skipping pre_pipeline" in s for s in str_consts), (
-        "predict.py must keep the 'Skipping pre_pipeline' log-warn in the recovery branch (iter-59 family regression marker)."
-    )
+    assert any(
+        "Skipping pre_pipeline" in s for s in str_consts
+    ), "predict.py must keep the 'Skipping pre_pipeline' log-warn in the recovery branch (iter-59 family regression marker)."

@@ -16,7 +16,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # All 9 njit-coded binary op codes (mul/add/sub/div/max/min/abs_diff/signed/ratio_abs).
 _ALL_OPS = list(range(9))
 
@@ -54,9 +53,9 @@ def test_materialise_parallel_eq_serial(n_rows, K, n_operands, with_nan, with_in
     _materialise_chunk_njit(tv, a_cols, b_cols, ops, out_serial)
     _materialise_chunk_njit_parallel(tv, a_cols, b_cols, ops, out_parallel)
     # BYTE-identical: same bits (view as uint32 so NaN/-0.0/+0.0 distinctions are exact).
-    assert np.array_equal(out_serial.view(np.uint32), out_parallel.view(np.uint32)), (
-        "parallel materialise twin diverged from serial -- would flip the noise-gate"
-    )
+    assert np.array_equal(
+        out_serial.view(np.uint32), out_parallel.view(np.uint32)
+    ), "parallel materialise twin diverged from serial -- would flip the noise-gate"
 
 
 @pytest.mark.parametrize("n_rows,K,n_operands", [(400, 18, 6), (1500, 36, 8)])
