@@ -365,9 +365,9 @@ class TestBuildConfigsFromParams:
             "ltr_panels",
             "quantile_panels",
         ):
-            assert getattr(reporting_config, field) == getattr(ref, field), (
-                f"trainer reporting default for {field!r} drifted from ReportingConfig default: {getattr(reporting_config, field)!r} != {getattr(ref, field)!r}"
-            )
+            assert getattr(reporting_config, field) == getattr(
+                ref, field
+            ), f"trainer reporting default for {field!r} drifted from ReportingConfig default: {getattr(reporting_config, field)!r} != {getattr(ref, field)!r}"
         # The slow kaleido PNG path must NOT be the default.
         assert reporting_config.plot_outputs == "plotly[html] + matplotlib[png]"
         assert reporting_config.plot_outputs != "plotly[html,png]"

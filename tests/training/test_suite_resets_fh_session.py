@@ -24,9 +24,9 @@ from mlframe.training.feature_handling import (
 
 def test_main_module_imports_reset_session_from_fingerprint():
     """Structural smoke: the symbol must be wired into core.main as ``reset_fh_session``."""
-    assert hasattr(core_main, "reset_fh_session"), (
-        "core.main must import reset_session from feature_handling.fingerprint so suite entry can rotate the FH cache namespace"
-    )
+    assert hasattr(
+        core_main, "reset_fh_session"
+    ), "core.main must import reset_session from feature_handling.fingerprint so suite entry can rotate the FH cache namespace"
     # And it must point to the actual fingerprint helper (not some shadowed local).
     from mlframe.training.feature_handling.fingerprint import (
         reset_session as fp_reset,
@@ -54,9 +54,9 @@ def test_suite_entry_rotates_fh_session_token():
         )
 
     token_after = current_session().session_id
-    assert token_after != token_before, (
-        "suite entry must rotate the FH session token; without it consecutive suites can collide on recycled id(train_df) for in-memory cache entries"
-    )
+    assert (
+        token_after != token_before
+    ), "suite entry must rotate the FH session token; without it consecutive suites can collide on recycled id(train_df) for in-memory cache entries"
 
 
 def test_two_consecutive_suite_calls_produce_distinct_session_tokens():

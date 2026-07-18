@@ -519,9 +519,9 @@ def test_documented_xfail_cell_recovers_in_fresh_process(kind, formula, profile,
             f"stdout:\n{proc.stdout}\nstderr tail:\n{proc.stderr[-2000:]}",
             pytrace=False,
         )
-    assert proc.returncode == 0, (
-        f"recovery subprocess for {kind}:{formula}:{profile}:{n} errored (rc={proc.returncode}); stdout:\n{proc.stdout}\nstderr tail:\n{proc.stderr[-2000:]}"
-    )
+    assert (
+        proc.returncode == 0
+    ), f"recovery subprocess for {kind}:{formula}:{profile}:{n} errored (rc={proc.returncode}); stdout:\n{proc.stdout}\nstderr tail:\n{proc.stderr[-2000:]}"
 
 
 @pytest.fixture(scope="session", autouse=True)

@@ -35,7 +35,6 @@ from mlframe.training.core import (
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor, TimestampedFeaturesExtractor
 from tests.conftest import fast_subset
 
-
 # --------------------------------------------------------------------------------------
 # Data factories
 # --------------------------------------------------------------------------------------
@@ -243,9 +242,9 @@ def test_fairness_features_emits_per_group_path(tmp_path, common_init_params, se
     fairness_in_a = _has_populated_fairness(meta_a)
     fairness_in_b = _has_populated_fairness(meta_b)
     # Run A must not have a populated fairness payload (proves conditional path).
-    assert not fairness_in_a, (
-        f"Run A (fairness_features=[]) unexpectedly carries fairness payload in metadata: {[k for k in meta_a if 'fairness' in k.lower()]}"
-    )
+    assert (
+        not fairness_in_a
+    ), f"Run A (fairness_features=[]) unexpectedly carries fairness payload in metadata: {[k for k in meta_a if 'fairness' in k.lower()]}"
     # Bug B fix 2026-04-15: train_mlframe_models_suite now aggregates per-model
     # fairness_report into metadata["fairness_report"] when fairness_features is set.
     assert fairness_in_b, f"Run B (fairness_features=['group']) should expose fairness payload in metadata; keys={list(meta_b.keys())}"

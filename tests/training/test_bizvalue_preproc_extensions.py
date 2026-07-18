@@ -41,7 +41,6 @@ except Exception as exc:  # pragma: no cover
 
 from .shared import SimpleFeaturesAndTargetsExtractor
 
-
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
@@ -170,9 +169,9 @@ def test_polynomial_features_lift_on_xor_like_data(tmp_path, seed):
 
     print(f"\n[Test2 Poly] baseline AUROC={auroc_a:.4f}  poly AUROC={auroc_b:.4f}  delta={auroc_b - auroc_a:+.4f}")
 
-    assert auroc_b > auroc_a + 0.05, (
-        f"PolynomialFeatures(degree=2,interaction_only) failed to lift AUROC by 0.05 on XOR-like data: A={auroc_a:.4f} B={auroc_b:.4f}"
-    )
+    assert (
+        auroc_b > auroc_a + 0.05
+    ), f"PolynomialFeatures(degree=2,interaction_only) failed to lift AUROC by 0.05 on XOR-like data: A={auroc_a:.4f} B={auroc_b:.4f}"
 
 
 # ---------------------------------------------------------------------------

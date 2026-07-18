@@ -19,7 +19,6 @@ import pytest
 
 from tests._pysr_gate import pysr_works
 
-
 pytestmark = [
     pytest.mark.skipif(
         not pysr_works(),

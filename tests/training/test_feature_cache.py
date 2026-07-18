@@ -37,7 +37,6 @@ from mlframe.training.feature_handling import (
 )
 from typing import Optional
 
-
 # =====================================================================
 # Fixtures
 # =====================================================================

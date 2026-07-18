@@ -170,9 +170,9 @@ def test_canonical_transform_replays_engineered_columns_leak_safe():
     for i in eng_idx:
         col = Xt_full[:, i]
         assert np.isfinite(col).all(), f"engineered col {out_names[i]} has non-finite values"
-        assert float(np.std(col)) > 1e-9, (
-            f"engineered col {out_names[i]} reached the consumer but is CONSTANT (std={np.std(col):.2e}) - dead feature, not the recommended signal"
-        )
+        assert (
+            float(np.std(col)) > 1e-9
+        ), f"engineered col {out_names[i]} reached the consumer but is CONSTANT (std={np.std(col):.2e}) - dead feature, not the recommended signal"
 
 
 # The ``maximal`` preset exhausts the full unary x binary operator cross-product over the 20k-row
@@ -407,9 +407,9 @@ def test_user_case_drops_redundant_raw_a_multi_seed(seed):
     assert any({"a", "b"} <= _bare_vars(nm) for nm in eng), f"[seed={seed}] no a**2/b coverage: {eng}"
     assert any({"c", "d"} <= _bare_vars(nm) for nm in eng), f"[seed={seed}] no log(c)*sin(d) coverage: {eng}"
     # raw ``a`` -- fully subsumed by its a**2/b sub-expression -- must NOT survive.
-    assert "a" not in out, (
-        f"[seed={seed}] raw 'a' spuriously kept despite being fully subsumed by its a**2/b sub-expression (nested inside the fused composite): out={out}"
-    )
+    assert (
+        "a" not in out
+    ), f"[seed={seed}] raw 'a' spuriously kept despite being fully subsumed by its a**2/b sub-expression (nested inside the fused composite): out={out}"
 
 
 @pytest.mark.timeout(900)
@@ -864,9 +864,9 @@ def test_redundancy_drop_drops_dominant_subsumed_operand_unit():
         engineered_continuous={"div(neg(a),sqrt(b))": ratio},
         seed=11,
     )
-    assert "a" in dropped, (
-        f"BUG1: dominant subsumed numerator operand 'a' was NOT dropped (former leg B false-keep): kept={[cols[i] for i in kept_idx]}, dropped={dropped}"
-    )
+    assert (
+        "a" in dropped
+    ), f"BUG1: dominant subsumed numerator operand 'a' was NOT dropped (former leg B false-keep): kept={[cols[i] for i in kept_idx]}, dropped={dropped}"
 
 
 # ---------------------------------------------------------------------------
@@ -921,9 +921,9 @@ def test_redundancy_drop_keeps_raws_when_subsumer_is_unreplayable_nested():
         replayable_eng_names=set(),  # the nested child is NOT replayable
         seed=42,
     )
-    assert dropped == [], (
-        f"raw operand(s) dropped against an UN-REPLAYABLE nested subsumer (would empty the support): dropped={dropped}, kept={[cols[i] for i in kept_idx]}"
-    )
+    assert (
+        dropped == []
+    ), f"raw operand(s) dropped against an UN-REPLAYABLE nested subsumer (would empty the support): dropped={dropped}, kept={[cols[i] for i in kept_idx]}"
     assert {"a", "b"} <= {cols[i] for i in kept_idx}, f"raw operands not preserved: kept={[cols[i] for i in kept_idx]}"
 
 

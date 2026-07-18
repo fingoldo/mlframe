@@ -108,9 +108,9 @@ def test_partition_duplicates_collapse_one_rep_per_driver(n_remaps):
     for drv in base:
         forms = {drv} | {nm for nm in cands if nm.startswith(f"red_{drv}_")}
         n_adm = len(forms & accepted)
-        assert n_adm == 1, (
-            f"driver {drv}: expected exactly 1 admitted form, got {n_adm} (0 = starvation, >1 = redundancy leak). admitted={sorted(forms & accepted)}"
-        )
+        assert (
+            n_adm == 1
+        ), f"driver {drv}: expected exactly 1 admitted form, got {n_adm} (0 = starvation, >1 = redundancy leak). admitted={sorted(forms & accepted)}"
     # The redundant remaps are explicitly labelled, not silently absent.
     collapsed = [nm for nm, d in diag.items() if d.get("reason") == "redundant_partition_duplicate"]
     assert collapsed, "exact-partition redundant remaps should be flagged redundant_partition_duplicate"
@@ -126,9 +126,9 @@ def test_no_driver_starvation_with_tied_marginal_mi_remaps(seed):
     assert len(cands) > _DEFAULT_MAX_CANDIDATES  # the pool exceeds the cap (cap path exercised)
     accepted, _diag = apply_cmi_redundancy_gate(cands, yb, nbins=10, retain_frac=0.15, seed=0)
     captured = {drv for drv in base if (drv in accepted) or any(nm in accepted for nm in cands if nm.startswith(f"red_{drv}_"))}
-    assert captured == set(base), (
-        f"[seed={seed}] driver(s) starved by the cost cap: captured={captured} expected={set(base)}. The partition dedup must run BEFORE the marginal-MI cap."
-    )
+    assert captured == set(
+        base
+    ), f"[seed={seed}] driver(s) starved by the cost cap: captured={captured} expected={set(base)}. The partition dedup must run BEFORE the marginal-MI cap."
 
 
 def test_canonical_form_preferred_over_redundant_remap():

@@ -51,9 +51,9 @@ def test_biz_val_control_difference_augment_improves_small_sample_generalization
     model_augmented = RandomForestClassifier(n_estimators=200, random_state=0).fit(combined[cols], combined["y"])
     auc_augmented = roc_auc_score(y_test, model_augmented.predict_proba(X_test)[:, 1])
 
-    assert auc_augmented > auc_small + 0.02, (
-        f"control-difference augmentation should improve small-sample generalization: augmented={auc_augmented:.4f} small={auc_small:.4f}"
-    )
+    assert (
+        auc_augmented > auc_small + 0.02
+    ), f"control-difference augmentation should improve small-sample generalization: augmented={auc_augmented:.4f} small={auc_small:.4f}"
 
 
 def test_biz_val_control_difference_augment_multi_control_pairs_reduces_noise_variance():
@@ -74,9 +74,9 @@ def test_biz_val_control_difference_augment_multi_control_pairs_reduces_noise_va
     noise_single = (single[cols].to_numpy() - treated_df[cols].to_numpy()).var()
     noise_multi = (multi[cols].to_numpy() - treated_df[cols].to_numpy()).var()
 
-    assert noise_multi < noise_single * 0.15, (
-        f"n_control_pairs=20 should shrink augmentation-noise variance well below the single-pair baseline: single={noise_single:.4f} multi={noise_multi:.4f}"
-    )
+    assert (
+        noise_multi < noise_single * 0.15
+    ), f"n_control_pairs=20 should shrink augmentation-noise variance well below the single-pair baseline: single={noise_single:.4f} multi={noise_multi:.4f}"
 
 
 def test_control_difference_augment_multi_control_pairs_default_is_bit_identical():

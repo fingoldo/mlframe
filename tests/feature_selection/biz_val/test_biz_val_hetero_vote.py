@@ -29,7 +29,6 @@ from sklearn.preprocessing import StandardScaler
 from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote, _importance
 from tests.conftest import fast_n_estimators
 
-
 # ---------------------------------------------------------------------------
 # Synthetic data: continuous (regression) and binary (classification) targets.
 # Both share the canonical hetero_vote architecture: 4 marginally-strong signals
@@ -323,9 +322,9 @@ def test_hetero_vote_per_model_hit_frac_boundary_is_inclusive():
     )
     # Single-member panel -> vote_frac == member pass (0 or 1). At hit-rate 0.5 with the inclusive
     # >= boundary the member passes, so vote_frac is 1.0.
-    assert info_half["vote_fraction"]["x0"] == 1.0, (
-        f"a 1-of-2 hit-rate must PASS per_model_hit_frac=0.5 (>= is inclusive); got {info_half['vote_fraction']['x0']}"
-    )
+    assert (
+        info_half["vote_fraction"]["x0"] == 1.0
+    ), f"a 1-of-2 hit-rate must PASS per_model_hit_frac=0.5 (>= is inclusive); got {info_half['vote_fraction']['x0']}"
     _, info_strict = heterogeneous_relevance_vote(
         X,
         y,
@@ -438,9 +437,9 @@ def test_biz_val_hetero_vote_skill_weighting_rescues_blind_vetoed_signal_fast():
     )
     # At least one signal flips REJECT->ACCEPT; the blind member sits at the floor.
     flipped = [s for s in signal if s not in set(acc_eq) and s in set(acc_sk)]
-    assert flipped, (
-        f"skill weighting must flip >=1 signal from rejected to accepted; eq={sorted(set(acc_eq) & set(signal))} sk={sorted(set(acc_sk) & set(signal))}"
-    )
+    assert (
+        flipped
+    ), f"skill weighting must flip >=1 signal from rejected to accepted; eq={sorted(set(acc_eq) & set(signal))} sk={sorted(set(acc_sk) & set(signal))}"
     assert info_sk["model_weights"]["blind"] == pytest.approx(0.05)
     assert set(info_eq["model_weights"].values()) == {1.0}
 
@@ -468,9 +467,9 @@ def test_importance_permutation_fallback_ranks_signal_first():
     imp = _importance(est, X, y, random_state=0)
     assert imp.shape == (X.shape[1],)
     assert np.all(np.isfinite(imp))
-    assert imp[0] > imp[1:].max(), (
-        f"permutation-fallback importance of the true signal x0 ({imp[0]:.4f}) must strictly exceed all others (max {imp[1:].max():.4f})"
-    )
+    assert (
+        imp[0] > imp[1:].max()
+    ), f"permutation-fallback importance of the true signal x0 ({imp[0]:.4f}) must strictly exceed all others (max {imp[1:].max():.4f})"
 
 
 def test_importance_permutation_fallback_subsample_is_seeded_deterministic():

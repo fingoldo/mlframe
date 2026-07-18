@@ -35,7 +35,6 @@ import pytest
 from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote
 from mlframe.feature_selection.hybrid_selector import HybridSelector
 
-
 # ---------------------------------------------------------------------------
 # Synthetic frames.
 # ---------------------------------------------------------------------------
@@ -126,9 +125,9 @@ def _assert_hybrid_deterministic(X, y):
 
     assert h1.raw_selected_ == h2.raw_selected_, f"same-seed raw_selected_ differs: {h1.raw_selected_} vs {h2.raw_selected_}"
     # member_selections_ is a dict name -> list of selected columns; full equality (keys + per-member lists).
-    assert set(h1.member_selections_) == set(h2.member_selections_), (
-        f"member_selections_ keys differ: {set(h1.member_selections_)} vs {set(h2.member_selections_)}"
-    )
+    assert set(h1.member_selections_) == set(
+        h2.member_selections_
+    ), f"member_selections_ keys differ: {set(h1.member_selections_)} vs {set(h2.member_selections_)}"
     assert h1.member_selections_ == h2.member_selections_, "member_selections_ lists are not identical"
     # fi_ keys (the shared permutation-FI columns) must be identical; the n_jobs=-1 LightGBM/RF members make
     # this also a thread-order-stability check -- a nondeterministic reduction would change a key or a list.
@@ -183,6 +182,6 @@ def test_hybrid_selector_column_order_invariant():
     rev = list(X.columns)[::-1]
     h_fwd = HybridSelector(use_fe=False, use_tree_member=False, random_state=0).fit(X, y)
     h_rev = HybridSelector(use_fe=False, use_tree_member=False, random_state=0).fit(X[rev], y)
-    assert set(h_fwd.raw_selected_) == set(h_rev.raw_selected_), (
-        f"column reorder changed the selected set: fwd={sorted(h_fwd.raw_selected_)} rev={sorted(h_rev.raw_selected_)}"
-    )
+    assert set(h_fwd.raw_selected_) == set(
+        h_rev.raw_selected_
+    ), f"column reorder changed the selected set: fwd={sorted(h_fwd.raw_selected_)} rev={sorted(h_rev.raw_selected_)}"

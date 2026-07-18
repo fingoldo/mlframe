@@ -35,7 +35,6 @@ from mlframe.feature_selection.filters.cat_interactions import _kl_divergence
 from mlframe.feature_selection.filters.info_theory import entropy_miller_madow
 from mlframe.feature_selection.filters.permutation import mi_direct
 
-
 # -----------------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------------

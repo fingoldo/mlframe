@@ -133,9 +133,9 @@ def test_biz_val_two_step_causal_avoids_future_leakage_at_early_scoring_point():
     assert naive_auc > 0.85, f"expected naive (causal=False) to show hindsight leakage at the boundary row, got AUC={naive_auc:.4f}"
     # causal only sees the entity's own past (pure old-era noise) at that row, so it should be near chance.
     assert causal_auc < 0.62, f"expected causal=True to be near-chance (no future info yet) at the boundary row, got AUC={causal_auc:.4f}"
-    assert naive_auc - causal_auc > 0.3, (
-        f"causal=True should close most of the future-leakage gap at the boundary row: naive={naive_auc:.4f} causal={causal_auc:.4f}"
-    )
+    assert (
+        naive_auc - causal_auc > 0.3
+    ), f"causal=True should close most of the future-leakage gap at the boundary row: naive={naive_auc:.4f} causal={causal_auc:.4f}"
 
 
 def test_two_step_recency_weighted_encode_causal_matches_default_at_last_event():

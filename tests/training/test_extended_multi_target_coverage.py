@@ -28,7 +28,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # ----------------------------------------------------------------------------
 # Linear multi_class kwarg fix (sklearn 1.7 deprecated / 1.8 removed)
 # ----------------------------------------------------------------------------

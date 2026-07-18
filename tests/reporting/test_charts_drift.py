@@ -23,7 +23,6 @@ from mlframe.reporting.spec import (
     LinePanelSpec,
 )
 
-
 # --------------------------------------------------------------------------- PSI heatmap
 
 

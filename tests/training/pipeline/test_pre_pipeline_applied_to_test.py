@@ -16,7 +16,6 @@ from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. Sanity: Pipeline.predict handles NaN via SimpleImputer
 # ═══════════════════════════════════════════════════════════════════════════

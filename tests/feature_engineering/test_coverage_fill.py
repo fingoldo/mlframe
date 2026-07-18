@@ -15,7 +15,6 @@ import pandas as pd
 import polars as pl
 import pytest
 
-
 # ============================================================================
 # _numerical_stable.py (138 missing -> aim 80%)
 # ============================================================================
@@ -400,9 +399,9 @@ class TestMpsCoverage:
         assert fig is not None
         axes = fig.get_axes()
         assert axes, "plot_positions produced a figure with no axes"
-        assert any(line.get_xdata() is not None and len(line.get_xdata()) == len(prices) for line in axes[0].get_lines()), (
-            "expected a plotted series spanning all price bars"
-        )
+        assert any(
+            line.get_xdata() is not None and len(line.get_xdata()) == len(prices) for line in axes[0].get_lines()
+        ), "expected a plotted series spanning all price bars"
 
 
 # ============================================================================

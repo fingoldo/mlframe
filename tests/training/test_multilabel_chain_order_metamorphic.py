@@ -33,7 +33,6 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 from sklearn.multioutput import ClassifierChain, MultiOutputClassifier
 
-
 # Small, conditioned-enough that per-label AUROCs land in [0.7, 0.95]; large
 # enough that the noise envelope on macro-AUROC is reliably < 0.05.
 _N_SAMPLES = 1500

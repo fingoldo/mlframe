@@ -114,9 +114,9 @@ def test_missing_fit_col_warns_then_hard_fails(caplog) -> None:
         with pytest.raises(RuntimeError, match="transform failed at predict time"):
             _apply_extensions_pipeline(df, pipe, verbose=0)
     # The "missing fit-time column" WARN must have fired before the hard-fail.
-    assert any("missing" in rec.message and "fit-time" in rec.message and "x0" in rec.message for rec in caplog.records), (
-        f"expected missing-col WARN; got: {[r.message for r in caplog.records]}"
-    )
+    assert any(
+        "missing" in rec.message and "fit-time" in rec.message and "x0" in rec.message for rec in caplog.records
+    ), f"expected missing-col WARN; got: {[r.message for r in caplog.records]}"
 
 
 def test_exact_fit_cols_passes_through_unchanged_subset() -> None:

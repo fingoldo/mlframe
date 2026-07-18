@@ -103,9 +103,9 @@ class TestMultiwaySynergy:
         names = list(sel.get_feature_names_out())
         # Both operands must be recovered -- raw, or named inside a conjunction composite (the
         # synergy FE can capture ``x1 AND x2`` as one feature naming both, a stronger recovery).
-        assert _component_recovered(names, "x1") and _component_recovered(names, "x2"), (
-            f"AND conjunction needs both components (raw or composite); support={names}"
-        )
+        assert _component_recovered(names, "x1") and _component_recovered(
+            names, "x2"
+        ), f"AND conjunction needs both components (raw or composite); support={names}"
 
     def test_polynomial_degree_3_non_monotone(self):
         """y = sign(x1^3 - x1). Cubic non-monotone. Must select x1

@@ -39,7 +39,6 @@ from mlframe.feature_selection.filters.info_theory import (
     merge_vars,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -640,9 +639,9 @@ class TestOrchestratorEndToEnd:
                 if set(r.src_names) == {"x1", "x2", "x3"}:
                     triplet_found = True
                     break
-        assert triplet_found, (
-            f"Greedy k-way should extend to (x1, x2, x3) triplet; got recipes: {[(r.src_names, r.extra.get('kway_order')) for r in state.recipes]}"
-        )
+        assert (
+            triplet_found
+        ), f"Greedy k-way should extend to (x1, x2, x3) triplet; got recipes: {[(r.src_names, r.extra.get('kway_order')) for r in state.recipes]}"
 
     def test_kway_recipe_replay_chain_works(self):
         """D3: k-way recipes ship a chained-lookup payload so they

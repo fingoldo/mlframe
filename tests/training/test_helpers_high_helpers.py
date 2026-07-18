@@ -15,7 +15,6 @@ import pandas as pd
 import polars as pl
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # H-HUS-03: rng.choice raises when n_test_shuf > len(remaining)
 # ---------------------------------------------------------------------------
@@ -569,6 +568,6 @@ def test_hhus20_quantile_wrapper_uses_parallel_as_context_manager(monkeypatch):
         # below only cares about Parallel context-manager hygiene.
         pass
     # Every enter must have a matching exit.
-    assert len(enters) == len(exits), (
-        f"Parallel enter/exit not balanced (enters={len(enters)}, exits={len(exits)}); wrapper is not using `with Parallel(...)` form."
-    )
+    assert len(enters) == len(
+        exits
+    ), f"Parallel enter/exit not balanced (enters={len(enters)}, exits={len(exits)}); wrapper is not using `with Parallel(...)` form."

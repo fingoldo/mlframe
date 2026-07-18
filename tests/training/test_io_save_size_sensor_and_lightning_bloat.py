@@ -138,17 +138,17 @@ def test_save_size_sensor_auto_lean_retry_shrinks_oversized_dump(caplog):
         assert ok is True
         size_mb_after = os.path.getsize(fpath) / (1024 * 1024)
         # Post auto-retry: lean strip removes preds/target/oof/stats; dump should be < 5 MB.
-        assert size_mb_after < 5.0, (
-            f"E2.1 auto_lean_retry failed: final dump is {size_mb_after:.1f} MB; expected the auto-retry with lean=True to strip the per-split arrays."
-        )
+        assert (
+            size_mb_after < 5.0
+        ), f"E2.1 auto_lean_retry failed: final dump is {size_mb_after:.1f} MB; expected the auto-retry with lean=True to strip the per-split arrays."
         msgs = [r.getMessage() for r in caplog.records]
         # The E2.2 pre-pickle pre-check landed 2026-05-22 and supersedes the
         # post-save auto-retry on payloads it can detect upfront. Either path
         # is acceptable -- the contract is "oversized non-lean save ends up
         # small on disk", which the strict size assertion above already checks.
-        assert any("auto-retrying with lean=True" in m or "[save-size-precheck]" in m for m in msgs), (
-            f"E2.1: expected either the auto-retry log OR the pre-check log; got: {msgs}"
-        )
+        assert any(
+            "auto-retrying with lean=True" in m or "[save-size-precheck]" in m for m in msgs
+        ), f"E2.1: expected either the auto-retry log OR the pre-check log; got: {msgs}"
         # Caller's in-memory payload must STILL have all fields (lean operates on a copy).
         assert model_entry.train_preds is not None
         assert model_entry.oof_preds is not None
@@ -302,9 +302,9 @@ def test_lean_strip_covers_oof_preds_and_probs():
     the caller flips oof_n_splits >= 2."""
     from mlframe.training.io import _LEAN_STRIP_FIELDS
 
-    assert "oof_preds" in _LEAN_STRIP_FIELDS, (
-        "oof_preds missing from _LEAN_STRIP_FIELDS -- lean saves will leak it whenever the caller stamps OOF on the model entry."
-    )
+    assert (
+        "oof_preds" in _LEAN_STRIP_FIELDS
+    ), "oof_preds missing from _LEAN_STRIP_FIELDS -- lean saves will leak it whenever the caller stamps OOF on the model entry."
     assert "oof_probs" in _LEAN_STRIP_FIELDS, "oof_probs missing from _LEAN_STRIP_FIELDS -- same risk on classifier paths."
 
 
@@ -384,9 +384,9 @@ def test_lightning_bloat_strip_shrinks_dump_and_restores_payload():
         # In-memory the payload is ~120 MB. Strip should drop _trainer (80 MB) AND
         # prediction_datamodule (40 MB), leaving only the tiny state-dict (~4 KB).
         # zstd on random bytes is near-no-op, so without the strip we'd see ~120 MB on disk.
-        assert size_mb < 5.0, (
-            f"Dump too big ({size_mb:.1f} MB): Lightning bloat strip didn't fire. Expected <5 MB after stripping ``_trainer`` + ``prediction_datamodule``."
-        )
+        assert (
+            size_mb < 5.0
+        ), f"Dump too big ({size_mb:.1f} MB): Lightning bloat strip didn't fire. Expected <5 MB after stripping ``_trainer`` + ``prediction_datamodule``."
 
         # Post-save: in-memory caller must still have BOTH attrs (the strip is transient).
         assert payload.model.network._trainer is not None, "Bloat strip failed to restore _trainer on the caller's payload."

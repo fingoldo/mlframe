@@ -41,7 +41,6 @@ from mlframe.training.configs import ReportingConfig, TargetTypes
 from mlframe.training import FeatureSelectionConfig, OutputConfig
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
-
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------

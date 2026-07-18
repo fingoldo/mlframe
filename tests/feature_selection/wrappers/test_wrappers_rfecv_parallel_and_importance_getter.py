@@ -104,9 +104,9 @@ class TestN3_ParallelEquivalence:
         seq = RFECV(n_jobs=1, **common).fit(X, y)
         par = RFECV(n_jobs=2, **common).fit(X, y)
         # Same selection on the same problem with the same seed.
-        assert set(seq.get_feature_names_out()) == set(par.get_feature_names_out()), (
-            f"Parallel and sequential RFECV diverged on the same input + seed. seq={list(seq.get_feature_names_out())} par={list(par.get_feature_names_out())}"
-        )
+        assert set(seq.get_feature_names_out()) == set(
+            par.get_feature_names_out()
+        ), f"Parallel and sequential RFECV diverged on the same input + seed. seq={list(seq.get_feature_names_out())} par={list(par.get_feature_names_out())}"
 
     @pytest.mark.skipif(
         sys.platform == "darwin",
@@ -254,9 +254,9 @@ class TestLeaderboard_LazyMajorityGraph:
         # Before any graph-using method is called: graph not built.
         assert lb.majority_graph is None
         _ = lb.borda_ranking()
-        assert lb.majority_graph is None, (
-            "borda_ranking() must not trigger majority_graph construction; the graph is the n^2 hot path that was making RFECV slow."
-        )
+        assert (
+            lb.majority_graph is None
+        ), "borda_ranking() must not trigger majority_graph construction; the graph is the n^2 hot path that was making RFECV slow."
 
     def test_copeland_builds_majority_graph_on_demand(self):
         """Copeland builds majority graph on demand."""

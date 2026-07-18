@@ -62,9 +62,9 @@ def test_biz_val_additive_decomposition_component_supervision_beats_sum_only_ood
     supervised.fit(X_train, y_train, component_targets={"c1": c1_train, "c2": c2_train})
     mse_supervised = mean_squared_error(y_test, supervised.predict(X_test))
 
-    assert mse_supervised < mse_sum_only * 0.75, (
-        f"expected component supervision to cut OOD test MSE by >=25% vs sum-only training, got supervised={mse_supervised:.4f} sum_only={mse_sum_only:.4f}"
-    )
+    assert (
+        mse_supervised < mse_sum_only * 0.75
+    ), f"expected component supervision to cut OOD test MSE by >=25% vs sum-only training, got supervised={mse_supervised:.4f} sum_only={mse_sum_only:.4f}"
 
 
 def test_additive_decomposition_predict_components_recovers_true_split():
@@ -232,6 +232,6 @@ def test_biz_val_additive_decomposition_non_negative_constraint_eliminates_sign_
     # Threshold set well below the weakest observed unconstrained violation rate (343/1000 = 34.3% at seed=20,
     # the minimum across the 5 seeds measured) -- proves the sign violation is a reliable, reproducible failure
     # mode of the unconstrained head, not a cherry-picked outlier.
-    assert min(n_negative_unconstrained) >= 250, (
-        f"expected the unconstrained head to reliably violate non-negativity (>=250/1000 rows), got {n_negative_unconstrained}"
-    )
+    assert (
+        min(n_negative_unconstrained) >= 250
+    ), f"expected the unconstrained head to reliably violate non-negativity (>=250/1000 rows), got {n_negative_unconstrained}"

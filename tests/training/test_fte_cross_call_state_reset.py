@@ -99,9 +99,9 @@ def test_ftextractor_emitted_columns_reset_between_calls():
     fte.datetime_features = None
     _ = fte.transform(df2)
     # The 'ts1' entry from the prior call must be gone.
-    assert "ts1" not in fte.ftextractor_emitted_columns, (
-        f"stale ts1 entry leaked from prior call: {dict(fte.ftextractor_emitted_columns)}. Pre-fix bug regression."
-    )
+    assert (
+        "ts1" not in fte.ftextractor_emitted_columns
+    ), f"stale ts1 entry leaked from prior call: {dict(fte.ftextractor_emitted_columns)}. Pre-fix bug regression."
 
 
 def test_columns_to_drop_initial_none_handled():

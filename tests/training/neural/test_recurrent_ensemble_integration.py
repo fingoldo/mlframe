@@ -24,7 +24,6 @@ from mlframe.training.core import train_mlframe_models_suite
 
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
-
 pytestmark = [pytest.mark.requires_torch, pytest.mark.requires_cb, pytest.mark.uses_torch]
 
 N_ROWS = 200
@@ -105,9 +104,9 @@ def test_recurrent_member_joins_ensemble_after_integration(tmp_path):
             if any(str(n).lower() == "lstm" for n in recurrent_members):
                 # We also expect at least 2 total members (the CB booster + the LSTM); the rerun would have
                 # been skipped by ``len(members) < 2`` otherwise, so this is implied, but assert defensively.
-                assert info.get("total_members", 0) >= 2, (
-                    f"Augmented ensemble member count was {info.get('total_members')} - expected the CB booster alongside the LSTM."
-                )
+                assert (
+                    info.get("total_members", 0) >= 2
+                ), f"Augmented ensemble member count was {info.get('total_members')} - expected the CB booster alongside the LSTM."
                 matched_any = True
     assert matched_any, f"No recurrent_ensemble_integration entry listed an LSTM member. recurrent_ensemble_integration={rec_meta!r}"
 
@@ -163,9 +162,9 @@ def test_recurrent_skipped_gracefully_when_predict_fails(monkeypatch, tmp_path):
         if not isinstance(by_name, dict):
             continue
         for info in by_name.values():
-            assert "lstm" not in [str(n).lower() for n in (info or {}).get("recurrent_members") or []], (
-                f"recurrent member 'lstm' should have been dropped when predict() returned None; got info={info!r}"
-            )
+            assert "lstm" not in [
+                str(n).lower() for n in (info or {}).get("recurrent_members") or []
+            ], f"recurrent member 'lstm' should have been dropped when predict() returned None; got info={info!r}"
 
     # Restore for any cleanup
     monkeypatch.setattr(_pr, "_safe_predict_recurrent", real_predict)

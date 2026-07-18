@@ -14,7 +14,6 @@ from sklearn.metrics import mean_squared_error
 
 from mlframe.training.composite.orthogonal import OrthogonalizedCompositeEstimator
 
-
 TRUE_BASE_COEF = 1.0
 
 

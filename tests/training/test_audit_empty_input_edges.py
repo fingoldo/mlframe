@@ -36,7 +36,6 @@ from __future__ import annotations
 
 import numpy as np
 
-
 # ---------------------------------------------------------------------------
 # Behavioural sensors: each fix should return a clean result on empty input.
 # ---------------------------------------------------------------------------
@@ -161,9 +160,9 @@ def test_metrics_calibration_plot_guards_empty_freqs_predicted() -> None:
     # ``metrics/core.py`` was split into siblings.
     """Metrics calibration plot guards empty freqs predicted."""
     src = _read("metrics/calibration/_calibration_plot.py")
-    assert "if freqs_predicted.size == 0:" in src, (
-        "metrics/calibration/_calibration_plot.py: show_calibration_plot must guard freqs_predicted before np.min/np.max."
-    )
+    assert (
+        "if freqs_predicted.size == 0:" in src
+    ), "metrics/calibration/_calibration_plot.py: show_calibration_plot must guard freqs_predicted before np.min/np.max."
 
 
 def test_clip_to_quantiles_guards_empty_input() -> None:

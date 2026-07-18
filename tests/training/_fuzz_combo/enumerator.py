@@ -9,7 +9,6 @@ from typing import Any
 from .axes import AXES, MODELS
 from .combo import FuzzCombo
 
-
 # ---------------------------------------------------------------------------
 # Enumerator: pairwise-greedy, deterministic, deduplicated
 # ---------------------------------------------------------------------------

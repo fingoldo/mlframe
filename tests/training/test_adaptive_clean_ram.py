@@ -15,7 +15,6 @@ import polars as pl
 
 from mlframe.training import _ram_helpers as u
 
-
 # ----------------------------- helpers ----------------------------------------
 
 

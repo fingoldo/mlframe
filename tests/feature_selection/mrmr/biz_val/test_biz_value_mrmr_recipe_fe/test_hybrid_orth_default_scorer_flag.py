@@ -139,9 +139,9 @@ class TestDefaultPlugInByteIdentical:
         ).fit(X, y)
         added_default = list(getattr(m_default, "hybrid_orth_features_", []) or [])
         added_explicit = list(getattr(m_explicit, "hybrid_orth_features_", []) or [])
-        assert added_default == added_explicit, (
-            f"seed={seed}: explicit 'plug_in' diverged from the implicit default. implicit={added_default}, explicit={added_explicit}"
-        )
+        assert (
+            added_default == added_explicit
+        ), f"seed={seed}: explicit 'plug_in' diverged from the implicit default. implicit={added_default}, explicit={added_explicit}"
 
 
 # ---------------------------------------------------------------------------
@@ -238,9 +238,9 @@ class TestCmimRoutingMatchesDirectCmim:
         # Note: the scorer's gate floors (min_uplift/min_abs_mi_frac) are
         # nonzero by default, so it may admit fewer than top_k columns.
         direct_added = sorted(list(scores_direct["engineered_col"].head(len(routed_added))))
-        assert set(routed_added) == set(direct_added), (
-            f"seed={seed}: routed CMIM support diverged from direct call. routed={routed_added}, direct={direct_added}"
-        )
+        assert set(routed_added) == set(
+            direct_added
+        ), f"seed={seed}: routed CMIM support diverged from direct call. routed={routed_added}, direct={direct_added}"
 
 
 # ---------------------------------------------------------------------------
@@ -413,9 +413,9 @@ class TestRecommendDefaultScorer:
         """recommend_default_scorer() returns the L83 leaderboard winner 'cmim'."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
-        assert MRMR.recommend_default_scorer() == "cmim", (
-            f"recommend_default_scorer() drifted from the L83 winner 'cmim': got {MRMR.recommend_default_scorer()!r}"
-        )
+        assert (
+            MRMR.recommend_default_scorer() == "cmim"
+        ), f"recommend_default_scorer() drifted from the L83 winner 'cmim': got {MRMR.recommend_default_scorer()!r}"
 
     def test_recommend_value_is_valid(self):
         """The recommended value must be in the validated allowlist --
@@ -424,9 +424,9 @@ class TestRecommendDefaultScorer:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         rec = MRMR.recommend_default_scorer()
-        assert rec in MRMR._VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS, (
-            f"recommend_default_scorer()={rec!r} not in the valid allowlist {MRMR._VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS}"
-        )
+        assert (
+            rec in MRMR._VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS
+        ), f"recommend_default_scorer()={rec!r} not in the valid allowlist {MRMR._VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS}"
 
     def test_recommend_is_classmethod(self):
         """Reachable from the class without an instance."""

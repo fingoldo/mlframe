@@ -33,12 +33,12 @@ def test_predict_module_has_cte_raw_x_dispatch():
         if _p.exists():
             src += _p.read_text(encoding="utf-8")
             src += "\n"
-    assert "CompositeTargetEstimator" in src, (
-        "CTE-RAW-X dispatch missing from predict module -- the CTE+pre_pipeline base scaling fix would regress on the next prod run."
-    )
-    assert "_primary_for_model" in src, (
-        "_primary_for_model selector missing -- the per-model raw-vs-scaled dispatch branch was removed; reinstate before shipping."
-    )
+    assert (
+        "CompositeTargetEstimator" in src
+    ), "CTE-RAW-X dispatch missing from predict module -- the CTE+pre_pipeline base scaling fix would regress on the next prod run."
+    assert (
+        "_primary_for_model" in src
+    ), "_primary_for_model selector missing -- the per-model raw-vs-scaled dispatch branch was removed; reinstate before shipping."
 
 
 def test_cte_wrapped_model_receives_raw_base_at_predict():
@@ -86,13 +86,13 @@ def test_cte_wrapped_model_receives_raw_base_at_predict():
 
     # Predict on RAW X.
     pred_raw = np.asarray(wrapper.predict(X_df))
-    assert abs(pred_raw.mean() - y.mean()) / max(abs(y.mean()), 1.0) < 0.05, (
-        f"CTE.predict on RAW X: pred mean {pred_raw.mean():.1f} should ~ target mean {y.mean():.1f}"
-    )
+    assert (
+        abs(pred_raw.mean() - y.mean()) / max(abs(y.mean()), 1.0) < 0.05
+    ), f"CTE.predict on RAW X: pred mean {pred_raw.mean():.1f} should ~ target mean {y.mean():.1f}"
     # Predictions should track y to within ~2x residual std.
-    assert abs(pred_raw.std() - y.std()) / max(abs(y.std()), 1.0) < 0.5, (
-        f"CTE.predict on RAW X: pred std {pred_raw.std():.1f} should ~ target std {y.std():.1f}"
-    )
+    assert (
+        abs(pred_raw.std() - y.std()) / max(abs(y.std()), 1.0) < 0.5
+    ), f"CTE.predict on RAW X: pred std {pred_raw.std():.1f} should ~ target std {y.std():.1f}"
 
     # Now demonstrate the bug: predict on z-scored X.
     scaler = StandardScaler().fit(X_df)

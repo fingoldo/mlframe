@@ -157,9 +157,9 @@ class TestA34StackedPass2Training:
         # discovered_on_residual flag must be set AND the A7 warning emitted.
         new_residual = [s for s in disc.specs_ if getattr(s, "discovered_on_residual", False)]
         if new_residual:
-            assert any("discovered on the RESIDUAL target" in rec.message for rec in caplog.records), (
-                "residual-fitted pass-2 specs were merged without the A7 residual-vs-raw warning"
-            )
+            assert any(
+                "discovered on the RESIDUAL target" in rec.message for rec in caplog.records
+            ), "residual-fitted pass-2 specs were merged without the A7 residual-vs-raw warning"
 
 
 # ===========================================================================
@@ -455,9 +455,9 @@ class TestN28OofHygieneGaps:
                 kfold=3,
                 time_ordering=time_ordering,
             )
-        assert any("NON-monotone" in rec.message and "Downgrading" in rec.message for rec in caplog.records), (
-            f"non-monotone-time kfold downgrade did not emit the expected warning; got: {[r.message for r in caplog.records]}"
-        )
+        assert any(
+            "NON-monotone" in rec.message and "Downgrading" in rec.message for rec in caplog.records
+        ), f"non-monotone-time kfold downgrade did not emit the expected warning; got: {[r.message for r in caplog.records]}"
 
     def test_conformal_calibrate_predict_interval_coverage(self) -> None:
         """Split-conformal: calibrate on held-out rows then predict_interval must

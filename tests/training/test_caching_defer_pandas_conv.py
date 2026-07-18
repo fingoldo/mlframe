@@ -13,7 +13,6 @@ conditions: polars input, no recurrent model, no RFECV.
 from __future__ import annotations
 
 
-
 def _defer_pandas_conv(
     *,
     was_polars_input: bool,

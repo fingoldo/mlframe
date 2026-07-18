@@ -39,9 +39,9 @@ def test_signed_l2_sum_not_collapsed_to_median():
     X, labels = _two_member_cluster()
     units_l2, _, _ = build_unit_matrix(X, labels, weighting="signed_l2_sum")
     units_med, _, _ = build_unit_matrix(X, labels, weighting="median")
-    assert not np.allclose(units_l2[:, 0], units_med[:, 0]), (
-        "signed_l2_sum aggregate is identical to median -- the non-linear dispatch is not being applied (gap-04 regression)."
-    )
+    assert not np.allclose(
+        units_l2[:, 0], units_med[:, 0]
+    ), "signed_l2_sum aggregate is identical to median -- the non-linear dispatch is not being applied (gap-04 regression)."
 
 
 def test_signed_l2_sum_matches_canonical_reducer():

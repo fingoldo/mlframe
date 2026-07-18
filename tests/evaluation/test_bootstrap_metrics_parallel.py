@@ -59,6 +59,6 @@ def test_parallel_is_statistically_equivalent_to_serial():
         s, q = ser[name], par[name]
         scale = max(abs(s["point"]), 1e-6)
         # bounds agree to well within 5% of the metric scale -- both are MC estimates of the same CI
-        assert abs(s["lo"] - q["lo"]) < 0.05 * scale and abs(s["hi"] - q["hi"]) < 0.05 * scale, (
-            f"{name}: serial [{s['lo']:.5f},{s['hi']:.5f}] vs parallel [{q['lo']:.5f},{q['hi']:.5f}]"
-        )
+        assert (
+            abs(s["lo"] - q["lo"]) < 0.05 * scale and abs(s["hi"] - q["hi"]) < 0.05 * scale
+        ), f"{name}: serial [{s['lo']:.5f},{s['hi']:.5f}] vs parallel [{q['lo']:.5f},{q['hi']:.5f}]"

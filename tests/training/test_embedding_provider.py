@@ -22,7 +22,6 @@ from pydantic import ValidationError
 
 from mlframe.training.feature_handling import EmbeddingProvider
 
-
 # =====================================================================
 # 1. Construction + kind validation
 # =====================================================================

@@ -46,9 +46,9 @@ def test_biz_val_confidence_shrinkage_improves_top1_ranking_accuracy():
     raw_accuracy = _top1_accuracy(preds, true_relevant)
     shrunk_accuracy = _top1_accuracy(shrunk, true_relevant)
 
-    assert shrunk_accuracy > raw_accuracy + 0.2, (
-        f"confidence shrinkage should measurably improve top-1 ranking accuracy: shrunk={shrunk_accuracy:.4f} raw={raw_accuracy:.4f}"
-    )
+    assert (
+        shrunk_accuracy > raw_accuracy + 0.2
+    ), f"confidence shrinkage should measurably improve top-1 ranking accuracy: shrunk={shrunk_accuracy:.4f} raw={raw_accuracy:.4f}"
 
 
 def test_compute_oof_confidence_no_positives_returns_neutral():

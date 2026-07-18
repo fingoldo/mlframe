@@ -125,9 +125,9 @@ def test_spectral_norm_off_no_constraint() -> None:
             sigmas.append(float(torch.linalg.matrix_norm(m.weight.detach(), ord=2)))
     # Without SN, at least one Linear should differ noticeably from 1.0
     # (default init does not target sigma=1).
-    assert max(abs(s - 1.0) for s in sigmas) > 0.05, (
-        f"SN=False net's Linear sigmas {sigmas} all ~1.0; either the init was unusually lucky or SN-off path was not honoured."
-    )
+    assert (
+        max(abs(s - 1.0) for s in sigmas) > 0.05
+    ), f"SN=False net's Linear sigmas {sigmas} all ~1.0; either the init was unusually lucky or SN-off path was not honoured."
 
 
 def test_snake_periodic_fit_finite_and_no_worse_than_tanh() -> None:

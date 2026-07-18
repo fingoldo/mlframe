@@ -65,6 +65,6 @@ def test_usability_lists_drop_training_values_and_replay_survives_pickle():
     fs2 = pickle.loads(buf.getvalue())  # nosec B301 -- round-trip of a locally-created, trusted object
     z_lin2 = fs2.transform_usability(df, "linear")
     assert list(z_lin2.columns) == list(z_lin.columns)
-    assert np.allclose(z_lin2.to_numpy(dtype=float), z_lin.to_numpy(dtype=float), atol=1e-9, equal_nan=True), (
-        "transform_usability diverged after pickle round-trip"
-    )
+    assert np.allclose(
+        z_lin2.to_numpy(dtype=float), z_lin.to_numpy(dtype=float), atol=1e-9, equal_nan=True
+    ), "transform_usability diverged after pickle round-trip"

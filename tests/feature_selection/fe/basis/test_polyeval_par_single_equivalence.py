@@ -31,6 +31,6 @@ def test_njit_single_and_parallel_agree_within_selection_tolerance(basis, monkey
     # ~1e-14 documented divergence; pin at rtol 1e-10 -- passes with huge margin yet trips loudly on any
     # future change that introduces a selection-flipping (>=1e-3) divergence between the two CPU backends.
     max_rel = np.max(np.abs(r_par - r_single) / (np.abs(r_single) + 1e-12))
-    assert np.allclose(r_single, r_par, rtol=1e-10, atol=1e-12), (
-        f"{basis}: njit vs njit_par diverge (max_rel={max_rel:.2e}) -- a selection-altering backend split"
-    )
+    assert np.allclose(
+        r_single, r_par, rtol=1e-10, atol=1e-12
+    ), f"{basis}: njit vs njit_par diverge (max_rel={max_rel:.2e}) -- a selection-altering backend split"

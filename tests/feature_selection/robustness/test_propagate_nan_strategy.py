@@ -124,6 +124,6 @@ def test_propagate_and_separate_bin_produce_equivalent_results():
                 nbins,
             )
         )
-    assert abs(miv["separate_bin"] - miv["propagate"]) < 1e-10, (
-        f"propagate must equal separate_bin: separate_bin={miv['separate_bin']:.6f}, propagate={miv['propagate']:.6f}"
-    )
+    assert (
+        abs(miv["separate_bin"] - miv["propagate"]) < 1e-10
+    ), f"propagate must equal separate_bin: separate_bin={miv['separate_bin']:.6f}, propagate={miv['propagate']:.6f}"

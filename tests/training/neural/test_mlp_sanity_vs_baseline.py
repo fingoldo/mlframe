@@ -201,9 +201,9 @@ def test_binary_predict_proba_rows_sum_to_one(
     row_sums = proba.sum(axis=1)
     max_dev = float(np.abs(row_sums - 1.0).max())
     print(f"\nBinary predict_proba row-sum: max|sum - 1.0| = {max_dev:.6e}")
-    assert max_dev < 1e-5, (
-        f"predict_proba rows do not sum to 1.0; max deviation = {max_dev:.6e}. sklearn classifier contract requires probabilities sum to 1 per row."
-    )
+    assert (
+        max_dev < 1e-5
+    ), f"predict_proba rows do not sum to 1.0; max deviation = {max_dev:.6e}. sklearn classifier contract requires probabilities sum to 1 per row."
 
     # Also sanity: predict_proba(X) and predict(X) must agree -- predict
     # should be classes_[argmax(predict_proba)]

@@ -87,14 +87,14 @@ def test_biz_val_ct_ensemble_dedup_does_not_help_nnls_or_mean_on_redundant_pool(
             mean_dedup_worse += 1
 
     # NNLS: dedup does NOT win the majority (measured 1/10).
-    assert nnls_dedup_wins <= len(list(seeds)) // 2, (
-        f"dedup unexpectedly beat the full NNLS stack on {nnls_dedup_wins}/10 seeds -- re-examine the qual-19 REJECT"
-    )
+    assert (
+        nnls_dedup_wins <= len(list(seeds)) // 2
+    ), f"dedup unexpectedly beat the full NNLS stack on {nnls_dedup_wins}/10 seeds -- re-examine the qual-19 REJECT"
     # Mean: dedup is harmful on EVERY seed; aggregate worse by a clear margin (measured +2.8%).
     assert mean_dedup_worse == len(list(seeds)), f"dedup expected to hurt the uniform-mean ensemble on all seeds; hurt only {mean_dedup_worse}/10"
-    assert mean_dedup_total > mean_full_total * 1.01, (
-        "dedup should measurably RAISE uniform-mean holdout RMSE on the redundant pool (lower-variance cluster removed)"
-    )
+    assert (
+        mean_dedup_total > mean_full_total * 1.01
+    ), "dedup should measurably RAISE uniform-mean holdout RMSE on the redundant pool (lower-variance cluster removed)"
 
 
 if __name__ == "__main__":

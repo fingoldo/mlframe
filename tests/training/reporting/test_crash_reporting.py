@@ -167,7 +167,6 @@ def test_enable_calls_seterrormode_on_windows(crash_reporting_module, monkeypatc
 
     call_log = []
 
-
     def _spy_set_error_mode(flags):
         """Spy set error mode."""
         call_log.append(int(flags))

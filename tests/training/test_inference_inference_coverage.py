@@ -17,7 +17,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # §8.4 P1: predict.py:351 FTE-disables-fastpath ordering smoke
 # ---------------------------------------------------------------------------

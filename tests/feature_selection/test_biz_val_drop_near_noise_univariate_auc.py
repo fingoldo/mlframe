@@ -55,9 +55,9 @@ def test_biz_val_dropping_near_noise_columns_preserves_downstream_auc():
     auc_pruned = cross_val_score(LogisticRegression(max_iter=500), df[kept_cols], y, cv=5, scoring="roc_auc").mean()
 
     assert len(kept_cols) < df.shape[1]
-    assert auc_pruned >= auc_full - 0.02, (
-        f"expected pruning near-noise columns to not meaningfully hurt downstream AUC, got pruned={auc_pruned:.4f} full={auc_full:.4f}"
-    )
+    assert (
+        auc_pruned >= auc_full - 0.02
+    ), f"expected pruning near-noise columns to not meaningfully hurt downstream AUC, got pruned={auc_pruned:.4f} full={auc_full:.4f}"
 
 
 def _make_weak_signal_dataset(n: int, seed: int, effect: float):
@@ -120,9 +120,9 @@ def test_biz_val_drop_near_noise_bootstrap_stability_retains_weak_real_signal():
         f"expected bootstrap-stability mode to at least halve the single-pass false-drop rate, got "
         f"bootstrap={bootstrap_false_drop_rate:.2f} vs single-pass={single_pass_false_drop_rate:.2f}"
     )
-    assert bootstrap_noise_misses <= 5, (
-        f"expected bootstrap mode to still correctly drop pure-noise columns, missed on {bootstrap_noise_misses}/{n_seeds} seeds"
-    )
+    assert (
+        bootstrap_noise_misses <= 5
+    ), f"expected bootstrap mode to still correctly drop pure-noise columns, missed on {bootstrap_noise_misses}/{n_seeds} seeds"
 
 
 def test_biz_val_drop_near_noise_bootstrap_mode_is_opt_in_and_bit_identical_by_default():

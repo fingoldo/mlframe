@@ -19,7 +19,6 @@ from sklearn.model_selection import KFold
 
 from mlframe.feature_engineering.transformer import compute_conformal_coverage_failure_features
 
-
 pytestmark = pytest.mark.fast
 
 

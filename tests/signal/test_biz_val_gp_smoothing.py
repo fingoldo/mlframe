@@ -68,9 +68,9 @@ def test_biz_val_gp_smoothed_features_beats_nearest_raw_value_auc():
     auc_gp = cross_val_score(LogisticRegression(max_iter=500), X_gp, y_labels, cv=5, scoring="roc_auc").mean()
 
     error_reduction = 1.0 - (1.0 - auc_gp) / (1.0 - auc_baseline)
-    assert error_reduction > 0.3, (
-        f"expected >30% error-rate reduction vs. nearest-raw-value features, got {error_reduction:.4f} (baseline_auc={auc_baseline:.4f}, gp_auc={auc_gp:.4f})"
-    )
+    assert (
+        error_reduction > 0.3
+    ), f"expected >30% error-rate reduction vs. nearest-raw-value features, got {error_reduction:.4f} (baseline_auc={auc_baseline:.4f}, gp_auc={auc_gp:.4f})"
 
 
 def test_gp_smooth_std_is_low_near_observations_high_in_sparse_gaps():

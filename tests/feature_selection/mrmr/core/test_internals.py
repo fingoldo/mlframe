@@ -35,7 +35,6 @@ from mlframe.feature_selection.filters import (
 )
 from mlframe.feature_selection.filters.permutation import parallel_mi_prange
 
-
 # =============================================================================
 # arr2str (B12 silent correctness regression)
 # =============================================================================

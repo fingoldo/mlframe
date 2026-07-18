@@ -13,7 +13,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Sanity: strategy flags + pipeline-built StandardScaler
 # ---------------------------------------------------------------------------
@@ -160,6 +159,6 @@ def test_model_family_learns_on_large_magnitude_target(family_name: str, factory
     ratio = rmse / target_std
 
     # Every family must learn -- RMSE strictly below 50% of target std on the hold-out.
-    assert ratio < 0.5, (
-        f"{family_name} did NOT learn on large-magnitude target -- rmse={rmse:.2f}, target_std={target_std:.2f}, ratio={ratio:.3f}. The 2026-05-11 TVT failure mode (predicting near-mean against mean=11500) reproduces if this fails."
-    )
+    assert (
+        ratio < 0.5
+    ), f"{family_name} did NOT learn on large-magnitude target -- rmse={rmse:.2f}, target_std={target_std:.2f}, ratio={ratio:.3f}. The 2026-05-11 TVT failure mode (predicting near-mean against mean=11500) reproduces if this fails."

@@ -110,9 +110,9 @@ def test_forward_stepwise_t_lcb_may_pick_different_winner(stable_vs_unstable_can
     )
     # rmse_after under t_lcb (penalty-augmented) MUST be >= rmse_after under mean (raw mean):
     # the t-LCB penalty for direction='min' only pushes the score UP.
-    assert diag_lcb[0]["rmse_after"] >= diag_mean[0]["rmse_after"], (
-        f"t_lcb rmse_after must be >= mean rmse_after; got lcb={diag_lcb[0]['rmse_after']}, mean={diag_mean[0]['rmse_after']}"
-    )
+    assert (
+        diag_lcb[0]["rmse_after"] >= diag_mean[0]["rmse_after"]
+    ), f"t_lcb rmse_after must be >= mean rmse_after; got lcb={diag_lcb[0]['rmse_after']}, mean={diag_mean[0]['rmse_after']}"
 
 
 def test_forward_stepwise_persist_fold_scores_populates_diagnostics(stable_vs_unstable_candidates) -> None:

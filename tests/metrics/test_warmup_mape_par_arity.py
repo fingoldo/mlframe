@@ -6,7 +6,6 @@ and would index out of bounds if it ran. This pins the call arity behaviourally.
 """
 
 
-
 def test_warmup_calls_mape_par_kernel_with_nthr(monkeypatch):
     """Warmup calls mape par kernel with nthr."""
     import mlframe.metrics.core as core

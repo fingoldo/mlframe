@@ -42,9 +42,9 @@ def test_biz_val_optimize_decision_threshold_beats_naive_half_cutoff_on_imbalanc
     optimized_pred = apply_decision_threshold(test_proba, result["best_threshold"])
     optimized_f1 = f1_score(y_test, optimized_pred)
 
-    assert optimized_f1 > naive_f1 + 0.1, (
-        f"threshold optimization should measurably improve F1 on imbalanced data: optimized={optimized_f1:.4f} naive={naive_f1:.4f}"
-    )
+    assert (
+        optimized_f1 > naive_f1 + 0.1
+    ), f"threshold optimization should measurably improve F1 on imbalanced data: optimized={optimized_f1:.4f} naive={naive_f1:.4f}"
     assert result["best_threshold"] != 0.5
 
 
@@ -95,9 +95,9 @@ def test_biz_val_optimize_decision_threshold_per_segment_beats_global_on_heterog
     )
     segment_f1 = f1_score(y_test, segment_pred)
 
-    assert segment_f1 > global_f1 + 0.15, (
-        f"per-segment thresholding should measurably beat one global threshold on heterogeneous cohorts: segment_f1={segment_f1:.4f} global_f1={global_f1:.4f}"
-    )
+    assert (
+        segment_f1 > global_f1 + 0.15
+    ), f"per-segment thresholding should measurably beat one global threshold on heterogeneous cohorts: segment_f1={segment_f1:.4f} global_f1={global_f1:.4f}"
     # the two cohorts genuinely disagree on the optimal cutoff
     assert segment_result["group_thresholds"]["A"] > segment_result["group_thresholds"]["B"] + 0.1
 

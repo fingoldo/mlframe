@@ -92,9 +92,9 @@ def test_fs_pipelines_have_selection_criteria():
     assert bp_fs.selection_criteria, "fs variant must have selection_criteria set"
     assert "iv" in bp_fs.selection_criteria, "fs variant must use IV selection criterion"
     # nofs may have None or empty dict — must NOT have an IV gate
-    assert not getattr(bp_nofs, "selection_criteria", None) or "iv" not in (bp_nofs.selection_criteria or {}), (
-        f"nofs variant must not gate on IV; got {bp_nofs.selection_criteria!r}"
-    )
+    assert not getattr(bp_nofs, "selection_criteria", None) or "iv" not in (
+        bp_nofs.selection_criteria or {}
+    ), f"nofs variant must not gate on IV; got {bp_nofs.selection_criteria!r}"
 
 
 def test_iv_kwargs_propagate():

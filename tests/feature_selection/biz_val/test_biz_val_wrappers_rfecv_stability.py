@@ -25,7 +25,6 @@ from mlframe.feature_selection.wrappers.rfecv import RFECV
 
 from tests.conftest import fast_n_estimators
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
 
 

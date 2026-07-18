@@ -26,7 +26,6 @@ from mlframe.training.composite.transforms import (
     _linear_residual_robust_fit,
 )
 
-
 # ----------------------------------------------------------------------
 # #2 biz_val: linear_residual_robust must beat OLS on outlier-contaminated data.
 # ----------------------------------------------------------------------
@@ -56,9 +55,9 @@ class TestBizValRobustLinres:
         # AND robust beta error ≤ 10%. Outlier-immunity is the whole point.
         assert rob_alpha_err < 0.05, f"robust alpha err {rob_alpha_err * 100:.2f}% > 5%"
         assert rob_beta_err < 0.10, f"robust beta err {rob_beta_err * 100:.2f}% > 10%"
-        assert rob_alpha_err * 5.0 < ols_alpha_err + 1e-9, (
-            f"robust improvement over OLS too small: rob={rob_alpha_err * 100:.2f}% vs ols={ols_alpha_err * 100:.2f}%"
-        )
+        assert (
+            rob_alpha_err * 5.0 < ols_alpha_err + 1e-9
+        ), f"robust improvement over OLS too small: rob={rob_alpha_err * 100:.2f}% vs ols={ols_alpha_err * 100:.2f}%"
 
 
 # ----------------------------------------------------------------------
@@ -170,9 +169,9 @@ class TestBizValTimeAwareOOF:
         # Time-aware MUST give a higher (more honest) error on random-walk data
         # since the random K-fold leaks future drift into the train side. Hard
         # threshold: time-aware >= random_kfold * 1.05 (5% honest pessimism).
-        assert rmse_time > rmse_random * 1.05, (
-            f"time-aware did not exceed random by >= 5%: random={rmse_random:.4f}, time={rmse_time:.4f} (ratio {rmse_time / max(rmse_random, 1e-9):.3f}x)"
-        )
+        assert (
+            rmse_time > rmse_random * 1.05
+        ), f"time-aware did not exceed random by >= 5%: random={rmse_random:.4f}, time={rmse_time:.4f} (ratio {rmse_time / max(rmse_random, 1e-9):.3f}x)"
 
 
 # ----------------------------------------------------------------------

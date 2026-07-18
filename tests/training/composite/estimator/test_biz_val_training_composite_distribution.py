@@ -87,9 +87,9 @@ def test_biz_val_distribution_beats_homoscedastic_gaussian_crps():
     sd = float(np.std(y - mu))
     crps_gauss = _homoscedastic_gaussian_crps(mu, sd, y)
 
-    assert crps_dist < crps_gauss * 0.95, (
-        f"composite CRPS {crps_dist:.4f} should beat homoscedastic-Gaussian {crps_gauss:.4f} by >=5% on a heteroscedastic target"
-    )
+    assert (
+        crps_dist < crps_gauss * 0.95
+    ), f"composite CRPS {crps_dist:.4f} should beat homoscedastic-Gaussian {crps_gauss:.4f} by >=5% on a heteroscedastic target"
 
 
 def test_biz_val_distribution_per_quantile_coverage_near_nominal():

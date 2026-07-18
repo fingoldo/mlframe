@@ -48,7 +48,6 @@ from mlframe.training.feature_handling import (
     validate_handler_for_model,
 )
 
-
 # =====================================================================
 # 1. Per-method TypedDict params + extra="forbid"
 # =====================================================================
@@ -382,7 +381,7 @@ class TestSubConfigExtraForbid:
     @pytest.mark.parametrize(
         "config_cls,bad_kwargs",
         [
-            (CacheConfig, {"persistance": "off"}),  # typo
+            (CacheConfig, {"persistence": "off"}),  # typo
             (MemoryConfig, {"budgett_gb": 16.0}),
             (PricingConfig, {"capacity_usd": 5.0}),
             (LoggingConfig, {"verbose_logging": True}),  # actually shouldn't exist

@@ -59,9 +59,9 @@ def test_biz_val_varying_size_subsets_ensemble_beats_single_arbitrary_cutoff():
         arbitrary_cutoff_mse.append(mean_squared_error(y_test, model.predict(X_test[subset])))
     mean_single_cutoff_mse = float(np.mean(arbitrary_cutoff_mse))
 
-    assert mse_ensemble < mean_single_cutoff_mse, (
-        f"expected the varying-size-subset ensemble to beat the average single-cutoff model (robust to not knowing the true optimal cutoff), got ensemble={mse_ensemble:.4f} avg_single={mean_single_cutoff_mse:.4f}"
-    )
+    assert (
+        mse_ensemble < mean_single_cutoff_mse
+    ), f"expected the varying-size-subset ensemble to beat the average single-cutoff model (robust to not knowing the true optimal cutoff), got ensemble={mse_ensemble:.4f} avg_single={mean_single_cutoff_mse:.4f}"
 
 
 def test_varying_size_top_k_subsets_exact_prefixes():

@@ -120,9 +120,9 @@ class TestLagPredictBaseline:
         )
         rmse_lag = float(np.sqrt(np.mean((val_preds["lag_predict"] - val_y) ** 2)))
         rmse_mean = float(np.sqrt(np.mean((val_preds["mean"] - val_y) ** 2)))
-        assert rmse_lag < 0.1 * rmse_mean, (
-            f"lag_predict ({rmse_lag:.3f}) should crush mean ({rmse_mean:.3f}) on AR(1) data with autocorr=0.999; expected >=10x improvement"
-        )
+        assert (
+            rmse_lag < 0.1 * rmse_mean
+        ), f"lag_predict ({rmse_lag:.3f}) should crush mean ({rmse_mean:.3f}) on AR(1) data with autocorr=0.999; expected >=10x improvement"
 
     def test_lag_predict_skipped_when_no_lag_column(self) -> None:
         """Lag predict skipped when no lag column."""

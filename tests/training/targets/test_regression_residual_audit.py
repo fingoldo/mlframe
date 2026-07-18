@@ -32,7 +32,6 @@ from mlframe.training.targets.regression_residual_audit import (
     plot_residual_diagnostics,
 )
 
-
 # -----------------------------------------------------------------------------
 # Each noise pattern → expected hypothesis
 # -----------------------------------------------------------------------------
@@ -79,9 +78,9 @@ def test_mild_leptokurtosis_not_called_gaussian():
     assert audit.excess_kurt > 1.0, f"fixture too weak: kurt={audit.excess_kurt:+.2f}; needs > 1 to test the bug"
     # The contract: anything with excess_kurt > 1.5 must NOT be called
     # plain Gaussian.
-    assert audit.hypothesis != "Gaussian (well-behaved)", (
-        f"regression: residuals with excess_kurt={audit.excess_kurt:+.2f} called Gaussian; this was the production profanation user reported on 2026-05-11."
-    )
+    assert (
+        audit.hypothesis != "Gaussian (well-behaved)"
+    ), f"regression: residuals with excess_kurt={audit.excess_kurt:+.2f} called Gaussian; this was the production profanation user reported on 2026-05-11."
     # Verdict label should indicate non-Gaussian (one of the documented
     # heavy-tails / peaky verdicts).
     assert audit.hypothesis in {
@@ -284,9 +283,9 @@ def test_sample_before_finite_filter_on_large_input():
     # np.isfinite ever sees should be at most ``sample_size`` (plus a
     # tiny slack for any incidental probe; tighten to exactly
     # ``sample_size`` if no probes exist).
-    assert captured["max_size_seen"] <= sample_size, (
-        f"np.isfinite ran on an array of size {captured['max_size_seen']} > sample_size={sample_size}; this re-introduces the pre-fix full-N finite-mask pass."
-    )
+    assert (
+        captured["max_size_seen"] <= sample_size
+    ), f"np.isfinite ran on an array of size {captured['max_size_seen']} > sample_size={sample_size}; this re-introduces the pre-fix full-N finite-mask pass."
 
 
 def test_sample_size_none_no_subsample():

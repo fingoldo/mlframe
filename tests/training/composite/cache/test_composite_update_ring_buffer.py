@@ -28,7 +28,6 @@ import pytest
 from mlframe.training.composite.estimator import _update
 from mlframe.training.composite.estimator._update import _RingBuffer
 
-
 # ===========================================================================
 # _RingBuffer unit correctness vs the legacy deque(maxlen) semantics
 # ===========================================================================

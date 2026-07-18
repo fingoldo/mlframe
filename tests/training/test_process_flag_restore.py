@@ -7,8 +7,6 @@ site existed -- two back-to-back suites silently inherited the first's flag.
 from __future__ import annotations
 
 
-
-
 def _build_minimal_ctx_kwargs():
     """Minimal _ensure_config-friendly kwarg set for setup_configuration."""
     return dict(
@@ -75,9 +73,9 @@ def test_residual_audit_flag_restored_by_finalize():
         if _restored is not None:
             _set_residual_audit_enabled(_restored)
         # Verify
-        assert _get_residual_audit_enabled() is False, (
-            "After restore, flag must equal the pre-setup snapshot (False), got True. _phase_finalize restore block is broken."
-        )
+        assert (
+            _get_residual_audit_enabled() is False
+        ), "After restore, flag must equal the pre-setup snapshot (False), got True. _phase_finalize restore block is broken."
     finally:
         _set_residual_audit_enabled(None)
 

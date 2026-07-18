@@ -26,7 +26,6 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 
-
 # The heavy tensor attributes the fit-cleanup nulls inside the datamodule
 # shell. Mirrors the list in ``neural/base.py`` _fit_internal cleanup.
 _TENSOR_ATTRS = (
@@ -93,9 +92,9 @@ def test_fit_keeps_prediction_datamodule_when_env_set(monkeypatch) -> None:
 
     # Env opt-out: every tensor stays put.
     for _attr in _TENSOR_ATTRS:
-        assert getattr(estimator.prediction_datamodule, _attr) == "heavy-tensor-payload", (
-            "MLFRAME_KEEP_PREDICTION_DATAMODULE=1 must preserve the full datamodule (tensors included) for backwards compatibility."
-        )
+        assert (
+            getattr(estimator.prediction_datamodule, _attr) == "heavy-tensor-payload"
+        ), "MLFRAME_KEEP_PREDICTION_DATAMODULE=1 must preserve the full datamodule (tensors included) for backwards compatibility."
 
 
 def test_source_grep_drop_dm_present() -> None:

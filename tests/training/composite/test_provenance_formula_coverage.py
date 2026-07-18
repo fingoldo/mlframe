@@ -29,7 +29,6 @@ from mlframe.training.composite.provenance import (
 )
 from mlframe.training.composite.transforms import TRANSFORMS_REGISTRY
 
-
 pytestmark = pytest.mark.sklearn_matrix
 
 

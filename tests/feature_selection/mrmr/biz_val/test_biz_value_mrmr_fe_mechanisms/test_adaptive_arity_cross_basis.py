@@ -177,9 +177,9 @@ class TestArityDiscovery2Way:
         # No emitted cell should be a strict SUPERSET of {x1, x2}:
         # adaptive eclipses higher-arity dilutions.
         offenders = [row for _, row in scores.iterrows() if row["arity"] > 2 and {"x1", "x2"}.issubset(set(row["source_cols"]))]
-        assert not offenders, (
-            f"seed={seed}: adaptive-arity emitted a higher-arity superset of {{x1,x2}} on a pure 2-way XOR signal: {offenders}; scores:\n{scores}"
-        )
+        assert (
+            not offenders
+        ), f"seed={seed}: adaptive-arity emitted a higher-arity superset of {{x1,x2}} on a pure 2-way XOR signal: {offenders}; scores:\n{scores}"
 
 
 # ---------------------------------------------------------------------------
@@ -312,9 +312,9 @@ class TestDefaultDisabledByteIdentical:
         # No cross columns (>=1 '*') surfaced in feature_names_in_.
         names = list(m.feature_names_in_)
         cross_names = [n for n in names if "*" in str(n)]
-        assert not cross_names, (
-            f"seed={seed}: default fe_hybrid_orth_adaptive_arity_enable=False should NOT inject adaptive-arity cross columns; got {cross_names}"
-        )
+        assert (
+            not cross_names
+        ), f"seed={seed}: default fe_hybrid_orth_adaptive_arity_enable=False should NOT inject adaptive-arity cross columns; got {cross_names}"
         assert list(getattr(m, "hybrid_orth_features_", []) or []) == [], f"seed={seed}: hybrid_orth_features_ should be empty when all hybrid flags are off"
 
     @pytest.mark.parametrize("seed", (1, 7, 13))
@@ -329,9 +329,9 @@ class TestDefaultDisabledByteIdentical:
             fe_hybrid_orth_adaptive_arity_top_count=3,
         ).fit(X, y)
         added = [n for n in (getattr(m, "hybrid_orth_features_", None) or []) if "*" in str(n)]
-        assert added, (
-            f"seed={seed}: adaptive-arity flag ON should append at least one cross column to hybrid_orth_features_; got {list(m.hybrid_orth_features_ or [])}"
-        )
+        assert (
+            added
+        ), f"seed={seed}: adaptive-arity flag ON should append at least one cross column to hybrid_orth_features_; got {list(m.hybrid_orth_features_ or [])}"
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +374,6 @@ class TestPickleAndClone:
         blob = pickle.dumps(m)
         m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
-        assert list(getattr(m2, "hybrid_orth_features_", []) or []) == list(getattr(m, "hybrid_orth_features_", []) or []), (
-            "pickle changed hybrid_orth_features_"
-        )
+        assert list(getattr(m2, "hybrid_orth_features_", []) or []) == list(
+            getattr(m, "hybrid_orth_features_", []) or []
+        ), "pickle changed hybrid_orth_features_"

@@ -38,7 +38,6 @@ import pathlib
 
 import mlframe as _mlframe
 
-
 _SRC_ROOT = pathlib.Path(_mlframe.__file__).resolve().parent
 
 
@@ -89,9 +88,9 @@ def test_tiny_rerank_n_jobs_zero_sentinel_reaches_branch():
         "silently rewritten to 1 BEFORE the `if cfg == 0:` auto-pick branch "
         "runs (wave 14 regression). Use `int(1 if raw is None else raw)`."
     )
-    assert "_rerank_n_jobs_cfg = int(1 if _rerank_raw is None else _rerank_raw)" in src, (
-        "Post-fix idiom missing in _composite_discovery_tiny_rerank.py. Expected explicit None-check so `tiny_rerank_n_jobs=0` reaches the auto-pick branch."
-    )
+    assert (
+        "_rerank_n_jobs_cfg = int(1 if _rerank_raw is None else _rerank_raw)" in src
+    ), "Post-fix idiom missing in _composite_discovery_tiny_rerank.py. Expected explicit None-check so `tiny_rerank_n_jobs=0` reaches the auto-pick branch."
 
 
 def test_discovery_random_state_zero_preserved():
@@ -148,9 +147,9 @@ def test_recurrent_rerun_empty_rebuild_not_silently_swapped():
         "prior ensemble (wave 14 regression)."
     )
     assert "if rebuilt is None:" in src
-    assert "all members gated out" in src, (
-        "The empty-rebuild branch must WARN-log with a distinguishable message so operators can tell `{}` from `prior_ensemble`."
-    )
+    assert (
+        "all members gated out" in src
+    ), "The empty-rebuild branch must WARN-log with a distinguishable message so operators can tell `{}` from `prior_ensemble`."
 
 
 def test_mrmr_fit_cache_disable_zero_behavior_unit():

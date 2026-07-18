@@ -230,9 +230,9 @@ class TestPrewarmCoverage:
         d = create_unary_transformations(preset="maximal")
         for name in ("abs", "sin", "exp", "cos", "tan", "sinh", "arcsin", "arccosh", "arctanh"):
             fn = d[name]
-            assert not hasattr(fn, "signatures"), (
-                f"unary transform {name!r} is now njit-wrapped -- update the rejected-conversion bench/comment if this is an intentional, re-measured win"
-            )
+            assert not hasattr(
+                fn, "signatures"
+            ), f"unary transform {name!r} is now njit-wrapped -- update the rejected-conversion bench/comment if this is an intentional, re-measured win"
 
     def test_post_warm_no_inf_or_nan_in_smoke_kernel(self, warmed):
         """After prewarm, compute_mi_from_classes on a tiny input returns a finite, non-negative scalar."""

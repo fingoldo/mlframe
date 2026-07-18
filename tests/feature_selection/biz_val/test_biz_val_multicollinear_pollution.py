@@ -52,7 +52,6 @@ from sklearn.model_selection import cross_val_score
 
 from tests.feature_selection._selector_factories import SELECTOR_SPECS, selected_names, spec_params
 
-
 # --------------------------------------------------------------------------- fixtures / metrics
 
 
@@ -245,9 +244,9 @@ def test_does_not_keep_whole_high_vif_cluster(spec):
 
     if spec.name in _CLUSTER_KEEP_GAP:
         pytest.xfail(reason=f"FS GAP: {spec.name} keeps a majority of the high-VIF cluster (median {median_keep}/5)")
-    assert median_keep <= 2, (
-        f"{spec.name} kept {median_keep}/5 of the high-VIF cluster (per-seed {keeps}); a multicollinearity-aware selector should keep a representative (<=2)"
-    )
+    assert (
+        median_keep <= 2
+    ), f"{spec.name} kept {median_keep}/5 of the high-VIF cluster (per-seed {keeps}); a multicollinearity-aware selector should keep a representative (<=2)"
 
 
 @pytest.mark.parametrize("spec", spec_params())
@@ -283,9 +282,9 @@ def test_reduces_multicollinearity(spec):
     if spec.name in _VIF_REDUCE_GAP:
         pytest.xfail(reason=f"FS GAP: {spec.name} leaves a rank-deficient / high-VIF subset (post max-VIF {post_vif})")
     assert np.isfinite(post_vif), f"{spec.name} kept a rank-deficient subset (singular Gram, max-VIF inf); it did not break the collinearity"
-    assert post_vif < 20.0, (
-        f"{spec.name} post-selection max-VIF {post_vif:.1f} exceeds the 20.0 ceiling; the high-VIF cluster / collinear pair was not reduced to a representative"
-    )
+    assert (
+        post_vif < 20.0
+    ), f"{spec.name} post-selection max-VIF {post_vif:.1f} exceeds the 20.0 ceiling; the high-VIF cluster / collinear pair was not reduced to a representative"
 
 
 # --------------------------------------------------------------------------- positive control

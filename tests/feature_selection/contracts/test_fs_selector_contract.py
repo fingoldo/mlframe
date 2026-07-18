@@ -22,7 +22,6 @@ from sklearn.datasets import make_classification, make_regression
 from sklearn.exceptions import NotFittedError
 from sklearn.linear_model import LogisticRegression
 
-
 # ---------------------------------------------------------------------------
 # Factories. Keep them tiny + identical-shaped so the contract layer is
 # uniform across the three selectors. Each factory returns an UNFITTED
@@ -345,9 +344,9 @@ class TestSklearnParity:
         if name in self._GFNO_EXEMPT:
             assert not has_gfno, f"{name} is listed in _GFNO_EXEMPT but now DOES expose get_feature_names_out -- remove it from the exempt set"
             return
-        assert has_gfno, (
-            f"{name}: get_feature_names_out missing but selector is not in the declared-exempt set {sorted(self._GFNO_EXEMPT)} -- sklearn-parity regression"
-        )
+        assert (
+            has_gfno
+        ), f"{name}: get_feature_names_out missing but selector is not in the declared-exempt set {sorted(self._GFNO_EXEMPT)} -- sklearn-parity regression"
         names = sel.get_feature_names_out()
         Xt = sel.transform(X)
         assert len(names) == Xt.shape[1], f"{name}: get_feature_names_out len != transform cols"

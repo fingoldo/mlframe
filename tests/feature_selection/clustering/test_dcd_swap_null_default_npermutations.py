@@ -68,9 +68,9 @@ class TestSwapNullKnobExists:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         sig = inspect.signature(MRMR.__init__)
-        assert "dcd_swap_npermutations" in sig.parameters, (
-            "dcd_swap_npermutations must be a public MRMR constructor param so the swap null is tunable and decoupled from full_npermutations."
-        )
+        assert (
+            "dcd_swap_npermutations" in sig.parameters
+        ), "dcd_swap_npermutations must be a public MRMR constructor param so the swap null is tunable and decoupled from full_npermutations."
         assert sig.parameters["dcd_swap_npermutations"].default == 199
         # store_params_in_object must persist it onto the instance.
         assert int(MRMR().dcd_swap_npermutations) == 199
@@ -129,9 +129,9 @@ class TestSwapFiresAtDefaultNpermutations:
             verbose=0,
             random_seed=0,
         ).fit(X, y)
-        assert int(m.dcd_["n_swaps"]) >= 1, (
-            f"The auto-raise backstop must lift B to ceil(1/0.05)=20 so a swap can fire even with dcd_swap_npermutations=3; got n_swaps={m.dcd_['n_swaps']}."
-        )
+        assert (
+            int(m.dcd_["n_swaps"]) >= 1
+        ), f"The auto-raise backstop must lift B to ceil(1/0.05)=20 so a swap can fire even with dcd_swap_npermutations=3; got n_swaps={m.dcd_['n_swaps']}."
 
     def test_full_npermutations_zero_still_skips_swap_null(self):
         """The on/off semantics are preserved: full_npermutations=0 means the
@@ -151,6 +151,6 @@ class TestSwapFiresAtDefaultNpermutations:
             random_seed=0,
         ).fit(X, y)
         # Deterministic gate alone still accepts the denoising swap on perfect dups.
-        assert int(m.dcd_["n_swaps"]) >= 1, (
-            f"full_npermutations=0 must still allow swaps via the deterministic gate (no null requested); got n_swaps={m.dcd_['n_swaps']}."
-        )
+        assert (
+            int(m.dcd_["n_swaps"]) >= 1
+        ), f"full_npermutations=0 must still allow swaps via the deterministic gate (no null requested); got n_swaps={m.dcd_['n_swaps']}."

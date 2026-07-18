@@ -148,9 +148,9 @@ def test_external_validation_batch_bit_identical(n, K, nbins, npermutations, min
     )
     # EXACT equality -- the external-validation MI feeds the secondary tie-break,
     # so any drift can change which engineered form MRMR keeps.
-    assert got == ref, (
-        f"batched best_valid_mi != per-candidate: n={n} K={K} nbins={nbins} nperm={npermutations} mnc={min_nonzero_confidence}: got={got!r} ref={ref!r}"
-    )
+    assert (
+        got == ref
+    ), f"batched best_valid_mi != per-candidate: n={n} K={K} nbins={nbins} nperm={npermutations} mnc={min_nonzero_confidence}: got={got!r} ref={ref!r}"
 
 
 def test_external_validation_batch_handles_nan_inf_columns():

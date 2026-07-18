@@ -50,9 +50,9 @@ def test_biz_val_multitask_auxiliary_loss_beats_single_task_near_boundary():
     mse_single_boundary = mean_squared_error(y[test_idx][boundary_mask], pred_single[boundary_mask])
     mse_multi_boundary = mean_squared_error(y[test_idx][boundary_mask], pred_multi[boundary_mask])
     improvement = 1.0 - mse_multi_boundary / mse_single_boundary
-    assert improvement > 0.1, (
-        f"expected >10% MSE reduction near the boundary region, got {improvement:.4f} (single={mse_single_boundary:.4f}, multi={mse_multi_boundary:.4f})"
-    )
+    assert (
+        improvement > 0.1
+    ), f"expected >10% MSE reduction near the boundary region, got {improvement:.4f} (single={mse_single_boundary:.4f}, multi={mse_multi_boundary:.4f})"
 
 
 def test_multitask_auxiliary_loss_works_with_only_binary_aux_head():

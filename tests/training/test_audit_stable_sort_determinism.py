@@ -328,9 +328,9 @@ def test_lexsort_tiebreak_returns_same_top_k_across_input_permutations() -> None
 def test_spectral_attention_eig_sort_is_stable() -> None:
     """spectral_attention's eigenvalue-order argsort uses kind='stable'."""
     src = (MLFRAME_ROOT / "feature_engineering" / "transformer" / "spectral_attention.py").read_text(encoding="utf-8")
-    assert 'np.argsort(-eigvals_A, kind="stable")' in src, (
-        "spectral_attention eigenvalue order must use kind='stable' so degenerate eigenvalues do not flip which eigenvector becomes feature-k"
-    )
+    assert (
+        'np.argsort(-eigvals_A, kind="stable")' in src
+    ), "spectral_attention eigenvalue order must use kind='stable' so degenerate eigenvalues do not flip which eigenvector becomes feature-k"
 
 
 def test_rf_proximity_topk_sort_is_stable() -> None:
@@ -342,9 +342,9 @@ def test_rf_proximity_topk_sort_is_stable() -> None:
 def test_fca_closed_concepts_topk_uses_content_tiebreak() -> None:
     """fca_closed_concepts top_k selection breaks equal-extent-size ties on intent content."""
     src = (MLFRAME_ROOT / "feature_engineering" / "transformer" / "fca_closed_concepts.py").read_text(encoding="utf-8")
-    assert "key=lambda x: (-len(x[0]), tuple(sorted(x[1])))" in src, (
-        "fca top_k concept selection must break equal-extent-size ties on intent content, not on the concepts-lib lattice iteration order"
-    )
+    assert (
+        "key=lambda x: (-len(x[0]), tuple(sorted(x[1])))" in src
+    ), "fca top_k concept selection must break equal-extent-size ties on intent content, not on the concepts-lib lattice iteration order"
 
 
 def test_fca_concept_topk_selection_is_permutation_invariant() -> None:

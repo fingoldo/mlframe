@@ -155,6 +155,6 @@ def test_groupaware_borutashap_accepted_matches_expanded_selection():
         corr_threshold=0.9,
         corr_method="pearson",
     ).fit(X, y)
-    assert set(g.accepted) == set(g.get_feature_names_out()), (
-        "GroupAwareMRMR.accepted (BorutaShap report contract) must equal the expanded selection, not the inner medoid-only accepted set"
-    )
+    assert set(g.accepted) == set(
+        g.get_feature_names_out()
+    ), "GroupAwareMRMR.accepted (BorutaShap report contract) must equal the expanded selection, not the inner medoid-only accepted set"

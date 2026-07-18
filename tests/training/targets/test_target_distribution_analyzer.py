@@ -20,7 +20,6 @@ from mlframe.training.targets._target_distribution_analyzer import (
     analyze_target_distribution,
 )
 
-
 # ---------------------------------------------------------------------------
 # helper detectors -- direct numeric sanity
 # ---------------------------------------------------------------------------
@@ -230,9 +229,9 @@ class TestRegressionAnalyzer:
                 has_time_axis=False,
             )
         msgs = " | ".join(r.getMessage() for r in caplog.records)
-        assert "rows do not appear sorted by group" in msgs, (
-            "ordering-check WARN missing on shuffled data; per-group AR detector would silently false-negative without surfacing the assumption violation."
-        )
+        assert (
+            "rows do not appear sorted by group" in msgs
+        ), "ordering-check WARN missing on shuffled data; per-group AR detector would silently false-negative without surfacing the assumption violation."
 
     def test_strong_AR_per_group_when_time_axis_false_but_groups_supplied(self):
         """Per-group AR (2026-05-21 fix #5): TVT-like data where rows are ordered

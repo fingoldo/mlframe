@@ -58,9 +58,9 @@ def test_find_best_partial_gain_legacy_returns_highest_when_no_dcd():
         selected_vars=[],
         dcd_state=None,
     )
-    assert best_key == 1 and abs(best_gain - 0.133) < 1e-12, (
-        f"legacy find_best_partial_gain must return the global max (key=1, 0.133); got key={best_key}, gain={best_gain}"
-    )
+    assert (
+        best_key == 1 and abs(best_gain - 0.133) < 1e-12
+    ), f"legacy find_best_partial_gain must return the global max (key=1, 0.133); got key={best_key}, gain={best_gain}"
 
 
 def test_find_best_partial_gain_skips_dcd_pruned_candidate():
@@ -78,9 +78,9 @@ def test_find_best_partial_gain_skips_dcd_pruned_candidate():
         selected_vars=[],
         dcd_state=dcd_state,
     )
-    assert best_key == 2 and abs(best_gain - 0.072) < 1e-12, (
-        f"DCD-pruned candidate (key=1, stale 0.133) must be skipped; expected the next-best unpruned (key=2, 0.072), got key={best_key}, gain={best_gain}"
-    )
+    assert (
+        best_key == 2 and abs(best_gain - 0.072) < 1e-12
+    ), f"DCD-pruned candidate (key=1, stale 0.133) must be skipped; expected the next-best unpruned (key=2, 0.072), got key={best_key}, gain={best_gain}"
 
 
 def test_find_best_partial_gain_all_pruned_returns_sentinel():

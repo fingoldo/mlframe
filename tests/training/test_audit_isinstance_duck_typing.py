@@ -34,7 +34,6 @@ import pathlib
 
 import mlframe as _mlframe
 
-
 _ROOT = pathlib.Path(_mlframe.__file__).resolve().parent
 
 
@@ -173,18 +172,18 @@ def test_pipeline_filter_to_numeric_handles_polars():
     """Pipeline filter to numeric handles polars."""
     src = _read("training/pipeline.py")
     # Pre-fix shape (silent passthrough) MUST be gone:
-    assert "if _df is None or not isinstance(_df, pd.DataFrame):\n            return _df, []" not in src, (
-        "Wave 29 P2 regression: _filter_to_numeric silently passes polars DataFrames through; downstream select_dtypes raises AttributeError."
-    )
+    assert (
+        "if _df is None or not isinstance(_df, pd.DataFrame):\n            return _df, []" not in src
+    ), "Wave 29 P2 regression: _filter_to_numeric silently passes polars DataFrames through; downstream select_dtypes raises AttributeError."
     # Post-fix markers. The polars-coerce branch now lives in sibling
     # ``_pipeline_extensions.py`` and the bare ``_df = _df.to_pandas()``
     # call is no longer contiguous with the isinstance check (intervening
     # comment + Arrow split-blocks try/except). Check the two pieces
     # independently so the sensor matches the current shape.
     assert "import polars as _pl_local" in src
-    assert "isinstance(_df, _pl_local.DataFrame)" in src, (
-        "Wave 29 P2 regression: polars-DataFrame branch in _filter_to_numeric is gone; silent passthrough resurfaced."
-    )
+    assert (
+        "isinstance(_df, _pl_local.DataFrame)" in src
+    ), "Wave 29 P2 regression: polars-DataFrame branch in _filter_to_numeric is gone; silent passthrough resurfaced."
     assert "_df = _df.to_pandas()" in src, "Wave 29 P2 regression: bare ``_df.to_pandas()`` fallback gone from the polars coerce path."
 
 

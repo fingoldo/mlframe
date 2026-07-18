@@ -144,6 +144,6 @@ def test_documented_field_count_consistency():
         documented_pct = len(set(params) & actual) / max(len(actual), 1)
         if documented_pct < 0.5 and len(actual) >= 4:
             incomplete.append(f"{cls.__name__}: {len(set(params) & actual)}/{len(actual)} fields documented ({documented_pct:.0%})")
-    assert not incomplete, (
-        f"{len(incomplete)} config(s) have a Parameters section but document <50% of their fields -- complete the docstring:\n  " + "\n  ".join(incomplete)
-    )
+    assert (
+        not incomplete
+    ), f"{len(incomplete)} config(s) have a Parameters section but document <50% of their fields -- complete the docstring:\n  " + "\n  ".join(incomplete)

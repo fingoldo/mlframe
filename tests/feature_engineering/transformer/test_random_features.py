@@ -20,7 +20,6 @@ from mlframe.feature_engineering.transformer import (
     positions_within_group,
 )
 
-
 pytestmark = pytest.mark.fast
 
 

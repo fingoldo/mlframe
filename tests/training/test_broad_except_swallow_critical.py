@@ -38,7 +38,6 @@ import logging
 import numpy as np
 import pytest
 
-
 # ---- Site #1: pre-screen per-frame apply_drops ------------------------------
 
 
@@ -139,9 +138,9 @@ def test_target_content_token_fallback_uses_id_not_zero(caplog):
 
     assert token1 != 0, "fallback must not return literal 0 (caches collide)"
     assert token2 != 0
-    assert token1 != token2, (
-        "two distinct target objects must get distinct tokens; pre-fix both returned 0 and target-1's fitted encoder replayed for target-2."
-    )
+    assert (
+        token1 != token2
+    ), "two distinct target objects must get distinct tokens; pre-fix both returned 0 and target-1's fitted encoder replayed for target-2."
     # WARN log fires so operators see the fallback path was taken.
     assert any("_target_content_token: hash failed" in rec.message for rec in caplog.records), f"expected WARN log; got: {[r.message for r in caplog.records]}"
 
@@ -170,9 +169,9 @@ def test_text_column_content_token_fallback_uses_id_not_zero(caplog):
     assert t1 != 0, "fallback must not return literal 0 (caches collide)"
     assert t2 != 0
     assert t1 != t2, "two distinct DataFrames must get distinct tokens; pre-fix both returned 0 and one suite's fitted text encoder replayed for another."
-    assert any("_text_column_content_token: hash failed" in rec.message for rec in caplog.records), (
-        f"expected WARN log; got: {[r.message for r in caplog.records]}"
-    )
+    assert any(
+        "_text_column_content_token: hash failed" in rec.message for rec in caplog.records
+    ), f"expected WARN log; got: {[r.message for r in caplog.records]}"
 
 
 # ---- Site #4: target-encoders _objectwise_isnull ---------------------------
@@ -269,6 +268,6 @@ def test_transforms_extension_dtype_clear_logs_on_failure(caplog, monkeypatch):
         out = tr.prepare_df_for_catboost(df)
     # The failed cast leaves the column an extension dtype (pd.NA still present).
     assert pd.api.types.is_extension_array_dtype(out["x"].dtype)
-    assert any("Could not convert extension-dtype column" in r.getMessage() for r in caplog.records), (
-        f"expected WARN; got {[r.getMessage() for r in caplog.records]}"
-    )
+    assert any(
+        "Could not convert extension-dtype column" in r.getMessage() for r in caplog.records
+    ), f"expected WARN; got {[r.getMessage() for r in caplog.records]}"

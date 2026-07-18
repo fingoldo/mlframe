@@ -41,7 +41,6 @@ from mlframe.training.targets.target_temporal_audit import (
     plot_target_over_time,
 )
 
-
 # -----------------------------------------------------------------------------
 # Synthetic fixture
 # -----------------------------------------------------------------------------

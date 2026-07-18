@@ -25,7 +25,6 @@ from mlframe.reporting.report_html import (
     build_combined_report,
 )
 
-
 # -----------------------------------------------------------------------------
 # Helpers: write a minimal real PNG of a chosen byte size.
 # -----------------------------------------------------------------------------
@@ -247,9 +246,9 @@ def test_biz_val_report_html_reference_mode_no_byte_duplication(tmp_path):
         inline_png_max_bytes=0,
     )
     html_bytes = os.path.getsize(out)
-    assert html_bytes < png_bytes, (
-        f"reference-mode HTML ({html_bytes}B) should stay below one referenced PNG ({png_bytes}B); the chart bytes must not be duplicated into the page"
-    )
+    assert (
+        html_bytes < png_bytes
+    ), f"reference-mode HTML ({html_bytes}B) should stay below one referenced PNG ({png_bytes}B); the chart bytes must not be duplicated into the page"
 
 
 def test_sections_are_collapsible_details_first_open(tmp_path):

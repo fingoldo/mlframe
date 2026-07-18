@@ -156,7 +156,7 @@ def test_recommendation_still_activates_rerank_without_split_config():
         group_ids=groups,
         metadata_extra=metadata_extra,
     )
-    assert rerank_groups is not None, (
-        "analyzer recommendation prefer_group_aware=True no longer activates the rerank when split_config is None (regression in the OR gate)"
-    )
+    assert (
+        rerank_groups is not None
+    ), "analyzer recommendation prefer_group_aware=True no longer activates the rerank when split_config is None (regression in the OR gate)"
     np.testing.assert_array_equal(np.asarray(rerank_groups), groups)

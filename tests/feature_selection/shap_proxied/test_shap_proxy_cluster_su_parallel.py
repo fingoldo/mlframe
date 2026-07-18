@@ -158,6 +158,6 @@ def test_parallel_kernel_speedup_at_f500():
 
     assert np.array_equal(serial_labels, parallel_labels), "labels diverge at f=500"
     ratio = t_serial / max(t_parallel, 1e-9)
-    assert ratio >= 2.0, (
-        f"parallel kernel not fast enough: serial={t_serial:.3f}s, parallel={t_parallel:.3f}s, ratio={ratio:.2f}x (need >= 2x), threads={n_threads}"
-    )
+    assert (
+        ratio >= 2.0
+    ), f"parallel kernel not fast enough: serial={t_serial:.3f}s, parallel={t_parallel:.3f}s, ratio={ratio:.2f}x (need >= 2x), threads={n_threads}"

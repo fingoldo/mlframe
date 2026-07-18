@@ -338,6 +338,6 @@ class TestLayer52_CompositeAllFEOnBenchmark:
         # composite, not just under L35's subset.
         eng_feats = list(getattr(m, "_engineered_features_", []) or [])
         eng_recipes = list(getattr(m, "_engineered_recipes_", []) or [])
-        assert len(eng_feats) == len(eng_recipes), (
-            f"recipe-count parity FAILED under composite all-FE-on: {len(eng_feats)} engineered names but {len(eng_recipes)} recipes"
-        )
+        assert len(eng_feats) == len(
+            eng_recipes
+        ), f"recipe-count parity FAILED under composite all-FE-on: {len(eng_feats)} engineered names but {len(eng_recipes)} recipes"

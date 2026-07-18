@@ -19,7 +19,6 @@ from mlframe.training.composite.discovery._eval_waic import (
     waic_from_oof_residuals,
 )
 
-
 # ----------------------------- pure kernel ---------------------------------- #
 
 

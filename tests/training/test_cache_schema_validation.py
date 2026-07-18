@@ -29,7 +29,6 @@ from mlframe.training.train_eval import (
     _validate_cached_model_schema,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fakes — we don't need a real CatBoost/XGB instance, just objects that
 # expose the attributes the validator introspects.

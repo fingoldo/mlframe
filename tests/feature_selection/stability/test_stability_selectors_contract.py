@@ -56,7 +56,6 @@ from sklearn.pipeline import Pipeline
 
 from tests.feature_selection.conftest import fast_subset, is_fast_mode  # noqa: F401
 
-
 # --------------------------------------------------------------------------
 # Shared small synthetic data (n <= 400, fixed seed). Two informative
 # columns drive a linear binary target so each selector recovers a non-empty

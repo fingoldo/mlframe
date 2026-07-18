@@ -15,7 +15,6 @@ change between fits). Mirrors the ``_PROBE_PRECISION_CACHE`` pattern
 import time
 
 
-
 def test_lightning_external_callbacks_cached_per_group():
     """First call hits Lightning's slow path; second call must be near-instant
     (>=50x faster) and return an equivalent (but freshly-copied) list."""

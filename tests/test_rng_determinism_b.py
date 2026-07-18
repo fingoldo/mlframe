@@ -13,7 +13,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # splitting
 # ---------------------------------------------------------------------------
@@ -135,9 +134,9 @@ def test_generate_modelling_data_reproducible(feature_noise, timeseries, max_car
     assert len(y1) == len(y2)
     # feature_noise/timeseries/max_cardinality are drawn from the same check_random_state-seeded
     # generator as the rest of the pipeline, so they must reproduce identically under a fixed seed too.
-    assert np.array_equal(X1, X2, equal_nan=True), (
-        f"non-reproducible under feature_noise={feature_noise}, timeseries={timeseries}, max_cardinality={max_cardinality}"
-    )
+    assert np.array_equal(
+        X1, X2, equal_nan=True
+    ), f"non-reproducible under feature_noise={feature_noise}, timeseries={timeseries}, max_cardinality={max_cardinality}"
     assert np.array_equal(y1, y2)
 
 

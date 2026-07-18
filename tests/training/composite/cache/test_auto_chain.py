@@ -27,7 +27,6 @@ from mlframe.training.composite.discovery._auto_chain import (
 )
 from mlframe.training.composite.transforms import Transform, TRANSFORMS_REGISTRY
 
-
 pytest.importorskip("lightgbm")
 
 

@@ -38,7 +38,6 @@ import pytest
 warnings.filterwarnings("ignore")
 
 
-
 class _Sink:
     """Groups tests covering Sink."""
     def __init__(self):
@@ -272,9 +271,9 @@ def test_end_to_end_ledger_fingers_unified_floor_kills_two_families():
     led = fs.fe_rejection_ledger_
     assert isinstance(led, pd.DataFrame)
     floor = led[led["gate"] == "marginal_uplift_floor"]
-    assert not floor.empty, (
-        f"no unified abs-MAD floor kill recorded -- the sink wiring is not reaching the FE-family callers. gates seen={sorted(led['gate'].unique())}"
-    )
+    assert (
+        not floor.empty
+    ), f"no unified abs-MAD floor kill recorded -- the sink wiring is not reaching the FE-family callers. gates seen={sorted(led['gate'].unique())}"
     # The unified-gate operator label proves these came from local_mi_gate (not the
     # pair-search marginal_uplift_floor), i.e. the newly-wired family callers.
     uni = floor[floor["operator"] == "unified_local_mi_gate"]

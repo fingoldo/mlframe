@@ -121,9 +121,9 @@ def test_paired_vectorised_is_faster_than_sklearn_loop():
     t_sk = time.perf_counter() - t0
 
     speedup = t_sk / max(t_vec, 1e-9)
-    assert speedup >= 5.0, (
-        f"Vectorised paired bootstrap only {speedup:.1f}x faster than sklearn loop (vec={t_vec * 1000:.1f}ms, sklearn={t_sk * 1000:.1f}ms); >=5x required."
-    )
+    assert (
+        speedup >= 5.0
+    ), f"Vectorised paired bootstrap only {speedup:.1f}x faster than sklearn loop (vec={t_vec * 1000:.1f}ms, sklearn={t_sk * 1000:.1f}ms); >=5x required."
 
 
 def test_paired_macro_path_still_returns_none():

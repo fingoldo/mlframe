@@ -55,9 +55,9 @@ def test_biz_val_normalized_tensor_beats_raw_tensor_for_distance_based_consumer(
     auc_raw = roc_auc_score(y[test_idx], model_raw.predict_proba(tensor_raw[test_idx])[:, 1])
 
     assert auc_norm >= 0.9, f"expected the per-entity-normalized tensor to cleanly separate trend direction, got auc={auc_norm:.4f}"
-    assert auc_norm > auc_raw + 0.2, (
-        f"expected normalization to beat the raw-scale tensor by a wide margin for a distance-based consumer, got norm={auc_norm:.4f} raw={auc_raw:.4f}"
-    )
+    assert (
+        auc_norm > auc_raw + 0.2
+    ), f"expected normalization to beat the raw-scale tensor by a wide margin for a distance-based consumer, got norm={auc_norm:.4f} raw={auc_raw:.4f}"
 
 
 def _make_multi_scale_channel_data(n_entities: int, seed: int):

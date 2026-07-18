@@ -15,7 +15,6 @@ import pytest
 import mlframe.models.tuning as tuning_mod
 import mlframe.models.optimization as opt_mod
 
-
 # --------------------------------------------------------------------
 # AST check: no module-level np.random.* calls or bare random.random
 # --------------------------------------------------------------------

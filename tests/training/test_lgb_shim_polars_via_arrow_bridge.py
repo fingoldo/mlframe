@@ -19,7 +19,6 @@ import pandas as pd
 import polars as pl
 import pytest
 
-
 lgb = pytest.importorskip("lightgbm")
 from mlframe.training.lgb_shim import (
     LGBMRegressorWithDatasetReuse,

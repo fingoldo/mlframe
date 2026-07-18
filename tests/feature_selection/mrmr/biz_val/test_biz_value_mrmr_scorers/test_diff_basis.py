@@ -419,9 +419,9 @@ class TestDefaultDisabledByteIdentical:
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
         assert added, f"seed={seed}: diff-basis flag ON should append at least one engineered column to hybrid_orth_features_; got {added}"
         # At least one engineered column must reference the residual pair.
-        assert any("price_today" in c and "price_yesterday" in c for c in added), (
-            f"seed={seed}: diff-basis should reference the residual pair; engineered names = {added}"
-        )
+        assert any(
+            "price_today" in c and "price_yesterday" in c for c in added
+        ), f"seed={seed}: diff-basis should reference the residual pair; engineered names = {added}"
 
 
 # ---------------------------------------------------------------------------
@@ -466,16 +466,16 @@ class TestPickleAndClone:
         assert added_before == added_after, f"pickle changed hybrid_orth_features_: before={added_before}, after={added_after}"
         recipes_before = {r.name: r for r in getattr(m, "_engineered_recipes_", []) or [] if r.kind == "orth_diff_basis"}
         recipes_after = {r.name: r for r in getattr(m2, "_engineered_recipes_", []) or [] if r.kind == "orth_diff_basis"}
-        assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_diff_basis recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
-        )
+        assert set(recipes_before.keys()) == set(
+            recipes_after.keys()
+        ), f"pickle dropped or added orth_diff_basis recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
             assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
-                assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
-                )
+                assert r_before.extra.get(key) == r_after.extra.get(
+                    key
+                ), f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
 
 
 # ---------------------------------------------------------------------------
@@ -512,6 +512,6 @@ class TestRecipeReplay:
             assert r.kind == "orth_diff_basis", f"seed={seed}: recipe {r.name!r} kind={r.kind!r}, expected 'orth_diff_basis'."
             replayed = apply_recipe(r, X)
             fit_time = X_aug[r.name].to_numpy()
-            assert np.allclose(replayed, fit_time, rtol=1e-9, atol=1e-12), (
-                f"seed={seed}: recipe {r.name!r} replay drift: max|replayed - fit| = {float(np.max(np.abs(replayed - fit_time)))}; extra={dict(r.extra)}"
-            )
+            assert np.allclose(
+                replayed, fit_time, rtol=1e-9, atol=1e-12
+            ), f"seed={seed}: recipe {r.name!r} replay drift: max|replayed - fit| = {float(np.max(np.abs(replayed - fit_time)))}; extra={dict(r.extra)}"

@@ -27,7 +27,6 @@ import pytest
 
 from mlframe.training.composite.transforms import TRANSFORMS_REGISTRY
 
-
 _RNG = np.random.default_rng(0)
 _N = 200
 _BASE = np.linspace(1.0, 10.0, _N)

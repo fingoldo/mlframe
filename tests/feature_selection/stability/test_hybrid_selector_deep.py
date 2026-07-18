@@ -88,15 +88,15 @@ def test_gate_three_rules_admit_distinct_subsets():
     pairs, names = [("z0", "z1"), ("a", "b")], ["P0", "P1"]
     rel = ["z0", "z1", "a", "b", "P0", "P1"]
     syn = _admit("synergy", fi, pairs, names, rel, raw)
-    relm = _admit("relevant_median", fi, pairs, names, rel, raw)
+    rel_med = _admit("relevant_median", fi, pairs, names, rel, raw)
     rawm = _admit("raw_median", fi, pairs, names, rel, raw)
     # synergy keeps only the super-additive product; relevant_median's 0.25 bar admits P0 (0.9) AND P1 (0.30);
     # raw_median's ~0 bar admits both too -- but relevant_median and raw_median differ from synergy, and we also
     # show a case (below) where relevant_median is strictly stricter than raw_median.
     assert syn == {"P0"}, syn
-    assert relm == {"P0", "P1"}, relm
+    assert rel_med == {"P0", "P1"}, rel_med
     assert rawm == {"P0", "P1"}, rawm
-    assert syn != relm  # the rules are genuinely not the same gate
+    assert syn != rel_med  # the rules are genuinely not the same gate
 
 
 def test_gate_relevant_median_strictly_stricter_than_raw_median():

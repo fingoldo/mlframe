@@ -47,7 +47,6 @@ from mlframe.training import FeatureSelectionConfig, OutputConfig, Preprocessing
 from .shared import SimpleFeaturesAndTargetsExtractor
 from tests.conftest import fast_subset
 
-
 pytest.importorskip("catboost")  # used in most tests; lgb/xgb importorskipped per-test
 pytestmark = [pytest.mark.requires_cb, pytest.mark.integration]
 logger = logging.getLogger(__name__)

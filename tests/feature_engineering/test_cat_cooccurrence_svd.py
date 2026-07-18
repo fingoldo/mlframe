@@ -17,7 +17,6 @@ from mlframe.feature_engineering.cat_cooccurrence_svd import (
     engineered_name_cooccur_svd,
 )
 
-
 # ---------------------------------------------------------------------------
 # Unit: happy path
 # ---------------------------------------------------------------------------

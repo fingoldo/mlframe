@@ -37,7 +37,6 @@ import pathlib
 
 import mlframe as _mlframe
 
-
 _ROOT = pathlib.Path(_mlframe.__file__).resolve().parent
 
 
@@ -78,9 +77,9 @@ def _read(rel: str) -> str:
 def test_feature_engineering_times_spent_lock_added():
     """Feature engineering times spent lock added."""
     src = _read("feature_selection/filters/feature_engineering.py")
-    assert "_TIMES_SPENT_LOCK = threading.Lock()" in src, (
-        "Wave 27 P1 regression: _TIMES_SPENT_LOCK module-level lock removed; times_spent[k] += ... races silently between threading workers."
-    )
+    assert (
+        "_TIMES_SPENT_LOCK = threading.Lock()" in src
+    ), "Wave 27 P1 regression: _TIMES_SPENT_LOCK module-level lock removed; times_spent[k] += ... races silently between threading workers."
     assert "with _TIMES_SPENT_LOCK:" in src
     # The shared-dict increment MUST be guarded by the lock. Assert STRUCTURALLY
     # (tolerant of variable renames / indent / the batched-per-pair merge form)

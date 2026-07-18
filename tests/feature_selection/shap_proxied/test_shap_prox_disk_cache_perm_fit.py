@@ -194,6 +194,6 @@ def test_within_cluster_refine_two_fit_cache_writes_perm_fit_and_honest_loss(tmp
         refine_n_estimators=20,
         disk_cache_dir=cache_dir,
     )
-    assert tuple(refined_cold) == tuple(refined_warm), (
-        f"warm refine subset must match cold (cache served same booster + same losses); cold={refined_cold} warm={refined_warm}"
-    )
+    assert tuple(refined_cold) == tuple(
+        refined_warm
+    ), f"warm refine subset must match cold (cache served same booster + same losses); cold={refined_cold} warm={refined_warm}"

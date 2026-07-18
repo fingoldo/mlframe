@@ -19,7 +19,6 @@ import numpy as np
 
 from mlframe.training.composite.discovery.bayesian import bayesian_alpha_fit_bootstrap
 
-
 _REQUIRED_KEYS = {
     "alpha_mean",
     "alpha_std",

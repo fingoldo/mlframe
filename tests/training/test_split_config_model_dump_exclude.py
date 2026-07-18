@@ -21,7 +21,6 @@ from pathlib import Path
 
 import inspect
 
-
 # Fields on TrainingSplitConfig that are CALLER-SIDE behaviour knobs:
 # they configure surrounding logic but are NOT make_train_test_split
 # kwargs. Adding to this list requires updating
@@ -43,9 +42,9 @@ def test_phase_helpers_fit_split_uses_signature_derived_filter() -> None:
     import mlframe.training.core._phase_helpers_fit_split as ph
 
     src = Path(ph.__file__).read_text(encoding="utf-8")
-    assert "inspect.signature(make_train_test_split).parameters" in src, (
-        "phase_helpers_fit_split must inspect the splitter signature at runtime to filter the model_dump kwargs; hardcoded exclude lists drift out of sync."
-    )
+    assert (
+        "inspect.signature(make_train_test_split).parameters" in src
+    ), "phase_helpers_fit_split must inspect the splitter signature at runtime to filter the model_dump kwargs; hardcoded exclude lists drift out of sync."
 
 
 def test_phase_helpers_fit_split_filter_drops_all_caller_side_fields() -> None:
@@ -93,6 +92,6 @@ def test_training_split_config_has_each_caller_side_field() -> None:
 
     fields = getattr(TrainingSplitConfig, "model_fields", {})
     for field in _CALLER_SIDE_FIELDS:
-        assert field in fields, (
-            f"TrainingSplitConfig has no field {field!r}; the sensor won't catch real regressions. Rename or remove from _CALLER_SIDE_FIELDS."
-        )
+        assert (
+            field in fields
+        ), f"TrainingSplitConfig has no field {field!r}; the sensor won't catch real regressions. Rename or remove from _CALLER_SIDE_FIELDS."

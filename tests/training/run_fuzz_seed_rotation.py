@@ -48,7 +48,6 @@ import subprocess  # nosec B404 -- test-only local trusted subprocess invocation
 import sys
 from pathlib import Path
 
-
 _HERE = Path(__file__).resolve().parent
 _REPO = _HERE.parents[2]  # tests/training/.. = mlframe/ ; parents[2] = repo root
 _RESULTS = _HERE / "_fuzz_results.jsonl"

@@ -265,9 +265,9 @@ class TestFeAutoEndToEnd:
         # AUC(auto) >= AUC(manual-best) - 0.02 on average.
         mean_auto = float(np.mean([a for a, _ in auto_lifts]))
         mean_manual = float(np.mean([m for _, m in auto_lifts]))
-        assert mean_auto >= mean_manual - 0.02, (
-            f"fe_auto AUC {mean_auto:.4f} fell more than 0.02 below the manual-best {mean_manual:.4f} (per-seed {auto_lifts})."
-        )
+        assert (
+            mean_auto >= mean_manual - 0.02
+        ), f"fe_auto AUC {mean_auto:.4f} fell more than 0.02 below the manual-best {mean_manual:.4f} (per-seed {auto_lifts})."
 
     def test_fe_auto_false_byte_identical_default(self):
         """fe_auto=False (the default) leaves the legacy path untouched: no
@@ -360,9 +360,9 @@ class TestLearnedRecommender:
         rules_fresh = recommend_fe_flags_by_rules(X_fresh, y_fresh)
 
         assert learned != rules_fresh, "learned recommender failed to override the cold-start rules."
-        assert learned["fe_hybrid_orth_enable"] is True, (
-            f"learned recommender did not pick the empirically-best flag-set A; got {{k: v for k, v in learned.items() if v}}."
-        )
+        assert (
+            learned["fe_hybrid_orth_enable"] is True
+        ), f"learned recommender did not pick the empirically-best flag-set A; got {{k: v for k, v in learned.items() if v}}."
 
     def test_fit_observe_is_stat_only(self, tmp_path):
         """The learned store must persist ONLY scalar fingerprint stats + the

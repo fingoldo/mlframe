@@ -29,7 +29,6 @@ from mlframe.models.ensembling import (
     EnsembleLeaderboard,
 )
 
-
 # --------------------------- LOOP-MAE / PER-MEMBER-MAE-LOOP ---------------------------
 
 
@@ -294,9 +293,9 @@ def test_gate_falls_back_to_coarse_when_require_oof_for_gate_and_oof_missing(cap
             verbose=True,
         )
     # The COARSE-gate warning should be emitted (val-coarse + 5x median thresholds).
-    assert any("COARSE gate" in rec.message and "val-coarse" in rec.message for rec in caplog.records), (
-        "Expected coarse-gate fallback warning; got: " + " | ".join(rec.message for rec in caplog.records)
-    )
+    assert any(
+        "COARSE gate" in rec.message and "val-coarse" in rec.message for rec in caplog.records
+    ), "Expected coarse-gate fallback warning; got: " + " | ".join(rec.message for rec in caplog.records)
 
 
 def test_gate_skipped_when_require_oof_for_gate_and_coarse_disabled(caplog):
@@ -442,9 +441,9 @@ def test_k2_catastrophic_dropout_sentinel_keys_start_with_underscore():
     assert res.get("_reason") == "k2_catastrophic_dropout"
     # Every key in the sentinel-only result MUST start with ``_`` (metadata).
     for k in res:
-        assert isinstance(k, str) and k.startswith("_"), (
-            f"K=2 catastrophic-dropout produced a NON-underscore key {k!r}; this pollutes the per-target model list downstream."
-        )
+        assert isinstance(k, str) and k.startswith(
+            "_"
+        ), f"K=2 catastrophic-dropout produced a NON-underscore key {k!r}; this pollutes the per-target model list downstream."
 
 
 def test_k2_catastrophic_dropout_skipped_when_no_target_available(caplog):

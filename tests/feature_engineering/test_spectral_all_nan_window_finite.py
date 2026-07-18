@@ -19,7 +19,6 @@ from mlframe.feature_engineering.spectral import (
     rolling_periodicity_score,
 )
 
-
 pytestmark = pytest.mark.fast
 
 _FUNCS = [
@@ -49,6 +48,6 @@ def test_spectral_all_nan_group_yields_finite(func):
     # from index K onward every function anchors a fully-defined window and must be finite.
     anchors = g0[K:]
     assert not np.isinf(g0).any(), f"{func.__name__} produced inf on an all-NaN group."
-    assert np.isfinite(anchors).all(), (
-        f"{func.__name__} produced NaN for an all-NaN group: `NaN or 0` kept NaN as the impute fill, so the FFT input was all-NaN."
-    )
+    assert np.isfinite(
+        anchors
+    ).all(), f"{func.__name__} produced NaN for an all-NaN group: `NaN or 0` kept NaN as the impute fill, so the FFT input was all-NaN."

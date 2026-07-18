@@ -15,7 +15,6 @@ import inspect
 import numpy as np
 import pytest
 
-
 # ----------------------------------------------------------------------------
 # FS-P1-1 — groups kwarg threaded into pre_pipeline.fit_transform.
 # ----------------------------------------------------------------------------
@@ -227,9 +226,9 @@ def test_fe_p1_2_phase_auto_detect_accepts_pandas_pre_snapshot():
     from mlframe.training.core._phase_helpers import _phase_auto_detect_feature_types
 
     sig = inspect.signature(_phase_auto_detect_feature_types)
-    assert "train_df_pandas_pre_meta" in sig.parameters, (
-        "train_df_pandas_pre_meta kwarg missing from _phase_auto_detect_feature_types; FE-P1-2 metadata-dict rewire not landed."
-    )
+    assert (
+        "train_df_pandas_pre_meta" in sig.parameters
+    ), "train_df_pandas_pre_meta kwarg missing from _phase_auto_detect_feature_types; FE-P1-2 metadata-dict rewire not landed."
 
 
 def test_fe_p1_2_pandas_pre_snapshot_used_when_provided():

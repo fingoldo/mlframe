@@ -11,7 +11,6 @@ from typing import Any, Dict, Optional
 
 from .combo import FuzzCombo
 
-
 # ---------------------------------------------------------------------------
 # Shared suite-config builders (2026-05-18 refactor)
 # ---------------------------------------------------------------------------

@@ -35,7 +35,6 @@ from pathlib import Path
 
 import pytest
 
-
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
@@ -219,9 +218,9 @@ def test_assertion_error_not_used_at_validation_boundary(rel: str, forbidden_ass
 def test_categorical_numaggs_count_mismatch_is_runtimeerror() -> None:
     """Categorical numaggs count mismatch is runtimeerror."""
     src = _read("feature_engineering/categorical.py")
-    assert "raise RuntimeError(" in src and "compute_numaggs(directional_only=True) returned" in src, (
-        "categorical.py: numaggs count mismatch should raise RuntimeError"
-    )
+    assert (
+        "raise RuntimeError(" in src and "compute_numaggs(directional_only=True) returned" in src
+    ), "categorical.py: numaggs count mismatch should raise RuntimeError"
 
 
 def test_ranking_unreachable_is_runtimeerror() -> None:

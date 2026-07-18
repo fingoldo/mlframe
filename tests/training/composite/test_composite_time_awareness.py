@@ -100,9 +100,9 @@ class TestG1MonotoneBaseWithGroupsNoFalseWarning:
         disc._group_ids_for_rerank = g  # production wires the group-aware split here
         with caplog.at_level(logging.WARNING, logger="mlframe.training.composite.discovery._screening_tiny_perbin"):
             disc.fit(df, "y", ["expected_level_p50", "feat"], np.arange(n))
-        assert not any("temporal order" in r.getMessage() for r in caplog.records), (
-            "monotone base + groups + no timestamps must not raise the temporal-leak warning (GroupKFold is correct)"
-        )
+        assert not any(
+            "temporal order" in r.getMessage() for r in caplog.records
+        ), "monotone base + groups + no timestamps must not raise the temporal-leak warning (GroupKFold is correct)"
 
 
 class TestA29ZeroBaseSentinel:
@@ -127,9 +127,9 @@ class TestA29ZeroBaseSentinel:
         # The very first diagnostic's rmse_before is the zero-base baseline.
         assert diag, "expected at least one stepwise diagnostic"
         baseline = diag[0]["rmse_before"]
-        assert baseline >= float(np.std(y)) * 0.99, (
-            f"zero-base baseline {baseline:.3f} should reflect the forward-walk train-mean error, not collapse below std(y)={np.std(y):.3f}"
-        )
+        assert (
+            baseline >= float(np.std(y)) * 0.99
+        ), f"zero-base baseline {baseline:.3f} should reflect the forward-walk train-mean error, not collapse below std(y)={np.std(y):.3f}"
 
 
 class TestA19GroupAware:

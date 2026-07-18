@@ -189,9 +189,9 @@ class TestSplitterEmitsGroupAwareInfoLine:
                 shuffle_test=True,
                 val_placement="forward",
             )
-        assert any("Group-aware splitting: ENABLED" in r.message for r in caplog.records), (
-            "splitter must log 'Group-aware splitting: ENABLED' when groups given"
-        )
+        assert any(
+            "Group-aware splitting: ENABLED" in r.message for r in caplog.records
+        ), "splitter must log 'Group-aware splitting: ENABLED' when groups given"
 
     def test_disabled_log_when_groups_none(self, caplog) -> None:
         """Disabled log when groups none."""

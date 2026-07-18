@@ -19,7 +19,6 @@ import pytest
 
 from tests.training._fuzz_combo import AXES, _build_combo
 
-
 # ---------------------------------------------------------------------------
 # Helper: build a FuzzCombo by overlaying axis kwargs onto AXES defaults.
 # ---------------------------------------------------------------------------

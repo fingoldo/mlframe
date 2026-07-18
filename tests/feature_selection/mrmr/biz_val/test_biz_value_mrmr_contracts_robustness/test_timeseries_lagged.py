@@ -296,6 +296,6 @@ class TestLaggedTargetLagPriority:
         assert "x_t1" in names, f"x_t1 missing; support={names}"
         if "x_t4" not in names:
             return  # x_t4 dropped - already optimal.
-        assert names.index("x_t1") < names.index("x_t4"), (
-            f"x_t1 (rank {names.index('x_t1')}) ranks below x_t4 (rank {names.index('x_t4')}); MRMR flipped the lag ordering; support={names}"
-        )
+        assert names.index("x_t1") < names.index(
+            "x_t4"
+        ), f"x_t1 (rank {names.index('x_t1')}) ranks below x_t4 (rank {names.index('x_t4')}); MRMR flipped the lag ordering; support={names}"

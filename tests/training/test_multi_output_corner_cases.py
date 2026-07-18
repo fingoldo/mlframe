@@ -27,7 +27,6 @@ from mlframe.training.configs import (
     MultilabelDispatchConfig,
 )
 
-
 # ---------------------------------------------------------------------------
 # 1. CatBoost MultiLogloss rejects float target with clear message
 # ---------------------------------------------------------------------------

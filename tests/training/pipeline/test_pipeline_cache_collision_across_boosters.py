@@ -34,7 +34,6 @@ import pandas as pd
 import polars as pl
 import pytest
 
-
 # =============================================================================
 # Fix C1 — cache_key partitioned by feature_tier
 # =============================================================================
@@ -52,9 +51,9 @@ class TestCacheKeyIncludesFeatureTier:
         cb = CatBoostStrategy()
         lgb = TreeModelStrategy()
         assert cb.cache_key == lgb.cache_key == "tree"  # base key shared
-        assert cb.feature_tier() != lgb.feature_tier(), (
-            "CB must have (True,True) tier; LGB/base Tree has (False,False). If this assertion fails, the entire cache-partition fix is moot."
-        )
+        assert (
+            cb.feature_tier() != lgb.feature_tier()
+        ), "CB must have (True,True) tier; LGB/base Tree has (False,False). If this assertion fails, the entire cache-partition fix is moot."
         # Simulating the core.py composition:
         cb_key = f"{cb.cache_key}_tier{cb.feature_tier()}"
         lgb_key = f"{lgb.cache_key}_tier{lgb.feature_tier()}"
@@ -186,9 +185,9 @@ class TestBruteforceTargetEncoderWarnStaticCheck:
         assert "warnings.warn(" in src, "warnings.warn call missing from bruteforce.py"
         assert "logger.warning(" in src, "logger.warning call missing from bruteforce.py"
         # The specific leakage phrase must be present.
-        assert "TARGET-ENCODING LEAK" in src or "target-encoding leak" in src.lower(), (
-            "Target-encoding leak WARN text removed from bruteforce.py — the round-10 defensive observability fix regressed"
-        )
+        assert (
+            "TARGET-ENCODING LEAK" in src or "target-encoding leak" in src.lower()
+        ), "Target-encoding leak WARN text removed from bruteforce.py — the round-10 defensive observability fix regressed"
         # And the CatBoostEncoder.fit_transform call (the leak itself)
         # must still be there — if someone replaces it with OOF encoding,
         # the WARN becomes redundant and this test should be updated.

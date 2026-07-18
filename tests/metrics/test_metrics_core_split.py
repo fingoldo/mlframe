@@ -13,7 +13,6 @@ from pathlib import Path
 
 import numpy as np
 
-
 PARENT = "mlframe.metrics.core"
 FACADE_LOC_BUDGET = 800
 
@@ -23,9 +22,9 @@ def test_metrics_core_facade_loc_budget():
     import mlframe.metrics.core as parent
 
     n = len(Path(parent.__file__).read_text(encoding="utf-8").splitlines())
-    assert n <= FACADE_LOC_BUDGET, (
-        f"{PARENT} grew back over the budget ({n} > {FACADE_LOC_BUDGET}); carve another sibling rather than letting the facade bloat."
-    )
+    assert (
+        n <= FACADE_LOC_BUDGET
+    ), f"{PARENT} grew back over the budget ({n} > {FACADE_LOC_BUDGET}); carve another sibling rather than letting the facade bloat."
 
 
 def test_metrics_core_re_exports_resolve():

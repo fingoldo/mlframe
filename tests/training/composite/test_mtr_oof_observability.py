@@ -359,6 +359,6 @@ def test_biz_val_excluded_component_salvage_beats_equal_mean():
     rmse_eq = float(np.sqrt(np.mean((pred_eq - yte) ** 2)))
 
     improvement = (rmse_eq - rmse_nnls) / rmse_eq
-    assert improvement >= 0.08, (
-        f"salvaged honest-OOF NNLS should beat equal-mean by >=8%; got {improvement:.1%} (nnls={rmse_nnls:.4f}, equal_mean={rmse_eq:.4f})"
-    )
+    assert (
+        improvement >= 0.08
+    ), f"salvaged honest-OOF NNLS should beat equal-mean by >=8%; got {improvement:.1%} (nnls={rmse_nnls:.4f}, equal_mean={rmse_eq:.4f})"

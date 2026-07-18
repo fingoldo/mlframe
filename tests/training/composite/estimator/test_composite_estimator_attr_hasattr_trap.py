@@ -75,9 +75,9 @@ def test_linreg_inner_missing_attr_is_not_advertised(attr):
     ``booster_``; the wrapper MUST report ``hasattr == False`` (was ``True``
     with a ``None`` value -- the trap)."""
     est = _fit_linreg_wrapper()
-    assert hasattr(est, attr) is False, (
-        f"hasattr(wrapper, {attr!r}) must be False when the fitted inner lacks it (pre-fix returned None, making hasattr True -- the trap)"
-    )
+    assert (
+        hasattr(est, attr) is False
+    ), f"hasattr(wrapper, {attr!r}) must be False when the fitted inner lacks it (pre-fix returned None, making hasattr True -- the trap)"
 
 
 @pytest.mark.parametrize("attr", ["feature_importances_", "booster_"])

@@ -120,8 +120,8 @@ def test_biz_val_stability_balanced_target_skips_stratification_quota():
     kw = dict(n_bootstraps=25, sample_fraction=0.75, support_threshold=0.6, random_state=0)
     strat_on = StabilityMRMR(_NoisyTopK(k=5), stratify=True, **kw).fit(X, y)
     strat_off = StabilityMRMR(_NoisyTopK(k=5), stratify=False, **kw).fit(X, y)
-    assert set(strat_on.support_.tolist()) == set(strat_off.support_.tolist()), (
-        "stratify must not change support on a balanced target where no class is at risk"
-    )
+    assert set(strat_on.support_.tolist()) == set(
+        strat_off.support_.tolist()
+    ), "stratify must not change support on a balanced target where no class is at risk"
     assert np.array_equal(strat_on.selection_probabilities_, strat_off.selection_probabilities_)
     assert len(set(strat_on.support_.tolist()) - true) == 0

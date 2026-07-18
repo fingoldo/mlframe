@@ -29,7 +29,6 @@ from mlframe.models.ensembling.base import combine_probs
 from mlframe.models.ensembling.predict import ensemble_probabilistic_predictions
 from mlframe.models.ensembling import score_ensemble
 
-
 # ---------------------------------------------------------------------------
 # 1. combine_probs direct weighted math
 # ---------------------------------------------------------------------------

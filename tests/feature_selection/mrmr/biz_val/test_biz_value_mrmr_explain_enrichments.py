@@ -147,9 +147,9 @@ def test_whatif_preview_matches_actual_flag_flip_refit():
         still_dropped = set(led_relaxed.loc[gr, "candidate"].astype(str)) & recorded_cands
     actual_readmit = len(recorded_cands - still_dropped)
 
-    assert preview_count == actual_readmit, (
-        f"what-if preview {preview_count} != actual flag-flip re-admit {actual_readmit} (recorded={len(recorded_cands)}, still_dropped={len(still_dropped)})"
-    )
+    assert (
+        preview_count == actual_readmit
+    ), f"what-if preview {preview_count} != actual flag-flip re-admit {actual_readmit} (recorded={len(recorded_cands)}, still_dropped={len(still_dropped)})"
 
 
 # ---------------------------------------------------------------------------

@@ -12,7 +12,6 @@ import pytest
 
 from mlframe.feature_engineering.financial import merge_perticker_and_wholemarket_features
 
-
 pytestmark = pytest.mark.fast
 
 
@@ -35,6 +34,6 @@ def test_merge_rankings_constant_market_column_no_inf_nan():
 
     out = merge_perticker_and_wholemarket_features(perticker, wholemarket, timestamp_column="date")
     rnk = out["feat_wm_rnk"].to_numpy()
-    assert np.isfinite(rnk).all(), (
-        f"feat_wm_rnk contains inf/NaN ({rnk}) for a market-constant column; the rank expression must be wrapped in clean_numeric to guard the zero denominator."
-    )
+    assert np.isfinite(
+        rnk
+    ).all(), f"feat_wm_rnk contains inf/NaN ({rnk}) for a market-constant column; the rank expression must be wrapped in clean_numeric to guard the zero denominator."

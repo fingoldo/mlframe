@@ -61,9 +61,9 @@ def test_biz_val_multi_stage_stacker_beats_raw_feature_baseline_mse():
     stacker_mse = mean_squared_error(y_test, stacker.predict(X_test))
 
     improvement = 1.0 - stacker_mse / baseline_mse
-    assert improvement > 0.4, (
-        f"expected >40% MSE reduction vs. a raw-feature-only linear baseline, got {improvement:.4f} (baseline={baseline_mse:.2f}, stacker={stacker_mse:.2f})"
-    )
+    assert (
+        improvement > 0.4
+    ), f"expected >40% MSE reduction vs. a raw-feature-only linear baseline, got {improvement:.4f} (baseline={baseline_mse:.2f}, stacker={stacker_mse:.2f})"
 
 
 def test_multi_stage_stacker_requires_all_auxiliary_targets():

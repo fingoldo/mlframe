@@ -266,9 +266,9 @@ def test_biz_njit_poly_eval_3x_faster_than_numpy_at_n2k():
     # genuine regression (~1x = JIT broken) without flagging runner noise.
     _CI = bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))
     _floor = 2.0 if _CI else 3.0
-    assert speedup >= _floor, (
-        f"njit hermeval must be >={_floor}x faster than numpy at n=2k; got {speedup:.2f}x ({t_numpy * 1e6 / N:.1f}us vs {t_njit * 1e6 / N:.1f}us)"
-    )
+    assert (
+        speedup >= _floor
+    ), f"njit hermeval must be >={_floor}x faster than numpy at n=2k; got {speedup:.2f}x ({t_numpy * 1e6 / N:.1f}us vs {t_njit * 1e6 / N:.1f}us)"
 
 
 # ---------------------------------------------------------------------------
@@ -319,9 +319,9 @@ def test_biz_fourier_wins_on_periodic_target():
     # periodic target": floor 0.95x (a real regression -- broken Fourier basis
     # -- still drops the ratio well below 0.5x). Both bases must produce a
     # genuine fit (MI well above the ~0.02 noise floor), pinned below.
-    assert res_fourier.mi > 0.4 and res_poly.mi > 0.4, (
-        f"both bases should genuinely fit the periodic target; got Fourier mi={res_fourier.mi:.4f}, polynomial mi={res_poly.mi:.4f}"
-    )
+    assert (
+        res_fourier.mi > 0.4 and res_poly.mi > 0.4
+    ), f"both bases should genuinely fit the periodic target; got Fourier mi={res_fourier.mi:.4f}, polynomial mi={res_poly.mi:.4f}"
     _floor = 0.95
     assert ratio >= _floor, (
         f"Fourier should not be beaten by polynomial by more than "
@@ -418,9 +418,9 @@ def test_biz_pade_wins_on_bump_target():
     # tied with -- not catastrophically beaten by -- Hermite on a bump target":
     # floor 0.80x (a real Pade-basis regression still drops the ratio << 0.5x).
     # Both bases must produce a genuine fit (MI well above the noise floor).
-    assert res_pade.mi > 0.4 and res_poly.mi > 0.4, (
-        f"both bases should genuinely fit the bump target; got pade mi={res_pade.mi:.4f}, hermite mi={res_poly.mi:.4f}"
-    )
+    assert (
+        res_pade.mi > 0.4 and res_poly.mi > 0.4
+    ), f"both bases should genuinely fit the bump target; got pade mi={res_pade.mi:.4f}, hermite mi={res_poly.mi:.4f}"
     _floor = 0.80
     assert ratio >= _floor, (
         f"Pade should be roughly tied with Hermite (ratio >= {_floor:.2f}x) on "
@@ -538,9 +538,9 @@ def test_biz_triplet_beats_pair_on_3way_xor():
     triplet_top = next(iter(triplet_scores.items()))
     triplet_mi = triplet_top[1]
     ratio = triplet_mi / max(pair_mi, 1e-9)
-    assert ratio >= 10.0, (
-        f"Triplet must beat pair by >=10x on 3-way XOR; got triplet={triplet_mi:.4f} (best={triplet_top[0]}), pair={pair_mi:.4f} (ratio {ratio:.1f}x)"
-    )
+    assert (
+        ratio >= 10.0
+    ), f"Triplet must beat pair by >=10x on 3-way XOR; got triplet={triplet_mi:.4f} (best={triplet_top[0]}), pair={pair_mi:.4f} (ratio {ratio:.1f}x)"
 
 
 # ---------------------------------------------------------------------------
@@ -571,9 +571,9 @@ def test_biz_honest_baselines_reject_redundant_polynomial_xor():
     )
     # On XOR, the trivial ``mul`` baseline beats Hermite polynomial.
     # The 1.05x gate rejects the polynomial.
-    assert res is None, (
-        f"Honest non-poly baseline must reject Hermite polynomial on XOR target where trivial mul wins; got result mi={res.mi if res else 'N/A'}"
-    )
+    assert (
+        res is None
+    ), f"Honest non-poly baseline must reject Hermite polynomial on XOR target where trivial mul wins; got result mi={res.mi if res else 'N/A'}"
 
 
 def test_biz_basis_routing_dispatches_correctly():
@@ -680,6 +680,6 @@ def test_biz_bin_function_discovery_picks_atan2_on_angular():
         f"Bin-function discovery should pick angular function on atan2 target; got bf={res.bin_func_name}, mi={res.mi:.4f}"
     )
     # Quantitative win floor: an angular-aware bin-func on the arctan2 threshold target must capture meaningful signal, not just "pick the right family but emit garbage". A silent regression where atan2/div is chosen but the polynomial coefficients are mis-fit collapses MI to <=0.10; the structural check above passes but the feature is useless. Measured locally with the canonical CMA-ES + warm-start path: MI ~= 0.25-0.35 on this synthetic; 0.15 floor leaves wide margin for shared-runner noise while still tripping a real regression.
-    assert res.mi >= 0.15, (
-        f"Angular bin-func should yield MI>=0.15 on arctan2 target; got mi={res.mi:.4f}, bf={res.bin_func_name}. Structural family-pick is correct but quantitative signal is missing - likely a coefficient-fit regression."
-    )
+    assert (
+        res.mi >= 0.15
+    ), f"Angular bin-func should yield MI>=0.15 on arctan2 target; got mi={res.mi:.4f}, bf={res.bin_func_name}. Structural family-pick is correct but quantitative signal is missing - likely a coefficient-fit regression."

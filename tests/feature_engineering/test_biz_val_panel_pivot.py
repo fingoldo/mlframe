@@ -55,9 +55,9 @@ def test_biz_val_right_aligned_pivot_beats_left_aligned_pivot():
     rmse_right = _rmse(right_aligned)
     rmse_left = _rmse(left_aligned)
 
-    assert rmse_right < rmse_left * 0.7, (
-        f"expected right-aligned pivot to beat left-aligned pivot by >=30% RMSE, got right={rmse_right:.4f} left={rmse_left:.4f}"
-    )
+    assert (
+        rmse_right < rmse_left * 0.7
+    ), f"expected right-aligned pivot to beat left-aligned pivot by >=30% RMSE, got right={rmse_right:.4f} left={rmse_left:.4f}"
 
 
 def test_pivot_time_indexed_panel_right_alignment_hand_computed():

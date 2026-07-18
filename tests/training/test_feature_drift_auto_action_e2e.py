@@ -296,9 +296,9 @@ def test_feature_drift_auto_action_default_off_warn_only():
     assert metadata.get("feature_distribution_drift"), "drift report missing"
 
     # Auto-apply MUST NOT have fired (flag is OFF).
-    assert not metadata.get("feature_drift_auto_action"), (
-        f"feature_drift_auto_action must be empty when the auto-apply flag defaults to OFF; got {metadata.get('feature_drift_auto_action')}"
-    )
+    assert not metadata.get(
+        "feature_drift_auto_action"
+    ), f"feature_drift_auto_action must be empty when the auto-apply flag defaults to OFF; got {metadata.get('feature_drift_auto_action')}"
 
     # Skip-stamp MUST be present so dashboards can show what WOULD have been
     # applied if the operator had opted in.
@@ -381,9 +381,9 @@ def test_feature_drift_auto_action_e2e_with_mlp_opt_in():
     metadata = ctx.metadata or {}
 
     auto_action = metadata.get("feature_drift_auto_action", {})
-    assert auto_action, (
-        f"feature_drift_auto_action missing despite opt-in flag set + drifted regression target + mlp in model set. metadata keys: {list(metadata.keys())}"
-    )
+    assert (
+        auto_action
+    ), f"feature_drift_auto_action missing despite opt-in flag set + drifted regression target + mlp in model set. metadata keys: {list(metadata.keys())}"
     by_type = next(iter(auto_action.values()))
     by_target = next(iter(by_type.values()))
     assert by_target["sklearn_override"].get("activation") == "identity"

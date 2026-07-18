@@ -12,7 +12,6 @@ import pytest
 
 from mlframe.feature_engineering.transformer import compute_bgmm_dual_class_features
 
-
 pytestmark = pytest.mark.fast
 
 

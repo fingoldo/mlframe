@@ -47,7 +47,6 @@ from mlframe.training.composite import (
 )
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
-
 # ----------------------------------------------------------------------
 # Synthetic data fixtures
 # ----------------------------------------------------------------------
@@ -269,12 +268,12 @@ class TestLeakageGuards:
 
         # alphas should reflect the slice-specific generative coefficients,
         # not converge to the full-df midpoint.
-        assert abs(alpha_first - 0.95) < 0.05, (
-            f"alpha_first={alpha_first:.3f} should be ~0.95; if it's ~1.025, the fit is using full-df data instead of train_idx -> LEAKAGE."
-        )
-        assert abs(alpha_second - 1.10) < 0.05, (
-            f"alpha_second={alpha_second:.3f} should be ~1.10; if it's ~1.025, the fit is using full-df data instead of train_idx -> LEAKAGE."
-        )
+        assert (
+            abs(alpha_first - 0.95) < 0.05
+        ), f"alpha_first={alpha_first:.3f} should be ~0.95; if it's ~1.025, the fit is using full-df data instead of train_idx -> LEAKAGE."
+        assert (
+            abs(alpha_second - 1.10) < 0.05
+        ), f"alpha_second={alpha_second:.3f} should be ~1.10; if it's ~1.025, the fit is using full-df data instead of train_idx -> LEAKAGE."
         # And they MUST differ.
         assert abs(alpha_first - alpha_second) > 0.05
 

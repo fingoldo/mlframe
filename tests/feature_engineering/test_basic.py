@@ -154,9 +154,9 @@ def test_create_date_features_warns_on_column_clash_pandas(caplog):
     with caplog.at_level(logging.WARNING, logger="mlframe.feature_engineering.basic"):
         create_date_features(df, ["date"])
     warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
-    assert any("date_day" in m and ("OVERWRITTEN" in m or "overwritten" in m.lower()) for m in warns), (
-        f"Expected WARN naming 'date_day' as overwritten; got: {warns}"
-    )
+    assert any(
+        "date_day" in m and ("OVERWRITTEN" in m or "overwritten" in m.lower()) for m in warns
+    ), f"Expected WARN naming 'date_day' as overwritten; got: {warns}"
 
 
 def test_create_date_features_warns_on_column_clash_polars(caplog):
@@ -263,9 +263,9 @@ def test_cyclical_pass_reuses_precomputed_date_fields_not_redecode(monkeypatch):
     # Float (kind 'f') resolutions happen ONLY in the cyclical pass. With reuse, the only
     # cyclical period not already extracted as an integer field is `hour`.
     float_methods = sorted({m for m, k in calls if k == "f"})
-    assert float_methods == ["hour"], (
-        f"cyclical pass re-decoded already-extracted fields {float_methods}; expected only 'hour' to need a fresh float extraction"
-    )
+    assert float_methods == [
+        "hour"
+    ], f"cyclical pass re-decoded already-extracted fields {float_methods}; expected only 'hour' to need a fresh float extraction"
     assert "ts_month_sin" in out.columns and "ts_hour_cos" in out.columns
 
 

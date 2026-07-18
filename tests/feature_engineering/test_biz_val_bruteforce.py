@@ -22,7 +22,6 @@ warnings.filterwarnings("ignore")
 
 from tests._pysr_gate import pysr_works as _check_julia
 
-
 _MINI_PYSR = {
     "niterations": 3,
     "populations": 3,
@@ -149,6 +148,6 @@ def test_biz_val_bruteforce_pysr_reserved_names_smoke():
     assert len(eq_strs) >= 1
     # The renamed column must NOT appear under its raw reserved name as a free symbol; if PySR consumed ``im`` it
     # would have either raised (collision with imaginary unit) or returned no input-referencing equation.
-    assert any(("x0" in s) or ("x1" in s) or ("reserved_im" in s) for s in eq_strs), (
-        f"renamed reserved column should be discoverable in equations; got {eq_strs}"
-    )
+    assert any(
+        ("x0" in s) or ("x1" in s) or ("reserved_im" in s) for s in eq_strs
+    ), f"renamed reserved column should be discoverable in equations; got {eq_strs}"

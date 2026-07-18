@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 MODELS: tuple[str, ...] = ("cb", "xgb", "lgb", "hgb", "linear", "mlp")
 
 AXES: dict[str, tuple[Any, ...]] = {

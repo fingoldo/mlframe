@@ -202,9 +202,9 @@ def test_bug1_dpi_trap_self_transform_not_dropped():
     raw = {"a", "b", "c", "d", "e"}
     toks = _flat_tokens(sel, raw)
     assert sel, "empty support"
-    assert "a" in toks, (
-        f"BUG1 DPI-TRAP BREAK: ``a`` enters via a SELF-transform (a**3) only, so the DPI-trap filter must NOT drop it, yet token a vanished: {sel}"
-    )
+    assert (
+        "a" in toks
+    ), f"BUG1 DPI-TRAP BREAK: ``a`` enters via a SELF-transform (a**3) only, so the DPI-trap filter must NOT drop it, yet token a vanished: {sel}"
     assert not res["replay_break"], f"replay regression: {res['replay_break']}"
 
 
@@ -391,9 +391,9 @@ def _byte_exact_slice_replay(df: pd.DataFrame, y: np.ndarray, seed: int, slices:
             vf = np.asarray(out_full[ec].values)[lo:hi]
             vs = np.asarray(out_slice[ec].values)
             bn = np.isnan(vf) & np.isnan(vs)
-            assert np.array_equal(np.where(bn, 0.0, vf), np.where(bn, 0.0, vs)), (
-                f"PREWARP REPLAY BREAK: engineered col {ec!r} not byte-exact on slice [{lo}:{hi}] -- a global/slice-local statistic leaked into replay"
-            )
+            assert np.array_equal(
+                np.where(bn, 0.0, vf), np.where(bn, 0.0, vs)
+            ), f"PREWARP REPLAY BREAK: engineered col {ec!r} not byte-exact on slice [{lo}:{hi}] -- a global/slice-local statistic leaked into replay"
 
 
 @pytest.mark.timeout(600)

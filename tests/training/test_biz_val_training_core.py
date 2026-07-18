@@ -98,12 +98,12 @@ def test_biz_val_training_suite_regression_completes(tmp_path):
     # Behavioural: suite returned a real models mapping (not a stub) with at least one trained estimator under
     # the requested family, and the metadata dict carries the canonical keys downstream consumers depend on.
     assert models is not None, "regression suite returned None models on lgb-only path"
-    assert hasattr(models, "__len__") and len(models) >= 1, (
-        f"models container empty after successful suite call; got {type(models).__name__} len={len(models) if hasattr(models, '__len__') else 'n/a'}"
-    )
-    assert isinstance(metadata, dict) and len(metadata) > 0, (
-        f"metadata empty / wrong type: {type(metadata).__name__} keys={list(metadata)[:5] if isinstance(metadata, dict) else 'n/a'}"
-    )
+    assert (
+        hasattr(models, "__len__") and len(models) >= 1
+    ), f"models container empty after successful suite call; got {type(models).__name__} len={len(models) if hasattr(models, '__len__') else 'n/a'}"
+    assert (
+        isinstance(metadata, dict) and len(metadata) > 0
+    ), f"metadata empty / wrong type: {type(metadata).__name__} keys={list(metadata)[:5] if isinstance(metadata, dict) else 'n/a'}"
 
 
 def test_biz_val_training_suite_classification_completes(tmp_path):

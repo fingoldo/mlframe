@@ -11,7 +11,6 @@ from mlframe.feature_selection.filters.bases import EXTRA_BASES
 from mlframe.feature_selection.filters.discretization import discretize_array
 from mlframe.feature_selection.filters.info_theory import compute_mi_from_classes
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

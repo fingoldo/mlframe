@@ -13,8 +13,6 @@ fixture; the actual mutation-detection logic is in the autouse session fixture i
 
 from __future__ import annotations
 
-
-
 _FIXTURES_TO_REGISTER = [
     "sample_regression_data",
     "sample_classification_data",

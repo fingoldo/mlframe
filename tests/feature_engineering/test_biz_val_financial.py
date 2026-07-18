@@ -169,9 +169,9 @@ def test_biz_val_financial_ohlcv_ratios_only_disables_rlags():
         add_ratios=True,
         add_rlags=False,
     )
-    assert out_ratios_only.shape[1] < out_both.shape[1], (
-        f"add_rlags=False must yield fewer columns; both={out_both.shape[1]}, ratios_only={out_ratios_only.shape[1]}"
-    )
+    assert (
+        out_ratios_only.shape[1] < out_both.shape[1]
+    ), f"add_rlags=False must yield fewer columns; both={out_both.shape[1]}, ratios_only={out_ratios_only.shape[1]}"
 
 
 # ---------------------------------------------------------------------------

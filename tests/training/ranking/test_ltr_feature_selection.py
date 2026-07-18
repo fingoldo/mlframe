@@ -123,9 +123,9 @@ def test_biz_val_group_aware_fs_beats_pointwise_on_ndcg():
 
     ndcg_ga = _ndcg_for(ga_cols)
     ndcg_pw = _ndcg_for(pointwise_cols)
-    assert ndcg_ga >= ndcg_pw + 0.10, (
-        f"group-aware FS must beat the pointwise pick on NDCG@10: group_aware={ndcg_ga:.4f} pointwise(confounder)={ndcg_pw:.4f} (ga_cols={ga_cols})"
-    )
+    assert (
+        ndcg_ga >= ndcg_pw + 0.10
+    ), f"group-aware FS must beat the pointwise pick on NDCG@10: group_aware={ndcg_ga:.4f} pointwise(confounder)={ndcg_pw:.4f} (ga_cols={ga_cols})"
 
 
 # --- e2e through the suite (common feature_selection_config, group-aware by default) ---------------

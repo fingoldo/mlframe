@@ -33,7 +33,6 @@ from sklearn.metrics import roc_auc_score
 
 from tests.conftest import fast_n_estimators
 
-
 # --------------------------------------------------------------------- synthetic beds
 
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)

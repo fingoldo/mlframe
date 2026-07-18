@@ -202,9 +202,9 @@ def test_legacy_shallow_copy_removed_from_phase_helpers_return_tuple():
     # TrainingContext slot rename: meta dict in, frame slot out.
     ctx_slots = set(getattr(TrainingContext, "__dataclass_fields__", {}).keys())
     assert "train_df_pandas_pre_meta" in ctx_slots, f"TrainingContext must expose train_df_pandas_pre_meta slot; got: {sorted(ctx_slots)}"
-    assert "train_df_pandas_pre" not in ctx_slots, (
-        f"Legacy train_df_pandas_pre slot must be dropped from TrainingContext; still present in: {sorted(ctx_slots)}"
-    )
+    assert (
+        "train_df_pandas_pre" not in ctx_slots
+    ), f"Legacy train_df_pandas_pre slot must be dropped from TrainingContext; still present in: {sorted(ctx_slots)}"
 
 
 def test_auto_detect_falls_back_to_frame_when_meta_absent():

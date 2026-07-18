@@ -24,6 +24,6 @@ def test_maybe_build_votenrank_lazy_import_resolves(caplog):
     with caplog.at_level(logging.WARNING):
         maybe_build_votenrank_leaderboard({}, is_regression=False, build_votenrank_leaderboard_flag=True)
     # The fatal symptom was a "No module named 'mlframe.models.ensembling.ensembling'" warning; it must be gone.
-    assert not any("No module named" in r.getMessage() and "ensembling.ensembling" in r.getMessage() for r in caplog.records), (
-        "votenrank lazy import still points at the stale .ensembling submodule path"
-    )
+    assert not any(
+        "No module named" in r.getMessage() and "ensembling.ensembling" in r.getMessage() for r in caplog.records
+    ), "votenrank lazy import still points at the stale .ensembling submodule path"

@@ -23,7 +23,6 @@ corrupted the next-call return value.
 
 from __future__ import annotations
 
-
 # ---- #1 neural/base get_params -----------------------------------------
 
 
@@ -79,9 +78,9 @@ def test_composite_discovery_report_isolates_inner_dicts():
         f"caller mutation poisoned internal state. Got fresh[0]['score']="
         f"{fresh[0]['score']}, expected 0.5."
     )
-    assert fresh[1]["reason"] == "dropped", (
-        f"Wave 26 P1 regression: report() leaked second inner dict; fresh[1]['reason']={fresh[1]['reason']!r}, expected 'dropped'."
-    )
+    assert (
+        fresh[1]["reason"] == "dropped"
+    ), f"Wave 26 P1 regression: report() leaked second inner dict; fresh[1]['reason']={fresh[1]['reason']!r}, expected 'dropped'."
 
 
 def test_composite_discovery_filter_drops_isolates_inner_dicts():

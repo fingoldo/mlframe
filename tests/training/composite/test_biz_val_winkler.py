@@ -20,7 +20,6 @@ from mlframe.training.composite._winkler import (
     winkler_score_per_row,
 )
 
-
 # --------------------------------------------------------------------------- unit
 
 

@@ -190,9 +190,9 @@ def test_biz_cat_fe_engineered_col_replays_on_test_data(xor_4way_dataset):
         (r for r in state.recipes if set(r.src_names) == {"x1", "x2"}),
         None,
     )
-    assert xor_recipe is not None, (
-        "XOR pair (x1, x2) must be selected on the XOR-4way synthetic; missing selection indicates a regression in cat_fe recipe discovery."
-    )
+    assert (
+        xor_recipe is not None
+    ), "XOR pair (x1, x2) must be selected on the XOR-4way synthetic; missing selection indicates a regression in cat_fe recipe discovery."
 
     # Replay on test
     out = apply_recipe(xor_recipe, df_test)

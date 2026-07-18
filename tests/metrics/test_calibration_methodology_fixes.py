@@ -14,7 +14,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # SA16 - debiased ECE is less biased than the plug-in default on a calibrated model
 # ---------------------------------------------------------------------------

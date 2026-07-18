@@ -53,9 +53,9 @@ def test_biz_val_auxiliary_feature_prediction_beats_raw_features_alone_mse():
     mse_augmented = mean_squared_error(y_test, augmented.predict(X_test_aug))
 
     improvement = 1.0 - mse_augmented / mse_baseline
-    assert improvement > 0.1, (
-        f"expected >10% MSE reduction from the auxiliary feature-prediction columns, got {improvement:.4f} (baseline={mse_baseline:.4f}, augmented={mse_augmented:.4f})"
-    )
+    assert (
+        improvement > 0.1
+    ), f"expected >10% MSE reduction from the auxiliary feature-prediction columns, got {improvement:.4f} (baseline={mse_baseline:.4f}, augmented={mse_augmented:.4f})"
 
 
 def test_auxiliary_feature_prediction_output_columns():

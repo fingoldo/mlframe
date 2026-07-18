@@ -41,9 +41,9 @@ def test_biz_val_ridge_prefilter_prunes_features_with_minimal_cv_loss():
     pruned_score = float(np.mean(cross_val_score(Ridge(alpha=1.0), X[selected].to_numpy(), y, cv=3, scoring="r2")))
 
     assert reduction > 0.8, f"expected >80% feature-count reduction (800 raw features, mostly noise), got {reduction:.4f} ({len(selected)} kept)"
-    assert pruned_score >= full_score - 0.03, (
-        f"expected pruned-pool CV score close to full-feature-set score, got pruned={pruned_score:.4f} vs full={full_score:.4f}"
-    )
+    assert (
+        pruned_score >= full_score - 0.03
+    ), f"expected pruned-pool CV score close to full-feature-set score, got pruned={pruned_score:.4f} vs full={full_score:.4f}"
 
     n_informative_kept = sum(1 for f in selected if f.startswith("info"))
     assert n_informative_kept >= 7, f"expected nearly all 8 informative features to survive the prefilter, kept {n_informative_kept}"
@@ -54,9 +54,9 @@ def test_ridge_prefilter_smallest_pool_within_tolerance_is_selected():
     X, y = _make_noisy_dataset(n=300, d_informative=4, d_noise=124, seed=1)  # 128 total features
     selected_tight = ridge_coefficient_prefilter(X.to_numpy(), y, list(X.columns), cv=3, tol=0.005, alpha=1.0)
     selected_loose = ridge_coefficient_prefilter(X.to_numpy(), y, list(X.columns), cv=3, tol=0.2, alpha=1.0)
-    assert len(selected_loose) <= len(selected_tight), (
-        f"a looser tolerance should select an equal-or-smaller pool, got loose={len(selected_loose)} tight={len(selected_tight)}"
-    )
+    assert len(selected_loose) <= len(
+        selected_tight
+    ), f"a looser tolerance should select an equal-or-smaller pool, got loose={len(selected_loose)} tight={len(selected_tight)}"
 
 
 def test_ridge_prefilter_classification_returns_valid_feature_names():

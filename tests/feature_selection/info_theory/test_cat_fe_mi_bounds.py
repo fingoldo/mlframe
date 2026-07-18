@@ -22,7 +22,6 @@ from mlframe.feature_selection.filters.info_theory import (
     merge_vars,
 )
 
-
 # Hypothesis-flake budget: use bounded n / cardinality + fixed deadline
 HYP_SETTINGS = settings(
     max_examples=30,

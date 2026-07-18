@@ -44,9 +44,9 @@ def test_biz_val_ordered_target_encode_noise_shrinks_overfitting_gap():
     gap_no_noise = _fit_and_gap(noise_std=0.0)
     gap_with_noise = _fit_and_gap(noise_std=0.8)
 
-    assert gap_with_noise < gap_no_noise * 0.85, (
-        f"expected noise injection to shrink the train/test overfitting gap by >=15%, got with_noise={gap_with_noise:.4f} no_noise={gap_no_noise:.4f}"
-    )
+    assert (
+        gap_with_noise < gap_no_noise * 0.85
+    ), f"expected noise injection to shrink the train/test overfitting gap by >=15%, got with_noise={gap_with_noise:.4f} no_noise={gap_no_noise:.4f}"
 
 
 def test_ordered_target_encode_noise_std_zero_is_deterministic_and_matches_baseline():

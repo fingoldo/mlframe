@@ -26,7 +26,6 @@ import pytest
 
 from mlframe.training.splitting import make_train_test_split
 
-
 # ---------------------------------------------------------------------------
 # Input validation — negative / out-of-range args must fail loudly
 # ---------------------------------------------------------------------------

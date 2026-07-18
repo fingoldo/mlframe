@@ -177,9 +177,9 @@ class TestSuiteRealPhaseRoutesToResidualStacked:
             )
 
         # The REAL suite phase must route to fit_stacked_on_residual.
-        assert "fit_stacked_on_residual" in call_log, (
-            f"real suite phase did not call fit_stacked_on_residual when use_stacked_discovery_residual=True; call_log={call_log}"
-        )
+        assert (
+            "fit_stacked_on_residual" in call_log
+        ), f"real suite phase did not call fit_stacked_on_residual when use_stacked_discovery_residual=True; call_log={call_log}"
         assert "fit_stacked" not in call_log
 
 
@@ -266,6 +266,6 @@ class TestBothFlagsWarnAndPreferResidual:
                     residual_aggregation="mean",
                 )
 
-        assert any("use_stacked_discovery=True and use_stacked_discovery_residual=True" in rec.message for rec in caplog.records), (
-            f"expected mutual-exclusion warning; got log records: {[r.message for r in caplog.records]}"
-        )
+        assert any(
+            "use_stacked_discovery=True and use_stacked_discovery_residual=True" in rec.message for rec in caplog.records
+        ), f"expected mutual-exclusion warning; got log records: {[r.message for r in caplog.records]}"

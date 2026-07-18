@@ -322,9 +322,9 @@ class TestMRMRIntegration:
         m = MRMR(verbose=0, random_seed=42)
         assert bool(m.fe_conditional_gate_enable) is True
         m.fit(X, pd.Series(y, name="y"))
-        assert list(getattr(m, "conditional_gate_features_", []) or []) == [], (
-            "conditional-gate FE must emit nothing on a single-driver smooth regression target (specificity on binned y, no regime structure)."
-        )
+        assert (
+            list(getattr(m, "conditional_gate_features_", []) or []) == []
+        ), "conditional-gate FE must emit nothing on a single-driver smooth regression target (specificity on binned y, no regime structure)."
 
     def test_clone_preserves_params(self):
         """Clone preserves params."""
@@ -531,9 +531,9 @@ class TestArgmaxAndGateTargetTypeRobustness:
         t0 = time.time()
         m.fit(df, y)
         assert time.time() - t0 < 30.0, f"row-argmax fit on {kind} exceeded 30s wall (hang-class bug)"
-        assert list(getattr(m, "row_argmax_features_", []) or []) == [], (
-            f"row-argmax FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
-        )
+        assert (
+            list(getattr(m, "row_argmax_features_", []) or []) == []
+        ), f"row-argmax FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
 
     @pytest.mark.parametrize("kind", ["multilabel", "multitarget"])
     def test_row_argmax_skipped_on_2d_target_no_crash_or_hang(self, kind):
@@ -545,9 +545,9 @@ class TestArgmaxAndGateTargetTypeRobustness:
         t0 = time.time()
         m.fit(df, y)
         assert time.time() - t0 < 30.0, f"row-argmax fit on {kind} exceeded 30s wall (hang-class bug)"
-        assert list(getattr(m, "row_argmax_features_", []) or []) == [], (
-            f"row-argmax FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
-        )
+        assert (
+            list(getattr(m, "row_argmax_features_", []) or []) == []
+        ), f"row-argmax FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
 
     @pytest.mark.parametrize("kind", ["quantile", "count"])
     def test_conditional_gate_specific_on_smooth_continuous_target_no_crash_or_hang(self, kind):
@@ -560,9 +560,9 @@ class TestArgmaxAndGateTargetTypeRobustness:
         t0 = time.time()
         m.fit(df, y)
         assert time.time() - t0 < 30.0, f"conditional-gate fit on {kind} exceeded 30s wall (hang-class bug)"
-        assert list(getattr(m, "conditional_gate_features_", []) or []) == [], (
-            f"conditional-gate FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
-        )
+        assert (
+            list(getattr(m, "conditional_gate_features_", []) or []) == []
+        ), f"conditional-gate FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
 
     @pytest.mark.parametrize("kind", ["multilabel", "multitarget"])
     def test_conditional_gate_skipped_on_2d_target_no_crash_or_hang(self, kind):
@@ -574,9 +574,9 @@ class TestArgmaxAndGateTargetTypeRobustness:
         t0 = time.time()
         m.fit(df, y)
         assert time.time() - t0 < 30.0, f"conditional-gate fit on {kind} exceeded 30s wall (hang-class bug)"
-        assert list(getattr(m, "conditional_gate_features_", []) or []) == [], (
-            f"conditional-gate FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
-        )
+        assert (
+            list(getattr(m, "conditional_gate_features_", []) or []) == []
+        ), f"conditional-gate FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
 
     def test_row_argmax_detects_on_argmax_regression_target(self):
         """Continuous-1D y driven by which of 3 cols is the row-max (y = 5*argmax + noise) DETECTS + emits the argmax feature on binned y."""

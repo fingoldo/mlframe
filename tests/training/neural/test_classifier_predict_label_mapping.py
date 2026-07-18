@@ -353,7 +353,6 @@ def test_partial_fit_with_explicit_classes_universe(tiny_classifier_params):
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-
 _HYP_SETTINGS = settings(
     max_examples=6,
     deadline=None,  # fitting a tiny MLP exceeds the default 200 ms deadline

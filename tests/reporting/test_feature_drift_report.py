@@ -72,9 +72,9 @@ class TestFeatureDriftSensor:
         assert any("[feature-distribution-drift]" in m for m in info_msgs), f"INFO log missing on moderate drift; got info_msgs={info_msgs}"
         # And NO WARN should fire at this magnitude without FI weighting.
         warn_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-        assert not any("[feature-distribution-drift]" in m for m in warn_msgs), (
-            f"WARN level fired on moderate drift without FI weighting; design says only escalate at >=10x sigma OR weighted>=1.0. warn_msgs={warn_msgs}"
-        )
+        assert not any(
+            "[feature-distribution-drift]" in m for m in warn_msgs
+        ), f"WARN level fired on moderate drift without FI weighting; design says only escalate at >=10x sigma OR weighted>=1.0. warn_msgs={warn_msgs}"
 
     def test_extreme_drift_escalates_to_warn(self, caplog):
         """>= 10x threshold (so >= 30 sigma at default) escalates to WARN."""
@@ -220,9 +220,9 @@ class TestFeatureDriftSensor:
         assert ws is not None and ws < 0.5, f"With drift on FI=0 feature, weighted score should stay low; got {ws}"
         # No WARN should fire -- the harm signal is grounded and doesn't escalate.
         warn_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-        assert not any("[feature-distribution-drift]" in m for m in warn_msgs), (
-            f"WARN should NOT fire when the drift is on an unimportant feature. warn_msgs={warn_msgs}"
-        )
+        assert not any(
+            "[feature-distribution-drift]" in m for m in warn_msgs
+        ), f"WARN should NOT fire when the drift is on an unimportant feature. warn_msgs={warn_msgs}"
 
     def test_threshold_respected(self):
         """Threshold respected."""

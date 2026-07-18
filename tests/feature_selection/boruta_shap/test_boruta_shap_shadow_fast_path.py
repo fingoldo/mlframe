@@ -39,9 +39,9 @@ def _run_create_shadow(X: pd.DataFrame, seed: int) -> pd.DataFrame:
 def _assert_identical(ref: pd.DataFrame, got: pd.DataFrame, label: str):
     """Assert identical."""
     assert list(ref.columns) == list(got.columns), f"[{label}] column order diverged"
-    assert list(ref.dtypes.astype(str)) == list(got.dtypes.astype(str)), (
-        f"[{label}] dtypes diverged: ref={list(ref.dtypes.astype(str))} got={list(got.dtypes.astype(str))}"
-    )
+    assert list(ref.dtypes.astype(str)) == list(
+        got.dtypes.astype(str)
+    ), f"[{label}] dtypes diverged: ref={list(ref.dtypes.astype(str))} got={list(got.dtypes.astype(str))}"
     for c in ref.columns:
         if str(ref[c].dtype) == "category":
             assert np.array_equal(ref[c].cat.codes.values, got[c].cat.codes.values), f"[{label}] {c} codes diverged"

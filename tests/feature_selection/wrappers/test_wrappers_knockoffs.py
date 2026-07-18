@@ -118,9 +118,9 @@ class TestK2_KnockoffImportance:
         noise_W = [W[f"f{i}"] for i in range(4, 12)]
         median_noise = np.median(noise_W)
         for f_idx, w_inf in enumerate(informative_W):
-            assert w_inf > median_noise, (
-                f"Informative feature f{f_idx} has W={w_inf:+.4f} which is not above median noise W={median_noise:+.4f}. Knockoffs failed."
-            )
+            assert (
+                w_inf > median_noise
+            ), f"Informative feature f{f_idx} has W={w_inf:+.4f} which is not above median noise W={median_noise:+.4f}. Knockoffs failed."
 
     def test_W_is_signed_dict(self):
         """W is signed dict."""

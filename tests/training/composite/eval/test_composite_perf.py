@@ -38,7 +38,6 @@ from mlframe.training.composite import (
 )
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
-
 # ----------------------------------------------------------------------
 # _mi_pair_bin
 # ----------------------------------------------------------------------
@@ -280,9 +279,9 @@ class TestDeterministicScreeningModels:
         assert type(m_det) is type(m_nondet)
         _params_det = m_det.get_params()
         _params_nondet = m_nondet.get_params()
-        assert set(_params_det) == set(_params_nondet), (
-            f"param-key drift: det-only={set(_params_det) - set(_params_nondet)}, nondet-only={set(_params_nondet) - set(_params_det)}"
-        )
+        assert set(_params_det) == set(
+            _params_nondet
+        ), f"param-key drift: det-only={set(_params_det) - set(_params_nondet)}, nondet-only={set(_params_nondet) - set(_params_det)}"
         for _k in _params_det:
             _v_det = _params_det[_k]
             _v_nondet = _params_nondet[_k]

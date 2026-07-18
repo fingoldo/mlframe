@@ -120,9 +120,9 @@ def test_mrmr_fe_transform_returns_polars_when_input_polars():
     # must be an original input column.
     _fe_markers = ("*", "__", "(")
     raw_out_cols = [c for c in out.columns if not any(m in c for m in _fe_markers)]
-    assert set(raw_out_cols).issubset(set(df.columns)), (
-        f"non-engineered transform outputs must be original columns; unexpected={sorted(set(raw_out_cols) - set(df.columns))}"
-    )
+    assert set(raw_out_cols).issubset(
+        set(df.columns)
+    ), f"non-engineered transform outputs must be original columns; unexpected={sorted(set(raw_out_cols) - set(df.columns))}"
 
 
 def test_mrmr_fe_caller_frame_not_mutated_on_polars():

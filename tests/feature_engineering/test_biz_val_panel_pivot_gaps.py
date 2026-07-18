@@ -59,9 +59,9 @@ def test_biz_val_time_gaps_beat_lag_rank_only_pivot():
     rmse_with_gaps = _rmse(with_gaps)
     rmse_rank_only = _rmse(rank_only)
 
-    assert rmse_with_gaps < rmse_rank_only * 0.85, (
-        f"expected gap-augmented pivot to beat lag-rank-only pivot by >=15% RMSE, got with_gaps={rmse_with_gaps:.4f} rank_only={rmse_rank_only:.4f}"
-    )
+    assert (
+        rmse_with_gaps < rmse_rank_only * 0.85
+    ), f"expected gap-augmented pivot to beat lag-rank-only pivot by >=15% RMSE, got with_gaps={rmse_with_gaps:.4f} rank_only={rmse_rank_only:.4f}"
 
 
 def test_pivot_time_indexed_panel_gap_hand_computed():

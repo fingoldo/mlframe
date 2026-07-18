@@ -129,9 +129,9 @@ def test_b2_uniform_leading_nan_column_not_all_nan():
     assert out[0] == n_bins, "leading NaN -> dedicated NaN bin"
     # The finite rows must span more than one bin (column is NOT collapsed to all-NaN/constant).
     finite_codes = out[1:]
-    assert finite_codes.min() == 0 and finite_codes.max() == n_bins - 1, (
-        "finite rows must span the full bin range, proving min/max was resolved over the finite subset"
-    )
+    assert (
+        finite_codes.min() == 0 and finite_codes.max() == n_bins - 1
+    ), "finite rows must span the full bin range, proving min/max was resolved over the finite subset"
 
 
 # ---------------------------------------------------------------------------

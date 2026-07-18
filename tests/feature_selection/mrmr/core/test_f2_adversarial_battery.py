@@ -574,9 +574,9 @@ def test_bug3_pure_noise_no_fabrication():
     eng = _engineered_selected(sel)
     # No engineered 'synergy' feature spanning 2+ operands may be fabricated on noise.
     multi_operand_eng = [nm for nm in eng if len(_operand_tokens(nm)) >= 2]
-    assert not multi_operand_eng, (
-        f"BUG3 FABRICATION: pure-noise target produced multi-operand engineered feature(s) {multi_operand_eng} (escalation hallucinated synergy): {sel}"
-    )
+    assert (
+        not multi_operand_eng
+    ), f"BUG3 FABRICATION: pure-noise target produced multi-operand engineered feature(s) {multi_operand_eng} (escalation hallucinated synergy): {sel}"
 
 
 @pytest.mark.timeout(360)

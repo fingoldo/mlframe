@@ -47,7 +47,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # 1. _pick_per_group_categorical: alphabetical tiebreaker
 # ---------------------------------------------------------------------------

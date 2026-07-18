@@ -21,7 +21,6 @@ import numpy as np
 import pytest
 from sklearn.model_selection import KFold
 
-
 # Direct in-process try-import. pynndescent is pure-Python+numba so the only failure mode is ImportError (no segfault possible).
 # The cost of the first import is dominated by numba JIT (~30-60s) which is paid here once and then warm-cached for the rest of
 # the session.

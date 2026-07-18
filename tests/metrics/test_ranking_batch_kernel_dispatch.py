@@ -20,7 +20,6 @@ import pytest
 
 from mlframe.metrics import _ranking_extras as rk
 
-
 _METRICS = [
     ("dcg_at_k", "_dcg_batch_kernel"),
     ("expected_reciprocal_rank", "_err_batch_kernel"),

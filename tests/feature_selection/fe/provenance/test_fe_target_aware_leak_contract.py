@@ -65,7 +65,6 @@ from sklearn.metrics import roc_auc_score
 from mlframe.feature_selection.filters.mrmr import MRMR
 from tests.feature_selection.conftest import fast_subset
 
-
 # Permuted-y engineered-only holdout AUC must stay at/under this. Chance is 0.5; the +0.06 band
 # absorbs n=800-holdout sampling noise (measured worst-case null across families x seeds was 0.532).
 _LEAK_AUC_CEIL = 0.56

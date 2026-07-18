@@ -49,9 +49,9 @@ def test_biz_val_segmented_model_factory_beats_global_one_hot_model_mse():
     mse_segmented = mean_squared_error(test_df["y"], factory.predict(test_df[["airport", "x1", "x2"]]))
 
     improvement = 1.0 - mse_segmented / mse_global
-    assert improvement > 0.9, (
-        f"expected >90% MSE reduction vs. a global one-hot model, got {improvement:.4f} (global={mse_global:.4f}, segmented={mse_segmented:.4f})"
-    )
+    assert (
+        improvement > 0.9
+    ), f"expected >90% MSE reduction vs. a global one-hot model, got {improvement:.4f} (global={mse_global:.4f}, segmented={mse_segmented:.4f})"
 
 
 def test_segmented_model_factory_add_segment_does_not_disturb_other_segments():
@@ -124,12 +124,12 @@ def test_biz_val_segmented_model_factory_hierarchical_shrinkage_beats_raw_and_gl
 
     improvement_vs_raw = 1.0 - mse_shrinkage / mse_raw
     improvement_vs_global = 1.0 - mse_shrinkage / mse_global
-    assert improvement_vs_raw > 0.3, (
-        f"expected >30% MSE reduction vs. raw per-segment fit-anyway, got {improvement_vs_raw:.4f} (raw={mse_raw:.4f}, shrinkage={mse_shrinkage:.4f})"
-    )
-    assert improvement_vs_global > 0.3, (
-        f"expected >30% MSE reduction vs. blunt full-global fallback, got {improvement_vs_global:.4f} (global={mse_global:.4f}, shrinkage={mse_shrinkage:.4f})"
-    )
+    assert (
+        improvement_vs_raw > 0.3
+    ), f"expected >30% MSE reduction vs. raw per-segment fit-anyway, got {improvement_vs_raw:.4f} (raw={mse_raw:.4f}, shrinkage={mse_shrinkage:.4f})"
+    assert (
+        improvement_vs_global > 0.3
+    ), f"expected >30% MSE reduction vs. blunt full-global fallback, got {improvement_vs_global:.4f} (global={mse_global:.4f}, shrinkage={mse_shrinkage:.4f})"
 
 
 def test_segmented_model_factory_shrinkage_disabled_by_default_is_bit_identical():

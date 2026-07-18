@@ -24,7 +24,6 @@ import pytest
 from mlframe.training.configs import ReportingConfig
 from mlframe.training.core.utils import _apply_plot_style_overrides
 
-
 # ---------------------------------------------------------------------------
 # Config field defaults
 # ---------------------------------------------------------------------------

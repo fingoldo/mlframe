@@ -127,7 +127,7 @@ def test_sa29_time_ordered_calibration_holds_coverage_with_temporal_heteroscedas
     # that leaks the later (larger) scale across the boundary. Under unbounded variance
     # drift neither reaches the nominal 0.90 (the test law is more dispersed than any
     # calibration block can see), but the time-ordering plumbing is the difference.
-    assert cov_blocked > cov_random + 0.03, (
-        f"blocked time-split must beat the random split under temporal drift: blocked={cov_blocked:.3f} vs random={cov_random:.3f}"
-    )
+    assert (
+        cov_blocked > cov_random + 0.03
+    ), f"blocked time-split must beat the random split under temporal drift: blocked={cov_blocked:.3f} vs random={cov_random:.3f}"
     assert cov_blocked >= 0.80, f"blocked calibration coverage too low: {cov_blocked:.3f}"

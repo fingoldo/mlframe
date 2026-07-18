@@ -39,7 +39,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # ---- #1 _resolve_use_gpu ------------------------------------------------
 
 

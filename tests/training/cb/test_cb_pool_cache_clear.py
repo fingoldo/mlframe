@@ -23,9 +23,9 @@ def test_trainer_alias_points_to_live_cache():
     from mlframe.training import trainer
     from mlframe.training.cb import _cb_pool
 
-    assert trainer._CB_POOL_CACHE is _cb_pool._CB_POOL_CACHE, (
-        "trainer._CB_POOL_CACHE must alias the live cache in _cb_pool, otherwise clear() at suite startup silently scrubs an empty dict."
-    )
+    assert (
+        trainer._CB_POOL_CACHE is _cb_pool._CB_POOL_CACHE
+    ), "trainer._CB_POOL_CACHE must alias the live cache in _cb_pool, otherwise clear() at suite startup silently scrubs an empty dict."
 
 
 def test_trainer_side_clear_actually_scrubs_live_cache():
@@ -43,9 +43,9 @@ def test_trainer_side_clear_actually_scrubs_live_cache():
 
     # Live cache must now be empty -- pre-fix it would still hold "live_value" because
     # trainer.py:217 was a dead stub independent of _cb_pool._CB_POOL_CACHE.
-    assert len(_cb_pool._CB_POOL_CACHE) == 0, (
-        f"trainer-side clear didn't scrub live cache; pre-fix bug regression. Live cache still has: {dict(_cb_pool._CB_POOL_CACHE)}"
-    )
+    assert (
+        len(_cb_pool._CB_POOL_CACHE) == 0
+    ), f"trainer-side clear didn't scrub live cache; pre-fix bug regression. Live cache still has: {dict(_cb_pool._CB_POOL_CACHE)}"
 
 
 def test_phase_config_setup_imports_from_cb_pool():
@@ -59,6 +59,6 @@ def test_phase_config_setup_imports_from_cb_pool():
     import mlframe as _mlframe
 
     src = (pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core" / "_phase_config_setup.py").read_text(encoding="utf-8")
-    assert "from mlframe.training.cb import _CB_POOL_CACHE" in src, (
-        "_phase_config_setup.py must import _CB_POOL_CACHE from the cb package (the live cache), not from trainer (which was the dead-stub source pre-fix)."
-    )
+    assert (
+        "from mlframe.training.cb import _CB_POOL_CACHE" in src
+    ), "_phase_config_setup.py must import _CB_POOL_CACHE from the cb package (the live cache), not from trainer (which was the dead-stub source pre-fix)."

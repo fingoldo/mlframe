@@ -40,7 +40,6 @@ import pytest
 from tests.conftest import running_under_xdist, perf_time_budget
 from tests.feature_selection.conftest import is_fast_mode
 
-
 # 0.05 min == 3 s. Small enough that an oversized full-mode fit must abort early,
 # large enough that the per-candidate budget-check granularity can react.
 _BUDGET_MINS = 0.05
@@ -131,9 +130,9 @@ def test_biz_val_mrmr_respects_runtime_budget_and_yields_usable_partial(_warm_nu
     if running_under_xdist():
         pytest.skip("wall-clock budget assert unreliable under xdist contention")
     ceiling = perf_time_budget(_BUDGET_SLACK * _BUDGET_SECS)
-    assert elapsed <= ceiling, (
-        f"MRMR ignored max_runtime_mins: elapsed {elapsed:.2f}s > {ceiling:.1f}s (budget {_BUDGET_SECS:.0f}s, slack {_BUDGET_SLACK}x). PROD BUG if persistent."
-    )
+    assert (
+        elapsed <= ceiling
+    ), f"MRMR ignored max_runtime_mins: elapsed {elapsed:.2f}s > {ceiling:.1f}s (budget {_BUDGET_SECS:.0f}s, slack {_BUDGET_SLACK}x). PROD BUG if persistent."
 
 
 # ---------------------------------------------------------------------------
@@ -182,9 +181,9 @@ def test_biz_val_rfecv_respects_runtime_budget_and_yields_usable_partial(_warm_n
     if running_under_xdist():
         pytest.skip("wall-clock budget assert unreliable under xdist contention")
     ceiling = perf_time_budget(_BUDGET_SLACK * _BUDGET_SECS)
-    assert elapsed <= ceiling, (
-        f"RFECV ignored max_runtime_mins: elapsed {elapsed:.2f}s > {ceiling:.1f}s (budget {_BUDGET_SECS:.0f}s, slack {_BUDGET_SLACK}x). PROD BUG if persistent."
-    )
+    assert (
+        elapsed <= ceiling
+    ), f"RFECV ignored max_runtime_mins: elapsed {elapsed:.2f}s > {ceiling:.1f}s (budget {_BUDGET_SECS:.0f}s, slack {_BUDGET_SLACK}x). PROD BUG if persistent."
 
 
 # ---------------------------------------------------------------------------
@@ -218,9 +217,9 @@ def test_biz_val_mrmr_simple_mode_row_scaling_envelope(_warm_numba):
     # Guard against a degenerate sub-ms baseline that would make the ratio meaningless.
     assert t_n > 0.05, f"baseline fit too fast to measure a meaningful ratio: {t_n:.4f}s"
     ratio = t_4n / t_n
-    assert ratio <= 8.0, (
-        f"simple-mode MRMR row-scaling regressed: t(4n)/t(n)={ratio:.2f} > 8.0 (t(n=2000)={t_n:.3f}s, t(n=8000)={t_4n:.3f}s). Suspect an O(n^2) path."
-    )
+    assert (
+        ratio <= 8.0
+    ), f"simple-mode MRMR row-scaling regressed: t(4n)/t(n)={ratio:.2f} > 8.0 (t(n=2000)={t_n:.3f}s, t(n=8000)={t_4n:.3f}s). Suspect an O(n^2) path."
 
 
 @pytest.mark.slow
@@ -237,9 +236,9 @@ def test_biz_val_mrmr_simple_mode_feature_scaling_envelope(_warm_numba):
         pytest.skip("wall-clock scaling ratio unreliable under xdist contention")
     assert t_p > 0.05, f"baseline fit too fast to measure a meaningful ratio: {t_p:.4f}s"
     ratio = t_4p / t_p
-    assert ratio <= 25.0, (
-        f"simple-mode MRMR feature-scaling regressed: t(4p)/t(p)={ratio:.2f} > 25.0 (t(p=40)={t_p:.3f}s, t(p=160)={t_4p:.3f}s). Suspect an O(p^3) path."
-    )
+    assert (
+        ratio <= 25.0
+    ), f"simple-mode MRMR feature-scaling regressed: t(4p)/t(p)={ratio:.2f} > 25.0 (t(p=40)={t_p:.3f}s, t(p=160)={t_4p:.3f}s). Suspect an O(p^3) path."
 
 
 # ---------------------------------------------------------------------------

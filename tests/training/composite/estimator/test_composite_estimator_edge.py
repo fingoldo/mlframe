@@ -37,7 +37,6 @@ from sklearn.base import BaseEstimator, RegressorMixin
 from mlframe.training.composite import CompositeTargetEstimator
 from mlframe.training.composite.transforms import get_transform
 
-
 # ----------------------------------------------------------------------
 # Inner mocks
 # ----------------------------------------------------------------------
@@ -152,9 +151,9 @@ class TestE7SampleWeightSignatureGate:
         with pytest.raises(TypeError, match="deep boom"):
             est.fit(X, y, sample_weight=sw)
         # Exactly one fit attempt -- the gate did NOT trigger an unweighted retry.
-        assert _WeightAwareButBuggyInner.fit_call_count == 1, (
-            f"expected 1 inner.fit call (no retry); got {_WeightAwareButBuggyInner.fit_call_count} (pre-fix retry bug)"
-        )
+        assert (
+            _WeightAwareButBuggyInner.fit_call_count == 1
+        ), f"expected 1 inner.fit call (no retry); got {_WeightAwareButBuggyInner.fit_call_count} (pre-fix retry bug)"
 
     def test_weight_aware_inner_receives_sample_weight(self) -> None:
         """A weight-aware inner gets the sample_weight kwarg threaded through."""

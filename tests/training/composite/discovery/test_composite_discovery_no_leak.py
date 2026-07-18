@@ -56,9 +56,9 @@ def test_composite_discovery_disc_df_build_does_not_leak_target_into_caller_pd()
         "_build_disc_df_for_target. Per-target loop accumulates leakage. "
         f"Columns now: {list(filtered_train_df.columns)}"
     )
-    assert list(filtered_train_df.columns) == cols_before, (
-        f"S04: filtered_train_df.columns mutated: before={cols_before} after={list(filtered_train_df.columns)}"
-    )
+    assert (
+        list(filtered_train_df.columns) == cols_before
+    ), f"S04: filtered_train_df.columns mutated: before={cols_before} after={list(filtered_train_df.columns)}"
 
 
 def test_composite_discovery_disc_df_build_does_not_leak_mutation_to_caller():

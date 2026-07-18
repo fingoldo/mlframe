@@ -290,9 +290,9 @@ def test_rfecv_runtime_at_score_parity():
 
     # Both halves of the intended win. Either failing is the documented gap.
     assert our_score >= sk_score - 0.02, f"score parity not met: ours={our_score:.4f} sklearn={sk_score:.4f} (floor sklearn-0.02={sk_score - 0.02:.4f})"
-    assert our_wall_min <= 0.7 * sk_wall_min, (
-        f"runtime win not met: our_min={our_wall_min:.3f}s sklearn_min={sk_wall_min:.3f}s ratio={our_wall_min / sk_wall_min:.3f} (want <= 0.7)"
-    )
+    assert (
+        our_wall_min <= 0.7 * sk_wall_min
+    ), f"runtime win not met: our_min={our_wall_min:.3f}s sklearn_min={sk_wall_min:.3f}s ratio={our_wall_min / sk_wall_min:.3f} (want <= 0.7)"
 
 
 # --- fast-mode representative ----------------------------------------------

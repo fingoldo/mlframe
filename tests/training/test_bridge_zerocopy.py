@@ -30,7 +30,6 @@ def _module_source(mod) -> str:
 
 from mlframe.training.utils import get_pandas_view_of_polars_df
 
-
 # ---------------------------------------------------------------------------
 # F1 + F15: leaderboard / head-tail must use the Arrow bridge so categorical / enum / datetime
 # dtypes survive the polars -> pandas hop (bare .to_pandas() collapses them to object).
@@ -64,9 +63,9 @@ def test_f1_main_train_suite_leaderboard_path_routes_polars_through_bridge():
     if sib.exists():
         src += "\n" + sib.read_text(encoding="utf-8")
     # CSV round-trip is the old pl -> bytes -> pd.read_csv path; it densified every column to whatever pd.read_csv inferred (typically string for datetimes / categoricals).
-    assert "pl.DataFrame, _pd.DataFrame)" not in src or "get_pandas_view_of_polars_df" in src, (
-        "the leaderboard polars branch must route through get_pandas_view_of_polars_df"
-    )
+    assert (
+        "pl.DataFrame, _pd.DataFrame)" not in src or "get_pandas_view_of_polars_df" in src
+    ), "the leaderboard polars branch must route through get_pandas_view_of_polars_df"
     assert "get_pandas_view_of_polars_df" in src, "F1 regression: leaderboard polars branch no longer routes through the Arrow split-blocks bridge"
 
 
@@ -133,9 +132,9 @@ def test_f4_predict_main_uses_dict_of_numpy_not_from_pandas():
     src = _module_source(pm)
     # Old form: pl.from_pandas(df[_ext_new_cols]) — the back-merge hot path.
     assert "pl.from_pandas(df[_ext_new_cols])" not in src, "F4 regression: predict back-merge reverted to pl.from_pandas (pays pandas block consolidation copy)"
-    assert "pl.DataFrame({c: df[c].to_numpy() for c in _ext_new_cols})" in src, (
-        "F4 regression: expected pl.DataFrame({c: df[c].to_numpy() ...}) dict-of-numpy back-merge"
-    )
+    assert (
+        "pl.DataFrame({c: df[c].to_numpy() for c in _ext_new_cols})" in src
+    ), "F4 regression: expected pl.DataFrame({c: df[c].to_numpy() ...}) dict-of-numpy back-merge"
 
 
 def test_f5_phase_helpers_fit_pipeline_uses_dict_of_numpy_not_from_pandas():
@@ -144,9 +143,9 @@ def test_f5_phase_helpers_fit_pipeline_uses_dict_of_numpy_not_from_pandas():
 
     src = _module_source(phfp)
     assert "pl.from_pandas(_new_df_pd)" not in src, "F5 regression: train/val/test back-merge reverted to pl.from_pandas (pays 3x the consolidation copy)"
-    assert "pl.DataFrame({c: _new_df_pd[c].to_numpy() for c in _new_df_pd.columns})" in src, (
-        "F5 regression: expected dict-of-numpy back-merge for polars-pre extension hstack"
-    )
+    assert (
+        "pl.DataFrame({c: _new_df_pd[c].to_numpy() for c in _new_df_pd.columns})" in src
+    ), "F5 regression: expected dict-of-numpy back-merge for polars-pre extension hstack"
 
 
 def test_f4_f5_dict_of_numpy_back_merge_behaviour_matches_from_pandas():
@@ -180,9 +179,9 @@ def test_f7_filter_to_numeric_uses_split_blocks_for_polars_input():
     # appears in this module, so a substring check is sufficient.
     src = _module_source(pe)
     # Bare ``_df = _df.to_pandas()`` is the regressed shape; fixed shape uses split_blocks=True with a TypeError fallback for pre-0.20.4 polars.
-    assert "_df = _df.to_pandas()" not in src or "split_blocks=True" in src, (
-        "F7 regression: _filter_to_numeric reverted to bare _df.to_pandas() (full consolidation copy on wide frames)"
-    )
+    assert (
+        "_df = _df.to_pandas()" not in src or "split_blocks=True" in src
+    ), "F7 regression: _filter_to_numeric reverted to bare _df.to_pandas() (full consolidation copy on wide frames)"
     assert "split_blocks=True" in src, "F7 regression: expected split_blocks=True in _filter_to_numeric polars hop"
 
 

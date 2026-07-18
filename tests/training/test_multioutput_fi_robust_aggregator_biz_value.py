@@ -87,9 +87,9 @@ def test_biz_value_robust_aggregator_ranks_sign_flipped_planted_feature_first():
     noise_indices = [i for i in range(len(cols)) if i != 3]
     noise_median = float(np.median(np.abs(fi[noise_indices])))
     f3_mag = float(np.abs(fi[3]))
-    assert f3_mag > 3.0 * noise_median, (
-        f"Planted f3 magnitude {f3_mag:.4f} should exceed 3x the noise median |fi| {noise_median:.4f}; got ratio {f3_mag / max(noise_median, 1e-12):.2f}"
-    )
+    assert (
+        f3_mag > 3.0 * noise_median
+    ), f"Planted f3 magnitude {f3_mag:.4f} should exceed 3x the noise median |fi| {noise_median:.4f}; got ratio {f3_mag / max(noise_median, 1e-12):.2f}"
 
 
 def test_mean_signed_aggregator_would_have_failed_on_same_data():

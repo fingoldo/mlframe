@@ -64,6 +64,6 @@ def test_concurrent_col_cache_is_correct_and_counter_does_not_drift():
 
     # The byte counter must equal the actual retained bytes -- proves no double-count / lost-decrement drift.
     actual_bytes = sum(v.shape[0] * v.dtype.itemsize for v in dd._NUMERIC_CODE_CACHE.values())
-    assert dd._NUMERIC_CODE_CACHE_BYTES == actual_bytes, (
-        f"byte counter {dd._NUMERIC_CODE_CACHE_BYTES} != retained {actual_bytes} (accounting drifted under concurrency)"
-    )
+    assert (
+        dd._NUMERIC_CODE_CACHE_BYTES == actual_bytes
+    ), f"byte counter {dd._NUMERIC_CODE_CACHE_BYTES} != retained {actual_bytes} (accounting drifted under concurrency)"

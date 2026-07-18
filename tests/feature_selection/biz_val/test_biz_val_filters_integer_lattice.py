@@ -36,7 +36,6 @@ from mlframe.feature_selection.filters._integer_lattice_fe import (
 )
 from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
 
 
@@ -183,9 +182,9 @@ class TestMRMRIntegration:
         X = pd.DataFrame(cols)
         with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters._integer_lattice_fe"):
             appended, recipes = hybrid_integer_lattice_fe_with_recipes(X, y, seed=7)
-        assert any("skipping the pairwise integer-lattice sweep" in r.message for r in caplog.records), (
-            "expected a whole-sweep-skipped budget log line for 35 int columns."
-        )
+        assert any(
+            "skipping the pairwise integer-lattice sweep" in r.message for r in caplog.records
+        ), "expected a whole-sweep-skipped budget log line for 35 int columns."
         assert appended == [] and recipes == [], "above max_int_cols nothing should be emitted."
 
     def test_clone_preserves_params(self):
@@ -290,18 +289,18 @@ class TestIntegerLatticeTargetTypeRobustness:
         """Integer lattice specific on smooth continuous target no crash or hang."""
         df, y = self._xy(kind)
         m = self._fit(df, y)
-        assert list(getattr(m, "integer_lattice_features_", []) or []) == [], (
-            f"integer-lattice FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
-        )
+        assert (
+            list(getattr(m, "integer_lattice_features_", []) or []) == []
+        ), f"integer-lattice FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
 
     @pytest.mark.parametrize("kind", ["multilabel", "multitarget"])
     def test_integer_lattice_skipped_on_2d_target_no_crash_or_hang(self, kind):
         """Integer lattice skipped on 2d target no crash or hang."""
         df, y = self._xy(kind)
         m = self._fit(df, y)
-        assert list(getattr(m, "integer_lattice_features_", []) or []) == [], (
-            f"integer-lattice FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
-        )
+        assert (
+            list(getattr(m, "integer_lattice_features_", []) or []) == []
+        ), f"integer-lattice FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
 
     def test_integer_lattice_detects_on_gcd_regression_target(self):
         """Continuous-1D y with TRUE gcd structure (y = gcd(a, b) + noise) DETECTS + emits the gcd feature on the binned y."""

@@ -322,9 +322,9 @@ def test_replace_members_not_resurrected_by_raw_retention():
     assert removed, "replace mode should have flagged cluster members for removal"
     out = set(s.get_feature_names_out())
     leaked = removed & out
-    assert not leaked, (
-        f"raw-retention resurrected cluster-aggregate-replaced members: {sorted(leaked)}; _cluster_aggregate_removals_={sorted(removed)}; out={sorted(out)}"
-    )
+    assert (
+        not leaked
+    ), f"raw-retention resurrected cluster-aggregate-replaced members: {sorted(leaked)}; _cluster_aggregate_removals_={sorted(removed)}; out={sorted(out)}"
 
 
 def test_explicit_disable_adds_no_aggregate():

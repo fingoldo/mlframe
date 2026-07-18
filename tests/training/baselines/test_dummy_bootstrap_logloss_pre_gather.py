@@ -102,9 +102,9 @@ def test_multiclass_path_matches_sklearn_log_loss():
     for r in range(200):
         idx = rng_ref.integers(0, n, size=n)
         ref[r] = log_loss(y[idx], p[idx], labels=np.arange(K))
-    assert np.abs(samples_new - ref).max() < 1e-12, (
-        f"multiclass bootstrap log-loss must match sklearn at fp64 epsilon (max abs diff={np.abs(samples_new - ref).max():.2e})"
-    )
+    assert (
+        np.abs(samples_new - ref).max() < 1e-12
+    ), f"multiclass bootstrap log-loss must match sklearn at fp64 epsilon (max abs diff={np.abs(samples_new - ref).max():.2e})"
 
 
 def test_multiclass_path_rejects_out_of_range_labels():

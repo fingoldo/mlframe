@@ -31,9 +31,9 @@ def test_worker_initializer_disables_cuda():
     try:
         os.environ["CUDA_VISIBLE_DEVICES"] = "0"
         disable_cuda_in_worker()
-        assert os.environ["CUDA_VISIBLE_DEVICES"] == "", (
-            "initializer must set CUDA_VISIBLE_DEVICES='' so the loky worker sees no CUDA device and creates no cupy context"
-        )
+        assert (
+            os.environ["CUDA_VISIBLE_DEVICES"] == ""
+        ), "initializer must set CUDA_VISIBLE_DEVICES='' so the loky worker sees no CUDA device and creates no cupy context"
     finally:
         if prev is None:
             os.environ.pop("CUDA_VISIBLE_DEVICES", None)
@@ -121,6 +121,6 @@ def test_pair_search_parallel_uses_cpu_only_loky_backend(monkeypatch):
         "(not a local duplicate -- that would defeat loky's pool-reuse cache "
         "across FE families) so they create NO per-worker cupy CUDA context"
     )
-    assert backend.inner_max_num_threads == 1, (
-        "workers must cap inner thread pools to 1 (sampler-side, not kernel-side parallelism) to avoid CPU oversubscription"
-    )
+    assert (
+        backend.inner_max_num_threads == 1
+    ), "workers must cap inner thread pools to 1 (sampler-side, not kernel-side parallelism) to avoid CPU oversubscription"

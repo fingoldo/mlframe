@@ -108,9 +108,9 @@ def test_phases_apply_third_party_patches_lazy_only() -> None:
         env=_env,
     )
     assert _res.returncode == 0, f"probe subprocess failed: {_res.stderr}"
-    assert "FACTORIES_IN_SYSMODULES=False" in _res.stdout, (
-        f"factories module imported eagerly -- Wave 1.5 lazy-init invariant broken (probe printed {_res.stdout!r})"
-    )
+    assert (
+        "FACTORIES_IN_SYSMODULES=False" in _res.stdout
+    ), f"factories module imported eagerly -- Wave 1.5 lazy-init invariant broken (probe printed {_res.stdout!r})"
 
 
 def test_core_main_applies_patches_at_suite_entry(monkeypatch) -> None:

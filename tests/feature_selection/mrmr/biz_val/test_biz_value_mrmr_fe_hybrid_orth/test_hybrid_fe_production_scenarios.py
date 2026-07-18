@@ -253,12 +253,12 @@ class TestScenarioBSensorUShape:
         auc_b = _classifier_holdout_auc(mb, Xtr, ytr, Xte, yte)
         sup_b = list(mb.get_feature_names_out())
 
-        assert _has_univariate_basis_of(sup_b, "temperature"), (
-            f"B seed={seed}: a temperature univariate basis detector (the U-shape recoverer) must be in the DEFAULT support; got {sup_b}"
-        )
-        assert auc_b >= 0.90, (
-            f"B seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.90 -- the univariate He_2 basis captures y = sign(temp^2-1) exactly; support={sup_b}"
-        )
+        assert _has_univariate_basis_of(
+            sup_b, "temperature"
+        ), f"B seed={seed}: a temperature univariate basis detector (the U-shape recoverer) must be in the DEFAULT support; got {sup_b}"
+        assert (
+            auc_b >= 0.90
+        ), f"B seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.90 -- the univariate He_2 basis captures y = sign(temp^2-1) exactly; support={sup_b}"
 
 
 # ---------------------------------------------------------------------------
@@ -302,9 +302,9 @@ class TestScenarioCAsymmetricChurn:
         sup_b = list(mb.get_feature_names_out())
 
         assert _has_univariate_basis_of(sup_b, "usage"), f"C seed={seed}: a usage univariate basis detector must enter the DEFAULT support; got {sup_b}"
-        assert auc_b >= 0.90, (
-            f"C seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.90 -- the univariate basis recovers the sign(usage^2-1) U-shape; support={sup_b}"
-        )
+        assert (
+            auc_b >= 0.90
+        ), f"C seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.90 -- the univariate basis recovers the sign(usage^2-1) U-shape; support={sup_b}"
 
 
 # ---------------------------------------------------------------------------
@@ -349,9 +349,9 @@ class TestScenarioDPolynomialRegression:
         sup_b = list(mb.get_feature_names_out())
 
         assert _has_univariate_basis_of(sup_b, "x"), f"D seed={seed}: an x univariate basis detector must enter the DEFAULT regression support; got {sup_b}"
-        assert r2_b >= 0.85, (
-            f"D seed={seed}: DEFAULT R^2 {r2_b:.3f} should clear 0.85 -- the univariate-basis-augmented LR essentially fits the quadratic; support={sup_b}"
-        )
+        assert (
+            r2_b >= 0.85
+        ), f"D seed={seed}: DEFAULT R^2 {r2_b:.3f} should clear 0.85 -- the univariate-basis-augmented LR essentially fits the quadratic; support={sup_b}"
 
 
 # ---------------------------------------------------------------------------
@@ -456,9 +456,9 @@ class TestNegativeControlLinearSignal:
         # Both signature flavours are checked: ``__He`` suffix (univariate) and
         # ``*`` (cross-basis pair).
         engineered_in_support = [c for c in sup_h if ("__He" in c) or ("*" in c)]
-        assert engineered_in_support == [], (
-            f"NC seed={seed}: pure-linear signal should produce ZERO engineered columns in support; got {engineered_in_support}; full support={sup_h}"
-        )
+        assert (
+            engineered_in_support == []
+        ), f"NC seed={seed}: pure-linear signal should produce ZERO engineered columns in support; got {engineered_in_support}; full support={sup_h}"
         # Contract NC.2: AUC parity within a tight band -- hybrid must not
         # silently degrade by adding noise features either.
         delta = auc_h - auc_b

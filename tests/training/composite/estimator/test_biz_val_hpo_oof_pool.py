@@ -127,9 +127,9 @@ def test_biz_val_hpo_oof_stacking_pool_beats_single_best_trial_on_holdout():
     pool_mean_pred = np.mean(pool_preds, axis=0)
     pool_rmse = float(np.sqrt(np.mean((pool_mean_pred - y_holdout) ** 2)))
 
-    assert pool_rmse < best_rmse, (
-        f"HPO-trial-pool ensemble RMSE ({pool_rmse:.4f}) should beat the single best-trial RMSE ({best_rmse:.4f}) on fresh holdout data"
-    )
+    assert (
+        pool_rmse < best_rmse
+    ), f"HPO-trial-pool ensemble RMSE ({pool_rmse:.4f}) should beat the single best-trial RMSE ({best_rmse:.4f}) on fresh holdout data"
 
 
 def _rmse(y_true, y_pred) -> float:
@@ -181,9 +181,9 @@ def test_biz_val_select_oof_pool_ensemble_beats_single_best_and_naive_average():
     selected_rmse = _rmse(y_train, selection.combined_oof)
 
     assert selected_rmse < naive_rmse, f"select_ensemble_from_pool RMSE ({selected_rmse:.4f}) should beat naive full-pool averaging ({naive_rmse:.4f})"
-    assert selected_rmse <= best_rmse * 1.0001, (
-        f"select_ensemble_from_pool RMSE ({selected_rmse:.4f}) should be at least as good as single-best ({best_rmse:.4f})"
-    )
+    assert (
+        selected_rmse <= best_rmse * 1.0001
+    ), f"select_ensemble_from_pool RMSE ({selected_rmse:.4f}) should be at least as good as single-best ({best_rmse:.4f})"
 
     # Equivalence check: calling the module function directly (bypassing the convenience method) gives an
     # identical result -- the method is purely a wiring convenience, not new selection logic.

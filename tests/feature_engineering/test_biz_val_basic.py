@@ -49,9 +49,9 @@ def test_biz_val_basic_create_date_features_extracts_components():
     assert out.shape[1] > df.shape[1], f"create_date_features must add columns; input cols={list(df.columns)}, output cols={list(out.columns)}"
     # Expanded columns must include something timestamp-derived.
     new_cols = [c for c in out.columns if c != "timestamp"]
-    assert any("timestamp" in c.lower() or any(k in c.lower() for k in ("year", "month", "day", "hour", "week", "quarter")) for c in new_cols), (
-        f"new columns must include date-derived features; got {new_cols}"
-    )
+    assert any(
+        "timestamp" in c.lower() or any(k in c.lower() for k in ("year", "month", "day", "hour", "week", "quarter")) for c in new_cols
+    ), f"new columns must include date-derived features; got {new_cols}"
 
 
 def test_biz_val_basic_create_date_features_delete_original_default():

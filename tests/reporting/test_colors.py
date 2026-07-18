@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from mlframe.reporting.colors import LINE_PALETTE, line_color
 
-
 _TAB10 = (
     "#1f77b4",
     "#ff7f0e",

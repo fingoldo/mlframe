@@ -29,7 +29,6 @@ import pytest
 from tests.conftest import fast_n_estimators
 from tests.feature_selection.conftest import fast_subset, is_fast_mode
 
-
 # --------------------------------------------------------------------------------------------------------------------
 # Synthetic generators (recipes from the gaps_selection_masking verified findings).
 # --------------------------------------------------------------------------------------------------------------------
@@ -269,9 +268,9 @@ def test_biz_val_boruta_n_much_less_than_p_completes_bounded(high_dimensional_da
     # informative recall >= 1/3 (only informative_0/_1 drive y, so 2/3 is the structural max; 1/3 is the honest floor)
     assert len(sel & set(informative)) >= 1, f"BorutaShap n<<p recovered no informative feature: {sorted(sel)}"
     # bounded FP: never selects EVERYTHING (the broken-shadow watermark); <= 3/4 of the noise pool is generous at n=50
-    assert len(sel & set(noise)) <= int(0.75 * len(noise)), (
-        f"BorutaShap n<<p admitted {len(sel & set(noise))} of {len(noise)} noise cols (near-all): {sorted(sel)}"
-    )
+    assert len(sel & set(noise)) <= int(
+        0.75 * len(noise)
+    ), f"BorutaShap n<<p admitted {len(sel & set(noise))} of {len(noise)} noise cols (near-all): {sorted(sel)}"
 
 
 @pytest.mark.slow

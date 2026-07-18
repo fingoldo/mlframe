@@ -12,7 +12,6 @@ from mlframe.feature_selection.filters.cat_interactions import (
 )
 from mlframe.feature_selection.filters.info_theory import merge_vars
 
-
 # ---------------------------------------------------------------------------
 # Tier 2.1: weighted MI kernel unit tests
 # ---------------------------------------------------------------------------

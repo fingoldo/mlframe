@@ -69,7 +69,7 @@ biz-value/layer suite as the gate, not just the FE pins.
 ## QUEUED — code quality / hygiene
 
 - Single-source the robust-axis constants `_GPU_ROBUST_AXIS_*` from `_hermite_robust._ROBUST_AXIS_*`
-  (silent CPU/GPU selection-drift risk if one is retuned).
+  (silent CPU/GPU selection-drift risk if one is returned).
 - `_GPU_RESIDENT_MIN_N=50k` + other hardcoded GPU thresholds → `kernel_tuning_cache` (effectiveness #1;
   the sibling `fe_gpu_pairs_mi_backend_choice` is the working template).
 - Shared `_env_truthy(name, default)` for the 10+ hand-rolled `fe_gpu_*_enabled` / env-flag gates.

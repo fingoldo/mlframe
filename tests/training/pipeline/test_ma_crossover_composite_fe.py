@@ -140,6 +140,6 @@ def test_biz_val_ma_crossover_composite_wiring_detects_trend_reversal():
     auc_raw = _auc(["val_col"])
     auc_wired = _auc(["val_col_ma_crossover_vote_sum"])
 
-    assert auc_wired > auc_raw + 0.15, (
-        f"wired MA-crossover vote_sum should track trend reversal far better than the raw level, got auc_wired={auc_wired:.3f} vs auc_raw={auc_raw:.3f}"
-    )
+    assert (
+        auc_wired > auc_raw + 0.15
+    ), f"wired MA-crossover vote_sum should track trend reversal far better than the raw level, got auc_wired={auc_wired:.3f} vs auc_raw={auc_raw:.3f}"

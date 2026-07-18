@@ -60,9 +60,9 @@ def test_biz_val_cross_sectional_neighbor_features_beats_raw_features_alone_mse(
     mse_augmented = mean_squared_error(df_augmented.iloc[test_idx]["y"], augmented.predict(df_augmented.iloc[test_idx][feature_cols]))
 
     improvement = 1.0 - mse_augmented / mse_baseline
-    assert improvement > 0.2, (
-        f"expected >20% MSE reduction from cross-sectional neighbor features, got {improvement:.4f} (baseline={mse_baseline:.2f}, augmented={mse_augmented:.2f})"
-    )
+    assert (
+        improvement > 0.2
+    ), f"expected >20% MSE reduction from cross-sectional neighbor features, got {improvement:.4f} (baseline={mse_baseline:.2f}, augmented={mse_augmented:.2f})"
 
 
 def test_cross_sectional_neighbor_features_output_shape_and_columns():
@@ -166,6 +166,6 @@ def test_biz_val_cross_sectional_neighbor_features_multi_k_faster_than_per_k_cal
     t_per_k = min(_time_per_k() for _ in range(3))
 
     speedup = t_per_k / t_multi
-    assert speedup > 1.5, (
-        f"expected multi-k shared-search to beat {len(k_values)} separate per-k calls by >1.5x, got {speedup:.2f}x (multi={t_multi * 1000:.1f}ms, per_k={t_per_k * 1000:.1f}ms)"
-    )
+    assert (
+        speedup > 1.5
+    ), f"expected multi-k shared-search to beat {len(k_values)} separate per-k calls by >1.5x, got {speedup:.2f}x (multi={t_multi * 1000:.1f}ms, per_k={t_per_k * 1000:.1f}ms)"

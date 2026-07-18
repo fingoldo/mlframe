@@ -102,9 +102,9 @@ def test_biz_val_lag_lead_target_within_group_carry_strong_signal_when_persisten
     # this is the (leak-driven) signal that made the trick informative on Kaggle.
     base_rate = float(np.mean(y_p))
     majority_baseline_acc = max(base_rate, 1 - base_rate)
-    assert lag_agreement > majority_baseline_acc + 0.05, (
-        f"lag-based accuracy ({lag_agreement:.4f}) should beat the majority-class baseline ({majority_baseline_acc:.4f}) by a real margin"
-    )
+    assert (
+        lag_agreement > majority_baseline_acc + 0.05
+    ), f"lag-based accuracy ({lag_agreement:.4f}) should beat the majority-class baseline ({majority_baseline_acc:.4f}) by a real margin"
 
     # control: on a non-persistent panel, lag(target) carries no such signal.
     g_c, o_c, y_c = _make_control_panel(rng, n_groups, group_size)

@@ -40,7 +40,6 @@ import logging
 
 import numpy as np
 
-
 # ---- #1: per-class log_loss --------------------------------------------
 
 
@@ -121,9 +120,9 @@ def test_multilabel_log_loss_failed_class_warns_and_uses_nanmean(caplog):
     _baselines = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "baselines"
     src = "\n".join(p.read_text(encoding="utf-8") for p in sorted(_baselines.glob("*.py")))
     assert "multilabel log-loss: %d/%d class component(s) failed" in src, "Wave 16 P1 regression: per-class log_loss WARN log shape gone."
-    assert "return float(np.nanmean(losses))" in src, (
-        "Wave 16 P1 regression: still using mean() instead of nanmean() over per-class log-loss; biased average over surviving classes returns."
-    )
+    assert (
+        "return float(np.nanmean(losses))" in src
+    ), "Wave 16 P1 regression: still using mean() instead of nanmean() over per-class log-loss; biased average over surviving classes returns."
 
 
 # ---- #2: _has_any_infinity -------------------------------------------------
@@ -144,9 +143,9 @@ def test_has_any_infinity_returns_true_on_detection_failure(caplog, monkeypatch)
     with caplog.at_level(logging.WARNING, logger="mlframe.training.preprocessing"):
         result = pp._frame_contains_inf(pd.DataFrame({"f0": [1.0, 2.0, 3.0]}))
     assert result is True
-    assert any("detection failed" in r.getMessage() for r in caplog.records), (
-        f"expected WARN on detection failure; got {[r.getMessage() for r in caplog.records]}"
-    )
+    assert any(
+        "detection failed" in r.getMessage() for r in caplog.records
+    ), f"expected WARN on detection failure; got {[r.getMessage() for r in caplog.records]}"
 
 
 def test_has_any_infinity_true_on_numpy_conversion_failure(caplog, monkeypatch):
@@ -198,9 +197,9 @@ def test_detect_group_column_candidates_logs_per_skip(caplog):
     with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite.discovery.auto_detect"):
         result = cad.detect_group_column_candidates(df, candidate_columns=["boom", "ok"])
     assert all(name != "boom" for name, _ in result)
-    assert any("detect_group_column_candidates: skipping col=" in r.message for r in caplog.records), (
-        f"expected DEBUG skip log; got: {[r.message for r in caplog.records]}"
-    )
+    assert any(
+        "detect_group_column_candidates: skipping col=" in r.message for r in caplog.records
+    ), f"expected DEBUG skip log; got: {[r.message for r in caplog.records]}"
 
 
 def test_detect_skip_emits_debug_when_col_raises(caplog):
@@ -220,9 +219,9 @@ def test_detect_skip_emits_debug_when_col_raises(caplog):
     with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite.discovery.auto_detect"):
         result = cad.detect_time_column_candidates(df)
     assert result == []
-    assert any("detect_time_column_candidates: skipping col=" in rec.message for rec in caplog.records), (
-        f"expected DEBUG log; got: {[r.message for r in caplog.records]}"
-    )
+    assert any(
+        "detect_time_column_candidates: skipping col=" in rec.message for rec in caplog.records
+    ), f"expected DEBUG log; got: {[r.message for r in caplog.records]}"
 
 
 # ---- #4: composite_screening CV fold -------------------------------------
@@ -243,9 +242,9 @@ def test_composite_screening_failed_fold_warns(caplog):
         if p.exists():
             src_combined += p.read_text(encoding="utf-8")
             src_combined += "\n"
-    assert "composite_screening: tiny-model CV fold failed" in src_combined, (
-        "Wave 16 P1 regression: failed CV fold no longer emits a WARN; Screening RMSE silently biased toward well-behaved folds."
-    )
+    assert (
+        "composite_screening: tiny-model CV fold failed" in src_combined
+    ), "Wave 16 P1 regression: failed CV fold no longer emits a WARN; Screening RMSE silently biased toward well-behaved folds."
 
 
 # ---- #5: clone() fallback -------------------------------------------------

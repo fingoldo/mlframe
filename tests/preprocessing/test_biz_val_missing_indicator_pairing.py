@@ -52,9 +52,9 @@ def test_biz_val_missing_indicator_pairing_recovers_mnar_signal():
     model_paired = LogisticRegression().fit(df_train_paired[feature_cols], y_train)
     auc_paired = roc_auc_score(y_test, model_paired.predict_proba(df_test_paired[feature_cols])[:, 1])
 
-    assert auc_paired >= auc_impute_only + 0.05, (
-        f"expected the paired indicator to recover MNAR signal, got paired={auc_paired:.4f} impute_only={auc_impute_only:.4f}"
-    )
+    assert (
+        auc_paired >= auc_impute_only + 0.05
+    ), f"expected the paired indicator to recover MNAR signal, got paired={auc_paired:.4f} impute_only={auc_impute_only:.4f}"
 
 
 def test_missing_indicator_pairing_leaves_complete_columns_untouched():
@@ -117,9 +117,9 @@ def test_biz_val_missing_indicator_pairing_group_conditional_lowers_imputation_r
     rmse_global = np.sqrt(np.mean((out_global.loc[is_missing, "income"].to_numpy() - true_income[is_missing]) ** 2))
     rmse_grouped = np.sqrt(np.mean((out_grouped.loc[is_missing, "income"].to_numpy() - true_income[is_missing]) ** 2))
 
-    assert rmse_grouped <= 0.35 * rmse_global, (
-        f"expected group-conditional imputation to cut RMSE well below global, got grouped={rmse_grouped:.1f} global={rmse_global:.1f}"
-    )
+    assert (
+        rmse_grouped <= 0.35 * rmse_global
+    ), f"expected group-conditional imputation to cut RMSE well below global, got grouped={rmse_grouped:.1f} global={rmse_global:.1f}"
 
 
 def test_biz_val_missing_indicator_pairing_group_conditional_improves_downstream_model():
@@ -138,9 +138,9 @@ def test_biz_val_missing_indicator_pairing_group_conditional_improves_downstream
     model_grouped = LogisticRegression().fit(out_train_grouped[["income"]], y_train)
     auc_grouped = roc_auc_score(y_test, model_grouped.predict_proba(out_test_grouped[["income"]])[:, 1])
 
-    assert auc_grouped >= auc_global + 0.08, (
-        f"expected group-conditional imputation to materially improve downstream AUC, got grouped={auc_grouped:.4f} global={auc_global:.4f}"
-    )
+    assert (
+        auc_grouped >= auc_global + 0.08
+    ), f"expected group-conditional imputation to materially improve downstream AUC, got grouped={auc_grouped:.4f} global={auc_global:.4f}"
 
 
 def test_missing_indicator_pairing_group_col_none_matches_previous_global_behavior():

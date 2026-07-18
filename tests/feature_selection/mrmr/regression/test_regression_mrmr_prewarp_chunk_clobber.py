@@ -92,9 +92,9 @@ def test_prewarp_transform_replays_under_multichunk_joblib():
     # The scenario is engineered to recover at least one prewarp column; if the
     # pipeline ever stops recovering any prewarp feature the test is vacuous, so
     # pin that we actually exercise the replay path.
-    assert prewarp_cols, (
-        "no engineered 'prewarp' column was recovered; the multi-product scenario no longer exercises the prewarp spec-merge path (test would be vacuous)"
-    )
+    assert (
+        prewarp_cols
+    ), "no engineered 'prewarp' column was recovered; the multi-product scenario no longer exercises the prewarp spec-merge path (test would be vacuous)"
 
     # The crux: replay on held-out rows must NOT raise the missing-coef KeyError.
     try:

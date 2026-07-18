@@ -30,7 +30,6 @@ from mlframe.feature_selection.wrappers._helpers import (
 )
 from mlframe.feature_selection.wrappers._enums import VotesAggregation
 
-
 # --------------------------------------------------------------------- F1+F2+F3
 
 
@@ -371,9 +370,9 @@ class TestSwapTopKGatedOnValCv:
         )
         with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(X, y)
-        assert any("swap_top_k=" in rec.getMessage() and "skipped" in rec.getMessage() for rec in caplog.records), (
-            f"Expected the swap_top_k skip log; got: {[r.getMessage() for r in caplog.records[-10:]]}"
-        )
+        assert any(
+            "swap_top_k=" in rec.getMessage() and "skipped" in rec.getMessage() for rec in caplog.records
+        ), f"Expected the swap_top_k skip log; got: {[r.getMessage() for r in caplog.records[-10:]]}"
 
     def test_opt_in_override_runs_swap(self, monkeypatch):
         # Force ES estimator detection so the gate kicks in.

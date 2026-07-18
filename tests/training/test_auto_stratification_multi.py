@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import numpy as np
 
-
 # ---------------------------------------------------------------------------
 # Unit-level checks of the stratify-key construction (the contract that the
 # audit row FE-L-6 actually flags). We import the phase module and exercise the

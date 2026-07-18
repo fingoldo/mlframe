@@ -161,8 +161,8 @@ class TestBizValueBeatsLinearOnSaturating:
         T_mr = _monotonic_residual_forward(y, base, mr_params)
         var_lr = float(np.var(T_lr))
         var_mr = float(np.var(T_mr))
-        assert var_mr < var_lr * 0.5, (
-            f"monotonic_residual variance must be << linear_residual's on a saturating DGP; got var_lr={var_lr:.4f}, var_mr={var_mr:.4f}"
-        )
+        assert (
+            var_mr < var_lr * 0.5
+        ), f"monotonic_residual variance must be << linear_residual's on a saturating DGP; got var_lr={var_lr:.4f}, var_mr={var_mr:.4f}"
         # And close to noise variance (~0.09 here).
         assert var_mr < 0.5

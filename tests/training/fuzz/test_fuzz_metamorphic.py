@@ -45,7 +45,6 @@ from tests.training._fuzz_combo import (
 )
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
-
 # Tolerances for metric drift. Generous — metamorphic tests should catch
 # catastrophic regressions (predictions inverting, pipeline silently
 # dropping features), not 0.01-AUC wobble.
@@ -331,9 +330,9 @@ def test_metamorphic_column_rename_invariance(combo: FuzzCombo, tmp_path):
         pytest.skip(f"base/renamed metric lacks signal ({combo.target_type}: base={m_base:.3f}, renamed={m_renamed:.3f}); metamorphic check not meaningful")
 
     tol = _tolerance_for(combo)
-    assert abs(m_base - m_renamed) <= tol, (
-        f"D1: val metric drifted under column rename — base={m_base:.4f}, renamed={m_renamed:.4f}, |Δ|={abs(m_base - m_renamed):.4f} > {tol}"
-    )
+    assert (
+        abs(m_base - m_renamed) <= tol
+    ), f"D1: val metric drifted under column rename — base={m_base:.4f}, renamed={m_renamed:.4f}, |Δ|={abs(m_base - m_renamed):.4f} > {tol}"
 
 
 # ---------------------------------------------------------------------------
@@ -398,6 +397,6 @@ def test_metamorphic_duplicate_rows_stable(combo: FuzzCombo, tmp_path):
         pytest.skip(f"base/dup metric lacks signal ({combo.target_type}: base={m_base:.3f}, dup={m_dup:.3f}); metamorphic check not meaningful")
 
     tol = _tolerance_for(combo)
-    assert abs(m_base - m_dup) <= tol, (
-        f"D2: val metric drifted under 5% row duplication — base={m_base:.4f}, dup={m_dup:.4f}, |Δ|={abs(m_base - m_dup):.4f} > {tol}"
-    )
+    assert (
+        abs(m_base - m_dup) <= tol
+    ), f"D2: val metric drifted under 5% row duplication — base={m_base:.4f}, dup={m_dup:.4f}, |Δ|={abs(m_base - m_dup):.4f} > {tol}"

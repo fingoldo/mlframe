@@ -33,7 +33,6 @@ from mlframe.training.composite import CompositeTargetEstimator
 from mlframe.training.composite.post_shim import PrePipelinePredictShim
 from mlframe.training.composite.transforms import get_transform
 
-
 # ----------------------------------------------------------------------
 # Inner that captures the T it was trained on (so the test can read back the
 # wrapper's fit-time t_train and compare it against the predict-time forward).
@@ -357,9 +356,9 @@ class TestE7ShimSampleWeightSignatureGate:
         )
         with pytest.raises(TypeError, match="deep boom"):
             shim.fit(X, y, sample_weight=sw)
-        assert _ShimWeightAwareButBuggyInner.fit_call_count == 1, (
-            f"expected 1 inner.fit call (no retry); got {_ShimWeightAwareButBuggyInner.fit_call_count} (pre-fix retry bug)"
-        )
+        assert (
+            _ShimWeightAwareButBuggyInner.fit_call_count == 1
+        ), f"expected 1 inner.fit call (no retry); got {_ShimWeightAwareButBuggyInner.fit_call_count} (pre-fix retry bug)"
 
     def test_weight_aware_inner_receives_sample_weight(self) -> None:
         """Weight aware inner receives sample weight."""

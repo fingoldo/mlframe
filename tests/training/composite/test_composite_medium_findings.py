@@ -37,7 +37,6 @@ from mlframe.training.composite import cache as _cc
 from mlframe.training.composite import ensemble as _cen
 from mlframe.training.composite import discovery as _cd
 
-
 # ---------------------------------------------------------------------------
 # M-COMP-M1: duplicate deque import inside `.update`
 # ---------------------------------------------------------------------------
@@ -50,9 +49,9 @@ def test_m1_update_uses_module_level_deque_no_local_reimport():
     """
     from collections import deque as _deque
 
-    assert getattr(_ce, "deque", None) is _deque, (
-        "composite_ensemble.deque is not bound at module level to collections.deque - update() must use a lazy local reimport"
-    )
+    assert (
+        getattr(_ce, "deque", None) is _deque
+    ), "composite_ensemble.deque is not bound at module level to collections.deque - update() must use a lazy local reimport"
 
 
 # ---------------------------------------------------------------------------

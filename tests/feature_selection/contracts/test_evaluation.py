@@ -30,7 +30,6 @@ from mlframe.feature_selection.filters.evaluation import (
 )
 from mlframe.feature_selection.filters.info_theory import merge_vars
 
-
 # ================================================================================================
 # Fixture factory: build a fully-populated evaluate_candidate kwargs dict.
 # ================================================================================================

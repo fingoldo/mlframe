@@ -11,7 +11,6 @@ import importlib
 
 import pytest
 
-
 THIN_MODULES = [
     "mlframe.training.quantile_postproc",
     "mlframe.training.configs",

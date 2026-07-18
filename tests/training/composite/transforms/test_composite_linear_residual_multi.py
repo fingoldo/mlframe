@@ -30,7 +30,6 @@ from mlframe.training.composite import (
     get_transform,
 )
 
-
 # ---------------------------------------------------------------------------
 # Unit: round-trip / fit / forward / inverse
 # ---------------------------------------------------------------------------
@@ -159,9 +158,9 @@ class TestFitContract:
         y = 0.95 * b1 + rng.normal(scale=0.3, size=n)
         base = np.column_stack([b1, b2])
         p = _linear_residual_multi_fit(y, base)
-        assert p["collinear_fallback"] is True, (
-            f"expected fallback for cond={p['condition_number']:.2e}; tightly collinear bases must NOT produce extreme alphas"
-        )
+        assert (
+            p["collinear_fallback"] is True
+        ), f"expected fallback for cond={p['condition_number']:.2e}; tightly collinear bases must NOT produce extreme alphas"
         assert p["alphas"] == [0.0, 0.0]
         # Round-trip still works (T = y - mean(y), inverse adds it back).
         T = _linear_residual_multi_forward(y, base, p)
@@ -281,9 +280,9 @@ class TestBizValueMultiBaseBeatsSingle:
         # Multi-base residual is just epsilon (variance ~= 0.09).
         var_single = float(np.var(T_single))
         var_multi = float(np.var(T_multi))
-        assert var_multi < var_single * 0.5, (
-            f"expected multi-base residual variance to be <50% of single-base; got var_single={var_single:.4f}, var_multi={var_multi:.4f}"
-        )
+        assert (
+            var_multi < var_single * 0.5
+        ), f"expected multi-base residual variance to be <50% of single-base; got var_single={var_single:.4f}, var_multi={var_multi:.4f}"
         # And reasonably close to the true epsilon variance (~0.09).
         assert var_multi < 0.5
 
@@ -444,6 +443,6 @@ class TestCompositeTargetEstimatorMultiBase:
 
         rmse_single = _rmse(("b1",))
         rmse_multi = _rmse(("b1", "b2"))
-        assert rmse_multi < rmse_single, (
-            f"multi-base must beat single-base on a DGP where b2 carries orthogonal signal; got single={rmse_single:.4f}, multi={rmse_multi:.4f}"
-        )
+        assert (
+            rmse_multi < rmse_single
+        ), f"multi-base must beat single-base on a DGP where b2 carries orthogonal signal; got single={rmse_single:.4f}, multi={rmse_multi:.4f}"

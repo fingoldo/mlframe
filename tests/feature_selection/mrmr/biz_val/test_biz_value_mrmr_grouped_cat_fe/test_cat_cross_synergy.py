@@ -326,9 +326,9 @@ class TestCardinalityControl:
             n_cells = len(r.extra["mapping"])
             # cross cell count (~40*40 effective) must exceed the 0.5*n screen.
             assert n_cells > 0.5 * len(X), f"recipe {r.name!r} has only {n_cells} cells; the high-card fixture should exceed the pre-screen threshold."
-            assert str(r.extra.get("encoding")) == "target", (
-                f"recipe {r.name!r} encoding is {r.extra.get('encoding')!r}; high-card cross must route through target encoding, not raw."
-            )
+            assert (
+                str(r.extra.get("encoding")) == "target"
+            ), f"recipe {r.name!r} encoding is {r.extra.get('encoding')!r}; high-card cross must route through target encoding, not raw."
             col = apply_recipe(r, X)
             # Support does not explode: TE collapses the cross to a SINGLE dense
             # numeric column whose distinct-value count is bounded by n_cells but

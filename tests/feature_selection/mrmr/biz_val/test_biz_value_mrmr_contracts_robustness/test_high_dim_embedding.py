@@ -291,9 +291,9 @@ class TestEmbeddingLikeP200Scales:
         names = _support_names(sel, list(X.columns))
         assert len(names) >= 1, f"empty support_ on embedding-like p=200; seed={seed}. min_features_fallback=1 default should prevent this."
         # Noise filtering: support stays small (<=10 of 200)
-        assert len(names) <= 10, (
-            f"support_size={len(names)} on p=200 with 3 real signals (seed={seed}); 197 noise dims should not pile up. selected={names[:15]}"
-        )
+        assert (
+            len(names) <= 10
+        ), f"support_size={len(names)} on p=200 with 3 real signals (seed={seed}); 197 noise dims should not pile up. selected={names[:15]}"
         # Signal recovery: at least one sig_* column survives
         signals_kept = [c for c in names if c.startswith("sig_")]
         assert len(signals_kept) >= 1, f"no real signal columns in support_={names}; seed={seed}. Noise outranked every real signal -- classic high-dim hijack."
@@ -353,9 +353,9 @@ class TestTfIdfSparseHandled:
         )
         true_signals = {"tok_3", "tok_17"}
         hit = [c for c in names if c in true_signals]
-        assert len(hit) >= 1, (
-            f"neither tok_3 nor tok_17 in support_={names}; seed={seed}. Sparse-aware fallback should have surfaced the signal under default MDLP config."
-        )
+        assert (
+            len(hit) >= 1
+        ), f"neither tok_3 nor tok_17 in support_={names}; seed={seed}. Sparse-aware fallback should have surfaced the signal under default MDLP config."
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_sparse_support_stays_bounded(self, seed):
@@ -506,9 +506,9 @@ class TestEmbeddingCrossTermsDcd:
         # coef=1.0) can drop out on adversarial seeds -- so we pin
         # the existence of at least ONE block's representative.
         blocks = {c.split("_")[0] for c in names}
-        assert "e1" in blocks, (
-            f"strongest latent z1 (coef=2.0) absent from DCD-on support; seed={seed}, support={names}. Redundancy collapse dropped the dominant signal."
-        )
+        assert (
+            "e1" in blocks
+        ), f"strongest latent z1 (coef=2.0) absent from DCD-on support; seed={seed}, support={names}. Redundancy collapse dropped the dominant signal."
 
 
 # ---------------------------------------------------------------------------

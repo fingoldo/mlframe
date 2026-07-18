@@ -31,7 +31,6 @@ from mlframe.feature_selection.filters._mi_aggregator import (
     genie_mi_panel,
 )
 
-
 N_DEFAULT = 2000
 RHO_HIGH = 0.7
 TRUTH_HIGH = -0.5 * math.log(1 - RHO_HIGH * RHO_HIGH)

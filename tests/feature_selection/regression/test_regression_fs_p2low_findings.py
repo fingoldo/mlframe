@@ -60,9 +60,9 @@ def test_w5_fs_f8_content_array_signature_1024_strided_sampling():
     b[1, 0] = 1
     sig_a = _content_array_signature(pd.DataFrame(a))
     sig_b = _content_array_signature(pd.DataFrame(b))
-    assert sig_a != sig_b, (
-        "1024-strided sampling must catch a single-cell mid-frame difference; pre-fix 10-sample stride missed cells between boundary positions."
-    )
+    assert (
+        sig_a != sig_b
+    ), "1024-strided sampling must catch a single-cell mid-frame difference; pre-fix 10-sample stride missed cells between boundary positions."
 
 
 def test_w5_fs_f10_y_fingerprint_is_bit_exact_not_6_decimal_rounded():

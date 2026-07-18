@@ -45,9 +45,9 @@ def test_biz_val_adversarial_validator_diagnostic_detects_shift_and_flags_shifte
 
     assert validator.auc_ > 0.85, f"expected the adversarial classifier to detect strong train/test separability, got AUC={validator.auc_:.4f}"
     report = validator.report()
-    assert report.iloc[0]["feature"] == "segment", (
-        f"expected 'segment' (the genuinely shifted column) to be the top-importance feature, got {report.iloc[0]['feature']!r}"
-    )
+    assert (
+        report.iloc[0]["feature"] == "segment"
+    ), f"expected 'segment' (the genuinely shifted column) to be the top-importance feature, got {report.iloc[0]['feature']!r}"
 
 
 def test_biz_val_adversarial_validator_fold_selection_tracks_true_test_score():
@@ -74,9 +74,9 @@ def test_biz_val_adversarial_validator_fold_selection_tracks_true_test_score():
 
     gap_adv = abs(val_mae_adv - test_mae_adv)
     gap_random = abs(val_mae_random - test_mae_random)
-    assert gap_adv < gap_random * 0.2, (
-        f"expected the facade's selected fold to track true test performance far more closely than random: gap_adv={gap_adv:.4f} gap_random={gap_random:.4f}"
-    )
+    assert (
+        gap_adv < gap_random * 0.2
+    ), f"expected the facade's selected fold to track true test performance far more closely than random: gap_adv={gap_adv:.4f} gap_random={gap_random:.4f}"
     assert regime[val_idx_adv].mean() > 0.9
 
 

@@ -127,9 +127,9 @@ def test_select_features_noise_floor_warns_below_floor(caplog):
             n_perm=3,
             random_state=0,
         )
-    assert any("noise floor" in r.message.lower() or "percentile" in r.message.lower() for r in caplog.records), (
-        "expected a warning that n_perm=3 is too small for the 95th-percentile noise floor"
-    )
+    assert any(
+        "noise floor" in r.message.lower() or "percentile" in r.message.lower() for r in caplog.records
+    ), "expected a warning that n_perm=3 is too small for the 95th-percentile noise floor"
 
 
 if __name__ == "__main__":

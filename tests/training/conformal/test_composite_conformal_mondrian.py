@@ -290,9 +290,9 @@ class TestMondrianRadiusGatherVectorization:
         # Recover the radius the function applied (band is symmetric pre-clip; the
         # train envelope here is unbounded for this synthetic, so no clipping).
         applied = (hi - lo) / 2.0
-        assert np.array_equal(applied, expected_radii), (
-            "vectorized radius gather diverged from the row-by-row loop; NaN/unseen labels must fall back to the global radius"
-        )
+        assert np.array_equal(
+            applied, expected_radii
+        ), "vectorized radius gather diverged from the row-by-row loop; NaN/unseen labels must fall back to the global radius"
 
     def test_nan_label_falls_back_to_global_not_last_unique(self) -> None:
         # Direct guard against use_na_sentinel=True: with default factorize a NaN

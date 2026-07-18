@@ -112,9 +112,7 @@ def _make_dgp_noisy(n: int = 1500, n_features: int = 5, seed: int = 3) -> tuple:
     track the noise floor, not zero."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, n_features)).astype(np.float32)
-    y = (
-        0.5 * X[:, 0] + 0.3 * X[:, 1] + rng.normal(scale=1.5, size=n)  # noise dwarfs the signal in std
-    ).astype(np.float32)
+    y = (0.5 * X[:, 0] + 0.3 * X[:, 1] + rng.normal(scale=1.5, size=n)).astype(np.float32)  # noise dwarfs the signal in std
     return _split(X, y)
 
 

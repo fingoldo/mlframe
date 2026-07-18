@@ -129,9 +129,9 @@ def test_biz_val_honest_oof_outranks_base_additive_that_wins_internal_cv():
     assert int_add < res[additive.name], f"premise: additive internal CV ({int_add:.3f}) must be much lower than its honest OOF ({res[additive.name]:.3f})"
     # On internal CV the additive spec is competitive (legacy would keep it near the top); on honest OOF it is buried.
     assert int_add <= int_honest * 1.6, "additive must be competitive on the optimistic group-internal CV (legacy ranks it high)"
-    assert res[additive.name] >= 1.20 * res[honest.name], (
-        f"honest OOF must rank additive ({res[additive.name]:.3f}) >= 1.20x the honest spec ({res[honest.name]:.3f}); measured ratio ~4.2"
-    )
+    assert (
+        res[additive.name] >= 1.20 * res[honest.name]
+    ), f"honest OOF must rank additive ({res[additive.name]:.3f}) >= 1.20x the honest spec ({res[honest.name]:.3f}); measured ratio ~4.2"
 
 
 def test_biz_val_honest_oof_selection_full_fit_ranks_honest_above_additive():
@@ -195,9 +195,9 @@ def test_domain_check_crash_logs_warning(caplog, monkeypatch):
         res = honest_oof_reconstruction_rmse(disc, df, "y", [spec], _FEATS, screen_idx, holdout_idx, y)
 
     assert spec.name in res  # still scored (fails open, as before)
-    assert any("domain_check" in rec.message for rec in caplog.records), (
-        "a crashing domain_check must be logged at WARNING so a broken domain guard is operator-visible"
-    )
+    assert any(
+        "domain_check" in rec.message for rec in caplog.records
+    ), "a crashing domain_check must be logged at WARNING so a broken domain guard is operator-visible"
 
 
 def test_honest_oof_noop_without_group_ids():

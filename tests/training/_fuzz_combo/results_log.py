@@ -9,7 +9,6 @@ import orjson
 
 from .combo import FuzzCombo
 
-
 # parents[1] keeps the log at tests/training/_fuzz_results.jsonl (next to the
 # former flat module), unchanged by the subpackage carve.
 RESULTS_LOG = Path(__file__).parents[1] / "_fuzz_results.jsonl"

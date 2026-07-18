@@ -73,9 +73,9 @@ def test_forward_select_initial_selected_beats_base_alone_and_none_kept():
     )
     augmented_mse = -cross_val_score(Ridge(alpha=1.0), X[selected], y, cv=5, scoring="neg_mean_squared_error").mean()
 
-    assert augmented_mse < base_alone_mse, (
-        f"expected the raw-augmented stacker to beat base predictions alone, got augmented={augmented_mse:.4f} base_alone={base_alone_mse:.4f}"
-    )
+    assert (
+        augmented_mse < base_alone_mse
+    ), f"expected the raw-augmented stacker to beat base predictions alone, got augmented={augmented_mse:.4f} base_alone={base_alone_mse:.4f}"
 
 
 def test_forward_select_initial_selected_none_preserves_original_behavior():

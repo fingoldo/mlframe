@@ -41,9 +41,9 @@ def test_apply_polars_categorical_fixes_does_not_use_pl_categorical_for_utf8():
     )
     dt = out.train_df_polars.schema["cat"]
     # The cast must end up as pl.Enum, not pl.Categorical.
-    assert isinstance(dt, pl.Enum) or str(dt).startswith("Enum"), (
-        f"Expected pl.Enum cast for raw Utf8 cat_features (no global string cache pollution), got {dt!r}"
-    )
+    assert isinstance(dt, pl.Enum) or str(dt).startswith(
+        "Enum"
+    ), f"Expected pl.Enum cast for raw Utf8 cat_features (no global string cache pollution), got {dt!r}"
     # Concrete check: pl.Categorical is the regression dtype we are avoiding.
     assert dt != pl.Categorical, "Step 4 leaked back to pl.Categorical (cache-poisoning regression)"
 

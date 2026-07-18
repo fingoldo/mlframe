@@ -148,9 +148,9 @@ def test_gate_decisions_identical_on_synergy_fixture(mm_debias):
     assert dev is not None
     gate_host = obs >= host
     gate_dev = obs >= dev
-    assert np.array_equal(gate_host, gate_dev), (
-        f"gate flip: host_floor={host:.4e} dev_floor={dev:.4e}; pass host={int(gate_host.sum())} dev={int(gate_dev.sum())}"
-    )
+    assert np.array_equal(
+        gate_host, gate_dev
+    ), f"gate flip: host_floor={host:.4e} dev_floor={dev:.4e}; pass host={int(gate_host.sum())} dev={int(gate_dev.sum())}"
     assert gate_host.sum() >= 1  # the XOR pair must clear the floor on both
 
 

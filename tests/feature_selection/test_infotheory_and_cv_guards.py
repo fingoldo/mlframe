@@ -8,7 +8,6 @@
 - RFECV _resolve_cv_and_val_cv: groups + a temporal signal silently chose GroupKFold (no time ordering); now warns.
 """
 
-
 import numpy as np
 import pandas as pd
 import pytest

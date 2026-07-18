@@ -14,7 +14,6 @@ from mlframe.training.core import (
 )
 from mlframe.training.configs import TrainingBehaviorConfig, TargetTypes
 
-
 # ----- _initialize_training_defaults -----
 
 

@@ -103,6 +103,6 @@ def test_float32_default_selection_matches_float64_forced():
     m32 = MRMR(n_jobs=1, n_workers=1, random_seed=13, verbose=0, fe_max_steps=0)
     m32.fit(X, y)
 
-    assert list(m64.support_) == list(m32.support_), (
-        f"selection diverged between float64-forced and float32-default: {np.asarray(X.columns)[m64.support_]} vs {np.asarray(X.columns)[m32.support_]}"
-    )
+    assert list(m64.support_) == list(
+        m32.support_
+    ), f"selection diverged between float64-forced and float32-default: {np.asarray(X.columns)[m64.support_]} vs {np.asarray(X.columns)[m32.support_]}"

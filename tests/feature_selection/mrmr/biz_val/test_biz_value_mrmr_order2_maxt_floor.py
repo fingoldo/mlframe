@@ -35,7 +35,6 @@ import pandas as pd
 
 from tests.conftest import is_fast_mode
 
-
 GENUINE_OPERANDS = {"x1", "x2", "x3", "x4", "x5", "x6"}
 
 
@@ -176,9 +175,9 @@ class TestOrder2MaxTFloorWideNoise:
         # (fused compound OR separate features), not raw feature count -- escalation may fuse two pairs into one.
         cov_on = _covered_genuine_pairs(eng_on)
         cov_off = _covered_genuine_pairs(eng_off)
-        assert len(cov_on) >= len(cov_off) and len(cov_on) >= 3, (
-            f"order-2 floor dropped genuine synergy pairs: OFF covered={sorted(cov_off)} ({gen_off}) ON covered={sorted(cov_on)} ({gen_on})"
-        )
+        assert (
+            len(cov_on) >= len(cov_off) and len(cov_on) >= 3
+        ), f"order-2 floor dropped genuine synergy pairs: OFF covered={sorted(cov_off)} ({gen_off}) ON covered={sorted(cov_on)} ({gen_on})"
 
 
 # =============================================================================
@@ -272,7 +271,7 @@ class TestOrder2MaxTFloorDisabled:
         floor backstops -- so floor-OFF would admit 0 spurious and the test could no
         longer EXERCISE the floor. To measure the floor's contribution IN ISOLATION
         (the actual subject of this test), pin ``fe_acceptance='prevalence_ratio'`` so
-        the CMI gate does not pre-empt it. The CMI gate's own spurious-rejection is
+        the CMI gate does not preempt it. The CMI gate's own spurious-rejection is
         covered separately by ``test_fe_cmi_redundancy_gate``. This is the legacy
         acceptance path -- intentionally selected here to keep the floor observable.
         """
@@ -311,9 +310,9 @@ class TestOrder2MaxTFloorDisabled:
         # (fused compound OR separate features), not raw feature count -- escalation may fuse two pairs into one.
         cov_on = _covered_genuine_pairs(eng_on)
         cov_off = _covered_genuine_pairs(eng_off)
-        assert len(cov_on) >= len(cov_off) and len(cov_on) >= 3, (
-            f"order-2 floor dropped genuine synergy pairs: OFF covered={sorted(cov_off)} ({gen_off}) ON covered={sorted(cov_on)} ({gen_on})"
-        )
+        assert (
+            len(cov_on) >= len(cov_off) and len(cov_on) >= 3
+        ), f"order-2 floor dropped genuine synergy pairs: OFF covered={sorted(cov_off)} ({gen_off}) ON covered={sorted(cov_on)} ({gen_on})"
 
 
 # =============================================================================

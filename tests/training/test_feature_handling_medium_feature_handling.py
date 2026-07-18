@@ -14,7 +14,6 @@ from typing import List
 import numpy as np
 import pytest
 
-
 # =====================================================================
 # M-FH-01 - providers._is_secret_field whole-token matching
 # =====================================================================

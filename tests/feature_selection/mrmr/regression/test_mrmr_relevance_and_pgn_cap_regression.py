@@ -20,7 +20,6 @@ import warnings
 import numpy as np
 import pandas as pd
 
-
 _RAW_ONLY = dict(
     fe_max_steps=0,
     fe_univariate_basis_enable=False,
@@ -41,8 +40,8 @@ _RAW_ONLY = dict(
 )
 
 
-def test_below_null_squared_decoy_not_readded_by_linear_usability():
-    """Below null squared decoy not readded by linear usability."""
+def test_below_null_squared_decoy_not_re_added_by_linear_usability():
+    """Below null squared decoy not re-added by linear usability."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(7)

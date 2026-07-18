@@ -41,7 +41,6 @@ from mlframe.training.ranking import fit_ranker, predict_ranker_scores
 from mlframe.training.ranking.ranker_suite import _filter_models_for_ranking
 from mlframe.training.strategies import NeuralNetStrategy
 
-
 # ----------------------------------------------------------------------------
 # Loss functions: hand-computed correctness
 # ----------------------------------------------------------------------------
@@ -297,9 +296,9 @@ class TestMLPRankerInSuite:
                 verbose=0,
             )
         assert "mlp" in models
-        assert models["mlp"]["test_metrics"]["ndcg@10"] >= 0.55, (
-            f"MLP ranker NDCG@10={models['mlp']['test_metrics']['ndcg@10']:.4f} below 0.55 baseline -- learning broken?"
-        )
+        assert (
+            models["mlp"]["test_metrics"]["ndcg@10"] >= 0.55
+        ), f"MLP ranker NDCG@10={models['mlp']['test_metrics']['ndcg@10']:.4f} below 0.55 baseline -- learning broken?"
 
     def test_4_model_ensemble_includes_mlp(self):
         """4-model ensemble (cb+xgb+lgb+mlp) -- assert MLP scores

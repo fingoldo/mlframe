@@ -66,7 +66,6 @@ from sklearn.preprocessing import StandardScaler
 
 from tests.feature_selection.conftest import fast_subset
 
-
 WARP_SEEDS = (0, 1, 2, 3, 4)
 LEAK_SEEDS = (0, 1, 2)
 AR_COEF = 0.7  # lead1 (look-ahead) ties lag1 at corr ~= AR_COEF by AR(1) symmetry
@@ -303,9 +302,9 @@ class TestMRMRPartialTimeSeriesLeak:
         df, y = _make_ar1_leak_frame(seed=seed)
         sel = _fit_mrmr(df, y, seed)
         names = _names(sel)
-        assert "lead1" in names, (
-            f"the look-ahead leak lead1 (corr ~= {AR_COEF} with y) should be surfaced to support by the relevance ranker; seed={seed}, support={names}"
-        )
+        assert (
+            "lead1" in names
+        ), f"the look-ahead leak lead1 (corr ~= {AR_COEF} with y) should be surfaced to support by the relevance ranker; seed={seed}, support={names}"
 
     def test_partial_leak_surfaces_to_support_fast(self):
         """Partial leak surfaces to support fast."""
@@ -333,9 +332,9 @@ class TestMRMRPartialTimeSeriesLeak:
         sel = _fit_mrmr(df, y, seed)
         names = _names(sel)
         gains = np.asarray(getattr(sel, "mrmr_gains_", []), dtype=np.float64)
-        assert gains.size == len(names) and "lead1" in names, (
-            f"need aligned mrmr_gains_ and lead1 in support to compute the audit ratio; seed={seed}, support={names}, gains={gains}"
-        )
+        assert (
+            gains.size == len(names) and "lead1" in names
+        ), f"need aligned mrmr_gains_ and lead1 in support to compute the audit ratio; seed={seed}, support={names}, gains={gains}"
         lead_idx = [i for i, n in enumerate(names) if n == "lead1"]
         lag_idx = [i for i, n in enumerate(names) if n in ("lag1", "lag2", "lag3")]
         assert lag_idx, f"no legit lag in support to baseline against; seed={seed}, support={names}"
@@ -366,9 +365,9 @@ class TestRFECVPartialLeakThreshold:
         est = RandomForestRegressor(n_estimators=40, random_state=0)
         sel = _fit_rfecv(df, y, estimator=est, leakage_corr_threshold=0.6, leakage_action="exclude")
         names = _names(sel)
-        assert "lead1" not in names, (
-            f"leakage_corr_threshold=0.6 + action='exclude' must drop the look-ahead leak lead1 (corr ~= {AR_COEF}); seed={seed}, support={names}"
-        )
+        assert (
+            "lead1" not in names
+        ), f"leakage_corr_threshold=0.6 + action='exclude' must drop the look-ahead leak lead1 (corr ~= {AR_COEF}); seed={seed}, support={names}"
 
     @pytest.mark.slow
     @pytest.mark.parametrize("seed", LEAK_SEEDS)
@@ -409,7 +408,7 @@ def _binq(x, nb: int = 10):
 class TestWarpLinearTiebreakDirect:
     """Unit-level proof that the DCD cluster-pruning tie-break keeps the linearly-
     usable leg of a strictly-monotone twin pair. Probes ``discover_cluster_members``
-    directly with g (the exp-warp, linear-unusable) pre-selected as the anchor and f
+    directly with g (the exp-warp, linear-unusable) preselected as the anchor and f
     (the linear-usable twin) as the candidate about to be pruned -- the regime the
     end-to-end greedy hides because its relevance-tie ordering already happens to
     pick f first, so this is the only place the mechanism is observable in isolation.

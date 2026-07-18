@@ -82,9 +82,9 @@ class TestCompositeYscaleInvariant:
 
         t_mae = _t_scale_mae(inner, X, y_T)
         y_mae = _y_scale_mae(wrapper, X, y)
-        assert y_mae == pytest.approx(t_mae, abs=1e-6), (
-            f"Composite wrapper broke the additive-invariance: T-scale MAE={t_mae:.6f} but y-scale MAE={y_mae:.6f} (delta={y_mae - t_mae:.6f})"
-        )
+        assert y_mae == pytest.approx(
+            t_mae, abs=1e-6
+        ), f"Composite wrapper broke the additive-invariance: T-scale MAE={t_mae:.6f} but y-scale MAE={y_mae:.6f} (delta={y_mae - t_mae:.6f})"
 
     def test_ttr_wrapped_inner(self) -> None:
         """Mirrors the MLP path: TransformedTargetRegressor wraps the inner so the inner sees standardised T.
@@ -112,9 +112,9 @@ class TestCompositeYscaleInvariant:
 
         t_mae = _t_scale_mae(ttr, X, y_T)
         y_mae = _y_scale_mae(wrapper, X, y)
-        assert y_mae == pytest.approx(t_mae, abs=1e-6), (
-            f"TTR+composite broke additive-invariance (production symptom): T-scale MAE={t_mae:.6f} but y-scale MAE={y_mae:.6f} (delta={y_mae - t_mae:.6f})"
-        )
+        assert y_mae == pytest.approx(
+            t_mae, abs=1e-6
+        ), f"TTR+composite broke additive-invariance (production symptom): T-scale MAE={t_mae:.6f} but y-scale MAE={y_mae:.6f} (delta={y_mae - t_mae:.6f})"
 
     def test_invariant_holds_with_y_clip_active(self) -> None:
         """Repeat with a base that pushes predictions to the train-envelope clip; clip MUST NOT silently improve metrics on in-envelope train rows (the documented contract)."""

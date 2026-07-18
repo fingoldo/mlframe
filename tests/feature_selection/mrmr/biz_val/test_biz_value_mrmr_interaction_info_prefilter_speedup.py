@@ -203,9 +203,9 @@ class TestXorPreserved:
         row = xor_rows.iloc[0]
         # Both marginals near-zero -- a naive "needs marginal signal" filter
         # would have killed this pair.
-        assert abs(float(row["mi_i"])) < 0.02 and abs(float(row["mi_j"])) < 0.02, (
-            f"seed={seed}: XOR parent marginals are not ~0 (mi_i={row['mi_i']:.4f}, mi_j={row['mi_j']:.4f}); fixture is not a pure-synergy XOR."
-        )
+        assert (
+            abs(float(row["mi_i"])) < 0.02 and abs(float(row["mi_j"])) < 0.02
+        ), f"seed={seed}: XOR parent marginals are not ~0 (mi_i={row['mi_i']:.4f}, mi_j={row['mi_j']:.4f}); fixture is not a pure-synergy XOR."
         # ...yet the interaction information is large and the pair tops the
         # ranking -- proving the synergy survived the hoist.
         assert float(row["ii"]) > 0.2, f"seed={seed}: XOR pair II={row['ii']:.4f} <= 0.2; the synergy was lost by the optimization."
@@ -259,9 +259,9 @@ class TestL89ContractsIntact:
                 y.astype(int),
                 ["cat_a", "cat_b"],
             )
-            assert float(sc["ii"].iloc[0]) < 0.0, (
-                f"seed={s}: redundant copy-cat II {sc['ii'].iloc[0]:.4f} not < 0 after caching; redundancy detection regressed."
-            )
+            assert (
+                float(sc["ii"].iloc[0]) < 0.0
+            ), f"seed={s}: redundant copy-cat II {sc['ii'].iloc[0]:.4f} not < 0 after caching; redundancy detection regressed."
 
 
 # ---------------------------------------------------------------------------

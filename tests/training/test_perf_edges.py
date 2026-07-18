@@ -25,7 +25,6 @@ from PIL import Image
 
 from mlframe.metrics.core import show_calibration_plot
 
-
 PYEXE = sys.executable
 
 

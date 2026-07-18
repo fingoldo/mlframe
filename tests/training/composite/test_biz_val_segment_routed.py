@@ -61,9 +61,9 @@ def test_biz_val_segment_routed_estimator_beats_global_model_within_sparse_segme
     rho_main_only, _ = spearmanr(main_only_pred[is_sparse], y[is_sparse])
 
     assert rho_routed > 0.9, f"expected the routed specialist to rank the sparse segment well, got rho={rho_routed:.4f}"
-    assert rho_routed - rho_main_only > 0.5, (
-        f"expected routing to beat the global model's within-segment ranking by >0.5 Spearman rho, got routed={rho_routed:.4f} vs main_only={rho_main_only:.4f}"
-    )
+    assert (
+        rho_routed - rho_main_only > 0.5
+    ), f"expected routing to beat the global model's within-segment ranking by >0.5 Spearman rho, got routed={rho_routed:.4f} vs main_only={rho_main_only:.4f}"
 
 
 def test_segment_routed_estimator_rank_splice_preserves_segment_score_multiset():

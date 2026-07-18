@@ -32,7 +32,6 @@ from sklearn.linear_model import LinearRegression
 
 from mlframe.training.composite import CompositeTargetEstimator
 
-
 # ----------------------------------------------------------------------
 # Synthetic frames -- one per transform family, all deterministic.
 # ----------------------------------------------------------------------

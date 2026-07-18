@@ -157,9 +157,9 @@ def test_select_single_best_exact_mi_leg_still_resolves_genuine_within_band_gap(
     band = 0.004
     primary = {_CFG_TRUE: 0.1180, _CFG_ALT: 0.1167}
     winner = _select_single_best(primary, _COLS, mi_band=band)
-    assert winner == _CFG_TRUE, (
-        "the exact-MI leg must still pick the higher within-band MI form; quantisation only collapses sub-grid (1e-7) jitter, not a 1.3e-3 genuine gap"
-    )
+    assert (
+        winner == _CFG_TRUE
+    ), "the exact-MI leg must still pick the higher within-band MI form; quantisation only collapses sub-grid (1e-7) jitter, not a 1.3e-3 genuine gap"
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +248,6 @@ def test_search_recovers_near_optimal_cd_form(seed):
     cd_cols = [i for i, nm in enumerate(names) if "(" in nm and {"c", "d"} <= bare(nm)]
     assert cd_cols, f"no (c,d) engineered feature found in {names}"
     best_cd_mi = max(_mi(_binned(Xt[:, i]), yb) for i in cd_cols)
-    assert best_cd_mi >= 0.90 * true_mi, (
-        f"[seed={seed}] chosen (c,d) form MI={best_cd_mi:.4f} is far below the true mul(log(c),sin(d)) MI={true_mi:.4f}; search picked a suboptimal form"
-    )
+    assert (
+        best_cd_mi >= 0.90 * true_mi
+    ), f"[seed={seed}] chosen (c,d) form MI={best_cd_mi:.4f} is far below the true mul(log(c),sin(d)) MI={true_mi:.4f}; search picked a suboptimal form"
