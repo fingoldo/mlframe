@@ -27,6 +27,17 @@ from .._mrmr_fe_step_helpers import compute_pair_maxt_floor
 from .._joblib_safe import disable_cuda_in_worker
 from .._fe_family_timing import record_fe_family_wall
 
+# Measured floor (7-site joblib.Parallel audit, 2026-07-19) for the loky pool built below: at the realistic
+# ``fe_npermutations=3`` production regime, the pool LOSES to serial at every pair count tested -- n_pairs=190
+# -> 0.03x, n_pairs=4950 -> 0.22-0.38x, n_pairs=20000 -> 0.21x -- with no crossover found across that range.
+# The pool's per-pair cost scales with ``fe_npermutations`` (each pair runs a full ``mi_direct`` permutation
+# test), so a high-enough budget should eventually amortise the loky spawn/pickle overhead even though no
+# tested n_pairs did; 20 is a conservative floor extrapolated well above the tested 3-permutation regime (not
+# itself measured to win -- if a future workload legitimately needs a much larger fe_npermutations, re-bench
+# before trusting this floor at that scale). Below the floor, the loky pool is skipped and the existing serial
+# ``compute_pairs_mis`` per-pair sweep runs instead (identical results, no pool-construction overhead).
+_LOKY_POOL_MIN_FE_NPERMUTATIONS = 20
+
 
 def compute_pair_mis_and_floor(
     self,
@@ -231,7 +242,14 @@ def compute_pair_mis_and_floor(
     # the single-thread branch up to _k=50 (1225 pairs), serialising what
     # should be a 4-minute job into ~1 h on a 16-core box.
     _legacy_sweep_t0 = perf_counter()
-    if n_jobs <= 1 or n_pairs < max(2, n_jobs) or _all_pairs_precomputed:
+    _below_perm_floor = fe_npermutations < _LOKY_POOL_MIN_FE_NPERMUTATIONS
+    if n_jobs <= 1 or n_pairs < max(2, n_jobs) or _all_pairs_precomputed or _below_perm_floor:
+        if verbose and _below_perm_floor and not _all_pairs_precomputed and n_jobs > 1 and n_pairs >= max(2, n_jobs):
+            logger.info(
+                "MRMR FE: fe_npermutations=%d < %d -- the loky pair-MI pool never wins at this budget "
+                "(measured 0.03-0.38x across n_pairs=190..20000 at fe_npermutations=3); running serial instead.",
+                fe_npermutations, _LOKY_POOL_MIN_FE_NPERMUTATIONS,
+            )
         if verbose and _all_pairs_precomputed:
             logger.info("MRMR FE: all %d prospective pair MIs already cached by the batch precompute; skipping the loky pool.", n_pairs)
         compute_pairs_mis(

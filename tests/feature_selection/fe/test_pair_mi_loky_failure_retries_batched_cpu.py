@@ -12,6 +12,12 @@ the whole MRMR audit started from.
 This test forces the loky dispatch to fail and asserts the batched CPU retry is what actually populates
 ``cached_MIs`` -- not the legacy per-pair sweep (which would still technically "work" but is the thing
 being fixed away from).
+
+``fe_npermutations=25`` (not the module's own default): the 2026-07-19 joblib-audit fix added
+``_LOKY_POOL_MIN_FE_NPERMUTATIONS=20`` (measured: the loky pool never wins at the realistic
+``fe_npermutations=3`` production budget -- 0.03-0.38x across n_pairs=190..20000 -- so calls below the floor
+now skip the pool entirely and never reach the failure/retry path this test exercises). This test is
+specifically about loky-failure recovery, which requires actually reaching the pool branch first.
 """
 
 from __future__ import annotations
@@ -98,7 +104,7 @@ def test_loky_failure_retries_batched_cpu_before_legacy_sweep(monkeypatch, caplo
             prefetch_factor=2,
             parallel_kwargs={"backend": "threading"},
             fe_min_nonzero_confidence=0.99,
-            fe_npermutations=10,
+            fe_npermutations=25,
             fe_min_pair_mi=0.001,
             fe_min_pair_mi_prevalence=1.05,
             verbose=0,

@@ -53,6 +53,11 @@ def test_pairmi_parallel_uses_cpu_only_loky_backend(monkeypatch):
     would be caught by ``compute_pair_mis_and_floor``'s own loky-pool-failure retry/fallback (2026-07-10
     fix) and silently re-dispatched to the batched-CPU-retry path, defeating the capture instead of
     signalling it.
+
+    ``fe_npermutations=25`` (not the module's own tiny default): the 2026-07-19 joblib-audit fix added
+    ``_LOKY_POOL_MIN_FE_NPERMUTATIONS=20`` (the loky pool never wins at the realistic ``fe_npermutations=3``
+    production budget, measured 0.03-0.38x across n_pairs=190..20000, so it is now skipped below the floor).
+    This test is about the loky BACKEND CONFIGURATION, which requires actually reaching the pool branch.
     """
     # Disable the GPU/CPU batch pre-fill so the function reaches the per-chunk
     # parallel branch directly (the batch path is a separate dispatch we are not testing).
@@ -104,7 +109,7 @@ def test_pairmi_parallel_uses_cpu_only_loky_backend(monkeypatch):
         prefetch_factor=1,
         parallel_kwargs={"backend": "threading"},
         fe_min_nonzero_confidence=0.95,
-        fe_npermutations=10,
+        fe_npermutations=25,
         fe_min_pair_mi=0.0,
         fe_min_pair_mi_prevalence=0.0,
         verbose=0,
