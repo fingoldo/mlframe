@@ -12,8 +12,6 @@ from __future__ import annotations
 import pickle
 import warnings
 
-import numpy as np
-import pandas as pd
 import pytest
 from sklearn.base import clone
 
@@ -67,7 +65,7 @@ def test_pickle_stamps_schema_version():
     m = MRMR(verbose=0)
     state = m.__getstate__()
     assert state["_mrmr_schema_version"] == _MRMR_SCHEMA_VERSION
-    m2 = pickle.loads(pickle.dumps(m))
+    m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
     assert getattr(m2, "_mrmr_schema_version", None) == _MRMR_SCHEMA_VERSION
 
 

@@ -455,6 +455,70 @@ repos:
         files: '^tests/'
         stages: [pre-commit, pre-merge-commit]
 
+  # tests/ blocking lint bundle: mirrors the src/mlframe-scoped hooks above but scoped to
+  # tests/, which carries its own tests/ruff.toml + tests/interrogate.toml since the 2026-07-17
+  # rename/ruff/black/docstring cleanup -- closes the gap the "tests/ gets its own dedicated lint
+  # job/hooks" comments above have been flagging since that same day. Mirrors CI's
+  # tests-ruff-blocking / tests-black-filtered / tests-lint-blocking jobs (ci.yml) exactly, so a
+  # commit that passes locally cannot fail those and vice versa. vulture and deptry are
+  # deliberately NOT duplicated here: vulture's cross-file blind spot means it must scan
+  # src/mlframe and tests together to be meaningful (see the vulture-blocking note above) and
+  # deptry is whole-project regardless of which subtree changed -- both are already covered.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      - id: ruff
+        name: "ruff tests/ (real bugs block)"
+        # tests/ruff.toml (nested under tests/, `extend`s py-ci-shared's ruff-tests.toml) is
+        # auto-discovered by ruff walking up from each file -- no --config override needed here,
+        # matching CI's tests-ruff-blocking job (`ruff check tests --ignore C901`).
+        entry: python -m ruff check --ignore C901
+        language: system
+        types: [python]
+        files: '^tests/'
+        stages: [pre-commit, pre-merge-commit]
+
+  - repo: local
+    hooks:
+      - id: black-filtered-tests-blocking
+        name: "black tests/ (filtered, blocking) -- mirrors CI tests-black-filtered"
+        entry: python -m py_ci_shared.black_filtered_apply --config pyproject.toml --check
+        language: system
+        types: [python]
+        files: '^tests/'
+        stages: [pre-commit, pre-merge-commit]
+
+      - id: bandit-tests-blocking
+        name: "bandit security scan tests/ (blocking)"
+        entry: python -m bandit -ll
+        language: system
+        types: [python]
+        pass_filenames: true
+        files: '^tests/'
+        stages: [pre-commit, pre-merge-commit]
+
+      - id: interrogate-tests-blocking
+        name: "interrogate docstring coverage tests/ (blocking, 100%)"
+        # -c tests/interrogate.toml, NOT --fail-under 100 directly: root pyproject.toml's
+        # [tool.interrogate] excludes "tests" entirely, so relying on auto-discovery here would
+        # silently scan 0 items; the explicit config carries tests/'s own ignore-magic/
+        # ignore-private/ignore-init-* flags (same values as root, only exclude differs) plus its
+        # fail-under ratchet.
+        entry: python -m interrogate -c tests/interrogate.toml
+        language: system
+        types: [python]
+        pass_filenames: true
+        files: '^tests/'
+        stages: [pre-commit, pre-merge-commit]
+
+      - id: codespell-tests-blocking
+        name: "codespell prose typo check tests/ (blocking)"
+        entry: python -m codespell_lib --toml pyproject.toml
+        language: system
+        pass_filenames: true
+        files: '^tests/'
+        stages: [pre-commit, pre-merge-commit]
+
   # Workflow-YAML style gate: yamllint. Blocking since 2026-07-09, mirroring the CI
   # lint-blocking job -- catches the SHA-pin comment-spacing / indentation class of nit before
   # it ever reaches a push, on the same two paths CI checks.
