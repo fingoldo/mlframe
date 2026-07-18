@@ -62,6 +62,7 @@ def _binary_bank(a, b):
 
 
 def _discretize_frame(X, y):
+    """Discretize frame."""
     n, p = X.shape
     data = np.empty((n, p), dtype=np.int64)
     nbins = np.empty(p, dtype=np.int64)
@@ -88,6 +89,7 @@ def _engineered_disc(X, pairs):
 
 
 def _mi_1d(codes, n_bins, y_codes, freqs_y):
+    """Mi 1d."""
     n = codes.shape[0]
     data = np.empty((n, 2), dtype=np.int64)
     data[:, 0] = codes
@@ -122,6 +124,7 @@ def _null_ratio_q(X, data, nbins, yc, freqs_y, pairs, *, seed):
 
 
 def _real_ratio(X, data, nbins, yc, freqs_y, ia, ib):
+    """Real ratio."""
     pm = float(batch_pair_mi_prange(data, np.array([ia], dtype=np.int64), np.array([ib], dtype=np.int64), np.ascontiguousarray(nbins), yc, freqs_y)[0])
     if pm <= 1e-12:
         return 0.0
@@ -144,6 +147,7 @@ def test_pure_noise_ratios_below_null_ceiling():
     # that the null ceiling REJECTS the MAJORITY of pure-noise pairs (admits a minority
     # near the chance rate) -- the part of #5 that is genuinely BETTER than a naive bar
     # lowering. The decisive bench-reject is the weak-F2 wall below, not this leg.
+    """Pure noise ratios below null ceiling."""
     n, p = 2000, 12
     rates = []
     for seed in (1, 2, 3):
@@ -170,6 +174,7 @@ def test_pure_noise_ratios_below_null_ceiling():
 #    the cross-mix from genuine synergy here -- the documented detectability limit.
 # ---------------------------------------------------------------------------
 def test_weak_f2_crossmix_ratio_clears_null_ceiling():
+    """Weak f2 crossmix ratio clears null ceiling."""
     seed, n = 0, 8000  # n<=8000 (RAM-contended box)
     rng = np.random.default_rng(seed)
     a = rng.random(n) + 0.1

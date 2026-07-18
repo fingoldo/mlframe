@@ -47,10 +47,12 @@ class _GoodRaw(BaseEstimator, RegressorMixin):
         self.offset = offset
 
     def fit(self, X, y, **kw):
+        """Fit."""
         self.n_features_in_ = X.shape[1]
         return self
 
     def predict(self, X):
+        """Predict."""
         n = len(X)
         return np.full(n, self.offset, dtype=np.float64)
 
@@ -60,14 +62,17 @@ class _ExplodingRaw(BaseEstimator, RegressorMixin):
     train-predict fails (e.g. a frame-mismatch / inner-estimator crash)."""
 
     def fit(self, X, y, **kw):
+        """Fit."""
         self.n_features_in_ = X.shape[1]
         return self
 
     def predict(self, X):
+        """Predict."""
         raise RuntimeError("deliberate predict failure (I23 sensor)")
 
 
 def _make_models_and_targets():
+    """Make models and targets."""
     from mlframe.training.configs import TargetTypes as TT
 
     rng = np.random.default_rng(0)
@@ -111,6 +116,7 @@ def _make_config_proxy_path():
 
 
 def _run_builder(strategy: str):
+    """Run builder."""
     TT, models, target_by_type, X, _y, n = _make_models_and_targets()
     metadata: dict = {}
     _build_cross_target_ensemble_for_target(
@@ -236,6 +242,7 @@ def test_public_param_retained_but_ignored_for_back_compat():
     )
 
     def _call(pass_base):
+        """Call."""
         kwargs = dict(
             component_models=[wrapped, wrapped],
             component_names=["c0", "c1"],

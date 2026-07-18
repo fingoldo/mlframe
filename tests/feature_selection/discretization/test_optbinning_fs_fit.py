@@ -80,6 +80,7 @@ def _make_categorical_signal_df(n: int = 700, seed: int = 0):
 
 
 def _fit_nocats_fs(df, y, iv_kwargs):
+    """Fit nocats fs."""
     _, _, bp_nocats_fs, _ = get_binningprocess_featureselectors(df, n_jobs=1, iv_kwargs=iv_kwargs)
     bp_nocats_fs.fit(df, y)
     return bp_nocats_fs

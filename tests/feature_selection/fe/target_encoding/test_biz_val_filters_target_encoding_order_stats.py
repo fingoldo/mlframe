@@ -22,6 +22,7 @@ from mlframe.feature_selection.filters._target_encoding_fe import apply_target_e
 
 
 def _oos_r2(stat: str, Xtr, y_tr, Xte, y_te_clean) -> float:
+    """Oos r2."""
     _, rec = kfold_target_encode_fit(Xtr, y_tr, ["c"], stats=(stat,), n_folds=5, random_state=0)
     sl = rec["c"]["stat_lookups"][stat]
     gm = rec["c"]["global_stats"][stat]
@@ -32,6 +33,7 @@ def _oos_r2(stat: str, Xtr, y_tr, Xte, y_te_clean) -> float:
 
 @pytest.fixture(scope="module")
 def _heavy_tailed_te_data():
+    """Heavy tailed te data."""
     rng = np.random.default_rng(42)
     n, K = 2000, 25
     centers = rng.normal(0.0, 3.0, K)
@@ -39,6 +41,7 @@ def _heavy_tailed_te_data():
     cat_te = rng.integers(0, K, n)
 
     def make_y(cat):
+        """Make y."""
         return centers[cat] + rng.standard_t(1.5, size=len(cat)) * 4.0  # heavy-tailed contamination
 
     return (
@@ -50,6 +53,7 @@ def _heavy_tailed_te_data():
 
 
 def test_biz_val_te_median_beats_mean_on_heavy_tailed_target(_heavy_tailed_te_data):
+    """Biz val te median beats mean on heavy tailed target."""
     Xtr, y_tr, Xte, y_te_clean = _heavy_tailed_te_data
     r2_mean = _oos_r2("mean", Xtr, y_tr, Xte, y_te_clean)
     r2_median = _oos_r2("median", Xtr, y_tr, Xte, y_te_clean)
@@ -57,6 +61,7 @@ def test_biz_val_te_median_beats_mean_on_heavy_tailed_target(_heavy_tailed_te_da
 
 
 def test_biz_val_te_trimmed_mean_beats_mean_on_heavy_tailed_target(_heavy_tailed_te_data):
+    """Biz val te trimmed mean beats mean on heavy tailed target."""
     Xtr, y_tr, Xte, y_te_clean = _heavy_tailed_te_data
     r2_mean = _oos_r2("mean", Xtr, y_tr, Xte, y_te_clean)
     r2_trim = _oos_r2("trimmed_mean", Xtr, y_tr, Xte, y_te_clean)

@@ -19,12 +19,15 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 class TestRegistry:
+    """Groups tests covering registry."""
     def test_unary_registered_with_requires_base_false(self) -> None:
+        """Unary registered with requires base false."""
         for name in ("cbrt_y", "log_y", "yeo_johnson_y", "quantile_normal_y"):
             t = get_transform(name)
             assert t.requires_base is False, f"{name} must declare requires_base=False"
 
     def test_chain_registered_with_requires_base_true(self) -> None:
+        """Chain registered with requires base true."""
         for name in (
             "chain_linres_cbrt",
             "chain_linres_yj",
@@ -35,6 +38,7 @@ class TestRegistry:
             assert t.requires_base is True, f"{name} must declare requires_base=True (chain inherits from bivariate)"
 
     def test_discovery_default_includes_new_transforms(self) -> None:
+        """Discovery default includes new transforms."""
         cfg = CompositeTargetDiscoveryConfig()
         for name in (
             "cbrt_y",
@@ -53,6 +57,7 @@ class TestUnaryWrapper:
     """CompositeTargetEstimator must work with unary transforms WITHOUT a base column."""
 
     def _make_data(self, n: int = 500, seed: int = 0) -> tuple[pd.DataFrame, np.ndarray]:
+        """Make data."""
         rng = np.random.default_rng(seed)
         X = pd.DataFrame({"a": rng.normal(0, 1, n), "b": rng.normal(0, 1, n)})
         # Heavy-tailed target
@@ -61,6 +66,7 @@ class TestUnaryWrapper:
 
     @pytest.mark.parametrize("transform_name", ["cbrt_y", "log_y", "yeo_johnson_y", "quantile_normal_y"])
     def test_unary_fit_predict_no_base(self, transform_name: str) -> None:
+        """Unary fit predict no base."""
         X, y = self._make_data(seed=1)
         wrapper = CompositeTargetEstimator(
             base_estimator=Ridge(alpha=1e-3),
@@ -79,6 +85,7 @@ class TestChainWrapper:
     """Chain transforms (bivariate + unary) must work like a normal bivariate composite."""
 
     def _make_data(self, n: int = 500, seed: int = 0) -> tuple[pd.DataFrame, np.ndarray]:
+        """Make data."""
         rng = np.random.default_rng(seed)
         X = pd.DataFrame({"a": rng.normal(0, 1, n), "b": rng.normal(0, 1, n)})
         # Linear-in-a + heavy-tail residual (production-shape).
@@ -87,6 +94,7 @@ class TestChainWrapper:
 
     @pytest.mark.parametrize("transform_name", ["chain_linres_cbrt", "chain_linres_yj"])
     def test_chain_linres_fit_predict(self, transform_name: str) -> None:
+        """Chain linres fit predict."""
         X, y = self._make_data(seed=2)
         wrapper = CompositeTargetEstimator(
             base_estimator=Ridge(alpha=1e-3),

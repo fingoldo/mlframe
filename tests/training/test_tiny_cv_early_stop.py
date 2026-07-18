@@ -27,6 +27,8 @@ def laplace_residual_dataset() -> tuple[np.ndarray, np.ndarray, np.ndarray, dict
 
 
 class TestEarlyStopAcceptance:
+    """Groups the tiny-CV early-stop acceptance contract: default threshold=inf must run every fold."""
+
     def test_no_early_stop_when_threshold_inf(self, laplace_residual_dataset) -> None:
         """Default ``early_stop_threshold=inf`` keeps legacy behaviour: all folds always run."""
         y, base, x, params, transform = laplace_residual_dataset
@@ -48,6 +50,8 @@ class TestEarlyStopAcceptance:
 
 
 class TestEarlyStopFires:
+    """Groups the tiny-CV early-stop firing contract: a breached threshold must actually cut compute."""
+
     def test_early_stop_reduces_compute_when_high_threshold_breached(
         self,
         laplace_residual_dataset,

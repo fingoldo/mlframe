@@ -110,6 +110,7 @@ def test_e2e_mrmr_ndarray_transform_does_not_zero_engineered_cols():
     """
 
     class _FakeSelf:
+        """Groups tests covering FakeSelf."""
         verbose = 0
         feature_names_in_ = ["cat_a", "cat_b"]
 

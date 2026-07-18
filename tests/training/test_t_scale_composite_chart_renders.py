@@ -25,6 +25,7 @@ import numpy as np
 
 
 def test_yscale_chart_helper_runs_without_raising() -> None:
+    """_emit_yscale_composite_chart completes without raising given a minimal inner_entry stub and realistic y arrays."""
     from mlframe.training.core._phase_composite_wrapping import (
         _emit_yscale_composite_chart,
     )
@@ -51,6 +52,7 @@ def test_yscale_chart_helper_runs_without_raising() -> None:
 
 
 def test_yscale_chart_helper_no_op_on_empty_inputs() -> None:
+    """_emit_yscale_composite_chart is a safe no-op when given empty y arrays rather than raising."""
     from mlframe.training.core._phase_composite_wrapping import (
         _emit_yscale_composite_chart,
     )

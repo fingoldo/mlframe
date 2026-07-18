@@ -47,6 +47,7 @@ def _contaminate(base: np.ndarray, rng) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _fourier_axis(x: np.ndarray, lo: float, span: float, freq: float = 1.0) -> np.ndarray:
+    """Fourier axis."""
     z = (np.asarray(x, dtype=np.float64) - lo) / max(span, 1e-12)
     return np.sin(2.0 * np.pi * freq * z)
 

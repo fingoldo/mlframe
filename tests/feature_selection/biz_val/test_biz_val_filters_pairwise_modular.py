@@ -68,7 +68,9 @@ def _build_pair_add_mod(seed: int, n: int = 4000, m: int = 7):
 
 
 class TestPrototypeDirect:
+    """Groups tests covering TestPrototypeDirect."""
     def test_detects_pair_add_mod7(self):
+        """Detects pair add mod7."""
         X, y = _build_pair_add_mod(7)
         hits = detect_pairwise_modular(X, y, seed=7)
         assert hits, "no responded hit on (a+b) mod 7."
@@ -77,6 +79,7 @@ class TestPrototypeDirect:
         assert top["margin"] >= 0.20, f"MI lift {top['margin']} below the measured ~0.6 floor."
 
     def test_silent_on_smooth_control(self):
+        """Silent on smooth control."""
         rng = np.random.default_rng(7)
         n = 4000
         a, b = rng.integers(0, 100, n), rng.integers(0, 100, n)
@@ -92,7 +95,9 @@ class TestPrototypeDirect:
 
 
 class TestRecipeReplay:
+    """Groups tests covering TestRecipeReplay."""
     def test_recipe_replay_bit_identical(self):
+        """Recipe replay bit identical."""
         X, y = _build_pair_add_mod(1)
         _appended, recipes = hybrid_pairwise_modular_fe_with_recipes(X, y, seed=1)
         assert recipes, "no pairwise-modular recipes emitted."
@@ -114,6 +119,7 @@ class TestRecipeReplay:
         np.testing.assert_array_equal(on_train[:500], on_test)
 
     def test_recipe_pickle_round_trip(self):
+        """Recipe pickle round trip."""
         X, y = _build_pair_add_mod(1)
         _, recipes = hybrid_pairwise_modular_fe_with_recipes(X, y, seed=1)
         assert recipes
@@ -129,6 +135,7 @@ class TestRecipeReplay:
 
 
 class TestMRMRIntegration:
+    """Groups tests covering TestMRMRIntegration."""
     def test_opt_out_is_no_op(self):
         """The opt-out (fe_pairwise_modular_enable=False) must stay a byte-identical no-op for legacy/replay."""
         from mlframe.feature_selection.filters.mrmr import MRMR
@@ -154,6 +161,7 @@ class TestMRMRIntegration:
         assert pmod_cols, f"default-ON MRMR did not select a pairwise-modular feature; selected={list(out.columns)}"
 
     def test_enabled_selects_modular_feature_and_replays(self):
+        """Enabled selects modular feature and replays."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_pair_add_mod(7, n=4000)
@@ -173,6 +181,7 @@ class TestMRMRIntegration:
 
     def test_budget_guard_skips_triples_and_logs(self, caplog):
         # 25 integer columns: above max_triple_cols=20, within max_int_cols=30 -> pairs-only + a log line.
+        """Budget guard skips triples and logs."""
         rng = np.random.default_rng(7)
         n = 2000
         cols = {f"c{i}": rng.integers(0, 100, n) for i in range(25)}
@@ -186,6 +195,7 @@ class TestMRMRIntegration:
         assert appended, "pairs-only sweep produced nothing on a (c0+c1) mod 7 target."
 
     def test_budget_guard_skips_whole_sweep_and_logs(self, caplog):
+        """Budget guard skips whole sweep and logs."""
         rng = np.random.default_rng(7)
         n = 2000
         cols = {f"c{i}": rng.integers(0, 100, n) for i in range(35)}
@@ -200,6 +210,7 @@ class TestMRMRIntegration:
         assert appended == [] and recipes == [], "above max_int_cols nothing should be emitted."
 
     def test_clone_preserves_params(self):
+        """Clone preserves params."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         m = MRMR(
@@ -221,6 +232,7 @@ class TestMRMRIntegration:
 
 
 class TestBizValue:
+    """Groups tests covering TestBizValue."""
     def test_biz_val_pairwise_modular_end_to_end_auc_lift(self):
         """MRMR(fe_pairwise_modular_enable=True) recovers (a+b) mod 7, raw columns can't.
 
@@ -278,6 +290,7 @@ class TestScanOptimizationEquivalence:
 
     @staticmethod
     def _tp_frame(seed, n=2000):
+        """Tp frame."""
         rng = np.random.default_rng(seed)
         a = rng.integers(0, 100, n)
         b = rng.integers(0, 100, n)
@@ -289,6 +302,7 @@ class TestScanOptimizationEquivalence:
 
     @staticmethod
     def _control_frame(seed, n=2000):
+        """Control frame."""
         rng = np.random.default_rng(seed)
         cols = {f"c{i}": rng.integers(0, 100, n) for i in range(15)}
         X = pd.DataFrame(cols)
@@ -296,6 +310,7 @@ class TestScanOptimizationEquivalence:
         return X, y
 
     def test_responded_set_and_mi_bit_identical_to_reference(self):
+        """Responded set and mi bit identical to reference."""
         from mlframe.feature_selection.filters._pairwise_modular_fe import cheap_modular_scan
 
         ref = self._load_reference_scan()
@@ -336,6 +351,7 @@ class TestScanOptimizationEquivalence:
 
     @staticmethod
     def _time(fn, X, y):
+        """Helper that time."""
         import time
 
         t0 = time.perf_counter()
@@ -351,6 +367,7 @@ class TestPairwiseModularTargetTypeRobustness:
     The no-hang / no-crash safety contract is PERMANENT on every target type; only the continuous-1D CTA changed from skip -> detect-or-be-specific."""
 
     def _xy(self, kind, n=600, seed=0):
+        """Build an (X, y) fixture of the requested target-type kind (continuous/2d/etc) to probe the modular operator."""
         rng = np.random.default_rng(seed)
         xi = rng.integers(0, 20, size=(n, 4)).astype(float)
         xf = rng.normal(size=(n, 4))
@@ -371,6 +388,7 @@ class TestPairwiseModularTargetTypeRobustness:
         return df, y
 
     def _fit(self, df, y):
+        """Helper that fit."""
         import time
         from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -435,6 +453,7 @@ if __name__ == "__main__":
 def test_residue_grid_mi_ftranspose_build_matches_column_build():
     # The (|group|, n).T F-view residue-matrix build must feed _mi_classif_batch the identical values as the
     # (n, |group|) column build -- same float64 residues, same per-column binning -> bit-identical MI.
+    """Residue grid mi ftranspose build matches column build."""
     import numpy as np
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import _mi_classif_batch
 

@@ -31,12 +31,14 @@ class _StubMetaModel:
         self.fit_y = None
 
     def fit(self, X, y, **kwargs):
+        """Fit."""
         self.fit_X = np.asarray(X)
         self.fit_y = np.asarray(y)
         return self
 
     def predict_proba(self, X):
         # Return a non-degenerate (N, 2) array so report_model_perf doesn't crash on shape.
+        """Predict proba."""
         X_arr = np.asarray(X).reshape(-1, 1)
         # Map raw prob -> identity sigmoid (close to the input). Sufficient for shape contracts.
         p1 = np.clip(X_arr[:, 0], 1e-6, 1 - 1e-6)
@@ -51,6 +53,7 @@ def _make_configs_stub():
     """
 
     def _metric(*args, **kwargs):
+        """Metric."""
         return 0.0
 
     return SimpleNamespace(integral_calibration_error=_metric)

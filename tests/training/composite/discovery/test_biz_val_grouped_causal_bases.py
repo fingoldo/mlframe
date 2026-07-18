@@ -36,6 +36,7 @@ def _warm_numba() -> None:
 def _mixed_frame() -> pd.DataFrame:
     # Two groups, deliberately unordered rows, explicit md order key.
     # well A: md 0->10, 1->20, 2->30 ; well B: md 0->100, 1->200
+    """Mixed frame."""
     return pd.DataFrame(
         {
             "y": [30, 100, 10, 200, 20],
@@ -49,6 +50,7 @@ def _mixed_frame() -> pd.DataFrame:
 
 
 def test_grouped_lag1_equals_previous_within_group_ordered_by_key():
+    """Grouped lag1 equals previous within group ordered by key."""
     df = _mixed_frame()
     out = engineer_grouped_causal_bases(df, "y", "well", "md", lags=(1,), ops=("lag",))
     # Original row order [A md2=30, B md0=100, A md0=10, B md1=200, A md1=20]; each lag1 is the previous IN-GROUP value.
@@ -56,6 +58,7 @@ def test_grouped_lag1_equals_previous_within_group_ordered_by_key():
 
 
 def test_grouped_lag2_and_first_fill_group_first():
+    """Grouped lag2 and first fill group first."""
     df = _mixed_frame()
     out = engineer_grouped_causal_bases(df, "y", "well", "md", lags=(2,), ops=("lag",), first_fill="group_first")
     # lag2 sorted: A=[10(fill),10(fill),10] B=[100(fill),100(fill)] -> back-mapped.
@@ -63,6 +66,7 @@ def test_grouped_lag2_and_first_fill_group_first():
 
 
 def test_first_fill_nan_leaves_history_less_head_nan():
+    """First fill nan leaves history less head nan."""
     df = _mixed_frame()
     out = engineer_grouped_causal_bases(df, "y", "well", "md", lags=(1,), ops=("lag",), first_fill="nan")
     lag = out["y__gcausal_lag1"]
@@ -72,6 +76,7 @@ def test_first_fill_nan_leaves_history_less_head_nan():
 
 
 def test_trailing_and_expanding_mean_are_strictly_past():
+    """Trailing and expanding mean are strictly past."""
     df = _mixed_frame()
     out = engineer_grouped_causal_bases(df, "y", "well", "md", trailing_windows=(2,), ops=("trailing_mean", "expanding_mean"))
     # A sorted y=[10,20,30]: tmean2=[10(fill),mean(10)=10,mean(10,20)=15]; expmean=[10(fill),10,15].
@@ -81,6 +86,7 @@ def test_trailing_and_expanding_mean_are_strictly_past():
 
 def test_expanding_mean_long_group_matches_running_mean_of_past():
     # A single long group; expanding mean at row i must equal mean(y[:i]).
+    """Expanding mean long group matches running mean of past."""
     y = np.arange(1, 21, dtype=float)
     df = pd.DataFrame({"y": y, "g": ["x"] * 20, "md": np.arange(20)})
     out = engineer_grouped_causal_bases(df, "y", "g", "md", ops=("expanding_mean",))
@@ -91,6 +97,7 @@ def test_expanding_mean_long_group_matches_running_mean_of_past():
 
 
 def test_trailing_window_matches_manual_rolling_mean_of_strict_past():
+    """Trailing window matches manual rolling mean of strict past."""
     y = np.array([5.0, 7.0, 11.0, 2.0, 9.0, 4.0, 8.0])
     df = pd.DataFrame({"y": y, "g": ["x"] * len(y), "md": np.arange(len(y))})
     w = 3
@@ -107,6 +114,7 @@ def test_trailing_window_matches_manual_rolling_mean_of_strict_past():
 
 def test_group_boundaries_never_leak_across_entities():
     # Interleaved groups: if the lag ignored group boundaries it would pull the other group's value.
+    """Group boundaries never leak across entities."""
     df = pd.DataFrame(
         {
             "y": [1.0, 100.0, 2.0, 200.0, 3.0, 300.0],
@@ -121,6 +129,7 @@ def test_group_boundaries_never_leak_across_entities():
 
 def test_unordered_input_is_sorted_by_order_key():
     # Same data, shuffled rows -> result must be identical after back-mapping (sort by md restores causal order).
+    """Unordered input is sorted by order key."""
     base = pd.DataFrame({"y": [10.0, 20.0, 30.0, 40.0], "g": ["a"] * 4, "md": [0, 1, 2, 3]})
     perm = [2, 0, 3, 1]
     shuffled = base.iloc[perm].reset_index(drop=True)
@@ -132,6 +141,7 @@ def test_unordered_input_is_sorted_by_order_key():
 
 def test_none_time_column_uses_frame_row_order():
     # No order key -> the given per-group frame row order is the causal order.
+    """None time column uses frame row order."""
     df = pl.DataFrame({"y": [1.0, 2.0, 3.0, 9.0, 4.0], "g": ["A", "A", "A", "C", "A"]})
     out = engineer_grouped_causal_bases(df, "y", "g", None, lags=(1,), ops=("lag",))
     # A rows in frame order y=[1,2,3,4]; C single row y=9. lag1: A=[1,1,2,3], C=[9]; back-mapped.
@@ -139,6 +149,7 @@ def test_none_time_column_uses_frame_row_order():
 
 
 def test_single_row_group_fills_own_value():
+    """Single row group fills own value."""
     df = pd.DataFrame({"y": [5.0, 6.0, 7.0], "g": ["solo", "pair", "pair"], "md": [0, 0, 1]})
     out = engineer_grouped_causal_bases(df, "y", "g", "md", lags=(1,), trailing_windows=(2,), ops=("lag", "trailing_mean", "expanding_mean"))
     assert out["y__gcausal_lag1"][0] == 5.0
@@ -150,6 +161,7 @@ def test_single_row_group_fills_own_value():
 
 
 def test_polars_and_pandas_parity():
+    """Polars and pandas parity."""
     pdf = _mixed_frame()
     pldf = pl.from_pandas(pdf)
     kw = dict(lags=(1, 2), trailing_windows=(2, 3), ops=("lag", "trailing_mean", "expanding_mean"))
@@ -161,6 +173,7 @@ def test_polars_and_pandas_parity():
 
 
 def test_string_and_numeric_group_keys_equivalent():
+    """String and numeric group keys equivalent."""
     y = np.array([1.0, 2.0, 3.0, 4.0])
     df_str = pd.DataFrame({"y": y, "g": ["a", "b", "a", "b"], "md": [0, 0, 1, 1]})
     df_num = pd.DataFrame({"y": y, "g": [10, 20, 10, 20], "md": [0, 0, 1, 1]})
@@ -183,6 +196,7 @@ def test_string_and_numeric_group_keys_equivalent():
     ],
 )
 def test_invalid_params_raise(kwargs):
+    """Invalid params raise."""
     df = _mixed_frame()
     with pytest.raises(ValueError):
         engineer_grouped_causal_bases(df, "y", "well", "md", **kwargs)
@@ -190,12 +204,14 @@ def test_invalid_params_raise(kwargs):
 
 def test_mismatched_order_key_length_raises():
     # dict carrier with a short ``md`` trips the time-column length guard (protects against misaligned exotic carriers).
+    """Mismatched order key length raises."""
     bad = {"y": np.array([1.0, 2.0, 3.0]), "g": np.array([0, 0, 0]), "md": np.array([0.0, 1.0])}
     with pytest.raises(ValueError, match="time column"):
         engineer_grouped_causal_bases(bad, "y", "g", "md", lags=(1,), ops=("lag",))
 
 
 def test_mismatched_group_length_raises():
+    """Mismatched group length raises."""
     bad = {"y": np.array([1.0, 2.0, 3.0]), "g": np.array([0, 0]), "md": np.array([0.0, 1.0, 2.0])}
     with pytest.raises(ValueError, match="group column"):
         engineer_grouped_causal_bases(bad, "y", "g", "md", lags=(1,), ops=("lag",))
@@ -205,6 +221,7 @@ def test_mismatched_group_length_raises():
 
 
 def test_attach_does_not_mutate_caller_and_skips_existing():
+    """Attach does not mutate caller and skips existing."""
     df = _mixed_frame()
     cols_before = list(df.columns)
     df2, names = attach_grouped_causal_bases(df, "y", "well", "md", lags=(1,), ops=("lag",))
@@ -216,6 +233,7 @@ def test_attach_does_not_mutate_caller_and_skips_existing():
 
 
 def test_attach_polars_zero_copy_semantics():
+    """Attach polars zero copy semantics."""
     df = pl.from_pandas(_mixed_frame())
     df2, _names = attach_grouped_causal_bases(df, "y", "well", "md", lags=(1,), ops=("lag",))
     assert "y__gcausal_lag1" not in df.columns  # original polars frame is immutable / untouched
@@ -226,16 +244,19 @@ def test_attach_polars_zero_copy_semantics():
 
 
 class _FakeConfig:
+    """Groups tests covering fake config."""
     def __init__(self, **kw):
         self.__dict__.update(kw)
 
 
 class _FakeDisc:
+    """Groups tests covering fake disc."""
     def __init__(self, config):
         self.config = config
 
 
 def test_maybe_add_wires_bases_when_group_configured():
+    """Maybe add wires bases when group configured."""
     df = _mixed_frame()
     disc = _FakeDisc(_FakeConfig(engineer_causal_bases=True, engineer_causal_group_column="well", time_column="md"))
     new_df, feats, bases = maybe_add_grouped_causal_bases(disc, df, "y", ["md"], [], np.arange(len(df)))
@@ -243,6 +264,7 @@ def test_maybe_add_wires_bases_when_group_configured():
 
 
 def test_maybe_add_noop_when_disabled_or_no_group():
+    """Maybe add noop when disabled or no group."""
     df = _mixed_frame()
     disc_off = _FakeDisc(_FakeConfig(engineer_causal_bases=False, engineer_causal_group_column="well", time_column="md"))
     d1, _f1, b1 = maybe_add_grouped_causal_bases(disc_off, df, "y", ["md"], [], np.arange(len(df)))
@@ -270,6 +292,7 @@ def _group_sequential_frame(seed: int, n_groups: int = 40, per: int = 40):
 
 
 def _disc_config(engineer: bool) -> CompositeTargetDiscoveryConfig:
+    """Disc config."""
     return CompositeTargetDiscoveryConfig(
         enabled=True,
         time_column="md",
@@ -337,6 +360,7 @@ def test_biz_val_grouped_causal_lag_enters_pool_and_reconstructs_on_disjoint_hol
 
 
 def test_biz_val_reconstruction_is_stable_across_seeds():
+    """Biz val reconstruction is stable across seeds."""
     ratios = []
     for seed in (1, 2, 3):
         df = _group_sequential_frame(seed=seed, n_groups=20, per=30)
@@ -354,6 +378,7 @@ def test_biz_val_reconstruction_is_stable_across_seeds():
 
 
 def test_profile_smoke_representative_shape_is_fast():
+    """Profile smoke representative shape is fast."""
     rng = np.random.default_rng(0)
     n, g = 50_000, 200
     df = pd.DataFrame({"y": rng.normal(size=n), "well": rng.integers(0, g, n), "md": rng.random(n)})

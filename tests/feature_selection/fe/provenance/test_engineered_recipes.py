@@ -274,6 +274,7 @@ class TestRecipePersistence:
     (joblib uses pickle under the hood)."""
 
     def test_pickle_round_trip_preserves_replay(self, simple_pair_data):
+        """Pickle round trip preserves replay."""
         original = build_unary_binary_recipe(
             name="add(neg(a),identity(b))",
             src_a_name="a",
@@ -329,6 +330,7 @@ class TestRecipeErrors:
     input types -- never silently produce wrong-shape output."""
 
     def test_unknown_unary_function_raises(self, simple_pair_data):
+        """Unknown unary function raises."""
         recipe = EngineeredRecipe(
             name="bogus(a,b)",
             kind="unary_binary",
@@ -342,6 +344,7 @@ class TestRecipeErrors:
             apply_recipe(recipe, simple_pair_data)
 
     def test_unknown_binary_function_raises(self, simple_pair_data):
+        """Unknown binary function raises."""
         recipe = EngineeredRecipe(
             name="bogus(a,b)",
             kind="unary_binary",
@@ -355,6 +358,7 @@ class TestRecipeErrors:
             apply_recipe(recipe, simple_pair_data)
 
     def test_wrong_arity_raises(self, simple_pair_data):
+        """Wrong arity raises."""
         recipe = EngineeredRecipe(
             name="mul(a)",
             kind="unary_binary",
@@ -368,6 +372,7 @@ class TestRecipeErrors:
             apply_recipe(recipe, simple_pair_data)
 
     def test_unknown_kind_raises(self, simple_pair_data):
+        """Unknown kind raises."""
         recipe = EngineeredRecipe(
             name="mystery",
             kind="quaternary_thing",  # type: ignore[arg-type]
@@ -421,6 +426,7 @@ class TestNaNHandlingFactorize:
     """
 
     def _build_recipe(self, unknown_strategy):
+        """Build recipe."""
         from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
 
         lookup = np.array([0, 1, 2, 3], dtype=np.int64)
@@ -434,6 +440,7 @@ class TestNaNHandlingFactorize:
         )
 
     def test_nan_clipped_under_clip_strategy(self):
+        """Nan clipped under clip strategy."""
         recipe = self._build_recipe(unknown_strategy="clip")
         df = pd.DataFrame(
             {
@@ -448,12 +455,14 @@ class TestNaNHandlingFactorize:
         assert (out < 4).all()
 
     def test_nan_raises_under_raise_strategy(self):
+        """Nan raises under raise strategy."""
         recipe = self._build_recipe(unknown_strategy="raise")
         df = pd.DataFrame({"x1": [0.0, np.nan], "x2": [1.0, 0.0]})
         with pytest.raises(ValueError, match="NaN"):
             apply_recipe(recipe, df)
 
     def test_all_nan_column_under_clip(self):
+        """All nan column under clip."""
         recipe = self._build_recipe(unknown_strategy="clip")
         df = pd.DataFrame(
             {
@@ -487,6 +496,7 @@ class TestApplyRecipeFactorize:
         )
 
     def test_factorize_replay_recovers_pre_prune_encoding(self):
+        """Factorize replay recovers pre prune encoding."""
         recipe = self._build_factorize_recipe_for_xor()
         df = pd.DataFrame(
             {
@@ -586,6 +596,7 @@ class TestPolarsInput:
     natively, never convert the whole frame)."""
 
     def test_polars_frame_replay(self):
+        """Polars frame replay."""
         pl = pytest.importorskip("polars")
 
         rng = np.random.default_rng(0)

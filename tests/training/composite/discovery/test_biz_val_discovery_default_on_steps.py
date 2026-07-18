@@ -30,6 +30,7 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 def _fit(df, feats, **overrides):
+    """Fit."""
     cfg = dict(
         enabled=True,
         base_candidates="auto",

@@ -61,10 +61,12 @@ def _hard_domain(rng, n):
 
 
 def _eval(name, env):
+    """Helper that eval."""
     tree, end = _parse(name)
     assert end == len(name)
 
     def ev(node):
+        """Recursively evaluate a parsed recipe-name expression node against env, dispatching unary/binary ops by name."""
         if isinstance(node, str):
             return env[node]
         op, args = node
@@ -115,6 +117,7 @@ _CASES = [
 
 @pytest.mark.parametrize("original,expected", _CASES)
 def test_canonical_form(original, expected):
+    """Canonical form."""
     assert simplify_fe_name(original) == expected
     # idempotent
     assert simplify_fe_name(expected) == expected
@@ -122,6 +125,7 @@ def test_canonical_form(original, expected):
 
 @pytest.mark.parametrize("original,expected", _CASES)
 def test_value_preserving(original, expected):
+    """Value preserving."""
     if "(" not in original:
         return  # plain leaf / non-op name: nothing to evaluate (canonical-form test covers it)
     rng = np.random.default_rng(0)
@@ -142,6 +146,7 @@ def test_random_fuzz_value_preserving():
     leaves = ["a", "b", "c"]
 
     def gen(depth):
+        """Helper that gen."""
         if depth <= 0 or rng.random() < 0.3:
             return rng.choice(leaves)
         if rng.random() < 0.5:

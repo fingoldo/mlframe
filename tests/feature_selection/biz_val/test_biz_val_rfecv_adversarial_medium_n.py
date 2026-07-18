@@ -38,6 +38,7 @@ def _fit_select(Xdf, y, regression=False, rule="argmax", max_iter=25):
 # synthetic builders
 # ---------------------------------------------------------------------------
 def _make_noisy(seed, n, n_signal=4, n_noise=12, regression=False):
+    """Make noisy."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, n_signal + n_noise))
     raw = X[:, :n_signal].sum(axis=1) + rng.standard_normal(n) * 0.5
@@ -47,6 +48,7 @@ def _make_noisy(seed, n, n_signal=4, n_noise=12, regression=False):
 
 
 def _make_collinear(seed, n, regression=False):
+    """Make collinear."""
     rng = np.random.default_rng(seed)
     S = rng.standard_normal((n, 4))
     dups = S[:, rng.integers(0, 4, 8)] + rng.standard_normal((n, 8)) * 0.01  # near-duplicate signal copies
@@ -59,6 +61,7 @@ def _make_collinear(seed, n, regression=False):
 
 
 def _make_synergy(seed, n=2000, regression=False):
+    """Make synergy."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, 8))
     raw = X[:, 0] * X[:, 1] + rng.standard_normal(n) * 0.3  # target driven by x0*x1 interaction only
@@ -67,6 +70,7 @@ def _make_synergy(seed, n=2000, regression=False):
 
 
 def _make_large_p(seed, n=300, p=50, regression=False):
+    """Make large p."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, p))
     raw = X[:, :4].sum(axis=1) + rng.standard_normal(n) * 0.5
@@ -80,6 +84,7 @@ def _make_large_p(seed, n=300, p=50, regression=False):
 @pytest.mark.parametrize("regression", [False, True], ids=["clf", "reg"])
 @pytest.mark.parametrize("seed", SEEDS)
 def test_noisy_small_n(seed, regression):
+    """Noisy small n."""
     Xdf, y = _make_noisy(seed, n=2000, regression=regression)
     kept = _fit_select(Xdf, y, regression=regression, rule="argmax")
     n_sig_kept = sum(c.startswith("sig") for c in kept)
@@ -92,6 +97,7 @@ def test_noisy_small_n(seed, regression):
 
 def test_noisy_medium_n():
     # single seed, clf variant: medium n keeps the fit < ~30s (measured ~27s at max_iter=25, less at 20).
+    """Noisy medium n."""
     Xdf, y = _make_noisy(0, n=15000, regression=False)
     kept = _fit_select(Xdf, y, regression=False, rule="argmax")
     n_sig_kept = sum(c.startswith("sig") for c in kept)
@@ -107,6 +113,7 @@ def test_noisy_medium_n():
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("seed", SEEDS)
 def test_collinear_small_n(seed):
+    """Collinear small n."""
     Xdf, y = _make_collinear(seed, n=2000)
     kept = _fit_select(Xdf, y, rule="argmax")
     n_all = Xdf.shape[1]  # 16
@@ -117,6 +124,7 @@ def test_collinear_small_n(seed):
 
 
 def test_collinear_medium_n():
+    """Collinear medium n."""
     Xdf, y = _make_collinear(0, n=15000)
     kept = _fit_select(Xdf, y, rule="argmax")
     assert len(kept) <= 11, f"kept {len(kept)}/16 too many at medium n; collinear pruning failed"
@@ -129,6 +137,7 @@ def test_collinear_medium_n():
 @pytest.mark.parametrize("regression", [False, True], ids=["clf", "reg"])
 @pytest.mark.parametrize("seed", SEEDS)
 def test_synergy_pair_retained(seed, regression):
+    """Synergy pair retained."""
     Xdf, y = _make_synergy(seed, regression=regression)
     kept = _fit_select(Xdf, y, regression=regression, rule="argmax")
     pair_in = ("x0" in kept) or ("x1" in kept)
@@ -140,6 +149,7 @@ def test_synergy_pair_retained(seed, regression):
 @pytest.mark.parametrize("rule", RULES)  # exercise the n_features_selection_rule knob (argmax vs one_se_min) cheaply
 def test_selection_rule_knob_synergy(rule):
     # both aggressive rules must retain the x0*x1 pair on a single cheap synergy fit; one_se_min keeps no more than argmax.
+    """Selection rule knob synergy."""
     Xdf, y = _make_synergy(0, regression=False)
     kept = _fit_select(Xdf, y, regression=False, rule=rule)
     assert ("x0" in kept) or ("x1" in kept), f"rule={rule}: pair lost; kept={kept}"
@@ -151,6 +161,7 @@ def test_selection_rule_knob_synergy(rule):
 # ---------------------------------------------------------------------------
 def test_large_p_small_n():
     # n=300, p=50. argmax: signals 4/4 (measured seed 0,2); RFE over 50 cols is the budget hog, so one seed here.
+    """Large p small n."""
     rule = "argmax"
     n_kept_list, sig_kept_list = [], []
     for seed in (0,):

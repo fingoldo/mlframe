@@ -14,11 +14,13 @@ from mlframe.feature_selection.wrappers.rfecv._group_time_series_split import Gr
 
 def _time_ordered_groups(n_groups=8, per=10):
     # group g occupies a contiguous, time-ordered block of rows (row order = time)
+    """Time ordered groups."""
     groups = np.repeat(np.arange(n_groups), per)
     return groups
 
 
 def test_no_group_straddles_and_test_is_future():
+    """No group straddles and test is future."""
     groups = _time_ordered_groups(8, 10)
     order = {g: i for i, g in enumerate(pd.unique(groups))}
     splitter = GroupTimeSeriesSplit(n_splits=4)
@@ -34,6 +36,7 @@ def test_no_group_straddles_and_test_is_future():
 
 
 def test_reproduces_time_series_split_when_each_row_is_its_own_group():
+    """Reproduces time series split when each row is its own group."""
     from sklearn.model_selection import TimeSeriesSplit
 
     n = 40
@@ -47,6 +50,7 @@ def test_reproduces_time_series_split_when_each_row_is_its_own_group():
 
 
 def test_gap_embargoes_groups_between_train_and_test():
+    """Gap embargoes groups between train and test."""
     groups = _time_ordered_groups(10, 5)
     order = {g: i for i, g in enumerate(pd.unique(groups))}
     for tr, te in GroupTimeSeriesSplit(n_splits=3, gap=1).split(np.zeros((len(groups), 1)), groups=groups):
@@ -55,18 +59,21 @@ def test_gap_embargoes_groups_between_train_and_test():
 
 
 def test_max_train_groups_is_a_rolling_window():
+    """Max train groups is a rolling window."""
     groups = _time_ordered_groups(12, 4)
     for tr, _te in GroupTimeSeriesSplit(n_splits=3, max_train_groups=2).split(np.zeros((len(groups), 1)), groups=groups):
         assert len(set(groups[tr])) <= 2
 
 
 def test_too_few_groups_raises():
+    """Too few groups raises."""
     groups = np.array([0, 0, 1, 1])  # 2 groups, n_splits=4 impossible
     with pytest.raises(ValueError, match="too few"):
         list(GroupTimeSeriesSplit(n_splits=4).split(np.zeros((4, 1)), groups=groups))
 
 
 def test_rfecv_auto_routes_to_group_time_series_on_groups_plus_temporal():
+    """Rfecv auto routes to group time series on groups plus temporal."""
     from sklearn.ensemble import RandomForestRegressor
     from mlframe.feature_selection.wrappers.rfecv._cv_setup import _resolve_cv_and_val_cv
 

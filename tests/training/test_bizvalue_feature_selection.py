@@ -81,6 +81,7 @@ def _make_noisy_classification(n=1200, k_noise=50, seed=42):
 
 
 def _extract_auroc(entry):
+    """Extract auroc."""
     metrics = getattr(entry, "metrics", None)
     if not metrics or not isinstance(metrics, dict):
         return None
@@ -114,6 +115,7 @@ def _collect_selected_features(models_dict, metadata):
             return list(sel)
 
     def _from_obj(obj):
+        """From obj."""
         if obj is None:
             return None
         # Direct attributes
@@ -165,6 +167,7 @@ def _collect_selected_features(models_dict, metadata):
 
 
 def _run_suite(df, tmp_path, *, use_mrmr=False, rfecv=False, iters=30):
+    """Run suite."""
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     kwargs = dict(
         df=df,
@@ -361,6 +364,7 @@ def test_selected_features_surface_for_inspection(tmp_path):
     # match, so ``info_1`` does NOT spuriously match ``info_10`` nor ``noise_2``
     # match ``noise_29`` (digit-extension false positive).
     def _parents_in_df(name: str) -> set:
+        """Parents in df."""
         return {col for col in df_cols if re.search(r"(?<![A-Za-z0-9])" + re.escape(col) + r"(?![A-Za-z0-9])", name)}
 
     for name in engineered_selected:
@@ -411,6 +415,7 @@ def test_mrmr_drops_uninformative_features_on_polars_input(tmp_path):
     signal_cols = {f"info_{i}" for i in range(5)}
 
     def _feat_uses(feat, comp):
+        """Feat uses."""
         return _re_info.search(r"(?<![A-Za-z0-9])" + _re_info.escape(comp) + r"(?![0-9])", str(feat)) is not None
 
     recovered_signals = {c for c in signal_cols if any(_feat_uses(f, c) for f in selected)}

@@ -18,6 +18,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _clear_cache():
+    """Clear cache."""
     import mlframe.feature_selection.filters.info_theory._cmi_cuda as cm
 
     cm.reset_cmi_forder_cache()
@@ -26,6 +27,7 @@ def _clear_cache():
 
 
 def _matrix(n=4000, p=60, nb=12, seed=0):
+    """Helper that matrix."""
     rng = np.random.default_rng(seed)
     nc = p + 2
     fd = np.empty((n, nc), dtype=np.int32, order="C")
@@ -56,6 +58,7 @@ def test_cmi_bit_identical_c_vs_f_order(monkeypatch):
 
 
 def test_view_is_f_contiguous_and_equal():
+    """View is f contiguous and equal."""
     import mlframe.feature_selection.filters.info_theory._cmi_cuda as cm
 
     fd, *_ = _matrix()
@@ -98,6 +101,7 @@ def test_weakref_guard_no_stale_copy_on_recycled_id():
 
 
 def test_disabled_returns_input_unchanged(monkeypatch):
+    """Disabled returns input unchanged."""
     import mlframe.feature_selection.filters.info_theory._cmi_cuda as cm
 
     fd, *_ = _matrix()
@@ -116,6 +120,7 @@ def test_oversize_cap_returns_input_unchanged(monkeypatch):
 
 
 def test_f_contiguous_input_returned_asis():
+    """F contiguous input returned asis."""
     import mlframe.feature_selection.filters.info_theory._cmi_cuda as cm
 
     fd, *_ = _matrix()

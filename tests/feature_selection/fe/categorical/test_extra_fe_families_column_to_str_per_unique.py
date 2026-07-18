@@ -28,6 +28,7 @@ from mlframe.feature_selection.filters._internals import canonical_group_token
 
 
 def _per_row_reference(col) -> np.ndarray:
+    """Per row reference."""
     s = pd.Series(col)
     if s.isna().any():
         return s.astype(object).map(lambda v: "__nan__" if (v is None or (isinstance(v, float) and v != v)) else canonical_group_token(v)).to_numpy()
@@ -35,6 +36,7 @@ def _per_row_reference(col) -> np.ndarray:
 
 
 def _cases():
+    """Helper that cases."""
     rng = np.random.default_rng(7)
     xf = rng.integers(0, 50, 1000).astype(float)
     xf[rng.random(1000) < 0.1] = np.nan
@@ -49,10 +51,12 @@ def _cases():
 
 
 def test_extra_fe_column_to_str_calls_token_per_unique_not_per_row(monkeypatch):
+    """Extra fe column to str calls token per unique not per row."""
     calls = {"n": 0}
     orig = INT.canonical_group_token
 
     def spy(v):
+        """Helper that spy."""
         calls["n"] += 1
         return orig(v)
 
@@ -71,6 +75,7 @@ def test_extra_fe_column_to_str_calls_token_per_unique_not_per_row(monkeypatch):
 
 
 def test_extra_fe_column_to_str_bit_identical_to_per_row_reference():
+    """Extra fe column to str bit identical to per row reference."""
     for name, arr in _cases().items():
         got = _column_to_str(pd.Series(arr))
         ref = _per_row_reference(pd.Series(arr))

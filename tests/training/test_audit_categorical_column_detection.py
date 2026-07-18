@@ -108,6 +108,7 @@ def test_detect_cat_columns_score_higher_for_better_signal() -> None:
 
 
 def test_detect_cat_columns_empty_dataframe() -> None:
+    """An empty DataFrame yields an empty categorical-column list rather than raising."""
     from mlframe.training.composite.discovery.auto_detect import detect_cat_columns
 
     df = pd.DataFrame({"a": [], "b": []})
@@ -116,6 +117,7 @@ def test_detect_cat_columns_empty_dataframe() -> None:
 
 
 def test_detect_cat_columns_all_null_column_skipped() -> None:
+    """A column that is entirely null is excluded from the detected categorical columns."""
     from mlframe.training.composite.discovery.auto_detect import detect_cat_columns
 
     df = pd.DataFrame(

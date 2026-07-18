@@ -13,6 +13,7 @@ from mlframe.training.core._setup_helpers import log_chart_summary
 
 
 def test_zero_charts_no_destination_emits_hint(caplog):
+    """Zero charts no destination emits hint."""
     with caplog.at_level(logging.INFO):
         msg = log_chart_summary({}, save_charts=False, data_dir="")
     assert "0 charts saved" in msg
@@ -21,6 +22,7 @@ def test_zero_charts_no_destination_emits_hint(caplog):
 
 
 def test_saved_charts_reports_count_and_destination(caplog):
+    """Saved charts reports count and destination."""
     metadata = {"charts": {"saved": ["val_panels", "test_panels", "target_dist"], "failed": []}}
     with caplog.at_level(logging.INFO):
         msg = log_chart_summary(metadata, save_charts=True, data_dir="/tmp/run")  # nosec B108 -- placeholder path string only, never touches the real filesystem
@@ -29,6 +31,7 @@ def test_saved_charts_reports_count_and_destination(caplog):
 
 
 def test_failed_renders_surfaced(caplog):
+    """Failed renders surfaced."""
     metadata = {"charts": {"saved": ["val_panels"], "failed": ["test_panels"]}}
     with caplog.at_level(logging.INFO):
         msg = log_chart_summary(metadata, save_charts=True, data_dir="/tmp/run")  # nosec B108 -- placeholder path string only, never touches the real filesystem
@@ -38,6 +41,7 @@ def test_failed_renders_surfaced(caplog):
 
 def test_missing_charts_key_is_safe(caplog):
     # No metadata["charts"] at all (e.g. a run that never reached the chart path).
+    """Missing charts key is safe."""
     with caplog.at_level(logging.INFO):
         msg = log_chart_summary({"other": 1}, save_charts=True, data_dir="/tmp/run")  # nosec B108 -- placeholder path string only, never touches the real filesystem
     assert "0 chart(s) saved" in msg or "0 charts saved" in msg
@@ -45,4 +49,5 @@ def test_missing_charts_key_is_safe(caplog):
 
 def test_none_metadata_does_not_crash():
     # Must not raise on a None metadata (defensive).
+    """None metadata does not crash."""
     log_chart_summary(None, save_charts=False, data_dir="")

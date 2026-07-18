@@ -342,14 +342,25 @@ def _dedup_collinear_source_cols(
     # numpy.corrcoef(M[i], M[j])[0, 1] (verified bit-identical at p=200).
     if dense_rows:
         dense_matrix = np.vstack(dense_rows)
-        # Empty (0, n) matrix corrcoef raises; only call when we have rows.
-        corr_matrix = np.corrcoef(dense_matrix)
-        # Single-row corrcoef returns a scalar 1.0 instead of (1, 1); normalize.
-        if corr_matrix.ndim == 0:
-            corr_matrix = np.array([[1.0]], dtype=np.float64)
-        # Absolute corrs only; NaN -> not duplicate (matches legacy's
-        # `if not np.isfinite(corr): continue` skip).
-        abs_corr = np.abs(corr_matrix)
+        # This block used to hardcode np.corrcoef regardless of backend, unlike the partial-NaN block below
+        # which already dispatches through _resolve_pc_backend/_pairwise_complete_abs_corr (GPU-strict aware).
+        # On the wellbore-100k GPU-strict cProfile this hardcoded CPU call cost 116.9s cumtime over just 9
+        # calls (p_dense in the thousands after FE families stack their candidate columns) while the STRICT
+        # contract is "carry FE compute on the device". A fully-finite matrix is the degenerate case of
+        # pairwise-complete-obs correlation (every row kept), so routing it through the same bit-verified
+        # backend as the partial-NaN path is correctness-neutral and picks up the cupy/njit dispatch for free.
+        _backend = _resolve_pc_backend(len(dense_rows), len(dense_rows), dense_matrix.shape[1])
+        if _backend in ("cupy", "njit"):
+            abs_corr = _pairwise_complete_abs_corr(dense_matrix, dense_matrix)
+        else:
+            # Empty (0, n) matrix corrcoef raises; only call when we have rows.
+            corr_matrix = np.corrcoef(dense_matrix)
+            # Single-row corrcoef returns a scalar 1.0 instead of (1, 1); normalize.
+            if corr_matrix.ndim == 0:
+                corr_matrix = np.array([[1.0]], dtype=np.float64)
+            # Absolute corrs only; NaN -> not duplicate (matches legacy's
+            # `if not np.isfinite(corr): continue` skip).
+            abs_corr = np.abs(corr_matrix)
     else:
         abs_corr = None
 

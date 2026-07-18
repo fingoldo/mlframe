@@ -13,6 +13,7 @@ import pytest
 
 
 def _heavy_tail_frame(seed=7, n=1600):
+    """Builds a polars frame with Student-t heavy-tailed noise (excess kurtosis ~60) to trigger the distribution-driven analyzer."""
     import polars as pl
 
     rng = np.random.default_rng(seed)
@@ -27,6 +28,7 @@ def _heavy_tail_frame(seed=7, n=1600):
 
 
 def test_e2e_distribution_driven_estimator_trains_and_roundtrips(tmp_path):
+    """The heavy-tail-triggered distribution-driven estimator trains end-to-end through the suite and survives save/load."""
     pytest.importorskip("lightgbm")
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.composite.extremes import TailCompositeEstimator

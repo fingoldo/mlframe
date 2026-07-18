@@ -20,6 +20,7 @@ pytest.importorskip("xgboost")
 
 # --------------------------------------------------------------------------- routing (no fit needed)
 def test_resolve_explicit_methods_pass_through():
+    """Resolve explicit methods pass through."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import PREFILTER_METHODS, resolve_prefilter_method
 
     for m in PREFILTER_METHODS:
@@ -27,6 +28,7 @@ def test_resolve_explicit_methods_pass_through():
 
 
 def test_resolve_unknown_method_raises():
+    """Resolve unknown method raises."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import resolve_prefilter_method
 
     with pytest.raises(ValueError):
@@ -34,6 +36,7 @@ def test_resolve_unknown_method_raises():
 
 
 def test_resolve_auto_keeps_model_for_moderate_width():
+    """Resolve auto keeps model for moderate width."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import _auto_fast_width, resolve_prefilter_method
 
     narrow = _auto_fast_width() - 1
@@ -41,6 +44,7 @@ def test_resolve_auto_keeps_model_for_moderate_width():
 
 
 def test_resolve_auto_switches_two_stage_for_wide_when_no_gpu(monkeypatch):
+    """Resolve auto switches two stage for wide when no gpu."""
     import mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter as PF
 
     # No CUDA -> auto must pick two_stage at/above auto_fast_width. iter21 unified two_stage_min_width
@@ -56,6 +60,7 @@ def test_resolve_auto_switches_two_stage_for_wide_when_no_gpu(monkeypatch):
 
 
 def test_resolve_auto_routes_gpu_when_device_and_enough_rows(monkeypatch):
+    """Resolve auto routes gpu when device and enough rows."""
     import mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter as PF
 
     monkeypatch.setattr(PF, "gpu_model_available", lambda: True)
@@ -100,6 +105,7 @@ def _wide_xy(seed=0, width=300, n_informative=5):
 
 @pytest.mark.parametrize("method", ["model", "univariate", "fast_model"])
 def test_prefilter_keeps_informatives_and_returns_sorted_original_indices(method):
+    """Prefilter keeps informatives and returns sorted original indices."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import make_default_estimator
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import prefilter_columns
 
@@ -125,10 +131,13 @@ def test_prefilter_no_importance_model_falls_through_to_identity():
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import prefilter_columns
 
     class _NoImportance:
+        """Groups tests covering NoImportance."""
         def get_params(self, deep=False):
+            """Get params."""
             return {}
 
         def fit(self, X, y):
+            """Helper that fit."""
             return self
 
     X, y = _wide_xy(width=50)
@@ -183,6 +192,7 @@ def test_selector_support_stays_in_original_space_under_prefilter(method):
 
 
 def test_default_prefilter_method_is_auto():
+    """Default prefilter method is auto."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     assert ShapProxiedFS().prefilter_method == "auto"
@@ -424,6 +434,7 @@ def test_prefilter_cap_does_not_increase_fast_model_budget():
     captured = {}
 
     def _spy_fit(self, *a, **kw):  # type: ignore[no-redef]
+        """Spy fit."""
         captured["n_estimators"] = self.get_params().get("n_estimators")
         return orig_fit(self, *a, **kw)
 
@@ -433,9 +444,11 @@ def test_prefilter_cap_does_not_increase_fast_model_budget():
     import xgboost as xgb
 
     class _ProbeXGB(xgb.XGBClassifier):
+        """Groups tests covering ProbeXGB."""
         n_estimators_seen = None
 
         def fit(self, X, y, **kw):
+            """Helper that fit."""
             type(self).n_estimators_seen = int(self.get_params()["n_estimators"])
             return super().fit(X, y, **kw)
 
@@ -617,11 +630,14 @@ def test_gpu_model_available_requires_xgboost_use_cuda_build(monkeypatch):
 
     # Stub the cupy device probe to succeed and toggle xgboost build_info.
     class _CudaRT:
+        """Groups tests covering CudaRT."""
         @staticmethod
         def getDeviceCount():
+            """Helper that getDeviceCount."""
             return 1
 
     class _FakeCupy:
+        """Groups tests covering FakeCupy."""
         cuda = type("cuda", (), {"runtime": _CudaRT})
 
     import sys
@@ -651,6 +667,7 @@ def test_gpu_model_available_caches_result(monkeypatch):
     calls = {"n": 0}
 
     def _exploding_build_info():
+        """Exploding build info."""
         calls["n"] += 1
         raise RuntimeError("build_info should not be re-called once cached")
 
@@ -696,12 +713,14 @@ def test_two_stage_calls_gpu_path_when_gate_fires(monkeypatch):
     real_cpu = PF._rank_model
 
     def _wrap_cpu(*a, **kw):
+        """Wrap cpu."""
         calls["cpu"] += 1
         return real_cpu(*a, **kw)
 
     def _wrap_gpu(*a, **kw):
         # Substitute the CPU path so the test doesn't need a real GPU build (the wiring contract is
         # which function gets called, not how it runs). Counts a gpu invocation.
+        """Wrap gpu."""
         calls["gpu"] += 1
         return real_cpu(*a, **kw)
 

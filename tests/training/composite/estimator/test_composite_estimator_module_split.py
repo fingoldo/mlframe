@@ -17,6 +17,7 @@ from pathlib import Path
 
 
 def test_class_still_importable_from_facade() -> None:
+    """CompositeTargetEstimator remains importable from the facade and is a proper sklearn regressor after the module split."""
     from mlframe.training.composite.estimator import CompositeTargetEstimator
 
     assert CompositeTargetEstimator is not None
@@ -58,6 +59,7 @@ def test_public_path_reexports_estimator() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
+    """The estimator facade's __init__.py stays under the 1k-LOC monolith-split threshold."""
     root = Path(__file__).resolve().parents[4] / "src" / "mlframe" / "training" / "composite" / "estimator"
     facade = root / "__init__.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())

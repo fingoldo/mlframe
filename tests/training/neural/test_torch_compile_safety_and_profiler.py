@@ -33,6 +33,7 @@ from typing import Optional
 
 
 def _make_module(compile_network: Optional[str] = None) -> MLPTorchModel:
+    """Make module."""
     network = generate_mlp(
         num_features=4,
         num_classes=1,
@@ -79,6 +80,7 @@ def test_compile_skipped_on_lstm_with_warning(caplog):
 
 
 def test_compile_skipped_on_gru_with_warning(caplog):
+    """Compile skipped on gru with warning."""
     network = nn.Sequential(nn.GRU(4, 8, batch_first=True), nn.Linear(8, 1))
     with caplog.at_level(logging.WARNING, logger="mlframe.training.neural.flat"):
         MLPTorchModel(
@@ -131,6 +133,7 @@ def test_predict_step_uses_inference_mode(monkeypatch):
     real_no_grad = torch.no_grad
 
     class _SpyInf:
+        """Groups tests covering spy inf."""
         def __enter__(self):
             inf_calls["n"] += 1
             self._cm = real_inf()
@@ -140,6 +143,7 @@ def test_predict_step_uses_inference_mode(monkeypatch):
             return self._cm.__exit__(*a)
 
     class _SpyNo:
+        """Groups tests covering spy no."""
         def __enter__(self):
             no_grad_calls["n"] += 1
             self._cm = real_no_grad()
@@ -162,6 +166,7 @@ def test_predict_step_uses_inference_mode(monkeypatch):
 
 @pytest.fixture
 def reg_data():
+    """Reg data."""
     X, y = make_regression(n_samples=80, n_features=4, random_state=0)
     X = X.astype(np.float32)
     y = y.astype(np.float32)

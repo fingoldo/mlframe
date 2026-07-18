@@ -27,6 +27,7 @@ def test_borutashap_ctor_does_not_reseed_global_numpy_rng():
 
 
 def test_borutashap_has_private_rng():
+    """Borutashap has private rng."""
     bs = BorutaShap(random_state=123)
     assert hasattr(bs, "_rng"), "BorutaShap must hold a private np.random.Generator (A-P0-004)"
     assert isinstance(bs._rng, np.random.Generator)

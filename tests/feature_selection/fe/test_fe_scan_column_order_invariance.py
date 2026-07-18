@@ -21,18 +21,22 @@ from mlframe.feature_selection.filters._pairwise_modular_fe import cheap_modular
 
 
 def _hit_keys_argmax(hits):
+    """Hit keys argmax."""
     return [tuple(sorted(str(c) for c in h.cols)) for h in hits]
 
 
 def _hit_keys_gate(hits):
+    """Hit keys gate."""
     return [(str(h.mode), tuple(sorted(str(c) for c in h.cols))) for h in hits]
 
 
 def _hit_keys_mod(hits):
+    """Hit keys mod."""
     return [(str(h.op), tuple(sorted(str(c) for c in h.cols))) for h in hits]
 
 
 def test_row_argmax_scan_is_column_order_invariant():
+    """Row argmax scan is column order invariant."""
     rng = np.random.default_rng(0)
     n = 2000
     cols = [f"f{i}" for i in range(8)]
@@ -44,6 +48,7 @@ def test_row_argmax_scan_is_column_order_invariant():
 
 
 def test_conditional_gate_scan_is_column_order_invariant():
+    """Conditional gate scan is column order invariant."""
     rng = np.random.default_rng(1)
     n = 2000
     cols = [f"f{i}" for i in range(8)]
@@ -56,6 +61,7 @@ def test_conditional_gate_scan_is_column_order_invariant():
 
 
 def test_modular_scan_is_column_order_invariant():
+    """Modular scan is column order invariant."""
     rng = np.random.default_rng(2)
     n = 2000
     cols = [f"f{i}" for i in range(6)]

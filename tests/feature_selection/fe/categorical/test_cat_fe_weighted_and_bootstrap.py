@@ -19,7 +19,9 @@ from mlframe.feature_selection.filters.info_theory import merge_vars
 
 
 class TestWeightedKernelUnit:
+    """Groups tests covering TestWeightedKernelUnit."""
     def _make_xor(self, n=1000, seed=0):
+        """Make xor."""
         rng = np.random.default_rng(seed)
         x1 = rng.integers(0, 2, n).astype(np.int32)
         x2 = rng.integers(0, 2, n).astype(np.int32)
@@ -178,6 +180,7 @@ class TestWeightedKernelUnit:
 
 
 class TestBootstrapCIs:
+    """Groups tests covering TestBootstrapCIs."""
     @pytest.mark.fast
     def test_bootstrap_ci_populates_diagnostics(self):
         """When ``bootstrap_ci_n_replicates > 0``, ``state.diagnostics``

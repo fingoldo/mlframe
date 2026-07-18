@@ -56,14 +56,16 @@ def test_1_leak_corr_filter_drops_strong_y_correlate_after_in_place_fix():
 # Fix 3 - PipelineCache default 0.15 + 16 GB floor.
 # ---------------------------------------------------------------------------
 def test_3_pipeline_cache_default_fraction_is_0p15():
+    """3 pipeline cache default fraction is 0p15."""
     from mlframe.training.strategies.pipeline_cache import _DEFAULT_PIPELINE_CACHE_RAM_FRACTION
 
-    assert _DEFAULT_PIPELINE_CACHE_RAM_FRACTION == 0.15, (
-        "default RAM fraction must be 0.15 (was 0.4) to keep room for big-frame transient peaks during pipeline-fit + composite-discovery on 100+ GB processes."
-    )
+    assert (
+        _DEFAULT_PIPELINE_CACHE_RAM_FRACTION == 0.15
+    ), "default RAM fraction must be 0.15 (was 0.4) to keep room for big-frame transient peaks during pipeline-fit + composite-discovery on 100+ GB processes."
 
 
 def test_3_pipeline_cache_default_in_behavior_config_is_0p15():
+    """3 pipeline cache default in behavior config is 0p15."""
     from mlframe.training._model_configs import TrainingBehaviorConfig
 
     cfg = TrainingBehaviorConfig()
@@ -97,6 +99,7 @@ def test_3_pipeline_cache_budget_clamped_to_available_minus_16gb_floor():
 # val and test for schema alignment.
 # ---------------------------------------------------------------------------
 def test_4_5_auto_drop_helper_strips_drop_candidates_and_near_duplicates():
+    """4 5 auto drop helper strips drop candidates and near duplicates."""
     pl = pytest.importorskip("polars")
     from mlframe.training.core._main_train_suite_target_distribution import (
         _maybe_auto_drop_after_feature_analyzer,
@@ -146,6 +149,7 @@ def test_4_5_auto_drop_helper_strips_drop_candidates_and_near_duplicates():
 
 
 def test_4_5_auto_drop_disabled_when_flags_off():
+    """4 5 auto drop disabled when flags off."""
     pl = pytest.importorskip("polars")
     from mlframe.training.core._main_train_suite_target_distribution import (
         _maybe_auto_drop_after_feature_analyzer,
@@ -174,6 +178,7 @@ def test_4_5_auto_drop_disabled_when_flags_off():
 
 
 def test_4_5_default_behavior_config_enables_both_drops():
+    """4 5 default behavior config enables both drops."""
     from mlframe.training._model_configs import TrainingBehaviorConfig
 
     cfg = TrainingBehaviorConfig()

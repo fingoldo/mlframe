@@ -20,17 +20,21 @@ class _WidthVsNamesMismatch(BaseEstimator, TransformerMixin):
         self.n_names = n_names
 
     def fit(self, X, y=None):
+        """Fit."""
         self.feature_names_in_ = np.asarray([str(c) for c in X.columns])
         return self
 
     def transform(self, X):
+        """Transform."""
         return np.tile(np.asarray(X.iloc[:, :1], dtype=float), (1, self.n_out))
 
     def get_feature_names_out(self, input_features=None):
+        """Get feature names out."""
         return np.asarray([f"bad_{i}" for i in range(self.n_names)])
 
 
 def test_predict_ext_pipeline_survives_name_width_mismatch():
+    """Predict ext pipeline survives name width mismatch."""
     df = pd.DataFrame({"a": np.arange(10.0), "b": np.arange(10.0)})
     pipe = _WidthVsNamesMismatch(n_out=3, n_names=5).fit(df)
     out = _apply_extensions_pipeline(df, pipe, verbose=0)
@@ -40,8 +44,11 @@ def test_predict_ext_pipeline_survives_name_width_mismatch():
 
 
 def test_predict_ext_pipeline_keeps_names_when_count_matches():
+    """Predict ext pipeline keeps names when count matches."""
     class _Matching(_WidthVsNamesMismatch):
+        """Groups tests covering matching."""
         def get_feature_names_out(self, input_features=None):
+            """Get feature names out."""
             return np.asarray([f"ok_{i}" for i in range(self.n_out)])
 
     df = pd.DataFrame({"a": np.arange(10.0), "b": np.arange(10.0)})

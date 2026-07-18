@@ -31,6 +31,7 @@ warnings.filterwarnings("ignore")
 
 
 def _make_frame(seed: int = 0, n: int = 4000, p: int = 40):
+    """Make frame."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, p))
     beta = np.zeros(p)
@@ -41,6 +42,7 @@ def _make_frame(seed: int = 0, n: int = 4000, p: int = 40):
 
 
 def _fit_jmim_order2():
+    """Fit jmim order2."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     df, ys = _make_frame()
@@ -83,6 +85,7 @@ def test_jmim_cache_parity_and_hits():
     real_evaluate_candidate = ev.evaluate_candidate
 
     def _killed_evaluate_candidate(*args, **kwargs):
+        """Killed evaluate candidate."""
         kwargs["cached_jmim_MIs"] = numba.typed.Dict.empty(
             key_type=types.unicode_type,
             value_type=types.float64,

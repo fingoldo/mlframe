@@ -154,6 +154,7 @@ def test_save_path_falls_back_to_pickle_when_from_json_roundtrip_fails(monkeypat
     original = metadata["pipeline"]
 
     def _broken_from_json(_js):
+        """Broken from json."""
         raise RuntimeError("simulated from_json failure")
 
     monkeypatch.setattr(_PdsPipeline, "from_json", staticmethod(_broken_from_json))

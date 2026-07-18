@@ -24,6 +24,7 @@ pl = pytest.importorskip("polars")
 
 
 def _string_frame_pd(seed=0):
+    """String frame pd."""
     rng = np.random.default_rng(seed)
     n = 500
     cats = np.array(["alpha", "beta", "gamma", "delta"])
@@ -37,6 +38,7 @@ def _string_frame_pd(seed=0):
 
 
 class TestSignatureDeterministicAcrossProcesses:
+    """Groups tests covering signature deterministic across processes."""
     def test_string_signature_stable_in_process(self) -> None:
         """Re-materialising the string column must yield the same signature."""
         df1 = _string_frame_pd()
@@ -72,11 +74,13 @@ class TestSignatureDeterministicAcrossProcesses:
         assert local == remote, f"signature differs across processes: {local} != {remote}"
 
     def test_string_signature_changes_with_content(self) -> None:
+        """String signature changes with content."""
         df1 = _string_frame_pd(seed=0)
         df2 = _string_frame_pd(seed=1)
         assert data_signature(df1, "y", ["city", "ts"]) != data_signature(df2, "y", ["city", "ts"])
 
     def test_polars_string_signature_stable(self) -> None:
+        """Polars string signature stable."""
         rng = np.random.default_rng(2)
         n = 600
         cats = np.array(["x", "yy", "zzz", "w"])
@@ -87,6 +91,7 @@ class TestSignatureDeterministicAcrossProcesses:
 
 
 class TestRowOrderFingerprintBounded:
+    """Groups tests covering row order fingerprint bounded."""
     def test_slice_first_digest_identical(self) -> None:
         """P8 + S3: slicing each edge BEFORE hash_rows must give the same digest
         as hashing the whole frame then slicing (hash_rows is row-local). S3
@@ -127,6 +132,7 @@ class TestRowOrderFingerprintBounded:
         assert _row_order_fingerprint(base) != _row_order_fingerprint(reordered), "polars tail-only reorder must burst the row-order fingerprint"
 
     def test_prefix_reorder_bursts_fingerprint(self) -> None:
+        """Prefix reorder bursts fingerprint."""
         np.random.default_rng(4)
         n = 2000
         df = pl.DataFrame({"a": np.arange(n).astype(float)})

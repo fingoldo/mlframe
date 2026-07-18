@@ -15,6 +15,7 @@ import numpy as np
 
 
 def _hetero_noise_cluster(seed=0, n=2000):
+    """Hetero noise cluster."""
     rng = np.random.default_rng(seed)
     z = rng.normal(size=n)  # shared latent factor
     noise_scales = [0.2, 0.3, 1.5, 2.0, 2.5]  # heterogeneous member reliabilities
@@ -24,6 +25,7 @@ def _hetero_noise_cluster(seed=0, n=2000):
 
 
 def _rep_corr(weighting, seed=0):
+    """Rep corr."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster import build_unit_matrix
 
     M, labels, z = _hetero_noise_cluster(seed=seed)
@@ -32,6 +34,7 @@ def _rep_corr(weighting, seed=0):
 
 
 def test_biz_val_cluster_weighting_pca_pc1_denoises_better_than_mean_z():
+    """Biz val cluster weighting pca pc1 denoises better than mean z."""
     pca = _rep_corr("pca_pc1")
     mean = _rep_corr("mean_z")
     assert pca >= 0.90, f"pca_pc1 rep corr {pca:.4f} below floor"
@@ -39,6 +42,7 @@ def test_biz_val_cluster_weighting_pca_pc1_denoises_better_than_mean_z():
 
 
 def test_biz_val_cluster_weighting_pca_pc1_wins_across_seeds():
+    """Biz val cluster weighting pca pc1 wins across seeds."""
     deltas = [_rep_corr("pca_pc1", s) - _rep_corr("mean_z", s) for s in range(4)]
     wins = sum(d > 0 for d in deltas)
     assert wins >= 3, f"pca_pc1 should beat mean_z on majority of seeds; deltas={deltas}"

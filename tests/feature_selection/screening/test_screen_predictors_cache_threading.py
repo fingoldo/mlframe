@@ -21,6 +21,7 @@ from mlframe.feature_selection.filters.screen import screen_predictors
 
 
 def _make_data(n: int = 400, m: int = 6, seed: int = 0):
+    """Make data."""
     rng = np.random.default_rng(seed)
     factors_data = rng.integers(0, 4, size=(n, m)).astype(np.int32)
     # y correlated with column 0 so the greedy loop has real signal to confirm (not pure noise reject).
@@ -32,6 +33,7 @@ def _make_data(n: int = 400, m: int = 6, seed: int = 0):
 
 
 def _common_kwargs(factors_data, factors_nbins, targets_data, targets_nbins, **overrides):
+    """Common kwargs."""
     base = dict(
         factors_data=factors_data,
         factors_nbins=factors_nbins,
@@ -58,6 +60,7 @@ def test_seed_caches_none_matches_legacy_default_behavior():
 
 
 def test_seed_caches_accepts_prior_return_and_does_not_crash():
+    """Seed caches accepts prior return and does not crash."""
     fd, fn, td, tn = _make_data(seed=2)
     out1 = screen_predictors(**_common_kwargs(fd, fn, td, tn))
     # Per screen_predictors' return-tuple order: (..., entropy_cache, cached_MIs, cached_confident_MIs,
@@ -107,6 +110,7 @@ def test_seeded_cached_MIs_reduces_relevance_recomputation():
 
 
 def test_seed_caches_default_parameter_is_none():
+    """Seed caches default parameter is none."""
     import inspect
 
     sig = inspect.signature(screen_predictors)

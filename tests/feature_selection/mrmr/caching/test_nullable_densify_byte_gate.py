@@ -20,6 +20,7 @@ import mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core as _core
 
 
 def _nullable_xy(n: int = 400, seed: int = 0):
+    """Nullable xy."""
     rng = np.random.default_rng(seed)
     a = rng.standard_normal(n)
     b = rng.standard_normal(n)
@@ -38,6 +39,7 @@ def _nullable_xy(n: int = 400, seed: int = 0):
 
 
 def _fit_support(X, y):
+    """Fit support."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         m = MRMR(verbose=0, random_seed=0).fit(X, y)
@@ -45,6 +47,7 @@ def _fit_support(X, y):
 
 
 def test_densify_does_not_mutate_caller_frame():
+    """Densify does not mutate caller frame."""
     X, y = _nullable_xy()
     dtypes_before = X.dtypes.astype(str).to_dict()
     _fit_support(X, y)
@@ -52,6 +55,7 @@ def test_densify_does_not_mutate_caller_frame():
 
 
 def test_eager_and_per_column_densify_paths_select_identically(monkeypatch):
+    """Eager and per column densify paths select identically."""
     X, y = _nullable_xy()
     # Eager path (default high threshold).
     monkeypatch.setattr(_core, "_NULLABLE_DENSIFY_EAGER_MAX_BYTES", 2 * 1024**3)

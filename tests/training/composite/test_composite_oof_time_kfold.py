@@ -12,6 +12,7 @@ from mlframe.training.composite.ensemble import compute_oof_holdout_predictions
 
 
 def _data(n=3000, seed=0):
+    """Data."""
     rng = np.random.default_rng(seed)
     b = rng.normal(0.0, 1.0, n)
     feat = rng.normal(0.0, 1.0, n)
@@ -21,7 +22,9 @@ def _data(n=3000, seed=0):
 
 
 class TestN21TimeKfold:
+    """Groups tests covering n21 time kfold."""
     def test_monotone_time_kfold_forward_walk(self) -> None:
+        """Monotone time kfold forward walk."""
         X, y = _data()
         inner = LinearRegression().fit(X, y)
         ts = np.arange(len(X))  # monotone
@@ -45,6 +48,7 @@ class TestN21TimeKfold:
         assert n_cov >= int(0.5 * len(X)), "forward-walk OOF should cover most rows"
 
     def test_non_monotone_time_downgrades_with_warn(self, caplog) -> None:
+        """Non monotone time downgrades with warn."""
         X, y = _data(n=2000)
         inner = LinearRegression().fit(X, y)
         ts = np.random.default_rng(1).permutation(len(X))  # NON-monotone

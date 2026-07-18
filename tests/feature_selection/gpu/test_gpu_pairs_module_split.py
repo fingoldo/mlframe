@@ -20,12 +20,14 @@ from pathlib import Path
 
 
 def test_mi_direct_gpu_batched_pairs_importable_from_facade() -> None:
+    """Mi direct gpu batched pairs importable from facade."""
     from mlframe.feature_selection.filters.gpu import mi_direct_gpu_batched_pairs
 
     assert callable(mi_direct_gpu_batched_pairs)
 
 
 def test_other_gpu_symbols_still_importable() -> None:
+    """Other gpu symbols still importable."""
     from mlframe.feature_selection.filters.gpu import (
         mi_direct_gpu_batched,
         mi_direct_gpu_batched_streamed,
@@ -51,6 +53,7 @@ def test_other_gpu_symbols_still_importable() -> None:
 def test_facade_below_1k_line_threshold() -> None:
     # Anchor on the repo root (the dir whose ``src/mlframe`` exists) rather than a fixed parent count, so the
     # test survives being moved deeper in the tree (the restructure relocated it into feature_selection/gpu/).
+    """Facade below 1k line threshold."""
     repo_root = next(p for p in Path(__file__).resolve().parents if (p / "src" / "mlframe").is_dir())
     facade = repo_root / "src" / "mlframe" / "feature_selection" / "filters" / "gpu.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())

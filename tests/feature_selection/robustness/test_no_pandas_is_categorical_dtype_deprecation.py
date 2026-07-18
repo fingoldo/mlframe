@@ -13,6 +13,7 @@ import pytest
 
 
 def _assert_no_is_categorical_deprecation(fn):
+    """Assert no is categorical deprecation."""
     with warnings.catch_warnings():
         warnings.simplefilter("error", DeprecationWarning)
         try:
@@ -24,6 +25,7 @@ def _assert_no_is_categorical_deprecation(fn):
 
 
 def _cat_frame(n: int = 200) -> pd.DataFrame:
+    """Cat frame."""
     rng = np.random.default_rng(0)
     return pd.DataFrame(
         {
@@ -34,6 +36,7 @@ def _cat_frame(n: int = 200) -> pd.DataFrame:
 
 
 def test_auto_detect_te_cols_no_is_categorical_deprecation():
+    """Auto detect te cols no is categorical deprecation."""
     from mlframe.feature_selection.filters._target_encoding_fe import auto_detect_te_cols
 
     X = _cat_frame()
@@ -41,6 +44,7 @@ def test_auto_detect_te_cols_no_is_categorical_deprecation():
 
 
 def test_auto_detect_cat_pair_cols_no_is_categorical_deprecation():
+    """Auto detect cat pair cols no is categorical deprecation."""
     from mlframe.feature_selection.filters._cat_pair_fe import auto_detect_cat_pair_cols
 
     X = _cat_frame()
@@ -48,6 +52,7 @@ def test_auto_detect_cat_pair_cols_no_is_categorical_deprecation():
 
 
 def test_boruta_shap_encode_categoricals_no_is_categorical_deprecation():
+    """Boruta shap encode categoricals no is categorical deprecation."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     X = _cat_frame()

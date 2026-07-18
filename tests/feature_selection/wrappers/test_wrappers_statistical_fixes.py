@@ -18,6 +18,7 @@ class TestSingleSortKernelsBitIdentical:
     """The v2 single-argsort kernels must be bit-identical to the originals, including on heavily-tied data."""
 
     def test_mwu_v2_matches_on_ties(self):
+        """Mwu v2 matches on ties."""
         rng = np.random.default_rng(7)
         for _ in range(15):
             n = int(rng.integers(10, 400))
@@ -26,6 +27,7 @@ class TestSingleSortKernelsBitIdentical:
             np.testing.assert_array_equal(_mann_whitney_u_z(x, g), _mann_whitney_u_z_v2(x, g))
 
     def test_kw_v2_matches_on_ties(self):
+        """Kw v2 matches on ties."""
         rng = np.random.default_rng(9)
         for _ in range(15):
             n = int(rng.integers(10, 400))
@@ -38,6 +40,7 @@ class TestClassificationNaNTargetRouting:
     """ml_task='classification' must drop NaN labels before counting -> a binary target stays binary."""
 
     def test_classification_nan_label_does_not_inflate_to_multiclass(self, monkeypatch):
+        """Classification nan label does not inflate to multiclass."""
         import mlframe.feature_selection.wrappers._univariate_ht as ht
 
         rng = np.random.default_rng(0)
@@ -52,10 +55,12 @@ class TestClassificationNaNTargetRouting:
         orig_kw = ht._kw_p_numeric_multiclass
 
         def _bin(*a, **k):
+            """Helper that bin."""
             chosen["route"] = "binary"
             return orig_bin(*a, **k)
 
         def _kw(*a, **k):
+            """Wrap the Kruskal-Wallis multiclass path to record which route was actually dispatched."""
             chosen["route"] = "multiclass"
             return orig_kw(*a, **k)
 
@@ -66,7 +71,9 @@ class TestClassificationNaNTargetRouting:
 
 
 class TestAutoTuneTargetTyping:
+    """Groups tests covering TestAutoTuneTargetTyping."""
     def test_negative_integer_labels_do_not_crash(self):
+        """Negative integer labels do not crash."""
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((120, 3)), columns=list("abc"))
         y = rng.choice([-1, 1], 120)  # pre-fix np.bincount(astype(int)) raised on negative labels
@@ -75,6 +82,7 @@ class TestAutoTuneTargetTyping:
         assert 0.0 < fp.target_imbalance <= 0.5
 
     def test_high_card_integer_regression_not_multiclass_on_large_n(self):
+        """High card integer regression not multiclass on large n."""
         rng = np.random.default_rng(0)
         n = 200_000
         X = pd.DataFrame(rng.standard_normal((n, 2)), columns=list("ab"))

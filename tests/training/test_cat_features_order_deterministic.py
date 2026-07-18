@@ -12,6 +12,7 @@ from mlframe.training.core._phase_helpers_fit_split import _phase_auto_detect_fe
 
 
 def _run(cat_features, cat_features_polars):
+    """Runs feature-type auto-detection over deliberately hash-scrambled column names and returns the resolved metadata."""
     # Many overlapping names so set-iteration order would visibly diverge from input order.
     cols = ["zzz", "mmm", "aaa", "qqq", "bbb", "kkk", "ccc", "ttt", "ddd", "www"]
     df = pd.DataFrame({c: [1, 2, 3] for c in cols})
@@ -39,6 +40,7 @@ def _run(cat_features, cat_features_polars):
 
 
 def test_cat_features_preserves_first_seen_input_order():
+    """Cat features preserves first seen input order."""
     cat = ["zzz", "mmm", "aaa", "qqq", "bbb"]
     cat_polars = ["aaa", "kkk", "ccc", "zzz", "ttt"]  # overlaps + new names
     expected = ["zzz", "mmm", "aaa", "qqq", "bbb", "kkk", "ccc", "ttt"]
@@ -48,6 +50,7 @@ def test_cat_features_preserves_first_seen_input_order():
 
 
 def test_cat_features_order_stable_across_runs():
+    """Cat features order stable across runs."""
     cat = ["ttt", "ddd", "www", "mmm", "ccc"]
     cat_polars = ["kkk", "aaa", "ttt", "bbb"]
     first, _ = _run(cat, cat_polars)

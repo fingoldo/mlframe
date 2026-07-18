@@ -61,6 +61,7 @@ from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
 
 
 def _mi_one(col, y, nbins: int = 10) -> float:
+    """Mi one."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         _mi_classif_batch,
     )
@@ -86,7 +87,9 @@ def _hetero_fixture(seed: int = 0, n: int = 4000):
 # UNIT
 # ===========================================================================
 class TestConditionalDispersionUnit:
+    """Groups tests covering TestConditionalDispersionUnit."""
     def test_zscore_matches_closed_form(self):
+        """Zscore matches closed form."""
         X, _y, _sd = _hetero_fixture()
         enc, raw = generate_conditional_dispersion_features(
             X,
@@ -117,6 +120,7 @@ class TestConditionalDispersionUnit:
         np.testing.assert_allclose(enc[z2_name].to_numpy(), z * z, rtol=0, atol=0)
 
     def test_replay_is_leak_safe_and_exact(self):
+        """Replay is leak safe and exact."""
         X, _y, _sd = _hetero_fixture()
         enc, raw = generate_conditional_dispersion_features(
             X,
@@ -136,6 +140,7 @@ class TestConditionalDispersionUnit:
         np.testing.assert_allclose(direct, via_dispatch, rtol=0, atol=0)
 
     def test_recipe_pickle_round_trip(self):
+        """Recipe pickle round trip."""
         X, y, _sd = _hetero_fixture()
         # decoy noise cols give a non-degenerate raw noise floor (a 2-col raw
         # frame yields a degenerate MAD floor that gates everything out).
@@ -157,6 +162,7 @@ class TestConditionalDispersionUnit:
 
     def test_degenerate_constant_xi_does_not_blow_up(self):
         # Constant x_i within a bin -> sigma_hat falls back to global std (no /0).
+        """Degenerate constant xi does not blow up."""
         n = 2000
         rng = np.random.default_rng(3)
         xj = rng.random(n)
@@ -172,8 +178,10 @@ class TestConditionalDispersionUnit:
 # BIZ_VALUE
 # ===========================================================================
 class TestConditionalDispersionBizValue:
+    """Groups tests covering TestConditionalDispersionBizValue."""
     @pytest.mark.parametrize("seed", [0, 7, 42])
     def test_hetero_mi_beats_mean_residual_and_raw(self, seed):
+        """Hetero mi beats mean residual and raw."""
         X, y, _sd = _hetero_fixture(seed=seed)
         enc_d, _ = generate_conditional_dispersion_features(
             X,
@@ -195,6 +203,7 @@ class TestConditionalDispersionBizValue:
         assert mi_absz > mi_raw, f"[seed={seed}] |z| MI {mi_absz:.4f} !> raw xi {mi_raw:.4f}"
 
     def test_hetero_downstream_auc_lift(self):
+        """Hetero downstream auc lift."""
         from sklearn.linear_model import LogisticRegression
         from sklearn.metrics import roc_auc_score
         from sklearn.model_selection import train_test_split
@@ -222,6 +231,7 @@ class TestConditionalDispersionBizValue:
         assert auc_disp >= auc_raw + 0.03, f"dispersion AUC {auc_disp:.3f} not >= raw {auc_raw:.3f}+0.03"
 
     def test_hetero_hybrid_admits_genuine_dispersion(self):
+        """Hetero hybrid admits genuine dispersion."""
         X, y, _sd = _hetero_fixture(seed=0)
         # add decoy noise cols for a realistic raw noise floor
         rng = np.random.default_rng(99)
@@ -239,6 +249,7 @@ class TestConditionalDispersionBizValue:
     def test_homoscedastic_self_limits(self):
         # Same spread both bins; conditional MEAN shift only -> |z| ~ scaled
         # |mean-residual| -> the dual-uplift gate admits NO genuine dispersion col.
+        """Homoscedastic self limits."""
         rng = np.random.default_rng(11)
         n = 4000
         xj = rng.random(n)
@@ -284,6 +295,7 @@ class TestConditionalDispersionBizValue:
         assert rho > 0.95, f"homoscedastic |z| not ~ |mean-resid| (Spearman {rho:.3f})"
 
     def test_pure_noise_admits_nothing(self):
+        """Pure noise admits nothing."""
         rng = np.random.default_rng(7)
         n = 4000
         X = pd.DataFrame(
@@ -309,7 +321,9 @@ class TestConditionalDispersionBizValue:
 # CANONICAL pair-FE recovery non-perturbation (the hinge-regression guard)
 # ===========================================================================
 class TestConditionalDispersionDoesNotPerturbCanonical:
+    """Groups tests covering TestConditionalDispersionDoesNotPerturbCanonical."""
     def test_dispersion_admits_zero_on_canonical_and_engineered_set_unchanged(self):
+        """Dispersion admits zero on canonical and engineered set unchanged."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         rng = np.random.default_rng(42)
@@ -340,12 +354,15 @@ class TestConditionalDispersionDoesNotPerturbCanonical:
 # MRMR integration: default-on, leak-safe transform, clone/pickle
 # ===========================================================================
 class TestConditionalDispersionMRMRIntegration:
+    """Groups tests covering TestConditionalDispersionMRMRIntegration."""
     def test_default_on(self):
+        """Default on."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         assert MRMR(verbose=0).fe_conditional_dispersion_enable is True
 
     def test_end_to_end_selects_dispersion_on_hetero_regression(self):
+        """End to end selects dispersion on hetero regression."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         rng = np.random.default_rng(0)
@@ -368,6 +385,7 @@ class TestConditionalDispersionMRMRIntegration:
         assert np.isfinite(Xt).all()
 
     def test_clone_and_pickle_preserve_param(self):
+        """Clone and pickle preserve param."""
         from sklearn.base import clone
         from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -396,6 +414,7 @@ def test_cprofile_hotspot_within_budget():
         X[f"g{k}"] = rng.standard_normal(len(X))
 
     def _run():
+        """Call generate_conditional_dispersion_features 5 times in a row on the shared fixture, for a repeat-call timing/stability probe."""
         for _ in range(5):
             generate_conditional_dispersion_features(
                 X,

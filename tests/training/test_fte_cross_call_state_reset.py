@@ -29,6 +29,7 @@ from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
 
 def _make_df(extra_cols=None):
+    """Make df."""
     rng = np.random.default_rng(42)
     cols = {
         "x0": rng.normal(size=100),

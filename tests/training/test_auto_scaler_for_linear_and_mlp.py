@@ -84,21 +84,25 @@ def _try_register_family(name: str, factory):
 
 
 def _cb_factory():
+    """Cb factory."""
     cb = pytest.importorskip("catboost")
     return cb.CatBoostRegressor(iterations=50, depth=4, verbose=False, allow_writing_files=False)
 
 
 def _xgb_factory():
+    """Xgb factory."""
     xgb = pytest.importorskip("xgboost")
     return xgb.XGBRegressor(n_estimators=50, max_depth=4, verbosity=0)
 
 
 def _lgb_factory():
+    """Lgb factory."""
     lgb = pytest.importorskip("lightgbm")
     return lgb.LGBMRegressor(n_estimators=50, num_leaves=15, verbose=-1, random_state=0)
 
 
 def _linear_factory():
+    """Linear factory."""
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
     from sklearn.linear_model import LinearRegression

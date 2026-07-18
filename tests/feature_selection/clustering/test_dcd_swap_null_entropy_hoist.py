@@ -24,6 +24,7 @@ from mlframe.feature_selection.filters.info_theory import (
 
 
 def _data(n=600, n_cols=10, n_bins=8, seed=11):
+    """Helper that data."""
     rng = np.random.default_rng(seed)
     data = rng.integers(0, n_bins, size=(n, n_cols)).astype(np.int32)
     nbins = np.full(n_cols, n_bins, dtype=np.int64)

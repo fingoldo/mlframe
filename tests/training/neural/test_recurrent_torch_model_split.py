@@ -16,6 +16,7 @@ from pathlib import Path
 
 
 def test_recurrent_torch_model_importable_from_facade() -> None:
+    """Recurrent torch model importable from facade."""
     from mlframe.training.neural.recurrent import RecurrentTorchModel
 
     assert RecurrentTorchModel is not None
@@ -28,6 +29,7 @@ def test_recurrent_torch_model_importable_from_facade() -> None:
 
 
 def test_wrappers_still_importable() -> None:
+    """Wrappers still importable."""
     from mlframe.training.neural.recurrent import (
         _RecurrentWrapperBase,
         RecurrentClassifierWrapper,
@@ -44,6 +46,7 @@ def test_wrappers_still_importable() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
+    """Facade below 1k line threshold."""
     root = Path(__file__).resolve().parent.parent.parent.parent / "src" / "mlframe" / "training" / "neural"
     facade = root / "recurrent.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())

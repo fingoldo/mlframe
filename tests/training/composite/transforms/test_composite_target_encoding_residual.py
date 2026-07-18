@@ -42,7 +42,9 @@ from mlframe.training.composite.transforms.categorical import (
 
 
 class TestFit:
+    """Groups tests covering fit."""
     def test_requires_groups_argument(self) -> None:
+        """Requires groups argument."""
         rng = np.random.default_rng(0)
         y = rng.normal(size=50)
         base = np.zeros_like(y)
@@ -50,6 +52,7 @@ class TestFit:
             _target_encoding_residual_fit(y, base, groups=None)
 
     def test_groups_length_mismatch_raises(self) -> None:
+        """Groups length mismatch raises."""
         y = np.arange(10.0)
         with pytest.raises(ValueError, match="groups has"):
             _target_encoding_residual_fit(
@@ -59,6 +62,7 @@ class TestFit:
             )
 
     def test_negative_smoothing_raises(self) -> None:
+        """Negative smoothing raises."""
         y = np.arange(10.0)
         groups = np.array(["a"] * 10)
         with pytest.raises(ValueError, match="non-negative"):
@@ -95,6 +99,7 @@ class TestFit:
         assert abs(enc_a - raw_a) < 0.05, "large category keeps ~its own mean"
 
     def test_round_trip_y_to_T_to_y(self) -> None:
+        """Round trip y to t to y."""
         rng = np.random.default_rng(11)
         n = 2000
         cats = np.asarray([f"c{i}" for i in rng.integers(0, 50, size=n)])
@@ -105,6 +110,7 @@ class TestFit:
         np.testing.assert_allclose(y, y_back, rtol=1e-7, atol=1e-7)
 
     def test_unseen_category_uses_global_mean(self) -> None:
+        """Unseen category uses global mean."""
         rng = np.random.default_rng(33)
         n = 300
         y = rng.normal(loc=5.0, size=n)
@@ -132,12 +138,15 @@ class TestFit:
 
 
 class TestRegistry:
+    """Groups tests covering registry."""
     def test_registered_with_flags(self) -> None:
+        """Registered with flags."""
         t = get_transform("target_encoding_residual")
         assert t.requires_groups is True
         assert t.requires_base is False
 
     def test_domain_check_gates_finite_y_at_fit(self) -> None:
+        """Domain check gates finite y at fit."""
         y = np.array([1.0, 2.0, np.nan])
         base = np.zeros(3)
         np.testing.assert_array_equal(
@@ -146,6 +155,7 @@ class TestRegistry:
         )
 
     def test_domain_check_all_true_at_predict(self) -> None:
+        """Domain check all true at predict."""
         base = np.zeros(4)
         np.testing.assert_array_equal(
             _target_encoding_residual_domain(None, base),
@@ -153,10 +163,12 @@ class TestRegistry:
         )
 
     def test_default_smoothing_constant(self) -> None:
+        """Default smoothing constant."""
         assert _TARGET_ENCODING_DEFAULT_SMOOTHING == 20.0
 
     def test_composite_name_is_two_segment(self) -> None:
         # requires_base=False -> base-free 2-segment composite name.
+        """Composite name is two segment."""
         assert compose_target_name("y", "target_encoding_residual") == "y-tgtenc"
         assert is_composite_target_name("y-tgtenc")
 
@@ -184,6 +196,7 @@ class TestBizValueTargetEncodingBeatsRawLinear:
         # train/test (drawn from a dedicated fixed seed), so a category's level
         # learned at fit transfers to the same category at predict. Only x / cat
         # assignment / noise vary with ``seed`` (the train vs test split).
+        """Make high card dgp."""
         eff_rng = np.random.default_rng(20260611)
         level_effect = eff_rng.normal(loc=0.0, scale=10.0, size=n_levels)
         rng = np.random.default_rng(seed)
@@ -195,9 +208,11 @@ class TestBizValueTargetEncodingBeatsRawLinear:
         return df, y
 
     def _rmse(self, a: np.ndarray, b: np.ndarray) -> float:
+        """Rmse."""
         return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
 
     def test_composite_beats_raw_linear_by_clear_margin(self) -> None:
+        """Composite beats raw linear by clear margin."""
         df_tr, y_tr = self._make_high_card_dgp(seed=0)
         df_te, y_te = self._make_high_card_dgp(seed=1)
 
@@ -219,6 +234,7 @@ class TestBizValueTargetEncodingBeatsRawLinear:
         assert rmse_comp < rmse_raw / 3.0, f"target-encoding residual must beat raw-y linear by >=3x RMSE: raw={rmse_raw:.3f}, composite={rmse_comp:.3f}"
 
     def test_unseen_category_predict_stays_finite(self) -> None:
+        """Unseen category predict stays finite."""
         df_tr, y_tr = self._make_high_card_dgp(n=2000, n_levels=50, seed=2)
         est = CompositeTargetEstimator(
             base_estimator=LinearRegression(),

@@ -12,6 +12,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class FuzzCombo:
+    """Groups tests covering fuzz combo."""
     models: tuple[str, ...]
     input_type: str
     n_rows: int
@@ -2178,6 +2179,7 @@ class FuzzCombo:
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
+        """Canonical recurrent model."""
         rec = self.recurrent_model_cfg
         if rec is None:
             return None
@@ -2226,11 +2228,13 @@ class FuzzCombo:
     def _canonical_cv_strategy(self) -> str:
         # Forward-walk strategies (timeseries / purged) require val_placement='forward'; the split-config validator
         # rejects them with 'backward'. Collapse to 'random' on backward so the combo stays valid (semantic, not a prod-bug mask).
+        """Canonical cv strategy."""
         if self.cv_strategy_cfg in ("timeseries", "purged") and self.val_placement_cfg == "backward":
             return "random"
         return self.cv_strategy_cfg
 
     def _canonical_rfecv_estimator(self) -> "str | None":
+        """Canonical rfecv estimator."""
         rfe = self.rfecv_estimator_cfg
         if rfe is None:
             return None
@@ -2331,9 +2335,11 @@ class FuzzCombo:
         return self.text_col_count
 
     def _is_chain_dispatch(self) -> bool:
+        """Is chain dispatch."""
         return self.target_type == "multilabel_classification" and self._canonical_multilabel_strategy() == "chain"
 
     def _canonical_multilabel_strategy(self) -> str:
+        """Canonical multilabel strategy."""
         if self.target_type != "multilabel_classification":
             return "auto"
         if self.multilabel_strategy_cfg != "chain":
@@ -2366,6 +2372,7 @@ class FuzzCombo:
         return self.imputer_strategy_cfg if has_nulls else "mean"
 
     def _canonical_imbalance(self) -> str:
+        """Canonical imbalance."""
         if "classification" not in self.target_type:
             return "balanced"
         # multiclass and multilabel: imbalance fuzz is its own can of worms
@@ -2399,16 +2406,19 @@ class FuzzCombo:
         return imb
 
     def short_id(self) -> str:
+        """Short id."""
         h = hashlib.blake2s(repr(self.canonical_key()).encode(), digest_size=4).hexdigest()
         return f"c{self.seed:04d}_{h}"
 
     def pytest_id(self) -> str:
         # Include a human-readable prefix so failing IDs are diagnostic.
+        """Pytest id."""
         tag = "_".join(sorted(self.models))
         short_input = self.input_type.replace("polars_", "pl_")
         return f"{self.short_id()}-{tag}-{short_input}-n{self.n_rows}"
 
     def to_json(self) -> dict:
+        """To json."""
         return {
             "short_id": self.short_id(),
             "models": list(self.models),

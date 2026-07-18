@@ -18,16 +18,20 @@ _TS = ["ewma_residual", "rolling_quantile_ratio", "frac_diff"]
 
 
 class TestM9Config:
+    """Groups tests covering m9 config."""
     def test_default_excludes_time_series_transforms(self) -> None:
+        """Default excludes time series transforms."""
         cfg = CompositeTargetDiscoveryConfig()
         assert not any(t in cfg.transforms for t in _TS)
 
     def test_enabled_appends_all_three(self) -> None:
+        """Enabled appends all three."""
         cfg = CompositeTargetDiscoveryConfig(time_series_transforms_enabled=True)
         for t in _TS:
             assert t in cfg.transforms
 
     def test_append_is_idempotent_and_order_preserving(self) -> None:
+        """Append is idempotent and order preserving."""
         cfg = CompositeTargetDiscoveryConfig(time_series_transforms_enabled=True)
         assert cfg.transforms.count("frac_diff") == 1
         # The original core transforms still lead the list.
@@ -35,6 +39,7 @@ class TestM9Config:
 
 
 class TestM9Discovery:
+    """Groups tests covering m9 discovery."""
     def test_time_series_discovery_runs_clean_on_temporal_frame(self) -> None:
         """End-to-end: enabling the TS transforms + a time_column does not crash
         discovery and time-orders the screen."""

@@ -11,6 +11,7 @@ import pytest
 
 
 def test_pandas_view_cache_slot_is_ordered_dict():
+    """Pandas view cache slot is ordered dict."""
     from mlframe.training.core._training_context import TrainingContext
 
     ctx = TrainingContext()
@@ -18,11 +19,13 @@ def test_pandas_view_cache_slot_is_ordered_dict():
 
 
 def test_pandas_view_cache_bytes_helper_handles_empty_and_missing_attr():
+    """Pandas view cache bytes helper handles empty and missing attr."""
     from mlframe.training.core._phase_train_one_target_polars_fastpath import _pandas_view_cache_bytes
 
     assert _pandas_view_cache_bytes(OrderedDict()) == 0
 
     class _NoMemUsage:
+        """Groups tests covering no mem usage."""
         pass
 
     od = OrderedDict()
@@ -31,6 +34,7 @@ def test_pandas_view_cache_bytes_helper_handles_empty_and_missing_attr():
 
 
 def test_pandas_view_cache_bytes_helper_sums_pandas_frames():
+    """Pandas view cache bytes helper sums pandas frames."""
     pd = pytest.importorskip("pandas")
     import numpy as np
     from mlframe.training.core._phase_train_one_target_polars_fastpath import _pandas_view_cache_bytes

@@ -29,10 +29,13 @@ column-side diagnostic.
 """
 from __future__ import annotations
 
+import logging
 from typing import Callable, Optional
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 # Perfect-collinearity tolerance. |Pearson| within this of 1.0 counts as a perfect
 # linear dependence (covers float round-off in an exact 2*x+3 relationship).
@@ -43,8 +46,8 @@ try:
     import xxhash as _xxhash
 
     _xxh3_64 = _xxhash.xxh3_64_intdigest
-except Exception:  # nosec B110 - xxhash optional: falls back to pandas hash_array below
-    pass
+except Exception as e:  # nosec B110 - xxhash optional: falls back to pandas hash_array below
+    logger.debug("xxhash unavailable, falling back to pandas hash_array for duplicate-column detection: %s", e)
 
 
 def _column_arrays(X):
@@ -64,8 +67,8 @@ def _column_arrays(X):
             for i, name in enumerate(cols):
                 yield name, arr[:, i]
             return
-        except Exception:  # nosec B110 - best-effort path
-            pass
+        except Exception as e:  # nosec B110 - best-effort path
+            logger.debug("polars-native per-column extraction failed for degenerate-column audit, falling back to np.asarray: %s", e)
     arr = np.asarray(X)
     if arr.ndim == 1:
         arr = arr.reshape(-1, 1)
@@ -80,7 +83,8 @@ def _is_all_nan(values: np.ndarray) -> bool:
     # object / other: treat None / NaN-like as missing
     try:
         return bool(values.size) and bool(pd.isna(values).all())
-    except Exception:
+    except Exception as e:
+        logger.debug("all-nan check failed for an object-dtype column, treating as not-all-nan: %s", e)
         return False
 
 
@@ -97,7 +101,8 @@ def _is_constant(values: np.ndarray) -> bool:
         ser = pd.Series(values)
         nun = ser.nunique(dropna=True)
         return nun <= 1 and not ser.isna().all()
-    except Exception:
+    except Exception as e:
+        logger.debug("constant-column check failed, treating as not-constant: %s", e)
         return False
 
 
@@ -118,15 +123,45 @@ def _content_key(values: np.ndarray):
     if _xxh3_64 is not None and arr.dtype.kind in "fiub" and arr.flags["C_CONTIGUOUS"]:
         try:
             return _xxh3_64(arr)
-        except Exception:  # nosec B110 - best-effort path, pandas fallback below
-            pass
+        except Exception as e:  # nosec B110 - best-effort path, pandas fallback below
+            logger.debug("xxh3_64 content-key hashing failed for a column, falling back to pandas hash_array: %s", e)
     try:
         return pd.util.hash_array(arr).tobytes()
-    except Exception:
+    except Exception as e:
+        logger.debug("pandas hash_array failed for a column, falling back to raw tobytes content key: %s", e)
         try:
             return arr.tobytes()
-        except Exception:
+        except Exception as e2:
+            logger.debug("tobytes content key also failed, column excluded from duplicate detection: %s", e2)
             return None
+
+
+def _gram_matrix(M: np.ndarray) -> np.ndarray:
+    """``M @ M.T`` for the row-standardised candidate block, dispatched to cupy under GPU-strict.
+
+    cProfile on the wellbore-100k GPU-strict fit attributed 43.0s tottime to ``audit_degenerate_columns``'s
+    single call (p~518 raw columns) -- entirely this one BLAS GEMM, hardcoded to CPU numpy regardless of
+    STRICT mode (this scan is PURELY DIAGNOSTIC, see module docstring, so it never had a GPU twin like the
+    selection-critical kernels). Routing through the same ``fe_gpu_strict_enabled`` work-floor gate used
+    elsewhere keeps tiny frames on CPU (upload overhead would dominate) and only engages cupy once the GEMM
+    itself is worth the H2D/D2H round trip -- the matrix is (p, p), a few MB at most, so the download back is
+    negligible next to the O(n*p^2) contraction it replaces."""
+    p, n_rows = M.shape
+    try:
+        from ._fe_gpu_strict import fe_gpu_strict_enabled
+
+        if not fe_gpu_strict_enabled(n=n_rows, p=p):
+            return np.asarray(M @ M.T)
+    except Exception:  # nosec B110 -- strict-gate probe failure must never break the diagnostic scan
+        return np.asarray(M @ M.T)
+    try:
+        import cupy as cp
+
+        Md = cp.asarray(M)
+        return np.asarray(cp.asnumpy(Md @ Md.T))
+    except Exception as exc:  # cupy missing / OOM / driver error -> safe CPU fallback
+        logger.warning("[degenerate-audit] cupy Gram-matrix backend failed (%s); falling back to numpy.", type(exc).__name__)
+        return np.asarray(M @ M.T)
 
 
 def audit_degenerate_columns(X) -> dict:
@@ -194,7 +229,7 @@ def audit_degenerate_columns(X) -> dict:
         good = stds > 0
         with np.errstate(invalid="ignore", divide="ignore"):
             M = np.where(good[:, None], M / np.where(stds == 0, 1.0, stds)[:, None], 0.0)
-        corr = M @ M.T  # unit-norm rows -> Gram matrix == correlation matrix
+        corr = _gram_matrix(M)  # unit-norm rows -> Gram matrix == correlation matrix
         np.fill_diagonal(corr, 0.0)
         abs_corr = np.abs(corr)
         for j in range(len(live)):

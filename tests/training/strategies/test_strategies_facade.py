@@ -15,6 +15,7 @@ import pytest
 
 @pytest.fixture(scope="module")
 def parent_module():
+    """Parent module."""
     from mlframe.training import strategies
 
     return strategies
@@ -22,6 +23,7 @@ def parent_module():
 
 @pytest.fixture(scope="module")
 def siblings():
+    """Siblings."""
     from mlframe.training.strategies import (
         pipeline_cache,
         tree_cb,
@@ -38,20 +40,24 @@ def siblings():
 
 
 def test_pipeline_cache_identity(parent_module, siblings):
+    """Pipeline cache identity."""
     assert parent_module.PipelineCache is siblings["pipeline_cache"].PipelineCache
 
 
 def test_tree_strategies_identity(parent_module, siblings):
+    """Tree strategies identity."""
     tcb = siblings["tree_cb"]
     assert parent_module.TreeModelStrategy is tcb.TreeModelStrategy
     assert parent_module.CatBoostStrategy is tcb.CatBoostStrategy
 
 
 def test_hgb_identity(parent_module, siblings):
+    """Hgb identity."""
     assert parent_module.HGBStrategy is siblings["hgb"].HGBStrategy
 
 
 def test_neural_linear_recurrent_identity(parent_module, siblings):
+    """Neural linear recurrent identity."""
     neu = siblings["neural"]
     assert parent_module.NeuralNetStrategy is neu.NeuralNetStrategy
     assert parent_module.LinearModelStrategy is neu.LinearModelStrategy
@@ -59,17 +65,20 @@ def test_neural_linear_recurrent_identity(parent_module, siblings):
 
 
 def test_facade_loc_budget(parent_module):
+    """Facade loc budget."""
     path = Path(parent_module.__file__)
     n_lines = len(path.read_text(encoding="utf-8").splitlines())
     assert n_lines <= 600, f"strategies/__init__.py facade is {n_lines} LOC, expected <= 600"
 
 
 def test_smoke_get_strategy_returns_catboost(parent_module):
+    """Smoke get strategy returns catboost."""
     s = parent_module.get_strategy("cb")
     assert isinstance(s, parent_module.CatBoostStrategy)
 
 
 def test_smoke_pipeline_cache_construct_and_set(parent_module):
+    """Smoke pipeline cache construct and set."""
     cache = parent_module.PipelineCache(verbose=False, bytes_limit=10_000_000)
     cache.set("key1", None, None, None)
     assert cache.has("key1")
@@ -78,5 +87,6 @@ def test_smoke_pipeline_cache_construct_and_set(parent_module):
 
 
 def test_smoke_isinstance_cross_module(parent_module, siblings):
+    """Smoke isinstance cross module."""
     sibling_inst = siblings["hgb"].HGBStrategy()
     assert isinstance(sibling_inst, parent_module.HGBStrategy)

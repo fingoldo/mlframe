@@ -40,6 +40,7 @@ try:
 except ImportError:  # pragma: no cover
 
     def fast_subset(values, **_):
+        """Fast subset."""
         return list(values)
 
 
@@ -55,35 +56,44 @@ _DENSE_ONLY_FAST = fast_subset(["hgb", "rf", "ngb", "mlp", "recurrent", "tabnet"
 
 
 class TestRouting:
+    """Groups tests covering routing."""
     @pytest.mark.parametrize("kind", _SPARSE_AWARE_FAST)
     def test_sparse_aware_models(self, kind):
+        """Sparse aware models."""
         assert accepts_sparse(kind) is True
         assert is_dense_only(kind) is False
 
     @pytest.mark.parametrize("kind", _DENSE_ONLY_FAST)
     def test_dense_only_models(self, kind):
+        """Dense only models."""
         assert accepts_sparse(kind) is False
         assert is_dense_only(kind) is True
 
     def test_sets_disjoint(self):
         # Sanity: a model is either sparse-aware OR dense-only, never both.
+        """Sets disjoint."""
         assert SPARSE_AWARE_MODELS.isdisjoint(DENSE_ONLY_MODELS)
 
 
 class TestSvdTrigger:
+    """Groups tests covering svd trigger."""
     def test_sparse_aware_never_triggers_svd(self):
+        """Sparse aware never triggers svd."""
         assert should_apply_svd("xgb", 100_000) is False
         assert should_apply_svd("cb", 100_000) is False
 
     def test_dense_only_above_threshold_triggers(self):
+        """Dense only above threshold triggers."""
         assert should_apply_svd("hgb", 1024) is True
         assert should_apply_svd("mlp", 600) is True
 
     def test_dense_only_below_threshold_does_not(self):
+        """Dense only below threshold does not."""
         assert should_apply_svd("hgb", 500) is False
         assert should_apply_svd("mlp", 100) is False
 
     def test_threshold_override(self):
+        """Threshold override."""
         assert should_apply_svd("hgb", 200, threshold=100) is True
         assert should_apply_svd("hgb", 50, threshold=100) is False
 
@@ -94,7 +104,9 @@ class TestSvdTrigger:
 
 
 class TestHgbCap:
+    """Groups tests covering hgb cap."""
     def test_hgb_below_cap_unchanged(self, caplog):
+        """Hgb below cap unchanged."""
         caplog.set_level(logging.WARNING)
         out = hgb_max_features_cap("hgb", 200)
         assert out == 200
@@ -105,6 +117,7 @@ class TestHgbCap:
         # Cap derived from the production constant so default-tuning of the cap doesn't break
         # this test (the contract is "input above cap -> output equals cap, WARN names both
         # numbers", not "output equals literal 500").
+        """Hgb above cap warns and caps."""
         from mlframe.training.feature_handling.routing import HGB_TFIDF_MAX_FEATURES_CAP
 
         caplog.set_level(logging.WARNING)
@@ -116,6 +129,7 @@ class TestHgbCap:
         assert any(str(requested) in m for m in msgs)
 
     def test_hgb_allow_high_bypasses(self, caplog):
+        """Hgb allow high bypasses."""
         caplog.set_level(logging.INFO)
         out = hgb_max_features_cap("hgb", 5000, allow_high=True)
         assert out == 5000
@@ -123,6 +137,7 @@ class TestHgbCap:
         assert any("bypassed" in m for m in msgs)
 
     def test_non_hgb_pass_through(self):
+        """Non hgb pass through."""
         assert hgb_max_features_cap("xgb", 5000) == 5000
         assert hgb_max_features_cap("mlp", 5000) == 5000
 
@@ -133,7 +148,9 @@ class TestHgbCap:
 
 
 class TestSingleHandler:
+    """Groups tests covering single handler."""
     def test_one_sparse_block_xgb_two_track(self):
+        """One sparse block xgb two track."""
         sp = csr_matrix(np.eye(10, dtype=np.float32))
         b = HandlerOutput(column="txt", method="tfidf", data=sp, n_features=10, output_kind="sparse")
         asm = assemble_for_model([b], model_kind="xgb")
@@ -145,6 +162,7 @@ class TestSingleHandler:
         assert all(n.startswith("txt__tfidf__") for n in asm.feature_names)
 
     def test_one_dense_block_xgb(self):
+        """One dense block xgb."""
         d = np.zeros((5, 8), dtype=np.float32)
         b = HandlerOutput(
             column="txt",
@@ -160,6 +178,7 @@ class TestSingleHandler:
         assert all(n.startswith("txt__frozen_emb__") for n in asm.feature_names)
 
     def test_one_sparse_block_hgb_densifies_under_threshold(self):
+        """One sparse block hgb densifies under threshold."""
         sp = csr_matrix(np.eye(10, dtype=np.float32))  # 10 cols < 512 trigger
         b = HandlerOutput(column="txt", method="tfidf", data=sp, n_features=10, output_kind="sparse")
         asm = assemble_for_model([b], model_kind="hgb")
@@ -168,6 +187,7 @@ class TestSingleHandler:
         assert asm.dense_block.shape == (10, 10)
 
     def test_one_sparse_block_hgb_svd_above_threshold(self, caplog):
+        """One sparse block hgb svd above threshold."""
         caplog.set_level(logging.WARNING)
         rng = np.random.RandomState(0)
         # n_rows must exceed n_components for TruncatedSVD; 200 rows + svd_dim=64 OK.
@@ -184,6 +204,7 @@ class TestSingleHandler:
 
 
 class TestMultiHandler:
+    """Groups tests covering multi handler."""
     def test_two_handlers_same_col_different_methods(self):
         """Round-3 A8: same col + different methods -> both blocks
         with disambiguated names."""
@@ -250,7 +271,9 @@ class TestMultiHandler:
 
 
 class TestNumericBlock:
+    """Groups tests covering numeric block."""
     def test_numeric_block_appended_xgb(self):
+        """Numeric block appended xgb."""
         sp = csr_matrix(np.eye(5, dtype=np.float32))
         b = HandlerOutput(column="txt", method="tfidf", data=sp, n_features=5, output_kind="sparse")
         num = np.zeros((5, 3), dtype=np.float32)
@@ -259,6 +282,7 @@ class TestNumericBlock:
         assert asm.feature_names[-3:] == ["age", "score", "n"]
 
     def test_numeric_block_only_no_handlers(self):
+        """Numeric block only no handlers."""
         num = np.zeros((10, 2), dtype=np.float32)
         asm = assemble_for_model([], model_kind="hgb", numeric_block=num, numeric_feature_names=["x", "y"])
         assert asm.dense_block.shape == (10, 2)
@@ -271,6 +295,7 @@ class TestNumericBlock:
 
 
 class TestSvdPinnedSolver:
+    """Groups tests covering svd pinned solver."""
     def test_svd_n_iter_pinned(self):
         """Round-3 R3-08: pinned ``n_iter=5`` so cross-version sklearn
         drift detected. Inspect the assembler's svd call signature
@@ -298,7 +323,9 @@ class TestSvdPinnedSolver:
 
 
 class TestEmptyAssembly:
+    """Groups tests covering empty assembly."""
     def test_no_blocks_no_numeric_returns_empty(self):
+        """No blocks no numeric returns empty."""
         asm = assemble_for_model([], model_kind="xgb")
         assert asm.sparse_block is None
         assert asm.dense_block is None
@@ -311,7 +338,9 @@ class TestEmptyAssembly:
 
 
 class TestPublicApi:
+    """Groups tests covering public api."""
     def test_assembled_column_names_returns_copy(self):
+        """Assembled column names returns copy."""
         sp = csr_matrix(np.eye(3, dtype=np.float32))
         b = HandlerOutput(column="x", method="tfidf", data=sp, n_features=3, output_kind="sparse")
         asm = assemble_for_model([b], model_kind="xgb")

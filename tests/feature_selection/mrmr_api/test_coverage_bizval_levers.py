@@ -31,6 +31,7 @@ from mlframe.feature_selection.filters._fe_cmi_redundancy_gate import apply_cmi_
 
 @pytest.fixture(scope="module", autouse=True)
 def _prewarm():
+    """Helper that prewarm."""
     n = 64
     rng = np.random.default_rng(0)
     fd = np.column_stack([rng.integers(0, 4, n), rng.integers(0, 2, n)]).astype(np.int32)
@@ -41,12 +42,14 @@ def _prewarm():
 
 
 def _score(a, b, na, nb, fn):
+    """Helper that score."""
     fd = np.column_stack([a, b]).astype(np.int32)
     fnb = np.array([na, nb], dtype=np.int64)
     return fn(fd, np.array([0]), np.array([1]), fnb)
 
 
 def _quantile_bin(v, nbins):
+    """Quantile bin."""
     edges = np.quantile(v, np.linspace(0, 1, nbins + 1)[1:-1])
     return np.digitize(v, edges).astype(np.int32)
 
@@ -125,6 +128,7 @@ def test_biz_val_quantization_nbins_captures_oscillatory_signal():
     nby = int(y_bin.max()) + 1
 
     def mi_at(nbins):
+        """Mi at."""
         xb = _quantile_bin(x, nbins)
         return _score(xb, y_bin, int(xb.max()) + 1, nby, mi)
 
@@ -202,6 +206,7 @@ def test_biz_val_jmim_captures_xor_synergy_no_harm_vs_fleuret():
     X = pd.DataFrame(cols)
 
     def fit_auc(aggregator):
+        """Fit auc."""
         m = MRMR(
             verbose=0,
             full_npermutations=3,

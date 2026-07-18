@@ -148,6 +148,7 @@ def test_m_fh_04_evict_to_caps_fast_path_under_entry_cap() -> None:
         orig_listdir = cb_mod.os.listdir
 
         def counting_listdir(*args, **kwargs):
+            """Counting listdir."""
             calls["n"] += 1
             return orig_listdir(*args, **kwargs)
 
@@ -175,6 +176,7 @@ def test_m_fh_04_eviction_still_works_when_over_cap(monkeypatch) -> None:
     _counter = {"t": 1_700_000_000.0}
 
     def _tick() -> float:
+        """Tick."""
         _counter["t"] += 1.0
         return _counter["t"]
 
@@ -203,6 +205,7 @@ def test_m_fh_05_fp_cache_key_includes_column_signature() -> None:
 
     # Synthetic stand-in objects so we can control id() exactly.
     class _FakeDF:
+        """Groups tests covering fake d f."""
         def __init__(self, cols: List[str]):
             self.columns = cols
 
@@ -249,14 +252,18 @@ def test_m_fh_06_fit_transform_does_not_swallow_unrelated_typeerror() -> None:
     from mlframe.training.feature_handling.handlers import CustomParams
 
     class BuggyTransformer:
+        """Groups tests covering buggy transformer."""
         def fit(self, X, y=None):
+            """Fit."""
             return self
 
         def fit_transform(self, X, y=None):
             # An unrelated TypeError -- not a signature mismatch.
+            """Fit transform."""
             raise TypeError("buggy: cannot subtract 'str' from 'int'")
 
         def transform(self, X):
+            """Transform."""
             return X
 
     params = CustomParams(transformer=BuggyTransformer(), output_kind="dense")
@@ -278,15 +285,19 @@ def test_m_fh_06_fit_transform_still_falls_back_on_signature_mismatch() -> None:
     from mlframe.training.feature_handling.handlers import CustomParams
 
     class UnsupervisedOnly:
+        """Groups tests covering unsupervised only."""
         def fit(self, X):
+            """Fit."""
             self.fitted = True
             return self
 
         def fit_transform(self, X):
+            """Fit transform."""
             self.fitted = True
             return np.asarray(X) * 2
 
         def transform(self, X):
+            """Transform."""
             return np.asarray(X) * 2
 
     params = CustomParams(transformer=UnsupervisedOnly(), output_kind="dense")
@@ -348,18 +359,22 @@ def test_m_fh_08_prewarm_dedupes_under_concurrent_callers() -> None:
     release_load = threading.Event()
 
     class _SlowProvider:
+        """Groups tests covering slow provider."""
         signature = "test-medium-prewarm-08"
 
         def acquire(self):
+            """Acquire."""
             with load_lock:
                 load_calls["n"] += 1
             load_started.set()
             release_load.wait(timeout=5.0)
 
         def release(self):
+            """Release."""
             pass
 
         def transform(self, texts):  # not used here
+            """Transform."""
             return np.zeros((len(texts), 1), dtype=np.float32)
 
     provider = _SlowProvider()
@@ -368,6 +383,7 @@ def test_m_fh_08_prewarm_dedupes_under_concurrent_callers() -> None:
         futs = []
 
         def fire():
+            """Fire."""
             futs.append(reg_mod.prewarm(provider))
 
         threads = [threading.Thread(target=fire) for _ in range(N)]

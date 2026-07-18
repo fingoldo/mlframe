@@ -61,26 +61,32 @@ class TestTypedDictParamsExtraForbid:
     """
 
     def test_tfidf_params_typo_raises(self):
+        """Tfidf params typo raises."""
         with pytest.raises(ValidationError, match="max_feature"):
             TfidfParams(max_feature=5000)  # typo of max_features
 
     def test_tfidf_params_wrong_arity_tuple_raises(self):
+        """Tfidf params wrong arity tuple raises."""
         with pytest.raises(ValidationError):
             TfidfParams(ngram_range=(1,))  # tuple length 1
 
     def test_hashing_params_typo_raises(self):
+        """Hashing params typo raises."""
         with pytest.raises(ValidationError, match="n_feature"):
             HashingParams(n_feature=2**16)
 
     def test_frozen_embedding_params_typo_raises(self):
+        """Frozen embedding params typo raises."""
         with pytest.raises(ValidationError, match="poll"):
             FrozenEmbeddingParams(poll="cls")
 
     def test_target_encode_params_typo_raises(self):
+        """Target encode params typo raises."""
         with pytest.raises(ValidationError, match="smothing"):
             TargetEncodeParams(kind="target_mean", smothing=10.0)
 
     def test_learnable_extends_frozen_inherits_pool(self):
+        """Learnable extends frozen inherits pool."""
         p = LearnableEmbeddingParams(pool="cls", finetune_lr_mult=0.05)
         assert p.pool == "cls"
         assert p.finetune_lr_mult == 0.05
@@ -99,15 +105,18 @@ class TestHandlerSpecMethodKindMatch:
     """
 
     def test_text_method_matches_tfidf_params(self):
+        """Text method matches tfidf params."""
         s = TextHandlerSpec(method="tfidf", params=TfidfParams(max_features=1000))
         assert s.method == "tfidf"
         assert s.params.kind == "tfidf"
 
     def test_text_method_mismatch_raises(self):
+        """Text method mismatch raises."""
         with pytest.raises(ValidationError, match="match"):
             TextHandlerSpec(method="hashing", params=TfidfParams())
 
     def test_cat_method_matches_target_mean_params(self):
+        """Cat method matches target mean params."""
         s = CatHandlerSpec(
             method="target_mean",
             params=TargetEncodeParams(kind="target_mean", smoothing=20.0),
@@ -116,6 +125,7 @@ class TestHandlerSpecMethodKindMatch:
         assert s.params.smoothing == 20.0
 
     def test_cat_method_mismatch_target_kind_raises(self):
+        """Cat method mismatch target kind raises."""
         with pytest.raises(ValidationError, match="match"):
             CatHandlerSpec(
                 method="target_mean",
@@ -123,15 +133,18 @@ class TestHandlerSpecMethodKindMatch:
             )
 
     def test_native_method_no_params_default(self):
+        """Native method no params default."""
         s = TextHandlerSpec(method="native")
         assert s.method == "native"
 
     def test_drop_method_no_params_default(self):
+        """Drop method no params default."""
         s = TextHandlerSpec(method="drop")
         assert s.method == "drop"
 
     def test_method_requiring_params_with_no_params_raises(self):
         # method='tfidf' + default NoParams(kind='drop') is inconsistent
+        """Method requiring params with no params raises."""
         with pytest.raises(ValidationError):
             TextHandlerSpec(method="tfidf")
 
@@ -148,14 +161,17 @@ class TestCompatMatrixValidation:
     """
 
     def test_typo_method_yields_difflib_suggestion(self):
+        """Typo method yields difflib suggestion."""
         with pytest.raises(ValueError, match="tfidf"):
             validate_handler_for_model("xgb", Axis.TEXT, "tdfif")
 
     def test_completely_wrong_method_lists_valid_options(self):
+        """Completely wrong method lists valid options."""
         with pytest.raises(ValueError, match="valid methods"):
             validate_handler_for_model("xgb", Axis.TEXT, "zzzz_unknown")
 
     def test_unknown_model_kind_raises(self):
+        """Unknown model kind raises."""
         with pytest.raises(ValueError, match="register_model_axis_support"):
             validate_handler_for_model("not_a_model", Axis.TEXT, "tfidf")
 
@@ -170,12 +186,14 @@ class TestCompatMatrixValidation:
     def test_text_method_only_for_cb(self, method, kwargs, raise_pattern):
         # cb supports the method, xgb does not. Collapsed pair of
         # ``test_native_text_only_for_cb`` + ``test_as_embedding_feature_only_for_cb``.
+        """Text method only for cb."""
         validate_handler_for_model("cb", Axis.TEXT, method, **kwargs)
         with pytest.raises(ValueError, match=raise_pattern):
             validate_handler_for_model("xgb", Axis.TEXT, method, **kwargs)
 
     def test_learnable_text_embedding_neural_only(self):
         # neural model -> ok
+        """Learnable text embedding neural only."""
         validate_handler_for_model("mlp", Axis.TEXT, "learnable_text_embedding")
         # non-neural -> "requires a neural model" message (cross-cutting
         # rule wins over matrix lookup so users see the actionable
@@ -187,6 +205,7 @@ class TestCompatMatrixValidation:
 
     def test_cat_embedding_neural_only_via_matrix(self):
         # mlp/recurrent/tabnet support cat="embedding"
+        """Cat embedding neural only via matrix."""
         validate_handler_for_model("mlp", Axis.CAT, "embedding")
         validate_handler_for_model("tabnet", Axis.CAT, "embedding")
         # xgb does NOT
@@ -194,6 +213,7 @@ class TestCompatMatrixValidation:
             validate_handler_for_model("xgb", Axis.CAT, "embedding")
 
     def test_register_model_axis_support_idempotent(self):
+        """Register model axis support idempotent."""
         register_model_axis_support("__test_model__", Axis.TEXT, ["tfidf", "drop"])
         # Re-registering same set is a no-op.
         register_model_axis_support("__test_model__", Axis.TEXT, ["tfidf", "drop"])
@@ -201,6 +221,7 @@ class TestCompatMatrixValidation:
         validate_handler_for_model("__test_model__", Axis.TEXT, "tfidf")
 
     def test_register_model_axis_support_conflict_raises(self):
+        """Register model axis support conflict raises."""
         register_model_axis_support("__test_model_2__", Axis.TEXT, ["tfidf"])
         with pytest.raises(ValueError, match="already registered"):
             register_model_axis_support("__test_model_2__", Axis.TEXT, ["hashing"])
@@ -212,7 +233,9 @@ class TestCompatMatrixValidation:
 
 
 class TestFhcValidateAgainstModels:
+    """Groups tests covering fhc validate against models."""
     def test_happy_path_single_model(self):
+        """Happy path single model."""
         fhc = FeatureHandlingConfig(
             default_text=[TextHandlerSpec(method="tfidf", params=TfidfParams())],
         )
@@ -221,6 +244,7 @@ class TestFhcValidateAgainstModels:
     def test_combined_error_lists_all_mismatches(self):
         # mlp: cat="native" not allowed (mlp cat must be embedding/ordinal/onehot/drop)
         # xgb: text="learnable_text_embedding" not allowed (neural-only)
+        """Combined error lists all mismatches."""
         fhc = FeatureHandlingConfig(
             per_model={
                 "mlp": ModelHandlingOverride(cat=[CatHandlerSpec(method="native")]),
@@ -274,6 +298,7 @@ class TestAutoDeriveMemory:
         expected_cache,
         expected_reserve,
     ):
+        """Auto derive scales with total ram."""
         with (
             mock.patch("mlframe.training.feature_handling.system.psutil.virtual_memory") as mock_vm,
             mock.patch(
@@ -305,6 +330,7 @@ class TestAutoDeriveMemory:
             assert abs(fhc.cache.ram_reserve_gb - 2.0) < 0.01
 
     def test_explicit_budget_skips_auto_derive(self):
+        """Explicit budget skips auto derive."""
         fhc = FeatureHandlingConfig(memory=MemoryConfig(budget_gb=99.0))
         assert fhc.memory.budget_gb == 99.0
 
@@ -323,6 +349,7 @@ class TestAutoDeriveMemory:
                 FeatureHandlingConfig()
 
     def test_resolved_property(self):
+        """Resolved property."""
         with (
             mock.patch("mlframe.training.feature_handling.system.psutil.virtual_memory") as mock_vm,
             mock.patch(
@@ -351,6 +378,7 @@ class TestAutoDeriveMemory:
 
 
 class TestSubConfigExtraForbid:
+    """Groups tests covering sub config extra forbid."""
     @pytest.mark.parametrize(
         "config_cls,bad_kwargs",
         [
@@ -364,6 +392,7 @@ class TestSubConfigExtraForbid:
         ],
     )
     def test_typo_raises(self, config_cls, bad_kwargs):
+        """Typo raises."""
         with pytest.raises(ValidationError):
             config_cls(**bad_kwargs)
 
@@ -374,7 +403,9 @@ class TestSubConfigExtraForbid:
 
 
 class TestEffectiveSpecsAppendReplace:
+    """Groups tests covering effective specs append replace."""
     def test_replace_replaces_defaults(self):
+        """Replace replaces defaults."""
         fhc = FeatureHandlingConfig(
             default_text=[TextHandlerSpec(method="tfidf", params=TfidfParams())],
             per_model={
@@ -393,6 +424,7 @@ class TestEffectiveSpecsAppendReplace:
         assert [s.method for s in xgb_specs] == ["tfidf"]
 
     def test_append_extends_defaults(self):
+        """Append extends defaults."""
         fhc = FeatureHandlingConfig(
             default_text=[TextHandlerSpec(method="tfidf", params=TfidfParams())],
             per_model={
@@ -407,6 +439,7 @@ class TestEffectiveSpecsAppendReplace:
         assert [s.method for s in linear_specs] == ["tfidf", "hashing"]
 
     def test_replace_plus_append(self):
+        """Replace plus append."""
         fhc = FeatureHandlingConfig(
             default_text=[TextHandlerSpec(method="tfidf", params=TfidfParams())],
             per_model={
@@ -426,7 +459,9 @@ class TestEffectiveSpecsAppendReplace:
 
 
 class TestPresetFactories:
+    """Groups tests covering preset factories."""
     def test_tfidf_only(self):
+        """Tfidf only."""
         fhc = tfidf_only(max_features=10000, ngram_range=(1, 3))
         assert len(fhc.default_text) == 1
         assert fhc.default_text[0].method == "tfidf"
@@ -440,6 +475,7 @@ class TestPresetFactories:
         assert fhc.default_cat[0].method == "ordinal"
 
     def test_cb_native_only(self):
+        """Cb native only."""
         fhc = cb_native_only()
         # default text drops; cb override flips to native
         assert fhc.default_text[0].method == "drop"
@@ -448,6 +484,7 @@ class TestPresetFactories:
         fhc.validate_against_models(["cb"])
 
     def test_embedding_only(self):
+        """Embedding only."""
         fhc = embedding_only(provider=None, pool="cls")
         assert fhc.default_text[0].method == "frozen_text_embedding"
         assert fhc.default_text[0].params.pool == "cls"
@@ -459,7 +496,9 @@ class TestPresetFactories:
 
 
 class TestApplyToColumns:
+    """Groups tests covering apply to columns."""
     def test_apply_to_columns_explicit_list(self):
+        """Apply to columns explicit list."""
         s = TextHandlerSpec(
             method="tfidf",
             params=TfidfParams(),
@@ -468,6 +507,7 @@ class TestApplyToColumns:
         assert s.apply_to_columns == ["desc", "title"]
 
     def test_apply_to_columns_default_none(self):
+        """Apply to columns default none."""
         s = TextHandlerSpec(method="tfidf", params=TfidfParams())
         assert s.apply_to_columns is None
 
@@ -478,7 +518,9 @@ class TestApplyToColumns:
 
 
 class TestDescribe:
+    """Groups tests covering describe."""
     def test_describe_short_returns_dict(self):
+        """Describe short returns dict."""
         fhc = FeatureHandlingConfig()
         d = fhc.describe(short=True)
         assert "mode" in d
@@ -486,6 +528,7 @@ class TestDescribe:
         assert "resolved_memory_gb" in d
 
     def test_describe_verbose_includes_subconfigs(self):
+        """Describe verbose includes subconfigs."""
         fhc = FeatureHandlingConfig()
         d = fhc.describe(short=False)
         assert "text_detection" in d

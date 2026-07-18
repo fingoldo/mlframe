@@ -34,6 +34,7 @@ from mlframe.feature_selection.filters.cat_interactions import (
 
 
 def _build_inputs(n: int = 50_000):
+    """Build inputs."""
     rng = np.random.default_rng(20260520)
     K_pair, K_x1, K_x2, K_y = 10, 5, 5, 3
     classes_pair = rng.integers(0, K_pair, n).astype(np.int32)
@@ -57,6 +58,7 @@ def _build_inputs(n: int = 50_000):
 
 
 def test_bulk_output_shape_and_finite():
+    """Bulk output shape and finite."""
     cp_, fp_, cx1, fx1, cx2, fx2, cy, fy = _build_inputs()
     n_perms = 8
     ip, ix1, ix2 = _bulk_shuffle_and_compute_three_mis(

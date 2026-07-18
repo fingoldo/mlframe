@@ -28,6 +28,7 @@ def _make_4_regime(n=2000, seed=0):
 
 
 def _recon_rmse(spec, y, base):
+    """Recon rmse."""
     t = spec.forward(y, base)
     y_hat = spec.inverse(t, base)
     return float(np.sqrt(np.mean((y - y_hat) ** 2)))

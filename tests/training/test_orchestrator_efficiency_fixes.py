@@ -46,6 +46,7 @@ def _read(name: str) -> str:
 
 # Fix 1: dead imports removed from main.py.
 def test_main_dead_imports_removed():
+    """Main dead imports removed."""
     src = _read("main.py")
     tree = ast.parse(src)
     # Names known dead at audit time; post-fix, none should appear as bound import names.
@@ -94,6 +95,7 @@ def test_main_dead_imports_removed():
 
 def test_main_module_still_imports_cleanly():
     # `import mlframe.training.core.main` must not break after pruning.
+    """Main module still imports cleanly."""
     import importlib
 
     mod = importlib.import_module("mlframe.training.core.main")
@@ -102,6 +104,7 @@ def test_main_module_still_imports_cleanly():
 
 # Fix 2: dead `models = defaultdict(lambda: defaultdict(list))` removed.
 def test_main_no_dead_models_defaultdict():
+    """Main no dead models defaultdict."""
     src = _read("main.py")
     # Pattern was: `models = defaultdict(lambda: defaultdict(list))` immediately
     # overwritten on the next 20 lines by `models = ctx.models`.
@@ -116,6 +119,7 @@ def test_main_no_dead_models_defaultdict():
 # now lives on the helper's docstring. Asserting on the helper is behavioural (docstring
 # is part of the public contract, exposed via ``__doc__``), not source-inspection.
 def test_main_setattr_block_has_why_comment():
+    """Main setattr block has why comment."""
     sys.path.insert(0, str(CORE.parents[3]))  # repo/src
     from mlframe.training.core._misc_helpers import _bulk_setattr_to_ctx
 
@@ -129,6 +133,7 @@ def test_main_setattr_block_has_why_comment():
     # Behavioural pin on the helper's fail-loud contract: a missing slot must raise rather
     # than silently degrade into an ``AttributeError: 'NoneType' has no attribute ...`` later.
     class _Bag:
+        """Groups tests covering bag."""
         pass
 
     with pytest.raises(KeyError):
@@ -137,6 +142,7 @@ def test_main_setattr_block_has_why_comment():
 
 # Fix 4: strategies_for_check removed (or wired) -- it must NOT be a dead variable.
 def test_phase_helpers_no_dead_strategies_for_check():
+    """Phase helpers no dead strategies for check."""
     src = _read("_phase_helpers.py")
     if "strategies_for_check" not in src:
         return  # cleanly removed
@@ -151,6 +157,7 @@ def test_phase_helpers_no_dead_strategies_for_check():
 
 # Fix 5: strategy_by_model hoisted out of per-target loop (or factored to helper).
 def test_strategy_by_model_hoisted_out_of_inner_loop():
+    """Strategy by model hoisted out of inner loop."""
     src = _read("_phase_train_one_target.py")
     # The per-(pre_pipeline) loop starts around "for pre_pipeline, pre_pipeline_name in".
     # After fix: strategy_by_model must NOT appear AS AN ASSIGNMENT inside that loop body.
@@ -164,12 +171,14 @@ def test_strategy_by_model_hoisted_out_of_inner_loop():
 
 # Fix 6: len(list(sorted_models)) -> len(sorted_models).
 def test_no_redundant_list_wrap_on_sorted():
+    """No redundant list wrap on sorted."""
     src = _read("_phase_train_one_target.py")
     assert "len(list(sorted_models))" not in src, "redundant `list()` wrap around already-list sorted_models still present"
 
 
 # Fix 7: WHY comment on common_params.copy().
 def test_common_params_copy_has_why_comment():
+    """Common params copy has why comment."""
     src = _read("_phase_train_one_target.py")
     idx = src.find("current_common_params = common_params.copy()")
     assert idx >= 0, "expected per-iter common_params.copy() line"
@@ -179,6 +188,7 @@ def test_common_params_copy_has_why_comment():
 
 # Fix 8: WHY comment on per-iter psutil RSS probe.
 def test_psutil_rss_sample_has_why_comment():
+    """Psutil rss sample has why comment."""
     src = _read("_phase_train_one_target.py")
     idx = src.find("memory_info().rss")
     assert idx >= 0, "expected per-iter psutil RSS sample"
@@ -188,6 +198,7 @@ def test_psutil_rss_sample_has_why_comment():
 
 # Fix 9: dead try/except around _dropped_high_card_data.clear() removed.
 def test_main_dropped_high_card_clear_no_dead_try_except():
+    """Main dropped high card clear no dead try except."""
     src = _read("main.py")
     # Either the entire ``try: _dropped_high_card_data.clear() except (NameError,
     # AttributeError): pass`` block is gone, or the except no longer lists those.
@@ -200,6 +211,7 @@ def test_main_dropped_high_card_clear_no_dead_try_except():
 
 # Fix 11: _is_interactive_logp probe moved to module-import time.
 def test_config_setup_interactive_probe_at_module_scope():
+    """Config setup interactive probe at module scope."""
     src = _read("_phase_config_setup.py")
     # Module-level cache of the probe; should be a constant assignment at module
     # scope, not a re-probe inside setup_configuration.
@@ -209,6 +221,7 @@ def test_config_setup_interactive_probe_at_module_scope():
 
 # Fix 12: _ensure_logging_visible early-returns if already configured.
 def test_ensure_logging_visible_is_idempotent():
+    """Ensure logging visible is idempotent."""
     src = _read("_misc_helpers.py")
     # After fix: function inspects root.handlers BEFORE mutating, returns early
     # when the asctime formatter is already in place.
@@ -235,6 +248,7 @@ def test_ensure_logging_visible_is_idempotent():
 
 # Fix 13: finalize_suite combines fairness + selected-features walks into one pass.
 def test_finalize_suite_single_pass_walk():
+    """Finalize suite single pass walk."""
     src = _read("_phase_finalize.py")
     tree = ast.parse(src)
     fn = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "finalize_suite")
@@ -252,6 +266,7 @@ def test_finalize_suite_single_pass_walk():
 
 # Fix 14: WHY comment on `del df; ctx.df = None`.
 def test_main_del_df_has_why_comment():
+    """Main del df has why comment."""
     src = _read("main.py")
     idx = src.find("del df\n    ctx.df = None")
     if idx < 0:

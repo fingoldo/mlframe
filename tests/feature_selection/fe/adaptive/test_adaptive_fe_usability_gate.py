@@ -18,6 +18,7 @@ from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
 
 
 def test_smooth_r2_high_on_monotone_low_on_oscillation():
+    """Smooth r2 high on monotone low on oscillation."""
     rng = np.random.default_rng(0)
     n = 2000
     x = rng.standard_normal(n)
@@ -33,6 +34,7 @@ def test_smooth_r2_high_on_monotone_low_on_oscillation():
 def test_smooth_r2_robust_to_heavy_tails():
     # A Cauchy-distributed monotone signal: extreme outliers must NOT understate
     # usability (the bug that let Fourier hijack ``cauchy_sig`` into support).
+    """Smooth r2 robust to heavy tails."""
     rng = np.random.default_rng(1)
     n = 2500
     x = rng.standard_cauchy(n)
@@ -41,5 +43,6 @@ def test_smooth_r2_robust_to_heavy_tails():
 
 
 def test_smooth_r2_degenerate_inputs_return_zero():
+    """Smooth r2 degenerate inputs return zero."""
     assert _heldout_smooth_r2(np.zeros(100), np.arange(100.0)) == 0.0  # constant x
     assert _heldout_smooth_r2(np.arange(10.0), np.arange(10.0)) == 0.0  # too few rows

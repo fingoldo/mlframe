@@ -13,6 +13,7 @@ import numpy as np
 
 
 def test_calib_oof_reexport_identity():
+    """Calib oof reexport identity."""
     from mlframe.training import _calib_oof_outputs as sib
     from mlframe.training import _trainer_train_and_evaluate as parent
 
@@ -21,6 +22,7 @@ def test_calib_oof_reexport_identity():
 
 
 def test_compute_calib_and_oof_outputs_no_calib_path():
+    """Compute calib and oof outputs no calib path."""
     from mlframe.training._calib_oof_outputs import compute_calib_and_oof_outputs
 
     cp, ct, cpreds, op, opb, otg = compute_calib_and_oof_outputs(
@@ -39,6 +41,7 @@ def test_compute_calib_and_oof_outputs_no_calib_path():
 
 
 def test_compute_calib_and_oof_outputs_mirrors_oof_without_predict_proba():
+    """Compute calib and oof outputs mirrors oof without predict proba."""
     from mlframe.training._calib_oof_outputs import compute_calib_and_oof_outputs
 
     model = SimpleNamespace(oof_preds=np.array([1, 2, 3]), oof_probs=np.array([[0.1, 0.9]]), oof_target=np.array([1, 0, 1]))
@@ -60,6 +63,7 @@ def test_compute_calib_and_oof_outputs_mirrors_oof_without_predict_proba():
 
 
 def test_maybe_run_confidence_analysis_noop_paths():
+    """Maybe run confidence analysis noop paths."""
     from mlframe.training._calib_oof_outputs import maybe_run_confidence_analysis
 
     conf_off = SimpleNamespace(include=False)

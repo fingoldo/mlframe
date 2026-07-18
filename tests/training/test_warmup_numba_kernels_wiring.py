@@ -35,6 +35,7 @@ def test_warmup_numba_kernels_calls_prewarm_metric_cache(monkeypatch):
     seen = {"count": 0}
 
     def _spy_prewarm():
+        """Counts invocations in place of the real prewarm_numba_cache call."""
         seen["count"] += 1
 
     monkeypatch.setattr(
@@ -62,6 +63,7 @@ def test_warmup_numba_kernels_survives_metric_prewarm_failure(monkeypatch):
     pytest.importorskip("numba")
 
     def _broken_prewarm():
+        """Always raises, simulating a numba runtime hiccup / stale .nbc / library-upgrade failure during prewarm."""
         raise RuntimeError("simulated cache miss")
 
     monkeypatch.setattr(

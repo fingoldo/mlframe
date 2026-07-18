@@ -22,6 +22,7 @@ from mlframe.training.composite.cache import (
 
 
 def _make_frame(seed: int = 0, n: int = 200) -> pd.DataFrame:
+    """Make frame."""
     rng = np.random.default_rng(seed)
     return pd.DataFrame(
         {
@@ -33,6 +34,7 @@ def _make_frame(seed: int = 0, n: int = 200) -> pd.DataFrame:
 
 
 def test_row_order_fingerprint_changes_on_shuffle_pandas():
+    """Row order fingerprint changes on shuffle pandas."""
     df = _make_frame()
     shuffled = df.sample(frac=1.0, random_state=999).reset_index(drop=True)
     fp_orig = _row_order_fingerprint(df)
@@ -42,6 +44,7 @@ def test_row_order_fingerprint_changes_on_shuffle_pandas():
 
 
 def test_row_order_fingerprint_changes_on_shuffle_polars():
+    """Row order fingerprint changes on shuffle polars."""
     pl = pytest.importorskip("polars")
     pdf = _make_frame()
     df = pl.from_pandas(pdf)

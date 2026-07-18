@@ -23,6 +23,7 @@ from tests.feature_selection.contracts.test_evaluation import _build_xor_factors
 
 @pytest.fixture
 def xor_factors():
+    """Xor factors."""
     return _build_xor_factors()
 
 
@@ -32,9 +33,11 @@ def xor_factors():
 
 
 def test_evaluate_candidate_gpu_failure_falls_back_to_cpu_not_crash(xor_factors, monkeypatch):
+    """Evaluate candidate gpu failure falls back to cpu not crash."""
     factors_data, factors_nbins, factors_names = xor_factors
 
     def _boom(*args, **kwargs):
+        """Helper that boom."""
         raise RuntimeError("simulated cudaErrorLaunchFailure")
 
     monkeypatch.setattr(evaluation_mod, "mi_direct_gpu", _boom)
@@ -53,6 +56,7 @@ def test_evaluate_candidate_gpu_failure_result_matches_pure_cpu_path(xor_factors
     factors_data, factors_nbins, factors_names = xor_factors
 
     def _boom(*args, **kwargs):
+        """Helper that boom."""
         raise RuntimeError("simulated GPU fault")
 
     kwargs_gpu = _make_eval_kwargs(factors_data, factors_nbins, factors_names)
@@ -69,6 +73,7 @@ def test_evaluate_candidate_gpu_failure_result_matches_pure_cpu_path(xor_factors
 
 
 def evaluate_candidate_safe_call(kwargs):
+    """Evaluate candidate safe call."""
     return evaluation_mod.evaluate_candidate(**kwargs)
 
 
@@ -90,12 +95,14 @@ def test_evaluate_candidate_gpu_success_path_unaffected(xor_factors):
 
 @pytest.fixture(autouse=True)
 def _reset_mi_direct_breaker():
+    """Reset mi direct breaker."""
     permutation_mod.reset_mi_direct_gpu_circuit_breaker()
     yield
     permutation_mod.reset_mi_direct_gpu_circuit_breaker()
 
 
 def _build_binary_factors(n=4000, seed=0):
+    """Build binary factors."""
     rng = np.random.default_rng(seed)
     x = rng.integers(0, 2, size=n).astype(np.int32)
     y = rng.integers(0, 2, size=n).astype(np.int32)
@@ -105,14 +112,17 @@ def _build_binary_factors(n=4000, seed=0):
 
 
 def test_mi_direct_gpu_fault_trips_breaker(monkeypatch):
+    """Mi direct gpu fault trips breaker."""
     factors_data, factors_nbins = _build_binary_factors()
 
     monkeypatch.setattr(permutation_mod, "_MI_DIRECT_GPU_FAILED", False)
 
     def _fake_is_cuda_available():
+        """Fake is cuda available."""
         return True
 
     def _boom(**kwargs):
+        """Helper that boom."""
         raise RuntimeError("simulated CUDA launch failure")
 
     monkeypatch.setattr("pyutilz.core.pythonlib.is_cuda_available", _fake_is_cuda_available)
@@ -146,6 +156,7 @@ def test_mi_direct_breaker_skips_gpu_probe_on_subsequent_calls(monkeypatch):
     probe_calls = []
 
     def _tracking_probe():
+        """Tracking probe."""
         probe_calls.append(1)
         return True
 
@@ -165,6 +176,7 @@ def test_mi_direct_breaker_skips_gpu_probe_on_subsequent_calls(monkeypatch):
 
 
 def test_mi_direct_breaker_reset_rearms_gpu_path():
+    """Mi direct breaker reset rearms gpu path."""
     permutation_mod._MI_DIRECT_GPU_FAILED = True
     permutation_mod.reset_mi_direct_gpu_circuit_breaker()
     assert permutation_mod._MI_DIRECT_GPU_FAILED is False

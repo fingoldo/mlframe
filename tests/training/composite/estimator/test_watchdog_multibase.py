@@ -48,14 +48,17 @@ class _MultiBaseInnerT(BaseEstimator, RegressorMixin):
         self.t_scale_factor = t_scale_factor
 
     def fit(self, X, y):
+        """Fit."""
         return self
 
     def predict(self, X):
+        """Predict."""
         n = len(X)
         return self.t_values[:n] * self.t_scale_factor
 
 
 def _build_multibase_problem():
+    """Build multibase problem."""
     rng = np.random.default_rng(20260611)
     n = 300
     base0 = rng.normal(100.0, 20.0, n)
@@ -67,6 +70,7 @@ def _build_multibase_problem():
 
 
 def _setup_multibase_wrapper(*, corrupt: bool):
+    """Setup multibase wrapper."""
     from mlframe.training.composite import CompositeTargetEstimator
     from mlframe.training.composite.transforms import get_transform
 
@@ -98,11 +102,13 @@ def _setup_multibase_wrapper(*, corrupt: bool):
         _y_oracle = y.astype(np.float64).copy()
 
         def _predict_override(X_in):
+            """Predict override."""
             return _y_oracle[: len(X_in)]
 
         wrapper.predict = _predict_override
 
     class _Entry:
+        """Groups tests covering entry."""
         def __init__(self, m):
             self.model = m
             self.model_name = "MultiBaseInnerT"
@@ -133,6 +139,7 @@ def _setup_multibase_wrapper(*, corrupt: bool):
 
 
 def _run_wrap(ctx):
+    """Run wrap."""
     from mlframe.training.core._phase_composite_post import (
         _run_composite_target_wrapping,
     )
@@ -153,7 +160,9 @@ def _run_wrap(ctx):
 
 
 class TestMultiBaseWatchdogFires:
+    """Groups tests covering multi base watchdog fires."""
     def test_watchdog_warns_when_multibase_predict_corrupted(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Watchdog warns when multibase predict corrupted."""
         ctx = _setup_multibase_wrapper(corrupt=True)
         with caplog.at_level(
             logging.WARNING,
@@ -171,7 +180,9 @@ class TestMultiBaseWatchdogFires:
 
 
 class TestMultiBaseWatchdogQuietOnHappyPath:
+    """Groups tests covering multi base watchdog quiet on happy path."""
     def test_watchdog_quiet_on_consistent_multibase(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Watchdog quiet on consistent multibase."""
         ctx = _setup_multibase_wrapper(corrupt=False)
         with caplog.at_level(
             logging.WARNING,

@@ -15,6 +15,7 @@ from mlframe.training.feature_handling.target_encoders import LeakageSafeEncoder
 
 
 def _fit(method, n=4000, n_cat=50, seed=1):
+    """Fit."""
     rng = np.random.default_rng(seed)
     pool = np.array([f"c{i}" for i in range(n_cat)], dtype=object)
     Xtr = pool[rng.integers(0, n_cat, n)]
@@ -29,6 +30,7 @@ def _fit(method, n=4000, n_cat=50, seed=1):
 @pytest.mark.parametrize("method", ["target_mean", "woe", "target_james_stein", "target_m_estimate"])
 @pytest.mark.parametrize("n_cat", [1, 5, 50])
 def test_vectorised_transform_bit_identical_to_per_row(method, n_cat):
+    """Vectorised transform bit identical to per row."""
     enc, Xte = _fit(method, n_cat=n_cat)
     from mlframe.training.feature_handling.target_encoders import _categorical_to_string_array
 
@@ -39,11 +41,13 @@ def test_vectorised_transform_bit_identical_to_per_row(method, n_cat):
 
 
 def test_transform_routes_through_vectorised_not_full_per_row(monkeypatch):
+    """Transform routes through vectorised not full per row."""
     enc, Xte = _fit("woe")
     seen = {}
     orig = enc._encode_per_row
 
     def spy(cats):
+        """Spy."""
         seen.setdefault("lens", []).append(len(cats))
         return orig(cats)
 
@@ -69,6 +73,7 @@ def test_float_canonical_tokens_uses_hash_factorize_not_sort(monkeypatch):
     orig_unique = te.np.unique
 
     def spy_unique(*a, **k):
+        """Spy unique."""
         called["unique"] += 1
         return orig_unique(*a, **k)
 
@@ -84,6 +89,7 @@ def test_float_canonical_tokens_bit_identical_to_unique_path():
     import mlframe.training.feature_handling.target_encoders as te
 
     def legacy(arr):
+        """Legacy."""
         mask = np.isnan(arr)
         uniq, inv = np.unique(arr, return_inverse=True)
         toks = np.array([te._canonical_cat_token(u) for u in uniq], dtype=object)

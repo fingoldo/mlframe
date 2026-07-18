@@ -11,6 +11,7 @@ import numpy as np
 
 
 class TestTTRWithEvalSetScalingPickle:
+    """Groups tests covering t t r with eval set scaling pickle."""
     def test_module_level_class_importable(self) -> None:
         """The class lives at module level, not inside a function."""
         from mlframe.training.targets._ttr_eval_set_scaling import _TTRWithEvalSetScaling
@@ -72,7 +73,9 @@ class TestTTRWithEvalSetScalingPickle:
         captured_eval_set = {}
 
         class _RecordingRegressor:
+            """Groups tests covering recording regressor."""
             def fit(self, X, y, **fit_params):
+                """Fit."""
                 captured_eval_set["eval_set"] = fit_params.get("eval_set")
                 self.coef_ = np.zeros(X.shape[1])
                 self.intercept_ = 0.0
@@ -80,12 +83,15 @@ class TestTTRWithEvalSetScalingPickle:
                 return self
 
             def predict(self, X):
+                """Predict."""
                 return np.zeros(X.shape[0])
 
             def get_params(self, deep=True):
+                """Get params."""
                 return {}
 
             def set_params(self, **kwargs):
+                """Set params."""
                 return self
 
         # We want a sklearn-clone-compatible regressor; the stock Ridge works

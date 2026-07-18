@@ -89,6 +89,7 @@ def _make_and_skew(seed: int = 707, n: int = N):
 
 
 def _make_noise(seed: int = 404, n: int = N):
+    """Make noise."""
     rng = np.random.default_rng(seed)
     a = np.exp(0.7 * rng.normal(size=n))
     b = rng.normal(size=n) + 2.0
@@ -132,6 +133,7 @@ def _unb(gate_med: bool):
 
 
 def _fit(make, df, y):
+    """Helper that fit."""
     MRMR.clear_fit_cache()
     fs = make()
     fs.fit(df, y)
@@ -139,10 +141,12 @@ def _fit(make, df, y):
 
 
 def _eng_names(fs):
+    """Eng names."""
     return [nm for nm in fs.get_feature_names_out() if nm not in RAW]
 
 
 def _best_engineered_corr(fs, df, true):
+    """Best engineered corr."""
     names = list(fs.get_feature_names_out())
     eng = [nm for nm in names if nm not in RAW]
     if not eng or true is None:
@@ -162,6 +166,7 @@ def _best_engineered_corr(fs, df, true):
 
 
 def _ridge_r2(X, y):
+    """Ridge r2."""
     from sklearn.linear_model import Ridge
     from sklearn.preprocessing import StandardScaler
     from sklearn.pipeline import make_pipeline

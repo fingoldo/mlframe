@@ -26,6 +26,7 @@ from mlframe.training.neural import (
 
 
 def _classifier(max_epochs=1):
+    """Builds a small PytorchLightningClassifier for the predict-path fix regression tests."""
     return PytorchLightningClassifier(
         model_class=MLPTorchModel,
         model_params={"loss_fn": torch.nn.CrossEntropyLoss(), "learning_rate": 1e-3},
@@ -103,6 +104,7 @@ def test_predict_device_arg_honored_in_post_fit_path():
     _RealTrainer = _bp.L.Trainer
 
     def _spy_trainer(**kwargs):
+        """Records the kwargs the post-fit predict path builds for lightning.Trainer, then constructs the real trainer."""
         captured.update(kwargs)
         return _RealTrainer(**kwargs)
 

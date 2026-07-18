@@ -26,6 +26,7 @@ from mlframe.feature_selection.filters.screen import screen_predictors
 
 
 def _gpu_available() -> bool:
+    """Gpu available."""
     try:
         return cp.cuda.runtime.getDeviceCount() >= 1
     except Exception:  # pragma: no cover - no driver / no GPU
@@ -39,6 +40,7 @@ if not _GPU_AVAILABLE:  # pragma: no cover - guarded at collection time
 
 @pytest.fixture(autouse=True)
 def _clear_resident_cache():
+    """Clear resident cache."""
     clear_fe_resident_operands()
     yield
     clear_fe_resident_operands()
@@ -56,6 +58,7 @@ def _make_data(n=600, m=5, seed=0):
 
 
 def _common_kwargs(factors_data, factors_nbins, **overrides):
+    """Common kwargs."""
     base = dict(
         factors_data=factors_data,
         factors_nbins=factors_nbins,
@@ -73,11 +76,13 @@ def _common_kwargs(factors_data, factors_nbins, **overrides):
 
 
 def _count_asarray_calls_matching(monkeypatch, target_values):
+    """Count asarray calls matching."""
     calls = {"n": 0}
     orig = cp.asarray
     target = np.ascontiguousarray(target_values)
 
     def spy(a, *args, **kw):
+        """Helper that spy."""
         if isinstance(a, np.ndarray) and a.shape == target.shape and a.dtype == target.dtype and np.array_equal(a, target):
             calls["n"] += 1
         return orig(a, *args, **kw)
@@ -131,6 +136,7 @@ def test_screen_predictors_gpu_resident_uploads_exact_target_values(monkeypatch)
     orig_resident_operand = _rop_mod.resident_operand
 
     def _capture(arr, key, *a, **kw):
+        """Helper that capture."""
         result = orig_resident_operand(arr, key, *a, **kw)
         if key in ("screen_classes_y", "screen_freqs_y"):
             captured[key] = cp.asnumpy(result)
@@ -167,6 +173,7 @@ def test_screen_predictors_gpu_resident_matches_disabled_cache_values(monkeypatc
     orig_resident_operand = _rop_mod.resident_operand
 
     def _capture(arr, key, *a, **kw):
+        """Helper that capture."""
         result = orig_resident_operand(arr, key, *a, **kw)
         if key in ("screen_classes_y", "screen_freqs_y"):
             captured[key] = cp.asnumpy(result)

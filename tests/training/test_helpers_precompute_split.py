@@ -23,6 +23,7 @@ import pytest
 
 
 def test_precompute_symbols_still_importable_from_facade() -> None:
+    """Precompute symbols still importable from facade."""
     from mlframe.training.helpers import (
         get_trainset_features_stats,
         get_trainset_features_stats_polars,
@@ -43,6 +44,7 @@ def test_precompute_symbols_still_importable_from_facade() -> None:
 
 
 def test_other_helpers_symbols_still_importable() -> None:
+    """Other helpers symbols still importable."""
     from mlframe.training.helpers import (
         parse_catboost_devices,
         get_training_configs,
@@ -55,6 +57,7 @@ def test_other_helpers_symbols_still_importable() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
+    """Facade below 1k line threshold."""
     root = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe" / "training"
     facade = root / "helpers.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())

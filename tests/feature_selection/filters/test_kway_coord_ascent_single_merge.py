@@ -18,6 +18,7 @@ from mlframe.feature_selection.filters.info_theory import compute_mi_from_classe
 
 
 def _build(n=4000, n_cols=8, n_bins=5, seed=11):
+    """Helper that build."""
     rng = np.random.default_rng(seed)
     data = rng.integers(0, n_bins, size=(n, n_cols)).astype(np.int32)
     # Make the last column (target) depend on cols 0,1,2 so swaps can improve MI.
@@ -34,6 +35,7 @@ def _build(n=4000, n_cols=8, n_bins=5, seed=11):
 
 
 def _seed_result(data, nbins, cls_y, fq_y, tup, dtype=np.int32):
+    """Seed result."""
     cls, fq, nuniq = merge_vars(
         factors_data=data,
         vars_indices=np.array(sorted(tup), dtype=np.int64),
@@ -46,6 +48,7 @@ def _seed_result(data, nbins, cls_y, fq_y, tup, dtype=np.int32):
 
 
 def test_kway_coord_ascent_matches_expected_reference():
+    """Kway coord ascent matches expected reference."""
     data, nbins, cls_y, fq_y = _build()
     pool = np.arange(7, dtype=np.int64)  # exclude target col (idx 7)
     seeds = [_seed_result(data, nbins, cls_y, fq_y, (3, 4, 5))]

@@ -23,6 +23,7 @@ class _Sentinel(Exception):
 
 
 def test_polars_pipeline_applied_received_value_from_phase_fit_pipeline(monkeypatch):
+    """Polars pipeline applied received value from phase fit pipeline."""
     from mlframe.training.core import main as main_mod
 
     # 2026-05-22 split: ``train_mlframe_models_suite`` body lives in
@@ -38,6 +39,7 @@ def test_polars_pipeline_applied_received_value_from_phase_fit_pipeline(monkeypa
     def fake_fit_pipeline(*args, **kwargs):
         # Return shape mirrors the production tuple; ``polars_pipeline_applied`` (10th element)
         # is forced to False so the wiring test can distinguish it from the default=True.
+        """Fake fit pipeline."""
         out = real_fit(*args, **kwargs)
         return (
             out[0],
@@ -59,6 +61,7 @@ def test_polars_pipeline_applied_received_value_from_phase_fit_pipeline(monkeypa
         )
 
     def fake_pandas_conv(*args, **kwargs):
+        """Fake pandas conv."""
         captured["polars_pipeline_applied"] = kwargs.get("polars_pipeline_applied", "MISSING")
         captured["all_kwargs"] = set(kwargs.keys())
         raise _Sentinel()

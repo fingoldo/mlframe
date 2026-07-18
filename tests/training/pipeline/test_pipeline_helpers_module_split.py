@@ -14,6 +14,7 @@ from pathlib import Path
 
 
 def test_cache_symbols_still_importable_from_facade() -> None:
+    """Cache symbols still importable from facade."""
     from mlframe.training.pipeline._pipeline_helpers import (
         _fresh_uncachable,
         _content_fingerprint_for_cache,
@@ -36,6 +37,7 @@ def test_cache_symbols_still_importable_from_facade() -> None:
 
 
 def test_pipeline_ops_symbols_still_importable_from_facade() -> None:
+    """Pipeline ops symbols still importable from facade."""
     from mlframe.training.pipeline._pipeline_helpers import (
         _prepare_test_split,
         _extract_feature_selector,
@@ -57,6 +59,7 @@ def test_pipeline_ops_symbols_still_importable_from_facade() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
+    """Facade below 1k line threshold."""
     root = Path(__file__).resolve().parent.parent.parent.parent / "src" / "mlframe" / "training" / "pipeline"
     facade = root / "_pipeline_helpers.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())

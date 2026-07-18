@@ -15,11 +15,13 @@ from mlframe.training._uncertainty_eval import _narrow_numeric_frame, evaluate_t
 
 
 def test_evaluate_tta_quality_metrics():
+    """Evaluate tta quality metrics."""
     rng = np.random.default_rng(0)
     X = rng.standard_normal((500, 3))
     y = X[:, 0] * 2 - X[:, 1]
 
     def f(Z):
+        """Nonlinear stand-in predictor: a linear combination plus a high-frequency sine term."""
         return Z[:, 0] * 2 - Z[:, 1] + 0.5 * np.sin(11 * Z[:, 2])
 
     rep = evaluate_tta_quality(f, X, y, n=24, sigma_scale=0.2)
@@ -29,6 +31,7 @@ def test_evaluate_tta_quality_metrics():
 
 
 def test_narrow_numeric_frame_pandas_and_reject_non_numeric():
+    """Narrow numeric frame pandas and reject non numeric."""
     df = pd.DataFrame({"a": [1.0, 2.0], "b": [3.0, 4.0], "c": ["x", "y"]})
     arr = _narrow_numeric_frame(df, ["a", "b"])
     assert arr.shape == (2, 2)
@@ -36,6 +39,7 @@ def test_narrow_numeric_frame_pandas_and_reject_non_numeric():
 
 
 def test_narrow_numeric_frame_polars():
+    """Narrow numeric frame polars."""
     pl = pytest.importorskip("polars")
     df = pl.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
     arr = _narrow_numeric_frame(df, ["a", "b"])
@@ -43,6 +47,7 @@ def test_narrow_numeric_frame_polars():
 
 
 def test_evaluate_tta_quality_is_public():
+    """Evaluate tta quality is public."""
     import mlframe.training as training_mod
 
     assert hasattr(training_mod, "evaluate_tta_quality")
@@ -50,6 +55,7 @@ def test_evaluate_tta_quality_is_public():
 
 
 def _reg_frame(seed=17, n=1400):
+    """Reg frame."""
     import polars as pl
 
     rng = np.random.default_rng(seed)
@@ -61,6 +67,7 @@ def _reg_frame(seed=17, n=1400):
 
 
 def test_e2e_uncertainty_eval_stamped_in_suite(tmp_path):
+    """E2e uncertainty eval stamped in suite."""
     pytest.importorskip("xgboost")
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.configs import (

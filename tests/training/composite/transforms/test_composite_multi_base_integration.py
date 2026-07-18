@@ -39,6 +39,7 @@ def _make_single_dominant_dgp(n: int = 2000, seed: int = 0) -> tuple:
 
 
 class TestMultiBaseAutoPromotion:
+    """Groups tests covering multi base auto promotion."""
     def test_default_on_promotes_spec_on_two_base_dgp(self) -> None:
         """When multi_base_enabled=True (default) AND b2 carries orthogonal signal, Discovery upgrades the linear_residual spec to linear_residual_multi with [b1, b2]."""
         df, feature_cols = _make_two_base_dgp(n=2000)
@@ -119,15 +120,18 @@ class TestMultiBaseAutoPromotion:
 
 
 class TestConfigDefaults:
+    """Groups tests covering config defaults."""
     def test_multi_base_enabled_default(self) -> None:
         """Default ON per benchmark verdict."""
         cfg = CompositeTargetDiscoveryConfig()
         assert cfg.multi_base_enabled is True
 
     def test_multi_base_max_k_default(self) -> None:
+        """Multi base max k default."""
         cfg = CompositeTargetDiscoveryConfig()
         assert cfg.multi_base_max_k == 3
 
     def test_multi_base_min_marginal_rmse_gain_default(self) -> None:
+        """Multi base min marginal rmse gain default."""
         cfg = CompositeTargetDiscoveryConfig()
         assert cfg.multi_base_min_marginal_rmse_gain == 0.005

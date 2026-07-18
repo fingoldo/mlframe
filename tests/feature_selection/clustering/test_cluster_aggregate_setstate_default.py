@@ -15,11 +15,13 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def test_constructor_default_mode_is_replace():
+    """Constructor default mode is replace."""
     assert MRMR().cluster_aggregate_mode == "replace"
 
 
 def test_legacy_pickle_refits_mode_to_replace():
     # A pre-Wave-8 pickle had no cluster_aggregate_mode attribute at all.
+    """Legacy pickle refits mode to replace."""
     m = MRMR.__new__(MRMR)
     m.__setstate__({})  # empty legacy state -> all defaults injected
     assert m.cluster_aggregate_mode == "replace", (
@@ -29,6 +31,7 @@ def test_legacy_pickle_refits_mode_to_replace():
 
 def test_legacy_pickle_preserves_explicit_mode():
     # If the pickle DID carry an explicit mode, __setstate__ must not clobber it.
+    """Legacy pickle preserves explicit mode."""
     m = MRMR.__new__(MRMR)
     m.__setstate__({"cluster_aggregate_mode": "augment"})
     assert m.cluster_aggregate_mode == "augment"

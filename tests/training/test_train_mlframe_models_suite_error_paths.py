@@ -21,6 +21,7 @@ class _DummyExtractor:
     """
 
     def build_targets(self, *_args, **_kwargs):
+        """Build targets."""
         raise AssertionError("validation should fire before extractor is used")
 
 

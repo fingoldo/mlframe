@@ -15,6 +15,7 @@ from mlframe.training.composite.calendar_anomaly import apply_calendar_anomaly_f
 
 
 def test_biz_val_detect_calendar_anomalies_flags_holiday_spike_with_no_false_positives():
+    """Biz val detect calendar anomalies flags holiday spike with no false positives."""
     rng = np.random.default_rng(0)
     n = 365
     typical = 100.0
@@ -37,6 +38,7 @@ def test_biz_val_detect_calendar_anomalies_flags_holiday_spike_with_no_false_pos
 
 
 def test_apply_calendar_anomaly_flag_returns_binary_flag_and_corrected_series():
+    """Apply calendar anomaly flag returns binary flag and corrected series."""
     rng = np.random.default_rng(1)
     n = 100
     y = 50.0 + rng.normal(0, 2, n)
@@ -50,6 +52,7 @@ def test_apply_calendar_anomaly_flag_returns_binary_flag_and_corrected_series():
 
 
 def test_detect_calendar_anomalies_insufficient_history_not_flagged():
+    """Detect calendar anomalies insufficient history not flagged."""
     y = np.array([100.0, 100.0])
     result = detect_calendar_anomalies(y, window=14, min_periods=5)
     assert not result["flagged"].any()

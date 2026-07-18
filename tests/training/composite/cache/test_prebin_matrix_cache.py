@@ -34,6 +34,7 @@ from mlframe.training.composite.discovery.screening import (
 
 
 def _make_matrix(n=4000, f=12, seed=11, nan_frac=0.0):
+    """Make matrix."""
     rng = np.random.default_rng(seed)
     x = rng.standard_normal((n, f)).astype(np.float32)
     if nan_frac > 0:

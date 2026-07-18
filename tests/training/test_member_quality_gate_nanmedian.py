@@ -26,6 +26,7 @@ from mlframe.models.ensembling import compute_member_quality_gate
 
 
 def test_member_gate_median_matches_legacy_nanquantile():
+    """Member gate median matches legacy nanquantile."""
     rng = np.random.default_rng(0)
     K, N = 4, 1000
     preds = [rng.standard_normal(N) for _ in range(K)]

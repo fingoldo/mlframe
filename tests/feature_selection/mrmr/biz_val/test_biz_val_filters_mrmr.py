@@ -21,6 +21,7 @@ warnings.filterwarnings("ignore")
 
 
 def _to_df(X, y):
+    """To df."""
     df = pd.DataFrame(X, columns=[f"x{i}" for i in range(X.shape[1])])
     return df, pd.Series(y, name="y")
 
@@ -44,6 +45,7 @@ def test_biz_val_mrmr_interactions_max_order_3way_xor_recovery():
     df, ys = _to_df(X, y)
 
     def _top5_overlap(order):
+        """Top5 overlap."""
         sel = MRMR(interactions_max_order=order, verbose=0, random_seed=42)
         sel.fit(df, ys)
         return len(set(int(i) for i in sel.support_[:5]) & {0, 1, 2})
@@ -76,6 +78,7 @@ def test_biz_val_mrmr_quantization_nbins_finer_grid_better_mi_on_smooth():
     y = (x**2 + 0.3 * rng.normal(size=n) > 1.0).astype(np.int64)
 
     def _binned_mi(nbins):
+        """Binned mi."""
         x_bin = discretize_array(arr=x, n_bins=nbins, method="quantile", dtype=np.int32)
         # Run pyutilz-style MI via merge_vars + compute_mi_from_classes.
         factors_data = np.column_stack([x_bin, y]).astype(np.int32)
@@ -1159,6 +1162,7 @@ def test_biz_val_mrmr_property_no_crash_on_random_configs():
     )
     @settings(max_examples=6, deadline=None, suppress_health_check=[HealthCheck.too_slow])
     def _property(n, p_signal, p_noise, seed):
+        """Helper that property."""
         X, y, _ = make_signal_plus_noise(
             n=n,
             p_signal=p_signal,
@@ -1278,6 +1282,7 @@ def test_biz_val_mrmr_min_relevance_gain_relative_mode_scales_with_target_entrop
     pattern = re.compile(r"effective floor=([0-9eE.+\-]+)")
 
     def _resolved_floor(df, ys):
+        """Resolved floor."""
         sel = MRMR(verbose=2, random_seed=42, min_relevance_gain_frac=0.01)
         with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters.mrmr"):
             caplog.clear()
@@ -1321,6 +1326,7 @@ def test_biz_val_mrmr_min_relevance_gain_relative_mode_wins_on_low_entropy_targe
     X_train, X_test, y_train, y_test = train_test_split(df, ys, test_size=0.3, random_state=0, stratify=ys)
 
     def _fit_and_score(mode):
+        """Fit and score."""
         kwargs = dict(verbose=0, random_seed=42, min_relevance_gain_mode=mode)
         if mode == "absolute":
             kwargs["min_relevance_gain"] = 0.0001
@@ -1414,6 +1420,7 @@ def test_biz_val_mrmr_sample_weight_flips_top_feature_under_recency_vs_uniform()
         # We therefore ALSO disable the conditional-gate operator plus the binned_numeric_agg (``binagg(A|qbin(B))``) and k-fold-TE families. Verified: with
         # ``fe_conditional_gate_enable=False`` added, uniform top-1 = B (matching the raw binned MI B=0.34 >> A=0.02) and recency top-1 = A. These FE families
         # are measured-better defaults elsewhere but orthogonal to the weight -> raw-feature mechanism this sensor isolates.
+        """Top1 with weights."""
         sel = MRMR(
             verbose=0,
             random_seed=11,

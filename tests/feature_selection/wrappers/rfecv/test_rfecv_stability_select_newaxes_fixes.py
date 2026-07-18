@@ -14,6 +14,7 @@ import pytest
 
 
 def _load_func():
+    """Load func."""
     mod = pytest.importorskip("mlframe.feature_selection.wrappers.rfecv._stability_select")
     return mod._fit_stability_selection
 

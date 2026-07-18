@@ -68,6 +68,7 @@ def _config_for_models(
     cb_grow_policy: str = "SymmetricTree",
     cb_lossguide_max_leaves: int = 31,
 ) -> dict:
+    """Config for models."""
     cfg: dict = {"iterations": iterations}
     if early_stopping_rounds is not None:
         cfg["early_stopping_rounds"] = early_stopping_rounds
@@ -698,6 +699,7 @@ def _custom_pre_pipelines_for_combo(combo: FuzzCombo):
 # axes still vary + drive dedup; they simply no-op into BorutaShap until the knob
 # is available). Mirrors the validator's own inspect.signature(BorutaShap.__init__).
 def _live_boruta_shap_params() -> set[str]:
+    """Live boruta shap params."""
     import inspect
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
@@ -828,6 +830,7 @@ def _preprocessing_for_combo(combo: FuzzCombo):
 
 
 def _skip_if_deps_missing(models: tuple[str, ...]) -> None:
+    """Skip if deps missing."""
     pkg = {
         "cb": "catboost",
         "xgb": "xgboost",

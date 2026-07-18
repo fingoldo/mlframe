@@ -71,8 +71,13 @@ _MULTI_BASE = {
     "geometric_mean_residual",
     "pairwise_interaction_residual",
 }
-# Transforms that consume a group / category column (need ``group_column``).
-_GROUPED = {"linear_residual_grouped", "target_encoding_residual"}
+# Transforms that consume a group / category column (need ``group_column``). Derived from the
+# registry's own ``requires_groups`` flag rather than a hand-maintained name set: a hardcoded set
+# silently drifted stale when 5 new ``_grouped``/``_residual_grouped`` transforms were added to the
+# registry without a matching update here, so every fuzz batch that happened to sample one of them
+# crashed with "requires groups; configure group_column" -- a false-positive fuzz "bug" from a test
+# gap, not a wrapper defect.
+_GROUPED = {name for name in list_transforms() if get_transform(name).requires_groups}
 # Transforms that require strictly-positive y and/or base on every row.
 _POSITIVE = {
     "logratio",
@@ -98,11 +103,13 @@ class _BaseOnlyInner(BaseEstimator, RegressorMixin):
     would mask the feature-permutation invariant)."""
 
     def fit(self, X, y):
+        """Fit."""
         self.n_features_in_ = X.shape[1]
         self._mean_t = float(np.mean(np.asarray(y, dtype=np.float64)))
         return self
 
     def predict(self, X):
+        """Predict."""
         n = X.shape[0] if hasattr(X, "shape") else len(X)
         return np.full(n, self._mean_t, dtype=np.float64)
 
@@ -181,6 +188,7 @@ class TestFuzzFitPredictNeverCrashes:
     def test_fuzz_batch(self, batch: int) -> None:
         # Each batch is an independent RNG stream so a flake is reproducible
         # from (batch, iteration). 50 iters/batch * 6 batches = 300 configs.
+        """Fuzz batch."""
         rng = np.random.default_rng(10_000 + batch)
         names = list_transforms()
         n_checked = 0
@@ -264,8 +272,10 @@ class TestFuzzFitPredictNeverCrashes:
 # Metamorphic
 # ----------------------------------------------------------------------
 class TestMetamorphicInvariants:
+    """Groups tests covering metamorphic invariants."""
     @staticmethod
     def _frame(n: int = 300, seed: int = 0):
+        """Frame."""
         rng = np.random.default_rng(seed)
         base = rng.normal(2.0, 1.0, n)
         f0 = rng.normal(0.0, 1.0, n)

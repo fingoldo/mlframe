@@ -25,12 +25,14 @@ from mlframe.training.pipeline._event_proximity_decay_composite_fe import (
 
 
 def _date_frame_and_timestamps(n=200, seed=0):
+    """Date frame and timestamps."""
     dates = pd.date_range("2024-01-01", periods=n, freq="D")
     df = pd.DataFrame({"dummy": np.arange(n)})
     return df, np.asarray(dates)
 
 
 def test_apply_event_proximity_decay_composite_fe_noop_when_unset():
+    """Apply event proximity decay composite fe noop when unset."""
     df, ts = _date_frame_and_timestamps()
     cfg = PreprocessingExtensionsConfig()
     train, _val, _test = apply_event_proximity_decay_composite_fe(
@@ -48,6 +50,7 @@ def test_apply_event_proximity_decay_composite_fe_noop_when_unset():
 
 
 def test_apply_event_proximity_decay_composite_fe_noop_without_timestamps():
+    """Apply event proximity decay composite fe noop without timestamps."""
     df, _ts = _date_frame_and_timestamps()
     cfg = PreprocessingExtensionsConfig(event_proximity_decay_event_dates=["2024-01-15"])
     train, _, _ = apply_event_proximity_decay_composite_fe(df, None, None, cfg, None, np.arange(len(df)), None, None, verbose=0)
@@ -55,6 +58,7 @@ def test_apply_event_proximity_decay_composite_fe_noop_without_timestamps():
 
 
 def test_apply_event_proximity_decay_composite_fe_schema_aligned_across_splits():
+    """Apply event proximity decay composite fe schema aligned across splits."""
     df, ts = _date_frame_and_timestamps()
     train_idx, val_idx, test_idx = np.arange(0, 150), np.arange(150, 175), np.arange(175, 200)
     cfg = PreprocessingExtensionsConfig(event_proximity_decay_event_dates=["2024-01-15", "2024-03-01"], event_proximity_decay_cap=10)
@@ -77,6 +81,7 @@ def test_apply_event_proximity_decay_composite_fe_schema_aligned_across_splits()
 
 
 def test_apply_event_proximity_decay_composite_fe_polars_roundtrip():
+    """Apply event proximity decay composite fe polars roundtrip."""
     n = 100
     dates = pd.date_range("2024-01-01", periods=n, freq="D")
     df = pl.DataFrame({"dummy": np.arange(n)})
@@ -87,6 +92,7 @@ def test_apply_event_proximity_decay_composite_fe_polars_roundtrip():
 
 
 def test_replay_event_proximity_decay_composite_fe_matches_fit_time_columns():
+    """Replay event proximity decay composite fe matches fit time columns."""
     df, ts = _date_frame_and_timestamps()
     cfg = PreprocessingExtensionsConfig(event_proximity_decay_event_dates=["2024-01-15"])
     metadata: dict = {}
@@ -99,6 +105,7 @@ def test_replay_event_proximity_decay_composite_fe_matches_fit_time_columns():
 
 
 def test_replay_event_proximity_decay_composite_fe_noop_without_persisted_metadata():
+    """Replay event proximity decay composite fe noop without persisted metadata."""
     df, ts = _date_frame_and_timestamps(n=20)
     out = replay_event_proximity_decay_composite_fe(df, {}, ts, verbose=0)
     assert list(out.columns) == list(df.columns)
@@ -126,6 +133,7 @@ def test_biz_val_event_proximity_decay_composite_wiring_detects_event_spike():
     out_df, _, _ = apply_event_proximity_decay_composite_fe(df, None, None, cfg, np.asarray(dates), np.arange(n), None, None, verbose=0)
 
     def _auc(X):
+        """Auc."""
         clf = LogisticRegression(max_iter=1000)
         clf.fit(X, y)
         return roc_auc_score(y, clf.predict_proba(X)[:, 1])

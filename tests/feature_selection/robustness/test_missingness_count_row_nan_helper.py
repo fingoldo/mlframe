@@ -18,6 +18,7 @@ from mlframe.feature_selection.filters import _missingness_fe as mf
 
 
 def _frame():
+    """Helper that frame."""
     rng = np.random.default_rng(7)
     n = 4000
     cols = {}
@@ -32,6 +33,7 @@ def _frame():
 
 
 def test_count_helper_bit_identical_to_pandas_row_sum():
+    """Count helper bit identical to pandas row sum."""
     X, allcols = _frame()
     ref = X.loc[:, allcols].isna().sum(axis=1).to_numpy().astype(np.int32)
     counts, _recipe = mf.missingness_count_fit(X, allcols)
@@ -42,12 +44,14 @@ def test_count_helper_bit_identical_to_pandas_row_sum():
 
 
 def test_count_helper_does_not_use_row_sum(monkeypatch):
+    """Count helper does not use row sum."""
     X, allcols = _frame()
 
     calls = {"n": 0}
     orig_sum = pd.DataFrame.sum
 
     def _spy(self, *a, **k):
+        """Helper that spy."""
         calls["n"] += 1
         return orig_sum(self, *a, **k)
 
@@ -58,6 +62,7 @@ def test_count_helper_does_not_use_row_sum(monkeypatch):
 
 
 def test_count_helper_subset_and_missing_cols():
+    """Count helper subset and missing cols."""
     X, allcols = _frame()
     sub = allcols[:3]
     ref = X.loc[:, sub].isna().sum(axis=1).to_numpy().astype(np.int32)

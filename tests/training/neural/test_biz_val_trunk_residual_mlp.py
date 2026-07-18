@@ -19,6 +19,7 @@ from mlframe.training.neural.trunk_residual_mlp import TrunkResidualMLPRegressor
 
 
 def _make_data(n: int, n_features: int, seed: int):
+    """Make data."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, n_features)).astype(np.float32)
     y = (X[:, 0] * X[:, 1] + 0.5 * X[:, 2]).astype(np.float32) + rng.normal(scale=0.3, size=n).astype(np.float32)
@@ -26,6 +27,7 @@ def _make_data(n: int, n_features: int, seed: int):
 
 
 class _NoSkipDeepMLP(nn.Module):
+    """Groups tests covering no skip deep m l p."""
     def __init__(self, n_features: int, width: int = 12, n_blocks: int = 15) -> None:
         super().__init__()
         self.inp = nn.Sequential(nn.Linear(n_features, width), nn.LayerNorm(width), nn.ReLU())
@@ -33,6 +35,7 @@ class _NoSkipDeepMLP(nn.Module):
         self.head = nn.Linear(width, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward."""
         h = self.inp(x)
         for block in self.blocks:
             h = block(h)  # NO skip connection at all -- the naive deep-MLP default.
@@ -41,6 +44,7 @@ class _NoSkipDeepMLP(nn.Module):
 
 
 def test_biz_val_trunk_residual_mlp_beats_no_skip_deep_mlp_at_depth():
+    """Biz val trunk residual mlp beats no skip deep mlp at depth."""
     X, y = _make_data(n=300, n_features=10, seed=1)
     Xtr, Xte, ytr, yte = X[:220], X[220:], y[:220], y[220:]
 
@@ -69,6 +73,7 @@ def test_biz_val_trunk_residual_mlp_beats_no_skip_deep_mlp_at_depth():
 
 
 def test_trunk_residual_mlp_predict_shape():
+    """Trunk residual mlp predict shape."""
     X, y = _make_data(n=100, n_features=5, seed=0)
     model = TrunkResidualMLPRegressor(trunk_dim=8, n_blocks=3, n_epochs=20, random_state=0).fit(X, y)
     preds = model.predict(X)

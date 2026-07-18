@@ -57,6 +57,7 @@ SEEDS = (1, 7, 13, 42, 101)
 
 
 def _import_auto_fe():
+    """Import auto fe."""
     from mlframe.feature_selection.filters._orthogonal_scorer_auto_fe import (
         SCORER_NAMES,
         select_best_scorer_per_column,
@@ -75,6 +76,7 @@ def _import_auto_fe():
 
 
 def _import_plug_in_fe():
+    """Import plug in fe."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         generate_univariate_basis_features,
     )
@@ -396,6 +398,7 @@ class TestAucLiftAutoVsSingleScorer:
     """
 
     def test_auto_aug_auc_geq_best_single(self):
+        """Auto aug auc geq best single."""
         from mlframe.feature_selection.filters._orthogonal_ksg_mi_fe import (
             hybrid_orth_mi_ksg_fe_with_recipes,
         )
@@ -548,14 +551,17 @@ class TestAucLiftAutoVsSingleScorer:
 
 
 class TestDefaultDisabledByteIdentical:
+    """Groups tests covering TestDefaultDisabledByteIdentical."""
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_no_auto_columns(self, seed):
+        """Default off no auto columns."""
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
         assert added == [], f"seed={seed}: default fe_hybrid_orth_auto_scorer_enable=False should NOT append any engineered columns; got {added}"
 
     def test_default_ctor_values(self):
+        """Default ctor values."""
         m = _make_mrmr()
         assert m.fe_hybrid_orth_auto_scorer_enable is False
         assert m.fe_hybrid_orth_auto_scorer_n_boot == 5
@@ -567,7 +573,9 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleAndClone:
+    """Groups tests covering TestPickleAndClone."""
     def test_clone_preserves_auto_scorer_params(self):
+        """Clone preserves auto scorer params."""
         m = _make_mrmr(
             fe_hybrid_orth_auto_scorer_enable=True,
             fe_hybrid_orth_auto_scorer_n_boot=7,
@@ -580,6 +588,7 @@ class TestPickleAndClone:
             assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got {getattr(m2, name)}"
 
     def test_pickle_roundtrip_preserves_auto_recipes(self):
+        """Pickle roundtrip preserves auto recipes."""
         X, y = _build_non_monotone_fixture(seed=42, n=1000)
         m = _make_mrmr(
             fe_hybrid_orth_auto_scorer_enable=True,
@@ -598,6 +607,7 @@ class TestPickleAndClone:
         # Auto-stage recipes are ``orth_univariate`` (engineered VALUES
         # bit-equal to Layer 21; only SCORING differs).
         def _extract_orth_recipes(model):
+            """Extract orth recipes."""
             container = getattr(model, "_engineered_recipes_", None)
             if isinstance(container, dict):
                 return {r.name: r for r in container.values() if getattr(r, "kind", None) == "orth_univariate"}

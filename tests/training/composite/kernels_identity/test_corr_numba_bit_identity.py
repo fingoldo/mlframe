@@ -38,12 +38,15 @@ _F = max(_MIN_COLS, 64)
 
 
 def _dispatch(y: np.ndarray, X: np.ndarray) -> np.ndarray:
+    """Dispatch."""
     return safe_abs_corr_all_dispatch(y, X, reference_fn=_safe_abs_corr_all_numpy)
 
 
 class TestCorrNumbaBitIdentity:
+    """Groups tests covering corr numba bit identity."""
     @pytest.mark.parametrize("seed", [0, 1, 2, 7, 13])
     def test_matches_numpy_reference_across_seeds(self, seed: int) -> None:
+        """Matches numpy reference across seeds."""
         rng = np.random.default_rng(seed)
         X = rng.normal(size=(_N, _F))
         # A few columns carry real signal so the |corr| spans a wide range.
@@ -112,6 +115,7 @@ class TestCorrNumbaBitIdentity:
 
 @pytest.mark.skipif(not _HAS_NUMBA, reason="numba required for the dispatched kernel")
 class TestCorrNumbaBizValue:
+    """Groups tests covering corr numba biz value."""
     def test_biz_kernel_faster_than_numpy_at_production_shape(self) -> None:
         """Floor 1.5x; measured ~6.7x on the dev host (n=50k, F=200). Catches a
         regression that drops the kernel or makes it slower than the numpy einsum."""
@@ -125,6 +129,7 @@ class TestCorrNumbaBizValue:
         _safe_abs_corr_all_numpy(y, X)
 
         def _best(fn, reps: int = 5) -> float:
+            """Best."""
             best = float("inf")
             for _ in range(reps):
                 t0 = time.perf_counter()

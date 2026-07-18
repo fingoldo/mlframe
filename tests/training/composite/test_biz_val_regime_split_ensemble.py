@@ -17,11 +17,13 @@ from mlframe.training.composite import RegimeSplitEnsemble
 
 
 def _regime_fn(X):
+    """Regime fn."""
     trend = X["trend"].to_numpy() if hasattr(X, "columns") else np.asarray(X)[:, 0]
     return np.where(trend > 0.3, "bull", np.where(trend < -0.3, "bear", "stable"))
 
 
 def _make_regime_dataset(n: int, seed: int):
+    """Make regime dataset."""
     rng = np.random.default_rng(seed)
     trend = rng.normal(size=n)
     x2 = rng.normal(size=n)
@@ -38,6 +40,7 @@ def _make_regime_dataset(n: int, seed: int):
 
 
 def test_biz_val_regime_split_ensemble_route_beats_global_model_mse():
+    """Biz val regime split ensemble route beats global model mse."""
     X, y = _make_regime_dataset(n=3000, seed=0)
     rng = np.random.default_rng(1)
     perm = rng.permutation(len(y))
@@ -57,6 +60,7 @@ def test_biz_val_regime_split_ensemble_route_beats_global_model_mse():
 
 
 def test_regime_split_ensemble_unseen_regime_falls_back_to_global_model():
+    """Regime split ensemble unseen regime falls back to global model."""
     X, y = _make_regime_dataset(n=500, seed=2)
     # Train only on bull+stable rows -- "bear" regime never seen at fit time.
     train_mask = _regime_fn(X) != "bear"
@@ -70,6 +74,7 @@ def test_regime_split_ensemble_unseen_regime_falls_back_to_global_model():
 
 
 def test_regime_split_ensemble_average_mode_shape():
+    """Regime split ensemble average mode shape."""
     X, y = _make_regime_dataset(n=300, seed=3)
     ensemble = RegimeSplitEnsemble(estimator_factory=lambda: LinearRegression(), regime_fn=_regime_fn, combine="average")
     ensemble.fit(X, y)
@@ -78,11 +83,13 @@ def test_regime_split_ensemble_average_mode_shape():
 
 
 def _two_regime_fn(X):
+    """Two regime fn."""
     trend = X["trend"].to_numpy() if hasattr(X, "columns") else np.asarray(X)[:, 0]
     return np.where(trend >= 0.0, "pos", "neg")
 
 
 def _two_regime_proba_fn(X, tau: float = 0.3):
+    """Two regime proba fn."""
     trend = X["trend"].to_numpy() if hasattr(X, "columns") else np.asarray(X)[:, 0]
     p_pos = 1.0 / (1.0 + np.exp(-trend / tau))
     return {"pos": p_pos, "neg": 1.0 - p_pos}
@@ -108,6 +115,7 @@ def _make_smooth_transition_dataset(n: int, seed: int, tau: float = 0.3):
 
 
 def test_biz_val_regime_split_ensemble_blend_smooths_regime_boundary_mse():
+    """Biz val regime split ensemble blend smooths regime boundary mse."""
     X, y = _make_smooth_transition_dataset(n=6000, seed=7)
     rng = np.random.default_rng(8)
     perm = rng.permutation(len(y))
@@ -140,6 +148,7 @@ def test_biz_val_regime_split_ensemble_blend_smooths_regime_boundary_mse():
 
 
 def test_regime_split_ensemble_blend_requires_regime_proba_fn():
+    """Regime split ensemble blend requires regime proba fn."""
     X, y = _make_regime_dataset(n=100, seed=9)
     ensemble = RegimeSplitEnsemble(estimator_factory=lambda: LinearRegression(), regime_fn=_regime_fn, combine="blend")
     try:

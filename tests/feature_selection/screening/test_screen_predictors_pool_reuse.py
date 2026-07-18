@@ -26,6 +26,7 @@ from mlframe.feature_selection.filters.screen import screen_predictors
 
 
 def _make_data(n: int = 400, m: int = 6, seed: int = 0):
+    """Make data."""
     rng = np.random.default_rng(seed)
     factors_data = rng.integers(0, 4, size=(n, m)).astype(np.int32)
     y_col = ((factors_data[:, 0] + rng.integers(0, 2, size=n)) % 2).astype(np.int32).reshape(-1, 1)
@@ -36,6 +37,7 @@ def _make_data(n: int = 400, m: int = 6, seed: int = 0):
 
 
 def _common_kwargs(factors_data, factors_nbins, targets_data, targets_nbins, **overrides):
+    """Common kwargs."""
     base = dict(
         factors_data=factors_data,
         factors_nbins=factors_nbins,
@@ -54,6 +56,7 @@ def _common_kwargs(factors_data, factors_nbins, targets_data, targets_nbins, **o
 
 
 def test_seed_workers_pool_default_parameter_is_none():
+    """Seed workers pool default parameter is none."""
     sig = inspect.signature(screen_predictors)
     assert "seed_workers_pool" in sig.parameters
     assert sig.parameters["seed_workers_pool"].default is None
@@ -76,6 +79,7 @@ def test_seed_workers_pool_none_matches_legacy_default_behavior():
 
 
 def test_n_workers_gt_1_returns_a_parallel_pool():
+    """N workers gt 1 returns a parallel pool."""
     fd, fn, td, tn = _make_data(seed=3)
     out = screen_predictors(**_common_kwargs(fd, fn, td, tn, n_workers=2))
     assert isinstance(out[-1], Parallel)

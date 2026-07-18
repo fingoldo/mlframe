@@ -23,6 +23,7 @@ from mlframe.training.neural._recurrent_torch_model import RecurrentTorchModel
 
 
 def _build_module(input_mode: InputMode, use_mixup: bool) -> RecurrentTorchModel:
+    """Build module."""
     config = RecurrentConfig(
         input_mode=input_mode,
         rnn_type=RNNType.LSTM,
@@ -53,6 +54,7 @@ def _build_module(input_mode: InputMode, use_mixup: bool) -> RecurrentTorchModel
 
 
 def _make_hybrid_batch() -> dict:
+    """Make hybrid batch."""
     return {
         "sequences": torch.randn(8, 5, 4),  # (B, T, F)
         "lengths": torch.tensor([5, 5, 5, 5, 5, 5, 5, 5], dtype=torch.long),
@@ -62,6 +64,7 @@ def _make_hybrid_batch() -> dict:
 
 
 def test_recurrent_training_step_with_mixup_hybrid_regression_returns_finite_loss():
+    """Recurrent training step with mixup hybrid regression returns finite loss."""
     torch.manual_seed(0)
     module = _build_module(InputMode.HYBRID, use_mixup=True)
     module.train()

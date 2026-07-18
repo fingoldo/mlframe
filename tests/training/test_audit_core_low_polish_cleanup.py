@@ -135,6 +135,7 @@ def test_core_main_applies_patches_at_suite_entry(monkeypatch) -> None:
             orig_loky = _mod.apply_loky_cpu_count_override
 
             def _loky(*a, _orig=orig_loky, **kw):
+                """Records that apply_loky_cpu_count_override ran, then delegates to the real function."""
                 call_order.append("loky")
                 return _orig(*a, **kw)
 
@@ -144,6 +145,7 @@ def test_core_main_applies_patches_at_suite_entry(monkeypatch) -> None:
             orig_patch = _mod.apply_third_party_patches_once
 
             def _patch(*a, _orig=orig_patch, **kw):
+                """Records that apply_third_party_patches_once ran, then delegates to the real function."""
                 call_order.append("patches")
                 return _orig(*a, **kw)
 

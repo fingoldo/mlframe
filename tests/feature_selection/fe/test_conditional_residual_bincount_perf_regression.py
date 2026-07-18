@@ -26,6 +26,7 @@ from mlframe.feature_selection.filters._extra_fe_families import (
 
 
 def _make_df(n: int = 5000) -> tuple[pd.DataFrame, list[str]]:
+    """Make df."""
     rng = np.random.default_rng(7)
     cols = ["a", "b", "c"]
     data = {
@@ -43,10 +44,12 @@ def test_conditional_residual_generate_uses_bincount_not_add_at(monkeypatch):
     # POSITIVE signal instead: np.bincount IS used (it replaced the per-pair np.add.at scatter, 2 calls
     # per pair). Bit-identical accumulation is pinned by the reference test below; together they guarantee
     # the scatter-free bincount path. A regression back to np.add.at would drop bincount usage to zero here.
+    """Conditional residual generate uses bincount not add at."""
     calls = {"n": 0}
     orig = np.bincount
 
     def spy(*args, **kwargs):
+        """Helper that spy."""
         calls["n"] += 1
         return orig(*args, **kwargs)
 
@@ -57,6 +60,7 @@ def test_conditional_residual_generate_uses_bincount_not_add_at(monkeypatch):
 
 
 def test_conditional_residual_generate_bit_identical_to_add_at_reference():
+    """Conditional residual generate bit identical to add at reference."""
     X, cols = _make_df()
     enc, _ = generate_conditional_residual_features(X, cols, n_bins=10)
 

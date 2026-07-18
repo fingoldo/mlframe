@@ -35,6 +35,7 @@ pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a
 
 
 def _make_wide_interaction(seed):
+    """Make wide interaction."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((N, P))
     ia, ic, ib, idd = OPERANDS
@@ -51,12 +52,14 @@ def _fit(prerank, Xtr, ytr):
     # raw columns regardless of fe_synergy_prerank -- so ON and OFF become identical and the knob looks like a
     # no-op. Pinning "never" forces the pre-rank-vs-legacy-skip path this test exists to exercise (the production
     # regime where the exhaustive sweep is declined as too expensive on a very wide frame).
+    """Helper that fit."""
     m = MRMR(fe_synergy_prerank=prerank, fe_synergy_screen_max_features=250, fe_synergy_exhaustive="never")
     m.fit(Xtr, ytr)
     return m
 
 
 def _auc(m, Xtr, ytr, Xte, yte):
+    """Helper that auc."""
     Ztr, Zte = m.transform(Xtr), m.transform(Xte)
     clf = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Ztr, ytr)
     return float(roc_auc_score(yte, clf.predict_proba(Zte)[:, 1]))

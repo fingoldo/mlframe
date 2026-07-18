@@ -11,6 +11,7 @@ from mlframe.feature_selection.filters._joblib_safe import _FIT_MEMMAP_CACHE, fi
 
 
 def test_same_content_returns_same_memmap_instance():
+    """Same content returns same memmap instance."""
     a = np.random.default_rng(0).standard_normal((500, 20))
     before = len(_FIT_MEMMAP_CACHE)
     m1 = fit_constant_memmap(a)
@@ -22,6 +23,7 @@ def test_same_content_returns_same_memmap_instance():
 
 
 def test_different_content_gets_own_entry_and_readonly_view():
+    """Different content gets own entry and readonly view."""
     a = np.random.default_rng(1).standard_normal((300, 7))
     b = a + 1.0
     ma, mb = fit_constant_memmap(a), fit_constant_memmap(b)
@@ -37,6 +39,7 @@ def test_different_content_gets_own_entry_and_readonly_view():
 
 
 def test_existing_memmap_passes_through():
+    """Existing memmap passes through."""
     a = np.random.default_rng(2).standard_normal((100, 3))
     m = fit_constant_memmap(a)
     assert fit_constant_memmap(m) is m

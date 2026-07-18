@@ -20,6 +20,7 @@ from mlframe.training.pipeline._nearest_past_join_composite_fe import apply_near
 
 
 def _left_right(n_entities=20, right_rows_per_entity=10, n_left=100, seed=0):
+    """Left right."""
     rng = np.random.default_rng(seed)
     right = pd.DataFrame(
         {
@@ -38,6 +39,7 @@ def _left_right(n_entities=20, right_rows_per_entity=10, n_left=100, seed=0):
 
 
 def test_apply_nearest_past_join_composite_fe_noop_when_on_unset():
+    """Apply nearest past join composite fe noop when on unset."""
     left, right = _left_right()
     cfg = PreprocessingExtensionsConfig()
     train, _val, _test = apply_nearest_past_join_composite_fe(left.iloc[:70], left.iloc[70:], None, cfg, right, verbose=0)
@@ -45,6 +47,7 @@ def test_apply_nearest_past_join_composite_fe_noop_when_on_unset():
 
 
 def test_apply_nearest_past_join_composite_fe_noop_without_auxiliary_events_df():
+    """Apply nearest past join composite fe noop without auxiliary events df."""
     left, _right = _left_right()
     cfg = PreprocessingExtensionsConfig(nearest_past_join_on="t", nearest_past_join_by=["entity"])
     train, _, _ = apply_nearest_past_join_composite_fe(left, None, None, cfg, None, verbose=0)
@@ -52,6 +55,7 @@ def test_apply_nearest_past_join_composite_fe_noop_without_auxiliary_events_df()
 
 
 def test_apply_nearest_past_join_composite_fe_schema_aligned_across_splits():
+    """Apply nearest past join composite fe schema aligned across splits."""
     left, right = _left_right()
     cfg = PreprocessingExtensionsConfig(nearest_past_join_on="t", nearest_past_join_by=["entity"], nearest_past_join_value_cols=["known_value"])
     metadata: dict = {}
@@ -71,6 +75,7 @@ def test_apply_nearest_past_join_composite_fe_schema_aligned_across_splits():
 
 
 def test_apply_nearest_past_join_composite_fe_polars_roundtrip():
+    """Apply nearest past join composite fe polars roundtrip."""
     left, right = _left_right(n_entities=10, right_rows_per_entity=5, n_left=50, seed=1)
     pl_left = pl.DataFrame(left)
     cfg = PreprocessingExtensionsConfig(nearest_past_join_on="t", nearest_past_join_by=["entity"])
@@ -80,6 +85,7 @@ def test_apply_nearest_past_join_composite_fe_polars_roundtrip():
 
 
 def test_replay_nearest_past_join_composite_fe_matches_fit_time_columns():
+    """Replay nearest past join composite fe matches fit time columns."""
     left, right = _left_right()
     cfg = PreprocessingExtensionsConfig(nearest_past_join_on="t", nearest_past_join_by=["entity"], nearest_past_join_value_cols=["known_value"])
     metadata: dict = {}
@@ -91,6 +97,7 @@ def test_replay_nearest_past_join_composite_fe_matches_fit_time_columns():
 
 
 def test_replay_nearest_past_join_composite_fe_noop_without_persisted_metadata():
+    """Replay nearest past join composite fe noop without persisted metadata."""
     left, _right = _left_right(n_left=10)
     out = replay_nearest_past_join_composite_fe(left, {}, _right, verbose=0)
     assert list(out.columns) == list(left.columns)

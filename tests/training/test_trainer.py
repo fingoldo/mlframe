@@ -726,6 +726,7 @@ class TestSetupEarlyStoppingCallback:
             """Custom callback for testing."""
 
             def after_iteration(self, model, epoch, evals_log):
+                """After iteration."""
                 return False  # Continue training
 
         user_callback = CustomUserCallback()
@@ -1009,6 +1010,7 @@ class TestValidateTargetValues:
         ],
     )
     def test_clean_target_passes(self, target_factory):
+        """Clean target passes."""
         from mlframe.training.trainer import _validate_target_values
 
         target = target_factory([1.0, 2.0, 3.0, 4.0])
@@ -1022,6 +1024,7 @@ class TestValidateTargetValues:
         ],
     )
     def test_nan_in_target_raises(self, target_factory):
+        """Nan in target raises."""
         from mlframe.training.trainer import _validate_target_values
 
         target = target_factory([1.0, np.nan, 3.0, np.nan])
@@ -1036,6 +1039,7 @@ class TestValidateTargetValues:
         ],
     )
     def test_inf_in_target_raises(self, target_factory):
+        """Inf in target raises."""
         from mlframe.training.trainer import _validate_target_values
 
         target = target_factory([1.0, np.inf, 3.0, -np.inf])
@@ -1050,6 +1054,7 @@ class TestValidateTargetValues:
         ],
     )
     def test_nan_and_inf_in_target_raises(self, target_factory):
+        """Nan and inf in target raises."""
         from mlframe.training.trainer import _validate_target_values
 
         target = target_factory([np.nan, np.inf, 3.0])
@@ -1057,6 +1062,7 @@ class TestValidateTargetValues:
             _validate_target_values(target, "train")
 
     def test_subset_name_in_error_message(self):
+        """Subset name in error message."""
         from mlframe.training.trainer import _validate_target_values
 
         target = np.array([1.0, np.nan])
@@ -1080,11 +1086,13 @@ class TestPassthroughEmptyFrameGuard:
     """
 
     def test_pandas_empty_frame_catch_returns_empty(self):
+        """Pandas empty frame catch returns empty."""
         from mlframe.training.trainer import _passthrough_cols_fit_transform
 
         df = pd.DataFrame({"a": np.arange(10), "b": np.arange(10) * 0.5})
 
         def _raise_concat(x, y=None):
+            """Raise concat."""
             raise ValueError("need at least one array to concatenate")
 
         out = _passthrough_cols_fit_transform(_raise_concat, df, fit=True, target=None)
@@ -1092,11 +1100,13 @@ class TestPassthroughEmptyFrameGuard:
         assert out.shape == (10, 0)
 
     def test_pandas_empty_dtype_catch_returns_empty(self):
+        """Pandas empty dtype catch returns empty."""
         from mlframe.training.trainer import _passthrough_cols_fit_transform
 
         df = pd.DataFrame({"a": np.arange(10)})
 
         def _raise_dtype(x, y=None):
+            """Raise dtype."""
             raise ValueError("at least one array or dtype is required")
 
         out = _passthrough_cols_fit_transform(_raise_dtype, df, fit=True, target=None)
@@ -1104,11 +1114,13 @@ class TestPassthroughEmptyFrameGuard:
         assert out.shape == (10, 0)
 
     def test_polars_empty_catch_returns_polars_empty(self):
+        """Polars empty catch returns polars empty."""
         from mlframe.training.trainer import _passthrough_cols_fit_transform
 
         df = pl.DataFrame({"a": np.arange(10), "b": np.arange(10) * 0.5})
 
         def _raise_concat(x, y=None):
+            """Raise concat."""
             raise ValueError("need at least one array to concatenate")
 
         out = _passthrough_cols_fit_transform(_raise_concat, df, fit=True, target=None)
@@ -1119,11 +1131,13 @@ class TestPassthroughEmptyFrameGuard:
         assert out.shape[1] == 0
 
     def test_unrelated_valueerror_propagates(self):
+        """Unrelated valueerror propagates."""
         from mlframe.training.trainer import _passthrough_cols_fit_transform
 
         df = pd.DataFrame({"a": np.arange(10)})
 
         def _raise_other(x, y=None):
+            """Raise other."""
             raise ValueError("something completely different")
 
         with pytest.raises(ValueError, match="something completely different"):

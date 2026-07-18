@@ -1,10 +1,11 @@
-from mlframe.training import OutputConfig
-
 """
 Stress and performance tests for mlframe training module.
 
 Tests memory usage, large datasets, timeout handling, and parallel execution.
 """
+
+from mlframe.training import OutputConfig
+
 
 import pytest
 

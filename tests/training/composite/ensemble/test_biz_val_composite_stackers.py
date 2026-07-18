@@ -24,18 +24,22 @@ warnings.filterwarnings("ignore")
 
 
 class _Col:
+    """Groups tests covering col."""
     def __init__(self, col: int) -> None:
         self.col = col
 
     def predict(self, X):
+        """Predict."""
         return np.asarray(X)[:, self.col]
 
 
 def _rmse(a, b) -> float:
+    """Rmse."""
     return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
 
 
 def _gen_interaction(n, seed):
+    """Gen interaction."""
     rng = np.random.default_rng(seed)
     g = rng.normal(size=n)
     a = rng.normal(size=n)
@@ -45,6 +49,7 @@ def _gen_interaction(n, seed):
 
 
 def _gen_convex(n, seed):
+    """Gen convex."""
     rng = np.random.default_rng(seed)
     a = rng.normal(size=n)
     b = rng.normal(size=n)
@@ -54,6 +59,7 @@ def _gen_convex(n, seed):
 
 
 def _mean_rmse(gen, stacker, n_seeds=6, n=1500):
+    """Mean rmse."""
     from mlframe.training.composite.ensemble import (
         CompositeCrossTargetEnsemble as E,
         build_meta_stack_ensemble,

@@ -36,6 +36,7 @@ class _SlotsOnlyFitted:
 
 
 def _build_inputs():
+    """Builds a tiny train/val frame pair and an unfitted StandardScaler pipeline for state-transfer tests."""
     train_df = pd.DataFrame({"a": np.arange(10.0), "b": np.arange(10.0)})
     val_df = pd.DataFrame({"a": np.arange(5.0), "b": np.arange(5.0)})
     pre_pipeline = Pipeline([("sc", StandardScaler())])  # unfitted
@@ -44,6 +45,7 @@ def _build_inputs():
 
 
 def test_state_transfer_failure_warns_not_silent(caplog):
+    """A failed pre-pipeline state transfer emits a warning log, rather than failing silently."""
     _pre_pipeline_cache_clear()
     train_df, val_df, pre_pipeline, target = _build_inputs()
 

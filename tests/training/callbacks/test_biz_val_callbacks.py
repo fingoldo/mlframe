@@ -34,6 +34,7 @@ def test_biz_val_callbacks_lgb_stop_when_file_exists(tmp_path):
 
     # Callable signature: callback(env). env has fields LightGBM uses.
     class _Env:
+        """Groups tests covering env."""
         iteration = 5
         end_iteration = 100
         evaluation_result_list = []
@@ -58,6 +59,7 @@ def test_biz_val_callbacks_lgb_continue_when_file_missing(tmp_path):
     cb = LightGBMStopFileCallback(fpath=str(stop_path))
 
     class _Env:
+        """Groups tests covering env."""
         iteration = 5
         end_iteration = 100
         evaluation_result_list = []
@@ -134,6 +136,7 @@ def test_biz_val_callbacks_catboost_after_iteration_continues_when_no_file(tmp_p
     cb = CatBoostStopFileCallback(fpath=str(tmp_path / "no_stop"))
 
     class _Info:
+        """Groups tests covering info."""
         iteration = 3
         metrics = {}
 

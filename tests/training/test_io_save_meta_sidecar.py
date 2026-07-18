@@ -36,6 +36,7 @@ import pytest
 
 @pytest.fixture
 def tmp_bundle_dir():
+    """Tmp bundle dir."""
     d = tempfile.mkdtemp(prefix="mlframe_io_test_")
     try:
         yield Path(d)
@@ -44,6 +45,7 @@ def tmp_bundle_dir():
 
 
 def test_sidecar_written_on_save(tmp_bundle_dir):
+    """Sidecar written on save."""
     from mlframe.training.io import (
         save_mlframe_model,
         _meta_sidecar_path,
@@ -61,6 +63,7 @@ def test_sidecar_written_on_save(tmp_bundle_dir):
 
 
 def test_sidecar_fields_present(tmp_bundle_dir):
+    """Sidecar fields present."""
     from mlframe.training.io import save_mlframe_model, load_save_meta_sidecar
 
     bundle = tmp_bundle_dir / "test.dump"
@@ -258,6 +261,7 @@ def test_collect_lib_versions_memoised_avoids_metadata_reparse(monkeypatch):
     _real = _md.version
 
     def _counting_version(name):
+        """Counting version."""
         calls["n"] += 1
         return _real(name)
 

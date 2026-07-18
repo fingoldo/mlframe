@@ -69,6 +69,7 @@ def test_cb_gpu_usable_then_cached_gpu_info_no_hang() -> None:
     result = {"value": None, "error": None}
 
     def _worker() -> None:
+        """Worker."""
         try:
             result["value"] = _cb_pool._cb_gpu_usable()
         except Exception as exc:  # pragma: no cover - defensive
@@ -94,10 +95,12 @@ def test_cb_gpu_probe_skipped_when_devices_hidden(monkeypatch) -> None:
     probe_calls = {"n": 0}
 
     class _SpyRegressor:
+        """Groups tests covering spy regressor."""
         def __init__(self, *a, **k):
             pass
 
         def fit(self, *a, **k):
+            """Fit."""
             probe_calls["n"] += 1  # records that the GPU probe actually ran
 
     import catboost

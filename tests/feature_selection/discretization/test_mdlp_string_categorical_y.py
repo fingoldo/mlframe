@@ -36,6 +36,7 @@ import pandas as pd
 
 
 def _frame():
+    """Helper that frame."""
     rng = np.random.default_rng(7)
     n = 200
     X = pd.DataFrame(rng.standard_normal((n, 4)), columns=[f"f{i}" for i in range(4)])

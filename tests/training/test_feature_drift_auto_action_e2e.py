@@ -49,6 +49,7 @@ class _DriftingFeaturesAndTargetsExtractor:
         self.target_carrier = "numpy"
 
     def transform(self, df):
+        """Transform."""
         target_by_type = {self.target_type: {}}
         y = df[self.target_column].values if isinstance(df, pd.DataFrame) else df[self.target_column].to_numpy()
         target_by_type[self.target_type][self.target_column] = y
@@ -153,6 +154,7 @@ def test_feature_drift_auto_action_e2e_regression():
     _orig_train_one = pt._train_one_target
 
     def _stash_ctx(ctx, target_type, targets, cur_target_name, cur_target_values):
+        """Stash ctx."""
         captured_ctx_holder["ctx"] = ctx
         return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)
 
@@ -249,6 +251,7 @@ def test_feature_drift_auto_action_default_off_warn_only():
     _orig_train_one = pt._train_one_target
 
     def _stash_ctx(ctx, target_type, targets, cur_target_name, cur_target_values):
+        """Stash ctx."""
         captured_ctx_holder["ctx"] = ctx
         return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)
 
@@ -336,6 +339,7 @@ def test_feature_drift_auto_action_e2e_with_mlp_opt_in():
     _orig_train_one = pt._train_one_target
 
     def _stash_ctx(ctx, target_type, targets, cur_target_name, cur_target_values):
+        """Stash ctx."""
         captured_ctx_holder["ctx"] = ctx
         return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)
 
@@ -431,6 +435,7 @@ def test_feature_drift_auto_action_e2e_binary_classification_no_auto_apply():
     _orig_train_one = pt._train_one_target
 
     def _stash_ctx(ctx, target_type, targets, cur_target_name, cur_target_values):
+        """Stash ctx."""
         captured_ctx_holder["ctx"] = ctx
         return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)
 

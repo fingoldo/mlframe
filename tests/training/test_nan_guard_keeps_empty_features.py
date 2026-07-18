@@ -16,6 +16,7 @@ from mlframe.training._predict_guards import _apply_nan_guard
 
 
 def test_nan_guard_keeps_all_nan_column():
+    """Nan guard keeps all nan column."""
     rng = np.random.default_rng(0)
     n = 200
     X = pd.DataFrame({"a": rng.normal(size=n), "b": rng.normal(size=n), "c": rng.normal(size=n)})

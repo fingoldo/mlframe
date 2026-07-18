@@ -113,8 +113,10 @@ def df_informative_missingness():
 
 
 class TestEveryStrategyRunsCleanly:
+    """Groups tests covering TestEveryStrategyRunsCleanly."""
     @pytest.mark.parametrize("strategy", ["separate_bin", "ffill_bfill", "fillna_zero"])
     def test_fit_does_not_raise(self, df_with_random_nan, strategy):
+        """Fit does not raise."""
         X, y = df_with_random_nan
         m = MRMR(quantization_nbins=4, nan_strategy=strategy, verbose=0)
         m.fit(X, y)
@@ -123,6 +125,7 @@ class TestEveryStrategyRunsCleanly:
 
     @pytest.mark.parametrize("strategy", ["separate_bin", "ffill_bfill", "fillna_zero"])
     def test_transform_keeps_row_count(self, df_with_random_nan, strategy):
+        """Transform keeps row count."""
         X, y = df_with_random_nan
         m = MRMR(quantization_nbins=4, nan_strategy=strategy, verbose=0)
         m.fit(X, y)
@@ -145,6 +148,7 @@ class TestSeparateBinDoesNotPickPureNanNoiseOverSignal:
     NaN rows landed in bin-0 alongside true-zero rows."""
 
     def test_signal_cols_are_selected(self, df_with_random_nan):
+        """Signal cols are selected."""
         X, y = df_with_random_nan
         m = MRMR(quantization_nbins=4, nan_strategy="separate_bin", verbose=0)
         m.fit(X, y)
@@ -182,6 +186,7 @@ class TestSeparateBinSurfacesInformativeNan:
     dedicated NaN bin gives that column high MI(X_disc, y) and MRMR picks it."""
 
     def test_pick_the_informative_nan_column(self, df_informative_missingness):
+        """Pick the informative nan column."""
         X, y = df_informative_missingness
         m = MRMR(quantization_nbins=4, nan_strategy="separate_bin", verbose=0)
         m.fit(X, y)
@@ -196,7 +201,9 @@ class TestSeparateBinSurfacesInformativeNan:
 
 
 class TestTransformPreservesNan:
+    """Groups tests covering TestTransformPreservesNan."""
     def test_separate_bin_output_keeps_nan_rows(self, df_with_random_nan):
+        """Separate bin output keeps nan rows."""
         X, y = df_with_random_nan
         m = MRMR(quantization_nbins=4, nan_strategy="separate_bin", verbose=0)
         m.fit(X, y)
@@ -218,7 +225,9 @@ class TestTransformPreservesNan:
 
 
 class TestDefaultStrategy:
+    """Groups tests covering TestDefaultStrategy."""
     def test_default_is_separate_bin(self):
+        """Default is separate bin."""
         m = MRMR()
         assert m.nan_strategy == "separate_bin"
 
@@ -229,7 +238,9 @@ class TestDefaultStrategy:
 
 
 class TestUnknownStrategyRaises:
+    """Groups tests covering TestUnknownStrategyRaises."""
     def test_unknown_strategy_raises_value_error(self):
+        """Unknown strategy raises value error."""
         arr = np.array([[1.0, np.nan], [2.0, 3.0]])
         with pytest.raises(ValueError, match="unknown missing-value strategy"):
             _handle_missing(arr, strategy="totally_invented")
@@ -241,7 +252,9 @@ class TestUnknownStrategyRaises:
 
 
 class TestCategorizeDatasetSeparateBinDirect:
+    """Groups tests covering TestCategorizeDatasetSeparateBinDirect."""
     def test_nan_rows_get_max_bin_index(self):
+        """Nan rows get max bin index."""
         df = pd.DataFrame(
             {
                 "col_a": [1.0, 2.0, np.nan, 4.0, np.nan, 6.0, np.nan, 8.0],
@@ -270,6 +283,7 @@ class TestCategorizeDatasetSeparateBinDirect:
         assert nbins[col_b_idx] == n_bins
 
     def test_fillna_zero_mixes_nan_with_zero_into_bin_zero(self):
+        """Fillna zero mixes nan with zero into bin zero."""
         df = pd.DataFrame(
             {
                 "col_a": [0.0, 0.0, np.nan, np.nan, 5.0, 6.0, 7.0, 8.0],
@@ -286,6 +300,7 @@ class TestCategorizeDatasetSeparateBinDirect:
         assert (data[:4, 0] == data[0, 0]).all(), f"fillna_zero mixes NaN with true zeros; got {data[:4, 0]}"
 
     def test_propagate_smoke(self):
+        """Propagate smoke."""
         df = pd.DataFrame({"col_a": [1.0, 2.0, np.nan, 4.0]})
         data, _cols, _nbins = categorize_dataset(
             df=df,
@@ -303,6 +318,7 @@ class TestCategorizeDatasetSeparateBinDirect:
 
 
 class TestAllNanColumn:
+    """Groups tests covering TestAllNanColumn."""
     def test_all_nan_column_under_separate_bin(self):
         """An all-NaN column has no finite values for percentile edges;
         _handle_missing must fall back to a sentinel so discretize doesn't

@@ -40,6 +40,7 @@ from mlframe.training.extractors import (
     ],
 )
 def test_smallest_safe_int_dtype_promotion_table(min_v, max_v, expected):
+    """Smallest safe int dtype promotion table."""
     assert _smallest_safe_int_dtype(min_v, max_v) == np.dtype(expected)
 
 
@@ -47,6 +48,7 @@ def test_smallest_safe_int_dtype_promotion_table(min_v, max_v, expected):
 
 
 def test_safe_cast_binary_labels_stays_int8():
+    """Safe cast binary labels stays int8."""
     arr = np.array([0, 1, 0, 1, 1], dtype=np.int64)
     out = _safe_int_cast_numpy(arr, "y")
     assert out.dtype == np.int8
@@ -85,18 +87,21 @@ def test_safe_cast_integer_valued_float_allowed():
 
 
 def test_safe_cast_fractional_float_raises():
+    """Safe cast fractional float raises."""
     arr = np.array([0.5, 1.5], dtype=np.float64)
     with pytest.raises(ValueError, match="non-integer"):
         _safe_int_cast_numpy(arr, "y")
 
 
 def test_safe_cast_nan_raises():
+    """Safe cast nan raises."""
     arr = np.array([0.0, np.nan, 1.0], dtype=np.float64)
     with pytest.raises(ValueError, match="non-integer or non-finite"):
         _safe_int_cast_numpy(arr, "y")
 
 
 def test_safe_cast_bool_array_to_int8():
+    """Safe cast bool array to int8."""
     arr = np.array([True, False, True], dtype=np.bool_)
     out = _safe_int_cast_numpy(arr, "y")
     assert out.dtype == np.int8
@@ -106,6 +111,7 @@ def test_safe_cast_bool_array_to_int8():
 
 
 def test_intize_pandas_binary_no_overflow():
+    """Intize pandas binary no overflow."""
     targets = {"y": pd.Series([0, 1, 1, 0], dtype=np.int64)}
     intize_targets(targets)
     assert targets["y"].dtype == np.int8
@@ -130,6 +136,7 @@ def test_intize_polars_multiclass_200_no_invalid_op():
 
 
 def test_intize_numpy_already_int8_passes_through():
+    """Intize numpy already int8 passes through."""
     arr = np.array([0, 1, 2], dtype=np.int8)
     targets = {"y": arr}
     intize_targets(targets)
@@ -152,6 +159,7 @@ def test_intize_mixed_pandas_polars_numpy_in_one_dict():
 
 
 def test_intize_unsupported_type_raises():
+    """Intize unsupported type raises."""
     targets = {"y": [0, 1, 1]}  # list, not array/series
     with pytest.raises(TypeError, match="Unsupported target type"):
         intize_targets(targets)

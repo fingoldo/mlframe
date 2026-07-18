@@ -166,7 +166,9 @@ class TestSetupSampleWeight:
         fit_params = {}
 
         class MockModel:
+            """Groups tests covering mock model."""
             def fit(self, X, y, sample_weight=None):
+                """Fit."""
                 pass
 
         _setup_sample_weight(None, None, MockModel(), fit_params)
@@ -177,7 +179,9 @@ class TestSetupSampleWeight:
         fit_params = {}
 
         class MockModel:
+            """Groups tests covering mock model."""
             def fit(self, X, y):  # No sample_weight param
+                """Fit."""
                 pass
 
         _setup_sample_weight(np.array([1, 2, 3]), None, MockModel(), fit_params)
@@ -190,7 +194,9 @@ class TestSetupSampleWeight:
         train_idx = np.array([0, 2, 4])
 
         class MockModel:
+            """Groups tests covering mock model."""
             def fit(self, X, y, sample_weight=None):
+                """Fit."""
                 pass
 
         _setup_sample_weight(weights, train_idx, MockModel(), fit_params)
@@ -204,7 +210,9 @@ class TestSetupSampleWeight:
         train_idx = np.array([1, 3])
 
         class MockModel:
+            """Groups tests covering mock model."""
             def fit(self, X, y, sample_weight=None):
+                """Fit."""
                 pass
 
         _setup_sample_weight(weights, train_idx, MockModel(), fit_params)

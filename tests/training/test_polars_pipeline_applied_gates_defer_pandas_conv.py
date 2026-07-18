@@ -30,6 +30,7 @@ pl = pytest.importorskip("polars")
 
 
 def _make_toy_polars_df(n_rows: int = 8):
+    """Make toy polars df."""
     return pl.DataFrame({"x": list(range(n_rows)), "y": [float(i) for i in range(n_rows)]})
 
 

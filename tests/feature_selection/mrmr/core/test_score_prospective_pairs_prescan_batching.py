@@ -119,6 +119,7 @@ def test_tie_break_matches_strict_greater_than_semantics():
 
 
 def test_single_pair_pool():
+    """Single pair pool."""
     rng = np.random.default_rng(33)
     n = 2000
     y = rng.standard_normal(n)

@@ -49,6 +49,7 @@ _LEAN = dict(
 
 
 def _make_f2(seed: int = 11, n: int = 12000):
+    """Make f2."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(0.5, 3.0, n)
     b = rng.uniform(1.2, 5.0, n)
@@ -84,6 +85,7 @@ def _ab_escalation_names(sel) -> list[str]:
 
 
 def _ab_from_recipes(sel) -> list[str]:
+    """Ab from recipes."""
     return _ab_escalation_names(sel)
 
 
@@ -165,6 +167,7 @@ def test_biz_value_rescue_improves_f2_downstream_r2():
     df, y = _make_f2(seed=11, n=12000)
 
     def _r2(sel):
+        """Transform df through the fitted selector and return the held-out CV R^2 of a gradient-boosted model on its output."""
         Xt = sel.transform(df)
         X = np.column_stack([np.nan_to_num(np.asarray(Xt[c], dtype=np.float64)) for c in Xt.columns])
         m = HistGradientBoostingRegressor(random_state=0, max_iter=150)

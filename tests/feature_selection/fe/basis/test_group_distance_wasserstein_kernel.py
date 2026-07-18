@@ -23,6 +23,7 @@ wasserstein_distance = scipy_stats.wasserstein_distance
 @pytest.mark.skipif(not gd._HAVE_NUMBA, reason="numba kernel not available")
 @pytest.mark.parametrize("seed", range(6))
 def test_wasserstein1_matches_scipy_continuous(seed):
+    """Wasserstein1 matches scipy continuous."""
     rng = np.random.default_rng(seed)
     glob = np.sort(rng.normal(size=rng.integers(200, 3000)))
     for _ in range(40):
@@ -35,6 +36,7 @@ def test_wasserstein1_matches_scipy_continuous(seed):
 @pytest.mark.skipif(not gd._HAVE_NUMBA, reason="numba kernel not available")
 @pytest.mark.parametrize("seed", range(4))
 def test_wasserstein1_matches_scipy_discrete_ties(seed):
+    """Wasserstein1 matches scipy discrete ties."""
     rng = np.random.default_rng(100 + seed)
     glob = np.sort(rng.integers(0, 6, size=rng.integers(200, 3000)).astype(np.float64))
     for _ in range(40):
@@ -46,6 +48,7 @@ def test_wasserstein1_matches_scipy_discrete_ties(seed):
 
 @pytest.mark.skipif(not gd._HAVE_NUMBA, reason="numba kernel not available")
 def test_wasserstein1_edge_cases():
+    """Wasserstein1 edge cases."""
     glob = np.sort(np.arange(50, dtype=np.float64))
     # identical distributions -> 0
     assert gd._wasserstein1(np.arange(50, dtype=np.float64), glob) == pytest.approx(0.0, abs=1e-12)

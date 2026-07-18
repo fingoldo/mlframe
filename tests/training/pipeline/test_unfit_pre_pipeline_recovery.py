@@ -51,7 +51,9 @@ def _subset_recovery(input_for_model, model):
 
 
 def test_subset_recovery_uses_sklearn_feature_names_in_():
+    """Subset recovery uses sklearn feature names in."""
     class _Inner:
+        """Groups tests covering inner."""
         feature_names_in_ = np.array(["num0", "num1"], dtype=object)
 
     df = pd.DataFrame(
@@ -68,7 +70,9 @@ def test_subset_recovery_uses_sklearn_feature_names_in_():
 
 
 def test_subset_recovery_uses_catboost_feature_names_():
+    """Subset recovery uses catboost feature names."""
     class _Inner:
+        """Groups tests covering inner."""
         feature_names_ = ["x0", "x1", "x2"]
 
     df = pd.DataFrame(
@@ -91,6 +95,7 @@ def test_subset_recovery_noop_when_some_expected_missing():
     masking with a partial subset."""
 
     class _Inner:
+        """Groups tests covering inner."""
         feature_names_in_ = np.array(["num0", "num1", "vanished"], dtype=object)
 
     df = pd.DataFrame({"num0": [1.0], "num1": [2.0]})
@@ -99,7 +104,9 @@ def test_subset_recovery_noop_when_some_expected_missing():
 
 
 def test_subset_recovery_noop_when_inner_has_no_feature_names():
+    """Subset recovery noop when inner has no feature names."""
     class _Inner:
+        """Groups tests covering inner."""
         pass
 
     df = pd.DataFrame({"num0": [1.0], "num1": [2.0]})
@@ -153,6 +160,7 @@ def test_recovery_branch_lives_in_predict_py():
     # string-arg form (ast.Constant). Accept either - both produce identical
     # runtime behaviour and both indicate the recovery block is present.
     def _has_ref(name: str) -> bool:
+        """Has ref."""
         return name in attrs or name in str_consts
 
     assert _has_ref("feature_names_in_"), "predict_from_models must reference feature_names_in_ (sklearn recovery)"

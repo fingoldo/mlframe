@@ -20,6 +20,7 @@ from mlframe.training.composite.bagging import BaggedCompositeEstimator
 
 def _proto():
     # High-variance learner (deep tree) so bagging has variance to cancel.
+    """Proto."""
     return CompositeTargetEstimator(
         base_estimator=DecisionTreeRegressor(max_depth=None, random_state=0),
         transform_name="diff",
@@ -28,10 +29,12 @@ def _proto():
 
 
 def _rmse(a, b):
+    """Rmse."""
     return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
 
 
 def test_biz_val_bagging_lowers_oos_rmse_on_noisy_target():
+    """Biz val bagging lowers oos rmse on noisy target."""
     rng = np.random.RandomState(0)
     n = 1200
     base = rng.uniform(0.0, 10.0, size=n)
@@ -68,6 +71,7 @@ def test_biz_val_predict_std_larger_in_sparse_region():
     # rows are DENSE, every resample reconstructs the same local fit -> members
     # agree -> std shrinks. We make feat dense in [-2, 2] and SPARSE in [4, 6]
     # (only a handful of rows there), then query both bands inside support.
+    """Biz val predict std larger in sparse region."""
     rng = np.random.RandomState(1)
     n_dense = 1500
     n_sparse = 15  # the under-sampled band
@@ -106,6 +110,7 @@ def test_biz_val_predict_std_larger_in_sparse_region():
 
 
 def _bag(aggregation, seed, n_estimators=25, trim_fraction=0.2):
+    """Bag."""
     return BaggedCompositeEstimator(
         base_estimator=DecisionTreeRegressor(max_depth=6, random_state=0),
         n_estimators=n_estimators,
@@ -116,6 +121,7 @@ def _bag(aggregation, seed, n_estimators=25, trim_fraction=0.2):
 
 
 def _outlier_contam_data(seed, n=1200, p=8):
+    """Outlier contam data."""
     rng = np.random.RandomState(seed)
     X = rng.randn(n, p)
     truth = 2.0 * X[:, 0] + 1.5 * X[:, 1] * X[:, 2] - 1.0 * X[:, 3] + 0.7 * np.sin(2.0 * X[:, 4])
@@ -181,6 +187,7 @@ def test_biz_val_bagging_default_aggregation_is_trimmed_mean_not_mean():
 
 
 def _contam_data(seed, frac, n=1200, p=8):
+    """Contam data."""
     rng = np.random.RandomState(seed)
     X = rng.randn(n, p)
     truth = 2.0 * X[:, 0] + 1.5 * X[:, 1] * X[:, 2] - 1.0 * X[:, 3] + 0.7 * np.sin(2.0 * X[:, 4])

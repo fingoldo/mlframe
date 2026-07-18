@@ -76,6 +76,7 @@ def test_save_mlframe_model_durable_false_skips_fsync(monkeypatch, tmp_path):
     _orig_fsync = os.fsync
 
     def _spy_fsync(fd):
+        """Spy fsync."""
         fsync_calls["n"] += 1
         return _orig_fsync(fd)
 
@@ -111,6 +112,7 @@ def test_save_mlframe_model_durable_true_does_fsync(monkeypatch, tmp_path):
     _orig_fsync = os.fsync
 
     def _spy_fsync(fd):
+        """Spy fsync."""
         fsync_calls["n"] += 1
         return _orig_fsync(fd)
 
@@ -145,6 +147,7 @@ def test_save_mlframe_model_default_skips_fsync(monkeypatch, tmp_path):
     _orig_fsync = os.fsync
 
     def _spy_fsync(fd):
+        """Spy fsync."""
         fsync_calls["n"] += 1
         return _orig_fsync(fd)
 

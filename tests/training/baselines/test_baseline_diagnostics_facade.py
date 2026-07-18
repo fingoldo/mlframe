@@ -16,6 +16,7 @@ from mlframe.training.configs import BaselineDiagnosticsConfig
 
 
 def test_w12b_baseline_diagnostics_methods_rebound():
+    """W12b baseline diagnostics methods rebound."""
     cls = parent.BaselineDiagnostics
     assert cls._make_quick_model is quick_model_mod._make_quick_model
     assert cls._fit_quick_and_score is quick_model_mod._fit_quick_and_score
@@ -25,17 +26,20 @@ def test_w12b_baseline_diagnostics_methods_rebound():
 
 
 def test_w12b_baseline_diagnostics_facade_under_budget():
+    """W12b baseline diagnostics facade under budget."""
     facade_loc = sum(1 for _ in Path(parent.__file__).open(encoding="utf-8"))
     assert facade_loc < 750, f"baselines/diagnostics.py LOC={facade_loc} exceeds 750 budget"
 
 
 def test_w12b_baseline_diagnostics_class_identity_preserved():
+    """W12b baseline diagnostics class identity preserved."""
     cfg = BaselineDiagnosticsConfig(enabled=True)
     diag = parent.BaselineDiagnostics(cfg)
     assert isinstance(diag, parent.BaselineDiagnostics)
 
 
 def test_w12b_baseline_diagnostics_smoke_fit_regression():
+    """W12b baseline diagnostics smoke fit regression."""
     cfg = BaselineDiagnosticsConfig(enabled=True)
     diag = parent.BaselineDiagnostics(cfg)
     rng = np.random.default_rng(0)

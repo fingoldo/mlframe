@@ -27,6 +27,7 @@ def mock_configure(monkeypatch):
     captured = []
 
     def _stub(*args, **kwargs):
+        """Stub."""
         captured.append((args, kwargs))
         # Mirror real 7-tuple shape
         return (
@@ -55,6 +56,7 @@ def mock_configure(monkeypatch):
 
 
 def test_select_target_regression_mean_suffix(mock_configure):
+    """Select target regression mean suffix."""
     df = pd.DataFrame({"x": np.arange(10)})
     target = pd.Series(np.arange(10, dtype=float))  # mean = 4.5
     _common_params, *_ = select_target(
@@ -72,6 +74,7 @@ def test_select_target_regression_mean_suffix(mock_configure):
 
 
 def test_select_target_binary_pct_pandas(mock_configure):
+    """Select target binary pct pandas."""
     df = pd.DataFrame({"x": np.arange(100)})
     # 30% positive
     y = pd.Series([1] * 30 + [0] * 70)
@@ -86,6 +89,7 @@ def test_select_target_binary_pct_pandas(mock_configure):
 
 
 def test_select_target_binary_pct_numpy(mock_configure):
+    """Select target binary pct numpy."""
     df = pd.DataFrame({"x": np.arange(50)})
     y = np.array([1] * 10 + [0] * 40)
     select_target(
@@ -98,6 +102,7 @@ def test_select_target_binary_pct_numpy(mock_configure):
 
 
 def test_select_target_binary_pct_polars(mock_configure):
+    """Select target binary pct polars."""
     df = pd.DataFrame({"x": np.arange(20)})
     y = pl.Series("t", [1] * 5 + [0] * 15)
     select_target(
@@ -110,6 +115,7 @@ def test_select_target_binary_pct_polars(mock_configure):
 
 
 def test_select_target_binary_no_positives(mock_configure):
+    """Select target binary no positives."""
     df = pd.DataFrame({"x": np.arange(10)})
     y = pd.Series([0] * 10)
     select_target(
@@ -133,6 +139,7 @@ def test_select_target_binary_no_positives(mock_configure):
 
 
 def test_select_target_warns_on_all_zeros(mock_configure, caplog):
+    """Select target warns on all zeros."""
     import logging
 
     df = pd.DataFrame({"x": np.arange(10)})
@@ -148,6 +155,7 @@ def test_select_target_warns_on_all_zeros(mock_configure, caplog):
 
 
 def test_select_target_warns_on_all_ones(mock_configure, caplog):
+    """Select target warns on all ones."""
     import logging
 
     df = pd.DataFrame({"x": np.arange(10)})
@@ -216,6 +224,7 @@ def test_select_target_regression_no_warn(mock_configure, caplog):
 
 
 def test_select_target_rejects_unsupported_type():
+    """Select target rejects unsupported type."""
     df = pd.DataFrame({"x": [1, 2]})
     with pytest.raises(TypeError, match="np.ndarray, pd.Series, or pl.Series"):
         select_target(

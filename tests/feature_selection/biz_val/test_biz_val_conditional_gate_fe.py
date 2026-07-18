@@ -75,6 +75,7 @@ def _best_existing_mi(X: pd.DataFrame, y, cols) -> float:
 
 
 def _gate_select_target(seed, n=2000):
+    """Gate select target."""
     rng = np.random.default_rng(seed)
     a, b, c = rng.normal(0, 1, n), rng.normal(0, 1, n), rng.normal(0, 1, n)
     sel = np.where(c > 0.0, a, b)
@@ -82,6 +83,7 @@ def _gate_select_target(seed, n=2000):
 
 
 def _gate_mask_target(seed, n=2000):
+    """Gate mask target."""
     rng = np.random.default_rng(seed)
     a, c = rng.normal(0, 1, n), rng.normal(0, 1, n)
     masked = (c > 0.0).astype(float) * a
@@ -89,12 +91,14 @@ def _gate_mask_target(seed, n=2000):
 
 
 def _argmax_target(seed, n=2000):
+    """Argmax target."""
     rng = np.random.default_rng(seed)
     a, b, c = rng.normal(0, 1, n), rng.normal(0, 1, n), rng.normal(0, 1, n)
     return pd.DataFrame({"a": a, "b": b, "c": c}), np.argmax(np.stack([a, b, c], axis=1), axis=1)
 
 
 def _smooth_target(seed, n=2000):
+    """Smooth target."""
     rng = np.random.default_rng(seed)
     a, b, c = rng.normal(0, 1, n), rng.normal(0, 1, n), rng.normal(0, 1, n)
     return pd.DataFrame({"a": a, "b": b, "c": c}), ((a + 0.5 * b) > 0).astype(int)
@@ -177,5 +181,6 @@ def test_biz_val_gate_detector_fires_on_regime_target():
 
 
 def test_apply_conditional_gate_rejects_unknown_mode():
+    """Apply conditional gate rejects unknown mode."""
     with pytest.raises(ValueError):
         apply_conditional_gate(np.zeros(3), np.zeros(3), np.zeros(3), 0.0, "bogus")

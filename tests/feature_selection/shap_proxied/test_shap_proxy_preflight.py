@@ -13,6 +13,7 @@ pytest.importorskip("xgboost")
 
 
 def _additive(n=2500, seed=0):
+    """Helper that additive."""
     rng = np.random.default_rng(seed)
     inf = rng.normal(size=(n, 5))
     noise = rng.normal(size=(n, 5))
@@ -49,6 +50,7 @@ def test_preflight_corr_gate_bit_identical_under_iter25_cap():
 
 
 def _xor(n=2500, seed=0):
+    """Helper that xor."""
     rng = np.random.default_rng(seed)
     x = rng.normal(size=(n, 8))
     y = ((x[:, 0] > 0) ^ (x[:, 1] > 0)).astype(int)  # pure interaction
@@ -57,6 +59,7 @@ def _xor(n=2500, seed=0):
 
 @pytest.mark.slow
 def test_biz_val_preflight_favours_additive_flags_interaction():
+    """Biz val preflight favours additive flags interaction."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     add = ShapProxiedFS.preflight(*_additive(), classification=True, random_state=0)
@@ -75,6 +78,7 @@ def test_biz_val_preflight_favours_additive_flags_interaction():
 
 @pytest.mark.slow
 def test_biz_val_preflight_flags_redundancy_and_width():
+    """Biz val preflight flags redundancy and width."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     rng = np.random.default_rng(0)

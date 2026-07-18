@@ -47,7 +47,9 @@ def _deque_reference(capacity: int, batches: list[np.ndarray]) -> list[float]:
 
 
 class TestRingBufferMatchesDeque:
+    """Groups tests covering ring buffer matches deque."""
     def test_simple_fifo_order(self) -> None:
+        """Simple fifo order."""
         rb = _RingBuffer(5)
         rb.append(np.array([1.0, 2.0, 3.0]))
         assert rb.contiguous().tolist() == [1.0, 2.0, 3.0]
@@ -69,6 +71,7 @@ class TestRingBufferMatchesDeque:
         assert len(rb) == 3
 
     def test_empty_append_is_noop(self) -> None:
+        """Empty append is noop."""
         rb = _RingBuffer(4)
         rb.append(np.array([1.0, 2.0]))
         rb.append(np.array([]))
@@ -128,6 +131,7 @@ class _StubEstimator:
 
 
 class TestBizValueArrayReuse:
+    """Groups tests covering biz value array reuse."""
     def test_storage_and_view_arrays_reused_across_updates(self) -> None:
         """The preallocated store / view ndarrays must be the SAME objects every
         call -- the whole point of the ring buffer is that nothing is rebuilt.

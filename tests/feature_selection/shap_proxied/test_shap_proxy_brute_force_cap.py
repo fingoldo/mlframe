@@ -18,6 +18,7 @@ import pytest
 
 # ------------------------------------------------------------ helper resolvers
 def test_resolve_brute_force_max_features_default_is_28():
+    """Resolve brute force max features default is 28."""
     from mlframe.feature_selection.shap_proxied_fs import (
         _DEFAULT_BRUTE_FORCE_MAX_FEATURES,
         _resolve_brute_force_max_features,
@@ -29,6 +30,7 @@ def test_resolve_brute_force_max_features_default_is_28():
 
 
 def test_resolve_brute_force_max_features_honours_explicit_default():
+    """Resolve brute force max features honours explicit default."""
     from mlframe.feature_selection.shap_proxied_fs import _resolve_brute_force_max_features
 
     # When the cache is missing pyutilz the helper must swallow ImportError and return the passed
@@ -37,6 +39,7 @@ def test_resolve_brute_force_max_features_honours_explicit_default():
 
 
 def test_resolve_brute_force_n_sub_gate_default_is_80m():
+    """Resolve brute force n sub gate default is 80m."""
     from mlframe.feature_selection.shap_proxied_fs import (
         _DEFAULT_BRUTE_FORCE_N_SUB_GATE,
         _resolve_brute_force_n_sub_gate,
@@ -49,6 +52,7 @@ def test_resolve_brute_force_n_sub_gate_default_is_80m():
 
 # ------------------------------------------------------------ ShapProxiedFS __init__ wiring
 def test_shap_proxied_fs_default_cap_uses_module_default():
+    """Shap proxied fs default cap uses module default."""
     pytest.importorskip("xgboost")
     from mlframe.feature_selection.shap_proxied_fs import (
         _resolve_brute_force_max_features,
@@ -60,6 +64,7 @@ def test_shap_proxied_fs_default_cap_uses_module_default():
 
 
 def test_shap_proxied_fs_explicit_cap_wins():
+    """Shap proxied fs explicit cap wins."""
     pytest.importorskip("xgboost")
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -69,6 +74,7 @@ def test_shap_proxied_fs_explicit_cap_wins():
 
 # ------------------------------------------------------------ dispatcher behaviour
 def test_resolve_optimizer_bruteforce_at_n_equal_cap():
+    """Resolve optimizer bruteforce at n equal cap."""
     pytest.importorskip("xgboost")
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -78,6 +84,7 @@ def test_resolve_optimizer_bruteforce_at_n_equal_cap():
 
 
 def test_resolve_optimizer_falls_through_to_beam_when_n_exceeds_cap():
+    """Resolve optimizer falls through to beam when n exceeds cap."""
     pytest.importorskip("xgboost")
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -87,6 +94,7 @@ def test_resolve_optimizer_falls_through_to_beam_when_n_exceeds_cap():
 
 
 def test_resolve_optimizer_falls_through_when_n_sub_exceeds_gate():
+    """Resolve optimizer falls through when n sub exceeds gate."""
     pytest.importorskip("xgboost")
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -98,6 +106,7 @@ def test_resolve_optimizer_falls_through_when_n_sub_exceeds_gate():
 
 
 def test_resolve_optimizer_passthrough_when_not_auto():
+    """Resolve optimizer passthrough when not auto."""
     pytest.importorskip("xgboost")
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -113,6 +122,7 @@ def test_resolve_optimizer_passthrough_when_not_auto():
 # dispatcher truth table so a future cap raise that does NOT also adjust the gate is caught.
 @pytest.mark.parametrize("n", [22, 24, 26])
 def test_resolve_optimizer_default_max_features_dispatches_bruteforce_up_to_26(n):
+    """Resolve optimizer default max features dispatches bruteforce up to 26."""
     pytest.importorskip("xgboost")
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -124,6 +134,7 @@ def test_resolve_optimizer_default_max_features_dispatches_bruteforce_up_to_26(n
 
 @pytest.mark.parametrize("n", [27, 28])
 def test_resolve_optimizer_default_max_features_falls_to_beam_at_27_28(n):
+    """Resolve optimizer default max features falls to beam at 27 28."""
     pytest.importorskip("xgboost")
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -135,6 +146,7 @@ def test_resolve_optimizer_default_max_features_falls_to_beam_at_27_28(n):
 
 
 def test_resolve_optimizer_explicit_max_features_unlocks_n28_bruteforce():
+    """Resolve optimizer explicit max features unlocks n28 bruteforce."""
     pytest.importorskip("xgboost")
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -162,6 +174,7 @@ def test_resolve_optimizer_explicit_max_features_unlocks_n28_bruteforce():
 # prescreen pool past 28 lets noise features into beam's input, occasionally pushing the chosen
 # subset off the truly informative one when the SHAP ranking is noisy. The default stays at 28.
 def test_iter58_default_cap_is_28_per_beam_width_sweep():
+    """Iter58 default cap is 28 per beam width sweep."""
     from mlframe.feature_selection.shap_proxied_fs import _DEFAULT_BRUTE_FORCE_MAX_FEATURES
 
     # If this default ever changes, re-run the iter58 sweep at the new candidate value PLUS at 28

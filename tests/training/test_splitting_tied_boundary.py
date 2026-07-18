@@ -21,6 +21,7 @@ from mlframe.training.splitting import make_train_test_split
 
 
 def _panel_ts(n_ticks: int, per_tick: int) -> pd.Series:
+    """Panel ts."""
     vals = np.repeat(np.arange(n_ticks), per_tick)
     return pd.Series(pd.to_datetime("2020-01-01") + pd.to_timedelta(vals, "D"))
 
@@ -28,6 +29,7 @@ def _panel_ts(n_ticks: int, per_tick: int) -> pd.Series:
 def test_no_timestamp_shared_across_train_val_test_forward():
     # 7 rows per tick, 33 ticks -> n=231; default cut int(231*0.2)=46 lands
     # mid-way through a tied block pre-fix.
+    """No timestamp shared across train val test forward."""
     ts = _panel_ts(33, 7)
     df = pd.DataFrame({"x": np.arange(len(ts))})
     tr, va, te, *_ = make_train_test_split(
@@ -50,6 +52,7 @@ def test_no_timestamp_shared_across_train_val_test_forward():
 
 
 def test_no_timestamp_shared_backward_placement():
+    """No timestamp shared backward placement."""
     ts = _panel_ts(33, 7)
     df = pd.DataFrame({"x": np.arange(len(ts))})
     tr, va, te, *_ = make_train_test_split(
@@ -73,6 +76,7 @@ def test_no_timestamp_shared_backward_placement():
 def test_distinct_timestamps_unaffected():
     # Sanity: when every row has a distinct timestamp, the de-leak is a no-op
     # and sizes match the plain sequential split.
+    """Distinct timestamps unaffected."""
     n = 200
     ts = pd.Series(pd.date_range("2020-01-01", periods=n, freq="h"))
     df = pd.DataFrame({"x": np.arange(n)})

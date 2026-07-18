@@ -31,6 +31,7 @@ import mlframe.feature_selection.filters.batch_pair_mi_gpu as bpmg
 
 
 def _build_pair_inputs(n_samples, n_cols, nbins_val, n_classes_y, seed=0):
+    """Build pair inputs."""
     rng = np.random.default_rng(seed)
     cols = [rng.integers(0, nbins_val, size=n_samples) for _ in range(n_cols)]
     data = np.column_stack(cols).astype(np.int32)
@@ -60,6 +61,7 @@ def test_hist_kernel_shared_fits_budget_rejects_oversized_histogram():
 
 @pytest.mark.skipif(not bpmg._CUDA_AVAIL, reason="numba.cuda not available on this host")
 def test_shared_kernel_matches_reference_at_production_like_shape():
+    """Shared kernel matches reference at production like shape."""
     data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(
         n_samples=8000,
         n_cols=100,

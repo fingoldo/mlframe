@@ -22,6 +22,7 @@ def _make_components(rng, n, good_noise, bad_noise, n_bad=2):
 
 
 def test_weights_simplex():
+    """Weights simplex."""
     rng = np.random.default_rng(0)
     P, y = _make_components(rng, 500, 0.2, 2.0)
     w = pseudo_bma_weights(P, y)
@@ -31,6 +32,7 @@ def test_weights_simplex():
 
 
 def test_better_component_gets_largest_weight():
+    """Better component gets largest weight."""
     rng = np.random.default_rng(1)
     P, y = _make_components(rng, 800, 0.15, 2.5)
     w = pseudo_bma_weights(P, y)
@@ -39,6 +41,7 @@ def test_better_component_gets_largest_weight():
 
 
 def test_identical_components_split_evenly():
+    """Identical components split evenly."""
     rng = np.random.default_rng(2)
     x = rng.normal(size=600)
     y = x + rng.normal(scale=0.5, size=600)
@@ -49,6 +52,7 @@ def test_identical_components_split_evenly():
 
 
 def test_single_component_and_degenerate():
+    """Single component and degenerate."""
     rng = np.random.default_rng(3)
     y = rng.normal(size=50)
     # Single component.
@@ -64,6 +68,7 @@ def test_single_component_and_degenerate():
 
 
 def test_bad_inputs_raise():
+    """Bad inputs raise."""
     y = np.zeros(5)
     with pytest.raises(ValueError):
         pseudo_bma_weights(np.zeros(5), y)  # 1-D preds
@@ -76,6 +81,7 @@ def test_bad_inputs_raise():
 
 
 def test_quantile_pinball_scoring():
+    """Quantile pinball scoring."""
     rng = np.random.default_rng(4)
     n = 600
     y = rng.normal(size=n)
@@ -89,6 +95,7 @@ def test_quantile_pinball_scoring():
 
 
 def test_blend_matches_manual():
+    """Blend matches manual."""
     P = np.array([[1.0, 3.0], [2.0, 4.0]])
     w = np.array([0.25, 0.75])
     assert np.allclose(blend(P, w), P @ w)
@@ -114,6 +121,7 @@ def test_bb_draws_stabilise_weight_variance():
 
 
 def _rmse(a, b):
+    """Rmse."""
     return float(np.sqrt(np.mean((a - b) ** 2)))
 
 
@@ -156,6 +164,7 @@ def test_biz_val_bb_no_worse_than_point_and_more_stable():
         # Two NEAR-TIED good components (same expected skill) + one bad: point pseudo-BMA's weight on component 0 swings
         # seed-to-seed on estimation noise (winner-take-all via exp on a tiny, noisy elpd gap), so point weights are
         # UNSTABLE -- exactly the regime where BB (averaging elpd over Dirichlet-reweighted draws) reduces the swing.
+        """Gen."""
         r = np.random.default_rng(seed)
         x = r.normal(size=n)
         y = 1.5 * x + 0.2

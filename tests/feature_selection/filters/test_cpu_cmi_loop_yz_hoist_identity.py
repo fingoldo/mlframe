@@ -32,6 +32,7 @@ def _reference(fd, cand, y, z, fnb):
 @pytest.mark.parametrize("seed", range(10))
 @pytest.mark.parametrize("p", [1, 5, 31, 40])
 def test_hoist_bit_identical(seed, p):
+    """Hoist bit identical."""
     rng = np.random.default_rng(seed * 100 + p)
     n = int(rng.integers(300, 4000))
     ncols = p + 2

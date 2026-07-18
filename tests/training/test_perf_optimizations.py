@@ -30,11 +30,14 @@ from mlframe.training.utils import (
 # 1. Adaptive clean_ram helpers (pure-function unit tests)
 # ======================================================================
 class TestAdaptiveCleanRam:
+    """Groups tests covering adaptive clean ram."""
     def test_estimate_df_size_polars(self):
+        """Estimate df size polars."""
         df = pl.DataFrame({"a": np.arange(10_000), "b": np.arange(10_000).astype(float)})
         assert estimate_df_size_mb(df) > 0
 
     def test_estimate_df_size_pandas(self):
+        """Estimate df size pandas."""
         df = pd.DataFrame({"a": np.arange(10_000), "b": np.arange(10_000).astype(float)})
         assert estimate_df_size_mb(df) > 0
 
@@ -48,10 +51,12 @@ class TestAdaptiveCleanRam:
         import psutil
 
         class _FakeMem:
+            """Groups tests covering fake mem."""
             def __init__(self, rss):
                 self.rss = rss
 
             def memory_info(self):
+                """Memory info."""
                 return self
 
         monkeypatch.setattr(psutil, "Process", lambda: _FakeMem(1000 * 1024**2))
@@ -63,7 +68,9 @@ class TestAdaptiveCleanRam:
         import psutil
 
         class _FakeMem:
+            """Groups tests covering fake mem."""
             def memory_info(self):
+                """Memory info."""
                 self.rss = 2000 * 1024**2
                 return self
 
@@ -76,7 +83,9 @@ class TestAdaptiveCleanRam:
         import psutil
 
         class _FakeMem:
+            """Groups tests covering fake mem."""
             def memory_info(self):
+                """Memory info."""
                 self.rss = 1000 * 1024**2
                 return self
 
@@ -89,6 +98,7 @@ class TestAdaptiveCleanRam:
         fired = {"n": 0}
 
         def _fake_clean(verbose=False):
+            """Fake clean."""
             fired["n"] += 1
 
         # ``maybe_clean_ram_and_gpu`` calls ``should_clean_ram`` /
@@ -106,6 +116,7 @@ class TestAdaptiveCleanRam:
         assert new_base == 1234.5
 
     def test_maybe_clean_ram_skip_preserves_baseline(self, monkeypatch):
+        """Maybe clean ram skip preserves baseline."""
         fired = {"n": 0}
         import mlframe.training._ram_helpers as rh
 
@@ -120,6 +131,7 @@ class TestAdaptiveCleanRam:
 # 2. Pandas conversion skip when all models are Polars-native
 # ======================================================================
 def _make_simple_polars_df(n=200, n_cat=5):
+    """Make simple polars df."""
     rng = np.random.default_rng(0)
     return pl.DataFrame(
         {
@@ -134,6 +146,7 @@ CPU_BEHAVIOR = {"prefer_gpu_configs": False, "prefer_calibrated_classifiers": Fa
 
 
 class TestSkipPandasConversion:
+    """Groups tests covering skip pandas conversion."""
     def test_no_pandas_conversion_when_all_polars_native(self, temp_data_dir, common_init_params, monkeypatch):
         """CB-only run on Polars input must never call _convert_dfs_to_pandas."""
         pytest.importorskip("catboost")
@@ -145,6 +158,7 @@ class TestSkipPandasConversion:
         orig = core_mod._convert_dfs_to_pandas
 
         def _spy(*a, **kw):
+            """Spy."""
             counter["n"] += 1
             return orig(*a, **kw)
 
@@ -192,10 +206,12 @@ class TestSkipPandasConversion:
         orig_upfront = core_mod._convert_dfs_to_pandas
 
         def _lazy_spy(*a, **kw):
+            """Lazy spy."""
             counter["lazy"] += 1
             return orig_lazy(*a, **kw)
 
         def _upfront_spy(*a, **kw):
+            """Upfront spy."""
             counter["upfront"] += 1
             return orig_upfront(*a, **kw)
 
@@ -227,8 +243,10 @@ class TestSkipPandasConversion:
 # 3. showcase gated to verbose>=2
 # ======================================================================
 class TestShowcaseVerboseGate:
+    """Groups tests covering showcase verbose gate."""
     def test_showcase_hidden_at_verbose_1(self, monkeypatch):
 
+        """Showcase hidden at verbose 1."""
         called = {"n": 0}
         monkeypatch.setattr(
             "mlframe.training.extractors.FeaturesAndTargetsExtractor.show_processed_data",
@@ -238,6 +256,7 @@ class TestShowcaseVerboseGate:
         # Can't easily run full pipeline; verify verbose attribute behavior via direct guard.
         # The extractor.py:440-442 guard: `if self.verbose >= 2`.
         class _FTE:
+            """Groups tests covering f t e."""
             verbose = 1
 
         inst = _FTE()
@@ -246,7 +265,9 @@ class TestShowcaseVerboseGate:
         assert called["n"] == 0
 
     def test_showcase_shown_at_verbose_2(self):
+        """Showcase shown at verbose 2."""
         class _FTE:
+            """Groups tests covering f t e."""
             verbose = 2
 
         inst = _FTE()
@@ -258,6 +279,7 @@ class TestShowcaseVerboseGate:
 # 4. plot_file preservation (regression)
 # ======================================================================
 class TestPlotFilePreserved:
+    """Groups tests covering plot file preserved."""
     def test_plot_saved_when_data_dir_set(self, temp_data_dir, common_init_params):
         """show_perf_chart=False + data_dir set → plot still written (user opt-in via data_dir)."""
         pytest.importorskip("catboost")
@@ -376,6 +398,7 @@ class TestFeatureSelectorsWithTextEmbedding:
     """MRMR/RFECV must not crash when text_features or embedding_features are declared."""
 
     def _make_df(self, n=200):
+        """Make df."""
         rng = np.random.default_rng(7)
         return pl.DataFrame(
             {
@@ -423,6 +446,7 @@ class TestFeatureSelectorsWithTextEmbedding:
         assert TargetTypes.BINARY_CLASSIFICATION in models
 
     def test_mrmr_with_embedding_column(self, temp_data_dir, common_init_params):
+        """Mrmr with embedding column."""
         pytest.importorskip("catboost")
         from .shared import SimpleFeaturesAndTargetsExtractor
         from mlframe.training.core import train_mlframe_models_suite
@@ -459,6 +483,7 @@ class TestParallelMetricsEquivalence:
     """If evaluation uses ThreadPoolExecutor, it MUST produce same numbers as sequential."""
 
     def test_parallel_val_test_metrics_equivalent(self, temp_data_dir, common_init_params):
+        """Parallel val test metrics equivalent."""
         pytest.importorskip("catboost")
         from .shared import SimpleFeaturesAndTargetsExtractor
         from mlframe.training.core import train_mlframe_models_suite

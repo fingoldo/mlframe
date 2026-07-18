@@ -62,6 +62,7 @@ KNOWN_XFAIL_RULES: list[tuple[Callable[[FuzzCombo], bool], str]] = [
 
 
 def xfail_reason(combo: FuzzCombo) -> str | None:
+    """Xfail reason."""
     for predicate, reason in KNOWN_XFAIL_RULES:
         if predicate(combo):
             return reason

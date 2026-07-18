@@ -436,7 +436,16 @@ def _eval_one_transform_impl(
     # ALL train rows on every (base, transform) candidate; the screen sample is
     # already gathered for the MI-gain scoring right below this block.
     try:
-        _valid_screen_probe = transform.domain_check(y_screen, base_screen)
+        _valid_screen_probe = np.asarray(transform.domain_check(y_screen, base_screen), dtype=bool)
+        # Mirror the train-side fitted-domain refinement (see ``_dcf`` above): the pre-fit
+        # ``domain_check`` cannot see learned params, so a transform whose fitted-domain hook
+        # narrows further (not just NaN-producing rows -- any refined validity rule) must have
+        # that SAME narrowing applied to the screen sample the probe reads, or the T_std/y_std
+        # ratio is computed over rows the fit itself does not consider valid.
+        if _dcf is not None and isinstance(fitted_params, dict):
+            _valid_screen_fitted = np.asarray(_dcf(y_screen, base_screen, fitted_params), dtype=bool)
+            if _valid_screen_fitted.shape == _valid_screen_probe.shape:
+                _valid_screen_probe = _valid_screen_probe & _valid_screen_fitted
         _y_screen_valid = y_screen[_valid_screen_probe].astype(np.float64)
         _base_screen_valid = base_screen[_valid_screen_probe].astype(np.float64)
         _t_screen_full = transform.forward(
@@ -585,6 +594,7 @@ def _eval_one_transform_impl(
         _y_screen_valid = y_screen[valid_screen]
         _x_pb_valid_const = _x_prebinned[valid_screen] if _x_prebinned is not None else None
         _boot_fail_count = 0
+        failures: list = []  # per-replicate failure messages, surfaced in the returned entry below
         for b in range(bootstrap_n):
             idx_b = boot_rng.integers(0, n_screen, size=n_screen)
             t_boot = t_screen[idx_b]
@@ -622,6 +632,7 @@ def _eval_one_transform_impl(
                 # so operators see when the CI is computed over a reduced bootstrap sample. The `>= bootstrap_n // 2` guard below only
                 # protects against extreme under-sampling, not the partial-bias case.
                 _boot_fail_count += 1
+                failures.append(f"replicate {b}: {type(_e_boot).__name__}: {_e_boot}")
                 if _boot_fail_count == 1:
                     import logging as _logging
                     _logging.getLogger(__name__).warning(
@@ -682,5 +693,7 @@ def _eval_one_transform_impl(
         "reason": "",
         "mi_gain_lcb": float(mi_gain_lcb),
         "bootstrap_p_value": float(bootstrap_p_value),
+        "bootstrap_failure_count": int(_boot_fail_count) if bootstrap_n > 0 else 0,
+        "failures": failures if bootstrap_n > 0 else [],
     })
     return _local

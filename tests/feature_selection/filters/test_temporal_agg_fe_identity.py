@@ -29,6 +29,7 @@ from mlframe.feature_selection.filters import _temporal_agg_fe as M
 
 
 def _make(n=3000, ne=120, seed=7):
+    """Helper that make."""
     rng = np.random.default_rng(seed)
     df = pd.DataFrame(
         {
@@ -62,6 +63,7 @@ def _reference_history_build(df, ent_cols, val_col, tcol):
 
 
 def test_group_row_slices_matches_mask_history():
+    """Group row slices matches mask history."""
     df = _make()
     ref = _reference_history_build(df, ["ent"], "val", "t")
     _, recipes = M.generate_expanding_agg_features(df, ["ent"], ["val"], "t", stats=["mean"])
@@ -119,6 +121,7 @@ def _reference_expanding_replay(X_test, recipe_extra):
 
 @pytest.mark.parametrize("stat,tol", [("min", 0.0), ("max", 0.0), ("count", 0.0), ("mean", 1e-9), ("std", 1e-9)])
 def test_expanding_replay_identity(stat, tol):
+    """Expanding replay identity."""
     df = _make(seed=1)
     _, recipes = M.generate_expanding_agg_features(df, ["ent"], ["val"], "t", stats=[stat])
     name = M.engineered_name_expanding("val", "ent", stat)
@@ -155,6 +158,7 @@ def test_entity_key_series_matches_canonical_token(col):
 
 
 def test_entity_key_series_multicol_matches_canonical_token():
+    """Entity key series multicol matches canonical token."""
     from mlframe.feature_selection.filters._internals import canonical_group_token
 
     X = pd.DataFrame({"a": pd.Series([1, 2, 3], dtype="int64"), "b": ["p", "q", "r"]})

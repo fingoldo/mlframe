@@ -127,6 +127,7 @@ class TestStoreAveragedCVScores:
         """Test basic score averaging."""
 
         class MockSelf:
+            """Groups tests covering MockSelf."""
             mean_perf_weight = 1.0
             std_perf_weight = 0.1
 
@@ -149,6 +150,7 @@ class TestStoreAveragedCVScores:
         """Test that averaging has expected properties."""
 
         class MockSelf:
+            """Groups tests covering MockSelf."""
             mean_perf_weight = 1.0
             std_perf_weight = 0.0
 
@@ -177,13 +179,16 @@ class TestStoreAveragedCVScoresNaNWarning:
     """
 
     def _dummy_self(self):
+        """Dummy self."""
         class MockSelf:
+            """Groups tests covering MockSelf."""
             mean_perf_weight = 1.0
             std_perf_weight = 0.0
 
         return MockSelf()
 
     def test_nan_score_emits_warning(self, caplog):
+        """Nan score emits warning."""
         import logging
 
         with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers"):

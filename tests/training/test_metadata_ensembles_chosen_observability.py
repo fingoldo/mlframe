@@ -123,6 +123,7 @@ def test_read_metric_returns_none_on_inf_or_nan():
 
 
 def test_read_metric_returns_none_for_missing_split():
+    """Read metric returns none for missing split."""
     from mlframe.training.core._ensemble_chooser import _read_ensemble_metric
 
     ens = _FakeEnsResult({"oof": {"integral_error": 0.05}})

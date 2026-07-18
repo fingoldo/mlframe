@@ -756,7 +756,10 @@ def run_cat_interaction_step(
     # value (3.7 -> 3) instead of binning it through the fit-time quantile edges -> a silent train/serve skew.
     if numeric_edges_by_name:
         for _ri, _r in enumerate(state.recipes):
-            _edges_for_recipe = {_src: numeric_edges_by_name[_src] for _src in (getattr(_r, "src_names", ()) or ()) if _src in numeric_edges_by_name}
+            _r_src_names = getattr(_r, "src_names", ())
+            if _r_src_names is None:
+                _r_src_names = ()
+            _edges_for_recipe = {_src: numeric_edges_by_name[_src] for _src in _r_src_names if _src in numeric_edges_by_name}
             if _edges_for_recipe:
                 state.recipes[_ri] = _r.with_extra(src_bin_edges=_edges_for_recipe)
 

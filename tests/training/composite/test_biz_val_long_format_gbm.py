@@ -17,6 +17,7 @@ from mlframe.training.composite import melt_to_long_gbm_features
 
 
 def test_melt_to_long_gbm_features_output_shape_and_columns():
+    """melt_to_long_gbm_features returns one row per input row and one column per requested agg_stat."""
     rng = np.random.default_rng(0)
     n, d = 100, 5
     X = pd.DataFrame(rng.normal(size=(n, d)), columns=[f"f{j}" for j in range(d)])
@@ -47,6 +48,7 @@ def test_melt_to_long_gbm_features_count_column_matches_value_frequency():
 
 
 def test_melt_to_long_gbm_features_deterministic_given_fixed_seed():
+    """Two calls with the same random_state produce bit-identical melt_to_long_gbm_features output."""
     rng = np.random.default_rng(1)
     n, d = 80, 4
     X = pd.DataFrame(rng.normal(size=(n, d)), columns=[f"f{j}" for j in range(d)])

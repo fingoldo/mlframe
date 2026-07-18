@@ -12,6 +12,7 @@ import pytest
 
 
 def test_coalition_margin_is_base_plus_selected_sum():
+    """Coalition margin is base plus selected sum."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import coalition_margin
 
     rng = np.random.default_rng(0)
@@ -56,6 +57,7 @@ def test_coalition_margin_T_matches_row_major():
 
 
 def test_score_margin_matches_numpy_references():
+    """Score margin matches numpy references."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import score_margin
 
     rng = np.random.default_rng(1)
@@ -103,10 +105,12 @@ def test_score_margin_auto_routes_by_row_count(monkeypatch):
     real_serial, real_parallel = O.score_margin, O.score_margin_parallel
 
     def spy_serial(m, y, c):
+        """Spy serial."""
         calls["serial"] += 1
         return real_serial(m, y, c)
 
     def spy_parallel(m, y, c):
+        """Spy parallel."""
         calls["parallel"] += 1
         return real_parallel(m, y, c)
 
@@ -125,6 +129,7 @@ def test_score_margin_auto_routes_by_row_count(monkeypatch):
 
 
 def test_proxy_loss_auc_is_one_minus_auc():
+    """Proxy loss auc is one minus auc."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import proxy_loss
 
     rng = np.random.default_rng(2)
@@ -137,6 +142,7 @@ def test_proxy_loss_auc_is_one_minus_auc():
 
 
 def test_resolve_metric_rejects_cross_task():
+    """Resolve metric rejects cross task."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import resolve_metric
 
     assert resolve_metric(True, None) == "brier"

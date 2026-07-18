@@ -22,6 +22,7 @@ lgb = pytest.importorskip("lightgbm")
 
 # ---- M7 multiclass + calibration -----------------------------------------
 def _three_class_data(seed=0, n=6000):
+    """Three class data."""
     rng = np.random.default_rng(seed)
     s = rng.normal(0.0, 1.0, (n, 2))
     a, b = rng.normal(0, 1, n), rng.normal(0, 1, n)
@@ -34,7 +35,9 @@ def _three_class_data(seed=0, n=6000):
 
 
 class TestM7Multiclass:
+    """Groups tests covering m7 multiclass."""
     def test_biz_multiclass_residual_beats_base(self) -> None:
+        """Biz multiclass residual beats base."""
         X, y = _three_class_data()
         tr, te = slice(0, 4000), slice(4000, None)
         base = LogisticRegression(max_iter=1000).fit(X.iloc[tr], y[tr])
@@ -46,6 +49,7 @@ class TestM7Multiclass:
         assert acc_c >= acc_b + 0.02, f"composite {acc_c:.3f} vs base {acc_b:.3f}"
 
     def test_multiclass_proba_shape_and_normalisation(self) -> None:
+        """Multiclass proba shape and normalisation."""
         X, y = _three_class_data(n=2000)
         est = CompositeClassificationEstimator(
             base_estimator=lgb.LGBMClassifier(n_estimators=50, verbose=-1),
@@ -56,6 +60,7 @@ class TestM7Multiclass:
         assert set(np.unique(est.predict(X))).issubset({0, 1, 2})
 
     def test_calibration_report_ece(self) -> None:
+        """Calibration report ece."""
         X, y = _three_class_data(n=3000)
         est = CompositeClassificationEstimator(
             base_estimator=lgb.LGBMClassifier(n_estimators=80, verbose=-1),
@@ -71,13 +76,16 @@ class _HeteroQuantileInner(BaseEstimator, RegressorMixin):
     """Quantile inner with input-dependent spread, for CQR testing."""
 
     def fit(self, X, y, **kw):
+        """Fit."""
         self.n_features_in_ = X.shape[1]
         return self
 
     def predict(self, X):
+        """Predict."""
         return np.asarray(X)[:, 0]
 
     def predict_quantile(self, X, alpha):
+        """Predict quantile."""
         Xa = np.asarray(X)
         mu, sig = Xa[:, 0], 0.3 + np.abs(Xa[:, 1])
         al = np.atleast_1d(alpha)
@@ -86,6 +94,7 @@ class _HeteroQuantileInner(BaseEstimator, RegressorMixin):
 
 
 def _hetero_data(seed=1, n=4000):
+    """Hetero data."""
     rng = np.random.default_rng(seed)
     x0, x1 = rng.normal(0, 1, n), rng.normal(0, 1, n)
     y = x0 + (0.3 + np.abs(x1)) * rng.normal(0, 1, n)
@@ -93,7 +102,9 @@ def _hetero_data(seed=1, n=4000):
 
 
 class TestM8CQR:
+    """Groups tests covering m8 c q r."""
     def test_cqr_width_is_adaptive_unlike_constant(self) -> None:
+        """Cqr width is adaptive unlike constant."""
         X, y, spread = _hetero_data()
         est = CompositeTargetEstimator(
             base_estimator=_HeteroQuantileInner(),
@@ -111,6 +122,7 @@ class TestM8CQR:
         assert corr_cqr > 0.8, f"CQR width must track spread (corr={corr_cqr:.2f})"
 
     def test_cqr_marginal_coverage(self) -> None:
+        """Cqr marginal coverage."""
         X, y, _ = _hetero_data(seed=2)
         est = CompositeTargetEstimator(
             base_estimator=_HeteroQuantileInner(),
@@ -123,6 +135,7 @@ class TestM8CQR:
         assert cov >= 0.86, f"CQR under-covered: {cov:.3f}"
 
     def test_cqr_uncalibrated_raises(self) -> None:
+        """Cqr uncalibrated raises."""
         X, y, _ = _hetero_data(n=500)
         est = CompositeTargetEstimator(
             base_estimator=_HeteroQuantileInner(),

@@ -186,6 +186,7 @@ def test_t10_discrete_base_caps_at_cardinality():
 
 
 def _pandas_ref(arr: np.ndarray, k: int) -> np.ndarray:
+    """Pandas ref."""
     import pandas as pd
 
     out = pd.Series(arr).rolling(window=k, center=True, min_periods=1).median().to_numpy()

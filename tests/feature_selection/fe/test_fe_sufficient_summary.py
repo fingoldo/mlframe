@@ -42,6 +42,7 @@ def _stack(*arrays):
 
 
 def _call(data, y_cont, target_col_idx, selected_cols_idx, selected_continuous, raw_cols_idx, cols_names, **kw):
+    """Helper that call."""
     nbins = np.full(data.shape[1], 10, dtype=np.int64)
     return sufficient_summary_reached(
         data=data,
@@ -268,6 +269,7 @@ def test_adversarial_i_nonlinear_leftover_linear_underfits_MI_still_catches():
 # DEGENERATE-INPUT guards -- never skip when sufficiency cannot be proven.
 # =====================================================================================
 def test_degenerate_no_raw_pool_does_not_stop():
+    """Degenerate no raw pool does not stop."""
     rng = np.random.default_rng(SEED)
     a = rng.normal(size=N)
     y = a + 0.05 * rng.normal(size=N)
@@ -277,6 +279,7 @@ def test_degenerate_no_raw_pool_does_not_stop():
 
 
 def test_degenerate_constant_target_does_not_stop():
+    """Degenerate constant target does not stop."""
     a = np.linspace(0, 1, N)
     y = np.zeros(N)
     data = _stack(a, np.arange(N))
@@ -285,5 +288,6 @@ def test_degenerate_constant_target_does_not_stop():
 
 
 def test_verdict_dataclass_default_is_no_stop():
+    """Verdict dataclass default is no stop."""
     v = SufficientSummaryVerdict()
     assert v.reached is False

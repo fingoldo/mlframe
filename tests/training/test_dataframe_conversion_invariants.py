@@ -1,5 +1,3 @@
-from mlframe.training import OutputConfig, PreprocessingConfig
-
 """
 Structural invariant tests — evergreen guards against the *class* of bugs
 that surfaced in the 2026-04-23 prod log review.
@@ -32,6 +30,9 @@ violate in order to re-introduce the same family of bugs:
 Adding a new strategy or convert-bridge code should either keep all of these
 green or update the invariant with a clear comment explaining why.
 """
+
+from mlframe.training import OutputConfig, PreprocessingConfig
+
 
 import warnings
 from collections import defaultdict
@@ -132,6 +133,7 @@ class TestNoDuplicateConversion:
     """
 
     def test_mixed_suite_converts_each_polars_df_at_most_once(self, tmp_path):
+        """Mixed suite converts each polars df at most once."""
         import mlframe.training.core as mf_core
         import mlframe.training.utils as mf_utils
         from mlframe.training.configs import TrainingBehaviorConfig
@@ -178,6 +180,7 @@ class TestNoDuplicateConversion:
         per_input_size = {}
 
         def _tracking(df, *args, **kwargs):
+            """Tracking."""
             if isinstance(df, pl.DataFrame):
                 per_input_id[id(df)] += 1
                 per_input_size[id(df)] = df.shape[0]
@@ -256,6 +259,7 @@ class TestBridgeNoObjectDtypes:
     """
 
     def test_bridge_produces_no_object_dtype_for_plain_polars_schemas(self):
+        """Bridge produces no object dtype for plain polars schemas."""
         from mlframe.training.utils import get_pandas_view_of_polars_df
 
         # Property-based via hypothesis only here (not at module scope) —
@@ -301,6 +305,7 @@ class TestBridgeNoObjectDtypes:
             suppress_health_check=[HealthCheck.too_slow],
         )
         def _runner(n_rows, schema_pick, null_frac):
+            """Runner."""
             cols = {}
             for idx, pick in enumerate(schema_pick):
                 name, dtype, builder = _DTYPE_BUILDERS[pick]
@@ -360,6 +365,7 @@ class TestEnsembleMethodsEdgeCases:
         case_name,
         preds,
     ):
+        """Ensemble method is warning free finite and in range."""
         from mlframe.models.ensembling import ensemble_probabilistic_predictions
 
         pred_arrays = [np.asarray(p, dtype=np.float64).reshape(-1, 1) for p in preds]
@@ -451,6 +457,7 @@ class TestTrainerPolarsContract:
         return mapping.get(name, name.capitalize())
 
     def test_all_non_polars_native_strategies_raise_on_polars_fit(self):
+        """All non polars native strategies raise on polars fit."""
         from mlframe.training.strategies import MODEL_STRATEGIES
         from mlframe.training.trainer import _train_model_with_fallback
 
@@ -474,6 +481,7 @@ class TestTrainerPolarsContract:
             model_type_name = self._strategy_model_type_name(strategy_name)
 
             class _FakeModel:
+                """Groups tests covering fake model."""
                 pass
 
             _FakeModel.__name__ = model_type_name

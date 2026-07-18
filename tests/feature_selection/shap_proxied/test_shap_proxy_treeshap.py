@@ -22,6 +22,7 @@ pytest.importorskip("numba")
 
 
 def _fit_xgb(X, y, *, classification, n_estimators=40, max_depth=5, seed=0):
+    """Fit xgb."""
     from xgboost import XGBClassifier, XGBRegressor
 
     params = dict(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.2, random_state=seed, tree_method="hist")
@@ -144,6 +145,7 @@ def test_dispatcher_phi_parity_through_compute_shap_matrix():
 
 
 def _gpu_treeshap_available():
+    """Gpu treeshap available."""
     try:
         from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu import gpu_treeshap_available
 

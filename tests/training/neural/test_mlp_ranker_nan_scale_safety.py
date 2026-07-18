@@ -21,10 +21,12 @@ pytest.importorskip("pytorch_lightning")
 
 @pytest.fixture
 def rng():
+    """Rng."""
     return np.random.default_rng(20260521)
 
 
 def _make_data(rng, n_rows=300, n_features=8, n_queries=30, nan_frac=0.0, scale_range: tuple[float, float] | None = None):
+    """Make data."""
     X = rng.standard_normal((n_rows, n_features)).astype(np.float32)
     if scale_range is not None:
         # Per-column magnitude spread; mimics raw tabular features
@@ -44,6 +46,7 @@ def _make_data(rng, n_rows=300, n_features=8, n_queries=30, nan_frac=0.0, scale_
 
 
 def test_fit_with_nan_input_does_not_crash(rng):
+    """Fit with nan input does not crash."""
     from mlframe.training.neural.ranker import MLPRanker
 
     X, y, g = _make_data(rng, nan_frac=0.1)
@@ -54,6 +57,7 @@ def test_fit_with_nan_input_does_not_crash(rng):
 
 
 def test_imputer_uses_train_means_not_inf(rng):
+    """Imputer uses train means not inf."""
     from mlframe.training.neural.ranker import MLPRanker
 
     X, y, g = _make_data(rng, nan_frac=0.05)
@@ -64,6 +68,7 @@ def test_imputer_uses_train_means_not_inf(rng):
 
 
 def test_inf_input_also_imputed(rng):
+    """Inf input also imputed."""
     from mlframe.training.neural.ranker import MLPRanker
 
     X, y, g = _make_data(rng)
@@ -76,6 +81,7 @@ def test_inf_input_also_imputed(rng):
 
 
 def test_all_nan_column_falls_back_to_zero(rng):
+    """All nan column falls back to zero."""
     from mlframe.training.neural.ranker import MLPRanker
 
     X, y, g = _make_data(rng)
@@ -89,6 +95,7 @@ def test_all_nan_column_falls_back_to_zero(rng):
 
 
 def test_imputer_does_not_mutate_caller_buffer(rng):
+    """Imputer does not mutate caller buffer."""
     from mlframe.training.neural.ranker import MLPRanker
 
     X, y, g = _make_data(rng, nan_frac=0.1)
@@ -100,6 +107,7 @@ def test_imputer_does_not_mutate_caller_buffer(rng):
 
 
 def test_scaler_normalises_disparate_magnitude_features(rng):
+    """Scaler normalises disparate magnitude features."""
     from mlframe.training.neural.ranker import MLPRanker
 
     # Feature 0 in [0, 1], feature 1 in [1e4, 1e6] — without scaling AdamW
@@ -114,6 +122,7 @@ def test_scaler_normalises_disparate_magnitude_features(rng):
 
 
 def test_constant_column_does_not_break_scaler(rng):
+    """Constant column does not break scaler."""
     from mlframe.training.neural.ranker import MLPRanker
 
     X, y, g = _make_data(rng)
@@ -136,6 +145,7 @@ def test_val_loss_not_nan_with_dirty_input(rng):
     orig_vs = MLPRankerLightningModule.validation_step
 
     def _spy(self, batch, batch_idx):
+        """Spy."""
         out = orig_vs(self, batch, batch_idx)
         if batch_idx == 0:
             losses.append(float(out))

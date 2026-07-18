@@ -29,6 +29,7 @@ from mlframe.training.neural.flat import generate_mlp
 
 
 def _make_module() -> MLPTorchModel:
+    """Make module."""
     network = generate_mlp(
         num_features=4,
         num_classes=1,
@@ -92,16 +93,19 @@ def test_predict_step_routes_through_compile_then_cuda_graph_then_eager(monkeypa
     x = torch.randn(2, 4)
 
     def fake_compile(self, t):  # type: ignore[no-untyped-def]
+        """Fake compile."""
         calls.append("compile")
         return None
 
     def fake_graph(self, t):  # type: ignore[no-untyped-def]
+        """Fake graph."""
         calls.append("graph")
         return None
 
     orig_call = MLPTorchModel.__call__
 
     def fake_call(self, t):  # type: ignore[no-untyped-def]
+        """Fake call."""
         calls.append("eager")
         return orig_call(self, t)
 
@@ -135,6 +139,7 @@ def test_recurrent_network_skips_compile_path(monkeypatch):
 
 @pytest.fixture
 def reg_data():
+    """Reg data."""
     X, y = make_regression(n_samples=64, n_features=4, random_state=0)
     X = X.astype(np.float32)
     y = y.astype(np.float32)

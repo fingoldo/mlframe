@@ -14,24 +14,29 @@ class _BoolMaskSelector:
         self._mask = np.asarray(mask, dtype=bool)
 
     def get_params(self, deep=True):
+        """Get params."""
         return {"mask": self._mask}
 
     def set_params(self, **p):
+        """Set params."""
         if "mask" in p:
             self._mask = np.asarray(p["mask"], dtype=bool)
         return self
 
     def fit(self, X, y):
+        """Helper that fit."""
         self.support_ = self._mask.copy()
         return self
 
 
 def test_support_to_indices_converts_boolean_mask():
+    """Support to indices converts boolean mask."""
     mask = np.array([True, False, True, False, True])
     np.testing.assert_array_equal(_support_to_indices(mask, 5), np.array([0, 2, 4]))
 
 
 def test_support_to_indices_passes_through_integer_indices():
+    """Support to indices passes through integer indices."""
     idx = np.array([1, 3], dtype=np.int64)
     np.testing.assert_array_equal(_support_to_indices(idx, 5), np.array([1, 3]))
 
@@ -57,18 +62,22 @@ def test_boolean_mask_selector_counts_correct_columns():
 
 
 class _FixedIdxSelector:
+    """Groups tests covering FixedIdxSelector."""
     def __init__(self, support):
         self.support = support
 
     def get_params(self, deep=True):
+        """Get params."""
         return {"support": self.support}
 
     def set_params(self, **p):
+        """Set params."""
         if "support" in p:
             self.support = p["support"]
         return self
 
     def fit(self, X, y):
+        """Helper that fit."""
         self.support_ = np.asarray(self.support, dtype=np.int64)
         return self
 

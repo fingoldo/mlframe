@@ -41,6 +41,7 @@ _TRUE_WARP = lambda z: 0.7 * z + 0.25 * z**3  # monotone increasing on [-2.5, 2.
 
 
 def _inject_outliers(rng, x, frac=0.015, scale_iqr=12.0):
+    """Inject outliers."""
     x = np.asarray(x, dtype=np.float64).copy()
     n = x.size
     q1, med, q3 = np.quantile(x, [0.25, 0.5, 0.75])
@@ -64,6 +65,7 @@ def _oos_r2(spec, x_eval, y_target):
 
 
 def _fit(x, y, *, robust):
+    """Helper that fit."""
     old = os.environ.get("MLFRAME_ROBUST_WARP_FIT")
     os.environ["MLFRAME_ROBUST_WARP_FIT"] = "1" if robust else "0"
     try:

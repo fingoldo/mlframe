@@ -23,6 +23,7 @@ import numpy as np
 
 
 def test_compose_multiclass_figure_handles_non_contiguous_labels():
+    """Non-0..K-1 class labels (e.g. [10, 20, 30]) must index by position, not by raw label value, or figure composition crashes."""
     from mlframe.reporting.charts.multiclass import compose_multiclass_figure
 
     classes = [10, 20, 30]  # non-0..K-1 labels: pre-fix matrix[int(10)] -> IndexError
@@ -73,6 +74,7 @@ def test_compose_multiclass_figure_handles_string_and_unseen_labels():
 
 
 def test_weighted_metric_supports_use_class_label_not_enumerate_index():
+    """A weighted multiclass metric must index support/weights by class label, not by enumeration position, under non-0-indexed labels."""
     from mlframe.training.reporting._reporting_probabilistic import report_probabilistic_model_perf
 
     classes = [1, 2, 3]  # non-0-indexed integer multiclass labels

@@ -37,6 +37,7 @@ class TestLineageFilterDefault:
     def test_no_engineered_lineage_does_not_change_behavior(self, base_state):
         # A 2-way candidate with no overlapping selected vars should NOT
         # be skipped under either path.
+        """No engineered lineage does not change behavior."""
         skip, n = should_skip_candidate(
             cand_idx=5,
             X=(2, 3),
@@ -47,6 +48,7 @@ class TestLineageFilterDefault:
         assert n == 0
 
     def test_no_engineered_lineage_passing_none_explicit(self, base_state):
+        """No engineered lineage passing none explicit."""
         skip, n = should_skip_candidate(
             cand_idx=5,
             X=(2, 3),
@@ -143,7 +145,9 @@ class TestLineageFilterActive:
 
 
 class TestLineageFilterEdgeCases:
+    """Groups tests covering TestLineageFilterEdgeCases."""
     def test_empty_lineage_dict_is_no_op(self, base_state):
+        """Empty lineage dict is no op."""
         skip, _ = should_skip_candidate(
             cand_idx=5,
             X=(0, 1),

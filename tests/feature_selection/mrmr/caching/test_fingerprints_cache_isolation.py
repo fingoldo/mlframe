@@ -31,6 +31,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _make_xy(n: int = 220, seed: int = 0):
+    """Make xy."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(
         {
@@ -45,6 +46,7 @@ def _make_xy(n: int = 220, seed: int = 0):
 
 
 def _cold_fit(X, y):
+    """Cold fit."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return MRMR(verbose=0, random_seed=42, fe_max_pair_features=0).fit(X, y)

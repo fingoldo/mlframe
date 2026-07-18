@@ -38,6 +38,7 @@ class _FixedComponent:
         self._preds = np.asarray(preds, dtype=np.float64)
 
     def predict(self, X):
+        """Predict."""
         n = len(X) if hasattr(X, "__len__") else self._preds.shape[0]
         if self._preds.shape[0] == n:
             return self._preds
@@ -164,6 +165,7 @@ def test_supplied_weights_take_precedence():
 
 
 def test_supplied_weights_wrong_shape_raises():
+    """Supplied weights wrong shape raises."""
     n, k = 5, 2
     c1 = _FixedComponent(np.zeros((n, k)))
     with pytest.raises(ValueError, match=r"weights shape"):
@@ -176,6 +178,7 @@ def test_supplied_weights_wrong_shape_raises():
 
 
 def test_invalid_strategy_raises():
+    """Invalid strategy raises."""
     n, k = 5, 2
     c1 = _FixedComponent(np.zeros((n, k)))
     with pytest.raises(ValueError, match=r"strategy must be"):
@@ -209,6 +212,7 @@ def test_equal_mean_fit_is_noop():
 
 
 def _make_models_dict_for_dispatcher(n_components=3, n_targets=2, n=30):
+    """Make models dict for dispatcher."""
     target_type = TargetTypes.MULTI_TARGET_REGRESSION
     target_name = "mtr_target"
     np.random.default_rng(0)

@@ -21,6 +21,7 @@ from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import (
 
 
 def _cuda_ok() -> bool:
+    """Cuda ok."""
     try:
         return cp.cuda.runtime.getDeviceCount() > 0
     except Exception:
@@ -32,6 +33,7 @@ pytestmark = pytest.mark.skipif(not _cuda_ok(), reason="no CUDA device")
 
 def test_fallback_preserves_hardcoded_crossover():
     # The fallback IS the old magic constants verbatim: split iff K<48 and n>=262144.
+    """Fallback preserves hardcoded crossover."""
     assert _fallback_fe_mi_split(300_000, 10) == "split"
     assert _fallback_fe_mi_split(262_144, 47) == "split"
     assert _fallback_fe_mi_split(200_000, 10) == "single"  # n too small
@@ -39,6 +41,7 @@ def test_fallback_preserves_hardcoded_crossover():
 
 
 def test_env_override_forces_leg(monkeypatch):
+    """Env override forces leg."""
     monkeypatch.setenv("MLFRAME_FE_MI_SPLIT", "split")
     assert lookup_fe_mi_split_backend(100, 100) == "split"  # would be single by fallback
     monkeypatch.setenv("MLFRAME_FE_MI_SPLIT", "single")
@@ -47,6 +50,7 @@ def test_env_override_forces_leg(monkeypatch):
 
 @pytest.mark.parametrize("n,k", [(500_000, 32), (300_000, 8)])
 def test_single_and_split_legs_are_selection_equivalent(monkeypatch, n, k):
+    """Single and split legs are selection equivalent."""
     from mlframe.feature_selection.filters._fe_batched_mi import binned_mi_from_values_gpu
 
     rng = np.random.default_rng(1)

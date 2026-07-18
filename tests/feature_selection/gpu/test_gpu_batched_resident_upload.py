@@ -22,6 +22,7 @@ from mlframe.feature_selection.filters.info_theory import merge_vars
 
 
 def _gpu_available() -> bool:
+    """Gpu available."""
     try:
         return cp.cuda.runtime.getDeviceCount() >= 1
     except Exception:  # pragma: no cover - no driver / no GPU
@@ -35,6 +36,7 @@ if not _GPU_AVAILABLE:  # pragma: no cover - guarded at collection time
 
 @pytest.fixture(autouse=True)
 def _clear_resident_cache():
+    """Clear resident cache."""
     clear_fe_resident_operands()
     yield
     clear_fe_resident_operands()
@@ -59,6 +61,7 @@ def _count_asarray_calls_matching(monkeypatch, target_values):
     target = np.ascontiguousarray(target_values)
 
     def spy(a, *args, **kw):
+        """Helper that spy."""
         if isinstance(a, np.ndarray) and a.shape == target.shape and a.dtype == target.dtype and np.array_equal(a, target):
             calls["n"] += 1
         return orig(a, *args, **kw)
@@ -70,6 +73,7 @@ def _count_asarray_calls_matching(monkeypatch, target_values):
 @pytest.mark.gpu
 @pytest.mark.parametrize("fn", [mi_direct_gpu_batched, mi_direct_gpu_batched_streamed])
 def test_target_uploaded_once_across_candidate_calls(monkeypatch, fn):
+    """Target uploaded once across candidate calls."""
     factors, factors_nbins = _build_two_candidate_inputs(seed=2)
     classes_y, freqs_y, _ = merge_vars(
         factors_data=factors,
@@ -175,6 +179,7 @@ def test_resident_upload_bit_identical_to_disabled_cache(monkeypatch, fn):
     _orig_default_rng = cp.random.default_rng
 
     def _fixed_rng(*a, **kw):
+        """Fixed rng."""
         return _orig_default_rng(1234)
 
     monkeypatch.setattr(cp.random, "default_rng", _fixed_rng)

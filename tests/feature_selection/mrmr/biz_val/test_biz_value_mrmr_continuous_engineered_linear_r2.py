@@ -52,6 +52,7 @@ from tests.feature_selection.conftest import is_fast_mode
 
 
 def _build_case2(n: int, seed: int = 0):
+    """Build case2."""
     rng = np.random.default_rng(seed)
     a = rng.random(n)
     b = rng.random(n)

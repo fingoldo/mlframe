@@ -15,11 +15,13 @@ from mlframe.training._classif_helpers import aggregate_member_probas, _build_cl
 
 
 def _nll(y, p, eps=1e-12):
+    """Nll."""
     pc = np.clip(p, eps, 1.0)
     return float(-np.log(pc[np.arange(y.shape[0]), y]).mean())
 
 
 def _make_diverse_members(rng, n=4000, k=2, n_members=5, diversity=1.0):
+    """Make diverse members."""
     y = rng.integers(0, k, size=n)
     base = np.zeros((n, k))
     base[np.arange(n), y] = rng.uniform(1.2, 2.2)
@@ -66,5 +68,6 @@ def test_biz_val_proba_aggregation_simplex_renorm_and_multilabel_independence():
 
 
 def test_biz_val_proba_aggregation_unknown_method_raises():
+    """Biz val proba aggregation unknown method raises."""
     with pytest.raises(ValueError, match="unknown method"):
         aggregate_member_probas(np.ones((2, 3, 2)) / 2, "harmonic", simplex=True)

@@ -22,6 +22,7 @@ from mlframe.feature_selection.filters import conditional_mi
 
 
 def _build_data(n: int = 500, seed: int = 7) -> tuple[np.ndarray, np.ndarray]:
+    """Build data."""
     rng = np.random.default_rng(seed)
     a = rng.integers(0, 4, size=n).astype(np.int32)
     b = rng.integers(0, 4, size=n).astype(np.int32)
@@ -33,6 +34,7 @@ def _build_data(n: int = 500, seed: int = 7) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _new_entropy_cache() -> dict:
+    """New entropy cache."""
     return NumbaDict.empty(
         key_type=types.unicode_type,
         value_type=types.float64,
@@ -49,6 +51,7 @@ def _new_entropy_cache() -> dict:
     ],
 )
 def test_conditional_mi_cache_combos(can_use_x_cache, can_use_y_cache):
+    """Conditional mi cache combos."""
     factors, nbins = _build_data()
     x = np.array([0], dtype=np.int64)
     y = np.array([1], dtype=np.int64)

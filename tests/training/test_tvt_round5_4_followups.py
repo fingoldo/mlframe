@@ -24,7 +24,6 @@ from __future__ import annotations
 from pathlib import Path
 
 
-
 def _module_source(mod) -> str:
     """Read a module's source via ``Path.read_text``. ``inspect.getsource``
     is forbidden in tests per ``feedback_behavioral_tests`` (the meta-test
@@ -34,6 +33,7 @@ def _module_source(mod) -> str:
 
 
 class TestMlpExtremeArGroupAwareSkip:
+    """Groups tests covering mlp extreme ar group aware skip."""
     def test_behavior_config_has_mlp_knobs_default_off(self) -> None:
         """Skip is a TrainingBehaviorConfig field (2026-05-25 rework:
         previously env-var-gated to avoid the kwarg-splat rejection,
@@ -75,7 +75,9 @@ class TestMlpExtremeArGroupAwareSkip:
 
 
 class TestAlwaysBuildCtEnsembleForRaw:
+    """Groups tests covering always build ct ensemble for raw."""
     def test_config_knob_default_on(self) -> None:
+        """Config knob default on."""
         from mlframe.training._composite_target_discovery_config import (
             CompositeTargetDiscoveryConfig,
         )
@@ -117,6 +119,7 @@ class TestAlwaysBuildCtEnsembleForRaw:
 
 
 class TestVerdictTableTestFallback:
+    """Groups tests covering verdict table test fallback."""
     def _summary_src(self) -> str:
         """Concatenated source of both candidate modules: the legacy
         ``_phase_composite_post`` (kept for back-compat) and the
@@ -160,9 +163,11 @@ class TestSlidingWindowGrMatchBatchedAgreesWithLoop:
     """
 
     def test_batched_matches_loop_within_fp32_tolerance(self) -> None:
+        """Batched matches loop within fp32 tolerance."""
         import numpy as np
 
         def _loop(h_gr, tw_gr, tw_tvt, W=15):
+            """Loop."""
             n = len(h_gr)
             out_tvt = np.full(n, np.nan)
             out_score = np.full(n, np.nan)
@@ -191,6 +196,7 @@ class TestSlidingWindowGrMatchBatchedAgreesWithLoop:
             return out_tvt, out_score, out_idx
 
         def _batched(h_gr, tw_gr, tw_tvt, W=15, chunk=8192):
+            """Batched."""
             n = len(h_gr)
             out_tvt = np.full(n, np.nan)
             out_score = np.full(n, np.nan)
@@ -266,9 +272,11 @@ class TestDtwBincountAggregation:
     """
 
     def test_bincount_matches_python_loop(self) -> None:
+        """Bincount matches python loop."""
         import numpy as np
 
         def _loop(path, n_q, tw_tvt):
+            """Loop."""
             sum_tvt = np.zeros(n_q, dtype=np.float64)
             count = np.zeros(n_q, dtype=np.float64)
             for i, j in path:
@@ -281,6 +289,7 @@ class TestDtwBincountAggregation:
             return pred, count
 
         def _batched(path, n_q, tw_tvt):
+            """Batched."""
             path_arr = np.asarray(path, dtype=np.int64)
             i_idx = path_arr[:, 0]
             j_idx = path_arr[:, 1]

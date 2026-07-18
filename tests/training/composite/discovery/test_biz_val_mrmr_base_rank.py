@@ -98,6 +98,7 @@ def test_mrmr_degenerate_pools():
 
 
 def test_mrmr_validates_shapes():
+    """Mrmr validates shapes."""
     with pytest.raises(ValueError):
         mrmr_rank_bases(["a", "b"], [0.1], np.zeros((2, 2)), 2)
     with pytest.raises(ValueError):
@@ -108,9 +109,11 @@ def test_mrmr_validates_shapes():
 # 2. ``_auto_base`` integration harness (minimal stub ``self``).
 # --------------------------------------------------------------------------- #
 def _make_self(config, X: np.ndarray, feature_names: list[str]):
+    """Make self."""
     name_to_col = {n: i for i, n in enumerate(feature_names)}
 
     def _build_feature_matrix(df, cols, idx):
+        """Build feature matrix."""
         if not cols:
             return np.zeros((idx.size, 0), dtype=np.float64)
         return np.column_stack([X[idx, name_to_col[c]] for c in cols])
@@ -123,6 +126,7 @@ def _make_self(config, X: np.ndarray, feature_names: list[str]):
 
 
 def _base_config(**overrides):
+    """Base config."""
     cfg = CompositeTargetDiscoveryConfig(
         enabled=True,
         auto_base_top_k=2,
@@ -169,6 +173,7 @@ def _holdout_rmse(X: np.ndarray, cols: list[str], names: list[str], y: np.ndarra
 
 
 def _mean_abs_corr(X: np.ndarray, cols: list[str], names: list[str]) -> float:
+    """Mean abs corr."""
     idx = {n: i for i, n in enumerate(names)}
     cs = [X[:, idx[c]] for c in cols]
     vals = []

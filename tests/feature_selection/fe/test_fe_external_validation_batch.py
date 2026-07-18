@@ -38,6 +38,7 @@ from mlframe.feature_selection.filters.feature_engineering import create_binary_
 
 
 def _make_y(n, n_classes, seed):
+    """Make y."""
     rng = np.random.default_rng(seed)
     y = rng.integers(0, n_classes, size=n).astype(np.int32)
     classes_y, freqs_y, _ = merge_vars(
@@ -120,6 +121,7 @@ def _batched_best(raw_cols, nbins, dtype, classes_y, classes_y_safe, freqs_y, np
 @pytest.mark.parametrize("npermutations", [0, 3])
 @pytest.mark.parametrize("min_nonzero_confidence", [0.99, 0.0])
 def test_external_validation_batch_bit_identical(n, K, nbins, npermutations, min_nonzero_confidence):
+    """External validation batch bit identical."""
     classes_y, freqs_y = _make_y(n, n_classes=3, seed=7 + n + K + nbins)
     classes_y_safe = classes_y.copy()
     raw_cols = _candidate_columns(n, K, seed=4242 + n + K)
@@ -181,6 +183,7 @@ def test_external_validation_batch_handles_nan_inf_columns():
 @pytest.mark.parametrize("n,K,nbins", [(200, 7, 5), (500, 33, 10), (1000, 16, 8), (300, 4, 3)])
 @pytest.mark.parametrize("buf_dtype", [np.float32, np.float64])
 def test_discretize_2d_quantile_batch_matches_per_column(n, K, nbins, buf_dtype):
+    """Discretize 2d quantile batch matches per column."""
     raw = _candidate_columns(n, K, seed=99 + n + K + nbins).astype(buf_dtype)
     got = discretize_2d_quantile_batch(raw, n_bins=nbins, dtype=np.int32)
     ref = np.empty_like(got)
@@ -236,6 +239,7 @@ def test_discretize_2d_quantile_batch_no_full_buffer_float64_copy(monkeypatch):
     forbidden = {"hit": False}
 
     def _spy_ascontiguousarray(a, dtype=None):
+        """Spy ascontiguousarray."""
         arr = np.asarray(a)
         if dtype is not None and np.dtype(dtype) == np.float64 and arr.dtype == np.float32 and arr.size >= buffer_cells:
             forbidden["hit"] = True
@@ -267,6 +271,7 @@ def test_discretize_2d_quantile_batch_no_full_buffer_float64_copy(monkeypatch):
 @pytest.mark.parametrize("n,n_ext", [(200, 5), (500, 12), (800, 3)])
 @pytest.mark.parametrize("a_dtype", [np.float32, np.float64])
 def test_materialise_extval_njit_codes_match_numpy(n, n_ext, a_dtype):
+    """Materialise extval njit codes match numpy."""
     bin_t = create_binary_transformations(preset="minimal")
     op_codes = _njit_binary_op_codes(bin_t)
     assert op_codes is not None  # minimal preset is fully njit-coded

@@ -26,6 +26,7 @@ class _ToyMRMRInstance:
 
 
 def test_byte_estimator_counts_dominant_arrays():
+    """Byte estimator counts dominant arrays."""
     inst = _ToyMRMRInstance(n_features=2000)
     n = _mrmr_instance_state_size_bytes(inst)
     # mi_scores_ (16k) + _engineered_features_ (128k) + ranking_ (16k) + 50 selector arrays x 512B
@@ -34,13 +35,16 @@ def test_byte_estimator_counts_dominant_arrays():
 
 
 def test_byte_estimator_handles_attributes_missing():
+    """Byte estimator handles attributes missing."""
     class _Empty:
+        """Groups tests covering Empty."""
         pass
 
     assert _mrmr_instance_state_size_bytes(_Empty()) == 0
 
 
 def test_cache_bytes_total_aggregates_across_entries():
+    """Cache bytes total aggregates across entries."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     _saved = dict(MRMR._FIT_CACHE)

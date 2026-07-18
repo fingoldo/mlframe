@@ -38,6 +38,7 @@ from mlframe.training.neural import (
 
 
 def _params(loss_fn=None, random_state=0):
+    """Params."""
     return {
         "model_class": MLPTorchModel,
         "model_params": {
@@ -84,6 +85,7 @@ def _last_linear_out_features(network) -> int:
 
 @pytest.fixture
 def binary_data():
+    """Binary data."""
     X, y = make_classification(
         n_samples=160,
         n_features=5,
@@ -103,6 +105,7 @@ def binary_data():
 
 @pytest.fixture
 def multiclass_data():
+    """Multiclass data."""
     X, y = make_classification(
         n_samples=180,
         n_features=6,

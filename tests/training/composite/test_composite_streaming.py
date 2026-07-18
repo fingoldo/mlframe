@@ -43,6 +43,7 @@ def _brute_best_split(y, base, min_segment_n=30):
 
 
 class TestLevelShiftDrift:
+    """Groups tests covering level shift drift."""
     def test_pure_level_shift_triggers_refit(self) -> None:
         """Slope unchanged (alpha=1.0), intercept jumps from 0 to 8 -- a pure
         level shift. The alpha-only pre-fix detector NEVER refits this (the
@@ -158,7 +159,9 @@ def _make_mixed_buffer(
 
 
 class TestChangePointDetection:
+    """Groups tests covering change point detection."""
     def test_detects_break_on_mixed_buffer(self) -> None:
+        """Detects break on mixed buffer."""
         y, base = _make_mixed_buffer(
             20,
             n_pre=300,
@@ -216,6 +219,7 @@ class TestChangePointDetection:
 
 
 class TestChangePointAwareRefit:
+    """Groups tests covering change point aware refit."""
     def test_biz_value_change_point_refit_beats_whole_buffer(self) -> None:
         """biz_value (S8): on a FIFO buffer that drifted mid-window, the
         change-point-aware refit recovers the LIVE-regime alpha markedly better

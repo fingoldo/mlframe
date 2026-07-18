@@ -31,6 +31,7 @@ class _LinearInner(BaseEstimator, RegressorMixin):
 
     def fit(self, X, y):
         # OLS on raw X to keep the test deterministic.
+        """Fit."""
         X_arr = np.asarray(X, dtype=np.float64)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
@@ -39,6 +40,7 @@ class _LinearInner(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X):
+        """Predict."""
         X_arr = np.asarray(X, dtype=np.float64)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
@@ -78,6 +80,7 @@ def _build_problem():
     }
 
     class _Entry:
+        """Groups tests covering entry."""
         def __init__(self, m):
             self.model = m
             self.model_name = "LinearInner"
@@ -196,6 +199,7 @@ class TestRecoveryNoDoubleWrap:
     """MEDIUM#11 2026-05-18: the wrap step inside ``_run_composite_target_wrapping`` is idempotent against entries whose inner is already a CompositeTargetEstimator. Pre-fix the recovery helper would have double-wrapped, feeding y-scale predictions back through transform.inverse a second time and producing garbage. This test pins the idempotency by inspecting the entry's inner BEFORE and AFTER the recovery call."""
 
     def test_inner_not_double_wrapped_after_recovery(self) -> None:
+        """Inner not double wrapped after recovery."""
         from mlframe.training.composite import CompositeTargetEstimator
         from mlframe.training.core._phase_composite_post import (
             recover_composite_y_scale_metrics,
@@ -252,6 +256,7 @@ class TestSkipPredictLeavesMetricsEmpty:
     (this is the documented contract that motivates the lazy recovery helper)."""
 
     def test_metrics_dict_empty_when_skipped(self) -> None:
+        """Metrics dict empty when skipped."""
         problem = _build_problem()
         _, _metadata, snapshot, _, _ = _skipped_then_recovered_run(problem)
         # After the skip_predict=True call but BEFORE recovery, metadata
@@ -266,6 +271,7 @@ class TestRecoverComposeYScaleMetrics:
     eager path; idempotent against the already-wrapped models."""
 
     def test_recovery_populates_metric_dict(self) -> None:
+        """Recovery populates metric dict."""
         problem = _build_problem()
         _, metadata, _, _, _ = _skipped_then_recovered_run(problem)
         m = metadata.get("composite_target_y_scale_metrics", {})
@@ -316,6 +322,7 @@ class TestRecoveryBizValueMatchesEager:
     path. If they diverge the recovery is silently giving wrong answers."""
 
     def test_recovered_metrics_match_eager_path(self) -> None:
+        """Recovered metrics match eager path."""
         problem = _build_problem()
 
         _, eager_metadata, _, _ = _eager_run(problem)

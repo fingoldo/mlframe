@@ -32,6 +32,7 @@ from mlframe.training.composite.transforms.linear import (
 
 
 def test_theilsen_registered_and_uses_linear_forward_inverse():
+    """Theilsen registered and uses linear forward inverse."""
     t = TRANSFORMS_REGISTRY["theilsen_residual"]
     assert t.requires_base is True
     assert t.requires_groups is False
@@ -43,6 +44,7 @@ def test_theilsen_registered_and_uses_linear_forward_inverse():
 
 
 def test_theilsen_fit_returns_alpha_beta_dict():
+    """Theilsen fit returns alpha beta dict."""
     rng = np.random.default_rng(0)
     base = np.linspace(0.0, 10.0, 200)
     y = 2.0 * base + 3.0 + rng.standard_normal(200) * 0.1
@@ -53,6 +55,7 @@ def test_theilsen_fit_returns_alpha_beta_dict():
 
 
 def test_theilsen_fit_round_trip_identity_on_clean_data():
+    """Theilsen fit round trip identity on clean data."""
     rng = np.random.default_rng(1)
     base = np.linspace(0.0, 10.0, 150)
     y = 1.3 * base - 0.7 + rng.standard_normal(150) * 0.05
@@ -64,6 +67,7 @@ def test_theilsen_fit_round_trip_identity_on_clean_data():
 
 
 def test_theilsen_fit_does_not_mutate_inputs():
+    """Theilsen fit does not mutate inputs."""
     base = np.linspace(0.0, 10.0, 80)
     y = 0.5 * base + np.linspace(-1, 1, 80)
     y_snap, base_snap = y.copy(), base.copy()
@@ -73,6 +77,7 @@ def test_theilsen_fit_does_not_mutate_inputs():
 
 
 def test_theilsen_fit_handles_non_finite_rows():
+    """Theilsen fit handles non finite rows."""
     base = np.linspace(0.0, 10.0, 50)
     y = 2.0 * base + 1.0
     y[0] = np.nan
@@ -83,6 +88,7 @@ def test_theilsen_fit_handles_non_finite_rows():
 
 
 def test_theilsen_fit_constant_base_degenerate():
+    """Theilsen fit constant base degenerate."""
     base = np.full(50, 5.0)
     y = np.linspace(0.0, 10.0, 50)
     p = _theilsen_residual_fit(y, base)
@@ -93,6 +99,7 @@ def test_theilsen_fit_constant_base_degenerate():
 
 def test_theilsen_fit_subsamples_for_large_n_and_is_deterministic():
     # Force a tiny pair cap so the subsample branch executes on a small array.
+    """Theilsen fit subsamples for large n and is deterministic."""
     import mlframe.training.composite.transforms as tmod
     import mlframe.training.composite.transforms.linear as lin
 
@@ -120,6 +127,7 @@ def test_theilsen_fit_subsamples_for_large_n_and_is_deterministic():
 
 
 def _make_contaminated(rng, n=600, true_alpha=2.0, true_beta=5.0, frac=0.10):
+    """Make contaminated."""
     base = rng.uniform(-10.0, 10.0, size=n)
     y = true_alpha * base + true_beta + rng.standard_normal(n) * 0.3
     n_out = int(frac * n)
@@ -171,6 +179,7 @@ def test_biz_val_theilsen_lowers_clean_test_rmse_vs_ols():
     y_te = true_alpha * base_te + true_beta + rng.standard_normal(400) * 0.3
 
     def _rmse(p):
+        """Rmse."""
         pred = p["alpha"] * base_te + p["beta"]
         return float(np.sqrt(np.mean((pred - y_te) ** 2)))
 

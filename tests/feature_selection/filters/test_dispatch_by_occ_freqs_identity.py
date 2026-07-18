@@ -13,6 +13,7 @@ import pytest
 
 
 def _freqs_y_from(classes_y: np.ndarray) -> np.ndarray:
+    """Freqs y from."""
     counts = np.bincount(classes_y.astype(np.int64))
     total = counts.sum()
     return counts.astype(np.float64) / float(total)
@@ -29,12 +30,14 @@ def _freqs_y_from(classes_y: np.ndarray) -> np.ndarray:
     ],
 )
 def test_count_nonzero_freqs_equals_unique_size(labels):
+    """Count nonzero freqs equals unique size."""
     classes_y = np.array(labels, dtype=np.int64)
     freqs_y = _freqs_y_from(classes_y)
     assert int(np.count_nonzero(freqs_y)) == int(np.unique(classes_y).size)
 
 
 def test_matches_on_random_gapped_distributions():
+    """Matches on random gapped distributions."""
     rng = np.random.default_rng(123)
     for _ in range(50):
         ncls = int(rng.integers(2, 40))

@@ -23,6 +23,7 @@ from mlframe.training.configs import PreprocessingBackendConfig
 
 
 def _frame(n: int = 200, *, with_cat: bool, polars: bool):
+    """Builds a frame with constant and all-null numeric columns (fuzz-axis degenerate cases) plus an optional cat column."""
     rng = np.random.default_rng(0)
     data = {
         "f0": rng.normal(size=n).astype("float32"),
@@ -44,6 +45,7 @@ def _frame(n: int = 200, *, with_cat: bool, polars: bool):
 @pytest.mark.parametrize("with_cat", [False, True])
 @pytest.mark.parametrize("polars", [False, True])
 def test_numeric_degenerate_cols_excluded_from_cat_features(with_cat, polars):
+    """Constant/all-null numeric columns never leak into CatBoost's cat_features list under skip_categorical_encoding."""
     df = _frame(with_cat=with_cat, polars=polars)
     # skip_categorical_encoding=True keeps cat_features un-encoded through to the
     # CB-native boundary -- the exact path the masked CB+multilabel combo took

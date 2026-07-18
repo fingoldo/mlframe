@@ -49,6 +49,7 @@ def _build_problem(n: int = 600, seed: int = 11):
 
 
 def _run(*, n_jobs: int, transforms: list[str]):
+    """Fits CompositeTargetDiscovery with the given n_jobs/transforms and returns the fitted discovery object, for parallel-vs-serial identity checks."""
     df, y = _build_problem()
     df_with_y = df.copy()
     df_with_y["y"] = y
@@ -83,6 +84,7 @@ class TestParallelDiscoveryEquivalence:
     """Parallel path must produce candidates that match the serial path."""
 
     def test_kept_specs_match_serial(self) -> None:
+        """Kept specs match serial."""
         transforms = ["linear_residual", "diff", "ratio", "logratio"]
 
         serial, _ = _run(n_jobs=1, transforms=transforms)
@@ -112,6 +114,7 @@ class TestParallelDiscoveryBizValue:
     """
 
     def test_parallel_not_slower_than_serial(self) -> None:
+        """Parallel not slower than serial."""
         transforms = [
             "linear_residual",
             "diff",
@@ -212,6 +215,7 @@ class TestParallelRerankEquivalence:
     """
 
     def test_rerank_scores_match_serial(self) -> None:
+        """Rerank scores match serial."""
         serial = _run_rerank(n_jobs=1)
         parallel = _run_rerank(n_jobs=4)
 
@@ -228,6 +232,7 @@ class TestParallelRerankEquivalence:
                 assert np.isnan(ser_rmse) == np.isnan(par_rmse), f"finiteness mismatch for '{name}'"
 
     def test_wilcoxon_per_seed_matches_serial(self) -> None:
+        """Wilcoxon per seed matches serial."""
         serial = _run_rerank(n_jobs=1, seed_repeats=3)
         parallel = _run_rerank(n_jobs=4, seed_repeats=3)
 

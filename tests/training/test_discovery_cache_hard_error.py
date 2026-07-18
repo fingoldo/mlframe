@@ -11,15 +11,18 @@ from mlframe.training.composite.cache import DiscoveryCache
 
 
 def test_both_caps_none_raises_value_error(tmp_path):
+    """Both caps none raises value error."""
     with pytest.raises(ValueError, match="grow without bound"):
         DiscoveryCache(str(tmp_path), max_entries=None, max_size_mb=None)
 
 
 def test_one_explicit_cap_constructs_cleanly(tmp_path):
+    """One explicit cap constructs cleanly."""
     c = DiscoveryCache(str(tmp_path), max_entries=128, max_size_mb=None)
     assert c.max_entries == 128
 
 
 def test_explicit_unbounded_construction_allowed(tmp_path):
+    """Explicit unbounded construction allowed."""
     c = DiscoveryCache(str(tmp_path), max_entries=10**9, max_size_mb=None)
     assert c.max_entries == 10**9

@@ -31,6 +31,7 @@ from mlframe.training.composite.attribution import (
 
 
 def _fit(transform_name, X, y, base_column="base", estimator=None):
+    """Fit."""
     est = CompositeTargetEstimator(
         base_estimator=estimator if estimator is not None else LinearRegression(),
         transform_name=transform_name,
@@ -47,6 +48,7 @@ def _fit(transform_name, X, y, base_column="base", estimator=None):
 
 @pytest.mark.parametrize("transform_name", ["linear_residual", "diff"])
 def test_additive_decomposition_sums_to_yhat(transform_name):
+    """Additive decomposition sums to yhat."""
     rng = np.random.default_rng(0)
     n = 200
     base = rng.normal(10.0, 2.0, n)
@@ -70,6 +72,7 @@ def test_additive_decomposition_sums_to_yhat(transform_name):
 
 
 def test_ratio_decomposition_multiplies_to_yhat():
+    """Ratio decomposition multiplies to yhat."""
     rng = np.random.default_rng(1)
     n = 200
     base = rng.uniform(2.0, 8.0, n)  # strictly positive -> |base|>0
@@ -87,6 +90,7 @@ def test_ratio_decomposition_multiplies_to_yhat():
 
 
 def test_logratio_multiplicative_semantics():
+    """Logratio multiplicative semantics."""
     rng = np.random.default_rng(2)
     n = 200
     base = rng.uniform(2.0, 8.0, n)
@@ -109,6 +113,7 @@ def test_logratio_multiplicative_semantics():
 
 
 def test_unfitted_raises():
+    """Unfitted raises."""
     est = CompositeTargetEstimator(
         base_estimator=LinearRegression(),
         transform_name="linear_residual",
@@ -119,6 +124,7 @@ def test_unfitted_raises():
 
 
 def test_summary_unfitted_raises():
+    """Summary unfitted raises."""
     est = CompositeTargetEstimator(
         base_estimator=LinearRegression(),
         transform_name="diff",
@@ -129,6 +135,7 @@ def test_summary_unfitted_raises():
 
 
 def test_base_free_unary_raises():
+    """Base free unary raises."""
     rng = np.random.default_rng(3)
     n = 120
     y = np.abs(rng.normal(5.0, 1.0, n)) + 0.5
@@ -184,6 +191,7 @@ def test_biz_val_attribution_residual_dominated_low_share():
 
 
 def test_summary_n_rows_reported():
+    """Summary n rows reported."""
     rng = np.random.default_rng(12)
     n = 150
     base = rng.normal(10.0, 2.0, n)

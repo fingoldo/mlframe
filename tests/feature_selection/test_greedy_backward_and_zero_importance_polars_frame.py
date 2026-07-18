@@ -23,6 +23,7 @@ from mlframe.feature_selection.zero_importance_pruning import iterative_zero_imp
 
 
 def _make_polars_regression_frame(n: int = 200, seed: int = 0):
+    """Make polars regression frame."""
     rng = np.random.default_rng(seed)
     f0 = rng.normal(size=n).astype(np.float32)
     f1 = rng.normal(size=n).astype(np.float32)
@@ -32,6 +33,7 @@ def _make_polars_regression_frame(n: int = 200, seed: int = 0):
 
 
 def test_greedy_backward_elimination_accepts_polars_frame():
+    """Greedy backward elimination accepts polars frame."""
     X, y = _make_polars_regression_frame()
     cv = KFold(n_splits=3, shuffle=True, random_state=0)
     survivors = greedy_backward_elimination(
@@ -48,6 +50,7 @@ def test_greedy_backward_elimination_accepts_polars_frame():
 
 
 def test_iterative_zero_importance_pruning_accepts_polars_frame():
+    """Iterative zero importance pruning accepts polars frame."""
     X, y = _make_polars_regression_frame()
     cv = KFold(n_splits=3, shuffle=True, random_state=0)
     survivors = iterative_zero_importance_pruning(

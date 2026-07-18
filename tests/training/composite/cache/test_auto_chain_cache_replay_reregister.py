@@ -14,6 +14,7 @@ from mlframe.training.composite.transforms.registry import _TRANSFORMS_REGISTRY
 
 
 def test_reregister_rebuilds_missing_autochain_and_get_transform_resolves():
+    """A cache-replayed auto-chain transform name that isn't registered yet gets rebuilt so get_transform resolves it instead of raising."""
     name = "chain_linear_residual_yj"
     _TRANSFORMS_REGISTRY.pop(name, None)
     with pytest.raises(UnknownTransformError):
@@ -24,6 +25,7 @@ def test_reregister_rebuilds_missing_autochain_and_get_transform_resolves():
 
 
 def test_reregister_ignores_non_chain_and_already_registered_and_garbage():
+    """reregister_auto_chain_transforms skips non-chain names, already-registered names, and unparseable garbage without error."""
     # linear_residual is a real registry transform (not a chain) -> skipped; bogus parses to nothing -> skipped.
     done = reregister_auto_chain_transforms(["linear_residual", "chain_not_a_real_unary", "", None, "chain_bogus_zzz"])
     assert done == []

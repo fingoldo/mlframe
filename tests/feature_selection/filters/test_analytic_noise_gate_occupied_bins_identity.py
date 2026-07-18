@@ -20,12 +20,14 @@ from mlframe.feature_selection.filters._analytic_mi_null import (
 
 
 def _np_unique_counts(disc):
+    """Np unique counts."""
     return np.array([int(np.unique(disc[:, k]).size) for k in range(disc.shape[1])], dtype=np.int64)
 
 
 @pytest.mark.parametrize("nbins", [2, 5, 8, 16])
 @pytest.mark.parametrize("dtype", [np.int16, np.int32, np.int64])
 def test_occupied_bins_matches_np_unique(nbins, dtype):
+    """Occupied bins matches np unique."""
     rng = np.random.default_rng(nbins)
     n, K = 4000, 25
     disc = rng.integers(0, nbins, size=(n, K)).astype(dtype)
@@ -34,6 +36,7 @@ def test_occupied_bins_matches_np_unique(nbins, dtype):
 
 def test_occupied_bins_sparse_and_unoccupied_columns():
     # columns with gaps (not every code in [0, max] occupied) + a constant column + a single-row col.
+    """Occupied bins sparse and unoccupied columns."""
     disc = np.array(
         [[0, 5, 3, 0], [2, 5, 3, 0], [0, 5, 7, 0], [4, 5, 3, 0]],
         dtype=np.int16,
@@ -44,11 +47,13 @@ def test_occupied_bins_sparse_and_unoccupied_columns():
 
 
 def test_occupied_bins_empty_matrix():
+    """Occupied bins empty matrix."""
     disc = np.zeros((0, 5), dtype=np.int16)
     assert list(_occupied_bins_per_col(disc, numba.get_num_threads())) == [0, 0, 0, 0, 0]
 
 
 def test_gate_output_identical_to_np_unique_path():
+    """Gate output identical to np unique path."""
     rng = np.random.default_rng(7)
     n, K, nbins = 60_000, 20, 8
     y = rng.integers(0, nbins, n).astype(np.int64)

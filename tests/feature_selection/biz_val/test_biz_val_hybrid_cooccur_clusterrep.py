@@ -40,6 +40,7 @@ pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a
 
 
 def _xor_bed(n=2000, seed=0, n_pairs=3, n_noise=24):
+    """Xor bed."""
     rng = np.random.default_rng(seed)
     cols, logit = {}, np.zeros(n)
     for p in range(n_pairs):
@@ -58,6 +59,7 @@ def _xor_bed(n=2000, seed=0, n_pairs=3, n_noise=24):
 
 
 def _cluster_bed(n=2000, seed=0, n_clusters=4, copies=5, n_noise=16):
+    """Cluster bed."""
     rng = np.random.default_rng(seed)
     cols, logit = {}, np.zeros(n)
     coef = [1.6, -1.3, 1.1, 0.9]
@@ -76,6 +78,7 @@ def _cluster_bed(n=2000, seed=0, n_clusters=4, copies=5, n_noise=16):
 
 
 def _honest_auc(Xtr, ytr, Xte, yte, sel, seed):
+    """Honest auc."""
     import lightgbm as lgb
 
     feats = [c for c in sel if c in Xtr.columns]
@@ -87,6 +90,7 @@ def _honest_auc(Xtr, ytr, Xte, yte, sel, seed):
 
 
 def _fit(X, y, **kw):
+    """Helper that fit."""
     from mlframe.feature_selection import HybridSelector
 
     return HybridSelector(random_state=kw.pop("random_state", 0), **kw).fit(X, y)
@@ -94,6 +98,7 @@ def _fit(X, y, **kw):
 
 # ===================================================================== UNIT: defaults + plumbing
 def test_default_knobs_are_gain_and_first():
+    """Default knobs are gain and first."""
     from mlframe.feature_selection import HybridSelector
 
     h = HybridSelector()
@@ -103,6 +108,7 @@ def test_default_knobs_are_gain_and_first():
 
 @pytest.mark.parametrize("mode", ["first", "max_fi", "sum_fi"])
 def test_rep_member_honours_each_mode(mode):
+    """Rep member honours each mode."""
     from mlframe.feature_selection import HybridSelector
 
     h = HybridSelector(cluster_rep=mode)
@@ -115,6 +121,7 @@ def test_rep_member_honours_each_mode(mode):
 
 
 def test_rep_member_sum_fi_falls_back_to_mean_when_no_sum():
+    """Rep member sum fi falls back to mean when no sum."""
     from mlframe.feature_selection import HybridSelector
 
     h = HybridSelector(cluster_rep="sum_fi")
@@ -124,6 +131,7 @@ def test_rep_member_sum_fi_falls_back_to_mean_when_no_sum():
 
 @pytest.mark.parametrize("weight", ["count", "gain"])
 def test_cooccur_weight_roundtrips_a_fit(weight):
+    """Cooccur weight roundtrips a fit."""
     X, y = _xor_bed(n=1200, seed=0, n_pairs=2, n_noise=12)
     h = _fit(X, y, cooccur_weight=weight)
     assert len(h.raw_selected_) >= 1

@@ -59,6 +59,7 @@ def _make_cheap_mrmr(**overrides):
 
 
 class TestAdditionalRfecvSelectionRuleValidated:
+    """Groups tests covering TestAdditionalRfecvSelectionRuleValidated."""
     def test_bad_rule_raises_at_fit_start(self):
         """A typo'd additional_rfecv_selection_rule must fail in
         _validate_string_params (fit() start), not deep inside RFECV."""
@@ -98,6 +99,7 @@ class TestAdditionalRfecvSelectionRuleValidated:
 
 
 class TestRescuePoolExcludesEngineeredColumns:
+    """Groups tests covering TestRescuePoolExcludesEngineeredColumns."""
     def test_engineered_columns_excluded_from_rescue_pool(self):
         """The rescue pool (``temp_columns``) must exclude engineered FE columns
         so RFECV can never select one (then crash at
@@ -159,7 +161,9 @@ class TestRescuePoolExcludesEngineeredColumns:
 
 
 class TestExtraBasisGatedOnHybridEnable:
+    """Groups tests covering TestExtraBasisGatedOnHybridEnable."""
     def _build_simple(self, seed: int = 0, n: int = 300):
+        """Build simple."""
         rng = np.random.default_rng(seed)
         x1 = rng.standard_normal(n)
         x2 = rng.standard_normal(n)
@@ -179,6 +183,7 @@ class TestExtraBasisGatedOnHybridEnable:
         _orig = ofe.hybrid_orth_extra_basis_fe_with_recipes
 
         def _spy(*args, **kwargs):
+            """Helper that spy."""
             calls["n"] += 1
             return _orig(*args, **kwargs)
 
@@ -205,6 +210,7 @@ class TestExtraBasisGatedOnHybridEnable:
         _orig = ofe.hybrid_orth_extra_basis_fe_with_recipes
 
         def _spy(*args, **kwargs):
+            """Helper that spy."""
             calls["n"] += 1
             return _orig(*args, **kwargs)
 
@@ -224,6 +230,7 @@ class TestExtraBasisGatedOnHybridEnable:
 
 
 class TestPolarsFeRunsViaBridge:
+    """Groups tests covering TestPolarsFeRunsViaBridge."""
     def test_polars_fe_enabled_does_not_emit_skip_warning(self):
         """A polars frame with FE enabled must NOT emit a 'not a pandas DataFrame; FE skipped' warning: MRMR.fit bridges
         polars to an Arrow-backed zero-copy pandas view whenever any FE stage will run, so FE runs -- it is not skipped.

@@ -27,6 +27,7 @@ from mlframe.training._data_helpers import _extract_target_subset as _subset_tar
 
 
 def test_pandas_bool_mask_works_and_returns_correct_rows():
+    """Pandas bool mask works and returns correct rows."""
     t = pd.Series([10, 20, 30, 40, 50])
     mask = np.array([True, False, True, False, True])
     out = _subset_target(t, mask)
@@ -42,6 +43,7 @@ def test_polars_bool_mask_works_post_fix():
 
 
 def test_numpy_bool_mask_works():
+    """Numpy bool mask works."""
     t = np.array([10, 20, 30, 40, 50])
     mask = np.array([True, False, True, False, True])
     out = _subset_target(t, mask)
@@ -57,6 +59,7 @@ def test_pandas_int_idx_unchanged():
 
 
 def test_polars_int_idx_unchanged():
+    """Polars int idx unchanged."""
     t = pl.Series("y", [10, 20, 30, 40, 50])
     idx = np.array([0, 2, 4])
     out = _subset_target(t, idx)
@@ -64,6 +67,7 @@ def test_polars_int_idx_unchanged():
 
 
 def test_numpy_int_idx_unchanged():
+    """Numpy int idx unchanged."""
     t = np.array([10, 20, 30, 40, 50])
     idx = np.array([0, 2, 4])
     out = _subset_target(t, idx)
@@ -71,6 +75,7 @@ def test_numpy_int_idx_unchanged():
 
 
 def test_idx_none_returns_target_unchanged():
+    """Idx none returns target unchanged."""
     t = pd.Series([1, 2, 3])
     out = _subset_target(t, None)
     assert out is t
@@ -84,6 +89,7 @@ def test_pandas_list_bool_mask_normalised():
 
 
 def test_polars_list_bool_mask_normalised():
+    """Polars list bool mask normalised."""
     t = pl.Series("y", [10, 20, 30])
     out = _subset_target(t, [True, False, True])
     np.testing.assert_array_equal(out.to_numpy(), [10, 30])

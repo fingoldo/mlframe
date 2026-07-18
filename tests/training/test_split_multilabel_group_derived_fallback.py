@@ -26,6 +26,7 @@ def _block_iterstrat(monkeypatch):
     _real_import = builtins.__import__
 
     def _fake_import(name, *args, **kwargs):
+        """Raises ImportError for any iterstrat submodule, otherwise delegates to the real import."""
         if name.startswith("iterstrat"):
             raise ImportError("blocked for test")
         return _real_import(name, *args, **kwargs)
@@ -34,6 +35,7 @@ def _block_iterstrat(monkeypatch):
 
 
 def _make_multilabel_data(n=300, seed=0):
+    """Builds a grouped multilabel frame (60 groups of 5 rows) with a clear joint label structure for StratifiedGroupKFold."""
     rng = np.random.default_rng(seed)
     df = pd.DataFrame({"f0": rng.normal(size=n), "f1": rng.normal(size=n)})
     # 60 groups, 5 rows each -> plenty of groups per class for StratifiedGroupKFold.

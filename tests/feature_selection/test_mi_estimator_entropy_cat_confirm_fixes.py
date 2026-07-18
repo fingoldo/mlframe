@@ -26,6 +26,7 @@ import pytest
 
 
 def test_joint_freqs_and_entropy_2var_empty_frame_finite():
+    """Joint freqs and entropy 2var empty frame finite."""
     from mlframe.feature_selection.filters.info_theory._class_encoding import (
         joint_freqs_2var,
         joint_entropy_2var,
@@ -46,6 +47,7 @@ def test_joint_freqs_and_entropy_2var_empty_frame_finite():
 
 
 def test_genie_aggregate_returns_raw_and_floor_flag_controls_clamp():
+    """Genie aggregate returns raw and floor flag controls clamp."""
     from mlframe.feature_selection.filters._mi_aggregator import genie_aggregate, genie_mi_panel
 
     # Weighted combo that is genuinely negative -> raw must NOT be clamped.
@@ -63,6 +65,7 @@ def test_genie_aggregate_returns_raw_and_floor_flag_controls_clamp():
 
 
 def test_best_on_calibration_logs_estimator_failure(caplog):
+    """Best on calibration logs estimator failure."""
     from mlframe.feature_selection.filters._mi_aggregator import best_on_calibration_mi
 
     x = np.array([0.0, 1.0, 2.0, 3.0], dtype=np.float64)
@@ -70,6 +73,7 @@ def test_best_on_calibration_logs_estimator_failure(caplog):
 
     def good_on_cal_bad_on_real(xx, yy):
         # Low (best) calibration MI so it gets chosen, then raises on the real (x, y).
+        """Good on cal bad on real."""
         if len(xx) == len(x) and np.array_equal(xx, x):
             raise RuntimeError("boom on real data")
         return 0.0
@@ -86,6 +90,7 @@ def test_best_on_calibration_logs_estimator_failure(caplog):
 
 
 def test_fourier_near_constant_column_is_zeroed_not_garbage():
+    """Fourier near constant column is zeroed not garbage."""
     from mlframe.feature_selection.filters.bases import _fourier_fit, _fourier_apply, _fourier_eval_njit
 
     # Near-constant column: 63 identical values + 1 outlier 1e-9 away. Pre-fix the 1e-12 span floor /
@@ -106,6 +111,7 @@ def test_fourier_near_constant_column_is_zeroed_not_garbage():
 
 
 def test_pade_near_constant_column_is_zeroed_not_garbage():
+    """Pade near constant column is zeroed not garbage."""
     from mlframe.feature_selection.filters.bases import _pade_fit, _pade_apply, _pade_eval_njit
 
     # Near-constant column: std ~ 1.25e-10 from one outlier. Pre-fix the additive 1e-12 std floor does
@@ -128,6 +134,7 @@ def test_pade_near_constant_column_is_zeroed_not_garbage():
 
 
 def test_cmi_perm_stop_warns_on_conditioning_truncation(caplog):
+    """Cmi perm stop warns on conditioning truncation."""
     from mlframe.feature_selection.filters import _cmi_perm_stop
 
     rng = np.random.default_rng(0)
@@ -159,6 +166,7 @@ def test_cmi_perm_stop_warns_on_conditioning_truncation(caplog):
 
 
 def test_conditional_permutation_pvalue_never_zero():
+    """Conditional permutation pvalue never zero."""
     from mlframe.feature_selection.filters._conditional_permutation import conditional_permutation_test
 
     rng = np.random.default_rng(1)
@@ -187,6 +195,7 @@ def test_conditional_permutation_pvalue_never_zero():
 
 
 def test_westfall_young_reproducible_and_does_not_touch_global_rng():
+    """Westfall young reproducible and does not touch global rng."""
     from mlframe.feature_selection.filters._cat_confirm_permutation import (
         _compute_westfall_young_corrected_p,
     )
@@ -207,6 +216,7 @@ def test_westfall_young_reproducible_and_does_not_touch_global_rng():
     marginal_mi = np.zeros(n_cols, dtype=np.float64)
 
     def run():
+        """Run _compute_westfall_young_corrected_p once on the shared fixture, for repeated-call reproducibility comparison."""
         return _compute_westfall_young_corrected_p(
             factors_data=factors_data,
             pairs_a=pairs_a,
@@ -275,6 +285,7 @@ def test_mine_dv_loss_uses_canonical_ema_corrected_gradient():
 
 
 def test_mine_recovers_gaussian_copula_mi():
+    """Mine recovers gaussian copula mi."""
     torch = pytest.importorskip("torch")
     from mlframe.feature_selection.filters._neural_mi import mine_mi
 

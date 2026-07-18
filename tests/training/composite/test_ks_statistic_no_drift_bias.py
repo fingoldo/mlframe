@@ -12,6 +12,7 @@ from mlframe.training.composite.monitoring import _ks_statistic
 
 
 def test_no_drift_batch_has_near_zero_ks():
+    """KS against a reference sketch built from the batch's own quantile knots sits at the intrinsic knot-quantization floor, not inflated by formula bias."""
     rng = np.random.default_rng(0)
     batch = rng.normal(size=200_000)
     # The cleanest no-drift condition: the reference sketch is the batch's OWN quantile
@@ -29,6 +30,7 @@ def test_no_drift_batch_has_near_zero_ks():
 
 
 def test_real_drift_still_detected():
+    """A genuinely shifted batch still produces a clearly elevated KS above the no-drift knot floor."""
     rng = np.random.default_rng(1)
     k = 64
     ref_knots = np.quantile(rng.normal(size=20_000), (np.arange(k) + 0.5) / k)

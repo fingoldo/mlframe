@@ -16,10 +16,12 @@ class _ExplodingModel:
     """Predict raises IndexError on any input -- stands in for the xgboost 0-column DMatrix crash."""
 
     def predict(self, X, *a, **k):
+        """Always raises IndexError, mimicking xgboost's crash on a 0-column DMatrix."""
         raise IndexError("list index out of range")
 
 
 def test_compute_split_metrics_skips_zero_feature_frame():
+    """A zero-column split frame is skipped by _compute_split_metrics instead of reaching the model and crashing."""
     df = pd.DataFrame(index=range(20))  # 20 rows, 0 columns
     assert df.shape == (20, 0)
     target = np.arange(20.0)

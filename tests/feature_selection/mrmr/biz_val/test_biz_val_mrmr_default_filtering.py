@@ -34,6 +34,7 @@ warnings.filterwarnings("ignore")
 
 
 def _to_df(X, y, names=None):
+    """To df."""
     if names is None:
         names = [f"x{i}" for i in range(X.shape[1])]
     return pd.DataFrame(X, columns=names), pd.Series(y, name="y")

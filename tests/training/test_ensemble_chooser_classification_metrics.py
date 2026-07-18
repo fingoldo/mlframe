@@ -22,6 +22,8 @@ from mlframe.training.core._ensemble_chooser import (
 
 
 class _FakeEns:
+    """Stand-in ensemble object exposing only the .metrics dict the chooser reads."""
+
     def __init__(self, metrics: dict):
         self.metrics = metrics
 
@@ -62,6 +64,7 @@ def test_chooser_ranks_classification_by_roc_auc_when_calibration_absent():
     """With no ``ice`` / ``brier`` keys, the chooser falls to ``roc_auc`` (higher-is-better)."""
 
     def _auc_only(roc: float) -> dict:
+        """Builds an oof metrics block with only roc_auc/pr_auc, so no ice/brier keys exist to rank by."""
         return {"oof": {1: {"roc_auc": roc, "pr_auc": roc - 0.05}}}
 
     ensembles = {

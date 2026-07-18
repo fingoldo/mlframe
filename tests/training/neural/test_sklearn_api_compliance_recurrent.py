@@ -28,6 +28,7 @@ from mlframe.training.neural._recurrent_config import RecurrentConfig, InputMode
 
 
 def _fast_features_only_config(num_classes: int = 3, monitor: str = "val_loss") -> RecurrentConfig:
+    """Fast features only config."""
     return RecurrentConfig(
         input_mode=InputMode.FEATURES_ONLY,
         max_epochs=1,
@@ -47,6 +48,7 @@ def _fast_features_only_config(num_classes: int = 3, monitor: str = "val_loss") 
 
 
 def test_sk4a_classifier_predict_returns_original_labels():
+    """Sk4a classifier predict returns original labels."""
     rng = np.random.default_rng(0)
     n = 30
     X = rng.standard_normal((n, 4)).astype(np.float32)
@@ -71,6 +73,7 @@ def test_sk4a_classifier_predict_returns_original_labels():
 
 @pytest.mark.parametrize("cls", [RecurrentClassifierWrapper, RecurrentRegressorWrapper])
 def test_sk4b_clone_config_none_round_trips(cls):
+    """Sk4b clone config none round trips."""
     est = cls()  # config defaults to None
     assert est.config is None
     cloned = clone(est)
@@ -79,6 +82,7 @@ def test_sk4b_clone_config_none_round_trips(cls):
 
 def test_sk4b_fit_does_not_mutate_passed_config_or_shared_default():
     # Snapshot a fresh default to confirm the shared module-level default is never mutated by a fit.
+    """Sk4b fit does not mutate passed config or shared default."""
     reference = copy.deepcopy(RecurrentConfig())
 
     # num_classes=2 but a 3-column multilabel y: pre-fix code did ``self.config.num_classes = 3`` IN PLACE, mutating the caller's object.
@@ -113,6 +117,7 @@ def test_sk4b_fit_does_not_mutate_passed_config_or_shared_default():
 
 
 def test_sk4b_regressor_monitor_override_does_not_mutate_passed_config():
+    """Sk4b regressor monitor override does not mutate passed config."""
     cfg = _fast_features_only_config(num_classes=1, monitor="val_auprc")
     cfg_snapshot = copy.deepcopy(cfg)
 

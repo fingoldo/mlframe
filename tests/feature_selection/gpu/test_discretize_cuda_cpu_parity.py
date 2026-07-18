@@ -95,6 +95,7 @@ def test_discretize_quantile_rawkernel_built_once_across_calls():
     orig_rawkernel = cp.RawKernel
 
     def _counting_rawkernel(*a, **kw):
+        """Wrap cp.RawKernel to count construction calls, proving the singleton getter never rebuilds on repeat calls."""
         calls["n"] += 1
         return orig_rawkernel(*a, **kw)
 

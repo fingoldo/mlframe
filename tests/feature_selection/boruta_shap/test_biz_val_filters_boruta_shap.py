@@ -15,6 +15,7 @@ import pytest
 
 
 def test_biz_val_boruta_shap_filters_noise_keeps_informative():
+    """Biz val boruta shap filters noise keeps informative."""
     pytest.importorskip("shap")
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
@@ -91,6 +92,7 @@ def test_biz_val_boruta_early_stop_tentative_is_no_harm_to_accepted_set():
     X = pd.DataFrame(cols)
 
     def _mk(es):
+        """Build a BorutaShap selector with the given early-stopping config, on the shared redundant-cluster-plus-noise fixture."""
         return BorutaShap(
             model=RandomForestClassifier(n_estimators=50, n_jobs=4, random_state=0),
             importance_measure="gini",

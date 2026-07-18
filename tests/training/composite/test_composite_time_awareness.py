@@ -23,7 +23,9 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 class TestM6TimeOrdering:
+    """Groups tests covering m6 time ordering."""
     def _temporal_frame(self, n=4000, seed=0):
+        """Temporal frame."""
         rng = np.random.default_rng(seed)
         ts = np.arange(n)  # chronological index
         lag = np.empty(n)
@@ -46,6 +48,7 @@ class TestM6TimeOrdering:
         return df
 
     def test_time_ordering_sets_screen_flag_and_sorts(self) -> None:
+        """Time ordering sets screen flag and sorts."""
         df = self._temporal_frame()
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,
@@ -58,6 +61,7 @@ class TestM6TimeOrdering:
         assert getattr(disc, "_screen_time_ordered_", False) is True
 
     def test_no_time_ordering_leaves_flag_false(self) -> None:
+        """No time ordering leaves flag false."""
         df = self._temporal_frame()
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,
@@ -69,11 +73,13 @@ class TestM6TimeOrdering:
         assert getattr(disc, "_screen_time_ordered_", False) is False
 
     def test_time_column_config_field(self) -> None:
+        """Time column config field."""
         cfg = CompositeTargetDiscoveryConfig(time_column="ts")
         assert cfg.time_column == "ts"
 
 
 class TestG1MonotoneBaseWithGroupsNoFalseWarning:
+    """Groups tests covering g1 monotone base with groups no false warning."""
     def test_groups_plus_monotone_base_no_timestamps_does_not_warn_temporal_leak(self, caplog) -> None:
         """With groups present and NO time-ordering, a merely level-monotone base must NOT be treated as temporal:
         the CV is GroupKFold regardless, so the 'temporal order is NOT preserved' warning is a false positive."""
@@ -100,6 +106,7 @@ class TestG1MonotoneBaseWithGroupsNoFalseWarning:
 
 
 class TestA29ZeroBaseSentinel:
+    """Groups tests covering a29 zero base sentinel."""
     def test_trending_y_zero_base_baseline_exceeds_fold_mean_naive_std(self) -> None:
         """On strongly trending y the train-fold-mean predictor (forward walk)
         has a LARGER CV error than the full-sample std, so the zero-base
@@ -126,7 +133,9 @@ class TestA29ZeroBaseSentinel:
 
 
 class TestA19GroupAware:
+    """Groups tests covering a19 group aware."""
     def test_group_aware_forward_stepwise_runs(self) -> None:
+        """Group aware forward stepwise runs."""
         rng = np.random.default_rng(2)
         n = 900
         g = np.repeat(np.arange(9), 100)

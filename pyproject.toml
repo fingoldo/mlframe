@@ -657,6 +657,12 @@ DEP003 = [
     # spacy's transitive engine, pydantic_core is pydantic's own transitive Rust core, tomli comes
     # in via a pytest-plugin's transitive chain, packaging is ubiquitous across the whole toolchain.
     "thinc", "pydantic_core", "tomli", "packaging",
+    # colorama (2026-07-17): numba's OWN transitive dependency (numba.core.errors uses it directly for
+    # warning-message highlighting) -- mlframe/__init__.py's _patch_colorama_reinit_storm imports it
+    # directly to fix a numba-side performance bug (see that function's docstring), but never NEEDS it
+    # installed independently of numba, which already guarantees its presence whenever the GPU path
+    # (the only place this patch runs) is reachable at all.
+    "colorama",
 ]
 
 # ---------------------------------------------------------------------------

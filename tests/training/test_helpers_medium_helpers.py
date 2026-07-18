@@ -233,6 +233,7 @@ def test_lgb_shim_eval_set_normalises_bare_xy_list() -> None:
 
     def _classify(first, second):
         # Mirror the heuristic from the source.
+        """Classify."""
         first_ncols = getattr(first, "shape", (None, None))
         second_shape = getattr(second, "shape", None)
         return bool(second_shape is not None and len(second_shape) >= 2 and first_ncols and len(first_ncols) >= 2 and second_shape[1] == first_ncols[1])

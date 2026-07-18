@@ -24,6 +24,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import clu
 
 
 def _partition(labels):
+    """Helper that partition."""
     d = defaultdict(set)
     for i, x in enumerate(labels):
         d[int(x)].add(i)
@@ -46,6 +47,7 @@ def _quantile_bin(col: np.ndarray, n_bins: int = 10) -> np.ndarray:
 
 
 def _build_bins(X: np.ndarray, names: list[str], n_bins: int = 10) -> dict[str, np.ndarray]:
+    """Build bins."""
     return {n: _quantile_bin(X[:, i], n_bins=n_bins) for i, n in enumerate(names)}
 
 
@@ -119,6 +121,7 @@ def test_su_clustering_constant_column_singleton():
 
 
 def test_su_clustering_empty_bins_returns_empty():
+    """Su clustering empty bins returns empty."""
     labels = cluster_correlated_features_su({}, threshold=0.3, feature_names=[])
     assert isinstance(labels, np.ndarray)
     assert labels.shape == (0,)

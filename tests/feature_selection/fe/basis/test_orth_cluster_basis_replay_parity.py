@@ -24,6 +24,7 @@ from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
 
 
 def _fit_recipe(aggregator="mean_z", seed=0, n=2500):
+    """Fit recipe."""
     rng = np.random.default_rng(seed)
     z = rng.standard_normal(n)
     Xtr = pd.DataFrame(
@@ -50,6 +51,7 @@ def _fit_recipe(aggregator="mean_z", seed=0, n=2500):
 
 
 def _batch_invariance(recipe, seed=1):
+    """Batch invariance."""
     rng = np.random.default_rng(seed)
     cols = list(recipe.src_names)
     Xte = pd.DataFrame({c: rng.standard_normal(300) for c in cols})
@@ -66,6 +68,7 @@ def _batch_invariance(recipe, seed=1):
 
 
 def test_recipe_persists_fit_time_stats():
+    """Recipe persists fit time stats."""
     recipes = _fit_recipe("mean_z")
     assert recipes, "expected >=1 cluster-basis recipe"
     for r in recipes:
@@ -74,12 +77,14 @@ def test_recipe_persists_fit_time_stats():
 
 
 def test_mean_z_replay_invariant_to_batch_distribution():
+    """Mean z replay invariant to batch distribution."""
     recipes = _fit_recipe("mean_z")
     v_a, v_b = _batch_invariance(recipes[0])
     assert np.allclose(v_a, v_b, rtol=0, atol=1e-9), "replay value depends on the test batch distribution -> parity broken"
 
 
 def test_pc1_replay_invariant_to_batch_distribution():
+    """Pc1 replay invariant to batch distribution."""
     recipes = _fit_recipe("pc1")
     assert recipes, "expected >=1 pc1 cluster-basis recipe"
     v_a, v_b = _batch_invariance(recipes[0])
@@ -91,6 +96,7 @@ def test_legacy_recipe_without_stats_warns_and_still_replays():
     # shape via the recipe builder (omitting agg_stats/basis_params). Replay must
     # still produce finite output but emit the refit-fallback warning. (recipe
     # .extra is a frozen mappingproxy by design, so we build a fresh one.)
+    """Legacy recipe without stats warns and still replays."""
     from mlframe.feature_selection.filters.engineered_recipes import (
         build_orth_cluster_basis_recipe,
     )

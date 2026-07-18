@@ -145,6 +145,7 @@ def test_merge_vars_joint_counter_survives_large_single_bin():
 
 
 def test_polars_input_honors_categorical_cardinality_cap():
+    """Polars input honors categorical cardinality cap."""
     pl = pytest.importorskip("polars")
     n = 6000
     df = pd.DataFrame(

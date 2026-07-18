@@ -37,12 +37,14 @@ def _make_aft(n=1500, censor_frac=0.4, seed=0):
 
 
 def _inner():
+    """Inner."""
     from sklearn.ensemble import HistGradientBoostingRegressor
 
     return HistGradientBoostingRegressor(max_iter=80, random_state=0)
 
 
 def test_cindex_finite_and_above_half():
+    """Cindex finite and above half."""
     X, t, e, _ = _make_aft(seed=1)
     est = CompositeSurvivalEstimator(
         base_estimator=_inner(),
@@ -57,6 +59,7 @@ def test_cindex_finite_and_above_half():
 
 
 def test_censoring_handled_no_crash_and_caveat():
+    """Censoring handled no crash and caveat."""
     X, t, e, _ = _make_aft(seed=2)
     est = CompositeSurvivalEstimator(
         base_estimator=_inner(),
@@ -70,6 +73,7 @@ def test_censoring_handled_no_crash_and_caveat():
 
 
 def test_predicted_times_non_negative():
+    """Predicted times non negative."""
     X, t, e, _ = _make_aft(seed=3)
     est = CompositeSurvivalEstimator(
         base_estimator=_inner(),
@@ -83,6 +87,7 @@ def test_predicted_times_non_negative():
 
 
 def test_event_all_ones_reduces_to_plain_aft():
+    """Event all ones reduces to plain aft."""
     X, t, e, _ = _make_aft(seed=4)
     e_all = np.ones_like(e)
     est = CompositeSurvivalEstimator(
@@ -98,6 +103,7 @@ def test_event_all_ones_reduces_to_plain_aft():
 
 
 def test_event_validation_rejects_bad_indicator():
+    """Event validation rejects bad indicator."""
     X, t, e, _ = _make_aft(seed=5)
     est = CompositeSurvivalEstimator(base_estimator=_inner(), base_column="base_logtime")
     bad = e.copy().astype(float)
@@ -107,6 +113,7 @@ def test_event_validation_rejects_bad_indicator():
 
 
 def test_requires_event():
+    """Requires event."""
     X, t, _, _ = _make_aft(seed=6)
     est = CompositeSurvivalEstimator(base_estimator=_inner(), base_column="base_logtime")
     with pytest.raises(ValueError):
@@ -147,9 +154,11 @@ class _StubGBSA:
     """
 
     def fit(self, X, y):
+        """Fit."""
         return self
 
     def predict(self, X):
+        """Predict."""
         X = np.asarray(X, dtype=np.float64)
         return X[:, 0] * 0.7 - X[:, 1] * 0.3
 

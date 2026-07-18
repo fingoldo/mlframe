@@ -23,6 +23,7 @@ def _as_object_rows(rows_2d: np.ndarray) -> np.ndarray:
 
 
 def test_multilabel_loss_set_from_object_array_target():
+    """A ragged object-array multilabel target gets stacked to 2-D and CatBoost's loss_function set to MultiLogloss."""
     cb = pytest.importorskip("catboost")
     from mlframe.training._training_loop import _ensure_cb_multilabel_loss
 
@@ -33,6 +34,7 @@ def test_multilabel_loss_set_from_object_array_target():
 
 
 def test_mtr_loss_set_from_object_array_target():
+    """A ragged object-array multi-target-regression target gets stacked to 2-D with the right CatBoost loss configured."""
     cb = pytest.importorskip("catboost")
     from mlframe.training._training_loop import _ensure_cb_mtr_loss
 

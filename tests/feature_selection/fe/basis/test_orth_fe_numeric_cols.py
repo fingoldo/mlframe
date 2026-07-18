@@ -14,6 +14,7 @@ from mlframe.feature_selection.filters._mrmr_fit_impl import _orth_fe_numeric_co
 
 
 def test_excludes_string_and_cat_keeps_numeric_and_bool():
+    """_orth_fe_numeric_cols keeps numeric and bool columns but drops raw string/categorical ones, avoiding the float('B') crash."""
     X = pd.DataFrame(
         {
             "num_f": np.arange(5, dtype=float),
@@ -28,6 +29,7 @@ def test_excludes_string_and_cat_keeps_numeric_and_bool():
 
 
 def test_skips_duplicate_named_column():
+    """A duplicated column name (X[c] returns a 2-D DataFrame) is skipped as ambiguous rather than crashing."""
     X = pd.DataFrame(np.zeros((4, 3)), columns=["dup", "dup", "ok"])
     out = _orth_fe_numeric_cols(X, ["dup", "ok"])  # X['dup'] -> DataFrame (ndim 2) -> skip as ambiguous
     assert out == ["ok"]

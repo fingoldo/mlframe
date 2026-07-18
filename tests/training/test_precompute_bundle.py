@@ -20,6 +20,7 @@ warnings.filterwarnings("ignore")
 
 
 def _make_regression_df(n: int = 200, seed: int = 7) -> pd.DataFrame:
+    """Make regression df."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 4))
     y = X.sum(axis=1) + 0.25 * rng.normal(size=n)
@@ -111,12 +112,14 @@ def test_precompute_all_returns_dataclass_with_expected_fields():
 # the per-target loop in core/_phase_train_one_target.py has a pre-existing NameError on
 # ``_tier_suffix`` (locked file; not in scope for this PR) that would otherwise mask the assertion.
 class _InlineStatsCalled(Exception):
+    """Groups tests covering inline stats called."""
     pass
 
 
 # Same idea for the fallback test: the inline path RAN was the only signal we needed; abort the
 # suite right after so no downstream phase failure (composite/dummy/train) confuses the assertion.
 class _InlineStatsRanFromBundleNone(Exception):
+    """Groups tests covering inline stats ran from bundle none."""
     pass
 
 
@@ -138,6 +141,7 @@ def test_suite_uses_precomputed_stats_when_passed_in(tmp_path, monkeypatch):
     helper_out = precompute_trainset_features_stats(df)
 
     def _raise(*_args, **_kwargs):
+        """Raise."""
         raise _InlineStatsCalled()
 
     monkeypatch.setattr(_main_mod, "get_trainset_features_stats", _raise)
@@ -199,6 +203,7 @@ def test_suite_falls_back_to_inline_when_bundle_field_is_none(tmp_path, monkeypa
     calls = {"n": 0}
 
     def _counting_then_abort(*args, **kwargs):
+        """Counting then abort."""
         calls["n"] += 1
         # Run the real function (so the result type matches what the suite expects when it
         # eventually reads ctx.trainset_features_stats) then abort to avoid running downstream

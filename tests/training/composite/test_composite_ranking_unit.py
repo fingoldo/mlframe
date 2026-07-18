@@ -32,6 +32,7 @@ def _synthetic(n_groups=40, items=12, seed=0):
 
 
 def test_pairwise_fallback_fit_predict_finite():
+    """Pairwise fallback fit predict finite."""
     X, y, g = _synthetic(seed=1)
     from sklearn.linear_model import LogisticRegression
 
@@ -46,6 +47,7 @@ def test_pairwise_fallback_fit_predict_finite():
 def test_ndcg_finite_and_beats_base_only_pairwise():
     # Residual feature carries enough signal (2*base + 1.5*resid) that the inner
     # reranking strictly improves over base-only; default drop_base_feature isolates it.
+    """Ndcg finite and beats base only pairwise."""
     rng = np.random.default_rng(2)
     rows, ys, groups = [], [], []
     for gid in range(40):
@@ -95,6 +97,7 @@ def test_base_plus_residual_combine():
 
 
 def test_rank_helper_orderings():
+    """Rank helper orderings."""
     X, y, g = _synthetic(n_groups=5, items=8, seed=4)
     from sklearn.linear_model import LogisticRegression
 
@@ -111,6 +114,7 @@ def test_rank_helper_orderings():
 
 
 def test_single_group():
+    """Single group."""
     X, y, g = _synthetic(n_groups=1, items=15, seed=5)
     from sklearn.linear_model import LogisticRegression
 
@@ -125,6 +129,7 @@ def test_single_group():
 
 
 def test_residual_mode_diff():
+    """Residual mode diff."""
     X, y, g = _synthetic(seed=6)
     from sklearn.linear_model import LogisticRegression
 
@@ -134,6 +139,7 @@ def test_residual_mode_diff():
 
 
 def test_invalid_residual_mode_raises():
+    """Invalid residual mode raises."""
     X, y, g = _synthetic(n_groups=3, seed=7)
     est = CompositeRankEstimator("base", residual_mode="bogus")
     with pytest.raises(ValueError):
@@ -141,6 +147,7 @@ def test_invalid_residual_mode_raises():
 
 
 def test_group_length_mismatch_raises():
+    """Group length mismatch raises."""
     X, y, g = _synthetic(n_groups=3, seed=8)
     est = CompositeRankEstimator("base")
     with pytest.raises(ValueError):
@@ -148,6 +155,7 @@ def test_group_length_mismatch_raises():
 
 
 def test_lambdarank_inner_importorskip():
+    """Lambdarank inner importorskip."""
     pytest.importorskip("lightgbm")
     X, y, g = _synthetic(seed=9)
     # Default inner picks LGBMRanker(lambdarank) when lightgbm is present.

@@ -25,6 +25,7 @@ from mlframe.training.composite.model_card import composite_model_card
 
 
 def _make_data(n=400, seed=0):
+    """Make data."""
     rng = np.random.default_rng(seed)
     base = rng.normal(10.0, 2.0, n)
     f1 = rng.normal(0.0, 1.0, n)
@@ -34,6 +35,7 @@ def _make_data(n=400, seed=0):
 
 
 def _fit_linres(X, y, base_column="base"):
+    """Fit linres."""
     est = CompositeTargetEstimator(
         base_estimator=LinearRegression(),
         transform_name="linear_residual",
@@ -49,6 +51,7 @@ def _fit_linres(X, y, base_column="base"):
 
 
 def test_biz_val_model_card_linear_residual_all_sections_nonempty():
+    """Biz val model card linear residual all sections nonempty."""
     X, y = _make_data()
     est = _fit_linres(X, y)
     # Calibrate conformal on a held-out slice so readiness + coverage populate.
@@ -125,6 +128,7 @@ def test_biz_val_model_card_linear_residual_all_sections_nonempty():
 
 
 def test_model_card_no_data_renders_identity_provenance_params():
+    """Model card no data renders identity provenance params."""
     X, y = _make_data()
     est = _fit_linres(X, y)
     card = composite_model_card(est)  # no X, no y
@@ -143,6 +147,7 @@ def test_model_card_no_data_renders_identity_provenance_params():
 
 
 def test_model_card_unfitted_estimator_renders_minimal():
+    """Model card unfitted estimator renders minimal."""
     est = CompositeTargetEstimator(
         base_estimator=LinearRegression(),
         transform_name="linear_residual",
@@ -156,6 +161,7 @@ def test_model_card_unfitted_estimator_renders_minimal():
 
 
 def test_model_card_readiness_online_refit_flag():
+    """Model card readiness online refit flag."""
     X, y = _make_data()
     est = CompositeTargetEstimator(
         base_estimator=LinearRegression(),
@@ -173,6 +179,7 @@ def test_model_card_readiness_online_refit_flag():
 
 def test_model_card_detects_leaky_base():
     # base ~= y itself -> a near-deterministic re-encoding of the CURRENT target.
+    """Model card detects leaky base."""
     X, y = _make_data()
     leaky = y.to_numpy() + np.random.default_rng(3).normal(0, 1e-3, len(y))
     Xl = pd.DataFrame({"base": leaky, "f1": X["f1"].to_numpy()})
@@ -184,6 +191,7 @@ def test_model_card_detects_leaky_base():
 
 
 def test_model_card_attribution_unavailable_for_unary_transform():
+    """Model card attribution unavailable for unary transform."""
     rng = np.random.default_rng(5)
     n = 300
     y = rng.lognormal(0.0, 1.0, n)

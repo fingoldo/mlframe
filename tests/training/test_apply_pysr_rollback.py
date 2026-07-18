@@ -30,7 +30,9 @@ class _FakeEqDF:
 
     @property
     def loc(self):
+        """Loc."""
         class _Loc:
+            """Groups tests covering loc."""
             def __init__(self, outer):
                 self.outer = outer
 
@@ -42,9 +44,11 @@ class _FakeEqDF:
         return _Loc(self)
 
     def sort_values(self, by, ascending):
+        """Sort values."""
         return self  # already sorted
 
     def head(self, n):
+        """Head."""
         return self
 
     def __len__(self):
@@ -62,6 +66,7 @@ class _PartialFailModel:
         self.predict_calls = []
 
     def predict(self, df, index=None):
+        """Predict."""
         self.predict_calls.append((id(df), index))
         if id(df) == self._val:
             raise ValueError(f"simulated PySR predict failure on val_df at equation idx={index}")
@@ -144,7 +149,9 @@ def test_pysr_all_succeed_baseline_no_rollback():
     test_df = pd.DataFrame({"x0": np.arange(50, dtype=np.float32)})
 
     class _AllSucceedModel:
+        """Groups tests covering all succeed model."""
         def predict(self, df, index=None):
+            """Predict."""
             return np.full(len(df), float(index or 0), dtype=np.float32)
 
     eq_df = _FakeEqDF(n_equations=3)

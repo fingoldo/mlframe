@@ -21,6 +21,7 @@ from sklearn.ensemble import IsolationForest
 
 
 def test_lof_default_routes_to_fit_predict_on_clean_numeric_data():
+    """LocalOutlierFactor (novelty=False) is routed through fit_predict, not fit-then-predict, which pre-fix raised AttributeError."""
     rng = np.random.default_rng(0)
     X = rng.normal(size=(80, 3))
     lof = LocalOutlierFactor(n_neighbors=10)  # novelty=False default
@@ -37,6 +38,7 @@ def test_lof_default_routes_to_fit_predict_on_clean_numeric_data():
 
 
 def test_isolation_forest_keeps_fit_predict_path():
+    """IsolationForest, which supports predict natively, is NOT routed through the fit_predict special-case."""
     rng = np.random.default_rng(1)
     X = rng.normal(size=(60, 2))
     iso = IsolationForest(n_estimators=10, random_state=0)

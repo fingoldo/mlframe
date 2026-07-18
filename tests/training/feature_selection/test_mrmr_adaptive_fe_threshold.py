@@ -14,13 +14,16 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _suppress_optuna_warnings():
+    """Suppress optuna warnings."""
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore")
         yield
 
 
 class TestAdaptiveFEConfig:
+    """Groups tests covering adaptive f e config."""
     def test_default_adaptive_is_on(self) -> None:
+        """Default adaptive is on."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         m = MRMR()
@@ -28,12 +31,14 @@ class TestAdaptiveFEConfig:
         assert m.fe_adaptive_relax_factor == 0.9
 
     def test_explicit_off_restores_legacy(self) -> None:
+        """Explicit off restores legacy."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         m = MRMR(fe_adaptive_threshold_relax=False)
         assert m.fe_adaptive_threshold_relax is False
 
     def test_custom_relax_factor(self) -> None:
+        """Custom relax factor."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         m = MRMR(fe_adaptive_relax_factor=0.85)

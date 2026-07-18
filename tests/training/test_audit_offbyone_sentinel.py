@@ -47,14 +47,17 @@ def _make_es_estimator(validation_fraction):
     from mlframe.estimators.early_stopping import EarlyStoppingWrapper
 
     class _SpyBase(BaseEstimator):
+        """Groups tests covering spy base."""
         def __init__(self):
             self.train_sizes = []
 
         def partial_fit(self, X, y, classes=None):
+            """Partial fit."""
             self.train_sizes.append(len(X))
             return self
 
         def predict(self, X):
+            """Predict."""
             return np.zeros(len(X))
 
     return EarlyStoppingWrapper(
@@ -183,10 +186,12 @@ def test_reporting_unseen_predict_warns(caplog):
     about the unseen outputs, mapping them to class-0."""
 
     class _UnseenModel:
+        """Groups tests covering unseen model."""
         classes_ = np.array([0, 1])
 
         def predict(self, X):
             # 2 is OUTSIDE classes_ -- the unseen value that pre-fix crashed.
+            """Predict."""
             return np.array([0, 1, 2, 1])
 
         # Deliberately NO predict_proba so the fallback path is taken.

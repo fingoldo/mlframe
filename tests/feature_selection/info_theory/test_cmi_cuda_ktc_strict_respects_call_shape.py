@@ -22,6 +22,7 @@ from mlframe.feature_selection.filters.info_theory._cmi_cuda_ktc import cmi_use_
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
+    """Helper that isolate."""
     monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
     monkeypatch.delenv("MLFRAME_FE_GPU_STRICT_AUTO_MIN_N", raising=False)
     _strict_mod.clear_auto_fit_n()
@@ -41,6 +42,7 @@ def test_strict_declines_small_p_call_even_under_force(monkeypatch):
 
 
 def test_strict_approves_large_call_under_force(monkeypatch):
+    """Strict approves large call under force."""
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
     assert cmi_use_cuda(n=1_000_000, p=64) is True
 

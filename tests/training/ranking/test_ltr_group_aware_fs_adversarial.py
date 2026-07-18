@@ -144,6 +144,7 @@ def test_group_aware_relevance_zeros_confounder_and_ranks_signal(seed, bins):
 
 
 def _pooled_pair_mi(x, y, bins=8):
+    """Pooled pair mi."""
     from mlframe.training.ranking._ranker_fs import _binned_mi
 
     return _binned_mi(np.asarray(x, np.float64), np.asarray(y, np.float64), bins=bins)
@@ -263,6 +264,7 @@ def test_biz_val_group_aware_fs_beats_pooled_on_ndcg_medium_scale():
     pooled_cols = [conf]
 
     def _ndcg_for(feat_cols):
+        """Ndcg for."""
         train_pool = Pool(df[feat_cols][tr], label=rel[tr], group_id=qids[tr])
         rk = CatBoostRanker(iterations=80, loss_function="YetiRank", verbose=False, random_seed=0)
         rk.fit(train_pool)

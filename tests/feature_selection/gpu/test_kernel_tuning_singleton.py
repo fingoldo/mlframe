@@ -23,6 +23,7 @@ import pytest
 
 
 def test_get_kernel_tuning_cache_returns_singleton():
+    """Repeated get_kernel_tuning_cache() calls return the identical instance (or all None if pyutilz is absent), so _load runs at most once."""
     from mlframe.feature_selection.filters import _kernel_tuning
 
     _kernel_tuning._reset_for_tests()
@@ -47,6 +48,7 @@ def test_singleton_thread_safe_init():
     barrier = threading.Barrier(8)
 
     def _worker():
+        """Wait at the shared barrier then fetch the singleton, so all 8 threads race get_kernel_tuning_cache() simultaneously."""
         barrier.wait()
         results.append(_kernel_tuning.get_kernel_tuning_cache())
 

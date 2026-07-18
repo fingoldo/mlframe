@@ -68,6 +68,7 @@ def _f1_fixture(seed: int = SEED, n: int = N):
 
 
 def _fit(df, y, early_stop: bool, fe_max_steps: int = 3, use_cache: bool = True):
+    """Helper that fit."""
     fs = MRMR(
         verbose=0,
         fe_max_steps=fe_max_steps,
@@ -126,6 +127,7 @@ def test_biz_value_work_cut_on_fully_recoverable_signal():
         n = len(yv)
 
         def _r2(cols):
+            """Fit an OLS on [1, *cols] against yv and return the fraction of variance explained."""
             X = np.column_stack([np.ones(n), *cols])
             beta, *_ = lstsq(X, yv, rcond=None)
             return 1.0 - np.var(yv - X @ beta) / np.var(yv)

@@ -26,6 +26,7 @@ from mlframe.training.composite.serving import (
 
 
 def _make_xy(n=400, seed=0, base_positive=False):
+    """Make xy."""
     rng = np.random.default_rng(seed)
     base = rng.normal(5.0, 2.0, size=n)
     if base_positive:
@@ -41,6 +42,7 @@ def _make_xy(n=400, seed=0, base_positive=False):
 
 
 def _fit(transform_name, **kw):
+    """Fit."""
     base_positive = transform_name in ("ratio", "logratio")
     X, y = _make_xy(base_positive=base_positive, **kw)
     est = CompositeTargetEstimator(
@@ -69,6 +71,7 @@ def _serve_predict(est, X):
     ["diff", "additive_residual", "linear_residual", "ratio", "logratio"],
 )
 def test_serving_bit_identical(transform_name):
+    """Serving bit identical."""
     est, X, _ = _fit(transform_name)
     y_full = est.predict(X)
     y_serve = _serve_predict(est, X)
@@ -76,6 +79,7 @@ def test_serving_bit_identical(transform_name):
 
 
 def test_serving_multi_base_bit_identical():
+    """Serving multi base bit identical."""
     import pandas as pd
 
     rng = np.random.default_rng(3)
@@ -102,6 +106,7 @@ def test_serving_multi_base_bit_identical():
 # json round-trip.
 # ---------------------------------------------------------------------------
 def test_serving_spec_json_round_trip():
+    """Serving spec json round trip."""
     est, X, _ = _fit("linear_residual")
     spec = export_serving_spec(est)
     reloaded = json.loads(json.dumps(spec))
@@ -130,6 +135,7 @@ def test_serving_spec_json_handles_non_finite_clip():
 # Unsupported transform raises clearly.
 # ---------------------------------------------------------------------------
 def test_export_unsupported_transform_raises():
+    """Export unsupported transform raises."""
     est, _X, _ = _fit("diff")
     est.transform_name = "monotonic_residual"  # not in the lightweight table
     with pytest.raises(NotImplementedError, match="lightweight numpy inverse"):
@@ -137,6 +143,7 @@ def test_export_unsupported_transform_raises():
 
 
 def test_export_unfitted_raises():
+    """Export unfitted raises."""
     est = CompositeTargetEstimator(
         base_estimator=LinearRegression(),
         transform_name="diff",
@@ -147,6 +154,7 @@ def test_export_unfitted_raises():
 
 
 def test_load_unsupported_transform_raises():
+    """Load unsupported transform raises."""
     spec = {
         "transform_name": "rolling_quantile_ratio",
         "fitted_params": {},
@@ -179,6 +187,7 @@ def test_serving_domain_fallback_applied():
 
 
 def test_serving_nan_fallback_leaves_nan():
+    """Serving nan fallback leaves nan."""
     est, X, _ = _fit("ratio")
     est.fallback_predict = "nan"
     spec = export_serving_spec(est)

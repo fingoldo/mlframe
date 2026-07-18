@@ -29,6 +29,7 @@ from mlframe.training.pipeline._pipeline_helpers import (
 
 
 def _imb_pipeline():
+    """Imb pipeline."""
     imb_over = pytest.importorskip("imblearn.over_sampling")
     imb_pipe = pytest.importorskip("imblearn.pipeline")
     from sklearn.preprocessing import StandardScaler
@@ -37,6 +38,7 @@ def _imb_pipeline():
 
 
 def _imbalanced_xy(n=20, pos=4):
+    """Imbalanced xy."""
     rng = np.random.RandomState(0)
     X = pd.DataFrame({"a": rng.randn(n), "b": rng.randn(n)})
     y = np.array([0] * (n - pos) + [1] * pos)

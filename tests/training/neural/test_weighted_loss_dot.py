@@ -25,15 +25,18 @@ torch = pytest.importorskip("torch")
 
 
 def _weighted_loss_broadcast(loss: torch.Tensor, sw: torch.Tensor) -> torch.Tensor:
+    """Weighted loss broadcast."""
     return (loss * sw).sum() / sw.sum()
 
 
 def _weighted_loss_dot(loss: torch.Tensor, sw: torch.Tensor) -> torch.Tensor:
+    """Weighted loss dot."""
     return torch.dot(loss, sw) / sw.sum()
 
 
 @pytest.mark.parametrize("n", [256, 1024, 4096])
 def test_dot_matches_broadcast_forward(n: int) -> None:
+    """Dot matches broadcast forward."""
     torch.manual_seed(20260520)
     loss = torch.rand(n, dtype=torch.float64) + 0.1
     sw = torch.rand(n, dtype=torch.float64) + 0.1
@@ -44,6 +47,7 @@ def test_dot_matches_broadcast_forward(n: int) -> None:
 
 @pytest.mark.parametrize("n", [256, 1024, 4096])
 def test_dot_matches_broadcast_gradient(n: int) -> None:
+    """Dot matches broadcast gradient."""
     torch.manual_seed(20260520)
     loss_a = (torch.rand(n, dtype=torch.float64) + 0.1).requires_grad_(True)
     loss_b = loss_a.detach().clone().requires_grad_(True)
@@ -60,6 +64,7 @@ def test_wrapper_routes_to_dot_for_1d():
     from mlframe.training.neural.flat import MLPTorchModel  # type: ignore
 
     class _Stub:
+        """Groups tests covering stub."""
         loss_fn = torch.nn.MSELoss()
 
         _loss_unreduced = MLPTorchModel._loss_unreduced
@@ -92,6 +97,7 @@ def test_wrapper_broadcast_2d_loss_with_1d_weights():
     from mlframe.training.neural.flat import MLPTorchModel  # type: ignore
 
     class _Stub:
+        """Groups tests covering stub."""
         loss_fn = torch.nn.MSELoss()
         _loss_unreduced = MLPTorchModel._loss_unreduced
         _compute_weighted_loss = MLPTorchModel._compute_weighted_loss
@@ -118,6 +124,7 @@ def test_wrapper_multilabel_bce_with_sample_weights():
     from mlframe.training.neural.flat import MLPTorchModel  # type: ignore
 
     class _Stub:
+        """Groups tests covering stub."""
         loss_fn = torch.nn.BCEWithLogitsLoss()
         _loss_unreduced = MLPTorchModel._loss_unreduced
         _compute_weighted_loss = MLPTorchModel._compute_weighted_loss

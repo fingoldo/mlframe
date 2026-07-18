@@ -62,6 +62,7 @@ def test_predict_cpu_fallback_on_cuda_runtime_error(caplog, monkeypatch):
     _orig_predict = L.Trainer.predict
 
     def _fake_predict(self, *args, **kwargs):
+        """Fake predict."""
         invocations["count"] += 1
         if invocations["count"] == 1:
             raise RuntimeError(
@@ -113,6 +114,7 @@ def test_predict_3rd_tier_cuda_fail_moves_model_to_cpu_before_retry(caplog, monk
     moved_to_cpu = {"yes": False}
 
     def _fake_predict(self, *args, **kwargs):
+        """Fake predict."""
         invocations["count"] += 1
         if invocations["count"] in (1, 2):
             # First call: GPU path. Second call: first CPU retry, which
@@ -131,6 +133,7 @@ def test_predict_3rd_tier_cuda_fail_moves_model_to_cpu_before_retry(caplog, monk
     _orig_to = est.model.to
 
     def _spy_to(*a, **kw):
+        """Spy to."""
         if a and a[0] == "cpu":
             moved_to_cpu["yes"] = True
         return _orig_to(*a, **kw)
@@ -161,6 +164,7 @@ def test_predict_non_cuda_runtime_error_still_raises(monkeypatch):
     est.fit(X, y, eval_set=(X, y))
 
     def _raise_non_cuda(self, *args, **kwargs):
+        """Raise non cuda."""
         raise RuntimeError("Input shape mismatch: expected 4 features, got 7")
 
     monkeypatch.setattr(L.Trainer, "predict", _raise_non_cuda)

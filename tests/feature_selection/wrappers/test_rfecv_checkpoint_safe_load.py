@@ -12,6 +12,7 @@ from mlframe.feature_selection.wrappers.rfecv import RFECV
 
 
 class _Stub:
+    """Groups tests covering Stub."""
     _CHECKPOINT_VERSION = RFECV._CHECKPOINT_VERSION
 
     def __init__(self, path):
@@ -19,10 +20,12 @@ class _Stub:
 
 
 def _legit_state():
+    """Legit state."""
     return {"version": RFECV._CHECKPOINT_VERSION, "payload": [1, 2, 3]}
 
 
 def test_legit_checkpoint_round_trips(tmp_path, monkeypatch):
+    """Legit checkpoint round trips."""
     monkeypatch.delenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", raising=False)
     ckpt = str(tmp_path / "rfecv.ckpt")
     stub = _Stub(ckpt)
@@ -35,6 +38,7 @@ def test_legit_checkpoint_round_trips(tmp_path, monkeypatch):
 
 
 def test_tampered_checkpoint_refused(tmp_path, monkeypatch):
+    """Tampered checkpoint refused."""
     monkeypatch.delenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", raising=False)
     ckpt = str(tmp_path / "rfecv.ckpt")
     stub = _Stub(ckpt)
@@ -49,6 +53,7 @@ def test_tampered_checkpoint_refused(tmp_path, monkeypatch):
 
 
 def test_missing_sidecar_refused(tmp_path, monkeypatch):
+    """Missing sidecar refused."""
     monkeypatch.delenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", raising=False)
     import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 

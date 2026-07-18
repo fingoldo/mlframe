@@ -36,6 +36,7 @@ import pandas as pd
 
 
 def _frames():
+    """Helper that frames."""
     rng = np.random.default_rng(0)
     n = 200
     train = pd.DataFrame(
@@ -59,6 +60,7 @@ def _frames():
 
 
 def _build_recipe_with_edges(train, member_names):
+    """Build recipe with edges."""
     from mlframe.feature_selection.filters._cluster_aggregate import (
         _continuous_cols,
         _standardize_align,
@@ -94,6 +96,7 @@ def _build_recipe_with_edges(train, member_names):
 
 
 def _build_recipe_no_edges(train, member_names):
+    """Build recipe no edges."""
     from mlframe.feature_selection.filters._cluster_aggregate import (
         _continuous_cols,
         _standardize_align,

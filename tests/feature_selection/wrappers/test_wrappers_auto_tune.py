@@ -26,7 +26,9 @@ from mlframe.feature_selection.wrappers._auto_tune import (
 
 
 class TestDataFingerprint:
+    """Groups tests covering TestDataFingerprint."""
     def test_binary_detected(self):
+        """Binary detected."""
         X, y = make_classification(n_samples=100, n_features=5, n_informative=3, random_state=0)
         fp = DataFingerprint.from_xy(X, y)
         assert fp.target_type == "binary"
@@ -34,27 +36,32 @@ class TestDataFingerprint:
         assert fp.n_features == 5
 
     def test_multiclass_detected(self):
+        """Multiclass detected."""
         X, y = make_classification(n_samples=200, n_features=6, n_informative=4, n_classes=4, n_clusters_per_class=1, random_state=0)
         fp = DataFingerprint.from_xy(X, y)
         assert fp.target_type == "multiclass"
 
     def test_regression_detected(self):
+        """Regression detected."""
         X, y = make_regression(n_samples=200, n_features=5, n_informative=3, random_state=0)
         fp = DataFingerprint.from_xy(X, y)
         assert fp.target_type == "regression"
 
     def test_p_n_ratio(self):
+        """P n ratio."""
         X, y = make_classification(n_samples=50, n_features=200, n_informative=10, random_state=0)
         fp = DataFingerprint.from_xy(X, y)
         assert fp.p_n_ratio == pytest.approx(4.0)
 
     def test_continuous_floats_not_flagged_as_high_card(self):
+        """Continuous floats not flagged as high card."""
         X, y = make_regression(n_samples=200, n_features=10, random_state=0)
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
         fp = DataFingerprint.from_xy(Xdf, y)
         assert fp.frac_high_card == pytest.approx(0.0)
 
     def test_int_id_flagged_as_high_card(self):
+        """Int id flagged as high card."""
         rng = np.random.default_rng(0)
         Xdf = pd.DataFrame(
             {
@@ -68,6 +75,7 @@ class TestDataFingerprint:
 
     def test_imbalanced_binary_imbalance(self):
         # 95/5 imbalance.
+        """Imbalanced binary imbalance."""
         y = np.array([0] * 190 + [1] * 10)
         X = np.random.default_rng(0).normal(size=(200, 4))
         fp = DataFingerprint.from_xy(X, y)
@@ -78,13 +86,16 @@ class TestDataFingerprint:
 
 
 class TestSuggestConfigs:
+    """Groups tests covering TestSuggestConfigs."""
     def test_high_p_n_triggers_prescreen(self):
+        """High p n triggers prescreen."""
         X, y = make_classification(n_samples=100, n_features=300, n_informative=10, random_state=0)
         fp = DataFingerprint.from_xy(X, y)
         _sc, _fic, _rc = suggest_configs(fp)
         assert "univariate_ht" in (_rc.prescreen or "")
 
     def test_tiny_p_init_design_2(self):
+        """Tiny p init design 2."""
         X, y = make_classification(n_samples=200, n_features=6, n_informative=3, random_state=0)
         fp = DataFingerprint.from_xy(X, y)
         _sc, _, _ = suggest_configs(fp)
@@ -92,6 +103,7 @@ class TestSuggestConfigs:
 
     def test_flat_curve_one_se_max(self):
         # Synthetic with no real signal -> max_corr ~ 0 -> flat curve rule.
+        """Flat curve one se max."""
         rng = np.random.default_rng(0)
         X = rng.normal(size=(200, 8))
         y = rng.normal(size=200)
@@ -102,6 +114,7 @@ class TestSuggestConfigs:
             assert _fic.n_features_selection_rule == "one_se_max"
 
     def test_explain_suggestion_returns_str(self):
+        """Explain suggestion returns str."""
         X, y = make_classification(n_samples=100, n_features=5, random_state=0)
         fp = DataFingerprint.from_xy(X, y)
         s = explain_suggestion(fp)
@@ -113,7 +126,9 @@ class TestSuggestConfigs:
 
 
 class TestRFECVAutoTune:
+    """Groups tests covering TestRFECVAutoTune."""
     def test_auto_tune_smoke_regression(self):
+        """Auto tune smoke regression."""
         X, y = make_regression(n_samples=200, n_features=10, n_informative=4, noise=0.5, random_state=0)
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
         sel = RFECV(estimator=Ridge(), auto_tune=True, cv=3, max_refits=4, random_state=0)
@@ -127,6 +142,7 @@ class TestRFECVAutoTune:
     def test_auto_tune_respects_explicit_user_kwarg(self):
         # User explicitly sets convergence_tol; auto-tune may also want to set it
         # for flat curves but must NOT override the explicit value.
+        """Auto tune respects explicit user kwarg."""
         X, y = make_regression(n_samples=200, n_features=10, random_state=0, noise=100)
         sel = RFECV(
             estimator=Ridge(),
@@ -140,5 +156,6 @@ class TestRFECVAutoTune:
         assert sel.convergence_tol == pytest.approx(1e-6)
 
     def test_auto_tune_off_by_default(self):
+        """Auto tune off by default."""
         sel = RFECV(estimator=Ridge())
         assert sel.auto_tune is False

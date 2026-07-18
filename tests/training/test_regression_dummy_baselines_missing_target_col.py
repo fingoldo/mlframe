@@ -11,6 +11,7 @@ from mlframe.training.core._phase_dummy_baselines import _resolve_spec_raw_targe
 
 
 def test_missing_target_col_returns_none_pair_no_keyerror():
+    """A composite spec with no 'target_col' resolves to (None, None) instead of raising KeyError."""
     spec = {"name": "comp", "transform_name": "linear_residual"}  # no 'target_col'
     target_by_type = {"regression": {"y": [1.0, 2.0]}}
     # Pre-fix: spec["target_col"] -> KeyError. Post-fix: clean (None, None).
@@ -20,6 +21,7 @@ def test_missing_target_col_returns_none_pair_no_keyerror():
 
 
 def test_present_target_col_resolves_y():
+    """A composite spec with a valid target_col resolves the raw column name and its target array."""
     spec = {"name": "comp", "target_col": "y"}
     target_by_type = {"regression": {"y": [1.0, 2.0, 3.0]}}
     raw_col, raw_y = _resolve_spec_raw_target(spec, "regression", target_by_type, "comp")

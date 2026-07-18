@@ -37,6 +37,7 @@ def _component_recovered(names, comp: str) -> bool:
 
 
 class TestMultiwaySynergy:
+    """Groups tests covering TestMultiwaySynergy."""
     def test_three_way_xor(self):
         """y = x1 XOR x2 XOR x3. Triple synergy. The 3-way synergy must be RECOVERED --
         historically by surfacing 2+ of the raw components, but the modular-residue FE now
@@ -142,6 +143,7 @@ class TestMultiwaySynergy:
 
 
 class TestRichClusterStructure:
+    """Groups tests covering TestRichClusterStructure."""
     def test_two_disjoint_clusters_y_depends_on_both(self):
         """Two clusters of 5 collinear features each. y depends on
         BOTH cluster anchors. MRMR should pick one feature from each
@@ -210,6 +212,7 @@ class TestRichClusterStructure:
 
 
 class TestDeterminismProduction:
+    """Groups tests covering TestDeterminismProduction."""
     def test_pickle_round_trip_preserves_support(self):
         """Fitted MRMR survives pickle with identical support_ and
         transform output."""
@@ -255,6 +258,7 @@ class TestDeterminismProduction:
 
 
 class TestNaNProduction:
+    """Groups tests covering TestNaNProduction."""
     def test_signal_with_15pct_nan_still_detected(self):
         """Real production data has missing values. 15% NaN in the
         signal column should NOT destroy detection."""

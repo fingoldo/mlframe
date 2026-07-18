@@ -26,6 +26,7 @@ from mlframe.training.composite import MultiStageMetaFeatureStacker
 
 
 def _make_dataset(n: int, seed: int):
+    """Make dataset."""
     rng = np.random.default_rng(seed)
     z = rng.normal(size=n)
     X = np.column_stack(
@@ -42,6 +43,7 @@ def _make_dataset(n: int, seed: int):
 
 
 def test_biz_val_multi_stage_stacker_beats_raw_feature_baseline_mse():
+    """Biz val multi stage stacker beats raw feature baseline mse."""
     X, y_primary, y_aux = _make_dataset(n=3000, seed=0)
     X_train, X_test, y_train, y_test, y_aux_train, _ = train_test_split(X, y_primary, y_aux, test_size=0.3, random_state=0)
 
@@ -65,6 +67,7 @@ def test_biz_val_multi_stage_stacker_beats_raw_feature_baseline_mse():
 
 
 def test_multi_stage_stacker_requires_all_auxiliary_targets():
+    """Multi stage stacker requires all auxiliary targets."""
     X, y_primary, y_aux = _make_dataset(n=200, seed=1)
     stacker = MultiStageMetaFeatureStacker(
         stage1_estimator_factories={"aux": lambda: LinearRegression(), "missing": lambda: LinearRegression()},
@@ -78,6 +81,7 @@ def test_multi_stage_stacker_requires_all_auxiliary_targets():
 
 
 def test_multi_stage_stacker_works_with_pandas_and_ndarray_input():
+    """Multi stage stacker works with pandas and ndarray input."""
     import pandas as pd
 
     X, y_primary, y_aux = _make_dataset(n=300, seed=2)
@@ -104,6 +108,7 @@ def test_multi_stage_stacker_works_with_pandas_and_ndarray_input():
 
 
 def _make_proba_dataset(n: int, seed: int):
+    """Make proba dataset."""
     rng = np.random.default_rng(seed)
     z = rng.normal(size=n)
     X = np.column_stack(
@@ -122,10 +127,12 @@ def _make_proba_dataset(n: int, seed: int):
 
 
 def test_biz_val_multi_stage_stacker_use_predict_proba_beats_hard_label_meta_feature_mse():
+    """Biz val multi stage stacker use predict proba beats hard label meta feature mse."""
     X, y_primary, y_aux = _make_proba_dataset(n=3000, seed=3)
     X_train, X_test, y_train, y_test, y_aux_train, _ = train_test_split(X, y_primary, y_aux, test_size=0.3, random_state=3)
 
     def aux_factory():
+        """Aux factory."""
         return GradientBoostingClassifier(random_state=3, n_estimators=100)
 
     hard_label_stacker = MultiStageMetaFeatureStacker(

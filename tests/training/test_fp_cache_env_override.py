@@ -12,21 +12,25 @@ from mlframe.training.feature_handling.fingerprint import _fp_cache_max_default
 
 
 def test_default_when_env_unset(monkeypatch):
+    """Default when env unset."""
     monkeypatch.delenv("MLFRAME_FP_CACHE_MAX", raising=False)
     assert _fp_cache_max_default() == 128
 
 
 def test_env_override_takes_effect(monkeypatch):
+    """Env override takes effect."""
     monkeypatch.setenv("MLFRAME_FP_CACHE_MAX", "512")
     assert _fp_cache_max_default() == 512
 
 
 def test_invalid_env_falls_back_to_default(monkeypatch):
+    """Invalid env falls back to default."""
     monkeypatch.setenv("MLFRAME_FP_CACHE_MAX", "not-a-number")
     assert _fp_cache_max_default() == 128
 
 
 def test_zero_or_negative_env_falls_back_to_default(monkeypatch):
+    """Zero or negative env falls back to default."""
     monkeypatch.setenv("MLFRAME_FP_CACHE_MAX", "0")
     assert _fp_cache_max_default() == 128
     monkeypatch.setenv("MLFRAME_FP_CACHE_MAX", "-5")

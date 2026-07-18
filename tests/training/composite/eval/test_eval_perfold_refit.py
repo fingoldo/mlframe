@@ -52,6 +52,7 @@ _POLY_DEGREE = 13
 
 
 def _poly_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
+    """Poly fit."""
     y = np.asarray(y, dtype=np.float64)
     base = np.asarray(base, dtype=np.float64)
     n = y.shape[0]
@@ -62,18 +63,21 @@ def _poly_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
 
 
 def _poly_forward(y: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
+    """Poly forward."""
     coef = np.asarray(params["coef"], dtype=np.float64)
     g = np.polyval(coef, np.asarray(base, dtype=np.float64))
     return np.asarray(y, dtype=np.float64) - g
 
 
 def _poly_inverse(t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
+    """Poly inverse."""
     coef = np.asarray(params["coef"], dtype=np.float64)
     g = np.polyval(coef, np.asarray(base, dtype=np.float64))
     return np.asarray(t_hat, dtype=np.float64) + g
 
 
 def _poly_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
+    """Poly domain."""
     base = np.asarray(base, dtype=np.float64)
     ok = np.isfinite(base)
     if y is None:
@@ -82,6 +86,7 @@ def _poly_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
 
 
 def _make_poly_transform() -> Transform:
+    """Make poly transform."""
     return Transform(
         name="poly_residual_testonly",
         forward=_poly_forward,
@@ -93,6 +98,7 @@ def _make_poly_transform() -> Transform:
 
 
 def _make_data(n: int = 220, seed: int = 7):
+    """Make data."""
     rng = np.random.default_rng(seed)
     base = np.sort(rng.uniform(-2.5, 2.5, size=n))
     # True mean is a gentle cubic; the residual T = y - true(base) is pure
@@ -105,6 +111,7 @@ def _make_data(n: int = 220, seed: int = 7):
 
 
 def _kfold_indices(n: int, k: int, seed: int):
+    """Kfold indices."""
     rng = np.random.default_rng(seed)
     perm = rng.permutation(n)
     return [perm[i::k] for i in range(k)]
@@ -273,6 +280,7 @@ def test_refit_returns_none_on_degenerate_params():
     score the held-out fold on a near-identity refit."""
 
     def _degen_fit(y, base):
+        """Degen fit."""
         return {"alpha": 0.0, "beta": 0.0, "is_degenerate": True}
 
     transform = Transform(
@@ -296,19 +304,23 @@ def test_refit_fitted_domain_refinement_narrows_mask():
         # bases -> the fitted-domain hook (base + offset > 0) drops them,
         # exercising the T15 narrowing path. (A params-free domain_check
         # cannot see this offset, so it lets those rows through.)
+        """Fit."""
         return {"offset": 0.8}
 
     def _fwd(y, base, p):
+        """Fwd."""
         return np.asarray(y, dtype=np.float64) - np.log(
             np.asarray(base, dtype=np.float64) + p["offset"],
         )
 
     def _inv(t, base, p):
+        """Inv."""
         return np.asarray(t, dtype=np.float64) + np.log(
             np.asarray(base, dtype=np.float64) + p["offset"],
         )
 
     def _domain(y, base):
+        """Domain."""
         b = np.asarray(base, dtype=np.float64)
         ok = np.isfinite(b)
         if y is None:
@@ -317,6 +329,7 @@ def test_refit_fitted_domain_refinement_narrows_mask():
 
     def _domain_fitted(y, base, p):
         # Only rows with base + offset > 0 are in the true (log) domain.
+        """Domain fitted."""
         return np.asarray(base, dtype=np.float64) + p["offset"] > 0.0
 
     transform = Transform(
@@ -350,6 +363,7 @@ def test_refit_threads_groups_when_fit_accepts():
     seen: dict[str, Any] = {}
 
     def _grouped_fit(y, base, groups=None):
+        """Grouped fit."""
         seen["groups"] = None if groups is None else np.asarray(groups).copy()
         return {"alpha": 0.0, "beta": float(np.mean(y))}
 

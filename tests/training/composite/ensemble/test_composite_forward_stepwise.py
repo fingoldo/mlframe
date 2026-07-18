@@ -13,7 +13,9 @@ from mlframe.training.composite import (
 
 
 class TestSeedBehavior:
+    """Groups tests covering seed behavior."""
     def test_empty_pool_returns_seeds_unchanged(self) -> None:
+        """Empty pool returns seeds unchanged."""
         rng = np.random.default_rng(0)
         y = rng.normal(size=200)
         kept, diag = forward_stepwise_multi_base(y, candidate_bases={}, seed_bases=["b1"])
@@ -53,6 +55,7 @@ class TestSeedBehavior:
 
 
 class TestGreedyAddition:
+    """Groups tests covering greedy addition."""
     def test_orthogonal_base_added(self) -> None:
         """When b2 carries strong orthogonal signal, the helper picks it up after b1."""
         rng = np.random.default_rng(2)
@@ -93,6 +96,7 @@ class TestGreedyAddition:
         assert len(noise_in_kept) <= 2
 
     def test_max_k_respected(self) -> None:
+        """Max k respected."""
         rng = np.random.default_rng(4)
         n = 400
         candidates = {f"b{i}": rng.normal(size=n) for i in range(10)}
@@ -107,7 +111,9 @@ class TestGreedyAddition:
 
 
 class TestDiagnostics:
+    """Groups tests covering diagnostics."""
     def test_each_step_records_gain_and_acceptance(self) -> None:
+        """Each step records gain and acceptance."""
         rng = np.random.default_rng(5)
         n = 300
         b1 = rng.normal(size=n)
@@ -147,10 +153,13 @@ class TestDiagnostics:
 
 
 class TestDefaultsLockedIn:
+    """Groups tests covering defaults locked in."""
     def test_default_max_k(self) -> None:
+        """Default max k."""
         assert _MULTI_BASE_DEFAULT_MAX_K == 3
 
     def test_default_min_marginal_gain(self) -> None:
+        """Default min marginal gain."""
         assert _MULTI_BASE_DEFAULT_MIN_MARGINAL_GAIN == 0.02
 
 
@@ -160,6 +169,7 @@ class TestDefaultsLockedIn:
 
 
 class TestBizValue:
+    """Groups tests covering biz value."""
     def test_finds_second_dgp_base(self) -> None:
         """``y = 0.9*b1 + 0.5*b2 + eps`` -- starting from seed=[b1], helper greedy-adds b2 (large RMSE gain) but skips pure noise."""
         rng = np.random.default_rng(0)

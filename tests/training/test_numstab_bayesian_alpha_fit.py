@@ -15,6 +15,7 @@ from mlframe.training.composite.discovery.bayesian import bayesian_alpha_fit
 
 
 def test_bayesian_alpha_fit_near_singular_base_bounded_posterior():
+    """Bayesian alpha fit near singular base bounded posterior."""
     rng = np.random.default_rng(0)
     n = 200
     base = np.ones(n) + 1e-11 * rng.standard_normal(n)  # near-constant -> XtX cond ~1e16

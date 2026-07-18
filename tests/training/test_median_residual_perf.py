@@ -20,6 +20,7 @@ import pytest
 
 
 def _make_inputs(n: int, n_bins: int, seed: int = 17):
+    """Make inputs."""
     rng = np.random.default_rng(seed)
     y = rng.standard_normal(n).astype(np.float64)
     base = rng.standard_normal(n).astype(np.float64)

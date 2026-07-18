@@ -8,11 +8,13 @@ from mlframe.training._regression_calibration import duan_log_smearing_factor, s
 
 
 def test_smearing_factor_is_one_on_tiny_or_zero_residuals():
+    """Smearing factor is one on tiny or zero residuals."""
     assert duan_log_smearing_factor(np.array([0.0, 0.0, 0.0])) == 1.0  # <5 -> 1.0
     assert abs(duan_log_smearing_factor(np.zeros(100)) - 1.0) < 1e-12  # exp(0)=1
 
 
 def test_smearing_factor_exceeds_one_for_spread_residuals():
+    """Smearing factor exceeds one for spread residuals."""
     rng = np.random.default_rng(0)
     r = rng.standard_normal(5000) * 0.5  # mean 0 -> mean(exp(r)) = exp(0.5*sigma^2) > 1
     assert duan_log_smearing_factor(r) > 1.0
@@ -44,6 +46,7 @@ def test_biz_val_smearing_reduces_logtarget_backtransform_bias():
 
 
 def test_general_smearing_matches_log_factor():
+    """General smearing matches log factor."""
     rng = np.random.default_rng(2)
     pred = rng.standard_normal(200)
     resid = rng.standard_normal(3000) * 0.4

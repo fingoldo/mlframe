@@ -22,6 +22,7 @@ from mlframe.training.composite.conformal import _conformal_internal_split
 
 
 def _het_data(seed, n):
+    """Het data."""
     rng = np.random.default_rng(seed)
     b = rng.uniform(-3.0, 3.0, n)
     f = rng.uniform(-3.0, 3.0, n)
@@ -33,6 +34,7 @@ def _het_data(seed, n):
 
 
 def _coverage_normalized(seed, alpha=0.1, n=750):
+    """Coverage normalized."""
     X, y = _het_data(seed, n)
     nf = n // 3
     est = CompositeTargetEstimator(
@@ -60,6 +62,7 @@ def test_sa28_normalized_coverage_not_anticonservative_on_heteroscedastic():
 
 
 def test_sa28_internal_split_is_disjoint():
+    """Sa28 internal split is disjoint."""
     fit_idx, cal_idx = _conformal_internal_split(100)
     assert fit_idx.size > 0 and cal_idx.size > 0
     assert set(fit_idx.tolist()).isdisjoint(cal_idx.tolist()), "sigma-fit and calibrate halves must be disjoint"
@@ -101,6 +104,7 @@ def test_sa29_time_ordered_calibration_holds_coverage_with_temporal_heteroscedas
     yt = y[2 * nf :]
 
     def _cov(time_ordering):
+        """Cov."""
         e = CompositeTargetEstimator(
             base_estimator=LinearRegression(),
             transform_name="linear_residual",

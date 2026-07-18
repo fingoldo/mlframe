@@ -32,6 +32,7 @@ class TestNewATrivialBaselineHoist:
     best_trivial_pair call inside optimise_hermite_pair."""
 
     def test_precomputed_baseline_elides_internal_call(self) -> None:
+        """Precomputed baseline elides internal call."""
         from mlframe.feature_selection.filters.hermite_fe import (
             optimise_hermite_pair,
         )
@@ -50,6 +51,7 @@ class TestNewATrivialBaselineHoist:
         call_count_without = {"n": 0}
 
         def _spy_without(*args, **kwargs):
+            """Spy without."""
             call_count_without["n"] += 1
             return original(*args, **kwargs)
 
@@ -89,6 +91,7 @@ class TestNewATrivialBaselineHoist:
         call_count_with = {"n": 0}
 
         def _spy_with(*args, **kwargs):
+            """Spy with."""
             call_count_with["n"] += 1
             return original(*args, **kwargs)
 
@@ -124,6 +127,7 @@ class TestNewBBasisMatrixGate:
 
     @pytest.mark.parametrize("basis", ["hermite", "legendre", "chebyshev", "laguerre"])
     def test_b_matrices_built_under_multi_fidelity(self, basis: str) -> None:
+        """B matrices built under multi fidelity."""
         from mlframe.feature_selection.filters import hermite_fe
 
         rng = np.random.default_rng(11)
@@ -152,12 +156,14 @@ class TestNewBBasisMatrixGate:
         original_eval_batch = _opt_mod._eval_coef_pair_batch
 
         def _spy_eval(*args, **kwargs):
+            """Spy eval."""
             captured["calls"] += 1
             if kwargs.get("B_a") is not None and kwargs.get("B_b") is not None:
                 captured["saw_non_none_B"] = True
             return original_eval(*args, **kwargs)
 
         def _spy_eval_batch(*args, **kwargs):
+            """Spy eval batch."""
             captured["calls"] += 1
             if kwargs.get("B_a") is not None and kwargs.get("B_b") is not None:
                 captured["saw_non_none_B"] = True
@@ -197,6 +203,7 @@ class TestNewDPlateauEarlyStop:
     """
 
     def test_early_stop_shortens_wall_time(self) -> None:
+        """Early stop shortens wall time."""
         from mlframe.feature_selection.filters.hermite_fe import (
             optimise_hermite_pair,
         )

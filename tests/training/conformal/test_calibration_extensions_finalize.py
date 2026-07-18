@@ -28,6 +28,7 @@ from mlframe.training.core._phase_finalize import (
 
 
 def _binary_ctx(cp, ct, behavior_config=None):
+    """Binary ctx."""
     e = SimpleNamespace(
         model=SimpleNamespace(),
         calib_probs=cp,
@@ -71,6 +72,7 @@ def test_isotonic_overfit_risk_check_flags_noisy_fit():
 
 
 def test_isotonic_overfit_risk_check_default_off_noop():
+    """Isotonic overfit risk check default off noop."""
     rng = np.random.default_rng(1)
     n = 200
     p = np.sort(rng.uniform(0, 1, size=n))
@@ -103,12 +105,14 @@ def test_isotonic_overfit_risk_check_no_config_noop():
 
 
 def _separable_probs(rng, n=800):
+    """Separable probs."""
     y = rng.integers(0, 2, size=n)
     p = np.clip(y * 0.6 + rng.normal(0, 0.15, size=n) + 0.2, 0.0, 1.0)
     return p, y.astype(np.float64)
 
 
 def test_optimize_decision_threshold_stamps_metadata_sensible_value():
+    """Optimize decision threshold stamps metadata sensible value."""
     rng = np.random.default_rng(3)
     p, y = _separable_probs(rng)
     cp = np.column_stack([1.0 - p, p])
@@ -124,6 +128,7 @@ def test_optimize_decision_threshold_stamps_metadata_sensible_value():
 
 
 def test_optimize_decision_threshold_groups_and_cv_kwargs_thread_through():
+    """Optimize decision threshold groups and cv kwargs thread through."""
     rng = np.random.default_rng(4)
     p, y = _separable_probs(rng, n=1200)
     groups = rng.integers(0, 3, size=1200)
@@ -146,6 +151,7 @@ def test_optimize_decision_threshold_groups_and_cv_kwargs_thread_through():
 
 
 def test_optimize_decision_threshold_default_off_noop():
+    """Optimize decision threshold default off noop."""
     rng = np.random.default_rng(5)
     p, y = _separable_probs(rng)
     cp = np.column_stack([1.0 - p, p])
@@ -179,6 +185,7 @@ def _regression_entry(rng, n=400, discriminative=True):
 
 
 def test_confidence_shrinkage_shrinks_weak_target_toward_neutral():
+    """Confidence shrinkage shrinks weak target toward neutral."""
     rng = np.random.default_rng(6)
     weak_entry, weak_test_preds = _regression_entry(rng, discriminative=False)
     strong_entry, _strong_test_preds = _regression_entry(rng, discriminative=True)
@@ -203,6 +210,7 @@ def test_confidence_shrinkage_shrinks_weak_target_toward_neutral():
 
 
 def test_confidence_shrinkage_default_off_noop_bit_identical():
+    """Confidence shrinkage default off noop bit identical."""
     rng = np.random.default_rng(7)
     entry, test_preds = _regression_entry(rng, discriminative=False)
     ctx = SimpleNamespace(
@@ -225,6 +233,7 @@ def test_confidence_shrinkage_default_off_noop_bit_identical():
 
 
 def _classification_frame(seed=11, n=1500):
+    """Classification frame."""
     import polars as pl
 
     rng = np.random.default_rng(seed)
@@ -237,6 +246,7 @@ def _classification_frame(seed=11, n=1500):
 
 
 def _run_classification_suite(tmp_path, behavior_config, seed=11):
+    """Run classification suite."""
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.configs import (
         PreprocessingBackendConfig,
@@ -277,6 +287,7 @@ def _run_classification_suite(tmp_path, behavior_config, seed=11):
 
 
 def test_e2e_auto_optimize_threshold_reachable_via_config(tmp_path):
+    """E2e auto optimize threshold reachable via config."""
     pytest.importorskip("xgboost")
     from mlframe.training.configs import TrainingBehaviorConfig
 

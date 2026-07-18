@@ -21,6 +21,7 @@ from mlframe.training.composite.discovery._benchmarks.bench_region_adaptive impo
 
 
 def _region_data(n, seed):
+    """Region data."""
     rng = np.random.default_rng(seed)
     base = rng.normal(0.0, 1.5, n)
     y = np.where(base < 0.0, 2.0 * base, 1.5 * base + 0.9 * base * base)
@@ -32,6 +33,7 @@ def _region_data(n, seed):
 
 
 def test_assign_regions_matches_searchsorted_edges():
+    """Assign regions matches searchsorted edges."""
     edges = (-1.0, 0.0, 1.0)
     base = np.array([-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 3.0])
     reg = assign_regions(base, edges)
@@ -40,11 +42,13 @@ def test_assign_regions_matches_searchsorted_edges():
 
 
 def test_assign_regions_empty_edges_single_region():
+    """Assign regions empty edges single region."""
     base = np.array([-5.0, 0.0, 5.0])
     assert assign_regions(base, ()).tolist() == [0, 0, 0]
 
 
 def test_fit_produces_k_regions_and_routes_predict_consistently():
+    """Fit produces k regions and routes predict consistently."""
     y, base = _region_data(2000, 0)
     spec = fit_region_adaptive(y, base, k=4, random_state=0)
     assert isinstance(spec, RegionAdaptiveSpec)
@@ -56,6 +60,7 @@ def test_fit_produces_k_regions_and_routes_predict_consistently():
 
 
 def test_forward_inverse_round_trips_within_region_fit_error():
+    """Forward inverse round trips within region fit error."""
     y, base = _region_data(3000, 1)
     spec = fit_region_adaptive(y, base, k=4, random_state=0)
     t = spec.forward(y, base)
@@ -67,6 +72,7 @@ def test_forward_inverse_round_trips_within_region_fit_error():
 
 def test_selects_linear_in_linear_region_curved_in_curved_region():
     # n large + low noise so the OOF scorer reliably distinguishes the regimes.
+    """Selects linear in linear region curved in curved region."""
     rng = np.random.default_rng(7)
     n = 12000
     base = rng.uniform(-3, 3, n)
@@ -80,6 +86,7 @@ def test_selects_linear_in_linear_region_curved_in_curved_region():
 
 
 def test_unseen_out_of_range_base_clips_to_edge_regions():
+    """Unseen out of range base clips to edge regions."""
     y, base = _region_data(1500, 2)
     spec = fit_region_adaptive(y, base, k=3, random_state=0)
     extreme = np.array([-1e6, 1e6])
@@ -91,6 +98,7 @@ def test_unseen_out_of_range_base_clips_to_edge_regions():
 
 
 def test_candidates_are_all_registered():
+    """Candidates are all registered."""
     from mlframe.training.composite.transforms.registry import _TRANSFORMS_REGISTRY
 
     for name in DEFAULT_REGION_CANDIDATES:

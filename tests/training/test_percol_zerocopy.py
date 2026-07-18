@@ -37,6 +37,7 @@ def test_extract_col_1d_polars_pandas_array_parity():
 
 
 def test_extract_col_1d_none_returns_empty_array():
+    """Extract col 1d none returns empty array."""
     from mlframe.training.baselines._dummy_baseline_regression import _extract_col_1d
 
     out = _extract_col_1d(None, "x")
@@ -57,6 +58,7 @@ def test_lag_predict_deployable_polars_returns_1d_float64():
 
 
 def test_lag_predict_deployable_pandas_still_works():
+    """Lag predict deployable pandas still works."""
     from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
 
     df = pd.DataFrame({"lag_col": np.arange(10, dtype=np.int32)})
@@ -89,6 +91,7 @@ def test_predict_guards_polars_allow_copy_zero_copy_path():
     pldf = pl.DataFrame({f"c{i}": arr[:, i] for i in range(4)})
 
     class _Model:
+        """Groups tests covering model."""
         pass
 
     out_pd = _fit_persist_and_transform(_Model(), pdf, lambda X: np.asarray(X.to_numpy() if hasattr(X, "to_numpy") else X), n_rows=arr.shape[0])

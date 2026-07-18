@@ -40,6 +40,7 @@ from tests.feature_selection.conftest import fast_subset
 
 # Common minimal RFECV factory: fast, deterministic, log-quiet.
 def _make_rfecv(**overrides):
+    """Make rfecv."""
     base = dict(
         estimator=LogisticRegression(max_iter=300, random_state=0),
         max_refits=4,
@@ -92,6 +93,7 @@ class TestEvalFoldClosureCapture:
         return name.lstrip("_")
 
     def test_eval_fold_signature_uses_default_arg_capture(self):
+        """Eval fold signature uses default arg capture."""
         fn = self._find_eval_fold()
         param_names = [self._normalize_param(a.arg) for a in fn.args.args]
         # We don't assert positional order beyond presence; pytest can adapt if a wrapping layer renames positional args.

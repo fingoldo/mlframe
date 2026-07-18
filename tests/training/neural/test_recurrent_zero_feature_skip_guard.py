@@ -36,16 +36,19 @@ _N = 40
 
 
 def _zero_col_frame() -> pd.DataFrame:
+    """Zero col frame."""
     return pd.DataFrame(index=range(_N))
 
 
 def _sequences() -> list[np.ndarray]:
+    """Sequences."""
     rs = np.random.RandomState(1)
     return [rs.randn(5, 3).astype(np.float32) for _ in range(_N)]
 
 
 @pytest.mark.parametrize("mode", [InputMode.FEATURES_ONLY, InputMode.HYBRID])
 def test_recurrent_classifier_skips_on_zero_features(mode):
+    """Recurrent classifier skips on zero features."""
     y = np.array([0, 1] * (_N // 2), dtype=np.int64)
     cfg = RecurrentConfig(input_mode=mode, max_epochs=1, hidden_size=8, rnn_type=RNNType.LSTM)
     w = RecurrentClassifierWrapper(config=cfg)
@@ -61,6 +64,7 @@ def test_recurrent_classifier_skips_on_zero_features(mode):
 
 @pytest.mark.parametrize("mode", [InputMode.FEATURES_ONLY, InputMode.HYBRID])
 def test_recurrent_regressor_skips_on_zero_features(mode):
+    """Recurrent regressor skips on zero features."""
     y = np.random.RandomState(0).randn(_N).astype(np.float32)
     cfg = RecurrentConfig(input_mode=mode, max_epochs=1, hidden_size=8, rnn_type=RNNType.LSTM)
     w = RecurrentRegressorWrapper(config=cfg)

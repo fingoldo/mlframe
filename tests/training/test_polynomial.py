@@ -30,6 +30,7 @@ from mlframe.training.pipeline import apply_preprocessing_extensions
 
 
 def _make_frame(n: int = 200, n_features: int = 30) -> pd.DataFrame:
+    """Make frame."""
     rng = np.random.default_rng(0)
     return pd.DataFrame({f"x{i}": rng.standard_normal(n).astype(np.float64) for i in range(n_features)})
 

@@ -29,13 +29,16 @@ class _DropPassthroughPP(BaseEstimator, TransformerMixin):
         self._drop_cols = list(drop_cols)
 
     def fit(self, X, y=None):
+        """Fit."""
         return self
 
     def transform(self, X):
+        """Transform."""
         return X.drop(columns=[c for c in X.columns if c in self._drop_cols])
 
 
 def _make_inputs(n=5):
+    """Make inputs."""
     cols = ["txt0", "txt1", "emb0"]
     df = pd.DataFrame(
         {
@@ -50,6 +53,7 @@ def _make_inputs(n=5):
 
 
 class _ModelObj:
+    """Groups tests covering model obj."""
     def __init__(self, pp):
         self.pre_pipeline = pp
 
@@ -65,6 +69,7 @@ def test_reattach_resets_frame_index_at_most_once(monkeypatch) -> None:
     _orig_reset = pd.DataFrame.reset_index
 
     def _counting_reset(self, *a, **k):
+        """Counting reset."""
         calls["n"] += 1
         return _orig_reset(self, *a, **k)
 
@@ -106,6 +111,7 @@ def test_polars_stash_does_one_to_pandas(monkeypatch) -> None:
     _orig_to_pandas = pl.DataFrame.to_pandas
 
     def _counting_to_pandas(self, *a, **k):
+        """Counting to pandas."""
         calls["n"] += 1
         return _orig_to_pandas(self, *a, **k)
 

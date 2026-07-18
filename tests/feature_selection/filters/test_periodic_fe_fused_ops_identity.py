@@ -23,6 +23,7 @@ from mlframe.feature_selection.filters._periodic_fe import (
 
 
 def _legacy_generate(X, periods):
+    """Legacy generate."""
     out = {}
     for c in X.columns:
         x = np.ascontiguousarray(X[c].to_numpy(), dtype=np.float64)
@@ -34,6 +35,7 @@ def _legacy_generate(X, periods):
 
 
 def test_fused_modular_ops_bit_identical_to_separate_passes():
+    """Fused modular ops bit identical to separate passes."""
     rng = np.random.default_rng(7)
     X = pd.DataFrame({f"f{j}": rng.normal(0, 50, 4096) for j in range(5)})
     X.iloc[::101, 0] = np.nan
@@ -49,6 +51,7 @@ def test_fused_modular_ops_bit_identical_to_separate_passes():
 
 @pytest.mark.parametrize("period", [7.0, 24.0, 0.5, 365.0])
 def test_fused_kernel_matches_single_op_kernel(period):
+    """Fused kernel matches single op kernel."""
     rng = np.random.default_rng(11)
     arr = np.ascontiguousarray(rng.normal(0, 30, 2048), dtype=np.float64)
     arr[5] = np.nan

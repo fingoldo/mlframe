@@ -15,16 +15,19 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 def test_warns_when_use_stacked_discovery_true():
+    """Warns when use stacked discovery true."""
     with pytest.warns(UserWarning, match="no measurable improvement"):
         CompositeTargetDiscoveryConfig(use_stacked_discovery=True)
 
 
 def test_warns_when_use_stacked_discovery_residual_true():
+    """Warns when use stacked discovery residual true."""
     with pytest.warns(UserWarning, match="no measurable improvement"):
         CompositeTargetDiscoveryConfig(use_stacked_discovery_residual=True)
 
 
 def test_no_warning_when_both_false():
+    """No warning when both false."""
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         CompositeTargetDiscoveryConfig(use_stacked_discovery=False, use_stacked_discovery_residual=False)

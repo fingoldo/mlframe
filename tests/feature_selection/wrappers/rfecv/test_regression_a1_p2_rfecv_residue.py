@@ -18,6 +18,7 @@ from mlframe.feature_selection.wrappers import RFECV
 
 
 def _toy_xy(n=40, p=4, seed=0):
+    """Toy xy."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(rng.normal(size=(n, p)), columns=[f"f{i}" for i in range(p)])
     y = pd.Series((X["f0"] + 0.5 * X["f1"] > 0).astype(int), name="y")
@@ -25,6 +26,7 @@ def _toy_xy(n=40, p=4, seed=0):
 
 
 def test_A1_9_sample_weight_y_length_mismatch_raises():
+    """A1 9 sample weight y length mismatch raises."""
     X, y = _toy_xy(n=40)
     sw_bad = np.ones(len(y) + 5, dtype=np.float64)  # mismatch vs both X and y
     sel = RFECV(estimator=LogisticRegression(max_iter=50), cv=3, max_nfeatures=2)

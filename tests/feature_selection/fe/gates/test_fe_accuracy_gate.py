@@ -27,6 +27,7 @@ from mlframe.feature_selection.filters._fe_accuracy_gate import (
 
 
 def _quadratic_problem(n=2000, seed=0):
+    """Quadratic problem."""
     rng = np.random.default_rng(seed)
     x = rng.standard_normal(n)
     y = (x**2 > 1.0).astype(int)  # even-symmetric: x alone is near-useless linearly
@@ -36,6 +37,7 @@ def _quadratic_problem(n=2000, seed=0):
 
 # --------------------------------------------------------------------------- win
 def test_uplift_positive_when_engineered_linearises_target():
+    """Uplift positive when engineered linearises target."""
     src, eng, y = _quadratic_problem()
     up = measure_feature_uplift(src, eng, y, classification=True)
     assert up is not None
@@ -45,6 +47,7 @@ def test_uplift_positive_when_engineered_linearises_target():
 
 # ---------------------------------------------------------------- redundant/no-win
 def test_redundant_engineered_does_not_clear_floor():
+    """Redundant engineered does not clear floor."""
     rng = np.random.default_rng(1)
     x = rng.standard_normal(2000)
     y = (x + 0.1 * rng.standard_normal(2000) > 0).astype(int)  # linear in x
@@ -58,6 +61,7 @@ def test_redundant_engineered_does_not_clear_floor():
 # ---------------------------------------------------------- degenerate -> fail-OPEN
 @pytest.mark.parametrize("n", [10, 30])
 def test_too_few_rows_returns_none_and_keeps(n):
+    """Too few rows returns none and keeps."""
     rng = np.random.default_rng(2)
     src = rng.standard_normal(n)
     eng = rng.standard_normal((n, 1))
@@ -67,6 +71,7 @@ def test_too_few_rows_returns_none_and_keeps(n):
 
 
 def test_single_class_y_returns_none_and_keeps():
+    """Single class y returns none and keeps."""
     rng = np.random.default_rng(3)
     src = rng.standard_normal(200)
     eng = rng.standard_normal((200, 1))
@@ -76,6 +81,7 @@ def test_single_class_y_returns_none_and_keeps():
 
 
 def test_shape_mismatch_returns_none_and_keeps():
+    """Shape mismatch returns none and keeps."""
     rng = np.random.default_rng(4)
     src = rng.standard_normal(200)
     eng = rng.standard_normal((150, 1))  # mismatched length
@@ -90,6 +96,7 @@ def test_missing_source_is_fail_closed():
     # (MNAR) which the dropna'd probe cannot assess -> a transform of it must NOT
     # out-rank the raw column. This is a DELIBERATE fail-closed (distinct from the
     # exception/degenerate fail-open).
+    """Missing source is fail closed."""
     rng = np.random.default_rng(5)
     src = rng.standard_normal(2000)
     src[: int(0.1 * 2000)] = np.nan
@@ -108,7 +115,9 @@ def test_probe_exception_is_fail_open(monkeypatch):
     import sklearn.linear_model as _lm
 
     class _Boom(_lm.LogisticRegression):
+        """Groups tests covering Boom."""
         def fit(self, *a, **k):
+            """Helper that fit."""
             raise RuntimeError("simulated probe failure")
 
     monkeypatch.setattr(gate, "measure_feature_uplift", measure_feature_uplift)
@@ -120,6 +129,7 @@ def test_probe_exception_is_fail_open(monkeypatch):
 
 
 def test_infer_classification_basic():
+    """Infer classification basic."""
     assert infer_classification(np.array([0, 1, 0, 1])) is True
     assert infer_classification(np.array(["a", "b", "a"])) is True
     assert infer_classification(np.linspace(0, 1, 500)) is False
@@ -176,6 +186,7 @@ def test_sibling_baseline_cv_is_cached_and_equivalent():
     _orig_fit = _lm.LogisticRegression.fit
 
     def _counting_fit(self, *a, **k):
+        """Counting fit."""
         fit_calls["n"] += 1
         return _orig_fit(self, *a, **k)
 

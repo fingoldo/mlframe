@@ -19,6 +19,7 @@ from mlframe.training.strategies.base import (
 
 
 def _make(cls):
+    """Make."""
     if cls is _NumericOnlyTransformer:
         return cls(SimpleImputer(), None)
     return cls()
@@ -30,11 +31,13 @@ def _make(cls):
     ids=["float32cast", "inf_to_nan", "numeric_only"],
 )
 def test_allow_nan_tag_is_set(cls):
+    """Allow nan tag is set."""
     tags = _make(cls).__sklearn_tags__()
     assert tags.input_tags.allow_nan is True
 
 
 def test_numeric_only_stores_cat_features_verbatim_and_clone_roundtrips():
+    """Numeric only stores cat features verbatim and clone roundtrips."""
     inner = SimpleImputer()
     t = _NumericOnlyTransformer(inner, None)
     # Verbatim: None must NOT become [].
@@ -46,6 +49,7 @@ def test_numeric_only_stores_cat_features_verbatim_and_clone_roundtrips():
 
 
 def test_numeric_only_clone_roundtrips_named_cats():
+    """Numeric only clone roundtrips named cats."""
     t = _NumericOnlyTransformer(SimpleImputer(), ["a", "b"])
     cloned = clone(t)
     assert cloned.get_params(deep=False)["cat_features"] == ["a", "b"]

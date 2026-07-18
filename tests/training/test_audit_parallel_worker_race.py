@@ -76,6 +76,7 @@ def _read(rel: str) -> str:
 
 
 def test_feature_engineering_times_spent_lock_added():
+    """Feature engineering times spent lock added."""
     src = _read("feature_selection/filters/feature_engineering.py")
     assert "_TIMES_SPENT_LOCK = threading.Lock()" in src, (
         "Wave 27 P1 regression: _TIMES_SPENT_LOCK module-level lock removed; times_spent[k] += ... races silently between threading workers."
@@ -112,6 +113,7 @@ def test_feature_engineering_times_spent_lock_behaves_threadsafe():
     times_spent = defaultdict(float)
 
     def _worker():
+        """Worker."""
         for _ in range(1000):
             with _TIMES_SPENT_LOCK:
                 times_spent["bf"] += 0.001
@@ -135,6 +137,7 @@ def test_feature_engineering_times_spent_lock_behaves_threadsafe():
 
 
 def test_gpu_kernel_init_lock_doc_no_longer_claims_cross_process():
+    """Gpu kernel init lock doc no longer claims cross process."""
     src = _read("feature_selection/filters/gpu.py")
     # Pre-fix claim must be gone:
     assert "Cross-process safe lock. Constructed on first import" not in src, (
@@ -147,6 +150,7 @@ def test_gpu_kernel_init_lock_doc_no_longer_claims_cross_process():
 
 
 def test_cupy_kernel_init_lock_doc_honest():
+    """Cupy kernel init lock doc honest."""
     src = _read("feature_engineering/transformer/_kernels_cupy.py")
     assert "Cross-process safe lock (Windows spawn workers)." not in src
     # Post-fix marker:
@@ -157,6 +161,7 @@ def test_cupy_kernel_init_lock_doc_honest():
 
 
 def test_rfecv_parallel_requires_sharedmem():
+    """Rfecv parallel requires sharedmem."""
     src = _read("feature_selection/wrappers/rfecv/__init__.py")
     # Pre-fix bare ``prefer='threads'`` without require must be gone:
     assert 'Parallel(n_jobs=n_jobs_effective, prefer="threads")(' not in src, (

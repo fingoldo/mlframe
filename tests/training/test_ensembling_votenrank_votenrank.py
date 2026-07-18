@@ -18,6 +18,7 @@ from mlframe.models.ensembling import (
 
 
 def _make_result(metrics: dict):
+    """Make result."""
     return SimpleNamespace(metrics=metrics)
 
 
@@ -99,10 +100,12 @@ def test_dropout_predict_is_deterministic_across_repeated_calls():
 
     # Build proper objects with a predict method (MagicMock leaks attribute access).
     class _Model:
+        """Groups tests covering model."""
         def __init__(self, ret):
             self._ret = ret
 
         def predict(self, X):
+            """Predict."""
             if self._ret is None:
                 raise RuntimeError("dropped out")
             return self._ret
@@ -139,10 +142,12 @@ def test_dropout_combines_surviving_columns_with_original_weights_no_refit():
     p3 = y + 1.0 + rng.normal(scale=0.5, size=n)
 
     class _Model:
+        """Groups tests covering model."""
         def __init__(self, ret):
             self._ret = ret
 
         def predict(self, X):
+            """Predict."""
             if self._ret is None:
                 raise RuntimeError("dropped out")
             return self._ret

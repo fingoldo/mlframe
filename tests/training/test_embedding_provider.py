@@ -29,13 +29,16 @@ from mlframe.training.feature_handling import EmbeddingProvider
 
 
 class TestConstruction:
+    """Groups tests covering construction."""
     def test_huggingface_minimal(self):
+        """Huggingface minimal."""
         p = EmbeddingProvider(kind="huggingface", model="intfloat/multilingual-e5-small")
         assert p.kind == "huggingface"
         assert p.model == "intfloat/multilingual-e5-small"
         assert p.params == {}
 
     def test_openai_with_dimensions(self):
+        """Openai with dimensions."""
         p = EmbeddingProvider(
             kind="openai",
             model="text-embedding-3-small",
@@ -44,10 +47,12 @@ class TestConstruction:
         assert p.params["dimensions"] == 512
 
     def test_unknown_kind_rejects(self):
+        """Unknown kind rejects."""
         with pytest.raises(ValidationError):
             EmbeddingProvider(kind="lmstudio", model="x")
 
     def test_extra_field_forbidden(self):
+        """Extra field forbidden."""
         with pytest.raises(ValidationError):
             EmbeddingProvider(kind="huggingface", model="x", extra_field="boom")
 
@@ -58,7 +63,9 @@ class TestConstruction:
 
 
 class TestFromUri:
+    """Groups tests covering from uri."""
     def test_hf_short_alias(self):
+        """Hf short alias."""
         p = EmbeddingProvider.from_uri("hf://BAAI/bge-small-en-v1.5")
         assert p.kind == "huggingface"
         assert p.model == "BAAI/bge-small-en-v1.5"
@@ -67,6 +74,7 @@ class TestFromUri:
     def test_hf_with_query_params(self):
         # Note: per round-2 test agent's correction, the ``cuda:0``
         # colon-in-query is RFC 3986 valid, NOT malformed.
+        """Hf with query params."""
         p = EmbeddingProvider.from_uri("hf://BAAI/bge-small-en-v1.5?device=cuda:0&dtype=fp16")
         assert p.kind == "huggingface"
         assert p.model == "BAAI/bge-small-en-v1.5"
@@ -74,12 +82,14 @@ class TestFromUri:
         assert p.params["dtype"] == "fp16"
 
     def test_openai_with_dimensions(self):
+        """Openai with dimensions."""
         p = EmbeddingProvider.from_uri("openai://text-embedding-3-small?dimensions=512&api_key_env=OPENAI_API_KEY")
         assert p.kind == "openai"
         assert p.params["dimensions"] == "512"  # raw URL string -- caller casts
         assert p.params["api_key_env"] == "OPENAI_API_KEY"
 
     def test_sbert_alias(self):
+        """Sbert alias."""
         p = EmbeddingProvider.from_uri("sbert://all-MiniLM-L6-v2")
         assert p.kind == "sentence-transformers"
         assert p.model == "all-MiniLM-L6-v2"
@@ -88,6 +98,7 @@ class TestFromUri:
         # Note: ONNX URIs to local files use a single leading slash;
         # absolute Windows paths via from_uri are an explicit non-goal
         # for v1 (round-3 R2-4 surface). Document via test:
+        """Onnx local path."""
         p = EmbeddingProvider.from_uri("onnx://path/to/model.onnx")
         assert p.kind == "onnx"
         assert p.model == "path/to/model.onnx"
@@ -102,10 +113,12 @@ class TestFromUri:
         ],
     )
     def test_malformed_uris_raise(self, bad):
+        """Malformed uris raise."""
         with pytest.raises(ValueError):
             EmbeddingProvider.from_uri(bad)
 
     def test_unknown_kind_raises(self):
+        """Unknown kind raises."""
         with pytest.raises(ValueError, match="unknown provider kind"):
             EmbeddingProvider.from_uri("lmstudio://foo")
 
@@ -116,13 +129,16 @@ class TestFromUri:
 
 
 class TestSignature:
+    """Groups tests covering signature."""
     def test_signature_is_string(self):
+        """Signature is string."""
         p = EmbeddingProvider(kind="huggingface", model="intfloat/multilingual-e5-small")
         sig = p.signature
         assert isinstance(sig, str)
         assert sig.startswith("huggingface:intfloat/multilingual-e5-small:")
 
     def test_signature_stable_across_two_constructions(self):
+        """Signature stable across two constructions."""
         p1 = EmbeddingProvider(kind="huggingface", model="x", params={"pool": "mean", "device": "auto"})
         p2 = EmbeddingProvider(
             kind="huggingface",
@@ -133,11 +149,13 @@ class TestSignature:
         assert p1.signature == p2.signature
 
     def test_signature_changes_with_model(self):
+        """Signature changes with model."""
         p1 = EmbeddingProvider(kind="huggingface", model="A")
         p2 = EmbeddingProvider(kind="huggingface", model="B")
         assert p1.signature != p2.signature
 
     def test_signature_changes_with_params(self):
+        """Signature changes with params."""
         p1 = EmbeddingProvider(kind="huggingface", model="x", params={"pool": "cls"})
         p2 = EmbeddingProvider(kind="huggingface", model="x", params={"pool": "mean"})
         assert p1.signature != p2.signature
@@ -159,6 +177,7 @@ class TestSignature:
         assert p1.signature == p2.signature
 
     def test_signature_changes_with_non_secret_param(self):
+        """Signature changes with non secret param."""
         p1 = EmbeddingProvider(kind="openai", model="x", params={"dimensions": 256})
         p2 = EmbeddingProvider(kind="openai", model="x", params={"dimensions": 1024})
         assert p1.signature != p2.signature
@@ -170,7 +189,9 @@ class TestSignature:
 
 
 class TestSecrets:
+    """Groups tests covering secrets."""
     def test_resolve_secrets_substitutes_env(self, monkeypatch):
+        """Resolve secrets substitutes env."""
         monkeypatch.setenv("MLFRAME_TEST_KEY", "sk-test-12345")
         p = EmbeddingProvider(
             kind="openai",
@@ -184,12 +205,14 @@ class TestSecrets:
         assert p.params["api_key"] == "env:MLFRAME_TEST_KEY"
 
     def test_resolve_secrets_missing_env_raises(self, monkeypatch):
+        """Resolve secrets missing env raises."""
         monkeypatch.delenv("MLFRAME_NONEXISTENT_KEY", raising=False)
         p = EmbeddingProvider(kind="openai", model="x", params={"api_key": "env:MLFRAME_NONEXISTENT_KEY"})
         with pytest.raises(KeyError, match="MLFRAME_NONEXISTENT_KEY"):
             p.resolve_secrets()
 
     def test_resolve_secrets_no_env_refs_is_noop(self):
+        """Resolve secrets no env refs is noop."""
         p = EmbeddingProvider(kind="openai", model="x", params={"api_key": "sk-literal"})
         resolved = p.resolve_secrets()
         assert resolved.params == p.params
@@ -201,7 +224,9 @@ class TestSecrets:
 
 
 class TestScrubSecrets:
+    """Groups tests covering scrub secrets."""
     def test_repr_masks_api_key(self):
+        """Repr masks api key."""
         p = EmbeddingProvider(
             kind="openai",
             model="x",
@@ -211,6 +236,7 @@ class TestScrubSecrets:
         assert "***" in repr(p)
 
     def test_model_dump_default_scrubs(self):
+        """Model dump default scrubs."""
         p = EmbeddingProvider(
             kind="openai",
             model="x",
@@ -246,6 +272,7 @@ class TestScrubSecrets:
         ],
     )
     def test_repr_masks_various_secret_keywords(self, key):
+        """Repr masks various secret keywords."""
         p = EmbeddingProvider(
             kind="custom",
             model="x",
@@ -273,7 +300,9 @@ class TestScrubSecrets:
 
 
 class TestProviderInFHC:
+    """Groups tests covering provider in f h c."""
     def test_fhc_accepts_provider(self):
+        """Fhc accepts provider."""
         from mlframe.training.feature_handling import FeatureHandlingConfig
 
         provider = EmbeddingProvider(
@@ -285,6 +314,7 @@ class TestProviderInFHC:
         assert fhc.default_text_provider.model == "intfloat/multilingual-e5-small"
 
     def test_fhc_accepts_uri_string_via_provider_construction(self):
+        """Fhc accepts uri string via provider construction."""
         from mlframe.training.feature_handling import FeatureHandlingConfig
 
         # User-friendly idiom: convert URI to structured at construct time.

@@ -140,10 +140,13 @@ def test_pipeline_without_feature_names_in_falls_through() -> None:
 
     class _IdentityNoNames:
         # Mimics a fitted estimator that doesn't expose feature_names_in_.
+        """Groups tests covering identity no names."""
         def transform(self, X):
+            """Transform."""
             return X.values if isinstance(X, pd.DataFrame) else np.asarray(X)
 
         def get_feature_names_out(self):
+            """Get feature names out."""
             return [f"col_{i}" for i in range(6)]
 
     pipe = _IdentityNoNames()

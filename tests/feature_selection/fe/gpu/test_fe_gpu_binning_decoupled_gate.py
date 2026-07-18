@@ -30,6 +30,7 @@ from mlframe.feature_selection.filters._feature_engineering_pairs import _pairs_
 
 
 def _has_cuda() -> bool:
+    """Has cuda."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -101,6 +102,7 @@ def test_f2_selection_identical_cpu_vs_gpu_binning(monkeypatch):
     from mlframe.feature_selection.filters import MRMR
 
     def mk(n, seed):
+        """Build the shared a/b/c polynomial-interaction F2 fixture at row count n for a given seed."""
         r = np.random.default_rng(seed)
         a = r.uniform(0.1, 1.1, n)
         b = r.uniform(0.1, 1.1, n)
@@ -113,6 +115,7 @@ def test_f2_selection_identical_cpu_vs_gpu_binning(monkeypatch):
     df, y = mk(60_000, 7)
 
     def _fit():
+        """Helper that fit."""
         return [str(n) for n in MRMR(verbose=0, n_jobs=1).fit(df, y).get_feature_names_out()]
 
     monkeypatch.setenv("MLFRAME_FE_GPU_BINNING", "0")

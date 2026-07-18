@@ -98,16 +98,16 @@ class _MRMRFitHelpersMixin:
         momentary driver hiccup) no longer sticks forever."""
         try:
             reset_cmi_gpu_circuit_breaker()
-        except Exception:  # nosec B110 - optional GPU module; re-arm is a resilience nicety, not a hard dependency
-            pass
+        except Exception as exc:  # nosec B110 - optional GPU module; re-arm is a resilience nicety, not a hard dependency
+            logger.debug("mrmr: cmi-gpu circuit-breaker re-arm skipped: %r", exc)
         try:
             reset_mi_direct_gpu_circuit_breaker()
-        except Exception:  # nosec B110 - see above
-            pass
+        except Exception as exc:  # nosec B110 - see above
+            logger.debug("mrmr: mi-direct-gpu circuit-breaker re-arm skipped: %r", exc)
         try:
             reset_pair_maxt_gpu_circuit_breaker()
-        except Exception:  # nosec B110 - see above
-            pass
+        except Exception as exc:  # nosec B110 - see above
+            logger.debug("mrmr: pair-maxt-gpu circuit-breaker re-arm skipped: %r", exc)
 
     def _check_groups_contract(self, groups) -> None:
         """Enforce MRMR's groups-not-consumed contract (finding #2 decomposition; verbatim move from
@@ -173,7 +173,13 @@ class _MRMRFitHelpersMixin:
                         f"has no scalar value for MI estimation. Unnest/flatten them before fitting."
                     )
 
-        _fe_will_run = int(getattr(self, "fe_max_steps", 0) or 0) >= 1 or any(getattr(self, _k, False) for _k in type(self)._fe_enable_attr_names())
+        _fe_max_steps = getattr(self, "fe_max_steps", 0)
+        _fe_max_steps = int(_fe_max_steps) if _fe_max_steps is not None else 0
+        _fe_will_run = False
+        if _fe_max_steps >= 1:
+            _fe_will_run = True
+        elif any(getattr(self, _k, False) for _k in type(self)._fe_enable_attr_names()):
+            _fe_will_run = True
         if _fe_will_run and str(type(X).__module__).startswith("polars"):
             if type(X).__name__ in ("DataFrame", "LazyFrame"):
                 try:

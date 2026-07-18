@@ -81,6 +81,7 @@ def test_fs_runtime_markers_stripped_from_saved_bundle_and_restored(tmp_path):
     from mlframe.training.io import load_mlframe_model, save_mlframe_model
 
     class _Selector:
+        """Groups tests covering selector."""
         def __init__(self):
             self._mlframe_selector_kind_ = "MRMR"
             self._mlframe_use_sample_weights_in_fs_ = True

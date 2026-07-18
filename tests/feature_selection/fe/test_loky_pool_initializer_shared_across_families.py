@@ -28,10 +28,12 @@ from mlframe.feature_selection.filters import polynom_pair_fe
 
 
 def test_step_pairmi_uses_the_shared_initializer():
+    """Step pairmi uses the shared initializer."""
     assert _step_pairmi.disable_cuda_in_worker is disable_cuda_in_worker
 
 
 def test_polynom_pair_fe_uses_the_shared_initializer():
+    """Polynom pair fe uses the shared initializer."""
     assert polynom_pair_fe.disable_cuda_in_worker is disable_cuda_in_worker
 
 

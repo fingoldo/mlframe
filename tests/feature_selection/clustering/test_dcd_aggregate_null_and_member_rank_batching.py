@@ -30,6 +30,7 @@ warnings.filterwarnings("ignore")
 
 
 def _three_dups_plus_strong_frame(n: int = 4000, seed: int = 0):
+    """Three dups plus strong frame."""
     rng = np.random.default_rng(int(seed))
     latent = rng.standard_normal(n)
     other = rng.standard_normal(n)

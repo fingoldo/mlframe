@@ -113,6 +113,7 @@ def _read(rel: str) -> str:
 
 
 def test_extractors_exact_values_accepts_tuple_and_set():
+    """Extractors exact values accepts tuple and set."""
     src = _read("training/extractors.py")
     # Pre-fix shape MUST be gone:
     assert "exact_vals = exact_val if isinstance(exact_val, list) else [exact_val]" not in src, (
@@ -150,6 +151,7 @@ def test_mrmr_fit_handles_polars_input_without_inplace_mutation():
 
 
 def test_boruta_shap_inspects_raw_shap_type_before_array_wrap():
+    """Boruta shap inspects raw shap type before array wrap."""
     src = _read("feature_selection/boruta_shap.py")
     # Pre-fix shape MUST be gone:
     assert "self.shap_values = np.array(explainer.shap_values(basis))\n            if isinstance(self.shap_values, list):" not in src, (
@@ -168,6 +170,7 @@ def test_boruta_shap_inspects_raw_shap_type_before_array_wrap():
 
 
 def test_pipeline_filter_to_numeric_handles_polars():
+    """Pipeline filter to numeric handles polars."""
     src = _read("training/pipeline.py")
     # Pre-fix shape (silent passthrough) MUST be gone:
     assert "if _df is None or not isinstance(_df, pd.DataFrame):\n            return _df, []" not in src, (
@@ -189,6 +192,7 @@ def test_pipeline_filter_to_numeric_handles_polars():
 
 
 def test_main_accepts_pathlike_df_argument():
+    """Main accepts pathlike df argument."""
     src = _read("training/core/main.py")
     # Post-fix markers:
     assert "isinstance(df, _os_for_pathlike.PathLike)" in src

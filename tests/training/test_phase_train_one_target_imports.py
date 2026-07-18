@@ -30,11 +30,13 @@ import pytest
     ],
 )
 def test_module_level_name_resolves(module_path, name):
+    """Each (module, name) pair in the parametrize matrix must resolve as a real module-level attribute."""
     mod = importlib.import_module(module_path)
     assert hasattr(mod, name), f"{name} missing from {module_path} module namespace"
 
 
 def test_prep_polars_df_local_import_does_not_cycle():
+    """_prep_polars_df lives in _misc_helpers.py and both main.py and _phase_train_one_target.py import it top-level without a cycle."""
     # CODE-P1-7: _prep_polars_df was hoisted to _misc_helpers.py so .main and ._phase_train_one_target
     # both import it from there at module top — no in-function local import remains in the hot loop.
     # Both modules must be importable in either order without ImportError.

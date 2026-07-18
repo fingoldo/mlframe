@@ -61,6 +61,7 @@ TASK_TARGET_COMBOS = [
 
 
 def _train_combo(task_label: str, target_type=None, n: int = 600):
+    """Train combo."""
     y = _make_target(task_label, n)
     df = _make_xy(y)
     regression = task_label == "regression"
@@ -113,6 +114,7 @@ def test_target_type_combo_trains_without_raising(task_label, target_type):
 
 
 def _assert_classifier_inferred_k(models, target_type, expected_k: int, label: str) -> None:
+    """Assert classifier inferred k."""
     fitted = list(_iter_fitted_models(models, target_type))
     assert fitted, f"{label}: no fitted classifier head"
     saw_classes = False
@@ -125,6 +127,7 @@ def _assert_classifier_inferred_k(models, target_type, expected_k: int, label: s
 
 
 def test_multiclass_int_infers_three_classes():
+    """Multiclass int infers three classes."""
     models, _ = _train_combo("multiclass", TargetTypes.MULTICLASS_CLASSIFICATION)
     _assert_classifier_inferred_k(models, TargetTypes.MULTICLASS_CLASSIFICATION, 3, "multiclass")
 

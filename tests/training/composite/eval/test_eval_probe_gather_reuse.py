@@ -43,6 +43,7 @@ class _StubDiscovery:
         self.config = config
 
     def _reject(self, base, transform_name, mi_y, valid_frac, reason):
+        """Reject."""
         return {
             "spec": None,
             "kept": False,
@@ -56,6 +57,7 @@ class _StubDiscovery:
 
 
 def _make_config():
+    """Make config."""
     return CompositeTargetDiscoveryConfig(
         enabled=True,
         mi_estimator="bin",
@@ -89,23 +91,28 @@ def _make_recording_transform(*, with_fitted_hook, drop_tail_frac=0.0):
     forward_lengths: list[int] = []
 
     def _domain_check(y, base):
+        """Domain check."""
         return np.isfinite(y) & np.isfinite(base)
 
     def _fit(y, base):
         # Trivial linear-residual-like fit; non-empty params dict.
+        """Fit."""
         return {"alpha": 1.0, "beta": float(np.mean(y - base))}
 
     def _forward(y, base, params):
+        """Forward."""
         forward_lengths.append(int(np.asarray(y).shape[0]))
         return np.asarray(y, dtype=np.float64) - np.asarray(base, dtype=np.float64) - params["beta"]
 
     def _inverse(t, base, params):
+        """Inverse."""
         return np.asarray(t) + np.asarray(base) + params["beta"]
 
     domain_fitted = None
     if with_fitted_hook:
 
         def _domain_fitted(y, base, params):
+            """Domain fitted."""
             y = np.asarray(y)
             mask = np.ones(y.shape[0], dtype=bool)
             if drop_tail_frac > 0.0:

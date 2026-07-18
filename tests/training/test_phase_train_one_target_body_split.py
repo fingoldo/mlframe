@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 
 def test_w14a_phase_train_one_target_schema_identity():
+    """W14a phase train one target schema identity."""
     from mlframe.training.core import _phase_train_one_target_body as body
     from mlframe.training.core import _phase_train_one_target_schema as schema
 

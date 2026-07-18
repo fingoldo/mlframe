@@ -25,6 +25,7 @@ from mlframe.training.neural.flat import (
 
 
 def _build_mlp(activation_function, spectral_norm=False, nlayers=2):
+    """Build mlp."""
     return generate_mlp(
         num_features=32,
         num_classes=1,
@@ -43,6 +44,7 @@ def _build_mlp(activation_function, spectral_norm=False, nlayers=2):
 
 @pytest.mark.parametrize("act", [nn.Tanh, nn.GELU, nn.Mish, Snake])
 def test_activation_forward_backward_finite(act) -> None:
+    """Activation forward backward finite."""
     torch.manual_seed(0)
     net = _build_mlp(act, spectral_norm=False)
     X = torch.randn(64, 32)
@@ -58,6 +60,7 @@ def test_activation_forward_backward_finite(act) -> None:
 
 @pytest.mark.parametrize("act", [nn.Tanh, nn.GELU, nn.Mish, Snake])
 def test_activation_with_spectral_norm(act) -> None:
+    """Activation with spectral norm."""
     torch.manual_seed(1)
     net = _build_mlp(act, spectral_norm=True)
     X = torch.randn(64, 32)
@@ -147,6 +150,7 @@ def test_snake_periodic_fit_finite_and_no_worse_than_tanh() -> None:
     Y = torch.from_numpy(y)
 
     def _train(act, epochs=300, lr=1e-2):
+        """Train."""
         torch.manual_seed(0)
         net = generate_mlp(
             num_features=1,

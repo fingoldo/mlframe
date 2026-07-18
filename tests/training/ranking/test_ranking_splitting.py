@@ -34,6 +34,7 @@ class TestGroupShuffleSplit:
     """Row-based path with ``groups`` -> sklearn GroupShuffleSplit."""
 
     def test_groups_kept_intact_across_splits(self, synthetic_grouped_frame):
+        """Groups kept intact across splits."""
         df, groups = synthetic_grouped_frame
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
             df,
@@ -69,6 +70,7 @@ class TestGroupShuffleSplit:
         assert 0.05 * n <= len(val_idx) <= 0.15 * n
 
     def test_zero_test_size_route(self, synthetic_grouped_frame):
+        """Zero test size route."""
         df, groups = synthetic_grouped_frame
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
             df,
@@ -95,6 +97,7 @@ class TestStratifyGroupsCombined:
     assertions live in ``test_group_stratified_split.py``."""
 
     def test_both_provided_returns_valid_split(self, synthetic_grouped_frame):
+        """Both provided returns valid split."""
         df, groups = synthetic_grouped_frame
         # Stratifiable binary target correlated with group id so the
         # splitter has real work to do.
@@ -114,13 +117,16 @@ class TestStratifyGroupsCombined:
 
 
 class TestGroupsLengthValidation:
+    """Groups tests covering groups length validation."""
     def test_groups_wrong_length_raises(self, synthetic_grouped_frame):
+        """Groups wrong length raises."""
         df, _ = synthetic_grouped_frame
         bad_groups = np.zeros(len(df) - 5)  # too short
         with pytest.raises(ValueError, match="length"):
             make_train_test_split(df, test_size=0.2, val_size=0.1, groups=bad_groups)
 
     def test_groups_wrong_ndim_raises(self, synthetic_grouped_frame):
+        """Groups wrong ndim raises."""
         df, _ = synthetic_grouped_frame
         bad_groups = np.zeros((len(df), 2))  # 2-D not allowed
         with pytest.raises(ValueError, match="1-D"):
@@ -200,6 +206,7 @@ class TestBackwardCompatGroupsNone:
     """When ``groups=None``, behaviour is identical to pre-2026-05-04 baseline."""
 
     def test_no_groups_falls_back_to_train_test_split(self, synthetic_grouped_frame):
+        """No groups falls back to train test split."""
         df, _ = synthetic_grouped_frame
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
             df,

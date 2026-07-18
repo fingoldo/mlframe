@@ -18,6 +18,7 @@ from mlframe.feature_selection.drop_near_noise_univariate_auc import drop_near_n
 
 
 def _make_mixed_signal_dataset(n: int, n_signal: int, n_noise: int, seed: int):
+    """Make mixed signal dataset."""
     rng = np.random.default_rng(seed)
     y = rng.integers(0, 2, n)
     signal_direction = np.where(y == 1, 1.0, -1.0)
@@ -33,6 +34,7 @@ def _make_mixed_signal_dataset(n: int, n_signal: int, n_noise: int, seed: int):
 
 
 def test_biz_val_drop_near_noise_correctly_identifies_noise_columns():
+    """Biz val drop near noise correctly identifies noise columns."""
     df, y = _make_mixed_signal_dataset(n=3000, n_signal=5, n_noise=15, seed=0)
 
     dropped = drop_near_noise_univariate_auc(df, y, tolerance=0.03)
@@ -44,6 +46,7 @@ def test_biz_val_drop_near_noise_correctly_identifies_noise_columns():
 
 
 def test_biz_val_dropping_near_noise_columns_preserves_downstream_auc():
+    """Biz val dropping near noise columns preserves downstream auc."""
     df, y = _make_mixed_signal_dataset(n=3000, n_signal=5, n_noise=15, seed=1)
     dropped = drop_near_noise_univariate_auc(df, y, tolerance=0.03)
     kept_cols = [c for c in df.columns if c not in dropped]

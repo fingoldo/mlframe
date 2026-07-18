@@ -11,6 +11,7 @@ import pytest
 
 @pytest.mark.fast
 def test_auto_batch_ceiling_is_permissive_for_small_features():
+    """Auto batch ceiling is permissive for small features."""
     from mlframe.training.mlp_runtime_defaults import resolve_mlp_train_batch_size
 
     # 25 features, plenty of memory: resolver should pick well above old 1024 ceiling.

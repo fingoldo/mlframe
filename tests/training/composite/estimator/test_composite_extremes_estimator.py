@@ -23,6 +23,7 @@ class _ZeroBase:
     """
 
     def fit(self, X, y):
+        """Fit."""
         self._mean = float(np.mean(np.asarray(y, dtype=float)))
         try:
             self.feature_names_in_ = np.asarray(list(X.columns))
@@ -31,17 +32,21 @@ class _ZeroBase:
         return self
 
     def predict(self, X):
+        """Predict."""
         n = X.shape[0]
         return np.zeros(n, dtype=float)
 
     def get_params(self, deep=True):
+        """Get params."""
         return {}
 
     def set_params(self, **kw):
+        """Set params."""
         return self
 
 
 def _frame(n, base=0.0):
+    """Frame."""
     return pd.DataFrame({"f0": np.linspace(0, 1, n), "base": np.full(n, base)})
 
 
@@ -69,6 +74,7 @@ def test_gpd_fit_recovers_known_shape_mom():
 
 
 def test_gpd_fit_empty_returns_default():
+    """Gpd fit empty returns default."""
     xi, beta = fit_gpd_exceedances(np.array([]))
     assert xi == 0.0 and beta == 1.0
 
@@ -95,6 +101,7 @@ def test_gpd_tail_quantile_xi_zero_exponential():
 
 
 def test_fit_predict_basic_and_params():
+    """Fit predict basic and params."""
     rng = np.random.default_rng(2)
     n = 3000
     X = _frame(n)
@@ -111,6 +118,7 @@ def test_fit_predict_basic_and_params():
 
 
 def test_tail_quantile_monotone_in_q_and_exceeds_body():
+    """Tail quantile monotone in q and exceeds body."""
     rng = np.random.default_rng(3)
     n = 4000
     X = _frame(n)
@@ -157,12 +165,14 @@ def test_held_out_residual_split_used():
 
 
 def test_threshold_pct_validation():
+    """Threshold pct validation."""
     est = TailCompositeEstimator(base_estimator=_ZeroBase(), transform_name="diff", base_column="base", threshold_pct=1.5)
     with pytest.raises(ValueError):
         est.fit(_frame(100), np.arange(100, dtype=float))
 
 
 def test_q_out_of_range_raises():
+    """Q out of range raises."""
     est = TailCompositeEstimator(base_estimator=_ZeroBase(), transform_name="diff", base_column="base")
     est.fit(_frame(2000), stats.t.rvs(df=3, size=2000, random_state=5))
     with pytest.raises(ValueError):
@@ -170,6 +180,7 @@ def test_q_out_of_range_raises():
 
 
 def test_predict_before_fit_raises():
+    """Predict before fit raises."""
     from sklearn.exceptions import NotFittedError
 
     est = TailCompositeEstimator(base_estimator=_ZeroBase())
@@ -178,6 +189,7 @@ def test_predict_before_fit_raises():
 
 
 def test_mom_method_fits_gpd():
+    """Mom method fits gpd."""
     est = TailCompositeEstimator(base_estimator=_ZeroBase(), transform_name="diff", base_column="base", gpd_method="mom")
     est.fit(_frame(4000), stats.t.rvs(df=3, size=4000, random_state=6))
     assert est.gpd_fitted_ is True

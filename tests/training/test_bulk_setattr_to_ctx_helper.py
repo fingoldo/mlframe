@@ -18,6 +18,7 @@ class _DummyCtx:
 
 
 def test_bulk_setattr_assigns_all_names():
+    """Bulk setattr assigns all names."""
     ctx = _DummyCtx()
     names = ("train_idx", "val_idx", "train_df")
     values = {"train_idx": [0, 1, 2], "val_idx": [3, 4], "train_df": "frame-A", "unused": 99}
@@ -33,6 +34,7 @@ def test_bulk_setattr_assigns_all_names():
 
 
 def test_bulk_setattr_raises_keyerror_on_missing_name():
+    """Bulk setattr raises keyerror on missing name."""
     ctx = _DummyCtx()
     names = ("train_idx", "val_idx", "train_df_pandas_pre")
     # Deliberately omit ``train_df_pandas_pre`` to simulate the partial-migration slot bug the helper guards.
@@ -51,6 +53,7 @@ def test_bulk_setattr_raises_keyerror_on_missing_name():
 
 
 def test_bulk_setattr_idempotent_on_reassignment():
+    """Bulk setattr idempotent on reassignment."""
     ctx = _DummyCtx()
     names = ("train_df", "val_df")
     first = {"train_df": "first-train", "val_df": "first-val"}

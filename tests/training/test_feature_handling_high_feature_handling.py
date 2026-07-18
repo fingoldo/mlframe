@@ -46,6 +46,7 @@ def test_h_fh_04_lru_sidecar_no_lost_updates() -> None:
         barrier = threading.Barrier(N_THREADS)
 
         def writer(thread_ix: int) -> None:
+            """Writer."""
             barrier.wait()
             for i in range(N_KEYS // N_THREADS):
                 k = f"k_t{thread_ix}_{i}"
@@ -82,6 +83,7 @@ def test_h_fh_05_reset_session_thread_safe() -> None:
     barrier = threading.Barrier(N)
 
     def worker() -> None:
+        """Worker."""
         barrier.wait()
         for _ in range(50):
             tok = fp_mod.reset_session()
@@ -120,6 +122,7 @@ def test_h_fh_06_fingerprint_cache_concurrent_put() -> None:
     errors: list = []
 
     def worker() -> None:
+        """Worker."""
         try:
             for f in frames * 20:
                 fp_mod.fingerprint_df(f)
@@ -239,6 +242,7 @@ def test_h_fh_09_batch_size_recovers_after_oom() -> None:
     # under test. We don't need a real model - just an attribute
     # surface that ``_batched_inference`` reads.
     class _StubProvider(hf.HuggingFaceProvider):
+        """Groups tests covering stub provider."""
         def __init__(self):  # type: ignore[override]
             self._device = "cpu"
             self._embedding_dim = 4
@@ -249,6 +253,7 @@ def test_h_fh_09_batch_size_recovers_after_oom() -> None:
 
         def _pool(self, model_out, attention_mask, pool):  # type: ignore[override]
             # Return a fake [B, 4] cpu tensor.
+            """Pool."""
             B = int(attention_mask.shape[0])
             return torch.zeros(B, 4)
 
@@ -257,6 +262,7 @@ def test_h_fh_09_batch_size_recovers_after_oom() -> None:
     # Stub tokenizer: returns a dict with an attention_mask tensor of
     # the requested batch size.
     class _Tok:
+        """Groups tests covering tok."""
         def __call__(self, batch, **kwargs):
             B = len(batch)
             return {"attention_mask": torch.ones(B, 8, dtype=torch.long)}
@@ -269,6 +275,7 @@ def test_h_fh_09_batch_size_recovers_after_oom() -> None:
     has_failed = {"yes": False}
 
     class _Model:
+        """Groups tests covering model."""
         def __call__(self, **enc):
             B = int(enc["attention_mask"].shape[0])
             seen_sizes.append(B)
@@ -286,9 +293,11 @@ def test_h_fh_09_batch_size_recovers_after_oom() -> None:
             return out
 
         def to(self, *_a, **_kw):
+            """To."""
             return self
 
         def eval(self):
+            """Eval."""
             return self
 
     prov._model = _Model()
@@ -396,18 +405,22 @@ def test_h_fh_11_acquire_provider_lru_before_refcount() -> None:
     from mlframe.training.feature_handling import registry as reg
 
     class _StubProvider:
+        """Groups tests covering stub provider."""
         signature = "stub-h-fh-11"
         acquired_calls = 0
         released_calls = 0
 
         def acquire(self):
+            """Acquire."""
             type(self).acquired_calls += 1
 
         def release(self):
+            """Release."""
             type(self).released_calls += 1
 
     # Use a CacheConfig stub with keep_n_providers=2.
     class _CC:
+        """Groups tests covering c c."""
         keep_n_providers = 2
 
     reg.shutdown_all()
@@ -440,14 +453,17 @@ def test_h_fh_12_prewarm_failure_drops_registry_entry() -> None:
     from mlframe.training.feature_handling import registry as reg
 
     class _BadProvider:
+        """Groups tests covering bad provider."""
         signature = "stub-h-fh-12"
         n_calls = 0
 
         def acquire(self):
+            """Acquire."""
             type(self).n_calls += 1
             raise RuntimeError("simulated prewarm failure")
 
         def release(self):
+            """Release."""
             pass
 
     reg.shutdown_all()
@@ -566,6 +582,7 @@ def test_h_fh_14_fit_transform_speedup() -> None:
     # Legacy reference: emulate the pre-fix Python-loop _compute_per_category
     # plus the inner per-row dict.get loop.
     def legacy_kfold():
+        """Legacy kfold."""
         from sklearn.model_selection import KFold
 
         kf = KFold(n_splits=3, shuffle=True, random_state=0)

@@ -31,6 +31,7 @@ def _old_zscore(xi, codes_j, bin_mean, bin_std):
 @pytest.mark.parametrize("n", [37, 1000, 50_000])
 @pytest.mark.parametrize("nb", [1, 3, 10])
 def test_zscore_njit_bit_identical_to_numpy(n, nb):
+    """Zscore njit bit identical to numpy."""
     rng = np.random.default_rng(n * 100 + nb)
     xi = rng.standard_normal(n)
     # inject NaNs (the masked-to-0 path)

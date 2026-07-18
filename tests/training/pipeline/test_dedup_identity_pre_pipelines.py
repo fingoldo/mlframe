@@ -86,6 +86,7 @@ def _detect_identity(pre_pipeline, train_df_before, train_df_after):
 
 
 def test_marker_true_when_all_columns_kept():
+    """Marker true when all columns kept."""
     rng = np.random.default_rng(42)
     X = pd.DataFrame(rng.normal(size=(40, 5)), columns=list("abcde"))
     mrmr = _make_fake_fitted_mrmr(list(X.columns))
@@ -95,6 +96,7 @@ def test_marker_true_when_all_columns_kept():
 
 
 def test_marker_false_when_columns_dropped():
+    """Marker false when columns dropped."""
     rng = np.random.default_rng(42)
     X = pd.DataFrame(rng.normal(size=(40, 6)), columns=list("abcdef"))
     mrmr = _make_fake_fitted_mrmr(
@@ -120,6 +122,7 @@ def test_marker_not_set_when_output_has_no_columns_attr():
 
 
 def test_config_flag_defaults_true():
+    """Config flag defaults true."""
     from mlframe.training.configs import FeatureSelectionConfig
 
     cfg = FeatureSelectionConfig()
@@ -127,6 +130,7 @@ def test_config_flag_defaults_true():
 
 
 def test_config_flag_can_be_false():
+    """Config flag can be false."""
     from mlframe.training.configs import FeatureSelectionConfig
 
     cfg = FeatureSelectionConfig(skip_identity_equivalent_pre_pipelines=False)

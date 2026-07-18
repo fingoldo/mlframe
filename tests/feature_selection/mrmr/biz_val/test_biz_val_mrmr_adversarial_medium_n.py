@@ -172,6 +172,7 @@ def _make_large_p(seed, n=300, p=40):
 
 
 def _signal_cols(names):
+    """Signal cols."""
     return [n for n in names if n in ("signal", "signal_dup", "signal_near")]
 
 

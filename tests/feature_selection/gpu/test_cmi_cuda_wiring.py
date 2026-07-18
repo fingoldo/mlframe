@@ -51,6 +51,7 @@ def _make_frame(seed: int = 20260619, n: int = 8000, p: int = 300):
 
 
 def _fit_mrmr(X, y):
+    """Fit mrmr."""
     mrmr = MRMR(
         full_npermutations=3,
         baseline_npermutations=3,
@@ -73,6 +74,7 @@ def _fit_mrmr(X, y):
 
 
 def _selection(mrmr):
+    """Helper that selection."""
     return [str(n) for n in mrmr.get_feature_names_out()]
 
 
@@ -88,6 +90,7 @@ def _run(monkeypatch, gpu_on: bool, count_dispatch: bool = True):
         _orig = _cmi_cuda.conditional_mi_batched_dispatch
 
         def _counting_dispatch(*a, **k):
+            """Counting dispatch."""
             n_calls["n"] += 1
             return _orig(*a, **k)
 
@@ -172,6 +175,7 @@ def test_prefill_dispatches_only_cache_missing_pairs(monkeypatch):
     calls = []
 
     def _spy_dispatch(*, factors_data, cand_indices, y_index, z_index, factors_nbins, dtype, force):
+        """Spy dispatch."""
         calls.append((int(z_index), sorted(int(c) for c in cand_indices)))
         return np.full(len(cand_indices), 0.123, dtype=np.float64)
 
@@ -180,6 +184,7 @@ def test_prefill_dispatches_only_cache_missing_pairs(monkeypatch):
     monkeypatch.setattr(_cmi_mod, "conditional_mi_batched_dispatch", _spy_dispatch)
 
     def _key(c, z):
+        """Helper that key."""
         return arr2str(np.asarray([c], dtype=np.int64)) + "|" + arr2str(np.asarray([z], dtype=np.int32))
 
     # z=3 fully cached -> must be SKIPPED (no dispatch); z=4 partially cached -> only cand 2 missing.

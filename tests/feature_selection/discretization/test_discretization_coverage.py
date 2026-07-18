@@ -26,6 +26,7 @@ except ImportError:
 
 @pytest.mark.fast
 def test_discretize_array_quantile():
+    """Discretize array quantile."""
     rng = np.random.default_rng(0)
     arr = rng.standard_normal(500).astype(np.float64)
     out = discretize_array(arr, n_bins=10, method="quantile")
@@ -35,6 +36,7 @@ def test_discretize_array_quantile():
 
 
 def test_discretize_array_uniform_via_method_dispatch():
+    """Discretize array uniform via method dispatch."""
     rng = np.random.default_rng(1)
     arr = rng.standard_normal(500).astype(np.float64)
     out = discretize_array(arr, n_bins=10, method="uniform")
@@ -60,6 +62,7 @@ def test_discretize_array_sklearn_dispatch():
 
 
 def test_discretize_uniform_direct():
+    """Discretize uniform direct."""
     rng = np.random.default_rng(3)
     arr = rng.standard_normal(300).astype(np.float64)
     out = discretize_uniform(arr, n_bins=5)
@@ -68,6 +71,7 @@ def test_discretize_uniform_direct():
 
 
 def test_discretize_2d_array_basic():
+    """Discretize 2d array basic."""
     rng = np.random.default_rng(4)
     arr = rng.standard_normal((200, 3)).astype(np.float64)
     out = discretize_2d_array(arr, n_bins=8, method="quantile")
@@ -76,6 +80,7 @@ def test_discretize_2d_array_basic():
 
 
 def test_discretize_2d_array_uniform():
+    """Discretize 2d array uniform."""
     rng = np.random.default_rng(5)
     arr = rng.standard_normal((200, 3)).astype(np.float64)
     out = discretize_2d_array(arr, n_bins=8, method="uniform")
@@ -83,6 +88,7 @@ def test_discretize_2d_array_uniform():
 
 
 def test_discretize_sklearn_direct():
+    """Discretize sklearn direct."""
     rng = np.random.default_rng(6)
     arr = rng.standard_normal(300).astype(np.float64)
     out = discretize_sklearn(arr, n_bins=7)
@@ -114,6 +120,7 @@ def test_categorize_dataset_smoke():
 
 
 def test_digitize_smoke():
+    """Digitize smoke."""
     arr = np.array([0.1, 0.5, 0.9, 1.5], dtype=np.float64)
     bin_edges = np.array([0.0, 0.4, 0.8, 1.2, 1.6], dtype=np.float64)
     out = digitize(arr, bin_edges)
@@ -121,6 +128,7 @@ def test_digitize_smoke():
 
 
 def test_get_binning_edges_quantile():
+    """Get binning edges quantile."""
     rng = np.random.default_rng(8)
     arr = rng.standard_normal(300).astype(np.float64)
     e = get_binning_edges(arr, n_bins=10, method="quantile")
@@ -129,6 +137,7 @@ def test_get_binning_edges_quantile():
 
 
 def test_get_binning_edges_uniform():
+    """Get binning edges uniform."""
     rng = np.random.default_rng(9)
     arr = rng.standard_normal(300).astype(np.float64)
     e = get_binning_edges(arr, n_bins=10, method="uniform")
@@ -162,6 +171,7 @@ def test_discretize_array_n_bins_two():
 
 
 def test_discretize_array_n_bins_large():
+    """Discretize array n bins large."""
     rng = np.random.default_rng(11)
     arr = rng.standard_normal(500).astype(np.float64)
     out = discretize_array(arr, n_bins=50, method="quantile")
@@ -169,6 +179,7 @@ def test_discretize_array_n_bins_large():
 
 
 def test_categorize_1d_array_smoke():
+    """Categorize 1d array smoke."""
     if not _HAVE_1D:
         # Helper isn't part of the public API in this build - skip is
         # appropriate (env-only, not a masked bug).

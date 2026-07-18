@@ -17,12 +17,14 @@ from mlframe.training.core._ensemble_chooser import _choose_ensemble_flavour
 
 
 class _FakeEns:
+    """Groups tests covering fake ens."""
     def __init__(self, metrics: dict):
         self.metrics = metrics
 
 
 def test_test_only_fallback_emits_warn(caplog):
     # Only test.* surfaces metrics; oof and val are empty on every candidate.
+    """Test only fallback emits warn."""
     ens_a = _FakeEns({"test": {"integral_error": 0.30}})
     ens_b = _FakeEns({"test": {"integral_error": 0.20}})
     with caplog.at_level(logging.WARNING, logger="mlframe.training.core._ensemble_chooser"):
@@ -35,6 +37,7 @@ def test_test_only_fallback_emits_warn(caplog):
 
 
 def test_oof_winner_does_not_emit_test_warn(caplog):
+    """Oof winner does not emit test warn."""
     ens_a = _FakeEns({"oof": {"rmse": 0.30}, "test": {"rmse": 0.10}})
     ens_b = _FakeEns({"oof": {"rmse": 0.20}, "test": {"rmse": 0.99}})
     with caplog.at_level(logging.WARNING, logger="mlframe.training.core._ensemble_chooser"):

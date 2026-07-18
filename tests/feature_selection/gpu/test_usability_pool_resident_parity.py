@@ -19,6 +19,7 @@ cp = pytest.importorskip("cupy")
 
 
 def _need_cuda() -> bool:
+    """Need cuda."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -36,6 +37,7 @@ def test_resident_pool_table_matches_njit_per_pair():
     # mi_mm_from_values_nek in _fe_batched_mi.py), so the low-cardinality/discrete-unary combos (sign, rint)
     # that previously diverged by up to 0.219 now match the njit per-pair table to ~1e-9. Continuous combos are
     # byte-for-byte unchanged (ne_k == nbins-1 -> the dedup is a no-op). Hard assert below.
+    """Resident pool table matches njit per pair."""
     from mlframe.feature_selection.filters._usability_njit_pool import score_pair_combos, njit_unary_codes_or_none, njit_binary_codes_or_none
     from mlframe.feature_selection.filters._usability_pool_resident import score_pair_combos_table_resident
     from mlframe.feature_selection.filters.feature_engineering import create_unary_transformations, create_binary_transformations

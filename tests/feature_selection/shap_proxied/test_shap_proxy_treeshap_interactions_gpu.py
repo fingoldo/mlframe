@@ -24,6 +24,7 @@ pytest.importorskip("shap")
 
 
 def _has_device():
+    """Has device."""
     try:
         return cupy.cuda.runtime.getDeviceCount() > 0
     except Exception:
@@ -34,6 +35,7 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _has_device(), reason="no 
 
 
 def _fit_xgb(X, y, *, classification, n_estimators=40, max_depth=5, seed=0):
+    """Fit xgb."""
     from xgboost import XGBClassifier, XGBRegressor
 
     params = dict(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.2, random_state=seed, tree_method="hist")
@@ -103,6 +105,7 @@ def test_gpu_interaction_depth_cap_raises():
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_gpu import _MAX_SUPPORTED_DEPTH, interaction_tensor_gpu
 
     class _FakeEnsemble:
+        """Groups tests covering FakeEnsemble."""
         max_depth = _MAX_SUPPORTED_DEPTH + 1
         n_features = 4
         features = np.array([0, 1, -1], dtype=np.int32)
@@ -145,6 +148,7 @@ def test_compute_interaction_tensor_routes_to_gpu_on_large_problem():
     orig_gpu = mod._interaction_tensor_gpu
 
     def _spy(*a, **k):
+        """Helper that spy."""
         called["gpu"] += 1
         return orig_gpu(*a, **k)
 

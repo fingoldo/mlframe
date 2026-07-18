@@ -69,6 +69,7 @@ _WIN_ACCESS_VIOLATION = 0xC0000005
 
 
 def _count_unique_combos() -> int:
+    """Count unique combos."""
     if not RESULTS_LOG.exists():
         return 0
     seen = set()
@@ -105,6 +106,7 @@ def _summarize_since(start_offset: int) -> dict:
 
 
 def _file_size() -> int:
+    """File size."""
     return RESULTS_LOG.stat().st_size if RESULTS_LOG.exists() else 0
 
 
@@ -328,6 +330,7 @@ def _run_one_combo(seed: int, short_id: str, per_combo_timeout_s: int) -> tuple[
     _tail_lock = threading.Lock()
 
     def _drain() -> None:
+        """Drain."""
         try:
             for line in p.stdout:  # type: ignore[union-attr]
                 with _tail_lock:
@@ -346,6 +349,7 @@ def _run_one_combo(seed: int, short_id: str, per_combo_timeout_s: int) -> tuple[
     # 2.5h hang). The bounded reap below then proceeds whether or not the kill
     # actually reaped the process.
     def _watchdog() -> None:
+        """Watchdog."""
         _killed.set()
         _kill_process_tree(p.pid)
 
@@ -493,6 +497,7 @@ def _log_driver_row(combo, seed: int, outcome: str, dur: float, error_class: str
 
 
 def main() -> int:
+    """Main."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--target", type=int, default=10_000, help="stop after this many unique canonical combos covered (default 10_000)")
     ap.add_argument("--max-seeds", type=int, default=200, help="hard cap on number of seeds to iterate (default 200 -> 30k combo cap)")

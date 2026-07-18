@@ -19,6 +19,7 @@ import pytest
 
 
 def _make_data(n: int = 200, m: int = 6, seed: int = 0):
+    """Make data."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, m))
     y = (X[:, 0] + 0.3 * X[:, 1] > 0).astype(np.int32)
@@ -92,6 +93,7 @@ def test_screen_predictors_seed_reproducibility():
     targets_nbins = np.array([2], dtype=np.int32)
 
     def _run():
+        """Run screen_predictors once on the shared fixture, for repeated-call determinism comparison."""
         return screen_predictors(
             factors_data=factors_data,
             factors_nbins=factors_nbins,
@@ -136,6 +138,7 @@ def test_mi_direct_thread_safe():
     results: list = [None, None]
 
     def _worker(idx):
+        """Helper that worker."""
         results[idx] = mi_direct(factors_data, x=(0,), y=(1,), factors_nbins=factors_nbins, min_nonzero_confidence=1.0, npermutations=0, dtype=np.int32)
 
     threads = [threading.Thread(target=_worker, args=(i,)) for i in range(2)]
@@ -166,6 +169,7 @@ def test_arr2str_deterministic_under_threads():
     results: list[str] = [None, None]  # type: ignore
 
     def _worker(idx):
+        """Helper that worker."""
         results[idx] = arr2str(arr)
 
     threads = [threading.Thread(target=_worker, args=(i,)) for i in range(2)]
@@ -201,6 +205,7 @@ def test_prewarm_concurrent_no_race():
     errors: list[BaseException] = []
 
     def _warm():
+        """Helper that warm."""
         try:
             prewarm_fs_numba_cache(verbose=False)
         except BaseException as exc:
@@ -256,6 +261,7 @@ def test_mrmr_concurrent_fit_no_cache_corruption():
     supports: dict[str, np.ndarray] = {}
 
     def _fit_a():
+        """Fit a."""
         try:
             sel = MRMR(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0, random_seed=11)
             sel.fit(df_a, y_a)
@@ -264,6 +270,7 @@ def test_mrmr_concurrent_fit_no_cache_corruption():
             errors.append(exc)
 
     def _fit_b():
+        """Fit b."""
         try:
             sel = MRMR(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0, random_seed=22)
             sel.fit(df_b, y_b)

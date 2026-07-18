@@ -21,6 +21,7 @@ from mlframe.training.feature_drift_report import (
 
 
 def _make_df(n: int, rng: np.random.Generator, with_array: bool) -> pd.DataFrame:
+    """Make df."""
     data = {
         "cat": rng.choice(["a", "b", "c"], size=n),
         "num": rng.normal(size=n),
@@ -31,6 +32,7 @@ def _make_df(n: int, rng: np.random.Generator, with_array: bool) -> pd.DataFrame
 
 
 def test_array_column_excluded_from_categoricals():
+    """Array column excluded from categoricals."""
     rng = np.random.default_rng(0)
     df = _make_df(500, rng, with_array=True)
     cols = _categorical_columns(df)
@@ -40,6 +42,7 @@ def test_array_column_excluded_from_categoricals():
 
 
 def test_col_value_counts_skips_array_column():
+    """Col value counts skips array column."""
     rng = np.random.default_rng(1)
     df = _make_df(500, rng, with_array=True)
     assert _col_value_counts(df, "emb") is None
@@ -47,6 +50,7 @@ def test_col_value_counts_skips_array_column():
 
 
 def test_list_and_dict_cells_also_skipped():
+    """List and dict cells also skipped."""
     df = pd.DataFrame(
         {
             "lst": [[1, 2], [3, 4], [5, 6]],

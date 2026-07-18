@@ -20,6 +20,7 @@ from mlframe.training.pipeline._cross_sectional_composite_fe import apply_cross_
 
 
 def _snapshot_frame(n=400, seed=0):
+    """Snapshot frame."""
     rng = np.random.default_rng(seed)
     snap = rng.integers(0, 40, n)
     df = pd.DataFrame({"time_id": snap, "f0": rng.normal(size=n), "f1": rng.normal(size=n)})
@@ -27,6 +28,7 @@ def _snapshot_frame(n=400, seed=0):
 
 
 def test_apply_cross_sectional_composite_fe_noop_when_snapshot_col_unset():
+    """Apply cross sectional composite fe noop when snapshot col unset."""
     df = _snapshot_frame()
     cfg = PreprocessingExtensionsConfig()
     train, _val, _test = apply_cross_sectional_composite_fe(df.iloc[:300], df.iloc[300:], None, cfg, {}, verbose=0)
@@ -34,6 +36,7 @@ def test_apply_cross_sectional_composite_fe_noop_when_snapshot_col_unset():
 
 
 def test_apply_cross_sectional_composite_fe_schema_aligned_across_splits():
+    """Apply cross sectional composite fe schema aligned across splits."""
     df = _snapshot_frame()
     cfg = PreprocessingExtensionsConfig(
         cross_sectional_neighbors_snapshot_col="time_id",
@@ -49,6 +52,7 @@ def test_apply_cross_sectional_composite_fe_schema_aligned_across_splits():
 
 
 def test_apply_cross_sectional_composite_fe_polars_roundtrip():
+    """Apply cross sectional composite fe polars roundtrip."""
     n = 200
     rng = np.random.default_rng(2)
     df = pl.DataFrame({"time_id": rng.integers(0, 20, n), "f0": rng.normal(size=n).astype(np.float32)})
@@ -61,6 +65,7 @@ def test_apply_cross_sectional_composite_fe_polars_roundtrip():
 
 
 def test_replay_cross_sectional_composite_fe_matches_fit_time_columns():
+    """Replay cross sectional composite fe matches fit time columns."""
     df = _snapshot_frame()
     cfg = PreprocessingExtensionsConfig(
         cross_sectional_neighbors_snapshot_col="time_id",
@@ -76,6 +81,7 @@ def test_replay_cross_sectional_composite_fe_matches_fit_time_columns():
 
 
 def test_replay_cross_sectional_composite_fe_noop_without_persisted_metadata():
+    """Replay cross sectional composite fe noop without persisted metadata."""
     df = _snapshot_frame(n=20)
     out = replay_cross_sectional_composite_fe(df, {}, verbose=0)
     assert list(out.columns) == list(df.columns)
@@ -114,6 +120,7 @@ def test_biz_val_cross_sectional_composite_wiring_isolation_signal():
     train_idx, test_idx = train_test_split(np.arange(n), test_size=0.3, random_state=0, stratify=y)
 
     def _fit_eval(cols):
+        """Fit eval."""
         clf = RandomForestClassifier(n_estimators=100, random_state=0)
         clf.fit(out_df.iloc[train_idx][cols], y[train_idx])
         proba = clf.predict_proba(out_df.iloc[test_idx][cols])[:, 1]

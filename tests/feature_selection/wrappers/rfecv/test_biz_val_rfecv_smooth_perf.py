@@ -22,6 +22,7 @@ NGRID = list(range(2, 42, 2))
 
 
 class _Mock:
+    """Groups tests covering Mock."""
     def __init__(self, smooth_perf, rule):
         self.mean_perf_weight = 1.0
         self.std_perf_weight = 0.1
@@ -37,12 +38,14 @@ class _Mock:
 
 
 def _peak_curve():
+    """Peak curve."""
     nf = np.array(NGRID, dtype=float)
     x = nf / nf.max()
     return nf, 0.5 + 0.30 * np.exp(-((x - 0.4) ** 2) / (2 * 0.12**2))
 
 
 def _pick(rule, smooth_perf, obs, std):
+    """Helper that pick."""
     m = _Mock(smooth_perf, rule)
     select_optimal_nfeatures_(m, np.array(NGRID, dtype=float), obs.copy(), std.copy(), smooth_perf=smooth_perf, verbose=False, show_plot=False)
     return int(m.n_features_)

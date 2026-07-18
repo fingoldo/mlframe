@@ -52,12 +52,12 @@ def test_biz_val_knn_fallback_beats_primary_model_in_blind_spot_region():
     auc_blended_blind_spot = roc_auc_score(y_test[in_blind_spot_test], blended[in_blind_spot_test])
 
     assert auc_primary_blind_spot < 0.65, f"expected the primary linear model to be near-chance in its blind spot, got AUC={auc_primary_blind_spot:.4f}"
-    assert auc_blended_blind_spot > 0.75, (
-        f"expected the KNN-fallback-blended prediction to strongly recover signal in the blind spot, got AUC={auc_blended_blind_spot:.4f}"
-    )
-    assert auc_blended_blind_spot > auc_primary_blind_spot + 0.15, (
-        f"expected a material improvement over the primary model alone in the blind spot, got blended={auc_blended_blind_spot:.4f} primary={auc_primary_blind_spot:.4f}"
-    )
+    assert (
+        auc_blended_blind_spot > 0.75
+    ), f"expected the KNN-fallback-blended prediction to strongly recover signal in the blind spot, got AUC={auc_blended_blind_spot:.4f}"
+    assert (
+        auc_blended_blind_spot > auc_primary_blind_spot + 0.15
+    ), f"expected a material improvement over the primary model alone in the blind spot, got blended={auc_blended_blind_spot:.4f} primary={auc_primary_blind_spot:.4f}"
 
 
 def test_knn_fallback_predictor_confidence_high_when_dense_low_when_sparse():
@@ -72,9 +72,9 @@ def test_knn_fallback_predictor_confidence_high_when_dense_low_when_sparse():
     _, near_confidence = knn.predict(near_query)
     _, far_confidence = knn.predict(far_query)
 
-    assert near_confidence[0] > far_confidence[0], (
-        f"expected higher confidence for a query near the training data, got near={near_confidence[0]:.4f} far={far_confidence[0]:.4f}"
-    )
+    assert (
+        near_confidence[0] > far_confidence[0]
+    ), f"expected higher confidence for a query near the training data, got near={near_confidence[0]:.4f} far={far_confidence[0]:.4f}"
 
 
 def _make_coldstart_dataset(n: int, seed: int, dense_frac: float, label_noise: float):
@@ -118,9 +118,9 @@ def test_biz_val_knn_fallback_predictor_predict_blend_beats_either_predictor_alo
     auc_blended = roc_auc_score(y_test, blended)
 
     assert auc_blended > auc_main_only + 0.03, f"expected predict_blend to beat the main model alone, got blended={auc_blended:.4f} main={auc_main_only:.4f}"
-    assert auc_blended > auc_knn_only + 0.005, (
-        f"expected predict_blend to beat the kNN fallback alone, got blended={auc_blended:.4f} knn_only={auc_knn_only:.4f}"
-    )
+    assert (
+        auc_blended > auc_knn_only + 0.005
+    ), f"expected predict_blend to beat the kNN fallback alone, got blended={auc_blended:.4f} knn_only={auc_knn_only:.4f}"
     assert auc_blended > 0.95, f"expected predict_blend to recover strong overall AUC, got {auc_blended:.4f}"
 
 

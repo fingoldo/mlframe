@@ -31,14 +31,17 @@ def _snapshot_registry():
 
 
 def _dummy_metric(y_true, probs_NK, preds_NK):
+    """Dummy metric."""
     return 0.42
 
 
 def _raising_metric(y_true, probs_NK, preds_NK):
+    """Raising metric."""
     raise ValueError("intentional metric failure for tests")
 
 
 def test_register_and_list_registered():
+    """Register and list registered."""
     mr.register_metric(TargetTypes.REGRESSION, "test_dummy", _dummy_metric)
     names = mr.list_registered(TargetTypes.REGRESSION)
     assert "test_dummy" in names, f"newly registered metric must appear in list_registered; got {names!r}"
@@ -49,6 +52,7 @@ def test_register_idempotent_overwrites():
     mr.register_metric(TargetTypes.REGRESSION, "test_metric", _dummy_metric)
 
     def _replacement(y_true, probs_NK, preds_NK):
+        """Replacement."""
         return 1.0
 
     mr.register_metric(TargetTypes.REGRESSION, "test_metric", _replacement, higher_is_better=False)
@@ -58,6 +62,7 @@ def test_register_idempotent_overwrites():
 
 
 def test_unregister_removes_metric():
+    """Unregister removes metric."""
     mr.register_metric(TargetTypes.REGRESSION, "todelete", _dummy_metric)
     assert "todelete" in mr.list_registered(TargetTypes.REGRESSION)
     mr.unregister_metric(TargetTypes.REGRESSION, "todelete")
@@ -76,6 +81,7 @@ def test_unregister_unknown_target_type_is_noop():
 
 
 def test_iter_extra_metrics_yields_registered():
+    """Iter extra metrics yields registered."""
     mr.register_metric(TargetTypes.REGRESSION, "spec1", _dummy_metric)
     y = np.array([0.0, 1.0, 2.0])
     out = dict(mr.iter_extra_metrics(TargetTypes.REGRESSION, y, y, y))
@@ -102,6 +108,7 @@ def test_iter_extra_metrics_keyboardinterrupt_propagates():
     """Programming bugs (e.g. KeyboardInterrupt, RuntimeError) must NOT be swallowed."""
 
     def _ki_metric(y_true, probs_NK, preds_NK):
+        """Ki metric."""
         raise KeyboardInterrupt("user pressed ctrl-c")
 
     mr.register_metric(TargetTypes.REGRESSION, "ki", _ki_metric)
@@ -111,6 +118,7 @@ def test_iter_extra_metrics_keyboardinterrupt_propagates():
 
 
 def test_get_metric_direction_returns_flag():
+    """Get metric direction returns flag."""
     mr.register_metric(TargetTypes.REGRESSION, "high_is_good", _dummy_metric, higher_is_better=True)
     mr.register_metric(TargetTypes.REGRESSION, "low_is_good", _dummy_metric, higher_is_better=False)
     assert mr.get_metric_direction(TargetTypes.REGRESSION, "high_is_good") is True
@@ -118,10 +126,12 @@ def test_get_metric_direction_returns_flag():
 
 
 def test_get_metric_direction_unknown_returns_none():
+    """Get metric direction unknown returns none."""
     assert mr.get_metric_direction(TargetTypes.REGRESSION, "never_registered") is None
 
 
 def test_list_registered_specs_returns_metric_specs():
+    """List registered specs returns metric specs."""
     mr.register_metric(
         TargetTypes.REGRESSION,
         "with_desc",
@@ -162,6 +172,7 @@ def test_metric_direction_higher_known():
 
 
 def test_metric_direction_lower_known():
+    """Metric direction lower known."""
     for name in ("rmse", "MAE", "test_RMSE", "log_loss", "brier", "hamming_loss", "pinball"):
         assert mr.metric_name_higher_is_better(name) is False, f"{name!r} must be classified as lower-is-better"
 
@@ -219,11 +230,13 @@ def test_builtin_multilabel_metrics_registered_at_import():
 
 
 def test_builtin_hamming_loss_direction_is_lower():
+    """Builtin hamming loss direction is lower."""
     direction = mr.get_metric_direction(TargetTypes.MULTILABEL_CLASSIFICATION, "hamming_loss")
     assert direction is False, "hamming_loss is a loss (lower-is-better)"
 
 
 def test_builtin_subset_accuracy_direction_is_higher():
+    """Builtin subset accuracy direction is higher."""
     direction = mr.get_metric_direction(TargetTypes.MULTILABEL_CLASSIFICATION, "subset_accuracy")
     assert direction is True, "subset_accuracy is an accuracy (higher-is-better)"
 

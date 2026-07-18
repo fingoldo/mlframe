@@ -13,6 +13,7 @@ from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _renumber_joint
 
 
 def test_renumber_joint_2d_singleton_matches_1d():
+    """Renumber joint 2d singleton matches 1d."""
     rng = np.random.default_rng(0)
     c1d = rng.integers(0, 4, 200).astype(np.int64)
     c2d = c1d.reshape(-1, 1)  # the (n, 1) shape that tripped numba
@@ -24,6 +25,7 @@ def test_renumber_joint_2d_singleton_matches_1d():
 
 
 def test_renumber_joint_2d_singleton_multicol():
+    """Renumber joint 2d singleton multicol."""
     rng = np.random.default_rng(1)
     a = rng.integers(0, 4, 200).astype(np.int64)
     b = rng.integers(0, 3, 200).astype(np.int64)

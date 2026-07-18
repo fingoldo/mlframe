@@ -13,6 +13,7 @@ import pandas as pd
 
 
 def _make_dataset(n: int = 200, seed: int = 0):
+    """Make dataset."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 4))
     y = (X[:, 0] + rng.normal(scale=0.5, size=n) > 0).astype(int)
@@ -31,6 +32,7 @@ def test_oof_iid_uses_shuffled_seeded_kfold(monkeypatch):
     real_cvp = skms.cross_val_predict
 
     def _spy_cvp(estimator, X, y, *, cv=None, **kw):
+        """Spy cvp."""
         captured["cv"] = cv
         return real_cvp(estimator, X, y, cv=cv, **kw)
 
@@ -63,6 +65,7 @@ def test_oof_temporal_does_not_use_cross_val_predict_and_warms_up_with_nan(monke
     called = {"cvp": False}
 
     def _boom_cvp(*a, **k):
+        """Boom cvp."""
         called["cvp"] = True
         raise AssertionError("cross_val_predict must NOT be used on the temporal OOF path")
 

@@ -26,6 +26,7 @@ from mlframe.feature_selection.filters._fe_resident_operands import clear_fe_res
 
 @pytest.fixture(autouse=True)
 def _clear_cache():
+    """Clear cache."""
     clear_fe_resident_operands()
     yield
     clear_fe_resident_operands()
@@ -54,6 +55,7 @@ def test_cheap_mi_with_y_dedups_ycodes_upload_across_candidates(monkeypatch):
         # Match on ACTUAL CONTENT (not just shape/dtype): a shape/dtype-only match would also count the
         # (n,) int64 fold_ids upload the resident gate does under a DIFFERENT role ("binagg_foldids"),
         # which happens to share y_codes' (n,) int64 shape but not its values.
+        """Counting asarray."""
         if isinstance(arr, np.ndarray) and arr.shape == y_codes.shape and arr.dtype == y_codes.dtype and np.array_equal(arr, y_codes):
             upload_calls["n"] += 1
         return orig_asarray(arr, *a, **kw)
@@ -105,6 +107,7 @@ def test_cheap_mi_and_resident_gate_share_one_ycodes_upload(monkeypatch):
         # Match on ACTUAL CONTENT (not just shape/dtype): a shape/dtype-only match would also count the
         # (n,) int64 fold_ids upload the resident gate does under a DIFFERENT role ("binagg_foldids"),
         # which happens to share y_codes' (n,) int64 shape but not its values.
+        """Counting asarray."""
         if isinstance(arr, np.ndarray) and arr.shape == y_codes.shape and arr.dtype == y_codes.dtype and np.array_equal(arr, y_codes):
             upload_calls["n"] += 1
         return orig_asarray(arr, *a, **kw)

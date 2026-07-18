@@ -37,6 +37,7 @@ class _StubInnerWithSklearnNames:
         self.is_fitted_ = True
 
     def predict(self, X):
+        """Predict."""
         return np.zeros(getattr(X, "shape", (0,))[0])
 
 
@@ -47,15 +48,19 @@ class _StubInnerWithCatBoostNames:
         self.feature_names_ = list(feature_names)
 
     def predict(self, X):
+        """Predict."""
         return np.zeros(getattr(X, "shape", (0,))[0])
 
 
 class _StubInnerNoNames:
+    """Groups tests covering stub inner no names."""
     def predict(self, X):
+        """Predict."""
         return np.zeros(getattr(X, "shape", (0,))[0])
 
 
 def _build_wrapper(stub_inner, base_column="pca4"):
+    """Build wrapper."""
     return CompositeTargetEstimator.from_fitted_inner(
         fitted_inner=stub_inner,
         transform_name="linear_residual",
@@ -66,6 +71,7 @@ def _build_wrapper(stub_inner, base_column="pca4"):
 
 
 def test_from_fitted_inner_inherits_sklearn_style_feature_names():
+    """From fitted inner inherits sklearn style feature names."""
     cols = ["x0", "x1", "pca0", "pca1", "pca2", "pca3", "pca4"]
     inner = _StubInnerWithSklearnNames(cols)
     wrapper = _build_wrapper(inner)
@@ -78,6 +84,7 @@ def test_from_fitted_inner_inherits_sklearn_style_feature_names():
 
 
 def test_from_fitted_inner_inherits_catboost_style_feature_names():
+    """From fitted inner inherits catboost style feature names."""
     cols = ["x0", "x1", "x2", "pca0", "pca1"]
     inner = _StubInnerWithCatBoostNames(cols)
     wrapper = _build_wrapper(inner)

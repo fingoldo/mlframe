@@ -32,7 +32,9 @@ import pytest
 
 
 class TestLagPredictDeployableModel:
+    """Groups tests covering lag predict deployable model."""
     def test_predict_returns_lag_column_pandas(self) -> None:
+        """Predict returns lag column pandas."""
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
 
         df = pd.DataFrame(
@@ -47,6 +49,7 @@ class TestLagPredictDeployableModel:
         np.testing.assert_array_equal(preds, np.arange(100.0))
 
     def test_predict_raises_on_missing_column(self) -> None:
+        """Predict raises on missing column."""
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
 
         df = pd.DataFrame({"a": [1, 2, 3]})
@@ -66,6 +69,7 @@ class TestLagPredictDeployableModel:
         np.testing.assert_array_equal(preds_a, np.arange(100.0, 200.0))
 
     def test_repr_includes_lag_column(self) -> None:
+        """Repr includes lag column."""
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
 
         model = _LagPredictDeployableModel(lag_column="TVT_prev")
@@ -74,6 +78,7 @@ class TestLagPredictDeployableModel:
         assert "_LagPredictDeployableModel" in s
 
     def test_get_params_returns_lag_column(self) -> None:
+        """Get params returns lag column."""
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
 
         m = _LagPredictDeployableModel(lag_column="TVT_prev")
@@ -82,6 +87,7 @@ class TestLagPredictDeployableModel:
         assert m.get_params(deep=False) == {"lag_column": "TVT_prev"}
 
     def test_set_params_updates_and_returns_self(self) -> None:
+        """Set params updates and returns self."""
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
 
         m = _LagPredictDeployableModel(lag_column="TVT_prev")
@@ -90,6 +96,7 @@ class TestLagPredictDeployableModel:
         assert m.lag_column == "other_lag"
 
     def test_set_params_rejects_unknown(self) -> None:
+        """Set params rejects unknown."""
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
 
         m = _LagPredictDeployableModel(lag_column="TVT_prev")
@@ -147,6 +154,7 @@ class TestXGBModuleLevelCache:
     DataFrame with different ``id()``."""
 
     def test_module_level_cache_exists_with_helpers(self) -> None:
+        """Module level cache exists with helpers."""
         from mlframe.training import xgb_shim
 
         assert hasattr(xgb_shim, "_XGB_DMATRIX_CACHE")
@@ -157,11 +165,13 @@ class TestXGBModuleLevelCache:
         assert xgb_shim._XGB_DMATRIX_CACHE_CAP >= 2
 
     def test_cache_round_trip(self) -> None:
+        """Cache round trip."""
         from mlframe.training import xgb_shim
 
         xgb_shim._xgb_cache_clear()
 
         class MockDMatrix:
+            """Groups tests covering mock d matrix."""
             pass
 
         m = MockDMatrix()
@@ -170,6 +180,7 @@ class TestXGBModuleLevelCache:
         assert xgb_shim._xgb_cache_get(key) is m
 
     def test_cache_returns_none_on_miss(self) -> None:
+        """Cache returns none on miss."""
         from mlframe.training import xgb_shim
 
         xgb_shim._xgb_cache_clear()
@@ -199,6 +210,7 @@ class TestXGBModuleLevelCache:
         assert key_a == key_b, "content fingerprint differs on identical content"
 
         class MockDMatrix:
+            """Groups tests covering mock d matrix."""
             pass
 
         m = MockDMatrix()
@@ -209,12 +221,14 @@ class TestXGBModuleLevelCache:
         assert hit is m, "module cache failed to survive identical-content clone"
 
     def test_cache_lru_eviction(self) -> None:
+        """Cache lru eviction."""
         from mlframe.training import xgb_shim
 
         xgb_shim._xgb_cache_clear()
         cap = xgb_shim._XGB_DMATRIX_CACHE_CAP
 
         class MockDMatrix:
+            """Groups tests covering mock d matrix."""
             def __init__(self, name):
                 self.name = name
 
@@ -238,6 +252,7 @@ class TestXGBModuleLevelCache:
         cap = xgb_shim._XGB_DMATRIX_CACHE_CAP
 
         class M:
+            """Groups tests covering m."""
             def __init__(self, n):
                 self.n = n
 
@@ -252,11 +267,13 @@ class TestXGBModuleLevelCache:
         assert xgb_shim._xgb_cache_get(("k1",)) is None
 
     def test_env_var_disables_cache(self, monkeypatch) -> None:
+        """Env var disables cache."""
         from mlframe.training import xgb_shim
 
         xgb_shim._xgb_cache_clear()
 
         class M:
+            """Groups tests covering m."""
             pass
 
         m = M()
@@ -280,12 +297,15 @@ class TestXGBModuleLevelCache:
 
 
 class TestLossRecommendationRound5HuberUnified:
+    """Groups tests covering loss recommendation round5 huber unified."""
     def test_excess_kurt_heavy_threshold_back_to_1_5(self) -> None:
+        """Excess kurt heavy threshold back to 1 5."""
         from mlframe.training import loss_recommendation
 
         assert loss_recommendation._EXCESS_KURT_HEAVY == 1.5
 
     def test_medium_kurt_picks_huber(self) -> None:
+        """Medium kurt picks huber."""
         from mlframe.training.loss_recommendation import recommend_boosting_regression_loss
 
         rng = np.random.default_rng(0)
@@ -324,6 +344,7 @@ class TestLossRecommendationRound5HuberUnified:
             assert rec["xgb"] == "reg:pseudohubererror", rec
 
     def test_gaussian_still_picks_rmse(self) -> None:
+        """Gaussian still picks rmse."""
         from mlframe.training.loss_recommendation import recommend_boosting_regression_loss
 
         rng = np.random.default_rng(0)
@@ -343,6 +364,7 @@ class TestFingerprintParityAcrossContainers:
     (TVT prod 2026-05-23: ~60s wasted in QuantileDMatrix rebuilds)."""
 
     def test_pandas_and_polars_numeric_match(self) -> None:
+        """Pandas and polars numeric match."""
         pl = pytest.importorskip("polars")
         from mlframe.training._dataset_cache_fingerprint import compute_signature
 
@@ -354,6 +376,7 @@ class TestFingerprintParityAcrossContainers:
         assert compute_signature(pd_df) == compute_signature(pl_df), "Polars and pandas of IDENTICAL numeric content must produce the same content-fingerprint."
 
     def test_pandas_and_polars_with_bool_match(self) -> None:
+        """Pandas and polars with bool match."""
         pl = pytest.importorskip("polars")
         from mlframe.training._dataset_cache_fingerprint import compute_signature
 
@@ -365,6 +388,7 @@ class TestFingerprintParityAcrossContainers:
         assert compute_signature(pd_df) == compute_signature(pl_df)
 
     def test_pandas_and_polars_with_string_match(self) -> None:
+        """Pandas and polars with string match."""
         pl = pytest.importorskip("polars")
         from mlframe.training._dataset_cache_fingerprint import compute_signature
 
@@ -463,6 +487,7 @@ class TestExternalValHoldoutOOF:
         return [c_a, c_b], ["raw#0", "raw#1"], [None, None]
 
     def test_external_holdout_returns_external_y(self) -> None:
+        """External holdout returns external y."""
         from mlframe.training.composite.ensemble import (
             compute_oof_holdout_predictions,
         )
@@ -578,6 +603,7 @@ class TestExternalValHoldoutOOF:
 
     def test_config_knob_default_is_kfold(self) -> None:
         # Default is honest K-fold OOF; external_val double-dips the early-stopping surface and biases weights toward val-overfit components.
+        """Config knob default is kfold."""
         from mlframe.training._composite_target_discovery_config import (
             CompositeTargetDiscoveryConfig,
         )
@@ -628,9 +654,9 @@ class TestLagPredictFailsafeKnob:
         assert fields is not None
         assert "lag_predict_failsafe_tolerance" in fields
         cfg = CompositeTargetDiscoveryConfig()
-        assert cfg.lag_predict_failsafe_tolerance == 0.10, (
-            f"lag_predict_failsafe_tolerance default is 0.10 since 2026-05-25 group-aware inner eval; got {cfg.lag_predict_failsafe_tolerance}"
-        )
+        assert (
+            cfg.lag_predict_failsafe_tolerance == 0.10
+        ), f"lag_predict_failsafe_tolerance default is 0.10 since 2026-05-25 group-aware inner eval; got {cfg.lag_predict_failsafe_tolerance}"
 
     def test_gate_logic_present_in_phase_composite_post(self) -> None:
         """Behavioural check: import the phase-post module and confirm
@@ -655,6 +681,7 @@ class TestDummyFloorGateCtEnsemble:
     them weight, ensemble landed at RMSE 13.28 vs 11.58 dummy floor)."""
 
     def test_config_knob_default_enabled_strict(self) -> None:
+        """Config knob default enabled strict."""
         from mlframe.training._composite_target_discovery_config import (
             CompositeTargetDiscoveryConfig,
         )
@@ -691,6 +718,7 @@ class TestExtremeArGroupAwareSkip:
     2026-05-23: 9 trained models, all R2<0)."""
 
     def test_config_defaults(self) -> None:
+        """Config defaults."""
         from mlframe.training._composite_target_discovery_config import (
             CompositeTargetDiscoveryConfig,
         )
@@ -725,6 +753,7 @@ class TestGroupAwareTinyRerank:
     """
 
     def test_y_scale_accepts_groups_kwarg(self) -> None:
+        """Y scale accepts groups kwarg."""
         import inspect
         from mlframe.training.composite.discovery._screening_tiny import (
             _tiny_cv_rmse_y_scale,

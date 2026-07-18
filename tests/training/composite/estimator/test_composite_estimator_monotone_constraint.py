@@ -31,6 +31,7 @@ from mlframe.training.composite.estimator import CompositeTargetEstimator
 def _inner():
     # Small, deterministic tree ensemble; enough depth to chase a non-monotone
     # bump when left UNCONSTRAINED so the constraint has something to fix.
+    """Inner."""
     return lgb.LGBMRegressor(
         n_estimators=200,
         num_leaves=31,
@@ -66,7 +67,9 @@ def _max_monotone_violation(f_grid_pred: np.ndarray) -> float:
 
 
 class TestMonotoneConstraintEnforced:
+    """Groups tests covering monotone constraint enforced."""
     def test_constraint_makes_T_predictions_monotone(self) -> None:
+        """Constraint makes t predictions monotone."""
         X, y, _ = _make_nonmonotone_in_T()
         # Grid over f at a fixed base to read the marginal T-surface in f.
         grid = pd.DataFrame({"base": np.full(200, 10.0), "f": np.linspace(0.0, 1.0, 200)})
@@ -95,6 +98,7 @@ class TestMonotoneConstraintEnforced:
 
     def test_constraint_carries_through_to_y_on_additive_core(self) -> None:
         # diff is additive (y = T + base); at fixed base, y is monotone in f iff T is.
+        """Constraint carries through to y on additive core."""
         X, y, _ = _make_nonmonotone_in_T()
         grid = pd.DataFrame({"base": np.full(200, 10.0), "f": np.linspace(0.0, 1.0, 200)})
         est = CompositeTargetEstimator(
@@ -108,10 +112,12 @@ class TestMonotoneConstraintEnforced:
 
 
 class TestConstraintLengthValidation:
+    """Groups tests covering constraint length validation."""
     def test_grouped_transform_validates_against_post_drop_count(self) -> None:
         # linear_residual_grouped drops the group_column before the inner fits,
         # so the inner trains on (n_cols - 1) features. A constraint vector sized
         # to the post-drop count fits; one sized to the FULL column count raises.
+        """Grouped transform validates against post drop count."""
         rng = np.random.default_rng(1)
         n = 1500
         g = rng.integers(0, 3, size=n)
@@ -142,6 +148,7 @@ class TestConstraintLengthValidation:
             bad.fit(X, y)
 
     def test_plain_length_mismatch_raises(self) -> None:
+        """Plain length mismatch raises."""
         X, y, _ = _make_nonmonotone_in_T(n=500)
         est = CompositeTargetEstimator(
             base_estimator=_inner(),
@@ -153,6 +160,7 @@ class TestConstraintLengthValidation:
             est.fit(X, y)
 
     def test_bad_constraint_values_raise(self) -> None:
+        """Bad constraint values raise."""
         X, y, _ = _make_nonmonotone_in_T(n=500)
         est = CompositeTargetEstimator(
             base_estimator=_inner(),
@@ -164,6 +172,7 @@ class TestConstraintLengthValidation:
             est.fit(X, y)
 
     def test_inner_without_support_raises(self) -> None:
+        """Inner without support raises."""
         from sklearn.linear_model import LinearRegression
 
         X, y, _ = _make_nonmonotone_in_T(n=500)
@@ -179,6 +188,7 @@ class TestConstraintLengthValidation:
 
 def test_default_none_unchanged() -> None:
     # No constraint configured -> the inner is fit with its own default params.
+    """Default none unchanged."""
     X, y, _ = _make_nonmonotone_in_T(n=500)
     est = CompositeTargetEstimator(
         base_estimator=_inner(),

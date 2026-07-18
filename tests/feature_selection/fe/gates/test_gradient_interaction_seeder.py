@@ -36,6 +36,7 @@ FOCUS = (5, 31)
 
 
 def _make(kind, n=N, p=P, seed=0):
+    """Helper that make."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, p))
     a, b = X[:, 5], X[:, 31]
@@ -55,6 +56,7 @@ def _make(kind, n=N, p=P, seed=0):
 
 
 def _rank(energies, focus):
+    """Helper that rank."""
     ranked = sorted(energies.items(), key=lambda kv: -kv[1])
     return next((i for i, (k, v) in enumerate(ranked) if k == focus), None)
 
@@ -100,6 +102,7 @@ def test_analytic_matches_finite_diff():
     en_a = _rff_analytic_mixed_partial_energy(rbf, ridge, Xsub, pairs)
 
     def predict(Z):
+        """Helper that predict."""
         return ridge.predict(rbf.transform(Z))
 
     en_fd = _finite_diff_mixed_partial_energy(predict, Xsub, pairs, h=0.05, max_rows=2000, seed=0)
@@ -190,6 +193,7 @@ def test_end_to_end_regression_proposes_saddle():
     orig = G.rank_gradient_interaction_pairs
 
     def traced(*a, **k):
+        """Helper that traced."""
         r = orig(*a, **k)
         captured["diag"] = r[2]
         captured["proposed"] = r[0]
@@ -219,6 +223,7 @@ def test_end_to_end_default_off_is_noop():
     orig = G.rank_gradient_interaction_pairs
 
     def traced(*a, **k):
+        """Helper that traced."""
         invoked["n"] += 1
         return orig(*a, **k)
 
@@ -269,6 +274,7 @@ def test_cprofile_core_cost_hotspot(capsys):
     pairs = list(combinations(range(P), 2))
 
     def core():
+        """Helper that core."""
         rbf, ridge = _fit_rff_ridge(Xs, y, n_components=400, gamma=1.0 / P, alpha=1.0, seed=0)
         return _rff_analytic_mixed_partial_energy(rbf, ridge, Xs, pairs)
 

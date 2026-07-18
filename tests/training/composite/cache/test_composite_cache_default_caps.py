@@ -14,6 +14,7 @@ import pytest
 
 @pytest.mark.fast
 def test_default_caps_are_non_none(tmp_path):
+    """DiscoveryCache's default max_entries and max_size_mb are both positive finite values, not unbounded."""
     from mlframe.training.composite.cache import DiscoveryCache
 
     cache = DiscoveryCache(str(tmp_path))
@@ -43,6 +44,7 @@ def test_explicit_one_none_other_set_works(tmp_path):
 
 @pytest.mark.fast
 def test_partial_override(tmp_path):
+    """Overriding only max_entries leaves max_size_mb at its default rather than becoming None."""
     from mlframe.training.composite.cache import DiscoveryCache
 
     cache = DiscoveryCache(str(tmp_path), max_entries=50)

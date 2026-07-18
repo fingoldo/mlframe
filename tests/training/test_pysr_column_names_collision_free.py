@@ -16,6 +16,7 @@ from mlframe.training.pipeline import apply_preprocessing_extensions
 
 
 def _make_frames(n: int = 200, seed: int = 0):
+    """Make frames."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(
         {
@@ -28,6 +29,7 @@ def _make_frames(n: int = 200, seed: int = 0):
 
 
 def _build_fake_model(equation_strings):
+    """Build fake model."""
     fake_model = MagicMock()
     eq_df = pd.DataFrame(
         {
@@ -44,6 +46,7 @@ def _build_fake_model(equation_strings):
 
 
 def _run(seed: int, equations: list[str]):
+    """Runs the PySR preprocessing extension with the given seed and fake discovered equations, returning the transformed frame."""
     X_train, X_val, X_test, y = _make_frames()
     cfg = PreprocessingExtensionsConfig(
         pysr_enabled=True,
@@ -53,6 +56,7 @@ def _run(seed: int, equations: list[str]):
     fake_model = _build_fake_model(equations)
 
     def fake_run_pysr(df, target_col, sample_size, encode_categoricals, verbose, pysr_params_override, **kwargs):
+        """Fake run pysr."""
         return fake_model
 
     out_equations: dict[str, str] = {}

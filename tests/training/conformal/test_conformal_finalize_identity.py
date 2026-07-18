@@ -20,6 +20,7 @@ REPO = Path(__file__).resolve().parents[3]
 
 
 def _load_old_module() -> types.ModuleType:
+    """Load old module."""
     try:
         src = subprocess.check_output(["git", "show", f"HEAD:{REL}"], cwd=REPO, text=True, stderr=subprocess.DEVNULL)  # nosec B603 B607 -- fixed local argv (sys.executable/git + literal args), not a partial/searched path from untrusted input, no shell
     except Exception as e:  # pragma: no cover - env without HEAD
@@ -36,6 +37,7 @@ def _load_old_module() -> types.ModuleType:
 
 
 def _make(n_test=4000, n_cal=1500, k=9, seed=7):
+    """Make."""
     rng = np.random.default_rng(seed)
     tl = rng.standard_normal((n_test, k))
     cl = rng.standard_normal((n_cal, k))
@@ -55,6 +57,7 @@ def _make(n_test=4000, n_cal=1500, k=9, seed=7):
 
 @pytest.mark.parametrize("score", ["aps", "lac"])
 def test_cpx30_identity_old_vs_new(score):
+    """Cpx30 identity old vs new."""
     from mlframe.training._conformal_finalize import conformal_classification_report as new_fn
 
     old_fn = _load_old_module().conformal_classification_report

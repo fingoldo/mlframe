@@ -18,6 +18,7 @@ import pytest
 
 
 def _codes(rng, n, k):
+    """Helper that codes."""
     return rng.integers(0, k, n).astype(np.int64)
 
 

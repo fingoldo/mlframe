@@ -26,6 +26,7 @@ from mlframe.feature_selection.filters._orthogonal_univariate_fe import _fit_fou
 
 
 def _spike(rng, n=3000, frac=0.05, scale=1000.0):
+    """Helper that spike."""
     x = rng.standard_normal(n)
     idx = rng.choice(n, max(1, int(n * frac)), replace=False)
     x[idx] = rng.choice([-1.0, 1.0], idx.size) * scale
@@ -107,6 +108,7 @@ def test_robust_lo_hi_anchored_to_clean_core_not_outliers():
 
 
 def test_zscore_clean_takes_legacy_path():
+    """Zscore clean takes legacy path."""
     rng = np.random.default_rng(1)
     x = rng.standard_normal(3000)
     _z, params = _preprocess_zscore(x)
@@ -116,6 +118,7 @@ def test_zscore_clean_takes_legacy_path():
 
 
 def test_zscore_outlier_takes_robust_path_and_clamps():
+    """Zscore outlier takes robust path and clamps."""
     rng = np.random.default_rng(1)
     x = _spike(rng, frac=0.05, scale=1000.0)
     z, params = _preprocess_zscore(x)
@@ -127,6 +130,7 @@ def test_zscore_outlier_takes_robust_path_and_clamps():
 
 
 def test_minmax_outlier_clamps_to_unit_interval():
+    """Minmax outlier clamps to unit interval."""
     rng = np.random.default_rng(2)
     x = _spike(rng, frac=0.05, scale=1000.0)
     z, params = _preprocess_minmax_neg1_1(x)
@@ -135,6 +139,7 @@ def test_minmax_outlier_clamps_to_unit_interval():
 
 
 def test_shift_outlier_clamps_upper_tail():
+    """Shift outlier clamps upper tail."""
     rng = np.random.default_rng(3)
     x = np.abs(_spike(rng, frac=0.05, scale=1000.0)) + 0.01  # positive domain for the Laguerre shift.
     z, params = _preprocess_shift_nonneg(x)
@@ -178,6 +183,7 @@ def test_apply_legacy_params_without_clip_unchanged():
 
 
 def test_fourier_clean_legacy_outlier_robust():
+    """Fourier clean legacy outlier robust."""
     rng = np.random.default_rng(6)
     clean = rng.standard_normal(3000)
     lo_c, sp_c = _fit_fourier_for_col(clean)
@@ -190,6 +196,7 @@ def test_fourier_clean_legacy_outlier_robust():
 
 
 def test_fourier_all_nonfinite_returns_default():
+    """Fourier all nonfinite returns default."""
     lo, sp = _fit_fourier_for_col(np.full(50, np.nan))
     assert (lo, sp) == (0.0, 1.0)
 
@@ -200,6 +207,7 @@ def test_fourier_all_nonfinite_returns_default():
 
 
 def test_env_override_forces_legacy(monkeypatch):
+    """Env override forces legacy."""
     monkeypatch.setenv("MLFRAME_ROBUST_AXIS", "0")
     assert _robust_axis_enabled() is False
     x = _spike(np.random.default_rng(0), frac=0.05, scale=1000.0)
@@ -209,6 +217,7 @@ def test_env_override_forces_legacy(monkeypatch):
 
 
 def test_env_default_on(monkeypatch):
+    """Env default on."""
     monkeypatch.delenv("MLFRAME_ROBUST_AXIS", raising=False)
     assert _robust_axis_enabled() is True
 

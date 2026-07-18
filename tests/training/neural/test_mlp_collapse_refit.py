@@ -49,17 +49,20 @@ class _StubLightning:
         self.fit_history: list[dict] = []
 
     def fit(self, X, y, **kwargs) -> "_StubLightning":
+        """Fit."""
         self._fit_count += 1
         self.fit_history.append({"y_id": id(y)})
         return self
 
     def predict(self, X) -> np.ndarray:
+        """Predict."""
         n = len(X) if hasattr(X, "__len__") else self._n_rows
         val = self._initial_pred_value if self._fit_count <= 1 else self._post_refit_pred_value
         return np.full(n, float(val), dtype=np.float64)
 
 
 def _call_helper(stub, model_type_name: str, train_df, train_target):
+    """Call helper."""
     from mlframe.training._training_loop import _maybe_refit_on_collapsed_predictions
 
     # The helper inspects ``model_obj.network_params`` directly; pass
@@ -79,7 +82,9 @@ def _call_helper(stub, model_type_name: str, train_df, train_target):
 
 
 class TestCollapseDetection:
+    """Groups tests covering collapse detection."""
     def test_collapsed_pred_triggers_linear_refit(self):
+        """Collapsed pred triggers linear refit."""
         rng = np.random.default_rng(0)
         y = rng.standard_normal(500) * 10.0 + 11500.0
         stub = _StubLightning(
@@ -111,7 +116,9 @@ class TestCollapseDetection:
         n = 500
 
         class _HealthyStub(_StubLightning):
+            """Groups tests covering healthy stub."""
             def predict(self, X):
+                """Predict."""
                 return rng.standard_normal(n) * 9.0 + 11500.0
 
         stub = _HealthyStub(
@@ -165,7 +172,9 @@ class TestCollapseDetection:
         skipped -- the helper has no knob to tweak."""
 
         class _Plain:
+            """Groups tests covering plain."""
             def predict(self, X):
+                """Predict."""
                 return np.zeros(500)
 
         result = _call_helper(_Plain(), "Ridge", train_df=list(range(500)), train_target=np.arange(500, dtype=np.float64))
@@ -194,7 +203,9 @@ class TestCollapseDetection:
         y = np.random.default_rng(4).standard_normal(500) * 10.0 + 11500.0
 
         class _RaisingStub(_StubLightning):
+            """Groups tests covering raising stub."""
             def fit(self, X, y, **kwargs):
+                """Fit."""
                 raise RuntimeError("simulated rebuild error")
 
         stub = _RaisingStub(

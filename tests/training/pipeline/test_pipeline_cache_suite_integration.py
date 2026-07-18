@@ -40,6 +40,7 @@ from ..shared import SimpleFeaturesAndTargetsExtractor
 
 
 def _build_small_classif_df(seed: int = 11, n: int = 600) -> pd.DataFrame:
+    """Build small classif df."""
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
@@ -86,6 +87,7 @@ class TestPipelineCacheHitAtSuiteLevel:
         tmp_path,
         caplog,
     ) -> None:
+        """Suite emits at least one pipeline cache hit."""
         df = _build_small_classif_df()
         fte = SimpleFeaturesAndTargetsExtractor(
             target_column="target",

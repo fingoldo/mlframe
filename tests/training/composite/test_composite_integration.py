@@ -60,6 +60,7 @@ def _build_minimal_fte(target_col: str = "target"):
 
 
 class TestCompositeIntegration:
+    """Groups tests covering composite integration."""
     def test_default_off_does_not_add_composite_targets(self, tmp_path) -> None:
         """No composite config -> ``metadata['composite_target_specs']``
         is an empty dict and ``models_dict`` carries only the original

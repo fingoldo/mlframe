@@ -28,10 +28,12 @@ torch = pytest.importorskip("torch")
 
 
 def _set_of_pairs(i_idx, j_idx):
+    """Set of pairs."""
     return set(zip(i_idx.tolist(), j_idx.tolist()))
 
 
 def test_binary_pair_indices_matches_torch_where_on_binary_rel():
+    """Binary pair indices matches torch where on binary rel."""
     from mlframe.training.neural._ranker_losses import _binary_pair_indices
 
     torch.manual_seed(20260528)
@@ -51,6 +53,7 @@ def test_binary_pair_indices_matches_torch_where_on_binary_rel():
 
 
 def test_binary_pair_indices_returns_none_for_ordinal_rel():
+    """Binary pair indices returns none for ordinal rel."""
     from mlframe.training.neural._ranker_losses import _binary_pair_indices
 
     # Multi-grade relevance (0, 1, 2, 3, ...): not binary -> None.
@@ -62,6 +65,7 @@ def test_binary_pair_indices_returns_none_for_ordinal_rel():
 
 
 def test_binary_pair_indices_empty_when_single_class():
+    """Binary pair indices empty when single class."""
     from mlframe.training.neural._ranker_losses import _binary_pair_indices
 
     for vals in ([0, 0, 0], [1, 1, 1, 1]):
@@ -75,6 +79,7 @@ def test_binary_pair_indices_empty_when_single_class():
 
 
 def test_binary_pair_indices_preserves_device():
+    """Binary pair indices preserves device."""
     from mlframe.training.neural._ranker_losses import _binary_pair_indices
 
     if not torch.cuda.is_available():

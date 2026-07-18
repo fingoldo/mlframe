@@ -19,12 +19,14 @@ from pathlib import Path
 
 
 def test_report_probabilistic_model_perf_still_importable_from_facade() -> None:
+    """Report probabilistic model perf still importable from facade."""
     from mlframe.training.reporting._reporting import report_probabilistic_model_perf
 
     assert callable(report_probabilistic_model_perf)
 
 
 def test_other_reporting_symbols_still_importable() -> None:
+    """Other reporting symbols still importable."""
     from mlframe.training.reporting._reporting import (
         report_model_perf,
         report_regression_model_perf,
@@ -39,6 +41,7 @@ def test_other_reporting_symbols_still_importable() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
+    """Facade below 1k line threshold."""
     root = Path(__file__).resolve().parent.parent.parent.parent / "src" / "mlframe" / "training" / "reporting"
     facade = root / "_reporting.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())

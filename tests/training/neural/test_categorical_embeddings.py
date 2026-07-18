@@ -18,6 +18,7 @@ from mlframe.training.neural._categorical_embeddings import CategoricalEmbedding
 
 def test_forward_shape_with_numerics():
     # 2 cats (card 4 and 3) + 5 numeric columns -> out = embed_dims_sum + 5.
+    """Forward shape with numerics."""
     cards = [4, 3]
     emb = CategoricalEmbedding(cardinalities=cards, embed_dim=6)
     emb.set_num_numeric(5)
@@ -40,6 +41,7 @@ def test_forward_shape_with_numerics():
 
 
 def test_forward_cats_only_no_numerics():
+    """Forward cats only no numerics."""
     cards = [5]
     emb = CategoricalEmbedding(cardinalities=cards, embed_dim=8)
     emb.set_num_numeric(0)
@@ -51,6 +53,7 @@ def test_forward_cats_only_no_numerics():
 
 
 def test_heuristic_embed_dim_used_when_none():
+    """Heuristic embed dim used when none."""
     cards = [10, 100]
     emb = CategoricalEmbedding(cardinalities=cards, embed_dim=None)
     assert emb.embed_dims == [default_embed_dim(10), default_embed_dim(100)]
@@ -61,6 +64,7 @@ def test_heuristic_embed_dim_used_when_none():
 def test_unseen_and_overflow_code_clamps_to_reserved_row_no_indexerror():
     # card=4 means valid codes 0..3 and a reserved unknown row at index 4 (table has 5 rows). Codes 4 (reserved), 99 (overflow), -1
     # (negative) must all clamp into [0, card] without raising.
+    """Unseen and overflow code clamps to reserved row no indexerror."""
     emb = CategoricalEmbedding(cardinalities=[4], embed_dim=3)
     emb.set_num_numeric(0)
     x = torch.tensor([[0.0], [3.0], [4.0], [99.0], [-1.0]], dtype=torch.float32)
@@ -75,6 +79,7 @@ def test_unseen_and_overflow_code_clamps_to_reserved_row_no_indexerror():
 
 
 def test_pickle_round_trip_preserves_weights():
+    """Pickle round trip preserves weights."""
     emb = CategoricalEmbedding(cardinalities=[6, 4], embed_dim=5)
     emb.set_num_numeric(3)
     # Perturb the weights away from init so the round-trip check is meaningful.
@@ -96,6 +101,7 @@ def test_pickle_round_trip_preserves_weights():
 
 
 def test_invalid_args_raise():
+    """Invalid args raise."""
     with pytest.raises(ValueError):
         CategoricalEmbedding(cardinalities=[])
     with pytest.raises(ValueError):
@@ -106,5 +112,6 @@ def test_invalid_args_raise():
 
 def test_out_features_zero_numeric_before_set():
     # Before set_num_numeric, out_features counts only the cat block (num_numeric treated as 0).
+    """Out features zero numeric before set."""
     emb = CategoricalEmbedding(cardinalities=[4, 4], embed_dim=2)
     assert emb.out_features == 4

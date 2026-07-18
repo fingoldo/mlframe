@@ -15,6 +15,7 @@ from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_mi_backen
 
 
 def test_chunked_engineered_mi_bit_identical_to_full():
+    """Chunked engineered mi bit identical to full."""
     rng = np.random.default_rng(0)
     n, n_eng = 3000, 1500  # > 1024 -> exercises the chunked path
     y = (rng.random(n) < 0.5).astype(np.int64)

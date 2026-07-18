@@ -56,6 +56,7 @@ def _make_frame(seed: int = 20260619, n: int = 8000, p: int = 300):
 
 
 def _fit_mrmr(X, y):
+    """Fit mrmr."""
     mrmr = MRMR(
         full_npermutations=3,
         baseline_npermutations=3,
@@ -74,6 +75,7 @@ def _fit_mrmr(X, y):
 
 
 def _selection(mrmr):
+    """Helper that selection."""
     return [str(n) for n in mrmr.get_feature_names_out()]
 
 
@@ -94,6 +96,7 @@ def _run(monkeypatch, gpu_on: bool, count: bool = True):
         _orig_dispatch = _cmi_cuda.conditional_mi_batched_dispatch
 
         def _counting_dispatch(*a, **k):
+            """Counting dispatch."""
             n_dispatch["n"] += 1
             return _orig_dispatch(*a, **k)
 
@@ -103,6 +106,7 @@ def _run(monkeypatch, gpu_on: bool, count: bool = True):
         _orig_prefill = _confirm_mod._prefill_cond_MIs_gpu
 
         def _counting_prefill(*a, **k):
+            """Counting prefill."""
             written = _orig_prefill(*a, **k)
             n_slots["n"] += int(written or 0)
             return written

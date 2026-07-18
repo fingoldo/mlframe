@@ -18,11 +18,13 @@ from tests.conftest import fast_subset
 
 @pytest.fixture
 def small_df():
+    """Small df."""
     rng = np.random.default_rng(0)
     return pd.DataFrame(rng.standard_normal((60, 5)), columns=[f"x{i}" for i in range(5)])
 
 
 def test_none_config_is_noop(small_df):
+    """None config is noop."""
     val = small_df.iloc[:10].copy()
     a, b, c, p = apply_preprocessing_extensions(small_df, val, None, None)
     assert p is None
@@ -32,6 +34,7 @@ def test_none_config_is_noop(small_df):
 
 
 def test_empty_config_is_noop(small_df):
+    """Empty config is noop."""
     cfg = PreprocessingExtensionsConfig()  # all defaults = None
     a, _, _, p = apply_preprocessing_extensions(small_df, None, None, cfg, verbose=0)
     assert p is None
@@ -59,6 +62,7 @@ def test_empty_config_is_noop(small_df):
     ),
 )
 def test_scaler_variants_produce_expected_shape(small_df, scaler):
+    """Scaler variants produce expected shape."""
     cfg = PreprocessingExtensionsConfig(scaler=scaler)
     out, _, _, pipe = apply_preprocessing_extensions(small_df, None, None, cfg, verbose=0)
     assert out.shape == small_df.shape
@@ -75,33 +79,39 @@ def test_normalizer_l2_rejected_at_validation():
 
 
 def test_pca_reduces_dimension(small_df):
+    """Pca reduces dimension."""
     cfg = PreprocessingExtensionsConfig(scaler="StandardScaler", dim_reducer="PCA", dim_n_components=3)
     out, _, _, _ = apply_preprocessing_extensions(small_df, None, None, cfg, verbose=0)
     assert out.shape == (60, 3)
 
 
 def test_polynomial_features_guard_triggers(small_df):
+    """Polynomial features guard triggers."""
     cfg = PreprocessingExtensionsConfig(polynomial_degree=3, memory_safety_max_features=50)
     with pytest.raises(ValueError, match="memory_safety_max_features"):
         apply_preprocessing_extensions(small_df, None, None, cfg, verbose=0)
 
 
 def test_binarization_and_kbins_mutually_exclusive():
+    """Binarization and kbins mutually exclusive."""
     with pytest.raises(ValueError, match="mutually exclusive"):
         PreprocessingExtensionsConfig(binarization_threshold=0.5, kbins=5)
 
 
 def test_kbins_min_bins():
+    """Kbins min bins."""
     with pytest.raises(ValueError, match="kbins"):
         PreprocessingExtensionsConfig(kbins=1)
 
 
 def test_polynomial_min_degree():
+    """Polynomial min degree."""
     with pytest.raises(ValueError, match="polynomial_degree"):
         PreprocessingExtensionsConfig(polynomial_degree=1)
 
 
 def test_umap_missing_raises_importerror(monkeypatch, small_df):
+    """Umap missing raises importerror."""
     import importlib.util as ilu
 
     orig = ilu.find_spec
@@ -112,12 +122,14 @@ def test_umap_missing_raises_importerror(monkeypatch, small_df):
 
 
 def test_binarizer_produces_binary(small_df):
+    """Binarizer produces binary."""
     cfg = PreprocessingExtensionsConfig(binarization_threshold=0.0)
     out, _, _, _ = apply_preprocessing_extensions(small_df, None, None, cfg, verbose=0)
     assert set(np.unique(out.values)) <= {0.0, 1.0}
 
 
 def test_kbins_produces_integers(small_df):
+    """Kbins produces integers."""
     cfg = PreprocessingExtensionsConfig(kbins=4)
     out, _, _, _ = apply_preprocessing_extensions(small_df, None, None, cfg, verbose=0)
     assert out.values.max() < 4
@@ -125,6 +137,7 @@ def test_kbins_produces_integers(small_df):
 
 
 def test_val_and_test_follow_train(small_df):
+    """Val and test follow train."""
     val = small_df.iloc[:20].copy()
     test = small_df.iloc[20:30].copy()
     cfg = PreprocessingExtensionsConfig(scaler="StandardScaler", dim_reducer="PCA", dim_n_components=2)

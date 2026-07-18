@@ -44,6 +44,7 @@ def test_loky_failure_retries_batched_cpu_before_legacy_sweep(monkeypatch, caplo
     # production scenario where the loky pool is reached BECAUSE the primary precompute didn't cover
     # the full pool.
     class _Fake:
+        """Groups tests covering Fake."""
         fe_max_engineered_operands = -1
         fe_escalation_feedforward_enable = True
         _fe_synergy_exhaustive_active_ = False
@@ -56,6 +57,7 @@ def test_loky_failure_retries_batched_cpu_before_legacy_sweep(monkeypatch, caplo
     def _spy_dispatch_batch_pair_mi_chunked(**kwargs):
         # First call = the primary precompute (force it to fail so the loky branch is reached).
         # Second call = the retry-after-loky-failure this test targets (must succeed).
+        """Spy dispatch batch pair mi chunked."""
         if call_log["batch_precompute_calls"] == 0:
             call_log["batch_precompute_calls"] += 1
             raise RuntimeError("simulated primary batch-precompute failure")
@@ -72,6 +74,7 @@ def test_loky_failure_retries_batched_cpu_before_legacy_sweep(monkeypatch, caplo
     # Force the loky pool itself to fail immediately (simulating the 300s timeout / pool-spawn hang):
     # patch the module-level ``Parallel`` that ``_run_loky_pair_mi_pool`` calls.
     def _boom_parallel(*a, **kw):
+        """Boom parallel."""
         raise RuntimeError("simulated loky pool spawn failure")
 
     monkeypatch.setattr(step_pairmi_mod, "Parallel", _boom_parallel)

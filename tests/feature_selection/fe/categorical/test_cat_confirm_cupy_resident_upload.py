@@ -24,12 +24,14 @@ from mlframe.feature_selection.filters._fe_resident_operands import clear_fe_res
 
 @pytest.fixture(autouse=True)
 def _clear_cache():
+    """Clear cache."""
     clear_fe_resident_operands()
     yield
     clear_fe_resident_operands()
 
 
 def _pair_inputs(n, k_pair, k_x1, k_x2, k_y, seed):
+    """Pair inputs."""
     rng = np.random.default_rng(seed)
     classes_pair = rng.integers(0, k_pair, size=n).astype(np.int64)
     classes_x1 = rng.integers(0, k_x1, size=n).astype(np.int64)
@@ -55,6 +57,7 @@ def test_ycodes_dedup_across_survivor_pairs(monkeypatch):
     orig_asarray = cp.asarray
 
     def _counting_asarray(arr, *a, **kw):
+        """Counting asarray."""
         if isinstance(arr, np.ndarray) and arr.shape == classes_y.shape and arr.dtype == np.int64 and np.array_equal(arr, classes_y):
             upload_calls["y"] += 1
         elif isinstance(arr, np.ndarray) and arr.shape == freqs_y.shape and arr.dtype == np.float64 and np.allclose(arr, freqs_y):

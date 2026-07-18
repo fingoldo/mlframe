@@ -48,6 +48,7 @@ def _make_xy(n, seed=0):
 
 
 def _fit_estimator(n=600, seed=0):
+    """Fit estimator."""
     X, y = _make_xy(n, seed)
     est = CompositeMultiOutputEstimator(
         base_estimator=LinearRegression(),
@@ -63,6 +64,7 @@ def _fit_estimator(n=600, seed=0):
 
 
 def test_predict_interval_shape_n_by_k():
+    """Predict interval shape n by k."""
     est, X, _y = _fit_estimator()
     X_cal, y_cal = _make_xy(300, seed=1)
     est.calibrate_conformal(X_cal, y_cal, alpha=0.1)
@@ -73,6 +75,7 @@ def test_predict_interval_shape_n_by_k():
 
 
 def test_predict_interval_before_fit_raises():
+    """Predict interval before fit raises."""
     est = CompositeMultiOutputEstimator(base_estimator=LinearRegression())
     X = pd.DataFrame({"f0": [1.0], "f1": [2.0], "f2": [3.0]})
     with pytest.raises(NotFittedError):
@@ -80,6 +83,7 @@ def test_predict_interval_before_fit_raises():
 
 
 def test_calibrate_conformal_before_fit_raises():
+    """Calibrate conformal before fit raises."""
     est = CompositeMultiOutputEstimator(base_estimator=LinearRegression())
     X, y = _make_xy(50)
     with pytest.raises(NotFittedError):
@@ -87,12 +91,14 @@ def test_calibrate_conformal_before_fit_raises():
 
 
 def test_predict_interval_uncalibrated_raises():
+    """Predict interval uncalibrated raises."""
     est, X, _ = _fit_estimator()
     with pytest.raises(RuntimeError, match="no per-column conformal radius"):
         est.predict_interval(X, alpha=0.1)
 
 
 def test_predict_interval_uncalibrated_for_this_alpha_raises():
+    """Predict interval uncalibrated for this alpha raises."""
     est, X, _y = _fit_estimator()
     X_cal, y_cal = _make_xy(300, seed=1)
     est.calibrate_conformal(X_cal, y_cal, alpha=0.1)
@@ -102,6 +108,7 @@ def test_predict_interval_uncalibrated_for_this_alpha_raises():
 
 
 def test_single_row_predict_interval():
+    """Single row predict interval."""
     est, _, _ = _fit_estimator()
     X_cal, y_cal = _make_xy(300, seed=1)
     est.calibrate_conformal(X_cal, y_cal, alpha=0.1)
@@ -113,6 +120,7 @@ def test_single_row_predict_interval():
 
 
 def test_calibrate_wrong_k_raises():
+    """Calibrate wrong k raises."""
     est, _, _ = _fit_estimator()
     X_cal, _ = _make_xy(300, seed=1)
     y_bad = np.zeros((300, 2))  # only 2 columns, est fit on 3

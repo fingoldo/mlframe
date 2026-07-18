@@ -69,6 +69,7 @@ def test_cache_raw_value_independent_of_nexisting():
     selected_vars = [2]
 
     def _score(nexisting: int, cache) -> float:
+        """Helper that score."""
         entropy_cache = numba.typed.Dict.empty(key_type=types.unicode_type, value_type=types.float64)
         _, current_gain, _, _ = evaluate_gain(
             current_gain=1.0e9,

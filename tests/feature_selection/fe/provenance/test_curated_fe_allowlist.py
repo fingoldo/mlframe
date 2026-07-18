@@ -13,6 +13,7 @@ from mlframe.feature_engineering.curated_fe import CURATED_FE_NAMES, curated_fe_
 
 
 def test_factory_builds_named_pipelines():
+    """Factory builds named pipelines."""
     from sklearn.pipeline import Pipeline
 
     pipes = curated_fe_pipelines(task="regression")
@@ -21,6 +22,7 @@ def test_factory_builds_named_pipelines():
 
 
 def test_factory_subset_and_unknown_guard():
+    """Factory subset and unknown guard."""
     pipes = curated_fe_pipelines(task="regression", names=["baseline_disagreement"])
     assert set(pipes) == {"baseline_disagreement"}
     with pytest.raises(ValueError, match="unknown"):
@@ -28,6 +30,7 @@ def test_factory_subset_and_unknown_guard():
 
 
 def test_baseline_disagreement_adds_columns_and_is_leak_safe():
+    """Baseline disagreement adds columns and is leak safe."""
     pytest.importorskip("lightgbm")
     rng = np.random.default_rng(0)
     n, p = 400, 4

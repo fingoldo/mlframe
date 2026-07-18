@@ -26,6 +26,7 @@ from mlframe.feature_selection.ace import (
 
 
 def test_make_contrasts_preserves_column_marginals():
+    """Make contrasts preserves column marginals."""
     rng = np.random.default_rng(0)
     X = rng.normal(size=(200, 4))
     C = _make_contrasts(X, np.random.default_rng(1))
@@ -38,6 +39,7 @@ def test_make_contrasts_preserves_column_marginals():
 
 def test_benjamini_hochberg_monotone_and_bounds():
     # All-tiny p-values -> all reject; all-large -> none reject.
+    """Benjamini hochberg monotone and bounds."""
     assert _benjamini_hochberg_reject(np.array([1e-6, 1e-6, 1e-6]), 0.05).all()
     assert not _benjamini_hochberg_reject(np.array([0.9, 0.8, 0.7]), 0.05).any()
     # BH is at least as strict as per-feature alpha: the smallest p passes only if p <= alpha/m.
@@ -47,11 +49,13 @@ def test_benjamini_hochberg_monotone_and_bounds():
 
 
 def test_benjamini_hochberg_empty():
+    """Benjamini hochberg empty."""
     assert _benjamini_hochberg_reject(np.array([]), 0.05).shape == (0,)
 
 
 def test_ttest_greater_signal_vs_noise():
     # A feature whose per-replicate importance sits clearly above its bar -> tiny p; one at the bar -> ~1.
+    """Ttest greater signal vs noise."""
     n_rep = 12
     real = np.zeros((n_rep, 2))
     real[:, 0] = 0.30 + np.random.default_rng(0).normal(scale=0.01, size=n_rep)  # well above bar
@@ -63,6 +67,7 @@ def test_ttest_greater_signal_vs_noise():
 
 
 def test_ttest_greater_zero_variance_branches():
+    """Ttest greater zero variance branches."""
     real = np.array([[0.2, 0.2], [0.2, 0.2], [0.2, 0.2]])  # zero dispersion
     bar = np.array([0.1, 0.3])  # feature 0 mean>bar -> p=0; feature 1 mean<bar -> p=1
     p = _ttest_greater(real, bar)
@@ -71,6 +76,7 @@ def test_ttest_greater_zero_variance_branches():
 
 
 def test_default_estimator_task_detection():
+    """Default estimator task detection."""
     from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
     y_clf = np.array([0, 1, 0, 1, 1, 0] * 20)
@@ -80,6 +86,7 @@ def test_default_estimator_task_detection():
 
 
 def test_ace_select_rejects_bad_input():
+    """Ace select rejects bad input."""
     with pytest.raises(ValueError):
         ace_select(np.zeros((10,)), np.zeros(10))  # 1-D X
     with pytest.raises(ValueError):
@@ -89,6 +96,7 @@ def test_ace_select_rejects_bad_input():
 
 
 def test_ace_result_shape_and_support():
+    """Ace result shape and support."""
     rng = np.random.default_rng(3)
     n = 400
     x_sig = rng.normal(size=n)
@@ -104,6 +112,7 @@ def test_ace_result_shape_and_support():
 
 
 def test_ace_accepts_dataframe_names():
+    """Ace accepts dataframe names."""
     pd = pytest.importorskip("pandas")
     rng = np.random.default_rng(7)
     n = 400
@@ -115,6 +124,7 @@ def test_ace_accepts_dataframe_names():
 
 
 def test_ace_permutation_importance_mode_runs():
+    """Ace permutation importance mode runs."""
     rng = np.random.default_rng(5)
     n = 300
     sig = rng.normal(size=n)
@@ -240,6 +250,7 @@ def test_ace_selector_adapter_fit_selects_signal_drops_noise():
 
 
 def test_ace_registered_and_instantiates_adapter():
+    """Ace registered and instantiates adapter."""
     from mlframe.feature_selection.registry import available, get
     from mlframe.feature_selection.ace import ACESelector
 
@@ -285,6 +296,7 @@ def test_use_ace_fs_routes_through_pre_pipeline_builder():
 
 
 def test_ace_config_flag_and_kwargs_validation():
+    """Ace config flag and kwargs validation."""
     from mlframe.training._feature_selection_config import FeatureSelectionConfig
 
     cfg = FeatureSelectionConfig(use_ace_fs=True, ace_kwargs={"n_replicates": 10})
@@ -303,6 +315,7 @@ def test_compare_selectors_jaccard_matches_core_implementation():
     from mlframe.core.set_similarity import jaccard
 
     def _old(a, b):
+        """Helper that old."""
         if not a and not b:
             return 1.0
         union = a | b

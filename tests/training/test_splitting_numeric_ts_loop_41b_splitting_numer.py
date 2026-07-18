@@ -24,6 +24,7 @@ import pandas as pd
 
 
 def _build_inputs(n: int = 200, ts_kind: str = "numeric"):
+    """Builds a frame with a numeric-or-datetime timestamp column, per ts_kind, for the temporal-split loop test."""
     rng = np.random.default_rng(0)
     df = pd.DataFrame(
         {
@@ -88,6 +89,7 @@ def test_format_specifier_helper_contract() -> None:
     sensor."""
 
     def _fmt_ts(value):
+        """Formats a timestamp as %Y-%m-%d, falling back to str() only on ValueError/TypeError."""
         try:
             return format(value, "%Y-%m-%d")
         except (ValueError, TypeError):

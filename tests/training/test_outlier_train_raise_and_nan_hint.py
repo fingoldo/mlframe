@@ -26,9 +26,11 @@ class _RejectAllDetector:
     """Flags every row as an outlier -> train collapses to 0 kept."""
 
     def fit(self, X):
+        """Fit."""
         return self
 
     def predict(self, X):
+        """Predict."""
         return -np.ones(len(X), dtype=int)
 
 
@@ -36,12 +38,14 @@ class _NanIntolerantDetector:
     """Mimics LOF/OCSVM: raises on any NaN input at fit (no imputer wrapper)."""
 
     def fit(self, X):
+        """Fit."""
         arr = X.to_numpy() if hasattr(X, "to_numpy") else np.asarray(X)
         if not np.isfinite(arr).all():
             raise ValueError("Input X contains NaN. Detector does not accept missing values")
         return self
 
     def predict(self, X):
+        """Predict."""
         return np.ones(len(X), dtype=int)
 
 
@@ -65,6 +69,7 @@ def test_train_side_raises_when_outlier_detection_collapses_train_to_zero():
 
 
 def _nan_frame_pandas(n: int = 300):
+    """Nan frame pandas."""
     rng = np.random.default_rng(1)
     a = rng.normal(size=n)
     b = rng.normal(size=n)

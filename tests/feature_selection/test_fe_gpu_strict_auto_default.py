@@ -13,6 +13,7 @@ import mlframe.feature_selection.filters._fe_gpu_strict as S
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
+    """Helper that isolate."""
     monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
     monkeypatch.delenv("MLFRAME_FE_GPU_STRICT_AUTO_MIN_N", raising=False)
     S.clear_auto_fit_n()
@@ -21,10 +22,12 @@ def _isolate(monkeypatch):
 
 
 def _with_cuda(monkeypatch, present: bool):
+    """With cuda."""
     monkeypatch.setattr(S, "_cuda_usable", lambda: present)
 
 
 def test_explicit_off_never_engages_even_large_n(monkeypatch):
+    """Explicit off never engages even large n."""
     _with_cuda(monkeypatch, True)
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "0")
     S.set_auto_fit_n(1_000_000)
@@ -32,6 +35,7 @@ def test_explicit_off_never_engages_even_large_n(monkeypatch):
 
 
 def test_explicit_on_engages_even_small_n_when_cuda(monkeypatch):
+    """Explicit on engages even small n when cuda."""
     _with_cuda(monkeypatch, True)
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
     S.set_auto_fit_n(100)
@@ -39,6 +43,7 @@ def test_explicit_on_engages_even_small_n_when_cuda(monkeypatch):
 
 
 def test_explicit_on_is_noop_without_cuda(monkeypatch):
+    """Explicit on is noop without cuda."""
     _with_cuda(monkeypatch, False)
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
     S.set_auto_fit_n(1_000_000)
@@ -46,6 +51,7 @@ def test_explicit_on_is_noop_without_cuda(monkeypatch):
 
 
 def test_auto_off_below_threshold(monkeypatch):
+    """Auto off below threshold."""
     _with_cuda(monkeypatch, True)
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT_AUTO_MIN_N", "50000")
     S.set_auto_fit_n(49_999)
@@ -53,6 +59,7 @@ def test_auto_off_below_threshold(monkeypatch):
 
 
 def test_auto_on_at_threshold_with_cuda(monkeypatch):
+    """Auto on at threshold with cuda."""
     _with_cuda(monkeypatch, True)
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT_AUTO_MIN_N", "50000")
     S.set_auto_fit_n(50_000)
@@ -60,6 +67,7 @@ def test_auto_on_at_threshold_with_cuda(monkeypatch):
 
 
 def test_default_threshold_is_100k(monkeypatch):
+    """Default threshold is 100k."""
     _with_cuda(monkeypatch, True)
     S.set_auto_fit_n(60_000)
     assert S.fe_gpu_strict_enabled() is False  # 60k < 100k default -> AUTO stays off (no existing-test blast radius)
@@ -68,6 +76,7 @@ def test_default_threshold_is_100k(monkeypatch):
 
 
 def test_auto_on_above_threshold_accepts_auto_literal(monkeypatch):
+    """Auto on above threshold accepts auto literal."""
     _with_cuda(monkeypatch, True)
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "auto")
     S.set_auto_fit_n(120_000)
@@ -75,18 +84,21 @@ def test_auto_on_above_threshold_accepts_auto_literal(monkeypatch):
 
 
 def test_auto_is_noop_without_cuda(monkeypatch):
+    """Auto is noop without cuda."""
     _with_cuda(monkeypatch, False)
     S.set_auto_fit_n(1_000_000)
     assert S.fe_gpu_strict_enabled() is False
 
 
 def test_auto_off_when_no_fit_context(monkeypatch):
+    """Auto off when no fit context."""
     _with_cuda(monkeypatch, True)
     S.clear_auto_fit_n()
     assert S.fe_gpu_strict_enabled() is False
 
 
 def test_threshold_env_override(monkeypatch):
+    """Threshold env override."""
     _with_cuda(monkeypatch, True)
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT_AUTO_MIN_N", "20000")
     S.set_auto_fit_n(25_000)
@@ -96,6 +108,7 @@ def test_threshold_env_override(monkeypatch):
 
 
 def test_clear_resets_context(monkeypatch):
+    """Clear resets context."""
     _with_cuda(monkeypatch, True)
     S.set_auto_fit_n(1_000_000)
     assert S.fe_gpu_strict_enabled() is True
@@ -112,6 +125,7 @@ def test_clear_resets_context(monkeypatch):
 
 
 def test_auto_declines_tiny_call_even_when_fit_is_huge(monkeypatch):
+    """Auto declines tiny call even when fit is huge."""
     _with_cuda(monkeypatch, True)
     S.set_auto_fit_n(4_000_000)  # a huge fit -- fit-level gate alone would engage STRICT
     # THIS call is a late-round remnant: p=2 candidates left, regardless of how large n is (the p floor
@@ -122,6 +136,7 @@ def test_auto_declines_tiny_call_even_when_fit_is_huge(monkeypatch):
 
 
 def test_auto_engages_large_call_on_huge_fit(monkeypatch):
+    """Auto engages large call on huge fit."""
     _with_cuda(monkeypatch, True)
     S.set_auto_fit_n(4_000_000)
     assert S.fe_gpu_strict_enabled(n=4_000_000, p=64) is True  # n*p >= _STRICT_MIN_CALL_WORK
@@ -135,6 +150,7 @@ def test_no_shape_args_preserves_legacy_fit_level_only_gate(monkeypatch):
 
 
 def test_explicit_force_still_respects_call_work_floor(monkeypatch):
+    """Explicit force still respects call work floor."""
     _with_cuda(monkeypatch, True)
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
     S.set_auto_fit_n(100)  # irrelevant under explicit force, but the call-shape floor still applies
@@ -143,6 +159,7 @@ def test_explicit_force_still_respects_call_work_floor(monkeypatch):
 
 
 def test_call_work_floor_boundary_matches_constant(monkeypatch):
+    """Call work floor boundary matches constant."""
     _with_cuda(monkeypatch, True)
     S.set_auto_fit_n(4_000_000)
     n, p = 1000, S._STRICT_MIN_CALL_WORK // 1000  # n*p exactly at the floor
@@ -201,12 +218,14 @@ def test_row_only_rule_at_100k_still_engages_regardless_of_column_count(monkeypa
 
 
 def test_column_aware_gate_is_noop_without_cuda(monkeypatch):
+    """Column aware gate is noop without cuda."""
     _with_cuda(monkeypatch, False)
     S.set_auto_fit_n(79_237, 544)
     assert S.fe_gpu_strict_enabled() is False
 
 
 def test_column_aware_gate_respects_explicit_off(monkeypatch):
+    """Column aware gate respects explicit off."""
     _with_cuda(monkeypatch, True)
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "0")
     S.set_auto_fit_n(79_237, 544)

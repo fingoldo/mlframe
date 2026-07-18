@@ -111,6 +111,7 @@ def _make_clean_classification(n_train=2400, n_test=600, seed=7):
 
 
 def _positive_class_proba(probs):
+    """Positive class proba."""
     probs = np.asarray(probs)
     if probs.ndim == 2 and probs.shape[1] >= 2:
         return probs[:, 1]
@@ -130,6 +131,7 @@ def _train_and_predict(
     use_mlframe_ensembles=False,
     extra_hyperparams=None,
 ):
+    """Train and predict."""
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     data_dir = str(tmp_path / "data" / model_name)
     behavior_config = None
@@ -247,6 +249,7 @@ def test_calibration_reduces_brier_score(tmp_path, common_init_params, seed, mlf
 
 @pytest.mark.parametrize("seed", [42, 7, 99])
 def test_ensemble_auroc_at_least_best_single(tmp_path, common_init_params, seed):
+    """Ensemble auroc at least best single."""
     pytest.importorskip("lightgbm")
     pytest.importorskip("catboost")
     pytest.importorskip("sklearn")

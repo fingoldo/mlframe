@@ -31,6 +31,7 @@ from mlframe.training.neural.flat import generate_mlp
 
 
 def _make_module() -> MLPTorchModel:
+    """Make module."""
     net = generate_mlp(
         num_features=4,
         num_classes=1,

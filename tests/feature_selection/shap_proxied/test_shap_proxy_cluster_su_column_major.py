@@ -30,6 +30,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import (
 
 
 def _quantile_bin(col: np.ndarray, n_bins: int) -> np.ndarray:
+    """Quantile bin."""
     col = np.asarray(col, dtype=np.float64)
     if np.unique(col).size <= 1:
         return np.zeros_like(col, dtype=np.int32)
@@ -41,6 +42,7 @@ def _quantile_bin(col: np.ndarray, n_bins: int) -> np.ndarray:
 
 
 def _build_synthetic_bins(n_samples: int, n_features: int, n_bins: int, seed: int):
+    """Build synthetic bins."""
     rng = np.random.default_rng(seed)
     n_blocks = max(1, n_features // 6)
     blocks = []
@@ -120,6 +122,7 @@ def test_column_major_speedup_vs_row_major_reference():
         constant_mask,
         threshold,
     ):
+        """Row major kernel."""
         n_samples, n_features = bins_packed_rm.shape
         flags = np.zeros((n_features, n_features), dtype=np.uint8)
         max_nb = 0

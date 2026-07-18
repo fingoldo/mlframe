@@ -31,7 +31,9 @@ warnings.filterwarnings("ignore")
 # Unit: the closed-form Miller-Madow MI correction.
 # ---------------------------------------------------------------------------
 class TestMillerMadowMICorrection:
+    """Groups tests covering TestMillerMadowMICorrection."""
     def test_closed_form_bias_subtraction(self):
+        """Closed form bias subtraction."""
         from mlframe.feature_selection.filters.info_theory import mi_miller_madow_correct
 
         # I - (k_x-1)(k_y-1)/2n
@@ -39,6 +41,7 @@ class TestMillerMadowMICorrection:
         assert mi_miller_madow_correct(1.18, 100, 10, 500) == pytest.approx(1.18 - 99 * 9 / 1000.0)
 
     def test_degenerate_cardinality_passthrough(self):
+        """Degenerate cardinality passthrough."""
         from mlframe.feature_selection.filters.info_theory import mi_miller_madow_correct
 
         # k_x <= 1 or k_y <= 1 -> the bias term is 0 / negative; pass the plug-in through.
@@ -47,6 +50,7 @@ class TestMillerMadowMICorrection:
         assert mi_miller_madow_correct(0.5, 0, 5, 1000) == 0.5
 
     def test_vanishes_at_large_n(self):
+        """Vanishes at large n."""
         from mlframe.feature_selection.filters.info_theory import mi_miller_madow_correct
 
         # ->0 as n->inf : large-n selection byte-untouched.
@@ -55,7 +59,9 @@ class TestMillerMadowMICorrection:
 
 
 class TestOccupiedK:
+    """Groups tests covering TestOccupiedK."""
     def test_counts_nonempty_bins(self):
+        """Counts nonempty bins."""
         from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_gates import _occupied_k
 
         # codes use only 3 of 10 nominal bins -> occupied-K = 3 (#4 collapse).
@@ -68,7 +74,9 @@ class TestOccupiedK:
 # Unit: the debiased prevalence ratio + denominator-positivity guard.
 # ---------------------------------------------------------------------------
 class TestMMDebiasedPrevalenceRatio:
+    """Groups tests covering TestMMDebiasedPrevalenceRatio."""
     def test_raises_ratio_for_overbinned_joint(self):
+        """Raises ratio for overbinned joint."""
         from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_gates import (
             mm_debiased_prevalence_ratio,
         )
@@ -81,6 +89,7 @@ class TestMMDebiasedPrevalenceRatio:
         assert mm > 0.90
 
     def test_denominator_guard_falls_back_to_raw(self):
+        """Denominator guard falls back to raw."""
         from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_gates import (
             mm_debiased_prevalence_ratio,
         )
@@ -92,6 +101,7 @@ class TestMMDebiasedPrevalenceRatio:
         assert mm == pytest.approx(raw)
 
     def test_zero_or_degenerate_inputs(self):
+        """Zero or degenerate inputs."""
         from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_gates import (
             mm_debiased_prevalence_ratio,
         )
@@ -105,7 +115,9 @@ class TestMMDebiasedPrevalenceRatio:
 # Unit: the IRON-RULE maxT-floor co-update keeps noise rejected.
 # ---------------------------------------------------------------------------
 class TestMaxTFloorMMCoUpdate:
+    """Groups tests covering TestMaxTFloorMMCoUpdate."""
     def _wide_synergy(self, n=1500, n_noise=40, seed=20260603):
+        """Wide synergy."""
         rng = np.random.default_rng(seed)
         x = {f"x{i}": rng.normal(size=n) for i in range(1, 7)}
         lin = 1.5 * np.sign(x["x1"] * x["x2"]) + 1.2 * np.sign(x["x3"] * x["x4"]) + 1.0 * np.sign(x["x5"] * x["x6"] + 0.3 * x["x5"])
@@ -117,6 +129,7 @@ class TestMaxTFloorMMCoUpdate:
         return pd.DataFrame(d)
 
     def test_mm_floor_keeps_genuine_rejects_noise(self):
+        """Mm floor keeps genuine rejects noise."""
         from mlframe.feature_selection.filters.discretization import categorize_dataset
         from mlframe.feature_selection.filters.info_theory import merge_vars, batch_pair_mi_prange
         from mlframe.feature_selection.filters._permutation_null import (
@@ -192,6 +205,7 @@ class TestMaxTFloorMMCoUpdate:
 # biz_value / regression: the DEFAULT is OFF => byte-stable selection.
 # ---------------------------------------------------------------------------
 class TestMMDebiasDefaultOff:
+    """Groups tests covering TestMMDebiasDefaultOff."""
     @pytest.mark.timeout(300)
     def test_default_is_off_and_byte_stable(self):
         """The shipped DEFAULT is ``fe_mm_debias_prevalence=False`` (bench-rejected as a

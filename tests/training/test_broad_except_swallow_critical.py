@@ -59,6 +59,7 @@ def test_pre_screen_apply_drops_failure_is_atomic_no_partial_drop(caplog, monkey
     calls = {"n": 0}
 
     def flaky_apply_drops(frame, drops):
+        """Flaky apply drops."""
         calls["n"] += 1
         if calls["n"] == 2:  # second mirror fails
             raise RuntimeError("synthetic per-mirror apply_drops failure")
@@ -118,6 +119,7 @@ class _UnhashableTarget:
 
     @property
     def shape(self):  # poisoned attr access used inside the hash path
+        """Shape."""
         raise RuntimeError("synthetic hash failure")
 
     def __iter__(self):
@@ -177,6 +179,7 @@ def test_text_column_content_token_fallback_uses_id_not_zero(caplog):
 
 
 def test_objectwise_isnull_handles_normal_object_array():
+    """Objectwise isnull handles normal object array."""
     from mlframe.training.feature_handling.target_encoders import _objectwise_isnull
 
     arr = np.array([1.0, None, float("nan"), "x"], dtype=object)
@@ -198,6 +201,7 @@ def test_objectwise_isnull_falls_back_to_pandas_isna(monkeypatch):
     armed = {"first": True}
 
     def _array(*args, **kwargs):
+        """Array."""
         if armed["first"]:
             armed["first"] = False
             raise RuntimeError("synthetic listcomp failure")
@@ -225,9 +229,11 @@ def test_objectwise_isnull_raises_when_both_paths_fail(monkeypatch):
     arr = np.array([1.0, None], dtype=object)
 
     def _bad_array(*args, **kwargs):
+        """Bad array."""
         raise RuntimeError("synthetic listcomp failure")
 
     def _bad_isna(*args, **kwargs):
+        """Bad isna."""
         raise RuntimeError("synthetic pandas.isna failure")
 
     monkeypatch.setattr(te.np, "array", _bad_array)
@@ -252,6 +258,7 @@ def test_transforms_extension_dtype_clear_logs_on_failure(caplog, monkeypatch):
     real_astype = pd.Series.astype
 
     def _flaky_astype(self, dtype, *a, **k):
+        """Flaky astype."""
         if dtype in (np.float32, np.float64):
             raise RuntimeError("synthetic extension-dtype cast failure")
         return real_astype(self, dtype, *a, **k)

@@ -19,6 +19,7 @@ from mlframe.training.composite.discovery._eval_stats import (
 
 def test_by_threshold_strictly_stricter_than_bh():
     # p-values where BH rejects more than BY at the same alpha (the c(m) penalty bites).
+    """By threshold strictly stricter than bh."""
     p = np.array([0.01, 0.02, 0.03, 0.04, 0.05, 0.20, 0.40, 0.80])
     alpha = 0.10
     bh = benjamini_hochberg_reject(p, alpha)
@@ -34,6 +35,7 @@ def test_by_harmonic_penalty_value():
     # With m=4 finite p-values, c(m) = 1 + 1/2 + 1/3 + 1/4 ~= 2.0833.
     # rank-1 BH threshold = alpha/m = 0.025; rank-1 BY threshold = alpha/(m*c(m)) ~= 0.012.
     # A p of 0.02 sits BETWEEN them: BH rejects it, BY (stricter under dependence) does NOT.
+    """By harmonic penalty value."""
     p = np.array([0.02, 0.5, 0.6, 0.7])
     alpha = 0.10
     c_m = 1.0 + 0.5 + 1.0 / 3 + 0.25
@@ -49,6 +51,7 @@ def test_by_harmonic_penalty_value():
 
 def test_apply_fdr_control_uses_by_and_stamps_reason():
     # Build candidate entries; with correlated noise-level p-values BY drops the marginal ones.
+    """Apply fdr control uses by and stamps reason."""
     cands = [
         {"spec": object(), "bootstrap_p_value": 0.01},
         {"spec": object(), "bootstrap_p_value": 0.045},
@@ -67,6 +70,7 @@ def test_apply_fdr_control_uses_by_and_stamps_reason():
 
 
 def test_empty_and_all_nan_inputs():
+    """Empty and all nan inputs."""
     assert benjamini_yekutieli_reject(np.array([]), 0.05).size == 0
     out = benjamini_yekutieli_reject(np.array([np.nan, np.nan]), 0.05)
     assert out.dtype == bool and not out.any()

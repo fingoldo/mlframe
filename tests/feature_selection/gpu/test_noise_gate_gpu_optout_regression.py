@@ -28,6 +28,7 @@ from mlframe.feature_selection.filters.info_theory._batch_kernels import (
 
 
 def _make_args():
+    """Make args."""
     rng = np.random.default_rng(0)
     n, K, nb = 200, 4, 5
     disc_2d = rng.integers(0, nb, size=(n, K)).astype(np.int32)
@@ -49,6 +50,7 @@ def _run_under_optout(monkeypatch, env_setup):
     _orig_gpu = _disp._batch_mi_with_noise_gate_gpu
 
     def _spy_gpu(*args, **kwargs):
+        """Spy gpu."""
         gpu_called["hit"] = True
         return _orig_gpu(*args, **kwargs)
 
@@ -69,6 +71,7 @@ def _run_under_optout(monkeypatch, env_setup):
 
 
 def test_cuda_visible_devices_empty_forces_cpu_kernel(monkeypatch):
+    """Cuda visible devices empty forces cpu kernel."""
     out, gpu_called, disc_2d = _run_under_optout(
         monkeypatch,
         lambda mp: mp.setenv("CUDA_VISIBLE_DEVICES", ""),
@@ -79,7 +82,9 @@ def test_cuda_visible_devices_empty_forces_cpu_kernel(monkeypatch):
 
 
 def test_mlframe_disable_gpu_forces_cpu_kernel(monkeypatch):
+    """Mlframe disable gpu forces cpu kernel."""
     def _env(mp):
+        """Helper that env."""
         mp.delenv("CUDA_VISIBLE_DEVICES", raising=False)
         mp.setenv("MLFRAME_DISABLE_GPU", "1")
 

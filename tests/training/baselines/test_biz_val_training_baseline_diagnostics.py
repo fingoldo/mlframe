@@ -41,6 +41,7 @@ def _dominant_one_target(n=2000, seed=42):
 
 
 def _make_config(**overrides):
+    """Make config."""
     from mlframe.training.configs import BaselineDiagnosticsConfig
 
     defaults = dict(

@@ -21,6 +21,7 @@ pytest.importorskip("numba")
 
 
 def _fit_lgb(X, y, *, classification, n_estimators=40, max_depth=4, num_leaves=15, seed=0):
+    """Fit lgb."""
     from lightgbm import LGBMClassifier, LGBMRegressor
 
     params = dict(n_estimators=n_estimators, max_depth=max_depth, num_leaves=num_leaves, learning_rate=0.2, random_state=seed, verbose=-1)
@@ -30,6 +31,7 @@ def _fit_lgb(X, y, *, classification, n_estimators=40, max_depth=4, num_leaves=1
 
 
 def _shap_main_reference(model, X):
+    """Shap main reference."""
     import shap
 
     ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
@@ -46,6 +48,7 @@ def _shap_main_reference(model, X):
 
 @pytest.mark.parametrize("classification", [False, True])
 def test_lightgbm_is_supported_and_extracts(classification):
+    """Lightgbm is supported and extracts."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import extract_ensemble, is_supported_lightgbm
 
     rng = np.random.default_rng(0)

@@ -13,6 +13,7 @@ import numpy as np
 
 
 def _zero_inflated_frame(seed=7, n=1600):
+    """Zero inflated frame."""
     import polars as pl
 
     rng = np.random.default_rng(seed)
@@ -26,6 +27,7 @@ def _zero_inflated_frame(seed=7, n=1600):
 
 
 def _run_suite(tmp_path, mlframe_models):
+    """Run suite."""
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.configs import (
         PreprocessingBackendConfig,
@@ -60,11 +62,13 @@ def _run_suite(tmp_path, mlframe_models):
 
 
 def _trained_entries(models):
+    """Trained entries."""
     trained = [e for per_target in models.values() for entries in per_target.values() for e in entries]
     return [e[0] if isinstance(e, tuple) and e else e for e in trained]
 
 
 def test_e2e_gated_outlier_key_trains_and_predicts(tmp_path):
+    """E2e gated outlier key trains and predicts."""
     from mlframe.training.composite.gated_outlier import GatedOutlierEstimator
 
     models, _metadata = _run_suite(tmp_path, ["gated_outlier"])

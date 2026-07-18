@@ -86,6 +86,7 @@ def test_leakage_safe_encoder_transform_robust_to_bool_frame_drift() -> None:
 
 
 def test_categorical_to_string_array_int_float_agree() -> None:
+    """Categorical to string array int float agree."""
     a = _categorical_to_string_array(pd.Series([1, 2, 1], dtype="int64"))
     b = _categorical_to_string_array(pd.Series([1.0, 2.0, 1.0], dtype="float64"))
     c = _categorical_to_string_array(np.array([1, 2, 1], dtype=np.int64))

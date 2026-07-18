@@ -28,7 +28,9 @@ pl = pytest.importorskip("polars")
 
 
 class TestExtractColumnGather:
+    """Groups tests covering extract column gather."""
     def test_polars_gather_value_identical(self) -> None:
+        """Polars gather value identical."""
         rng = np.random.default_rng(0)
         n = 5000
         df = pl.DataFrame({"c": rng.normal(size=n)})
@@ -38,6 +40,7 @@ class TestExtractColumnGather:
         np.testing.assert_array_equal(gathered, full_then_slice)
 
     def test_pandas_gather_value_identical(self) -> None:
+        """Pandas gather value identical."""
         rng = np.random.default_rng(1)
         n = 5000
         df = pd.DataFrame({"c": rng.normal(size=n)})
@@ -48,7 +51,9 @@ class TestExtractColumnGather:
 
 
 class TestSafeAbsCorrAll:
+    """Groups tests covering safe abs corr all."""
     def test_matches_per_column_reference(self) -> None:
+        """Matches per column reference."""
         rng = np.random.default_rng(2)
         n, f = 4000, 20
         X = rng.normal(size=(n, f)).astype(np.float32)
@@ -72,7 +77,9 @@ class TestSafeAbsCorrAll:
 
 
 class TestMiPrebinnedGates:
+    """Groups tests covering mi prebinned gates."""
     def test_all_finite_gate_bit_identical(self) -> None:
+        """All finite gate bit identical."""
         rng = np.random.default_rng(4)
         n, f, nbins = 3000, 5, 8
         fb = rng.integers(0, nbins, size=(n, f)).astype(np.int64)
@@ -86,7 +93,9 @@ class TestMiPrebinnedGates:
 
 
 class TestBuildTinyModelInnerNJobs:
+    """Groups tests covering build tiny model inner n jobs."""
     def test_lgbm_honours_inner_n_jobs(self) -> None:
+        """Lgbm honours inner n jobs."""
         pytest.importorskip("lightgbm")
         m = _build_tiny_model(
             "lgb",
@@ -99,6 +108,7 @@ class TestBuildTinyModelInnerNJobs:
         assert m.get_params()["n_jobs"] == 2
 
     def test_default_is_all_cores(self) -> None:
+        """Default is all cores."""
         pytest.importorskip("lightgbm")
         m = _build_tiny_model(
             "lgb",

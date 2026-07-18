@@ -111,6 +111,7 @@ def test_biz_value_speedup_at_n256():
             _ = fn(scores_list[i % 8], rels_list[i % 8])
 
     def _bench(fn):
+        """Bench."""
         t0 = time.perf_counter()
         for i in range(n_calls):
             _ = fn(scores_list[i % 8], rels_list[i % 8])

@@ -26,6 +26,7 @@ from tests.feature_selection.conftest import is_fast_mode
 
 
 def _case2(n: int, seed: int = 0):
+    """Helper that case2."""
     rng = np.random.default_rng(seed)
     a, b, c, d, e, f = (rng.random(n) for _ in range(6))
     y = 0.2 * a**2 / b + f / 5.0 + np.log(c * 2.0) * np.sin(d / 3.0)
@@ -33,6 +34,7 @@ def _case2(n: int, seed: int = 0):
 
 
 def _linear_test_mae(entries) -> float:
+    """Linear test mae."""
     best = float("inf")
     for e in entries:
         tt = getattr(e, "test_target", None)
@@ -49,6 +51,7 @@ def _linear_test_mae(entries) -> float:
 @pytest.mark.slow
 @pytest.mark.timeout(600)  # one suite fit (FE) + MRMR's usability CV-MAE pass; see PERF TODO
 def test_suite_linear_reaches_floor_with_usability_aware_mrmr():
+    """Suite linear reaches floor with usability aware mrmr."""
     from tests.feature_selection._suite_fe_helpers import run_suite
 
     n = 10_000 if is_fast_mode() else 14_000

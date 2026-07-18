@@ -471,6 +471,7 @@ def _build_redundant_multi(seed: int, n: int = 2000):
 
 
 def _build_xor_redundant(seed: int, n: int = 2000):
+    """Build xor redundant."""
     rng = np.random.default_rng(int(seed))
     x1 = rng.standard_normal(n)
     x_dup_a = x1 + 0.05 * rng.standard_normal(n)
@@ -494,6 +495,7 @@ def _build_xor_redundant(seed: int, n: int = 2000):
 
 
 def _train_holdout_split(X: pd.DataFrame, y: pd.Series, *, train_frac: float = 0.6, seed: int = 0):
+    """Train holdout split."""
     rng = np.random.default_rng(seed)
     idx = np.arange(len(X))
     rng.shuffle(idx)
@@ -544,6 +546,7 @@ def _quantile_bin_local(arr: np.ndarray, nbins: int = 10) -> np.ndarray:
 
 
 def _mi_one(col: np.ndarray, y: np.ndarray, nbins: int = 10) -> float:
+    """Mi one."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         _mi_classif_batch,
     )

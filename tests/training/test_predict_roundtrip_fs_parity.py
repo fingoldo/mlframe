@@ -31,6 +31,7 @@ def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, dur
     # The local Windows zstandard build raises ``ValueError: flush of closed file`` inside io.save_mlframe_model's
     # atomic_write_bytes (flush after the stream_writer context closed the file). io.py is in the locked-scope of
     # the parallel refactor, so the test writes the .dump directly (threads=0, no atomic rename) -- acceptable here.
+    """Save threads zero."""
     import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
     import zstandard as zstd
 
@@ -47,6 +48,7 @@ def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, dur
 
 
 def _make_frame(n: int, seed: int = 0):
+    """Make frame."""
     rng = np.random.default_rng(seed)
     n_signal, n_noise = 6, 4
     sig = rng.standard_normal((n, n_signal)).astype("float32")
@@ -61,10 +63,12 @@ def _make_frame(n: int, seed: int = 0):
 
 
 def _fte():
+    """Fte."""
     return SimpleFeaturesAndTargetsExtractor(classification_targets=["y"], classification_exact_values={"y": 1})
 
 
 def _fs_config(fe_on: bool):
+    """Fs config."""
     kw = {"verbose": 0, "max_runtime_mins": 1, "n_workers": 1, "quantization_nbins": 5, "use_simple_mode": True}
     if fe_on:
         kw.update({"use_simple_mode": False, "fe_max_steps": 1, "fe_ntop_features": 3})
@@ -72,6 +76,7 @@ def _fs_config(fe_on: bool):
 
 
 def _train_to_disk(df, tmp, fe_on):
+    """Train to disk."""
     from unittest.mock import patch
 
     # _phase_finalize imports save_mlframe_model at module level (patch its bound ref); _setup_helpers_metadata
@@ -99,10 +104,12 @@ def _train_to_disk(df, tmp, fe_on):
 def _fs_branch_keys(probs):
     # The per-model key is ``<target_type>_<target>[_<pre_pipeline_cls>]``; with a fitted MRMR selector as the
     # pre_pipeline the FS-branch entry carries the ``_MRMR`` class suffix (the no-FS twin has the bare name).
+    """Fs branch keys."""
     return [k for k in probs if k != "ensemble" and "MRMR" in k]
 
 
 def _assert_roundtrip_parity(df, tmp, fe_on, caplog):
+    """Assert roundtrip parity."""
     models_mem, meta_mem = _train_to_disk(df, tmp, fe_on)
     assert models_mem, "training returned empty models"
 

@@ -48,6 +48,7 @@ def _homoscedastic_gaussian_crps(mu: np.ndarray, sd: float, y: np.ndarray) -> fl
 
 
 def _split(n: int = 5000, seed: int = 0, strong: bool = False):
+    """Split."""
     X, y = _hetero_xy(n=n, seed=seed, strong=strong)
     ntr = (n * 4) // 5
     return X.iloc[:ntr], y[:ntr], X.iloc[ntr:], y[ntr:]

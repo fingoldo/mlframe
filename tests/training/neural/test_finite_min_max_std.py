@@ -14,7 +14,9 @@ from mlframe.training.neural._neural_numba_kernels import (
 
 
 class TestFiniteMinMaxStd:
+    """Groups tests covering finite min max std."""
     def test_matches_numpy_on_clean_array(self):
+        """Matches numpy on clean array."""
         rng = np.random.default_rng(0)
         y = rng.standard_normal(1000)
         n, mn, mx, mu, sd = finite_min_max_std(y)
@@ -25,6 +27,7 @@ class TestFiniteMinMaxStd:
         np.testing.assert_allclose(sd, y.std(), atol=1e-9)
 
     def test_skips_nan_inf(self):
+        """Skips nan inf."""
         rng = np.random.default_rng(1)
         y = rng.standard_normal(500)
         y[::20] = np.nan
@@ -39,11 +42,13 @@ class TestFiniteMinMaxStd:
         np.testing.assert_allclose(sd, finite.std(), atol=1e-9)
 
     def test_all_nan_returns_zeros(self):
+        """All nan returns zeros."""
         y = np.full(10, np.nan)
         n, mn, mx, mu, sd = finite_min_max_std(y)
         assert (n, mn, mx, mu, sd) == (0, 0.0, 0.0, 0.0, 0.0)
 
     def test_single_finite_value_returns_zero_std(self):
+        """Single finite value returns zero std."""
         y = np.array([np.nan, 3.14, np.inf, np.nan])
         n, mn, mx, mu, sd = finite_min_max_std(y)
         assert n == 1
@@ -65,6 +70,7 @@ class TestFiniteMinMaxStd:
 
     @pytest.mark.parametrize("dtype", [np.float32, np.float64, np.int32, np.int64])
     def test_dtypes(self, dtype):
+        """Dtypes."""
         y = np.array([1, 2, 3, 4, 5], dtype=dtype)
         n, mn, mx, mu, sd = finite_min_max_std(y)
         assert n == 5

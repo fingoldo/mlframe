@@ -22,6 +22,7 @@ from mlframe.training._partial_fit_es_wrapper import PartialFitESWrapper
 
 @pytest.fixture
 def reg_data() -> tuple:
+    """Reg data."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.normal(0, 1, (500, 4)), columns=[f"f{i}" for i in range(4)])
     y = X.values[:, 0] + 0.5 * X.values[:, 1] - 0.3 * X.values[:, 2] + rng.normal(0, 0.3, 500)
@@ -31,6 +32,7 @@ def reg_data() -> tuple:
 
 @pytest.fixture
 def clf_data() -> tuple:
+    """Clf data."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.normal(0, 1, (500, 4)), columns=[f"f{i}" for i in range(4)])
     logit = X.values[:, 0] + 0.5 * X.values[:, 1] + rng.normal(0, 0.3, 500)
@@ -43,6 +45,7 @@ def clf_data() -> tuple:
 
 
 def test_sgd_regressor_wraps_via_partial_fit(reg_data) -> None:
+    """Sgd regressor wraps via partial fit."""
     from sklearn.linear_model import SGDRegressor
 
     X_tr, y_tr, X_val, y_val = reg_data
@@ -55,6 +58,7 @@ def test_sgd_regressor_wraps_via_partial_fit(reg_data) -> None:
 
 
 def test_sgd_classifier_wraps_with_classification_flag(clf_data) -> None:
+    """Sgd classifier wraps with classification flag."""
     from sklearn.linear_model import SGDClassifier
 
     X_tr, y_tr, X_val, y_val = clf_data
@@ -68,6 +72,7 @@ def test_sgd_classifier_wraps_with_classification_flag(clf_data) -> None:
 
 
 def test_ridge_wraps_via_dichotomic(reg_data) -> None:
+    """Ridge wraps via dichotomic."""
     from sklearn.linear_model import Ridge
 
     X_tr, y_tr, X_val, y_val = reg_data
@@ -155,6 +160,7 @@ def test_getattr_falls_back_to_estimator_for_unknown_attrs() -> None:
 
 
 def test_external_val_set_used_when_fit_called_without_x_val(reg_data) -> None:
+    """External val set used when fit called without x val."""
     from sklearn.linear_model import SGDRegressor
 
     X_tr, y_tr, X_val, y_val = reg_data
@@ -265,11 +271,13 @@ def test_auto_wrap_partial_fit_es_gate_short_circuit_logic() -> None:
     # Fallback branch (``control`` has no ``behavior`` attribute) reads via
     # ``getattr(control, "auto_wrap_partial_fit_es", True)``. Same default.
     class _BareControl:
+        """Groups tests covering bare control."""
         pass
 
     assert getattr(_BareControl(), "auto_wrap_partial_fit_es", True) is True
 
     class _ControlForceOff:
+        """Groups tests covering control force off."""
         auto_wrap_partial_fit_es = False
 
     assert getattr(_ControlForceOff(), "auto_wrap_partial_fit_es", True) is False

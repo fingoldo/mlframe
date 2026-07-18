@@ -27,10 +27,12 @@ from mlframe.training._cv_aggregation import (
 
 
 def test_aggregate_mean_baseline() -> None:
+    """Aggregate mean baseline."""
     assert aggregate_fold_scores([1.0, 2.0, 3.0], mode="mean") == pytest.approx(2.0)
 
 
 def test_aggregate_mean_minus_std_picks_stable() -> None:
+    """Aggregate mean minus std picks stable."""
     stable = aggregate_fold_scores([1.0, 1.0, 1.0, 1.0], mode="mean_minus_std", alpha=1.0, direction="min")
     unstable = aggregate_fold_scores([0.8, 0.8, 0.8, 1.8], mode="mean_minus_std", alpha=1.0, direction="min")
     assert stable == pytest.approx(1.0)
@@ -43,6 +45,7 @@ def test_aggregate_mean_minus_std_picks_stable() -> None:
 
 
 def test_aggregate_t_lcb_matches_scipy() -> None:
+    """Aggregate t lcb matches scipy."""
     from scipy.stats import t as _t
 
     scores = [0.5, 0.6, 0.7, 0.8, 0.9]
@@ -57,6 +60,7 @@ def test_aggregate_t_lcb_matches_scipy() -> None:
 
 
 def test_aggregate_correlation_inflation_applied() -> None:
+    """Aggregate correlation inflation applied."""
     scores = [0.5, 0.6, 0.7, 0.8, 0.9]
     naive = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9, correlation_inflation=1.0)
     inflated = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9, correlation_inflation=1.5)
@@ -70,6 +74,7 @@ def test_aggregate_correlation_inflation_applied() -> None:
 
 def test_aggregate_quantile_auto_flip() -> None:
     # 10 scores 0.1, 0.2, ..., 1.0. quantile_level=0.9 -> upper for min (around 0.91), lower for max (around 0.19)
+    """Aggregate quantile auto flip."""
     scores = [round(0.1 * i, 1) for i in range(1, 11)]
     upper = aggregate_fold_scores(scores, mode="quantile", direction="min", quantile_level=0.9)
     lower = aggregate_fold_scores(scores, mode="quantile", direction="max", quantile_level=0.9)
@@ -79,6 +84,7 @@ def test_aggregate_quantile_auto_flip() -> None:
 
 def test_aggregate_quantile_robust_to_one_outlier() -> None:
     # 9 stable + 1 outlier. quantile@0.8 stable; mean shifted.
+    """Aggregate quantile robust to one outlier."""
     scores = [1.0] * 9 + [10.0]
     q = aggregate_fold_scores(scores, mode="quantile", direction="min", quantile_level=0.8)
     mean_penalty = aggregate_fold_scores(scores, mode="mean_minus_std", direction="min", alpha=1.0)
@@ -88,6 +94,7 @@ def test_aggregate_quantile_robust_to_one_outlier() -> None:
 
 def test_aggregate_median_mad_outlier_resilient() -> None:
     # one fold outlier doesn't shift median; mean does.
+    """Aggregate median mad outlier resilient."""
     scores = [1.0, 1.0, 1.0, 1.0, 10.0]
     med = aggregate_fold_scores(scores, mode="median_minus_mad", direction="min", alpha=1.0)
     mean_pen = aggregate_fold_scores(scores, mode="mean_minus_std", direction="min", alpha=1.0)
@@ -95,6 +102,7 @@ def test_aggregate_median_mad_outlier_resilient() -> None:
 
 
 def test_aggregate_direction_sign_inversion() -> None:
+    """Aggregate direction sign inversion."""
     scores = [0.5, 0.6, 0.7]
     s_min = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9)
     s_max = aggregate_fold_scores(scores, mode="t_lcb", direction="max", confidence=0.9)
@@ -105,12 +113,14 @@ def test_aggregate_direction_sign_inversion() -> None:
 
 
 def test_aggregate_unknown_mode_raises() -> None:
+    """Aggregate unknown mode raises."""
     with pytest.raises(ValueError, match="unknown mode"):
         aggregate_fold_scores([1.0, 2.0], mode="bogus")  # type: ignore[arg-type]
 
 
 def test_aggregate_single_fold_falls_back_to_mean() -> None:
     # K=1 can't produce std/quantile meaningfully; just return the value.
+    """Aggregate single fold falls back to mean."""
     assert aggregate_fold_scores([0.42], mode="t_lcb") == pytest.approx(0.42)
     assert aggregate_fold_scores([0.42], mode="quantile") == pytest.approx(0.42)
     assert aggregate_fold_scores([0.42], mode="mean_minus_std") == pytest.approx(0.42)
@@ -118,6 +128,7 @@ def test_aggregate_single_fold_falls_back_to_mean() -> None:
 
 def test_pareto_frontier_min_direction() -> None:
     # (mean, std) points: best mean = 0.8, best std = 0.3
+    """Pareto frontier min direction."""
     pts = [(1.0, 0.5), (0.9, 0.6), (0.8, 0.7), (0.85, 0.4), (1.1, 0.3)]
     front = compute_pareto_frontier(pts, mean_direction="min")
     # Expected: 2 (best mean), 3 (mid mean + lower std), 4 (worst mean but lowest std)
@@ -126,6 +137,7 @@ def test_pareto_frontier_min_direction() -> None:
 
 def test_pareto_frontier_max_direction() -> None:
     # max-direction: higher mean is better; still want lower std
+    """Pareto frontier max direction."""
     pts = [(1.0, 0.5), (0.9, 0.6), (1.2, 0.7), (1.15, 0.4), (0.7, 0.3)]
     front = compute_pareto_frontier(pts, mean_direction="max")
     # Sort by -mean: 2(1.2, 0.7), 3(1.15, 0.4), 0(1.0, 0.5), 1(0.9, 0.6), 4(0.7, 0.3)
@@ -136,26 +148,31 @@ def test_pareto_frontier_max_direction() -> None:
 def test_pareto_frontier_equal_mean_excludes_dominated_higher_std() -> None:
     # Two points share the mean; the higher-std one is strictly dominated and must be dropped.
     # Pre-fix argsort kept both (it only rejected domination by a strictly-better-mean predecessor).
+    """Pareto frontier equal mean excludes dominated higher std."""
     assert compute_pareto_frontier([(0.1, 0.5), (0.1, 0.2)], mean_direction="min") == [1]
     assert compute_pareto_frontier([(0.1, 0.2), (0.1, 0.5)], mean_direction="min") == [0]
     assert compute_pareto_frontier([(0.1, 0.5), (0.1, 0.2)], mean_direction="max") == [1]
 
 
 def test_pareto_frontier_empty() -> None:
+    """Pareto frontier empty."""
     assert compute_pareto_frontier([], mean_direction="min") == []
 
 
 def test_pareto_frontier_single() -> None:
+    """Pareto frontier single."""
     assert compute_pareto_frontier([(0.5, 0.1)], mean_direction="min") == [0]
 
 
 def test_pareto_frontier_invalid_shape() -> None:
+    """Pareto frontier invalid shape."""
     with pytest.raises(ValueError, match="expected"):
         compute_pareto_frontier([(0.5,)], mean_direction="min")  # type: ignore[list-item]
 
 
 def test_select_from_pareto_risk_quantile_monotone() -> None:
     # Three iterations on the frontier; per-shard scores have known dispersion.
+    """Select from pareto risk quantile monotone."""
     frontier = [0, 1, 2]
     iter_means = [1.0, 0.95, 1.05]
     iter_stds = [0.05, 0.20, 0.02]
@@ -174,6 +191,7 @@ def test_select_from_pareto_risk_quantile_monotone() -> None:
 
 
 def test_select_from_pareto_empty_raises() -> None:
+    """Select from pareto empty raises."""
     with pytest.raises(ValueError, match="empty frontier"):
         select_from_pareto([], [], [], [], risk_quantile=0.9)
 
@@ -182,6 +200,7 @@ def test_select_from_pareto_falls_back_to_mean_std_when_shard_scores_missing() -
     # Pre-fix: an iteration with no shard scores was skipped outright, ignoring iter_means/iter_stds
     # entirely. Post-fix: it competes via a normal-approximation risk quantile from mean/std, so a
     # frontier point that legitimately has no shard scores is not automatically excluded from selection.
+    """Select from pareto falls back to mean std when shard scores missing."""
     frontier = [0, 1]
     iter_means = [0.5, 2.0]  # iter 0 is much better on the mean alone
     iter_stds = [0.01, 0.01]  # both tight, so mean should dominate the risk-quantile comparison
@@ -192,6 +211,7 @@ def test_select_from_pareto_falls_back_to_mean_std_when_shard_scores_missing() -
 
 def test_nadeau_bengio_factor_matches_closed_form() -> None:
     # Standard K-fold: test_frac = 1/K, train_frac = (K-1)/K -> factor = sqrt(1 + K/(K-1)).
+    """Nadeau bengio factor matches closed form."""
     for k in (2, 3, 5, 10, 20):
         got = nadeau_bengio_inflation(k, 1.0 / k)
         expected = math.sqrt(1.0 + k / (k - 1.0))
@@ -205,6 +225,7 @@ def test_nadeau_bengio_factor_matches_closed_form() -> None:
 def test_nadeau_bengio_explicit_train_frac_overlap() -> None:
     # Overlapping resamples: train_frac can exceed 1 - test_frac (e.g. repeated 80/20 holdouts).
     # More train overlap relative to test -> SMALLER test_frac/train_frac -> SMALLER inflation.
+    """Nadeau bengio explicit train frac overlap."""
     low_overlap = nadeau_bengio_inflation(5, test_frac=0.2, train_frac=0.8)
     high_overlap = nadeau_bengio_inflation(5, test_frac=0.2, train_frac=2.0)
     assert high_overlap < low_overlap
@@ -213,6 +234,7 @@ def test_nadeau_bengio_explicit_train_frac_overlap() -> None:
 
 def test_nadeau_bengio_degenerate_returns_one() -> None:
     # K<2 has no dispersion; zero/negative fractions are degenerate. Never inflate.
+    """Nadeau bengio degenerate returns one."""
     assert nadeau_bengio_inflation(1, 0.5) == 1.0
     assert nadeau_bengio_inflation(5, 0.0) == 1.0
     assert nadeau_bengio_inflation(5, 0.2, train_frac=0.0) == 1.0
@@ -221,6 +243,7 @@ def test_nadeau_bengio_degenerate_returns_one() -> None:
 def test_auto_inflation_without_geometry_is_naive() -> None:
     # The AUTO sentinel with NO split_geometry must be bit-identical to the explicit naive 1.0,
     # so the composite callers that pass neither stay unchanged.
+    """Auto inflation without geometry is naive."""
     scores = [0.5, 0.6, 0.7, 0.8, 0.9]
     auto = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9)
     naive = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9, correlation_inflation=1.0)
@@ -231,6 +254,7 @@ def test_auto_inflation_without_geometry_is_naive() -> None:
 
 def test_auto_inflation_with_geometry_applies_nadeau_bengio() -> None:
     # With split_geometry supplied, AUTO resolves to the NB factor and widens the interval vs naive.
+    """Auto inflation with geometry applies nadeau bengio."""
     scores = [0.5, 0.6, 0.7, 0.8, 0.9]
     k = len(scores)
     naive = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9, correlation_inflation=1.0)
@@ -267,6 +291,7 @@ def test_biz_val_cv_aggregation_nb_inflation_widens_interval_by_factor() -> None
 
 def test_auto_inflation_mean_minus_std_with_geometry() -> None:
     # The geometry path also drives mean_minus_std (it multiplies the std spread, not the SE).
+    """Auto inflation mean minus std with geometry."""
     scores = [1.0, 1.2, 0.9, 1.1, 1.05]
     k = len(scores)
     naive = aggregate_fold_scores(scores, mode="mean_minus_std", direction="min", alpha=1.0, correlation_inflation=1.0)
@@ -278,6 +303,7 @@ def test_auto_inflation_mean_minus_std_with_geometry() -> None:
 
 def test_explicit_float_overrides_geometry() -> None:
     # An explicit numeric factor is applied verbatim and IGNORES split_geometry (caller knows best).
+    """Explicit float overrides geometry."""
     scores = [0.5, 0.6, 0.7, 0.8, 0.9]
     explicit = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9, correlation_inflation=2.0, split_geometry=(5, 0.2))
     expected = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9, correlation_inflation=2.0)
@@ -285,5 +311,6 @@ def test_explicit_float_overrides_geometry() -> None:
 
 
 def test_bad_inflation_string_raises() -> None:
+    """Bad inflation string raises."""
     with pytest.raises(ValueError, match="must be a float"):
         aggregate_fold_scores([1.0, 2.0, 3.0], mode="t_lcb", correlation_inflation="bogus")  # type: ignore[arg-type]

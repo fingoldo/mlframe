@@ -14,6 +14,7 @@ warnings.filterwarnings("ignore")
 
 
 def _dup_frame(n=2000, seed=0):
+    """Dup frame."""
     rng = np.random.default_rng(seed)
     latent = rng.standard_normal(n)
     other = rng.standard_normal(n)
@@ -31,6 +32,7 @@ def _dup_frame(n=2000, seed=0):
 
 
 def _fit(X, y, **kw):
+    """Helper that fit."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     base = dict(dcd_enable=True, dcd_tau_cluster=0.5, dcd_cluster_size_threshold=2, verbose=0, random_seed=0)
@@ -41,6 +43,7 @@ def _fit(X, y, **kw):
 def test_dcd_result_independent_of_n_jobs():
     # DCD discover/swap mutates DCDState; the parallel candidate-scoring must not
     # race it. Serial vs parallel fits must give the SAME clustering/selection.
+    """Dcd result independent of n jobs."""
     X, y = _dup_frame()
     m1 = _fit(X, y, n_jobs=1)
     m4 = _fit(X, y, n_jobs=4)
@@ -50,6 +53,7 @@ def test_dcd_result_independent_of_n_jobs():
 
 
 def _wide_clustered(n=4000, n_latents=10, per=5, n_noise=150, seed=0):
+    """Wide clustered."""
     rng = np.random.default_rng(seed)
     latents = [rng.standard_normal(n) for _ in range(n_latents)]
     cols = {}
@@ -67,6 +71,7 @@ def _wide_clustered(n=4000, n_latents=10, per=5, n_noise=150, seed=0):
 def test_dcd_large_p_no_crash_and_prunes():
     # p = 10*5 + 150 = 200 features, n=4000, 10 redundancy clusters. DCD must
     # run, prune redundant members, and transform finite -- no OOM/crash at scale.
+    """Dcd large p no crash and prunes."""
     X, y = _wide_clustered()
     assert X.shape[1] == 200
     m = _fit(X, y)

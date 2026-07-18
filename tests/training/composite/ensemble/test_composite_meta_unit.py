@@ -22,6 +22,7 @@ def _make_diff_data(n=300, seed=0):
 
 
 def test_predict_shape_and_finite():
+    """Predict shape and finite."""
     X, y = _make_diff_data()
     est = CompositeOrRawStacker(base_estimator=LinearRegression(), transform_name="diff", base_column="base", n_splits=4)
     est.fit(X, y)
@@ -31,6 +32,7 @@ def test_predict_shape_and_finite():
 
 
 def test_weights_non_negative_sum_to_one():
+    """Weights non negative sum to one."""
     X, y = _make_diff_data()
     est = CompositeOrRawStacker(base_estimator=LinearRegression(), transform_name="diff", base_column="base", n_splits=4)
     est.fit(X, y)
@@ -85,6 +87,7 @@ def test_clone_roundtrip():
 
 
 def test_predict_before_fit_raises():
+    """Predict before fit raises."""
     est = CompositeOrRawStacker(base_estimator=LinearRegression(), base_column="base")
     X, _ = _make_diff_data(n=10)
     from sklearn.exceptions import NotFittedError

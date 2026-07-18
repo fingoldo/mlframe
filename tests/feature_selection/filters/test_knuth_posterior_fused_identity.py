@@ -39,6 +39,7 @@ def _best_M_reference(a: np.ndarray, m_max_cap: int) -> int:
 
 
 def _cols(n, rng):
+    """Helper that cols."""
     return {
         "uniform": rng.uniform(0, 1, n),
         "normal": rng.normal(0, 1, n),
@@ -52,6 +53,7 @@ def _cols(n, rng):
 @pytest.mark.parametrize("n", [500, 2000, 10000])
 @pytest.mark.parametrize("cap", [64, 500])
 def test_knuth_best_M_bit_identical_to_reference(n, cap):
+    """Knuth best M bit identical to reference."""
     rng = np.random.default_rng(20260623 + n + cap)
     for name, col in _cols(n, rng).items():
         a = col[np.isfinite(col)].astype(np.float64)
@@ -63,6 +65,7 @@ def test_knuth_best_M_bit_identical_to_reference(n, cap):
 
 
 def test_knuth_bin_edges_identical_uniform_and_quantile():
+    """Knuth bin edges identical uniform and quantile."""
     rng = np.random.default_rng(99)
     for n in (500, 4000):
         for col in _cols(n, rng).values():

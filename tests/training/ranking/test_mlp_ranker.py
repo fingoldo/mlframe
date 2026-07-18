@@ -48,36 +48,43 @@ from mlframe.training.strategies import NeuralNetStrategy
 
 
 class TestRankNetPairwiseLoss:
+    """Groups tests covering rank net pairwise loss."""
     def test_perfect_ordering_yields_low_loss(self):
         # Scores aligned with relevance -> all pair diffs positive ->
         # sigmoid(positive) close to 1 -> -log(close to 1) small.
         # Score gaps [5,3,1,0] give BCE ~0.107 (smaller for bigger gaps);
         # threshold at 0.15 is comfortably above floor and well below
         # an inverse-ordering value (>1.0).
+        """Perfect ordering yields low loss."""
         scores = torch.tensor([5.0, 3.0, 1.0, 0.0])
         rel = torch.tensor([3, 2, 1, 0])
         loss = ranknet_pairwise_loss(scores, rel).item()
         assert loss < 0.15, f"perfect ordering loss={loss:.4f} too high"
 
     def test_inverse_ordering_yields_high_loss(self):
+        """Inverse ordering yields high loss."""
         scores = torch.tensor([0.0, 1.0, 3.0, 5.0])
         rel = torch.tensor([3, 2, 1, 0])
         loss = ranknet_pairwise_loss(scores, rel).item()
         assert loss > 1.0, f"inverse ordering loss={loss:.4f} too low"
 
     def test_all_equal_relevance_returns_zero(self):
+        """All equal relevance returns zero."""
         scores = torch.tensor([1.0, 2.0, 3.0])
         rel = torch.tensor([1, 1, 1])  # no informative pairs
         assert ranknet_pairwise_loss(scores, rel).item() == 0.0
 
     def test_single_doc_query_returns_zero(self):
+        """Single doc query returns zero."""
         scores = torch.tensor([1.0])
         rel = torch.tensor([1])
         assert ranknet_pairwise_loss(scores, rel).item() == 0.0
 
 
 class TestListNetTop1Loss:
+    """Groups tests covering list net top1 loss."""
     def test_perfect_ordering_yields_low_loss(self):
+        """Perfect ordering yields low loss."""
         scores = torch.tensor([5.0, 3.0, 1.0, 0.0])
         rel = torch.tensor([3.0, 2.0, 1.0, 0.0])
         # Same softmax => low cross-entropy.
@@ -87,6 +94,7 @@ class TestListNetTop1Loss:
         assert loss < 1.5
 
     def test_all_equal_relevance_returns_zero(self):
+        """All equal relevance returns zero."""
         scores = torch.tensor([1.0, 2.0, 3.0])
         rel = torch.tensor([1.0, 1.0, 1.0])
         assert listnet_top1_loss(scores, rel).item() == 0.0
@@ -98,7 +106,9 @@ class TestListNetTop1Loss:
 
 
 class TestGroupBatchSampler:
+    """Groups tests covering group batch sampler."""
     def test_yields_one_query_per_batch(self):
+        """Yields one query per batch."""
         gids = np.array([0, 0, 0, 1, 1, 2, 2, 2])
         rel = np.array([1, 0, 1, 0, 1, 1, 0, 0])
         sampler = GroupBatchSampler(gids, rel, shuffle=False)
@@ -107,6 +117,7 @@ class TestGroupBatchSampler:
         assert len(batches) == 3
 
     def test_skips_singleton_queries(self):
+        """Skips singleton queries."""
         gids = np.array([0, 0, 1, 2, 2])
         rel = np.array([1, 0, 1, 1, 0])
         sampler = GroupBatchSampler(gids, rel, shuffle=False)
@@ -117,6 +128,7 @@ class TestGroupBatchSampler:
             assert len(b) >= 2
 
     def test_skips_single_class_queries(self):
+        """Skips single class queries."""
         gids = np.array([0, 0, 0, 1, 1])
         rel = np.array([1, 1, 1, 1, 0])  # query 0 all-rel=1
         sampler = GroupBatchSampler(gids, rel, shuffle=False)
@@ -156,7 +168,9 @@ def synthetic_ltr_data():
 
 
 class TestMLPRankerFitPredict:
+    """Groups tests covering m l p ranker fit predict."""
     def test_fit_predict_returns_1d_scores(self, synthetic_ltr_data):
+        """Fit predict returns 1d scores."""
         d = synthetic_ltr_data
         model = MLPRanker(n_estimators=10, learning_rate=0.01, verbose=0)
         with warnings.catch_warnings():
@@ -174,6 +188,7 @@ class TestMLPRankerFitPredict:
         assert scores.dtype.kind == "f"
 
     def test_listnet_loss_runs_too(self, synthetic_ltr_data):
+        """Listnet loss runs too."""
         d = synthetic_ltr_data
         model = MLPRanker(loss_fn="listnet", n_estimators=5, learning_rate=0.01, verbose=0)
         with warnings.catch_warnings():
@@ -189,16 +204,20 @@ class TestMLPRankerFitPredict:
 
 
 class TestMLPRankerStrategyDispatch:
+    """Groups tests covering m l p ranker strategy dispatch."""
     def test_get_ranker_objective_kwargs_default_ranknet(self):
+        """Get ranker objective kwargs default ranknet."""
         out = NeuralNetStrategy().get_ranker_objective_kwargs(LearningToRankConfig())
         assert out["loss_fn"] == "ranknet"
 
     def test_get_ranker_objective_kwargs_listnet_via_config(self):
+        """Get ranker objective kwargs listnet via config."""
         cfg = LearningToRankConfig(mlp_loss_fn="listnet")
         out = NeuralNetStrategy().get_ranker_objective_kwargs(cfg)
         assert out["loss_fn"] == "listnet"
 
     def test_fit_ranker_dispatches_to_mlp(self, synthetic_ltr_data):
+        """Fit ranker dispatches to mlp."""
         d = synthetic_ltr_data
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -220,10 +239,12 @@ class TestMLPRankerStrategyDispatch:
         assert scores.shape == (len(d["X_test"]),)
 
     def test_filter_models_for_ranking_keeps_mlp(self):
+        """Filter models for ranking keeps mlp."""
         kept = _filter_models_for_ranking(["cb", "xgb", "lgb", "mlp"])
         assert "mlp" in kept
 
     def test_filter_drops_unsupported_keeps_mlp(self):
+        """Filter drops unsupported keeps mlp."""
         kept = _filter_models_for_ranking(["mlp", "linear", "hgb"])
         assert "mlp" in kept
         assert "linear" not in kept
@@ -236,10 +257,12 @@ class TestMLPRankerStrategyDispatch:
 
 
 class _RankFTE(FeaturesAndTargetsExtractor):
+    """Groups tests covering rank f t e."""
     def __init__(self):
         super().__init__(group_field="qid")
 
     def build_targets(self, df):
+        """Build targets."""
         rel = df["relevance"]
         if hasattr(rel, "to_numpy"):
             rel = rel.to_numpy()
@@ -247,7 +270,9 @@ class _RankFTE(FeaturesAndTargetsExtractor):
 
 
 class TestMLPRankerInSuite:
+    """Groups tests covering m l p ranker in suite."""
     def test_mlp_only_via_suite(self):
+        """Mlp only via suite."""
         rng = np.random.default_rng(42)
         n_q, n_per = 200, 8
         n = n_q * n_per

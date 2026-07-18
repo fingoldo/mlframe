@@ -16,6 +16,7 @@ from mlframe.training.utils import compute_model_input_fingerprint
 
 
 def _df() -> pd.DataFrame:
+    """Df."""
     return pd.DataFrame(
         {
             "a": np.arange(10, dtype=np.float64),
@@ -25,6 +26,7 @@ def _df() -> pd.DataFrame:
 
 
 def test_fingerprint_identical_inputs_match():
+    """Fingerprint identical inputs match."""
     h1, _ = compute_model_input_fingerprint(
         _df(),
         target_name="y",
@@ -58,6 +60,7 @@ def test_fingerprint_row_count_change_invalidates():
 
 
 def test_fingerprint_target_name_change_invalidates():
+    """Fingerprint target name change invalidates."""
     df = _df()
     h1, _ = compute_model_input_fingerprint(df, target_name="y_a")
     h2, _ = compute_model_input_fingerprint(df, target_name="y_b")
@@ -65,6 +68,7 @@ def test_fingerprint_target_name_change_invalidates():
 
 
 def test_fingerprint_preprocessing_config_change_invalidates():
+    """Fingerprint preprocessing config change invalidates."""
     df = _df()
     h1, _ = compute_model_input_fingerprint(
         df,
@@ -78,6 +82,7 @@ def test_fingerprint_preprocessing_config_change_invalidates():
 
 
 def test_fingerprint_pipeline_config_change_invalidates():
+    """Fingerprint pipeline config change invalidates."""
     df = _df()
     h1, _ = compute_model_input_fingerprint(df, pipeline_config={"k": 1})
     h2, _ = compute_model_input_fingerprint(df, pipeline_config={"k": 2})
@@ -85,6 +90,7 @@ def test_fingerprint_pipeline_config_change_invalidates():
 
 
 def test_fingerprint_random_seed_change_invalidates():
+    """Fingerprint random seed change invalidates."""
     df = _df()
     h1, _ = compute_model_input_fingerprint(df, random_seed=1)
     h2, _ = compute_model_input_fingerprint(df, random_seed=2)
@@ -92,6 +98,7 @@ def test_fingerprint_random_seed_change_invalidates():
 
 
 def test_fingerprint_split_indices_change_invalidates():
+    """Fingerprint split indices change invalidates."""
     df = _df()
     h1, _ = compute_model_input_fingerprint(df, train_idx=np.arange(7), val_idx=np.arange(7, 10))
     h2, _ = compute_model_input_fingerprint(df, train_idx=np.arange(8), val_idx=np.arange(8, 10))

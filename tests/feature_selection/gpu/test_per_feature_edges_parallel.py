@@ -24,6 +24,7 @@ from mlframe.feature_selection.filters._adaptive_nbins import (
 
 
 def _make_X(n, p, seed=0):
+    """Make X."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, p)).astype(np.float64)
     # Mix in a few low-card / sparse / NaN columns to exercise every branch.
@@ -36,6 +37,7 @@ def _make_X(n, p, seed=0):
 
 
 def _make_y(X, seed=0):
+    """Make y."""
     rng = np.random.default_rng(seed + 1)
     # Binary target correlated with a couple of columns (gives MDLP real splits).
     logit = X[:, 3] - 0.5 * X[:, 4 % X.shape[1]]
@@ -44,6 +46,7 @@ def _make_y(X, seed=0):
 
 
 def _assert_edges_identical(a, b, label):
+    """Assert edges identical."""
     assert len(a) == len(b), f"{label}: length mismatch {len(a)} vs {len(b)}"
     for j, (ea, eb) in enumerate(zip(a, b)):
         if ea is None or eb is None:
@@ -62,6 +65,7 @@ def _assert_edges_identical(a, b, label):
 )
 @pytest.mark.parametrize("seed", [0, 7])
 def test_parallel_edges_bit_identical(method, needs_y, seed):
+    """Parallel edges bit identical."""
     X = _make_X(2000, 200, seed=seed)
     y = _make_y(X, seed=seed) if needs_y else None
     serial = per_feature_edges(X, y=y, method=method, n_jobs=1)
@@ -71,6 +75,7 @@ def test_parallel_edges_bit_identical(method, needs_y, seed):
 
 def test_low_card_and_sparse_branches_identical():
     # p just above the threshold so the threaded path actually engages.
+    """Low card and sparse branches identical."""
     X = _make_X(3000, _PARALLEL_EDGES_MIN_COLS + 20, seed=3)
     y = _make_y(X, seed=3)
     serial = per_feature_edges(X, y=y, method="mdlp", n_jobs=1)
@@ -81,6 +86,7 @@ def test_low_card_and_sparse_branches_identical():
 
 
 def test_cache_thread_safety_and_hit_behavior(tmp_path):
+    """Cache thread safety and hit behavior."""
     cache_dir = str(tmp_path / "edge_cache")
     X = _make_X(2000, 200, seed=1)
     y = _make_y(X, seed=1)
@@ -96,6 +102,7 @@ def test_cache_thread_safety_and_hit_behavior(tmp_path):
 
 def test_narrow_frame_no_regression():
     # p=50 < threshold -> must use serial path, no thread overhead, identical edges.
+    """Narrow frame no regression."""
     X = _make_X(20000, 50, seed=2)
     y = _make_y(X, seed=2)
     t0 = time.perf_counter()
@@ -112,6 +119,7 @@ def test_narrow_frame_no_regression():
 
 @pytest.mark.parametrize("p", [500, 2000])
 def test_speedup_mdlp(p):
+    """Speedup mdlp."""
     n = 20000
     X = _make_X(n, p, seed=5)
     y = _make_y(X, seed=5)

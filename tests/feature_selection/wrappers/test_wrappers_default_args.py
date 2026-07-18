@@ -58,6 +58,7 @@ DEFAULT_REG_ESTIMATORS = [
 
 @pytest.fixture(scope="module")
 def small_clf_data():
+    """Module-scoped 200x12 binary classification fixture shared by the default-args wrapper tests."""
     X, y = make_classification(
         n_samples=200,
         n_features=12,
@@ -73,6 +74,7 @@ def small_clf_data():
 
 @pytest.fixture(scope="module")
 def small_reg_data():
+    """Module-scoped 200x12 regression fixture shared by the default-args wrapper tests."""
     X, y = make_regression(
         n_samples=200,
         n_features=12,

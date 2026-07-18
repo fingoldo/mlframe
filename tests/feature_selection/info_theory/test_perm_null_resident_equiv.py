@@ -16,6 +16,7 @@ from mlframe.feature_selection.filters._permutation_null import _pooled_gain_flo
 
 
 def _make_inputs(n, ncand, nperm, nbins_x=16, nbins_y=10, seed=0):
+    """Make inputs."""
     rng = np.random.default_rng(seed)
     x = rng.integers(0, nbins_x, size=(ncand, n)).astype(np.int64)
     y = rng.integers(0, nbins_y, size=n).astype(np.int32)
@@ -42,6 +43,7 @@ def _make_inputs(n, ncand, nperm, nbins_x=16, nbins_y=10, seed=0):
 
 @pytest.mark.parametrize("n,ncand,nperm", [(5000, 8, 25), (8000, 24, 40)])
 def test_resident_permnull_floor_selection_equivalent(n, ncand, nperm):
+    """Resident permnull floor selection equivalent."""
     cp = pytest.importorskip("cupy")
     try:
         cp.cuda.runtime.getDeviceCount()

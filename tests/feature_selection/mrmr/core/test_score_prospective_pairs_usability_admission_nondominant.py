@@ -51,6 +51,7 @@ from pyutilz.pythonlib import sort_dict_by_value
 
 
 def _build_fixture(seed: int = 7, n: int = 6000, w_tail: float = 0.055):
+    """Build fixture."""
     rng = np.random.default_rng(seed)
 
     a_dom = rng.standard_normal(n)
@@ -88,6 +89,7 @@ def test_fixture_shape_pair01_dominant_balanced_pair23_nondominant_tail_concentr
 
 
 def _run(y, X, cols, *, usability_enable: bool):
+    """Score the shared prospective-pairs fixture with usability admission toggled on/off, using a fixed cached_MIs seed."""
     cached_MIs = {
         (0,): 0.4,
         (1,): 0.4,
@@ -98,6 +100,7 @@ def _run(y, X, cols, *, usability_enable: bool):
     }
 
     class _Self:
+        """Groups tests covering Self."""
         _fe_prewarp_y_continuous_ = y
         fe_pair_usability_admission_enable = usability_enable
         fe_pair_perm_null_admission_enable = False

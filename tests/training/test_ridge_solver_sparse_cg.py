@@ -16,6 +16,7 @@ from __future__ import annotations
 
 
 def test_linear_regressor_uses_sparse_cg_solver() -> None:
+    """The plain linear regressor pins solver='sparse_cg' to avoid the 44+ minute SVD-auto path on 4M x 323 prod data."""
     from mlframe.training.models import _build_linear_regressor
     from mlframe.training._model_configs import LinearModelConfig
 
@@ -27,6 +28,7 @@ def test_linear_regressor_uses_sparse_cg_solver() -> None:
 
 
 def test_ridge_regressor_uses_sparse_cg_solver() -> None:
+    """The Ridge regressor likewise pins solver='sparse_cg', matching the plain linear regressor's fix."""
     from mlframe.training.models import _build_ridge_regressor
     from mlframe.training._model_configs import LinearModelConfig
 

@@ -64,6 +64,7 @@ PRE_FIX_FALSE_POSITIVES = [
 def test_strict_parse_rejects_malformed_names(name):
     # Sanity: confirm the OLD logic genuinely accepted this name, so the
     # assertion below is a real regression guard (fails on pre-fix code).
+    """Strict parse rejects malformed names."""
     assert _old_substring_scan(name) is True, f"test fixture stale: old scan no longer accepts {name!r}"
     # Post-fix: a malformed / empty-segment name is NOT a composite target.
     assert is_composite_target_name(name) is False, f"{name!r} is not a valid {{target}}-{{alias}}-{{base}} triple and must label MTTR, not MTRESID"
@@ -87,6 +88,7 @@ REAL_COMPOSITE_NAMES = [
 
 @pytest.mark.parametrize("name", REAL_COMPOSITE_NAMES)
 def test_strict_parse_accepts_real_composites(name):
+    """Strict parse accepts real composites."""
     assert is_composite_target_name(name) is True, f"{name!r} is a canonical composite name and must label MTRESID"
 
 
@@ -104,6 +106,7 @@ NON_COMPOSITE_NAMES = [
 
 @pytest.mark.parametrize("name", NON_COMPOSITE_NAMES)
 def test_non_composite_names_not_detected(name):
+    """Non composite names not detected."""
     assert is_composite_target_name(name) is False
 
 

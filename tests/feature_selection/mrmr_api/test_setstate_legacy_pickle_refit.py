@@ -19,6 +19,7 @@ _PARAMS_PREDATING_ROSTER = ("dtype", "extra_x_shuffling", "fe_max_steps", "min_o
 
 
 def _tiny_xy(n=400):
+    """Tiny xy."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame({"a": rng.normal(size=n), "b": rng.normal(size=n), "c": rng.normal(size=n)})
     y = ((X["a"].to_numpy() + rng.normal(0, 0.1, n)) > 0).astype(int)

@@ -23,18 +23,21 @@ _VARS = (
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
+    """Clean env."""
     for v in _VARS:
         monkeypatch.delenv(v, raising=False)
     yield
 
 
 def test_default_is_free_ram_share_0p2():
+    """Default is free ram share 0p2."""
     expected = 0.2 * float(psutil.virtual_memory().available)
     got = _resolve()
     assert got == pytest.approx(expected, rel=0.05)  # free RAM drifts slightly between the two reads
 
 
 def test_total_ram_share(monkeypatch):
+    """Total ram share."""
     monkeypatch.setenv("MLFRAME_PANDAS_VIEW_CACHE_TYPE", "TOTAL_RAM_SHARE")
     monkeypatch.setenv("MLFRAME_PANDAS_VIEW_CACHE_SIZE", "0.1")
     expected = 0.1 * float(psutil.virtual_memory().total)
@@ -42,17 +45,20 @@ def test_total_ram_share(monkeypatch):
 
 
 def test_absolute_mb(monkeypatch):
+    """Absolute mb."""
     monkeypatch.setenv("MLFRAME_PANDAS_VIEW_CACHE_TYPE", "ABSOLUTE_MB")
     monkeypatch.setenv("MLFRAME_PANDAS_VIEW_CACHE_SIZE", "3000")
     assert _resolve() == 3000 * (1024**2)
 
 
 def test_legacy_max_mb_alias_when_new_vars_unset(monkeypatch):
+    """Legacy max mb alias when new vars unset."""
     monkeypatch.setenv("MLFRAME_PANDAS_VIEW_CACHE_MAX_MB", "5000")
     assert _resolve() == 5000 * (1024**2)
 
 
 def test_new_vars_take_precedence_over_legacy(monkeypatch):
+    """New vars take precedence over legacy."""
     monkeypatch.setenv("MLFRAME_PANDAS_VIEW_CACHE_MAX_MB", "5000")
     monkeypatch.setenv("MLFRAME_PANDAS_VIEW_CACHE_TYPE", "ABSOLUTE_MB")
     monkeypatch.setenv("MLFRAME_PANDAS_VIEW_CACHE_SIZE", "1000")
@@ -60,6 +66,7 @@ def test_new_vars_take_precedence_over_legacy(monkeypatch):
 
 
 def test_malformed_size_falls_back_to_2gb(monkeypatch):
+    """Malformed size falls back to 2gb."""
     monkeypatch.setenv("MLFRAME_PANDAS_VIEW_CACHE_TYPE", "ABSOLUTE_MB")
     monkeypatch.setenv("MLFRAME_PANDAS_VIEW_CACHE_SIZE", "not-a-number")
     assert _resolve() == 2048.0 * (1024**2)

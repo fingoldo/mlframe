@@ -19,10 +19,12 @@ import pandas as pd
 
 
 class _DummyTargetTypeRegr:
+    """Groups tests covering dummy target type regr."""
     name = "regression"
 
 
 class _DummyTargetTypeClass:
+    """Groups tests covering dummy target type class."""
     name = "classification"
 
 
@@ -46,6 +48,7 @@ class _DummySplitConfig:
         self.val_placement = "forward"
 
     def model_dump(self, exclude=None):
+        """Model dump."""
         d = {
             "test_size": self.test_size,
             "val_size": self.val_size,

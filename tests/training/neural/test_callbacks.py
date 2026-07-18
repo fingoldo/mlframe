@@ -34,6 +34,7 @@ class TestMonotonicDeclineStopCallback:
     """Tests for the monotonic strict-decline overfitting stop callback."""
 
     def _trainer(self, value):
+        """Trainer."""
         t = Mock()
         t.callback_metrics = {"val_loss": torch.tensor(float(value))}
         t.current_epoch = 0
@@ -41,6 +42,7 @@ class TestMonotonicDeclineStopCallback:
         return t
 
     def _feed(self, cb, values):
+        """Feed."""
         last = None
         for v in values:
             last = self._trainer(v)
@@ -48,28 +50,33 @@ class TestMonotonicDeclineStopCallback:
         return last
 
     def test_fires_after_N_strict_declines_min_mode(self):
+        """Fires after n strict declines min mode."""
         cb = MonotonicDeclineStopCallback(monitor="val_loss", patience=3, mode="min")
         # loss falls to 0.1 then rises 3 consecutive times -> stop
         t = self._feed(cb, [0.5, 0.3, 0.1, 0.12, 0.14, 0.16])
         assert t.should_stop is True
 
     def test_does_not_fire_before_N(self):
+        """Does not fire before n."""
         cb = MonotonicDeclineStopCallback(monitor="val_loss", patience=3, mode="min")
         t = self._feed(cb, [0.5, 0.1, 0.12, 0.14])  # only 2 rises
         assert t.should_stop is False
 
     def test_plateau_and_bounce_reset(self):
+        """Plateau and bounce reset."""
         cb = MonotonicDeclineStopCallback(monitor="val_loss", patience=3, mode="min")
         # rise, rise, plateau(==prev) resets, rise once -> not 3 in a row
         t = self._feed(cb, [0.1, 0.12, 0.14, 0.14, 0.16])
         assert t.should_stop is False
 
     def test_disabled_when_patience_none(self):
+        """Disabled when patience none."""
         cb = MonotonicDeclineStopCallback(monitor="val_loss", patience=None, mode="min")
         t = self._feed(cb, [0.1, 0.2, 0.3, 0.4, 0.5, 0.6])
         assert t.should_stop is False
 
     def test_missing_monitor_is_noop(self):
+        """Missing monitor is noop."""
         cb = MonotonicDeclineStopCallback(monitor="val_loss", patience=2, mode="min")
         t = Mock()
         t.callback_metrics = {"other": torch.tensor(0.5)}
@@ -135,6 +142,7 @@ class TestAggregatingValidationCallback:
         """Test callback initialization."""
 
         def dummy_metric(y_true, y_score):
+            """Dummy metric."""
             return 0.5
 
         callback = AggregatingValidationCallback(metric_name="accuracy", metric_fcn=dummy_metric, on_epoch=True, on_step=False)
@@ -150,6 +158,7 @@ class TestAggregatingValidationCallback:
         """Test init_accumulators resets lists."""
 
         def dummy_metric(y_true, y_score):
+            """Dummy metric."""
             return 0.5
 
         callback = AggregatingValidationCallback(metric_name="test", metric_fcn=dummy_metric)
@@ -168,6 +177,7 @@ class TestAggregatingValidationCallback:
         """Test on_validation_batch_end appends predictions and labels."""
 
         def dummy_metric(y_true, y_score):
+            """Dummy metric."""
             return 0.5
 
         callback = AggregatingValidationCallback(metric_name="test", metric_fcn=dummy_metric)
@@ -188,6 +198,7 @@ class TestAggregatingValidationCallback:
         """Test accumulating multiple batches."""
 
         def dummy_metric(y_true, y_score):
+            """Dummy metric."""
             return 0.5
 
         callback = AggregatingValidationCallback(metric_name="test", metric_fcn=dummy_metric)
@@ -207,6 +218,7 @@ class TestAggregatingValidationCallback:
 
         def dummy_metric(y_true, y_score):
             # Return accuracy
+            """Dummy metric."""
             return float((y_true == (y_score > 0.5)).sum()) / len(y_true)
 
         callback = AggregatingValidationCallback(metric_name="accuracy", metric_fcn=dummy_metric, on_epoch=True, on_step=False)
@@ -233,6 +245,7 @@ class TestAggregatingValidationCallback:
         """``prog_bar=False`` must reach ``pl_module.log``; it was previously hardcoded to True regardless of the ctor arg."""
 
         def dummy_metric(y_true, y_score):
+            """Dummy metric."""
             return 0.5
 
         callback = AggregatingValidationCallback(
@@ -254,6 +267,7 @@ class TestAggregatingValidationCallback:
         """Test that on_validation_epoch_end resets accumulators."""
 
         def dummy_metric(y_true, y_score):
+            """Dummy metric."""
             return 0.5
 
         callback = AggregatingValidationCallback(metric_name="test", metric_fcn=dummy_metric)
@@ -276,6 +290,7 @@ class TestAggregatingValidationCallback:
         captured_predictions = []
 
         def capture_metric(y_true, y_score):
+            """Capture metric."""
             captured_labels.append(y_true)
             captured_predictions.append(y_score)
             return 0.5
@@ -629,6 +644,7 @@ class TestCallbacksIntegration:
         """Test using multiple callbacks together."""
 
         def dummy_metric(y_true, y_score):
+            """Dummy metric."""
             return 0.5
 
         callbacks = [

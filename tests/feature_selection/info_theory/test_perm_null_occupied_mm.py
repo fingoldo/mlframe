@@ -16,6 +16,7 @@ from mlframe.feature_selection.filters._permutation_null import (
 
 
 def _disc(v, nb):
+    """Helper that disc."""
     e = np.linspace(v.min(), v.max(), nb + 1)
     return np.clip(np.digitize(v, e[1:-1]), 0, nb - 1).astype(np.int64)
 
