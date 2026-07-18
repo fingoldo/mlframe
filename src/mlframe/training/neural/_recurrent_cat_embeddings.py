@@ -9,6 +9,7 @@ TABULAR ``features`` block -- the SEQUENCES are never factorized (they carry no 
 from __future__ import annotations
 
 import hashlib as _hashlib
+from typing import Any
 
 import numpy as np
 from sklearn.preprocessing import StandardScaler
@@ -146,6 +147,7 @@ class _RecurrentCatEmbeddingMixin:
         # Module-top imports (hashlib + optional xxhash) keep the predict-hot
         # path import-free; the previous try/except ImportError ran on EVERY
         # predict call. xxhash is ~5x faster than blake2b on tobytes payloads.
+        _hasher: Any  # xxhash.xxh3_128 and hashlib.blake2b both implement .update()/.digest(); no common stub base
         if _HAS_XXHASH:
             _hasher = _xxhash.xxh3_128()
         else:

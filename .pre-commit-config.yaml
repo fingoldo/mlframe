@@ -26,7 +26,49 @@
 # manual-only/absent despite both mirroring real CI blocking gates (black-filtered.yml,
 # mypy-full.yml advisory:false) -- commits were passing locally and only failing once pushed.
 
+# Floor, not a moving target: an old local `pre-commit` CLI can silently mishandle newer config
+# keys (this file uses `stages: [pre-commit, pre-merge-commit]`, a post-2.x rename) or exclude/
+# files regex semantics that changed across versions -- a contributor on a stale CLI gets subtly
+# different behavior than CI with no error, rather than a clear "upgrade pre-commit" message.
+minimum_pre_commit_version: "3.5.0"
+
+# Pins `language: python` hooks (currently just black's, `language_version: python3` at its own
+# hook entry) to whichever `python3` is first on PATH -- most `language: system` hooks below
+# depend on the ACTIVE VENV instead (see each hook's own comment), which this key does not
+# control; contributors must have the project's own `[all,dev]`-extras venv active for those.
+default_language_version:
+  python: python3
+
 repos:
+  # Standard pre-commit.com baseline -- absent until 2026-07-18's architecture review, near-zero
+  # cost (well under a second combined) and catches a class of bug the rest of this file's
+  # Python-specific tooling structurally can't: a committed merge-conflict marker, an
+  # accidentally-staged multi-hundred-MB fixture, or the exact CRLF class of bug this repo has
+  # already hand-debugged once via shellcheck (mixed-line-ending would have caught it generically,
+  # for any file type, not just shell scripts). check-yaml/toml/json runs before anything else
+  # here so a syntax typo in e.g. .pre-commit-config.yaml itself or a workflow file fails fast
+  # with a clear message instead of a confusing downstream tool crash.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=2048']
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+        # CRLF-vs-LF is already a live, repo-documented incident class (this repo's own
+        # .gitattributes gap, plus the shellcheck-driven fix mentioned above) -- excluding these
+        # paths mirrors the repo's existing CRLF-tolerant conventions rather than fighting them.
+        exclude: '\.(bat|cmd|ps1)$'
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+        exclude: '\.vscode/'
+      - id: end-of-file-fixer
+        exclude: '\.secrets\.baseline$'
+      - id: trailing-whitespace
+        exclude: '\.secrets\.baseline$'
+
   # Secret-scanner -- catches accidental commits of API keys / tokens /
   # secrets. Runs on every staged change. Mirrors pyutilz's hook setup.
   # Bootstrap the baseline once with:
@@ -37,6 +79,65 @@ repos:
       - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
         exclude: '\.secrets\.baseline$'
+
+  # Ordering (2026-07-18 architecture review): these two blocking gates are the fastest AND most
+  # likely to catch a plain typo (a syntax slip, an undefined name, a misspelled word in an assert
+  # message) -- moved ahead of the multi-second-to-minute actionlint/shellcheck/black-filtered/
+  # mypy checks below so the modal "oops, typo" commit fails fast instead of waiting through
+  # everything else first. pre-commit still runs every hook regardless of an earlier failure (no
+  # `fail_fast: true` set, deliberately -- see this file's header on surfacing every finding at
+  # once), so this only changes time-to-first-failure, not final pass/fail.
+  #
+  # Real-bug gate: pyflakes (undefined names, redefinitions, undefined exports)
+  # + syntax errors. Blocks the commit (exit 1 on finding any). False-positive
+  # rate is near-zero after the de-star cleanup (F821/F822 are genuine bugs).
+  # Stylistic rules (format, import order, naming) are WARN-ONLY via format-lint-warn.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20
+    hooks:
+      - id: ruff
+        name: "ruff (real bugs block)"
+        # The project's FULL configured select/ignore (pyproject.toml), minus C901 (complexity,
+        # advisory-only). Closed to 0 findings on 2026-07-09 after fixing every RUF/G/ISC/PERF
+        # finding. Mirrors CI's ``ruff check . --ignore C901`` exactly so a commit that passes
+        # locally cannot fail CI and vice versa.
+        #
+        # CRITICAL: never use ``--select`` here. ``--select`` REPLACES the effective rule set
+        # instead of narrowing pyproject.toml's configured select, silently dropping the
+        # ``ignore`` list too (RUF001/002/003/022, ISC001, etc. would all reappear) and breaking
+        # RUF100's "is this noqa still needed" determination (see CLAUDE.md's 2026-07-09 RUF100
+        # incident). ``--ignore`` only ADDS to the configured ignore list, so it is safe.
+        entry: python -m ruff check --ignore C901
+        language: system
+        types: [python]
+        # pre-commit passes matching files as explicit CLI args, which BYPASSES ruff's own
+        # top-level `exclude` list in pyproject.toml (explicit paths override `exclude`; only
+        # `force-exclude = true`, which this repo does not set, would apply it to explicit args
+        # too). Mirror that exclude list here at the pre-commit level so tests/scripts/legacy/
+        # benchmarks/profiling stay out of this hook exactly as pyproject.toml intends -- found
+        # 2026-07-09 while verifying the blocking-gate expansion locally (tests/ was silently
+        # never covered, ~4600 findings under the current full select/ignore, wholly unrelated
+        # to this repo's src/mlframe cleanup).
+        exclude: (^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/
+        stages: [pre-commit, pre-merge-commit]
+
+  # Prose-typo gate: codespell. Blocking since 2026-07-09, mirroring the CI lint-blocking job
+  # (config/ignore-words-list comes from [tool.codespell] in pyproject.toml, same as CI).
+  # Scoped to changed files (2026-07-14): codespell checks each file's own prose independently
+  # (no cross-file state), so a whole-tree scan on every commit was pure overhead -- CI's
+  # lint-blocking job still runs the true whole-project scan on every push.
+  - repo: local
+    hooks:
+      - id: codespell-blocking
+        name: "codespell prose typo check (blocking)"
+        entry: python -m codespell_lib --toml pyproject.toml
+        language: system
+        pass_filenames: true
+        # CI's lint-blocking job scopes codespell to codespell-paths: src/mlframe -- this hook
+        # must match (bug found 2026-07-17 alongside the black-filtered/interrogate/bandit scope
+        # gaps above). tests/ gets its own dedicated lint job/hooks.
+        exclude: (^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/
+        stages: [pre-commit, pre-merge-commit]
 
   # Actionlint: lints .github/workflows/*.yml for syntax AND semantic bugs
   # (undefined contexts, bad expressions, unknown runner labels, duplicate keys,
@@ -71,7 +172,7 @@ repos:
   # ``format-lint-warn`` hook below. Apply explicitly with
   # ``pre-commit run --hook-stage manual ruff`` / ``... ruff-format`` / ``... black``.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.6
+    rev: v0.15.20
     hooks:
       - id: ruff
         args: ['--fix']
@@ -92,7 +193,7 @@ repos:
   # sanctioned, filtered formatting pass instead of
   # `pre-commit run --hook-stage manual black`.
   - repo: https://github.com/psf/black
-    rev: 25.1.0
+    rev: 26.5.1
     hooks:
       - id: black
         language_version: python3
@@ -184,39 +285,6 @@ repos:
         # ``pre-commit run --hook-stage manual mlframe-meta-tests`` before pushing, or let CI
         # catch it.
         stages: [manual]
-
-  # Real-bug gate: pyflakes (undefined names, redefinitions, undefined exports)
-  # + syntax errors. Blocks the commit (exit 1 on finding any). False-positive
-  # rate is near-zero after the de-star cleanup (F821/F822 are genuine bugs).
-  # Stylistic rules (format, import order, naming) are WARN-ONLY via format-lint-warn.
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.6
-    hooks:
-      - id: ruff
-        name: "ruff (real bugs block)"
-        # The project's FULL configured select/ignore (pyproject.toml), minus C901 (complexity,
-        # advisory-only). Closed to 0 findings on 2026-07-09 after fixing every RUF/G/ISC/PERF
-        # finding. Mirrors CI's ``ruff check . --ignore C901`` exactly so a commit that passes
-        # locally cannot fail CI and vice versa.
-        #
-        # CRITICAL: never use ``--select`` here. ``--select`` REPLACES the effective rule set
-        # instead of narrowing pyproject.toml's configured select, silently dropping the
-        # ``ignore`` list too (RUF001/002/003/022, ISC001, etc. would all reappear) and breaking
-        # RUF100's "is this noqa still needed" determination (see CLAUDE.md's 2026-07-09 RUF100
-        # incident). ``--ignore`` only ADDS to the configured ignore list, so it is safe.
-        entry: python -m ruff check --ignore C901
-        language: system
-        types: [python]
-        # pre-commit passes matching files as explicit CLI args, which BYPASSES ruff's own
-        # top-level `exclude` list in pyproject.toml (explicit paths override `exclude`; only
-        # `force-exclude = true`, which this repo does not set, would apply it to explicit args
-        # too). Mirror that exclude list here at the pre-commit level so tests/scripts/legacy/
-        # benchmarks/profiling stay out of this hook exactly as pyproject.toml intends -- found
-        # 2026-07-09 while verifying the blocking-gate expansion locally (tests/ was silently
-        # never covered, ~4600 findings under the current full select/ignore, wholly unrelated
-        # to this repo's src/mlframe cleanup).
-        exclude: (^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/
-        stages: [pre-commit, pre-merge-commit]
 
   # Warn-only style gate: formatting + style lint (E/W/N/UP/I), never blocks.
   # Runs after the blocking gate. Wrapper script lives in the shared py_ci_shared
@@ -323,24 +391,6 @@ repos:
         pass_filenames: false
         stages: [pre-commit, pre-merge-commit]
 
-  # Prose-typo gate: codespell. Blocking since 2026-07-09, mirroring the CI lint-blocking job
-  # (config/ignore-words-list comes from [tool.codespell] in pyproject.toml, same as CI).
-  # Scoped to changed files (2026-07-14): codespell checks each file's own prose independently
-  # (no cross-file state), so a whole-tree scan on every commit was pure overhead -- CI's
-  # lint-blocking job still runs the true whole-project scan on every push.
-  - repo: local
-    hooks:
-      - id: codespell-blocking
-        name: "codespell prose typo check (blocking)"
-        entry: python -m codespell_lib --toml pyproject.toml
-        language: system
-        pass_filenames: true
-        # CI's lint-blocking job scopes codespell to codespell-paths: src/mlframe -- this hook
-        # must match (bug found 2026-07-17 alongside the black-filtered/interrogate/bandit scope
-        # gaps above). tests/ gets its own dedicated lint job/hooks.
-        exclude: (^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/
-        stages: [pre-commit, pre-merge-commit]
-
   # tests/ blocking lint bundle: mirrors the src/mlframe-scoped hooks above but scoped to
   # tests/, which carries its own tests/ruff.toml + tests/interrogate.toml since the 2026-07-17
   # rename/ruff/black/docstring cleanup -- closes the gap the "tests/ gets its own dedicated lint
@@ -351,7 +401,7 @@ repos:
   # src/mlframe and tests together to be meaningful (see the vulture-blocking note above) and
   # deptry is whole-project regardless of which subtree changed -- both are already covered.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.6
+    rev: v0.15.20
     hooks:
       - id: ruff
         name: "ruff tests/ (real bugs block)"
@@ -446,6 +496,40 @@ repos:
         entry: python -m py_ci_shared.advisory_warn --src-path src/mlframe
         language: system
         types: [python]
+        verbose: true
+        stages: [manual]
+
+  # Architectural-boundary / docstring-consistency / custom-rule advisory checks. Added 2026-07-18
+  # CI/CD architecture review -- manual-only (same posture as vulture-blocking and lint-advisory-warn
+  # above): none of the three has a triaged 0-findings baseline yet (pydoclint alone: 858 findings
+  # across the existing codebase), so running them on every commit would be pure noise. Mirrors
+  # lint-advisory.yml's own advisory (continue-on-error) posture for these same three tools.
+  - repo: local
+    hooks:
+      - id: import-linter-warn
+        name: "import-linter (architectural boundaries, advisory)"
+        # PYTHONPATH: the worktree editable-install trap -- a bare `import mlframe` in a git
+        # worktree resolves to the MAIN tree's install location, not this worktree's own src/,
+        # silently missing any file added/moved since the editable install was created.
+        entry: bash -c 'PYTHONPATH="$(pwd)/src" lint-imports'
+        language: system
+        pass_filenames: false
+        verbose: true
+        stages: [manual]
+
+      - id: pydoclint-warn
+        name: "pydoclint (docstring-vs-signature consistency, advisory)"
+        entry: pydoclint --style=google src/mlframe
+        language: system
+        pass_filenames: false
+        verbose: true
+        stages: [manual]
+
+      - id: semgrep-warn
+        name: "semgrep (custom org-specific rules, advisory)"
+        entry: semgrep --config .semgrep.yml src/mlframe
+        language: system
+        pass_filenames: false
         verbose: true
         stages: [manual]
 

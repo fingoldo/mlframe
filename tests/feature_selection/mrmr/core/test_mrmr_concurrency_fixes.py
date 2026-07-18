@@ -11,7 +11,6 @@ rounds no longer draws an identical (correlated) permutation stream.
 from __future__ import annotations
 
 import threading
-import time
 
 import numpy as np
 import pandas as pd
@@ -76,6 +75,7 @@ def test_concurrent_fit_on_same_instance_raises():
     errors = []
 
     def _first_fit():
+        """Run m.fit in a background thread, recording any exception for the main thread to inspect."""
         try:
             m.fit(X, y)
         except Exception as exc:  # pragma: no cover - only a genuine unexpected failure would land here

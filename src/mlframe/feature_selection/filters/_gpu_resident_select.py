@@ -30,6 +30,9 @@ from ._gpu_resident_select_kernels import (
     _resolve_radix_threads,
     _transpose_to_cm,
 )
+from ._gpu_resident_select_kernels import _transpose_cm_to_rm  # noqa: F401 -- re-export only, see module docstring
+from ._gpu_resident_select_kernels import fe_gpu_radix_edges_enabled  # noqa: F401 -- re-export only, see module docstring
+from ._gpu_resident_select_kernels import transpose_codes_to_cm  # noqa: F401 -- re-export only, see module docstring
 
 
 def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extremes: bool = False):

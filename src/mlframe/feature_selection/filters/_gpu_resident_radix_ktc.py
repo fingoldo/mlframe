@@ -130,13 +130,19 @@ def _radix_edges_with_f32_variant(cand, nbins: int, variant: str):
     import cupy as cp
 
     from . import _gpu_resident_select as _sel
+    from . import _gpu_resident_select_kernels as _grsk
 
-    saved = _sel._RADIX_F32_VARIANT_OVERRIDE
+    # Must set the override on the OWNING module (_gpu_resident_select_kernels, where
+    # _resolve_radix_f32_variant actually reads the global), not on _sel -- _sel re-exports the
+    # name via a plain `from ... import`, which creates its own independent binding in _sel's
+    # namespace; writing to that binding would silently never reach the kernels module's global
+    # (found 2026-07-18: this sweep probe's override was a no-op the whole time).
+    saved = _grsk._RADIX_F32_VARIANT_OVERRIDE
     try:
-        _sel._RADIX_F32_VARIANT_OVERRIDE = str(variant)
+        _grsk._RADIX_F32_VARIANT_OVERRIDE = str(variant)  # nosemgrep: module-global-write-via-reexport-alias -- _grsk IS _gpu_resident_select_kernels, the owning module
         edges = _sel._radix_select_interior_edges(cand, int(nbins))
     finally:
-        _sel._RADIX_F32_VARIANT_OVERRIDE = saved
+        _grsk._RADIX_F32_VARIANT_OVERRIDE = saved  # nosemgrep: module-global-write-via-reexport-alias -- same, restoring the owning module's global
     if edges is None:
         return np.empty(0, dtype=np.float64)
     return cp.asnumpy(edges)
@@ -170,13 +176,15 @@ def _radix_edges_with_threads(cand, nbins: int, threads: int):
     import cupy as cp
 
     from . import _gpu_resident_select as _sel
+    from . import _gpu_resident_select_kernels as _grsk
 
-    saved = _sel._RADIX_THREADS_OVERRIDE
+    # Same fix as _radix_edges_with_f32_variant above: must set on the owning module.
+    saved = _grsk._RADIX_THREADS_OVERRIDE
     try:
-        _sel._RADIX_THREADS_OVERRIDE = int(threads)
+        _grsk._RADIX_THREADS_OVERRIDE = int(threads)  # nosemgrep: module-global-write-via-reexport-alias -- _grsk IS the owning module
         edges = _sel._radix_select_interior_edges(cand, int(nbins))
     finally:
-        _sel._RADIX_THREADS_OVERRIDE = saved
+        _grsk._RADIX_THREADS_OVERRIDE = saved  # nosemgrep: module-global-write-via-reexport-alias -- same, restoring the owning module's global
     if edges is None:
         return np.empty(0, dtype=np.float64)
     return cp.asnumpy(edges)

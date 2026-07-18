@@ -14,7 +14,6 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
-import pytest
 
 from mlframe.feature_selection.filters import MRMR
 

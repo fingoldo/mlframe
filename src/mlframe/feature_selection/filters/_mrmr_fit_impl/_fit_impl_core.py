@@ -6296,7 +6296,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # option_context silences the conservative SettingWithCopy heuristic (fires when the caller passed a sliced
         # view); the in-place drop reverses this function's own targ_<id> injection on the same object, no copy.
         with pd.option_context("mode.chained_assignment", None):
-            X.drop(columns=target_names, inplace=True)  # restores caller's original schema
+            X.drop(columns=target_names, inplace=True)  # noqa: PD002 -- must mutate the caller's frame OBJECT in place (restores its original schema by identity), not rebind a local; `X = X.drop(...)` would silently stop touching the caller's actual frame
 
     # DCD orphaned-cluster raw re-attach. A DCD AGGREGATE swap replaces the raw
     # anchor with the (engineered, non-support_) aggregate column; when that

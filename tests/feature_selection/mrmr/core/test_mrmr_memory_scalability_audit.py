@@ -13,13 +13,13 @@ import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_selection.filters._stability_cluster import cluster_stability_selection
 from mlframe.feature_selection.filters.mrmr._mrmr_class import MRMR
 
 
 def _selector(Xs, ys):
+    """Inner sub-selector for cluster_stability_selection: picks the column most correlated with y."""
     Xs = np.asarray(Xs, dtype=np.float64)
     ys = np.asarray(ys, dtype=np.float64)
     corr = np.abs([np.corrcoef(Xs[:, i], ys)[0, 1] for i in range(Xs.shape[1])])
@@ -46,7 +46,7 @@ def test_cluster_stability_selection_p_cap_still_recovers_signal(monkeypatch):
     n, p = 300, 80
     X = rng.standard_normal((n, p))
     y = X[:, 0] * 2.0 + rng.standard_normal(n) * 0.1
-    chosen, freq, info = cluster_stability_selection(X, y, _selector, n_bootstrap=5, corr_threshold=0.8, pi_threshold=0.4)
+    chosen, _freq, info = cluster_stability_selection(X, y, _selector, n_bootstrap=5, corr_threshold=0.8, pi_threshold=0.4)
     assert 0 in chosen
     assert info["n_clusters"] == p  # p-cap doesn't merge dropped columns; each stays its own singleton
 
@@ -120,12 +120,11 @@ def test_mi_direct_gpu_dispatch_declines_on_low_vram_cushion(monkeypatch):
 
     monkeypatch.setattr(perm_mod, "_MI_DIRECT_GPU_FAILED", False)
     monkeypatch.setattr("pyutilz.core.pythonlib.is_cuda_available", lambda: True)
-    monkeypatch.setattr(
-        "mlframe.feature_selection.filters._fe_gpu_vram.fe_gpu_has_vram_cushion", lambda *a, **kw: False
-    )
+    monkeypatch.setattr("mlframe.feature_selection.filters._fe_gpu_vram.fe_gpu_has_vram_cushion", lambda *a, **kw: False)
     called = {"gpu": False}
 
     def _fake_mi_direct_gpu(*args, **kwargs):
+        """Fail the test loudly if the GPU MI path is invoked despite the VRAM cushion check declining it."""
         called["gpu"] = True
         raise AssertionError("mi_direct_gpu must not be called when the VRAM cushion check declines")
 

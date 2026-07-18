@@ -10,7 +10,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_biz_val_chao_shen_kernel_removes_high_cardinality_bias():
