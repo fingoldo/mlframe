@@ -223,6 +223,15 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
     # already includes the params signature, so a hit guarantees matching state).
     _FIT_CACHE: "ClassVar[OrderedDict[tuple, MRMR]]" = OrderedDict()  # noqa: RUF012 -- intentional shared class-level LRU cache, not a per-instance mutable-default bug
 
+    # Private, non-BaseEstimator instance flag (07_memory_scalability.md finding #2): when set True by a
+    # caller BEFORE ``fit()`` (e.g. the stability-selection outer loop's throwaway bootstrap-replicate
+    # sub-fits), ``fit()`` skips storing this instance's own entry in the process-wide ``_FIT_CACHE`` --
+    # for a guaranteed-future-miss fit (a different row-subsample every call) that would only evict a
+    # legitimately-reusable entry belonging to an unrelated concurrent caller. Not a constructor param
+    # (must never appear in ``get_params()``/``clone()``); declared here at class scope only so mypy
+    # resolves the attribute.
+    _skip_fit_cache: bool = False
+
     # Fast-search sub-knob overrides applied for the duration of a fit when ``fe_fast_search=True``.
     # Each entry is (attr, fast_value). The override is applied ONLY when the current attr value still
     # equals its package default (so an explicit user value always wins). ``fe_check_pairs_subsample_n``

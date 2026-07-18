@@ -9177,7 +9177,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Store self in process-wide cache so cloned MRMR instances fit on the same (X, y) arrays can replay
     # this fitted state instead of re-running cat-FE + permutation. Bound the LRU by ``fit_cache_max``;
     # the default (4) covers a typical model suite without thrashing and long-lived workers no longer leak.
-    if _cache_key is not None:
+    # ``_skip_fit_cache`` (private, non-BaseEstimator attr set by the stability-selection outer loop on
+    # its throwaway bootstrap-replicate sub-fits, 07_memory_scalability.md finding #2): each replicate
+    # fits a DIFFERENT row-subsample every call, so its cache key never repeats and is a guaranteed
+    # future miss -- storing it only serves to evict a legitimately-reusable entry from an unrelated
+    # concurrent caller sharing the same process-wide 4-entry LRU. Unlike ``fit_cache_max=0`` (which
+    # clears the WHOLE shared cache as an operator-level opt-out), this skips only THIS instance's own
+    # store, leaving every other entry untouched.
+    if _cache_key is not None and not getattr(self, "_skip_fit_cache", False):
         # Whole store + LRU/byte-cap eviction held under the cache lock so a concurrent fit cannot interleave its
         # own ``__setitem__``/``popitem``/``move_to_end`` (KeyError, wrong-entry eviction) or iterate ``.values()``
         # via ``_mrmr_cache_bytes_total`` while another thread mutates the dict.

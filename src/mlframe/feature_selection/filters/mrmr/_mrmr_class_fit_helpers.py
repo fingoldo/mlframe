@@ -53,6 +53,8 @@ class _MRMRFitHelpersMixin:
         get_params: Callable[..., dict]
         fit: Callable[..., "MRMR"]
         random_seed: Optional[int]
+        verbose: bool | int
+        _skip_fit_cache: bool
         get_feature_names_out: Callable[..., np.ndarray]
 
         def _effective_random_seed(self) -> Optional[int]:
@@ -247,6 +249,11 @@ class _MRMRFitHelpersMixin:
             # Use a fresh sibling instance with classic method to avoid
             # recursion AND drop bootstrap-incompatible settings.
             sub = type(self)(**_sub_base_params)
+            # 07_memory_scalability.md finding #2: this replicate fits a DIFFERENT row-subsample every
+            # call, so its cache key is a guaranteed future miss -- skip storing it in the shared
+            # process-wide _FIT_CACHE so stability_n_bootstrap (default 50) replicates don't thrash out
+            # a legitimately-reusable entry belonging to an unrelated concurrent caller.
+            sub._skip_fit_cache = True
             sub.fit(X_sub_df, y_sub_s)
             if not hasattr(sub, "support_") or sub.support_ is None:
                 return np.asarray([], dtype=np.int64)
@@ -509,12 +516,30 @@ class _MRMRFitHelpersMixin:
         n_features = len(feature_names)
 
         per_column_selected: dict[str, list] = {}
-        for label, y_col in _mrmr_y_columns(y):
+        _n_targets = y.shape[1] if hasattr(y, "shape") and len(getattr(y, "shape", ())) > 1 else None
+        for _target_pos, (label, y_col) in enumerate(_mrmr_y_columns(y)):
+            # 07_memory_scalability.md finding #3 (confirmed not a bug -- different targets can be
+            # impacted by totally different factors, so a sequential per-target sub-fit is the correct
+            # design): log which target is currently running so a long multioutput fit's progress is
+            # legible from the outside, mirroring the format other MRMR stages already log with.
+            if self.verbose:
+                logger.info(
+                    "MRMR multioutput: fitting target %d/%s (%r)...",
+                    _target_pos + 1, _n_targets if _n_targets is not None else "?", label,
+                )
             sub = clone(self)
             sub.multioutput_strategy = None  # the per-column sub-fit is single-target; force the legacy path so it does not recurse.
+            # Same guaranteed-cache-miss reasoning as the stability-selection bootstrap replicates
+            # (07_memory_scalability.md finding #2): each target's y_col differs, so this sub-fit's
+            # cache key never repeats -- skip storing it to avoid thrashing the shared _FIT_CACHE.
+            sub._skip_fit_cache = True
             sub.fit(X, y_col, groups=groups, sample_weight=sample_weight, **(fit_params or {}))
             sub_names = [str(feature_names[i]) for i in np.asarray(sub.support_, dtype=np.intp)]
             per_column_selected[label] = sub_names
+            if self.verbose:
+                logger.info(
+                    "MRMR multioutput: target %r selected %d feature(s).", label, len(sub_names),
+                )
 
         if not per_column_selected:
             raise ValueError("MRMR multioutput: y has no output columns to fit.")

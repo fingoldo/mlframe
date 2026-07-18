@@ -714,6 +714,24 @@ def mi_direct(
         except Exception:
             _gpu_ok = False
         if _gpu_ok:
+            # Proactive VRAM headroom check (07_memory_scalability.md finding #4): before this,
+            # ``mi_direct``'s GPU fastpath had no upfront capacity guard -- unlike the CMI path
+            # (``_cmi_cuda._should_use_cuda``), which already probes ``memGetInfo`` + calls this SAME
+            # ``fe_gpu_has_vram_cushion`` helper before launching. The dominant device buffer here is the
+            # batched-permutation y-matrix (``max(npermutations, 64)`` int32 rows of length ``n``, per the
+            # ``mi_direct_gpu_batched`` delegation above); a near-full card (another process sharing the
+            # GPU, or VRAM eaten by a prior stage) would otherwise only be caught reactively by the
+            # circuit breaker AFTER an actual launch fault. Permissive on probe failure/no-cupy (see the
+            # helper's own docstring), so this can only DECLINE an already-risky launch, never block a
+            # healthy one.
+            try:
+                _n = int(np.asarray(x).shape[0])
+                _bytes_needed = _n * max(int(npermutations), 64) * 4 + _n * 8
+                from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
+                _gpu_ok = fe_gpu_has_vram_cushion(_bytes_needed)
+            except Exception:
+                _gpu_ok = True  # probe failure must not block an otherwise-eligible launch
+        if _gpu_ok:
             try:
                 from mlframe.feature_selection.filters.gpu import mi_direct_gpu
                 return mi_direct_gpu(
