@@ -160,13 +160,13 @@ jobs:
   # be redundant, not safer.
   ruff-blocking:
     name: Ruff (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@4e821c3982aa3a3f24d3026e7a77fab872819c0a  # v1.0.0
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@f26052fd4fee0d667aa6f4c3290d77e7ca6c1c06  # v1.2.0
     with:
       ignore: "C901"
 
   lint-blocking:
     name: lint + security (blocking, triaged clean)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@4e821c3982aa3a3f24d3026e7a77fab872819c0a  # v1.0.0
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@f26052fd4fee0d667aa6f4c3290d77e7ca6c1c06  # v1.2.0
     with:
       source-path: src/mlframe
       codespell-paths: src/mlframe
@@ -199,20 +199,20 @@ jobs:
   # reusable workflows (py-ci-shared v1.1.0+) point them at tests/ instead of the whole repo.
   tests-ruff-blocking:
     name: Ruff tests/ (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@bd504156abd3e63dc53c189b9c61fedf1a289c02  # v1.1.0
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@f26052fd4fee0d667aa6f4c3290d77e7ca6c1c06  # v1.2.0
     with:
       check-path: tests
       ignore: "C901"
 
   tests-black-filtered:
     name: Black tests/ (filtered, blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@acf3f712ec7e00fd23880cf20be8842bc5c2cc07  # v1.0.1
+    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@f26052fd4fee0d667aa6f4c3290d77e7ca6c1c06  # v1.2.0
     with:
       check-path: tests
 
   tests-lint-blocking:
     name: lint + security tests/ (blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@bd504156abd3e63dc53c189b9c61fedf1a289c02  # v1.1.0
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@f26052fd4fee0d667aa6f4c3290d77e7ca6c1c06  # v1.2.0
     with:
       source-path: tests
       codespell-paths: tests
