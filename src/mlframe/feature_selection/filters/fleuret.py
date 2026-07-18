@@ -74,8 +74,7 @@ def get_fleuret_criteria_confidence_parallel(
         entropy_cache = {}
     nfailed = 0
 
-    if workers_pool is None:
-        workers_pool = Parallel(n_jobs=n_workers, **parallel_kwargs)
+    # Pool construction is deferred to the dispatch branch below (n_workers<=1 skips joblib entirely).
 
     # 2026-05-28: read SU toggle once here (Python-level) and thread into every joblib worker.
     _use_su = use_su_normalization()
@@ -89,7 +88,7 @@ def get_fleuret_criteria_confidence_parallel(
     gc.collect()
     # Per-worker seed derivation: outer base_seed * Knuth multiplicative hash + worker index keeps streams independent yet aggregate is reproducible from outer base_seed.
     _worker_loads = list(distribute_permutations(npermutations=npermutations, n_workers=n_workers))
-    res = workers_pool(
+    _calls = [
         delayed(parallel_fleuret)(
             data=data_copy,
             factors_nbins=factors_nbins,
@@ -115,7 +114,19 @@ def get_fleuret_criteria_confidence_parallel(
             use_jmim=_use_jmim,
         )
         for _widx, worker_npermutations in enumerate(_worker_loads)
-    )
+    ]
+    if n_workers is None or int(n_workers) <= 1:
+        # joblib.Parallel(n_jobs<=1) never actually spawns a worker thread (empirically confirmed:
+        # every delayed() call runs inline on the calling thread even with backend="threading"), but
+        # it still pays its own dispatch/BatchCompletionCallBack/generator bookkeeping per call. This
+        # function's only production call site (``_confirm_predictor.py``) already gates on
+        # ``n_workers > 1`` before calling it, so this branch is a defensive parity fix for any other
+        # caller (tests, future call sites) that passes n_workers<=1 -- bypass joblib entirely.
+        res = [_c[0](*_c[1], **_c[2]) for _c in _calls]
+    else:
+        if workers_pool is None:
+            workers_pool = Parallel(n_jobs=n_workers, **parallel_kwargs)
+        res = workers_pool(_calls)
 
     nchecked = 0
     for worker_nfailed, worker_i, entropy_cache_dict in res:
