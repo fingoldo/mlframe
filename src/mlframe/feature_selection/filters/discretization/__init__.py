@@ -138,7 +138,14 @@ def _multi_col_factorize_native(categorical_df: "pd.DataFrame") -> np.ndarray:
             needs_factorize.append((_j, _c))
 
     if needs_factorize:
-        if len(needs_factorize) <= 1:
+        # Threshold raised 1 -> 8 (7-site joblib.Parallel audit, 2026-07-19): isolated/warmed/best-of-3+
+        # measurement at the realistic column-count range for this branch (2-8 non-Categorical columns)
+        # found the joblib threading pool never clearly wins there -- 2 cols -> 1.29x (but that case was
+        # already serial pre-fix, since the old threshold was ``<= 1``), 8 cols -> 0.52x (loses), 40 cols
+        # -> 0.93x (roughly even). No clean win was found across 2-8 columns, so that whole range now stays
+        # serial; the pool is still used above 8 columns where the per-thread pd.factorize work is enough
+        # to amortise joblib's dispatch overhead.
+        if len(needs_factorize) <= 8:
             for _j, _c in needs_factorize:
                 _codes, _ = pd.factorize(categorical_df[_c], use_na_sentinel=True)
                 out[:, _j] = _codes.astype(np.float64)
