@@ -39,7 +39,6 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 
-
 # ----------------------------------------------------------------------------------------------------------------------------
 # Helpers / fixtures (tiny: n<=800, p<=4 -- RAM-light by design)
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -157,9 +156,9 @@ def test_mrmr_refit_on_changed_param_same_data_reflects_new_param():
         m.set_params(factors_names_to_use=["good1"])
         m.fit(X, y)
         names_2 = list(m.get_feature_names_out())
-    assert "good2" not in names_2, (
-        f"stale replay: selection still contains 'good2' after restricting factors_names_to_use to ['good1'] on identical data; got {names_2}"
-    )
+    assert (
+        "good2" not in names_2
+    ), f"stale replay: selection still contains 'good2' after restricting factors_names_to_use to ['good1'] on identical data; got {names_2}"
 
 
 def test_mrmr_refit_on_changed_param_via_attribute_assignment():
@@ -208,10 +207,21 @@ def test_mrmr_refit_on_changed_y_same_x():
 
 
 def test_mrmr_identical_refit_still_skips():
+    """Pins the IN-OBJECT same-content signature skip specifically (not the separate cross-target
+    identity cache, ``mrmr_skip_when_prior_was_identity``, default True). This fixture's 2 informative +
+    1 noise columns all end up SELECTED (an "identity" result: every input column kept), so without
+    disabling the identity cache here, THAT mechanism would also fire and take precedence -- its
+    shortcut reconstructs ``support_`` in ascending column order regardless of the original fit's actual
+    rank order, which would make this test's exact-order assertion fail for a reason unrelated to what
+    it's testing (bug found while testing finding #5's re-entrancy guard, 05_concurrency_and_statistics.md
+    -- root-caused and separately fixed: the same-content signature itself also used to be captured from
+    a TRANSIENT mid-fit param state, permanently defeating this skip for the default
+    ``cluster_aggregate_enable=True`` config; see the pre/post-fit ctor-params snapshot in
+    ``_mrmr_class.py``'s ``fit()``/``_fit_body``)."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y = _mrmr_data(seed=1, n=500)
-    m = MRMR(verbose=0, n_jobs=1, fe_max_steps=0)
+    m = MRMR(verbose=0, n_jobs=1, fe_max_steps=0, mrmr_skip_when_prior_was_identity=False)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         m.fit(X, y)

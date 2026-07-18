@@ -180,9 +180,22 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # expands nested ``get_params``-bearing objects (``param__subparam``) so in-place mutation of a
     # nested estimator/config also invalidates the skip. On any ``get_params`` failure we fall back
     # to a per-call unique token (identity equality) => never matches => conservative full refit.
+    #
+    # PRE-OVERRIDE snapshot preferred (bug fix, 05_concurrency_and_statistics.md, found while testing
+    # finding #5): ``fit()``'s outer wrapper (``_fit_body`` in ``_mrmr_class.py``) applies several
+    # TRANSIENT mid-fit overrides (cluster_aggregate_enable, fast-search profile knobs, default-screen-
+    # subsample, ...) to ctor-param-named attributes BEFORE calling into ``_fit_impl`` here, then
+    # restores them in its ``finally``. Reading ``self.get_params()`` fresh AT THIS POINT would capture
+    # those TRANSIENT values instead of the stable, user-visible ctor state, permanently breaking the
+    # same-content-skip signature match on every SUBSEQUENT identical fit() for any config where an
+    # override actually fires (e.g. the DEFAULT ``cluster_aggregate_enable=True``) -- the stored
+    # signature would never again match a freshly (post-restore) computed one. ``_pre_fit_ctor_params_
+    # snapshot_`` is captured once, pre-override, at the very top of ``_fit_body``; fall back to a live
+    # read only if it's absent (a caller invoking ``_fit_impl`` directly, bypassing the wrapper).
     _self_params_sig: Any
     try:
-        _self_params_sig = _hashable_params_signature(self.get_params(deep=True))
+        _pre_fit_snapshot = getattr(self, "_pre_fit_ctor_params_snapshot_", None)
+        _self_params_sig = _hashable_params_signature(_pre_fit_snapshot if _pre_fit_snapshot is not None else self.get_params(deep=True))
     except Exception:
         _self_params_sig = object()
     signature = (X.shape, y.shape, _y_hash_for_sig, _x_hash_for_sig, _x_cols_sig, _self_params_sig)
@@ -225,13 +238,21 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     except Exception:
         _cache_key = None
     _cached = None
+    _replayed = None
     if _cache_key is not None:
+        # concurrency audit finding #2: the replay READ of ``_cached``'s attributes must stay inside the
+        # SAME locked critical section as the lookup, not run after the ``with`` block exits. If the
+        # cached instance is itself concurrently being re-fit() (same object, same cache key -- a shared/
+        # reused estimator in a service), an unlocked replay could read a torn mix of attributes: some
+        # already reset for the new in-flight fit, some still holding the old fitted values. Locking the
+        # whole lookup+replay span makes the replay see a consistent snapshot either fully before or
+        # fully after the concurrent fit's own (also-locked, see the store site below) attribute writes.
         with _MRMR_FIT_CACHE_LOCK:
             if _cache_key in MRMR._FIT_CACHE:
                 _cached = MRMR._FIT_CACHE[_cache_key]
                 MRMR._FIT_CACHE.move_to_end(_cache_key)
+                _replayed = _replay_fitted_state(self, _cached)
     if _cached is not None:
-        _replayed = _replay_fitted_state(self, _cached)
         if self.verbose:
             logger.info(
                 "MRMR.fit: _FIT_CACHE hit -- replayed %d fitted attrs " "from prior fit, skipping cat-FE + permutation.",
@@ -9161,7 +9182,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # own ``__setitem__``/``popitem``/``move_to_end`` (KeyError, wrong-entry eviction) or iterate ``.values()``
         # via ``_mrmr_cache_bytes_total`` while another thread mutates the dict.
         with _MRMR_FIT_CACHE_LOCK:
-            MRMR._FIT_CACHE[_cache_key] = self
+            # concurrency audit finding #3 (TOCTOU): between this thread's earlier locked miss-check and this
+            # locked store, another thread with the IDENTICAL cache key may have run its own full fit and
+            # already stored its result here. Both instances are independently correct (same X/y/params), but
+            # picking a FIRST-WRITER-WINS policy (``setdefault`` instead of unconditional overwrite) makes the
+            # canonical cached entry deterministic by arrival order at this lock rather than by whichever
+            # thread happened to reach this exact line last -- and avoids uselessly replacing an already-valid
+            # entry with an equivalent one. ``self`` remains fully usable to ITS OWN caller either way; only
+            # which instance becomes the shared replay source for FUTURE cache hits is affected.
+            MRMR._FIT_CACHE.setdefault(_cache_key, self)
             MRMR._FIT_CACHE.move_to_end(_cache_key)
             # ``fit_cache_max=0`` is the operator-explicit "disable LRU" sentinel
             # (e.g. for memory-constrained suites where the 4-entry cache pins

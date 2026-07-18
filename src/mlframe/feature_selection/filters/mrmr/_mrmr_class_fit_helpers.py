@@ -9,6 +9,7 @@ stay reachable via the MRO.
 from __future__ import annotations
 
 import logging
+import threading
 import warnings
 from typing import TYPE_CHECKING, Any, Callable, Optional, cast
 
@@ -28,6 +29,15 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 if TYPE_CHECKING:
     from ._mrmr_class import MRMR
+
+# Process-wide count of in-flight MRMR.fit() calls (05_concurrency_and_statistics.md finding #1).
+# Guards the GPU circuit-breaker re-arm: unconditionally clearing the breaker at every fit() entry
+# clobbers a breaker another concurrently-running fit() legitimately tripped (poisoned CUDA context),
+# reintroducing the retry-storm the breaker exists to prevent. Re-arming only on the 0->1 transition
+# (the first fit to start after ALL prior fits finished) preserves the "one extra failed attempt per
+# fit" cost bound in the common single-threaded/sequential case while never clobbering a live breaker.
+_ACTIVE_FIT_COUNT_LOCK = threading.Lock()
+_ACTIVE_FIT_COUNT = 0
 
 
 class _MRMRFitHelpersMixin:
@@ -54,15 +64,38 @@ class _MRMRFitHelpersMixin:
             """Type-checking-only stub; resolves at runtime via the concrete ``_MRMRConfigMixin`` MRO."""
             ...
 
+    def _enter_active_fit_scope(self) -> None:
+        """Increment the process-wide in-flight-fit counter and re-arm the GPU circuit breakers ONLY on
+        the 0->1 transition (concurrency audit finding #1). Pairs with ``_exit_active_fit_scope()`` in
+        the outer ``fit()`` wrapper's ``finally``. See ``_rearm_gpu_circuit_breakers`` for the rationale;
+        the fix here is that unconditionally re-arming at EVERY fit() entry (the pre-fix behavior) races
+        against a concurrently in-flight fit that legitimately tripped a breaker on a poisoned CUDA
+        context -- clearing it out from under that fit reintroduces the retry-storm the breaker exists to
+        prevent. Re-arming only when no other fit is currently running preserves the single-threaded
+        "one extra failed attempt per fit" cost bound while never clobbering a live breaker."""
+        global _ACTIVE_FIT_COUNT
+        with _ACTIVE_FIT_COUNT_LOCK:
+            _ACTIVE_FIT_COUNT += 1
+            _should_rearm = _ACTIVE_FIT_COUNT == 1
+        if _should_rearm:
+            self._rearm_gpu_circuit_breakers()
+
+    def _exit_active_fit_scope(self) -> None:
+        """Decrement the process-wide in-flight-fit counter; pairs with ``_enter_active_fit_scope()``."""
+        global _ACTIVE_FIT_COUNT
+        with _ACTIVE_FIT_COUNT_LOCK:
+            _ACTIVE_FIT_COUNT = max(0, _ACTIVE_FIT_COUNT - 1)
+
     def _rearm_gpu_circuit_breakers(self) -> None:
-        """Re-arm the process-global CMI / mi_direct / pair-maxT GPU circuit breakers at the start of a
-        fit (finding #2 decomposition; behavior moved verbatim from ``fit()``'s opening block, 2026-07-09
-        fix, MRMR audit finding #31). These breakers are process-global and, once tripped by one launch
-        fault, permanently disable GPU for the rest of the process -- silently degrading every LATER fit
-        in a long-lived worker (notebook, service), not just the one that hit the transient fault.
-        Re-arming here bounds the cost of a genuinely-broken GPU to one extra failed attempt per fit (the
-        breaker still protects WITHIN a fit from thousands of repeated attempts), while a transient fault
-        (contention, a momentary driver hiccup) no longer sticks forever."""
+        """Re-arm the process-global CMI / mi_direct / pair-maxT GPU circuit breakers. Only called by
+        ``_enter_active_fit_scope()`` on the 0->1 in-flight-fit transition (concurrency audit finding #1;
+        originally called unconditionally at every fit() entry, 2026-07-09 fix, MRMR audit finding #31).
+        These breakers are process-global and, once tripped by one launch fault, permanently disable GPU
+        for the rest of the process -- silently degrading every LATER fit in a long-lived worker
+        (notebook, service), not just the one that hit the transient fault. Re-arming here bounds the
+        cost of a genuinely-broken GPU to one extra failed attempt per fit (the breaker still protects
+        WITHIN a fit from thousands of repeated attempts), while a transient fault (contention, a
+        momentary driver hiccup) no longer sticks forever."""
         try:
             reset_cmi_gpu_circuit_breaker()
         except Exception:  # nosec B110 - optional GPU module; re-arm is a resilience nicety, not a hard dependency
@@ -447,7 +480,7 @@ class _MRMRFitHelpersMixin:
         self.provenance_: Optional[dict] = None
         self._feature_names_in_synthesized_ = not hasattr(X, "columns")
         # Mark for transform() to know we're in shortcut state. Some downstream code looks at .signature; safe-default to a stable string.
-        self.signature: Optional[str] = f"_mrmr_identity_shortcut_n{n_cols}"
+        self.signature: tuple | str | None = f"_mrmr_identity_shortcut_n{n_cols}"
 
     def _fit_multioutput(
         self,

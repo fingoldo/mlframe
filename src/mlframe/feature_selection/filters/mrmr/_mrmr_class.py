@@ -16,6 +16,7 @@ import copy
 import logging
 import os
 import psutil
+import threading
 import warnings
 from collections import OrderedDict
 from typing import Any, Callable, ClassVar, Iterable, Optional, Sequence, cast
@@ -58,6 +59,7 @@ from .._mrmr_fingerprints import (
     _mrmr_compute_x_fingerprint,
     _mrmr_y_corr_sample,
     _mrmr_y_corr,
+    _hashable_params_signature,
     _MRMR_IDENTITY_FP_CACHE,
     _MRMR_IDENTITY_FP_LOCK,
 )
@@ -99,6 +101,7 @@ from ..info_theory._state_and_dispatch import set_group_mi as _set_group_mi
 from ..info_theory._group_mi import prepare_group_segments as _prepare_group_segments
 from ..info_theory import (
     set_su_normalization, set_jmim_aggregator, set_bur_lambda, set_mi_miller_madow,
+    set_mi_chao_shen, use_mi_chao_shen,
     set_relaxmrmr_alpha, set_pid_synergy_bonus, set_cmi_perm_stop, set_cpt_test,
     use_su_normalization, use_jmim_aggregator, get_bur_lambda, use_mi_miller_madow,
     get_relaxmrmr_alpha, get_pid_synergy_bonus, get_cmi_perm_stop, get_cpt_test,
@@ -2907,7 +2910,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
 
         # save params
         store_params_in_object(obj=self, params=get_parent_func_args())
-        self.signature: str | None = None
+        self.signature: tuple | str | None = None
 
     def __repr__(self, N_CHAR_MAX: int = 700) -> str:
         # ``n_workers`` (candidate-MI evaluation parallelism; default 1 = SERIAL, the fast path) is hidden by sklearn's
@@ -2967,6 +2970,25 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         "fe_wavelet_enable",                    # legacy OFF; ctor ON
     })
 
+    @property
+    def _fit_reentrancy_lock(self) -> threading.Lock:
+        """Per-instance, lazily-created lock guarding against concurrent ``fit()`` calls on the SAME
+        object (concurrency audit finding #5). Not a real constructor param / fitted attribute -- stored
+        under a private ``__dict__`` key and excluded from pickling via ``__getstate__`` below (a
+        ``threading.Lock`` is not picklable); a fresh lock is lazily recreated after unpickle on first use."""
+        lock = self.__dict__.get("_fit_reentrancy_lock_")
+        if lock is None:
+            lock = threading.Lock()
+            self.__dict__["_fit_reentrancy_lock_"] = lock
+        return lock
+
+    def __getstate__(self):
+        """Strip the non-picklable lazy re-entrancy lock (see ``_fit_reentrancy_lock`` above) before
+        pickling; everything else follows ``BaseEstimator``'s default ``__dict__`` snapshot."""
+        state = self.__dict__.copy()
+        state.pop("_fit_reentrancy_lock_", None)
+        return state
+
     def __setstate__(self, state):
         # MUST stay on the MRMR class body (not a mixin): it OVERRIDES BaseEstimator.__setstate__, so any
         # mixin placed after BaseEstimator in the MRO would be shadowed and this legacy-default injection
@@ -3018,6 +3040,35 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         sample_weight: np.ndarray | pd.Series | None = None,
         **fit_params,
     ):
+        """Thin outer wrapper around ``_fit_body`` (concurrency audit finding #1, #5): tracks the
+        process-wide in-flight-fit count (gates the GPU circuit-breaker re-arm to the 0->1 transition
+        so a concurrently-running fit's tripped breaker is never clobbered by another fit starting)
+        and enforces the documented "no concurrent fit() on the SAME instance" contract via a
+        non-blocking re-entrancy guard, before delegating to the real body. See ``_fit_body`` for the
+        actual docstring/contract."""
+        if not self._fit_reentrancy_lock.acquire(blocking=False):
+            raise RuntimeError(
+                "MRMR.fit() called concurrently on the SAME instance from two threads. Concurrent "
+                "fit() on one MRMR object is not supported (sklearn convention: estimators are not "
+                "thread-safe for concurrent fit) -- use a separate clone() per thread instead."
+            )
+        try:
+            self._enter_active_fit_scope()
+            try:
+                return self._fit_body(X, y, groups=groups, sample_weight=sample_weight, **fit_params)
+            finally:
+                self._exit_active_fit_scope()
+        finally:
+            self._fit_reentrancy_lock.release()
+
+    def _fit_body(
+        self,
+        X: pd.DataFrame | np.ndarray | Any,
+        y: pd.DataFrame | pd.Series | np.ndarray | Any,
+        groups: pd.Series | np.ndarray | None = None,
+        sample_weight: np.ndarray | pd.Series | None = None,
+        **fit_params,
+    ):
         """Public ``fit`` wrapper. The body (``_fit_impl``) is run inside a try / finally so the
         temporary target columns injected into a caller-supplied pandas frame are always dropped,
         even if screening / cat-FE / discretization raises. Pre-fix code dropped only on success,
@@ -3040,10 +3091,27 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         Wrapper / _fit_impl forwarding asymmetry: ``sample_weight`` is CONSUMED at this wrapper level (via ``_maybe_resample_for_sample_weight`` before the ``_fit_impl`` call); ``groups`` is FORWARDED into ``_fit_impl`` which then silently drops them. A future refactor moving ``groups`` consumption into ``_fit_impl`` must also remove or downgrade the wrapper-level warning, otherwise the two ends would emit duplicate / contradictory messages.
 
         Cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``."""
-        # finding #2 decomposition: GPU-breaker re-arm, groups contract check, and polars
-        # validate+bridge each moved verbatim to a named helper on _MRMRFitHelpersMixin (see their
-        # docstrings for the original rationale) -- zero behavior change, pure extraction.
-        self._rearm_gpu_circuit_breakers()
+        # finding #2 decomposition: groups contract check and polars validate+bridge each moved
+        # verbatim to a named helper on _MRMRFitHelpersMixin (see their docstrings for the original
+        # rationale) -- zero behavior change, pure extraction. The GPU-breaker re-arm now happens in the
+        # outer ``fit()`` wrapper's ``_enter_active_fit_scope()`` (concurrency audit finding #1), gated to
+        # the 0->1 in-flight-fit transition instead of running unconditionally on every call here.
+        #
+        # Pre-override ctor-params snapshot (bug found while testing finding #5's re-entrancy guard,
+        # 05_concurrency_and_statistics.md): the in-object "identical refit -> skip" signature
+        # (``_fit_impl_core.py``'s ``_self_params_sig``) used to be computed from ``self.get_params()``
+        # READ INSIDE ``_fit_impl`` -- i.e. AFTER this method's OWN below-here overrides (cluster_
+        # aggregate_enable, fast-search profile, default-screen-subsample, etc.) had already flipped
+        # several ctor-param-named attributes to a TRANSIENT mid-fit value. The signature got stored
+        # with that transient value baked in, but the ``finally`` block restores the true ctor value
+        # before returning -- so a SUBSEQUENT identical fit()'s freshly-read params (post-restore) could
+        # NEVER match the stored signature for any config whose override actually fires (e.g. the
+        # DEFAULT ``cluster_aggregate_enable=True``), permanently defeating the same-content skip
+        # optimization for the common case and forcing a full re-fit (with a different tie-break outcome
+        # on near-equal-gain features) on every "identical" refit. Snapshotting the STABLE, pre-override
+        # params here and threading it into ``_fit_impl`` (which prefers it over a fresh
+        # ``self.get_params()`` read) fixes the signature to always reflect the user-visible ctor state.
+        self._pre_fit_ctor_params_snapshot_ = self.get_params(deep=True)
         self._check_groups_contract(groups)
         self._pandas_frame_for_target_cleanup = None
         self._target_names_for_cleanup = None
@@ -3284,7 +3352,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         _toggles_snapshot = (
             use_su_normalization(), use_jmim_aggregator(), get_bur_lambda(),
             use_mi_miller_madow(), get_relaxmrmr_alpha(), get_pid_synergy_bonus(),
-            get_cmi_perm_stop(), get_cpt_test(),
+            get_cmi_perm_stop(), get_cpt_test(), use_mi_chao_shen(),
         )
         _mi_norm = getattr(self, "mi_normalization", "none")
         if _mi_norm not in ("none", "su"):
@@ -3327,24 +3395,18 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         _bur_lambda = float(getattr(self, "bur_lambda", 0.0) or 0.0)
         set_jmim_aggregator(_jmim_on)
         set_bur_lambda(_bur_lambda)
-        # Miller-Madow relevance-MI bias correction. Subtracts the closed-form ``(k_x-1)(k_y-1)/(2n)`` plug-in bias from the OBSERVED relevance so high-cardinality
-        # noise no longer out-ranks low-cardinality true signal at small n. Default 'none' keeps the legacy plug-in estimator bit-exact. Reset in the finally.
+        # Miller-Madow / Chao-Shen relevance-MI bias correction. Both subtract/re-estimate away the plug-in
+        # estimator's finite-sample bias from the OBSERVED relevance so high-cardinality noise no longer
+        # out-ranks low-cardinality true signal at small n. Default 'none' keeps the legacy plug-in
+        # estimator bit-exact. Reset in the finally. Chao-Shen (finding #7, 05_concurrency_and_statistics.md)
+        # was previously an accepted-but-silently-ignored value (degraded to plug-in with a warning); it is
+        # now fully wired into both the observed-relevance and permutation-null paths, mirroring
+        # Miller-Madow's wiring exactly (see compute_relevance_score / mi_or_su_from_classes).
         _mi_corr = getattr(self, "mi_correction", "none")
         _mm_on = _mi_corr == "miller_madow"
+        _cs_on = _mi_corr == "chao_shen"
         set_mi_miller_madow(_mm_on)
-        # mi_correction='chao_shen' is an accepted option but the Chao-Shen estimator is not yet wired into the relevance/null njit path (it needs a joint-count kernel,
-        # not the classes-based compute_relevance_score); it currently degrades to the plug-in 'none' behaviour for BOTH observed and null. Surface that instead of silently
-        # ignoring it -- since observed and null degrade together there is no estimator mismatch (critique N-F6), but the user should know the correction is a no-op today.
-        if _mi_corr == "chao_shen":
-            # A logger.warning here would be silently swallowed by any caller with unconfigured
-            # logging (the common case for a plain script) -- the correction being a no-op is a
-            # real, requested-but-unmet accuracy contract, so it must survive that.
-            warnings.warn(
-                "MRMR mi_correction='chao_shen' is not yet wired into the relevance/null path and "
-                "falls back to plug-in MI ('none'); no bias correction is applied this fit.",
-                UserWarning,
-                stacklevel=2,
-            )
+        set_mi_chao_shen(_cs_on)
         # Group-aware relevance MI: per-group I(X;Y|G) so a between-group-level feature (high global MI, ~0 within-group)
         # is demoted. Row resampling under non-uniform sample_weight reshuffles X but not groups, so restrict to the
         # no-resample case (sample_weight is None); otherwise disable with a warning rather than mis-assign rows.
@@ -3530,7 +3592,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             # Restore the MI thread-locals to the values they held at fit ENTRY (snapshot above), not to
             # hardcoded literals: an inner fit must leave an outer fit's toggles intact. Mirrors the
             # _prev_* restore in _evaluation_driver.py's worker path.
-            _su0, _jmim0, _bur0, _mm0, _relax0, _pid0, _cmi0, _cpt0 = _toggles_snapshot
+            _su0, _jmim0, _bur0, _mm0, _relax0, _pid0, _cmi0, _cpt0, _cs0 = _toggles_snapshot
 
             def _restore_synergy_bonuses() -> None:
                 """Restore RelaxMRMR/PID/CMI-perm/CPT thread-locals to their fit-entry snapshot."""
@@ -3543,12 +3605,14 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             _safe_restore(lambda: set_jmim_aggregator(_jmim0), "JMIM aggregator thread-local")
             _safe_restore(lambda: set_bur_lambda(_bur0), "BUR lambda thread-local")
             _safe_restore(lambda: set_mi_miller_madow(_mm0), "Miller-Madow thread-local")
+            _safe_restore(lambda: set_mi_chao_shen(_cs0), "Chao-Shen thread-local")
             _safe_restore(lambda: _set_group_mi(None), "group-aware MI thread-local")
             _safe_restore(_restore_synergy_bonuses, "RelaxMRMR/PID/CMI-perm/CPT synergy thread-locals")
             # reset DCD thread-local and restore cluster_aggregate_enable to its constructor value
             # (Critic2 fix: missing reset in v1 plan).
             _safe_restore(lambda: _set_dcd_active(False), "DCD active thread-local")
             _safe_restore(lambda: setattr(self, "cluster_aggregate_enable", _orig_cluster_aggregate_enable), "cluster_aggregate_enable")
+            _safe_restore(lambda: self.__dict__.pop("_pre_fit_ctor_params_snapshot_", None), "pre-fit ctor-params snapshot")
             # Restore the lazily-reconciled ctor aliases so ``get_params`` / ``clone`` see the unmodified
             # user-supplied values (sklearn round-trip contract). ``_UNSET`` => never overridden.
             if _orig_random_seed is not _UNSET:
@@ -3616,6 +3680,25 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
                     _safe_restore(_drop_target_cleanup_columns, "target-cleanup column drop on caller frame")
             self._pandas_frame_for_target_cleanup = None
             self._target_names_for_cleanup = None
+
+            def _refresh_signature_params_post_restore() -> None:
+                """Re-stamp ``self.signature``'s params component from a LIVE ``get_params()`` read taken
+                AFTER every restore above has completed (bug found while testing finding #5's re-entrancy
+                guard, 05_concurrency_and_statistics.md). ``_fit_impl`` (``_fit_impl_core.py``) already
+                does an analogous "refresh with post-fit values before storing" step so a param genuinely
+                normalised IN PLACE during the fit (e.g. RFECV's ``scoring`` resolution) still matches the
+                NEXT fit's freshly-read params -- but that refresh runs BEFORE this method's OWN transient
+                overrides (cluster_aggregate_enable, fast-search profile, default-screen-subsample, ...)
+                are restored, so it captured their TRANSIENT mid-fit values, permanently breaking the
+                same-content-skip match for the common default config. This second, later refresh runs
+                after every override above is undone, so it reflects the true, stable, post-fit-and-
+                restore state -- exactly what the NEXT fit's pre-override snapshot will read."""
+                _sig = getattr(self, "signature", None)
+                if _sig is None:
+                    return
+                self.signature = (*_sig[:-1], _hashable_params_signature(self.get_params(deep=True)))
+
+            _safe_restore(_refresh_signature_params_post_restore, "post-restore signature params refresh")
 
     # ``_fit_impl`` is implemented in ``_mrmr_fit_impl.py`` and bound onto
     # this class at the bottom of this module.

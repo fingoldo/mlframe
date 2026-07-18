@@ -856,6 +856,17 @@ def evaluate_candidate(
         except Exception as _pid_exc:
             logger.warning("PID synergy bonus computation failed silently: %r", _pid_exc)
 
+    # concurrency audit finding #6: cmi_perm_stop / cpt_test below previously seeded their permutation null
+    # SOLELY from ``cand_idx`` (identical across every greedy round for the same candidate). ``selected_vars``
+    # -- the conditioning set the candidate is actually being tested against -- grows every round, so the SAME
+    # candidate re-evaluated against a DIFFERENT (larger) conditioning set drew the IDENTICAL row permutation
+    # every time, understating the true null variance the stopping/p-value decision relies on. Folding a stable
+    # hash of the current ``selected_vars`` content into the seed makes each round's null draw independent of
+    # the others for the same candidate. (Full ``random_seed=`` threading through screen_predictors ->
+    # confirm_predictor -> evaluate_candidate is a separate, larger plumbing change -- deferred; this fixes the
+    # more serious of the two documented defects, the round-to-round correlation, without it.)
+    _cmi_cpt_seed = (hash((int(cand_idx), tuple(sorted(int(v) for v in selected_vars)))) & 0xFFFFFFFF) if selected_vars else int(cand_idx)
+
     # CMI permutation early-stop (Yu & Principe 2019). Default off -> skipped (byte-identical). When active, permute the candidate (preserving its marginal) and re-estimate
     # ``I(X; Y | selected)``; if the observed conditional MI is NOT significant at alpha (p >= alpha), the candidate carries no conditional signal given the selected set and is
     # dropped (gain forced to 0.0). Drops a conditionally-redundant candidate the relative-gain floor alone would admit.
@@ -872,7 +883,7 @@ def evaluate_candidate(
                 sel_nbins.append(_zk)
             is_signif, _obs, _pval = cmi_permutation_stop(
                 x_col, y_col, sel_cols, k_x, k_y, sel_nbins,
-                n_permutations=_cmi_nperm, alpha=_cmi_alpha, seed=int(cand_idx),
+                n_permutations=_cmi_nperm, alpha=_cmi_alpha, seed=_cmi_cpt_seed,
             )
             if not is_signif:
                 current_gain = 0.0
@@ -910,7 +921,7 @@ def evaluate_candidate(
                     break
             _obs, _pval = conditional_permutation_test(
                 x_col, y_col, z_comp, nbins_x=int(k_x), nbins_y=int(k_y), nbins_z=int(k_z),
-                n_permutations=_cpt_nperm, seed=int(cand_idx),
+                n_permutations=_cpt_nperm, seed=_cmi_cpt_seed,
             )
             if _pval >= 0.05:
                 current_gain = 0.0
