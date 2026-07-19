@@ -90,19 +90,27 @@ def _resolve_feature_matrix(
 
     Columns are pulled one at a time (narrow ndarray views), never via a whole-frame ``to_pandas`` / ``to_numpy``
     on a 100+ GB carrier. Non-numeric columns are label-encoded to integer codes so the tree can still split on them.
+    Object-dtype columns holding non-scalar elements (e.g. list-valued embedding columns surfaced as pandas
+    object dtype) can't be stringified by ``astype(str)`` -- numpy raises "setting an array element with a
+    sequence" trying to broadcast the list into a fixed-width string array -- so those columns are dropped
+    (a single embedding vector isn't a meaningful scalar split feature anyway).
     """
     if hasattr(X, "columns") and hasattr(X, "__getitem__") and not isinstance(X, np.ndarray):
         cols = list(X.columns)
-        names = list(feature_names) if feature_names is not None else [str(c) for c in cols]
+        all_names = list(feature_names) if feature_names is not None else [str(c) for c in cols]
         mats: List[np.ndarray] = []
-        for c in cols:
+        names: List[str] = []
+        for c, name in zip(cols, all_names):
             col = X[c]
             arr = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
             if arr.dtype.kind in "OUS" or arr.dtype.kind == "b":
+                if arr.dtype.kind == "O" and any(isinstance(v, (list, tuple, np.ndarray)) for v in arr):
+                    continue
                 _, codes = np.unique(arr.astype(str), return_inverse=True)
                 mats.append(codes.astype(np.float64))
             else:
                 mats.append(arr.astype(np.float64))
+            names.append(name)
         mat = np.column_stack(mats) if mats else np.empty((len(X), 0), dtype=np.float64)
         return mat, names
     mat = np.asarray(X, dtype=np.float64)

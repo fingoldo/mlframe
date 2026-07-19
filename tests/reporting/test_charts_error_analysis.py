@@ -20,6 +20,7 @@ from mlframe.reporting.charts.error_analysis import (
     ErrorBiasResult,
     WeakSegmentResult,
     WorstKResult,
+    _resolve_feature_matrix,
     error_bias_per_feature,
     segments_bar,
     target_dist_overlay,
@@ -524,6 +525,35 @@ def test_biz_val_target_dist_overlay_detects_train_test_shift():
     assert "train" in means and "test" in means
     detected = means["test"] - means["train"]
     assert detected >= 1.7, f"injected train/test shift {shift} should surface as >=1.7, got {detected}"
+
+
+def test_resolve_feature_matrix_drops_list_valued_embedding_column():
+    """A pandas object-dtype column holding list elements (e.g. a materialized embedding column) used to make
+    ``arr.astype(str)`` raise ``ValueError: setting an array element with a sequence`` -- numpy can't build a
+    fixed-width string array out of variable-length sequences. It's dropped instead of crashing.
+    """
+    n = 50
+    X = pd.DataFrame(
+        {
+            "num": np.arange(n, dtype=float),
+            "cat": np.array(["a", "b"] * (n // 2), dtype=object),
+            "emb": [[0.1, 0.2, 0.3]] * n,
+        }
+    )
+    mat, names = _resolve_feature_matrix(X, None)
+    assert names == ["num", "cat"]
+    assert mat.shape == (n, 2)
+    assert np.array_equal(mat[:, 0], np.arange(n, dtype=float))
+
+
+def test_weak_segment_heatmap_with_embedding_column_does_not_raise(reg_clean):
+    """weak_segment_heatmap end-to-end with a list-valued column present -- the real path that failed via
+    slice_finder/weak_segment_heatmap in the fuzz suite on any combo carrying an embedding feature.
+    """
+    X, yt, yp = reg_clean
+    X = X.copy()
+    X["emb"] = [[0.0, 1.0]] * len(X)
+    weak_segment_heatmap(X, yt, yp)
 
 
 # ----------------------------------------------------------------------------
