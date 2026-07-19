@@ -75,8 +75,12 @@ def bench_case(label, x, y, *, max_y_classes=64):
 
     results = []
     results.append(_run_one("(a) quantile fallback (5 bins)", lambda: np.concatenate([[-np.inf], _edges_from_quantiles(x_tr, 5), [np.inf]]), x_tr, y_tr, x_te, y_te))
-    results.append(_run_one("(b) uncapped MDLP (depth=8)", lambda: mdlp_bin_edges(x_tr, y_tr, max_depth=8, max_y_classes=max_y_classes), x_tr, y_tr, x_te, y_te))
-    results.append(_run_one(f"(c) depth-capped MDLP (depth={depth_cap})", lambda: mdlp_bin_edges(x_tr, y_tr, max_depth=depth_cap, max_y_classes=max_y_classes), x_tr, y_tr, x_te, y_te))
+    # 2026-07-19: fast_mode=True explicitly pins these two to the CLASSIC in-sample-MDL path -- the
+    # production default flipped to validated splitting, so an unqualified mdlp_bin_edges() call here
+    # would silently route (b)/(c) through the same validated path as (d), destroying the intended
+    # classic-vs-validated comparison this bench exists to make.
+    results.append(_run_one("(b) uncapped MDLP (depth=8)", lambda: mdlp_bin_edges(x_tr, y_tr, max_depth=8, max_y_classes=max_y_classes, fast_mode=True), x_tr, y_tr, x_te, y_te))
+    results.append(_run_one(f"(c) depth-capped MDLP (depth={depth_cap})", lambda: mdlp_bin_edges(x_tr, y_tr, max_depth=depth_cap, max_y_classes=max_y_classes, fast_mode=True), x_tr, y_tr, x_te, y_te))
     results.append(_run_one("(d) validated MDLP (analytic+perm, a=.05)", lambda: mdlp_bin_edges_validated(x_tr, y_tr, max_depth=8, max_y_classes=max_y_classes, alpha=0.05, n_permutations=30), x_tr, y_tr, x_te, y_te))
     results.append(_run_one("(d') validated MDLP (bonferroni a=.05)", lambda: mdlp_bin_edges_validated(x_tr, y_tr, max_depth=8, max_y_classes=max_y_classes, alpha=0.05, n_permutations=30, bonferroni=True), x_tr, y_tr, x_te, y_te))
     return results
