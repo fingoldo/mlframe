@@ -840,7 +840,17 @@ class _FitMixin(_FitPrepMixin):
             if is_partial_fit:
                 self._tuned = True
 
-        trainer.fit(model=self.model, datamodule=dm)
+        from ._cuda_fallback import run_with_cuda_cpu_fallback
+
+        _fit_accelerator = str(trainer_params.get("accelerator", "auto"))
+        _, trainer = run_with_cuda_cpu_fallback(
+            action="fit",
+            primary_trainer=trainer,
+            model=self.model,
+            accelerator=_fit_accelerator,
+            run_fn=lambda t: t.fit(model=self.model, datamodule=dm),
+            build_cpu_trainer=lambda: L.Trainer(**{**trainer_params, "accelerator": "cpu", "devices": 1}, callbacks=callbacks),
+        )
 
         # Expose per-epoch train/val history (booster ``evals_result_`` shape) + the best epoch so the
         # reporting layer's training-curve chart picks it up with no neural-specific code (it already

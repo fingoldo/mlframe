@@ -8,7 +8,6 @@ them in unchanged.
 """
 from __future__ import annotations
 
-import os
 from typing import Any, Optional, cast
 
 import numpy as np
@@ -234,195 +233,28 @@ class _PredictMixin:
         if hasattr(self.model, "_orig_mod"):
             self.model._orig_mod.eval()
 
+        from ._cuda_fallback import run_with_cuda_cpu_fallback
+
+        def _build_cpu_predict_trainer():
+            """Bare-bones CPU-only inference Trainer for the CUDA-fallback retry."""
+            _cpu_params = {
+                "accelerator": "cpu",
+                "devices": 1,
+                "logger": False,
+                "enable_checkpointing": False,
+                "enable_progress_bar": False,
+            }
+            return L.Trainer(**cast(dict, _cpu_params))
+
         try:
-            predictions = prediction_trainer.predict(
+            predictions, _ = run_with_cuda_cpu_fallback(
+                action="predict",
+                primary_trainer=prediction_trainer,
                 model=self.model,
-                datamodule=datamodule,
+                accelerator=str(trainer_params.get("accelerator", "auto")),
+                run_fn=lambda t: t.predict(model=self.model, datamodule=datamodule),
+                build_cpu_trainer=_build_cpu_predict_trainer,
             )
-        except RuntimeError as e:
-            # iter293 (2026-05-26): defensive CPU fallback on CUDA runtime
-            # errors. Concurrent CUDA usage by another process on the same
-            # GPU (or a CUDA context invalidated by an earlier in-process
-            # failure) makes the predict trainer hit ``illegal memory
-            # access`` / ``out of memory`` / ``device-side assert`` even
-            # when the model and data were fine at fit time. Pre-fix the
-            # exception propagated and the whole suite died; that masks
-            # genuine training results behind a transient CUDA-context
-            # problem. Retry exactly once on CPU so the suite still
-            # delivers a usable prediction set + surfaces the underlying
-            # CUDA issue as a WARNING.
-            #
-            # Filter is narrow: only RuntimeError messages containing
-            # ``CUDA`` or one of the known CUDA-runtime fingerprints get
-            # retried. Other RuntimeError variants (shape mismatch,
-            # dataloader misconfig) re-raise immediately.
-            _msg = str(e)
-            _cuda_fingerprints = (
-                "CUDA",
-                "cuda runtime error",
-                "illegal memory access",
-                "device-side assert",
-                "out of memory",
-                "CUBLAS_STATUS_",
-                "CUDNN_STATUS_",
-                # Device-placement mismatch (model on cuda:0 but a batch / buffer
-                # left on cpu) surfaces as this RuntimeError whose text carries
-                # only the lowercase device tag ("cuda:0 and cpu"), so it slipped
-                # past the uppercase "CUDA" fingerprint above and propagated as a
-                # hard "Prediction failed" instead of triggering this CPU retry.
-                # The retry resolves it by placing model + data both on cpu.
-                # Observed on the multilabel-MLP GPU predict path (2026-06-02).
-                "Expected all tensors to be on the same device",
-            )
-            _is_cuda = trainer_params.get("accelerator") in ("cuda", "gpu", "auto") and any(fp in _msg for fp in _cuda_fingerprints)
-            if not _is_cuda:
-                logger.error("Prediction failed: %s", e)
-                raise
-            logger.warning(
-                "Prediction on accelerator=%r failed with CUDA-side error "
-                "(%s); retrying on CPU. Common cause: another process "
-                "holds the GPU or the in-process CUDA context was "
-                "invalidated by an earlier failure. The CPU fallback "
-                "produces equivalent numeric results but loses GPU "
-                "acceleration for this single predict.",
-                trainer_params.get("accelerator"), _msg,
-            )
-            try:
-                # iter333 (2026-05-27) follow-up to iter293: the original
-                # CPU fallback re-raised because the CUDA context was still
-                # dirty when the CPU trainer touched a still-on-GPU tensor
-                # via the model / datamodule reference graph. Explicitly:
-                #   1. Move the model to CPU (sub-modules + buffers).
-                #   2. Empty the CUDA cache (releases tensor memory).
-                #   3. Synchronise to flush any pending GPU ops so the next
-                #      torch op doesn't replay the failed kernel.
-                #   4. Build a fresh CPU-only Trainer.
-                try:
-                    self.model.to("cpu")
-                    if hasattr(self.model, "_orig_mod"):
-                        self.model._orig_mod.to("cpu")
-                except Exception:  # nosec B110 - optional/best-effort path, rationale documented
-                    pass  # best-effort: model may already be on CPU
-                # Reset CUDA state best-effort. ``empty_cache`` is a no-op
-                # when CUDA isn't initialised; ``synchronize`` only fires
-                # when CUDA is available. ``ipc_collect`` releases inter-
-                # process tensor references on Windows where mmap can hold
-                # GPU memory alive across the failed predict.
-                try:
-                    if torch.cuda.is_available():
-                        try:
-                            torch.cuda.synchronize()
-                        except Exception:  # nosec B110 - best-effort path
-                            pass
-                        try:
-                            torch.cuda.empty_cache()
-                        except Exception:  # nosec B110 - best-effort path
-                            pass
-                        try:
-                            torch.cuda.ipc_collect()
-                        except Exception:  # nosec B110 - best-effort path
-                            pass
-                except Exception:  # nosec B110 - best-effort path
-                    pass
-                _cpu_params = {
-                    "accelerator": "cpu",
-                    "devices": 1,
-                    "logger": False,
-                    "enable_checkpointing": False,
-                    "enable_progress_bar": False,
-                }
-                cpu_trainer = L.Trainer(**cast(dict, _cpu_params))
-                predictions = cpu_trainer.predict(
-                    model=self.model,
-                    datamodule=datamodule,
-                )
-            except Exception as e_cpu:
-                # iter341 (2026-05-27): if CPU fallback also fails, the
-                # CUDA context is permanently invalidated (verified on
-                # real concurrent-GPU contention 2026-05-27 c0014). To
-                # let the suite progress without GPU acceleration for
-                # the remainder of this process, hard-disable CUDA at
-                # the torch module level so subsequent estimators do
-                # not even try CUDA. The next predict / fit call then
-                # falls through to CPU naturally instead of hitting
-                # the same dirty-context error.
-                try:
-                    _cuda_msg = str(e_cpu)
-                    _is_still_cuda = any(fp in _cuda_msg for fp in _cuda_fingerprints)
-                except Exception:
-                    _is_still_cuda = False
-                if _is_still_cuda:
-                    logger.error(
-                        "CPU fallback after CUDA prediction failure ALSO failed "
-                        "with a CUDA-side error: %s. The CUDA context is "
-                        "permanently invalidated for this process. Disabling "
-                        "CUDA at the torch module level so subsequent "
-                        "estimators skip GPU and run on CPU; GPU acceleration "
-                        "will resume on the next process restart. Original "
-                        "CUDA error: %s",
-                        e_cpu, e,
-                    )
-                    try:
-                        # Hide CUDA from torch for the remainder of this
-                        # process. The env var only helps if torch hasn't
-                        # imported yet; the monkey-patch on
-                        # torch.cuda.is_available is the load-bearing piece.
-                        os.environ["CUDA_VISIBLE_DEVICES"] = ""
-                        torch.cuda.is_available = lambda: False
-                    except Exception:  # nosec B110 - best-effort path
-                        pass
-                    # iter420 (2026-05-27): explicitly move self.model
-                    # parameters to CPU BEFORE the retry. Hiding CUDA at
-                    # the module level does NOT relocate tensors that are
-                    # already on the (invalidated) GPU; Lightning's
-                    # accelerator='cpu' then crashes trying to operate
-                    # on GPU-resident weights with a broken context.
-                    # Surfaced on c0005 LTR run 2026-05-27: even after
-                    # iter341's CUDA-hide, the second CPU retry raised
-                    # the same CUDA illegal-memory-access error because
-                    # ``self.model.parameters()`` were still cuda:0
-                    # tensors. ``.to('cpu')`` reads from GPU memory
-                    # which is exactly what's broken -- so do it inside
-                    # try/except and continue regardless; if the move
-                    # itself fails the Trainer call will still raise
-                    # cleanly with the original CUDA error.
-                    try:
-                        self.model.to("cpu")
-                    except Exception as _e_move:
-                        logger.error(
-                            "Failed to move model parameters off the "
-                            "invalidated GPU context (%s); the CPU retry "
-                            "below will likely re-raise the CUDA error.",
-                            _e_move,
-                        )
-                    # Retry one more time on CPU now that CUDA is hidden
-                    # AND model weights are CPU-resident.
-                    try:
-                        _cpu_params2 = {
-                            "accelerator": "cpu",
-                            "devices": 1,
-                            "logger": False,
-                            "enable_checkpointing": False,
-                            "enable_progress_bar": False,
-                        }
-                        cpu_trainer2 = L.Trainer(**cast(dict, _cpu_params2))
-                        predictions = cpu_trainer2.predict(
-                            model=self.model,
-                            datamodule=datamodule,
-                        )
-                    except Exception as e_cpu2:
-                        logger.error(
-                            "Even with CUDA hidden the predict failed: %s. " "Re-raising original CUDA error.",
-                            e_cpu2,
-                        )
-                        raise
-                else:
-                    logger.error(
-                        "CPU fallback after CUDA prediction failure ALSO failed " "with a non-CUDA error: %s. Original CUDA error: %s",
-                        e_cpu,
-                        e,
-                    )
-                    raise
         except Exception:
             logger.exception("Prediction failed")
             raise
