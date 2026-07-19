@@ -381,6 +381,32 @@ class TestTorchDataModuleCreateDataLoader:
         loader = dm._create_dataloader(sample_data["X_train"], sample_data["y_train"], shuffle=True, drop_last=False)
         assert loader.pin_memory is True
 
+    def test_env_var_pin_memory_override_wins_over_on_gpu(self, sample_data, monkeypatch):
+        """MLFRAME_MLP_PIN_MEMORY=0 must win over on_gpu()=True when no per-call override is given."""
+        monkeypatch.setenv("MLFRAME_MLP_PIN_MEMORY", "0")
+        dm = TorchDataModule(
+            train_features=sample_data["X_train"],
+            train_labels=sample_data["y_train"],
+            dataloader_params={"batch_size": 32},
+        )
+        monkeypatch.setattr(dm, "on_gpu", lambda: True)
+        dm.setup(stage="fit")
+        loader = dm._create_dataloader(sample_data["X_train"], sample_data["y_train"], shuffle=True, drop_last=False)
+        assert loader.pin_memory is False
+
+    def test_explicit_pin_memory_wins_over_env_var(self, sample_data, monkeypatch):
+        """A caller-supplied dataloader_params["pin_memory"] must still win over the env var."""
+        monkeypatch.setenv("MLFRAME_MLP_PIN_MEMORY", "0")
+        dm = TorchDataModule(
+            train_features=sample_data["X_train"],
+            train_labels=sample_data["y_train"],
+            dataloader_params={"batch_size": 32, "pin_memory": True},
+        )
+        monkeypatch.setattr(dm, "on_gpu", lambda: False)
+        dm.setup(stage="fit")
+        loader = dm._create_dataloader(sample_data["X_train"], sample_data["y_train"], shuffle=True, drop_last=False)
+        assert loader.pin_memory is True
+
 
 # ================================================================================================
 # setup_predict() Tests
