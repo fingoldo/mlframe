@@ -306,6 +306,14 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # modules for ad-hoc / benchmark use only and are explicitly NOT
         # wired into MRMR.fit().
         nbins_strategy: str = "mdlp",
+        # 2026-07-19: ``nbins_strategy='mdlp'`` now runs significance-gated ("validated")
+        # splitting by DEFAULT instead of the classic in-sample MDL threshold + depth cap --
+        # measured real accuracy win on held-out RMSE (see supervised_binning.py's
+        # ``mdlp_bin_edges`` docstring) at a 20-80x per-column cost. Pass
+        # ``nbins_strategy_kwargs={"mdlp_fast_mode": True}`` to opt back into the cheap
+        # classic path for a specific run where wall-time matters more (e.g. a quick
+        # exploratory fit); other recognised keys: ``mdlp_alpha``, ``mdlp_n_permutations``,
+        # ``mdlp_bonferroni``, ``mdlp_max_y_classes``, ``mdlp_backend``, ``mdlp_scaled_min_split``.
         nbins_strategy_kwargs: dict | None = None,
         # Large-n REGRESSION adaptive quantization gate. On a large-n regression target the supervised MDLP per-feature binning
         # under-resolves a heavy-tailed continuous y: the 180-cell large-n MRMR campaign (reg n=100k, 15 seeds) measured a 15/15

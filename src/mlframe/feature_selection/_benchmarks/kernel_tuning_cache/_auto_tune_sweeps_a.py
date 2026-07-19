@@ -14,11 +14,19 @@ import itertools
 import logging
 import os
 import time
-from typing import Optional
+from typing import Callable, Optional, cast
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# Module-level sentinels for _run_sweep_polyeval's lazy globals()-based import below (real
+# hermite_fe values are set into these via g.setdefault at call time; declared here purely so
+# mypy resolves the names -- the deferred-import/monkeypatch behavior itself is unchanged).
+_NJIT_FUNCS: "dict[str, Callable]" = {}
+_NJIT_PAR_FUNCS: "dict[str, Callable]" = {}
+_CUDA_AVAILABLE: bool = False
+_polyeval_cuda: "Callable | None" = None
 
 
 def _physical_concurrency() -> int:
@@ -77,7 +85,7 @@ def _run_sweep_joint_hist(n_iters: int = 5) -> list[dict]:
     rng = np.random.default_rng(11)
     best_per_combo: dict[tuple[int, int], dict] = {}
 
-    def _make_samples(rng_, k: int, n: int, distribution: str) -> np.ndarray:
+    def _make_samples(rng_: np.random.Generator, k: int, n: int, distribution: str) -> np.ndarray:
         """Synthetic class samples on ``k`` levels of length ``n``.
         ``distribution`` in {``"uniform"``, ``"skewed"``}; skewed uses
         a Dirichlet(alpha=0.3) prior to draw class probabilities, which
@@ -175,7 +183,7 @@ def _run_sweep_joint_hist(n_iters: int = 5) -> list[dict]:
         "block_size": catch_all_block_size,
         "wall_ms": None,
     })
-    return regions
+    return cast("list[dict]", regions)
 def ensure_joint_hist_tuning(force: bool = False) -> Optional[list[dict]]:
     """Return cached regions for ``joint_hist_batched``; run the sweep
     + persist via pyutilz KernelTuningCache if missing. Returns None
@@ -190,7 +198,7 @@ def ensure_joint_hist_tuning(force: bool = False) -> Optional[list[dict]]:
     if not force:
         regions = cache.get_regions("joint_hist_batched")
         if regions:
-            return regions
+            return cast("list[dict]", regions)
 
     logger.info("kernel_tuning_cache: joint_hist sweep starting (one-time per host)")
     t0 = time.perf_counter()
@@ -206,7 +214,7 @@ def ensure_joint_hist_tuning(force: bool = False) -> Optional[list[dict]]:
     except OSError as e:
         logger.warning("kernel_tuning_cache: cache save failed: %s", e)
 
-    return regions
+    return cast("list[dict]", regions)
 def _run_sweep_mi_classif_dispatch(n_iters: int = 5) -> list[dict]:
     """Sweep ``(n_samples, k)`` grid for the ``plugin_mi_classif`` njit vs
     cuda dispatcher decision. Returns regions with ``backend_choice`` in
@@ -265,6 +273,8 @@ def _run_sweep_mi_classif_dispatch(n_iters: int = 5) -> list[dict]:
     for n, k in itertools.product(n_axis, k_axis):
         try:
             y = rng.integers(0, 3, size=n).astype(np.int64)
+            njit_fn: "Callable[..., np.ndarray | float]"
+            cuda_fn: "Callable[..., np.ndarray | float]"
             if k == 1:
                 base = rng.normal(size=n)
                 bytes_per = n * 8
@@ -325,7 +335,7 @@ def _run_sweep_mi_classif_dispatch(n_iters: int = 5) -> list[dict]:
         "njit_ms": None,
         "cuda_ms": None,
     })
-    return regions
+    return cast("list[dict]", regions)
 def ensure_mi_classif_dispatch_tuning(force: bool = False) -> Optional[list[dict]]:
     """Return cached regions for ``plugin_mi_classif_dispatch``; run the
     sweep + persist via pyutilz KernelTuningCache if missing. Returns
@@ -346,7 +356,7 @@ def ensure_mi_classif_dispatch_tuning(force: bool = False) -> Optional[list[dict
     if not force:
         regions = cache.get_regions("plugin_mi_classif_dispatch")
         if regions:
-            return regions
+            return cast("list[dict]", regions)
 
     logger.info("kernel_tuning_cache: plugin_mi_classif_dispatch sweep starting " "(one-time per host)")
     t0 = time.perf_counter()
@@ -372,7 +382,7 @@ def ensure_mi_classif_dispatch_tuning(force: bool = False) -> Optional[list[dict
         except OSError as e:
             logger.warning("kernel_tuning_cache: cache save failed: %s", e)
 
-    return regions
+    return cast("list[dict]", regions)
 def _run_sweep_polyeval(n_iters: int = 5) -> list[dict]:
     """Sweep ``(basis, n_samples)`` grid for the ``polyeval_dispatch``
     njit / njit_par / cuda backend decision. Derives the optimal
@@ -409,6 +419,10 @@ def _run_sweep_polyeval(n_iters: int = 5) -> list[dict]:
         )
         g.setdefault("_polyeval_cuda", _pc)
         _ensure_cuda_kernels()
+    # Local alias so mypy can flow-narrow the None-check below (the bare module-level name stays
+    # annotated Optional for callers importing it directly; this function's own two call sites use
+    # the local narrowed reference instead).
+    _polyeval_cuda_fn: "Callable | None" = g.get("_polyeval_cuda")
 
     rng = np.random.default_rng(11)
     bases = ("hermite", "legendre", "chebyshev", "laguerre")
@@ -425,8 +439,8 @@ def _run_sweep_polyeval(n_iters: int = 5) -> list[dict]:
         try:
             _NJIT_FUNCS[_basis](_warm_x, coef)
             _NJIT_PAR_FUNCS[_basis](_warm_x, coef)
-            if _CUDA_AVAILABLE:
-                _polyeval_cuda(_basis, _warm_x, coef)
+            if _CUDA_AVAILABLE and _polyeval_cuda_fn is not None:
+                _polyeval_cuda_fn(_basis, _warm_x, coef)
         except Exception as exc:
             logger.warning("polyeval warmup failed (basis=%s): %s", _basis, exc)
 
@@ -451,9 +465,9 @@ def _run_sweep_polyeval(n_iters: int = 5) -> list[dict]:
                     t0 = time.perf_counter()
                     _NJIT_PAR_FUNCS[basis](x, coef)
                     t_par.append(time.perf_counter() - t0)
-                    if _CUDA_AVAILABLE:
+                    if _CUDA_AVAILABLE and _polyeval_cuda_fn is not None:
                         t0 = time.perf_counter()
-                        _polyeval_cuda(basis, x, coef)
+                        _polyeval_cuda_fn(basis, x, coef)
                         t_cuda.append(time.perf_counter() - t0)
             except Exception as exc:
                 logger.debug("polyeval sweep skipped basis=%s n=%d: %s", basis, n, exc)
@@ -503,7 +517,7 @@ def _run_sweep_polyeval(n_iters: int = 5) -> list[dict]:
             "auto_tune polyeval basis=%s -> par_threshold=%d cuda_threshold=%d",
             basis, par_threshold, cuda_threshold,
         )
-    return regions
+    return cast("list[dict]", regions)
 def ensure_polyeval_tuning(force: bool = False) -> Optional[list[dict]]:
     """Return cached regions for ``polyeval``; run the sweep + persist
     via pyutilz KernelTuningCache if missing.
@@ -524,7 +538,7 @@ def ensure_polyeval_tuning(force: bool = False) -> Optional[list[dict]]:
     if not force:
         regions = cache.get_regions("polyeval")
         if regions:
-            return regions
+            return cast("list[dict]", regions)
 
     logger.info("kernel_tuning_cache: polyeval sweep starting (one-time per host)")
     t0 = time.perf_counter()
@@ -546,7 +560,7 @@ def ensure_polyeval_tuning(force: bool = False) -> Optional[list[dict]]:
         except OSError as e:
             logger.warning("kernel_tuning_cache: polyeval cache save failed: %s", e)
 
-    return regions
+    return cast("list[dict]", regions)
 def _run_sweep_joint_hist_single_perm(n_iters: int = 5) -> list[dict]:
     """Sweep block_size in {128, 256, 512, 1024} across n_samples for the
     single-permutation ``compute_joint_hist_cuda`` kernel.
@@ -615,7 +629,7 @@ def _run_sweep_joint_hist_single_perm(n_iters: int = 5) -> list[dict]:
         "block_size": largest["block_size"],
         "wall_ms": None,
     })
-    return regions
+    return cast("list[dict]", regions)
 def ensure_joint_hist_single_perm_tuning(force: bool = False) -> Optional[list[dict]]:
     """Return cached regions for ``joint_hist_single_perm``; run the
     sweep + persist via pyutilz KernelTuningCache if missing."""
@@ -629,7 +643,7 @@ def ensure_joint_hist_single_perm_tuning(force: bool = False) -> Optional[list[d
     if not force:
         regions = cache.get_regions("joint_hist_single_perm")
         if regions:
-            return regions
+            return cast("list[dict]", regions)
     logger.info("kernel_tuning_cache: joint_hist_single_perm sweep starting")
     t0 = time.perf_counter()
     try:
@@ -650,7 +664,7 @@ def ensure_joint_hist_single_perm_tuning(force: bool = False) -> Optional[list[d
             logger.warning(
                 "kernel_tuning_cache: joint_hist_single_perm save failed: %s", e,
             )
-    return regions
+    return cast("list[dict]", regions)
 def _run_sweep_joint_hist_multi_pair(n_iters: int = 5) -> list[dict]:
     """Sweep block_size in {128, 256, 512, 1024} across the
     ``(n_rows, n_pairs)`` grid for ``compute_joint_hist_multi_pair_cuda``.
@@ -748,7 +762,7 @@ def _run_sweep_joint_hist_multi_pair(n_iters: int = 5) -> list[dict]:
         "block_size": largest["block_size"],
         "wall_ms": None,
     })
-    return regions
+    return cast("list[dict]", regions)
 def ensure_joint_hist_multi_pair_tuning(force: bool = False) -> Optional[list[dict]]:
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
@@ -760,7 +774,7 @@ def ensure_joint_hist_multi_pair_tuning(force: bool = False) -> Optional[list[di
     if not force:
         regions = cache.get_regions("joint_hist_multi_pair")
         if regions:
-            return regions
+            return cast("list[dict]", regions)
     logger.info("kernel_tuning_cache: joint_hist_multi_pair sweep starting")
     t0 = time.perf_counter()
     try:
@@ -781,7 +795,7 @@ def ensure_joint_hist_multi_pair_tuning(force: bool = False) -> Optional[list[di
             logger.warning(
                 "kernel_tuning_cache: joint_hist_multi_pair save failed: %s", e,
             )
-    return regions
+    return cast("list[dict]", regions)
 def _run_sweep_batch_pair_mi(n_iters: int = 3) -> list[dict]:
     """Sweep njit_prange vs numba.cuda vs cupy across (n_samples, n_pairs).
     Persists ``backend_choice`` plus the (cuda|cupy)_min_rows / _min_pairs
@@ -853,7 +867,7 @@ def _run_sweep_batch_pair_mi(n_iters: int = 3) -> list[dict]:
                 )
                 continue
 
-        winner = min(timings, key=timings.get)
+        winner = min(timings, key=timings.__getitem__)
         best_per_combo[(n_rows, n_pairs)] = {
             "backend_choice": winner,
             "njit_ms": round(timings["njit"], 4) if timings["njit"] != float("inf") else None,
@@ -916,7 +930,7 @@ def _run_sweep_batch_pair_mi(n_iters: int = 3) -> list[dict]:
             "cupy_min_pairs": int(cupy_min_pairs) if cupy_min_pairs is not None else 10**9,
         }
     )
-    return regions
+    return cast("list[dict]", regions)
 def ensure_batch_pair_mi_tuning(force: bool = False) -> Optional[list[dict]]:
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
@@ -928,7 +942,7 @@ def ensure_batch_pair_mi_tuning(force: bool = False) -> Optional[list[dict]]:
     if not force:
         regions = cache.get_regions("batch_pair_mi")
         if regions:
-            return regions
+            return cast("list[dict]", regions)
     logger.info("kernel_tuning_cache: batch_pair_mi sweep starting")
     t0 = time.perf_counter()
     try:
@@ -945,7 +959,7 @@ def ensure_batch_pair_mi_tuning(force: bool = False) -> Optional[list[dict]]:
             cache.update("batch_pair_mi", axes=["n_samples", "n_pairs"], regions=regions)
         except OSError as e:
             logger.warning("kernel_tuning_cache: batch_pair_mi save failed: %s", e)
-    return regions
+    return cast("list[dict]", regions)
 
 
 # Register the multi-field GPU kernels with the unified tuner registry so

@@ -73,7 +73,7 @@ def test_explicit_python_backend_still_works():
     assert np.all(np.isfinite(edges))
 
 
-def test_per_feature_edges_uses_njit_default():
+def test_per_feature_edges_fast_mode_uses_njit_default():
     """The production caller ``per_feature_edges`` (used by
     ``mrmr/discretization.py:categorize_dataset``) builds a kwargs dict
     where ``mdlp_backend`` defaults to a string. Pre-fix iter570
@@ -83,9 +83,18 @@ def test_per_feature_edges_uses_njit_default():
     callsite shadowed it and re-introduced the regression. iter571
     flips that kwarg default too.
 
-    This test pins that ``per_feature_edges`` with empty kwargs uses
-    the njit kernel by patching the kernels and checking which one
-    actually runs."""
+    2026-07-19 RE-FRAMED (not reverted): ``mdlp_bin_edges``'s TOP-LEVEL default
+    flipped from ``fast_mode=True`` (classic in-sample-MDL, routes through
+    ``_mdlp_recurse_njit``/``_mdlp_recurse``) to ``fast_mode=False``
+    (significance-gated validated splitting, routes through
+    ``_mdlp_recurse_validated`` in ``_mdlp_validated_split.py`` -- calls neither
+    of the two functions this test patches at all). This test's REAL contract
+    -- "the production caller must not silently regress to the slow pure-python
+    1566s/1700s @500k hotspot" -- still holds and is pinned below via the
+    explicit ``mdlp_fast_mode=True`` opt-out kwarg (the one code path that still
+    exercises ``_mdlp_recurse_njit``/``_mdlp_recurse`` directly); the DEFAULT
+    (no kwargs) path is separately pinned to route through NEITHER function in
+    ``test_per_feature_edges_default_uses_validated_split`` below."""
     from unittest.mock import patch
     from mlframe.feature_selection.filters._adaptive_nbins import per_feature_edges
 
@@ -119,12 +128,62 @@ def test_per_feature_edges_uses_njit_default():
             side_effect=fake_python,
         ),
     ):
-        per_feature_edges(x, y, method="fayyad_irani")
+        per_feature_edges(x, y, method="fayyad_irani", mdlp_fast_mode=True)
 
-    assert call_record["njit"] >= 1, f"per_feature_edges with empty kwargs must route to _mdlp_recurse_njit; call record: {call_record}"
+    assert call_record["njit"] >= 1, f"per_feature_edges(mdlp_fast_mode=True) must route to _mdlp_recurse_njit; call record: {call_record}"
     assert (
         call_record["python"] == 0
-    ), f"per_feature_edges with empty kwargs must NOT route to legacy _mdlp_recurse (the 1566s/1700s @500k hotspot); call record: {call_record}"
+    ), f"per_feature_edges(mdlp_fast_mode=True) must NOT route to legacy _mdlp_recurse (the 1566s/1700s @500k hotspot); call record: {call_record}"
+
+
+def test_per_feature_edges_default_uses_validated_split():
+    """2026-07-19: pins the NEW default contract -- ``per_feature_edges`` with no
+    ``mdlp_fast_mode`` kwarg must route through the significance-gated validated
+    path (``_mdlp_recurse_validated``), NOT either classic recursion function.
+    See ``mdlp_bin_edges``'s docstring / ``_mdlp_validated_split.py`` for the
+    accuracy-over-speed rationale (user decision) backing this default flip."""
+    from unittest.mock import patch
+    from mlframe.feature_selection.filters._adaptive_nbins import per_feature_edges
+
+    n = 500
+    rng = np.random.default_rng(42)
+    x = rng.standard_normal((n, 2)).astype(np.float64)
+    y = (x[:, 0] > 0).astype(np.int64)
+
+    call_record = {"njit": 0, "python": 0, "validated": 0}
+
+    sb = pytest.importorskip("mlframe.feature_selection.filters.supervised_binning")
+    mvs = pytest.importorskip("mlframe.feature_selection.filters._mdlp_validated_split")
+    real_njit = sb._mdlp_recurse_njit
+    real_python = sb._mdlp_recurse
+    real_validated = mvs._mdlp_recurse_validated
+
+    def fake_njit(*args, **kwargs):
+        """Fake njit."""
+        call_record["njit"] += 1
+        return real_njit(*args, **kwargs)
+
+    def fake_python(*args, **kwargs):
+        """Fake python."""
+        call_record["python"] += 1
+        return real_python(*args, **kwargs)
+
+    def fake_validated(*args, **kwargs):
+        """Fake validated."""
+        call_record["validated"] += 1
+        return real_validated(*args, **kwargs)
+
+    with (
+        patch("mlframe.feature_selection.filters.supervised_binning._mdlp_recurse_njit", side_effect=fake_njit),
+        patch("mlframe.feature_selection.filters.supervised_binning._mdlp_recurse", side_effect=fake_python),
+        patch("mlframe.feature_selection.filters._mdlp_validated_split._mdlp_recurse_validated", side_effect=fake_validated),
+    ):
+        per_feature_edges(x, y, method="fayyad_irani")
+
+    assert call_record["validated"] >= 1, f"default per_feature_edges must route to _mdlp_recurse_validated; call record: {call_record}"
+    assert (
+        call_record["njit"] == 0 and call_record["python"] == 0
+    ), f"default per_feature_edges must NOT route to either classic recursion function; call record: {call_record}"
 
 
 def test_njit_backend_smoke_handles_pure_label_input():

@@ -65,10 +65,23 @@ _Y_BINNING_LOCK = threading.Lock()
 
 
 def _compute_y_binning(y: np.ndarray, K: int) -> tuple[np.ndarray, int]:
-    """(yb, K_y): discrete y label-encode, else K-quantile-bin. Extracted verbatim from the original inline logic
-    in ``mah_bin_edges``/``mah_mi`` so caching wraps it without changing the binning itself."""
-    if y.dtype.kind in "iub" or np.unique(y).size <= K:
-        uniq_y = np.unique(y)
+    """(yb, K_y): genuinely low-cardinality y (<=K distinct values, any dtype) label-encodes exactly;
+    everything else K-quantile-bins, regardless of dtype.
+
+    Bug fix (2026-07-19): the prior condition was ``dtype.kind in "iub" OR unique.size <= K``, which
+    routed EVERY integer-dtype y (bool/int8..int64) through the exact label-encode branch unconditionally
+    -- including a high-cardinality but integer-typed target (e.g. a rounded price/timestamp/count with
+    thousands of distinct values, which is effectively continuous). That set ``K_y`` to the FULL
+    cardinality instead of capping at K, and the (K_x, K_y) joint table then fed ``_greedy_merge_bins``'s
+    per-step O(rows * cols) candidate-matrix rebuild across O(cols) candidates, repeated as cols shrinks by
+    1 each step -- an O(rows * K_y^3)-ish blowup. Measured: n=3000, K_y~2000 (int64 target) hangs past 40s
+    (pre-fix code, verified via ``timeout 40 python ...`` -> exit 124); this fix keeps it fast because the
+    quantile branch caps ``K_y <= K`` (16 by default) regardless of dtype. Any real MRMR user picking
+    ``nbins_strategy='mah'``/``'sci'`` with an integer-coded continuous-like target hit this DoS silently
+    (no error, no warning -- the fit just never returns from this column's edge computation).
+    """
+    uniq_y = np.unique(y)
+    if uniq_y.size <= K:
         yb = np.searchsorted(uniq_y, y).astype(np.int64)
     else:
         qy = np.quantile(y.astype(np.float64), np.linspace(0, 1, K + 1))

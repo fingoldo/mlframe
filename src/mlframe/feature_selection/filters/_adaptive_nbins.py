@@ -268,7 +268,9 @@ def edges_mah(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.ndarra
 
 
 def edges_fayyad_irani(
-    x: np.ndarray, y: np.ndarray, *, max_depth: int = 8, min_split_size: int = 5, backend: str = "njit", scaled_min_split: bool = False
+    x: np.ndarray, y: np.ndarray, *, max_depth: int = 8, min_split_size: int = 5, backend: str = "njit", scaled_min_split: bool = False,
+    max_y_classes: int = 64, fast_mode: bool = False, alpha: float = 0.05, n_permutations: int = 30, bonferroni: bool = False,
+    validated_seed: int = 0,
 ) -> np.ndarray:
     """Fayyad-Irani MDLP supervised edges. Flags forwarded:
 
@@ -285,12 +287,21 @@ def edges_fayyad_irani(
             label slice (4 ms per call at n=500k). The njit kernel
             ``_mdlp_recurse_njit`` maintains running per-class counts
             across the candidate-scan, so entropy is O(K_y) per candidate
-            instead of O(N log N + N) per candidate.
+            instead of O(N log N + N) per candidate. Only consulted when
+            ``fast_mode=True``; the default validated-splitting path always
+            uses its own njit kernel regardless of ``backend``.
         scaled_min_split: ``False`` legacy | ``True`` audit fix
             (``max(5, 0.02*N)``).
+        fast_mode: ``False`` DEFAULT (2026-07-19 user decision, accuracy over speed) --
+            significance-gated validated splitting; ``True`` -- classic in-sample MDL
+            threshold + depth cap, 20-80x cheaper. See ``mdlp_bin_edges`` docstring.
+        alpha, n_permutations, bonferroni, validated_seed: forwarded to
+            ``mdlp_bin_edges``'s validated-splitting path (ignored when ``fast_mode=True``).
     """
     full_edges = mdlp_bin_edges(
-        np.asarray(x), np.asarray(y), max_depth=max_depth, min_split_size=min_split_size, backend=backend, scaled_min_split=scaled_min_split
+        np.asarray(x), np.asarray(y), max_depth=max_depth, min_split_size=min_split_size, backend=backend, scaled_min_split=scaled_min_split,
+        max_y_classes=max_y_classes, fast_mode=fast_mode, alpha=alpha, n_permutations=n_permutations, bonferroni=bonferroni,
+        validated_seed=validated_seed,
     )
     if full_edges.size <= 2:
         return np.array([], dtype=np.float64)
@@ -306,6 +317,7 @@ def edges_optimal_joint(
     n_splits: int = 3,
     base: str = "quantile",
     random_state: int = 0,
+    max_y_classes: int = 64,
 ) -> np.ndarray:
     """CV-folded MI maximisation across candidate nbins.
 
@@ -319,6 +331,14 @@ def edges_optimal_joint(
     This is the OptimalJoint / "wrapper-style" method recommended for MRMR when
     compute is not a bottleneck. ~K_candidates * n_splits times more expensive
     than a single Freedman-Diaconis call.
+
+    Args:
+        max_y_classes: Cardinality cap forwarded to :func:`_bin_y_for_mi` for the internal
+            fold-scoring MI. Without this cap, an int/bool-dtype ``y`` with high cardinality (a
+            continuous target mistakenly int-typed -- e.g. a timestamp or counter column) was
+            treated as one discrete class per distinct value: confirmed to SEGFAULT the process
+            (oversized ``(K_x, K_y)`` dense joint-count allocation in ``_plug_in_mi_njit``) at
+            n=50000 with ~50k unique int64 values. Same bug class as MDLP's ``max_y_classes``.
     """
     x = np.asarray(x, dtype=np.float64).ravel()
     y = np.asarray(y).ravel()
@@ -348,7 +368,7 @@ def edges_optimal_joint(
         n_train = int(train_mask.sum())
         # val_y quantization (_plug_in_mi's np.quantile-based 10-bin regression target) depends only
         # on val_y, not on M -> computed once per k and reused for every candidate M below.
-        val_y_b, K_y = _bin_y_for_mi(val_y)
+        val_y_b, K_y = _bin_y_for_mi(val_y, max_y_classes=max_y_classes)
         for M in candidates:
             if M < 2:
                 continue
@@ -366,7 +386,7 @@ def edges_optimal_joint(
                 mi = 0.0 if (K_x < 1 or K_y < 1) else float(_plug_in_mi_njit(x_b, val_y_b, K_x, K_y, False))
             fold_scores_by_M[M].append(mi)
     best_score = -np.inf
-    best_M = candidates[0]
+    best_M = None
     for M in candidates:
         if M < 2:
             continue
@@ -376,6 +396,16 @@ def edges_optimal_joint(
             if mean_mi > best_score:
                 best_score = mean_mi
                 best_M = M
+    if best_M is None:
+        # No candidate M was ever scored by ANY fold -- e.g. every candidate in ``candidates`` exceeds
+        # every fold's train size, or every fold/candidate combination produced degenerate (empty) train
+        # edges. The pre-fix code silently fell back to ``candidates[0]`` here UNVALIDATED by the CV
+        # search -- when ``candidates[0] < 2`` (a caller passing e.g. ``candidates=(1, 1000)`` to probe a
+        # single-bin option) this returned EMPTY edges with no signal that the CV search never ran at
+        # all, exactly the MDLP silent-empty-output bug class. Fall back to the same Freedman-Diaconis
+        # path used for the too-small-n guard above -- at least one principled, unconditional binning
+        # instead of an untested/possibly-invalid M.
+        return edges_freedman_diaconis(x, base=base)
     # Return edges built on full data at the winning M.
     return _edges_from_quantiles(x, best_M) if base == "quantile" else _edges_from_uniform(x, best_M)
 
@@ -419,16 +449,25 @@ def _plug_in_mi_njit(x_binned: np.ndarray, y_b: np.ndarray, K_x: int, K_y: int, 
     return mi
 
 
-def _bin_y_for_mi(y: np.ndarray) -> "tuple[np.ndarray, int]":
+def _bin_y_for_mi(y: np.ndarray, max_y_classes: int = 64) -> "tuple[np.ndarray, int]":
     """Quantize ``y`` to int class codes the way :func:`_plug_in_mi` does internally (10-quantile bins
     for a non-integer/bool dtype, pass-through int codes otherwise). Factored out so a caller looping
     the SAME ``y`` over multiple candidate x-binnings (:func:`edges_optimal_joint`) can quantize once
     and reuse, instead of paying the ``np.quantile`` re-sort on every candidate.
 
-    Returns ``(y_b, K_y)`` with ``y_b`` empty when the quantization degenerates (constant/near-constant
-    y); the caller should then treat MI as 0.0, matching :func:`_plug_in_mi`'s degenerate-y behavior.
+    Args:
+        max_y_classes: Cardinality guard for int/bool-dtype ``y``. A continuous regression target that
+            happens to be int-typed (timestamps, sensor counters, a float column upstream-cast to int)
+            was previously treated as a discrete class label with NO cardinality check: ``K_y =
+            y.max()+1`` could reach millions, and ``_plug_in_mi_njit`` allocates a dense ``(K_x, K_y)``
+            joint-count matrix -- confirmed to SEGFAULT the process on an int64 target with ~50k unique
+            values (n=50000, K_y ~ 3.2e9 range) via an oversized ``np.zeros`` allocation. This mirrors the
+            exact bug class found in MDLP (``mdlp_bin_edges``'s ``max_y_classes``): a high-cardinality
+            target silently blows up an internal per-class computation. Fix: int/bool ``y`` with more
+            unique values than this cap is treated as continuous and routed through the same 10-quantile
+            regression-binning as float ``y``, instead of one class per distinct integer.
     """
-    if y.dtype.kind not in "iub":
+    if y.dtype.kind not in "iub" or np.unique(y).size > max_y_classes:
         q = np.quantile(y.astype(np.float64), np.linspace(0, 1, 11))
         q = np.unique(q)
         if q.size < 2:
@@ -441,7 +480,7 @@ def _bin_y_for_mi(y: np.ndarray) -> "tuple[np.ndarray, int]":
     return y_b, K_y
 
 
-def _plug_in_mi(x_binned: np.ndarray, y: np.ndarray, miller_madow: bool = False) -> float:
+def _plug_in_mi(x_binned: np.ndarray, y: np.ndarray, miller_madow: bool = False, max_y_classes: int = 64) -> float:
     """Plug-in MI estimator: I(X; Y) = H(X) + H(Y) - H(X, Y) on counts.
 
     Args:
@@ -452,10 +491,12 @@ def _plug_in_mi(x_binned: np.ndarray, y: np.ndarray, miller_madow: bool = False)
             floor at higher M values (FD's no-signal inflation collapses from
             0.077 -> ~0.02). Floor at zero. Default ``False`` preserves the
             pre-2026-05-29 leaderboard baseline; opt-in via flag.
+        max_y_classes: Forwarded to :func:`_bin_y_for_mi` -- caps int/bool ``y`` cardinality before it
+            is treated as class labels (see that function's docstring for the segfault this guards).
     """
     if x_binned.size == 0:
         return 0.0
-    y_b, K_y = _bin_y_for_mi(y)
+    y_b, K_y = _bin_y_for_mi(y, max_y_classes=max_y_classes)
     x_b = np.ascontiguousarray(x_binned, np.int64)
     if x_b.size == 0 or y_b.size == 0:
         return 0.0
@@ -634,6 +675,17 @@ def per_feature_edges(
                 # default flip is the actual gating change.
                 backend=kwargs.get("mdlp_backend", "njit"),
                 scaled_min_split=kwargs.get("mdlp_scaled_min_split", False),
+                max_y_classes=kwargs.get("mdlp_max_y_classes", 64),
+                # 2026-07-19: validated (significance-gated) splitting is now the DEFAULT
+                # (accuracy over speed per project convention -- see supervised_binning.py's
+                # mdlp_bin_edges docstring for the full A/B). Pass mdlp_fast_mode=True (e.g.
+                # MRMR(nbins_strategy_kwargs={"mdlp_fast_mode": True})) to opt back into the
+                # cheap depth-capped classic path for a specific run.
+                fast_mode=kwargs.get("mdlp_fast_mode", False),
+                alpha=kwargs.get("mdlp_alpha", 0.05),
+                n_permutations=kwargs.get("mdlp_n_permutations", 30),
+                bonferroni=kwargs.get("mdlp_bonferroni", False),
+                validated_seed=kwargs.get("mdlp_validated_seed", 0),
             )
         elif method_resolved == "fayyad_irani_validated":
             assert y is not None  # needs_y guard above raises for this method when y is None
@@ -659,6 +711,7 @@ def per_feature_edges(
                 n_splits=kwargs.get("n_splits", 3),
                 base=base,
                 random_state=kwargs.get("random_state", 0),
+                max_y_classes=kwargs.get("optimal_joint_max_y_classes", 64),
             )
         else:
             raise NotImplementedError(method_resolved)
@@ -727,6 +780,23 @@ def per_feature_edges(
                             _sub[_sub > _dom_val],
                         ])
                     edges = np.unique(_new_edges)
+        # Systemic silent-degenerate-fallback guardrail (2026-07-19): EVERY method funnels through this
+        # single return point, so this is the ONE place that can catch "binning method returned empty/
+        # near-empty edges despite the column having real variance" for ALL strategies (qs/mah/sturges/fd/
+        # knuth/blocks/fayyad_irani/optimal_joint), not just the three with a dedicated collapse-fallback
+        # above. This is exactly the bug class an MDLP overflow (3.0**n_classes -> inf, acceptance check
+        # always False, empty edges returned with no signal) slipped through undetected -- a column with
+        # >1 distinct finite value that still ends up with 0 usable edges collapses to a single degenerate
+        # bin (all rows get the same code) with NO observable signal anywhere. Log so it is diagnosable
+        # from a production run's logs alone, without per-strategy vigilance.
+        if (edges is None or (hasattr(edges, "size") and edges.size == 0)) and _uniq.size > 1:
+            logger.warning(
+                "per_feature_edges: method=%r produced EMPTY bin edges for a column with %d distinct finite "
+                "values (real variance) -- this column will silently collapse to a single degenerate bin, "
+                "destroying its MI signal. If this is unexpected, investigate the binning method on this "
+                "column's distribution (extreme skew/cardinality/scale can silently degrade some strategies).",
+                method_resolved, int(_uniq.size),
+            )
         return edges, False
 
     # ---- Phase 1 (serial): per-column cache GET. Records misses to compute. ----

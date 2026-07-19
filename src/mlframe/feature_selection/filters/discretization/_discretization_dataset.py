@@ -297,6 +297,29 @@ def categorize_dataset(
         edges_per_col = per_feature_edges(
             arr, y=_y_arr, method=nbins_strategy, cache_dir=cache_dir, **_strategy_kwargs,
         )
+        # Dispatcher-level silent-degenerate-fallback guardrail (2026-07-19): ``per_feature_edges`` already
+        # logs a per-column WARNING when a strategy returns empty edges for a column with real variance (see
+        # its own guardrail), but ``categorize_dataset`` is the actual top-level entry MRMR.fit calls and it
+        # previously used ``edges_per_col`` completely blindly -- an empty-edges column silently becomes an
+        # all-bin-0 column further down (the ``+inf``-padded searchsorted resolves every value to bin 0), with
+        # NO signal at this call site. This is exactly how the MDLP overflow bug (3.0**n_classes -> inf,
+        # acceptance check always False) went undetected in production: nothing at the entry point a caller
+        # actually watches ever surfaced it. Aggregate + name the affected columns here so a production fit's
+        # logs are diagnosable without per-strategy vigilance, regardless of which strategy is selected.
+        _degenerate_col_names: list = []
+        for _j, _ej in enumerate(edges_per_col):
+            if _ej is not None and hasattr(_ej, "size") and _ej.size == 0:
+                _col_vals = arr[:, _j]
+                _col_finite = _col_vals[np.isfinite(_col_vals)]
+                if _col_finite.size and np.unique(_col_finite).size > 1:
+                    _degenerate_col_names.append(numerical_cols[_j] if _j < len(numerical_cols) else _j)
+        if _degenerate_col_names:
+            logger.warning(
+                "categorize_dataset: nbins_strategy=%r produced EMPTY bin edges for %d column(s) with real "
+                "variance -- each collapses to a single degenerate bin (all rows share one code), silently "
+                "destroying that column's MI signal for the rest of this fit: %s",
+                nbins_strategy, len(_degenerate_col_names), _degenerate_col_names[:20],
+            )
         # Per-column searchsorted; pad to global max nbins.
         n_rows = arr.shape[0]
         n_cols = arr.shape[1]
