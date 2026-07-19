@@ -94,3 +94,44 @@ def _reset_torch_lightning_global_state():
     torch.backends.cudnn.deterministic = True
 
     yield
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cache_hf_embedding_providers_across_session():
+    """Reuse one already-``acquire()``'d ``HuggingFaceProvider`` per (model, config) across the whole
+    test session instead of each test file loading its own copy from scratch.
+
+    ``HuggingFaceProvider.acquire()`` is already idempotent (``if self._is_loaded: return``) -- the gap
+    is one level up: ``feature_prep.py``'s ``_get_provider()`` calls ``build_provider(...)`` to construct
+    a brand-new, not-yet-loaded instance every time, so three independent test files each paid the real
+    ``AutoModel.from_pretrained`` load cost (~20-25s measured, unrelated to network -- the local HF cache
+    is already warm) separately. Test-only fix: monkeypatch ``build_provider`` at the module it's defined
+    in (the ``from .hf_provider import build_provider`` inside ``_get_provider`` re-resolves the name from
+    that module's namespace at call time, so patching there covers every caller) to return a session-cached
+    instance keyed by ``EmbeddingProvider.signature`` -- the field the provider config's own docstring
+    calls out as "suitable for cache keys". Production code (``hf_provider.py``) is untouched.
+    """
+    from mlframe.training.feature_handling import hf_provider as _hf_provider_mod
+
+    _cache: dict = {}
+    _real_build_provider = _hf_provider_mod.build_provider
+
+    def _cached_build_provider(embedding_provider):
+        """Cached build provider."""
+        key = embedding_provider.signature
+        prov = _cache.get(key)
+        if prov is None:
+            prov = _real_build_provider(embedding_provider)
+            _cache[key] = prov
+        return prov
+
+    _hf_provider_mod.build_provider = _cached_build_provider
+    try:
+        yield
+    finally:
+        _hf_provider_mod.build_provider = _real_build_provider
+        for _prov in _cache.values():
+            try:
+                _prov.release()
+            except Exception:  # nosec B110 -- best-effort cleanup; a release failure at session teardown must never fail the run
+                pass
