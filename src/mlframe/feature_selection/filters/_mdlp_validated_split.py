@@ -201,6 +201,12 @@ def _split_significant(
     this node) restores validity cheaply (still O(1), no extra passes) -- the permutation branch does
     NOT need this since shuffling+re-searching the SAME max-of-candidates statistic each draw already
     builds the correct null of "best split of random data," by construction.
+
+    ``n`` here is safe to use directly as the analytic branch's effective sample size: callers
+    dedupe exact ``(x, y)`` duplicates once at the entry point (``_dedupe_xy``, called from both
+    ``mdlp_bin_edges_validated`` and the production ``mdlp_bin_edges`` default path) before the
+    recursion starts, so no node in the tree ever sees duplicate-row-inflated ``n`` -- see
+    ``_dedupe_xy``'s docstring for the duplicate-row robustness bug this closes at the source.
     """
     if not force_permutation and analytic_null_applicable(n, 2, n_classes_full):
         _, p_value_raw = analytic_mi_null(float(gain), int(n), 2, int(n_classes_full))

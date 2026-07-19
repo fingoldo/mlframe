@@ -14,7 +14,7 @@ import math
 import numpy as np
 
 from mlframe.feature_selection.filters.supervised_binning import mdlp_bin_edges
-from mlframe.feature_selection.filters._mdlp_validated_split import mdlp_bin_edges_oos_validated, mdlp_bin_edges_validated
+from mlframe.feature_selection.filters._mdlp_validated_split import mdlp_bin_edges_oos_validated, mdlp_bin_edges_validated, _dedupe_xy
 from mlframe.feature_selection.filters._benchmarks.bench_mdlp_validated_split_suite import run_fast_subset
 
 
@@ -128,6 +128,52 @@ def test_oos_validated_variant_runs_and_is_cheaper_than_insample_validated():
     wall_validated = time.perf_counter() - t0
     assert edges_oos.size >= 2
     assert wall_oos < wall_validated, (wall_oos, wall_validated)
+
+
+def test_duplicate_xy_pairs_are_removed_before_recursion():
+    """Regression pin for the duplicate-row over-splitting bug (see ``_dedupe_xy`` docstring):
+    exact-duplicate (x, y) rows sit x-adjacent with an identical y after sorting, which a
+    permutation null built by shuffling y across all rows never reproduces -- the observed
+    best-gain spuriously cleared the significance test almost every time before this fix.
+    ``_dedupe_xy`` must collapse exact duplicates to one occurrence each, and it must actually run
+    on the recursion's inputs (verified by checking ``mdlp_bin_edges_validated`` used it: dedup
+    changes the node count the recursion sees for a heavily-duplicated column, so the resulting
+    edges for the deduped-by-hand data must match what a fresh call produces on the same raw
+    duplicated data)."""
+    rng = np.random.default_rng(0)
+    n_unique = 500
+    x = rng.standard_normal(n_unique)
+    y = rng.standard_normal(n_unique) * 1000.0
+    dup_idx = np.concatenate([np.arange(n_unique)] * 5)  # 5x exact-row duplication
+    x_dup, y_dup = x[dup_idx], y[dup_idx]
+
+    x_deduped, _y_deduped = _dedupe_xy(np.sort(x_dup), y_dup[np.argsort(x_dup)])
+    assert x_deduped.size == n_unique, (x_deduped.size, n_unique)
+
+    edges_dup = mdlp_bin_edges_validated(x_dup, y_dup, seed=0)
+    edges_base = mdlp_bin_edges_validated(x, y, seed=0)
+    assert (edges_dup.size - 1) <= (edges_base.size - 1) + 1, (
+        f"duplicated-row fit over-split relative to the unique baseline: " f"{edges_dup.size - 1} bins (5x-duplicated) vs {edges_base.size - 1} bins (unique)"
+    )
+
+
+def test_duplicate_rows_do_not_over_split_pure_noise():
+    """End-to-end regression pin: pure-noise (x, y) with heavy exact-row duplication (0/10/50/90%)
+    must all collapse to (near-)1 bin, matching the measured post-fix behaviour documented in
+    ``_dedupe_xy`` (0% -> 1 bin, 10% -> 1 bin, 50% -> 1 bin, 90% -> 1 bin; pre-fix: 10% -> 6 bins,
+    50% -> 110 bins, 90% -> 139 bins)."""
+    rng = np.random.default_rng(1)
+    n_unique = 800
+    x = rng.standard_normal(n_unique)
+    y = rng.standard_normal(n_unique) * 1000.0
+    for dup_rate in (0.0, 0.10, 0.50, 0.90):
+        n_dup = round(dup_rate * n_unique)
+        dup_idx = rng.integers(0, n_unique, n_dup) if n_dup else np.array([], dtype=np.int64)
+        x_all = np.concatenate([x, x[dup_idx]])
+        y_all = np.concatenate([y, y[dup_idx]])
+        edges = mdlp_bin_edges_validated(x_all, y_all, seed=1)
+        n_bins = edges.size - 1
+        assert n_bins <= 2, (dup_rate, n_bins)
 
 
 def test_hparam_sweep_fast_subset_runs_and_returns_finite_results():
