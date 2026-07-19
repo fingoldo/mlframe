@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Optional
 
 
 def _default_num_workers() -> int:
@@ -116,6 +117,12 @@ class RecurrentConfig:
     # explicitly opt in via RecurrentConfig(num_workers=2) to amortize
     # the spawn cost across enough epochs.
     num_workers: int = field(default_factory=_default_num_workers)
+    # Overrides the auto-detected ``torch.cuda.is_available() and accelerator in (...)`` default
+    # (F-47) when set. Some driver/CUDA-toolkit combos crash during CachingHostAllocator/CUDAEvent
+    # teardown when pinned memory is in play (a fatal std::terminate from a tensor destructor, not
+    # a catchable Python exception) -- GPU detection alone can't distinguish a healthy pinned-
+    # memory path from a broken one, so an explicit ``pin_memory=False`` is the only way out.
+    pin_memory: Optional[bool] = None
     # F-52: prefetch_factor only used when num_workers > 0. Default of 2 is
     # fine for in-RAM eager tensors; for recurrent + variable-len padding
     # (pad-on-the-fly via recurrent_collate_fn), 4 smooths GPU starvation

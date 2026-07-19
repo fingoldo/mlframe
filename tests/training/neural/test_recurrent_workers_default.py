@@ -99,3 +99,56 @@ def test_mlp_dataloader_explicit_num_workers_preserved():
     )
     loader = dm.train_dataloader()
     assert loader.num_workers == 5
+
+
+# --- pin_memory override: some driver/CUDA-toolkit combos crash during pinned-memory teardown ---
+
+
+def test_recurrent_config_pin_memory_defaults_to_none():
+    """RecurrentConfig.pin_memory defaults to None (auto-detect via accelerator), not a fixed bool."""
+    cfg = RecurrentConfig()
+    assert cfg.pin_memory is None
+
+
+def test_recurrent_config_pin_memory_explicit_override_preserved():
+    """User-supplied pin_memory MUST win over the accelerator-based auto-detect."""
+    cfg = RecurrentConfig(pin_memory=False)
+    assert cfg.pin_memory is False
+
+
+def test_recurrent_wrapper_pin_memory_false_overrides_cuda_available(monkeypatch):
+    """A RecurrentConfig(pin_memory=False) must reach the DataLoader as pin_memory=False even
+    when torch.cuda.is_available() reports True -- GPU auto-detection can't distinguish a healthy
+    pinned-memory path from one that crashes at CUDAEvent/CachingHostAllocator teardown."""
+    import numpy as np
+    import torch
+    from mlframe.training.neural._recurrent_data import RecurrentDataset
+    from mlframe.training.neural.recurrent_dataset_helpers import RecurrentClassifierWrapper
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    cfg = RecurrentConfig(pin_memory=False, accelerator="auto", max_epochs=1, num_workers=0)
+    wrapper = RecurrentClassifierWrapper(config=cfg)
+    n, seq_len = 16, 3
+    sequences = [np.random.randn(seq_len, 2).astype(np.float32) for _ in range(n)]
+    labels = np.random.randint(0, 2, size=n)
+    dataset = RecurrentDataset(sequences=sequences, aux_features=None, labels=labels)
+    loader = wrapper._create_dataloader(dataset, shuffle=True)
+    assert loader.pin_memory is False
+
+
+def test_recurrent_wrapper_pin_memory_defaults_to_cuda_available(monkeypatch):
+    """Without an explicit override, pin_memory still follows torch.cuda.is_available() as before."""
+    import numpy as np
+    import torch
+    from mlframe.training.neural._recurrent_data import RecurrentDataset
+    from mlframe.training.neural.recurrent_dataset_helpers import RecurrentClassifierWrapper
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    cfg = RecurrentConfig(accelerator="auto", max_epochs=1, num_workers=0)
+    wrapper = RecurrentClassifierWrapper(config=cfg)
+    n, seq_len = 16, 3
+    sequences = [np.random.randn(seq_len, 2).astype(np.float32) for _ in range(n)]
+    labels = np.random.randint(0, 2, size=n)
+    dataset = RecurrentDataset(sequences=sequences, aux_features=None, labels=labels)
+    loader = wrapper._create_dataloader(dataset, shuffle=True)
+    assert loader.pin_memory is True

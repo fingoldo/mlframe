@@ -355,6 +355,32 @@ class TestTorchDataModuleCreateDataLoader:
         batch = next(iter(loader))
         assert len(batch) == 2 and batch[0].shape[0] > 0
 
+    def test_user_pin_memory_false_overrides_on_gpu_default(self, sample_data, monkeypatch):
+        """A caller-supplied dataloader_params["pin_memory"]=False must win even when on_gpu()
+        reports True: some driver/CUDA-toolkit combos crash during pinned-memory teardown, so GPU
+        auto-detection alone must never be the only way pin_memory gets decided."""
+        dm = TorchDataModule(
+            train_features=sample_data["X_train"],
+            train_labels=sample_data["y_train"],
+            dataloader_params={"batch_size": 32, "pin_memory": False},
+        )
+        monkeypatch.setattr(dm, "on_gpu", lambda: True)
+        dm.setup(stage="fit")
+        loader = dm._create_dataloader(sample_data["X_train"], sample_data["y_train"], shuffle=True, drop_last=False)
+        assert loader.pin_memory is False
+
+    def test_pin_memory_defaults_to_on_gpu_without_override(self, sample_data, monkeypatch):
+        """Without an explicit override, pin_memory still follows on_gpu() as before."""
+        dm = TorchDataModule(
+            train_features=sample_data["X_train"],
+            train_labels=sample_data["y_train"],
+            dataloader_params={"batch_size": 32},
+        )
+        monkeypatch.setattr(dm, "on_gpu", lambda: True)
+        dm.setup(stage="fit")
+        loader = dm._create_dataloader(sample_data["X_train"], sample_data["y_train"], shuffle=True, drop_last=False)
+        assert loader.pin_memory is True
+
 
 # ================================================================================================
 # setup_predict() Tests

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 import numpy as np
 import torch
@@ -185,6 +185,7 @@ class RecurrentDataModule(LightningDataModule):
         use_stratified_sampler: bool = True,
         accelerator: str = "auto",
         prefetch_factor: int = 4,
+        pin_memory: Optional[bool] = None,
     ):
         """
         Initialize DataModule.
@@ -230,8 +231,13 @@ class RecurrentDataModule(LightningDataModule):
         # not the host's CUDA availability. Pinning when the trainer runs on
         # CPU (e.g. user explicitly set accelerator="cpu" on a CUDA box for
         # debugging or smoke tests) wastes RAM and triggers a useless host-
-        # side page-lock attempt for every batch.
-        self._pin_memory = torch.cuda.is_available() and accelerator in ("auto", "gpu", "cuda")
+        # side page-lock attempt for every batch. An explicit pin_memory=
+        # always wins -- some driver/CUDA-toolkit combos crash during
+        # pinned-memory teardown, which GPU auto-detection can't see.
+        if pin_memory is not None:
+            self._pin_memory = pin_memory
+        else:
+            self._pin_memory = torch.cuda.is_available() and accelerator in ("auto", "gpu", "cuda")
 
         # For dynamic prediction
         self.predict_sequences: list[np.ndarray] | None = None

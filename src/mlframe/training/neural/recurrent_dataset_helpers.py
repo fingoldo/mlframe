@@ -352,7 +352,13 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         # host CUDA availability. Pinning when the trainer runs on CPU (user
         # set ``accelerator="cpu"`` on a CUDA box for debugging) emits
         # "pin_memory is set as true but no accelerator is found" per batch.
-        _pin_memory = torch.cuda.is_available() and self._cfg.accelerator in ("auto", "gpu", "cuda")
+        # An explicit RecurrentConfig(pin_memory=...) always wins over the
+        # auto-detected default -- some driver/CUDA-toolkit combos crash
+        # during pinned-memory teardown, which GPU auto-detection can't see.
+        if self._cfg.pin_memory is not None:
+            _pin_memory = self._cfg.pin_memory
+        else:
+            _pin_memory = torch.cuda.is_available() and self._cfg.accelerator in ("auto", "gpu", "cuda")
         return DataLoader(
             dataset,
             batch_size=batch_size or self._cfg.batch_size,

@@ -477,7 +477,12 @@ class TorchDataModule(LightningDataModule):
 
         dl_params["shuffle"] = shuffle
         dl_params["drop_last"] = drop_last
-        dl_params["pin_memory"] = on_gpu
+        # setdefault (not unconditional assignment): some driver/CUDA-toolkit combos crash during
+        # CachingHostAllocator/CUDAEvent teardown when pinned memory is in play (observed as a
+        # fatal std::terminate from a tensor destructor, not a catchable Python exception) -- a
+        # caller-supplied dataloader_params["pin_memory"]=False must be the only way out since GPU
+        # detection alone can't distinguish a healthy pinned-memory path from a broken one.
+        dl_params.setdefault("pin_memory", on_gpu)
 
         # F-71b (2026-05-31): OS-aware num_workers default for MLP, mirrors
         # F-71's RecurrentConfig.num_workers logic. Windows spawn semantics
