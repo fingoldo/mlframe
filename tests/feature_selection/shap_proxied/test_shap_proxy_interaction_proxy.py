@@ -229,4 +229,6 @@ def test_proxy_mode_param_validation_and_roundtrip():
     assert params["proxy_mode"] == "interaction" and params["interaction_proxy_top_k"] == 20
     s2 = ShapProxiedFS(**params)
     assert s2.proxy_mode is params["proxy_mode"]  # identity preserved (clone-safe)
-    assert ShapProxiedFS().proxy_mode == "additive"  # default unchanged
+    # gt_08: default flipped "additive" -> "auto" (the su_seeded synergy screen + SNR gate makes the
+    # interaction-handling default data-driven-safe; see proxy_mode's docstring on __init__).
+    assert ShapProxiedFS().proxy_mode == "auto"

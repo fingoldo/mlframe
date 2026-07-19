@@ -66,7 +66,7 @@ def resolve_su_seeded_pairs(
     _su_kept_pairs: list = []  # list of (synergy, proxy_col_name_a, proxy_col_name_b)
     _su_screen_info: dict = {}
     _su_rescue_proxy_idx: set[int] = set()
-    if self.su_seeded_interactions and phi.shape[1] >= 2:
+    if self._su_screen_enabled() and phi.shape[1] >= 2:
         from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import su_synergy_screen
 
         with _stage("su_seeded_interactions"):
@@ -91,7 +91,7 @@ def resolve_su_seeded_pairs(
                     X_proxy, y_phi,
                     n_bins=self.su_seeded_n_bins, top_k=self.su_seeded_top_k,
                     max_screen_cols=self.su_seeded_max_screen_cols,
-                    snr_z=self.su_seeded_snr_z,
+                    snr_z=self._su_screen_snr_z(),
                     snr_null_quantile=self.su_seeded_snr_null_quantile,
                     snr_abs_floor=self.su_seeded_snr_abs_floor,
                     n_permutations=self.su_seeded_n_permutations,
@@ -208,7 +208,7 @@ def augment_candidates_with_interactions(
     # == recovering both operands); honest re-validation downstream still retrains only on real
     # columns. Runs at ANY phi width (no max_interaction_features gate). When the screen kept no
     # pair this whole block is skipped (the SNR-gate no-op).
-    if self.su_seeded_interactions:
+    if self._su_screen_enabled():
         from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import sparse_interaction_candidates
 
         with _stage("su_seeded_interactions"):
@@ -269,5 +269,15 @@ def augment_candidates_with_interactions(
                 best_synergy=round(float(_su_screen_info.get("best_synergy", float("nan"))), 6),
                 n_screened_cols=int(_su_screen_info.get("n_screened_cols", 0)),
                 n_pairs=int(_su_screen_info.get("n_pairs", 0)))
+
+    # proxy_mode_resolved (gt_08): surfaces which "auto" branch actually ran, since the mode's
+    # whole point is that the SAME "auto" setting silently degrades to plain additive on
+    # gate-silent data. Only meaningful when proxy_mode="auto" screened something; other modes
+    # report their own literal value so the key is always present and unambiguous.
+    _mode = str(getattr(self, "proxy_mode", "additive")).lower()
+    if _mode == "auto":
+        report["proxy_mode_resolved"] = "interaction(auto:gate-fired)" if _su_kept_pairs else "additive(auto:gate-silent)"
+    else:
+        report["proxy_mode_resolved"] = _mode
 
     return candidates
