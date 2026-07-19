@@ -606,67 +606,73 @@ def _phase_fit_pipeline(
         logger.info("  apply_preprocessing_extensions done in %s", _elapsed_str(t0_ext))
     if extensions_pipeline is not None:
         cat_features = []
-        # Polars-fastpath consumers (CB / XGB polars-native path) only see the
-        # polars-pre frames; copy the extension-produced new columns onto them
-        # so models downstream see consistent feature sets. We use a pandas
-        # bridge for the new columns only (existing polars-pre columns are kept
-        # as-is to preserve native dtypes / categorical metadata).
-        try:
-            if isinstance(train_df, pd.DataFrame) and _pre_polars_columns_snapshot is not None and was_polars_input:
-                _new_cols = [c for c in train_df.columns if c not in set(_pre_polars_columns_snapshot)]
-                if _new_cols:
-                    # Explicit (label, pandas-frame, polars-pre-frame) triples so the
-                    # back-merge no longer fishes the polars-side frame out of locals()
-                    # by string lookup. Captures the current binding at iteration time;
-                    # rebinding below updates the same local name afterward.
-                    _polars_pre_by_label = {
-                        "train": train_df_polars_pre,
-                        "val": val_df_polars_pre,
-                        "test": test_df_polars_pre,
-                    }
-                    for _label, _pd_df in (
-                        ("train", train_df),
-                        ("val", val_df),
-                        ("test", test_df),
-                    ):
-                        _pl_df = _polars_pre_by_label.get(_label)
-                        if not isinstance(_pl_df, pl.DataFrame) or not isinstance(_pd_df, pd.DataFrame):
-                            continue
-                        if _pd_df.shape[0] != _pl_df.shape[0]:
-                            # Row counts must match; otherwise the join could mis-align silently.
-                            if verbose:
-                                logger.warning(
-                                    "polars-pre %s frame row mismatch for extension columns "
-                                    "(pd=%d, pl=%d); skipping back-merge for this split.",
-                                    _label, _pd_df.shape[0], _pl_df.shape[0],
-                                )
-                            continue
-                        # Only the new columns we want to merge.
-                        _new_df_pd = _pd_df[[c for c in _new_cols if c in _pd_df.columns]]
-                        if _new_df_pd.shape[1] == 0:
-                            continue
-                        try:
-                            # Build polars columns from per-column .to_numpy() views (skips pandas block consolidation). Bench (100k x 30 mixed dtypes, 2026-05-24): 16.0ms -> 1.05ms (15x); per-split (train/val/test) this is ~3x the saving.
-                            _new_pl = pl.DataFrame({c: _new_df_pd[c].to_numpy() for c in _new_df_pd.columns})
-                            _merged = _pl_df.hstack(_new_pl)
-                            if _label == "train":
-                                train_df_polars_pre = _merged
-                            elif _label == "val":
-                                val_df_polars_pre = _merged
-                            else:
-                                test_df_polars_pre = _merged
-                        except Exception as _exc:
-                            if verbose:
-                                logger.warning(
-                                    "Failed to back-merge extension columns into polars-pre %s frame: %s",
-                                    _label, _exc,
-                                )
-        except Exception as _exc:
-            if verbose:
-                logger.warning(
-                    "Polars-pre extension back-merge skipped (%s); polars-fastpath models will not see extension columns.",
-                    _exc,
-                )
+    # Polars-fastpath consumers (CB / XGB polars-native path) only see the
+    # polars-pre frames; copy the extension-produced new columns onto them
+    # so models downstream see consistent feature sets. We use a pandas
+    # bridge for the new columns only (existing polars-pre columns are kept
+    # as-is to preserve native dtypes / categorical metadata). Gated on
+    # new columns actually existing, NOT on extensions_pipeline: row-wise
+    # summary/extreme columns are added to train_df/val_df/test_df even when
+    # no sklearn-bridge stage (scaler/pysr/tfidf/kbins/dim_reducer) is
+    # configured, in which case extensions_pipeline stays None and this
+    # back-merge would otherwise never run, silently dropping those columns
+    # from the polars-native fastpath (e.g. MRMR fit on polars-sourced input).
+    try:
+        if isinstance(train_df, pd.DataFrame) and _pre_polars_columns_snapshot is not None and was_polars_input:
+            _new_cols = [c for c in train_df.columns if c not in set(_pre_polars_columns_snapshot)]
+            if _new_cols:
+                # Explicit (label, pandas-frame, polars-pre-frame) triples so the
+                # back-merge no longer fishes the polars-side frame out of locals()
+                # by string lookup. Captures the current binding at iteration time;
+                # rebinding below updates the same local name afterward.
+                _polars_pre_by_label = {
+                    "train": train_df_polars_pre,
+                    "val": val_df_polars_pre,
+                    "test": test_df_polars_pre,
+                }
+                for _label, _pd_df in (
+                    ("train", train_df),
+                    ("val", val_df),
+                    ("test", test_df),
+                ):
+                    _pl_df = _polars_pre_by_label.get(_label)
+                    if not isinstance(_pl_df, pl.DataFrame) or not isinstance(_pd_df, pd.DataFrame):
+                        continue
+                    if _pd_df.shape[0] != _pl_df.shape[0]:
+                        # Row counts must match; otherwise the join could mis-align silently.
+                        if verbose:
+                            logger.warning(
+                                "polars-pre %s frame row mismatch for extension columns "
+                                "(pd=%d, pl=%d); skipping back-merge for this split.",
+                                _label, _pd_df.shape[0], _pl_df.shape[0],
+                            )
+                        continue
+                    # Only the new columns we want to merge.
+                    _new_df_pd = _pd_df[[c for c in _new_cols if c in _pd_df.columns]]
+                    if _new_df_pd.shape[1] == 0:
+                        continue
+                    try:
+                        # Build polars columns from per-column .to_numpy() views (skips pandas block consolidation). Bench (100k x 30 mixed dtypes, 2026-05-24): 16.0ms -> 1.05ms (15x); per-split (train/val/test) this is ~3x the saving.
+                        _new_pl = pl.DataFrame({c: _new_df_pd[c].to_numpy() for c in _new_df_pd.columns})
+                        _merged = _pl_df.hstack(_new_pl)
+                        if _label == "train":
+                            train_df_polars_pre = _merged
+                        elif _label == "val":
+                            val_df_polars_pre = _merged
+                        else:
+                            test_df_polars_pre = _merged
+                    except Exception as _exc:
+                        if verbose:
+                            logger.warning(
+                                "Failed to back-merge extension columns into polars-pre %s frame: %s",
+                                _label, _exc,
+                            )
+    except Exception as _exc:
+        if verbose:
+            logger.warning(
+                "Polars-pre extension back-merge skipped (%s); polars-fastpath models will not see extension columns.",
+                _exc,
+            )
 
     metadata["pipeline"] = pipeline
     metadata["extensions_pipeline"] = extensions_pipeline
