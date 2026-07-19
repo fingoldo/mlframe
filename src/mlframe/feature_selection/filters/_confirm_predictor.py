@@ -53,6 +53,17 @@ from .permutation import mi_direct, _addone_pvalue_enabled
 
 logger = logging.getLogger(__name__)
 
+# RETIRED (2026-07-19, 7-site joblib.Parallel audit): ``score_candidates``'s ``evaluate_candidates``
+# threading-pool dispatch used to gate on ``n_workers > 1`` alone. Isolated/warmed/best-of-3+ A/B at this
+# call site's realistic scales found the pool NEVER wins over the serial fallback below: m=10 candidates ->
+# 0.03x, m=320 (wellbore-scale) -> 0.72-0.73x, m=820/n_workers=8 -> 0.81x -- confirming the GIL-bound
+# dispatch-boundary contention the 2026-07-09 finding #5 comment (``_screen_predictors.py``) left
+# UNRESOLVED. ``_screen_predictors.py`` no longer ever builds a non-``None`` ``workers_pool`` for this
+# path, so this flag is redundant defense-in-depth, kept ``False`` as a documented historical marker rather
+# than deleting the branch outright. ``n_workers`` itself is still accepted/threaded through (other call
+# sites, e.g. the Fleuret conditional-confirmation gate further down, still branch on it).
+_EVALUATE_CANDIDATES_POOL_ENABLED = False
+
 
 # ``_mrmr_fit_impl`` imports ``_extract_single_raw_parent`` from this module by name (raw-retention pass).
 from ._confirm_predictor_engineered import (
@@ -268,7 +279,12 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
 
         feasible_candidates.append((cand_idx, X, nexisting if reduce_gain_on_subelement_chosen else 0))
 
-    if n_workers > 1 and (not use_simple_mode or len(cached_MIs) < num_possible_candidates) and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS:
+    if (
+        _EVALUATE_CANDIDATES_POOL_ENABLED
+        and n_workers > 1
+        and (not use_simple_mode or len(cached_MIs) < num_possible_candidates)
+        and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS
+    ):
         temp_cached_cond_MIs = sanitize(cached_cond_MIs)
         temp_entropy_cache = sanitize(entropy_cache)
         # 2026-05-30 Wave 9.1 iter 5 fix: snapshot main-thread Wave 8

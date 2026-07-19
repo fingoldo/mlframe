@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Iterable, Optional, Sequence
 
 import numba
 import numpy as np
-from joblib import Parallel, delayed
+from joblib import Parallel
 from numba.core import types
 
 from pyutilz.numbalib import set_numba_random_seed
@@ -586,42 +586,20 @@ def screen_predictors(
         else:
             freqs_y_safe = None
 
-        if n_workers and n_workers > 1:
-            if seed_workers_pool is not None:
-                # Reuse the pool a prior round in this SAME fit already built + warmed up. The pool
-                # config (n_workers/backend) is fixed by the MRMR instance for the whole fit() call,
-                # so a round-1 pool is valid verbatim in rounds 2-3 -- no re-spawn, no re-warmup.
-                workers_pool = seed_workers_pool
-            else:
-                if verbose >= 2:
-                    logger.info("Starting parallel pool with n_workers=%d", n_workers)
-
-                # Threading backend: worker fn ``evaluate_candidates`` eventually calls njit (compute_mi_from_classes, shuffle_arr, parallel_mi) which release the GIL, so
-                # threading gives near-process-pool speedup with zero IPC / pickle / memmap overhead. Threading also avoids the Windows-only joblib resource-tracker
-                # KeyError on shutdown caused by loky's auto-memmap of large numpy arrays desyncing across screen-iteration boundaries when the same Parallel object is
-                # re-called. Override via ``parallel_kwargs={"backend": "loky"}`` if process-isolation is needed (rare on this workload).
-                # UNRESOLVED (2026-07-09, MRMR audit finding #5): a py-spy profile of the SAME underlying ``mi_direct`` kernel family under ``backend="threading"`` in
-                # the sibling ``_step_pairmi.py`` pair-search path found it GIL-BOUND at the dispatch boundary (MainThread stuck in joblib ``_retrieve`` sleep-poll),
-                # contradicting the "releases the GIL" claim above. ``evaluate_candidate`` (evaluation.py) -- the function that actually runs in THIS loop -- calls
-                # ``mi_direct`` directly, but may take ``mi_direct``'s analytic-large-n-null fast path (permutation.py) that the pair-search profile did not exercise, so
-                # the two findings are not necessarily in conflict. Not yet re-profiled in THIS call path; do not trust either claim as settled until it is.
-                pk = dict(parallel_kwargs)
-                pk.setdefault("backend", "threading")
-                # Disable auto-memmap regardless of backend: large factors_data arrays should stay in shared process memory, not be redundantly serialized to disk.
-                pk.setdefault("max_nbytes", None)
-
-                if pk.get("backend") == "loky":
-                    try:
-                        from loky import set_loky_pickler
-                        set_loky_pickler("cloudpickle")
-                    except ImportError:
-                        pass
-
-                workers_pool = Parallel(n_jobs=n_workers, **pk)
-                # Warmup: spawn workers eagerly via a no-op call so spawn cost is paid before the screening loop starts.
-                workers_pool(delayed(_pool_warmup_noop)(i) for i in range(n_workers))
-        else:
-            workers_pool = None
+        # RESOLVED (2026-07-19, 7-site joblib.Parallel audit -- follow-up to the 2026-07-09 finding #5
+        # UNRESOLVED note this comment used to carry): the "releases the GIL" claim below was never
+        # actually confirmed for THIS call path, and the isolated/warmed/best-of-3+ A/B settles it in the
+        # other direction. Measured at ``evaluate_candidates``'s realistic scales: m=10 candidates ->
+        # 0.03x (SLOWER than serial), m=320 (wellbore-scale) -> 0.72-0.73x, m=820/n_workers=8 -> 0.81x --
+        # this ``Parallel(backend="threading")`` pool NEVER wins over serial at any tested scale, confirming
+        # the pool is GIL-bound at the dispatch boundary exactly as finding #5 suspected (evaluate_candidates
+        # eventually calls njit kernels that DO release the GIL, but the per-call joblib dispatch/aggregation
+        # overhead dominates at these candidate counts). The pool is therefore never constructed here anymore
+        # -- ``evaluate_candidates`` always runs on the serial fast path in ``confirm_one_predictor``/
+        # ``_confirm_predictor.py``. ``n_workers`` is kept as an accepted parameter (other call sites, e.g.
+        # the Fleuret conditional-confirmation gate, still branch on it) but no longer causes a pool to be
+        # built here; ``seed_workers_pool`` is likewise accepted-but-unused for this purpose.
+        workers_pool = None
 
         # Shared confirmation context. Static fields + the four MI caches are set once; per-interactions-order fields
         # (``candidates`` / ``partial_gains`` / ``added_candidates`` / ``failed_candidates`` / ``interactions_order`` /

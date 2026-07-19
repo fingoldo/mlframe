@@ -18,7 +18,7 @@ import math
 from typing import Optional, cast
 
 import numpy as np
-from joblib import Parallel, delayed
+from joblib import Parallel
 from numba import njit, prange
 
 from ._internals import NMAX_NONPARALLEL_ITERS
@@ -27,6 +27,14 @@ from ._internals import NMAX_NONPARALLEL_ITERS
 # module-level singleton so the argument default keeps its exact ``np.uint64`` dtype (the kernels do
 # ``state >> np.uint64(..)`` arithmetic) without a function call in the signature default.
 _DEFAULT_BASE_SEED = np.uint64(0)
+
+# HISTORICAL (2026-07-19): a first pass at this fix gated the "outer" joblib.Parallel pool behind a measured
+# floor, ``_OUTER_PARALLEL_MIN_PERMUTATIONS = 64`` (npermutations=10 -> 0.36-0.40x SLOWER than serial at
+# n=99401, =100 -> 1.45-1.79x, crossover ~50-100). A follow-up head-to-head bench
+# (``_benchmarks/bench_permutation_njit_prange_vs_joblib.py``) found the existing ``parallel_mi_prange`` njit
+# kernel dominates the joblib pool at EVERY scale tested (including above the floor), so the pool branch was
+# retired outright (see the comment block at its former call site) rather than merely gated -- the constant
+# itself is no longer needed and was removed as dead code.
 from .info_theory import (
     merge_vars, compute_relevance_score, use_su_normalization, use_mi_miller_madow, use_mi_chao_shen,
 )
@@ -610,14 +618,16 @@ def mi_direct(
     mean (coarse binning inflates the plug-in null), but only noise sits WITHIN its null distribution. Default ``False`` so every existing caller is unaffected.
 
     ``parallelism`` modes:
-    * ``"outer"`` (default): joblib-process pool runs full ``parallel_mi`` workers.
+    * ``"outer"`` (default): RETIRED as a joblib pool (2026-07-19) -- always dispatches to the same ``parallel_mi_prange`` njit kernel as ``"inner"``,
+      regardless of ``n_workers``. The joblib.Parallel(backend="threading") pool this mode used to build is strictly dominated by ``parallel_mi_prange``
+      at every scale measured (see ``_benchmarks/bench_permutation_njit_prange_vs_joblib.py``: n=100000/npermutations=500 -> prange 4.57x over serial vs
+      joblib 1.6-1.7x; n=20000/npermutations=500 -> prange 7.26x vs joblib 3.3-4.1x), so the pool code is kept only as an inline comment for reference and
+      is never executed. ``n_workers``/``workers_pool``/``parallel_kwargs`` are accepted for backward compatibility but no longer change dispatch.
     * ``"inner"``: numba ``prange`` over permutations inside a single thread pool, per-iteration LCG seed. Same ``(base_seed, npermutations)`` plus any
-      ``n_workers`` value yields identical ``(nfailed, nchecked)``.
+      ``n_workers`` value yields identical ``(nfailed, nchecked)``. As of 2026-07-19 this is identical in effect to ``"outer"``; the two names are kept
+      distinct for caller-site clarity, not because they dispatch differently.
     * ``"bc"``: Besag-Clifford sequential permutation test with adaptive early stopping. Sequential but typically 5-10x fewer permutations than fixed budget.
-    * ``"none"``: sequential, no parallelism (used by golden tests).
-
-    Outer parallelism is preferred when ``len(candidates) >> n_workers`` (the orchestrator already amortises pool spawn cost). Inner is preferred when only a
-    single candidate is being evaluated with a large permutation budget."""
+    * ``"none"``: sequential, no parallelism (used by golden tests)."""
     global _MI_DIRECT_GPU_FAILED
     if parallel_kwargs is None:
         parallel_kwargs = {}
@@ -878,63 +888,45 @@ def mi_direct(
             i = n_checked - 1
             if nfailed >= max_failed:
                 original_mi = 0.0
-        elif n_workers and n_workers > 1 and npermutations > NMAX_NONPARALLEL_ITERS:
-            if workers_pool is None:
-                workers_pool = Parallel(n_jobs=n_workers, **parallel_kwargs)
-
-            # Per-worker base_seed derived from outer base_seed via Knuth multiplicative hash + worker index so worker streams stay independent yet reproducible (same outer base_seed -> identical aggregate).
-            _worker_loads = distribute_permutations(npermutations=npermutations, n_workers=n_workers)
-            # 2026-05-30 Wave 9.1 fix (loop iter 16): fall back to
-            # ``classes_y`` when ``classes_y_safe`` is None. The bc branch
-            # (line 355) and inner branch (line 387) already do this; the
-            # outer branch was the asymmetric one. Pre-fix
-            # ``mi_direct(parallelism='outer', n_workers>1,
-            # classes_y_safe=None, npermutations>NMAX_NONPARALLEL_ITERS)``
-            # crashed inside ``parallel_mi`` with
-            # ``TypingError: No implementation of function asarray(none)``.
-            # Each worker ``parallel_mi`` already ``.copy()``s the array
-            # internally so workers don't race on the shared ``classes_y``.
-            _classes_y_for_workers = classes_y_safe if classes_y_safe is not None else classes_y
-            # 2026-05-30 Wave 9.1 fix (loop iter 18): use the SAME
-            # ``base_seed`` for every worker and pass each worker its
-            # cumulative ``perm_offset`` so the perm-index seeding in
-            # ``parallel_mi`` matches the single-worker run bit-for-bit
-            # regardless of ``n_workers``. Pre-fix each worker got a
-            # DIFFERENT base_seed derivation
-            # (``base_seed * 2654435761 + widx + 1``) so the random
-            # stream content depended on n_workers - confidence varied
-            # by 70% across n_workers in {1, 2, 4, 8} for the same
-            # base_seed, breaking the "same seed -> identical output"
-            # contract for any consumer that switched ``n_jobs``.
-            _cumulative_offset = 0
-            _delayed_calls = []
-            for _widx, worker_npermutations in enumerate(_worker_loads):
-                _delayed_calls.append(
-                    delayed(parallel_mi)(
-                        classes_x=classes_x,
-                        freqs_x=freqs_x,
-                        classes_y=_classes_y_for_workers,
-                        freqs_y=freqs_y,
-                        dtype=dtype,
-                        npermutations=worker_npermutations,
-                        original_mi=original_mi,
-                        max_failed=max_failed,
-                        base_seed=np.uint64(base_seed),
-                        use_su=_use_su,
-                        perm_offset=_cumulative_offset,
-                    )
-                )
-                _cumulative_offset += int(worker_npermutations)
-            res = workers_pool(_delayed_calls)
-
-            n_checked = 0
-            for worker_nfailed, worker_i in res:
-                nfailed += worker_nfailed
-                n_checked += worker_i
-            i = n_checked - 1  # caller-side i+1 = total checks across workers.
-
-            if nfailed >= max_failed:
-                original_mi = 0.0
+        # RETIRED (2026-07-19): the "outer" joblib.Parallel(backend="threading") pool branch used to live here,
+        # gated on ``n_workers>1 and npermutations>NMAX_NONPARALLEL_ITERS`` (later tightened to
+        # ``npermutations>=_OUTER_PARALLEL_MIN_PERMUTATIONS=64`` after an isolated A/B showed it losing below
+        # that budget: 0.36-0.40x at npermutations=10, n=99401). A follow-up head-to-head bench
+        # (``_benchmarks/bench_permutation_njit_prange_vs_joblib.py``) found the ALREADY-EXISTING
+        # ``parallel_mi_prange`` njit(parallel=True) kernel (below, in the ``else`` branch) STRICTLY DOMINATES
+        # this joblib pool at every scale tested, including where the pool used to win over serial: n=100000/
+        # npermutations=500 -> prange 4.57x over serial vs joblib 1.6-1.7x; n=20000/npermutations=500 -> prange
+        # 7.26x vs joblib 3.3-4.1x. Both kernels share the same per-iteration LCG seeding scheme, so their
+        # ``(nfailed, n_checked)`` output is bit-identical (verified in the bench and in
+        # ``test_mi_direct_outer_parallelism_always_routes_to_prange``). The branch below is kept verbatim
+        # (never executes -- the ``elif`` condition that used to guard it has been removed, so control always
+        # falls through to the unified ``else`` below) purely as a historical reference for the joblib-based
+        # dispatch shape; do not re-enable it without a fresh A/B on current hardware.
+        #
+        #     if workers_pool is None:
+        #         workers_pool = Parallel(n_jobs=n_workers, **parallel_kwargs)
+        #     _worker_loads = distribute_permutations(npermutations=npermutations, n_workers=n_workers)
+        #     _classes_y_for_workers = classes_y_safe if classes_y_safe is not None else classes_y
+        #     _cumulative_offset = 0
+        #     _delayed_calls = []
+        #     for _widx, worker_npermutations in enumerate(_worker_loads):
+        #         _delayed_calls.append(
+        #             delayed(parallel_mi)(
+        #                 classes_x=classes_x, freqs_x=freqs_x, classes_y=_classes_y_for_workers, freqs_y=freqs_y,
+        #                 dtype=dtype, npermutations=worker_npermutations, original_mi=original_mi,
+        #                 max_failed=max_failed, base_seed=np.uint64(base_seed), use_su=_use_su,
+        #                 perm_offset=_cumulative_offset,
+        #             )
+        #         )
+        #         _cumulative_offset += int(worker_npermutations)
+        #     res = workers_pool(_delayed_calls)
+        #     n_checked = 0
+        #     for worker_nfailed, worker_i in res:
+        #         nfailed += worker_nfailed
+        #         n_checked += worker_i
+        #     i = n_checked - 1
+        #     if nfailed >= max_failed:
+        #         original_mi = 0.0
         else:
             # 2026-05-30 iter573: route to ``parallel_mi_prange`` (the
             # njit @njit(parallel=True) kernel) for the n_workers<=1 /
