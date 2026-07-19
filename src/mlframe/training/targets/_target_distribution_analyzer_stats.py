@@ -153,23 +153,31 @@ def _lag1_autocorr_grouped(y: np.ndarray, group_ids: np.ndarray, min_group_size:
 
 
 def _check_within_group_ordering(group_ids: np.ndarray, n_check: int = 1024) -> bool:
-    """Heuristic ordering check: sample at most ``n_check`` consecutive group_id
-    pairs; if more than 50% are within-group transitions, the rows are
-    plausibly sorted by group (rows of the same group are contiguous). Returns
-    True for plausibly-ordered data.
+    """Heuristic ordering check: sample at most ``n_check`` TRULY adjacent group_id
+    pairs (i, i+1) spread evenly across the array; if more than 50% are within-group
+    transitions, the rows are plausibly sorted by group (rows of the same group are
+    contiguous). Returns True for plausibly-ordered data.
 
     The per-group AR detector assumes rows within a group are in their natural
     sequence (e.g. depth/time-sorted). If rows were shuffled randomly
     AFTER the FTE step, within-group autocorr drops to ~0 even when the
     underlying signal is strongly AR -- a false-negative the operator never
     sees. This check surfaces the assumption violation.
+
+    Bug fixed 2026-07-19: the previous version strided THROUGH the array (comparing
+    group_ids[::step] elements to each other) instead of sampling true adjacent pairs.
+    For many small groups (e.g. hundreds of wells, each far smaller than group_ids.size //
+    n_check), the stride lands in a DIFFERENT group almost every time even when the data
+    is perfectly sorted, so it always reported "not ordered" regardless of the true
+    same-group fraction of real adjacent rows. Now samples evenly-spaced true (i, i+1)
+    pairs instead.
     """
     if group_ids.size < 2:
         return False
-    # Step-sample to keep the check O(n_check) on huge arrays.
-    step = max(1, group_ids.size // n_check)
-    consec_pairs = group_ids[::step]
-    if consec_pairs.size < 2:
+    # Step-sample true adjacent-pair indices to keep the check O(n_check) on huge arrays.
+    step = max(1, (group_ids.size - 1) // n_check)
+    idx = np.arange(0, group_ids.size - 1, step)
+    if idx.size < 2:
         return False
-    same_group = consec_pairs[:-1] == consec_pairs[1:]
+    same_group = group_ids[idx] == group_ids[idx + 1]
     return float(np.mean(same_group)) > 0.5

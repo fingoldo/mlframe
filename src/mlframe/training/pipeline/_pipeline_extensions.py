@@ -390,6 +390,10 @@ def apply_preprocessing_extensions(
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
     from . import PreprocessingExtensionsBundle, _build_extension_steps
+    # Lazy cross-package import: ``mlframe.training.core`` imports this function (see
+    # ``_phase_helpers_fit_pipeline.py``), so a top-level import here would risk a cycle at
+    # module-load time; by call time both packages are already fully loaded.
+    from mlframe.training.core._misc_helpers import _elapsed_str
     if config is None:
         return train_df, val_df, test_df, None
     # Fastpath: zero active stages -> no work to do. Return inputs UNTOUCHED (no polars->pandas down-convert). Without this gate the function paid the full Arrow->pandas conversion on every frame even when nothing was configured, defeating the polars fastpath and risking OOM on 100+GB polars frames for a no-op call.
@@ -441,9 +445,12 @@ def apply_preprocessing_extensions(
                 return df.to_pandas()
         return df
 
+    t0_to_pandas = timer()
     train = _to_pandas(train_df)
     val = _to_pandas(val_df)
     test = _to_pandas(test_df)
+    if verbose:
+        logger.info("    apply_preprocessing_extensions.to_pandas done in %s", _elapsed_str(t0_to_pandas))
     if train is None:
         return train_df, val_df, test_df, None
 
@@ -452,6 +459,7 @@ def apply_preprocessing_extensions(
     # scaling, polynomial expansion, etc.
     _pysr_transformer_holder: list = []
     if getattr(config, "pysr_enabled", False):
+        t0_pysr = timer()
         # _apply_pysr_fe mutates train/val/test in place; its return value
         # (the new column names) is intentionally discarded here. The fitted
         # PySRTransformer is captured via the out_transformer holder so the
@@ -464,6 +472,8 @@ def apply_preprocessing_extensions(
             out_equations=out_pysr_equations,
             out_transformer=_pysr_transformer_holder,
         )
+        if verbose:
+            logger.info("    apply_preprocessing_extensions.pysr_fe done in %s", _elapsed_str(t0_pysr))
     _pysr_transformer = _pysr_transformer_holder[0] if _pysr_transformer_holder else None
 
     # TF-IDF preflight: vectorize declared text columns and replace them with
@@ -482,6 +492,7 @@ def apply_preprocessing_extensions(
     # aligned. If it's a user typo, the typo WARN fires instead.
     tfidf_pipes = {}
     if config.tfidf_columns:
+        t0_tfidf = timer()
         from sklearn.feature_extraction.text import TfidfVectorizer
 
         # Precompute where each tfidf column lives.
@@ -560,11 +571,14 @@ def apply_preprocessing_extensions(
                         val = split_df.drop(columns=[col]).join(new_split_df)
                     else:
                         test = split_df.drop(columns=[col]).join(new_split_df)
+        if verbose:
+            logger.info("    apply_preprocessing_extensions.tfidf done in %s", _elapsed_str(t0_tfidf))
 
     # Numeric-only gate for the sklearn-bridge pipeline. The downstream extensions (scaler / kbins / polynomial / nonlinear / dim_reducer and the median-imputer in front) all reject object/string dtypes with errors that range from clear (``Cannot use median strategy with non-numeric data``) to opaque (``ValueError: The truth value of an array with more than one element is ambiguous`` from inside PolynomialFeatures or RobustScaler). The contract is "if you turn on the sklearn-bridge, your frame should be numeric". When non-numeric columns survived (unencoded cat_mid, embedding object dtypes that the upstream cat-encoder skipped, etc.), drop them here with a single-line WARN. Surfaced by 1M-harness seed=11.
     #
     # Note: the cat-encoder pre-pipeline normally runs BEFORE this function, so under standard configs this drop is a no-op. The gate exists to keep production callers + the 1M profiler harness robust against axis combinations where cat_encoding canonicalised to a path that bypassed the encoder.
 
+    t0_numeric_filter = timer()
     # Decide the kept-numeric column set ONCE on train, then pin val/test to the SAME list so a column that is numeric on train but object on val (or vice versa) can't silently diverge the per-split schema and break the downstream sklearn transform.
     train, _dropped_train = _filter_to_numeric(train)
     _kept_train = list(train.columns) if isinstance(train, pd.DataFrame) else None
@@ -609,6 +623,8 @@ def apply_preprocessing_extensions(
                 "PCA / TruncatedSVD / FastICA ValueError): %s.",
                 len(_all_null_cols), _all_null_cols[:8],
             )
+    if verbose:
+        logger.info("    apply_preprocessing_extensions.numeric_filter_and_null_drop done in %s", _elapsed_str(t0_numeric_filter))
 
     # Row-wise summary stats / top-k extreme columns (step 1.5). Purely additive, generic per-row
     # aggregates over the already-numeric column subset -- no dataset-specific column names or entity
@@ -633,6 +649,7 @@ def apply_preprocessing_extensions(
             return _df.join(_new)
 
         if getattr(config, "row_wise_summary_stats_enabled", False):
+            t0_row_wise_summary = timer()
             from mlframe.feature_engineering.row_wise_summary import row_wise_summary_stats
             _rw_stats_list = getattr(config, "row_wise_summary_stats_list", None)
 
@@ -657,8 +674,11 @@ def apply_preprocessing_extensions(
                 train, val, test = _train_rw, _val_rw, _test_rw
             except Exception:
                 logger.warning("apply_preprocessing_extensions: row_wise_summary_stats step failed; skipping.", exc_info=True)
+            if verbose:
+                logger.info("    apply_preprocessing_extensions.row_wise_summary_stats done in %s", _elapsed_str(t0_row_wise_summary))
 
         if getattr(config, "row_wise_extreme_columns_enabled", False):
+            t0_row_wise_extreme = timer()
             from mlframe.feature_engineering.row_wise_extremality import row_wise_top_k_extreme_columns
             _rw_k = int(getattr(config, "row_wise_extreme_columns_k", 3) or 3)
 
@@ -696,6 +716,8 @@ def apply_preprocessing_extensions(
                 train, val, test = _train_rw, _val_rw, _test_rw
             except Exception:
                 logger.warning("apply_preprocessing_extensions: row_wise_top_k_extreme_columns step failed; skipping.", exc_info=True)
+            if verbose:
+                logger.info("    apply_preprocessing_extensions.row_wise_extreme_columns done in %s", _elapsed_str(t0_row_wise_extreme))
 
     _row_wise_active = train.shape[1] != _pre_row_wise_ncols
 
@@ -837,6 +859,8 @@ def apply_preprocessing_extensions(
         train_arr = pipe.fit_transform(train)
     val_arr = pipe.transform(val) if val is not None and len(val) > 0 else None
     test_arr = pipe.transform(test) if test is not None and len(test) > 0 else None
+    if verbose:
+        logger.info("    apply_preprocessing_extensions.sklearn_bridge_pipeline done in %s", _elapsed_str(t0))
 
     # Preserve named-transformer output column names so downstream
     # diagnostics and feature-importance reports stay interpretable. Pre-fix

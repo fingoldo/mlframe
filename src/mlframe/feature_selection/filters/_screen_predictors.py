@@ -844,6 +844,10 @@ def screen_predictors(
                         mes = f"Added new predictor {cand_name} to the list with expected gain={best_gain:.{ndigits}f}"
                         if full_npermutations:
                             mes += f" and confidence={confidence:.3f}"
+                        # 2026-07-19: surface the pool_size x |Z| scaling this predictor's confirmation cost right
+                        # alongside the pick itself -- pool shrinks as candidates fail while |Z| only grows, so a
+                        # later predictor with a SMALLER remaining pool can still be slower than an earlier one.
+                        mes += f" [pool={len(candidates)} |Z|={len(selected_vars)} " f"cum_score_candidates_wall={ctx.sc_wall:.1f}s calls={ctx.sc_calls}]"
                         logger.info(mes)
 
                 else:
@@ -864,18 +868,23 @@ def screen_predictors(
 
         # Termination-reason summary (always emitted). ``patience_triggered`` distinguishes "gave up confirming" (max_consec_unconfirmed hit) from natural exhaustion below
         # ``min_relevance_gain``. If patience keeps tripping, raise ``max_consec_unconfirmed`` or smooth the relevance signals.
+        # 2026-07-19: total wall time inside score_candidates + call count + final |Z| appended to the
+        # SAME existing always-emitted summary line (cheaper than a whole new logging mechanism) --
+        # this is exactly the trio (pool_size x |Z| scaling driver, not the FE-pair-precompute step
+        # logged elsewhere) a prior investigation had to reconstruct from code instead of the log.
+        _sc_summary = f" [score_candidates: {ctx.sc_wall:.1f}s over {ctx.sc_calls} call(s), final |Z|={len(selected_vars)}]"
         if patience_triggered:
             logger.warning(
                 "screen_predictors terminated early via max_consec_unconfirmed=%d "
                 "patience (at least one level exhausted). Returned %d selected "
                 "feature(s). If you expected more, increase max_consec_unconfirmed "
-                "or reduce the relevance-gain threshold.",
-                max_consec_unconfirmed, len(selected_vars),
+                "or reduce the relevance-gain threshold.%s",
+                max_consec_unconfirmed, len(selected_vars), _sc_summary,
             )
         else:
             logger.info(
-                "screen_predictors finished naturally (no patience trip). " "Returned %d selected feature(s).",
-                len(selected_vars),
+                "screen_predictors finished naturally (no patience trip). " "Returned %d selected feature(s).%s",
+                len(selected_vars), _sc_summary,
             )
 
         any_influencing = set()
