@@ -198,6 +198,19 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # recall-vs-precision tradeoff. Set within_cluster_refine=False to skip refinement entirely.
         within_cluster_refine: bool = True,
         refine_n_estimators: int | None = 100,
+        # ``refine_mode`` (gt_02, default "greedy"): "greedy" is the legacy parsimony_tol drop above,
+        # byte-identical. "core" replaces the greedy drop with a least-core / nucleolus cooperative-
+        # game allocation over the winning candidate's proxy UNITS (see
+        # ``_shap_proxy_revalidate/_shap_proxy_core_stability.py``): a unit whose leave-one-out
+        # coalition can "block" it (removing it barely changes the coalition value) gets near-zero
+        # credit and is dropped; a unit some coalition genuinely needs keeps positive credit even if
+        # its marginal drop-one honest-loss delta is below parsimony_tol. The proposal is honestly
+        # verified ONCE and falls back to the legacy greedy path on any honest-gate failure -- "core"
+        # never returns a result worse than "greedy" would have.
+        refine_mode: str = "greedy",
+        core_n_coalitions: int = 512,
+        core_drop_threshold: float = 0.02,
+        core_nucleolus: bool = False,
         refine_ucb_enabled: bool = True,
         refine_ucb_min_eval_size: int | None = None,
         refine_ucb_slack: float | None = None,
@@ -523,6 +536,12 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # ``parsimony_tol``; the ranking stabilises well before the default 300 trees, so capping at
         # ~100 trees cuts each fit ~3x while keeping the drop decision intact. None disables the cap.
         self.refine_n_estimators = refine_n_estimators
+        if str(refine_mode).lower() not in ("greedy", "core"):
+            raise ValueError(f"refine_mode must be 'greedy' or 'core'; got {refine_mode!r}")
+        self.refine_mode = refine_mode
+        self.core_n_coalitions = core_n_coalitions
+        self.core_drop_threshold = core_drop_threshold
+        self.core_nucleolus = core_nucleolus
         # ``refine_ucb_*`` (iter35): batched-dispatch early-stop on within_cluster_refine's stage-2b
         # single-drop greedy round. Mechanism: each round ranks the k surviving members by ascending
         # stage-2a permutation importance (lowest importance = safest drop, most likely to produce the
