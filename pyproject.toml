@@ -374,6 +374,7 @@ dev = [
     "pytest-order>=1.2",          # pytest.mark.order(index=N) in tests/training/test_biz_val_training_core.py
     "pytest-randomly>=3.0",       # local-dev shuffle plugin. CI workflows disable it via `-p no:randomly` (see .github/workflows/*.yml) - local runs exercise random-order ordering to surface state-leak bugs, CI runs deterministic so flake triage stays clean.
     "pytest-instafail>=0.5",      # --instafail: streams tracebacks immediately on failure so worker-death INTERNALERRORs don't swallow the FAILURES section
+    "pytest-rerunfailures>=13.0", # --reruns N --only-rerun <pattern>: re-queues xdist worker crashes / transient CUDA-context failures onto a (possibly restarted) worker instead of a one-shot FAILED; scope --only-rerun to known transient signatures so a genuine deterministic bug is never silently retried into passing.
     "pytest-progress>=1.3",       # --show-progress: prints [NN%] [N/Total] prefix on each test result line so long xdist runs surface percent-complete instead of opaque per-line PASSED chatter
     "pytest-split>=0.8",          # --splits/--group: shard the suite across parallel CI jobs (21k+ tests overflow a single 2-core runner's 90-min cap, see .github/workflows/ci.yml)
     "coverage>=7.2",
@@ -662,7 +663,7 @@ DEP002 = [
     "nvidia-cuda-nvcc-cu12", "gpu-info", "cupy-cuda11x", "nvidia-cuda-nvcc-cu11",
     "mkdocs-material", "mkdocs-jupyter",
     "pytest", "pytest-cov", "pytest-xdist", "pytest-timeout", "pytest-benchmark", "pytest-order",
-    "pytest-randomly", "pytest-instafail", "pytest-progress", "pytest-split", "coverage", "freezegun",
+    "pytest-randomly", "pytest-instafail", "pytest-progress", "pytest-split", "pytest-rerunfailures", "coverage", "freezegun",
     "ruff", "black", "mypy", "bandit", "pre-commit", "pip-audit",
     "import-linter", "pydoclint", "semgrep",  # invoked as `lint-imports`/`pydoclint`/`semgrep` CLI commands, never imported
     "pillow", "setuptools", "tornado", "aiohttp", "cryptography", "starlette",
