@@ -246,6 +246,14 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
     below). Full numbers in ``_imbalance_mi`` module docstring + the regression
     test ``tests/feature_selection/test_imbalance_mi.py``.
     """
+    # A resident caller (row-argmax / conditional-gate scorer) may hand a genuinely 1-D candidate column (numpy
+    # or cupy) on the assumption this function reshapes it to a single-column batch -- true INSIDE the
+    # GPU-STRICT branch below (``if Xd.ndim == 1: Xd = Xd[:, None]``), but GPU-STRICT is off by default, in
+    # which case the array fell through unreshaped to ``_mi_classif_batch_numba``'s ``_n, p = X.shape``, which
+    # assumes 2-D and raised "not enough values to unpack (expected 2, got 1)" on a 1-D shape. Normalise once,
+    # unconditionally, at the single choke point instead of relying on the STRICT-only reshape.
+    if X.ndim == 1:
+        X = X[:, None]
     # Fast OFF short-circuit (the default): a single env read, no import / no
     # bincount, so the common path is byte-for-byte and ~free vs plain numba.
     import os as _os
