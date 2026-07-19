@@ -201,10 +201,15 @@ def _build_pre_pipelines(
             mrmr_kwargs["random_seed"] = int(fs_random_seed)
         # MRMR's MI estimator is group-naive (grouped MI is not implemented). Under a group-aware split it therefore
         # ranks features ignoring groups -- a minor honesty caveat that MRMR itself surfaces via a UserWarning +
-        # ``groups_ignored_`` on fit. We do NOT force ``strict_groups=True`` here: forcing it turned every group-aware
-        # MRMR run into a hard NotImplementedError that aborted the whole suite, which is disproportionate to a
-        # group-naive feature RANKING. An operator who wants the hard stop can still pass ``strict_groups=True`` in
-        # ``mrmr_kwargs`` explicitly.
+        # ``groups_ignored_`` on fit. We do NOT let ``strict_groups=True`` fire here: forcing it turns every
+        # group-aware MRMR run into a hard NotImplementedError that aborts the whole suite, which is disproportionate
+        # to a group-naive feature RANKING. MRMR's OWN constructor default flipped to ``strict_groups=True`` (finding
+        # #20) for ad-hoc callers who pass ``groups=`` directly and should be warned loudly -- but the suite's
+        # group-aware split threads ``groups=`` through EVERY selector uniformly, so inheriting that hard default here
+        # would abort suites that never opted into the strict behavior. Explicitly default to the legacy warn-only
+        # fallback unless the caller opted into the hard stop via ``mrmr_kwargs={"strict_groups": True}``.
+        if fs_use_groups and "strict_groups" not in mrmr_kwargs:
+            mrmr_kwargs["strict_groups"] = False
         _mrmr = _mrmr_spec.instantiate(**mrmr_kwargs)
         _mrmr._mlframe_use_sample_weights_in_fs_ = bool(use_sample_weights_in_fs)
         _mrmr._mlframe_selector_kind_ = "MRMR"

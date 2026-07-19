@@ -1,15 +1,14 @@
-"""Regression (MRMR critique N-F6): the Chao-Shen (CS) MI estimator is NOT wired into any null-using path.
+"""Regression (MRMR critique N-F6): Chao-Shen (CS) MI estimator / null-path parity.
 
-N-F6 was filed as the CS analogue of N-F1 (a permutation null must use the SAME estimator as the observed statistic).
-Evidence (bench_nf6_chao_shen_null_status.py) shows CS is a STANDALONE estimator with no production null caller, and
-mi_correction='chao_shen' currently degrades to plug-in ('none') for BOTH the observed relevance and its null -- so there
-is no observed-vs-null estimator mismatch. This test pins that DOC contract:
+N-F6 was originally filed as the CS analogue of N-F1 (a permutation null must use the SAME estimator as
+the observed statistic), back when CS was a standalone estimator with no production null caller and
+mi_correction='chao_shen' silently degraded to plug-in ('none') with a warning. CS is now fully wired
+into BOTH the observed-relevance and permutation-null paths (mirroring Miller-Madow's wiring exactly --
+see ``MRMR.fit``'s ``set_mi_chao_shen`` call site), closing the exact N-F1/N-F6 mismatch this file exists
+to catch. This test pins the CURRENT contract:
 
-1. mi_correction='chao_shen' does not enable Miller-Madow (observed and null both stay plug-in -> matched estimator).
-2. It is surfaced (logged), not silently ignored.
-
-If a future PR wires CS into the observed relevance, guard (1) forces the null to be wired in the same change (otherwise
-observed CS vs plug-in null is the exact N-F1/N-F6 mismatch this test exists to catch).
+1. mi_correction='chao_shen' does not enable Miller-Madow (the two corrections are mutually exclusive).
+2. Requesting it no longer emits the stale "falls back to plug-in" no-op warning -- it is genuinely engaged.
 """
 
 import numpy as np
@@ -40,9 +39,9 @@ def test_chao_shen_mi_is_standalone_matches_plugin_shape():
     assert np.isfinite(cs) and cs >= 0.0
 
 
-def test_mrmr_warns_when_chao_shen_requested(caplog):
-    # mi_correction='chao_shen' must be surfaced as an unwired no-op, not silently ignored.
-    """Mrmr warns when chao shen requested."""
+def test_mrmr_chao_shen_no_longer_warns_as_unwired_noop(caplog):
+    """``mi_correction='chao_shen'`` is now fully wired (observed + null); requesting it must NOT emit
+    the old "falls back to plug-in" no-op warning."""
     import logging
     from mlframe.feature_selection.filters.mrmr._mrmr_class import MRMR
 
@@ -54,6 +53,6 @@ def test_mrmr_warns_when_chao_shen_requested(caplog):
     y = (X["f0"] % 2).to_numpy()
     with caplog.at_level(logging.WARNING):
         MRMR(mi_correction="chao_shen", max_runtime_mins=0.2).fit(X, y)
-    assert any(
+    assert not any(
         "chao_shen" in r.message and "plug-in" in r.message for r in caplog.records
-    ), "MRMR did not warn that mi_correction='chao_shen' falls back to plug-in"
+    ), "MRMR still warns that mi_correction='chao_shen' falls back to plug-in, but CS is now fully wired -- stale no-op warning should have been removed."

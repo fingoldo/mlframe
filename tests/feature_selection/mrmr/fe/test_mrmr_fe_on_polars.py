@@ -69,6 +69,9 @@ def test_fe_disabled_polars_stays_native_no_error():
     binned-agg, gated by ``fe_discrete_structural_operators_enable``) deliberately fire independently
     of ``fe_max_steps`` once n>=500 (see ``_DISCRETE_FE_MIN_N_AT_FE0`` in ``_fit_impl_core.py``) --
     they must also be explicitly disabled here for a genuinely raw-only fit on this n=2000 fixture.
+    Same for the hinge-basis (``fe_hinge_enable``, ``d__relu_lt``/``d__relu_gt`` legs) and the
+    univariate-Fourier-chirp (``fe_univariate_fourier_chirp``, ``d__qcos``/``d__qsin`` legs) bases,
+    both also default-ON and independent of ``fe_max_steps``.
     """
     data, y = _canonical(n=2000)
     df_pl = pl.DataFrame(data)
@@ -81,6 +84,8 @@ def test_fe_disabled_polars_stays_native_no_error():
         build_friend_graph=False,
         cluster_aggregate_enable=False,
         fe_discrete_structural_operators_enable=False,
+        fe_hinge_enable=False,
+        fe_univariate_fourier_chirp=False,
     ).fit(df_pl.clone(), pl.Series("y", y))
     # no crash, and selection is a subset of the raw columns (no FE).
     assert set(m.get_feature_names_out()) <= set(data.keys())

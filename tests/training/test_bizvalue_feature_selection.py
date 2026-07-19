@@ -421,10 +421,15 @@ def test_mrmr_drops_uninformative_features_on_polars_input(tmp_path):
     assert (
         recovered_signals
     ), f"MRMR on Polars failed to recover any signal feature (raw or engineered). Selected: {selected}. Expected at least one of: {signal_cols}"
-    # And at least one NOISE column should have been dropped (selector
-    # should not keep every single noise col). _make_noisy_classification
-    # uses 'x_*' or similar naming — we assert the selected count is less
-    # than the total column count as a coarse sanity bound.
-    assert (
-        len(selected) < len(pl_df.columns) - 1
-    ), f"MRMR on Polars kept almost every column ({len(selected)} of {len(pl_df.columns) - 1}) — selector not functioning on polars input."
+    # And most NOISE columns should have been dropped. Default-ON FE generates many candidate
+    # composite features (e.g. ``add(exp(sub(cbrt(info_2)_...)))``), so a coarse "selected count <
+    # raw column count" bound (the old check here) is no longer meaningful -- MRMR can legitimately
+    # select MORE engineered composites than there are raw columns while still dropping nearly all
+    # RAW noise columns. Count raw ``noise_*`` survivors directly, mirroring the precise check
+    # ``test_mrmr_drops_uninformative_features`` (the pandas twin) already uses.
+    n_noise_total = sum(1 for c in pl_df.columns if c.startswith("noise_"))
+    n_noise_kept = sum(1 for c in selected if c.startswith("noise_"))
+    assert n_noise_kept <= int(n_noise_total * 0.25), (
+        f"MRMR on Polars retained too many raw noise features: kept {n_noise_kept} of {n_noise_total} "
+        f"({n_noise_kept / n_noise_total:.0%}) — selector not functioning on polars input. Selected: {selected}."
+    )

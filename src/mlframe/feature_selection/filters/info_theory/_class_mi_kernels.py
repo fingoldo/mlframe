@@ -86,7 +86,7 @@ def compute_mi_cs_from_classes(
     freqs_x: np.ndarray,
     classes_y: np.ndarray,
     freqs_y: np.ndarray,
-    dtype=np.int32,
+    dtype: type = np.int32,
 ) -> float:
     """Chao-Shen (2003) coverage-adjusted MI from pre-computed class arrays: ``H_CS(X) + H_CS(Y) -
     H_CS(X,Y)``, floored at 0. Unlike Miller-Madow's closed-form additive bias term, Chao-Shen

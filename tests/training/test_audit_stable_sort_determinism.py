@@ -248,9 +248,9 @@ def test_composite_discovery_aggregated_score_uses_lexsort() -> None:
 
 def test_composite_discovery_mi_gain_uses_secondary_name() -> None:
     """mi_gain top-K discovery sort breaks ties on spec name."""
-    # ``fit`` (where the mi_gain top-K sort lives) moved to
-    # ``_composite_discovery_fit.py``.
-    src = _read("training/composite/discovery/_fit.py")
+    # The MI-gain top-K filter/gate step moved to the ``_filter_and_gate.py`` sibling when
+    # ``_fit.py`` was split further below the 1k-LOC threshold.
+    src = _read("training/composite/discovery/_filter_and_gate.py")
     assert 'key=lambda s: (-s.mi_gain, getattr(s, "name", ""))' in src
 
 
