@@ -172,6 +172,43 @@ def _permutation_null_gain_njit(x_sorted: np.ndarray, y_compact: np.ndarray, n_c
     return null_gains
 
 
+def _permutation_prefilter_reject(gain: float, n: int, n_classes_full: int) -> bool:
+    """Cheap O(1) reject-only shortcut for the permutation-fallback branch, to skip the
+    ``n_permutations``-cost shuffle loop (the confirmed cost driver -- 20-80x per column, per the
+    original prototype report) when the observed gain is so weak it cannot possibly clear the
+    permutation null's acceptance quantile.
+
+    Uses ``analytic_mi_null``'s Miller-Madow ``null_mean = df/(2N)`` -- valid as an absolute bias
+    floor for a SINGLE fixed comparison regardless of whether the dense-cell chi-square p-value
+    approximation itself applies (same reasoning already used for the OOS variant's absolute floor
+    above). The permutation branch's actual null is the STRICTER max-over-``n_candidates``
+    statistic, whose mean and quantiles are never below the single-comparison null's (a max over
+    >=1 draws from the same distribution stochastically dominates one draw) -- so failing to clear
+    even the easier single-comparison floor means the harder max-of-many floor is certainly not
+    cleared either. This can only ever turn a permutation-branch REJECT into an early reject
+    (never an accept), so it cannot inflate the false-accept rate -- verified to produce IDENTICAL
+    accept/reject decisions to the unfiltered path across the adversarial + robustness scenario
+    suite in ``_benchmarks/bench_mdlp_prefilter_hybrid.py`` (0 mismatches over 36 scenario x seed
+    combinations at n in {1500, 20000}).
+
+    MEASURED IMPACT (honest, not the hoped-for fix): this is safe but NOT the answer to the 20-80x
+    permutation-fallback cost problem. Warm-JIT, median-of-3, interleaved-order A/B (see the bench
+    module) measured only ~1-7% wall-time reduction, not an order of magnitude -- because the
+    observed gain reaching this branch is already the MAX over every class-boundary candidate at
+    the node, and that max-selection effect alone usually pushes it well above the single-
+    comparison bias floor even under pure noise, so the reject-shortcut fires rarely in practice.
+    A real fix for the cost driver still needs the GPU-resident batched-permutation treatment
+    recommended in the original prototype report (batch all node-level shuffles into one device-
+    resident kernel call, mirroring ``_fe_cmi_perm_null_gpu.py``'s MRMR redundancy-gate design) --
+    unimplemented, left as the actual next step. Kept here anyway (never silently reverted) because
+    it is unconditionally safe and a genuine, if small, net win.
+    """
+    if gain <= 0.0:
+        return True
+    null_mean, _ = analytic_mi_null(float(gain), int(n), 2, int(n_classes_full))
+    return gain <= null_mean
+
+
 def _split_significant(
     gain: float,
     n: int,
@@ -212,6 +249,8 @@ def _split_significant(
         _, p_value_raw = analytic_mi_null(float(gain), int(n), 2, int(n_classes_full))
         p_value = min(1.0, p_value_raw * max(1, int(n_candidates)))
         return (p_value < alpha), p_value, "analytic"
+    if _permutation_prefilter_reject(gain, n, n_classes_full):
+        return False, 1.0, "permutation_prefiltered"
     null_gains = _permutation_null_gain_njit(x_sorted, y_compact, int(n_classes_full), int(min_split_size), int(n_permutations), int(seed))
     null_gains.sort()
     q_idx = min(math.ceil((1.0 - alpha) * n_permutations) - 1, n_permutations - 1)
