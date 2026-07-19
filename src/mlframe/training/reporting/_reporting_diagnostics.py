@@ -234,7 +234,14 @@ def _render_post_fit_diagnostics(
     cfg = reporting_config
     tt = (target_type or "").lower()
     task = "regression" if "regress" in tt else "classification"
-    y_arr = np.asarray(targets).ravel() if targets is not None else None
+    _targets_arr = np.asarray(targets) if targets is not None else None
+    # A genuinely 2-D multilabel target (n, n_labels) must be excluded from the single-target diagnostics
+    # BEFORE ravel() -- ravel() flattens it to a corrupted length-(n*n_labels) array and forces ndim back to 1,
+    # which silently defeated the previous downstream ``y_arr.ndim == 1`` guards (they always saw the post-ravel
+    # shape, never the true one). That corrupted array then reached df-paired diagnostics (row count n) and
+    # crashed/length-mismatched deep inside them instead of being skipped at the gate as intended.
+    _multilabel = _targets_arr is not None and _targets_arr.ndim > 1 and _targets_arr.shape[1] > 1
+    y_arr = _targets_arr.ravel() if _targets_arr is not None else None
     names, importances = _ranked_feature_names(metrics, model, columns)
 
     from mlframe.reporting.diagnostics_dispatch import (
@@ -311,14 +318,14 @@ def _render_post_fit_diagnostics(
             max_seconds=getattr(cfg, "interaction_strength_max_seconds", 20.0),
         )
 
-    if getattr(cfg, "engineered_separability_charts", True) and df is not None and y_arr is not None and not _collapsed:
+    if getattr(cfg, "engineered_separability_charts", True) and df is not None and y_arr is not None and not _collapsed and not _multilabel:
         render_engineered_separability_diagnostic(
             df=df, y_true=y_arr, feature_names=names, feature_importances=importances,
             plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
             sample=getattr(cfg, "pdp_sample", 2000) * 2,
         )
 
-    if getattr(cfg, "class_structure_charts", True) and df is not None and y_arr is not None and y_arr.ndim == 1:
+    if getattr(cfg, "class_structure_charts", True) and df is not None and y_arr is not None and not _multilabel:
         render_class_structure_diagnostic(
             df=df, y_true=y_arr, feature_names=names,
             plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
@@ -326,7 +333,7 @@ def _render_post_fit_diagnostics(
             n_time_bins=getattr(cfg, "class_structure_time_bins", 20),
         )
 
-    if getattr(cfg, "category_discriminability_charts", True) and df is not None and tt == "binary_classification" and y_arr is not None and y_arr.ndim == 1:
+    if getattr(cfg, "category_discriminability_charts", True) and df is not None and tt == "binary_classification" and y_arr is not None and not _multilabel:
         render_category_discriminability_diagnostic(
             df=df, y_true=y_arr, feature_names=names,
             plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
@@ -336,7 +343,7 @@ def _render_post_fit_diagnostics(
 
     if (
         getattr(cfg, "slice_finder", True) and df is not None
-        and y_arr is not None and y_pred is not None and y_arr.ndim == 1
+        and y_arr is not None and y_pred is not None and not _multilabel
         and len(y_pred) == len(y_arr) and not _collapsed
     ):
         render_slice_finder_diagnostic(
@@ -358,7 +365,7 @@ def _render_post_fit_diagnostics(
                 y_true=y_arr, y_score=_bs, plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
             )
 
-    if getattr(cfg, "risk_coverage_charts", True) and y_arr is not None and y_arr.ndim == 1:
+    if getattr(cfg, "risk_coverage_charts", True) and y_arr is not None and not _multilabel:
         from mlframe.reporting import render_risk_coverage_diagnostic
         if tt == "binary_classification":
             _bs = _binary_positive_score(probs)
