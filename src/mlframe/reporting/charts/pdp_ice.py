@@ -294,11 +294,17 @@ def compute_pdp(
     ice: bool = True,
     centered: bool = False,
     seed: int = 0,
+    _as_2d_result: Optional[Tuple[np.ndarray, Any, Optional[List[str]]]] = None,
 ) -> dict:
     """One-feature partial dependence + ICE.
 
     Subsamples to ``sample`` rows, then for each grid value sets the feature column to that value across all
     sampled rows and predicts ONCE (vectorized over rows) -- ``grid`` predict calls total, independent of n.
+
+    ``_as_2d_result``: internal-only escape hatch for ``pdp_panel``/``compose_pdp_figure``, which sweep the SAME
+    ``X`` across many features/panels -- passing the already-computed ``_as_2d(X)`` tuple skips re-running the
+    whole-frame float coercion (a real cost: measured ~10ms/call at 200k rows, called once per feature) on every
+    call. External callers never set this; it always recomputes fresh from ``X`` when omitted.
 
     Returns a dict:
         ``grid``      : (G,) sweep values (quantile grid for continuous, categories for discrete)
@@ -309,7 +315,7 @@ def compute_pdp(
         ``kind``      : "proba" / "predict" (model output read)
         ``feature_index`` : resolved column index
     """
-    vals, carrier, names = _as_2d(X)
+    vals, carrier, names = _as_2d_result if _as_2d_result is not None else _as_2d(X)
     carrier = _carrier_with_categoricals(carrier)  # so categorical models can predict on the substituted block
     n, n_cols = vals.shape
     col_idx = _resolve_feature_index(feature, names, n_cols)
@@ -444,15 +450,21 @@ def pdp_panel(
     ice: bool = True,
     centered: bool = False,
     seed: int = 0,
+    _as_2d_result: Optional[Tuple[np.ndarray, Any, Optional[List[str]]]] = None,
 ) -> PanelSpec:
     """LinePanelSpec for one feature: faint per-row ICE curves under the bold PDP mean.
 
     When ``centered`` is set the ICE curves are c-ICE (each anchored to 0 at the first grid point) so pure
     interaction shape is comparable across rows of different baselines. A degenerate single-point grid (constant
     feature) returns an AnnotationPanelSpec.
+
+    ``_as_2d_result``: internal-only escape hatch, see ``compute_pdp`` -- ``compose_pdp_figure`` computes ``X``'s
+    ``_as_2d`` once and passes it through here (was being recomputed twice per feature: once in this function
+    just for ``names``, again inside ``compute_pdp``).
     """
-    _, _, names = _as_2d(X)
-    res = compute_pdp(model, X, feature, grid=grid, sample=sample, ice=ice, centered=centered, seed=seed)
+    _as_2d_result = _as_2d_result if _as_2d_result is not None else _as_2d(X)
+    _, _, names = _as_2d_result
+    res = compute_pdp(model, X, feature, grid=grid, sample=sample, ice=ice, centered=centered, seed=seed, _as_2d_result=_as_2d_result)
     label = _feat_label(feature, names, res["feature_index"])
     gv = res["grid"]
     if gv.shape[0] < 2:
@@ -546,7 +558,12 @@ def compose_pdp_figure(
     """
     if not features:
         return FigureSpec(suptitle=suptitle, panels=((AnnotationPanelSpec(text="compose_pdp_figure: no features"),),), figsize=(8.0, 3.0))
-    panels: List[PanelSpec] = [pdp_panel(model, X, f, grid=grid, sample=sample, ice=ice, centered=centered, seed=seed) for f in features]
+    # Computed ONCE and threaded through every panel: all features sweep the SAME X, so the whole-frame float
+    # coercion _as_2d does was being redundantly recomputed twice per feature (see pdp_panel/compute_pdp).
+    _as_2d_result = _as_2d(X)
+    panels: List[PanelSpec] = [
+        pdp_panel(model, X, f, grid=grid, sample=sample, ice=ice, centered=centered, seed=seed, _as_2d_result=_as_2d_result) for f in features
+    ]
     # Auto-conclusion in the suptitle: a feature whose PDP mean barely moves has ~no marginal effect on
     # the prediction (the model isn't using it on average -- e.g. the two flat panels the operator
     # spotted). Measure each 1-D panel's PDP-mean range (last series = bold mean) and flag those under
