@@ -273,9 +273,14 @@ def _mdlp_recurse_validated(
     seed: int,
     bonferroni: bool,
     counts_parent: "np.ndarray | None" = None,
+    tree_wide_alpha: "float | None" = None,
 ) -> None:
     """Same recursion shape as ``_mdlp_recurse_njit`` (candidate search unchanged), but the accept test
     is swapped for the significance gate in ``_split_significant`` instead of ``_mdlp_pass_threshold_njit``.
+
+    ``tree_wide_alpha``, when not ``None``, overrides ``bonferroni``'s depth-decay with a single fixed
+    alpha shared by every node in the tree (see ``mdlp_bin_edges_validated``'s ``tree_wide_bonferroni``
+    for how it's derived) -- mutually exclusive with the depth-decay mode, never both applied at once.
     """
     n = len(x)
     if n < 2 * min_split_size or depth >= max_depth:
@@ -301,7 +306,10 @@ def _mdlp_recurse_validated(
     # This is SEPARATE from (and stacks with) the mandatory per-node candidate-count Bonferroni inside
     # ``_split_significant`` -- that one corrects for the max-over-cut-points selection effect within a
     # single node and is not optional (see that function's docstring for the empirical justification).
-    _alpha = alpha / (2.0**depth) if bonferroni else alpha
+    if tree_wide_alpha is not None:
+        _alpha = tree_wide_alpha
+    else:
+        _alpha = alpha / (2.0**depth) if bonferroni else alpha
     n_candidates = _count_candidates_njit(x, y_compact, min_split_size)
     accept, _p_value, _path = _split_significant(
         best_gain, n, n_classes_full, x, y_compact, min_split_size, _alpha, n_permutations,
@@ -317,11 +325,11 @@ def _mdlp_recurse_validated(
     splits.append(float(best_split))
     _mdlp_recurse_validated(
         x[:left_mask_idx], y_compact[:left_mask_idx], splits, depth + 1, min_split_size, max_depth,
-        alpha, n_permutations, seed, bonferroni, counts_left_dense,
+        alpha, n_permutations, seed, bonferroni, counts_left_dense, tree_wide_alpha,
     )
     _mdlp_recurse_validated(
         x[left_mask_idx:], y_compact[left_mask_idx:], splits, depth + 1, min_split_size, max_depth,
-        alpha, n_permutations, seed, bonferroni, counts_right_dense,
+        alpha, n_permutations, seed, bonferroni, counts_right_dense, tree_wide_alpha,
     )
 
 
@@ -335,6 +343,7 @@ def mdlp_bin_edges_validated(
     alpha: float = 0.05,
     n_permutations: int = 30,
     bonferroni: bool = False,
+    tree_wide_bonferroni: bool = False,
     seed: int = 0,
 ) -> np.ndarray:
     """Significance-gated MDLP (research prototype). Same y-quantization / NaN-handling / dtype
@@ -342,6 +351,23 @@ def mdlp_bin_edges_validated(
     prototype fully separate from the in-flight production file per this session's file-ownership
     convention); only the accept-test inside the recursion differs. Returns sorted edges including
     ``-inf``/``+inf`` sentinels, same as ``mdlp_bin_edges``.
+
+    Args:
+        bonferroni: Depth-decay correction ``alpha / 2**depth`` -- assumes a perfectly balanced
+            binary tree (exactly ``2**depth`` nodes at depth ``d``), which the data-dependent
+            recursion here rarely produces exactly, so it over- or under-corrects depending on
+            actual tree shape. Mutually exclusive with ``tree_wide_bonferroni`` (that one wins if
+            both are set).
+        tree_wide_bonferroni: Data-independent, provably-conservative alternative: divides ``alpha``
+            once by ``max(1, n // min_split_size)``, the maximum possible number of internal nodes
+            ANY binary tree over ``n`` rows can have when every leaf needs at least ``min_split_size``
+            rows (a tree with ``L`` leaves has exactly ``L - 1`` internal nodes, and ``L <=
+            n // min_split_size``) -- true regardless of how the actual (data-dependent) recursion
+            shape turns out, so this alpha is valid for every node without a two-pass count of the
+            real tree. Strictly more conservative than the true tree-wide FWER bound (uses the size
+            bound rather than the exact node count actually visited), by design -- see
+            ``_benchmarks/bench_mdlp_adversarial_suite.py``'s multi-comparisons-defeat sweep for the
+            measured empirical tree-wide false-discovery rate under this mode vs depth-decay vs off.
     """
     x = np.asarray(x).ravel()
     _y_arr = np.asarray(y).ravel()
@@ -371,8 +397,10 @@ def mdlp_bin_edges_validated(
     x_sorted = np.ascontiguousarray(x[sorter].astype(np.float64))
     y_sorted = np.ascontiguousarray(y_i[sorter])
     splits: list = []
+    tree_wide_alpha = float(alpha) / max(1, x_sorted.size // int(min_split_size)) if tree_wide_bonferroni else None
     _mdlp_recurse_validated(
         x_sorted, y_sorted, splits, 0, int(min_split_size), int(max_depth), float(alpha), int(n_permutations), int(seed), bool(bonferroni),
+        tree_wide_alpha=tree_wide_alpha,
     )
     splits.sort()
     edges = np.concatenate([[-np.inf], np.asarray(splits, dtype=np.float64), [np.inf]])

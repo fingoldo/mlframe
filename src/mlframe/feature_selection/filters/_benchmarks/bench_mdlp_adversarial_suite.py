@@ -320,7 +320,7 @@ def print_outlier_report(results: "list[OutlierCell]") -> None:
 class FDRCell:
     n: int
     n_classes: int
-    bonferroni: bool
+    mode: str
     n_seeds: int
     n_trees_with_fp: int
     tree_fdr: float
@@ -330,21 +330,26 @@ class FDRCell:
 
 
 def run_multi_comparisons_defeat(n_seeds: int = 50) -> "list[FDRCell]":
-    """Full recursion (not root-only) on pure noise, across n / n_classes / bonferroni on-off, to
+    """Full recursion (not root-only) on pure noise, across n / n_classes / bonferroni MODE, to
     hunt for a tree-wide false-discovery rate materially above the single-node nominal alpha=0.05.
     ``n_classes`` is swept up to 8 specifically because a higher class count raises both the
     candidate-cut-point count feeding the mandatory per-node Bonferroni AND the number of children
     each accepted split spawns -- the two levers an adversary would pull to inflate the tree-wide
-    rate."""
+    rate. Three modes: ``"off"`` (no tree-wide correction, only the mandatory per-node one),
+    ``"depth_decay"`` (``alpha / 2**depth``, assumes a balanced tree), ``"tree_wide"`` (single
+    fixed ``alpha / max(1, n // min_split_size)``, a provably conservative node-count upper bound --
+    see ``mdlp_bin_edges_validated``'s ``tree_wide_bonferroni`` docstring)."""
     results = []
     for n in (1000, 5000, 20000, 50000):
         for n_classes in (2, 4, 8):
-            for bonferroni in (False, True):
+            for mode in ("off", "depth_decay", "tree_wide"):
                 n_trees_with_fp = 0
                 splits_per_tree = []
                 for seed in range(n_seeds):
                     x, y = scen_pure_noise_multiclass(n, n_classes, seed=seed * 15485863 + n + n_classes)
-                    edges = mdlp_bin_edges_validated(x, y, alpha=0.05, bonferroni=bonferroni, seed=seed)
+                    edges = mdlp_bin_edges_validated(
+                        x, y, alpha=0.05, bonferroni=(mode == "depth_decay"), tree_wide_bonferroni=(mode == "tree_wide"), seed=seed,
+                    )
                     n_splits = max(0, edges.size - 2)
                     splits_per_tree.append(n_splits)
                     if n_splits > 0:
@@ -353,7 +358,7 @@ def run_multi_comparisons_defeat(n_seeds: int = 50) -> "list[FDRCell]":
                 ci = _wilson_ci(n_trees_with_fp, n_seeds)
                 results.append(
                     FDRCell(
-                        n, n_classes, bonferroni, n_seeds, n_trees_with_fp, tree_fdr, ci,
+                        n, n_classes, mode, n_seeds, n_trees_with_fp, tree_fdr, ci,
                         float(np.mean(splits_per_tree)), int(np.max(splits_per_tree)),
                     )
                 )
@@ -361,10 +366,10 @@ def run_multi_comparisons_defeat(n_seeds: int = 50) -> "list[FDRCell]":
 
 
 def print_fdr_report(results: "list[FDRCell]") -> None:
-    print(f"{'n':>8s} {'n_classes':>10s} {'bonferroni':>11s} {'tree_FDR':>10s} {'95% CI':>18s} {'mean_splits':>12s} {'max_splits':>11s}")
+    print(f"{'n':>8s} {'n_classes':>10s} {'mode':>12s} {'tree_FDR':>10s} {'95% CI':>18s} {'mean_splits':>12s} {'max_splits':>11s}")
     for r in results:
         print(
-            f"{r.n:8d} {r.n_classes:10d} {str(r.bonferroni):>11s} {r.tree_fdr:10.3f} "
+            f"{r.n:8d} {r.n_classes:10d} {r.mode:>12s} {r.tree_fdr:10.3f} "
             f"[{r.tree_fdr_ci[0]:.3f},{r.tree_fdr_ci[1]:.3f}] {r.mean_splits_per_tree:12.3f} {r.max_splits_in_a_tree:11d}"
         )
 
