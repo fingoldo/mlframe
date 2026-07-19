@@ -537,7 +537,7 @@ def within_cluster_refine(
     *, classification, metric=None, parsimony_tol=0.02, n_jobs=-1, max_drop_rounds=None, cache=None,
     member_groups=None, min_multi_clusters=3, refine_n_estimators=100,
     ucb_enabled=False, ucb_min_eval_size=None, ucb_slack=None, ucb_stdev_multiplier=1.0,
-    inner_n_jobs_cap=False, disk_cache_dir=None,
+    inner_n_jobs_cap=False, disk_cache_dir=None, protected_cols=None,
 ):
     """Compact the selected clusters' member columns down to a quality-preserving subset (honest).
 
@@ -599,10 +599,20 @@ def within_cluster_refine(
     (legacy behavior). The cap is silently a no-op for templates without an ``n_estimators``-like param
     (e.g. a linear model in tests), so all existing behavior-preservation tests stay green.
 
+    ``protected_cols`` (gt_09, iter-2026-07-19, default ``None``): a set of member-column ids that
+    are excluded from every drop trial (stage 1 cluster-collapse, stage 2a batch-drop, stage 2b
+    single-drop greedy) -- never proposed for removal. Used to keep residual-pass-rescued weak
+    features alive through this stage's greedy ``parsimony_tol`` pruning, which the empirical trace
+    showed re-drops them even after they survive the prescreen. ``None`` (default) is a strict no-op:
+    every trial set is unchanged, byte-identical to the pre-extension behaviour. Protection applies
+    ONLY here; the honest revalidation stage upstream still arbitrates freely, so a protected feature
+    that genuinely hurts can still lose there.
+
     Returns the refined member-column list.
     """
     metric = resolve_metric(classification, metric)
     current = sorted(set(int(c) for c in member_cols))
+    protected = {int(c) for c in protected_cols} if protected_cols else set()
     if len(current) <= 1:
         return current
     # Refine's per-trial fits use a capped n_estimators template (cheap ranking signal); the cap is
@@ -660,7 +670,8 @@ def within_cluster_refine(
             for ci, g in enumerate(multi):
                 # g[0] is the surviving representative (the cluster aggregator's first member); g[1:]
                 # are the redundant members the probe asks to drop while other clusters stay intact.
-                drop_set = set(g[1:])
+                # Protected members are never proposed for removal, even as a cluster-collapse dedupe.
+                drop_set = set(g[1:]) - protected
                 probe_cols = sorted(c for c in current if c not in drop_set)
                 probes.append((probe_cols, ci, sorted(drop_set)))
             losses = _parallel_honest_losses(
@@ -739,9 +750,16 @@ def within_cluster_refine(
         # priors (lowest importance = safest drop = lowest expected honest loss). Used as the UCB
         # proxy when ``ucb_enabled``; dropped members fall out of the dict naturally on lookup.
         importance_by_col = {int(current[i]): float(importances[i]) for i in range(len(current))}
-        # Sort members ascending by importance (lowest = safest to drop first).
-        order = np.argsort(importances, kind="stable")
-        sorted_imps = importances[order]
+        # Sort members ascending by importance (lowest = safest to drop first). Protected members are
+        # pinned to +inf for THIS batch-drop selection only (never sorted into the "safe to drop"
+        # prefix) -- ``importance_by_col`` above keeps the real value for reporting/stage-2b priors.
+        drop_importances = importances.copy()
+        if protected:
+            for i, c in enumerate(current):
+                if int(c) in protected:
+                    drop_importances[i] = float("inf")
+        order = np.argsort(drop_importances, kind="stable")
+        sorted_imps = drop_importances[order]
         n = len(current)
         # Strict safe-batch sizing: a member is "clearly drop-safe" only if shuffling its column
         # leaves holdout loss BELOW or AT the un-permuted base (importance <= 0). This excludes
@@ -826,10 +844,14 @@ def within_cluster_refine(
             break
         cur_threshold = base + parsimony_tol * abs(base)
 
-        # Build (col, importance_prior) pairs. Members not in ``importance_by_col`` (e.g. stage-2a was
+        # Build (col, importance_prior) pairs, EXCLUDING protected members -- they are never proposed
+        # for removal, so no trial drops them. Members not in ``importance_by_col`` (e.g. stage-2a was
         # skipped on a degenerate path) fall back to importance = +inf so they sort last; the legacy
         # path also runs them but the UCB path keeps them as last-resort dispatch.
-        col_importance = [(int(c), importance_by_col.get(int(c), float("inf"))) for c in current]
+        droppable_current = [c for c in current if int(c) not in protected] if protected else current
+        if not droppable_current:
+            break
+        col_importance = [(int(c), importance_by_col.get(int(c), float("inf"))) for c in droppable_current]
         if use_ucb_stage2b and len(col_importance) > ucb_min_eval_size_eff:
             # UCB-batched: sort trials by ascending importance, dispatch in workers-sized batches,
             # short-circuit when no remaining trial can beat the round leader.
@@ -854,7 +876,7 @@ def within_cluster_refine(
                 pos += step
                 tasks = []
                 for li in batch_local:
-                    drop_col = current[li]
+                    drop_col = droppable_current[li]
                     survivors = [c for c in current if c != drop_col]
                     tasks.append((survivors, None))
                 losses_batch = _parallel_honest_losses(
@@ -887,16 +909,17 @@ def within_cluster_refine(
             # Accept the leader if within tol; otherwise round terminates.
             if best_local_idx < 0 or best_loss_round > cur_threshold:
                 break
-            drop_col = current[best_local_idx]
+            drop_col = droppable_current[best_local_idx]
             current = [c for c in current if c != drop_col]
             base = min(base, float(best_loss_round))
             # The dropped column's importance entry is no longer needed; left in place because the
             # dict is keyed by column id (the dropped col simply never re-appears in subsequent
             # ``current`` lookups). Avoids mutating the dict in the inner loop.
         else:
-            # Legacy single-batch path: ALL k trials in one parallel dispatch per round. Preserved
-            # bit-identical for UCB-off / n_jobs in {1,0,None} / no-prior fallback paths.
-            trials = [[c for c in current if c != drop] for drop in current]
+            # Legacy single-batch path: ALL droppable trials in one parallel dispatch per round.
+            # Bit-identical to pre-``protected_cols`` behaviour when ``protected`` is empty (the
+            # default) since ``droppable_current == current`` in that case.
+            trials = [[c for c in current if c != drop] for drop in droppable_current]
             losses = _parallel_honest_losses([(t, None) for t in trials], model_template, X_search, y_search,
                                              X_holdout, y_holdout, classification, metric, n_jobs, cache=cache,
                                              n_estimators_cap=cap, template_id=tid,
