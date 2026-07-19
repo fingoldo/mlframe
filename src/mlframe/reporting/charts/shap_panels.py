@@ -117,6 +117,26 @@ def is_tree_model(model: Any) -> bool:
     return False
 
 
+_CATBOOST_MULTI_OUTPUT_LOSSES: frozenset = frozenset({"multilogloss", "multicrossentropy"})
+
+
+def _is_multi_output_catboost(model: Any) -> bool:
+    """True iff ``model`` is a CatBoost estimator trained with a multi-output leaf-value loss (MultiLogloss /
+    MultiCrossEntropy, the multilabel losses) -- see the caller for why shap's CatBoost parser crashes on these.
+    Detected via ``get_all_params()['loss_function']`` (present on every fitted CatBoost estimator); any lookup
+    failure (non-CatBoost model, unfitted, API drift) is treated as "not the risky case" so this never masks an
+    unrelated model type as tree/non-tree.
+    """
+    get_params = getattr(model, "get_all_params", None)
+    if not callable(get_params):
+        return False
+    try:
+        loss = str(get_params().get("loss_function", "")).lower()
+    except Exception:
+        return False
+    return loss in _CATBOOST_MULTI_OUTPUT_LOSSES
+
+
 def _coerce_float_2d(vals: np.ndarray) -> np.ndarray:
     """Best-effort 2-D float64 view of a (possibly mixed / string / categorical) value matrix.
 
@@ -487,6 +507,21 @@ def shap_summary_and_dependence(
         return ShapPanelsResult(
             [], [], [], np.empty(0), "none",
             skipped="non-tree model; KernelExplainer is slow -- pass allow_kernel=True to opt in",
+        )
+    if tree and _is_multi_output_catboost(model):
+        # shap's CatBoost tree parser (shap/explainers/_tree.py TreeEnsemble.get_trees) assumes ONE scalar leaf
+        # value per tree and rebuilds the binary-index arrays (children_left/children_right/...) via a `2**counter`
+        # size formula derived from len(leaf_values). A CatBoost MultiLogloss (multilabel) model's leaf_values are a
+        # FLAT list of n_leaves*n_labels entries (multiple values per leaf), so that formula silently computes the
+        # wrong node count, producing malformed/wrongly-sized child-index arrays -- SingleTree.__init__ then walks
+        # them and reads out of bounds, crashing the WHOLE PROCESS with a native access violation (caught live via a
+        # fuzz combo: models=('cb',) target=multilabel_classification -- confirmed deterministic at a fixed seed,
+        # and the crash happens before any Python-catchable exception, so this must be caught BEFORE
+        # shap.TreeExplainer(model) is ever constructed). Skip rather than risk the crash.
+        return ShapPanelsResult(
+            [], [], [], np.empty(0), "none",
+            skipped="CatBoost multi-output (MultiLogloss) leaf values are not supported by shap's TreeExplainer "
+            "CatBoost parser -- constructing it risks a native crash (see shap_panels.py comment)",
         )
 
     cap = max_rows if tree else min(max_rows, kernel_max_rows)

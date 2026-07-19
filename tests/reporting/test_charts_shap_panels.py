@@ -195,6 +195,44 @@ def test_empty_input_skips():
     assert res.figures == []
 
 
+def test_multi_output_catboost_is_skipped_not_crashed():
+    """shap's CatBoost tree parser (shap/explainers/_tree.py TreeEnsemble.get_trees) assumes ONE scalar leaf value
+    per tree; a CatBoost MultiLogloss (multilabel) model's leaf_values are a FLAT list of n_leaves*n_labels
+    entries, which silently breaks the parser's node-count arithmetic and produces malformed child-index arrays --
+    SingleTree.__init__ then reads out of bounds, crashing the WHOLE PROCESS with a native access violation
+    (caught live via a fuzz combo: models=('cb',) target=multilabel_classification, deterministic at a fixed
+    seed). Must skip before shap.TreeExplainer(model) is ever constructed, since the crash cannot be caught by
+    try/except."""
+    catboost = pytest.importorskip("catboost")
+
+    rng = np.random.default_rng(0)
+    X = rng.random((300, 5))
+    y = (rng.random((300, 3)) > 0.5).astype(int)
+    m = catboost.CatBoostClassifier(loss_function="MultiLogloss", iterations=5, verbose=0)
+    m.fit(X, y)
+    assert sp._is_multi_output_catboost(m) is True
+
+    res = sp.shap_summary_and_dependence(m, X, feature_names=[f"f{i}" for i in range(5)])
+    assert res.skipped is not None
+    assert "multi-output" in res.skipped.lower()
+    assert res.figures == []
+
+
+def test_binary_catboost_not_flagged_as_multi_output():
+    """A plain binary CatBoost model (single scalar leaf value) must NOT be caught by the multi-output guard."""
+    catboost = pytest.importorskip("catboost")
+
+    rng = np.random.default_rng(0)
+    X = rng.random((300, 5))
+    y = (rng.random(300) > 0.5).astype(int)
+    m = catboost.CatBoostClassifier(iterations=5, verbose=0)
+    m.fit(X, y)
+    assert sp._is_multi_output_catboost(m) is False
+
+    res = sp.shap_summary_and_dependence(m, X, feature_names=[f"f{i}" for i in range(5)])
+    assert res.skipped is None
+
+
 def test_biz_value_f0_ranks_first_and_monotone(tmp_path):
     """biz_value: y = 3*f0 -> f0 has the largest mean|SHAP| (top of beeswarm) AND its dependence trend is
     correctly monotone-increasing (corr(f0_value, shap_f0) strongly positive). A regression that breaks the
