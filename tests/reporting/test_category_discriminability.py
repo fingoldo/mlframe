@@ -64,6 +64,30 @@ def test_level_woe_skips_missing_codes():
     assert counts[0] == 2.0  # only the two non-missing rows counted
 
 
+def test_level_woe_rejects_mismatched_lengths_instead_of_crashing():
+    """The njit accumulate kernel (_level_counts_njit) has no bounds checking: a length mismatch between
+    level_codes/y (as happened live via an ensembling COARSE-gate path handing this a df 10x longer than y) would
+    silently index past the allocated pos/tot buffers, corrupting memory ("Windows fatal exception: access
+    violation" -- kills the whole process, uncatchable by any caller try/except). Must raise a normal ValueError
+    instead. Mirrors class_structure_matrix's identical guard (class_structure_heatmap.py)."""
+    import pytest
+
+    codes = np.array([0, 1, 2, 3], dtype=np.int64)
+    y_short = np.array([1.0, 0.0, 1.0])  # shorter than codes
+    with pytest.raises(ValueError, match="length mismatch"):
+        level_woe(codes, y_short, n_levels=4, base_rate=0.5)
+
+
+def test_level_woe_rejects_out_of_range_codes_instead_of_crashing():
+    """A code >= n_levels (e.g. an off-by-one in a caller's cardinality cap) must raise, not corrupt memory."""
+    import pytest
+
+    codes = np.array([0, 1, 5], dtype=np.int64)  # 5 is out of range for n_levels=3
+    y = np.array([1.0, 0.0, 1.0])
+    with pytest.raises(ValueError, match="out of range"):
+        level_woe(codes, y, n_levels=3, base_rate=0.5)
+
+
 # ----------------------------------------------------------------------------
 # Unit: min_support floor drops a rare level (logged, not silent)
 # ----------------------------------------------------------------------------

@@ -89,6 +89,18 @@ def level_woe(
     nl = int(n_levels)
     if nl <= 0:
         return np.zeros(0), np.zeros(0)
+    # _level_counts_njit has no bounds checking (numba default): a length mismatch between codes/yf, or a code
+    # outside [0, n_levels), silently indexes past the allocated pos/tot buffers -- a memory-corrupting "Windows
+    # fatal exception: access violation" that kills the whole process, bypassing even the caller's try/except
+    # (caught live via an ensembling COARSE-gate path handing this a df 10x longer than y). Validate the contract
+    # here so a violation raises a normal, catchable ValueError instead. Mirrors class_structure_matrix's guard
+    # (reporting/charts/class_structure_heatmap.py) for the identical bug class.
+    if codes.shape[0] != yf.shape[0]:
+        raise ValueError(f"level_woe: length mismatch level_codes={codes.shape[0]} y={yf.shape[0]}")
+    # Negative codes (any value < 0, e.g. pandas cat.codes of NaN) are legitimate "missing" markers the kernel
+    # skips outright -- only an over-range code on the high end can write past pos/tot.
+    if codes.shape[0] > 0 and codes.max() >= nl:
+        raise ValueError(f"level_woe: level_codes out of range [0, {nl})")
     pos, tot = _level_counts_njit(codes, yf, nl)
     p = (pos + alpha) / (tot + 2.0 * alpha)
     base = min(max(float(base_rate), 1e-12), 1.0 - 1e-12)
