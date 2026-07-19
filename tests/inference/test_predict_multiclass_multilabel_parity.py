@@ -172,17 +172,25 @@ def test_multiclass_predict_twice_and_after_load_parity(tmp_path):
 
 
 def _multilabel_per_model_probs(res):
-    """Return the per-model multilabel probabilities (a list of (N, 2) per-label arrays)."""
+    """Return the per-model multilabel probabilities as the canonical (N, K) P(label=1) matrix.
+
+    ``_wrap_predict_result`` (``cb/_cb_pool.py``) now canonicalises ANY list-form
+    ``predict_proba`` result -- including ``MultiOutputClassifier``'s per-label list of
+    (N, 2) arrays -- to a single ``(N, K)`` ndarray before it ever reaches
+    ``predict_from_models``, specifically so a blind ``np.asarray`` on the list elsewhere
+    can't silently mis-stack it into ``(K, N, 2)``. So ``results["probabilities"][model_name]``
+    is this canonical ``(N, K)`` matrix (one P(label=1) column per label), not the raw list.
+    """
     probs = res.get("probabilities", {})
     key = next((k for k in probs if k.startswith("multilabel_classification")), None)
     assert key is not None, f"no multilabel probability key in {list(probs)}"
-    per_label = probs[key]
-    assert isinstance(per_label, list), f"expected per-label list; got {type(per_label)}"
+    per_label = np.asarray(probs[key])
+    assert per_label.ndim == 2, f"expected the canonical (N, K) multilabel probability matrix; got shape {per_label.shape}"
     return per_label
 
 
 def test_multilabel_per_label_probability_shapes():
-    """Per-model multilabel probabilities are a list of 3 per-label (n, 2) arrays summing to 1 per row."""
+    """Per-model multilabel probabilities are the canonical (n, 3) P(label=1) matrix."""
     pytest.importorskip("lightgbm")
     import tempfile
 
@@ -192,25 +200,21 @@ def test_multilabel_per_label_probability_shapes():
         res = _predict(df, models, metadata, fte)
 
     per_label = _multilabel_per_model_probs(res)
-    assert len(per_label) == 3, f"expected 3 labels; got {len(per_label)}"
-    for li, arr in enumerate(per_label):
-        arr = np.asarray(arr)
-        assert arr.shape == (len(df), 2), f"label {li}: expected (n, 2); got {arr.shape}"
-        np.testing.assert_allclose(arr.sum(axis=1), 1.0, rtol=1e-5, atol=1e-5)
+    assert per_label.shape == (len(df), 3), f"expected (n, 3); got {per_label.shape}"
+    assert np.all((per_label >= 0.0) & (per_label <= 1.0)), "P(label=1) values must lie in [0, 1]"
 
-    # Ensemble combine now runs on the canonicalized per-label matrix: one P(label=1) column per label.
+    # Ensemble combine runs on the same canonicalized per-label matrix: one P(label=1) column per label.
     ep = res.get("ensemble_probabilities")
     assert ep is not None, "multilabel ensemble_probabilities should be populated, not None"
     ep = np.asarray(ep)
     assert ep.shape == (len(df), 3), f"expected (n, 3) per-label ensemble matrix; got {ep.shape}"
-    for li, arr in enumerate(per_label):
-        np.testing.assert_allclose(
-            ep[:, li],
-            np.asarray(arr)[:, 1],
-            rtol=1e-6,
-            atol=1e-6,
-            err_msg=f"ensemble column {li} should equal the single model's P(label={li}=1)",
-        )
+    np.testing.assert_allclose(
+        ep,
+        per_label,
+        rtol=1e-6,
+        atol=1e-6,
+        err_msg="single-model ensemble_probabilities should equal that model's own per-label matrix",
+    )
 
 
 def test_multilabel_predict_twice_and_after_load_parity(tmp_path):
@@ -224,13 +228,12 @@ def test_multilabel_predict_twice_and_after_load_parity(tmp_path):
     res_b = _predict(df, models, metadata, fte)
     pl_a = _multilabel_per_model_probs(res_a)
     pl_b = _multilabel_per_model_probs(res_b)
-    for li, (a, b) in enumerate(zip(pl_a, pl_b)):
-        np.testing.assert_allclose(
-            np.asarray(a),
-            np.asarray(b),
-            rtol=1e-7,
-            err_msg=f"multilabel label {li} predict is non-deterministic on identical input",
-        )
+    np.testing.assert_allclose(
+        pl_a,
+        pl_b,
+        rtol=1e-7,
+        err_msg="multilabel per-label matrix predict is non-deterministic on identical input",
+    )
     ep_a = res_a.get("ensemble_probabilities")
     assert ep_a is not None, "multilabel ensemble_probabilities should be populated, not None"
     ep_a = np.asarray(ep_a)
@@ -248,15 +251,14 @@ def test_multilabel_predict_twice_and_after_load_parity(tmp_path):
     assert loaded_models, f"disk save produced no .dump files under {models_path}"
     res_disk = _predict(df, loaded_models, loaded_metadata, fte)
     pl_disk = _multilabel_per_model_probs(res_disk)
-    assert len(pl_disk) == len(pl_a)
-    for li, (a, d) in enumerate(zip(pl_a, pl_disk)):
-        np.testing.assert_allclose(
-            np.asarray(a),
-            np.asarray(d),
-            rtol=1e-4,
-            atol=1e-4,
-            err_msg=f"multilabel label {li} disk-load predict drifted beyond float precision",
-        )
+    assert pl_disk.shape == pl_a.shape
+    np.testing.assert_allclose(
+        pl_a,
+        pl_disk,
+        rtol=1e-4,
+        atol=1e-4,
+        err_msg="multilabel per-label matrix disk-load predict drifted beyond float precision",
+    )
     np.testing.assert_allclose(
         ep_a,
         np.asarray(res_disk["ensemble_probabilities"]),
