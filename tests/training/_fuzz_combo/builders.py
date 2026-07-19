@@ -999,6 +999,12 @@ def build_shap_proxied_fs_kwargs_from_flat(
     # (shap_proxied_fs.py:258). Source default "auto" since iter75; "su"
     # forces the iter75 path, "pearson" pins the legacy regime.
     cluster_backend: str = "auto",
+    # 2026-07-20: ShapProxiedFS gt_02/gt_09 new-surface axes (added 2026-07-19).
+    # Param names match ShapProxiedFS.__init__ verbatim (shap_proxied_fs/__init__.py:132,158-161,210).
+    proxy_mode: str = "auto",
+    residual_passes: int = 0,
+    residual_merge: str = "rescue",
+    refine_mode: str = "greedy",
 ) -> Optional[Dict[str, Any]]:
     """Build the shap_proxied_fs_kwargs dict passed to
     ``registry.get("ShapProxiedFS").instantiate(**kwargs)`` (which forwards to
@@ -1086,6 +1092,12 @@ def build_shap_proxied_fs_kwargs_from_flat(
         # verbatim (param name matches ShapProxiedFS.__init__ at
         # shap_proxied_fs.py:258 exactly).
         "cluster_backend": cluster_backend,
+        # 2026-07-20: ShapProxiedFS gt_02/gt_09 new-surface axes forwarded
+        # verbatim (param names match ShapProxiedFS.__init__ exactly).
+        "proxy_mode": proxy_mode,
+        "residual_passes": residual_passes,
+        "residual_merge": residual_merge,
+        "refine_mode": refine_mode,
         # 2026-06-04 FS-coverage follow-up -- ShapProxiedFS budget parity with
         # MRMR / RFECV (commit 79779dca control knob). FIXED 5-min wall-clock cap
         # (NOT a fuzz axis), mirroring the rfecv_kwargs/mrmr_kwargs
@@ -1216,6 +1228,11 @@ def build_shap_proxied_fs_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]
         precomputed=_precomputed,
         # 2026-05-31 audit-pass-14 (W14) F14-1.
         cluster_backend=combo.shap_proxied_cluster_backend_cfg,
+        # 2026-07-20: ShapProxiedFS gt_02/gt_09 new-surface axes.
+        proxy_mode=combo.shap_proxied_proxy_mode_cfg,
+        residual_passes=combo.shap_proxied_residual_passes_cfg,
+        residual_merge=combo.shap_proxied_residual_merge_cfg,
+        refine_mode=combo.shap_proxied_refine_mode_cfg,
     )
 
 
