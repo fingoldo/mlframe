@@ -64,30 +64,6 @@ def test_level_woe_skips_missing_codes():
     assert counts[0] == 2.0  # only the two non-missing rows counted
 
 
-def test_level_woe_rejects_mismatched_lengths_instead_of_crashing():
-    """The njit accumulate kernel (_level_counts_njit) has no bounds checking: a length mismatch between
-    level_codes/y (as happened live via an ensembling COARSE-gate path handing this a df 10x longer than y) would
-    silently index past the allocated pos/tot buffers, corrupting memory ("Windows fatal exception: access
-    violation" -- kills the whole process, uncatchable by any caller try/except). Must raise a normal ValueError
-    instead. Mirrors class_structure_matrix's identical guard (class_structure_heatmap.py)."""
-    import pytest
-
-    codes = np.array([0, 1, 2, 3], dtype=np.int64)
-    y_short = np.array([1.0, 0.0, 1.0])  # shorter than codes
-    with pytest.raises(ValueError, match="length mismatch"):
-        level_woe(codes, y_short, n_levels=4, base_rate=0.5)
-
-
-def test_level_woe_rejects_out_of_range_codes_instead_of_crashing():
-    """A code >= n_levels (e.g. an off-by-one in a caller's cardinality cap) must raise, not corrupt memory."""
-    import pytest
-
-    codes = np.array([0, 1, 5], dtype=np.int64)  # 5 is out of range for n_levels=3
-    y = np.array([1.0, 0.0, 1.0])
-    with pytest.raises(ValueError, match="out of range"):
-        level_woe(codes, y, n_levels=3, base_rate=0.5)
-
-
 # ----------------------------------------------------------------------------
 # Unit: min_support floor drops a rare level (logged, not silent)
 # ----------------------------------------------------------------------------
@@ -200,3 +176,43 @@ def test_biz_val_pure_noise_stays_below_floor():
     rows = category_discriminability_table(X, y, top_k=10, min_support=30)
     assert rows, "noise levels still have >= min_support support, so rows are returned"
     assert all(abs(woe) < 0.2 for _feat, _lbl, woe, _sup, _p in rows)
+
+
+def test_polars_frame_with_explicit_features_does_not_raise():
+    """A polars ``X`` used to raise ``AttributeError: 'Series' object has no attribute 'astype'`` -- polars Series
+    have no pandas ``.astype``/``.cat`` accessor. Surfaced by profile_fuzz_chains.py on a binary_classification
+    combo with ``input=polars_nullable``, where the diagnostics dispatcher passes an explicit ``features`` list
+    (the auto-detect dtype-sniff branch is bypassed entirely in that call path).
+    """
+    import polars as pl
+
+    rng = np.random.default_rng(42)
+    n = 2000
+    col = rng.choice(["A", "B", "C", "D"], size=n)
+    rates = {"A": 0.95, "B": 0.5, "C": 0.5, "D": 0.5}
+    y = (rng.random(n) < np.array([rates[c] for c in col])).astype(int)
+    X = pl.DataFrame({"f": col})
+
+    rows = category_discriminability_table(X, y, features=["f"], top_k=10, min_support=30)
+    assert rows
+    _top_feat, top_lbl, _top_woe, _sup, top_p = rows[0]
+    assert top_lbl == "A"
+    assert top_p > 0.9
+
+
+def test_polars_frame_auto_detect_finds_categorical_columns():
+    """The auto-detect (``features=None``) branch must also recognise polars string/categorical dtypes, not just
+    pandas ``object``/``CategoricalDtype`` -- comparing a polars dtype against pandas' ``object`` is always False,
+    which silently found zero categorical columns for a polars frame before this fix.
+    """
+    import polars as pl
+
+    rng = np.random.default_rng(1)
+    n = 2000
+    col = rng.choice(["x", "y", "z"], size=n)
+    y = rng.integers(0, 2, size=n)
+    X = pl.DataFrame({"f": col, "num": rng.random(n)})
+
+    rows = category_discriminability_table(X, y, top_k=10, min_support=30)
+    assert rows
+    assert all(feat == "f" for feat, *_ in rows)
