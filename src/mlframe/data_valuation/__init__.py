@@ -19,6 +19,13 @@ Engines:
 
 :func:`valuation_sample_weight` turns any of the above into a ``(n,)`` non-negative training weight.
 
+gt_06 extends this package with a non-cooperative-game construction: :func:`dro_reweight_fit`
+(distributionally robust optimization as a two-player zero-sum game -- the model minimizes weighted
+loss, an adversary reweights within a chi-square uncertainty ball to maximize it) and
+:func:`adversarial_validation` (train-vs-test shift diagnostic with a discriminator-game reading). This
+is NOT a GAN, NOT multi-agent RL, NOT mechanism design -- see ``_adversarial_reweighting.py``'s module
+docstring for the explicit scope statement.
+
 Related work NOT implemented here (out of scope, gradient-based/model-specific): influence functions,
 TracIn.  # codespell:ignore tracin
 
@@ -30,6 +37,8 @@ the existing ``_setup_sample_weight`` choke point in ``training/_data_helpers.py
 
 from __future__ import annotations
 
+from mlframe.data_valuation._adversarial_reweighting import dro_reweight_fit, project_chi2_ball
+from mlframe.data_valuation._adversarial_validation import adversarial_validation
 from mlframe.data_valuation._knn_shapley import knn_shapley
 from mlframe.data_valuation._mc_sampling import data_banzhaf, propagate_subsample_values, tmc_shapley
 from mlframe.data_valuation._weights import valuation_sample_weight
@@ -40,4 +49,7 @@ __all__ = [
     "data_banzhaf",
     "propagate_subsample_values",
     "valuation_sample_weight",
+    "dro_reweight_fit",
+    "project_chi2_ball",
+    "adversarial_validation",
 ]
