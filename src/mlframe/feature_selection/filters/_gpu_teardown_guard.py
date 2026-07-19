@@ -20,6 +20,13 @@ import sys
 _installed = False
 _prev_unraisablehook = None
 _prev_excepthook = None
+# Captured now (while ``sys`` is guaranteed live) rather than referencing the module-global name
+# ``sys`` inside the hooks below: during interpreter finalization Python clears every global name
+# in THIS module's own namespace, including ``sys`` itself, before these hooks necessarily stop
+# firing -- a bare ``sys.is_finalizing()`` call from inside the hook then raises
+# ``AttributeError: 'NoneType' object has no attribute 'is_finalizing'``. A pre-bound method
+# reference has no such dependency on the name resolving again later.
+_is_finalizing = sys.is_finalizing
 
 
 def _is_cuda_teardown_error(exc) -> bool:
@@ -36,7 +43,7 @@ def _unraisablehook(unraisable):
     """Chained ``sys.unraisablehook``: swallows the cosmetic cupy/CUDA teardown-race error during interpreter finalization, chains to the previously-installed hook for everything else."""
     exc = getattr(unraisable, "exc_value", None)
     # Swallow the known cupy<->numba teardown race ONLY during interpreter finalization; never mid-fit.
-    if sys.is_finalizing() and _is_cuda_teardown_error(exc):
+    if _is_finalizing() and _is_cuda_teardown_error(exc):
         return
     if _prev_unraisablehook is not None:
         _prev_unraisablehook(unraisable)
@@ -44,7 +51,7 @@ def _unraisablehook(unraisable):
 
 def _excepthook(exc_type, exc_value, exc_tb):
     """Chained ``sys.excepthook`` mirroring ``_unraisablehook`` for the synchronous exception path."""
-    if sys.is_finalizing() and _is_cuda_teardown_error(exc_value):
+    if _is_finalizing() and _is_cuda_teardown_error(exc_value):
         return
     if _prev_excepthook is not None:
         _prev_excepthook(exc_type, exc_value, exc_tb)
