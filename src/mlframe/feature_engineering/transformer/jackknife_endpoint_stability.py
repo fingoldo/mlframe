@@ -57,13 +57,13 @@ def compute_jackknife_endpoint_stability_features(
                 sw_dn = np.where(y_sub > 0.5, (1 - p_mean) / (p_mean + 1e-6), 1.0).astype(np.float32)
                 m_up = lgb.LGBMClassifier(n_estimators=30, max_depth=3, learning_rate=0.1, random_state=int(fold_seed) + k, verbose=-1, n_jobs=-1).fit(X_sub, y_sub.astype(np.int32), sample_weight=sw_up)
                 m_dn = lgb.LGBMClassifier(n_estimators=30, max_depth=3, learning_rate=0.1, random_state=int(fold_seed) + k + 100, verbose=-1, n_jobs=-1).fit(X_sub, y_sub.astype(np.int32), sample_weight=sw_dn)
-                upper_preds[k] = m_up.predict_proba(Xq_s)[:, 1].astype(np.float32)
-                lower_preds[k] = m_dn.predict_proba(Xq_s)[:, 1].astype(np.float32)
+                upper_preds[k] = np.asarray(m_up.predict_proba(Xq_s))[:, 1].astype(np.float32)
+                lower_preds[k] = np.asarray(m_dn.predict_proba(Xq_s))[:, 1].astype(np.float32)
             else:
                 m_up = lgb.LGBMRegressor(n_estimators=30, max_depth=3, learning_rate=0.1, objective="quantile", alpha=0.9, random_state=int(fold_seed) + k, verbose=-1, n_jobs=-1).fit(X_sub, y_sub)
                 m_dn = lgb.LGBMRegressor(n_estimators=30, max_depth=3, learning_rate=0.1, objective="quantile", alpha=0.1, random_state=int(fold_seed) + k + 100, verbose=-1, n_jobs=-1).fit(X_sub, y_sub)
-                upper_preds[k] = m_up.predict(Xq_s).astype(np.float32)
-                lower_preds[k] = m_dn.predict(Xq_s).astype(np.float32)
+                upper_preds[k] = np.asarray(m_up.predict(Xq_s)).astype(np.float32)
+                lower_preds[k] = np.asarray(m_dn.predict(Xq_s)).astype(np.float32)
         upper_std = upper_preds.std(axis=0).astype(np.float32) + 1e-9
         lower_std = lower_preds.std(axis=0).astype(np.float32) + 1e-9
         upper_mean = upper_preds.mean(axis=0).astype(np.float32)

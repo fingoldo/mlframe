@@ -57,14 +57,14 @@ def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int,
             random_state=int(seed), verbose=-1, n_jobs=-1,
         )
         model.fit(Xt, y_t.astype(np.int32))
-        preds = model.predict_proba(Xt)[:, 1].astype(np.float32)
+        preds = np.asarray(model.predict_proba(Xt))[:, 1].astype(np.float32)
     else:
         model = lgb.LGBMRegressor(
             n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
             random_state=int(seed), verbose=-1, n_jobs=-1,
         )
         model.fit(Xt, y_t)
-        preds = model.predict(Xt).astype(np.float32)
+        preds = np.asarray(model.predict(Xt)).astype(np.float32)
     return np.asarray(preds)
 
 

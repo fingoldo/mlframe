@@ -49,10 +49,10 @@ def compute_cross_feature_reconstruction_features(
             Xq_j_in = Xq_s[:, mask]
             m = lgb.LGBMRegressor(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
                                   random_state=int(fold_seed) + j, verbose=-1, n_jobs=-1).fit(Xt_j_in, Xt_s[:, j])
-            x_hat_train = m.predict(Xt_j_in).astype(np.float32)
+            x_hat_train = np.asarray(m.predict(Xt_j_in)).astype(np.float32)
             r_train = Xt_s[:, j] - x_hat_train
             mad_j = float(np.median(np.abs(r_train - float(np.median(r_train))))) + 1e-6
-            x_hat_q = m.predict(Xq_j_in).astype(np.float32)
+            x_hat_q = np.asarray(m.predict(Xq_j_in)).astype(np.float32)
             r_q = Xq_s[:, j] - x_hat_q
             z_residuals_q[:, j] = r_q / mad_j
         abs_z = np.abs(z_residuals_q)

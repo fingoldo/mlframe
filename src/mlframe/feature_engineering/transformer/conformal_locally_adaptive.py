@@ -65,12 +65,12 @@ def compute_conformal_locally_adaptive_features(
         h1, h2 = idx[: n // 2], idx[n // 2 :]
         if task == "binary":
             m = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s[h1], y_t[h1].astype(np.int32))
-            preds_h2 = m.predict_proba(Xt_s[h2])[:, 1].astype(np.float32)
-            preds_q = m.predict_proba(Xq_s)[:, 1].astype(np.float32)
+            preds_h2 = np.asarray(m.predict_proba(Xt_s[h2]))[:, 1].astype(np.float32)
+            preds_q = np.asarray(m.predict_proba(Xq_s))[:, 1].astype(np.float32)
         else:
             m = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s[h1], y_t[h1])
-            preds_h2 = m.predict(Xt_s[h2]).astype(np.float32)
-            preds_q = m.predict(Xq_s).astype(np.float32)
+            preds_h2 = np.asarray(m.predict(Xt_s[h2])).astype(np.float32)
+            preds_q = np.asarray(m.predict(Xq_s)).astype(np.float32)
         abs_resid_h2 = np.abs(y_t[h2] - preds_h2)
         sigma_h2 = _local_sigma(Xt_s[h2], abs_resid_h2, Xt_s[h2], k_sigma)
         nonconf_scores = abs_resid_h2 / sigma_h2

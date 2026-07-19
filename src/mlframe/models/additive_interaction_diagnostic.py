@@ -96,9 +96,9 @@ def additive_interaction_diagnostic(
             model = lgb.LGBMRegressor(**params) if objective == "regression" else lgb.LGBMClassifier(**params)
             model.fit(X_train, y[train_idx])
             if hasattr(model, "predict_proba") and objective != "regression":
-                pred = model.predict_proba(X_test)[:, 1]
+                pred = np.asarray(model.predict_proba(X_test))[:, 1]
             else:
-                pred = model.predict(X_test)
+                pred = np.asarray(model.predict(X_test))
             fold_scores.append(float(metric_fn(y[test_idx], pred)))
         return float(np.mean(fold_scores))
 

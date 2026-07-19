@@ -72,12 +72,12 @@ def compute_counterfactual_substitution_features(
         if task == "binary":
             model = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1)
             model.fit(Xt_s, y_t.astype(np.int32))
-            pred_orig = model.predict_proba(Xq_s)[:, 1].astype(np.float32)
+            pred_orig = np.asarray(model.predict_proba(Xq_s))[:, 1].astype(np.float32)
             global_medians = np.median(Xt_s, axis=0).astype(np.float32)
         else:
             model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1)
             model.fit(Xt_s, y_t)
-            pred_orig = model.predict(Xq_s).astype(np.float32)
+            pred_orig = np.asarray(model.predict(Xq_s)).astype(np.float32)
             global_medians = np.median(Xt_s, axis=0).astype(np.float32)
 
         n_q = Xq_s.shape[0]
@@ -95,9 +95,9 @@ def compute_counterfactual_substitution_features(
             for j in range(d):
                 stack[block_starts[j] : block_starts[j] + n_q, j] = global_medians[j]
             if task == "binary":
-                pred_stack = model.predict_proba(stack)[:, 1].astype(np.float32)
+                pred_stack = np.asarray(model.predict_proba(stack))[:, 1].astype(np.float32)
             else:
-                pred_stack = model.predict(stack).astype(np.float32)
+                pred_stack = np.asarray(model.predict(stack)).astype(np.float32)
             pred_sub_all = pred_stack.reshape(d, n_q)  # (d, n_q)
             deltas[:] = (pred_sub_all - pred_orig[None, :]).T
         else:
@@ -105,9 +105,9 @@ def compute_counterfactual_substitution_features(
                 Xq_subst = Xq_s.copy()
                 Xq_subst[:, j] = global_medians[j]  # simplified: use global median (faster than per-leaf)
                 if task == "binary":
-                    pred_sub = model.predict_proba(Xq_subst)[:, 1].astype(np.float32)
+                    pred_sub = np.asarray(model.predict_proba(Xq_subst))[:, 1].astype(np.float32)
                 else:
-                    pred_sub = model.predict(Xq_subst).astype(np.float32)
+                    pred_sub = np.asarray(model.predict(Xq_subst)).astype(np.float32)
                 deltas[:, j] = pred_sub - pred_orig
 
         abs_deltas = np.abs(deltas)

@@ -72,18 +72,18 @@ def compute_variance_baseline_features(
         if task == "binary":
             m_mu = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
                                       random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
-            mu_train = m_mu.predict_proba(Xt_s)[:, 1].astype(np.float32)
-            mu_query = m_mu.predict_proba(Xq_s)[:, 1].astype(np.float32)
+            mu_train = np.asarray(m_mu.predict_proba(Xt_s))[:, 1].astype(np.float32)
+            mu_query = np.asarray(m_mu.predict_proba(Xq_s))[:, 1].astype(np.float32)
         else:
             m_mu = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
-            mu_train = m_mu.predict(Xt_s).astype(np.float32)
-            mu_query = m_mu.predict(Xq_s).astype(np.float32)
+            mu_train = np.asarray(m_mu.predict(Xt_s)).astype(np.float32)
+            mu_query = np.asarray(m_mu.predict(Xq_s)).astype(np.float32)
 
         # Stage 2: sigma2_hat
         squared_resid_train = ((y_t - mu_train) ** 2).astype(np.float32)
         m_sigma = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1,
                                     random_state=int(fold_seed) + 1, verbose=-1, n_jobs=-1).fit(Xt_s, squared_resid_train)
-        sigma2_query = np.clip(m_sigma.predict(Xq_s).astype(np.float32), 1e-9, None)
+        sigma2_query = np.clip(np.asarray(m_sigma.predict(Xq_s)).astype(np.float32), 1e-9, None)
 
         log_sigma2 = np.log(sigma2_query)
         sigma_sqrt = np.sqrt(sigma2_query)

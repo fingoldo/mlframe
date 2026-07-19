@@ -94,13 +94,13 @@ def _compute_oof_residuals(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int
                 n_estimators=100, max_depth=5, learning_rate=0.1, device_type=lgb_device, random_state=int(seed) + 7 + inner_idx, verbose=-1, n_jobs=-1
             )
             m.fit(Xt[in_tr], y_t[in_tr].astype(np.int32))
-            oof[in_val] = m.predict_proba(Xt[in_val])[:, 1].astype(np.float32)
+            oof[in_val] = np.asarray(m.predict_proba(Xt[in_val]))[:, 1].astype(np.float32)
         else:
             m = lgb.LGBMRegressor(
                 n_estimators=100, max_depth=5, learning_rate=0.1, device_type=lgb_device, random_state=int(seed) + 7 + inner_idx, verbose=-1, n_jobs=-1
             )
             m.fit(Xt[in_tr], y_t[in_tr])
-            oof[in_val] = m.predict(Xt[in_val]).astype(np.float32)
+            oof[in_val] = np.asarray(m.predict(Xt[in_val])).astype(np.float32)
     return np.abs(y_t - oof).astype(np.float32)
 
 

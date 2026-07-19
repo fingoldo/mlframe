@@ -31,11 +31,11 @@ def _fit_3baselines_two(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: s
     query_preds = np.zeros((Xq.shape[0], 3), dtype=np.float32)
     if task == "binary":
         m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1).fit(Xt, y_t.astype(np.int32))
-        train_preds[:, 0] = m1.predict_proba(Xt)[:, 1]
-        query_preds[:, 0] = m1.predict_proba(Xq)[:, 1]
+        train_preds[:, 0] = np.asarray(m1.predict_proba(Xt))[:, 1]
+        query_preds[:, 0] = np.asarray(m1.predict_proba(Xq))[:, 1]
         m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1).fit(Xt, y_t.astype(np.int32))
-        train_preds[:, 1] = m2.predict_proba(Xt)[:, 1]
-        query_preds[:, 1] = m2.predict_proba(Xq)[:, 1]
+        train_preds[:, 1] = np.asarray(m2.predict_proba(Xt))[:, 1]
+        query_preds[:, 1] = np.asarray(m2.predict_proba(Xq))[:, 1]
         try:
             m3 = LogisticRegression(max_iter=200, solver="liblinear", random_state=int(seed) + 2).fit(Xt, y_t.astype(np.int32))
             train_preds[:, 2] = m3.predict_proba(Xt)[:, 1]

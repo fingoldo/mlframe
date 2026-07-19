@@ -69,12 +69,12 @@ def compute_sign_residual_baseline_features(
         if task == "binary":
             m_mu = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
                                       random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
-            mu_train = m_mu.predict_proba(Xt_s)[:, 1].astype(np.float32)
-            mu_query = m_mu.predict_proba(Xq_s)[:, 1].astype(np.float32)
+            mu_train = np.asarray(m_mu.predict_proba(Xt_s))[:, 1].astype(np.float32)
+            mu_query = np.asarray(m_mu.predict_proba(Xq_s))[:, 1].astype(np.float32)
         else:
             m_mu = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
-            mu_train = m_mu.predict(Xt_s).astype(np.float32)
-            mu_query = m_mu.predict(Xq_s).astype(np.float32)
+            mu_train = np.asarray(m_mu.predict(Xt_s)).astype(np.float32)
+            mu_query = np.asarray(m_mu.predict(Xq_s)).astype(np.float32)
         # Sign target: 1 if y > mu_hat (under-prediction), else 0.
         sign_target = (y_t > mu_train).astype(np.int32)
         # If degenerate (all same sign), pad fallback
@@ -83,7 +83,7 @@ def compute_sign_residual_baseline_features(
         else:
             m_sign = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
                                         random_state=int(fold_seed) + 1, verbose=-1, n_jobs=-1).fit(Xt_s, sign_target)
-            p_pos = m_sign.predict_proba(Xq_s)[:, 1].astype(np.float32)
+            p_pos = np.asarray(m_sign.predict_proba(Xq_s))[:, 1].astype(np.float32)
         bias_signal = (p_pos - 0.5).astype(np.float32)
         abs_bias = np.abs(bias_signal).astype(np.float32)
         residual_scale = np.float32(np.std(y_t - mu_train))

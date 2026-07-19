@@ -58,10 +58,10 @@ def _fit_3baselines_in_sample(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: 
     if task == "binary":
         m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m1.fit(Xt, y_t.astype(np.int32))
-        preds[:, 0] = m1.predict_proba(Xt)[:, 1].astype(np.float32)
+        preds[:, 0] = np.asarray(m1.predict_proba(Xt))[:, 1].astype(np.float32)
         m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
         m2.fit(Xt, y_t.astype(np.int32))
-        preds[:, 1] = m2.predict_proba(Xt)[:, 1].astype(np.float32)
+        preds[:, 1] = np.asarray(m2.predict_proba(Xt))[:, 1].astype(np.float32)
         try:
             m3 = LogisticRegression(max_iter=200, solver="liblinear", random_state=int(seed) + 2)
             m3.fit(Xt, y_t.astype(np.int32))
@@ -71,10 +71,10 @@ def _fit_3baselines_in_sample(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: 
     else:
         m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m1.fit(Xt, y_t)
-        preds[:, 0] = m1.predict(Xt).astype(np.float32)
+        preds[:, 0] = np.asarray(m1.predict(Xt)).astype(np.float32)
         m2 = lgb.LGBMRegressor(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
         m2.fit(Xt, y_t)
-        preds[:, 1] = m2.predict(Xt).astype(np.float32)
+        preds[:, 1] = np.asarray(m2.predict(Xt)).astype(np.float32)
         m3 = Ridge(alpha=1.0, random_state=int(seed) + 2)
         m3.fit(Xt, y_t)
         preds[:, 2] = m3.predict(Xt).astype(np.float32)

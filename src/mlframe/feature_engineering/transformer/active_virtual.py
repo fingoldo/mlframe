@@ -74,12 +74,12 @@ def _filter_boundary_virtuals(X_train: np.ndarray, y_train: np.ndarray, virtuals
     if task == "binary":
         model = lgb.LGBMClassifier(**params)
         model.fit(X_train, y_train)
-        proba = model.predict_proba(virtuals)[:, 1]
+        proba = np.asarray(model.predict_proba(virtuals))[:, 1]
         keep_mask = np.abs(proba - 0.5) < margin_threshold
     else:
         model = lgb.LGBMRegressor(**params)
         model.fit(X_train, y_train)
-        pred = model.predict(virtuals)
+        pred = np.asarray(model.predict(virtuals))
         y_median = float(np.median(y_train))
         y_std = float(np.std(y_train)) + 1e-9
         # Keep virtuals predicted near median y (the "boundary" for regression).

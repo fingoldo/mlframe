@@ -73,7 +73,7 @@ def compute_quantile_spread_fan_features(
                     sw = None
                 m = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed) + i, verbose=-1, n_jobs=-1)
                 m.fit(Xt_s, y_t.astype(np.int32), sample_weight=sw)
-                preds[:, i] = m.predict_proba(Xq_s)[:, 1].astype(np.float32)
+                preds[:, i] = np.asarray(m.predict_proba(Xq_s))[:, 1].astype(np.float32)
             q10, q50, q90 = preds[:, 0], preds[:, 1], preds[:, 2]
         else:
             preds = np.zeros((Xq_s.shape[0], 3), dtype=np.float32)
@@ -82,7 +82,7 @@ def compute_quantile_spread_fan_features(
                     n_estimators=50, max_depth=3, learning_rate=0.1, objective="quantile", alpha=alpha, random_state=int(fold_seed) + i, verbose=-1, n_jobs=-1
                 )
                 m.fit(Xt_s, y_t)
-                preds[:, i] = m.predict(Xq_s).astype(np.float32)
+                preds[:, i] = np.asarray(m.predict(Xq_s)).astype(np.float32)
             q10, q50, q90 = preds[:, 0], preds[:, 1], preds[:, 2]
         spread = (q90 - q10).astype(np.float32)
         skew_proxy = ((q90 + q10 - 2.0 * q50) / (spread + 1e-9)).astype(np.float32)

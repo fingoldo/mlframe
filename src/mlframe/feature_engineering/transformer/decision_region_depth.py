@@ -67,11 +67,11 @@ def compute_decision_region_depth_features(
         if task == "binary":
             model = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
                                        random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
-            pred_orig = model.predict_proba(Xq_s)[:, 1].astype(np.float32)
+            pred_orig = np.asarray(model.predict_proba(Xq_s))[:, 1].astype(np.float32)
             orig_class = (pred_orig > 0.5).astype(np.float32)
         else:
             model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
-            pred_orig = model.predict(Xq_s).astype(np.float32)
+            pred_orig = np.asarray(model.predict(Xq_s)).astype(np.float32)
             train_resid_decile = float(np.quantile(np.abs(y_t - model.predict(Xt_s)), 0.10))
             orig_class = None
 
@@ -96,10 +96,10 @@ def compute_decision_region_depth_features(
             for scale in scales:
                 Xq_perturbed = Xq_s + scale * directions_scaled[p][None, :]
                 if task == "binary":
-                    pred_pert = model.predict_proba(Xq_perturbed)[:, 1].astype(np.float32)
+                    pred_pert = np.asarray(model.predict_proba(Xq_perturbed))[:, 1].astype(np.float32)
                     flipped = (pred_pert > 0.5).astype(np.float32) != orig_class
                 else:
-                    pred_pert = model.predict(Xq_perturbed).astype(np.float32)
+                    pred_pert = np.asarray(model.predict(Xq_perturbed)).astype(np.float32)
                     flipped = np.abs(pred_pert - pred_orig) > train_resid_decile
                 update_mask = flipped & (flip_dists[p] > scale)
                 flip_dists[p, update_mask] = scale

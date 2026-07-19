@@ -53,7 +53,7 @@ def compute_multi_threshold_ordinal_features(
                     continue
                 m = lgb.LGBMClassifier(n_estimators=30, max_depth=3, learning_rate=0.1,
                                        random_state=int(fold_seed) + i, verbose=-1, n_jobs=-1).fit(Xt_s, target)
-                preds[:, i] = m.predict_proba(Xq_s)[:, 1].astype(np.float32)
+                preds[:, i] = np.asarray(m.predict_proba(Xq_s))[:, 1].astype(np.float32)
         else:
             # binary: 3 sub-population classifiers (top-3 importance features)
             preds = np.zeros((Xq_s.shape[0], 3), dtype=np.float32)
@@ -72,7 +72,7 @@ def compute_multi_threshold_ordinal_features(
                     continue
                 m = lgb.LGBMClassifier(n_estimators=30, max_depth=3, learning_rate=0.1,
                                        random_state=int(fold_seed) + i + 10, verbose=-1, n_jobs=-1).fit(Xt_s, target)
-                preds[:, i] = m.predict_proba(Xq_s)[:, 1].astype(np.float32)
+                preds[:, i] = np.asarray(m.predict_proba(Xq_s))[:, 1].astype(np.float32)
         max_p = preds.max(axis=1).astype(np.float32)
         mean_p = preds.mean(axis=1).astype(np.float32)
         p_clip = np.clip(preds, 1e-6, 1 - 1e-6)
