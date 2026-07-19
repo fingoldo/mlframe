@@ -766,7 +766,7 @@ def _build_cross_target_ensemble_for_target(
                     "stacking_aware_gate_enabled", False,
                 ) and _pred_matrix.shape[1] >= 2):
                     try:
-                        from ...composite import stacking_aware_gate
+                        from ...composite import stacking_aware_gate, shapley_aware_gate
                         _gate_preds = {
                             _oof_names[_i]: _pred_matrix[:, _i]
                             for _i in range(_pred_matrix.shape[1])
@@ -775,7 +775,12 @@ def _build_cross_target_ensemble_for_target(
                             composite_target_discovery_config,
                             "stacking_aware_gate_min_weight", 0.05,
                         ))
-                        _survivors, _gate_w = stacking_aware_gate(
+                        _gate_kind = str(getattr(
+                            composite_target_discovery_config,
+                            "gate_kind", "nnls",
+                        )).lower()
+                        _gate_fn = shapley_aware_gate if _gate_kind == "shapley" else stacking_aware_gate
+                        _survivors, _gate_w = _gate_fn(
                             _gate_preds, _y_for_stack, min_weight=_gate_min,
                         )
                         if 2 <= len(_survivors) < len(_oof_names):
@@ -787,8 +792,9 @@ def _build_cross_target_ensemble_for_target(
                             _oof_names = [n for n, k in zip(_oof_names, _keep_mask_arr) if k]
                             _oof_rmses = _oof_rmses[_keep_mask_arr]
                             logger.info(
-                                "[CompositeCrossTargetEnsemble] target='%s' " "stacking_aware_gate kept %d of %d components " "(min_weight=%.3f).",
+                                "[CompositeCrossTargetEnsemble] target='%s' " "%s gate kept %d of %d components " "(min_weight=%.3f).",
                                 _orig_tname,
+                                _gate_kind,
                                 len(_survivors),
                                 len(_gate_w),
                                 _gate_min,

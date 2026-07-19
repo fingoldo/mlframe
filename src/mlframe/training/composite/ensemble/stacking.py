@@ -203,3 +203,64 @@ def stacking_aware_gate(
     else:
         normalised = raw_weights
     return survivors, normalised
+
+
+def shapley_aware_gate(
+    transform_predictions: dict[str, np.ndarray],
+    y_train: np.ndarray,
+    *,
+    min_weight: float = 0.05,
+    **engine_kwargs,
+) -> tuple[list[str], dict[str, float]]:
+    """Shapley-value-based gate: keep only transforms whose (clipped, normalised) Shapley value clears
+    ``min_weight``. Same input/output contract as :func:`stacking_aware_gate` (mirror it exactly so
+    callers can switch gates via config alone) -- the difference is purely in HOW the weight is derived:
+    NNLS regression coefficients (unstable under collinearity: near-duplicate transforms can get an
+    arbitrary all-or-nothing split) vs a Shapley value (symmetry axiom: near-duplicates share credit
+    equally, so pruning by value is stable under redundancy). See gt_05 research doc for the motivation.
+
+    LEAKAGE CONTRACT: identical to ``stacking_aware_gate`` -- ``transform_predictions`` MUST be
+    out-of-fold predictions; this gate does no OOF split itself.
+
+    ``engine_kwargs`` forwards to :func:`mlframe.votenrank.shapley_blend.shapley_model_values` (e.g.
+    ``n_permutations``, ``rng``, ``estimator``). Imported lazily (function-local) to sidestep any
+    import-cycle risk between ``training.composite`` and ``votenrank`` (``votenrank`` already imports
+    FROM ``training.composite.ensemble.stacking`` in ``correlation_diversity_ablation.py``, so a
+    module-level import here could deadlock a partially-initialized module at import time).
+    """
+    if not transform_predictions:
+        return [], {}
+    names = list(transform_predictions.keys())
+    y = np.asarray(y_train, dtype=np.float64).reshape(-1)
+    arrs = [np.asarray(transform_predictions[n], dtype=np.float64).reshape(-1) for n in names]
+    if any(a.size != y.size for a in arrs):
+        raise ValueError("shapley_aware_gate: all prediction arrays must match y_train length; " f"got y={y.size}, preds={[a.size for a in arrs]}")
+    X = np.column_stack(arrs)
+    finite_rows = np.all(np.isfinite(X), axis=1) & np.isfinite(y)
+    if finite_rows.sum() < max(3, X.shape[1] + 1):
+        logger.warning("shapley_aware_gate: only %d finite rows (need %d) for valuation; gate disabled, all %d transforms kept.", int(finite_rows.sum()), max(3, X.shape[1] + 1), len(names))
+        uniform = {n: 1.0 / len(names) for n in names}
+        return list(names), uniform
+
+    from mlframe.votenrank.shapley_blend import shapley_model_values  # lazy: see docstring
+
+    preds = X[finite_rows].T  # (n_models, n_rows)
+    try:
+        values, _info = shapley_model_values(preds, y[finite_rows], **engine_kwargs)
+    except Exception as exc:
+        logger.warning("shapley_aware_gate: Shapley estimation failed (%s); gate disabled, all %d transforms kept.", exc, len(names))
+        uniform = {n: 1.0 / len(names) for n in names}
+        return list(names), uniform
+
+    raw_weights = {n: float(values[i]) for i, n in enumerate(names)}
+    _wsum = sum(max(v, 0.0) for v in raw_weights.values())
+    survivors = [n for n, wv in raw_weights.items() if (_wsum > 0 and wv / _wsum >= min_weight)]
+    if survivors:
+        s = sum(max(raw_weights[n], 0.0) for n in survivors)
+        if s > 0:
+            normalised = {n: (max(raw_weights[n], 0.0) / s if n in survivors else raw_weights[n]) for n in names}
+        else:
+            normalised = raw_weights
+    else:
+        normalised = raw_weights
+    return survivors, normalised

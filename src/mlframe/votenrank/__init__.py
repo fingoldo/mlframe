@@ -1,3 +1,5 @@
+"""Ensemble blending/weighting/pruning facade: hill-climb, NNLS/geometric/constrained blends, Shapley weighting, and related diagnostics."""
+
 from __future__ import annotations
 
 from .leaderboard import Leaderboard
@@ -12,3 +14,4 @@ from .rank_splice import segment_rank_splice
 from .knn_fallback_predictor import KNNFallbackPredictor
 from .rank_percentile_stacking import rank_percentile_transform
 from .similarity_blend import SimilarityBlendEnsemble
+from .shapley_blend import shapley_model_values, shapley_blend

@@ -490,6 +490,14 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
     # stacker handles single-component falls back on its own).
     stacking_aware_gate_enabled: bool = False
     stacking_aware_gate_min_weight: float = 0.05
+    # gt_05: which weighting the gate above uses to decide survivors. "nnls" (default) is the legacy
+    # regression-coefficient gate -- collinear/near-duplicate components can get an arbitrary all-or-
+    # nothing weight split, making pruning unstable under redundancy. "shapley" uses
+    # :func:`mlframe.training.composite.ensemble.stacking.shapley_aware_gate` instead: the symmetry
+    # axiom makes near-duplicates share credit equally, so pruning is stable under redundancy. Default
+    # stays "nnls" until a majority-win bench across real-ish pools (gt_05 acceptance criteria) --
+    # this is purely a same-cost drop-in alternative behind the SAME stacking_aware_gate_enabled flag.
+    gate_kind: str = "nnls"
 
     # Residual-correlation dedup. Before weighting / stacking, compute the pairwise Pearson correlation of the
     # honest-OOF residuals (``residual_correlation_matrix``) and, for any pair whose |corr| exceeds
