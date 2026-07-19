@@ -78,6 +78,11 @@ class ShapProxiedFitMixin:
     su_seeded_snr_null_quantile: float
     su_seeded_snr_abs_floor: float
     su_seeded_n_permutations: int
+    residual_passes: int
+    residual_merge: str
+    residual_lambda: float
+    residual_top_k: Optional[int]
+    residual_exclude_top: int
     beam_width: int
     brute_force_max_features: int
     adaptive_prescreen_by_stability: bool
@@ -499,6 +504,16 @@ class ShapProxiedFitMixin:
             phi_var = None
             per_fold_phi_mean = None
 
+        # Two-phase residual attribution (gt_09, OPT-IN via residual_passes=0 default): a second SHAP
+        # pass on pass-1's residual re-credits weak features the additive coalition proxy under-weighs
+        # when strong features absorb most of the shared credit. Runs on the PRE-prescreen phi/X_proxy
+        # -- rescue only helps if it can save a column the prescreen would otherwise cut, so it must
+        # happen BEFORE the knee/prescreen block below, never after.
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit_residual import run_residual_pass
+
+        residual_rescue_proxy_idx, residual_blend_importance, residual_protected_working_cols = run_residual_pass(
+            self, phi, base, y_phi, X_proxy, model_template, unit_to_members, working_cols, X_cols, report, _stage)
+
         # Adaptive prescreen narrowing (iter59): when SHAP per-fold ranks are unstable, NARROW the
         # cap so noisy mid-rank features don't get injected into beam's candidate pool. The lever is
         # measurement-driven (median pairwise Spearman of per-fold mean |phi| feature ranks) and only
@@ -551,7 +566,10 @@ class ShapProxiedFitMixin:
             with _stage("prescreen"):
                 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import noise_floor_rescue_keep_set
 
-                importance = np.abs(phi).mean(axis=0)
+                # residual_merge="blend" ranks by phi1+lambda*phi2 (aligned; excluded columns get 0
+                # contribution) so residual-boosted weak features sort higher into top_keep -- the
+                # proxy loss consumed by the search below always stays raw phi1, never this vector.
+                importance = np.abs(phi).mean(axis=0) if residual_blend_importance is None else residual_blend_importance
                 top_keep = np.argsort(-importance)[:prescreen_top]
                 # Noise-floor rescue (bug fix, iter-2026-07-14): a flat top-K cut by mean|phi| alone
                 # silently drops any real weak-signal column ranked below K whenever the frame has
@@ -566,6 +584,9 @@ class ShapProxiedFitMixin:
                 keep_set = top_keep_set | rescued_set
                 # Rescue su_seeded synergistic operands the marginal-|phi| ranking would discard.
                 keep_set |= {int(i) for i in _su_rescue_proxy_idx if 0 <= int(i) < n_proxy}
+                # Fourth union member: residual_merge="rescue" columns (top-k by mean|phi2|) -- the
+                # phi2-attributed regime the pass-1 additive proxy under-credits.
+                keep_set |= {int(i) for i in residual_rescue_proxy_idx if 0 <= int(i) < n_proxy}
                 keep = np.sort(np.fromiter(keep_set, dtype=np.int64))
                 phi = np.ascontiguousarray(phi[:, keep])
                 proxy_cols_kept = keep
@@ -577,7 +598,7 @@ class ShapProxiedFitMixin:
                     unit_to_members = [np.array([int(i)], dtype=np.int64) for i in keep]
                 report["prescreen"] = dict(
                     kept=len(keep), of=int(n_proxy), su_rescued=len(_su_rescue_proxy_idx),
-                    noise_floor_rescued=len(rescued_set),
+                    noise_floor_rescued=len(rescued_set), residual_rescued=len(residual_rescue_proxy_idx),
                 )
 
         optimizer = self._resolve_optimizer(phi.shape[1])
@@ -824,6 +845,10 @@ class ShapProxiedFitMixin:
                 # O(k^2) greedy drops. unit_to_members is in proxy-unit space; each chosen unit
                 # contributes one group of member columns.
                 member_groups = [[int(c) for c in unit_to_members[int(u)]] for u in best_idx]
+                # Residual-rescued columns (residual_merge="rescue") survived the prescreen cut; the
+                # empirical trace showed prescreen survival is NOT sufficient -- this greedy
+                # parsimony_tol pruner re-drops them unless explicitly protected (gt_09 sec 3.4).
+                _residual_protected = residual_protected_working_cols & set(member_cols) or None
                 refined = within_cluster_refine(
                     member_cols, model_template, X_search, y_search, X_hold, y_hold,
                     classification=self.classification, metric=self.metric,
@@ -834,7 +859,8 @@ class ShapProxiedFitMixin:
                     ucb_slack=self.refine_ucb_slack,
                     ucb_stdev_multiplier=self.refine_ucb_stdev_multiplier,
                     inner_n_jobs_cap=self.inner_n_jobs_cap,
-                    disk_cache_dir=self.cache_dir)
+                    disk_cache_dir=self.cache_dir,
+                    protected_cols=_residual_protected)
                 # Final full-template re-evaluation of the ONE chosen subset (uncapped n_estimators).
                 # Refine's ranking trials use a cheaper capped booster (~100 trees) to decide WHICH
                 # members to drop; the user-visible quality bar (and any downstream report consumer)
