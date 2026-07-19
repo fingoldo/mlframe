@@ -57,9 +57,13 @@ def test_pysr_enabled_without_y_train_warns_loudly(caplog):
     """If pysr_enabled=True but y_train=None, the user MUST see a warning.
     Silent-skip used to mask the wiring bug we hit on 2026-05-15."""
     X_train, X_val, X_test, _ = _make_frames()
+    # Row-wise summary/extreme-columns extensions are default-ON and orthogonal to PySR wiring;
+    # disabled here so the "no new columns" assertion below stays a clean PySR-only check.
     config = PreprocessingExtensionsConfig(
         pysr_enabled=True,
         pysr_params={"niterations": 1, "population_size": 5},
+        row_wise_summary_stats_enabled=False,
+        row_wise_extreme_columns_enabled=False,
     )
 
     with caplog.at_level(logging.WARNING):
@@ -157,7 +161,13 @@ def test_pysr_enabled_with_y_train_calls_pysr():
 def test_pysr_disabled_is_silent(caplog):
     """Pysr disabled is silent."""
     X_train, X_val, X_test, _ = _make_frames()
-    config = PreprocessingExtensionsConfig(pysr_enabled=False)
+    # Row-wise summary/extreme-columns extensions are default-ON and orthogonal to PySR wiring;
+    # disabled here so the "no new cols" assertion below stays a clean PySR-only check.
+    config = PreprocessingExtensionsConfig(
+        pysr_enabled=False,
+        row_wise_summary_stats_enabled=False,
+        row_wise_extreme_columns_enabled=False,
+    )
     with caplog.at_level(logging.WARNING):
         out_train, *_ = apply_preprocessing_extensions(
             train_df=X_train,

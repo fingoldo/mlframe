@@ -392,6 +392,18 @@ def pytest_configure(config):
         "expects_convergence_warning: opt out of the ``suppress_convergence_warnings`` autouse filter; "
         "use when a test asserts the warning via ``pytest.warns(ConvergenceWarning)``.",
     )
+    # pytest-progress defines its pytest_xdist_node_collection_finished hookimpl whenever the
+    # xdist PACKAGE is importable, not whether the xdist pytest PLUGIN is registered. Running with
+    # an explicit ``-p no:xdist`` leaves xdist installed but unregisters the plugin, so that
+    # hookimpl is left with no matching hookspec -- pluggy's next check_pending() raises
+    # PluginValidationError before collection even starts (crashes the whole run, not just xdist
+    # features). Strip pytest-progress's hookimpls in that case so ``-p no:xdist`` alone works;
+    # ``--show-progress`` output is simply unavailable without xdist, which is an acceptable
+    # degradation versus an unrunnable suite.
+    if config.pluginmanager.get_plugin("xdist") is None:
+        _progress_plugin = config.pluginmanager.get_plugin("progress")
+        if _progress_plugin is not None:
+            config.pluginmanager.unregister(_progress_plugin)
 
 
 def pytest_collection_modifyitems(config, items):

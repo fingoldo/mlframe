@@ -78,24 +78,30 @@ class FeatureSelectionConfig(BaseConfig):
     # Forwarded verbatim to ``ACESelector.__init__``; keys validated against the constructor signature so misspelt knobs fail at config time rather than deep inside fit. ACE auto-derives classification/regression from the target dtype internally (no target_type threading), so unlike BorutaShap / ShapProxiedFS there is no ``classification`` key to auto-fill here.
     ace_kwargs: Optional[Dict[str, Any]] = None
 
-    # ForwardSelect / GreedyBackwardElimination / ZeroImportancePruning / CascadeSelect default ON (2026-07-12):
+    # ForwardSelect / GreedyBackwardElimination / ZeroImportancePruning / CascadeSelect default OFF (2026-07-19):
     # each is an ADDITIVE branch in ``_build_pre_pipelines`` (own entry in ``pre_pipelines``/``pre_pipeline_names``,
-    # evaluated as its own model variant alongside MRMR/RFECV/BorutaShap/ShapProxiedFS/ACE) -- enabling all four
-    # does not conflict or duplicate-prune against each other or the existing selectors, it just adds four more
-    # scored candidate branches for the suite's model-selection step to compare. That is a real, accepted runtime
-    # cost increase (four extra CV-scored search loops: greedy forward growth, greedy backward removal, iterative
-    # batch-drop refits, and a 3-stage Boruta->forward->RFECV cascade) in exchange for the suite always surfacing
-    # whichever selector wins on THIS dataset instead of requiring an operator to already know which one to try.
-    use_forward_select_fs: bool = True
+    # evaluated as its own model variant alongside MRMR/RFECV/BorutaShap/ShapProxiedFS/ACE). ForwardSelect (and
+    # CascadeSelect, which calls it internally as its stage 2) grows the feature set one CV-scored RandomForest
+    # refit at a time -- on real mlframe datasets (tens of thousands of candidate features) that is O(features)
+    # RF refits per target and can run for hours with no bound, so it is opt-in rather than a suite-wide default.
+    # Enable explicitly per-run when the operator wants that specific greedy/cascade candidate compared in.
+    use_forward_select_fs: bool = False
     # Forwarded verbatim to ``ForwardSelectSelector.__init__``; keys validated against the constructor signature.
     forward_select_kwargs: Optional[Dict[str, Any]] = None
-    use_greedy_backward_elimination_fs: bool = True
+    # GreedyBackwardElimination default OFF (2026-07-19): starts from the FULL feature set and evaluates
+    # removing EACH remaining candidate via a fresh CV pass per round -- O(features^2 x folds), worse than
+    # ForwardSelect on wide frames (tens of thousands of candidate features) since it starts full rather
+    # than empty. Opt-in per-run only.
+    use_greedy_backward_elimination_fs: bool = False
     # Forwarded verbatim to ``GreedyBackwardEliminationSelector.__init__``; keys validated against the constructor signature.
     greedy_backward_elimination_kwargs: Optional[Dict[str, Any]] = None
-    use_zero_importance_pruning_fs: bool = True
+    # ZeroImportancePruning default OFF (2026-07-19): cheap relative to ForwardSelect/GreedyBackwardElimination
+    # (batch-drops the whole zero-importance set per round, O(features x rounds) capped at max_rounds), but
+    # still several full-frame CV refits on top of whatever heavier selector is chosen -- opt-in alongside it.
+    use_zero_importance_pruning_fs: bool = False
     # Forwarded verbatim to ``ZeroImportancePruningSelector.__init__``; keys validated against the constructor signature.
     zero_importance_pruning_kwargs: Optional[Dict[str, Any]] = None
-    use_cascade_select_fs: bool = True
+    use_cascade_select_fs: bool = False
     # Forwarded verbatim to ``CascadeSelectSelector.__init__``; keys validated against the constructor signature.
     cascade_select_kwargs: Optional[Dict[str, Any]] = None
 

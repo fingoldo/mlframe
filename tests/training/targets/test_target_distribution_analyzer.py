@@ -458,6 +458,35 @@ def test_lag_autocorr_matches_corrcoef_reference():
     assert _lag_autocorr(np.array([1.0, 2.0, 3.0]), 5) == 0.0
 
 
+def test_check_within_group_ordering_many_small_groups():
+    """Regression for the 2026-07-19 fix: the old implementation strided through the
+    array (comparing group_ids[::step] elements to each other) instead of sampling
+    true adjacent (i, i+1) pairs. With 2000 groups of 5 rows each (10,000 rows total,
+    default n_check=1024), old step = 10000 // 1024 = 9, which is > the group size of 5,
+    so the stride almost always lands in a different group even though the data is
+    perfectly sorted by group -- the old code returned False (falsely "not ordered")
+    here; verified empirically against both the old and current formula before writing
+    this test. The fixed function must return True for this genuinely sorted input."""
+    from mlframe.training.targets._target_distribution_analyzer_stats import _check_within_group_ordering
+
+    n_groups, rpg = 2000, 5
+    group_ids = np.repeat(np.arange(n_groups), rpg)
+    assert _check_within_group_ordering(group_ids) is True
+
+
+def test_check_within_group_ordering_shuffled_returns_false():
+    """Sanity companion to test_check_within_group_ordering_many_small_groups: the fix
+    must not introduce a false positive. Shuffling the same many-small-groups array
+    destroys the adjacent-pair structure, so the check must still report False."""
+    from mlframe.training.targets._target_distribution_analyzer_stats import _check_within_group_ordering
+
+    n_groups, rpg = 2000, 5
+    group_ids = np.repeat(np.arange(n_groups), rpg)
+    rng = np.random.default_rng(900)
+    shuffled = group_ids[rng.permutation(group_ids.size)]
+    assert _check_within_group_ordering(shuffled) is False
+
+
 def test_detect_multi_modal_sigma_passthrough_bit_identical():
     """_detect_multi_modal accepts the caller's already-computed sigma to skip a redundant full-n np.std pass (the
     analyzer computes std once for the moment stats). Regression sensor: passing sigma must be bit-identical to

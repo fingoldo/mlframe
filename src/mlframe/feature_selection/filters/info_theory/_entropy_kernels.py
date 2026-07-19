@@ -294,12 +294,12 @@ def entropy_chao_shen(freqs: np.ndarray, n: int) -> float:
 
 @njit(cache=True)
 def mi_chao_shen(
-    factors_data,
+    factors_data: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
     factors_nbins: np.ndarray,
     verbose: bool = False,
-    dtype=np.int32,
+    dtype: type = np.int32,
 ) -> float:
     """Chao-Shen (2003) coverage-adjusted mutual information ``I_cs(X;Y) = H_cs(X) + H_cs(Y) -
     H_cs(X,Y)``, floored at 0. Unlike ``mi_miller_madow``'s closed-form additive bias term (a function

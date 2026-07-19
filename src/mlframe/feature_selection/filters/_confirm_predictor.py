@@ -146,6 +146,12 @@ class ScreenContext:
     # 2026-07-16 (wellbore-100k profiling): (z_key, z_classes, z_nclasses) cache for
     # ``_conditioning_rows_per_cell``'s Z=selected_vars encoding -- see that function's docstring.
     _z_merge_cache: object = None
+    # 2026-07-19 (MRMR wellbore-4.1M diagnosability): cumulative ``score_candidates`` call count
+    # and wall time across the WHOLE ``screen_predictors`` call (all interactions_orders), so a
+    # future log can directly show whether wall time is dominated by pool_size x |Z| scaling
+    # instead of requiring another multi-agent investigation to reconstruct it after the fact.
+    sc_calls: int = 0
+    sc_wall: float = 0.0
     # --- per-interactions-order / per-node mutable state ---
     # These five are ALWAYS populated by the orchestrator before use (never read as None at
     # runtime); ``None`` is only a dataclass placeholder default (a required-after-defaulted-
@@ -759,7 +765,21 @@ def confirm_one_predictor(
 
     while True:  # confirmation loop (by random permutations)
 
+        # 2026-07-19: time EVERY score_candidates call (the whole remaining-pool rescore, cost
+        # scaling with pool_size x |selected_vars|) separately from the rest of this retry loop, and
+        # accumulate onto ctx so it survives across retries/predictors/interactions_orders. This is
+        # what let a prior investigation reconstruct, after the fact, that wall time here (NOT the
+        # FE pair-precompute step logged elsewhere) drove a slow screen_predictors round; logging it
+        # live makes that reconstruction unnecessary next time.
+        _sc_t0 = timer()
         best_gain, best_candidate, run_out_of_time = score_candidates(ctx, best_gain, best_candidate, expected_gains)
+        ctx.sc_wall += timer() - _sc_t0
+        ctx.sc_calls += 1
+        if verbose >= 2 and ctx.sc_calls % 25 == 0:
+            logger.info(
+                "score_candidates progress: pool=%d |Z|=%d cumulative_wall=%.1fs calls=%d (avg %.3fs/call)",
+                len(candidates), len(selected_vars), ctx.sc_wall, ctx.sc_calls, ctx.sc_wall / ctx.sc_calls,
+            )
 
         if run_out_of_time:
             break

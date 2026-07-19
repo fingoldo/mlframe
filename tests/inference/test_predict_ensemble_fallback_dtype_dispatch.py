@@ -48,7 +48,11 @@ def test_regression_ensemble_fallback_uses_mean_not_mode(monkeypatch):
         mode_call_count["n"] += 1
         return _orig_mode(*args, **kwargs)
 
-    monkeypatch.setattr("mlframe.training.core.predict.stats.mode", _spy_mode)
+    # Patch the real scipy.stats module object (matches test_classification_ensemble_fallback_still_uses_mode
+    # below): the production code now lives in _predict_main_from_models.py (module split), which does
+    # ``from scipy import stats``, so patching that re-export path is a stale reference -- scipy.stats.mode
+    # is the one object every importer sees regardless of which module did the import.
+    monkeypatch.setattr("scipy.stats.mode", _spy_mode)
 
     # Reproduce the fallback logic the patch establishes.
     all_preds = [

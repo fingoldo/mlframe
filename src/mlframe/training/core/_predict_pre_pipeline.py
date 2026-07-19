@@ -12,6 +12,7 @@ import os
 
 from typing import Any, Optional
 
+import numpy as np
 import pandas as pd
 import polars as pl
 
@@ -170,7 +171,17 @@ def _apply_row_wise_extensions(df: Any, config: Optional[dict], verbose: int = 0
         df = get_pandas_view_of_polars_df(df)
     if not isinstance(df, pd.DataFrame):
         return df
-    _cols = list(df.columns)
+    # Fit time restricts the row-wise pinned column list to NUMERIC columns only (``_filter_to_numeric``
+    # runs before ``_rw_cols = list(train.columns)`` in ``apply_preprocessing_extensions``) -- a text/
+    # categorical column reaching ``row_wise_summary_stats``/``row_wise_top_k_extreme_columns`` raises
+    # "could not convert string to float", which the per-step try/except below then swallows to a WARN
+    # and skips the step entirely, silently leaving the predict frame short the row-wise columns the
+    # fitted model expects. Mirror the same numeric-only restriction (incl. the bool->numeric promotion
+    # ``select_dtypes(include="number")`` alone excludes) here.
+    _bool_cols = df.select_dtypes(include="bool").columns.tolist()
+    for _bc in _bool_cols:
+        df[_bc] = df[_bc].astype(np.int8)
+    _cols = df.select_dtypes(include="number").columns.tolist()
     if config.get("summary_stats_enabled"):
         try:
             from mlframe.feature_engineering.row_wise_summary import row_wise_summary_stats
