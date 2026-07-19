@@ -19,12 +19,23 @@ import pandas as pd
 import pytest
 
 # Match the rest of tests/training/ - tests import via the installed package, not via sys.path tweaks.
-from mlframe.training.configs import OutputConfig, PreprocessingConfig
+from mlframe.training.configs import BaselineDiagnosticsConfig, ConformalConfig, DummyBaselinesConfig, OutputConfig, PreprocessingConfig
 from mlframe.training.core import train_mlframe_models_suite
 
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 pytestmark = [pytest.mark.requires_torch, pytest.mark.requires_cb, pytest.mark.uses_torch]
+
+# This module's contract is narrowly about recurrent_ensemble_integration metadata wiring, not model
+# quality or any of these reporting/diagnostic passes -- disabling them cut this file's wall time from
+# ~250s to a fraction of that (baseline diagnostics, dummy baselines, conformal intervals, and the
+# target-distribution analyzer are all real per-target work on top of the tiny CB+LSTM fit itself).
+_FAST_SUITE_KWARGS = dict(
+    baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=False),
+    dummy_baselines_config=DummyBaselinesConfig(enabled=False),
+    conformal_config=ConformalConfig(enabled=False),
+    enable_target_distribution_analyzer=False,
+)
 
 N_ROWS = 200
 SEQ_LEN = 6
@@ -79,6 +90,7 @@ def test_recurrent_member_joins_ensemble_after_integration(tmp_path):
             use_mlframe_ensembles=True,
             verbose=0,
             output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            **_FAST_SUITE_KWARGS,
         )
     except (NotImplementedError, ImportError) as e:
         pytest.skip(f"recurrent path not fully wired in this env: {e}")
@@ -149,6 +161,7 @@ def test_recurrent_skipped_gracefully_when_predict_fails(monkeypatch, tmp_path):
             use_mlframe_ensembles=True,
             verbose=0,
             output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            **_FAST_SUITE_KWARGS,
         )
     except (NotImplementedError, ImportError) as e:
         pytest.skip(f"recurrent path not fully wired in this env: {e}")
