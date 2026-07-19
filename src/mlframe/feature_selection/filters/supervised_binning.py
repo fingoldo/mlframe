@@ -216,10 +216,15 @@ def mdlp_bin_edges(
         # ``_entropy_from_counts_njit`` from HERE at ITS top level; by the time this function
         # runs, this module has finished loading, so the import is safe -- doing it at this
         # module's own top level would not be).
-        from ._mdlp_validated_split import _mdlp_recurse_validated
+        from ._mdlp_validated_split import _dedupe_xy, _mdlp_recurse_validated
 
+        # Exact-duplicate (x, y) rows must be collapsed BEFORE the significance-gated recursion --
+        # see ``_dedupe_xy``'s docstring for the measured over-splitting artifact this prevents
+        # (duplicated rows sit x-adjacent with an identical y, which a permutation null built by
+        # shuffling y never reproduces, so the observed gain spuriously clears the test).
+        x_dedup, y_dedup = _dedupe_xy(x_sorted, y_sorted)
         _mdlp_recurse_validated(
-            x_sorted, y_sorted, splits, 0, int(min_split_size), int(max_depth),
+            x_dedup, y_dedup, splits, 0, int(min_split_size), int(max_depth),
             float(alpha), int(n_permutations), int(validated_seed), bool(bonferroni),
         )
     splits.sort()

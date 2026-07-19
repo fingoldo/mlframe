@@ -128,3 +128,54 @@ def test_oos_validated_variant_runs_and_is_cheaper_than_insample_validated():
     wall_validated = time.perf_counter() - t0
     assert edges_oos.size >= 2
     assert wall_oos < wall_validated, (wall_oos, wall_validated)
+
+
+def test_hparam_sweep_fast_subset_runs_and_returns_finite_results():
+    """The alpha/n_permutations/max_y_classes sensitivity grid (reduced-fast variant) must run
+    without raising and produce finite, non-negative RMSE/bin counts at every grid cell."""
+    from mlframe.feature_selection.filters._benchmarks.bench_mdlp_validated_split_suite import run_hparam_sweep_fast
+
+    results = run_hparam_sweep_fast()
+    assert len(results) == 2 * 2 * 2 * 2 * 3  # scenarios x alpha x n_permutations x max_y_classes x seeds
+    for r in results:
+        assert math.isfinite(r.rmse), r
+        assert r.bins >= 1
+
+
+def test_hparam_sweep_pure_noise_does_not_over_split_at_any_grid_point():
+    """No point in the alpha/n_permutations/max_y_classes grid should cause pure noise to
+    over-split relative to a single bin by more than a small margin -- the significance gate must
+    hold across the whole tunable range, not just the shipped defaults."""
+    from mlframe.feature_selection.filters._benchmarks.bench_mdlp_validated_split_suite import run_hparam_sweep_fast
+
+    results = [r for r in run_hparam_sweep_fast() if r.scenario == "pure_noise"]
+    assert results
+    for r in results:
+        assert r.bins <= 3, (r.alpha, r.n_permutations, r.max_y_classes, r.seed, r.bins)
+
+
+def test_duplicate_rows_do_not_cause_over_splitting_regression():
+    """Regression pin for the duplicate-row over-splitting bug found in this module's own
+    robustness probe (2026-07-19): exact duplicate rows sit x-adjacent with an identical y after
+    sorting, which a permutation null built by shuffling y across all rows (duplicates included)
+    never reproduces -- the observed best-gain spuriously cleared the significance test almost
+    every time before the ``_dedupe_xy`` fix. On pure noise, bin count at every duplication rate
+    must stay within the classic fast_mode baseline's bin count (both should collapse to ~1 bin)."""
+    from mlframe.feature_selection.filters._benchmarks.bench_mdlp_validated_split_suite import DUP_RATES, run_robustness_one
+
+    for dup_rate in DUP_RATES:
+        r_validated = run_robustness_one("pure_noise", 1500, f"dup_{dup_rate:.2f}", "validated", seed=0)
+        r_fast = run_robustness_one("pure_noise", 1500, f"dup_{dup_rate:.2f}", "fast_mode", seed=0)
+        assert r_validated.bins <= r_fast.bins + 1, (dup_rate, r_validated.bins, r_fast.bins)
+
+
+def test_outlier_robustness_fast_subset_runs_and_returns_finite_results():
+    """Scale and Cauchy-contaminated outlier injection must not crash or degenerate (NaN/negative)
+    binning quality for any of the three compared methods."""
+    from mlframe.feature_selection.filters._benchmarks.bench_mdlp_validated_split_suite import run_robustness_fast
+
+    results = run_robustness_fast()
+    assert len(results) > 0
+    for r in results:
+        assert math.isfinite(r.rmse), r
+        assert r.bins >= 1
