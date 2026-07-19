@@ -151,6 +151,15 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         su_seeded_snr_null_quantile: float = 0.99,
         su_seeded_snr_abs_floor: float = 1e-3,
         su_seeded_n_permutations: int = 3,
+        # residual_passes (gt_09, OPT-IN, default 0 -- see the rollout bench note near
+        # ``self.residual_passes`` below): a second SHAP pass on pass-1's residual re-credits weak
+        # features the additive coalition proxy under-weighs when strong features absorb most of the
+        # shared credit (the "<50% coverage wall"). Capped at 2 -- each pass costs one full OOF-SHAP.
+        residual_passes: int = 0,
+        residual_merge: str = "rescue",
+        residual_lambda: float = 1.0,
+        residual_top_k: int | None = None,
+        residual_exclude_top: int = 0,
         beam_width: int = 8,
         brute_force_max_features: int | None = None,
         adaptive_prescreen_by_stability: bool = False,
@@ -335,6 +344,14 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         self.su_seeded_snr_null_quantile = float(su_seeded_snr_null_quantile)
         self.su_seeded_snr_abs_floor = float(su_seeded_snr_abs_floor)
         self.su_seeded_n_permutations = int(su_seeded_n_permutations)
+        # Stored verbatim (sklearn clone rule); validated at fit time (``_validate_residual_params``
+        # in ``_shap_proxied_fit_residual.py``) so an invalid value raises before the expensive
+        # OOF-SHAP stages, not silently at __init__.
+        self.residual_passes = residual_passes
+        self.residual_merge = residual_merge
+        self.residual_lambda = residual_lambda
+        self.residual_top_k = residual_top_k
+        self.residual_exclude_top = residual_exclude_top
         self.beam_width = beam_width
         # ``brute_force_max_features`` (iter56): raised default 22 -> 28. This is the prescreen
         # cap on ``phi.shape[1]``, NOT a direct guarantee that brute force runs at the dispatched
