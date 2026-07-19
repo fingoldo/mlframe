@@ -288,7 +288,7 @@ def categorize_dataset(
         _strategy_kwargs = dict(nbins_strategy_kwargs or {})
         # Pass y if the strategy is supervised.
         _needs_y = str(nbins_strategy).lower() in (
-            "mdlp", "fayyad_irani", "optimal_joint", "cv",
+            "mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated", "optimal_joint", "cv",
             "mah", "mah_sci", "sci", "marx",
         )
         _y_arr = None

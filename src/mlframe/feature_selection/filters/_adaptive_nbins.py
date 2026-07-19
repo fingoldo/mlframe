@@ -46,6 +46,7 @@ from numba import njit
 
 from .discretization import _knuth_bin_edges, _bayesian_blocks_bin_edges
 from .supervised_binning import mdlp_bin_edges
+from ._mdlp_validated_split import edges_fayyad_irani_validated
 
 logger = logging.getLogger(__name__)
 
@@ -482,6 +483,9 @@ _METHOD_ALIASES = {
     "fayyad_irani": "fayyad_irani",
     "fayyad-irani": "fayyad_irani",
     "mdlp": "fayyad_irani",
+    "fayyad_irani_validated": "fayyad_irani_validated",
+    "fayyad-irani-validated": "fayyad_irani_validated",
+    "mdlp_validated": "fayyad_irani_validated",
     "optimal_joint": "optimal_joint",
     "cv": "optimal_joint",
     "qs": "qs",
@@ -541,7 +545,7 @@ def per_feature_edges(
     method_resolved = _METHOD_ALIASES.get(method.lower() if isinstance(method, str) else method)
     if method_resolved is None:
         raise ValueError(f"per_feature_edges: unknown method={method!r}. Expected one of " f"{sorted(set(_METHOD_ALIASES.values()))}.")
-    needs_y = method_resolved in ("fayyad_irani", "optimal_joint", "mah")
+    needs_y = method_resolved in ("fayyad_irani", "fayyad_irani_validated", "optimal_joint", "mah")
     if needs_y and y is None:
         raise ValueError(f"per_feature_edges: method={method_resolved!r} is supervised and requires y.")
     if y is not None:
@@ -631,6 +635,16 @@ def per_feature_edges(
                 backend=kwargs.get("mdlp_backend", "njit"),
                 scaled_min_split=kwargs.get("mdlp_scaled_min_split", False),
             )
+        elif method_resolved == "fayyad_irani_validated":
+            assert y is not None  # needs_y guard above raises for this method when y is None
+            edges = edges_fayyad_irani_validated(
+                col, y,
+                val_frac=kwargs.get("mdlp_val_frac", 0.3),
+                max_depth=kwargs.get("max_depth", 8),
+                min_split_size=kwargs.get("min_split_size", 5),
+                val_min_split_size=kwargs.get("mdlp_val_min_split_size", 5),
+                random_state=kwargs.get("random_state", 0),
+            )
         elif method_resolved == "mah":
             assert y is not None  # needs_y guard above raises for this method when y is None
             edges = edges_mah(
@@ -662,7 +676,7 @@ def per_feature_edges(
         # the joint level. The single-feature MDLP signal is already
         # gone (it returned no splits), so the unsupervised fallback
         # can only improve detection power, never hurt.
-        if method_resolved in ("fayyad_irani", "optimal_joint", "mah") and (edges is None or (hasattr(edges, "size") and edges.size == 0)):
+        if method_resolved in ("fayyad_irani", "fayyad_irani_validated", "optimal_joint", "mah") and (edges is None or (hasattr(edges, "size") and edges.size == 0)):
             _fallback_nb = int(kwargs.get("collapsed_fallback_nbins", 5))
             if base == "quantile":
                 edges = _edges_from_quantiles(col, _fallback_nb)

@@ -26,7 +26,7 @@ _VALID_NBINS_STRATEGIES = (
     None,
     "auto", "sturges", "freedman_diaconis", "fd", "qs", "quantile",
     "knuth", "blocks",  # demoted to research-only with AccuracyWarning
-    "mdlp", "fayyad_irani", "optimal_joint", "cv",
+    "mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated", "optimal_joint", "cv",
     "mah", "mah_sci", "sci", "marx",  # Marx 2021 SCI-guided adaptive
 )
 # opt-in validation sets.
