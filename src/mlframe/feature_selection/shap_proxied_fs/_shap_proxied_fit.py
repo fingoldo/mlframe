@@ -127,6 +127,8 @@ class ShapProxiedFitMixin:
     _deferred_holdout: Optional[tuple]
     # Provided by ``ShapProxiedMethodsMixin`` (the concrete class inherits both).
     _resolve_booster_kind: Callable[[], str]
+    _su_screen_enabled: Callable[[], bool]
+    _su_screen_snr_z: Callable[[], float]
     _resolve_optimizer: Callable[[int], str]
     _resolve_revalidation_mmr_jaccard_threshold: Callable[[int], Optional[float]]
     _resolve_revalidation_ucb_stdev_multiplier: Callable[[int], float]
@@ -419,7 +421,7 @@ class ShapProxiedFitMixin:
                 # screen is O(P)+O(K) (no O(P^2) tensor) and NO-OPs cleanly (rescues nothing) when the
                 # gate clears no pair. The kept pairs (by original column name) drive the post-search
                 # sparse interaction objective. Skipped when the prefilter kept everything already.
-                if self.su_seeded_interactions and len(working_cols) < n_features:
+                if self._su_screen_enabled() and len(working_cols) < n_features:
                     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import su_synergy_screen
 
                     with _stage("su_seeded_interactions"):
@@ -434,7 +436,7 @@ class ShapProxiedFitMixin:
                             n_bins=self.su_seeded_n_bins,
                             top_k=self.su_seeded_top_k,
                             max_screen_cols=self.su_seeded_max_screen_cols,
-                            snr_z=self.su_seeded_snr_z,
+                            snr_z=self._su_screen_snr_z(),
                             snr_null_quantile=self.su_seeded_snr_null_quantile,
                             snr_abs_floor=self.su_seeded_snr_abs_floor,
                             n_permutations=self.su_seeded_n_permutations,

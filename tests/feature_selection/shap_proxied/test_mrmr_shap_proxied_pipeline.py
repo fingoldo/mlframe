@@ -133,6 +133,13 @@ def test_mrmr_then_shap_proxied_fs_reuses_artifacts_e2e():
         run_importance_ablation=False,
         cluster_features=False,
         shap_prefilter_enabled=False,
+        # gt_08: this test times the precomputed-SU-reuse path against the standalone prefilter, a
+        # question orthogonal to proxy_mode. proxy_mode="auto"'s su_seeded screen has a small
+        # roughly-fixed cost (permutation-null pair scan) that is negligible against the wide/slow
+        # fits it was benchmarked on but swamps THIS test's tight <=1.5x wall budget on its tiny
+        # fixture -- pin the legacy "additive" escape hatch (zero screen cost) to keep the timing
+        # assertion about the thing it actually tests.
+        proxy_mode="additive",
     )
 
     # Step 2: ShapProxiedFS standalone (legacy F-statistic / booster prefilter).

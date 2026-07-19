@@ -13,6 +13,19 @@ import pandas as pd
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import _resolve_brute_force_n_sub_gate
 
+# gt_08 auto-path-ONLY SNR tightening. The opt-in ``su_seeded_interactions=True`` flag keeps its
+# original defaults (snr_z=3.0 / snr_abs_floor=1e-3, unchanged) -- these only apply when
+# ``proxy_mode="auto"`` engaged the screen AND the caller left the opt-in knobs at their factory
+# default (an explicit override always wins). Pre-flip 6-bed x 3-seed bench
+# (_benchmarks/bench_shap_interaction_proxy.py) measured one spurious gate fire on the
+# ``additive_redundant`` bed at the factory snr_z=3.0 (best_synergy=0.024489 vs gate=0.022797, a
+# near-miss driven by the redundant near-duplicate columns' correlated marginal SU); snr_z=4.5
+# silenced it (gate rose to 0.025961) while leaving every genuine-synergy bed (xor2, mixed, mult,
+# xor_distract) fully detected across all 3 seeds -- see that bench's committed output.
+_AUTO_SNR_Z_DEFAULT = 3.0
+_AUTO_SNR_Z_TIGHTENED = 4.5
+_AUTO_SNR_ABS_FLOOR_DEFAULT = 1e-3
+
 
 class ShapProxiedMethodsMixin:
     """Resolver + coercion + preflight helpers for :class:`ShapProxiedFS` (see module docstring)."""
@@ -26,6 +39,11 @@ class ShapProxiedMethodsMixin:
     min_features: int
     optimizer: str
     use_gpu: bool
+    proxy_mode: str
+    su_seeded_interactions: bool
+    su_seeded_snr_z: float
+    su_seeded_snr_abs_floor: float
+    random_state: int
     revalidation_mmr_jaccard_threshold: Optional[float]
     revalidation_ucb_stdev_multiplier: Optional[float]
     classes_: Any
@@ -55,6 +73,32 @@ class ShapProxiedMethodsMixin:
             if catboost_available():
                 return "catboost"
             raise ImportError("ShapProxiedFS: neither xgboost nor catboost is installed; install one or pass an " "explicit ``model=`` template.")
+
+    def _su_screen_enabled(self) -> bool:
+        """Resolve whether the su_seeded synergy screen must run for this fit.
+
+        True when the caller pinned ``su_seeded_interactions=True`` explicitly, OR when
+        ``proxy_mode="auto"`` -- the auto mode ALWAYS runs the screen (its built-in permutation-null
+        SNR gate is the safe-condition detector: empty ``kept`` reproduces the additive path
+        byte-identically, non-empty ``kept`` enables the same rescue/augmentation ``su_seeded_
+        interactions=True`` already ships). Every call site that previously read
+        ``self.su_seeded_interactions`` directly to gate the screen/rescue/augmentation must read this
+        instead, so "auto" and the opt-in flag share one behaviour path.
+        """
+        return bool(self.su_seeded_interactions) or str(self.proxy_mode).lower() == "auto"
+
+    def _su_screen_snr_z(self) -> float:
+        """Resolve the su_seeded screen's ``snr_z`` gate, tightened for the auto-only path.
+
+        The opt-in ``su_seeded_interactions=True`` flag always gets its literal ``su_seeded_snr_z``
+        (explicit opt-in keeps its historical defaults byte-for-byte). ``proxy_mode="auto"`` without
+        the explicit flag tightens the default (see ``_AUTO_SNR_Z_TIGHTENED``) to silence the one
+        spurious gate fire the pre-flip bench measured on a redundant-column bed; a caller who
+        explicitly pins ``su_seeded_snr_z`` still wins even under "auto".
+        """
+        if not self.su_seeded_interactions and str(self.proxy_mode).lower() == "auto" and float(self.su_seeded_snr_z) == _AUTO_SNR_Z_DEFAULT:
+            return _AUTO_SNR_Z_TIGHTENED
+        return float(self.su_seeded_snr_z)
 
     def _resolve_revalidation_ucb_stdev_multiplier(self, n_features: int) -> float:
         """Width-dependent default for the revalidation UCB stdev multiplier.
