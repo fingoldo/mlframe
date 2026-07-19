@@ -103,8 +103,9 @@ class CategoricalEmbedding(nn.Module):
 
         outs = []
         for i, emb in enumerate(self.embeddings):
-            # Cast to long for the embedding lookup; clamp so an unseen / negative / overflow code maps to the reserved last row (index card)
-            # instead of raising IndexError. Codes arrive as float (the whole X tensor is one float dtype) holding integer values.
+            # Cast to long for the embedding lookup; clamp so an overflow code (>= card) maps to the reserved last row (index card) instead of
+            # raising IndexError, and a negative code (e.g. a missing-value sentinel) clamps to row 0 instead -- pinned by
+            # test_unseen_and_overflow_code_clamps_to_reserved_row_no_indexerror. Codes arrive as float (X is one float dtype) holding ints.
             codes = x[:, i].long().clamp_(0, self.cardinalities[i])
             outs.append(emb(codes))
 
