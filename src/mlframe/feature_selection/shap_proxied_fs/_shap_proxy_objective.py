@@ -91,6 +91,47 @@ def score_margin(margin: np.ndarray, y: np.ndarray, metric_code: int) -> float:
     return float(s / n)
 
 
+@njit(cache=True, fastmath=True)
+def score_margin_batch(margins: np.ndarray, y: np.ndarray, metric_code: int) -> np.ndarray:
+    """Row-batched twin of :func:`score_margin`: one compiled call scores ``B`` stacked margin rows.
+
+    Callers that must score many independent coalitions per proxy-loss reduction (e.g. MSR-Banzhaf's
+    per-chunk coalition sampling) pay njit call-dispatch overhead once per BATCH instead of once per
+    coalition when they call this instead of looping ``score_margin`` row-by-row -- the per-call
+    overhead is otherwise ~O(microseconds) but dominates at thousands of tiny per-row calls (measured:
+    4096 sequential ``score_margin_auto`` calls cost ~0.41s of a 0.55s stage wall at n=3000, P=112).
+    ``margins`` is ``(B, n_samples)``; returns the ``(B,)`` per-row loss vector, identical values to
+    calling :func:`score_margin` once per row."""
+    b, n = margins.shape
+    out = np.empty(b, dtype=np.float64)
+    for r in range(b):
+        s = 0.0
+        if metric_code == 0:  # MAE
+            for i in range(n):
+                d = y[i] - margins[r, i]
+                s += d if d >= 0.0 else -d
+        elif metric_code == 1:  # MSE
+            for i in range(n):
+                d = y[i] - margins[r, i]
+                s += d * d
+        elif metric_code == 2:  # Brier
+            for i in range(n):
+                p = _sigmoid(margins[r, i])
+                d = p - y[i]
+                s += d * d
+        else:  # log-loss with probability clipping
+            eps = 1e-7
+            for i in range(n):
+                p = _sigmoid(margins[r, i])
+                if p < eps:
+                    p = eps
+                elif p > 1.0 - eps:
+                    p = 1.0 - eps
+                s += -(y[i] * np.log(p) + (1.0 - y[i]) * np.log(1.0 - p))
+        out[r] = s / n
+    return out
+
+
 @njit(cache=True, fastmath=True, parallel=True)
 def score_margin_parallel(margin: np.ndarray, y: np.ndarray, metric_code: int) -> float:
     """prange parallel twin of :func:`score_margin` for the tall-data Python hot path.

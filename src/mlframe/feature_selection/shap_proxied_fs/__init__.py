@@ -189,6 +189,18 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         cluster_su_auto_max_features: int | None = None,
         cluster_su_n_bins: int = 10,
         prescreen_top: int | None = None,
+        # ``prescreen_ranking`` (gt_03, default "mean_abs_phi"): which per-feature vector drives the
+        # prescreen top-K cut. "banzhaf" swaps in an MSR-Banzhaf semivalue estimate over the SAME
+        # additive proxy game -- Wang & Jia (AISTATS 2023) show Banzhaf is the most noise-robust
+        # semivalue to a FIXED level of v(S) noise. Measured on THIS pipeline that theoretical
+        # robustness does NOT translate into better seed-to-seed selection stability (see
+        # test_biz_val_shap_proxied_banzhaf_ranking.py): MSR-Banzhaf layers its own fresh per-seed
+        # coalition-sampling randomness on top of an already fold-averaged phi, so it is measurably
+        # LESS stable across seeds than mean|phi| here, not more. Kept opt-in as an alternative
+        # ranking (exact-vs-MSR numerical correctness is independently verified), not as a stability
+        # upgrade. Default stays "mean_abs_phi" (see gt_03 acceptance criteria).
+        prescreen_ranking: str = "mean_abs_phi",
+        banzhaf_n_coalitions: int = 4096,
         # within_cluster_refine drops members while the honest holdout loss stays within ``parsimony_tol`` of best,
         # measured with ShapProxiedFS's OWN booster on a 25% holdout. At the precision-tuned default parsimony_tol=0.02
         # refine yields a clean, parsimonious subset (the native contract: exclude noise + redundancy). When the DOWNSTREAM
@@ -530,6 +542,10 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         )
         self.cluster_su_n_bins = int(cluster_su_n_bins)
         self.prescreen_top = prescreen_top
+        if str(prescreen_ranking).lower() not in ("mean_abs_phi", "banzhaf"):
+            raise ValueError(f"prescreen_ranking must be 'mean_abs_phi' or 'banzhaf'; got {prescreen_ranking!r}")
+        self.prescreen_ranking = prescreen_ranking
+        self.banzhaf_n_coalitions = banzhaf_n_coalitions
         self.within_cluster_refine = within_cluster_refine
         # ``refine_n_estimators`` caps the per-trial booster size inside ``within_cluster_refine``.
         # Refine compares relative honest losses to decide whether a member-drop respects

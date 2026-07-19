@@ -105,7 +105,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # and imputes X in place when CUDA_PATH is set). The missingness-FE family (is_missing__/missingness_count/missingness_pattern) derives its signal
     # from where the input was NaN; it runs AFTER that impute, so it must read this snapshot, not the live (now-finite) X, or the signal is silently erased.
     _fit_entry_nan_mask = {}
-    if hasattr(X, "columns"):
+    # Both consumers of this snapshot are opt-in and default OFF (missingness-FE family below, and cat-FE's
+    # include_numeric branch far downstream): skip the per-column float64-cast + isfinite scan entirely when
+    # neither will ever read it, rather than paying it on every fit regardless. Mirrors each consumer's own gate
+    # exactly, so this can never diverge into a false skip.
+    _cat_fe_cfg_probe = getattr(self, "cat_fe_config", None)
+    _will_use_include_numeric_nan_guard = bool(_cat_fe_cfg_probe is not None and getattr(_cat_fe_cfg_probe, "enable", True) and getattr(_cat_fe_cfg_probe, "include_numeric", False))
+    _will_use_missingness_fe = (
+        bool(getattr(self, "fe_missingness_indicator_enable", False))
+        or bool(getattr(self, "fe_missingness_count_enable", False))
+        or bool(getattr(self, "fe_missingness_pattern_enable", False))
+    )
+    if hasattr(X, "columns") and (_will_use_include_numeric_nan_guard or _will_use_missingness_fe):
         for _c in list(X.columns):
             try:
                 _cv = X[_c]

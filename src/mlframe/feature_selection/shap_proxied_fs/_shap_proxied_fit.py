@@ -101,6 +101,8 @@ class ShapProxiedFitMixin:
     shap_aware_stage1_cushion: int
     shap_aware_stage1_floor: int
     prescreen_top: Optional[int]
+    prescreen_ranking: str
+    banzhaf_n_coalitions: int
     within_cluster_refine: bool
     refine_n_estimators: Optional[int]
     refine_mode: str
@@ -573,7 +575,23 @@ class ShapProxiedFitMixin:
                 # residual_merge="blend" ranks by phi1+lambda*phi2 (aligned; excluded columns get 0
                 # contribution) so residual-boosted weak features sort higher into top_keep -- the
                 # proxy loss consumed by the search below always stays raw phi1, never this vector.
-                importance = np.abs(phi).mean(axis=0) if residual_blend_importance is None else residual_blend_importance
+                prescreen_ranking = str(getattr(self, "prescreen_ranking", "mean_abs_phi") or "mean_abs_phi").lower()
+                banzhaf_stderr_max: Optional[float] = None
+                if prescreen_ranking == "banzhaf" and residual_blend_importance is None:
+                    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_banzhaf import banzhaf_msr
+
+                    beta, banzhaf_info = banzhaf_msr(
+                        phi, base, y_phi, classification=self.classification, metric=self.metric,
+                        n_coalitions=int(self.banzhaf_n_coalitions), rng=self._rng,
+                    )
+                    # Shift nonnegative: the downstream noise-floor rescue's tail-quantile math assumes
+                    # a nonnegative importance vector (see ``noise_floor_rescue_keep_set``); beta itself
+                    # can be negative for harmful/noise features, so shifting by its min preserves the
+                    # RANKING (a monotone translation) while keeping the rescue math intact.
+                    importance = beta - beta.min()
+                    banzhaf_stderr_max = float(np.max(banzhaf_info["beta_stderr"])) if len(beta) else None
+                else:
+                    importance = np.abs(phi).mean(axis=0) if residual_blend_importance is None else residual_blend_importance
                 top_keep = np.argsort(-importance)[:prescreen_top]
                 # Noise-floor rescue (bug fix, iter-2026-07-14): a flat top-K cut by mean|phi| alone
                 # silently drops any real weak-signal column ranked below K whenever the frame has
@@ -603,7 +621,10 @@ class ShapProxiedFitMixin:
                 report["prescreen"] = dict(
                     kept=len(keep), of=int(n_proxy), su_rescued=len(_su_rescue_proxy_idx),
                     noise_floor_rescued=len(rescued_set), residual_rescued=len(residual_rescue_proxy_idx),
+                    ranking=prescreen_ranking,
                 )
+                if banzhaf_stderr_max is not None:
+                    report["prescreen"]["banzhaf_stderr_max"] = banzhaf_stderr_max
 
         optimizer = self._resolve_optimizer(phi.shape[1])
         with _stage("search"):
