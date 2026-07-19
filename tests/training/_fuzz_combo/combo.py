@@ -1703,13 +1703,18 @@ class FuzzCombo:
             (self.mrmr_low_card_cap_cfg if self.use_mrmr_fs else 32),
             # audit-pass-7 #4: collapsed_fallback_nbins only fires when a
             # supervised binning method collapses a column. Compound gate:
-            # MRMR ON AND nbins_strategy in {mdlp, fayyad_irani, mdlp_validated}
-            # (the latter resolves to "fayyad_irani_validated" internally,
-            # _adaptive_nbins.py:488, and hits the same fallback gate at
-            # _adaptive_nbins.py:679). Other methods (quantile/qs/sturges/
-            # freedman_diaconis/...) never trigger the fallback so the axis
-            # is canon-only there.
-            (self.mrmr_collapsed_fallback_nbins_cfg if (self.use_mrmr_fs and self.mrmr_nbins_strategy_cfg in ("mdlp", "fayyad_irani", "mdlp_validated")) else 5),
+            # MRMR ON AND nbins_strategy in {mdlp, fayyad_irani, mdlp_validated,
+            # optimal_joint, cv} (mdlp_validated resolves to
+            # "fayyad_irani_validated" and cv is a pure alias for
+            # "optimal_joint", both internally, _adaptive_nbins.py:485-490;
+            # all five hit the same fallback gate at _adaptive_nbins.py:679).
+            # Other methods (quantile/qs/sturges/freedman_diaconis/...) never
+            # trigger the fallback so the axis is canon-only there.
+            (
+                self.mrmr_collapsed_fallback_nbins_cfg
+                if (self.use_mrmr_fs and self.mrmr_nbins_strategy_cfg in ("mdlp", "fayyad_irani", "mdlp_validated", "optimal_joint", "cv"))
+                else 5
+            ),
             # CV-selector mode: only meaningful when composite discovery is
             # enabled AND target is regression (the discovery is regression-
             # only). Mirrors the existing composite_* canon pattern.
