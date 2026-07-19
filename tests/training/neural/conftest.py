@@ -40,9 +40,18 @@ def _reset_torch_lightning_global_state():
     # modern API so it doesn't trigger lint warnings in the file.
     np.random.default_rng(42)
     np.random.seed(42)
-    torch.manual_seed(42)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(42)
+    try:
+        torch.manual_seed(42)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(42)
+    except RuntimeError:
+        # A prior test that crashed mid-kernel or exhausted GPU memory can leave the CUDA
+        # context corrupted -- the next reseed then raises "CUDA error: an illegal memory
+        # access was encountered" and, since this fixture is autouse, POISONS every downstream
+        # neural test's setup phase (hundreds of unrelated "ERROR at setup" in one run).
+        # Mirrors tests/conftest.py's _reset_global_rng_state guard for the same corruption
+        # class -- the CPU-side seeds above already ran.
+        pass
 
     try:
         import lightning
@@ -74,7 +83,9 @@ def _reset_torch_lightning_global_state():
             lightning.seed_everything(42, **_kw)
         finally:
             _seed_logger.setLevel(_seed_prev_level)
-    except ImportError:
+    except (ImportError, RuntimeError):
+        # RuntimeError: lightning.seed_everything also reseeds torch.cuda internally, hitting
+        # the same corrupted-context failure mode as the raw torch seeding above.
         pass
 
     torch.set_default_dtype(torch.float32)
