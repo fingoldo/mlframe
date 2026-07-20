@@ -216,19 +216,24 @@ _FIT_MEMMAP_CACHE: dict = {}
 
 
 def _fit_constant_key(arr) -> tuple:
-    """Cheap content key: shape + dtype + blake2 of a bounded sample of the buffer (first/last 64KB +
-    strided middle) -- collision-safe enough for the per-fit cache while staying O(1) in array size."""
+    """Content key: shape + dtype + blake2 of the FULL buffer.
+
+    mrmr_audit_2026-07-20 B-21: a bounded first/last-64KB + coarse-stride sample let two
+    genuinely different-content arrays of the same shape/dtype collide (agree at every
+    sampled point, differ elsewhere) and silently return the WRONG cached memmap -- a
+    correctness bug, not a perf one. Hashing the full buffer via a memoryview (no
+    ``.tobytes()`` copy -- ``hashlib.update`` consumes the buffer-protocol object directly)
+    is O(n) time but O(1) additional memory, same discipline as the rest of the package's
+    "never copy a large frame" rule; the cost is paid once per distinct-content array per
+    process (repeat calls on the SAME object still re-hash, but that's unchanged from the
+    prior sampled version and stays far cheaper than the disk dump it guards)."""
     import hashlib
 
     import numpy as _np
 
     a = _np.ascontiguousarray(arr)
-    raw = a.view(_np.uint8).ravel()
     h = hashlib.blake2b(digest_size=16)
-    h.update(raw[:65536].tobytes())
-    if raw.size > 65536:
-        h.update(raw[-65536:].tobytes())
-        h.update(raw[:: max(1, raw.size // 65536)].tobytes())
+    h.update(a.data)
     return (a.shape, str(a.dtype), h.hexdigest())
 
 
