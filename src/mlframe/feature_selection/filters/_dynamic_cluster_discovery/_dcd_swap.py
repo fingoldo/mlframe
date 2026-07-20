@@ -455,12 +455,9 @@ def evaluate_swap_candidate(
             _min_B = int(np.ceil(1.0 / _swap_alpha))  # 1/(B_eff+1) < swap_alpha
             if B_eff < _min_B:
                 B_eff = _min_B
-    # Wave 9.1 iter-3 follow-up: when the caller requested a permutation
-    # null (``full_npermutations > 0``), apply the SAME null to the member
-    # candidate too. The point-CMI gate is upward-biased on small/noisy
-    # data; if the swap is firing on pure noise the null catches it for
-    # the aggregate path -- the member branch must not be a side door
-    # that bypasses the same check.
+    # When the caller requested a permutation null (``full_npermutations > 0``), apply the SAME null to the member
+    # candidate too. The point-CMI gate is upward-biased on small/noisy data; if the swap is firing on pure noise
+    # the null catches it for the aggregate path -- the member branch must not be a side door that bypasses it.
     def _run_member_null(member_idx: int, member_rel: float, B_: int) -> float:
         """Delegate to ``_dcd_swap_null.run_member_null`` for a p-value on the member candidate's relevance, closing over ``state``/``anchor``/``target``/``S_minus_anchor``/``logger`` so both call sites below need only pass the member-specific args."""
         # The B-permutation null is parallelized across cores in ``_dcd_swap_null.run_member_null``:

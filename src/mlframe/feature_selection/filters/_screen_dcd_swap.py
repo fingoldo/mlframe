@@ -64,14 +64,9 @@ def screen_dcd_discover_and_swap(
             factors_nbins=factors_nbins,
             selected_vars=selected_vars,
         )
-        # 2026-05-30 Wave 9.1 — anchor → PC1 swap.
-        # When the freshly-grown cluster reaches
-        # ``cluster_size_threshold``, evaluate a
-        # PC1 aggregate. If ``conditional_mi(rep ;
-        # y | Selected − anchor)`` beats anchor's
-        # by ``swap_gain_threshold``, commit_swap
-        # extends ``factors_data`` and replaces
-        # ``var`` in ``selected_vars`` atomically.
+        # Anchor -> PC1 swap: when the freshly-grown cluster reaches ``cluster_size_threshold``, evaluate a PC1
+        # aggregate. If ``conditional_mi(rep ; y | Selected - anchor)`` beats anchor's by ``swap_gain_threshold``,
+        # commit_swap extends ``factors_data`` and replaces ``var`` in ``selected_vars`` atomically.
         _cluster_members = dcd_state.cluster_anchors.get(int(var), set())
         if len(_cluster_members) >= int(dcd_state.cluster_size_threshold):
             _decision = _dcd_eval_swap(
