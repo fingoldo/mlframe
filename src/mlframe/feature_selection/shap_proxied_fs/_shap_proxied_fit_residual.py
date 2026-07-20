@@ -81,9 +81,9 @@ def run_residual_pass(
     y_phi: np.ndarray,
     X_proxy: pd.DataFrame,
     model_template: Any,
-    unit_to_members,
-    working_cols,
-    X_cols,
+    unit_to_members: Optional[dict],
+    working_cols: np.ndarray,
+    X_cols: np.ndarray,
     report: dict,
     _stage: Callable,
 ) -> tuple:
