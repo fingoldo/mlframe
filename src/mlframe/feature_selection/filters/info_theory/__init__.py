@@ -62,10 +62,12 @@ from ._state_and_dispatch import (
 from ._class_mi_kernels import (
     compute_mi_cs_from_classes,
     compute_mi_from_classes,
+    compute_mi_from_classes_weighted,
     compute_mi_mm_from_classes,
     compute_relevance_score,
     compute_su_from_classes,
     mi_or_su_from_classes,
+    weighted_class_freqs,
 )
 from ._batch_kernels import (
     _relevance_from_dense,
@@ -118,6 +120,8 @@ __all__ = [
     "mi_or_su",
     "cmi_or_csu",
     "compute_mi_from_classes",
+    "compute_mi_from_classes_weighted",
+    "weighted_class_freqs",
     "compute_su_from_classes",
     "compute_relevance_score",
     "mi_or_su_from_classes",

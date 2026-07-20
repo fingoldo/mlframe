@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import Optional
 
 import numpy as np
 
@@ -48,6 +49,7 @@ def _confirm_pairs_bandit_ucb1(
     n_search_pairs: int,
     dtype,
     verbose: int,
+    weights: Optional[np.ndarray] = None,
 ) -> tuple:
     """Adaptive permutation budget via UCB1-style allocation.
 
@@ -56,10 +58,22 @@ def _confirm_pairs_bandit_ucb1(
 
     Early-stops a pair when its 95% CI lies entirely above/below the rejection threshold (1 - min_nonzero_confidence = 0.05).
     Returns ``(selected_idx_kept, confidence_dict)``.
+
+    ``weights`` is accepted for interface parity with the fixed-budget permutation path
+    (mrmr_audit_2026-07-20 B-19) but the bulk shuffle kernels this bandit allocator calls
+    (``_shuffle_and_compute_three_mis`` / ``_bulk_shuffle_and_compute_three_mis``) have no weighted
+    variant yet -- a non-None ``weights`` logs a one-time warning and the allocation proceeds
+    UNWEIGHTED. Weighting the bandit's bulk kernels is a separate, larger follow-up.
     """
     n_perms_total = cfg.full_npermutations
     if n_perms_total <= 0 or len(selected_idx) == 0:
         return selected_idx, {}
+    if weights is not None and verbose:
+        logger.warning(
+            "cat-FE: sample weights ignored by the bandit-UCB1 permutation "
+            "allocator (mrmr_audit_2026-07-20 B-19: no weighted bulk-shuffle "
+            "kernel yet); falling back to unweighted."
+        )
 
     min_perms = max(10, n_perms_total // 4)
     min_conf = 0.95

@@ -16,11 +16,24 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import Optional
 
 import numpy as np
 
 from .cat_fe_state import CatFEConfig
-from .info_theory import entropy, entropy_miller_madow, merge_vars
+from .info_theory import entropy, entropy_miller_madow, merge_vars, weighted_class_freqs
+
+
+def _freqs_for_weights(freqs: np.ndarray, classes: np.ndarray, weights: Optional[np.ndarray]) -> np.ndarray:
+    """Re-weight ``merge_vars``'s dense pruned ``freqs`` by per-row ``weights`` when given, else pass through unchanged.
+
+    mrmr_audit_2026-07-20 B-19: binning (``merge_vars``) is weight-independent, so any already-computed
+    ``classes`` array can be re-weighted post-hoc without re-running the merge -- the single primitive
+    threaded through every cat-FE downstream confirmation/rerank step below.
+    """
+    if weights is None:
+        return freqs
+    return np.asarray(weighted_class_freqs(classes, weights, len(freqs)), dtype=np.float64)
 
 logger = logging.getLogger(__name__)
 
@@ -199,6 +212,7 @@ def _maybe_rerank_with_mm(
     dtype,
     verbose: int,
     single_merge_cache_out: dict | None = None,
+    weights: Optional[np.ndarray] = None,
 ) -> tuple:
     """If MM is enabled (cfg flag True or auto-gate fires for at least one survivor), recompute II for selected pairs with MM correction applied to all six entropies.
     Returns ``(ii_mm_arr, selected_idx_resorted)``. Hoists constant / per-column entropies (H(Y), H(X_i), H(X_i, Y)) out of the per-pair loop -- cached entropies cut MM
@@ -238,8 +252,9 @@ def _maybe_rerank_with_mm(
     # different bias model), so under KT the per-term path is used as-is; under MM the six terms are computed
     # PLUG-IN and a single telescoped occupied-k bias is subtracted per pair (see _compute_pair_ii_mm).
     use_kt = bool(getattr(cfg, "use_kt_smoothing", False))
-    h_y_mm = _entropy_for_mode(freqs_y, n_samples, use_mm=not use_kt, use_kt=use_kt)
-    k_y_occ = len(freqs_y[freqs_y > 0])
+    freqs_y_w = _freqs_for_weights(freqs_y, classes_y, weights)
+    h_y_mm = _entropy_for_mode(freqs_y_w, n_samples, use_mm=not use_kt, use_kt=use_kt)
+    k_y_occ = len(freqs_y_w[freqs_y_w > 0])
 
     # Hoist H(X_i) and H(X_i, Y) caches outside the loop. Only the columns touched by surviving pairs need to be computed.
     touched_cols: set = set()
@@ -259,18 +274,20 @@ def _maybe_rerank_with_mm(
         )
         if single_merge_cache_out is not None:
             single_merge_cache_out[col_idx] = (_cls_x, freqs_x)
+        freqs_x_w = _freqs_for_weights(freqs_x, _cls_x, weights)
         h_marginal_cache[col_idx] = _entropy_for_mode(
-            freqs_x, n_samples, use_mm=not use_kt, use_kt=use_kt,
+            freqs_x_w, n_samples, use_mm=not use_kt, use_kt=use_kt,
         )
-        k_marginal_cache[col_idx] = len(freqs_x[freqs_x > 0])
+        k_marginal_cache[col_idx] = len(freqs_x_w[freqs_x_w > 0])
         vi_xy = np.concatenate(([col_idx], target_indices)).astype(np.int64)
-        _, freqs_xy, _ = merge_vars(
+        _cls_xy, freqs_xy, _ = merge_vars(
             factors_data=factors_data,
             vars_indices=vi_xy,
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
         )
+        freqs_xy_w = _freqs_for_weights(freqs_xy, _cls_xy, weights)
         h_marginal_y_cache[col_idx] = _entropy_for_mode(
-            freqs_xy, n_samples, use_mm=not use_kt, use_kt=use_kt,
+            freqs_xy_w, n_samples, use_mm=not use_kt, use_kt=use_kt,
         )
 
     if verbose:
@@ -293,14 +310,16 @@ def _maybe_rerank_with_mm(
             vars_indices=np.array([idx_a, idx_b], dtype=np.int64),
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
         )
-        h_x1x2 = _entropy_for_mode(freqs_pair, n_samples, use_mm=not use_kt, use_kt=use_kt)
+        freqs_pair_w = _freqs_for_weights(freqs_pair, _cls_pair, weights)
+        h_x1x2 = _entropy_for_mode(freqs_pair_w, n_samples, use_mm=not use_kt, use_kt=use_kt)
         vi_pair_y = np.concatenate(([idx_a, idx_b], target_indices)).astype(np.int64)
-        _, freqs_pair_y, _ = merge_vars(
+        _cls_pair_y, freqs_pair_y, _ = merge_vars(
             factors_data=factors_data,
             vars_indices=vi_pair_y,
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
         )
-        h_x1x2y = _entropy_for_mode(freqs_pair_y, n_samples, use_mm=not use_kt, use_kt=use_kt)
+        freqs_pair_y_w = _freqs_for_weights(freqs_pair_y, _cls_pair_y, weights)
+        h_x1x2y = _entropy_for_mode(freqs_pair_y_w, n_samples, use_mm=not use_kt, use_kt=use_kt)
         # II = H(X1,X2) + H(X1,Y) + H(X2,Y) - H(X1,X2,Y) - H(X1) - H(X2) - H(Y)
         ii_mm = h_x1x2 + h_marginal_y_cache[idx_a] + h_marginal_y_cache[idx_b] - h_x1x2y - h_marginal_cache[idx_a] - h_marginal_cache[idx_b] - h_y_mm
         if not use_kt:
