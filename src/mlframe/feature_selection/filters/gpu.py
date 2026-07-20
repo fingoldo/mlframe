@@ -460,6 +460,7 @@ def mi_direct_gpu(
     freqs_y_safe: Optional[np.ndarray] = None,
     use_gpu: bool = True,
     return_null_mean: bool = False,
+    base_seed: Optional[int] = None,
 ) -> tuple:
     """GPU mutual-information + permutation test (CuPy).
 
@@ -490,6 +491,12 @@ def mi_direct_gpu(
     permutations may run before short-circuit (typically dominated by
     the saved launch overhead, but documented so callers depending
     on exact-perm-counts know).
+
+    ``base_seed`` (mrmr_audit_2026-07-20 B-7): when given, seeds the CuPy permutation Generator
+    (``cp.random.default_rng(base_seed)``) so the shuffle stream is reproducible across calls/hosts --
+    ``None`` (default) preserves the legacy unseeded-entropy behaviour. Not expected to be bit-identical to
+    the CPU ``mi_direct(base_seed=...)`` path (different RNG algorithms, XORWOW vs the CPU LCG scheme); the
+    contract is "each path is internally reproducible under a seed", not cross-backend bit-parity.
     """
     import cupy as cp
 
@@ -517,6 +524,7 @@ def mi_direct_gpu(
             classes_y=classes_y,
             freqs_y=freqs_y,
             min_nonzero_confidence=min_nonzero_confidence,
+            base_seed=base_seed,
         )
 
     classes_x, freqs_x, _ = merge_vars(
@@ -609,7 +617,7 @@ def mi_direct_gpu(
         # generator fails to init (CURAND_STATUS_INITIALIZATION_FAILED) on some driver/lib combos. cupy's
         # Generator has no .shuffle, so shuffle in-place via argsort(random) (a permutation of distinct
         # floats is a bijection) -- preserving the pooled buffer identity downstream consumers rely on.
-        _shuf_rng = cp.random.default_rng()
+        _shuf_rng = cp.random.default_rng(base_seed)
         _shuf_n = classes_y_safe.shape[0]
         for _i in range(npermutations):
             classes_y_safe[:] = classes_y_safe[cp.argsort(_shuf_rng.random(_shuf_n))]

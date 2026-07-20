@@ -49,6 +49,7 @@ def mi_direct_gpu_batched(
     classes_y: Optional[np.ndarray] = None,
     freqs_y: Optional[np.ndarray] = None,
     min_nonzero_confidence: float = 0.95,
+    base_seed: Optional[int] = None,
 ) -> tuple:
     """Batched GPU permutation MI test.
 
@@ -106,6 +107,7 @@ def mi_direct_gpu_batched(
             npermutations=npermutations, dtype=dtype,
             classes_y=classes_y, freqs_y=freqs_y,
             min_nonzero_confidence=min_nonzero_confidence, prefer_gpu=False,
+            base_seed=int(base_seed or 0),
         )
     # OOM guard: cap batch_size to half of available free GPU memory.
     free_bytes, _ = cp.cuda.runtime.memGetInfo()
@@ -198,7 +200,7 @@ def mi_direct_gpu_batched(
     # Use the modern cupy Generator (XORWOW) rather than the legacy global cp.random.uniform: the legacy
     # host-API cuRAND generator fails to initialise (CURAND_STATUS_INITIALIZATION_FAILED) on some
     # driver/lib combos where the Generator API works fine -- and the streamed twin already uses default_rng.
-    _rng = cp.random.default_rng()
+    _rng = cp.random.default_rng(base_seed)
     while remaining > 0:
         b = min(batch_size, remaining)
         # ``cp.argsort(random((b, n)))`` is statistically equivalent to Fisher-Yates for permutation tests (argsort of distinct floats is a bijection).
@@ -276,6 +278,7 @@ def mi_direct_gpu_batched_streamed(
     freqs_y: Optional[np.ndarray] = None,
     n_streams: int = 2,
     min_nonzero_confidence: float = 0.95,
+    base_seed: Optional[int] = None,
 ) -> tuple:
     """CUDA-streams variant of :func:`mi_direct_gpu_batched`.
 
@@ -346,6 +349,7 @@ def mi_direct_gpu_batched_streamed(
             npermutations=npermutations, dtype=dtype,
             classes_y=classes_y, freqs_y=freqs_y,
             min_nonzero_confidence=min_nonzero_confidence, prefer_gpu=False,
+            base_seed=int(base_seed or 0),
         )
 
     free_bytes, _ = cp.cuda.runtime.memGetInfo()
@@ -414,7 +418,9 @@ def mi_direct_gpu_batched_streamed(
     # whose curandState advance is NOT safe under concurrent stream access.
     # One Generator per stream avoids the race; each generator's Philox
     # state advance stays serial within its own stream.
-    rngs = [cp.random.default_rng() for _ in range(len(streams))]
+    # mrmr_audit_2026-07-20 B-7: seed each stream's Generator off ``base_seed`` (offset per stream so they
+    # don't all draw the identical permutation batch) when given; None preserves the legacy unseeded behaviour.
+    rngs = [cp.random.default_rng(None if base_seed is None else int(base_seed) + _i) for _i in range(len(streams))]
     batch_failures = []
     nchecked = 0
     remaining = npermutations

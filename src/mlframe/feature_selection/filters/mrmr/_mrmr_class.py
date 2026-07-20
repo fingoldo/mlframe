@@ -18,7 +18,7 @@ import os
 import threading
 import warnings
 from collections import OrderedDict
-from typing import Any, Callable, ClassVar, Iterable, Optional, Sequence, cast
+from typing import Any, Callable, ClassVar, Iterable, NoReturn, Optional, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -3549,6 +3549,22 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             use_mi_miller_madow(), get_relaxmrmr_alpha(), get_pid_synergy_bonus(),
             get_cmi_perm_stop(), get_cpt_test(), use_mi_chao_shen(),
         )
+        def _restore_toggles_snapshot_and_raise(exc: BaseException) -> NoReturn:
+            """Restore the MI-correction thread-locals to their fit-entry snapshot then re-raise ``exc``.
+
+            The validation checks below can fire AFTER some of these thread-locals have already been
+            activated but BEFORE the protective try/finally further down starts -- without this, a raised
+            ValueError here would leave the corrupted thread-local state active for every subsequent,
+            unrelated fit on this thread (mrmr_audit_2026-07-20 B-3).
+            """
+            _su0e, _jmim0e, _bur0e, _mm0e, _relax0e, _pid0e, _cmi0e, _cpt0e, _cs0e = _toggles_snapshot
+            _safe_restore(lambda: set_su_normalization(_su0e), "SU normalization thread-local (activation-block exception)")
+            _safe_restore(lambda: set_jmim_aggregator(_jmim0e), "JMIM aggregator thread-local (activation-block exception)")
+            _safe_restore(lambda: set_bur_lambda(_bur0e), "BUR lambda thread-local (activation-block exception)")
+            _safe_restore(lambda: set_mi_miller_madow(_mm0e), "Miller-Madow thread-local (activation-block exception)")
+            _safe_restore(lambda: set_mi_chao_shen(_cs0e), "Chao-Shen thread-local (activation-block exception)")
+            raise exc
+
         _mi_norm = getattr(self, "mi_normalization", "none")
         if _mi_norm not in ("none", "su"):
             raise ValueError(f"MRMR.mi_normalization must be 'none' or 'su'; got {_mi_norm!r}.")
@@ -3561,7 +3577,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         if _redundancy_agg not in (None, "jmim", "auto"):
             # A typo (e.g. 'JMIM', 'jimm') would otherwise silently fall through to plain Fleuret with no signal
             # that the requested aggregator was ignored -- fail loudly instead.
-            raise ValueError(f"redundancy_aggregator must be one of None, 'jmim', 'auto'; got {_redundancy_agg!r}.")
+            _restore_toggles_snapshot_and_raise(ValueError(f"redundancy_aggregator must be one of None, 'jmim', 'auto'; got {_redundancy_agg!r}."))
         if _redundancy_agg == "auto":
             # Data-dependent gate: run a cheap pre-fit synergy probe on (X, y). Route to JMIM only when the
             # data is synergistic (XOR / sign-product pairs whose joint >> marginals); else stay plain
@@ -3615,7 +3631,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             # array passed, stale groups from a differently-shaped prior call), not a "gracefully degrade
             # and move on" situation -- raise instead of silently disabling group-aware MI for the fit.
             if _g_arr.shape[0] != _n_rows:
-                raise ValueError(f"MRMR.fit: groups length {_g_arr.shape[0]} != X rows {_n_rows}; groups must have one entry per row of X.")
+                _restore_toggles_snapshot_and_raise(ValueError(f"MRMR.fit: groups length {_g_arr.shape[0]} != X rows {_n_rows}; groups must have one entry per row of X."))
             if sample_weight is not None:
                 # 09_error_messages_ux.md: this is functionally identical to the ``groups``-ignored
                 # situation (line ~3014's ``warnings.warn(UserWarning)``) -- an on-by-request feature

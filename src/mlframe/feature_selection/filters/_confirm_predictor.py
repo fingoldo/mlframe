@@ -543,6 +543,13 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
         if X in cached_confident_MIs:
             bootstrapped_gain, confidence = cached_confident_MIs[X]
         else:
+            # mrmr_audit_2026-07-20 B-5: fold the candidate's own identity into the seed (mirrors the
+            # _fleuret_base_seed fix below) so ``random_seed`` actually reaches this marginal-confirmation
+            # permutation gate (pre-fix: neither mi_direct nor mi_direct_gpu received any seed here, so the
+            # CPU branch always drew the identical base_seed=0 permutation stream for every candidate, and
+            # the GPU branch drew fresh unseeded entropy every call -- non-reproducible and unaffected by
+            # ctx.random_seed either way).
+            _marginal_base_seed = int(((int(random_seed or 0) * 2654435761) + hash(X)) & 0xFFFFFFFF)
             # Route the confirm to CPU ``mi_direct`` (which carries the analytic large-n null -- the
             # nperm->inf limit of the permutation test: faster, decision-equivalent) whenever the
             # analytic path would engage (n >= threshold) OR the GPU is globally disabled. The GPU
@@ -580,6 +587,7 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     classes_y_safe=classes_y_safe,  # type: ignore[arg-type]
                     min_nonzero_confidence=min_nonzero_confidence,
                     npermutations=full_npermutations,
+                    base_seed=_marginal_base_seed,
                 )
             else:
                 if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
@@ -597,6 +605,7 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     n_workers=n_workers,
                     workers_pool=workers_pool,
                     parallel_kwargs=parallel_kwargs,
+                    base_seed=_marginal_base_seed,
                 )
                 if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                     logger.info("mi_direct bootstrapped eval took %.1f sec.", timer() - eval_start)
@@ -653,7 +662,11 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     # unreliable conditional permutation gate.
                     return bootstrapped_gain, confidence
 
-            _fleuret_base_seed = int(((int(random_seed or 0) * 2654435761) + len(selected_vars) + 1) & 0xFFFFFFFFFFFFFFFF)
+            # mrmr_audit_2026-07-20 B-6: fold the candidate's own identity (``hash(X)``) into the seed --
+            # pre-fix this only depended on (random_seed, len(selected_vars)), so every distinct candidate
+            # confirmed at the same selected_vars depth within one greedy round drew the IDENTICAL
+            # permutation stream for the Fleuret conditional recheck.
+            _fleuret_base_seed = int(((int(random_seed or 0) * 2654435761) + len(selected_vars) + 1 + hash(X)) & 0xFFFFFFFFFFFFFFFF)
             if n_workers and n_workers > 1 and full_npermutations > NMAX_NONPARALLEL_ITERS:
                 bootstrapped_gain, confidence, parallel_entropy_cache = get_fleuret_criteria_confidence_parallel(
                     data_copy=data_copy,

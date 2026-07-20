@@ -236,6 +236,18 @@ def test_force_unavailable_gpu_backend_returns_none():
         assert dispatch_friend_graph_stats(sel, data, nbins, tgt, force_backend="cuda") is None
 
 
+def test_dispatch_honors_mlframe_disable_gpu_even_with_gpu_available(monkeypatch):
+    """MLFRAME_DISABLE_GPU=1 must force None (CPU fallback) even when GPU is available AND explicitly force_backend'd (mrmr_audit_2026-07-20 B-2: previously gated purely on _CUDA_AVAIL/_CUPY_AVAIL, never consulting gpu_globally_disabled())."""
+    import mlframe.feature_selection.filters.friend_graph_gpu as mod
+
+    monkeypatch.setattr(mod, "_CUDA_AVAIL", True)
+    monkeypatch.setattr(mod, "_CUPY_AVAIL", True)
+    monkeypatch.setenv("MLFRAME_DISABLE_GPU", "1")
+    sel, data, nbins, tgt = _synthetic_selected_set(n=500, k=6, seed=1)
+    result = mod.dispatch_friend_graph_stats(sel, data, nbins, tgt, force_backend="cuda")
+    assert result is None, "MLFRAME_DISABLE_GPU=1 was not honored: GPU stats were computed despite GPU disabled and force_backend='cuda'"
+
+
 @pytest.mark.gpu
 @pytest.mark.skipif(not (_CUPY_AVAIL or _CUDA_AVAIL), reason="no GPU backend available")
 def test_multi_target_relevance_falls_back_to_cpu():

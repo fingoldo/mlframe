@@ -112,6 +112,33 @@ def test_get_binning_edges_njit_nan_filter():
     assert np.all(np.isfinite(bin_edges)), f"get_binning_edges (@njit twin) produced non-finite output: {bin_edges}. Wave 21 P0 regression."
 
 
+def test_get_binning_edges_all_nan_column_returns_degenerate_not_raise():
+    """mrmr_audit_2026-07-20 B-11 (P0): an all-NaN column has zero finite values, so ``np.percentile`` on the
+    empty post-mask array used to raise ValueError. In isolation that propagated correctly, but inside
+    ``_discretize_2d_array_njit``'s ``prange`` loop the exception was silently swallowed (a documented numba
+    limitation), leaving the output column at whatever garbage ``np.empty_like`` happened to contain. The fix
+    makes an all-NaN column deterministically map to bin 0 (correct: zero finite values carries zero
+    information) in BOTH the isolated call and the batch prange path, with no exception and no garbage."""
+    from mlframe.feature_selection.filters.discretization import get_binning_edges, _discretize_2d_array_njit
+
+    all_nan = np.full(200, np.nan, dtype=np.float64)
+    edges = get_binning_edges(all_nan, n_bins=5, method="quantile")
+    assert np.all(np.isfinite(edges)), f"get_binning_edges on an all-NaN column must return finite degenerate edges, got {edges}"
+
+    rng = np.random.default_rng(0)
+    arr2d = np.column_stack([rng.standard_normal(2000), np.full(2000, np.nan, dtype=np.float64), rng.standard_normal(2000)])
+    out = _discretize_2d_array_njit(arr2d, n_bins=5, method="quantile", min_ncats=50, min_values=None, max_values=None, dtype=np.int8)
+    nan_col_codes = np.unique(out[:, 1])
+    assert nan_col_codes.tolist() == [0], (
+        f"the all-NaN middle column must deterministically bin to 0 for every row inside the batch prange "
+        f"path, got distinct codes {nan_col_codes.tolist()} -- pre-fix this was garbage int8 values from an "
+        f"uninitialized output buffer (the ValueError never propagated out of the prange loop)."
+    )
+    # Sibling real-valued columns must be unaffected by the degenerate neighbor.
+    assert len(np.unique(out[:, 0])) > 1, "column 0 (real signal) must still be discretized normally"
+    assert len(np.unique(out[:, 2])) > 1, "column 2 (real signal) must still be discretized normally"
+
+
 # ---- Site 4: RFECV winner-picker (2 sites) ------------------------------
 
 

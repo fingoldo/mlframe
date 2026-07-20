@@ -46,6 +46,15 @@ class TestEntropyPrimitive:
         s = _renyi_entropy_from_gram(K)
         assert np.isfinite(s) and s >= 0.0, f"entropy must be finite and >= 0, got {s}"
 
+    def test_alpha_equal_one_raises_instead_of_zerodivisionerror(self):
+        """mrmr_audit_2026-07-20 B-8: alpha=1.0 is the entropy formula's mathematical singularity
+        (division by 1-alpha) -- pre-fix this raised an unexplained ZeroDivisionError deep inside the
+        function; post-fix it raises a clear ValueError naming the singularity."""
+        rng = np.random.default_rng(0)
+        K = _rbf_gram(rng.normal(size=(20, 1)))
+        with pytest.raises(ValueError, match="singularity"):
+            _renyi_entropy_from_gram(K, alpha=1.0)
+
 
 class TestMutualInformationCorrectness:
     """MI behavior on known-signal / known-noise fixtures."""
@@ -145,3 +154,27 @@ class TestDispatcherRouting:
         y = x + 0.05 * rng.normal(size=n)
         mi = score_pair_mi(x, y, estimator="renyi_alpha")
         assert np.isfinite(mi) and mi > 0.0
+
+    def test_dispatcher_converts_bits_to_nats(self):
+        """mrmr_audit_2026-07-20 B-9: renyi_alpha_mi returns bits (this estimator's own module
+        convention), but score_pair_mi's documented contract is nats for EVERY estimator (matching
+        plug_in/mixed_ksg/fastmi/etc.). Pre-fix the dispatcher returned the raw bits value, a silent
+        ~1.4427x (1/ln(2)) inflation relative to every other estimator's units."""
+        from mlframe.feature_selection.filters._mi_dispatch import score_pair_mi
+        from mlframe.feature_selection.filters._renyi_alpha import renyi_alpha_mi
+
+        rng = np.random.default_rng(11)
+        n = 400
+        x = rng.normal(size=n)
+        y = x + 0.1 * rng.normal(size=n)
+        mi_dispatched_nats = score_pair_mi(x, y, estimator="renyi_alpha")
+        mi_raw_bits = renyi_alpha_mi(x, y)
+        assert mi_raw_bits > 0.0, "fixture invariant: dependent pair must show positive MI"
+        expected_nats = mi_raw_bits * np.log(2.0)
+        assert mi_dispatched_nats == pytest.approx(expected_nats, rel=1e-9), (
+            f"score_pair_mi returned {mi_dispatched_nats} but bits->nats conversion of the raw estimator "
+            f"({mi_raw_bits} bits) gives {expected_nats}; dispatcher unit conversion regressed"
+        )
+        # The dispatched (nats) value must be STRICTLY smaller than the raw bits value (ln(2) ~ 0.693 < 1),
+        # catching the pre-fix regression where both were numerically identical (no conversion applied).
+        assert mi_dispatched_nats < mi_raw_bits

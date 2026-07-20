@@ -121,7 +121,13 @@ def selection_stability_report(
     n_cand = int(cand_codes.shape[1])
     n_selected = int(selected_mask.sum())
 
-    seed = random_state if random_state is not None else int(getattr(self, "random_seed", 0) or 0)
+    # mrmr_audit_2026-07-20 B-4 (P1): this used to fall back only to the deprecated ``random_seed`` alias
+    # (``getattr(self, "random_seed", 0)``), never to the canonical ``random_state``. ``_fit_body`` writes
+    # the resolved seed onto ``self.random_seed`` only for the DURATION of fit() and restores the pre-fit
+    # value (None, for a caller who used ``random_state=``) in its finally block, so by the time this
+    # post-fit accessor ran, an estimator seeded via ``MRMR(random_state=42)`` silently reseeded its
+    # bootstrap at 0 instead of 42. ``_effective_random_seed()`` resolves both aliases correctly.
+    seed = random_state if random_state is not None else int(self._effective_random_seed() or 0)
     rng = np.random.default_rng(seed)
 
     K = max(1, int(n_boot))

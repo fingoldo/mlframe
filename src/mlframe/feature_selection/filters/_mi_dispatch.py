@@ -52,6 +52,7 @@ directly for ad-hoc scoring against any estimator.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import weakref
 from collections import OrderedDict
@@ -142,7 +143,11 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
         return float(fastmi(x, y_arr.astype(np.float64), **estimator_kwargs))
     if estimator == "renyi_alpha":
         from ._renyi_alpha import renyi_alpha_mi
-        return float(renyi_alpha_mi(x, y_arr.astype(np.float64), **estimator_kwargs))
+        # mrmr_audit_2026-07-20 B-9: renyi_alpha_mi returns bits (its own module's documented, internally
+        # self-consistent convention, log2-based); this dispatcher's contract is nats for every estimator
+        # (see the docstring above) -- convert at this boundary rather than changing the module's own units.
+        _mi_bits = float(renyi_alpha_mi(x, y_arr.astype(np.float64), **estimator_kwargs))
+        return _mi_bits * math.log(2.0)
     if estimator in ("median", "genie"):
         return _score_aggregator(x, y_arr, kind=estimator, nbins_strategy=nbins_strategy, nbins_strategy_kwargs=nbins_strategy_kwargs)
     raise ValueError(f"score_pair_mi: unknown estimator {estimator!r}")

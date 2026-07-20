@@ -95,6 +95,16 @@ def _hadamard_gram(*grams: np.ndarray) -> np.ndarray:
 
 def _renyi_entropy_from_gram(K: np.ndarray, alpha: float = _DEFAULT_ALPHA) -> float:
     """Alpha-order matrix-based Rényi entropy (in bits) of a Gram matrix ``K`` (trace-normalized internally)."""
+    if alpha == 1.0:
+        # mrmr_audit_2026-07-20 B-8: alpha=1 is the module's own documented mathematical singularity
+        # (division by 1-alpha below) -- every public entry point defaults to alpha=1.01 specifically to
+        # avoid it, but nothing stopped a caller from passing alpha=1.0 explicitly (estimator_kwargs=
+        # {'alpha': 1.0} through score_pair_mi), which would have raised ZeroDivisionError deep inside a
+        # dispatcher call with no caller-facing explanation. Fail loudly and specifically instead.
+        raise ValueError(
+            "_renyi_entropy_from_gram: alpha=1.0 is the mathematical singularity of the Renyi entropy "
+            "(division by 1-alpha); use a value close to but not equal to 1 (module default: 1.01)."
+        )
     tr = float(np.trace(K))
     if tr <= 0.0:
         return 0.0
