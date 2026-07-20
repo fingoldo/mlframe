@@ -634,12 +634,21 @@ def _get_mi_from_codes_kernel():
     return _MI_FROM_CODES_KERNEL
 
 
-def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = None, ky: int = 0, codes_trusted: bool = False) -> np.ndarray:
+def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = None, ky: int = 0, codes_trusted: bool = False, as_device: bool = False) -> Any:
     """Plug-in MI(col_k; y) for EVERY column of ``code_cols`` (n,K) in ONE fused RawKernel launch.
 
     Drop-in for ``_wavelet_basis_fe_batched.batched_binned_mi_gpu`` (same plain plug-in MI, no MM bias).
     Falls back to that cupy path when the (Kx*Ky) shared tile would exceed the shared-memory cap. Returns
-    a host (K,) float64 array. Accepts a host ndarray or a resident cupy code matrix.
+    a host (K,) float64 array by default (``as_device=False``, unchanged contract for existing callers).
+    Accepts a host ndarray or a resident cupy code matrix.
+
+    ``as_device=True`` (2026-07-20, GPU-residency pass): skip the ``cp.asnumpy`` sync and return the
+    cupy device array directly. For a caller doing several of these calls back-to-back per generation
+    (e.g. one per candidate binary-function in ``_cupy_polynom_optimizer``'s search loop) and only
+    needing the host values ONCE at the end (to pick a winner), forcing a device->host sync on every
+    individual call was measured (nsys, wellbore 100k GPU-strict trace) to multiply
+    cudaStreamSynchronize/cudaMemcpyAsync call counts well beyond what the algorithm needs -- letting
+    the caller batch its own single sync at the point it actually needs host values removes that.
 
     ``codes_trusted`` (default False): the kernel uses each code directly as a shared-tile offset
     (``sh[c*Ky + y]``), so a negative/out-of-range code is an illegal-memory-access crash. The range guard
@@ -665,7 +674,8 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
     _assert_codes_in_range(y, Ky, "binned_mi_from_codes_gpu y codes", codes_trusted)
     if Kx * Ky * 4 > _MI_FROM_CODES_MAX_SHARED:
         from ._wavelet_basis_fe_batched import batched_binned_mi_gpu
-        return batched_binned_mi_gpu(C, y, kx_per_col=kx_per_col, ky=Ky)
+        out = batched_binned_mi_gpu(C, y, kx_per_col=kx_per_col, ky=Ky)
+        return cp.asarray(out) if as_device else out
     mi_out = cp.empty(K, dtype=cp.float64)
     threads = 256
     v2 = _get_mi_from_codes_v2_kernels()
@@ -676,14 +686,14 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
             y16 = y.astype(cp.int16, copy=False)
             v2((K,), (threads,), (codes_cm, y16, np.int64(n), np.int32(K), np.int32(Kx), np.int32(Ky),
                                   np.float64(1.0 / float(max(1, n))), mi_out), shared_mem=Kx * Ky * 4)
-            return np.asarray(cp.asnumpy(mi_out))
+            return mi_out if as_device else np.asarray(cp.asnumpy(mi_out))
         except Exception:
             logger.debug("mi_from_codes v2 launch failed; one-kernel fallback", exc_info=True)
     self_kernel = _get_mi_from_codes_kernel()
     self_kernel((K,), (threads,), (C.ravel(), y, np.int64(n), np.int32(K), np.int32(Kx), np.int32(Ky),
                                    np.float64(1.0 / float(max(1, n))), mi_out),
                 shared_mem=Kx * Ky * 4)
-    return np.asarray(cp.asnumpy(mi_out))
+    return mi_out if as_device else np.asarray(cp.asnumpy(mi_out))
 
 
 _QBIN_CODER_RAW = None
