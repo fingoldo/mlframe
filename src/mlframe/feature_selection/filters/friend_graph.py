@@ -617,7 +617,8 @@ def friend_graph_to_figurespec(graph: FriendGraph, *, title: str = "Feature frie
     node_x = np.array([graph.pos.get(n.idx, (0.0, 0.0))[0] for n in nodes], dtype=float)
     node_y = np.array([graph.pos.get(n.idx, (0.0, 0.0))[1] for n in nodes], dtype=float)
 
-    h_max = max((n.entropy for n in nodes), default=1.0) or 1.0
+    h_max = max((n.entropy for n in nodes), default=1.0)
+    h_max = h_max if h_max != 0.0 else 1.0  # divide-by-zero guard: all-zero-entropy nodes fall back to unit scale
     node_size = np.array([250.0 + 1000.0 * (n.entropy / h_max) for n in nodes], dtype=float)
     node_color = tuple(friend_graph_node_color(n.klass) for n in nodes)
     node_label = tuple(n.name for n in nodes)
