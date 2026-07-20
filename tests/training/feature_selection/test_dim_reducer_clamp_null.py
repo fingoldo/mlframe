@@ -48,10 +48,16 @@ def test_dim_n_components_clamped_when_exceeds_n_features() -> None:
     """User requests n_components=10 on a 6-feature frame. Must clamp
     to <= n_features-1, log a WARN, and run successfully."""
     df_train = _make_frame(200, n_numeric=6, n_all_null=0)
+    # Row-wise summary-stats / extreme-columns default to enabled (see
+    # ``_preprocessing_configs.py``) and would inflate n_features well past 6 before the clamp
+    # measures it, masking the exact clamp behavior this test pins. Disable both so the clamp's
+    # n_features input is the 6 real columns this test is actually about.
     cfg = PreprocessingExtensionsConfig(
         scaler="StandardScaler",
         dim_reducer="PCA",
         dim_n_components=10,
+        row_wise_summary_stats_enabled=False,
+        row_wise_extreme_columns_enabled=False,
     )
     out = apply_preprocessing_extensions(
         df_train,
@@ -96,10 +102,15 @@ def test_clamp_plus_null_filter_together() -> None:
     by the iter-43 filter). The combined clamp + null filter must
     keep the pipeline runnable."""
     df_train = _make_frame(200, n_numeric=6, n_all_null=2)
+    # See the analogous comment in test_dim_n_components_clamped_when_exceeds_n_features:
+    # disable the default-ON row-wise steps so they don't inflate n_features past this test's
+    # intended 6-real-column scenario.
     cfg = PreprocessingExtensionsConfig(
         scaler="StandardScaler",
         dim_reducer="PCA",
         dim_n_components=10,
+        row_wise_summary_stats_enabled=False,
+        row_wise_extreme_columns_enabled=False,
     )
     # Should NOT raise. Clamp brings dim_n_components down to <= 5.
     out = apply_preprocessing_extensions(
