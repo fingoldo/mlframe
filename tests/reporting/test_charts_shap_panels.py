@@ -218,6 +218,26 @@ def test_multi_output_catboost_is_skipped_not_crashed():
     assert res.figures == []
 
 
+def test_multiclass_catboost_is_skipped_not_crashed():
+    """CatBoost's MultiClass/MultiClassOneVsAll losses carry one leaf value per class -- the same flat
+    n_leaves*n_outputs leaf-value layout as MultiLogloss, so they hit the identical shap CatBoost-parser crash
+    (caught live via a fuzz combo: models=('cb', 'lgb') target=multiclass_classification, cat_feature_count=15).
+    Must be caught by the same guard as the multilabel case, before shap.TreeExplainer(model) is constructed."""
+    catboost = pytest.importorskip("catboost")
+
+    rng = np.random.default_rng(0)
+    X = rng.random((300, 5))
+    y = rng.integers(0, 4, 300)
+    m = catboost.CatBoostClassifier(loss_function="MultiClass", iterations=5, verbose=0)
+    m.fit(X, y)
+    assert sp._is_multi_output_catboost(m) is True
+
+    res = sp.shap_summary_and_dependence(m, X, feature_names=[f"f{i}" for i in range(5)])
+    assert res.skipped is not None
+    assert "multi-output" in res.skipped.lower()
+    assert res.figures == []
+
+
 def test_binary_catboost_not_flagged_as_multi_output():
     """A plain binary CatBoost model (single scalar leaf value) must NOT be caught by the multi-output guard."""
     catboost = pytest.importorskip("catboost")
