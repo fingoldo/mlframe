@@ -246,6 +246,22 @@ def test_render_smoke_both_backends(tmp_path, dsl):
     assert (tmp_path / f"fg.{fmt}").exists()
 
 
+def test_figurespec_hovertext_exposes_inf_fs_centrality():
+    """P2 wiring gap (mrmr_audit_2026-07-20): the Inf-FS centrality score reached ``to_meta()`` and
+    ``low_centrality`` but never the rendered plot's ``NetworkPanelSpec`` hovertext -- a viewer of the
+    figure had no way to see per-node centrality without also reading the metadata JSON. Pins that the
+    hub node's hovertext now carries its (nonzero) centrality value."""
+    data, nbins, tgt, names, sel, hub_idx = _redundant_hub_dataset(n=3000, seed=7)
+    g = build_friend_graph(sel, data, nbins, tgt, feature_names=names, seed=1)
+    spec = friend_graph_to_figurespec(g, title="Friend graph test")
+    panel = spec.panels[0][0]
+    hub_name = names[hub_idx]
+    by_name = {n_.name: n_ for n_ in g.nodes}
+    hub_hovertext = panel.node_hovertext[panel.node_label.index(hub_name)]
+    assert "Inf-FS centrality=" in hub_hovertext
+    assert f"Inf-FS centrality={by_name[hub_name].centrality:.4f}" in hub_hovertext
+
+
 def test_pairwise_mi_edge_cached_marginals_bit_identical():
     """iter469: pairwise_mi_edge(h_a, h_b) must equal the full-mi() path
     bit-for-bit. The cached-marginals path recovers MI as

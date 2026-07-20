@@ -626,6 +626,7 @@ def friend_graph_to_figurespec(graph: FriendGraph, *, title: str = "Feature frie
         f"{n.name}<br>class={n.klass}<br>H(X)={n.entropy:.4f}<br>I(X;Y)={n.relevance:.4f}"
         f"<br>weighted degree={n.weighted_degree:.4f}<br>shared={n.shared_frac:.0%}"
         f"<br>neighbors' unique target info={n.neighbors_unique_target:.4f}"
+        f"<br>Inf-FS centrality={n.centrality:.4f}"
         for n in nodes
     )
 
