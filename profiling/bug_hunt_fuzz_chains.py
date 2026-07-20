@@ -21,15 +21,17 @@ import sys
 import tempfile
 import traceback
 
-try:
-    sys.stdout.reconfigure(line_buffering=True)
-except Exception:
-    pass
-try:
-    sys.stdout.reconfigure(errors="replace")
-    sys.stderr.reconfigure(errors="replace")
-except Exception:
-    pass
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(errors="replace")
+    except Exception:
+        pass
 
 logging.basicConfig(level=logging.WARNING)
 for noisy in ("sklearn", "lightgbm", "xgboost", "catboost", "matplotlib"):
@@ -81,7 +83,7 @@ def _run_one_combo(combo: FuzzCombo, save_charts: bool = True) -> bool:
                 df=df,
                 target_name=combo.short_id(),
                 model_name=f"bughunt_{combo.short_id()}",
-                features_and_targets_extractor=fte,
+                features_and_targets_extractor=fte,  # type: ignore[arg-type]  # tests.training.shared.SimpleFeaturesAndTargetsExtractor is a distinct duck-typed test double, not a FeaturesAndTargetsExtractor subclass
                 target_type=fte._resolve_target_type(),
                 mlframe_models=list(combo.models),
                 hyperparams_config={"iterations": max(combo.iterations, 30)},
@@ -122,7 +124,12 @@ def main():
         "3way: enumerate_combos_3way (covers all axis-value TRIPLES over the curated "
         "_3WAY_AXES load-bearing subset) -- targets 3-way interaction bugs pairwise can't reach.",
     )
-    p.add_argument("--prefer-models", type=str, default="lgb,xgb,cb", help="Comma-separated whitelist of models.")
+    p.add_argument(
+        "--prefer-models", type=str, default="",
+        help="Comma-separated whitelist of models to restrict combos to. Empty (default): no filter -- combos "
+        "keep the enumerator's own random model-subset selection across the full MODELS universe "
+        "(cb, xgb, lgb, hgb, linear, mlp), a random count of a random subset per combo.",
+    )
     p.add_argument("--no-charts", action="store_true", help="Disable diagnostic-chart rendering (save_charts=False).")
     args = p.parse_args()
 

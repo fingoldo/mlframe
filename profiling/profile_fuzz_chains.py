@@ -36,26 +36,32 @@ import sys
 import tempfile
 import time
 import traceback
-from typing import Optional
+from typing import Any, Optional
 
 # Force unbuffered stdout so progress is visible when run in
 # background / piped through tee. Mirrors the project's
 # ``feedback_pytest_unbuffered`` rule -- never run a long Python job
 # blind to its progress.
-try:
-    sys.stdout.reconfigure(line_buffering=True)
-except Exception:
-    pass
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
 
 # A fuzz combo's Unicode category value (e.g. accented / Cyrillic text under input=polars_utf8) can end up inside a
 # caught exception's message; printing it on a cp1251 Windows console then raises UnicodeEncodeError, killing the
 # whole profiling run on an otherwise-handled error. errors="replace" makes any unprintable character a "?" instead
 # of crashing the harness.
-try:
-    sys.stdout.reconfigure(errors="replace")
-    sys.stderr.reconfigure(errors="replace")
-except Exception:
-    pass
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(errors="replace")
+    except Exception:
+        pass
 
 # Quiet down noisy loggers so the cProfile output dominates the screen.
 logging.basicConfig(level=logging.WARNING)
@@ -87,7 +93,7 @@ def _fs_config_from_combo(combo):
     if not getattr(combo, "use_mrmr_fs", False):
         return None
     _g = lambda name, d=None: getattr(combo, name, d)
-    mrmr_kwargs = {
+    mrmr_kwargs: dict[str, Any] = {
         "verbose": 0, "n_jobs": 1, "max_runtime_mins": 5,
         "quantization_nbins": 5, "use_simple_mode": True,
         # k-way interaction discovery (1 = off; 2/3 = pair/triplet) -- the interaction-MI kernels.
@@ -193,7 +199,7 @@ def _profile_one_combo(
                 df=df,
                 target_name=combo.short_id(),
                 model_name=f"profile_{combo.short_id()}",
-                features_and_targets_extractor=fte,
+                features_and_targets_extractor=fte,  # type: ignore[arg-type]  # tests.training.shared.SimpleFeaturesAndTargetsExtractor is a distinct duck-typed test double, not a FeaturesAndTargetsExtractor subclass
                 target_type=fte._resolve_target_type(),
                 mlframe_models=list(combo.models),
                 hyperparams_config={"iterations": max(combo.iterations, 30)},
@@ -246,7 +252,7 @@ def _aggregate_hotspots(
     """Aggregate cumtime across all collected stats; print top-N."""
     aggregate: dict = {}
     for s in all_stats:
-        for func, (cc, nc, tt, ct, callers) in s.stats.items():
+        for func, (cc, nc, tt, ct, callers) in s.stats.items():  # type: ignore[attr-defined]  # pstats.Stats.stats is a real runtime attribute missing from typeshed's stub
             if func in aggregate:
                 ag = aggregate[func]
                 aggregate[func] = (
@@ -280,12 +286,15 @@ def main():
                    help="How many hotspots to print per combo.")
     p.add_argument("--combo-pool", type=int, default=150,
                    help="Size of the combo space to enumerate + sample from.")
-    p.add_argument("--prefer-models", type=str, default="lgb,xgb,cb",
+    p.add_argument("--prefer-models", type=str, default="",
                    help="Comma-separated whitelist of models. Combos pass only "
-                        "when ALL of their models are in this list. Set empty "
-                        "string to disable. Default excludes mlp/ngb/recurrent "
-                        "etc. so the profile doesn't crash on MLP+CUDA Windows "
-                        "access-violations or NGB single-thread tail.")
+                        "when ALL of their models are in this list. Empty (default): "
+                        "no filter -- combos keep the enumerator's own random "
+                        "model-subset selection across the full MODELS universe "
+                        "(cb, xgb, lgb, hgb, linear, mlp). NOTE: mlp is a known "
+                        "MLP+CUDA Windows access-violation risk (see the fuzz "
+                        "combo runner's crash-recovery loop); pass e.g. "
+                        "'cb,xgb,lgb,hgb,linear' to exclude it if that becomes noisy.")
     p.add_argument("--save-dir", type=str, default=None,
                    help="If set, write one .prof file per combo here for later "
                         "aggregation via aggregate_prof.py.")
