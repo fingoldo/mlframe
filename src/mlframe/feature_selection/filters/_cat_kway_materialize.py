@@ -14,14 +14,14 @@ What lives here:
 from __future__ import annotations
 
 import bisect
-from typing import Literal
+from typing import Literal, Optional
 
 import numpy as np
 from numba import njit
 
 from .cat_fe_state import CatFEConfig
 from .engineered_recipes import EngineeredRecipe
-from .info_theory import compute_mi_from_classes, merge_vars
+from .info_theory import compute_mi_from_classes, compute_mi_from_classes_weighted, merge_vars
 # ``resolve_min_interaction_information`` lives in ``cat_interactions`` itself;
 # imported lazily inside the function body to dodge the
 # ``cat_interactions -> _cat_kway_materialize -> cat_interactions`` import cycle
@@ -176,6 +176,7 @@ def _greedy_expand_one_seed(
     max_kway_order: int,
     min_inc_ii: float,
     dtype,
+    weights: Optional[np.ndarray] = None,
 ) -> tuple | None:
     """Greedily extend ``seed_indices`` up to ``max_kway_order`` by picking the variable with the largest incremental II at each step.
 
@@ -183,6 +184,10 @@ def _greedy_expand_one_seed(
     itself remains the best, no k-way emitted).
 
     Stops early when: no candidate var clears ``min_inc_ii`` (greedy local max reached); adding any candidate would violate the cardinality budget; or order reaches ``max_kway_order``.
+
+    ``weights`` (mrmr_audit_2026-07-20 B-19), when given, route every joint MI through the weighted
+    kernel so the k-way greedy expansion grows the SAME weighted seed the search phase found, instead
+    of re-scoring extensions against an unweighted joint MI.
     """
     parent_set = set(seed_indices)
     parent_vi = np.array(sorted(parent_set), dtype=np.int64)
@@ -190,10 +195,13 @@ def _greedy_expand_one_seed(
         factors_data=factors_data, vars_indices=parent_vi,
         var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
     )
-    parent_mi = compute_mi_from_classes(
-        classes_x=parent_classes, freqs_x=parent_freqs,
-        classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
-    )
+    if weights is not None:
+        parent_mi = compute_mi_from_classes_weighted(parent_classes, classes_y, weights, dtype)
+    else:
+        parent_mi = compute_mi_from_classes(
+            classes_x=parent_classes, freqs_x=parent_freqs,
+            classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
+        )
 
     for _order in range(len(parent_set) + 1, max_kway_order + 1):
         best_inc_ii = -np.inf
@@ -224,10 +232,13 @@ def _greedy_expand_one_seed(
             new_classes, new_freqs, new_n = _merge_vars_sorted_insert(
                 factors_data, prefix_states, parent_sorted, k_int, nbins, dtype,
             )
-            new_joint_mi = compute_mi_from_classes(
-                classes_x=new_classes, freqs_x=new_freqs,
-                classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
-            )
+            if weights is not None:
+                new_joint_mi = compute_mi_from_classes_weighted(new_classes, classes_y, weights, dtype)
+            else:
+                new_joint_mi = compute_mi_from_classes(
+                    classes_x=new_classes, freqs_x=new_freqs,
+                    classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
+                )
             # incremental II = new_joint_mi - parent_mi - marginal_mi[k] = how much extra info adding X_k brings, BEYOND what parent and X_k separately contribute.
             inc_ii = new_joint_mi - parent_mi - float(marginal_mi[k_int])
             if inc_ii > best_inc_ii:

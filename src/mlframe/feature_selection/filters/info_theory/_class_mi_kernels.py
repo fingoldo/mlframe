@@ -152,6 +152,75 @@ def compute_mi_from_classes(
 
 
 @njit(nogil=True, cache=True)
+def weighted_class_freqs(classes: np.ndarray, weights: np.ndarray, n_classes: int) -> np.ndarray:
+    """Weighted marginal frequencies ``P(class)`` from a pre-computed class array + per-row weights.
+
+    Companion to ``merge_vars``'s unweighted ``freqs`` output: binning is weight-independent (a row's
+    bin assignment doesn't depend on its weight), so any ``merge_vars`` ``classes`` array can be
+    re-weighted here without re-running the njit merge itself.
+    """
+    out = np.zeros(n_classes, dtype=np.float64)
+    total = 0.0
+    for k in range(len(classes)):
+        w = weights[k]
+        out[classes[k]] += w
+        total += w
+    if total > 0.0:
+        for i in range(n_classes):
+            out[i] /= total
+    return out
+
+
+@njit(nogil=True, cache=True)
+def compute_mi_from_classes_weighted(
+    classes_x: np.ndarray,
+    classes_y: np.ndarray,
+    weights: np.ndarray,
+    dtype=np.int32,
+) -> float:
+    """Weighted mutual information from two pre-computed class arrays + per-row sample weights.
+
+    mrmr_audit_2026-07-20 B-19: cat-FE's downstream confirmation/rerank steps (MM re-rank,
+    permutation test, bandit-UCB1, Westfall-Young, bootstrap CI, K-fold stability,
+    anti-redundancy rerank, k-way greedy expansion) previously recomputed every statistic
+    UNWEIGHTED even when the search-phase point estimate used sample weights -- a weighted
+    ``II_obs`` was tested against an unweighted null/refinement. This weighted joint-MI kernel
+    (weighted joint counts + weighted marginals, mirroring ``compute_mi_from_classes`` exactly
+    when ``weights`` is uniform) is the shared primitive threaded through every downstream step.
+    """
+    n = len(classes_x)
+    k_x = int(classes_x.max()) + 1 if n > 0 else 0
+    k_y = int(classes_y.max()) + 1 if n > 0 else 0
+    joint_w = np.zeros((k_x, k_y), dtype=np.float64)
+    marg_x = np.zeros(k_x, dtype=np.float64)
+    marg_y = np.zeros(k_y, dtype=np.float64)
+    total_w = 0.0
+    for k in range(n):
+        w = weights[k]
+        cx = classes_x[k]
+        cy = classes_y[k]
+        joint_w[cx, cy] += w
+        marg_x[cx] += w
+        marg_y[cy] += w
+        total_w += w
+    if total_w <= 0.0:
+        return 0.0
+    inv_w = 1.0 / total_w
+    total = 0.0
+    for i in range(k_x):
+        prob_x = marg_x[i] * inv_w
+        if prob_x <= 0.0:
+            continue
+        for j in range(k_y):
+            jc = joint_w[i, j]
+            if jc != 0.0:
+                prob_y = marg_y[j] * inv_w
+                jf = jc * inv_w
+                total += jf * math.log(jf / (prob_x * prob_y))
+    return total
+
+
+@njit(nogil=True, cache=True)
 def compute_su_from_classes(
     classes_x: np.ndarray,
     freqs_x: np.ndarray,

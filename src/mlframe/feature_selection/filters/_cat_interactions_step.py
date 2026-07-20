@@ -422,6 +422,7 @@ def run_cat_interaction_step(
         nbins=nbins, target_indices=target_indices,
         classes_y=classes_y, freqs_y=freqs_y,
         cfg=cfg, dtype=dtype, verbose=verbose,
+        weights=weights if use_weights else None,
     )
     # After MM re-rank, some pairs may drop below the floor; re-filter.
     floor = resolve_min_interaction_information(cfg, n_samples)
@@ -445,6 +446,7 @@ def run_cat_interaction_step(
             selected_idx=selected_idx, ii_arr=ii_arr,
             nbins=nbins, selected_so_far=selected_so_far,
             classes_y=classes_y, cfg=cfg, dtype=dtype, verbose=verbose,
+            weights=weights if use_weights else None,
         )
         # Re-apply the floor after anti-redundancy correction
         floor = resolve_min_interaction_information(cfg, n_samples)
@@ -467,6 +469,7 @@ def run_cat_interaction_step(
         selected_idx=selected_idx, nbins=nbins,
         target_indices=target_indices,
         cfg=cfg, dtype=dtype, verbose=verbose,
+        weights=weights if use_weights else None,
     )
     # Surface fold IIs into the state UNCONDITIONALLY -- even when 0 pairs survived, the per-fold values are useful diagnostics (user can see WHY the pair was rejected).
     # Must happen BEFORE the early return.
@@ -494,6 +497,7 @@ def run_cat_interaction_step(
             nbins=nbins, classes_y=classes_y, freqs_y=freqs_y,
             cfg=cfg, n_search_pairs=len(pairs_a),
             dtype=dtype, verbose=verbose,
+            weights=weights if use_weights else None,
         )
     elif use_full_wy:
         # Full Westfall-Young path
@@ -504,6 +508,7 @@ def run_cat_interaction_step(
             marginal_mi=marginal_mi_full,
             n_perms=cfg.full_npermutations,
             dtype=dtype, verbose=verbose,
+            weights=weights if use_weights else None,
         )
         confidence_dict = {ij: 1.0 - p for ij, p in wy_corrected_p.items()}
         min_conf = 0.95
@@ -524,6 +529,7 @@ def run_cat_interaction_step(
             nbins=nbins, classes_y=classes_y, freqs_y=freqs_y,
             cfg=cfg, n_search_pairs=len(pairs_a),
             dtype=dtype, verbose=verbose,
+            weights=weights if use_weights else None,
         )
     if len(selected_idx) == 0:
         if verbose:
@@ -536,6 +542,7 @@ def run_cat_interaction_step(
         selected_idx=selected_idx,
         nbins=nbins, classes_y=classes_y, freqs_y=freqs_y,
         cfg=cfg, dtype=dtype, verbose=verbose,
+        weights=weights if use_weights else None,
     )
     if bootstrap_ci_dict:
         # Drop survivors whose lower-CI < floor (unstable signal)
@@ -583,6 +590,7 @@ def run_cat_interaction_step(
                     max_kway_order=cfg.max_kway_order,
                     min_inc_ii=min_inc_ii,
                     dtype=dtype,
+                    weights=weights if use_weights else None,
                 )
                 if extension is None:
                     continue
@@ -623,6 +631,7 @@ def run_cat_interaction_step(
                 max_combined_nbins=max_combined,
                 n_passes=cfg.refine_passes,
                 dtype=dtype, verbose=verbose,
+                weights=weights if use_weights else None,
             )
 
     # ---- Materialise pair survivors (single concat) ----

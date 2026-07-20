@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import bisect
 import logging
+from typing import Optional
 
 import numpy as np
 
 from .cat_fe_state import CatFEConfig
-from .info_theory import compute_mi_from_classes, merge_vars
+from .info_theory import compute_mi_from_classes, compute_mi_from_classes_weighted, merge_vars
 # ``_materialize_pairs`` / ``_select_top_k_pairs`` /
 # ``resolve_min_interaction_information`` live in ``cat_interactions`` itself
 # (via the kway-materialize sibling re-export); imported lazily inside the
@@ -116,8 +117,13 @@ def _bootstrap_ii_cis(
     cfg: CatFEConfig,
     dtype,
     verbose: int,
+    weights: Optional[np.ndarray] = None,
 ) -> dict:
     """For each pair in ``selected_idx``, compute bootstrap CI on II. Returns ``{(i, j): (lower, median, upper)}`` per ``cfg.bootstrap_ci_alpha``.
+
+    ``weights``, when given (mrmr_audit_2026-07-20 B-19), are sliced alongside each bootstrap
+    subsample and every MI term is computed via the weighted kernel -- otherwise a weighted
+    search-phase ``II_obs`` would be checked for stability against an UNWEIGHTED bootstrap null.
 
     Cost: ``n_replicates * top_k * O(n)`` -- at n_replicates=20, top_k=32, n=10000 that's ~6.4M merge_vars-equivalents.
     Heavy; gated by user opt-in (``bootstrap_ci_n_replicates > 0``).
@@ -148,6 +154,7 @@ def _bootstrap_ii_cis(
             idx = rng.choice(n_samples, size=sub_size, replace=True)
             sub_data = factors_data[idx]
             sub_cls_y = classes_y[idx]
+            sub_weights = weights[idx] if weights is not None else None
             # Recompute marginals + joint MI on the subsample.
             cls_a_s, fq_a_s, _ = merge_vars(
                 factors_data=sub_data,
@@ -164,14 +171,19 @@ def _bootstrap_ii_cis(
                 vars_indices=np.array([i, jj], dtype=np.int64),
                 var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
             )
-            # Need fq_y on the subsample; rebuild from sub_cls_y
-            sub_nbins_y = int(sub_cls_y.max()) + 1 if sub_cls_y.size else 1
-            sub_fq_y = np.bincount(
-                sub_cls_y.astype(np.int64), minlength=sub_nbins_y,
-            ).astype(np.float64) / max(sub_size, 1)
-            i_a = compute_mi_from_classes(cls_a_s, fq_a_s, sub_cls_y, sub_fq_y, dtype)
-            i_b = compute_mi_from_classes(cls_b_s, fq_b_s, sub_cls_y, sub_fq_y, dtype)
-            i_pair = compute_mi_from_classes(cls_pair_s, fq_pair_s, sub_cls_y, sub_fq_y, dtype)
+            if sub_weights is not None:
+                i_a = compute_mi_from_classes_weighted(cls_a_s, sub_cls_y, sub_weights, dtype)
+                i_b = compute_mi_from_classes_weighted(cls_b_s, sub_cls_y, sub_weights, dtype)
+                i_pair = compute_mi_from_classes_weighted(cls_pair_s, sub_cls_y, sub_weights, dtype)
+            else:
+                # Need fq_y on the subsample; rebuild from sub_cls_y
+                sub_nbins_y = int(sub_cls_y.max()) + 1 if sub_cls_y.size else 1
+                sub_fq_y = np.bincount(
+                    sub_cls_y.astype(np.int64), minlength=sub_nbins_y,
+                ).astype(np.float64) / max(sub_size, 1)
+                i_a = compute_mi_from_classes(cls_a_s, fq_a_s, sub_cls_y, sub_fq_y, dtype)
+                i_b = compute_mi_from_classes(cls_b_s, fq_b_s, sub_cls_y, sub_fq_y, dtype)
+                i_pair = compute_mi_from_classes(cls_pair_s, fq_pair_s, sub_cls_y, sub_fq_y, dtype)
             ii_replicates[r] = i_pair - i_a - i_b
         ci_dict[(i, jj)] = (
             float(np.quantile(ii_replicates, lower_q)),
@@ -208,10 +220,14 @@ def _anti_redundancy_rerank(
     cfg: CatFEConfig,
     dtype,
     verbose: int,
+    weights: Optional[np.ndarray] = None,
 ) -> tuple:
     """Re-rank top-K survivors by ``score = II - β * mean_z I(merged; Z)``.
 
     When ``cfg.anti_redundancy_beta == 0`` or ``selected_so_far`` is empty, this is a no-op. Returns ``(scored_arr, selected_idx_reordered)``.
+
+    ``weights`` (mrmr_audit_2026-07-20 B-19), when given, route the redundancy MI(merged; Z) through
+    the weighted kernel so the anti-redundancy correction matches the weighted search-phase II.
     """
     if cfg.anti_redundancy_beta <= 0 or not selected_so_far or len(selected_idx) == 0:
         return ii_arr, selected_idx
@@ -248,10 +264,13 @@ def _anti_redundancy_rerank(
         red_terms = []
         for z in selected_so_far_arr:
             cls_z, freqs_z = z_merge_cache[int(z)]
-            mi_to_z = compute_mi_from_classes(
-                classes_x=cls_merged, freqs_x=freqs_merged,
-                classes_y=cls_z, freqs_y=freqs_z, dtype=dtype,
-            )
+            if weights is not None:
+                mi_to_z = compute_mi_from_classes_weighted(cls_merged, cls_z, weights, dtype)
+            else:
+                mi_to_z = compute_mi_from_classes(
+                    classes_x=cls_merged, freqs_x=freqs_merged,
+                    classes_y=cls_z, freqs_y=freqs_z, dtype=dtype,
+                )
             red_terms.append(mi_to_z)
         # mRMR-style: subtract β * mean redundancy (mean over selected Z).
         # ``mean`` per Peng-Ding-Long 2005; max would also work but mean
@@ -289,9 +308,14 @@ def _kfold_stability_filter(
     cfg: CatFEConfig,
     dtype,
     verbose: int,
+    weights: Optional[np.ndarray] = None,
 ) -> tuple:
     """For each top-K survivor, recompute II on K disjoint folds; keep pairs whose II clears the floor on >= ``min_fold_prevalence * K`` folds. Returns
     ``(kept_selected_idx, per_fold_ii_dict)``. No-op (returns inputs unchanged) when ``cfg.n_folds_stability <= 0``.
+
+    ``weights`` (mrmr_audit_2026-07-20 B-19), when given, are sliced per fold and every per-fold MI
+    term uses the weighted kernel -- otherwise a weighted search-phase II would be stability-checked
+    against UNWEIGHTED per-fold statistics.
 
     Determinism: folds are derived from ``np.arange(n) % K`` -- no shuffling, no RNG. Reproducible across runs.
     """
@@ -326,7 +350,8 @@ def _kfold_stability_filter(
             factors_data=slice_data, vars_indices=target_indices,
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
         )
-        fold_cache[f] = (slice_data, cls_y_f, fq_y_f)
+        fold_weights_f = weights[mask] if weights is not None else None
+        fold_cache[f] = (slice_data, cls_y_f, fq_y_f, fold_weights_f)
 
     for k in selected_idx:
         i = int(pairs_a[k])
@@ -339,7 +364,7 @@ def _kfold_stability_filter(
                 # Fold too small to estimate MI reliably; mark as failed.
                 fold_ii_vals.append(float("-inf"))
                 continue
-            slice_data, cls_y_f, fq_y_f = cached
+            slice_data, cls_y_f, fq_y_f, fold_weights_f = cached
             cls_pair_f, fq_pair_f, _ = merge_vars(
                 factors_data=slice_data,
                 vars_indices=np.array([i, j], dtype=np.int64),
@@ -355,18 +380,23 @@ def _kfold_stability_filter(
                 vars_indices=np.array([j], dtype=np.int64),
                 var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
             )
-            i_pair = compute_mi_from_classes(
-                classes_x=cls_pair_f, freqs_x=fq_pair_f,
-                classes_y=cls_y_f, freqs_y=fq_y_f, dtype=dtype,
-            )
-            i_x1 = compute_mi_from_classes(
-                classes_x=cls_x1_f, freqs_x=fq_x1_f,
-                classes_y=cls_y_f, freqs_y=fq_y_f, dtype=dtype,
-            )
-            i_x2 = compute_mi_from_classes(
-                classes_x=cls_x2_f, freqs_x=fq_x2_f,
-                classes_y=cls_y_f, freqs_y=fq_y_f, dtype=dtype,
-            )
+            if fold_weights_f is not None:
+                i_pair = compute_mi_from_classes_weighted(cls_pair_f, cls_y_f, fold_weights_f, dtype)
+                i_x1 = compute_mi_from_classes_weighted(cls_x1_f, cls_y_f, fold_weights_f, dtype)
+                i_x2 = compute_mi_from_classes_weighted(cls_x2_f, cls_y_f, fold_weights_f, dtype)
+            else:
+                i_pair = compute_mi_from_classes(
+                    classes_x=cls_pair_f, freqs_x=fq_pair_f,
+                    classes_y=cls_y_f, freqs_y=fq_y_f, dtype=dtype,
+                )
+                i_x1 = compute_mi_from_classes(
+                    classes_x=cls_x1_f, freqs_x=fq_x1_f,
+                    classes_y=cls_y_f, freqs_y=fq_y_f, dtype=dtype,
+                )
+                i_x2 = compute_mi_from_classes(
+                    classes_x=cls_x2_f, freqs_x=fq_x2_f,
+                    classes_y=cls_y_f, freqs_y=fq_y_f, dtype=dtype,
+                )
             fold_ii_vals.append(i_pair - i_x1 - i_x2)
 
         per_fold_ii[(i, j)] = fold_ii_vals
@@ -403,8 +433,13 @@ def _refine_kway_coordinate_ascent(
     n_passes: int,
     dtype,
     verbose: int,
+    weights: Optional[np.ndarray] = None,
 ) -> list:
-    """For each k-way result, run ``n_passes`` of coordinate-ascent: try swapping each member with each non-member; keep if joint MI improves. Returns refined kway_results."""
+    """For each k-way result, run ``n_passes`` of coordinate-ascent: try swapping each member with each non-member; keep if joint MI improves. Returns refined kway_results.
+
+    ``weights`` (mrmr_audit_2026-07-20 B-19), when given, route every swap-candidate MI through the
+    weighted kernel so refinement doesn't drift the weighted seed away from what the weighted search
+    phase actually found."""
     if n_passes <= 0 or not kway_results:
         return kway_results
     refined = []
@@ -435,10 +470,13 @@ def _refine_kway_coordinate_ascent(
                     new_classes, new_freqs, new_nuniq = _merge_vars_sorted_insert(
                         factors_data, prefix_states, frozen_sorted, cand_int, nbins, dtype,
                     )
-                    new_mi = compute_mi_from_classes(
-                        classes_x=new_classes, freqs_x=new_freqs,
-                        classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
-                    )
+                    if weights is not None:
+                        new_mi = compute_mi_from_classes_weighted(new_classes, classes_y, weights, dtype)
+                    else:
+                        new_mi = compute_mi_from_classes(
+                            classes_x=new_classes, freqs_x=new_freqs,
+                            classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
+                        )
                     if new_mi > current_mi:
                         current = list(new_tuple_sorted)
                         current_mi = new_mi

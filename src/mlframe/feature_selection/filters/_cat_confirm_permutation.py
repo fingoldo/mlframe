@@ -19,12 +19,13 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import Optional
 
 import numpy as np
 from numba import njit, prange
 
 from .cat_fe_state import CatFEConfig
-from .info_theory import compute_mi_from_classes, merge_vars
+from .info_theory import compute_mi_from_classes, compute_mi_from_classes_weighted, merge_vars, weighted_class_freqs
 
 logger = logging.getLogger(__name__)
 
@@ -211,6 +212,92 @@ def _count_nfailed_joint_indep_prange(
                 jc = joint_x2[i, j]
                 if jc:
                     jf = jc * inv_n
+                    i_x2 += jf * math.log(jf / (px * freqs_y[j]))
+
+        if (i_pair - i_x1 - i_x2) >= ii_obs:
+            nfailed_total += 1
+    return nfailed_total
+
+
+@njit(cache=True)
+def _count_nfailed_joint_indep_weighted_serial(
+    classes_pair: np.ndarray,
+    freqs_pair: np.ndarray,
+    classes_x1: np.ndarray,
+    freqs_x1: np.ndarray,
+    classes_x2: np.ndarray,
+    freqs_x2: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    weights: np.ndarray,
+    ii_obs: float,
+    n_perms: int,
+    base_seed: int,
+    dtype,
+) -> int:
+    """Weighted counterpart of ``_count_nfailed_joint_indep_prange`` (mrmr_audit_2026-07-20 B-19).
+
+    Same joint-independence null (shuffle Y, recompute all three MIs), but every joint/marginal
+    count is accumulated as ``weights[k]`` instead of ``1`` -- so a weighted search-phase ``II_obs``
+    is tested against a WEIGHTED null instead of an unweighted one. Serial only (this path is opt-in
+    and less hot than the default unweighted prange kernel); CPU-only, matching the established
+    cat-FE convention of falling back to CPU when sample weights are active on the GPU path.
+    """
+    n = len(classes_y)
+    K_pair = len(freqs_pair)
+    K_x1 = len(freqs_x1)
+    K_x2 = len(freqs_x2)
+    K_y = len(freqs_y)
+    nfailed_total = 0
+    total_w = 0.0
+    for k in range(n):
+        total_w += weights[k]
+    inv_w = 1.0 / total_w if total_w > 0.0 else 0.0
+    for tid in range(n_perms):
+        cy_local = classes_y.copy()
+        state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(tid + 1)
+        for i in range(n - 1, 0, -1):
+            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+            j = int(state >> np.uint64(33)) % (i + 1)
+            tmp = cy_local[i]
+            cy_local[i] = cy_local[j]
+            cy_local[j] = tmp
+
+        joint_pair = np.zeros((K_pair, K_y), dtype=np.float64)
+        joint_x1 = np.zeros((K_x1, K_y), dtype=np.float64)
+        joint_x2 = np.zeros((K_x2, K_y), dtype=np.float64)
+        for k in range(n):
+            cy = cy_local[k]
+            w = weights[k]
+            joint_pair[classes_pair[k], cy] += w
+            joint_x1[classes_x1[k], cy] += w
+            joint_x2[classes_x2[k], cy] += w
+
+        i_pair = 0.0
+        for i in range(K_pair):
+            px = freqs_pair[i]
+            for j in range(K_y):
+                jc = joint_pair[i, j]
+                if jc:
+                    jf = jc * inv_w
+                    i_pair += jf * math.log(jf / (px * freqs_y[j]))
+
+        i_x1 = 0.0
+        for i in range(K_x1):
+            px = freqs_x1[i]
+            for j in range(K_y):
+                jc = joint_x1[i, j]
+                if jc:
+                    jf = jc * inv_w
+                    i_x1 += jf * math.log(jf / (px * freqs_y[j]))
+
+        i_x2 = 0.0
+        for i in range(K_x2):
+            px = freqs_x2[i]
+            for j in range(K_y):
+                jc = joint_x2[i, j]
+                if jc:
+                    jf = jc * inv_w
                     i_x2 += jf * math.log(jf / (px * freqs_y[j]))
 
         if (i_pair - i_x1 - i_x2) >= ii_obs:
@@ -563,9 +650,13 @@ def _compute_westfall_young_corrected_p(
     dtype,
     verbose: int,
     base_seed: int = _CAT_CONFIRM_BASE_SEED,
+    weights: Optional[np.ndarray] = None,
 ) -> dict:
     """Full Westfall-Young: per shuffle, compute II_perm for ALL search-phase pairs, take the MAX, and accumulate the max-II distribution. Each survivor's p-value is
     ``(1 + #{b: max_II_perm[b] >= II_obs}) / (B + 1)``.
+
+    ``weights`` (mrmr_audit_2026-07-20 B-19), when given, route every per-shuffle MI through the
+    weighted kernel so the max-II null distribution matches the weighted search-phase ``ii_obs_arr``.
 
     The proper WY procedure (Westfall & Young 1993) naturally accounts for inter-pair correlation: pairs that share a column have correlated permutation distributions and
     the max-II statistic captures this. Strictly more powerful than Bonferroni on the same B.
@@ -628,16 +719,22 @@ def _compute_westfall_young_corrected_p(
         # all touched columns. Then II = joint - marginal_i - marginal_j.
         marginal_perm: dict = {}
         for ci, cls_c in marginal_classes.items():
-            marginal_perm[ci] = compute_mi_from_classes(
-                classes_x=cls_c, freqs_x=marginal_freqs[ci],
-                classes_y=classes_y_safe, freqs_y=freqs_y, dtype=dtype,
-            )
+            if weights is not None:
+                marginal_perm[ci] = compute_mi_from_classes_weighted(cls_c, classes_y_safe, weights, dtype)
+            else:
+                marginal_perm[ci] = compute_mi_from_classes(
+                    classes_x=cls_c, freqs_x=marginal_freqs[ci],
+                    classes_y=classes_y_safe, freqs_y=freqs_y, dtype=dtype,
+                )
         max_ii = -np.inf
         for k in range(m):
-            joint_perm = compute_mi_from_classes(
-                classes_x=pair_classes_buf[k], freqs_x=pair_freqs_list[k],
-                classes_y=classes_y_safe, freqs_y=freqs_y, dtype=dtype,
-            )
+            if weights is not None:
+                joint_perm = compute_mi_from_classes_weighted(pair_classes_buf[k], classes_y_safe, weights, dtype)
+            else:
+                joint_perm = compute_mi_from_classes(
+                    classes_x=pair_classes_buf[k], freqs_x=pair_freqs_list[k],
+                    classes_y=classes_y_safe, freqs_y=freqs_y, dtype=dtype,
+                )
             ii_perm = joint_perm - marginal_perm[int(pairs_a[k])] - marginal_perm[int(pairs_b[k])]
             if ii_perm > max_ii:
                 max_ii = ii_perm
@@ -714,8 +811,16 @@ def _confirm_pairs_via_permutation(
     dtype,
     verbose: int,
     single_merge_cache: dict | None = None,
+    weights: Optional[np.ndarray] = None,
 ) -> tuple:
     """Run permutation confirmation on top-K survivors. Returns ``(selected_idx_kept, confidence_per_pair_dict)``.
+
+    ``weights`` (mrmr_audit_2026-07-20 B-19), when given, route the DEFAULT joint-independence null
+    (``cfg.permutation_null != "conditional"``, no GPU dispatch) through a weighted CPU kernel so a
+    weighted search-phase ``II_obs`` is tested against a weighted null. The conditional-null branch
+    and the cupy GPU branch still fall back to the unweighted path with a one-time warning -- weighting
+    the IPF/within-strata conditional shuffler and the cupy kernel is a larger, separately-scoped
+    follow-up (mirrors the pair-search phase's existing "sample weights ignored on GPU" convention).
 
     For each survivor, sample ``cfg.full_npermutations`` Fisher-Yates shuffles of Y, compute II_perm via same-shuffle three-MI, and count how often ``II_perm >= II_obs``.
     Confidence = 1 - failures / npermutations. Pairs with confidence < min_nonzero_confidence are dropped from selected_idx.
@@ -809,6 +914,13 @@ def _confirm_pairs_via_permutation(
     # independence null. Caller opts in via cfg.
     use_conditional = cfg.permutation_null == "conditional"
     n_y_classes = int(classes_y.max()) + 1
+    use_weights_conf = weights is not None
+    if use_weights_conf and use_conditional and verbose:
+        logger.warning(
+            "cat-FE: sample weights ignored on the conditional permutation null "
+            "(mrmr_audit_2026-07-20 B-19: weighting the IPF/within-strata shuffler "
+            "is a separate follow-up); falling back to unweighted."
+        )
 
     for j, k in enumerate(selected_idx):
         i = int(pairs_a[k])
@@ -898,21 +1010,41 @@ def _confirm_pairs_via_permutation(
                 _k_cls_pair = cls_pair[_ss_idx]
                 _k_cls_x1 = cls_x1[_ss_idx]
                 _k_cls_x2 = cls_x2[_ss_idx]
+                _k_weights = weights[_ss_idx] if weights is not None else None
+            else:
+                _k_cls_pair, _k_cls_x1, _k_cls_x2 = cls_pair, cls_x1, cls_x2
+                _k_weights = weights if use_weights_conf else None
+            if _k_weights is not None:
+                _k_fq_pair = np.asarray(weighted_class_freqs(_k_cls_pair, _k_weights, len(fq_pair)), dtype=np.float64)
+                _k_fq_x1 = np.asarray(weighted_class_freqs(_k_cls_x1, _k_weights, len(fq_x1)), dtype=np.float64)
+                _k_fq_x2 = np.asarray(weighted_class_freqs(_k_cls_x2, _k_weights, len(fq_x2)), dtype=np.float64)
+                _k_fq_y = np.asarray(weighted_class_freqs(_ss_classes_y, _k_weights, len(_ss_freqs_y)), dtype=np.float64)
+            elif _ss_idx is not None:
                 _k_fq_pair = np.bincount(_k_cls_pair, minlength=len(fq_pair)).astype(np.float64) / max(1, _k_cls_pair.size)
                 _k_fq_x1 = np.bincount(_k_cls_x1, minlength=len(fq_x1)).astype(np.float64) / max(1, _k_cls_x1.size)
                 _k_fq_x2 = np.bincount(_k_cls_x2, minlength=len(fq_x2)).astype(np.float64) / max(1, _k_cls_x2.size)
+                _k_fq_y = _ss_freqs_y
             else:
-                _k_cls_pair, _k_cls_x1, _k_cls_x2 = cls_pair, cls_x1, cls_x2
                 _k_fq_pair, _k_fq_x1, _k_fq_x2 = fq_pair, fq_x1, fq_x2
+                _k_fq_y = _ss_freqs_y
             # Dispatch the permutation kernel to GPU when (N * n_perms) is above the crossover threshold. Below, CPU numba prange wins -- GPU launch + transfer cost
             # dominates short permutation budgets. See ``_perm_kernel_dispatch_use_gpu`` for the policy.
             _kernel_n = int(_k_cls_pair.size) if _ss_idx is not None else n_samples
-            if _perm_kernel_dispatch_use_gpu(_kernel_n, n_perms, cfg.backend):
+            if _k_weights is not None:
+                # mrmr_audit_2026-07-20 B-19: weighted null is CPU-only (mirrors the pair-search phase's
+                # established "sample weights ignored on GPU, fall back to CPU weighted kernel" convention).
+                n_failed = _count_nfailed_joint_indep_weighted_serial(
+                    _k_cls_pair, _k_fq_pair, _k_cls_x1, _k_fq_x1,
+                    _k_cls_x2, _k_fq_x2,
+                    _ss_classes_y, _k_fq_y, _k_weights, ii_obs, n_perms,
+                    base_seed=int(j) * 1000003 + 7, dtype=dtype,
+                )
+            elif _perm_kernel_dispatch_use_gpu(_kernel_n, n_perms, cfg.backend):
                 try:
                     n_failed = _count_nfailed_joint_indep_cupy(
                         _k_cls_pair, _k_fq_pair, _k_cls_x1, _k_fq_x1,
                         _k_cls_x2, _k_fq_x2,
-                        _ss_classes_y, _ss_freqs_y, ii_obs, n_perms,
+                        _ss_classes_y, _k_fq_y, ii_obs, n_perms,
                         base_seed=int(j) * 1000003 + 7,
                     )
                 except Exception as _gpu_exc:
@@ -923,7 +1055,7 @@ def _confirm_pairs_via_permutation(
                     n_failed = _count_nfailed_joint_indep_prange(
                         _k_cls_pair, _k_fq_pair, _k_cls_x1, _k_fq_x1,
                         _k_cls_x2, _k_fq_x2,
-                        _ss_classes_y, _ss_freqs_y, ii_obs, n_perms,
+                        _ss_classes_y, _k_fq_y, ii_obs, n_perms,
                         base_seed=int(j) * 1000003 + 7, dtype=dtype,
                     )
             else:
@@ -934,7 +1066,7 @@ def _confirm_pairs_via_permutation(
                 n_failed = _cpu_fn(
                     _k_cls_pair, _k_fq_pair, _k_cls_x1, _k_fq_x1,
                     _k_cls_x2, _k_fq_x2,
-                    _ss_classes_y, _ss_freqs_y, ii_obs, n_perms,
+                    _ss_classes_y, _k_fq_y, ii_obs, n_perms,
                     base_seed=int(j) * 1000003 + 7, dtype=dtype,
                 )
         # Continuity-corrected p-value: (n_failed + 1) / (n_perms + 1) gives a non-zero p-value floor even with zero failures and is the standard convention for
