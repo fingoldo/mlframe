@@ -280,12 +280,15 @@ def main():
                    help="How many hotspots to print per combo.")
     p.add_argument("--combo-pool", type=int, default=150,
                    help="Size of the combo space to enumerate + sample from.")
-    p.add_argument("--prefer-models", type=str, default="lgb,xgb,cb",
+    p.add_argument("--prefer-models", type=str, default="",
                    help="Comma-separated whitelist of models. Combos pass only "
-                        "when ALL of their models are in this list. Set empty "
-                        "string to disable. Default excludes mlp/ngb/recurrent "
-                        "etc. so the profile doesn't crash on MLP+CUDA Windows "
-                        "access-violations or NGB single-thread tail.")
+                        "when ALL of their models are in this list. Empty (default): "
+                        "no filter -- combos keep the enumerator's own random "
+                        "model-subset selection across the full MODELS universe "
+                        "(cb, xgb, lgb, hgb, linear, mlp). NOTE: mlp is a known "
+                        "MLP+CUDA Windows access-violation risk (see the fuzz "
+                        "combo runner's crash-recovery loop); pass e.g. "
+                        "'cb,xgb,lgb,hgb,linear' to exclude it if that becomes noisy.")
     p.add_argument("--save-dir", type=str, default=None,
                    help="If set, write one .prof file per combo here for later "
                         "aggregation via aggregate_prof.py.")

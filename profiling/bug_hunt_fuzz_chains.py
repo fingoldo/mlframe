@@ -122,7 +122,12 @@ def main():
         "3way: enumerate_combos_3way (covers all axis-value TRIPLES over the curated "
         "_3WAY_AXES load-bearing subset) -- targets 3-way interaction bugs pairwise can't reach.",
     )
-    p.add_argument("--prefer-models", type=str, default="lgb,xgb,cb", help="Comma-separated whitelist of models.")
+    p.add_argument(
+        "--prefer-models", type=str, default="",
+        help="Comma-separated whitelist of models to restrict combos to. Empty (default): no filter -- combos "
+        "keep the enumerator's own random model-subset selection across the full MODELS universe "
+        "(cb, xgb, lgb, hgb, linear, mlp), a random count of a random subset per combo.",
+    )
     p.add_argument("--no-charts", action="store_true", help="Disable diagnostic-chart rendering (save_charts=False).")
     args = p.parse_args()
 
