@@ -257,8 +257,9 @@ def resolve_mlp_precision_default(
         try:
             import torch
             cc_major, _ = torch.cuda.get_device_capability(int(device_id))
-        except Exception:
+        except Exception as e:
             # Probing failed -- fall back to the conservative default.
+            logger.debug("CUDA compute-capability probe failed (%s: %s) -- defaulting to 32-true precision", type(e).__name__, e)
             return "32-true"
     else:
         cc_major = int(cuda_compute_capability_major)
@@ -362,14 +363,15 @@ def _probe_available_memory_bytes(
             free_bytes, _total_bytes = torch.cuda.mem_get_info(int(device_id))
             _PROBE_MEM_CACHE = int(free_bytes)
             return _PROBE_MEM_CACHE
-        except Exception:  # nosec B110 - optional dependency import guard
-            pass
+        except Exception as e:  # nosec B110 - optional dependency import guard
+            logger.debug("torch.cuda.mem_get_info probe failed (%s: %s) -- falling back to psutil/None", type(e).__name__, e)
     # CPU mode (or CUDA probe failed): use psutil if available, else None.
     try:
         import psutil
         _PROBE_MEM_CACHE = int(psutil.virtual_memory().available)
         return _PROBE_MEM_CACHE
-    except Exception:
+    except Exception as e:
+        logger.debug("psutil memory probe failed (%s: %s) -- caller falls back to a constant batch size", type(e).__name__, e)
         return None
 
 

@@ -326,8 +326,8 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
         _dev_errs.append(getattr(_cusolver_e, "CUSOLVERError", None))
         from cupy_backends.cuda.libs import cublas as _cublas_e
         _dev_errs.append(getattr(_cublas_e, "CUBLASError", None))
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as _e_dev_errs:  # nosec B110 - optional dependency import guard
+        logger.debug("Could not register cupy device-error classes (%s); GPU-specific errors won't be distinguished from generic failures", _e_dev_errs)
     _DEV_ERRS = tuple(e for e in _dev_errs if isinstance(e, type) and issubclass(e, BaseException))
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
@@ -474,7 +474,8 @@ def _maybe_class_weights(y: np.ndarray):
     try:
         from ._imbalance_mi import compute_class_weights
         return compute_class_weights(y)
-    except Exception:
+    except Exception as e:
+        logger.debug("compute_class_weights failed (%s: %s) -- falling through to the plain-MI path unweighted", type(e).__name__, e)
         return None
 
 
@@ -511,6 +512,7 @@ def _mi_classif_batch_balanced(X: np.ndarray, y: np.ndarray, class_w, *, nbins: 
             col_f = np.ascontiguousarray(col[finite].reshape(-1, 1))
             y_f = np.ascontiguousarray(y_i64[finite])
             mis[j] = float(_class_balanced_mi_batch_njit(col_f, y_f, class_w, nbins)[0])
-    except Exception:
+    except Exception as e:
+        logger.debug("Class-balanced batch MI failed (%s: %s) -- caller falls back to plain MI", type(e).__name__, e)
         return None
     return mis

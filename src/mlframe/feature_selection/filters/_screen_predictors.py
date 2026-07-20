@@ -915,5 +915,5 @@ def screen_predictors(
             try:
                 import cupy as cp
                 cp.random.seed(int(_cp_restore_seed))
-            except Exception:  # nosec B110 - optional dependency import guard
-                pass
+            except Exception as e:  # nosec B110 - optional dependency import guard
+                logger.debug("Could not restore cupy random seed (%s: %s)", type(e).__name__, e)

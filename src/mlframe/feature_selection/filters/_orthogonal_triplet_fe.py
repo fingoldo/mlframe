@@ -682,8 +682,8 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
             try:
                 _x_u = X[src].to_numpy(dtype=np.float64)  # value-construction: always float64, see above
                 _, _pp_u = _evaluate_basis_column(_x_u, chosen_basis, chosen_degree, return_params=True)
-            except Exception:  # nosec B110 - optional dependency import guard
-                pass
+            except Exception as e:  # nosec B110 - optional dependency import guard
+                logger.debug("Could not freeze fit-time basis-preprocess params for %r (%s: %s); recipe replays without them", src, type(e).__name__, e)
             recipes.append(build_orth_univariate_recipe(
                 name=name, src_name=src,
                 basis=chosen_basis, degree=chosen_degree,
