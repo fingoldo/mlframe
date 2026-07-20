@@ -107,14 +107,24 @@ def _iter_categorical_columns(X: Any, features: Optional[Sequence[str]]):
 
     def _is_categorical_like(col) -> bool:
         dt = col.dtype
-        if isinstance(dt, pd.CategoricalDtype) or dt == object:
+        if isinstance(dt, pd.CategoricalDtype):
             return True
+        if dt == object:
+            # An object column holding non-scalar elements (e.g. a materialized embedding column) can't be
+            # categorized -- ``s.astype("category")`` factorizes via hashing, and numpy arrays/lists aren't
+            # hashable, raising "TypeError: unhashable type: 'numpy.ndarray'". A single embedding vector isn't
+            # a meaningful category anyway, so treat such a column as non-categorical here.
+            return not any(isinstance(v, (list, tuple, np.ndarray)) for v in col)
         # polars Series carry no pandas dtype object; string-ify the dtype instead of importing polars (X may be
         # pandas-only in most callers -- an unconditional polars import here would be a needless hard dependency).
         return str(dt) in ("Utf8", "String", "Categorical", "Enum", "Object")
 
     if features is not None:
-        cols = list(features)
+        # Caller-supplied ``features`` (e.g. the suite's full ranked feature_names list) is NOT pre-filtered to
+        # categorical-only -- apply the same _is_categorical_like check as the auto-detect branch so a numeric or
+        # embedding column in the list doesn't reach the unconditional astype("category") below (an embedding
+        # column's list/array elements aren't hashable and would crash the categorize).
+        cols = [c for c in features if c in X.columns and _is_categorical_like(X[c])]
     else:
         cols = [c for c in X.columns if _is_categorical_like(X[c])]
     for col in cols:

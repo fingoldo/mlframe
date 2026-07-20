@@ -233,3 +233,30 @@ def test_length_mismatch_raises_clean_error_not_index_error():
 
     with pytest.raises(ValueError, match="length mismatch"):
         category_discriminability_table(X, y, top_k=10, min_support=5)
+
+
+def test_list_valued_embedding_column_does_not_raise():
+    """A list-valued object column (e.g. a materialized embedding column) in an explicit ``features`` list must
+    not crash the table build.
+
+    ``_iter_categorical_columns``'s explicit-``features`` branch used to skip the ``_is_categorical_like`` dtype
+    check entirely (only the auto-detect branch applied it), so an embedding column reached the unconditional
+    ``s.astype("category")`` -- pandas factorizes via hashing, and numpy arrays/lists aren't hashable, raising
+    ``TypeError: unhashable type: 'numpy.ndarray'``. Surfaced by profiling/bug_hunt_fuzz_chains.py via
+    render_category_discriminability_diagnostic, which always passes the suite's full ranked feature_names list.
+    """
+    rng = np.random.default_rng(5)
+    n = 300
+    X = pd.DataFrame(
+        {
+            "cat_0": rng.choice(["a", "b", "c"], size=n),
+            "num_0": rng.standard_normal(n),
+            "emb_0": [list(rng.standard_normal(4)) for _ in range(n)],
+        }
+    )
+    y = rng.integers(0, 2, size=n)
+
+    rows = category_discriminability_table(X, y, features=list(X.columns), top_k=10, min_support=5)
+
+    feats = {feat for feat, *_ in rows}
+    assert feats == {"cat_0"}, "the embedding/numeric columns must be filtered out, not crash or leak through"
