@@ -18,7 +18,7 @@ import os
 import threading
 import warnings
 from collections import OrderedDict
-from typing import Any, Callable, ClassVar, Iterable, Optional, Sequence, cast
+from typing import Any, Callable, ClassVar, Iterable, NoReturn, Optional, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -1954,6 +1954,21 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         fe_hybrid_orth_adaptive_arity_max_degree: int = 1,
         fe_hybrid_orth_adaptive_arity_seed_k: int = 4,
         fe_hybrid_orth_adaptive_arity_top_count: int = 3,
+        # FE-FAMILY COMPUTE BUDGETING (gt_07, sibling module ``filters/_fe_family_budget.py``).
+        # When True, scales the triplet/quadruplet/adaptive-arity seed_k/top_count quotas by a
+        # per-family budget fraction persisted across fits (keyed by a dataset fingerprint -- a
+        # different dataset always starts from an equal-split budget, never carries over another
+        # dataset's learned fractions), and after fit reallocates that budget proportional to each
+        # family's realized-importance-credit / wall-cost ROI (with a mandatory floor + exploration
+        # reserve so no family is ever permanently starved -- see ``reallocate_budgets``'s
+        # docstring). Additive credit approximation (not full family-Shapley): each surviving
+        # engineered column's ``mrmr_gain`` is attributed to its recipe kind's family; a
+        # ``credit="loo"`` (leave-one-family-out) upgrade is specced for future work when families'
+        # outputs are strongly redundant (additive credit double-counts shared value; LOO would not).
+        # Default OFF (opt-in until benched across real datasets -- family usefulness is dataset-
+        # dependent by nature, see the plan's acceptance criteria).
+        fe_budget_learning: bool = False,
+        fe_budget_kwargs: Optional[dict] = None,
         # SEMI-SUPERVISED basis-preprocess fitting
         # (sibling module ``_semi_supervised_fe``). Independent opt-in (does
         # NOT require fe_hybrid_orth_enable). When True AND the user invokes
@@ -3214,6 +3229,54 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # params here and threading it into ``_fit_impl`` (which prefers it over a fresh
         # ``self.get_params()`` read) fixes the signature to always reflect the user-visible ctor state.
         self._pre_fit_ctor_params_snapshot_ = self.get_params(deep=True)
+        # gt_07 FE-family budget: load a persisted per-family budget (keyed by dataset fingerprint)
+        # and scale the triplet/quadruplet/adaptive-arity seed_k/top_count quotas by it -- a lower
+        # budget fraction means fewer candidates proposed for that family this fit. Snapshot the
+        # ORIGINAL ctor values first (restored in the ``finally`` block below) so a crashing fit
+        # never leaves the instance with a scaled-down quota baked in for a later ``get_params()``.
+        _fe_budget_quota_snapshot: dict[str, int] = {}
+        if bool(getattr(self, "fe_budget_learning", False)):
+            try:
+                from .._fe_family_budget import dataset_fingerprint as _fe_budget_fp, load_budgets as _fe_load_budgets
+
+                _fe_budget_cols = list(X.columns) if hasattr(X, "columns") else [str(i) for i in range(np.asarray(X).shape[1])]
+                self._fe_budget_fingerprint_ = _fe_budget_fp(len(_fe_budget_cols), _fe_budget_cols)
+                _fe_loaded_budgets = _fe_load_budgets(fingerprint=self._fe_budget_fingerprint_)
+                # ``_FE_FAMILY_WALL`` (``_fe_family_timing.py``) is PROCESS-GLOBAL by design (nested
+                # fits / composite-discovery passes accumulate into it so a whole-run summary via
+                # ``log_fe_family_summary()`` reflects the whole suite) -- it is never reset here
+                # (that would break other, unrelated consumers of the same ledger). Instead, snapshot
+                # it now so the post-fit block below can compute THIS FIT's own wall-time delta
+                # (post-fit snapshot minus this one), not the process-cumulative total across every
+                # fit since process start (which would make credit/wall ROI increasingly wrong the
+                # longer a training service has been running -- verified: without this delta, ROI
+                # after several fits in the same process was dominated by stale history and the
+                # learned budget stopped changing at all).
+                from .._fe_family_timing import get_fe_family_wall as _fe_get_wall_pre
+
+                self._fe_budget_wall_pre_fit_ = _fe_get_wall_pre()
+                _fe_budget_quota_attrs = {
+                    "triplet": ("fe_hybrid_orth_triplet_seed_k", "fe_hybrid_orth_triplet_top_count"),
+                    "quadruplet": ("fe_hybrid_orth_quadruplet_seed_k", "fe_hybrid_orth_quadruplet_top_count"),
+                    "adaptive_arity": ("fe_hybrid_orth_adaptive_arity_seed_k",),
+                }
+                _fe_equal_share = 1.0 / max(len(_fe_budget_quota_attrs), 1)
+                # Stash the base budget used THIS fit (loaded, or equal-split when nothing was
+                # persisted yet) so the post-fit reallocation block below compounds on top of it
+                # instead of restarting from equal-split every fit (which would make learning never
+                # accumulate across successive fits).
+                self._fe_budget_prev_ = dict(_fe_loaded_budgets) if _fe_loaded_budgets else {f: _fe_equal_share for f in _fe_budget_quota_attrs}
+                if _fe_loaded_budgets:
+                    for _fam, _attrs in _fe_budget_quota_attrs.items():
+                        _fam_fraction = _fe_loaded_budgets.get(_fam, _fe_equal_share)
+                        _fam_scale = _fam_fraction / _fe_equal_share  # 1.0 at equal-split; <1 shrinks, >1 grows
+                        for _attr in _attrs:
+                            _orig_val = int(getattr(self, _attr, 0) or 0)
+                            _fe_budget_quota_snapshot[_attr] = _orig_val
+                            setattr(self, _attr, max(1, round(_orig_val * _fam_scale)))
+                    logger.info("[MRMR] fe_budget_learning: applied loaded budgets %s (fingerprint=%s).", _fe_loaded_budgets, self._fe_budget_fingerprint_)
+            except Exception as _fe_budget_exc:
+                logger.warning("[MRMR] fe_budget_learning: pre-fit budget load/scale failed (%s); proceeding with unscaled quotas.", _fe_budget_exc)
         self._check_groups_contract(groups)
         self._pandas_frame_for_target_cleanup = None
         self._target_names_for_cleanup = None
@@ -3486,6 +3549,22 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             use_mi_miller_madow(), get_relaxmrmr_alpha(), get_pid_synergy_bonus(),
             get_cmi_perm_stop(), get_cpt_test(), use_mi_chao_shen(),
         )
+        def _restore_toggles_snapshot_and_raise(exc: BaseException) -> NoReturn:
+            """Restore the MI-correction thread-locals to their fit-entry snapshot then re-raise ``exc``.
+
+            The validation checks below can fire AFTER some of these thread-locals have already been
+            activated but BEFORE the protective try/finally further down starts -- without this, a raised
+            ValueError here would leave the corrupted thread-local state active for every subsequent,
+            unrelated fit on this thread (mrmr_audit_2026-07-20 B-3).
+            """
+            _su0e, _jmim0e, _bur0e, _mm0e, _relax0e, _pid0e, _cmi0e, _cpt0e, _cs0e = _toggles_snapshot
+            _safe_restore(lambda: set_su_normalization(_su0e), "SU normalization thread-local (activation-block exception)")
+            _safe_restore(lambda: set_jmim_aggregator(_jmim0e), "JMIM aggregator thread-local (activation-block exception)")
+            _safe_restore(lambda: set_bur_lambda(_bur0e), "BUR lambda thread-local (activation-block exception)")
+            _safe_restore(lambda: set_mi_miller_madow(_mm0e), "Miller-Madow thread-local (activation-block exception)")
+            _safe_restore(lambda: set_mi_chao_shen(_cs0e), "Chao-Shen thread-local (activation-block exception)")
+            raise exc
+
         _mi_norm = getattr(self, "mi_normalization", "none")
         if _mi_norm not in ("none", "su"):
             raise ValueError(f"MRMR.mi_normalization must be 'none' or 'su'; got {_mi_norm!r}.")
@@ -3498,7 +3577,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         if _redundancy_agg not in (None, "jmim", "auto"):
             # A typo (e.g. 'JMIM', 'jimm') would otherwise silently fall through to plain Fleuret with no signal
             # that the requested aggregator was ignored -- fail loudly instead.
-            raise ValueError(f"redundancy_aggregator must be one of None, 'jmim', 'auto'; got {_redundancy_agg!r}.")
+            _restore_toggles_snapshot_and_raise(ValueError(f"redundancy_aggregator must be one of None, 'jmim', 'auto'; got {_redundancy_agg!r}."))
         if _redundancy_agg == "auto":
             # Data-dependent gate: run a cheap pre-fit synergy probe on (X, y). Route to JMIM only when the
             # data is synergistic (XOR / sign-product pairs whose joint >> marginals); else stay plain
@@ -3552,7 +3631,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             # array passed, stale groups from a differently-shaped prior call), not a "gracefully degrade
             # and move on" situation -- raise instead of silently disabling group-aware MI for the fit.
             if _g_arr.shape[0] != _n_rows:
-                raise ValueError(f"MRMR.fit: groups length {_g_arr.shape[0]} != X rows {_n_rows}; groups must have one entry per row of X.")
+                _restore_toggles_snapshot_and_raise(ValueError(f"MRMR.fit: groups length {_g_arr.shape[0]} != X rows {_n_rows}; groups must have one entry per row of X."))
             if sample_weight is not None:
                 # 09_error_messages_ux.md: this is functionally identical to the ``groups``-ignored
                 # situation (line ~3014's ``warnings.warn(UserWarning)``) -- an on-by-request feature
@@ -3737,6 +3816,56 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             # Pure metadata built from the records ``_run_fe_step`` accumulated; never
             # mutates the selection result.
             _pop_rej(self)
+            # gt_07 FE-family budget: compute this fit's per-family credit/ROI from fe_provenance_ +
+            # the wall-time ledger, reallocate next fit's budget, and persist it under the dataset
+            # fingerprint computed above. Report is populated whenever the flag is on, independent of
+            # whether the pre-fit quota scaling above succeeded (visibility is half the feature's
+            # value even before enforcement, per the plan). Never allowed to affect the selection
+            # result itself -- wrapped defensively, same posture as provenance population above.
+            if bool(getattr(self, "fe_budget_learning", False)):
+                try:
+                    from .._fe_family_budget import (
+                        family_credit as _fe_family_credit,
+                        family_roi as _fe_family_roi,
+                        persist_budgets as _fe_persist_budgets,
+                        reallocate_budgets as _fe_reallocate_budgets,
+                    )
+                    from .._fe_family_timing import get_fe_family_wall as _fe_get_wall
+
+                    _fe_wall_post_fit = _fe_get_wall()
+                    _fe_wall_pre_fit = getattr(self, "_fe_budget_wall_pre_fit_", None) or {}
+                    # This fit's OWN wall delta, not the process-cumulative total (see the pre-fit
+                    # snapshot comment above for why the ledger itself is never reset).
+                    _fe_wall_snapshot = {
+                        _fam: (
+                            _post[0] - _fe_wall_pre_fit.get(_fam, (0.0, 0))[0],
+                            _post[1] - _fe_wall_pre_fit.get(_fam, (0.0, 0))[1],
+                        )
+                        for _fam, _post in _fe_wall_post_fit.items()
+                    }
+                    _fe_credit = _fe_family_credit(getattr(self, "fe_provenance_", None))
+                    _fe_roi = _fe_family_roi(_fe_credit, _fe_wall_snapshot)
+                    _fe_budget_kwargs = dict(getattr(self, "fe_budget_kwargs", None) or {})
+                    _fe_tracked_families = ("triplet", "quadruplet", "adaptive_arity")
+                    _fe_equal_share = 1.0 / len(_fe_tracked_families)
+                    # Compound on top of the budget actually used THIS fit (loaded pre-fit, or
+                    # equal-split when nothing was persisted yet) -- restarting from equal-split every
+                    # fit would make learning never accumulate across successive fits.
+                    _fe_prev_budgets = dict(getattr(self, "_fe_budget_prev_", None) or {f: _fe_equal_share for f in _fe_tracked_families})
+                    for _fam in _fe_tracked_families:
+                        _fe_prev_budgets.setdefault(_fam, _fe_equal_share)
+                    _fe_budgets_before = dict(_fe_prev_budgets)
+                    _fe_budgets_after = _fe_reallocate_budgets(_fe_roi, base_budget=_fe_prev_budgets, **_fe_budget_kwargs)
+                    _fe_persist_budgets(_fe_budgets_after, fingerprint=getattr(self, "_fe_budget_fingerprint_", None))
+                    self.fe_family_budget_ = dict(
+                        wall=_fe_wall_snapshot,
+                        credit=_fe_credit,
+                        roi=_fe_roi,
+                        budgets_before=_fe_budgets_before,
+                        budgets_after=_fe_budgets_after,
+                    )
+                except Exception as _fe_budget_post_exc:
+                    logger.warning("[MRMR] fe_budget_learning: post-fit credit/reallocate/persist failed (%s); no budget update this fit.", _fe_budget_post_exc)
             _log_fe_wall()
             self._print_fit_summary()
             return result
@@ -3753,6 +3882,17 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
                 set_cmi_perm_stop(_cmi0[0], _cmi0[1], _cmi0[2])
                 set_cpt_test(_cpt0[0], _cpt0[1])
 
+            def _make_fe_budget_restorer(_a: str, _v: int) -> Callable[[], None]:
+                """Bind (attr, value) at definition time so the restore closure isn't a late-binding loop-variable trap."""
+
+                def _restore() -> None:
+                    """Restore the bound attribute to its bound original value."""
+                    setattr(self, _a, _v)
+
+                return _restore
+
+            for _attr, _orig_val in _fe_budget_quota_snapshot.items():
+                _safe_restore(_make_fe_budget_restorer(_attr, _orig_val), f"fe_budget_learning quota override ({_attr})")
             _safe_restore(lambda: set_su_normalization(_su0), "SU normalization thread-local")
             _safe_restore(lambda: set_jmim_aggregator(_jmim0), "JMIM aggregator thread-local")
             _safe_restore(lambda: set_bur_lambda(_bur0), "BUR lambda thread-local")

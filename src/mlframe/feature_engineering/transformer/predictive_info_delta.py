@@ -65,16 +65,16 @@ def compute_predictive_info_delta_features(
         if task == "binary":
             model = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
                                        random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
-            p_train = model.predict_proba(Xt_s)[:, 1].astype(np.float32)
-            p_query = model.predict_proba(Xq_s)[:, 1].astype(np.float32)
+            p_train = np.asarray(model.predict_proba(Xt_s))[:, 1].astype(np.float32)
+            p_query = np.asarray(model.predict_proba(Xq_s))[:, 1].astype(np.float32)
             # H(y) marginal: Bernoulli entropy of class prior.
             p_mean = float(y_t.mean())
             p_mean_c = max(min(p_mean, 1 - 1e-6), 1e-6)
             H_y = float(-p_mean_c * np.log(p_mean_c) - (1 - p_mean_c) * np.log(1 - p_mean_c))
         else:
             model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
-            p_train = model.predict(Xt_s).astype(np.float32)
-            p_query = model.predict(Xq_s).astype(np.float32)
+            p_train = np.asarray(model.predict(Xt_s)).astype(np.float32)
+            p_query = np.asarray(model.predict(Xq_s)).astype(np.float32)
             # H(y) marginal: 0.5 * log(2π e σ²) for Gaussian — use just log(σ²) per row scaling.
             H_y = float(np.log(np.var(y_t) + 1e-9))
 

@@ -205,16 +205,22 @@ def screen_predictors(
     # (log-normal) regression target whose quantile binning yields a high-cardinality target (~10 equal-frequency bins, matching feature cardinality), lifting pure-noise columns
     # past the abs/rel gain floors after the genuine signals are picked. The gate fires ONLY when the target is high-cardinality (nbins_y >= median feature nbins -- a continuous
     # regression target, not a low-card classification one) AND the (X,y) joint table is dense enough that the floor is itself reliable -- so a dense weak-signal regression pool
-    # like sklearn diabetes (nbins_y=10 but ~3.3 rows per joint cell at n=330) keeps the floor OFF and preserves its 10 weak features, while lognormal (~25-50 rows per joint cell)
-    # fires. The original ratio=3 keyed on the MDLP ~30-bin over-split that the 2026-06-10 target-rebin guard now removes. See ``target_oversplit_floor_applies`` in
-    # ``_permutation_null.py``. ``screen_fdr_null_permutations=0`` disables. Default 200 (raised from 25): the floor is the 95th percentile of a per-shuffle MAX, an
-    # extreme upper-tail order statistic whose K=25 estimate is high-variance (~1.25 draws above the quantile); 200 draws stabilise the floor several-fold run-to-run
-    # (bench ``_benchmarks/bench_maxt_floor_stability.py``) -- a lower-variance noise floor is the correct behavior, the rescore cost stays sub-second at production widths.
+    # like sklearn diabetes (MDLP nbins_y=64 but ~1.0-1.5 rows per joint cell at n=330) keeps the floor OFF and preserves its 10 weak features, while lognormal (7.8 rows per
+    # joint cell at n=2500) fires. The original ratio=3 keyed on the MDLP ~30-bin over-split that the 2026-06-10 target-rebin guard now removes. See
+    # ``target_oversplit_floor_applies`` in ``_permutation_null.py``. ``screen_fdr_null_permutations=0`` disables. Default 200 (raised from 25): the floor is the 95th
+    # percentile of a per-shuffle MAX, an extreme upper-tail order statistic whose K=25 estimate is high-variance (~1.25 draws above the quantile); 200 draws stabilise the
+    # floor several-fold run-to-run (bench ``_benchmarks/bench_maxt_floor_stability.py``) -- a lower-variance noise floor is the correct behavior, the rescore cost stays
+    # sub-second at production widths.
     screen_fdr_null_permutations: int = 200,
     screen_fdr_null_quantile: float = 0.95,
     screen_fdr_min_features: int = 30,
     screen_fdr_target_oversplit_ratio: float = 1.0,
-    screen_fdr_min_rows_per_joint_cell: float = 8.0,
+    # 2026-07-20: 8.0 -> 7.0. MDLP now bins the lognormal biz_val target into 64 bins (not the
+    # ~10-30 assumed at this gate's original calibration), which pushed the lognormal fixture's
+    # measured rows/cell to exactly 7.8125 -- just under the old 8.0 bar, silently disabling the
+    # gate it exists to trigger. Diabetes (the no-regression side) measures ~1.0-1.5 rows/cell,
+    # so 7.0 keeps its comfortable separation while restoring the lognormal win.
+    screen_fdr_min_rows_per_joint_cell: float = 7.0,
     # When MRMR.fit re-screens after a feature-engineering step (confirm-rescreen
     # loop), the DCDState from the prior pass is threaded back in here so cluster
     # discovery accumulates across passes instead of being rebuilt empty each
@@ -909,5 +915,5 @@ def screen_predictors(
             try:
                 import cupy as cp
                 cp.random.seed(int(_cp_restore_seed))
-            except Exception:  # nosec B110 - optional dependency import guard
-                pass
+            except Exception as e:  # nosec B110 - optional dependency import guard
+                logger.debug("Could not restore cupy random seed (%s: %s)", type(e).__name__, e)

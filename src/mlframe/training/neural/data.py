@@ -477,7 +477,17 @@ class TorchDataModule(LightningDataModule):
 
         dl_params["shuffle"] = shuffle
         dl_params["drop_last"] = drop_last
-        dl_params["pin_memory"] = on_gpu
+        # setdefault (not unconditional assignment): some driver/CUDA-toolkit combos crash during
+        # CachingHostAllocator/CUDAEvent teardown when pinned memory is in play (observed as a
+        # fatal std::terminate from a tensor destructor, not a catchable Python exception) -- a
+        # caller-supplied dataloader_params["pin_memory"]=False must be the only way out since GPU
+        # detection alone can't distinguish a healthy pinned-memory path from a broken one.
+        # MLFRAME_MLP_PIN_MEMORY (if set) wins over the on_gpu auto-detect but not over an explicit
+        # per-call dataloader_params value, letting a whole process/test run opt out at once.
+        from mlframe.training.mlp_runtime_defaults import pin_memory_env_override
+
+        _env_pin = pin_memory_env_override()
+        dl_params.setdefault("pin_memory", on_gpu if _env_pin is None else _env_pin)
 
         # F-71b (2026-05-31): OS-aware num_workers default for MLP, mirrors
         # F-71's RecurrentConfig.num_workers logic. Windows spawn semantics
@@ -632,7 +642,8 @@ class TorchDataModule(LightningDataModule):
                 return len(np.unique(labels))
             elif torch.is_tensor(labels):
                 return len(torch.unique(labels))
-        except Exception:
+        except Exception as e:
+            logger.debug("num_classes probe failed on labels of type %s (%s: %s)", type(labels).__name__, type(e).__name__, e)
             return None
 
         return None

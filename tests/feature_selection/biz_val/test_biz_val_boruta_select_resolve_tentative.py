@@ -137,3 +137,94 @@ def test_boruta_select_convergence_rounds_stops_early_same_confirmed_set():
     early_confirmed = {n for n, d in zip(early["feature_names"], early["decision"]) if d == "confirmed"}
     assert early_confirmed == full_confirmed
     assert early["n_rounds_run"] <= full["n_rounds_run"]
+
+
+# ---------------------------------------------------------------------------
+# mrmr_audit_2026-07-20 B-22: correction="bh" must ALSO correct for repeated
+# per-round testing, not just the per-round across-feature comparison. Prior
+# to the fix, "bh" reused a flat per-round alpha=0.05 across every round a
+# feature stayed undecided -- the exact false-positive inflation the
+# docstring claims BOTH correction modes prevent.
+# ---------------------------------------------------------------------------
+
+
+def test_biz_val_boruta_select_bh_correction_cuts_false_confirms():
+    """``correction="bh"`` must suppress false confirms on pure-noise columns at least as well as
+    ``"bonferroni"`` -- on this fixture, pre-fix "bh" (uncorrected-across-rounds) let materially more
+    noise columns slip through than the fixed version."""
+    total_false_confirm_bh = 0
+    total_true_confirm_bh = 0
+
+    for seed in range(N_SEEDS):
+        X, y = _make_data(seed)
+        res_bh = boruta_select(
+            X,
+            y,
+            _importance_fn,
+            n_iterations=N_ITERATIONS,
+            random_state=seed,
+            resolve_tentative=True,
+            correction="bh",
+        )
+        by_bh = dict(zip(res_bh["feature_names"], res_bh["decision"]))
+        total_false_confirm_bh += sum(1 for k, v in by_bh.items() if k.startswith("noise") and v == "confirmed")
+        total_true_confirm_bh += sum(1 for k, v in by_bh.items() if k.startswith("weak") and v == "confirmed")
+
+    # Same false-confirm ceiling as the "bonferroni" biz_value test above (<=1 out of 240 noise-column
+    # decisions) -- pre-fix (flat per-round alpha, no /rounds_run budget), "bh" let materially more
+    # noise columns through on this fixture.
+    assert total_false_confirm_bh <= 1, total_false_confirm_bh
+    # BH is less conservative than bonferroni per round even after the /rounds_run fix (it corrects
+    # across features via step-up rather than a flat per-feature division), so it should still recover
+    # a real majority of the true signal.
+    assert total_true_confirm_bh >= 8, total_true_confirm_bh
+
+
+def test_boruta_select_bh_correction_requires_more_rounds_than_flat_alpha_would():
+    """Regression pin for B-22: a feature with a BORDERLINE win rate (significant under a flat
+    per-round alpha=0.05, but NOT significant once that alpha is also divided by rounds_run) must stay
+    "tentative" under the fixed "bh" branch. Constructed via a deterministic importance_fn: a
+    "borderline" column wins exactly 9/10 rounds (binomial two-sided p ~= 0.0215 -- significant at a
+    flat alpha=0.05, but NOT once alpha is divided by rounds_run=10, i.e. alpha=0.005). The pre-fix bh
+    code path used the SAME flat 0.05 every round regardless of rounds_run, so this fixture isolates
+    the /rounds_run behaviour rather than the step-up mechanics BH shares with the already-tested
+    "bonferroni" branch."""
+    from scipy.stats import binomtest as _binomtest
+
+    n = 10
+    # Miss FIRST, then win every remaining round -- 9/10 wins overall, but no PARTIAL-round win streak
+    # is extreme enough to false-confirm before round 10 even under the flat (pre-fix) alpha, isolating
+    # the final-round /rounds_run divide as the one thing that must keep this fixture "tentative".
+    win_pattern = [False, True, True, True, True, True, True, True, True, True]  # 9/10 wins
+    p_flat = _binomtest(9, n, p=0.5, alternative="two-sided").pvalue
+    assert p_flat < 0.05, "fixture must be significant under a FLAT (uncorrected-by-rounds) alpha=0.05"
+    assert p_flat > 0.05 / n, "fixture must NOT be significant once alpha is divided by rounds_run=n (the fix)"
+
+    call_idx = {"i": 0}
+
+    def _borderline_importance_fn(X, y):
+        """Deterministic importance_fn: the 'borderline' column wins iff win_pattern[round] is True."""
+        i = call_idx["i"]
+        call_idx["i"] += 1
+        won = win_pattern[i % len(win_pattern)]
+        # columns: [borderline, noise]; shadows: [borderline_shadow, noise_shadow]
+        real_borderline = 1.0 if won else 0.0
+        return np.array([real_borderline, 0.0, 0.5, 0.5])
+
+    X = pd.DataFrame({"borderline": np.zeros(20), "noise": np.zeros(20)})
+    y = np.zeros(20)
+    res = boruta_select(
+        X,
+        y,
+        _borderline_importance_fn,
+        n_iterations=n,
+        random_state=0,
+        resolve_tentative=True,
+        correction="bh",
+    )
+    decision = dict(zip(res["feature_names"], res["decision"]))["borderline"]
+    assert decision == "tentative", (
+        f"B-22 regression: a win-rate that is significant ONLY under a flat per-round alpha (not once "
+        f"divided by rounds_run) got decision={decision!r}; the bh branch is not correcting for repeated "
+        f"per-round testing."
+    )

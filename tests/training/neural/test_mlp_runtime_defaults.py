@@ -113,6 +113,52 @@ class TestDataLoaderDefaultsWindows:
         assert res["pin_memory"] is False
 
 
+class TestPinMemoryEnvOverride:
+    """``MLFRAME_MLP_PIN_MEMORY`` is a global escape hatch for driver/CUDA-toolkit combos that
+    crash during CachingHostAllocator/CUDAEvent teardown when pinned memory is in play -- it must
+    win over the auto-detected default but never over an explicit per-call override."""
+
+    def test_unset_returns_none(self, monkeypatch) -> None:
+        """Unset env var means "no override" (auto-detect keeps deciding)."""
+        monkeypatch.delenv("MLFRAME_MLP_PIN_MEMORY", raising=False)
+        from mlframe.training.mlp_runtime_defaults import pin_memory_env_override
+
+        assert pin_memory_env_override() is None
+
+    def test_falsy_values_parse_false(self, monkeypatch) -> None:
+        """Falsy values parse false."""
+        from mlframe.training.mlp_runtime_defaults import pin_memory_env_override
+
+        for v in ("0", "false", "False", "no", "off"):
+            monkeypatch.setenv("MLFRAME_MLP_PIN_MEMORY", v)
+            assert pin_memory_env_override() is False, v
+
+    def test_truthy_values_parse_true(self, monkeypatch) -> None:
+        """Truthy values parse true."""
+        from mlframe.training.mlp_runtime_defaults import pin_memory_env_override
+
+        for v in ("1", "true", "True", "yes", "on"):
+            monkeypatch.setenv("MLFRAME_MLP_PIN_MEMORY", v)
+            assert pin_memory_env_override() is True, v
+
+    def test_env_override_wins_over_cuda_autodetect(self, monkeypatch) -> None:
+        """Env override false must win even when cuda_available=True (auto-detect would say True)."""
+        monkeypatch.setenv("MLFRAME_MLP_PIN_MEMORY", "0")
+        res = resolve_mlp_dataloader_defaults(cpu_count=8, cuda_available=True, force_windows=True)
+        assert res["pin_memory"] is False
+
+    def test_explicit_per_call_override_wins_over_env(self, monkeypatch) -> None:
+        """A caller-supplied dataloader_params["pin_memory"] must still win over the env var."""
+        monkeypatch.setenv("MLFRAME_MLP_PIN_MEMORY", "0")
+        res = resolve_mlp_dataloader_defaults(
+            user_overrides={"pin_memory": True},
+            cpu_count=8,
+            cuda_available=True,
+            force_windows=True,
+        )
+        assert res["pin_memory"] is True
+
+
 class TestDataLoaderDefaultsPosix:
     """Lock the Linux/Mac behaviour -- now ALSO defaulting to 0 workers
     because ``TorchDataset`` holds the full Polars frame in its closure.

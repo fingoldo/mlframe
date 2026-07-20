@@ -310,6 +310,16 @@ def _reset_kernel_tuning_singleton():
             pass
 
 
+@pytest.fixture(autouse=True)
+def _clear_pin_memory_env_override(monkeypatch):
+    """Clear MLFRAME_MLP_PIN_MEMORY before every test so an operator's ambient shell-level
+    override (set to work around a driver/CUDA-toolkit pinned-memory teardown crash during a
+    real -n xdist run) doesn't silently break tests that assert the auto-detected default. A
+    test that wants to exercise the override still sets it explicitly via
+    monkeypatch.setenv(...), which runs after this fixture and wins for that test."""
+    monkeypatch.delenv("MLFRAME_MLP_PIN_MEMORY", raising=False)
+
+
 def require_polars_ds():
     """Skip the calling test when ``polars-ds`` is not importable. Single source of truth so the 8x duplicated
     `pytest.importorskip("polars_ds")` calls in `tests/inference/`, `tests/training/test_pipeline.py`, and

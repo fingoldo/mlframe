@@ -406,8 +406,8 @@ def _conditional_perm_null(
             from ._fe_cmi_perm_null_gpu import _floor_mean_from_nulls_dev
             nulls_dev = batched_cmi_gpu(Xp_d, y_i, z_i, return_device=True)   # stays resident
             return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
-        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
-            pass  # any cupy error -> exact per-perm CPU loop below
+        except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+            logger.debug("GPU-resident CMI-null path failed (%s: %s) -- falling back to exact per-perm CPU loop", type(e).__name__, e)
     _xh = _host_x()
     x_sorted = _xh[order]
     # bench-attempt-rejected (2026-07-05): dropping the per-perm ``np.empty_like`` + scatter

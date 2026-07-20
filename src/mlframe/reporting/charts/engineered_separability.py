@@ -151,6 +151,8 @@ def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample
     z0 = _pull_feature(X, f0)
     z1 = _pull_feature(X, f1)
     yv = np.ascontiguousarray(np.asarray(y), dtype=np.float64)
+    if z0.shape[0] != yv.shape[0]:
+        raise ValueError(f"separability_panel: length mismatch X={z0.shape[0]} y={yv.shape[0]}")
     n = z0.shape[0]
     if n > sample:
         rng = np.random.default_rng(seed)

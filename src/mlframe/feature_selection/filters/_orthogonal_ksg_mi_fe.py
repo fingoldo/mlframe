@@ -113,7 +113,11 @@ def _ksg_mi_batch(
     y_arr = np.asarray(y).ravel()
     if _is_discrete_target(y_arr):
         if not np.issubdtype(y_arr.dtype, np.integer):
-            y_arr = y_arr.astype(np.int64)
+            # mrmr_audit_2026-07-20 B-18: densify via np.unique(return_inverse=...) rather than
+            # truncating .astype(int64) -- non-integer labels (e.g. 0.1/0.2/...) would otherwise
+            # all collapse to class 0.
+            _, y_arr = np.unique(y_arr, return_inverse=True)
+            y_arr = y_arr.astype(np.int64, copy=False)
         mi = mutual_info_classif(
             X, y_arr,
             discrete_features=False,
@@ -325,6 +329,7 @@ def hybrid_orth_mi_ksg_fe_with_recipes(
     differs. The recipe parser logic is reused unchanged.
     """
     from .engineered_recipes import build_orth_univariate_recipe
+    from ._orthogonal_univariate_fe import _evaluate_basis_column
 
     X_aug, scores = hybrid_orth_mi_ksg_fe(
         X, y,
@@ -355,8 +360,20 @@ def hybrid_orth_mi_ksg_fe_with_recipes(
                 name,
             )
             continue
+        # mrmr_audit_2026-07-20 B-17: freeze the fit-time basis-preprocess params into the recipe so
+        # transform() replays byte-exactly (mirrors the BUG2 FIX already applied to the canonical
+        # Layer-21 hybrid_orth_mi_fe_with_recipes -- see that function's identical block for the full
+        # rationale). Recomputing on the FULL fit-time column (X[src]) is safe/exact: it reproduces the
+        # same preprocess params the fit path used, it does not refit on any transform-time slice.
+        _pp = None
+        try:
+            _col_full = np.asarray(X[src].values, dtype=np.float64)
+            _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
+        except Exception:
+            _pp = None  # best-effort: fall back to the legacy refit-at-replay path
         recipes.append(build_orth_univariate_recipe(
             name=name, src_name=src,
             basis=chosen_basis, degree=chosen_degree,
+            preprocess_params=_pp,
         ))
     return X_aug, scores, recipes

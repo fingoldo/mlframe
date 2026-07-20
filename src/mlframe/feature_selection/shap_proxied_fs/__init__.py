@@ -129,8 +129,16 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # that script's output for the committed numbers. ``su_seeded_interactions=True`` is redundant
         # under "auto" (no warning; it just runs the same path) and still matters standalone under
         # "additive"/"interaction" for callers who want the screen without opting into "auto".
+        # "faith_interaction" (gt_01, OPT-IN): order-2 Faith-Shap (Tsai, Yeh, Ravikumar, JMLR 2023)
+        # surrogate ranking over the SAME additive proxy game -- weighted ridge regression over
+        # SAMPLED coalitions (no O(P^2) tensor), candidate-pair-restricted to the su_synergy_screen's
+        # kept pairs (never the full k^2 design -- underdetermined at typical post-prescreen widths).
+        # Unlike "interaction" (the raw, non-faithful TreeSHAP interaction tensor, P<=16 gated), this
+        # runs at any proxy width. Kept opt-in until its own majority-win bench (see
+        # _shap_proxy_faith_interactions.py and the biz_val suite for the pre-flip numbers).
         proxy_mode: str = "auto",
         interaction_proxy_top_k: int = 30,
+        faith_n_coalitions: int = 2048,
         # su_seeded_interactions (lever A4-4, OPT-IN, default OFF -- mirrors ``interaction_aware``):
         # a CHEAP pairwise-SU SYNERGY screen ranks candidate interaction PAIRS at O(P)+O(K) cost, then
         # the interaction objective runs on ONLY the top-K synergistic pairs (a sparse product-column
@@ -189,6 +197,18 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         cluster_su_auto_max_features: int | None = None,
         cluster_su_n_bins: int = 10,
         prescreen_top: int | None = None,
+        # ``prescreen_ranking`` (gt_03, default "mean_abs_phi"): which per-feature vector drives the
+        # prescreen top-K cut. "banzhaf" swaps in an MSR-Banzhaf semivalue estimate over the SAME
+        # additive proxy game -- Wang & Jia (AISTATS 2023) show Banzhaf is the most noise-robust
+        # semivalue to a FIXED level of v(S) noise. Measured on THIS pipeline that theoretical
+        # robustness does NOT translate into better seed-to-seed selection stability (see
+        # test_biz_val_shap_proxied_banzhaf_ranking.py): MSR-Banzhaf layers its own fresh per-seed
+        # coalition-sampling randomness on top of an already fold-averaged phi, so it is measurably
+        # LESS stable across seeds than mean|phi| here, not more. Kept opt-in as an alternative
+        # ranking (exact-vs-MSR numerical correctness is independently verified), not as a stability
+        # upgrade. Default stays "mean_abs_phi" (see gt_03 acceptance criteria).
+        prescreen_ranking: str = "mean_abs_phi",
+        banzhaf_n_coalitions: int = 4096,
         # within_cluster_refine drops members while the honest holdout loss stays within ``parsimony_tol`` of best,
         # measured with ShapProxiedFS's OWN booster on a 25% holdout. At the precision-tuned default parsimony_tol=0.02
         # refine yields a clean, parsimonious subset (the native contract: exclude noise + redundancy). When the DOWNSTREAM
@@ -198,6 +218,19 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # recall-vs-precision tradeoff. Set within_cluster_refine=False to skip refinement entirely.
         within_cluster_refine: bool = True,
         refine_n_estimators: int | None = 100,
+        # ``refine_mode`` (gt_02, default "greedy"): "greedy" is the legacy parsimony_tol drop above,
+        # byte-identical. "core" replaces the greedy drop with a least-core / nucleolus cooperative-
+        # game allocation over the winning candidate's proxy UNITS (see
+        # ``_shap_proxy_revalidate/_shap_proxy_core_stability.py``): a unit whose leave-one-out
+        # coalition can "block" it (removing it barely changes the coalition value) gets near-zero
+        # credit and is dropped; a unit some coalition genuinely needs keeps positive credit even if
+        # its marginal drop-one honest-loss delta is below parsimony_tol. The proposal is honestly
+        # verified ONCE and falls back to the legacy greedy path on any honest-gate failure -- "core"
+        # never returns a result worse than "greedy" would have.
+        refine_mode: str = "greedy",
+        core_n_coalitions: int = 512,
+        core_drop_threshold: float = 0.02,
+        core_nucleolus: bool = False,
         refine_ucb_enabled: bool = True,
         refine_ucb_min_eval_size: int | None = None,
         refine_ucb_slack: float | None = None,
@@ -332,9 +365,10 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         self.interaction_aware = interaction_aware
         self.max_interaction_features = max_interaction_features
         # Store raw for sklearn clone() identity; validate at use-site (lower()) to avoid mutating params.
-        if str(proxy_mode).lower() not in ("additive", "interaction", "auto"):
-            raise ValueError(f"proxy_mode must be 'additive', 'interaction', or 'auto'; got {proxy_mode!r}")
+        if str(proxy_mode).lower() not in ("additive", "interaction", "auto", "faith_interaction"):
+            raise ValueError(f"proxy_mode must be 'additive', 'interaction', 'auto', or 'faith_interaction'; got {proxy_mode!r}")
         self.proxy_mode = proxy_mode
+        self.faith_n_coalitions = faith_n_coalitions
         self.interaction_proxy_top_k = int(interaction_proxy_top_k)
         self.su_seeded_interactions = su_seeded_interactions
         self.su_seeded_top_k = int(su_seeded_top_k)
@@ -517,12 +551,22 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         )
         self.cluster_su_n_bins = int(cluster_su_n_bins)
         self.prescreen_top = prescreen_top
+        if str(prescreen_ranking).lower() not in ("mean_abs_phi", "banzhaf"):
+            raise ValueError(f"prescreen_ranking must be 'mean_abs_phi' or 'banzhaf'; got {prescreen_ranking!r}")
+        self.prescreen_ranking = prescreen_ranking
+        self.banzhaf_n_coalitions = banzhaf_n_coalitions
         self.within_cluster_refine = within_cluster_refine
         # ``refine_n_estimators`` caps the per-trial booster size inside ``within_cluster_refine``.
         # Refine compares relative honest losses to decide whether a member-drop respects
         # ``parsimony_tol``; the ranking stabilises well before the default 300 trees, so capping at
         # ~100 trees cuts each fit ~3x while keeping the drop decision intact. None disables the cap.
         self.refine_n_estimators = refine_n_estimators
+        if str(refine_mode).lower() not in ("greedy", "core"):
+            raise ValueError(f"refine_mode must be 'greedy' or 'core'; got {refine_mode!r}")
+        self.refine_mode = refine_mode
+        self.core_n_coalitions = core_n_coalitions
+        self.core_drop_threshold = core_drop_threshold
+        self.core_nucleolus = core_nucleolus
         # ``refine_ucb_*`` (iter35): batched-dispatch early-stop on within_cluster_refine's stage-2b
         # single-drop greedy round. Mechanism: each round ranks the k surviving members by ascending
         # stage-2a permutation importance (lowest importance = safest drop, most likely to produce the

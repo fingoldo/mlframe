@@ -237,20 +237,34 @@ def evaluate_swap_candidate(
         member_names = [cols[m] for m in members]
         # Resolve raw columns; X_raw may be a DataFrame or ndarray.
         if hasattr(X_raw, "columns"):
-            present = [c for c in member_names if c in X_raw.columns]
-            if len(present) < 2:
+            keep = [i for i, c in enumerate(member_names) if c in X_raw.columns]
+            # A cluster can anchor on a mix of numeric and categorical columns (DCD clusters by
+            # correlation/co-membership, not dtype); a raw string/object column made the blanket
+            # ``to_numpy(dtype=float64)`` below raise "could not convert string to float", which the
+            # broad except caught but degraded to declining the WHOLE swap even when 2+ numeric
+            # members remained. Narrow to numeric-castable columns first so the swap still runs on
+            # those (same "need >=2 columns" contract as the finite-value filter just below).
+            keep = [i for i in keep if X_raw[member_names[i]].dtype.kind in "iuf"]
+            if len(keep) < 2:
                 return SwapDecision(accept=False)
-            M = X_raw[present].to_numpy(dtype=np.float64, copy=True)
+            members = [members[i] for i in keep]
+            member_names = [member_names[i] for i in keep]
+            M = X_raw[member_names].to_numpy(dtype=np.float64, copy=True)
         else:
             arr = np.asarray(X_raw)
             if arr.ndim != 2 or arr.shape[1] < max(members) + 1:
                 return SwapDecision(accept=False)
             M = arr[:, members].astype(np.float64, copy=True)
-        # Drop columns containing NaN / Inf to keep PC1 stable.
+        # Drop columns containing NaN / Inf to keep PC1 stable. ``members``/``member_names`` are kept in
+        # lockstep with M's surviving columns (they used to stay at their PRE-filter length while mean/
+        # std/signs below were built from the post-filter M -- a length mismatch that corrupted
+        # recipe_obj["members"] for replay/naming whenever a member was actually dropped here).
         finite_mask = np.isfinite(M).all(axis=0)
         if finite_mask.sum() < 2:
             return SwapDecision(accept=False)
         M = M[:, finite_mask]
+        members = [m for m, keep_col in zip(members, finite_mask) if keep_col]
+        member_names = [n for n, keep_col in zip(member_names, finite_mask) if keep_col]
         Z, mean, std, signs = _standardize_align(M, ref_col=0)
         # 2026-05-31 Layer 43 (PART B): ``auto`` swap method.
         # Run a K-fold (n_folds=5) OOF MI bake-off over the three linear-
@@ -407,8 +421,21 @@ def evaluate_swap_candidate(
                 best_member_rel = m_rel
                 best_member_idx = int(m_idx)
     gain_factor = 1.0 + float(state.swap_gain_threshold)
-    aggregate_gate = rep_relevance > anchor_rel * gain_factor
-    member_gate = best_member_idx >= 0 and best_member_rel > anchor_rel * gain_factor
+    # Cheap pre-filter ahead of the (potentially expensive) permutation null below. When a null
+    # will actually run (``full_npermutations > 0``), soften this to plain dominance -- the
+    # candidate merely needs to beat the anchor's point estimate -- and let the null's p-value be
+    # the SOLE significance arbiter: the fixed ``swap_gain_threshold`` margin was rejecting real,
+    # null-eligible swaps whose point-estimate gain fell just under the bar (measured case:
+    # aggregate beat anchor by 3.3%, short of the 5% default margin, despite the underlying
+    # improvement being real). When no null is requested (``full_npermutations <= 0``, so no
+    # statistical backstop is available), keep the stricter margin as the sole heuristic gate.
+    _null_will_run = int(full_npermutations or 0) > 0
+    if _null_will_run:
+        aggregate_gate = rep_relevance > anchor_rel
+        member_gate = best_member_idx >= 0 and best_member_rel > anchor_rel
+    else:
+        aggregate_gate = rep_relevance > anchor_rel * gain_factor
+        member_gate = best_member_idx >= 0 and best_member_rel > anchor_rel * gain_factor
     if not aggregate_gate and not member_gate:
         # Branch A: no swap candidate beats the anchor.
         return SwapDecision(
@@ -441,12 +468,9 @@ def evaluate_swap_candidate(
             _min_B = int(np.ceil(1.0 / _swap_alpha))  # 1/(B_eff+1) < swap_alpha
             if B_eff < _min_B:
                 B_eff = _min_B
-    # Wave 9.1 iter-3 follow-up: when the caller requested a permutation
-    # null (``full_npermutations > 0``), apply the SAME null to the member
-    # candidate too. The point-CMI gate is upward-biased on small/noisy
-    # data; if the swap is firing on pure noise the null catches it for
-    # the aggregate path -- the member branch must not be a side door
-    # that bypasses the same check.
+    # When the caller requested a permutation null (``full_npermutations > 0``), apply the SAME null to the member
+    # candidate too. The point-CMI gate is upward-biased on small/noisy data; if the swap is firing on pure noise
+    # the null catches it for the aggregate path -- the member branch must not be a side door that bypasses it.
     def _run_member_null(member_idx: int, member_rel: float, B_: int) -> float:
         """Delegate to ``_dcd_swap_null.run_member_null`` for a p-value on the member candidate's relevance, closing over ``state``/``anchor``/``target``/``S_minus_anchor``/``logger`` so both call sites below need only pass the member-specific args."""
         # The B-permutation null is parallelized across cores in ``_dcd_swap_null.run_member_null``:

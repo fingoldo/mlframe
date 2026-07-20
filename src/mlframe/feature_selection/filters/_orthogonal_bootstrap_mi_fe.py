@@ -400,6 +400,7 @@ def hybrid_orth_mi_bootstrap_fe_with_recipes(
     differs. The recipe parser logic is reused unchanged.
     """
     from .engineered_recipes import build_orth_univariate_recipe
+    from ._orthogonal_univariate_fe import _evaluate_basis_column
 
     X_aug, scores = hybrid_orth_mi_bootstrap_fe(
         X, y,
@@ -430,8 +431,18 @@ def hybrid_orth_mi_bootstrap_fe_with_recipes(
                 name,
             )
             continue
+        # mrmr_audit_2026-07-20 B-17: freeze the fit-time basis-preprocess params (mirrors the
+        # canonical Layer-21 hybrid_orth_mi_fe_with_recipes fix); recomputing on the FULL fit-time
+        # source column is safe/exact -- it reproduces, not refits, the fit-time params.
+        _pp = None
+        try:
+            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
+            _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
+        except Exception:
+            _pp = None
         recipes.append(build_orth_univariate_recipe(
             name=name, src_name=src,
             basis=chosen_basis, degree=chosen_degree,
+            preprocess_params=_pp,
         ))
     return X_aug, scores, recipes

@@ -49,13 +49,13 @@ def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task:
     if task == "binary":
         m = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m.fit(Xt, y_t.astype(np.int32))
-        p_train = m.predict_proba(Xt)[:, 1].astype(np.float32)
-        p_query = m.predict_proba(Xq)[:, 1].astype(np.float32)
+        p_train = np.asarray(m.predict_proba(Xt))[:, 1].astype(np.float32)
+        p_query = np.asarray(m.predict_proba(Xq))[:, 1].astype(np.float32)
     else:
         m = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m.fit(Xt, y_t)
-        p_train = m.predict(Xt).astype(np.float32)
-        p_query = m.predict(Xq).astype(np.float32)
+        p_train = np.asarray(m.predict(Xt)).astype(np.float32)
+        p_query = np.asarray(m.predict(Xq)).astype(np.float32)
     return p_train, p_query
 
 

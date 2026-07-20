@@ -20,9 +20,21 @@ def _make_dataset(n: int, d: int, seed: int) -> pd.DataFrame:
     return pd.DataFrame(rng.normal(size=(n, d)), columns=[f"f{i}" for i in range(d)])
 
 
+def _make_dataset_with_nan(n: int, d: int, seed: int, nan_rate: float = 0.05) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    arr = rng.normal(size=(n, d))
+    arr[rng.random((n, d)) < nan_rate] = np.nan
+    return pd.DataFrame(arr, columns=[f"f{i}" for i in range(d)])
+
+
 def _run(n: int, d: int) -> None:
     X = _make_dataset(n, d, seed=0)
     row_wise_summary_stats(X, stats=("mean", "std", "q10", "q50", "q90"))
+
+
+def _run_with_nan(n: int, d: int) -> None:
+    X = _make_dataset_with_nan(n, d, seed=0)
+    row_wise_summary_stats(X, stats=("mean", "std", "median", "q10", "q50", "q90"))
 
 
 def _make_grouped_dataset(n: int, n_groups: int, d_per_group: int, seed: int) -> tuple[pd.DataFrame, dict[str, list[str]]]:
@@ -55,6 +67,14 @@ if __name__ == "__main__":
         _run(n, d)
         wall = time.perf_counter() - t0
         print(f"n={n:>8,} d={d:>4} -> {wall * 1000:9.2f} ms")
+
+    print("\nNaN-present path (njit per-row nanquantile kernel vs np.nanquantile apply_along_axis):")
+    for n, d in [(200_000, 30)]:
+        _run_with_nan(1_000, d)  # warm the njit kernel outside the timed block
+        t0 = time.perf_counter()
+        _run_with_nan(n, d)
+        wall = time.perf_counter() - t0
+        print(f"n={n:>8,} d={d:>4} (5% NaN) -> {wall * 1000:9.2f} ms")
 
     print("\ngrouped path (groups=) vs manual per-group call + concat:")
     for n, n_groups, d_per_group in [(10_000, 5, 6), (100_000, 10, 20)]:

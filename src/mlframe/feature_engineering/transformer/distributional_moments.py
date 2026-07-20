@@ -51,12 +51,12 @@ def compute_distributional_moments_features(
                     sw = None
                 m = lgb.LGBMClassifier(n_estimators=30, max_depth=3, learning_rate=0.1, random_state=int(fold_seed) + i, verbose=-1, n_jobs=-1)
                 m.fit(Xt_s, y_t.astype(np.int32), sample_weight=sw)
-                preds_q[:, i] = m.predict_proba(Xq_s)[:, 1].astype(np.float32)
+                preds_q[:, i] = np.asarray(m.predict_proba(Xq_s))[:, 1].astype(np.float32)
         else:
             for i, a in enumerate(quantiles):
                 m = lgb.LGBMRegressor(n_estimators=30, max_depth=3, learning_rate=0.1, objective="quantile", alpha=a, random_state=int(fold_seed) + i, verbose=-1, n_jobs=-1)
                 m.fit(Xt_s, y_t)
-                preds_q[:, i] = m.predict(Xq_s).astype(np.float32)
+                preds_q[:, i] = np.asarray(m.predict(Xq_s)).astype(np.float32)
         # Sort each row's predictions (in case quantile crossing)
         preds_q.sort(axis=1)
         q05 = preds_q[:, 0]; q25 = preds_q[:, 2]

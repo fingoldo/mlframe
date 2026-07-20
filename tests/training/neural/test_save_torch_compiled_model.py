@@ -40,13 +40,20 @@ def test_save_unwraps_torch_compile_wrapper_for_pickle(tmp_path, monkeypatch):
             return self.fc(x)
 
     inner = _Net()
-    try:
-        compiled = torch.compile(inner, mode="default")
-    except Exception:
-        pytest.skip("torch.compile unavailable on this platform / build")
 
-    # Sanity: torch.compile attaches _orig_mod
-    assert hasattr(compiled, "_orig_mod"), "torch.compile should expose _orig_mod"
+    class _FakeOptimizedModule:
+        """Mimics torch.compile's OptimizedModule wrapper (the ``_orig_mod`` attribute is all
+        save_mlframe_model's unwrap logic duck-types on -- see _io_save.py's ``getattr(_v, "_orig_mod", None)``)
+        without paying torch.compile's real Dynamo/Inductor JIT-warmup cost (~100s+ on a cold cache),
+        which this test has no need to trigger since it never calls the compiled module."""
+
+        def __init__(self, orig_mod):
+            self._orig_mod = orig_mod
+
+    compiled = _FakeOptimizedModule(inner)
+
+    # Sanity: the fake exposes _orig_mod the same way a real torch.compile wrapper would.
+    assert hasattr(compiled, "_orig_mod"), "fake wrapper should expose _orig_mod"
 
     class _ModelHolder:
         """Groups tests covering model holder."""

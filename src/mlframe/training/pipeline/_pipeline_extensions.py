@@ -393,7 +393,7 @@ def apply_preprocessing_extensions(
     # Lazy cross-package import: ``mlframe.training.core`` imports this function (see
     # ``_phase_helpers_fit_pipeline.py``), so a top-level import here would risk a cycle at
     # module-load time; by call time both packages are already fully loaded.
-    from mlframe.training.core._misc_helpers import _elapsed_str
+    from mlframe.training.core import _elapsed_str
     if config is None:
         return train_df, val_df, test_df, None
     # Fastpath: zero active stages -> no work to do. Return inputs UNTOUCHED (no polars->pandas down-convert). Without this gate the function paid the full Arrow->pandas conversion on every frame even when nothing was configured, defeating the polars fastpath and risking OOM on 100+GB polars frames for a no-op call.
@@ -680,7 +680,8 @@ def apply_preprocessing_extensions(
         if getattr(config, "row_wise_extreme_columns_enabled", False):
             t0_row_wise_extreme = timer()
             from mlframe.feature_engineering.row_wise_extremality import row_wise_top_k_extreme_columns
-            _rw_k = int(getattr(config, "row_wise_extreme_columns_k", 3) or 3)
+            _rw_k_raw = getattr(config, "row_wise_extreme_columns_k", None)
+            _rw_k = int(_rw_k_raw) if _rw_k_raw is not None else 3
 
             def _extreme_scores_only(_df, _cols):
                 """Numeric-only slice of ``row_wise_top_k_extreme_columns`` output -- drops the ``topK_column`` name columns (object dtype), which would otherwise break the numeric-only contract the sklearn-bridge enforces on every downstream step (scaler / kbins / polynomial / dim_reducer).
@@ -829,7 +830,9 @@ def apply_preprocessing_extensions(
                 config.polynomial_interaction_only = _eff_interaction
 
     # Thread the suite seed into RBFSampler / Nystroem / dim-reducer so their random projections are reproducible across reruns (was hardcoded 42).
-    _ext_random_state = int(getattr(config, "random_seed", 42) or 42)
+    # random_seed=0 is a legitimate seed, not a sentinel -- an ``or`` here would silently rewrite it to 42.
+    _ext_seed_raw = getattr(config, "random_seed", None)
+    _ext_random_state = int(_ext_seed_raw) if _ext_seed_raw is not None else 42
     steps = _build_extension_steps(config, n_features=n_features, random_state=_ext_random_state)
     if not steps:
         if _pysr_transformer is not None or tfidf_pipes:

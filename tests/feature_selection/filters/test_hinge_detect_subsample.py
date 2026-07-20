@@ -56,6 +56,36 @@ def test_hinge_subsample_still_finds_breakpoint(max_rows, monkeypatch):
         m.__dict__.update(_orig_dict)
 
 
+def test_hinge_gpu_subsampled_matches_cpu_full_n_above_cap():
+    """mrmr_audit_2026-07-20 B-16: the module docstring/comments claim the GPU-resident detector's
+    subsampling above MLFRAME_HINGE_MAX_ROWS is "selection-equivalent" to the CPU detector's full-n
+    scan, but no test actually compared the two backends' proposed tau above the cap -- this pins that
+    empirical claim: on a clear single-breakpoint signal well above the default 250k cap, GPU
+    (subsampled) and CPU (full-n) must both find a breakpoint near the true tau and agree with each
+    other within a modest margin (they are NOT required to be bit-identical -- different sample, same
+    underlying signal)."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._hinge_basis_fe import _detect_hinge_breakpoints
+    from mlframe.feature_selection.filters._hinge_detect_gpu_resident import detect_hinge_breakpoints_gpu
+
+    x, y = _hinge_data(500_000, seed=0)  # well above the default 250k cap
+    true_tau = 0.5
+
+    cpu_taus = _detect_hinge_breakpoints(x, y, max_breakpoints=1, min_heldout_r2_uplift=0.01)
+    gpu_taus = detect_hinge_breakpoints_gpu(x, y, **_KW)
+    if gpu_taus is None:
+        pytest.skip("cupy fault -> host detector path (not under test here)")
+
+    assert len(cpu_taus) >= 1, f"CPU (full-n) detector found no breakpoint on a clear hinge signal: {cpu_taus}"
+    assert len(gpu_taus) >= 1, f"GPU (subsampled) detector found no breakpoint on a clear hinge signal: {gpu_taus}"
+    assert abs(cpu_taus[0] - true_tau) < 0.15, f"CPU tau {cpu_taus[0]:.3f} far from the true breakpoint {true_tau}"
+    assert abs(gpu_taus[0] - true_tau) < 0.15, f"GPU tau {gpu_taus[0]:.3f} far from the true breakpoint {true_tau}"
+    assert abs(cpu_taus[0] - gpu_taus[0]) < 0.15, (
+        f"GPU (subsampled) tau {gpu_taus[0]:.3f} diverged from CPU (full-n) tau {cpu_taus[0]:.3f} by more than the "
+        f"tolerance -- the 'selection-equivalent' claim in the module docstring is not holding empirically."
+    )
+
+
 def test_hinge_cap_actually_subsamples(monkeypatch):
     """Hinge cap actually subsamples."""
     monkeypatch.setenv("MLFRAME_HINGE_MAX_ROWS", "40000")

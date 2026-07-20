@@ -715,6 +715,22 @@ AXES: dict[str, tuple[Any, ...]] = {
     "shap_proxied_trust_guard_metric_cfg": ("proxy_fidelity_score", "spearman"),
     "shap_proxied_fidelity_floor_cfg": (0.5, 0.7),
     "shap_proxied_oof_shap_n_estimators_cfg": (100, None),
+    # 2026-07-20: ShapProxiedFS new-surface axes (gt_02/gt_09, added 2026-07-19).
+    # Gate: use_shap_proxied_fs=True (canonical_key collapses outside it).
+    # proxy_mode: source default "auto" (SNR-gated interaction rescue);
+    # "interaction" forces the tensor path (shap_proxied_fs/__init__.py:132).
+    "shap_proxied_proxy_mode_cfg": ("auto", "interaction"),
+    # residual_passes: gt_09 two-phase residual SHAP attribution, OPT-IN
+    # (source default 0). 1 activates the second pass (__init__.py:158).
+    "shap_proxied_residual_passes_cfg": (0, 1),
+    # residual_merge only matters once residual_passes>0 (canonical_key gate).
+    # Source default "rescue"; "blend" is the alternate merge strategy
+    # (_shap_proxied_fit_residual.py:57-58).
+    "shap_proxied_residual_merge_cfg": ("rescue", "blend"),
+    # refine_mode: gt_02 least-core/nucleolus LP allocation vs the legacy
+    # greedy parsimony_tol drop. Only fires inside within_cluster_refine
+    # (canonical_key gate). Source default "greedy" (__init__.py:210).
+    "shap_proxied_refine_mode_cfg": ("greedy", "core"),
     # 2026-05-28 audit-pass-2 PART A: 4 LOW-tier coverage-gap axes deferred
     # from coverage_agent W11C wave.
     # ensembling_degenerate_class_ratio: EnsemblingConfig.degenerate_class_ratio
@@ -1132,8 +1148,14 @@ AXES: dict[str, tuple[Any, ...]] = {
     # MRMR Wave 7 -- per-feature discretisation strategy. Source default
     # "mdlp" (Fayyad-Irani per-feature MDLP), alternative "quantile"
     # restores the pre-2026-05-29 fixed quantile binning behaviour.
-    # filters/mrmr.py:224.
-    "mrmr_nbins_strategy_cfg": ("mdlp", "quantile"),
+    # filters/mrmr.py:224. "mdlp_validated" added 2026-07-19 (commit
+    # 228be12f0): holdout-validated MDLP, same collapsed_fallback_nbins gate
+    # as "mdlp"/"fayyad_irani" (combo.py canonical_key). "optimal_joint"/"cv"
+    # (pre-existing, previously unfuzzed) are CV-based joint binning --
+    # "cv" is a pure alias resolving to "optimal_joint" internally
+    # (_adaptive_nbins.py:489-490); both hit the same collapsed-fallback
+    # gate as fayyad_irani (_adaptive_nbins.py:679).
+    "mrmr_nbins_strategy_cfg": ("mdlp", "quantile", "mdlp_validated", "optimal_joint", "cv"),
     # MRMR Wave 8 F13 -- Chao-Shen entropy bias correction. filters/mrmr.py:229.
     # 3 algorithmic branches; pair exercises default vs CS.
     "mrmr_mi_correction_cfg": ("none", "chao_shen"),

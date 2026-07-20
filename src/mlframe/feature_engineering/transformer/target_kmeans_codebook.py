@@ -48,12 +48,12 @@ def compute_target_kmeans_codebook_features(
         # Get baseline ŷ to augment X
         if task == "binary":
             m = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
-            y_hat_train = m.predict_proba(Xt_s)[:, 1].astype(np.float32)
-            y_hat_query = m.predict_proba(Xq_s)[:, 1].astype(np.float32)
+            y_hat_train = np.asarray(m.predict_proba(Xt_s))[:, 1].astype(np.float32)
+            y_hat_query = np.asarray(m.predict_proba(Xq_s))[:, 1].astype(np.float32)
         else:
             m = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
-            y_hat_train = m.predict(Xt_s).astype(np.float32)
-            y_hat_query = m.predict(Xq_s).astype(np.float32)
+            y_hat_train = np.asarray(m.predict(Xt_s)).astype(np.float32)
+            y_hat_query = np.asarray(m.predict(Xq_s)).astype(np.float32)
         # Joint [X, ŷ] space — ŷ gets weight = sqrt(d) to balance scale
         d = Xt_s.shape[1]
         weight = np.sqrt(d)

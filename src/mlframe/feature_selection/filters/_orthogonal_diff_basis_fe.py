@@ -70,6 +70,18 @@ __all__ = [
 ]
 
 
+def _coerce_y_int64(y) -> np.ndarray:
+    """Dense int64 class labels. Non-integer y is densified via
+    ``np.unique(return_inverse=...)`` rather than truncated with
+    ``.astype(int64)`` -- plain truncation merges distinct labels and destroys
+    continuous-y signal (everything in [0, 1) collapses to class 0)."""
+    arr = np.asarray(y).ravel()
+    if np.issubdtype(arr.dtype, np.integer):
+        return arr.astype(np.int64, copy=False)
+    _, inv = np.unique(arr, return_inverse=True)
+    return inv.astype(np.int64, copy=False)
+
+
 def _diff_col_name(col_a: str, col_b: str, basis: str, degree: int) -> str:
     """Stable engineered column name for a diff-basis column. The prefix
     ``diff_`` is used so the recipe parser can detect the kind directly
@@ -304,7 +316,7 @@ def generate_diff_basis_features(
     if not pairs_norm:
         return pd.DataFrame(index=X.index), {}
 
-    y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
+    y_arr = _coerce_y_int64(y)
     # ---- Step 2: raw baselines for every column touched by a pair.
     touched = sorted({c for pair in pairs_norm for c in pair})
     raw_mat = X[touched].to_numpy(dtype=np.float64, copy=False)

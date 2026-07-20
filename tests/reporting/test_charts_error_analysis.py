@@ -20,6 +20,7 @@ from mlframe.reporting.charts.error_analysis import (
     ErrorBiasResult,
     WeakSegmentResult,
     WorstKResult,
+    _resolve_feature_matrix,
     error_bias_per_feature,
     segments_bar,
     target_dist_overlay,
@@ -293,6 +294,33 @@ def test_worst_k_table_pruned_pull_matches_full_matrix():
         assert np.array_equal(res.table[names[j]].to_numpy(), mat[sel, j]), f"col {names[j]} diverged"
 
 
+def test_worst_k_table_list_valued_embedding_column_does_not_raise():
+    """A list-valued object column (e.g. an embedding column) must not crash worst_k_table.
+
+    ``_pull_columns_at_rows`` used to call ``arr.astype(str)`` on every non-numeric column unconditionally, which
+    raises ``ValueError: setting an array element with a sequence`` when the object column holds list/array
+    elements instead of scalars -- numpy can't broadcast a list into a fixed-width string array. Surfaced by
+    profiling/bug_hunt_fuzz_chains.py via render_split_error_diagnostics -> worst_k_table on a frame with a
+    materialized ``emb_0`` embedding column.
+    """
+    rng = np.random.default_rng(3)
+    n = 300
+    X = pd.DataFrame(
+        {
+            "f0": rng.standard_normal(n),
+            "emb_0": [list(rng.standard_normal(4)) for _ in range(n)],
+        }
+    )
+    yt = rng.standard_normal(n)
+    yp = yt + rng.standard_normal(n) * 0.4
+    fi = np.array([0.9, 0.1])
+
+    res = worst_k_table(X, yt, yp, task="regression", k=10, feature_importances=fi, top_fi=2)
+
+    assert "emb_0" in res.table.columns
+    assert res.table["emb_0"].isna().all()
+
+
 def test_error_bias_pruned_pull_matches_full_matrix():
     """Column-pruned pull (only ``max_features`` cols) is bit-identical to densifying the whole matrix.
 
@@ -524,6 +552,35 @@ def test_biz_val_target_dist_overlay_detects_train_test_shift():
     assert "train" in means and "test" in means
     detected = means["test"] - means["train"]
     assert detected >= 1.7, f"injected train/test shift {shift} should surface as >=1.7, got {detected}"
+
+
+def test_resolve_feature_matrix_drops_list_valued_embedding_column():
+    """A pandas object-dtype column holding list elements (e.g. a materialized embedding column) used to make
+    ``arr.astype(str)`` raise ``ValueError: setting an array element with a sequence`` -- numpy can't build a
+    fixed-width string array out of variable-length sequences. It's dropped instead of crashing.
+    """
+    n = 50
+    X = pd.DataFrame(
+        {
+            "num": np.arange(n, dtype=float),
+            "cat": np.array(["a", "b"] * (n // 2), dtype=object),
+            "emb": [[0.1, 0.2, 0.3]] * n,
+        }
+    )
+    mat, names = _resolve_feature_matrix(X, None)
+    assert names == ["num", "cat"]
+    assert mat.shape == (n, 2)
+    assert np.array_equal(mat[:, 0], np.arange(n, dtype=float))
+
+
+def test_weak_segment_heatmap_with_embedding_column_does_not_raise(reg_clean):
+    """weak_segment_heatmap end-to-end with a list-valued column present -- the real path that failed via
+    slice_finder/weak_segment_heatmap in the fuzz suite on any combo carrying an embedding feature.
+    """
+    X, yt, yp = reg_clean
+    X = X.copy()
+    X["emb"] = [[0.0, 1.0]] * len(X)
+    weak_segment_heatmap(X, yt, yp)
 
 
 # ----------------------------------------------------------------------------

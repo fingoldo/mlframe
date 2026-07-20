@@ -69,8 +69,10 @@ def smoothed_reliability_curve(
     s, t = s[finite], t[finite]
     if s.size < _SMOOTHED_MIN_ROWS:
         return None
-    classes = np.unique(t)
-    if classes.size < 2:
+    # min==max is the same "<2 distinct values" predicate np.unique(t).size<2 tests, O(n) two-reductions instead of a
+    # full sort -- this runs on the FULL row count (before the max_rows subsample below), so an unsorted-input caller
+    # with a large frame pays an O(n log n) sort just to answer a boolean.
+    if t.min() == t.max():
         return None
     smin, smax = float(s.min()), float(s.max())
     if not (smax > smin):
@@ -147,11 +149,18 @@ def bootstrap_reliability_band(
         for b in range(n_boot):
             counts = np.bincount(rank[idx[b]], minlength=n).astype(np.float64)
             m = counts > 0
-            # Same degenerate-resample skip as the fallback: <2 distinct scores (m.sum() counts distinct base rows drawn,
-            # each a distinct score) or a single-class label set has no monotone signal -> excluded from the band pool.
-            if int(m.sum()) < 2 or np.unique(ts[m]).size < 2:
+            mc = int(m.sum())
+            if mc < 2:
                 continue
-            fy = isotonic_regression(ts[m], sample_weight=counts[m], y_min=0.0, y_max=1.0, increasing=True)
+            tm = ts[m]  # gathered once, reused below -- was re-gathered a 2nd time via ts[m] in the isotonic_regression call
+            # "< 2 distinct values" via min==max is the same predicate np.unique(tm).size<2 tests, O(n) two-reductions
+            # vs np.unique's O(n log n) sort -- line_profiler showed this check alone at ~18% of the function's self
+            # time (150 resamples/call, called per bootstrap band). Same fix applied to the fallback branch below.
+            if tm.min() == tm.max():
+                continue
+            # Same degenerate-resample skip as the fallback: a single-class label set has no monotone signal ->
+            # excluded from the band pool.
+            fy = isotonic_regression(tm, sample_weight=counts[m], y_min=0.0, y_max=1.0, increasing=True)
             curves[n_valid] = np.interp(grid, xs[m], fy)
             n_valid += 1
     else:
@@ -164,7 +173,7 @@ def bootstrap_reliability_band(
             # rather than substituting the full-sample fit: substituting injected the (tight, true-curve) full-sample
             # fit into the percentile pool, which artificially NARROWED the band and made noise-level miscalibration
             # read as "significant". Dropping degenerate draws keeps the band honest (a refit per surviving resample).
-            if np.unique(tb).size < 2 or sb.max() <= sb.min():
+            if tb.min() == tb.max() or sb.max() <= sb.min():
                 continue
             iso.fit(sb, tb)
             curves[n_valid] = iso.predict(grid)

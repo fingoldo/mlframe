@@ -190,6 +190,26 @@ def test_dispatch_force_unavailable_falls_back_to_cpu(monkeypatch):
     assert backend == "njit"
 
 
+def test_dispatch_honors_mlframe_disable_gpu_even_with_gpu_available(monkeypatch):
+    """MLFRAME_DISABLE_GPU=1 must force the CPU path even when GPU is available AND explicitly force_backend'd (mrmr_audit_2026-07-20 B-1: previously gated purely on _CUDA_AVAIL/_CUPY_AVAIL, never consulting gpu_globally_disabled())."""
+    import mlframe.feature_selection.filters.batch_pair_mi_gpu as mod
+
+    monkeypatch.setattr(mod, "_CUDA_AVAIL", True)
+    monkeypatch.setattr(mod, "_CUPY_AVAIL", True)
+    monkeypatch.setenv("MLFRAME_DISABLE_GPU", "1")
+    data, nbins, y, freqs_y, pa, pb = _build_pair_inputs(500, [4, 4, 4, 4], 2, 1)
+    _mi, backend = mod.dispatch_batch_pair_mi(
+        data,
+        pa,
+        pb,
+        nbins,
+        y,
+        freqs_y,
+        force_backend="cuda",
+    )
+    assert backend == "njit", f"MLFRAME_DISABLE_GPU=1 was not honored: routed to {backend!r} despite GPU disabled and force_backend='cuda'"
+
+
 def test_bpmi_sweep_grid_floor_reaches_below_gpu_crossover():
     """The tuning grid must include n_samples cells below the GPU crossover (~85-100k on the laptop RTX 500 Ada). A floor at 200k extrapolates
     the lowest measured cell's choice down to n=0, mis-routing 50-75k-row calls to a GPU launch that is ~3x slower than the CPU prange kernel."""

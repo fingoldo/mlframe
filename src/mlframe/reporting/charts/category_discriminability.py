@@ -105,12 +105,34 @@ def _iter_categorical_columns(X: Any, features: Optional[Sequence[str]]):
     """
     import pandas as pd
 
+    def _is_categorical_like(col) -> bool:
+        dt = col.dtype
+        if isinstance(dt, pd.CategoricalDtype):
+            return True
+        if dt == object:
+            # An object column holding non-scalar elements (e.g. a materialized embedding column) can't be
+            # categorized -- ``s.astype("category")`` factorizes via hashing, and numpy arrays/lists aren't
+            # hashable, raising "TypeError: unhashable type: 'numpy.ndarray'". A single embedding vector isn't
+            # a meaningful category anyway, so treat such a column as non-categorical here.
+            return not any(isinstance(v, (list, tuple, np.ndarray)) for v in col)
+        # polars Series carry no pandas dtype object; string-ify the dtype instead of importing polars (X may be
+        # pandas-only in most callers -- an unconditional polars import here would be a needless hard dependency).
+        return str(dt) in ("Utf8", "String", "Categorical", "Enum", "Object")
+
     if features is not None:
-        cols = list(features)
+        # Caller-supplied ``features`` (e.g. the suite's full ranked feature_names list) is NOT pre-filtered to
+        # categorical-only -- apply the same _is_categorical_like check as the auto-detect branch so a numeric or
+        # embedding column in the list doesn't reach the unconditional astype("category") below (an embedding
+        # column's list/array elements aren't hashable and would crash the categorize).
+        cols = [c for c in features if c in X.columns and _is_categorical_like(X[c])]
     else:
-        cols = [c for c in X.columns if X[c].dtype == object or isinstance(X[c].dtype, pd.CategoricalDtype)]
+        cols = [c for c in X.columns if _is_categorical_like(X[c])]
     for col in cols:
         s = X[col]
+        # A polars column has no ``.astype``/``.cat`` accessor -- pull it to a pandas Series (narrow, single-column,
+        # never a whole-frame copy) before the pandas-only categorical-codes machinery below.
+        if hasattr(s, "to_pandas"):
+            s = s.to_pandas()
         cat = s if isinstance(s.dtype, pd.CategoricalDtype) else s.astype("category")
         labels = list(cat.cat.categories)
         if len(labels) < 1 or len(labels) > _MAX_CARDINALITY:
@@ -154,6 +176,13 @@ def category_discriminability_table(
     for name, codes, labels in _iter_categorical_columns(X, features):
         if row_idx is not None:
             codes = np.ascontiguousarray(codes[row_idx])
+        # X's row count can diverge from y's (an upstream caller-side mismatch, e.g. a coarse re-scoring pass
+        # handing the full-target X alongside a subset y) -- codes come straight from X and stay at X's row
+        # count when row_idx is None (small y, below _COUNT_SUBSAMPLE_CAP), so a length mismatch here used to
+        # reach ``codes[keep]``/``y_use[keep]`` as a raw boolean-index-shape ``IndexError`` instead of the clear
+        # guard the sibling diagnostics (class_structure_matrix / separability_panel) already raise.
+        if codes.shape[0] != y_use.shape[0]:
+            raise ValueError(f"category_discriminability_table: length mismatch X={codes.shape[0]} y={y_use.shape[0]}")
         n_levels = len(labels)
         woe, tot = level_woe(codes, y_use, n_levels, base_rate, alpha=alpha)
         keep = codes >= 0

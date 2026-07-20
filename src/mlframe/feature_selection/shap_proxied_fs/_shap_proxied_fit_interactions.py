@@ -270,6 +270,52 @@ def augment_candidates_with_interactions(
                 n_screened_cols=int(_su_screen_info.get("n_screened_cols", 0)),
                 n_pairs=int(_su_screen_info.get("n_pairs", 0)))
 
+    # proxy_mode="faith_interaction" (gt_01, OPT-IN): order-2 Faith-Shap surrogate ranking over the
+    # SAME additive proxy game, candidate-pair-restricted (never the full O(P^2) design -- see
+    # _shap_proxy_faith_interactions.py's module docstring for why that's rejected as underdetermined
+    # at typical post-prescreen widths). Reuses the su_synergy_screen candidate pairs resolved above
+    # (``_su_screen_enabled()`` fires for this mode too, so the screen runs at most once per fit).
+    # No-ops cleanly (screen kept nothing -> no candidate pairs -> block skipped) exactly like the
+    # su_seeded/auto paths.
+    if str(getattr(self, "proxy_mode", "additive")).lower() == "faith_interaction" and phi.shape[1] >= 2:
+        with _stage("faith_interaction"):
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_faith_interactions import faith_interaction_top_n
+
+            X_proxy_kept = X_proxy.iloc[:, list(proxy_cols_kept)]
+            name_to_phi_idx = {str(c): i for i, c in enumerate(X_proxy_kept.columns)}
+            candidate_pairs = [
+                (name_to_phi_idx[str(a)], name_to_phi_idx[str(b)]) for _s, a, b in _su_kept_pairs if str(a) in name_to_phi_idx and str(b) in name_to_phi_idx
+            ]
+            applied = False
+            n_added = 0
+            top_pairs: list = []
+            r2_of_fit = float("nan")
+            if candidate_pairs:
+                try:
+                    fcands, finfo = faith_interaction_top_n(
+                        phi, base, y_phi, classification=self.classification, metric=self.metric,
+                        candidate_pairs=candidate_pairs, min_card=self.min_features, max_card=self.max_features,
+                        top_n=self.top_n, n_coalitions=int(self.faith_n_coalitions),
+                        rng=np.random.default_rng(int(self.random_state) + 104729),
+                    )
+                    merged = {tuple(sorted(c)): lo for lo, c in candidates}
+                    for lo, c in fcands:
+                        key = tuple(sorted(c))
+                        if key not in merged or lo < merged[key]:
+                            merged[key] = lo
+                            n_added += 1
+                    candidates = sorted(((lo, c) for c, lo in merged.items()), key=lambda t: t[0])
+                    applied = True
+                    r2_of_fit = float(finfo.get("r2_of_fit", float("nan")))
+                    phi_idx_to_name = {i: str(c) for i, c in enumerate(X_proxy_kept.columns)}
+                    top_pairs = [(phi_idx_to_name.get(i, i), phi_idx_to_name.get(j, j)) for i, j in candidate_pairs[:10]]
+                except Exception as exc:  # numerically ill-conditioned design / unsupported metric -> additive fallback
+                    logger.warning("proxy_mode=faith_interaction fell back to additive: %s", exc)
+            report["faith_interaction"] = dict(
+                applied=applied, n_pairs=len(candidate_pairs), n_coalitions=int(self.faith_n_coalitions),
+                r2_of_fit=r2_of_fit, top_pairs=top_pairs, n_added=int(n_added),
+            )
+
     # proxy_mode_resolved (gt_08): surfaces which "auto" branch actually ran, since the mode's
     # whole point is that the SAME "auto" setting silently degrades to plain additive on
     # gate-silent data. Only meaningful when proxy_mode="auto" screened something; other modes

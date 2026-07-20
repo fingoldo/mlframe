@@ -106,6 +106,18 @@ _PRE_TRANSFORM_TAG = {
 _TAG_TO_PRE_TRANSFORM = {v: k for k, v in _PRE_TRANSFORM_TAG.items()}
 
 
+def _coerce_y_int64(y) -> np.ndarray:
+    """Dense int64 class labels. Non-integer y is densified via
+    ``np.unique(return_inverse=...)`` rather than truncated with
+    ``.astype(int64)`` -- plain truncation merges distinct labels and destroys
+    continuous-y signal (everything in [0, 1) collapses to class 0)."""
+    arr = np.asarray(y).ravel()
+    if np.issubdtype(arr.dtype, np.integer):
+        return arr.astype(np.int64, copy=False)
+    _, inv = np.unique(arr, return_inverse=True)
+    return inv.astype(np.int64, copy=False)
+
+
 def apply_pre_transform(x: np.ndarray, pre_transform: str) -> np.ndarray:
     """Public wrapper around the canonical recipe-side implementation so
     test code and fit-time code use the SAME function (no risk of drift
@@ -230,7 +242,7 @@ def generate_conditional_basis_routing_features(
     if not cols or not degrees or not candidate_bases or not transform_variants:
         return pd.DataFrame(index=X.index), {}
 
-    y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
+    y_arr = _coerce_y_int64(y)
 
     # ---- Step 1: raw baselines (one batch MI call across the chosen cols)
     from ._fe_usability_signal import _crit_np_dtype
@@ -550,11 +562,23 @@ def hybrid_orth_mi_conditional_routing_fe_with_recipes(
                 name,
             )
             continue
+        _src_name = str(row["source_col"])
+        _basis = str(row["basis"])
+        _degree = int(row["degree"])
+        _pre_transform = str(row["pre_transform"])
+        _pp = None
+        try:
+            _col_full = np.asarray(X[_src_name].to_numpy(), dtype=np.float64)
+            _col_full = apply_pre_transform(_col_full, _pre_transform)
+            _, _pp = _evaluate_basis_column(_col_full, _basis, _degree, return_params=True)
+        except Exception:
+            _pp = None
         recipes.append(build_orth_univariate_recipe(
             name=name,
-            src_name=str(row["source_col"]),
-            basis=str(row["basis"]),
-            degree=int(row["degree"]),
-            pre_transform=str(row["pre_transform"]),
+            src_name=_src_name,
+            basis=_basis,
+            degree=_degree,
+            pre_transform=_pre_transform,
+            preprocess_params=_pp,
         ))
     return X_aug, scores, recipes

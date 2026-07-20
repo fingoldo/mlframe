@@ -57,14 +57,14 @@ def compute_conformal_coverage_failure_features(
         # coverage indicator is honest. Including h1's in-sample preds (which the model has memorised) would understate miscoverage and leak the fit into the bank.
         if task == "binary":
             m = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s[h1], y_t[h1].astype(np.int32))
-            preds_h2 = m.predict_proba(Xt_s[h2])[:, 1].astype(np.float32)
+            preds_h2 = np.asarray(m.predict_proba(Xt_s[h2]))[:, 1].astype(np.float32)
             scores_h2 = np.abs(y_t[h2] - preds_h2)
-            preds_query = m.predict_proba(Xq_s)[:, 1].astype(np.float32)
+            preds_query = np.asarray(m.predict_proba(Xq_s))[:, 1].astype(np.float32)
         else:
             m = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s[h1], y_t[h1])
-            preds_h2 = m.predict(Xt_s[h2]).astype(np.float32)
+            preds_h2 = np.asarray(m.predict(Xt_s[h2])).astype(np.float32)
             scores_h2 = np.abs(y_t[h2] - preds_h2)
-            preds_query = m.predict(Xq_s).astype(np.float32)
+            preds_query = np.asarray(m.predict(Xq_s)).astype(np.float32)
         q = float(np.quantile(scores_h2, 1.0 - alpha))
         y_h2 = y_t[h2]
         Xt_s_h2 = Xt_s[h2]

@@ -195,7 +195,8 @@ def _apply_row_wise_extensions(df: Any, config: Optional[dict], verbose: int = 0
     if config.get("extreme_columns_enabled"):
         try:
             from mlframe.feature_engineering.row_wise_extremality import row_wise_top_k_extreme_columns
-            _k = int(config.get("extreme_columns_k") or 3)
+            _k_raw = config.get("extreme_columns_k")
+            _k = int(_k_raw) if _k_raw is not None else 3
             _out = row_wise_top_k_extreme_columns(df, columns=_cols, k=_k)
             assert isinstance(_out, pd.DataFrame)  # return_column_summary not passed -> always the plain-DataFrame overload
             _score_cols = [c for c in _out.columns if c.endswith("_score")]

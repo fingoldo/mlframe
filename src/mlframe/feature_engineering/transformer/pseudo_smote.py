@@ -85,12 +85,12 @@ def _fit_aux_lgb_and_filter(X_train: np.ndarray, y_train: np.ndarray, virtuals: 
     if task == "binary":
         model = lgb.LGBMClassifier(**params)
         model.fit(X_train, y_train)
-        proba = model.predict_proba(virtuals)[:, 1]
+        proba = np.asarray(model.predict_proba(virtuals))[:, 1]
         keep_mask = proba >= threshold
     else:
         model = lgb.LGBMRegressor(**params)
         model.fit(X_train, y_train)
-        pred = model.predict(virtuals)
+        pred = np.asarray(model.predict(virtuals))
         # For regression, keep virtuals predicted in top quintile (analogous to confidence threshold).
         pred_threshold = float(np.quantile(model.predict(X_train), 0.8))
         keep_mask = pred >= pred_threshold

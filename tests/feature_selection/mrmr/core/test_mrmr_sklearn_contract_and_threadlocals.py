@@ -113,3 +113,41 @@ def test_d3_default_fit_leaves_toggles_off_when_they_started_off(small_xy):
     assert get_bur_lambda() == 0.0
     assert use_jmim_aggregator() is False
     assert get_relaxmrmr_alpha() == 0.0
+
+
+def test_b3_fit_raising_on_invalid_redundancy_aggregator_does_not_leak_su_toggle(small_xy):
+    """mrmr_audit_2026-07-20 B-3 (P1): mi_normalization='su' activates the SU thread-local BEFORE the
+    redundancy_aggregator allow-list check runs. Pre-fix, an invalid redundancy_aggregator raised
+    ValueError from inside that window -- before the protective try/finally further down in fit() even
+    started -- so the SU thread-local stayed True forever on this thread, silently corrupting every
+    subsequent, unrelated fit (e.g. a later ``MRMR().fit(...)`` with default mi_normalization='none' would
+    silently score MI as Symmetric Uncertainty instead of raw MI). Post-fix the toggle is restored before
+    the exception propagates."""
+    X, y = small_xy
+    assert use_su_normalization() is False, "fixture invariant: SU must start off"
+    m = MRMR(mi_normalization="su", redundancy_aggregator="typo", fe_max_steps=0, max_runtime_mins=0.1)
+    with pytest.raises(ValueError, match="redundancy_aggregator"):
+        m.fit(X, y)
+    assert use_su_normalization() is False, "SU normalization thread-local leaked True after fit() raised mid-activation"
+
+
+def test_b3_fit_raising_on_groups_length_mismatch_does_not_leak_mi_toggles(small_xy):
+    """mrmr_audit_2026-07-20 B-3 (P1): a second, independent trigger for the same leak -- group_aware_mi=True
+    with a wrong-length groups array raises AFTER su/jmim/bur/miller-madow/chao-shen have ALL already been
+    activated (they are set earlier in the same fit()-entry block). Post-fix all five are restored before
+    the ValueError propagates."""
+    X, y = small_xy
+    assert use_su_normalization() is False, "fixture invariant: SU must start off"
+    assert use_jmim_aggregator() is False, "fixture invariant: JMIM must start off"
+    m = MRMR(
+        mi_normalization="su",
+        redundancy_aggregator="jmim",
+        group_aware_mi=True,
+        fe_max_steps=0,
+        max_runtime_mins=0.1,
+    )
+    wrong_length_groups = np.zeros(len(X) + 5, dtype=int)
+    with pytest.raises(ValueError, match="groups length"):
+        m.fit(X, y, groups=wrong_length_groups)
+    assert use_su_normalization() is False, "SU normalization thread-local leaked True after fit() raised mid-activation"
+    assert use_jmim_aggregator() is False, "JMIM aggregator thread-local leaked True after fit() raised mid-activation"

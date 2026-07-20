@@ -102,11 +102,11 @@ def compute_tree_path_boolean_features(
         if task == "binary":
             m = lgb.LGBMClassifier(n_estimators=20, max_depth=baseline_max_depth, learning_rate=0.1,
                                    random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
-            pred_q = m.predict_proba(Xq_s)[:, 1].astype(np.float32)
+            pred_q = np.asarray(m.predict_proba(Xq_s))[:, 1].astype(np.float32)
         else:
             m = lgb.LGBMRegressor(n_estimators=20, max_depth=baseline_max_depth, learning_rate=0.1,
                                   random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
-            pred_q = m.predict(Xq_s).astype(np.float32)
+            pred_q = np.asarray(m.predict(Xq_s)).astype(np.float32)
         try:
             paths = _extract_top_paths(m.booster_, Xt_s, top_k=n_paths)
         except Exception:

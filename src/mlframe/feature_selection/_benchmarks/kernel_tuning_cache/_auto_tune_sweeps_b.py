@@ -13,7 +13,7 @@ from __future__ import annotations
 import itertools
 import logging
 import time
-from typing import Optional
+from typing import Optional, cast
 
 import numpy as np
 
@@ -141,7 +141,7 @@ def _run_sweep_cat_fe_perm_kernel(n_iters: int = 3) -> list[dict]:
         "n_perms_max": None,
         "crossover_n": int(perm_crossover.get(largest_perms, 10**12)),
     })
-    return regions
+    return cast("list[dict]", regions)
 def ensure_cat_fe_perm_kernel_tuning(force: bool = False) -> Optional[list[dict]]:
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
@@ -153,7 +153,7 @@ def ensure_cat_fe_perm_kernel_tuning(force: bool = False) -> Optional[list[dict]
     if not force:
         regions = cache.get_regions("cat_fe_perm_kernel")
         if regions:
-            return regions
+            return cast("list[dict]", regions)
     logger.info("kernel_tuning_cache: cat_fe_perm_kernel sweep starting")
     t0 = time.perf_counter()
     try:
@@ -172,7 +172,7 @@ def ensure_cat_fe_perm_kernel_tuning(force: bool = False) -> Optional[list[dict]
             logger.warning(
                 "kernel_tuning_cache: cat_fe_perm_kernel save failed: %s", e,
             )
-    return regions
+    return cast("list[dict]", regions)
 def _run_sweep_rmse_partial_sum(n_iters: int = 5) -> list[dict]:
     """Sweep BLOCK_N in {64, 128, 256, 512, 1024} for the numba.cuda RMSE
     partial-sum kernel. Returns regions of the form
@@ -263,7 +263,7 @@ def _run_sweep_rmse_partial_sum(n_iters: int = 5) -> list[dict]:
         "block_n": largest["block_n"],
         "wall_ms": None,
     })
-    return regions
+    return cast("list[dict]", regions)
 def ensure_rmse_partial_sum_tuning(force: bool = False) -> Optional[list[dict]]:
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
@@ -275,7 +275,7 @@ def ensure_rmse_partial_sum_tuning(force: bool = False) -> Optional[list[dict]]:
     if not force:
         regions = cache.get_regions("rmse_partial_sum")
         if regions:
-            return regions
+            return cast("list[dict]", regions)
     logger.info("kernel_tuning_cache: rmse_partial_sum sweep starting")
     t0 = time.perf_counter()
     try:
@@ -294,7 +294,7 @@ def ensure_rmse_partial_sum_tuning(force: bool = False) -> Optional[list[dict]]:
             logger.warning(
                 "kernel_tuning_cache: rmse_partial_sum save failed: %s", e,
             )
-    return regions
+    return cast("list[dict]", regions)
 def _run_sweep_unary_elementwise(n_iters: int = 5) -> list[dict]:
     """Find ``min_cells``: smallest n_samples at which cupy elementwise
     (sqrt / log1p / abs) beats numpy. Source default 500_000.
@@ -374,7 +374,7 @@ def ensure_unary_elementwise_tuning(force: bool = False) -> Optional[list[dict]]
     if not force:
         regions = cache.get_regions("unary_elementwise")
         if regions:
-            return regions
+            return cast("list[dict]", regions)
     logger.info("kernel_tuning_cache: unary_elementwise sweep starting")
     t0 = time.perf_counter()
     try:
@@ -393,7 +393,7 @@ def ensure_unary_elementwise_tuning(force: bool = False) -> Optional[list[dict]]
             logger.warning(
                 "kernel_tuning_cache: unary_elementwise save failed: %s", e,
             )
-    return regions
+    return cast("list[dict]", regions)
 def _run_sweep_rff_matmul(n_iters: int = 3) -> list[dict]:
     """Find ``work_threshold``: smallest ``work = n * d * n_features`` at
     which the cupy matmul path beats numpy for RFF. Source default
@@ -481,7 +481,7 @@ def ensure_rff_matmul_tuning(force: bool = False) -> Optional[list[dict]]:
     if not force:
         regions = cache.get_regions("rff_matmul")
         if regions:
-            return regions
+            return cast("list[dict]", regions)
     logger.info("kernel_tuning_cache: rff_matmul sweep starting")
     t0 = time.perf_counter()
     try:
@@ -498,7 +498,7 @@ def ensure_rff_matmul_tuning(force: bool = False) -> Optional[list[dict]]:
             cache.update("rff_matmul", axes=["work"], regions=regions)
         except OSError as e:
             logger.warning("kernel_tuning_cache: rff_matmul save failed: %s", e)
-    return regions
+    return cast("list[dict]", regions)
 def _run_sweep_knn_hnsw_crossover(n_iters: int = 3) -> list[dict]:
     """Find ``n_threshold``: smallest ``n_subset`` at which hnswlib ANN
     beats sklearn brute/ball_tree kNN for a given d. Requires hnswlib
@@ -588,7 +588,7 @@ def _run_sweep_knn_hnsw_crossover(n_iters: int = 3) -> list[dict]:
         "d_max": None,
         "n_threshold": int(crossover_per_d.get(largest_d, 10**9)),
     })
-    return regions
+    return cast("list[dict]", regions)
 def ensure_knn_hnsw_crossover_tuning(force: bool = False) -> Optional[list[dict]]:
     """Return cached regions for ``knn_hnsw_crossover``. CPU-only sweep
     (no CUDA gate); requires the ``hnswlib`` package. When hnswlib is
@@ -615,7 +615,7 @@ def ensure_knn_hnsw_crossover_tuning(force: bool = False) -> Optional[list[dict]
     if not force:
         regions = cache.get_regions("knn_hnsw_crossover")
         if regions:
-            return regions
+            return cast("list[dict]", regions)
     logger.info("kernel_tuning_cache: knn_hnsw_crossover sweep starting")
     t0 = time.perf_counter()
     try:
@@ -636,7 +636,7 @@ def ensure_knn_hnsw_crossover_tuning(force: bool = False) -> Optional[list[dict]
             logger.warning(
                 "kernel_tuning_cache: knn_hnsw_crossover save failed: %s", e,
             )
-    return regions
+    return cast("list[dict]", regions)
 def _run_sweep_discretize_2d_array(n_iters: int = 3) -> list[dict]:
     """Find ``min_cells``: smallest ``arr_size = n_rows * n_cols`` at
     which ``discretize_2d_array_cuda`` beats the CPU njit equivalent.
@@ -736,7 +736,7 @@ def ensure_discretize_2d_array_tuning(force: bool = False) -> Optional[list[dict
     if not force:
         regions = cache.get_regions("discretize_2d_array")
         if regions:
-            return regions
+            return cast("list[dict]", regions)
     logger.info("kernel_tuning_cache: discretize_2d_array sweep starting")
     t0 = time.perf_counter()
     try:
@@ -757,7 +757,7 @@ def ensure_discretize_2d_array_tuning(force: bool = False) -> Optional[list[dict
             logger.warning(
                 "kernel_tuning_cache: discretize_2d_array save failed: %s", e,
             )
-    return regions
+    return cast("list[dict]", regions)
 
 
 def _run_sweep_fe_mi_split(n_iters: int = 3) -> list[dict]:
@@ -826,7 +826,7 @@ def _run_sweep_fe_mi_split(n_iters: int = 3) -> list[dict]:
                 "single_ms": c["single_ms"], "split_ms": c["split_ms"]} for (n, k), c in sorted(best.items())]
     largest = best[max(best.keys(), key=lambda kv: (kv[0], kv[1]))]
     regions.append({"n_samples_max": None, "k_max": None, "backend_choice": largest["backend_choice"], "single_ms": None, "split_ms": None})
-    return regions
+    return cast("list[dict]", regions)
 
 
 def ensure_fe_mi_split_tuning(force: bool = False) -> Optional[list[dict]]:
@@ -838,7 +838,7 @@ def ensure_fe_mi_split_tuning(force: bool = False) -> Optional[list[dict]]:
     if not force:
         regions = cache.get_regions("fe_mi_split_launch")
         if regions:
-            return regions
+            return cast("list[dict]", regions)
     logger.info("kernel_tuning_cache: fe_mi_split_launch sweep starting (one-time per host)")
     t0 = time.perf_counter()
     try:
@@ -852,7 +852,7 @@ def ensure_fe_mi_split_tuning(force: bool = False) -> Optional[list[dict]]:
             cache.update("fe_mi_split_launch", axes=["n_samples", "k"], regions=regions)
         except OSError as e:
             logger.warning("kernel_tuning_cache: fe_mi_split save failed: %s", e)
-    return regions
+    return cast("list[dict]", regions)
 
 
 # Register rmse_partial_sum (CUDA block-size tuning) with the unified registry --

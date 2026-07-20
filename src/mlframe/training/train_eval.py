@@ -495,11 +495,11 @@ def process_model(
                 if _model_cls_name.startswith("CatBoost") and not getattr(model_obj, "_mlframe_polars_fastpath_broken", False):
                     try:
                         model_obj._mlframe_polars_fastpath_broken = True
-                    except Exception:  # nosec B110 - non-trivial body
+                    except Exception as _e_flag:  # nosec B110 - non-trivial body
                         # CB Python class is permissive about attributes,
                         # but slot-restricted forks could refuse -- degrade
                         # to "pay one extra retry" rather than fail.
-                        pass
+                        logger.debug("Could not set _mlframe_polars_fastpath_broken on %s (%s); will pay the retry each call", _model_cls_name, _e_flag)
     if not use_cached_model:
         if "model" not in model_params:
             raise KeyError(f"'model' key missing in model_params. Available keys: {list(model_params.keys())}")

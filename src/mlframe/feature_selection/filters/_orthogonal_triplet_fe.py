@@ -66,6 +66,18 @@ __all__ = [
 ]
 
 
+def _coerce_y_int64(y) -> np.ndarray:
+    """Dense int64 class labels. Non-integer y is densified via
+    ``np.unique(return_inverse=...)`` rather than truncated with
+    ``.astype(int64)`` -- plain truncation merges distinct labels and destroys
+    continuous-y signal (everything in [0, 1) collapses to class 0)."""
+    arr = np.asarray(y).ravel()
+    if np.issubdtype(arr.dtype, np.integer):
+        return arr.astype(np.int64, copy=False)
+    _, inv = np.unique(arr, return_inverse=True)
+    return inv.astype(np.int64, copy=False)
+
+
 def _triplet_eng_col_name(
     col_i: str, col_j: str, col_k: str,
     basis: str, deg_a: int, deg_b: int, deg_c: int,
@@ -143,9 +155,14 @@ def generate_triplet_cross_basis_features(
         _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); matches the GPU device
         # builder's operand dtype (_gpu_resident_cross_basis.py) so host and device run the polynomial
         # recurrence at the SAME precision -- see build_leg_product_matrix_gpu's docstring.
-        x_i = np.asarray(X[col_i].to_numpy(), dtype=_dt)
-        x_j = np.asarray(X[col_j].to_numpy(), dtype=_dt)
-        x_k = np.asarray(X[col_k].to_numpy(), dtype=_dt)
+        # np.array (copy=True): X[col].to_numpy() can alias the DataFrame's backing block -- e.g. a
+        # zero-copy Arrow-backed view or a frozen MRMR-fit-cache array reused via fe_append_columns from
+        # an earlier stage -- and the np.copyto NaN-fill below would then either mutate the CALLER's X or
+        # raise "assignment destination is read-only" on a genuinely read-only block. A fresh copy (matching
+        # the sibling pair-cross / GPU-resident generators' established pattern) keeps the fill local and safe.
+        x_i = np.array(X[col_i].to_numpy(), dtype=_dt)
+        x_j = np.array(X[col_j].to_numpy(), dtype=_dt)
+        x_k = np.array(X[col_k].to_numpy(), dtype=_dt)
         for x in (x_i, x_j, x_k):
             finite_mask = np.isfinite(x)
             if not finite_mask.all():
@@ -261,7 +278,7 @@ def score_triplet_cross_basis_by_mi_uplift(
     """
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
-    y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
+    y_arr = _coerce_y_int64(y)
     raw_cols = list(raw_X.columns)
     if engineered_X.empty:
         return pd.DataFrame(columns=_TRIPLET_SCORE_EMPTY_COLS)
@@ -439,7 +456,7 @@ def hybrid_orth_mi_triplet_fe(
                 _baseline_map = uni_scores.groupby("source_col")["baseline_mi"].first().to_dict()
             _missing = [c for c in raw_cols_all if c not in _baseline_map]
             if _missing:
-                y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
+                y_arr = _coerce_y_int64(y)
                 from ._fe_usability_signal import _crit_np_dtype
                 _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
                 # Fit-scoped memo: no-op passthrough outside an active orth_scoring_memo_scope(); inside a
@@ -665,8 +682,8 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
             try:
                 _x_u = X[src].to_numpy(dtype=np.float64)  # value-construction: always float64, see above
                 _, _pp_u = _evaluate_basis_column(_x_u, chosen_basis, chosen_degree, return_params=True)
-            except Exception:  # nosec B110 - optional dependency import guard
-                pass
+            except Exception as e:  # nosec B110 - optional dependency import guard
+                logger.debug("Could not freeze fit-time basis-preprocess params for %r (%s: %s); recipe replays without them", src, type(e).__name__, e)
             recipes.append(build_orth_univariate_recipe(
                 name=name, src_name=src,
                 basis=chosen_basis, degree=chosen_degree,

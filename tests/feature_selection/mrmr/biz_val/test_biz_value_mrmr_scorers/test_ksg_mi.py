@@ -480,3 +480,77 @@ class TestRecipeReplay:
             assert np.allclose(
                 replayed, fit_time, rtol=1e-9, atol=1e-12
             ), f"seed={seed}: recipe {r.name!r} replay drift: max|replayed - fit| = {float(np.max(np.abs(replayed - fit_time)))}; extra={dict(r.extra)}"
+
+    def test_recipe_freezes_preprocess_params_slice_replay_matches_fit(self):
+        """mrmr_audit_2026-07-20 B-17: replaying on the SAME full fit frame (the test above) can pass
+        even with a bug that refits the basis preprocess at replay time, because the refit-on-full-X
+        reproduces the fit-time params by coincidence. This test replays on a SMALL SLICE with a
+        materially different mean/std than the full fit frame -- pre-fix (preprocess_params never
+        threaded into build_orth_univariate_recipe), the slice's own mean/std would get refit at
+        replay time and the engineered value would drift from the fit-time value; post-fix the frozen
+        fit-time preprocess params must be present in the recipe and the slice replay must match
+        fit-time exactly."""
+        _, _, hybrid_with_recipes = _import_ksg_fe()
+        from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
+        rng = np.random.default_rng(0)
+        n = 600
+        x1 = rng.standard_normal(n) * 3 + 10  # mean=10, std=3 -- a small head slice will differ materially
+        cols = {"x1": x1}
+        for k in range(4):
+            cols[f"noise_{k}"] = rng.standard_normal(n)
+        X = pd.DataFrame(cols)
+        he3 = x1**3 - 3.0 * x1
+        y = he3 + 0.4 * rng.standard_normal(n)
+
+        X_aug, _scores, recipes = hybrid_with_recipes(
+            X, y.astype(np.float64), degrees=(2, 3), basis="hermite",
+            top_k=3, min_uplift=0.5, min_abs_mi_frac=0.0, n_neighbors=3, random_state=0,
+        )
+        if not recipes:
+            pytest.fail("KSG hybrid emitted no recipes on a clean He_3 fixture; cannot exercise the slice-replay contract.")
+
+        for r in recipes:
+            assert "preprocess_params" in r.extra and r.extra["preprocess_params"] is not None, (
+                f"recipe {r.name!r} is missing frozen preprocess_params -- B-17 regression "
+                f"(replay would silently refit the basis preprocess from the transform-time slice)."
+            )
+            X_slice = X.iloc[:50].copy()
+            fit_time_vals = X_aug[r.name].to_numpy()[:50]
+            replayed_vals = apply_recipe(r, X_slice)
+            assert np.allclose(replayed_vals, fit_time_vals, rtol=1e-9, atol=1e-12), (
+                f"recipe {r.name!r}: slice replay diverged from fit-time values "
+                f"(max abs diff={float(np.max(np.abs(replayed_vals - fit_time_vals)))}) -- "
+                f"the frozen preprocess_params are not being honoured at replay time."
+            )
+
+
+# ---------------------------------------------------------------------------
+# Contract 8: fractional-label discrete y is densified, not truncated (B-18)
+# ---------------------------------------------------------------------------
+
+
+class TestFractionalDiscreteLabelDensified:
+    """mrmr_audit_2026-07-20 B-18: a low-cardinality FLOAT target (e.g. class labels
+    encoded as 0.1/0.2/0.3) must be densified via ``np.unique(return_inverse=...)``
+    before being routed to ``mutual_info_classif``. Pre-fix, ``.astype(int64)``
+    truncated every fractional label to 0, collapsing 3 real classes into 1 and
+    destroying essentially all the MI signal."""
+
+    def test_fractional_labels_preserve_mi_signal(self):
+        """3 well-separated classes encoded as fractional labels must retain KSG MI signal."""
+        from mlframe.feature_selection.filters._orthogonal_ksg_mi_fe import _ksg_mi_batch
+
+        rng = np.random.default_rng(0)
+        n = 900
+        # 3 balanced classes with well-separated per-class means -- strong signal.
+        labels_int = rng.integers(0, 3, size=n)
+        x = labels_int.astype(np.float64) * 5.0 + rng.standard_normal(n) * 0.3
+        # Fractional class encoding: 0.1 / 0.2 / 0.3 -- pre-fix all truncate to class 0.
+        y_frac = (labels_int.astype(np.float64) + 1.0) / 10.0
+
+        mi = _ksg_mi_batch(x.reshape(-1, 1), y_frac, n_neighbors=3, random_state=0)
+        assert mi[0] > 0.5, (
+            f"KSG MI on well-separated 3-class fractional-label signal collapsed to "
+            f"{mi[0]:.4f}; B-18 regression (label truncation merged all classes into 0)."
+        )

@@ -551,8 +551,11 @@ def train_and_evaluate_model(
                             try:
                                 if "early_stopping_rounds" in model_obj.get_params():
                                     model_obj.set_params(early_stopping_rounds=None)
-                            except Exception:  # nosec B110 - non-trivial body
-                                pass  # not every estimator exposes set_params for this key
+                            except Exception as _e_strip_es:  # nosec B110 - non-trivial body
+                                logger.debug(
+                                    "%s does not expose set_params for early_stopping_rounds (%s); native ES stays wired alongside slice ES",
+                                    model_type_name, _e_strip_es,
+                                )
                 except Exception as _slice_err:
                     logger.warning(
                         "slice-stable ES wiring failed for %s (%s); falling back to single-val path",

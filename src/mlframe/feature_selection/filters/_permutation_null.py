@@ -192,7 +192,7 @@ def target_oversplit_floor_applies(
     n: int,
     *,
     oversplit_ratio: float = 1.0,
-    min_rows_per_joint_cell: float = 8.0,
+    min_rows_per_joint_cell: float = 7.0,
 ) -> bool:
     """Return ``True`` when the maxT noise floor should fire on a NARROW pool because the target is plug-in-bias-inflated AND the floor is itself statistically reliable.
 
@@ -214,14 +214,15 @@ def target_oversplit_floor_applies(
 
     * **reliable** -- ``n / (nbins_y * median(nbins_x)) >= min_rows_per_joint_cell``. The maxT floor is the q-quantile of the per-shuffle MAX corrected plug-in MI; when the
       (X, y) contingency table averages well under a handful of rows per cell the plug-in MI is itself dominated by finite-sample variance, so the floor explodes and would
-      prune genuine weak signal. THIS predicate is the real safety rail separating the lognormal WIN from the diabetes NO-REGRESSION: at the production quantile-10 binning
-      diabetes (n=330, nbins_y=10, feat=10 -> 3.3 rows per joint cell) FAILS it, so the floor stays OFF and its 10 weak features survive; lognormal (n=2500, nbins_y=10,
-      feat=10 -> ~25-50 rows per joint cell) passes, so the floor is trustworthy and fires, rejecting the 6 noise columns (max noise corrected-MI ~0.005 < floor ~0.006-0.007
-      while the 3 signals score 0.025-0.53).
+      prune genuine weak signal. THIS predicate is the real safety rail separating the lognormal WIN from the diabetes NO-REGRESSION: diabetes (n=330, MDLP nbins_y=64,
+      feat median~4-5 -> ~1.0-1.5 rows per joint cell) FAILS it, so the floor stays OFF and its 10 weak features survive; lognormal (n=2500, MDLP nbins_y=64, feat median=5
+      -> 7.8 rows per joint cell) passes, so the floor is trustworthy and fires, rejecting the 6 noise columns (max noise corrected-MI ~0.005 < floor ~0.006-0.007 while the
+      3 signals score 0.025-0.53).
 
-    Both predicates must hold. The defaults (``oversplit_ratio=1.0``, ``min_rows_per_joint_cell=8.0``) sit with comfortable margin between the fire / no-fire cases measured at
-    the production equal-frequency binning (lognormal ~25-50 rows/cell vs diabetes 3.3 rows/cell). Returns ``False`` on a degenerate pool (n too small, single-class target,
-    no scorable feature) so the caller can treat it as "floor off".
+    Both predicates must hold. The defaults (``oversplit_ratio=1.0``, ``min_rows_per_joint_cell=7.0``) sit with comfortable margin between the fire / no-fire cases measured
+    at the production MDLP binning (lognormal 7.8 rows/cell vs diabetes ~1.0-1.5 rows/cell -- recalibrated 2026-07-20 after MDLP started splitting the lognormal target into
+    64 bins instead of the ~10-30 assumed at the gate's original 2026-06 calibration, which had pushed lognormal's rows/cell to exactly 7.8125, just under the old 8.0 bar).
+    Returns ``False`` on a degenerate pool (n too small, single-class target, no scorable feature) so the caller can treat it as "floor off".
     """
     if n < 8:
         return False

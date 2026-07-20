@@ -73,14 +73,14 @@ def compute_trust_score_oof_features(
         if task == "binary":
             m = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
                                    random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
-            preds = m.predict_proba(Xt_s)[:, 1]
+            preds = np.asarray(m.predict_proba(Xt_s))[:, 1]
             pred_class = (preds > 0.5).astype(np.float32)
             correct_mask = pred_class == y_t
             pos_correct = correct_mask & (y_t > 0.5)
             neg_correct = correct_mask & (y_t <= 0.5)
         else:
             m = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
-            preds = m.predict(Xt_s).astype(np.float32)
+            preds = np.asarray(m.predict(Xt_s)).astype(np.float32)
             abs_resid = np.abs(y_t - preds)
             mad = float(np.median(abs_resid)) + 1e-6
             correct_mask = abs_resid < mad

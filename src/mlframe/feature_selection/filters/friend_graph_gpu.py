@@ -708,6 +708,14 @@ def dispatch_friend_graph_stats(
     if k < 2 or n == 0:
         return None
 
+    from ._gpu_policy import gpu_globally_disabled
+
+    if gpu_globally_disabled():
+        # MLFRAME_DISABLE_GPU=1 / CUDA_VISIBLE_DEVICES="" must win even over an explicit
+        # force_backend="cuda"/"cupy" caller request -- same absolute override as every other
+        # GPU dispatch site in this package (see _gpu_policy.py's module docstring).
+        return None
+
     # ABSOLUTE cushion guard (2026-07-05): on a near-full / SHARED card return None so the caller runs its CPU
     # edge pass, BEFORE the per-tile relative ``free_b * 0.35`` budget inside the cupy backend. The dominant
     # device buffer is the (rows, n) pair-index array; estimate one pair-row as the cushion's bytes_needed.

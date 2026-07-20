@@ -595,6 +595,7 @@ def hybrid_orth_mi_tc_fe_with_recipes(
     selection) differs.
     """
     from .engineered_recipes import build_orth_univariate_recipe
+    from ._orthogonal_univariate_fe import _evaluate_basis_column
 
     X_aug, scores = hybrid_orth_mi_tc_fe(
         X, y,
@@ -628,8 +629,15 @@ def hybrid_orth_mi_tc_fe_with_recipes(
                 name,
             )
             continue
+        _pp = None
+        try:
+            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
+            _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
+        except Exception:
+            _pp = None
         recipes.append(build_orth_univariate_recipe(
             name=name, src_name=src,
             basis=chosen_basis, degree=chosen_degree,
+            preprocess_params=_pp,
         ))
     return X_aug, scores, recipes

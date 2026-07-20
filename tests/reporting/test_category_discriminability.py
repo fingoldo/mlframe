@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from mlframe.reporting.charts.category_discriminability import (
     category_discriminability_panel,
@@ -176,3 +177,86 @@ def test_biz_val_pure_noise_stays_below_floor():
     rows = category_discriminability_table(X, y, top_k=10, min_support=30)
     assert rows, "noise levels still have >= min_support support, so rows are returned"
     assert all(abs(woe) < 0.2 for _feat, _lbl, woe, _sup, _p in rows)
+
+
+def test_polars_frame_with_explicit_features_does_not_raise():
+    """A polars ``X`` used to raise ``AttributeError: 'Series' object has no attribute 'astype'`` -- polars Series
+    have no pandas ``.astype``/``.cat`` accessor. Surfaced by profile_fuzz_chains.py on a binary_classification
+    combo with ``input=polars_nullable``, where the diagnostics dispatcher passes an explicit ``features`` list
+    (the auto-detect dtype-sniff branch is bypassed entirely in that call path).
+    """
+    import polars as pl
+
+    rng = np.random.default_rng(42)
+    n = 2000
+    col = rng.choice(["A", "B", "C", "D"], size=n)
+    rates = {"A": 0.95, "B": 0.5, "C": 0.5, "D": 0.5}
+    y = (rng.random(n) < np.array([rates[c] for c in col])).astype(int)
+    X = pl.DataFrame({"f": col})
+
+    rows = category_discriminability_table(X, y, features=["f"], top_k=10, min_support=30)
+    assert rows
+    _top_feat, top_lbl, _top_woe, _sup, top_p = rows[0]
+    assert top_lbl == "A"
+    assert top_p > 0.9
+
+
+def test_polars_frame_auto_detect_finds_categorical_columns():
+    """The auto-detect (``features=None``) branch must also recognise polars string/categorical dtypes, not just
+    pandas ``object``/``CategoricalDtype`` -- comparing a polars dtype against pandas' ``object`` is always False,
+    which silently found zero categorical columns for a polars frame before this fix.
+    """
+    import polars as pl
+
+    rng = np.random.default_rng(1)
+    n = 2000
+    col = rng.choice(["x", "y", "z"], size=n)
+    y = rng.integers(0, 2, size=n)
+    X = pl.DataFrame({"f": col, "num": rng.random(n)})
+
+    rows = category_discriminability_table(X, y, top_k=10, min_support=30)
+    assert rows
+    assert all(feat == "f" for feat, *_ in rows)
+
+
+def test_length_mismatch_raises_clean_error_not_index_error():
+    """A y shorter than X (an upstream caller-side mismatch, e.g. a coarse re-scoring pass handing the full-
+    target X alongside a subset y) used to reach ``codes[keep]``/``y_use[keep]`` as a raw
+    ``IndexError: boolean index did not match indexed array`` instead of the clear length-mismatch guard the
+    sibling diagnostics (class_structure_matrix / separability_panel) already raise. Below
+    ``_COUNT_SUBSAMPLE_CAP`` row_idx stays None so codes never gets subsampled to match a shorter y.
+    """
+    rng = np.random.default_rng(0)
+    n_x, n_y = 450, 45
+    X = pd.DataFrame({"f": rng.choice(["a", "b", "c"], size=n_x)})
+    y = rng.integers(0, 2, size=n_y)
+
+    with pytest.raises(ValueError, match="length mismatch"):
+        category_discriminability_table(X, y, top_k=10, min_support=5)
+
+
+def test_list_valued_embedding_column_does_not_raise():
+    """A list-valued object column (e.g. a materialized embedding column) in an explicit ``features`` list must
+    not crash the table build.
+
+    ``_iter_categorical_columns``'s explicit-``features`` branch used to skip the ``_is_categorical_like`` dtype
+    check entirely (only the auto-detect branch applied it), so an embedding column reached the unconditional
+    ``s.astype("category")`` -- pandas factorizes via hashing, and numpy arrays/lists aren't hashable, raising
+    ``TypeError: unhashable type: 'numpy.ndarray'``. Surfaced by profiling/bug_hunt_fuzz_chains.py via
+    render_category_discriminability_diagnostic, which always passes the suite's full ranked feature_names list.
+    """
+    rng = np.random.default_rng(5)
+    n = 300
+    X = pd.DataFrame(
+        {
+            "cat_0": rng.choice(["a", "b", "c"], size=n),
+            "num_0": rng.standard_normal(n),
+            "emb_0": [list(rng.standard_normal(4)) for _ in range(n)],
+        }
+    )
+    y = rng.integers(0, 2, size=n)
+
+    rows = category_discriminability_table(X, y, features=list(X.columns), top_k=10, min_support=5)
+
+    feats = {feat for feat, *_ in rows}
+    assert feats == {"cat_0"}, "the embedding/numeric columns must be filtered out, not crash or leak through"

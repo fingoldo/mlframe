@@ -10,6 +10,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+import pytest
+
 from mlframe.reporting.charts.engineered_separability import (
     compose_separability_figure,
     separability_panel,
@@ -70,6 +72,19 @@ def test_panel_subsamples_and_labels():
     assert panel.x.shape[0] == 5000 and panel.y.shape[0] == 5000
     assert "Fisher J=" in panel.title
     assert panel.xlabel == "a" and panel.ylabel == "b"
+
+
+def test_panel_raises_clean_error_on_x_y_length_mismatch():
+    """A ``y`` shorter than ``X`` (e.g. an ensembling COARSE-gate rescoring call that passes the full-frame X
+    alongside a subset y) used to hit ``rng.choice(n, ...)`` sampling indices up to ``len(X)-1`` then index ``yv``
+    (length ``len(y)``) with them, raising a bare ``IndexError`` deep inside numpy fancy indexing. It now raises a
+    clear ``ValueError`` at the function boundary instead.
+    """
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame({"a": rng.random(2000), "b": rng.random(2000)})
+    y = rng.integers(0, 2, size=1800).astype(float)
+    with pytest.raises(ValueError, match="length mismatch"):
+        separability_panel(X, y, ["a", "b"], sample=200, seed=0)
 
 
 def test_compose_picks_top2_by_importance():

@@ -108,8 +108,8 @@ def compute_fisher_weighted_residual_features(
         if task == "binary":
             model = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
                                        random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
-            p_train = model.predict_proba(Xt_s)[:, 1].astype(np.float32)
-            p_query = model.predict_proba(Xq_s)[:, 1].astype(np.float32)
+            p_train = np.asarray(model.predict_proba(Xt_s))[:, 1].astype(np.float32)
+            p_query = np.asarray(model.predict_proba(Xq_s))[:, 1].astype(np.float32)
             is_binary = True
             # Residual proxy: -log p(y|x) per train row.
             p_train_c = np.clip(p_train, 1e-6, 1 - 1e-6)
@@ -119,8 +119,8 @@ def compute_fisher_weighted_residual_features(
             resid_query = (-p_query_c * np.log(p_query_c) - (1 - p_query_c) * np.log(1 - p_query_c)).astype(np.float32)
         else:
             model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
-            p_train = model.predict(Xt_s).astype(np.float32)
-            p_query = model.predict(Xq_s).astype(np.float32)
+            p_train = np.asarray(model.predict(Xt_s)).astype(np.float32)
+            p_query = np.asarray(model.predict(Xq_s)).astype(np.float32)
             is_binary = False
             resid_train = np.abs(y_t - p_train).astype(np.float32)
             # Query residual proxy: prediction variance proxy = |p_query - train_y_median|

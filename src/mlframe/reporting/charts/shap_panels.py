@@ -117,6 +117,27 @@ def is_tree_model(model: Any) -> bool:
     return False
 
 
+_CATBOOST_MULTI_OUTPUT_LOSSES: frozenset = frozenset({"multilogloss", "multicrossentropy"})
+
+
+def _is_multi_output_catboost(model: Any) -> bool:
+    """True iff ``model`` is a CatBoost estimator trained with a multi-output leaf-value loss (MultiLogloss /
+    MultiCrossEntropy, the multilabel losses) -- see the caller for why shap's CatBoost parser crashes on these.
+    Detected via ``get_all_params()['loss_function']`` (present on every fitted CatBoost estimator); any lookup
+    failure (non-CatBoost model, unfitted, API drift) is treated as "not the risky case" so this never masks an
+    unrelated model type as tree/non-tree.
+    """
+    get_params = getattr(model, "get_all_params", None)
+    if not callable(get_params):
+        return False
+    try:
+        loss = str(get_params().get("loss_function", "")).lower()
+    except Exception as e:
+        logger.debug("get_all_params() probe failed (%s: %s) -- treating as not the CatBoost multi-output risky case", type(e).__name__, e)
+        return False
+    return loss in _CATBOOST_MULTI_OUTPUT_LOSSES
+
+
 def _coerce_float_2d(vals: np.ndarray) -> np.ndarray:
     """Best-effort 2-D float64 view of a (possibly mixed / string / categorical) value matrix.
 
@@ -159,6 +180,12 @@ def _carrier_with_categoricals(X: Any) -> Any:
     if not isinstance(X, pd.DataFrame):
         return X
     obj_cols = [c for c in X.columns if not (X[c].dtype.kind in "iufb" or isinstance(X[c].dtype, pd.CategoricalDtype))]
+    # An object column holding non-scalar elements (e.g. a materialized embedding column reaching pandas as a
+    # list per row) makes pandas' Categorical factorize() raise "TypeError: unhashable type: 'numpy.ndarray'" --
+    # lists/arrays can't hash into the category-uniquing table. Drop such columns from the cast set (a single
+    # embedding vector isn't a meaningful category anyway); they stay object dtype and the SHAP call downstream
+    # either handles them natively (embedding_features) or fails on its own terms, same as any unsupported dtype.
+    obj_cols = [c for c in obj_cols if not any(isinstance(v, (list, tuple, np.ndarray)) for v in X[c])]
     if not obj_cols:
         return X
     return X.assign(**{c: X[c].astype("category") for c in obj_cols})
@@ -218,7 +245,8 @@ def _row_subset(carrier: Any, idx: np.ndarray) -> Any:
         return carrier.iloc[idx]
     try:  # polars
         return carrier[idx]
-    except Exception:
+    except Exception as e:
+        logger.debug("Native polars row-subset failed (%s: %s) -- falling back to np.asarray indexing", type(e).__name__, e)
         return np.asarray(carrier)[idx]
 
 
@@ -362,7 +390,8 @@ def _matplotlib_formats(plot_outputs: Optional[str]) -> List[str]:
     try:
         from mlframe.reporting.output import parse_plot_output_dsl
         spec = parse_plot_output_dsl(plot_outputs)
-    except Exception:
+    except Exception as e:
+        logger.debug("parse_plot_output_dsl(%r) failed (%s: %s) -- defaulting to ['png']", plot_outputs, type(e).__name__, e)
         return ["png"]
     fmts: List[str] = []
     for backend, formats in spec.backends:
@@ -488,6 +517,21 @@ def shap_summary_and_dependence(
             [], [], [], np.empty(0), "none",
             skipped="non-tree model; KernelExplainer is slow -- pass allow_kernel=True to opt in",
         )
+    if tree and _is_multi_output_catboost(model):
+        # shap's CatBoost tree parser (shap/explainers/_tree.py TreeEnsemble.get_trees) assumes ONE scalar leaf
+        # value per tree and rebuilds the binary-index arrays (children_left/children_right/...) via a `2**counter`
+        # size formula derived from len(leaf_values). A CatBoost MultiLogloss (multilabel) model's leaf_values are a
+        # FLAT list of n_leaves*n_labels entries (multiple values per leaf), so that formula silently computes the
+        # wrong node count, producing malformed/wrongly-sized child-index arrays -- SingleTree.__init__ then walks
+        # them and reads out of bounds, crashing the WHOLE PROCESS with a native access violation (caught live via a
+        # fuzz combo: models=('cb',) target=multilabel_classification -- confirmed deterministic at a fixed seed,
+        # and the crash happens before any Python-catchable exception, so this must be caught BEFORE
+        # shap.TreeExplainer(model) is ever constructed). Skip rather than risk the crash.
+        return ShapPanelsResult(
+            [], [], [], np.empty(0), "none",
+            skipped="CatBoost multi-output (MultiLogloss) leaf values are not supported by shap's TreeExplainer "
+            "CatBoost parser -- constructing it risks a native crash (see shap_panels.py comment)",
+        )
 
     cap = max_rows if tree else min(max_rows, kernel_max_rows)
     proxy = _score_proxy(model, carrier, n)
@@ -513,6 +557,7 @@ def shap_summary_and_dependence(
             # except (a noisy ERROR + a vanished panel with no reason), degrade to a clean skip carrying the cause --
             # this is a best-effort VISUAL diagnostic, never fatal. Broad ``except Exception`` is deliberate: the
             # backends raise library-specific error types (CatBoostError etc.), not a common base beyond Exception.
+            logger.debug("Tree-SHAP explain failed (%s: %s) -- skipping the panel with the cause carried in skipped=", type(_shap_exc).__name__, _shap_exc)
             return ShapPanelsResult(
                 [], [], [], np.empty(0), "none",
                 skipped=f"tree SHAP unavailable for this feature frame ({type(_shap_exc).__name__}: {str(_shap_exc)[:80]})",

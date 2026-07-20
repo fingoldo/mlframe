@@ -383,13 +383,19 @@ def mdlp_bin_edges_validated(
             _q = np.linspace(0.0, 1.0, int(max_y_classes) + 1)[1:-1]
             _y_edges = np.unique(np.quantile(_y_finite, _q))
             _y_arr = np.searchsorted(_y_edges, _y_arr, side="right")
-    y_i = _y_arr.astype(np.int64)
-    if len(x) != len(y_i):
-        raise ValueError(f"len(x)={len(x)} != len(y)={len(y_i)}")
+    if len(x) != len(_y_arr):
+        raise ValueError(f"len(x)={len(x)} != len(y)={len(_y_arr)}")
+    # mrmr_audit_2026-07-20 B-13: mirrors mdlp_bin_edges' fix -- fold y's finiteness into the mask
+    # (only meaningful while _y_arr is still float) BEFORE the int64 cast, so a NaN in a continuous y
+    # with too few distinct finite values to trigger the quantile-rebucketing branch above is dropped
+    # instead of becoming a platform-defined garbage class label.
     _finite_mask = np.isfinite(x)
+    if _y_arr.dtype.kind == "f":
+        _finite_mask &= np.isfinite(_y_arr)
     if not _finite_mask.all():
         x = x[_finite_mask]
-        y_i = y_i[_finite_mask]
+        _y_arr = _y_arr[_finite_mask]
+    y_i = _y_arr.astype(np.int64)
     if x.size == 0:
         return np.array([-np.inf, np.inf], dtype=np.float64)
     x, y_i = _dedupe_xy(x, y_i)
@@ -574,7 +580,9 @@ def mdlp_bin_edges_oos_validated(
         holdout_frac: Fraction of rows set aside as the single held-out fold. ``0.3`` balances
             leaving enough rows in each fold as the recursion narrows to small nodes.
         val_min_split_size: Floor on holdout-side samples per child node, separate from the
-            train-side ``min_split_size`` -- defaults to ``min_split_size`` when not given.
+            train-side ``min_split_size`` -- defaults to ``min_split_size`` when not given (a split
+            confirmed on too few held-out rows on one side is not meaningfully validated even if
+            the train side comfortably clears its own floor).
     """
     x = np.asarray(x).ravel()
     _y_arr = np.asarray(y).ravel()
@@ -590,13 +598,19 @@ def mdlp_bin_edges_oos_validated(
             _q = np.linspace(0.0, 1.0, int(max_y_classes) + 1)[1:-1]
             _y_edges = np.unique(np.quantile(_y_finite, _q))
             _y_arr = np.searchsorted(_y_edges, _y_arr, side="right")
-    y_i = _y_arr.astype(np.int64)
-    if len(x) != len(y_i):
-        raise ValueError(f"len(x)={len(x)} != len(y)={len(y_i)}")
+    if len(x) != len(_y_arr):
+        raise ValueError(f"len(x)={len(x)} != len(y)={len(_y_arr)}")
+    # mrmr_audit_2026-07-20 B-13: mirrors mdlp_bin_edges' fix -- fold y's finiteness into the mask
+    # (only meaningful while _y_arr is still float) BEFORE the int64 cast, so a NaN in a continuous y
+    # with too few distinct finite values to trigger the quantile-rebucketing branch above is dropped
+    # instead of becoming a platform-defined garbage class label.
     _finite_mask = np.isfinite(x)
+    if _y_arr.dtype.kind == "f":
+        _finite_mask &= np.isfinite(_y_arr)
     if not _finite_mask.all():
         x = x[_finite_mask]
-        y_i = y_i[_finite_mask]
+        _y_arr = _y_arr[_finite_mask]
+    y_i = _y_arr.astype(np.int64)
     if x.size == 0:
         return np.array([-np.inf, np.inf], dtype=np.float64)
 
@@ -636,7 +650,13 @@ def edges_fayyad_irani_validated(
     """``_adaptive_nbins.per_feature_edges``-compatible wrapper: returns INNER edges only.
 
     Delegates to ``mdlp_bin_edges_oos_validated`` (the genuine held-out-fold-validated variant
-    above) -- see that function's own docstring for the full contract.
+    above) rather than reimplementing a separate simpler holdout check: an earlier, independently
+    developed prototype under this same name used a cruder "positive gain on holdout" accept test
+    with no absolute noise floor (just ``gain_val > 0``, which a purely-noise column clears roughly
+    half the time by chance); ``mdlp_bin_edges_oos_validated`` supersedes it with both a relative
+    tolerance bar AND an absolute Miller-Madow floor (see that function's own bug-fix note), so this
+    wrapper exists purely to keep ``per_feature_edges``'s ``"fayyad_irani_validated"`` dispatch
+    working against the stronger implementation without touching the caller.
     """
     seed = 0 if random_state is None else (int(random_state) if isinstance(random_state, (int, np.integer)) else int(random_state.integers(0, 2**31 - 1)))
     full_edges = mdlp_bin_edges_oos_validated(

@@ -28,6 +28,13 @@ routes to any of:
   * **'genie'**: GENIE-weighted ensemble (Moon 2021, IEEE TIT). The mega-bench
     v3 honest leader -- MI close to truth across signal types, clean noise floor.
 
+  * **'renyi_alpha'**: ``mlframe.feature_selection.filters._renyi_alpha.renyi_alpha_mi``
+    (Yu, Giraldo, Jenssen, Príncipe 2020, IEEE TPAMI). Matrix-based Rényi
+    alpha-order entropy from an RBF Gram matrix's eigen-spectrum -- no
+    binning, no plug-in bias; best suited to small n (< 500) where
+    histogram-based MI is least reliable. O(n^2)/O(n^3), subsampled above
+    ``max_n`` (default 1500).
+
 Caveats per the mega-bench v3 leaderboard:
   - 'mist' over-estimates by 90-200% on binary y; use as RANKING signal only.
   - 'mine' needs N >= 1000 per pair; under-converges on small CV val folds.
@@ -45,6 +52,7 @@ directly for ad-hoc scoring against any estimator.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import weakref
 from collections import OrderedDict
@@ -133,6 +141,13 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
     if estimator == "fastmi":
         from ._fastmi import fastmi
         return float(fastmi(x, y_arr.astype(np.float64), **estimator_kwargs))
+    if estimator == "renyi_alpha":
+        from ._renyi_alpha import renyi_alpha_mi
+        # mrmr_audit_2026-07-20 B-9: renyi_alpha_mi returns bits (its own module's documented, internally
+        # self-consistent convention, log2-based); this dispatcher's contract is nats for every estimator
+        # (see the docstring above) -- convert at this boundary rather than changing the module's own units.
+        _mi_bits = float(renyi_alpha_mi(x, y_arr.astype(np.float64), **estimator_kwargs))
+        return _mi_bits * math.log(2.0)
     if estimator in ("median", "genie"):
         return _score_aggregator(x, y_arr, kind=estimator, nbins_strategy=nbins_strategy, nbins_strategy_kwargs=nbins_strategy_kwargs)
     raise ValueError(f"score_pair_mi: unknown estimator {estimator!r}")

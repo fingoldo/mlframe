@@ -15,9 +15,26 @@ from __future__ import annotations
 import logging
 import os
 import platform
-from typing import Any
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def pin_memory_env_override() -> Optional[bool]:
+    """Read ``MLFRAME_MLP_PIN_MEMORY`` as a tri-state global override: unset -> ``None``
+    (auto-detect as before), else the parsed bool.
+
+    Some driver/CUDA-toolkit combos crash during ``CachingHostAllocator``/``CUDAEvent`` teardown
+    when pinned memory is in play -- a fatal ``std::terminate`` raised from a tensor destructor,
+    not a catchable Python exception. Per-call ``dataloader_params={"pin_memory": False}``
+    overrides don't reach every entry point (raw ``TorchDataModule``/``RecurrentConfig``
+    construction, ad-hoc scripts, existing test suites) without editing each call site, so this
+    env var is the one-shot escape hatch for a whole process/test run.
+    """
+    raw = os.environ.get("MLFRAME_MLP_PIN_MEMORY")
+    if raw is None:
+        return None
+    return raw.strip().lower() not in ("0", "false", "no", "off", "")
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +135,11 @@ def resolve_mlp_dataloader_defaults(
 
     # 3. pin_memory: True on CUDA hosts, False otherwise. Saves a CPU->GPU
     #    copy via page-locked memory. Cheap to set; no Windows landmine.
-    pin_memory = bool(overrides.get("pin_memory", cuda_ok))
+    # ``MLFRAME_MLP_PIN_MEMORY`` (if set) wins over the auto-detected default but not over an
+    # explicit per-call override -- see pin_memory_env_override()'s docstring.
+    _env_pin = pin_memory_env_override()
+    _pin_default = cuda_ok if _env_pin is None else _env_pin
+    pin_memory = bool(overrides.get("pin_memory", _pin_default))
 
     resolved = {
         "num_workers": num_workers,
@@ -236,8 +257,9 @@ def resolve_mlp_precision_default(
         try:
             import torch
             cc_major, _ = torch.cuda.get_device_capability(int(device_id))
-        except Exception:
+        except Exception as e:
             # Probing failed -- fall back to the conservative default.
+            logger.debug("CUDA compute-capability probe failed (%s: %s) -- defaulting to 32-true precision", type(e).__name__, e)
             return "32-true"
     else:
         cc_major = int(cuda_compute_capability_major)
@@ -341,14 +363,15 @@ def _probe_available_memory_bytes(
             free_bytes, _total_bytes = torch.cuda.mem_get_info(int(device_id))
             _PROBE_MEM_CACHE = int(free_bytes)
             return _PROBE_MEM_CACHE
-        except Exception:  # nosec B110 - optional dependency import guard
-            pass
+        except Exception as e:  # nosec B110 - optional dependency import guard
+            logger.debug("torch.cuda.mem_get_info probe failed (%s: %s) -- falling back to psutil/None", type(e).__name__, e)
     # CPU mode (or CUDA probe failed): use psutil if available, else None.
     try:
         import psutil
         _PROBE_MEM_CACHE = int(psutil.virtual_memory().available)
         return _PROBE_MEM_CACHE
-    except Exception:
+    except Exception as e:
+        logger.debug("psutil memory probe failed (%s: %s) -- caller falls back to a constant batch size", type(e).__name__, e)
         return None
 
 

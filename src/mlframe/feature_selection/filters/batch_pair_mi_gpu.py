@@ -391,6 +391,14 @@ def dispatch_batch_pair_mi(
     result is still preferred over ever risking the silent-crash upload, but "slower" no longer means
     "no GPU at all" whenever CUDA is present.
     """
+    from ._gpu_policy import gpu_globally_disabled
+
+    if gpu_globally_disabled():
+        # MLFRAME_DISABLE_GPU=1 / CUDA_VISIBLE_DEVICES="" is the project-wide "no GPU on this run"
+        # override (see _gpu_policy.py's module docstring); it must win even over an explicit
+        # force_backend="cuda"/"cupy" caller request -- that is the whole point of the switch.
+        return batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "njit"
+
     n_samples = int(factors_data.shape[0])
     n_cols = int(factors_data.shape[1]) if factors_data.ndim == 2 else 0
     n_pairs = int(pair_a.shape[0])
@@ -416,7 +424,8 @@ def dispatch_batch_pair_mi(
         try:
             nbins_i = np.asarray(nbins)
             max_joint = int((nbins_i[pair_a].astype(np.int64) * nbins_i[pair_b].astype(np.int64)).max()) if n_pairs else 0
-        except Exception:
+        except Exception as e:
+            logger.debug("batch_pair_mi: max-joint-cardinality probe failed (%s: %s) -- skipping shared-fused CUDA", type(e).__name__, e)
             return None
         if shared_fused_kernel_fits_budget(max_joint, int(freqs_y.shape[0])) == 0:
             return None
@@ -475,8 +484,8 @@ def dispatch_batch_pair_mi(
     if choice == "cupy" and _CUPY_AVAIL and _vram_ok:
         try:
             return batch_pair_mi_cupy(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cupy"
-        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
-            pass  # fall through
+        except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+            logger.warning("batch_pair_mi: cupy backend failed (%s: %s) -- falling through to CUDA/njit", type(e).__name__, e)
 
     if choice == "cuda" and _CUDA_AVAIL:
         if _vram_ok:
@@ -515,7 +524,8 @@ def _free_ram_bytes_for_chunking() -> int:
         import psutil
 
         return int(psutil.virtual_memory().available)
-    except Exception:
+    except Exception as e:
+        logger.debug("psutil unavailable for free-RAM probe (%s: %s) -- using 2 GB conservative fallback", type(e).__name__, e)
         return 2 * 1024**3  # 2 GB conservative fallback
 
 

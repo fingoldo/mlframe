@@ -101,8 +101,14 @@ class ShapProxiedFitMixin:
     shap_aware_stage1_cushion: int
     shap_aware_stage1_floor: int
     prescreen_top: Optional[int]
+    prescreen_ranking: str
+    banzhaf_n_coalitions: int
     within_cluster_refine: bool
     refine_n_estimators: Optional[int]
+    refine_mode: str
+    core_n_coalitions: int
+    core_drop_threshold: float
+    core_nucleolus: bool
     refine_ucb_enabled: bool
     refine_ucb_min_eval_size: Optional[int]
     refine_ucb_slack: Optional[float]
@@ -569,7 +575,23 @@ class ShapProxiedFitMixin:
                 # residual_merge="blend" ranks by phi1+lambda*phi2 (aligned; excluded columns get 0
                 # contribution) so residual-boosted weak features sort higher into top_keep -- the
                 # proxy loss consumed by the search below always stays raw phi1, never this vector.
-                importance = np.abs(phi).mean(axis=0) if residual_blend_importance is None else residual_blend_importance
+                prescreen_ranking = str(getattr(self, "prescreen_ranking", "mean_abs_phi") or "mean_abs_phi").lower()
+                banzhaf_stderr_max: Optional[float] = None
+                if prescreen_ranking == "banzhaf" and residual_blend_importance is None:
+                    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_banzhaf import banzhaf_msr
+
+                    beta, banzhaf_info = banzhaf_msr(
+                        phi, base, y_phi, classification=self.classification, metric=self.metric,
+                        n_coalitions=int(self.banzhaf_n_coalitions), rng=self._rng,
+                    )
+                    # Shift nonnegative: the downstream noise-floor rescue's tail-quantile math assumes
+                    # a nonnegative importance vector (see ``noise_floor_rescue_keep_set``); beta itself
+                    # can be negative for harmful/noise features, so shifting by its min preserves the
+                    # RANKING (a monotone translation) while keeping the rescue math intact.
+                    importance = beta - beta.min()
+                    banzhaf_stderr_max = float(np.max(banzhaf_info["beta_stderr"])) if len(beta) else None
+                else:
+                    importance = np.abs(phi).mean(axis=0) if residual_blend_importance is None else residual_blend_importance
                 top_keep = np.argsort(-importance)[:prescreen_top]
                 # Noise-floor rescue (bug fix, iter-2026-07-14): a flat top-K cut by mean|phi| alone
                 # silently drops any real weak-signal column ranked below K whenever the frame has
@@ -599,7 +621,10 @@ class ShapProxiedFitMixin:
                 report["prescreen"] = dict(
                     kept=len(keep), of=int(n_proxy), su_rescued=len(_su_rescue_proxy_idx),
                     noise_floor_rescued=len(rescued_set), residual_rescued=len(residual_rescue_proxy_idx),
+                    ranking=prescreen_ranking,
                 )
+                if banzhaf_stderr_max is not None:
+                    report["prescreen"]["banzhaf_stderr_max"] = banzhaf_stderr_max
 
         optimizer = self._resolve_optimizer(phi.shape[1])
         with _stage("search"):
@@ -849,18 +874,85 @@ class ShapProxiedFitMixin:
                 # empirical trace showed prescreen survival is NOT sufficient -- this greedy
                 # parsimony_tol pruner re-drops them unless explicitly protected (gt_09 sec 3.4).
                 _residual_protected = residual_protected_working_cols & set(member_cols) or None
-                refined = within_cluster_refine(
-                    member_cols, model_template, X_search, y_search, X_hold, y_hold,
-                    classification=self.classification, metric=self.metric,
-                    parsimony_tol=self.parsimony_tol, n_jobs=self.n_jobs, cache=honest_cache,
-                    member_groups=member_groups, refine_n_estimators=self.refine_n_estimators,
-                    ucb_enabled=self.refine_ucb_enabled,
-                    ucb_min_eval_size=self.refine_ucb_min_eval_size,
-                    ucb_slack=self.refine_ucb_slack,
-                    ucb_stdev_multiplier=self.refine_ucb_stdev_multiplier,
-                    inner_n_jobs_cap=self.inner_n_jobs_cap,
-                    disk_cache_dir=self.cache_dir,
-                    protected_cols=_residual_protected)
+
+                def _run_legacy_refine():
+                    """Legacy greedy-backward parsimony_tol refine; also the honest-gate fallback for refine_mode='core'."""
+                    return within_cluster_refine(
+                        member_cols, model_template, X_search, y_search, X_hold, y_hold,
+                        classification=self.classification, metric=self.metric,
+                        parsimony_tol=self.parsimony_tol, n_jobs=self.n_jobs, cache=honest_cache,
+                        member_groups=member_groups, refine_n_estimators=self.refine_n_estimators,
+                        ucb_enabled=self.refine_ucb_enabled,
+                        ucb_min_eval_size=self.refine_ucb_min_eval_size,
+                        ucb_slack=self.refine_ucb_slack,
+                        ucb_stdev_multiplier=self.refine_ucb_stdev_multiplier,
+                        inner_n_jobs_cap=self.inner_n_jobs_cap,
+                        disk_cache_dir=self.cache_dir,
+                        protected_cols=_residual_protected)
+
+                if self.refine_mode == "core":
+                    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_heuristics import _Evaluator
+                    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import core_refine
+                    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_proxy_loss import _parallel_honest_losses
+
+                    _core_disk_cache = _open_disk_cache(self.cache_dir)
+                    base_honest_loss = _honest_loss(
+                        model_template, X_search, y_search, X_hold, y_hold, member_cols,
+                        self.classification, resolve_metric(self.classification, self.metric),
+                        cache=honest_cache, disk_cache=_core_disk_cache)
+                    _tol_threshold = base_honest_loss + self.parsimony_tol * abs(base_honest_loss)
+
+                    # core_refine's LP allocates credit across UNITS (proxy columns), never sub-members
+                    # within a unit's own cluster -- intra-cluster member redundancy (e.g. exact-duplicate
+                    # columns the clustering step didn't merge into one unit) needs the SAME per-cluster
+                    # collapse legacy stage 1 performs, so it stays "exactly as today" per gt_02 sec 3.
+                    # Best-effort / independently-accepted (no cumulative re-verify): core_refine's own
+                    # honest gate below re-checks the WHOLE final proposal and falls back to full legacy
+                    # on any failure, so an over-eager collapse here can never surface as a silent
+                    # regression -- it is caught by the same safety net protecting the unit-level drop.
+                    core_member_cols = list(member_cols)
+                    core_unit_to_members = unit_to_members
+                    multi_groups = [[int(c) for c in g if int(c) in set(member_cols)] for g in member_groups]
+                    multi_groups = [g for g in multi_groups if len(g) > 1]
+                    if multi_groups:
+                        _protected_set = _residual_protected or set()
+                        probe_tasks = [(sorted(c for c in core_member_cols if c not in set(g[1:]) - _protected_set), None) for g in multi_groups]
+                        probe_losses = _parallel_honest_losses(
+                            probe_tasks, model_template, X_search, y_search, X_hold, y_hold,
+                            self.classification, resolve_metric(self.classification, self.metric), self.n_jobs,
+                            cache=honest_cache, n_estimators_cap=self.refine_n_estimators,
+                            template_id=("refine_cap", int(self.refine_n_estimators)) if self.refine_n_estimators is not None else None,
+                            inner_n_jobs_cap=self.inner_n_jobs_cap, disk_cache=_core_disk_cache)
+                        accepted_drops: set[int] = set()
+                        for g, loss_val in zip(multi_groups, probe_losses):
+                            drop_set = set(g[1:]) - _protected_set
+                            if loss_val <= _tol_threshold:
+                                accepted_drops.update(drop_set)
+                        if accepted_drops:
+                            core_member_cols = sorted(c for c in core_member_cols if c not in accepted_drops)
+                            # unit_to_members is a sequence indexed by unit id (not a dict); rebuild the
+                            # same indexable shape with dropped duplicate columns filtered out per unit.
+                            core_unit_to_members = [[int(c) for c in cols_ if int(c) not in accepted_drops] for cols_ in unit_to_members]
+
+                    core_evaluator = _Evaluator(phi, base, y_phi, resolve_metric(self.classification, self.metric))
+
+                    def _honest_gate(cols):
+                        """Accept the core proposal iff its honest holdout loss stays within parsimony_tol of the pre-refine loss."""
+                        candidate_loss = _honest_loss(
+                            model_template, X_search, y_search, X_hold, y_hold, cols,
+                            self.classification, resolve_metric(self.classification, self.metric),
+                            cache=honest_cache, disk_cache=_core_disk_cache)
+                        return candidate_loss <= _tol_threshold
+
+                    refined, core_info = core_refine(
+                        core_member_cols, tuple(int(u) for u in best_idx), core_evaluator, _honest_gate,
+                        drop_threshold=self.core_drop_threshold, n_coalitions=self.core_n_coalitions,
+                        rng=self._rng, nucleolus_refine=self.core_nucleolus,
+                        unit_to_members=core_unit_to_members, legacy_refine_fn=_run_legacy_refine,
+                        legacy_refine_kwargs={})
+                else:
+                    refined = _run_legacy_refine()
+                    core_info = None
                 # Final full-template re-evaluation of the ONE chosen subset (uncapped n_estimators).
                 # Refine's ranking trials use a cheaper capped booster (~100 trees) to decide WHICH
                 # members to drop; the user-visible quality bar (and any downstream report consumer)
@@ -868,7 +960,12 @@ class ShapProxiedFitMixin:
                 # values are apples-to-apples. The cache lookup is the full-template namespace (no
                 # template_id), so this hits any prior pipeline retrain of the same subset (e.g. when
                 # refine made no drops, this is a cache hit of the union retrain done elsewhere).
-                refine_info: dict[str, Any] = dict(before=len(member_cols), after=len(refined))
+                refine_info: dict[str, Any] = dict(before=len(member_cols), after=len(refined), mode=self.refine_mode)
+                if core_info is not None:
+                    refine_info["allocation"] = {f"unit_{u}": v for u, v in core_info["allocation"].items()}
+                    refine_info["eps_star"] = core_info["eps_star"]
+                    refine_info["dropped_by_core"] = core_info["dropped_by_core"]
+                    refine_info["fallback"] = core_info["fallback"]
                 if refined:
                     # iter81: the full-template re-eval of the refined subset frequently hits the
                     # disk cache too -- the same (cols, template, cap=None) tuple was retrained as

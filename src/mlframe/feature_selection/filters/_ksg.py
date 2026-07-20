@@ -37,6 +37,19 @@ from numba import njit
 
 logger = logging.getLogger(__name__)
 
+# mrmr_audit_2026-07-20 B-10: process-level circuit breaker for ksg_mi_dispatch's GPU path, mirroring
+# info_theory/_cmi_cuda.py's pattern. Pre-fix, the only guard was ``except ImportError: pass`` -- a real
+# runtime/driver fault (CUDA OOM, context corruption) raised something OTHER than ImportError and
+# propagated straight out of ksg_mi_dispatch instead of falling back to CPU, and (unlike every other GPU
+# path in this package) nothing prevented every subsequent call from re-attempting the same doomed launch.
+_KSG_GPU_FAILED = False
+
+
+def reset_ksg_gpu_circuit_breaker() -> None:
+    """Test-only hook: clear the tripped-GPU-path flag so a later test can re-probe the GPU path fresh."""
+    global _KSG_GPU_FAILED
+    _KSG_GPU_FAILED = False
+
 
 _KSG_GPU_THRESHOLD = int(os.environ.get("MLFRAME_KSG_GPU_N", "50000"))
 
@@ -487,12 +500,19 @@ def ksg_mi_dispatch(x: np.ndarray, y: np.ndarray, *, k: int = 5, estimator: str 
     """
     x = np.asarray(x).ravel()
     n = x.size
-    if estimator == "mixed_ksg" and prefer_gpu and n >= _KSG_GPU_THRESHOLD:
+    global _KSG_GPU_FAILED
+    if estimator == "mixed_ksg" and prefer_gpu and n >= _KSG_GPU_THRESHOLD and not _KSG_GPU_FAILED:
         try:
             import cupy  # noqa: F401
             return mixed_ksg_mi_gpu(x, y, k=k)
         except ImportError:
             pass
+        except Exception as _exc:
+            # A real runtime/driver fault (CUDA OOM, context corruption) rather than "cupy absent" --
+            # trip the circuit breaker so every subsequent call in this process goes straight to CPU
+            # instead of re-attempting the same doomed launch, and fall back to CPU for THIS call too.
+            _KSG_GPU_FAILED = True
+            logger.warning("ksg_mi_dispatch: GPU path failed (%s: %s); circuit breaker tripped -> CPU for the rest of the process", type(_exc).__name__, _exc)
     if estimator == "mixed_ksg":
         return mixed_ksg_mi(x, y, k=k)
     if estimator == "ksg_lnc":
@@ -502,5 +522,5 @@ def ksg_mi_dispatch(x: np.ndarray, y: np.ndarray, *, k: int = 5, estimator: str 
 
 __all__ = [
     "mixed_ksg_mi", "ksg_lnc_mi", "mixed_ksg_mi_gpu",
-    "ksg_mi_dispatch",
+    "ksg_mi_dispatch", "reset_ksg_gpu_circuit_breaker",
 ]

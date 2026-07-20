@@ -328,6 +328,20 @@ def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform"
             arr_finite = arr
         else:
             arr_finite = arr[_mask]
+        if arr_finite.size == 0:
+            # mrmr_audit_2026-07-20 B-11 (P0): an all-NaN column has zero finite values, so
+            # ``np.percentile`` on the empty ``arr_finite`` raised ValueError -- correctly
+            # when this function is called in isolation, but that exception is silently
+            # swallowed when this runs inside ``_discretize_2d_array_njit``'s ``prange`` loop
+            # (a documented numba limitation: exceptions inside a parallel prange body do not
+            # reliably propagate), leaving the caller's output buffer at whatever garbage
+            # ``np.empty_like`` happened to contain for that column. An all-NaN column
+            # genuinely carries zero information, so the correct (and now uniform, both in
+            # isolation and inside the batch prange path) treatment is every row mapping to
+            # the same single bin -- a single-element edges array makes ``quantize_search``'s
+            # ``bins[1:-1]`` empty, so ``np.searchsorted`` returns 0 for every row regardless
+            # of NaN, deterministically and without ever calling percentile on empty input.
+            return np.zeros(1, dtype=np.float64)
         quantiles = np.linspace(0, 100, n_bins + 1)
         bin_edges = np.asarray(np.percentile(arr_finite, quantiles))
     else:

@@ -40,9 +40,18 @@ def _reset_torch_lightning_global_state():
     # modern API so it doesn't trigger lint warnings in the file.
     np.random.default_rng(42)
     np.random.seed(42)
-    torch.manual_seed(42)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(42)
+    try:
+        torch.manual_seed(42)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(42)
+    except RuntimeError:
+        # A prior test that crashed mid-kernel or exhausted GPU memory can leave the CUDA
+        # context corrupted -- the next reseed then raises "CUDA error: an illegal memory
+        # access was encountered" and, since this fixture is autouse, POISONS every downstream
+        # neural test's setup phase (hundreds of unrelated "ERROR at setup" in one run).
+        # Mirrors tests/conftest.py's _reset_global_rng_state guard for the same corruption
+        # class -- the CPU-side seeds above already ran.
+        pass
 
     try:
         import lightning
@@ -74,7 +83,9 @@ def _reset_torch_lightning_global_state():
             lightning.seed_everything(42, **_kw)
         finally:
             _seed_logger.setLevel(_seed_prev_level)
-    except ImportError:
+    except (ImportError, RuntimeError):
+        # RuntimeError: lightning.seed_everything also reseeds torch.cuda internally, hitting
+        # the same corrupted-context failure mode as the raw torch seeding above.
         pass
 
     torch.set_default_dtype(torch.float32)
@@ -83,3 +94,44 @@ def _reset_torch_lightning_global_state():
     torch.backends.cudnn.deterministic = True
 
     yield
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cache_hf_embedding_providers_across_session():
+    """Reuse one already-``acquire()``'d ``HuggingFaceProvider`` per (model, config) across the whole
+    test session instead of each test file loading its own copy from scratch.
+
+    ``HuggingFaceProvider.acquire()`` is already idempotent (``if self._is_loaded: return``) -- the gap
+    is one level up: ``feature_prep.py``'s ``_get_provider()`` calls ``build_provider(...)`` to construct
+    a brand-new, not-yet-loaded instance every time, so three independent test files each paid the real
+    ``AutoModel.from_pretrained`` load cost (~20-25s measured, unrelated to network -- the local HF cache
+    is already warm) separately. Test-only fix: monkeypatch ``build_provider`` at the module it's defined
+    in (the ``from .hf_provider import build_provider`` inside ``_get_provider`` re-resolves the name from
+    that module's namespace at call time, so patching there covers every caller) to return a session-cached
+    instance keyed by ``EmbeddingProvider.signature`` -- the field the provider config's own docstring
+    calls out as "suitable for cache keys". Production code (``hf_provider.py``) is untouched.
+    """
+    from mlframe.training.feature_handling import hf_provider as _hf_provider_mod
+
+    _cache: dict = {}
+    _real_build_provider = _hf_provider_mod.build_provider
+
+    def _cached_build_provider(embedding_provider):
+        """Cached build provider."""
+        key = embedding_provider.signature
+        prov = _cache.get(key)
+        if prov is None:
+            prov = _real_build_provider(embedding_provider)
+            _cache[key] = prov
+        return prov
+
+    _hf_provider_mod.build_provider = _cached_build_provider
+    try:
+        yield
+    finally:
+        _hf_provider_mod.build_provider = _real_build_provider
+        for _prov in _cache.values():
+            try:
+                _prov.release()
+            except Exception:  # nosec B110 -- best-effort cleanup; a release failure at session teardown must never fail the run
+                pass

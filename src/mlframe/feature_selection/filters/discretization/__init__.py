@@ -1013,8 +1013,19 @@ def discretize_2d_array_cuda(
 
     if method == "quantile":
         qs = cp.linspace(0.0, 100.0, n_bins + 1)
-        # cp.percentile vectorises across axis=0 -> bin_edges shape: (n_bins + 1, n_cols).
-        bin_edges = cp.percentile(d_arr, qs, axis=0)
+        # mrmr_audit_2026-07-20 B-12: cp.percentile has no nanpercentile twin (unlike numpy), and a plain
+        # cp.percentile over a NaN-bearing column poisons EVERY edge for that column with NaN -- searchsorted
+        # against an all-NaN edges row then silently collapses the WHOLE column's real values (not just the
+        # NaN rows) to a single bin, the exact bug the CPU path's edges()/get_binning_edges() were already
+        # fixed for (Wave 21 P0). cupy has no NaN-aware percentile kernel to vectorise this with, so route the
+        # rare NaN-bearing case through numpy's nanpercentile on the host array already available in ``arr``
+        # (this function's caller has it; ``d_arr`` is just its device upload) -- the common NaN-free case
+        # keeps the fully vectorised cp.percentile fast path unchanged.
+        if bool(cp.isnan(d_arr).any()):
+            bin_edges = cp.asarray(np.nanpercentile(arr, cp.asnumpy(qs), axis=0))
+        else:
+            # cp.percentile vectorises across axis=0 -> bin_edges shape: (n_bins + 1, n_cols).
+            bin_edges = cp.percentile(d_arr, qs, axis=0)
         # cp.searchsorted is 1-D; loop per column. Each call is fully on-device
         # so the loop is dispatch-overhead only (~30 us per launch). For
         # n_cols=30 the total dispatch is ~1 ms vs ~50 ms compute. For
@@ -1035,8 +1046,11 @@ def discretize_2d_array_cuda(
         # njit kernel on CPU. Fastest path for Gaussian-ish data where the
         # accuracy hit vs quantile is small (bench at info_theory module
         # docstring quotes H(X)/log(nbins) >= 0.82 for Gaussian).
-        col_min = cp.min(d_arr, axis=0, keepdims=True)
-        col_max = cp.max(d_arr, axis=0, keepdims=True)
+        # mrmr_audit_2026-07-20 B-12: plain cp.min/cp.max propagate NaN (a single NaN anywhere in a column
+        # poisons that column's min/max to NaN), unlike the CPU discretize_uniform path's NaN-aware range.
+        # cp.nanmin/cp.nanmax exist (unlike cp.nanpercentile above) so this branch stays fully on-device.
+        col_min = cp.nanmin(d_arr, axis=0, keepdims=True)
+        col_max = cp.nanmax(d_arr, axis=0, keepdims=True)
         # 2026-05-30 Wave 9.1 fix (loop iter 33): mirrors the CPU
         # ``discretize_uniform`` fix - canonical formula
         # ``rev_bin_width = n_bins / (max - min)`` with constant-column
@@ -1055,6 +1069,13 @@ def discretize_2d_array_cuda(
         out_f = (d_arr - col_min) * rev
         out_f = cp.where(_rng > 0, out_f, 0.0)
         out_f = cp.clip(out_f, 0, n_bins - 1)
+        # mrmr_audit_2026-07-20 B-12: an individual NaN VALUE (not just a NaN-poisoned column min/max,
+        # already fixed above) still produces NaN through the affine map; cp.clip is a no-op on NaN (like
+        # numpy), so without this it would cast to an undefined/garbage int code. The CPU discretize_uniform
+        # kernel routes NaN rows to a dedicated code one past the real range (``nan_code = n_bins``) instead
+        # of colliding with a real bin -- mirror that here so NaN rows carry the same, correct, honest code
+        # on both backends rather than a silent garbage cast.
+        out_f = cp.where(cp.isnan(d_arr), float(n_bins), out_f)
         out = out_f.astype(_out_cp_dtype)
 
     # D2H the final tensor (single transfer, n_rows * n_cols bytes for int8).

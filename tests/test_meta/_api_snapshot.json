@@ -793,6 +793,10 @@
     "module": "mlframe.training._nan_processing",
     "signature": "(df:any:0, fill_value:any:1, verbose:any:1)"
   },
+  "provenance": {
+    "kind": "value",
+    "type": "module"
+  },
   "reconstruct_pseudo_group_ids": {
     "kind": "callable",
     "module": "mlframe.training._pseudo_group_reconstruction",
@@ -872,7 +876,7 @@
   "train_and_evaluate_model": {
     "kind": "callable",
     "module": "mlframe.training._trainer_train_and_evaluate",
-    "signature": "(model:any:0, data:any:0, control:any:0, metrics:any:0, reporting:any:0, naming:any:0, output:any:1, confidence:any:1, predictions:any:1, train_od_idx:any:1, val_od_idx:any:1, trainset_features_stats:any:1, trusted_root:any:1, oof_n_splits:any:1, oof_has_time:any:1, oof_random_seed:any:1)"
+    "signature": "(model:any:0, data:any:0, control:any:0, metrics:any:0, reporting:any:0, naming:any:0, output:any:1, confidence:any:1, predictions:any:1, train_od_idx:any:1, val_od_idx:any:1, trainset_features_stats:any:1, trusted_root:any:1, oof_n_splits:any:1, oof_has_time:any:1, oof_random_seed:any:1, cur_target_name:any:1)"
   },
   "train_automl_models_suite": {
     "kind": "callable",

@@ -223,7 +223,11 @@ def _compute_per_scorer_rank_table(
                 if not np.issubdtype(y_mi.dtype, np.integer):
                     uniq = np.unique(y_mi[np.isfinite(y_mi)] if y_mi.dtype.kind in "fc" else y_mi)
                     if uniq.size <= 32:
-                        y_mi = y_mi.astype(np.int64)
+                        # mrmr_audit_2026-07-20 B-18: densify via np.unique(return_inverse=...) rather
+                        # than truncating .astype(int64) -- non-integer labels (e.g. 0.1/0.2/...) would
+                        # otherwise all collapse to class 0.
+                        _, y_mi = np.unique(y_mi, return_inverse=True)
+                        y_mi = y_mi.astype(np.int64, copy=False)
                 res[s] = np.asarray(_mi_classif_batch(Xmat, y_mi, nbins=int(nbins)), dtype=np.float64)
             elif s == "copula":
                 from ._orthogonal_copula_mi_fe import _copula_mi_batch
@@ -617,6 +621,7 @@ def hybrid_orth_mi_ensemble_fe_with_recipes(
     selection) differs.
     """
     from .engineered_recipes import build_orth_univariate_recipe
+    from ._orthogonal_univariate_fe import _evaluate_basis_column
 
     X_aug, scores = hybrid_orth_mi_ensemble_fe(
         X, y,
@@ -654,9 +659,16 @@ def hybrid_orth_mi_ensemble_fe_with_recipes(
                 name,
             )
             continue
+        _pp = None
+        try:
+            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
+            _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
+        except Exception:
+            _pp = None
         recipes.append(build_orth_univariate_recipe(
             name=name, src_name=src,
             basis=chosen_basis, degree=chosen_degree,
+            preprocess_params=_pp,
         ))
     return X_aug, scores, recipes
 

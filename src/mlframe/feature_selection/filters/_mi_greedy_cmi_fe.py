@@ -969,7 +969,8 @@ def _cmi_gpu_enabled(*, n: Optional[int] = None, p: Optional[int] = None, min_p:
     try:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
         return bool(fe_gpu_strict_enabled(n=n, p=p, min_p=min_p))
-    except Exception:
+    except Exception as e:
+        logger.debug("fe_gpu_strict_enabled probe failed (%s: %s) -- defaulting to CPU host path", type(e).__name__, e)
         return False
 
 
@@ -1358,8 +1359,8 @@ def score_candidates_by_cmi(
                     X_codes[:, j] = _quantile_bin(X_float[:, j], nbins=nbins)
                 cmis = batched_cmi_gpu(X_codes, y_bin, z_joint, codes_trusted=True)  # host equi-freq binner -> 0-based
             return pd.Series({c: float(cmis[j]) for j, c in enumerate(cand_cols)}, dtype=np.float64)
-        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
-            pass  # any cupy error -> exact CPU loop below
+        except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+            logger.debug("GPU-resident batched CMI path failed (%s: %s) -- falling back to exact CPU loop", type(e).__name__, e)
     out = {}
     for c in cand_cols:
         x_bin = _quantile_bin(X_cand[c].to_numpy(), nbins=nbins)

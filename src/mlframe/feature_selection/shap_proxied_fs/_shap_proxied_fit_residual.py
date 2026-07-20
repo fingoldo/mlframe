@@ -81,9 +81,9 @@ def run_residual_pass(
     y_phi: np.ndarray,
     X_proxy: pd.DataFrame,
     model_template: Any,
-    unit_to_members,
-    working_cols,
-    X_cols,
+    unit_to_members: Optional[dict],
+    working_cols: np.ndarray,
+    X_cols: np.ndarray,
     report: dict,
     _stage: Callable,
 ) -> tuple:
@@ -151,7 +151,8 @@ def run_residual_pass(
     # labels. When the caller supplied a custom classifier, derive an xgboost regressor with the same
     # tree budget rather than attempt a generic classifier->regressor clone.
     if self.model is not None:
-        n_est = int(getattr(self.model, "n_estimators", 300) or 300)
+        _n_est_raw = getattr(self.model, "n_estimators", None)
+        n_est = int(_n_est_raw) if _n_est_raw is not None else 300
         model_template_regression = make_default_estimator(False, random_state=int(self.random_state), n_estimators=n_est)
     else:
         booster_kind = self._resolve_booster_kind()

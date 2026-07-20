@@ -490,6 +490,7 @@ def evaluate_candidate(
     _relax_k_y: int | None = None,
     _relax_sel_cols: list | None = None,
     _relax_sel_nbins: list | None = None,
+    random_seed: int | None = None,
 ) -> Tuple[float, set]:
     """Score one MRMR candidate (relevance minus redundancy against already-selected vars, optionally confidence-gated by a permutation baseline) and update the ``expected_gains``/``partial_gains``/``failed_candidates`` bookkeeping in place; this is the per-candidate body invoked in the main selection loop's inner scan over ``combs``."""
     sink_reasons: set = set()
@@ -862,10 +863,9 @@ def evaluate_candidate(
     # candidate re-evaluated against a DIFFERENT (larger) conditioning set drew the IDENTICAL row permutation
     # every time, understating the true null variance the stopping/p-value decision relies on. Folding a stable
     # hash of the current ``selected_vars`` content into the seed makes each round's null draw independent of
-    # the others for the same candidate. (Full ``random_seed=`` threading through screen_predictors ->
-    # confirm_predictor -> evaluate_candidate is a separate, larger plumbing change -- deferred; this fixes the
-    # more serious of the two documented defects, the round-to-round correlation, without it.)
-    _cmi_cpt_seed = (hash((int(cand_idx), tuple(sorted(int(v) for v in selected_vars)))) & 0xFFFFFFFF) if selected_vars else int(cand_idx)
+    # the others for the same candidate. ``random_seed`` is now also threaded in end-to-end (screen_predictors ->
+    # confirm_predictor -> evaluate_candidate), so the ``random_seed=`` knob actually moves this component's draws.
+    _cmi_cpt_seed = hash((int(random_seed or 0), int(cand_idx), tuple(sorted(int(v) for v in selected_vars)))) & 0xFFFFFFFF
 
     # CMI permutation early-stop (Yu & Principe 2019). Default off -> skipped (byte-identical). When active, permute the candidate (preserving its marginal) and re-estimate
     # ``I(X; Y | selected)``; if the observed conditional MI is NOT significant at alpha (p >= alpha), the candidate carries no conditional signal given the selected set and is

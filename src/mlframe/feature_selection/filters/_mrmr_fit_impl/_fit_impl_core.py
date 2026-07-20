@@ -105,7 +105,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # and imputes X in place when CUDA_PATH is set). The missingness-FE family (is_missing__/missingness_count/missingness_pattern) derives its signal
     # from where the input was NaN; it runs AFTER that impute, so it must read this snapshot, not the live (now-finite) X, or the signal is silently erased.
     _fit_entry_nan_mask = {}
-    if hasattr(X, "columns"):
+    # Both consumers of this snapshot are opt-in and default OFF (missingness-FE family below, and cat-FE's
+    # include_numeric branch far downstream): skip the per-column float64-cast + isfinite scan entirely when
+    # neither will ever read it, rather than paying it on every fit regardless. Mirrors each consumer's own gate
+    # exactly, so this can never diverge into a false skip.
+    _cat_fe_cfg_probe = getattr(self, "cat_fe_config", None)
+    _will_use_include_numeric_nan_guard = bool(_cat_fe_cfg_probe is not None and getattr(_cat_fe_cfg_probe, "enable", True) and getattr(_cat_fe_cfg_probe, "include_numeric", False))
+    _will_use_missingness_fe = (
+        bool(getattr(self, "fe_missingness_indicator_enable", False))
+        or bool(getattr(self, "fe_missingness_count_enable", False))
+        or bool(getattr(self, "fe_missingness_pattern_enable", False))
+    )
+    if hasattr(X, "columns") and (_will_use_include_numeric_nan_guard or _will_use_missingness_fe):
         for _c in list(X.columns):
             try:
                 _cv = X[_c]
@@ -2775,9 +2786,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             from .._binned_numeric_agg_fe import binned_numeric_agg_with_recipes
             _ba_y = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=np.float64).ravel()
             _X_before_ba = list(X.columns)
+            _bas_raw = getattr(self, "fe_binned_numeric_agg_stats", None)
             X_ba, _ba_appended, _ba_recipes = binned_numeric_agg_with_recipes(
                 fe_to_pandas(X), _ba_y,
-                stats=tuple(getattr(self, "fe_binned_numeric_agg_stats", ("mean", "std", "skew", "kurt")) or ("mean",)),
+                stats=tuple(_bas_raw) if _bas_raw is not None else ("mean", "std", "skew", "kurt"),
                 nbins_base=int(getattr(self, "fe_binned_numeric_agg_nbins", 10)),
                 n_folds=int(getattr(self, "fe_kfold_te_folds", 5)),
                 random_state=int(getattr(self, "random_seed", 0) or 0),
@@ -3405,7 +3417,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _ga_groups = [c for c in _ga_groups if c in X.columns] or None  # type: ignore[assignment]
                 _ga_nums = tuple(getattr(self, "fe_grouped_agg_num_cols", ()) or ())
                 _ga_nums = [c for c in _ga_nums if c in X.columns] or None  # type: ignore[assignment]
-                _ga_stats = tuple(getattr(self, "fe_grouped_agg_stats", ()) or ("mean", "std", "min", "max", "nunique", "skew", "median"))
+                _ga_stats_raw = getattr(self, "fe_grouped_agg_stats", None)
+                _ga_stats = tuple(_ga_stats_raw) if _ga_stats_raw is not None else ("mean", "std", "min", "max", "nunique", "skew", "median")
                 _ga_top_k = int(getattr(self, "fe_grouped_agg_top_k", 10))
                 _X_before_ga_cols = list(X.columns)
                 X_ga, _ga_appended, _ga_recipes, _ga_scores = hybrid_grouped_agg_fe(
@@ -3473,7 +3486,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _cga_key_sets = [g for g in _cga_key_sets if len(g) >= 2] or None  # type: ignore[assignment]
                 _cga_nums = tuple(getattr(self, "fe_composite_group_agg_num_cols", ()) or ())
                 _cga_nums = [c for c in _cga_nums if c in X.columns] or None  # type: ignore[assignment]
-                _cga_stats = tuple(getattr(self, "fe_composite_group_agg_stats", ()) or ("mean", "std", "count"))
+                _cga_stats_raw = getattr(self, "fe_composite_group_agg_stats", None)
+                _cga_stats = tuple(_cga_stats_raw) if _cga_stats_raw is not None else ("mean", "std", "count")
                 _cga_max_arity = int(getattr(self, "fe_composite_group_agg_max_arity", 2))
                 _cga_top_k = int(getattr(self, "fe_composite_group_agg_top_k", 10))
                 _X_before_cga_cols = list(X.columns)
@@ -3547,7 +3561,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     if _gq_nums is None:
                         _gq_det_groups = _gq_groups or []
                         _gq_nums = _gq_detect_nums(_gq_raw_view, _gq_det_groups) or None
-                _gq_quantiles = tuple(getattr(self, "fe_grouped_quantile_quantiles", ()) or (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95))
+                _gq_quantiles_raw = getattr(self, "fe_grouped_quantile_quantiles", None)
+                _gq_quantiles = tuple(_gq_quantiles_raw) if _gq_quantiles_raw is not None else (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)
                 _gq_target_aware = bool(getattr(self, "fe_grouped_quantile_target_aware", False))
                 _gq_n_bins = int(getattr(self, "fe_grouped_quantile_n_bins", 5))
                 _gq_top_k = int(getattr(self, "fe_grouped_quantile_top_k", 8))
@@ -3839,8 +3854,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
             if raws_linearly_explain_y(X, y, seed=int(getattr(self, "random_seed", 0) or 0)):
                 _discrete_fe_master = False
-        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
-            pass  # gate is an optimisation; on any failure keep the operators (correct path)
+        except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+            logger.debug("raws_linearly_explain_y gate failed (%s: %s) -- keeping the operators (the safe/correct path)", type(e).__name__, e)
 
     # Shared class-MI target binning for the four discrete-structural FE operators (pairwise-modular / integer-lattice / row-argmax / conditional-gate).
     # All four gate candidates on the SAME 1D y binned with the SAME quantization_nbins via bin_y_for_class_mi; compute the applicability flag + binned
@@ -6052,9 +6067,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     data = _dcd_state.factors_data
                     cols = list(_dcd_state.cols)
                     nbins = np.asarray(_dcd_state.factors_nbins, dtype=np.int64)
-            except Exception:  # nosec B110 - non-trivial body
+            except Exception as e:  # nosec B110 - non-trivial body
                 # Best-effort -- if DCDState is malformed, fall through.
-                pass
+                logger.debug("DCDState looked malformed (%s: %s) -- falling through without it", type(e).__name__, e)
 
         # MEMORY: prune fit-time ``_engineered_continuous_`` scratch for engineered columns that did not
         # survive THIS round's screen -- see ``_prune_engineered_continuous_store`` docstring for why this
@@ -6447,7 +6462,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ~0 (verified: on 3-way XOR among 5 noise vars ONLY {x0,x1,x2} fires), so noise is never seeded.
     # Off when interactions_max_order<2 (the default) -> byte-identical there. Bounded combo
     # enumeration (candidate + order caps) so wide-p fits stay tractable.
-    if int(getattr(self, "interactions_max_order", 1) or 1) >= 2 and len(selected_vars) >= 0:
+    _iac_max_order = getattr(self, "interactions_max_order", None)
+    if int(_iac_max_order if _iac_max_order is not None else 1) >= 2 and len(selected_vars) >= 0:
         try:
             from .._fe_synergy_screen import detect_synergy_combos
             _raw_set_syn = set(self.feature_names_in_)
@@ -6455,10 +6471,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if 2 <= len(_cand_syn) <= 60:
                 _yc_syn = np.asarray(classes_y).astype(np.int64).ravel()
                 _code_cols_syn = {i: np.asarray(data[:, i]).astype(np.int64).ravel() for i in _cand_syn}
+                _iac_min_order = getattr(self, "interactions_min_order", None)
                 _combos_syn = detect_synergy_combos(
                     _code_cols_syn, _yc_syn, _cand_syn,
-                    max_order=int(getattr(self, "interactions_max_order", 3) or 3),
-                    min_order=max(2, int(getattr(self, "interactions_min_order", 2) or 2)),
+                    max_order=int(_iac_max_order if _iac_max_order is not None else 3),
+                    min_order=max(2, int(_iac_min_order if _iac_min_order is not None else 2)),
                 )
                 _sv_syn = set(selected_vars)
                 _seed_syn = []
@@ -6605,7 +6622,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     return_null_mean=True, parallelism="none", dtype=_rr_q_dtype, prefer_gpu=False,
                 )
                 return float(_sig[3]) < _rr_signif_alpha
-            except Exception:
+            except Exception as e:
+                logger.debug("Marginal-MI significance re-add probe failed (%s: %s) -- permissive re-add", type(e).__name__, e)
                 return True  # significance unavailable -> permissive re-add
 
         _sv_set = set(selected_vars)
@@ -6896,7 +6914,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 A = np.column_stack(design_cols)
                 try:
                     coef, *_ = np.linalg.lstsq(A[tr], _y_for_hinge_gate[tr], rcond=None)
-                except Exception:
+                except Exception as e:
+                    logger.debug("Hinge-gate OLS lstsq failed (%s: %s) -- treating as a failed candidate", type(e).__name__, e)
                     return -np.inf
                 pred = A[va] @ coef
                 return 1.0 - float(np.sum((yv - pred) ** 2)) / ss
@@ -7088,7 +7107,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 try:
                     _q1, _r1 = _rp_sla.qr_insert(_rp_Q, _rp_R, _extra[_rp_tr], _rp_Q.shape[1], which="col")
                     _coef = _rp_sla.solve_triangular(_r1, _q1.T @ _rp_y_tr)
-                except Exception:
+                except Exception as e:
+                    logger.debug("QR-insert regression probe failed (%s: %s) -- treating as a failed candidate", type(e).__name__, e)
                     return -np.inf
                 _A_va = np.column_stack((_rp_base_va, _extra[_rp_va]))
                 return 1.0 - float(np.sum((_yv - _A_va @ _coef) ** 2)) / _rp_ss
@@ -7203,7 +7223,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         return 0.0
                     try:
                         _coef, *_ = np.linalg.lstsq(_A[_cf_tr], _cf_y[_cf_tr], rcond=None)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("Compound-feature OLS lstsq failed (%s: %s) -- treating as a failed candidate", type(e).__name__, e)
                         return -np.inf
                     return 1.0 - float(np.sum((_yv - _A[_cf_va] @ _coef) ** 2)) / _ss
 
@@ -7214,10 +7235,29 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _cidx = _cf_cols_index.get(_cn)
                         if _cidx is None or _cidx in _cf_sv_set or _cn in _cf_sel_names:
                             continue
-                        try:
-                            _cvv = np.asarray(data[:, _cidx], dtype=np.float64).reshape(-1)
-                        except (TypeError, ValueError, IndexError):
-                            continue
+                        # Prefer the full-precision continuous value (same source the baseline design above
+                        # uses for already-selected columns) over the nbins-quantized screening code: quantile
+                        # bin-edge digitization is not exactly tie-invariant across a monotone rescale of a
+                        # duplicate-heavy column (e.g. a count encoding vs its count/n frequency twin can land
+                        # in a different number of effective bins from floating-point edge-coincidence ties),
+                        # which made this R^2 probe -- and hence the rescue -- diverge between two info-
+                        # equivalent encodings. The raw column is still available in X at this point.
+                        _cvv_raw = _eng_continuous_snapshot.get(_cn)
+                        if _cvv_raw is None and _cn in X.columns:
+                            try:
+                                _cvv_raw = X[_cn].to_numpy()
+                            except Exception:
+                                _cvv_raw = None
+                        if _cvv_raw is not None:
+                            try:
+                                _cvv = np.asarray(_cvv_raw, dtype=np.float64).reshape(-1)
+                            except (TypeError, ValueError):
+                                _cvv_raw = None
+                        if _cvv_raw is None:
+                            try:
+                                _cvv = np.asarray(data[:, _cidx], dtype=np.float64).reshape(-1)
+                            except (TypeError, ValueError, IndexError):
+                                continue
                         if _cvv.shape[0] != _cf_n or not np.all(np.isfinite(_cvv)):
                             continue
                         if _cf_r2([*_cf_base, _cvv]) - _cf_r2_base < _CF_PROTECT_MIN_INCR_R2:
@@ -7444,7 +7484,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             return_null_mean=True, parallelism="none", dtype=_pcr_q_dtype, prefer_gpu=False,
                         )
                         return float(_sig[3]) < _pcr_signif_alpha
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("Marginal-MI significance re-add probe failed (%s: %s) -- permissive re-add", type(e).__name__, e)
                         return True
                 _pcr_readd = []
                 # name -> index map built once (O(F)) instead of a ``.index()`` rescan of ``cols`` per
@@ -7548,6 +7589,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # fused whole -- so a fully-subsumed operand drops even when it is
                 # selected alongside the composite (not only when the composite
                 # collapsed the whole selection into the never-empty path).
+                _rrf_redund = getattr(self, "fe_raw_redundancy_retain_frac", None)
                 _kept_redund, _dropped_redund_names = drop_redundant_raw_operands(
                     data=data,
                     cols=cols,
@@ -7559,7 +7601,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     replayable_eng_names=_replayable_eng_names,
                     recipes=engineered_recipes,
                     raw_X=X,
-                    retain_frac=float(getattr(self, "fe_raw_redundancy_retain_frac", 0.15) or 0.15),
+                    retain_frac=float(_rrf_redund) if _rrf_redund is not None else 0.15,
                     linear_usability_keep=bool(getattr(self, "use_simple_mode", False)),
                     tail_subsume_enable=bool(getattr(self, "fe_pair_usability_admission_enable", True)),
                     tail_subsume_min_corr=float(getattr(self, "fe_raw_tail_subsume_min_corr", 0.85)),
@@ -7728,7 +7770,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     """Screening marginal MI(v, y) for raw column index ``_v``, used to pick the survivor between two monotone-twin raw columns (0.0 on a cache miss)."""
                     try:
                         return float(cached_MIs.get((_v,), 0.0))
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("cached_MIs lookup for monotone-twin relevance failed (%s: %s) -- treating as 0.0", type(e).__name__, e)
                         return 0.0
                 from .._feature_engineering_pairs._pairs_core import _abs_corr_finite_njit as _mt_corr_njit
                 _mt_keep: list[int] = []
@@ -8437,7 +8480,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                        factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
                                        return_null_mean=True, parallelism="none", dtype=_eb_qdtype, prefer_gpu=False)
                     return float(_r[3]) < _eb_alpha  # p-value below alpha -> genuine marginal signal
-                except Exception:
+                except Exception as e:
+                    logger.debug("Marginal-MI significance probe failed (%s: %s) -- not silently dropping a possibly-genuine operand", type(e).__name__, e)
                     return True  # estimator error -> do not silently drop a possibly-genuine operand
             _eb_added = []
             for _op in _eb_operands:
@@ -9269,9 +9313,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         self._engineered_recipes_ = _uaed_recipes[:_uaed_eng_keep]
                     self.n_features_ = int(self.support_.size) + min(_uaed_eng_keep, len(_uaed_recipes))
                     self.uaed_elbow_ = int(elbow)
-        except Exception:  # nosec B110 - non-trivial body
+        except Exception as e:  # nosec B110 - non-trivial body
             # UAED is best-effort post-fit; don't break fit() on internal hiccup.
-            pass
+            logger.debug("UAED post-fit adjustment failed (%s: %s) -- keeping the pre-UAED support", type(e).__name__, e)
     # Transient FE-escalation fitting target: full-n array, fit-time only.
     self._fe_escalation_y_rank_ = None
     # Transient prewarp ALS reconstruction target: full-n continuous y, fit-time only.

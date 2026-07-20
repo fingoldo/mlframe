@@ -80,13 +80,13 @@ def compute_adversarial_flip_features(
         if task == "binary":
             model = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1)
             model.fit(Xt_s, y_t.astype(np.int32))
-            pred_orig = model.predict_proba(Xq_s)[:, 1].astype(np.float32)
+            pred_orig = np.asarray(model.predict_proba(Xq_s))[:, 1].astype(np.float32)
             orig_class = (pred_orig > 0.5).astype(np.float32)
         else:
             model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1)
             model.fit(Xt_s, y_t)
-            pred_orig = model.predict(Xq_s).astype(np.float32)
-            train_pred = model.predict(Xt_s).astype(np.float32)
+            pred_orig = np.asarray(model.predict(Xq_s)).astype(np.float32)
+            train_pred = np.asarray(model.predict(Xt_s)).astype(np.float32)
             train_resid_decile = float(np.quantile(np.abs(y_t - train_pred), 0.10))
             orig_class = None  # for regression we compare pred-shift magnitude
 
@@ -106,9 +106,9 @@ def compute_adversarial_flip_features(
             for c, (j, scale, sign) in enumerate(combos):
                 stack[c * n_q : (c + 1) * n_q, j] += sign * scale * feat_std[j]
             if task == "binary":
-                pred_all = model.predict_proba(stack)[:, 1].astype(np.float32).reshape(n_combo, n_q)
+                pred_all = np.asarray(model.predict_proba(stack))[:, 1].astype(np.float32).reshape(n_combo, n_q)
             else:
-                pred_all = model.predict(stack).astype(np.float32).reshape(n_combo, n_q)
+                pred_all = np.asarray(model.predict(stack)).astype(np.float32).reshape(n_combo, n_q)
             for c, (j, scale, _sign) in enumerate(combos):
                 pred_pert = pred_all[c]
                 if task == "binary":
@@ -124,10 +124,10 @@ def compute_adversarial_flip_features(
                         Xq_perturbed = Xq_s.copy()
                         Xq_perturbed[:, j] = Xq_perturbed[:, j] + sign * scale * feat_std[j]
                         if task == "binary":
-                            pred_pert = model.predict_proba(Xq_perturbed)[:, 1].astype(np.float32)
+                            pred_pert = np.asarray(model.predict_proba(Xq_perturbed))[:, 1].astype(np.float32)
                             flipped = (pred_pert > 0.5).astype(np.float32) != orig_class
                         else:
-                            pred_pert = model.predict(Xq_perturbed).astype(np.float32)
+                            pred_pert = np.asarray(model.predict(Xq_perturbed)).astype(np.float32)
                             flipped = np.abs(pred_pert - pred_orig) > train_resid_decile
                         # Update minimum scale where flip occurred.
                         update_mask = flipped & (flip_dists[:, j] > scale)

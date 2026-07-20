@@ -402,3 +402,26 @@ def test_pdp_sweeps_categorical_feature_over_native_categories_catboost():
         r2 = compute_pdp_2d(model, df, features=pair, sample=400)
         assert r2["surface"].shape == (r2["grid0"].shape[0], r2["grid1"].shape[0])
         assert np.all(np.isfinite(r2["surface"]))
+
+
+def test_carrier_with_categoricals_drops_list_valued_embedding_column():
+    """A pandas object-dtype column holding list elements (e.g. a materialized embedding column) used to make
+    ``.astype("category")`` raise ``TypeError: unhashable type: 'numpy.ndarray'`` -- pandas' Categorical factorize
+    can't hash a list/array into its uniquing table. That column is dropped from the cast set instead of crashing
+    (a single embedding vector isn't a meaningful category anyway).
+    """
+    import pandas as pd
+    from mlframe.reporting.charts.pdp_ice import _carrier_with_categoricals
+
+    n = 20
+    df = pd.DataFrame(
+        {
+            "num": np.arange(n, dtype=float),
+            "cat": np.array(["a", "b"] * (n // 2), dtype=object),
+            "emb": [[0.1, 0.2, 0.3]] * n,
+        }
+    )
+    out = _carrier_with_categoricals(df)
+    assert isinstance(out["cat"].dtype, pd.CategoricalDtype)
+    assert out["emb"].dtype == object  # left untouched, not a crash
+    assert np.array_equal(out["num"].to_numpy(), df["num"].to_numpy())

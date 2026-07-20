@@ -215,6 +215,12 @@ def _carrier_with_categoricals(carrier: Any) -> Any:
     if not isinstance(carrier, pd.DataFrame):
         return carrier
     obj_cols = [c for c in carrier.columns if not (carrier[c].dtype.kind in "iufb" or isinstance(carrier[c].dtype, pd.CategoricalDtype))]
+    # An object column holding non-scalar elements (e.g. a materialized embedding column reaching pandas as a
+    # list per row) makes pandas' Categorical factorize() raise "unhashable type: 'numpy.ndarray'" -- lists/arrays
+    # can't hash into the category-uniquing table. Drop such columns from the cast set (a single embedding vector
+    # isn't a meaningful category anyway); they stay their original object dtype and the model call downstream
+    # either handles them natively or fails on its own terms, same as any other unsupported dtype.
+    obj_cols = [c for c in obj_cols if not any(isinstance(v, (list, tuple, np.ndarray)) for v in carrier[c])]
     return carrier.assign(**{c: carrier[c].astype("category") for c in obj_cols}) if obj_cols else carrier
 
 

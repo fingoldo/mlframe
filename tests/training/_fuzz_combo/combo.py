@@ -807,6 +807,12 @@ class FuzzCombo:
     row_wise_extreme_columns_enabled_cfg: bool = True
     inject_point_mass_cfg: bool = False
     mlframe_models_explicit_cfg: bool = True
+    # 2026-07-20 ShapProxiedFS new-surface axes (gt_02/gt_09, added 2026-07-19).
+    # Defaults mirror ShapProxiedFS.__init__ (shap_proxied_fs/__init__.py:132,158-161,210).
+    shap_proxied_proxy_mode_cfg: str = "auto"
+    shap_proxied_residual_passes_cfg: int = 0
+    shap_proxied_residual_merge_cfg: str = "rescue"
+    shap_proxied_refine_mode_cfg: str = "greedy"
 
     # DEFAULT allowlist mirrors DEFAULTS_CHANGELOG.md's documented
     # ``mlframe_models`` default (["cb","lgb","xgb","mlp","linear"]).
@@ -1697,10 +1703,18 @@ class FuzzCombo:
             (self.mrmr_low_card_cap_cfg if self.use_mrmr_fs else 32),
             # audit-pass-7 #4: collapsed_fallback_nbins only fires when a
             # supervised binning method collapses a column. Compound gate:
-            # MRMR ON AND nbins_strategy in {mdlp, fayyad_irani}. Other
-            # methods (quantile/qs/sturges/freedman_diaconis/...) never
+            # MRMR ON AND nbins_strategy in {mdlp, fayyad_irani, mdlp_validated,
+            # optimal_joint, cv} (mdlp_validated resolves to
+            # "fayyad_irani_validated" and cv is a pure alias for
+            # "optimal_joint", both internally, _adaptive_nbins.py:485-490;
+            # all five hit the same fallback gate at _adaptive_nbins.py:679).
+            # Other methods (quantile/qs/sturges/freedman_diaconis/...) never
             # trigger the fallback so the axis is canon-only there.
-            (self.mrmr_collapsed_fallback_nbins_cfg if (self.use_mrmr_fs and self.mrmr_nbins_strategy_cfg in ("mdlp", "fayyad_irani")) else 5),
+            (
+                self.mrmr_collapsed_fallback_nbins_cfg
+                if (self.use_mrmr_fs and self.mrmr_nbins_strategy_cfg in ("mdlp", "fayyad_irani", "mdlp_validated", "optimal_joint", "cv"))
+                else 5
+            ),
             # CV-selector mode: only meaningful when composite discovery is
             # enabled AND target is regression (the discovery is regression-
             # only). Mirrors the existing composite_* canon pattern.
@@ -2176,6 +2190,15 @@ class FuzzCombo:
             self.row_wise_extreme_columns_enabled_cfg,
             self._canonical_inject_point_mass(),
             self._canonical_mlframe_models_explicit(),
+            # 2026-07-20: ShapProxiedFS gt_02/gt_09 new-surface axes (added
+            # 2026-07-19). Canon-collapse to ShapProxiedFS.__init__ defaults
+            # outside their gates (shap_proxied_fs/__init__.py:132,158-161,210).
+            (self.shap_proxied_proxy_mode_cfg if self.use_shap_proxied_fs else "auto"),
+            (self.shap_proxied_residual_passes_cfg if self.use_shap_proxied_fs else 0),
+            # residual_merge only matters once residual_passes>0 (a second SHAP pass runs).
+            (self.shap_proxied_residual_merge_cfg if (self.use_shap_proxied_fs and self.shap_proxied_residual_passes_cfg > 0) else "rescue"),
+            # refine_mode only fires inside the within_cluster_refine branch (_shap_proxied_fit.py:840).
+            (self.shap_proxied_refine_mode_cfg if (self.use_shap_proxied_fs and self.shap_proxied_within_cluster_refine_cfg) else "greedy"),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":

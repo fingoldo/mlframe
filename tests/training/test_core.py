@@ -3257,13 +3257,10 @@ class TestPolarsNativeFastpath:
 
         captured_configs = []
 
-        # ``fit_and_transform_pipeline`` lives in ``training.pipeline`` and is
-        # re-imported into ``_phase_helpers`` (legacy), ``_phase_helpers_fit_split``,
-        # and ``_phase_helpers_fit_pipeline`` (current call site after the 2026-05-22
-        # split). Patch every binding so whichever the suite reaches sees the spy.
+        # ``fit_and_transform_pipeline`` lives in ``training.pipeline`` and is re-imported into
+        # ``_phase_helpers_fit_pipeline`` (current call site). ``_phase_helpers``/``_phase_helpers_fit_split``
+        # no longer import this name directly, so only these two bindings need patching.
         from mlframe.training import pipeline as _pipeline_mod
-        from mlframe.training.core import _phase_helpers as _ph_mod
-        from mlframe.training.core import _phase_helpers_fit_split as _phsplit_mod
         from mlframe.training.core import _phase_helpers_fit_pipeline as _phfit_mod
 
         original_fit = _pipeline_mod.fit_and_transform_pipeline
@@ -3274,8 +3271,6 @@ class TestPolarsNativeFastpath:
             return original_fit(**kwargs)
 
         monkeypatch.setattr(_pipeline_mod, "fit_and_transform_pipeline", _spy_pipeline)
-        monkeypatch.setattr(_ph_mod, "fit_and_transform_pipeline", _spy_pipeline)
-        monkeypatch.setattr(_phsplit_mod, "fit_and_transform_pipeline", _spy_pipeline)
         monkeypatch.setattr(_phfit_mod, "fit_and_transform_pipeline", _spy_pipeline)
 
         train_mlframe_models_suite(
@@ -3645,13 +3640,10 @@ class TestPolarsNativeFastpath:
 
         captured_configs = []
 
-        # ``fit_and_transform_pipeline`` lives in ``training.pipeline`` and is
-        # re-imported into ``_phase_helpers`` (legacy), ``_phase_helpers_fit_split``,
-        # and ``_phase_helpers_fit_pipeline`` (current call site after the 2026-05-22
-        # split). Patch every binding so whichever the suite reaches sees the spy.
+        # ``fit_and_transform_pipeline`` lives in ``training.pipeline`` and is re-imported into
+        # ``_phase_helpers_fit_pipeline`` (current call site). ``_phase_helpers``/``_phase_helpers_fit_split``
+        # no longer import this name directly, so only these two bindings need patching.
         from mlframe.training import pipeline as _pipeline_mod
-        from mlframe.training.core import _phase_helpers as _ph_mod
-        from mlframe.training.core import _phase_helpers_fit_split as _phsplit_mod
         from mlframe.training.core import _phase_helpers_fit_pipeline as _phfit_mod
 
         original_fit = _pipeline_mod.fit_and_transform_pipeline
@@ -3662,8 +3654,6 @@ class TestPolarsNativeFastpath:
             return original_fit(**kwargs)
 
         monkeypatch.setattr(_pipeline_mod, "fit_and_transform_pipeline", _spy_pipeline)
-        monkeypatch.setattr(_ph_mod, "fit_and_transform_pipeline", _spy_pipeline)
-        monkeypatch.setattr(_phsplit_mod, "fit_and_transform_pipeline", _spy_pipeline)
         monkeypatch.setattr(_phfit_mod, "fit_and_transform_pipeline", _spy_pipeline)
 
         models, _metadata = train_mlframe_models_suite(

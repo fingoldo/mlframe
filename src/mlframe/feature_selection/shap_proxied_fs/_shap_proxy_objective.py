@@ -18,10 +18,13 @@ not inside the numba hot loop -- documented in ``METRIC_CODES``.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, cast
 
 import numpy as np
 from numba import njit, prange
+
+logger = logging.getLogger(__name__)
 
 # Integer codes for the numba hot loop. AUC is intentionally absent (needs sort; use the Python path).
 METRIC_CODES = {"mae": 0, "rmse": 1, "mse": 1, "brier": 2, "logloss": 3}
@@ -89,6 +92,47 @@ def score_margin(margin: np.ndarray, y: np.ndarray, metric_code: int) -> float:
             p = 1.0 - eps
         s += -(y[i] * np.log(p) + (1.0 - y[i]) * np.log(1.0 - p))
     return float(s / n)
+
+
+@njit(cache=True, fastmath=True)
+def score_margin_batch(margins: np.ndarray, y: np.ndarray, metric_code: int) -> np.ndarray:
+    """Row-batched twin of :func:`score_margin`: one compiled call scores ``B`` stacked margin rows.
+
+    Callers that must score many independent coalitions per proxy-loss reduction (e.g. MSR-Banzhaf's
+    per-chunk coalition sampling) pay njit call-dispatch overhead once per BATCH instead of once per
+    coalition when they call this instead of looping ``score_margin`` row-by-row -- the per-call
+    overhead is otherwise ~O(microseconds) but dominates at thousands of tiny per-row calls (measured:
+    4096 sequential ``score_margin_auto`` calls cost ~0.41s of a 0.55s stage wall at n=3000, P=112).
+    ``margins`` is ``(B, n_samples)``; returns the ``(B,)`` per-row loss vector, identical values to
+    calling :func:`score_margin` once per row."""
+    b, n = margins.shape
+    out = np.empty(b, dtype=np.float64)
+    for r in range(b):
+        s = 0.0
+        if metric_code == 0:  # MAE
+            for i in range(n):
+                d = y[i] - margins[r, i]
+                s += d if d >= 0.0 else -d
+        elif metric_code == 1:  # MSE
+            for i in range(n):
+                d = y[i] - margins[r, i]
+                s += d * d
+        elif metric_code == 2:  # Brier
+            for i in range(n):
+                p = _sigmoid(margins[r, i])
+                d = p - y[i]
+                s += d * d
+        else:  # log-loss with probability clipping
+            eps = 1e-7
+            for i in range(n):
+                p = _sigmoid(margins[r, i])
+                if p < eps:
+                    p = eps
+                elif p > 1.0 - eps:
+                    p = 1.0 - eps
+                s += -(y[i] * np.log(p) + (1.0 - y[i]) * np.log(1.0 - p))
+        out[r] = s / n
+    return out
 
 
 @njit(cache=True, fastmath=True, parallel=True)
@@ -159,8 +203,8 @@ def _score_margin_parallel_min_rows() -> int:
             entry = cast(Any, ktc).lookup("shap_proxy_score_margin")
             if isinstance(entry, dict) and entry.get("parallel_min_rows"):
                 val = int(entry["parallel_min_rows"])
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("kernel_tuning_cache lookup for shap_proxy_score_margin failed (%s: %s) -- using default crossover", type(e).__name__, e)
     _score_margin_parallel_min_rows_cache = val
     return val
 
