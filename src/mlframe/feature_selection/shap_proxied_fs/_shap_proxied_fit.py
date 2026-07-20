@@ -890,16 +890,40 @@ class ShapProxiedFitMixin:
                         disk_cache_dir=self.cache_dir,
                         protected_cols=_residual_protected)
 
-                if self.refine_mode == "core":
+                _refine_mode_effective = self.refine_mode
+                _core_disk_cache = None
+                _base_honest_loss_for_auto: Optional[float] = None
+                if _refine_mode_effective in ("core", "auto"):
                     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_heuristics import _Evaluator
                     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import core_refine
-                    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_proxy_loss import _parallel_honest_losses
 
                     _core_disk_cache = _open_disk_cache(self.cache_dir)
-                    base_honest_loss = _honest_loss(
+                    _base_honest_loss_for_auto = _honest_loss(
                         model_template, X_search, y_search, X_hold, y_hold, member_cols,
                         self.classification, resolve_metric(self.classification, self.metric),
                         cache=honest_cache, disk_cache=_core_disk_cache)
+
+                if _refine_mode_effective == "auto":
+                    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import auto_should_use_core_refine
+
+                    def _confident_subset_loss(cols):
+                        """Honest loss of a reduced (confident-only) unit subset, for the auto pre-gate's marginal comparison."""
+                        return _honest_loss(
+                            model_template, X_search, y_search, X_hold, y_hold, cols,
+                            self.classification, resolve_metric(self.classification, self.metric),
+                            cache=honest_cache, disk_cache=_core_disk_cache)
+
+                    assert _base_honest_loss_for_auto is not None  # computed above whenever mode is "core" or "auto"
+                    _use_core = auto_should_use_core_refine(
+                        phi, tuple(int(u) for u in best_idx), unit_to_members, _base_honest_loss_for_auto, _confident_subset_loss
+                    )
+                    _refine_mode_effective = "core" if _use_core else "greedy"
+
+                if _refine_mode_effective == "core":
+                    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_proxy_loss import _parallel_honest_losses
+
+                    assert _base_honest_loss_for_auto is not None  # computed above whenever mode is "core" or "auto"
+                    base_honest_loss = _base_honest_loss_for_auto
                     _tol_threshold = base_honest_loss + self.parsimony_tol * abs(base_honest_loss)
 
                     # core_refine's LP allocates credit across UNITS (proxy columns), never sub-members
@@ -960,7 +984,7 @@ class ShapProxiedFitMixin:
                 # values are apples-to-apples. The cache lookup is the full-template namespace (no
                 # template_id), so this hits any prior pipeline retrain of the same subset (e.g. when
                 # refine made no drops, this is a cache hit of the union retrain done elsewhere).
-                refine_info: dict[str, Any] = dict(before=len(member_cols), after=len(refined), mode=self.refine_mode)
+                refine_info: dict[str, Any] = dict(before=len(member_cols), after=len(refined), mode=_refine_mode_effective, requested_mode=self.refine_mode)
                 if core_info is not None:
                     refine_info["allocation"] = {f"unit_{u}": v for u, v in core_info["allocation"].items()}
                     refine_info["eps_star"] = core_info["eps_star"]
