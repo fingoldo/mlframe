@@ -271,3 +271,71 @@ def core_refine(
     info = dict(allocation=allocation, eps_star=eps_star, dropped_by_core=dropped_units, fallback=True,
                 lp_status=lp_info["lp_status"], binding_coalitions=lp_info["binding_coalitions"])
     return legacy_result, info
+
+
+def auto_should_use_core_refine(
+    phi: np.ndarray,
+    unit_players: tuple[int, ...],
+    unit_to_members: dict,
+    base_honest_loss: float,
+    honest_loss_fn: Callable[[list[int]], float],
+    *,
+    margin_threshold: float = 0.02,
+) -> bool:
+    """``refine_mode="auto"``'s pre-gate: is core-refine's LP allocation likely to find anything greedy
+    wouldn't, on THIS fit?
+
+    Root-caused empirically (see ``test_biz_val_shap_proxied_core_refine.py``'s own docstring): core
+    degrades to greedy when the strong/already-confident units' honest loss is already near the
+    achievable floor -- the marginal held-out benefit of the weaker/borderline units crowds toward
+    zero (or goes slightly negative from noise), so every unit's least-core credit share washes out
+    below the drop threshold and the LP has nothing to differentiate. Measured end-to-end through the
+    real ``ShapProxiedFS.fit()`` pipeline (not an isolated toy model) on the two calibration fixtures
+    this repo already has: a saturated bed (6 strong w=1.0 + 6 weak w=0.25, where core measurably
+    degrades to greedy's exact recall) shows a marginal RELATIVE loss gain of -0.090; a non-saturated
+    bed (3 strong w=0.8 + 6 weak w=0.35, where core measurably recovers more weak recall than greedy)
+    shows +0.091 -- comfortably on either side of this function's default 0.02 threshold. A first
+    attempt at "confident" = a fixed top-half-by-RANK of ``unit_players`` failed to discriminate (a
+    real fit carries far more proxy units than raw informative columns -- measured 20-22 units
+    surviving from a 3-9-column fixture, not 9 -- so ranking exactly the top half diluted the
+    comparison with units that were never dominant); the magnitude-RELATIVE split below fixed that.
+
+    Compares ``base_honest_loss`` (the FULL unit set's already-computed honest holdout loss -- callers
+    pass this in rather than recomputing it) against the honest loss of just the units within a
+    FRACTION of the single strongest unit's mean(|phi|) magnitude (a cheap, already-available
+    confidence proxy: no new proxy-side computation, only one extra honest retrain via
+    ``honest_loss_fn``) -- adapting to however many units are actually dominant, whatever the total
+    count. A relative marginal gain below ``margin_threshold`` means the weaker units aren't buying
+    enough held-out accuracy to be worth core's LP + honest-reverify cost -- route to greedy directly.
+
+    Degenerate cases (fewer than 4 units, a degenerate all-zero magnitude vector, or the confident
+    split being empty/the full set) return ``True`` (use core) -- there's no safe reduced subset to
+    measure a marginal against, and core's own honest-gate fallback (see :func:`core_refine`) already
+    protects against a bad outcome either way.
+    """
+    n_units = len(unit_players)
+    if n_units < 4:
+        return True
+
+    magnitudes = np.array([float(np.mean(np.abs(phi[:, int(u)]))) for u in unit_players])
+    max_magnitude = float(magnitudes.max())
+    if max_magnitude <= 0.0:
+        return True
+    # Magnitude-RELATIVE split (not a fixed top-half-by-RANK): a real fit can carry many more proxy
+    # units than there are genuinely informative raw columns (measured: 20 units surviving from a
+    # 3-strong+6-weak fixture, not 9) -- ranking "confident" as exactly the top half then dilutes the
+    # comparison with units that were never dominant to begin with, washing out the marginal signal
+    # regardless of true saturation. Isolating units within a FRACTION of the single strongest unit's
+    # magnitude adapts to however many units are actually dominant, whatever the total count.
+    confident_units = [u for u, m in zip(unit_players, magnitudes) if m >= 0.5 * max_magnitude]
+    if not confident_units or len(confident_units) == n_units:
+        return True
+    confident_cols = sorted({int(c) for u in confident_units for c in unit_to_members[int(u)]})
+    if not confident_cols:
+        return True
+
+    loss_confident = honest_loss_fn(confident_cols)
+    if loss_confident == 0.0:
+        return True
+    relative_marginal_gain = (loss_confident - base_honest_loss) / abs(loss_confident)
+    return relative_marginal_gain >= margin_threshold
