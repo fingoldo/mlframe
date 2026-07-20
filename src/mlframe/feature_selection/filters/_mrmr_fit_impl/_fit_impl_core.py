@@ -2786,9 +2786,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             from .._binned_numeric_agg_fe import binned_numeric_agg_with_recipes
             _ba_y = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=np.float64).ravel()
             _X_before_ba = list(X.columns)
+            _bas_raw = getattr(self, "fe_binned_numeric_agg_stats", None)
             X_ba, _ba_appended, _ba_recipes = binned_numeric_agg_with_recipes(
                 fe_to_pandas(X), _ba_y,
-                stats=tuple(getattr(self, "fe_binned_numeric_agg_stats", ("mean", "std", "skew", "kurt")) or ("mean",)),
+                stats=tuple(_bas_raw) if _bas_raw is not None else ("mean", "std", "skew", "kurt"),
                 nbins_base=int(getattr(self, "fe_binned_numeric_agg_nbins", 10)),
                 n_folds=int(getattr(self, "fe_kfold_te_folds", 5)),
                 random_state=int(getattr(self, "random_seed", 0) or 0),
@@ -3416,7 +3417,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _ga_groups = [c for c in _ga_groups if c in X.columns] or None  # type: ignore[assignment]
                 _ga_nums = tuple(getattr(self, "fe_grouped_agg_num_cols", ()) or ())
                 _ga_nums = [c for c in _ga_nums if c in X.columns] or None  # type: ignore[assignment]
-                _ga_stats = tuple(getattr(self, "fe_grouped_agg_stats", ()) or ("mean", "std", "min", "max", "nunique", "skew", "median"))
+                _ga_stats_raw = getattr(self, "fe_grouped_agg_stats", None)
+                _ga_stats = tuple(_ga_stats_raw) if _ga_stats_raw is not None else ("mean", "std", "min", "max", "nunique", "skew", "median")
                 _ga_top_k = int(getattr(self, "fe_grouped_agg_top_k", 10))
                 _X_before_ga_cols = list(X.columns)
                 X_ga, _ga_appended, _ga_recipes, _ga_scores = hybrid_grouped_agg_fe(
@@ -3484,7 +3486,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _cga_key_sets = [g for g in _cga_key_sets if len(g) >= 2] or None  # type: ignore[assignment]
                 _cga_nums = tuple(getattr(self, "fe_composite_group_agg_num_cols", ()) or ())
                 _cga_nums = [c for c in _cga_nums if c in X.columns] or None  # type: ignore[assignment]
-                _cga_stats = tuple(getattr(self, "fe_composite_group_agg_stats", ()) or ("mean", "std", "count"))
+                _cga_stats_raw = getattr(self, "fe_composite_group_agg_stats", None)
+                _cga_stats = tuple(_cga_stats_raw) if _cga_stats_raw is not None else ("mean", "std", "count")
                 _cga_max_arity = int(getattr(self, "fe_composite_group_agg_max_arity", 2))
                 _cga_top_k = int(getattr(self, "fe_composite_group_agg_top_k", 10))
                 _X_before_cga_cols = list(X.columns)
@@ -3558,7 +3561,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     if _gq_nums is None:
                         _gq_det_groups = _gq_groups or []
                         _gq_nums = _gq_detect_nums(_gq_raw_view, _gq_det_groups) or None
-                _gq_quantiles = tuple(getattr(self, "fe_grouped_quantile_quantiles", ()) or (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95))
+                _gq_quantiles_raw = getattr(self, "fe_grouped_quantile_quantiles", None)
+                _gq_quantiles = tuple(_gq_quantiles_raw) if _gq_quantiles_raw is not None else (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)
                 _gq_target_aware = bool(getattr(self, "fe_grouped_quantile_target_aware", False))
                 _gq_n_bins = int(getattr(self, "fe_grouped_quantile_n_bins", 5))
                 _gq_top_k = int(getattr(self, "fe_grouped_quantile_top_k", 8))
