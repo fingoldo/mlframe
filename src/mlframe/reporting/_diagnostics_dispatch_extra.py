@@ -340,7 +340,16 @@ def render_prediction_stability_diagnostic(
     try:
         from mlframe.reporting.charts.prediction_stability import compose_prediction_stability_figure
 
-        yt = None if y_true is None else np.asarray(y_true, dtype=np.float64).ravel()[: mp.shape[0]]
+        yt = None if y_true is None else np.asarray(y_true, dtype=np.float64).ravel()
+        # member_test_preds and test_target can come from different upstream slices (e.g. a coarse ensemble
+        # re-scoring pass over more rows than the target was subsampled to) -- the old one-sided
+        # ``yt[:mp.shape[0]]`` only ever shrank yt, so a SHORTER yt than mp left them mismatched and
+        # ``abs_error = yt - res.ensemble_mean`` raised a raw broadcast ValueError downstream. Align both to
+        # the shorter length instead of assuming mp is never the shorter side.
+        if yt is not None and yt.shape[0] != mp.shape[0]:
+            n = min(yt.shape[0], mp.shape[0])
+            yt = yt[:n]
+            mp = mp[:n]
         spec = compose_prediction_stability_figure(mp, y_true=yt, seed=seed)
         out = base_path + "_prediction_stability"
         ok = _save_spec(spec, plot_outputs, out)
