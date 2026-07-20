@@ -38,7 +38,7 @@ __all__ = [
 # back-compat: callers that pinned the legacy 4-tuple via
 # ``fe_hybrid_orth_ensemble_scorers`` keep the old behaviour; the auto pool
 # picks HSIC when its bootstrap LCB dominates the other four.
-SCORER_NAMES = ("plug_in", "ksg", "copula", "dcor", "hsic")
+SCORER_NAMES = ("plug_in", "ksg", "copula", "dcor", "hsic", "xi")
 
 
 def _score_plug_in(x: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> float:
@@ -114,6 +114,17 @@ def _score_hsic(x: np.ndarray, y: np.ndarray, *, n_sample: int = 500, random_sta
         np.asarray(x).ravel(), np.asarray(y).ravel(),
         kernel="rbf", n_sample=int(n_sample),
         random_state=int(random_state),
+    ))
+
+
+def _score_xi(x: np.ndarray, y: np.ndarray, *, random_state: int = 0) -> float:
+    """Chatterjee's Xi rank correlation -- Layer 72's sort-then-walk dependence measure, distinct
+    from every distance/kernel/binning scorer above (catches high-frequency oscillatory signal a
+    fixed-scale scorer averages away)."""
+    from ._orthogonal_xi_fe import xi_correlation
+
+    return float(xi_correlation(
+        np.asarray(x).ravel(), np.asarray(y).ravel(), random_state=int(random_state),
     ))
 
 
@@ -271,6 +282,8 @@ def select_best_scorer_per_column(
                 x_vec, y_vec, n_sample=int(dcor_n_sample),
                 random_state=int(seed),
             )
+        if name == "xi":
+            return _score_xi(x_vec, y_vec, random_state=int(seed))
         raise ValueError(f"unknown scorer name: {name!r}")
 
     # Per-source baseline: { source_col: { scorer: lcb } }. Computed

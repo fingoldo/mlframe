@@ -71,6 +71,7 @@ from ._orth_auto_scorer_fe import (
     _score_hsic,
     _score_ksg,
     _score_plug_in,
+    _score_xi,
 )
 
 logger = logging.getLogger(__name__)
@@ -194,6 +195,8 @@ def _compute_per_scorer_rank_table(
                 x_vec, y_vec, n_sample=int(dcor_n_sample),
                 random_state=int(random_state),
             )
+        if name == "xi":
+            return _score_xi(x_vec, y_vec, random_state=int(random_state))
         raise ValueError(f"unknown scorer name: {name!r}")
 
     # Batch the column-separable scorers (plug-in MI, copula MI) across all
@@ -205,7 +208,7 @@ def _compute_per_scorer_rank_table(
     # subsample) stay per-column via _call.
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
-    _BATCHABLE = {"plug_in", "copula"}
+    _BATCHABLE = {"plug_in", "copula", "xi"}
     _batch_scorers = [s for s in scorers if s in _BATCHABLE]
 
     def _batch_scores(frame: pd.DataFrame, cols: list) -> dict:
@@ -233,6 +236,10 @@ def _compute_per_scorer_rank_table(
                 from ._orthogonal_copula_mi_fe import _copula_mi_batch
 
                 res[s] = np.asarray(_copula_mi_batch(Xmat, y_arr, n_bins=int(copula_n_bins)), dtype=np.float64)
+            elif s == "xi":
+                from ._orthogonal_xi_fe import xi_correlation_batch
+
+                res[s] = xi_correlation_batch(Xmat, y_arr, random_state=int(random_state))
         return res
 
     raw_batched = _batch_scores(raw_X, raw_cols)

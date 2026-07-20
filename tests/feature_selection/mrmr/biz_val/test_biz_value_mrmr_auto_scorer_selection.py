@@ -232,22 +232,34 @@ def _build_linear(seed: int, n: int = 1200):
 
 class TestDcorWinsOnNonMonotone:
     """On a ``y = cos(pi * x1)`` target the auto-selector should reach
-    for dCor on at least one of the ``x1`` engineered columns -- that's
-    the non-monotone-dependence signal family Layer 67 was added for.
+    for a UNIVERSAL (non-monotone-aware) dependence scorer on at least
+    one of the ``x1`` engineered columns -- that's the non-monotone-
+    dependence signal family Layer 67 (dCor) was added for.
     """
 
-    def test_auto_picks_dcor_on_cos_signal(self):
-        """Across an 8-seed sweep on the cos-signal fixture the dCor
-        scorer is the picked best for AT LEAST ONE engineered column on
-        the majority of seeds. Pearson is exactly zero by symmetry of
-        the cosine on a symmetric uniform support, so Pearson-/rank-
-        adjacent MI estimators (plug-in / copula / KSG) recover less
-        signal than dCor's universal independence-detection construction.
+    def test_auto_picks_a_universal_scorer_on_cos_signal(self):
+        """Across an 8-seed sweep on the cos-signal fixture, EITHER dCor
+        OR Xi (Layer 72, added mrmr_audit_2026-07-20 fe_expansion.md) must be
+        the picked best for at least one engineered column on the majority of
+        seeds. Pearson is exactly zero by symmetry of the cosine on a
+        symmetric uniform support, so Pearson-/rank-adjacent MI estimators
+        (plug-in / copula / KSG) recover less signal than either of these two
+        universal (iff-independence / iff-measurable-function) constructions.
+
+        Originally pinned to dCor alone; empirically, once Xi joined the
+        scorer pool it wins the bootstrap-LCB competition on this fixture in
+        the majority of seeds (Xi's iff-measurable-function guarantee is a
+        strictly more general non-monotone-dependence detector than dCor's
+        iff-independence one, so it is EXPECTED to compete for, and often win,
+        the same non-monotone-dependence niche dCor was added for) -- both are
+        valid winners of the real invariant this test checks: a universal,
+        non-monotone-aware scorer beats the monotone-biased ones on this
+        fixture, not a specific scorer's identity.
         """
         _, _, _, _, hybrid_with_recipes = _import_auto_fe()
         seeds = (1, 7, 13, 42, 101, 202, 303, 404)
-        n_dcor_hits = 0
-        dcor_hit_seeds = []
+        n_hits = 0
+        hit_seeds = []
         for seed in seeds:
             X, y = _build_non_monotone_fixture(seed, n=800)
             _X_aug, scores, _recipes = hybrid_with_recipes(
@@ -264,14 +276,14 @@ class TestDcorWinsOnNonMonotone:
             )
             x1_rows = scores[scores["source_col"] == "x1"]
             assert not x1_rows.empty, f"seed={seed}: no engineered columns for source 'x1'; fixture is broken."
-            if (x1_rows["best_scorer"] == "dcor").any():
-                n_dcor_hits += 1
-                dcor_hit_seeds.append(seed)
-        # dCor must dominate on the cos signal in the MAJORITY of seeds.
-        assert n_dcor_hits >= 5, (
-            f"auto-selector picked dCor on cos-signal x1 in only "
-            f"{n_dcor_hits}/{len(seeds)} seeds (hit seeds {dcor_hit_seeds}); "
-            f"expected >= 5 (the non-monotone dCor-favoured contract)."
+            if x1_rows["best_scorer"].isin(["dcor", "xi"]).any():
+                n_hits += 1
+                hit_seeds.append(seed)
+        # A universal (dcor or xi) scorer must dominate on the cos signal in the MAJORITY of seeds.
+        assert n_hits >= 5, (
+            f"auto-selector picked neither dcor nor xi on cos-signal x1 in "
+            f"{len(seeds) - n_hits}/{len(seeds)} seeds (hit seeds {hit_seeds}); "
+            f"expected >= 5 (the universal-scorer-favoured contract)."
         )
 
 
