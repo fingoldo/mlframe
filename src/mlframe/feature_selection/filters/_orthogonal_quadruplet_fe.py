@@ -152,10 +152,15 @@ def generate_quadruplet_cross_basis_features(
         _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); matches the GPU device
         # builder's operand dtype (_gpu_resident_cross_basis.py) so host and device run the polynomial
         # recurrence at the SAME precision -- see build_leg_product_matrix_gpu's docstring.
-        x_i = np.asarray(X[col_i].to_numpy(), dtype=_dt)
-        x_j = np.asarray(X[col_j].to_numpy(), dtype=_dt)
-        x_k = np.asarray(X[col_k].to_numpy(), dtype=_dt)
-        x_l = np.asarray(X[col_l].to_numpy(), dtype=_dt)
+        # np.array (copy=True): X[col].to_numpy() can alias the DataFrame's backing block -- e.g. a
+        # zero-copy Arrow-backed view or a frozen MRMR-fit-cache array reused via fe_append_columns from
+        # an earlier stage -- and the np.copyto NaN-fill below would then either mutate the CALLER's X or
+        # raise "assignment destination is read-only" on a genuinely read-only block. A fresh copy (matching
+        # the sibling pair-cross / GPU-resident generators' established pattern) keeps the fill local and safe.
+        x_i = np.array(X[col_i].to_numpy(), dtype=_dt)
+        x_j = np.array(X[col_j].to_numpy(), dtype=_dt)
+        x_k = np.array(X[col_k].to_numpy(), dtype=_dt)
+        x_l = np.array(X[col_l].to_numpy(), dtype=_dt)
         for x in (x_i, x_j, x_k, x_l):
             finite_mask = np.isfinite(x)
             if not finite_mask.all():
