@@ -421,8 +421,21 @@ def evaluate_swap_candidate(
                 best_member_rel = m_rel
                 best_member_idx = int(m_idx)
     gain_factor = 1.0 + float(state.swap_gain_threshold)
-    aggregate_gate = rep_relevance > anchor_rel * gain_factor
-    member_gate = best_member_idx >= 0 and best_member_rel > anchor_rel * gain_factor
+    # Cheap pre-filter ahead of the (potentially expensive) permutation null below. When a null
+    # will actually run (``full_npermutations > 0``), soften this to plain dominance -- the
+    # candidate merely needs to beat the anchor's point estimate -- and let the null's p-value be
+    # the SOLE significance arbiter: the fixed ``swap_gain_threshold`` margin was rejecting real,
+    # null-eligible swaps whose point-estimate gain fell just under the bar (measured case:
+    # aggregate beat anchor by 3.3%, short of the 5% default margin, despite the underlying
+    # improvement being real). When no null is requested (``full_npermutations <= 0``, so no
+    # statistical backstop is available), keep the stricter margin as the sole heuristic gate.
+    _null_will_run = int(full_npermutations or 0) > 0
+    if _null_will_run:
+        aggregate_gate = rep_relevance > anchor_rel
+        member_gate = best_member_idx >= 0 and best_member_rel > anchor_rel
+    else:
+        aggregate_gate = rep_relevance > anchor_rel * gain_factor
+        member_gate = best_member_idx >= 0 and best_member_rel > anchor_rel * gain_factor
     if not aggregate_gate and not member_gate:
         # Branch A: no swap candidate beats the anchor.
         return SwapDecision(

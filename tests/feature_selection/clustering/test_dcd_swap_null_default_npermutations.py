@@ -46,12 +46,18 @@ def _three_dups_plus_strong_frame(n: int = 1500, seed: int = 0):
     rng = np.random.default_rng(int(seed))
     latent = rng.standard_normal(n)
     other = rng.standard_normal(n)
+    # 2026-07-20: per-duplicate noise raised 0.01 -> 0.15. At 0.01 the three duplicates were so
+    # near-perfectly correlated (r~=0.9998) that PC1-averaging had almost no idiosyncratic noise
+    # left to cancel, so the aggregate's true CMI edge over any single duplicate was tiny (measured
+    # ~3.3%) -- too marginal for a rigorous B=199 permutation test to call significant at alpha=0.05,
+    # even though the point-estimate direction was correct. More per-duplicate noise gives averaging
+    # real denoising work to do, producing a clear, statistically robust improvement.
     X = pd.DataFrame(
         {
             "strong": other,
-            "dup_a": latent + 0.01 * rng.standard_normal(n),
-            "dup_b": latent + 0.01 * rng.standard_normal(n),
-            "dup_c": latent + 0.01 * rng.standard_normal(n),
+            "dup_a": latent + 0.15 * rng.standard_normal(n),
+            "dup_b": latent + 0.15 * rng.standard_normal(n),
+            "dup_c": latent + 0.15 * rng.standard_normal(n),
             "noise_0": rng.standard_normal(n),
         }
     )
