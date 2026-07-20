@@ -71,6 +71,37 @@ def test_classifies_redundant_hub_red_and_predictors_green():
     assert by_name["G"].neighbors_unique_target > by_name["G"].relevance
 
 
+def test_inf_fs_centrality_flags_hub_highest_and_low_centrality_list():
+    """The hub-of-4 node has the highest Inf-FS centrality; a 5th independent predictor added to the set scores lowest and lands in low_centrality."""
+    data, _nbins, _tgt, _names, _sel, _hub = _redundant_hub_dataset(n=8000, seed=11)
+    # Add a 5th predictor independent of everyone else in the selected set (no edges to it).
+    rng = np.random.default_rng(99)
+    n = data.shape[0]
+    indep = rng.integers(0, 2, n).astype(np.int32)
+    data2 = np.column_stack([data[:, :5], indep, data[:, 5]]).astype(np.int32)
+    nbins2 = np.array([4, 4, 4, 4, 5, 2, 2], dtype=np.int64)
+    names2 = ["p1", "p2", "p3", "p4", "G", "indep", "y"]
+    sel2 = [0, 1, 2, 3, 4, 5]
+    g = build_friend_graph(sel2, data2, nbins2, np.array([6], dtype=np.int64), feature_names=names2, seed=1)
+
+    by_name = {n_.name: n_ for n_ in g.nodes}
+    centralities = {n_.name: n_.centrality for n_ in g.nodes}
+    assert by_name["G"].centrality == max(centralities.values()), f"hub 'G' should have the highest Inf-FS centrality, got {centralities}"
+    assert "indep" in g.low_centrality, f"the independent predictor (no edges) should land in low_centrality, got {g.low_centrality}"
+    assert "G" not in g.low_centrality
+
+
+def test_inf_fs_centrality_defaults_zero_when_disabled_or_no_edges():
+    """compute_centrality=False leaves every node's centrality at its 0.0 default; a single-node set also yields 0.0 (no edges to rank)."""
+    data, nbins, tgt, names, sel, _ = _redundant_hub_dataset(n=2000, seed=5)
+    g_off = build_friend_graph(sel, data, nbins, tgt, feature_names=names, seed=1, compute_centrality=False)
+    assert all(n_.centrality == 0.0 for n_ in g_off.nodes)
+    assert g_off.low_centrality == []
+
+    g_single = build_friend_graph([0], data, nbins, tgt, feature_names=names, seed=1)
+    assert g_single.nodes[0].centrality == 0.0
+
+
 def test_edge_weights_match_plugin_mi():
     """Edge weights match plugin mi."""
     data, nbins, tgt, names, sel, _ = _redundant_hub_dataset(n=6000, seed=3)

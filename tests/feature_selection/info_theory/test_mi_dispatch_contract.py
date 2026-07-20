@@ -25,7 +25,7 @@ from tests.feature_selection.conftest import fast_subset
 # torch (+ a downloaded checkpoint for infonet / the mist-statinf package for mist).
 # ---------------------------------------------------------------------------
 
-FAST_ESTIMATORS = ["plug_in", "mixed_ksg", "ksg_lnc", "fastmi", "median", "genie"]
+FAST_ESTIMATORS = ["plug_in", "mixed_ksg", "ksg_lnc", "fastmi", "median", "genie", "renyi_alpha"]
 NEURAL_ESTIMATORS = ["mine", "infonet", "mist"]
 
 # Calibrated floor: +0.05 above the noise MI (per param_axes-04 recipe). Measured smallest fast delta is fastmi ~0.324 at

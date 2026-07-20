@@ -253,6 +253,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
     min_relevance_gain = ctx.min_relevance_gain
     verbose = ctx.verbose
     ndigits = ctx.ndigits
+    random_seed = ctx.random_seed
 
     run_out_of_time = False
 
@@ -353,6 +354,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
                 cpt=_cpt_snapshot,
                 mi_miller_madow=_mm_snapshot,
                 group_mi=_gmi_snapshot,
+                random_seed=random_seed,
             )
             for workload in split_list_into_chunks(feasible_candidates, max(1, len(feasible_candidates) // n_workers))
         )
@@ -453,6 +455,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
                 verbose=verbose,
                 ndigits=ndigits,
                 use_simple_mode=use_simple_mode,
+                random_seed=random_seed,
             )
 
             best_gain, best_candidate, run_out_of_time = handle_best_candidate(

@@ -63,6 +63,7 @@ class FriendGraphNode:
     shared_frac: float  # weighted_degree / H(X) (capped at compute time)
     neighbors_unique_target: float  # sum_j I(Y; X_j | X) over neighbors (0 unless suspect)
     klass: str  # "green" | "red" | "yellow"
+    centrality: float = 0.0  # Inf-FS-style eigenvector centrality on the MI-weighted adjacency (0 when the edge pass was skipped)
 
 
 @dataclass
@@ -81,6 +82,7 @@ class FriendGraph:
     nodes: List[FriendGraphNode] = field(default_factory=list)
     edges: List[FriendGraphEdge] = field(default_factory=list)
     suspected_garbage: List[str] = field(default_factory=list)
+    low_centrality: List[str] = field(default_factory=list)  # names below the centrality_percentile cutoff (Inf-FS re-rank)
     pruned: List[str] = field(default_factory=list)
     prune_reasons: Dict[str, str] = field(default_factory=dict)
     # node idx -> (x, y) layout position
@@ -108,6 +110,7 @@ class FriendGraph:
                 "shared_frac": round(n.shared_frac, 5),
                 "neighbors_unique_target": round(n.neighbors_unique_target, 5),
                 "klass": n.klass,
+                "centrality": round(n.centrality, 5),
             }
             for n in self.nodes[:max_nodes_in_meta]
         ]
@@ -116,6 +119,7 @@ class FriendGraph:
             "n_edges": len(self.edges),
             "class_counts": counts,
             "suspected_garbage": list(self.suspected_garbage),
+            "low_centrality": list(self.low_centrality),
             "pruned": list(self.pruned),
             "prune_reasons": dict(self.prune_reasons),
             "top_weighted_degree": [(n.name, round(n.weighted_degree, 5)) for n in top_wd],
@@ -260,6 +264,40 @@ def neighbor_unique_target(factors_data, i, neighbor_indices, target, rel_i, fac
     return total_unique, detail
 
 
+def _inf_fs_centrality(sel: List[int], edges: List[FriendGraphEdge]) -> Dict[int, float]:
+    """Roffo et al. 2017 (ICCV) Infinite Feature Selection score on the MI-weighted friend-graph adjacency.
+
+    Sums the (convergent) geometric series of walks of every length: ``S = sum_{r>=1} alpha^r A^r
+    = (I - alpha*A)^-1 - I`` where ``A`` is the symmetric nonnegative MI-edge adjacency and
+    ``alpha = 0.5 / lambda_max(A)`` guarantees convergence (``lambda_max`` is ``A``'s spectral radius,
+    a symmetric nonneg matrix's largest eigenvalue by Perron-Frobenius). A node's score is its row sum
+    of ``S`` -- total (decayed) influence over paths of all lengths, not just its immediate neighbors,
+    which is what distinguishes this from a plain weighted-degree centrality. Row-sums are min-max
+    normalized to ``[0, 1]`` so the score is comparable across differently-sized selected sets.
+
+    Returns an empty dict for <2 nodes or an all-zero adjacency (nothing to rank).
+    """
+    n = len(sel)
+    if n < 2 or not edges:
+        return {}
+    idx_of = {v: i for i, v in enumerate(sel)}
+    A = np.zeros((n, n), dtype=np.float64)
+    for e in edges:
+        i, j = idx_of[e.a], idx_of[e.b]
+        A[i, j] = A[j, i] = float(e.mi)
+    lambda_max = float(np.max(np.abs(np.linalg.eigvalsh(A))))
+    if lambda_max <= 0.0:
+        return {v: 0.0 for v in sel}
+    alpha = 0.5 / lambda_max
+    S = np.linalg.inv(np.eye(n) - alpha * A) - np.eye(n)
+    scores = S.sum(axis=1)
+    lo, hi = float(scores.min()), float(scores.max())
+    if hi - lo <= 0.0:
+        return {v: 0.0 for v in sel}
+    normalized = (scores - lo) / (hi - lo)
+    return {v: float(normalized[idx_of[v]]) for v in sel}
+
+
 def _layout(sel: List[int], edges: List[FriendGraphEdge], seed) -> Dict[int, Tuple[float, float]]:
     """Node positions via networkx ``spring_layout`` (force-directed); deterministic
     circular fallback when networkx is absent so the build never blocks on an
@@ -304,6 +342,8 @@ def build_friend_graph(
     unique_max_degree: int = 1,
     max_nodes: int = 200,
     compute_layout: bool = True,
+    compute_centrality: bool = True,
+    centrality_percentile: float = 5.0,
     dtype=np.int32,
     seed=None,
     gpu_backend: Optional[str] = None,
@@ -495,14 +535,26 @@ def build_friend_graph(
         else:
             klass[i] = "yellow"
 
+    # Inf-FS (Roffo et al. 2017 ICCV) eigenvector-style centrality re-rank on the MI-weighted
+    # adjacency: a global structural score (walks of all lengths) the local degree/garbage
+    # heuristics above never compute. Diagnostic only -- it does not change ``selected_vars``,
+    # just flags nodes whose influence on the rest of the selected set is negligible.
+    centrality: Dict[int, float] = {}
+    if compute_centrality and not edges_skipped:
+        centrality = _inf_fs_centrality(sel, edges)
+
     for i in sel:
         graph.nodes.append(FriendGraphNode(
             idx=i, name=names[i], entropy=H[i], relevance=rel[i],
             weighted_degree=weighted_degree[i], shared_frac=shared_frac[i],
             neighbors_unique_target=neighbors_unique[i], klass=klass[i],
+            centrality=centrality.get(i, 0.0),
         ))
     graph.edges = edges
     graph.suspected_garbage = [names[i] for i in sel if klass[i] == "red"]
+    if centrality:
+        cutoff = float(np.percentile(list(centrality.values()), centrality_percentile))
+        graph.low_centrality = [names[i] for i in sel if centrality.get(i, 0.0) <= cutoff]
     if compute_layout:
         graph.pos = _layout(sel, edges, seed)
     return graph

@@ -229,6 +229,7 @@ def evaluate_candidates(
     cpt: tuple = (False, 200),
     mi_miller_madow: bool = False,
     group_mi=None,
+    random_seed: Optional[int] = None,
 ) -> tuple:
     """Thread-worker entry point: re-publish the Wave 8 ``threading.local`` toggles (SU/JMIM/Bur-lambda/relax-mrmr/PID/CMI-perm/CPT/Miller-Madow/group-MI) into this worker thread, run ``_evaluate_candidates_inner`` over the workload, then restore the prior thread-local values in ``finally`` so a reused worker doesn't leak this call's settings into the next dispatch."""
     # Worker-thread re-publish of Wave 8 toggles (iter 5 fix). The
@@ -275,6 +276,7 @@ def evaluate_candidates(
             start_time=start_time, min_relevance_gain=min_relevance_gain,
             verbose=verbose, ndigits=ndigits,
             use_simple_mode=use_simple_mode,
+            random_seed=random_seed,
         )
     finally:
         set_su_normalization(_prev_su)
@@ -298,6 +300,7 @@ def _evaluate_candidates_inner(
     mrmr_redundancy_algo="fleuret", max_veteranes_interactions_order=1,
     dtype=np.int32, max_runtime_mins=None, start_time=None,
     min_relevance_gain=None, verbose=1, ndigits=5, use_simple_mode=True,
+    random_seed=None,
 ) -> tuple:
     """Score every candidate in ``workload`` (serial loop over ``evaluate_candidate``), tracking the running best gain/candidate and updating ``partial_gains``/the MI caches in place."""
     # lazy: parent-defined helpers + cache deque, imported here to avoid the
@@ -414,6 +417,7 @@ def _evaluate_candidates_inner(
             _relax_k_y=_relax_k_y,
             _relax_sel_cols=_relax_sel_cols,
             _relax_sel_nbins=_relax_sel_nbins,
+            random_seed=random_seed,
         )
 
         best_gain, best_candidate, run_out_of_time = handle_best_candidate(
