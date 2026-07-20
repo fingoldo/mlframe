@@ -131,3 +131,30 @@ def test_row_wise_summary_stats_grouped_matches_manual_per_group_calls():
         "row_summary_bigscale_std",
         "row_summary_bigscale_q10",
     }
+
+
+def test_row_wise_summary_stats_nan_path_matches_numpy_nanquantile_nanmedian():
+    """The NaN-present path routes quantiles (and median, as q=0.5) through an njit per-row kernel instead of
+    ``np.nanquantile``/``np.nanmedian`` (apply_along_axis, ~7x slower at n=200k -- see bench_row_wise_summary.py).
+    Pin the njit path to agree with the exact numpy reference to within float64 rounding-order noise, on a
+    block with NaN present, varying row-completeness (some rows all-finite, some with several NaN, one
+    all-NaN row) so every branch of the per-row kernel (m==0, m==1, m>1) is exercised.
+    """
+    rng = np.random.default_rng(3)
+    n, d = 500, 12
+    arr = rng.normal(size=(n, d))
+    arr[rng.random((n, d)) < 0.15] = np.nan
+    arr[0, :] = np.nan  # all-NaN row
+    arr[1, 1:] = np.nan  # single finite value row
+    X = pd.DataFrame(arr, columns=[f"f{i}" for i in range(d)])
+
+    out = row_wise_summary_stats(X, stats=("median", "q10", "q50", "q90"))
+
+    ref_q = np.nanquantile(arr, [0.1, 0.5, 0.9], axis=1)
+    ref_median = np.nanmedian(arr, axis=1)
+
+    np.testing.assert_allclose(out["row_summary_q10"].to_numpy(), ref_q[0], rtol=0, atol=1e-12, equal_nan=True)
+    np.testing.assert_allclose(out["row_summary_q50"].to_numpy(), ref_q[1], rtol=0, atol=1e-12, equal_nan=True)
+    np.testing.assert_allclose(out["row_summary_q90"].to_numpy(), ref_q[2], rtol=0, atol=1e-12, equal_nan=True)
+    np.testing.assert_allclose(out["row_summary_median"].to_numpy(), ref_median, rtol=0, atol=1e-12, equal_nan=True)
+    assert np.isnan(out["row_summary_median"].to_numpy()[0])  # the all-NaN row stays NaN
