@@ -61,6 +61,9 @@ def ks_stability_filter(
     """
     from scipy.stats import ks_2samp
 
+    if n_splits > 1 and not (0.0 < split_frac <= 1.0):
+        raise ValueError(f"ks_stability_filter: split_frac must be in (0, 1], got {split_frac!r}.")
+
     if feature_cols is None:
         feature_cols = [c for c in train_df.columns if c in test_df.columns and pd.api.types.is_numeric_dtype(train_df[c])]
     feature_cols = list(feature_cols)

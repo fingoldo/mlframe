@@ -112,6 +112,12 @@ def _fourier_canonical_seeds(degree: int) -> list:
 
 def _rbf_fit(x: np.ndarray):
     """Fit RBF centres at quantiles 0.1..0.9 and Silverman bandwidth. 9 fixed centres -> 9 weight coefficients during search."""
+    # mrmr_audit_2026-07-20 P2: unlike ``_fourier_fit``/``_pade_fit``, this fit had no NaN/Inf guard --
+    # np.quantile/np.std on a NaN-bearing column silently propagate NaN into every centre/bandwidth. No
+    # known caller currently feeds NaN-bearing x here, but nothing enforced that contract either.
+    if not np.all(np.isfinite(x)):
+        centres = np.zeros(9, dtype=np.float64)
+        return np.zeros_like(x, dtype=np.float64), dict(centres=centres, bandwidth=1.0)
     quantiles = np.linspace(0.1, 0.9, 9)
     centres = np.quantile(x, quantiles).astype(np.float64)
     std = float(np.std(x) + 1e-12)
@@ -181,6 +187,12 @@ def _rbf_canonical_seeds(degree: int) -> list:
 
 def _sigmoid_fit(x: np.ndarray):
     """Fit thresholds at quantiles 0.1..0.9 and slope to span the 10%-90% interquantile range with sharpness 4."""
+    # mrmr_audit_2026-07-20 P2: same NaN/Inf guard added to the sibling ``_rbf_fit`` -- np.quantile on a
+    # NaN-bearing column silently propagates NaN into every threshold with no upstream contract enforcing
+    # finite input.
+    if not np.all(np.isfinite(x)):
+        thresholds = np.zeros(9, dtype=np.float64)
+        return np.zeros_like(x, dtype=np.float64), dict(thresholds=thresholds, slope=1.0)
     quantiles = np.linspace(0.1, 0.9, 9)
     thresholds = np.quantile(x, quantiles).astype(np.float64)
     iqr = float(np.quantile(x, 0.9) - np.quantile(x, 0.1)) + 1e-12
