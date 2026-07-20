@@ -17,8 +17,13 @@ verification of the final core-pruned proposal (in ``core_refine``) is what keep
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Callable
+
 import numpy as np
 from scipy.optimize import linprog
+
+if TYPE_CHECKING:
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_heuristics import _Evaluator
 
 
 def _sample_coalitions(k: int, n_coalitions: int, rng: np.random.Generator) -> list[tuple[int, ...]]:
@@ -49,7 +54,7 @@ def _sample_coalitions(k: int, n_coalitions: int, rng: np.random.Generator) -> l
 
 
 def least_core_allocation(
-    evaluator,
+    evaluator: "_Evaluator",
     players: tuple[int, ...],
     *,
     n_coalitions: int = 512,
@@ -213,15 +218,15 @@ def _truncated_nucleolus(
 def core_refine(
     members: list[int],
     unit_players: tuple[int, ...],
-    evaluator,
-    honest_loss_fn,
+    evaluator: "_Evaluator",
+    honest_loss_fn: Callable[[list[int]], bool],
     *,
     drop_threshold: float = 0.02,
     n_coalitions: int = 512,
     rng: np.random.Generator,
     nucleolus_refine: bool = False,
     unit_to_members: dict,
-    legacy_refine_fn,
+    legacy_refine_fn: Callable,
     legacy_refine_kwargs: dict,
 ) -> tuple[list[int], dict]:
     """Least-core allocation over ``unit_players``, drop units below ``drop_threshold`` of total credit.

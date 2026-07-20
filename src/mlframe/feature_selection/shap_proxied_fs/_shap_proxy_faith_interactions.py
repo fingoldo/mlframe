@@ -15,13 +15,16 @@ underdetermined system).
 from __future__ import annotations
 
 from math import comb
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
+if TYPE_CHECKING:
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_heuristics import _Evaluator
+
 
 def faith_shap_order2(
-    evaluator,
+    evaluator: "_Evaluator",
     n_features: int,
     candidate_pairs: list[tuple[int, int]],
     *,
