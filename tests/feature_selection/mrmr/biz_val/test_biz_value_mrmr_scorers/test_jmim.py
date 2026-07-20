@@ -463,3 +463,58 @@ class TestPickleAndClone:
                 assert r_before.extra.get(key) == r_after.extra.get(
                     key
                 ), f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
+
+
+# ---------------------------------------------------------------------------
+# Contract 6: recipe freezes fit-time preprocess params (B-17)
+# ---------------------------------------------------------------------------
+
+
+class TestRecipeFreezesPreprocessParams:
+    """mrmr_audit_2026-07-20 B-17: replaying a JMIM-emitted recipe on a SMALL SLICE with a
+    materially different mean/std than the full fit frame must reproduce the fit-time value
+    exactly. Pre-fix (preprocess_params never threaded into build_orth_univariate_recipe), the
+    slice's own mean/std gets refit at replay time and the engineered value drifts."""
+
+    def test_recipe_freezes_preprocess_params_slice_replay_matches_fit(self):
+        """Slice replay of a JMIM recipe matches the fit-time engineered value bit-for-bit."""
+        _, _, _, hybrid_with_recipes = _import_jmim_fe()
+        from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
+        rng = np.random.default_rng(0)
+        n = 2000
+        x1 = rng.standard_normal(n) * 3 + 10  # mean=10, std=3 -- a small head slice differs materially
+        x2 = rng.standard_normal(n)
+        cols = {"x1": x1, "x2": x2, "noise_0": rng.standard_normal(n), "noise_1": rng.standard_normal(n)}
+        X = pd.DataFrame(cols)
+        signal = (x1 - 10.0) ** 2 + 0.6 * (x2**2)
+        thr = float(np.median(signal))
+        y = ((signal + 0.05 * rng.standard_normal(n)) > thr).astype(int)
+
+        X_aug, _scores, recipes = hybrid_with_recipes(
+            X,
+            y,
+            current_support=X[["x1"]],
+            degrees=(2,),
+            basis="hermite",
+            top_k=2,
+            min_uplift=0.0,
+            min_abs_mi_frac=0.0,
+            n_bins=10,
+        )
+        if not recipes:
+            pytest.fail("JMIM hybrid emitted no recipes; cannot exercise the slice-replay contract.")
+
+        for r in recipes:
+            assert "preprocess_params" in r.extra and r.extra["preprocess_params"] is not None, (
+                f"recipe {r.name!r} is missing frozen preprocess_params -- B-17 regression "
+                f"(replay would silently refit the basis preprocess from the transform-time slice)."
+            )
+            X_slice = X.iloc[:50].copy()
+            fit_time_vals = X_aug[r.name].to_numpy()[:50]
+            replayed_vals = apply_recipe(r, X_slice)
+            assert np.allclose(replayed_vals, fit_time_vals, rtol=1e-9, atol=1e-12), (
+                f"recipe {r.name!r}: slice replay diverged from fit-time values "
+                f"(max abs diff={float(np.max(np.abs(replayed_vals - fit_time_vals)))}) -- "
+                f"the frozen preprocess_params are not being honoured at replay time."
+            )

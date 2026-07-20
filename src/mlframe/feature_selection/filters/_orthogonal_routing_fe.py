@@ -550,11 +550,23 @@ def hybrid_orth_mi_conditional_routing_fe_with_recipes(
                 name,
             )
             continue
+        _src_name = str(row["source_col"])
+        _basis = str(row["basis"])
+        _degree = int(row["degree"])
+        _pre_transform = str(row["pre_transform"])
+        _pp = None
+        try:
+            _col_full = np.asarray(X[_src_name].to_numpy(), dtype=np.float64)
+            _col_full = apply_pre_transform(_col_full, _pre_transform)
+            _, _pp = _evaluate_basis_column(_col_full, _basis, _degree, return_params=True)
+        except Exception:
+            _pp = None
         recipes.append(build_orth_univariate_recipe(
             name=name,
-            src_name=str(row["source_col"]),
-            basis=str(row["basis"]),
-            degree=int(row["degree"]),
-            pre_transform=str(row["pre_transform"]),
+            src_name=_src_name,
+            basis=_basis,
+            degree=_degree,
+            pre_transform=_pre_transform,
+            preprocess_params=_pp,
         ))
     return X_aug, scores, recipes
