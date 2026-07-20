@@ -18,10 +18,11 @@ mccabe advisory report already wired into CI (lint-advisory.yml).
 from __future__ import annotations
 
 import ast
-import json
 import subprocess
 import sys
 from pathlib import Path
+
+import orjson
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -37,7 +38,7 @@ def _ruff_c901_findings() -> list[dict]:
     )
     if not proc.stdout.strip():
         return []
-    return json.loads(proc.stdout)
+    return orjson.loads(proc.stdout)
 
 
 def _has_docstring(file_path: Path, lineno: int) -> bool:

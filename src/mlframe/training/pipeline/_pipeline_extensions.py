@@ -393,7 +393,7 @@ def apply_preprocessing_extensions(
     # Lazy cross-package import: ``mlframe.training.core`` imports this function (see
     # ``_phase_helpers_fit_pipeline.py``), so a top-level import here would risk a cycle at
     # module-load time; by call time both packages are already fully loaded.
-    from mlframe.training.core._misc_helpers import _elapsed_str
+    from mlframe.training.core import _elapsed_str
     if config is None:
         return train_df, val_df, test_df, None
     # Fastpath: zero active stages -> no work to do. Return inputs UNTOUCHED (no polars->pandas down-convert). Without this gate the function paid the full Arrow->pandas conversion on every frame even when nothing was configured, defeating the polars fastpath and risking OOM on 100+GB polars frames for a no-op call.
