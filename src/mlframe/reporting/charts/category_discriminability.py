@@ -166,6 +166,13 @@ def category_discriminability_table(
     for name, codes, labels in _iter_categorical_columns(X, features):
         if row_idx is not None:
             codes = np.ascontiguousarray(codes[row_idx])
+        # X's row count can diverge from y's (an upstream caller-side mismatch, e.g. a coarse re-scoring pass
+        # handing the full-target X alongside a subset y) -- codes come straight from X and stay at X's row
+        # count when row_idx is None (small y, below _COUNT_SUBSAMPLE_CAP), so a length mismatch here used to
+        # reach ``codes[keep]``/``y_use[keep]`` as a raw boolean-index-shape ``IndexError`` instead of the clear
+        # guard the sibling diagnostics (class_structure_matrix / separability_panel) already raise.
+        if codes.shape[0] != y_use.shape[0]:
+            raise ValueError(f"category_discriminability_table: length mismatch X={codes.shape[0]} y={y_use.shape[0]}")
         n_levels = len(labels)
         woe, tot = level_woe(codes, y_use, n_levels, base_rate, alpha=alpha)
         keep = codes >= 0

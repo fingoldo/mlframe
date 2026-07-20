@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from mlframe.reporting.charts.category_discriminability import (
     category_discriminability_panel,
@@ -216,3 +217,19 @@ def test_polars_frame_auto_detect_finds_categorical_columns():
     rows = category_discriminability_table(X, y, top_k=10, min_support=30)
     assert rows
     assert all(feat == "f" for feat, *_ in rows)
+
+
+def test_length_mismatch_raises_clean_error_not_index_error():
+    """A y shorter than X (an upstream caller-side mismatch, e.g. a coarse re-scoring pass handing the full-
+    target X alongside a subset y) used to reach ``codes[keep]``/``y_use[keep]`` as a raw
+    ``IndexError: boolean index did not match indexed array`` instead of the clear length-mismatch guard the
+    sibling diagnostics (class_structure_matrix / separability_panel) already raise. Below
+    ``_COUNT_SUBSAMPLE_CAP`` row_idx stays None so codes never gets subsampled to match a shorter y.
+    """
+    rng = np.random.default_rng(0)
+    n_x, n_y = 450, 45
+    X = pd.DataFrame({"f": rng.choice(["a", "b", "c"], size=n_x)})
+    y = rng.integers(0, 2, size=n_y)
+
+    with pytest.raises(ValueError, match="length mismatch"):
+        category_discriminability_table(X, y, top_k=10, min_support=5)
