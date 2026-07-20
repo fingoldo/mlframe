@@ -41,6 +41,7 @@ from mlframe.data_valuation._adversarial_reweighting import dro_reweight_fit, pr
 from mlframe.data_valuation._adversarial_validation import adversarial_validation
 from mlframe.data_valuation._knn_shapley import knn_shapley
 from mlframe.data_valuation._mc_sampling import data_banzhaf, propagate_subsample_values, tmc_shapley
+from mlframe.data_valuation._training_weight_adapter import training_sample_weight_from_valuation
 from mlframe.data_valuation._weights import valuation_sample_weight
 
 __all__ = [
@@ -49,6 +50,7 @@ __all__ = [
     "data_banzhaf",
     "propagate_subsample_values",
     "valuation_sample_weight",
+    "training_sample_weight_from_valuation",
     "dro_reweight_fit",
     "project_chi2_ball",
     "adversarial_validation",
