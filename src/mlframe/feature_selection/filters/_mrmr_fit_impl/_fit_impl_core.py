@@ -7225,10 +7225,29 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _cidx = _cf_cols_index.get(_cn)
                         if _cidx is None or _cidx in _cf_sv_set or _cn in _cf_sel_names:
                             continue
-                        try:
-                            _cvv = np.asarray(data[:, _cidx], dtype=np.float64).reshape(-1)
-                        except (TypeError, ValueError, IndexError):
-                            continue
+                        # Prefer the full-precision continuous value (same source the baseline design above
+                        # uses for already-selected columns) over the nbins-quantized screening code: quantile
+                        # bin-edge digitization is not exactly tie-invariant across a monotone rescale of a
+                        # duplicate-heavy column (e.g. a count encoding vs its count/n frequency twin can land
+                        # in a different number of effective bins from floating-point edge-coincidence ties),
+                        # which made this R^2 probe -- and hence the rescue -- diverge between two info-
+                        # equivalent encodings. The raw column is still available in X at this point.
+                        _cvv_raw = _eng_continuous_snapshot.get(_cn)
+                        if _cvv_raw is None and _cn in X.columns:
+                            try:
+                                _cvv_raw = X[_cn].to_numpy()
+                            except Exception:
+                                _cvv_raw = None
+                        if _cvv_raw is not None:
+                            try:
+                                _cvv = np.asarray(_cvv_raw, dtype=np.float64).reshape(-1)
+                            except (TypeError, ValueError):
+                                _cvv_raw = None
+                        if _cvv_raw is None:
+                            try:
+                                _cvv = np.asarray(data[:, _cidx], dtype=np.float64).reshape(-1)
+                            except (TypeError, ValueError, IndexError):
+                                continue
                         if _cvv.shape[0] != _cf_n or not np.all(np.isfinite(_cvv)):
                             continue
                         if _cf_r2([*_cf_base, _cvv]) - _cf_r2_base < _CF_PROTECT_MIN_INCR_R2:
