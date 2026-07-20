@@ -13,15 +13,36 @@ binning (`_adaptive_nbins.py`, `discretization/`), interaction-information / JMI
 (`_stability_cluster.py`, `stability_selection_method='complementary_pairs'`), Sotoca-Pla
 hierarchical CMI clustering (`_dynamic_cluster_discovery/`, `dcd_distance='sotoca_pla'`),
 and kernel_tuning_cache'd cluster thresholds (DCD layer's `dcd_tau_cluster`, and
-`_cluster_aggregate.py`'s `corr_threshold`/`homogeneity_tau`). The six FS methods mapped in
-Agent C's competition matrix all exist (`boruta_shap`, `wrappers/_knockoffs`,
-`wrappers/_univariate_ht`, `shap_proxied_fs`, `wrappers/rfecv`, MRMR filters); the synthetic
-bench scenarios are partially realized under `_benchmarks/`.
+`_cluster_aggregate.py`'s `corr_threshold`/`homogeneity_tau`). Adaptive nbins is complete:
+Sturges/rice/sqrt (`discretization/_discretization_edges.py:histogram`, numpy schemes),
+Knuth + Bayesian Blocks (same module), and MDLP/Fayyad-Irani/optimal_joint (supervised
+`nbins_strategy` options in `discretization/_discretization_dataset.py`). Inf-FS
+eigenvector-style centrality re-rank shipped 2026-07-20: `friend_graph.py`'s
+`_inf_fs_centrality` (Roffo et al. 2017 infinite-walk score on the MI-weighted adjacency),
+exposed as `FriendGraphNode.centrality` + `FriendGraph.low_centrality`. Matrix-based Rényi
+α-entropy CMI (Yu et al. 2020) shipped 2026-07-20 as `_renyi_alpha.py`, opt-in via
+`estimator='renyi_alpha'` in `_mi_dispatch.py`; benchmarked against plug-in/mixed-KSG on a
+closed-form bivariate-Gaussian small-n fixture (`bench_renyi_alpha_small_n.py`) — it is NOT a
+general win (mixed-KSG dominates at low-to-moderate correlation, and Rényi's O(n^3)
+eigendecomposition is ~100-1000x slower than KSG at n=500-1000), but it is materially more
+accurate than both plug-in and KSG at high dependency (rho=0.9: mean_abs_err 0.04-0.07 vs
+0.28-0.42) — a validated narrow-niche opt-in, same pattern as Chao-Shen, not a default-flip
+candidate. The six FS methods mapped in Agent C's competition matrix all exist (`boruta_shap`,
+`wrappers/_knockoffs`, `wrappers/_univariate_ht`, `shap_proxied_fs`, `wrappers/rfecv`, MRMR
+filters); the synthetic bench scenarios are partially realized under `_benchmarks/`.
 
-**Still forward research (NOT started):** matrix-based Rényi α-entropy CMI estimator (#5),
-Quadratic-MI / Cauchy-Schwarz plugin-free estimator (#4, QMIFS), and Inf-FS
-eigenvector-centrality re-ranking (Agent B rec). FCBF-style ordered pruning of
-`_cluster_aggregate` shipped 2026-07-18 (rejects chain-transitivity artifacts in
+**Still forward research (NOT started):** Quadratic-MI / Cauchy-Schwarz plugin-free estimator
+(#4, QMIFS) — deliberately not built alongside Rényi: both target the same "plug-in-free
+continuous-MI" gap, Rényi (Yu et al. 2020) is the more general / more cited of the two (also
+covers the CMI form MRMR actually needs), and building both would duplicate validation effort
+for no distinct win over the single estimator already shipped. The full 6-method x
+15-relationship empirical competition matrix (Agent C's benchmark scenarios) remains
+UNBUILT — the 15 dataset generators are described in `_benchmarks/_datasets.py`-style
+detail in this doc's Agent C section below, but wiring all 6 selectors (RFECV / ShapProxiedFS
+/ BorutaShap / Knockoffs / UnivHT / MRMR, each with a materially different fit API) through a
+uniform empirical harness is a multi-day integration effort the doc itself frames as "foundation
+for auto-tune" future work, not a correctness gap in any shipped selector. FCBF-style ordered
+pruning of `_cluster_aggregate` shipped 2026-07-18 (rejects chain-transitivity artifacts in
 `_discover_clusters`; see `audits/mrmr_audit_2026-07-16/06_docs_backlog_drift.md`).
 Everything else below has landed — the surveys, weakness analyses, and the 6-method ×
 15-relationship competition matrix are kept for reference and future estimator work.
@@ -55,6 +76,7 @@ This file consolidates the final reports for easier reading.
 **5. Matrix-based Rényi α-entropy CMI — Yu, Giraldo, Jenssen, Príncipe 2020** (*IEEE TPAMI*, ~250 citations). Estimates joint/conditional entropy from eigen-spectrum of a kernel Gram matrix; no histogram, no plug-in bias, scales to multi-variate naturally.
 - **Why us:** mlframe's current MI estimation chain (`info_theory.py` + Miller-Madow) is plug-in; α-entropy beats plug-in on small samples (n<500) which is where Besag-Clifford early-stop is least reliable.
 - **LoC:** ~180 sibling `_renyi_alpha.py`. **Risk:** O(n²) Gram matrix; new dep on scipy.linalg.eigh (already in deps). **Priority: MEDIUM** (paired with finding #7 below).
+- **Status (2026-07-20):** ✅ Shipped: `_renyi_alpha.py`'s `renyi_alpha_mi`/`renyi_alpha_cmi`, opt-in via `estimator='renyi_alpha'` in `_mi_dispatch.py`. Benchmarked (`bench_renyi_alpha_small_n.py`) against plug-in/mixed-KSG on a closed-form bivariate-Gaussian fixture: NOT a general win (mixed-KSG dominates at low/moderate correlation; ~100-1000x slower than KSG at n=500-1000 from the O(n^3) eigendecomposition), but materially more accurate at high dependency (rho=0.9: mean_abs_err 0.04-0.07 vs plug-in/KSG's 0.28-0.42) — a validated narrow-niche opt-in, same disposition pattern as Chao-Shen (#13 above), not a default-flip candidate.
 
 ## B. Better MI estimation for small samples
 
@@ -170,19 +192,19 @@ The friend graph and cluster-aggregate paths share the `pairwise_mi_edge` primit
 
 - **Friend-graph "sink" detection scales O(k²) and skips when k > 200**. For typical MRMR runs that select 100-300 features this is just barely on — it silently degrades to "node stats only" with no clustering output. There is no fallback to a sparse k-NN graph (Roffo 2017 ICCV recommends keeping only top-k edges per node).
 
-- **No graph-Laplacian / eigenvector-centrality global ranking.** Roffo's **Inf-FS** ranks features by their **infinite-path importance** on the feature-feature affinity graph — exactly the global structure the current four-layer pipeline never computes.
+- ~~No graph-Laplacian / eigenvector-centrality global ranking.~~ — **shipped 2026-07-20**: `friend_graph.py`'s `_inf_fs_centrality` computes Roffo's Inf-FS infinite-walk score (`S = sum_r alpha^r A^r` on the MI-weighted adjacency) and flags the bottom `centrality_percentile` (default 5%) as `FriendGraph.low_centrality`. Diagnostic only — does not change `selected_vars`.
 
 ## Recommendations
 
-- **Add JMI / JMIM as a `mrmr_redundancy_algo` option** (Brown 2012; Bennasar et al. 2015). Replace `min_k I(X;Y|Z_k)` with `min_k I(X;Y|Z_k) + sum_k I(X;Z_k;Y)` (interaction-information term). ~80 LOC. **Bench:** synthetic XOR + 10 collinear noise reflections of one informative feature; current Fleuret will reject the second XOR component; JMI keeps it.
+- ~~Add JMI / JMIM as a `mrmr_redundancy_algo` option~~ — **shipped** as `redundancy_aggregator='jmim'` (see the JMIM section above; the constructor knob is `redundancy_aggregator`, not `mrmr_redundancy_algo`).
 
-- **Replace single-linkage components with FCBF-style ordered pruning** (Yu & Liu 2003). Sort by relevance then drop any feature whose `SU(Xi, Xj) > SU(Xj, Y)` — this is **chaining-immune** without requiring the `homogeneity_tau` PC1 gate. ~40 LOC swap of `_connected_components`.
+- ~~Replace single-linkage components with FCBF-style ordered pruning~~ — **shipped 2026-07-18** in `_cluster_aggregate.py` / `_discover_clusters` (see `audits/mrmr_audit_2026-07-16/06_docs_backlog_drift.md`).
 
-- **Add Sotoca-Pla hierarchical CMI clustering as an alternative discovery backend** (Sotoca & Pla 2010 *Pattern Recognition* 43(6):2068-2081). Agglomerative complete-linkage on `d(X_i, X_j) = 2*H(X_i,X_j) - I(X_i;X_j) - I(X_i;Y) - I(X_j;Y)`; cut the dendrogram at a CV-tuned height. ~150 LOC.
+- ~~Add Sotoca-Pla hierarchical CMI clustering as an alternative discovery backend~~ — **shipped** as `dcd_distance='sotoca_pla'` in `_dynamic_cluster_discovery/`.
 
-- **Add Inf-FS eigenvector-centrality re-ranking pass on the friend graph** (Roffo et al. 2017 ICCV). After `build_friend_graph`, compute top eigenvector of the MI-weighted adjacency; features with centrality below percentile 5 are de-prioritized. ~60 LOC.
+- ~~Add Inf-FS eigenvector-centrality re-ranking pass on the friend graph~~ — **shipped 2026-07-20**, see above.
 
-- **Route all four thresholds (`corr_threshold`, `homogeneity_tau`, `edge_significance`, `garbage_min_degree`) through `pyutilz.system.kernel_tuning_cache`** keyed on (n_samples, n_features, mean abs corr of pool). ~50 LOC.
+- ~~Route all four thresholds through `pyutilz.system.kernel_tuning_cache`~~ — **shipped**: DCD layer's `dcd_tau_cluster` and `_cluster_aggregate.py`'s `corr_threshold`/`homogeneity_tau` are kernel_tuning_cache'd.
 
 ## Sources
 
@@ -368,14 +390,16 @@ Items ranked by cost/benefit, combining all 3 agents.
 | ✅ done | **JMIM redundancy** as `redundancy_aggregator='jmim'` | Agent A #1 + Agent B critic | ~80 | Fixes Fleuret-CMIM brittleness on multi-collinear (acknowledged TODO) |
 | ✅ done | **Chao-Shen entropy** correction (opt-in, no measured default-flip win — see finding #13 above) | Agent A #13 | ~80 | Same impact-shape as SU; sparse-contingency bias fix |
 | ✅ done | **FCBF ordered pruning** in `_cluster_aggregate.py` | Agent B #2 | ~40 | Replaces chaining-prone single-linkage |
-| 🟡 P1 | **Adaptive nbins** (Sturges / Freedman-Diaconis / Knuth / Bayesian Blocks / Fayyad-Irani / OptimalJoint) | User Q1 + Agent A #7 (partial done) | ~250 | Eliminates fixed-10-bin compromise (SU normalization default is `mi_normalization="none"`, not forced-on) |
-| 🟡 P1 | **15 synthetic bench scenarios** from Agent C | Agent C | ~600 | Foundation for auto-tune (DataFingerprint → best method) |
+| ✅ done | **Adaptive nbins** (Sturges / Freedman-Diaconis / Knuth / Bayesian Blocks / Fayyad-Irani / OptimalJoint) | User Q1 + Agent A #7 | ~250 | Eliminates fixed-10-bin compromise (SU normalization default is `mi_normalization="none"`, not forced-on) |
+| 🟡 deferred | **15 synthetic bench scenarios** from Agent C | Agent C | ~600 | Foundation for auto-tune (DataFingerprint → best method); UNBUILT — wiring 6 selectors with heterogeneous fit APIs through one harness is a multi-day integration effort, not a correctness gap (see note above) |
 | ✅ done | **kernel_tuning_cache for cluster thresholds** | Agent B #5 | ~50 | Per memory rule; eliminates hardcoded magic |
-| 🟢 P2 | **Conditional Permutation Test** | Agent A #10 (Berrett 2020) | ~160 | Methodologically correct test for MRMR's redundancy |
-| 🟢 P2 | **Inf-FS centrality re-rank** | Agent B #4 | ~60 | Global structural score replaces local degree heuristic |
-| 🟢 P2 | **KSG estimator wrapper** | Agent A #6 | ~60 | Bypasses binning for continuous-y |
-| 🟢 P2 | **Cluster Stability Selection** | Agent A #11 | ~150 | Leverages existing mlframe cluster infra |
-| 🟢 P2 | **Sotoca-Pla hierarchical CMI clustering** | Agent B #3 | ~150 | Alternative discovery backend, complete-linkage |
-| 🟢 P3 | **RelaxMRMR (3D MI)** | Agent A #2 | ~250 | 3-way redundancy detection on GPU |
-| 🟢 P3 | **PID-based redundancy/relevance** | Agent A #14 | ~250 | Explicit synergy detection |
-| 🟢 P3 | **MRwMR-BUR** | Agent A #3 | ~120 | Boost features with unique signal |
+| ✅ done | **Conditional Permutation Test** (`_conditional_permutation.py`) | Agent A #10 (Berrett 2020) | ~160 | Methodologically correct test for MRMR's redundancy |
+| ✅ done | **Inf-FS centrality re-rank** (`friend_graph.py`'s `_inf_fs_centrality`) | Agent B #4 | ~60 | Global structural score replaces local degree heuristic |
+| ✅ done | **KSG estimator wrapper** (`mi_estimator="mixed_ksg"`/`"ksg_lnc"`) | Agent A #6 | ~60 | Bypasses binning for continuous-y |
+| ✅ done | **Cluster Stability Selection** (`stability_selection_method='cluster'`) | Agent A #11 | ~150 | Leverages existing mlframe cluster infra |
+| ✅ done | **Sotoca-Pla hierarchical CMI clustering** (`dcd_distance='sotoca_pla'`) | Agent B #3 | ~150 | Alternative discovery backend, complete-linkage |
+| ✅ done | **RelaxMRMR (3D MI)** (`_relaxmrmr_3d.py`) | Agent A #2 | ~250 | 3-way redundancy detection on GPU |
+| ✅ done | **PID-based redundancy/relevance** (`_pid_decomposition.py`) | Agent A #14 | ~250 | Explicit synergy detection |
+| ✅ done | **MRwMR-BUR** (`_bur_term.py`) | Agent A #3 | ~120 | Boost features with unique signal |
+| ✅ done | **Matrix-based Rényi α-entropy CMI** (`_renyi_alpha.py`, opt-in `estimator='renyi_alpha'`) | Agent A #5 | ~180 | Plug-in-free estimator; validated narrow-niche win at high dependency, not a general/default win (see finding #5 status note above) |
+| 🚫 not planned | **Quadratic-MI (QMIFS)** | Agent A #4 | ~150 | Redundant with the shipped Rényi estimator (same "plug-in-free continuous MI" gap); see note above |
