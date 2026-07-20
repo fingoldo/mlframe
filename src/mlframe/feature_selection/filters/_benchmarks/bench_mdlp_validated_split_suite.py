@@ -374,7 +374,15 @@ def scen_wellbore100k(n_relevant: int, n_redundant: int, seed: int = 0, n: int =
         n_rows = len(real)
         irrelevant_names = list(real.columns)
         categorical_cols = [c for c in irrelevant_names if real[c].dtype.kind in ("i", "u") or str(real[c].dtype) in ("category", "object")]
-        cols: dict = {c: real[c].to_numpy() for c in irrelevant_names}
+        cols: dict = {}
+        for c in irrelevant_names:
+            arr = real[c].to_numpy()
+            if arr.dtype.kind == "f":
+                # real wellbore log columns (e.g. gr_sample_entropy_K100) carry a handful of +/-inf
+                # from upstream feature-engineering divisions; MRMR rejects inf outright, so treat
+                # them as missing like any other real-data gap rather than dropping the column/rows.
+                arr = np.where(np.isinf(arr), np.nan, arr)
+            cols[c] = arr
     except Exception:
         logger.warning("scen_wellbore100k: wellbore parquet unavailable at %s -- falling back to a smaller synthetic-noise-only frame", _WELLBORE_DATA_PATH, exc_info=True)
         n_rows = min(n, 20_000)
@@ -627,6 +635,11 @@ def _downstream_quality(X: pd.DataFrame, y: np.ndarray, selected: set, gt: Multi
 
 def run_mrmr_gt_config(n: int, n_relevant: int, n_irrelevant: int, n_redundant: int, methods, seeds, config_label: str, compute_downstream: bool = True) -> list:
     results = []
+    seeds = list(seeds)
+    methods = list(methods)
+    total = len(seeds) * len(methods)
+    done = 0
+    t_start = time.perf_counter()
     for seed in seeds:
         X, y, gt = scen_multicolumn(n, n_relevant, n_irrelevant, n_redundant, seed=seed)
         for method in methods:
@@ -642,6 +655,12 @@ def run_mrmr_gt_config(n: int, n_relevant: int, n_irrelevant: int, n_redundant: 
                     n_total_cols=X.shape[1], fit_time_s=fit_time_s, downstream=dq,
                 )
             )
+            done += 1
+            print(
+                f"[{config_label}] {done}/{total} (seed={seed} method={method}) "
+                f"fit={fit_time_s:.1f}s downstream={dq.downstream_time_s:.1f}s elapsed={time.perf_counter() - t_start:.1f}s",
+                flush=True,
+            )
     return results
 
 
@@ -650,6 +669,11 @@ def run_mrmr_gt_wellbore_config(n_relevant: int, n_redundant: int, methods, seed
     wellbore log columns as the noise/redundancy pool, synthetic injected signal) instead of the
     fully-synthetic ``scen_multicolumn``."""
     results = []
+    seeds = list(seeds)
+    methods = list(methods)
+    total = len(seeds) * len(methods)
+    done = 0
+    t_start = time.perf_counter()
     for seed in seeds:
         X, y, gt = scen_wellbore100k(n_relevant, n_redundant, seed=seed, n=n)
         for method in methods:
@@ -664,6 +688,12 @@ def run_mrmr_gt_wellbore_config(n_relevant: int, n_redundant: int, methods, seed
                     n_relevant=len(gt.relevant), n_relevant_hit=round(recall * len(gt.relevant)) if gt.relevant else 0,
                     n_total_cols=X.shape[1], fit_time_s=fit_time_s, downstream=dq,
                 )
+            )
+            done += 1
+            print(
+                f"[{config_label}] {done}/{total} (seed={seed} method={method}) "
+                f"fit={fit_time_s:.1f}s downstream={dq.downstream_time_s:.1f}s elapsed={time.perf_counter() - t_start:.1f}s",
+                flush=True,
             )
     return results
 

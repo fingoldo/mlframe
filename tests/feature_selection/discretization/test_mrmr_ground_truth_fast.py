@@ -12,6 +12,8 @@ import numpy as np
 from mlframe.feature_selection.filters._benchmarks.bench_mdlp_validated_split_suite import (
     MRMR_BINNING_METHODS,
     run_mrmr_gt_config,
+    run_mrmr_selection,
+    scen_wellbore100k,
 )
 
 
@@ -49,3 +51,16 @@ def test_mrmr_uniform_and_oos_validated_recover_true_signal():
     for method, recalls in by_method.items():
         mean_recall = sum(recalls) / len(recalls)
         assert mean_recall >= 0.5, f"{method}: mean recall {mean_recall:.2f} too low on an easy 2-relevant/0-redundant scenario"
+
+
+def test_scen_wellbore100k_sanitizes_inf_before_mrmr_fit():
+    """Real wellbore log data (gr_sample_entropy_K100) carries a handful of +/-inf values from
+    upstream feature engineering; a 50k-row subsample of the parquet used to hit them and crash
+    MRMR.fit with 'input X contains +/-inf values' (n=100_000 happened not to sample those rows).
+    scen_wellbore100k must convert real-data inf to NaN so MRMR's imputer/nbins path handles it
+    like any other missing value."""
+    X, y, _gt = scen_wellbore100k(n_relevant=2, n_redundant=1, seed=0, n=50_000)
+    numeric = X.select_dtypes(include=[np.number]).to_numpy()
+    assert not np.isinf(numeric).any(), "scen_wellbore100k must not leak +/-inf into X"
+    selected = run_mrmr_selection(X, y, "freedman_diaconis_uniform", random_seed=0)
+    assert len(selected) > 0
