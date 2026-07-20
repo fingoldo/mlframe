@@ -273,7 +273,8 @@ def _gate_cands_resident() -> bool:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
         return bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled())
-    except Exception:
+    except Exception as _flag_exc:
+        logger.debug("gate GPU-strict-resident flag probe failed (%s); resident candidates disabled.", _flag_exc)
         return False
 
 
@@ -352,7 +353,8 @@ def _gate_rank_binning() -> bool:
     try:
         from ._gpu_strict_fe import fe_gpu_strict_bytematch_enabled
         return bool(fe_gpu_strict_bytematch_enabled())
-    except Exception:
+    except Exception as _flag_exc:
+        logger.debug("gate GPU-strict-bytematch flag probe failed (%s); bytematch binning disabled.", _flag_exc)
         return False
 
 
@@ -569,7 +571,8 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
             _mat_dev = assemble_resident_matrix(mat, cols, ("gate_prune_raw", tuple(cols)), dtype=_cp.float64)
             _yi_dev = resident_operand(np.ascontiguousarray(np.asarray(yi)).astype(np.int64), "y_mi_classif", dtype=np.int64)
             _gate_dev = (_cp, _mat_dev, _yi_dev, _mat_dev[:, probe_idx])
-    except Exception:
+    except Exception as _gate_dev_exc:
+        logger.debug("gate resident-matrix assembly failed (%s); host prune path used.", _gate_dev_exc)
         _gate_dev = None
     for gi in range(len(cols)):
         if _gate_dev is not None:
@@ -732,7 +735,8 @@ def cheap_conditional_gate_scan(
             # same gate / operand column recurs across many specs -> uploaded ONCE per fit, not per spec).
             specs = [(mode, ctup, operands, taus) for (mode, ctup, operands, taus, _bkey) in _pending]
             return gate_grid_mi_resident(specs, yi, nbins, rank_binning=_gate_rank_binning(), y_min=_ym, n_classes=_nc)
-        except Exception:
+        except Exception as _resident_exc:
+            logger.debug("gate_grid_mi_resident batch failed (%s); caller falls back to per-spec host scoring.", _resident_exc)
             return None
 
     def _flush():

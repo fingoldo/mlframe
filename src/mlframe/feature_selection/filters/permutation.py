@@ -648,7 +648,8 @@ def mi_direct(
         )
 
         _analytic_ok = analytic_null_enabled() and int(factors_data.shape[0]) >= analytic_null_min_n() and not use_su_normalization()
-    except Exception:
+    except Exception as _analytic_exc:
+        logger.debug("mi_direct: analytic-null gate check failed (%s); falling back to the full permutation path.", _analytic_exc)
         _analytic_ok = False
     if _analytic_ok:
         if classes_y is None:

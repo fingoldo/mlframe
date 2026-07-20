@@ -206,7 +206,7 @@ def fingerprint_signal(
             for c in num_cols:
                 try:
                     r = float(X_num[c].corr(y_series, method="pearson"))
-                except Exception:
+                except _NUMERIC_ERRORS:
                     r = float("nan")
                 if np.isfinite(r):
                     pears.append(abs(r))
@@ -275,12 +275,12 @@ def fingerprint_signal(
                 col_vals = X_sub[c]
                 try:
                     r_sp = float(col_vals.corr(y_sub, method="spearman"))
-                except Exception:
+                except _NUMERIC_ERRORS:
                     r_sp = float("nan")
                 try:
                     centered = (col_vals - float(col_vals.mean())).abs()
                     r_sym = float(centered.corr(y_sub, method="pearson"))
-                except Exception:
+                except _NUMERIC_ERRORS:
                     r_sym = float("nan")
                 candidates = [abs(r) for r in (r_sp, r_sym) if np.isfinite(r)]
                 if candidates:

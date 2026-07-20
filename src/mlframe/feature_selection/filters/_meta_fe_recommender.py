@@ -161,7 +161,8 @@ def _fe_structure(X, y=None) -> dict:
             vals = arr[finite]
             try:
                 card = int(np.unique(vals).size)
-            except Exception:
+            except Exception as _card_exc:
+                logger.debug("_fe_structure: cardinality probe failed (%s); falling back to n_finite as a conservative card estimate.", _card_exc)
                 card = n_finite
 
             is_intish = kind in ("i", "u") or _is_integral(vals)
@@ -218,7 +219,8 @@ def _iter_columns(X):
     # numpy / array-like
     try:
         arr = np.asarray(X)
-    except Exception:
+    except Exception as _arr_exc:
+        logger.debug("_iter_columns: np.asarray(X) failed (%s); treating X as un-introspectable.", _arr_exc)
         return []
     if arr.ndim == 1:
         return [("0", arr)]
@@ -232,7 +234,8 @@ def _is_integral(vals) -> bool:
     import numpy as np
     try:
         return bool(np.all(np.equal(np.mod(vals, 1.0), 0.0)))
-    except Exception:
+    except Exception as _int_exc:
+        logger.debug("_is_integral: probe failed (%s); treating column as non-integral.", _int_exc)
         return False
 
 
@@ -242,7 +245,8 @@ def _is_monotone(vals) -> bool:
     try:
         d = np.diff(vals)
         return bool(np.all(d >= 0)) or bool(np.all(d <= 0))
-    except Exception:
+    except Exception as _mono_exc:
+        logger.debug("_is_monotone: probe failed (%s); treating column as non-monotone.", _mono_exc)
         return False
 
 

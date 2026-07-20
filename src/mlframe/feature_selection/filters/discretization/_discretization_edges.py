@@ -307,7 +307,7 @@ def edges(arr, quantiles):
 
 
 @njit(cache=True)
-def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform", min_value: Optional[float] = None, max_value: Optional[float] = None):
+def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform", min_value: Optional[float] = None, max_value: Optional[float] = None) -> np.ndarray:
     """Numba-jitted binning-edge calculator. Used by ``discretize_2d_array`` (itself ``@njit(parallel=True)`` and cannot dispatch to object-mode helpers).
 
     Outside an njit context (single-column path via ``discretize_array``) prefer the inlined raw-numpy version -- ``np.percentile`` beats numba's njit

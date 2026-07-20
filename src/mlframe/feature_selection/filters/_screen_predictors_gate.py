@@ -65,6 +65,10 @@ def build_dcd_state(
             existing_state=existing_dcd_state,
         )
     except Exception as _dcd_init_exc:
+        logger.debug(
+            "DCD init failed; falling back to legacy path: %r",
+            _dcd_init_exc,
+        )
         if verbose:
             logger.warning(
                 "DCD init failed silently; falling back to legacy path: %r",

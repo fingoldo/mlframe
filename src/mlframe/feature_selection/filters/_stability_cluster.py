@@ -221,7 +221,8 @@ def cluster_stability_selection(
         idx = rng.permutation(n)[:half]
         try:
             sel = selector_fn(X.iloc[idx] if _is_df else X[idx], y[idx])
-        except Exception:
+        except Exception as _sel_exc:
+            logger.debug("bootstrap %d: selector_fn raised (%s); excluding this degenerate subsample.", _b, _sel_exc)
             n_failed += 1
             continue
         n_success += 1
@@ -311,7 +312,8 @@ def complementary_pairs_stability(
         try:
             sel_b = np.asarray(selector_fn(X.iloc[idx_b] if _is_df else X[idx_b], y[idx_b]), dtype=np.int64).ravel()
             sel_bc = np.asarray(selector_fn(X.iloc[idx_bc] if _is_df else X[idx_bc], y[idx_bc]), dtype=np.int64).ravel()
-        except Exception:
+        except Exception as _sel_exc:
+            logger.debug("complementary-pair split: selector_fn raised (%s); excluding this degenerate split.", _sel_exc)
             n_failed += 1
             continue
         n_success += 1

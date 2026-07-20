@@ -122,7 +122,7 @@ class MRMRTreeRescued(MRMR):
                 return  # column mismatch (e.g. transformed input) -> skip rescue, keep MRMR's selection
             yv = np.asarray(y).ravel()
             is_clf = type_of_target(yv) in ("binary", "multiclass")
-            seed = getattr(self, "random_seed", None) or getattr(self, "random_state", None) or 0
+            seed = int(self._effective_random_seed() or 0)
             Est = lgb.LGBMClassifier if is_clf else lgb.LGBMRegressor
             m = Est(n_estimators=self.tree_rescue_n_estimators, max_depth=self.tree_rescue_max_depth,
                     num_leaves=2 ** self.tree_rescue_max_depth, learning_rate=0.1,

@@ -409,7 +409,8 @@ def _adaptive_arity_mi_resident_block(X, y_arr, eval_results_k, *, basis: str, n
         if mat_gpu.shape[1] != len(eval_results_k):
             return None
         return _resident_mi(cp, mat_gpu, y_arr, nbins)
-    except Exception:
+    except Exception as _gpu_exc:
+        logger.debug("_adaptive_arity_mi_resident_block: GPU-resident path failed (%s); caller falls back to the host _mi_classif_batch.", _gpu_exc)
         return None
 
 

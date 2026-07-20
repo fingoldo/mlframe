@@ -125,8 +125,7 @@ def compose_pair_fe(
                     optimizer=optimizer,
                 )
             except Exception as e:
-                if verbose:
-                    logger.debug("pair (%d,%d) FE failed: %s", i, j, e)
+                logger.debug("compose_pair_fe: pair (%d,%d) FE failed: %s", i, j, e)
                 continue
             if res is None:
                 continue
