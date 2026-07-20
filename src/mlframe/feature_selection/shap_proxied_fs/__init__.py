@@ -129,8 +129,16 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # that script's output for the committed numbers. ``su_seeded_interactions=True`` is redundant
         # under "auto" (no warning; it just runs the same path) and still matters standalone under
         # "additive"/"interaction" for callers who want the screen without opting into "auto".
+        # "faith_interaction" (gt_01, OPT-IN): order-2 Faith-Shap (Tsai, Yeh, Ravikumar, JMLR 2023)
+        # surrogate ranking over the SAME additive proxy game -- weighted ridge regression over
+        # SAMPLED coalitions (no O(P^2) tensor), candidate-pair-restricted to the su_synergy_screen's
+        # kept pairs (never the full k^2 design -- underdetermined at typical post-prescreen widths).
+        # Unlike "interaction" (the raw, non-faithful TreeSHAP interaction tensor, P<=16 gated), this
+        # runs at any proxy width. Kept opt-in until its own majority-win bench (see
+        # _shap_proxy_faith_interactions.py and the biz_val suite for the pre-flip numbers).
         proxy_mode: str = "auto",
         interaction_proxy_top_k: int = 30,
+        faith_n_coalitions: int = 2048,
         # su_seeded_interactions (lever A4-4, OPT-IN, default OFF -- mirrors ``interaction_aware``):
         # a CHEAP pairwise-SU SYNERGY screen ranks candidate interaction PAIRS at O(P)+O(K) cost, then
         # the interaction objective runs on ONLY the top-K synergistic pairs (a sparse product-column
@@ -357,9 +365,10 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         self.interaction_aware = interaction_aware
         self.max_interaction_features = max_interaction_features
         # Store raw for sklearn clone() identity; validate at use-site (lower()) to avoid mutating params.
-        if str(proxy_mode).lower() not in ("additive", "interaction", "auto"):
-            raise ValueError(f"proxy_mode must be 'additive', 'interaction', or 'auto'; got {proxy_mode!r}")
+        if str(proxy_mode).lower() not in ("additive", "interaction", "auto", "faith_interaction"):
+            raise ValueError(f"proxy_mode must be 'additive', 'interaction', 'auto', or 'faith_interaction'; got {proxy_mode!r}")
         self.proxy_mode = proxy_mode
+        self.faith_n_coalitions = faith_n_coalitions
         self.interaction_proxy_top_k = int(interaction_proxy_top_k)
         self.su_seeded_interactions = su_seeded_interactions
         self.su_seeded_top_k = int(su_seeded_top_k)

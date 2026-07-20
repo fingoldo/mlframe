@@ -81,22 +81,29 @@ class ShapProxiedMethodsMixin:
         ``proxy_mode="auto"`` -- the auto mode ALWAYS runs the screen (its built-in permutation-null
         SNR gate is the safe-condition detector: empty ``kept`` reproduces the additive path
         byte-identically, non-empty ``kept`` enables the same rescue/augmentation ``su_seeded_
-        interactions=True`` already ships). Every call site that previously read
-        ``self.su_seeded_interactions`` directly to gate the screen/rescue/augmentation must read this
-        instead, so "auto" and the opt-in flag share one behaviour path.
+        interactions=True`` already ships) -- OR ``proxy_mode="faith_interaction"`` (gt_01), which
+        reuses the SAME screen to pick its candidate-pair design (never the full O(P^2) pairwise
+        design; see ``_shap_proxy_faith_interactions.py``'s module docstring). Every call site that
+        previously read ``self.su_seeded_interactions`` directly to gate the screen/rescue/
+        augmentation must read this instead, so every proxy_mode that needs the screen shares one
+        behaviour path.
         """
-        return bool(self.su_seeded_interactions) or str(self.proxy_mode).lower() == "auto"
+        _mode = str(self.proxy_mode).lower()
+        return bool(self.su_seeded_interactions) or _mode in ("auto", "faith_interaction")
 
     def _su_screen_snr_z(self) -> float:
-        """Resolve the su_seeded screen's ``snr_z`` gate, tightened for the auto-only path.
+        """Resolve the su_seeded screen's ``snr_z`` gate, tightened for the auto-only / faith_interaction-only path.
 
         The opt-in ``su_seeded_interactions=True`` flag always gets its literal ``su_seeded_snr_z``
         (explicit opt-in keeps its historical defaults byte-for-byte). ``proxy_mode="auto"`` without
         the explicit flag tightens the default (see ``_AUTO_SNR_Z_TIGHTENED``) to silence the one
         spurious gate fire the pre-flip bench measured on a redundant-column bed; a caller who
-        explicitly pins ``su_seeded_snr_z`` still wins even under "auto".
+        explicitly pins ``su_seeded_snr_z`` still wins even under "auto". ``proxy_mode="faith_interaction"``
+        (gt_01) reuses the SAME tightened threshold for the same reason -- measured a spurious gate
+        fire (2 noise columns selected) on a wide pure-additive bed at the untightened default.
         """
-        if not self.su_seeded_interactions and str(self.proxy_mode).lower() == "auto" and float(self.su_seeded_snr_z) == _AUTO_SNR_Z_DEFAULT:
+        _tightened_modes = ("auto", "faith_interaction")
+        if not self.su_seeded_interactions and str(self.proxy_mode).lower() in _tightened_modes and float(self.su_seeded_snr_z) == _AUTO_SNR_Z_DEFAULT:
             return _AUTO_SNR_Z_TIGHTENED
         return float(self.su_seeded_snr_z)
 
