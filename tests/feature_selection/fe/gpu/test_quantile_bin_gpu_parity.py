@@ -59,6 +59,28 @@ def test_gpu_quantile_bin_selection_equivalent(nbins, kind):
     assert int(np.max(np.abs(gpu - cpu))) <= 1, "code differs by more than one bin"
 
 
+def test_gpu_quantile_bin_selection_equivalent_on_50pct_duplicate_rows():
+    """mrmr_audit_2026-07-20 edge_cases.md #127: exactly 50% of rows are exact duplicates of the
+    other 50% (a common upstream-join artifact) -- a much heavier tie-mass than the existing
+    'masspoint' fixture. Ties in the quantile-bin boundary computation are exactly where a CPU vs
+    GPU divergence in tie-breaking would first surface; must still be selection-equivalent."""
+    rng = np.random.default_rng(7)
+    n_half = 60_000
+    half = rng.standard_normal(n_half)
+    a = np.concatenate([half, half.copy()])
+    rng.shuffle(a)
+
+    cpu = M._quantile_bin(a, 10)
+    gpu = M._quantile_bin_gpu(a, 10)
+    assert gpu is not None, "GPU quantile-bin returned None (device path unexpectedly unavailable)"
+
+    assert int(np.unique(gpu).size) == int(np.unique(cpu).size)
+    assert int(gpu.min()) == int(cpu.min()) and int(gpu.max()) == int(cpu.max())
+    diff = int(np.sum(gpu != cpu))
+    assert diff <= max(8, a.size // 10_000), f"{diff} rows differ under 50%-duplicate-row tie mass"
+    assert int(np.max(np.abs(gpu - cpu))) <= 1, "code differs by more than one bin"
+
+
 def test_small_column_keeps_cpu_path():
     """Below the crossover the size gate must NOT engage the GPU (the host path is faster there)."""
     rng = np.random.default_rng(0)
