@@ -394,3 +394,27 @@ def test_shap_panel_survives_object_dtype_categorical_carrier():
         assert res is not None and res.skipped is None, f"SHAP skipped on {frame['cat'].dtype} cats"
     # Caller frame not mutated to category.
     assert base.assign(cat=base["cat"].astype(object))["cat"].dtype == object
+
+
+def test_carrier_with_categoricals_drops_list_valued_embedding_column():
+    """A pandas object-dtype column holding list elements (e.g. a materialized embedding column) used to make
+    ``.astype("category")`` raise ``TypeError: unhashable type: 'numpy.ndarray'`` -- pandas' Categorical
+    factorize can't hash a list/array into its uniquing table. Surfaced by profile_fuzz_chains.py on a
+    multi_target_regression combo carrying an emb_0 column: shap_summary_and_dependence crashed (caught,
+    non-fatal) on every call. The column is dropped from the cast set instead of crashing.
+    """
+    import pandas as pd
+    from mlframe.reporting.charts.shap_panels import _carrier_with_categoricals
+
+    n = 20
+    df = pd.DataFrame(
+        {
+            "num": np.arange(n, dtype=float),
+            "cat": np.array(["a", "b"] * (n // 2), dtype=object),
+            "emb": [[0.1, 0.2, 0.3]] * n,
+        }
+    )
+    out = _carrier_with_categoricals(df)
+    assert isinstance(out["cat"].dtype, pd.CategoricalDtype)
+    assert out["emb"].dtype == object  # left untouched, not a crash
+    assert np.array_equal(out["num"].to_numpy(), df["num"].to_numpy())
