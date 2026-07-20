@@ -106,6 +106,13 @@ def _renyi_entropy_from_gram(K: np.ndarray, alpha: float = _DEFAULT_ALPHA) -> fl
             "(division by 1-alpha); use a value close to but not equal to 1 (module default: 1.01)."
         )
     tr = float(np.trace(K))
+    if not np.isfinite(tr):
+        # mrmr_audit_2026-07-20 edge_cases.md #14/#15: a NaN/Inf in the input column poisons K's trace;
+        # np.linalg.eigvalsh on a non-finite matrix either raises LinAlgError("Eigenvalues did not
+        # converge") or silently returns garbage depending on LAPACK backend/version. Surface a
+        # deterministic NaN here so callers can detect a poisoned column via np.isfinite(mi), instead
+        # of the whole batch crashing (or silently returning a plausible-looking finite number).
+        return float("nan")
     if tr <= 0.0:
         return 0.0
     A = K / tr
@@ -146,7 +153,12 @@ def renyi_alpha_mi(
     Sx = _renyi_entropy_from_gram(Kx, alpha)
     Sy = _renyi_entropy_from_gram(Ky, alpha)
     Sxy = _renyi_entropy_from_gram(_hadamard_gram(Kx, Ky), alpha)
-    return max(0.0, Sx + Sy - Sxy)
+    total = Sx + Sy - Sxy
+    # mrmr_audit_2026-07-20 edge_cases.md #15: Python's builtin max(0.0, nan) silently returns 0.0
+    # (nan comparisons are always False), which would swallow a NaN/Inf-poisoned entropy term into a
+    # plausible-looking finite MI of exactly 0. Propagate the NaN so callers can detect it via
+    # np.isfinite(mi) instead of only clamping a genuinely finite negative estimate to 0.
+    return total if not np.isfinite(total) else max(0.0, total)
 
 
 def renyi_alpha_cmi(
@@ -178,7 +190,9 @@ def renyi_alpha_cmi(
     Syz = _renyi_entropy_from_gram(Kyz, alpha)
     Sz = _renyi_entropy_from_gram(Kz, alpha)
     Sxyz = _renyi_entropy_from_gram(Kxyz, alpha)
-    return max(0.0, Sxz + Syz - Sz - Sxyz)
+    total = Sxz + Syz - Sz - Sxyz
+    # mrmr_audit_2026-07-20 edge_cases.md #15: same max(0.0, nan)-swallows-to-0.0 bug as renyi_alpha_mi.
+    return total if not np.isfinite(total) else max(0.0, total)
 
 
 __all__ = ["renyi_alpha_mi", "renyi_alpha_cmi"]

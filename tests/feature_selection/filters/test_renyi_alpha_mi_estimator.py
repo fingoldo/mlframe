@@ -178,3 +178,113 @@ class TestDispatcherRouting:
         # The dispatched (nats) value must be STRICTLY smaller than the raw bits value (ln(2) ~ 0.693 < 1),
         # catching the pre-fix regression where both were numerically identical (no conversion applied).
         assert mi_dispatched_nats < mi_raw_bits
+
+
+# ---------------------------------------------------------------------------
+# mrmr_audit_2026-07-20 edge_cases.md #14-18/#52: degenerate-input coverage
+# ---------------------------------------------------------------------------
+
+
+class TestDegenerateInputs:
+    """Constant columns, NaN/Inf, tiny n, multivariate z, subsample determinism, and alpha=0."""
+
+    def test_constant_column_does_not_nan_the_gram_matrix(self):
+        """A constant x must not poison the Gram matrix with NaN -- Silverman sigma falls back to 1.0
+        when std<=0, so the RBF Gram matrix stays a well-defined all-ones matrix (zero entropy)."""
+        rng = np.random.default_rng(20)
+        n = 200
+        x = np.full(n, 5.0)
+        y = rng.normal(size=n)
+        mi = renyi_alpha_mi(x, y)
+        assert np.isfinite(mi), "constant-x MI must be finite, not NaN"
+        assert mi >= 0.0
+
+    def test_both_constant_columns_returns_finite_zero_like_mi(self):
+        """Both x and y constant -- MI must stay finite (~0), not NaN/crash."""
+        n = 100
+        x = np.full(n, 1.0)
+        y = np.full(n, 2.0)
+        mi = renyi_alpha_mi(x, y)
+        assert np.isfinite(mi)
+        assert mi < 1e-6
+
+    def test_nan_in_x_raises_rather_than_silently_poisoning(self):
+        """A NaN in x propagates into the Gram matrix's squared-distance computation as NaN; the
+        entropy/eigendecomposition must surface this as a non-finite result (not silently return a
+        plausible-looking finite number) so callers can detect the poisoned input."""
+        rng = np.random.default_rng(21)
+        n = 100
+        x = rng.normal(size=n)
+        x[0] = np.nan
+        y = rng.normal(size=n)
+        mi = renyi_alpha_mi(x, y)
+        assert not np.isfinite(mi), "a NaN-poisoned column must produce a detectably non-finite MI, not a silently-plausible finite value"
+
+    def test_inf_in_x_produces_non_finite_result(self):
+        """Same contract for an Inf-poisoned column."""
+        rng = np.random.default_rng(22)
+        n = 100
+        x = rng.normal(size=n)
+        x[0] = np.inf
+        y = rng.normal(size=n)
+        mi = renyi_alpha_mi(x, y)
+        assert not np.isfinite(mi)
+
+    def test_n_equals_2_does_not_crash(self):
+        """The minimal non-degenerate n=2 case must not raise (eigendecomposition of a 2x2 matrix)."""
+        x = np.array([0.0, 1.0])
+        y = np.array([0.0, 1.0])
+        mi = renyi_alpha_mi(x, y)
+        assert np.isfinite(mi)
+
+    def test_n_equals_1_does_not_crash(self):
+        """n=1: a single sample -- Silverman sigma's n<=1 guard must prevent a divide-by-zero, and the
+        single-point Gram matrix (a 1x1 matrix of value 1.0) must produce a finite (zero) entropy."""
+        x = np.array([0.0])
+        y = np.array([0.0])
+        mi = renyi_alpha_mi(x, y)
+        assert np.isfinite(mi)
+
+    def test_multivariate_z_hadamard_extension(self):
+        """renyi_alpha_cmi's z may be multivariate (n, k>1) -- the Hadamard-product extension must
+        fold multiple conditioning columns into one Gram matrix without crashing, and conditioning on
+        a genuinely-informative multivariate z should reduce I(X;Y|Z) below the unconditional I(X;Y)."""
+        rng = np.random.default_rng(23)
+        n = 500
+        z1 = rng.normal(size=n)
+        z2 = rng.normal(size=n)
+        x = z1 + 0.3 * rng.normal(size=n)
+        y = z1 + z2 + 0.3 * rng.normal(size=n)
+        z_multivariate = np.column_stack([z1, z2])
+
+        mi_unconditional = renyi_alpha_mi(x, y)
+        cmi = renyi_alpha_cmi(x, y, z=z_multivariate)
+        assert np.isfinite(cmi) and cmi >= 0.0
+        assert cmi < mi_unconditional, "conditioning on the shared latent z1 (part of the multivariate z) must reduce I(X;Y|Z) below the unconditional I(X;Y)"
+
+    def test_maybe_subsample_is_deterministic_across_calls_at_the_same_random_state(self):
+        """_maybe_subsample must draw the SAME row indices across repeated calls at the same
+        random_state, so a caller comparing two features against the same y gets a comparable subsample."""
+        rng = np.random.default_rng(24)
+        n = 3000
+        x = rng.normal(size=n)
+        y = x + 0.1 * rng.normal(size=n)
+
+        mi_1 = renyi_alpha_mi(x, y, max_n=500, random_state=7)
+        mi_2 = renyi_alpha_mi(x, y, max_n=500, random_state=7)
+        assert mi_1 == mi_2, "same random_state must give bit-identical results (same subsample indices)"
+
+        mi_3 = renyi_alpha_mi(x, y, max_n=500, random_state=8)
+        # Different random_state -> generally a (slightly) different subsample -> not required to
+        # differ numerically, but must still be finite/valid.
+        assert np.isfinite(mi_3)
+
+    def test_alpha_zero_does_not_raise(self):
+        """alpha=0 (the Rényi 0-order / max-entropy limit, rank-degenerate case) must not raise --
+        only alpha=1.0 is the documented singularity."""
+        rng = np.random.default_rng(25)
+        n = 200
+        x = rng.normal(size=n)
+        y = x + 0.2 * rng.normal(size=n)
+        mi = renyi_alpha_mi(x, y, alpha=0.0)
+        assert np.isfinite(mi)
