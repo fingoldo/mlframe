@@ -383,13 +383,19 @@ def mdlp_bin_edges_validated(
             _q = np.linspace(0.0, 1.0, int(max_y_classes) + 1)[1:-1]
             _y_edges = np.unique(np.quantile(_y_finite, _q))
             _y_arr = np.searchsorted(_y_edges, _y_arr, side="right")
-    y_i = _y_arr.astype(np.int64)
-    if len(x) != len(y_i):
-        raise ValueError(f"len(x)={len(x)} != len(y)={len(y_i)}")
+    if len(x) != len(_y_arr):
+        raise ValueError(f"len(x)={len(x)} != len(y)={len(_y_arr)}")
+    # mrmr_audit_2026-07-20 B-13: mirrors mdlp_bin_edges' fix -- fold y's finiteness into the mask
+    # (only meaningful while _y_arr is still float) BEFORE the int64 cast, so a NaN in a continuous y
+    # with too few distinct finite values to trigger the quantile-rebucketing branch above is dropped
+    # instead of becoming a platform-defined garbage class label.
     _finite_mask = np.isfinite(x)
+    if _y_arr.dtype.kind == "f":
+        _finite_mask &= np.isfinite(_y_arr)
     if not _finite_mask.all():
         x = x[_finite_mask]
-        y_i = y_i[_finite_mask]
+        _y_arr = _y_arr[_finite_mask]
+    y_i = _y_arr.astype(np.int64)
     if x.size == 0:
         return np.array([-np.inf, np.inf], dtype=np.float64)
     x, y_i = _dedupe_xy(x, y_i)
@@ -592,13 +598,19 @@ def mdlp_bin_edges_oos_validated(
             _q = np.linspace(0.0, 1.0, int(max_y_classes) + 1)[1:-1]
             _y_edges = np.unique(np.quantile(_y_finite, _q))
             _y_arr = np.searchsorted(_y_edges, _y_arr, side="right")
-    y_i = _y_arr.astype(np.int64)
-    if len(x) != len(y_i):
-        raise ValueError(f"len(x)={len(x)} != len(y)={len(y_i)}")
+    if len(x) != len(_y_arr):
+        raise ValueError(f"len(x)={len(x)} != len(y)={len(_y_arr)}")
+    # mrmr_audit_2026-07-20 B-13: mirrors mdlp_bin_edges' fix -- fold y's finiteness into the mask
+    # (only meaningful while _y_arr is still float) BEFORE the int64 cast, so a NaN in a continuous y
+    # with too few distinct finite values to trigger the quantile-rebucketing branch above is dropped
+    # instead of becoming a platform-defined garbage class label.
     _finite_mask = np.isfinite(x)
+    if _y_arr.dtype.kind == "f":
+        _finite_mask &= np.isfinite(_y_arr)
     if not _finite_mask.all():
         x = x[_finite_mask]
-        y_i = y_i[_finite_mask]
+        _y_arr = _y_arr[_finite_mask]
+    y_i = _y_arr.astype(np.int64)
     if x.size == 0:
         return np.array([-np.inf, np.inf], dtype=np.float64)
 

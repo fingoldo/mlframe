@@ -37,12 +37,15 @@ left-to-right order of the six attribute lists).
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
 
 from sklearn.base import BaseEstimator, TransformerMixin
+
+logger = logging.getLogger(__name__)
 
 # Canonical bookkeeping list. Order matters for ``source_mechanism`` tie
 # breaking and for the column order in the returned DataFrame.
@@ -135,6 +138,7 @@ def _run_bootstraps(
     MRMR = _resolve_mrmr_cls()
     n = len(X)
     per_boot: list[dict[str, str]] = []
+    n_failed = 0
     for _b in range(n_bootstraps):
         idx = _bootstrap_indices(n, sample_fraction, rng)
         Xb = X.iloc[idx].reset_index(drop=True)
@@ -145,8 +149,20 @@ def _run_bootstraps(
         # seed would collapse stability variance to zero).
         kwargs["random_seed"] = int(rng.integers(0, 2**31 - 1))
         m = MRMR(**kwargs)
-        m.fit(Xb, yb)
+        try:
+            m.fit(Xb, yb)
+        except Exception as exc:
+            # mrmr_audit_2026-07-20 B-15: one degenerate bootstrap subsample used to crash the whole
+            # sweep -- mirrors the fix applied to the sibling StabilityMRMR (stability.py) and
+            # _stability_cluster.py. Excluded bootstraps are simply absent from ``per_boot``, so
+            # ``_aggregate_frequencies``'s ``n_boot = len(per_boot)`` denominator already becomes the
+            # effective (successful) count with no further change needed there.
+            logger.warning("stability_select_fe: bootstrap %d/%d failed (%s: %s); excluded from frequencies.", _b + 1, n_bootstraps, type(exc).__name__, exc)
+            n_failed += 1
+            continue
         per_boot.append(_engineered_union(m))
+    if n_failed:
+        logger.warning("stability_select_fe: %d/%d bootstraps failed; frequencies computed over the %d successful ones.", n_failed, n_bootstraps, len(per_boot))
     return per_boot
 
 

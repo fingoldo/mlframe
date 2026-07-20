@@ -14,6 +14,7 @@ inclusion frequency as a numpy float vector for downstream stability plots.
 from __future__ import annotations
 
 import logging
+from typing import Optional
 
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin, clone
@@ -167,8 +168,8 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
                 parts.append(local_rng.choice(grp, size=k, replace=False))
             return np.concatenate(parts)
 
-        def _one_bootstrap(seed: int) -> np.ndarray:
-            """Draw one (stratified or plain) subsample, fit a fresh ``estimator`` clone on it, and return the selected feature indices."""
+        def _one_bootstrap(seed: int) -> Optional[np.ndarray]:
+            """Draw one (stratified or plain) subsample, fit a fresh ``estimator`` clone on it, and return the selected feature indices; ``None`` on a degenerate subsample the estimator cannot fit."""
             local_rng = np.random.default_rng(seed)
             if _class_groups is not None:
                 idx = _stratified_indices(local_rng)
@@ -177,8 +178,17 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
             X_sub = X.iloc[idx] if hasattr(X, "iloc") else X[idx]
             y_sub = y.iloc[idx] if hasattr(y, "iloc") else y[idx]
             est = clone(self.estimator)
-            est.fit(X_sub, y_sub)
-            return _support_to_indices(est.support_, n_features)
+            try:
+                est.fit(X_sub, y_sub)
+                return _support_to_indices(est.support_, n_features)
+            except Exception as exc:
+                # mrmr_audit_2026-07-20 B-14: one degenerate bootstrap subsample (e.g. a class dropped
+                # despite stratification at extreme sample_fraction, or a subsample too small for the
+                # inner estimator's own floors) used to crash the WHOLE .fit() call -- mirrors the fix
+                # already applied to the sibling _stability_cluster.py implementations (exclude the
+                # failed draw, log how many failed, and compute frequencies over the successful ones).
+                logger.warning("StabilityMRMR: bootstrap seed=%d failed (%s: %s); excluded from stability frequencies.", seed, type(exc).__name__, exc)
+                return None
 
         if self.n_jobs == 1:
             supports = [_one_bootstrap(s) for s in seeds]
@@ -193,16 +203,37 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
             # eliminates the OOM risk and removes loky process-spawn cost.
             supports = Parallel(n_jobs=self.n_jobs, backend="threading")(delayed(_one_bootstrap)(s) for s in seeds)
 
+        # mrmr_audit_2026-07-20 B-14: filter out failed bootstraps (see _one_bootstrap's except clause)
+        # before accumulating -- frequencies are computed over the effective (successful) B, mirroring
+        # _stability_cluster.py's n_failed/n_success pattern, not over the nominal n_bootstraps.
+        n_failed_bootstraps = sum(1 for sup in supports if sup is None)
+        supports_ok: list = [sup for sup in supports if sup is not None]
+        if not supports_ok:
+            # Every single bootstrap failed -- this is not "some unlucky draws", it means the input
+            # itself is fundamentally too small/degenerate for ``estimator`` at this sample_fraction.
+            # Raise clearly instead of silently returning a meaningless all-zero-frequency result (the
+            # existing contract this class already promised: "no silent corruption").
+            raise RuntimeError(
+                f"StabilityMRMR: all {self.n_bootstraps} bootstraps failed to fit (last error above); "
+                f"the input is too small/degenerate for this estimator at sample_fraction={self.sample_fraction}."
+            )
+        if n_failed_bootstraps:
+            logger.warning(
+                "StabilityMRMR: %d/%d bootstraps failed; stability frequencies computed over the %d successful ones.",
+                n_failed_bootstraps, self.n_bootstraps, len(supports_ok),
+            )
+        _effective_n_bootstraps = len(supports_ok)
+
         # Accumulate per-feature inclusion counts.
         counts = np.zeros(n_features, dtype=np.int64)
-        for sup in supports:
+        for sup in supports_ok:
             counts[sup] += 1
 
-        self.selection_probabilities_ = counts / self.n_bootstraps
+        self.selection_probabilities_ = counts / _effective_n_bootstraps
         # Compare integer counts against a ceiling rather than float prob >= float threshold: counts/n_bootstraps is not exactly representable
         # (e.g. 12/20 != 0.6 in float64), so a feature selected in exactly threshold*n runs could spuriously fail a direct float >= compare.
         import math as _math
-        _min_count = _math.ceil(float(self.support_threshold) * self.n_bootstraps - 1e-9)
+        _min_count = _math.ceil(float(self.support_threshold) * _effective_n_bootstraps - 1e-9)
         self.support_ = np.where(counts >= _min_count)[0]
         self.n_features_ = len(self.support_)
         self.n_features_in_ = n_features
@@ -210,7 +241,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         # Meinshausen-Buhlmann PFER bound E[V] <= q^2 / ((2*pi_thr - 1) * p), with q = avg #selected per bootstrap. Only valid at
         # sample_fraction == 0.5 and pi_thr > 0.5; nan otherwise (the bound's derivation assumes complementary-pairs subsampling and a
         # threshold above 0.5). Exposed so callers can compare the realized bound against their false-positive budget.
-        self.avg_selected_per_bootstrap_ = float(np.mean([len(s) for s in supports])) if supports else 0.0
+        self.avg_selected_per_bootstrap_ = float(np.mean([len(s) for s in supports_ok])) if supports_ok else 0.0
         _pi = float(self.support_threshold)
         if abs(float(self.sample_fraction) - 0.5) <= 1e-9 and _pi > 0.5 and n_features > 0:
             self.pfer_bound_ = (self.avg_selected_per_bootstrap_**2) / ((2.0 * _pi - 1.0) * n_features)

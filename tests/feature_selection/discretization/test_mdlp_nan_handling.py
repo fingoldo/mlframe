@@ -89,3 +89,55 @@ def test_all_nan_input_returns_trivial_edges():
     y = np.zeros(50, dtype=np.int64)
     edges = mdlp_bin_edges(x, y)
     np.testing.assert_array_equal(edges, np.array([-np.inf, np.inf]))
+
+
+def _y_only_nan_fixture(seed=0, n=2000, nan_stride=13):
+    """A strong 2-class x->y signal (continuous-dtype y, few distinct finite values so the
+    quantile-rebucketing branch never fires) with NaN scattered through Y ONLY -- x stays clean."""
+    rng = np.random.default_rng(seed)
+    x = rng.standard_normal(n)
+    y = (x > 0.3).astype(np.float64)
+    nan_mask = np.zeros(n, dtype=bool)
+    nan_mask[::nan_stride] = True
+    y_with_nan = y.copy()
+    y_with_nan[nan_mask] = np.nan
+    return x, y_with_nan, nan_mask
+
+
+class TestB13NanInY:
+    """mrmr_audit_2026-07-20 B-13: mdlp_bin_edges (+ its two _mdlp_validated_split.py siblings) dropped
+    NaN rows from x explicitly, but never filtered NaN out of y before casting it to int64 -- a NaN-y
+    row silently became a platform-defined garbage class label (typically INT64_MIN) instead of being
+    dropped, polluting every entropy computation the split search relies on."""
+
+    def test_mdlp_bin_edges_nan_y_matches_caller_predropped(self):
+        """Passing NaN-bearing y directly must give the IDENTICAL result to a caller who pre-drops the
+        NaN rows themselves -- proving the internal filter, not a garbage class, is what's happening."""
+        from mlframe.feature_selection.filters.supervised_binning import mdlp_bin_edges
+
+        x, y_with_nan, nan_mask = _y_only_nan_fixture()
+        edges_internal = mdlp_bin_edges(x, y_with_nan)
+        edges_predropped = mdlp_bin_edges(x[~nan_mask], y_with_nan[~nan_mask])
+        np.testing.assert_array_equal(edges_internal, edges_predropped)
+
+    @pytest.mark.parametrize(
+        "fn_name",
+        ["mdlp_bin_edges_validated", "mdlp_bin_edges_oos_validated"],
+    )
+    def test_validated_siblings_nan_y_matches_caller_predropped(self, fn_name):
+        """Same contract for both _mdlp_validated_split.py siblings named in the audit finding."""
+        from mlframe.feature_selection.filters import _mdlp_validated_split as mod
+
+        fn = getattr(mod, fn_name)
+        x, y_with_nan, nan_mask = _y_only_nan_fixture(seed=1)
+        edges_internal = fn(x, y_with_nan)
+        edges_predropped = fn(x[~nan_mask], y_with_nan[~nan_mask])
+        np.testing.assert_array_equal(edges_internal, edges_predropped)
+
+    def test_mdlp_bin_edges_nan_y_edges_finite(self):
+        """Returned edges must never contain NaN even when y (not x) carries the NaN."""
+        from mlframe.feature_selection.filters.supervised_binning import mdlp_bin_edges
+
+        x, y_with_nan, _ = _y_only_nan_fixture(seed=2)
+        edges = mdlp_bin_edges(x, y_with_nan)
+        assert not np.any(np.isnan(edges)), f"edges contain NaN when only y carried NaN: {edges}"

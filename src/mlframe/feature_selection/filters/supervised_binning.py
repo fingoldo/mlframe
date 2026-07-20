@@ -172,9 +172,8 @@ def mdlp_bin_edges(
             # 585.8 RMSE -- see ``_mdlp_validated_split.py`` module docstring).
             if fast_mode:
                 max_depth = min(int(max_depth), max(1, math.ceil(math.log2(int(max_y_classes)))))
-    y = _y_arr.astype(np.int64)
-    if len(x) != len(y):
-        raise ValueError(f"len(x)={len(x)} != len(y)={len(y)}")
+    if len(x) != len(_y_arr):
+        raise ValueError(f"len(x)={len(x)} != len(y)={len(_y_arr)}")
     if scaled_min_split:
         min_split_size = max(int(min_split_size), int(0.02 * len(x)))
 
@@ -189,10 +188,22 @@ def mdlp_bin_edges(
     # python backend and njit backend disagreed silently on NaN-bearing
     # inputs - docstring promises identical semantics. Filter NaN out
     # of both inputs once at the entry point (single-source-of-truth).
+    #
+    # mrmr_audit_2026-07-20 B-13: this mask used to check ONLY ``x``. When ``y`` is a continuous
+    # target with too FEW distinct finite values to trigger the quantile-rebucketing branch above
+    # (so ``_y_arr`` still holds raw floats here), a NaN in ``y`` survived this filter and then
+    # ``.astype(np.int64)`` below turned it into a platform-defined garbage class label (typically
+    # INT64_MIN) instead of being dropped or raising -- a phantom "class" silently polluting every
+    # entropy computation downstream. Fold ``y``'s finiteness into the SAME mask (only meaningful
+    # when ``_y_arr`` is still float; the factorize/quantise branches above never leave a NaN in an
+    # already-integer ``_y_arr``).
     _finite_mask = np.isfinite(x)
+    if _y_arr.dtype.kind == "f":
+        _finite_mask &= np.isfinite(_y_arr)
     if not _finite_mask.all():
         x = x[_finite_mask]
-        y = y[_finite_mask]
+        _y_arr = _y_arr[_finite_mask]
+    y = _y_arr.astype(np.int64)
     if x.size == 0:
         # All-NaN / all-non-finite input: no splits computable.
         return np.array([-np.inf, np.inf], dtype=np.float64)
