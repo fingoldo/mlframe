@@ -205,6 +205,41 @@ def stacking_aware_gate(
     return survivors, normalised
 
 
+def auto_aware_gate(
+    transform_predictions: dict[str, np.ndarray],
+    y_train: np.ndarray,
+    *,
+    min_weight: float = 0.05,
+    redundancy_threshold: float = 0.8,
+    engine_kwargs: dict | None = None,
+) -> tuple[list[str], dict[str, float], str]:
+    """Auto-select between :func:`stacking_aware_gate` (NNLS) and :func:`shapley_aware_gate` by measuring
+    pool redundancy first, instead of requiring the caller to pick a gate up front.
+
+    gt_05's biz_val (``test_biz_val_shapley_gate_prunes_where_nnls_flips``) measured NNLS's kept-set
+    Jaccard stability collapsing under a duplicate-heavy pool while Shapley's symmetry axiom kept it
+    stable -- but Shapley costs ``n_permutations`` extra coalition evaluations that NNLS doesn't need,
+    so unconditionally always running Shapley pays that cost even on a pool with no redundancy to
+    stabilize against. This reuses the SAME ``max_off_diagonal_correlation`` diagnostic this module
+    already documents (its own "measure-first protocol" comment above) as the auto-gate's decision
+    signal: at pairwise prediction correlation above ``redundancy_threshold`` (default 0.8, the
+    convention already used elsewhere in this file), route to the redundancy-stable Shapley gate;
+    below it, the cheaper NNLS gate has no collinearity problem to correct for.
+
+    Returns ``(survivors, weights, method)`` -- same contract as the two underlying gates, plus
+    ``method`` (``"nnls"`` or ``"shapley"``) so callers/logs can see which path fired.
+    """
+    if not transform_predictions:
+        return [], {}, "nnls"
+    corr_matrix, _names = residual_correlation_matrix(transform_predictions)
+    max_corr = max_off_diagonal_correlation(corr_matrix)
+    if max_corr >= redundancy_threshold:
+        survivors, weights = shapley_aware_gate(transform_predictions, y_train, min_weight=min_weight, **(engine_kwargs or {}))
+        return survivors, weights, "shapley"
+    survivors, weights = stacking_aware_gate(transform_predictions, y_train, min_weight=min_weight)
+    return survivors, weights, "nnls"
+
+
 def shapley_aware_gate(
     transform_predictions: dict[str, np.ndarray],
     y_train: np.ndarray,
