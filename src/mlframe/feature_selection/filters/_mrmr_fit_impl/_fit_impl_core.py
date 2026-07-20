@@ -6458,7 +6458,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ~0 (verified: on 3-way XOR among 5 noise vars ONLY {x0,x1,x2} fires), so noise is never seeded.
     # Off when interactions_max_order<2 (the default) -> byte-identical there. Bounded combo
     # enumeration (candidate + order caps) so wide-p fits stay tractable.
-    if int(getattr(self, "interactions_max_order", 1) or 1) >= 2 and len(selected_vars) >= 0:
+    _iac_max_order = getattr(self, "interactions_max_order", None)
+    if int(_iac_max_order if _iac_max_order is not None else 1) >= 2 and len(selected_vars) >= 0:
         try:
             from .._fe_synergy_screen import detect_synergy_combos
             _raw_set_syn = set(self.feature_names_in_)
@@ -6466,10 +6467,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if 2 <= len(_cand_syn) <= 60:
                 _yc_syn = np.asarray(classes_y).astype(np.int64).ravel()
                 _code_cols_syn = {i: np.asarray(data[:, i]).astype(np.int64).ravel() for i in _cand_syn}
+                _iac_min_order = getattr(self, "interactions_min_order", None)
                 _combos_syn = detect_synergy_combos(
                     _code_cols_syn, _yc_syn, _cand_syn,
-                    max_order=int(getattr(self, "interactions_max_order", 3) or 3),
-                    min_order=max(2, int(getattr(self, "interactions_min_order", 2) or 2)),
+                    max_order=int(_iac_max_order if _iac_max_order is not None else 3),
+                    min_order=max(2, int(_iac_min_order if _iac_min_order is not None else 2)),
                 )
                 _sv_syn = set(selected_vars)
                 _seed_syn = []
@@ -7583,6 +7585,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # fused whole -- so a fully-subsumed operand drops even when it is
                 # selected alongside the composite (not only when the composite
                 # collapsed the whole selection into the never-empty path).
+                _rrf_redund = getattr(self, "fe_raw_redundancy_retain_frac", None)
                 _kept_redund, _dropped_redund_names = drop_redundant_raw_operands(
                     data=data,
                     cols=cols,
@@ -7594,7 +7597,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     replayable_eng_names=_replayable_eng_names,
                     recipes=engineered_recipes,
                     raw_X=X,
-                    retain_frac=float(getattr(self, "fe_raw_redundancy_retain_frac", 0.15) or 0.15),
+                    retain_frac=float(_rrf_redund) if _rrf_redund is not None else 0.15,
                     linear_usability_keep=bool(getattr(self, "use_simple_mode", False)),
                     tail_subsume_enable=bool(getattr(self, "fe_pair_usability_admission_enable", True)),
                     tail_subsume_min_corr=float(getattr(self, "fe_raw_tail_subsume_min_corr", 0.85)),

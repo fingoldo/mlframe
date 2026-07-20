@@ -596,11 +596,12 @@ def _phase_fit_pipeline(
         getattr(preprocessing_extensions, "row_wise_summary_stats_enabled", False)
         or getattr(preprocessing_extensions, "row_wise_extreme_columns_enabled", False)
     ):
+        _rwk_raw = getattr(preprocessing_extensions, "row_wise_extreme_columns_k", None)
         metadata["row_wise_extensions_config"] = {
             "summary_stats_enabled": bool(getattr(preprocessing_extensions, "row_wise_summary_stats_enabled", False)),
             "summary_stats_list": getattr(preprocessing_extensions, "row_wise_summary_stats_list", None),
             "extreme_columns_enabled": bool(getattr(preprocessing_extensions, "row_wise_extreme_columns_enabled", False)),
-            "extreme_columns_k": int(getattr(preprocessing_extensions, "row_wise_extreme_columns_k", 3) or 3),
+            "extreme_columns_k": int(_rwk_raw) if _rwk_raw is not None else 3,
         }
     if verbose and preprocessing_extensions is not None:
         logger.info("  apply_preprocessing_extensions done in %s", _elapsed_str(t0_ext))
