@@ -163,6 +163,14 @@ def _pull_columns_at_rows(X: Any, col_indices: Sequence[int], row_idx: np.ndarra
             col = X[cols[j]]
             arr = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
             if arr.dtype.kind in "OUS" or arr.dtype.kind == "b":
+                # An object column holding non-scalar elements (e.g. a list-valued embedding column) can't be
+                # stringified by ``astype(str)`` -- numpy raises "setting an array element with a sequence"
+                # trying to broadcast the list into a fixed-width string array. Mirror _resolve_feature_matrix's
+                # embedding-column handling: substitute NaN rather than crash (a single embedding vector isn't
+                # a meaningful scalar table cell anyway).
+                if arr.dtype.kind == "O" and any(isinstance(v, (list, tuple, np.ndarray)) for v in arr):
+                    out[j] = np.full(len(row_idx), np.nan, dtype=np.float64)
+                    continue
                 _, codes = np.unique(arr.astype(str), return_inverse=True)
                 out[j] = codes.astype(np.float64)[row_idx]
             else:

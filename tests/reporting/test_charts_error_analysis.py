@@ -294,6 +294,33 @@ def test_worst_k_table_pruned_pull_matches_full_matrix():
         assert np.array_equal(res.table[names[j]].to_numpy(), mat[sel, j]), f"col {names[j]} diverged"
 
 
+def test_worst_k_table_list_valued_embedding_column_does_not_raise():
+    """A list-valued object column (e.g. an embedding column) must not crash worst_k_table.
+
+    ``_pull_columns_at_rows`` used to call ``arr.astype(str)`` on every non-numeric column unconditionally, which
+    raises ``ValueError: setting an array element with a sequence`` when the object column holds list/array
+    elements instead of scalars -- numpy can't broadcast a list into a fixed-width string array. Surfaced by
+    profiling/bug_hunt_fuzz_chains.py via render_split_error_diagnostics -> worst_k_table on a frame with a
+    materialized ``emb_0`` embedding column.
+    """
+    rng = np.random.default_rng(3)
+    n = 300
+    X = pd.DataFrame(
+        {
+            "f0": rng.standard_normal(n),
+            "emb_0": [list(rng.standard_normal(4)) for _ in range(n)],
+        }
+    )
+    yt = rng.standard_normal(n)
+    yp = yt + rng.standard_normal(n) * 0.4
+    fi = np.array([0.9, 0.1])
+
+    res = worst_k_table(X, yt, yp, task="regression", k=10, feature_importances=fi, top_fi=2)
+
+    assert "emb_0" in res.table.columns
+    assert res.table["emb_0"].isna().all()
+
+
 def test_error_bias_pruned_pull_matches_full_matrix():
     """Column-pruned pull (only ``max_features`` cols) is bit-identical to densifying the whole matrix.
 
