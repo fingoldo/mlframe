@@ -214,6 +214,11 @@ def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_t
     Ba = _basis_matrix_gpu(cp, xa_d, ca_size - 1, _BASIS_IDS[basis])
     Bb = _basis_matrix_gpu(cp, xb_d, cb_size - 1, _BASIS_IDS[basis])
 
+    # mrmr_audit_2026-07-20 test_coverage.md #13: elitism_k >= batch_size makes n_perturb below negative,
+    # crashing rng.integers(..., size=n_perturb) with a ValueError on the very first generation. Clamp so
+    # the elite pool never consumes the whole (or more than the whole) population.
+    elitism_k = min(elitism_k, max(1, batch_size - 1))
+
     rng = np.random.default_rng(seed)
     lo, hi = float(coef_range[0]), float(coef_range[1])
     dim = ca_size + cb_size
@@ -245,7 +250,7 @@ def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_t
             best_vec = pop[gi].copy()
         order = np.argsort(scores)[::-1]
         elites = pop[order[:elitism_k]]
-        n_perturb = batch_size - elitism_k - max(1, batch_size // 4)
+        n_perturb = max(0, batch_size - elitism_k - max(1, batch_size // 4))
         perturbed = elites[rng.integers(0, elitism_k, size=n_perturb)] + rng.normal(0.0, sigma, size=(n_perturb, dim))
         fresh = rng.uniform(lo, hi, size=(max(1, batch_size // 4), dim))
         pop = np.clip(np.vstack([elites, perturbed, fresh]), lo, hi)[:batch_size]
