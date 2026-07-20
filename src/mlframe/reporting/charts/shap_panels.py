@@ -132,7 +132,8 @@ def _is_multi_output_catboost(model: Any) -> bool:
         return False
     try:
         loss = str(get_params().get("loss_function", "")).lower()
-    except Exception:
+    except Exception as e:
+        logger.debug("get_all_params() probe failed (%s: %s) -- treating as not the CatBoost multi-output risky case", type(e).__name__, e)
         return False
     return loss in _CATBOOST_MULTI_OUTPUT_LOSSES
 
@@ -244,7 +245,8 @@ def _row_subset(carrier: Any, idx: np.ndarray) -> Any:
         return carrier.iloc[idx]
     try:  # polars
         return carrier[idx]
-    except Exception:
+    except Exception as e:
+        logger.debug("Native polars row-subset failed (%s: %s) -- falling back to np.asarray indexing", type(e).__name__, e)
         return np.asarray(carrier)[idx]
 
 
@@ -388,7 +390,8 @@ def _matplotlib_formats(plot_outputs: Optional[str]) -> List[str]:
     try:
         from mlframe.reporting.output import parse_plot_output_dsl
         spec = parse_plot_output_dsl(plot_outputs)
-    except Exception:
+    except Exception as e:
+        logger.debug("parse_plot_output_dsl(%r) failed (%s: %s) -- defaulting to ['png']", plot_outputs, type(e).__name__, e)
         return ["png"]
     fmts: List[str] = []
     for backend, formats in spec.backends:
@@ -554,6 +557,7 @@ def shap_summary_and_dependence(
             # except (a noisy ERROR + a vanished panel with no reason), degrade to a clean skip carrying the cause --
             # this is a best-effort VISUAL diagnostic, never fatal. Broad ``except Exception`` is deliberate: the
             # backends raise library-specific error types (CatBoostError etc.), not a common base beyond Exception.
+            logger.debug("Tree-SHAP explain failed (%s: %s) -- skipping the panel with the cause carried in skipped=", type(_shap_exc).__name__, _shap_exc)
             return ShapPanelsResult(
                 [], [], [], np.empty(0), "none",
                 skipped=f"tree SHAP unavailable for this feature frame ({type(_shap_exc).__name__}: {str(_shap_exc)[:80]})",

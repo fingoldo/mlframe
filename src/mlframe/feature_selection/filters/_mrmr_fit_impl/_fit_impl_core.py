@@ -3850,8 +3850,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
             if raws_linearly_explain_y(X, y, seed=int(getattr(self, "random_seed", 0) or 0)):
                 _discrete_fe_master = False
-        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
-            pass  # gate is an optimisation; on any failure keep the operators (correct path)
+        except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+            logger.debug("raws_linearly_explain_y gate failed (%s: %s) -- keeping the operators (the safe/correct path)", type(e).__name__, e)
 
     # Shared class-MI target binning for the four discrete-structural FE operators (pairwise-modular / integer-lattice / row-argmax / conditional-gate).
     # All four gate candidates on the SAME 1D y binned with the SAME quantization_nbins via bin_y_for_class_mi; compute the applicability flag + binned
@@ -6063,9 +6063,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     data = _dcd_state.factors_data
                     cols = list(_dcd_state.cols)
                     nbins = np.asarray(_dcd_state.factors_nbins, dtype=np.int64)
-            except Exception:  # nosec B110 - non-trivial body
+            except Exception as e:  # nosec B110 - non-trivial body
                 # Best-effort -- if DCDState is malformed, fall through.
-                pass
+                logger.debug("DCDState looked malformed (%s: %s) -- falling through without it", type(e).__name__, e)
 
         # MEMORY: prune fit-time ``_engineered_continuous_`` scratch for engineered columns that did not
         # survive THIS round's screen -- see ``_prune_engineered_continuous_store`` docstring for why this
@@ -6616,7 +6616,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     return_null_mean=True, parallelism="none", dtype=_rr_q_dtype, prefer_gpu=False,
                 )
                 return float(_sig[3]) < _rr_signif_alpha
-            except Exception:
+            except Exception as e:
+                logger.debug("Marginal-MI significance re-add probe failed (%s: %s) -- permissive re-add", type(e).__name__, e)
                 return True  # significance unavailable -> permissive re-add
 
         _sv_set = set(selected_vars)
@@ -6907,7 +6908,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 A = np.column_stack(design_cols)
                 try:
                     coef, *_ = np.linalg.lstsq(A[tr], _y_for_hinge_gate[tr], rcond=None)
-                except Exception:
+                except Exception as e:
+                    logger.debug("Hinge-gate OLS lstsq failed (%s: %s) -- treating as a failed candidate", type(e).__name__, e)
                     return -np.inf
                 pred = A[va] @ coef
                 return 1.0 - float(np.sum((yv - pred) ** 2)) / ss
@@ -7099,7 +7101,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 try:
                     _q1, _r1 = _rp_sla.qr_insert(_rp_Q, _rp_R, _extra[_rp_tr], _rp_Q.shape[1], which="col")
                     _coef = _rp_sla.solve_triangular(_r1, _q1.T @ _rp_y_tr)
-                except Exception:
+                except Exception as e:
+                    logger.debug("QR-insert regression probe failed (%s: %s) -- treating as a failed candidate", type(e).__name__, e)
                     return -np.inf
                 _A_va = np.column_stack((_rp_base_va, _extra[_rp_va]))
                 return 1.0 - float(np.sum((_yv - _A_va @ _coef) ** 2)) / _rp_ss
@@ -7214,7 +7217,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         return 0.0
                     try:
                         _coef, *_ = np.linalg.lstsq(_A[_cf_tr], _cf_y[_cf_tr], rcond=None)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("Compound-feature OLS lstsq failed (%s: %s) -- treating as a failed candidate", type(e).__name__, e)
                         return -np.inf
                     return 1.0 - float(np.sum((_yv - _A[_cf_va] @ _coef) ** 2)) / _ss
 
@@ -7474,7 +7478,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             return_null_mean=True, parallelism="none", dtype=_pcr_q_dtype, prefer_gpu=False,
                         )
                         return float(_sig[3]) < _pcr_signif_alpha
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("Marginal-MI significance re-add probe failed (%s: %s) -- permissive re-add", type(e).__name__, e)
                         return True
                 _pcr_readd = []
                 # name -> index map built once (O(F)) instead of a ``.index()`` rescan of ``cols`` per
@@ -7758,7 +7763,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     """Screening marginal MI(v, y) for raw column index ``_v``, used to pick the survivor between two monotone-twin raw columns (0.0 on a cache miss)."""
                     try:
                         return float(cached_MIs.get((_v,), 0.0))
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("cached_MIs lookup for monotone-twin relevance failed (%s: %s) -- treating as 0.0", type(e).__name__, e)
                         return 0.0
                 from .._feature_engineering_pairs._pairs_core import _abs_corr_finite_njit as _mt_corr_njit
                 _mt_keep: list[int] = []
@@ -8467,7 +8473,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                        factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
                                        return_null_mean=True, parallelism="none", dtype=_eb_qdtype, prefer_gpu=False)
                     return float(_r[3]) < _eb_alpha  # p-value below alpha -> genuine marginal signal
-                except Exception:
+                except Exception as e:
+                    logger.debug("Marginal-MI significance probe failed (%s: %s) -- not silently dropping a possibly-genuine operand", type(e).__name__, e)
                     return True  # estimator error -> do not silently drop a possibly-genuine operand
             _eb_added = []
             for _op in _eb_operands:
@@ -9299,9 +9306,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         self._engineered_recipes_ = _uaed_recipes[:_uaed_eng_keep]
                     self.n_features_ = int(self.support_.size) + min(_uaed_eng_keep, len(_uaed_recipes))
                     self.uaed_elbow_ = int(elbow)
-        except Exception:  # nosec B110 - non-trivial body
+        except Exception as e:  # nosec B110 - non-trivial body
             # UAED is best-effort post-fit; don't break fit() on internal hiccup.
-            pass
+            logger.debug("UAED post-fit adjustment failed (%s: %s) -- keeping the pre-UAED support", type(e).__name__, e)
     # Transient FE-escalation fitting target: full-n array, fit-time only.
     self._fe_escalation_y_rank_ = None
     # Transient prewarp ALS reconstruction target: full-n continuous y, fit-time only.
