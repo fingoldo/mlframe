@@ -413,15 +413,19 @@ def mdlp_bin_edges_validated(
 # =============================================================================
 
 
-def _holdout_gain(x_holdout: np.ndarray, y_holdout_c: np.ndarray, best_split: float, n_classes_full: int, min_split_size: int):
+def _holdout_gain(x_holdout: np.ndarray, y_holdout_c: np.ndarray, best_split: float, n_classes_full: int, val_min_split_size: int):
     """Compute the SAME weighted-entropy-reduction statistic as the training scan, but on an
     independent held-out row set, at the FIXED cut point the training portion already chose (no
     re-search here -- that is what makes this a genuine OOS check rather than another in-sample
     max-over-candidates search). Rows whose label was never seen in the training node (``y_holdout_c
     == -1``, stamped by the caller) are dropped -- they carry no information about whether train's
     class-space cut generalizes. Returns ``(gain, n_l, n_r)``; ``gain`` is ``-1.0`` if either side
-    is smaller than ``min_split_size`` after dropping unseen-label rows (can't confirm generalization
-    on too few held-out rows -> caller treats this as a reject, the conservative choice).
+    is smaller than ``val_min_split_size`` after dropping unseen-label rows (can't confirm
+    generalization on too few held-out rows -> caller treats this as a reject, the conservative
+    choice). ``val_min_split_size`` is a SEPARATE floor from the train-side ``min_split_size`` --
+    a node with plenty of train rows can still have too few holdout rows to trust (the holdout
+    fraction is fixed once at the top level, so it shrinks along with the node as recursion
+    deepens, independently of how strict the train-side floor is).
     """
     keep = y_holdout_c >= 0
     if not np.any(keep):
@@ -430,7 +434,7 @@ def _holdout_gain(x_holdout: np.ndarray, y_holdout_c: np.ndarray, best_split: fl
     yh = y_holdout_c[keep]
     left = xh <= best_split
     n_l, n_r = int(left.sum()), int((~left).sum())
-    if n_l < min_split_size or n_r < min_split_size:
+    if n_l < val_min_split_size or n_r < val_min_split_size:
         return -1.0, n_l, n_r
     counts_total = np.bincount(yh, minlength=n_classes_full).astype(np.int64)
     counts_left = np.bincount(yh[left], minlength=n_classes_full).astype(np.int64)
@@ -455,6 +459,7 @@ def _mdlp_recurse_oos_validated(
     oos_tolerance: float,
     counts_parent: "np.ndarray | None" = None,
     present_parent: "np.ndarray | None" = None,
+    val_min_split_size: "int | None" = None,
 ) -> None:
     """A candidate split is found on ``x_train``/``y_train`` exactly as the in-sample path does
     (single best-gain search via ``_mdlp_best_split_njit``), but is only ACCEPTED if the SAME cut
@@ -476,6 +481,7 @@ def _mdlp_recurse_oos_validated(
     n = len(x_train)
     if n < 2 * min_split_size or depth >= max_depth:
         return
+    _val_min_split_size = min_split_size if val_min_split_size is None else val_min_split_size
     if present_parent is None:
         present = np.unique(y_train)
     else:
@@ -499,7 +505,7 @@ def _mdlp_recurse_oos_validated(
     match = present[idx_clipped] == y_holdout
     y_holdout_c = np.where(match, idx_clipped, -1)
 
-    oos_gain, oos_nl, oos_nr = _holdout_gain(x_holdout, y_holdout_c, best_split, int(n_classes_full), int(min_split_size))
+    oos_gain, oos_nl, oos_nr = _holdout_gain(x_holdout, y_holdout_c, best_split, int(n_classes_full), int(_val_min_split_size))
     if oos_gain <= 0.0:
         return
     # BUG FOUND AND FIXED DURING THIS PROTOTYPE'S OWN A/B (2026-07-19): a relative-only bar
@@ -527,11 +533,11 @@ def _mdlp_recurse_oos_validated(
     splits.append(float(best_split))
     _mdlp_recurse_oos_validated(
         x_train[:left_mask_idx], y_train_left, x_holdout[holdout_left], y_holdout[holdout_left], splits,
-        depth + 1, min_split_size, max_depth, oos_tolerance, counts_left_dense, present,
+        depth + 1, min_split_size, max_depth, oos_tolerance, counts_left_dense, present, _val_min_split_size,
     )
     _mdlp_recurse_oos_validated(
         x_train[left_mask_idx:], y_train_right, x_holdout[~holdout_left], y_holdout[~holdout_left], splits,
-        depth + 1, min_split_size, max_depth, oos_tolerance, counts_right_dense, present,
+        depth + 1, min_split_size, max_depth, oos_tolerance, counts_right_dense, present, _val_min_split_size,
     )
 
 
@@ -540,6 +546,7 @@ def mdlp_bin_edges_oos_validated(
     y: np.ndarray,
     *,
     min_split_size: int = 5,
+    val_min_split_size: "int | None" = None,
     max_depth: int = 8,
     max_y_classes: int = 64,
     oos_tolerance: float = 0.3,
@@ -566,6 +573,8 @@ def mdlp_bin_edges_oos_validated(
             criterion.
         holdout_frac: Fraction of rows set aside as the single held-out fold. ``0.3`` balances
             leaving enough rows in each fold as the recursion narrows to small nodes.
+        val_min_split_size: Floor on holdout-side samples per child node, separate from the
+            train-side ``min_split_size`` -- defaults to ``min_split_size`` when not given.
     """
     x = np.asarray(x).ravel()
     _y_arr = np.asarray(y).ravel()
@@ -607,7 +616,36 @@ def mdlp_bin_edges_oos_validated(
     _mdlp_recurse_oos_validated(
         x_train_sorted, y_train_sorted, np.asarray(x_holdout, dtype=np.float64), y_holdout,
         splits, 0, int(min_split_size), int(max_depth), float(oos_tolerance),
+        val_min_split_size=(None if val_min_split_size is None else int(val_min_split_size)),
     )
     splits.sort()
     edges = np.concatenate([[-np.inf], np.asarray(splits, dtype=np.float64), [np.inf]])
     return edges
+
+
+def edges_fayyad_irani_validated(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    val_frac: float = 0.3,
+    max_depth: int = 8,
+    min_split_size: int = 5,
+    val_min_split_size: int = 5,
+    random_state: "int | np.random.Generator | None" = None,
+) -> np.ndarray:
+    """``_adaptive_nbins.per_feature_edges``-compatible wrapper: returns INNER edges only.
+
+    Delegates to ``mdlp_bin_edges_oos_validated`` (the genuine held-out-fold-validated variant
+    above) -- see that function's own docstring for the full contract.
+    """
+    seed = 0 if random_state is None else (int(random_state) if isinstance(random_state, (int, np.integer)) else int(random_state.integers(0, 2**31 - 1)))
+    full_edges = mdlp_bin_edges_oos_validated(
+        np.asarray(x), np.asarray(y),
+        min_split_size=min_split_size, val_min_split_size=val_min_split_size, max_depth=max_depth,
+        holdout_frac=val_frac, seed=seed,
+    )
+    if full_edges.size <= 2:
+        return np.array([], dtype=np.float64)
+    inner = full_edges[1:-1]
+    inner = inner[np.isfinite(inner)]
+    return np.asarray(inner, dtype=np.float64)

@@ -287,6 +287,17 @@ def _conditional_perm_null(
             nulls[i] = float(marginal_mi_binned_fixed_y(x_perm, y_i_m, h_y_m, k_y_m))
         return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
 
+    # BUG FOUND AND FIXED (2026-07-20, wellbore-100k additive-fusion crash): when n_permutations<=1
+    # or _cmi_gpu_enabled(...) is False, the ``z_support_dev is not None and ... n_permutations>1``
+    # GPU-path block above (which is the only place that materializes ``z_support`` from a
+    # device-only ``z_support_dev``) is skipped entirely, and the marginal-null branch right above
+    # this line only fires when ``z_support_dev is None`` too -- so a caller passing
+    # ``z_support=None, z_support_dev=<resident array>`` with those conditions fell through to the
+    # unconditional ``ascontiguousarray(None, ...)`` below with a real TypeError, not a clean
+    # fallback. Materialize here as the final safety net, regardless of which branch above ran.
+    if z_support is None and z_support_dev is not None:
+        import cupy as _cp
+        z_support = np.ascontiguousarray(_cp.asnumpy(z_support_dev), dtype=np.int64).ravel()
     z = np.ascontiguousarray(z_support, dtype=np.int64).ravel()
     # Group row indices by support stratum once; permute the CANDIDATE column
     # within each stratum (preserves the ``cand | support`` distribution -- the

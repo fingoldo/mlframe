@@ -346,6 +346,19 @@ MRMR_BINNING_METHODS: "dict[str, dict]" = {
     "quantile5": {"nbins_strategy": None, "quantization_nbins": 10},
     "fast_mode": {"nbins_strategy": "mdlp", "nbins_strategy_kwargs": {"mdlp_fast_mode": True}},
     "validated": {"nbins_strategy": "mdlp", "nbins_strategy_kwargs": {"mdlp_fast_mode": False}},
+    "mdlp_oos_validated": {"nbins_strategy": "mdlp_validated"},
+    "uniform": {"nbins_strategy": "uniform"},
+    "sturges": {"nbins_strategy": "sturges"},
+    "freedman_diaconis": {"nbins_strategy": "freedman_diaconis"},
+    "qs": {"nbins_strategy": "qs"},
+    "optimal_joint": {"nbins_strategy": "optimal_joint"},
+    # Demoted (AccuracyWarning) strategies -- included as competing baselines specifically because
+    # the mega-bench v3 numbers cited in their AccuracyWarning were measured in isolation, not
+    # through this ground-truth MRMR-selection harness; kept in to verify (not assume) they stay
+    # weak once real redundancy screening / MI relevance gating is in the loop too.
+    "knuth": {"nbins_strategy": "knuth"},
+    "bayesian_blocks": {"nbins_strategy": "blocks"},
+    "mah": {"nbins_strategy": "mah"},
 }
 
 # Kept off/minimal so the harness measures the BINNING method's effect on selection, not FE/cluster-
@@ -418,6 +431,15 @@ def run_mrmr_gt_config(n: int, n_relevant: int, n_irrelevant: int, n_redundant: 
     return results
 
 
+# Representative subset for the fast (pytest-collected) sweep -- the 3 original methods plus
+# uniform (the other cheap non-adaptive baseline) and the OOS-validated variant (cheapest of the
+# "new since the original 3" additions to keep fast_subset's wall-time budget). The remaining
+# methods (sturges/freedman_diaconis/qs/optimal_joint/knuth/bayesian_blocks/mah) are exercised only
+# in run_mrmr_full_sweep -- running all 13 methods x 3 configs x 5 seeds here would blow well past
+# the "a few seconds" fast-subset budget (13x the current wall-time).
+_MRMR_FAST_SUBSET_METHODS = ("quantile5", "fast_mode", "validated", "uniform", "mdlp_oos_validated")
+
+
 def run_mrmr_fast_subset() -> list:
     """Small-n, few-seed MRMR ground-truth sweep -- a few seconds total. Used by the pytest fast
     test. Covers 2/4/8 relevant columns (16 is exercised only in ``run_mrmr_full_sweep``, it needs a
@@ -430,7 +452,7 @@ def run_mrmr_fast_subset() -> list:
                 n_relevant=n_relevant,
                 n_irrelevant=4,
                 n_redundant=n_relevant,
-                methods=("quantile5", "fast_mode", "validated"),
+                methods=_MRMR_FAST_SUBSET_METHODS,
                 seeds=range(5),
                 config_label=f"rel{n_relevant}",
             )
@@ -440,7 +462,7 @@ def run_mrmr_fast_subset() -> list:
 
 def run_mrmr_full_sweep() -> list:
     """Thorough MRMR ground-truth sweep: 2/4/8/16 relevant columns, larger n, 20 seeds/config,
-    all 3 binning methods -- several minutes, NOT run by pytest."""
+    ALL registered binning methods (``MRMR_BINNING_METHODS``) -- several minutes, NOT run by pytest."""
     results = []
     for n_relevant in (2, 4, 8, 16):
         n = 4000 if n_relevant <= 8 else 12000
@@ -450,7 +472,7 @@ def run_mrmr_full_sweep() -> list:
                 n_relevant=n_relevant,
                 n_irrelevant=max(8, n_relevant),
                 n_redundant=n_relevant,
-                methods=("quantile5", "fast_mode", "validated"),
+                methods=tuple(MRMR_BINNING_METHODS),
                 seeds=range(20),
                 config_label=f"rel{n_relevant}",
             )

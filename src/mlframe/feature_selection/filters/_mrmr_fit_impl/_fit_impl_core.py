@@ -5381,7 +5381,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # user pinned max_depth explicitly). This makes max_categorical_cardinality a single knob for a universally-narrow
     # codes matrix -- categorical tail folded AND numeric intervals bounded.
     _cap = getattr(self, "max_categorical_cardinality", None)
-    if _cap and str(_nbins_strategy).lower() in ("mdlp", "fayyad_irani"):
+    if _cap and str(_nbins_strategy).lower() in ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated"):
         _md = max(2, int(np.floor(np.log2(int(_cap)))))
         _nbins_strategy_kwargs = dict(_nbins_strategy_kwargs or {})
         _nbins_strategy_kwargs.setdefault("max_depth", _md)
@@ -5391,7 +5391,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # (target injection happens upstream in _mrmr_fit_impl).
     _y_for_strategy = None
     if _nbins_strategy is not None and str(_nbins_strategy).lower() in (
-        "mdlp", "fayyad_irani", "optimal_joint", "cv",
+        "mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated", "optimal_joint", "cv",
         "mah", "mah_sci", "sci", "marx",
     ):
         # Use the first target column as the supervised signal.
