@@ -47,9 +47,17 @@ _BF_ORDER = ("mul", "add", "sub", "div", "atan2", "logabs")
 
 
 def _basis_matrix_gpu(cp, x, degree: int, basis_id: int):
-    """(n, degree+1) device basis matrix via the exact numpy.polynomial recurrences."""
+    """(n, degree+1) device basis matrix via the exact numpy.polynomial recurrences.
+
+    float32 (2026-07-20, GPU-residency pass): built and consumed in float32, not float64 -- the
+    GEMM output feeds straight into rank-based equi-frequency binning (a small fixed bin count),
+    which absorbs float32-vs-float64 rounding noise long before it could move a bin assignment.
+    Verified (see ``_benchmarks/bench_cupy_polynom_f32_gemm.py``) bit-identical winning MI across
+    multiple seeds on the module's own cubic-inner regression scenario when BOTH this matrix and
+    the coefficient population upload are float32 -- cupy promotes float32 @ float64 back to
+    float64 silently, so half-measures (only one side float32) would give zero benefit."""
     n = x.shape[0]
-    B = cp.empty((n, degree + 1), dtype=cp.float64)
+    B = cp.empty((n, degree + 1), dtype=cp.float32)
     B[:, 0] = 1.0
     if degree >= 1:
         B[:, 1] = x
@@ -188,8 +196,11 @@ def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_t
     if eval_kwargs.get("mi_estimator", "plugin") != "plugin" or not bool(eval_kwargs["discrete_target"]):
         raise ValueError("cupy kernel supports plugin MI on a discrete target only")
 
-    z_a = np.ascontiguousarray(eval_kwargs["z_a"], dtype=np.float64)
-    z_b = np.ascontiguousarray(eval_kwargs["z_b"], dtype=np.float64)
+    # float32 (2026-07-20): see _basis_matrix_gpu's docstring -- both the operand upload and the
+    # basis matrix it feeds must be float32 together, or cupy silently promotes the GEMM back to
+    # float64 and this is a no-op.
+    z_a = np.ascontiguousarray(eval_kwargs["z_a"], dtype=np.float32)
+    z_b = np.ascontiguousarray(eval_kwargs["z_b"], dtype=np.float32)
     y = np.asarray(eval_kwargs["y_njit"]).astype(np.int64).ravel()
     y_min = int(y.min()) if y.size else 0
     y_codes = y - y_min  # dense 0-based labels for the fused-MI shared tile
@@ -221,8 +232,8 @@ def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_t
     sigma = perturb_sigma_frac * (hi - lo)
     n_gens = max(1, n_trials // batch_size)
     for _gen in range(n_gens):
-        Ca = cp.asarray(np.ascontiguousarray(pop[:, :ca_size]))
-        Cb = cp.asarray(np.ascontiguousarray(pop[:, ca_size:]))
+        Ca = cp.asarray(np.ascontiguousarray(pop[:, :ca_size], dtype=np.float32))
+        Cb = cp.asarray(np.ascontiguousarray(pop[:, ca_size:], dtype=np.float32))
         scores, raws, bfs = _score_generation_gpu(
             cp, Ba, Bb, Ca, Cb, y_d, ky, n_bins, l2_penalty, direction_only, bf_names,
         )
