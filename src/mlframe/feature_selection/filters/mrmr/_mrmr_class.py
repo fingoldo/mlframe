@@ -1965,9 +1965,15 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # engineered column's ``mrmr_gain`` is attributed to its recipe kind's family; a
         # ``credit="loo"`` (leave-one-family-out) upgrade is specced for future work when families'
         # outputs are strongly redundant (additive credit double-counts shared value; LOO would not).
-        # Default OFF (opt-in until benched across real datasets -- family usefulness is dataset-
-        # dependent by nature, see the plan's acceptance criteria).
-        fe_budget_learning: bool = False,
+        # Default "auto" (opt-in-once-then-remembered, not opt-in-every-call): "auto" probes the
+        # persisted-budget cache for THIS dataset's fingerprint before the fit and behaves exactly like
+        # ``False`` if nothing is cached there -- it can never silently start learning on a dataset that
+        # has never once been fit with ``fe_budget_learning=True`` explicitly, since that persisted cache
+        # entry is the only way the probe finds anything. Once a caller has opted in at least once for a
+        # given dataset, later "auto" fits on the SAME dataset (e.g. a daily retraining job re-running
+        # this exact MRMR config) resume learning without the caller re-passing ``True`` every call.
+        # Pass ``True``/``False`` explicitly to bypass the probe entirely (unconditionally on/off).
+        fe_budget_learning: bool | str = "auto",
         fe_budget_kwargs: Optional[dict] = None,
         # SEMI-SUPERVISED basis-preprocess fitting
         # (sibling module ``_semi_supervised_fe``). Independent opt-in (does
@@ -3235,13 +3241,32 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # ORIGINAL ctor values first (restored in the ``finally`` block below) so a crashing fit
         # never leaves the instance with a scaled-down quota baked in for a later ``get_params()``.
         _fe_budget_quota_snapshot: dict[str, int] = {}
-        if bool(getattr(self, "fe_budget_learning", False)):
+        _fe_budget_setting = getattr(self, "fe_budget_learning", False)
+        _fe_budget_learning_effective = bool(_fe_budget_setting)
+        _fe_loaded_budgets: Optional[dict[str, float]] = None
+        if isinstance(_fe_budget_setting, str):
+            if _fe_budget_setting != "auto":
+                raise ValueError(f"fe_budget_learning must be True, False, or 'auto'; got {_fe_budget_setting!r}")
             try:
                 from .._fe_family_budget import dataset_fingerprint as _fe_budget_fp, load_budgets as _fe_load_budgets
 
                 _fe_budget_cols = list(X.columns) if hasattr(X, "columns") else [str(i) for i in range(np.asarray(X).shape[1])]
                 self._fe_budget_fingerprint_ = _fe_budget_fp(len(_fe_budget_cols), _fe_budget_cols)
                 _fe_loaded_budgets = _fe_load_budgets(fingerprint=self._fe_budget_fingerprint_)
+                # "auto" fires ONLY when a previous explicit opt-in already persisted a budget for this
+                # exact dataset fingerprint -- otherwise it is a strict no-op, identical to False.
+                _fe_budget_learning_effective = _fe_loaded_budgets is not None
+            except Exception as _fe_budget_probe_exc:
+                logger.warning("[MRMR] fe_budget_learning='auto': cache probe failed (%s); treating as disabled this fit.", _fe_budget_probe_exc)
+                _fe_budget_learning_effective = False
+        if _fe_budget_learning_effective:
+            try:
+                from .._fe_family_budget import dataset_fingerprint as _fe_budget_fp, load_budgets as _fe_load_budgets
+
+                _fe_budget_cols = list(X.columns) if hasattr(X, "columns") else [str(i) for i in range(np.asarray(X).shape[1])]
+                self._fe_budget_fingerprint_ = _fe_budget_fp(len(_fe_budget_cols), _fe_budget_cols)
+                if _fe_loaded_budgets is None:
+                    _fe_loaded_budgets = _fe_load_budgets(fingerprint=self._fe_budget_fingerprint_)
                 # ``_FE_FAMILY_WALL`` (``_fe_family_timing.py``) is PROCESS-GLOBAL by design (nested
                 # fits / composite-discovery passes accumulate into it so a whole-run summary via
                 # ``log_fe_family_summary()`` reflects the whole suite) -- it is never reset here
@@ -3822,7 +3847,11 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             # whether the pre-fit quota scaling above succeeded (visibility is half the feature's
             # value even before enforcement, per the plan). Never allowed to affect the selection
             # result itself -- wrapped defensively, same posture as provenance population above.
-            if bool(getattr(self, "fe_budget_learning", False)):
+            # Reuses the SAME resolved flag the pre-fit block computed above ("auto" only persists /
+            # reallocates when it actually fired this fit -- a probe that found nothing cached must not
+            # start writing a NEW cache entry, or "auto" would silently flip itself on forever after one
+            # fit, defeating the whole "opt-in-once" contract).
+            if _fe_budget_learning_effective:
                 try:
                     from .._fe_family_budget import (
                         family_credit as _fe_family_credit,
