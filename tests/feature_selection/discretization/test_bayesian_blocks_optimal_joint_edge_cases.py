@@ -72,6 +72,23 @@ def test_bayesian_blocks_large_n_completes_and_is_finite():
     assert np.all(np.diff(edges) > 0), "edges must be strictly increasing"
 
 
+def test_bayesian_blocks_m_max_cap_bounds_bin_count():
+    """Real wellbore log columns (near-continuous, 50k rows) let the uncapped DP detect thousands
+    of change points -- observed joint cardinality vs another adaptively-binned column reaching
+    6.1M, which both CUDA (MAX_JOINT_BINS_CUDA=256) and the row-chunked global-memory fallback
+    reject, forcing a multi-thousand-second CPU njit fallback per column pair (found live during
+    a 50k-row wellbore ground-truth sweep, config wellbore50k step 11/45). m_max_cap must actually
+    bound the returned block count on data with genuine many-cluster structure."""
+    rng = np.random.default_rng(0)
+    x = np.concatenate([rng.normal(loc=i * 10, scale=0.05, size=200) for i in range(50)])
+    edges_uncapped = edges_bayesian_blocks(x, m_max_cap=0)
+    edges_capped = edges_bayesian_blocks(x, m_max_cap=10)
+    assert len(edges_uncapped) > 10, "test fixture must produce >10 bins uncapped to exercise the cap"
+    assert len(edges_capped) - 1 <= 10
+    assert np.all(np.isfinite(edges_capped))
+    assert np.all(np.diff(edges_capped) > 0)
+
+
 def test_bayesian_blocks_biz_val_detects_known_step_structure():
     """Biz-val: a clean 3-block piecewise-constant signal (with light noise) has TWO true
     change-points at x=10 and x=20. Bayesian Blocks should place at least 2 inner edges and they

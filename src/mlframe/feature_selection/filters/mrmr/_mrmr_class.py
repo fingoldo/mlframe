@@ -315,6 +315,14 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # exploratory fit); other recognised keys: ``mdlp_alpha``, ``mdlp_n_permutations``,
         # ``mdlp_bonferroni``, ``mdlp_max_y_classes``, ``mdlp_backend``, ``mdlp_scaled_min_split``.
         nbins_strategy_kwargs: dict | None = None,
+        # Shared per-column bin-count ceiling applied to every adaptive strategy whose own formula
+        # has no natural upper bound (knuth, bayesian_blocks, freedman_diaconis) -- see
+        # ``_adaptive_nbins.MAX_ADAPTIVE_NBINS``. 256 matches MDLP's own implicit ceiling
+        # (max_depth=8 -> 2**8 leaves), so every strategy answers "how many bins can one column
+        # produce" the same way by default. Lower it (e.g. 64) to bound downstream pairwise-MI cost
+        # further on very wide / high-row-count real data; per-method overrides
+        # (``nbins_strategy_kwargs={"knuth_m_max_cap": ..., "bb_m_max_cap": ...}``) still win when set.
+        max_adaptive_nbins: int = 256,
         # Large-n REGRESSION adaptive quantization gate. On a large-n regression target the supervised MDLP per-feature binning
         # under-resolves a heavy-tailed continuous y: the 180-cell large-n MRMR campaign (reg n=100k, 15 seeds) measured a 15/15
         # paired win for fixed 20-bin quantile over MDLP -- holdout R2 0.597 vs 0.481 (+0.116, std 0.0025) and F1 0.909 vs 0.667
