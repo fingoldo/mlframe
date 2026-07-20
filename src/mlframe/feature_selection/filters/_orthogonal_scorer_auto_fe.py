@@ -223,7 +223,11 @@ def _compute_per_scorer_rank_table(
                 if not np.issubdtype(y_mi.dtype, np.integer):
                     uniq = np.unique(y_mi[np.isfinite(y_mi)] if y_mi.dtype.kind in "fc" else y_mi)
                     if uniq.size <= 32:
-                        y_mi = y_mi.astype(np.int64)
+                        # mrmr_audit_2026-07-20 B-18: densify via np.unique(return_inverse=...) rather
+                        # than truncating .astype(int64) -- non-integer labels (e.g. 0.1/0.2/...) would
+                        # otherwise all collapse to class 0.
+                        _, y_mi = np.unique(y_mi, return_inverse=True)
+                        y_mi = y_mi.astype(np.int64, copy=False)
                 res[s] = np.asarray(_mi_classif_batch(Xmat, y_mi, nbins=int(nbins)), dtype=np.float64)
             elif s == "copula":
                 from ._orthogonal_copula_mi_fe import _copula_mi_batch

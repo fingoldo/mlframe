@@ -113,7 +113,11 @@ def _ksg_mi_batch(
     y_arr = np.asarray(y).ravel()
     if _is_discrete_target(y_arr):
         if not np.issubdtype(y_arr.dtype, np.integer):
-            y_arr = y_arr.astype(np.int64)
+            # mrmr_audit_2026-07-20 B-18: densify via np.unique(return_inverse=...) rather than
+            # truncating .astype(int64) -- non-integer labels (e.g. 0.1/0.2/...) would otherwise
+            # all collapse to class 0.
+            _, y_arr = np.unique(y_arr, return_inverse=True)
+            y_arr = y_arr.astype(np.int64, copy=False)
         mi = mutual_info_classif(
             X, y_arr,
             discrete_features=False,

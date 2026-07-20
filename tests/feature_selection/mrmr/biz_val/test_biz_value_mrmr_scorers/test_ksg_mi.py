@@ -523,3 +523,34 @@ class TestRecipeReplay:
                 f"(max abs diff={float(np.max(np.abs(replayed_vals - fit_time_vals)))}) -- "
                 f"the frozen preprocess_params are not being honoured at replay time."
             )
+
+
+# ---------------------------------------------------------------------------
+# Contract 8: fractional-label discrete y is densified, not truncated (B-18)
+# ---------------------------------------------------------------------------
+
+
+class TestFractionalDiscreteLabelDensified:
+    """mrmr_audit_2026-07-20 B-18: a low-cardinality FLOAT target (e.g. class labels
+    encoded as 0.1/0.2/0.3) must be densified via ``np.unique(return_inverse=...)``
+    before being routed to ``mutual_info_classif``. Pre-fix, ``.astype(int64)``
+    truncated every fractional label to 0, collapsing 3 real classes into 1 and
+    destroying essentially all the MI signal."""
+
+    def test_fractional_labels_preserve_mi_signal(self):
+        """3 well-separated classes encoded as fractional labels must retain KSG MI signal."""
+        from mlframe.feature_selection.filters._orthogonal_ksg_mi_fe import _ksg_mi_batch
+
+        rng = np.random.default_rng(0)
+        n = 900
+        # 3 balanced classes with well-separated per-class means -- strong signal.
+        labels_int = rng.integers(0, 3, size=n)
+        x = labels_int.astype(np.float64) * 5.0 + rng.standard_normal(n) * 0.3
+        # Fractional class encoding: 0.1 / 0.2 / 0.3 -- pre-fix all truncate to class 0.
+        y_frac = (labels_int.astype(np.float64) + 1.0) / 10.0
+
+        mi = _ksg_mi_batch(x.reshape(-1, 1), y_frac, n_neighbors=3, random_state=0)
+        assert mi[0] > 0.5, (
+            f"KSG MI on well-separated 3-class fractional-label signal collapsed to "
+            f"{mi[0]:.4f}; B-18 regression (label truncation merged all classes into 0)."
+        )
