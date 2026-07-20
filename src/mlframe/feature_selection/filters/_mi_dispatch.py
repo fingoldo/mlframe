@@ -144,7 +144,7 @@ def _score_plug_in(x: np.ndarray, y_arr: np.ndarray, *, nbins_strategy: Optional
     strategy_kwargs = dict(nbins_strategy_kwargs or {})
     if nbins_strategy is None:
         nbins_strategy = "freedman_diaconis"
-    needs_y = nbins_strategy.lower() in ("mdlp", "fayyad_irani", "optimal_joint", "cv")
+    needs_y = nbins_strategy.lower() in ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated", "optimal_joint", "cv")
     y_for_strategy = y_arr if needs_y else None
     edges_list = per_feature_edges(
         x.reshape(-1, 1), y=y_for_strategy,

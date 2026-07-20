@@ -24,7 +24,7 @@ _VALID_MRMR_REDUNDANCY_ALGOS = ("fleuret", "pld_max", "pld_mean")
 # intentionally NOT routed into the MRMR hot loop.
 _VALID_NBINS_STRATEGIES = (
     None,
-    "auto", "sturges", "freedman_diaconis", "fd", "qs", "quantile",
+    "auto", "sturges", "freedman_diaconis", "fd", "qs", "quantile", "uniform",
     "knuth", "blocks",  # demoted to research-only with AccuracyWarning
     "mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated", "optimal_joint", "cv",
     "mah", "mah_sci", "sci", "marx",  # Marx 2021 SCI-guided adaptive

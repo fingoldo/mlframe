@@ -533,6 +533,7 @@ _METHOD_ALIASES = {
     "quantile": "qs",
     "quantile_spacing": "qs",
     "gupta": "qs",
+    "uniform": "uniform",
     "mah": "mah",
     "mah_sci": "mah",
     "sci": "mah",
@@ -697,6 +698,8 @@ def per_feature_edges(
                 val_min_split_size=kwargs.get("mdlp_val_min_split_size", 5),
                 random_state=kwargs.get("random_state", 0),
             )
+        elif method_resolved == "uniform":
+            edges = edges_uniform(col, n_bins=freedman_diaconis_nbins(col))
         elif method_resolved == "mah":
             assert y is not None  # needs_y guard above raises for this method when y is None
             edges = edges_mah(

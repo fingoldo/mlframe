@@ -205,7 +205,10 @@ def plugin_mi_classif_batch_rank_cuda_resident(
         from ._fe_batched_mi import binned_mi_from_codes_gpu
         # codes_trusted: rank_bin_codes_batch_gpu_resident emits dense 0..n_bins-1 codes and yg was shifted to
         # dense 0-based above, so the in-range guard cannot fire -- skip its blocking min/max sync (FIX1).
-        return binned_mi_from_codes_gpu(codes, yg, kx_per_col=[int(n_bins)] * k, ky=int(n_classes), codes_trusted=True)
+        # binned_mi_from_codes_gpu's return type widened to Any when it grew an as_device toggle (2026-07-20);
+        # this caller always uses the default (host-array) path, so narrow the type back explicitly here.
+        mi = binned_mi_from_codes_gpu(codes, yg, kx_per_col=[int(n_bins)] * k, ky=int(n_classes), codes_trusted=True)
+        return np.asarray(mi)
     except Exception as _exc:
         logger.debug("plugin_mi_classif_batch_rank_cuda_resident: GPU path failed (%s); host fallback", _exc)
         return None

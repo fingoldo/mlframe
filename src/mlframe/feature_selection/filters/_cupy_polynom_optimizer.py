@@ -47,9 +47,17 @@ _BF_ORDER = ("mul", "add", "sub", "div", "atan2", "logabs")
 
 
 def _basis_matrix_gpu(cp, x, degree: int, basis_id: int):
-    """(n, degree+1) device basis matrix via the exact numpy.polynomial recurrences."""
+    """(n, degree+1) device basis matrix via the exact numpy.polynomial recurrences.
+
+    float32 (2026-07-20, GPU-residency pass): built and consumed in float32, not float64 -- the
+    GEMM output feeds straight into rank-based equi-frequency binning (a small fixed bin count),
+    which absorbs float32-vs-float64 rounding noise long before it could move a bin assignment.
+    Verified (see ``_benchmarks/bench_cupy_polynom_f32_gemm.py``) bit-identical winning MI across
+    multiple seeds on the module's own cubic-inner regression scenario when BOTH this matrix and
+    the coefficient population upload are float32 -- cupy promotes float32 @ float64 back to
+    float64 silently, so half-measures (only one side float32) would give zero benefit."""
     n = x.shape[0]
-    B = cp.empty((n, degree + 1), dtype=cp.float64)
+    B = cp.empty((n, degree + 1), dtype=cp.float32)
     B[:, 0] = 1.0
     if degree >= 1:
         B[:, 1] = x
@@ -116,7 +124,15 @@ def _get_all_finite_axis0_kernel(cp):
 
 
 def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int, l2_penalty: float, direction_only: bool, bf_names: Sequence[str]):
-    """Score P candidates across all binary funcs; returns host (score, raw_mi, bf_idx) arrays of len P."""
+    """Score P candidates across all binary funcs; returns host (score, raw_mi, bf_idx) arrays of len P.
+
+    GPU-RESIDENCY NOTE (2026-07-20): everything inside this function -- the finite masks, the per-bf MI,
+    the running best-score/raw/bf accumulators -- stays a cupy device array through the WHOLE bf_names
+    loop; the single ``cp.asnumpy`` call at the very end is the ONLY device->host sync per generation.
+    Pre-fix this was up to ``2 + 2*len(bf_names)`` separate syncs (one per finite-mask check and one per
+    ``binned_mi_from_codes_gpu`` call, which itself unconditionally synced) -- nsys on the wellbore
+    100k GPU-strict trace showed cudaStreamSynchronize/cudaMemcpyAsync call counts consistent with this
+    exact multiplicity. Selection logic (upd/where) is bit-identical, just evaluated on-device."""
     from ._fe_batched_mi import binned_mi_from_codes_gpu
 
     all_finite0 = _get_all_finite_axis0_kernel(cp)
@@ -127,36 +143,34 @@ def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int,
         norm = cp.where(norm > 1e-12, norm, 1.0)
         Ca = Ca / norm[:, None]
         Cb = Cb / norm[:, None]
-        penalty = np.zeros(P, dtype=np.float64)
+        penalty = cp.zeros(P, dtype=cp.float64)
     elif l2_penalty > 0.0:
-        s_norm = cp.asnumpy((Ca * Ca).sum(axis=1) + (Cb * Cb).sum(axis=1))
+        s_norm = (Ca * Ca).sum(axis=1) + (Cb * Cb).sum(axis=1)
         penalty = l2_penalty * s_norm / (s_norm + 1.0)  # saturating parity with _l2_penalty_value
     else:
-        penalty = np.zeros(P, dtype=np.float64)
+        penalty = cp.zeros(P, dtype=cp.float64)
 
     HA = Ba @ Ca.T  # (n, P)
     HB = Bb @ Cb.T
-    col_finite = cp.asnumpy(all_finite0(HA, axis=0) & all_finite0(HB, axis=0))
+    col_finite = all_finite0(HA, axis=0) & all_finite0(HB, axis=0)
 
-    best_score = np.full(P, -np.inf)
-    best_raw = np.zeros(P)
-    best_bf = np.full(P, -1, dtype=np.int64)
+    best_score = cp.full(P, -cp.inf)
+    best_raw = cp.zeros(P)
+    best_bf = cp.full(P, -1, dtype=cp.int64)
     for k, bf in enumerate(bf_names):
         C = _bf_apply_gpu(cp, bf, HA, HB)
-        finite = col_finite & cp.asnumpy(all_finite0(C, axis=0))
-        if not finite.any():
-            continue
+        finite = col_finite & all_finite0(C, axis=0)
         codes = _rank_bin_batched_gpu(cp, C, n_bins)
         # kx_per_col=n_bins (codes are always in [0, n_bins) by construction of the quantile binner) skips
         # binned_mi_from_codes_gpu's int(C.max())+1 fallback -- a BLOCKING device sync that nsys showed
         # costing more than the MI kernel itself (cupy_max ~9.1% of GPU time, one sync every generation).
-        mi = binned_mi_from_codes_gpu(codes, y_codes_dev, kx_per_col=n_bins, ky=ky, codes_trusted=True)  # host (P,)
+        mi = binned_mi_from_codes_gpu(codes, y_codes_dev, kx_per_col=n_bins, ky=ky, codes_trusted=True, as_device=True)
         score = mi - penalty
         upd = finite & (score > best_score)
-        best_score[upd] = score[upd]
-        best_raw[upd] = mi[upd]
-        best_bf[upd] = k
-    return best_score, best_raw, best_bf
+        best_score = cp.where(upd, score, best_score)
+        best_raw = cp.where(upd, mi, best_raw)
+        best_bf = cp.where(upd, k, best_bf)
+    return cp.asnumpy(best_score), cp.asnumpy(best_raw), cp.asnumpy(best_bf)
 
 
 def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_trials: int, seed: int,
@@ -182,8 +196,11 @@ def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_t
     if eval_kwargs.get("mi_estimator", "plugin") != "plugin" or not bool(eval_kwargs["discrete_target"]):
         raise ValueError("cupy kernel supports plugin MI on a discrete target only")
 
-    z_a = np.ascontiguousarray(eval_kwargs["z_a"], dtype=np.float64)
-    z_b = np.ascontiguousarray(eval_kwargs["z_b"], dtype=np.float64)
+    # float32 (2026-07-20): see _basis_matrix_gpu's docstring -- both the operand upload and the
+    # basis matrix it feeds must be float32 together, or cupy silently promotes the GEMM back to
+    # float64 and this is a no-op.
+    z_a = np.ascontiguousarray(eval_kwargs["z_a"], dtype=np.float32)
+    z_b = np.ascontiguousarray(eval_kwargs["z_b"], dtype=np.float32)
     y = np.asarray(eval_kwargs["y_njit"]).astype(np.int64).ravel()
     y_min = int(y.min()) if y.size else 0
     y_codes = y - y_min  # dense 0-based labels for the fused-MI shared tile
@@ -215,8 +232,8 @@ def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_t
     sigma = perturb_sigma_frac * (hi - lo)
     n_gens = max(1, n_trials // batch_size)
     for _gen in range(n_gens):
-        Ca = cp.asarray(np.ascontiguousarray(pop[:, :ca_size]))
-        Cb = cp.asarray(np.ascontiguousarray(pop[:, ca_size:]))
+        Ca = cp.asarray(np.ascontiguousarray(pop[:, :ca_size], dtype=np.float32))
+        Cb = cp.asarray(np.ascontiguousarray(pop[:, ca_size:], dtype=np.float32))
         scores, raws, bfs = _score_generation_gpu(
             cp, Ba, Bb, Ca, Cb, y_d, ky, n_bins, l2_penalty, direction_only, bf_names,
         )
