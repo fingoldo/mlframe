@@ -222,8 +222,8 @@ class _PredictMixin:
             self._last_predict_accelerator = trainer_params.get(
                 "accelerator", "auto",
             )
-        except Exception:  # nosec B110 - best-effort path
-            pass
+        except Exception as _e_cache_acc:  # nosec B110 - best-effort path
+            logger.debug("Could not cache _last_predict_accelerator (%s); next predict falls through to accelerator='auto'", _e_cache_acc)
 
         # Unconditional eval() switch - cheap idempotent op, removes the spurious
         # "Model was in training mode during prediction" warning that fired on

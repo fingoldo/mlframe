@@ -152,7 +152,8 @@ def _gram_matrix(M: np.ndarray) -> np.ndarray:
 
         if not fe_gpu_strict_enabled(n=n_rows, p=p):
             return np.asarray(M @ M.T)
-    except Exception:  # nosec B110 -- strict-gate probe failure must never break the diagnostic scan
+    except Exception as e:  # nosec B110 -- strict-gate probe failure must never break the diagnostic scan
+        logger.debug("fe_gpu_strict_enabled probe failed (%s: %s) -- falling back to CPU GEMM for the diagnostic scan", type(e).__name__, e)
         return np.asarray(M @ M.T)
     try:
         import cupy as cp

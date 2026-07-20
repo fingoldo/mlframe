@@ -41,7 +41,7 @@ matplotlib.use("Agg", force=False)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tests.training._fuzz_combo import (  # noqa: E402
-    FuzzCombo, build_frame_for_combo, enumerate_combos,
+    FuzzCombo, build_frame_for_combo, enumerate_combos, enumerate_combos_3way,
 )
 from mlframe.training.core import train_mlframe_models_suite  # noqa: E402
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor  # noqa: E402
@@ -116,6 +116,12 @@ def main():
     p.add_argument("--seed", type=int, default=42, help="RNG seed for which combos are picked from the enumerated combo space.")
     p.add_argument("--master-seed", type=int, default=20260422, help="Seed for enumerate_combos itself.")
     p.add_argument("--combo-pool", type=int, default=150, help="Size of the combo space to enumerate + sample from.")
+    p.add_argument(
+        "--mode", choices=("pairwise", "3way"), default="pairwise",
+        help="pairwise: enumerate_combos (covers all axis-value PAIRS). "
+        "3way: enumerate_combos_3way (covers all axis-value TRIPLES over the curated "
+        "_3WAY_AXES load-bearing subset) -- targets 3-way interaction bugs pairwise can't reach.",
+    )
     p.add_argument("--prefer-models", type=str, default="lgb,xgb,cb", help="Comma-separated whitelist of models.")
     p.add_argument("--no-charts", action="store_true", help="Disable diagnostic-chart rendering (save_charts=False).")
     args = p.parse_args()
@@ -128,7 +134,8 @@ def main():
         pass
     print("done.\n")
 
-    combos = enumerate_combos(target=args.combo_pool, master_seed=args.master_seed)
+    enumerator = enumerate_combos_3way if args.mode == "3way" else enumerate_combos
+    combos = enumerator(target=args.combo_pool, master_seed=args.master_seed)
     rng = random.Random(args.seed)
     if args.prefer_models:
         prefer = set(m.strip() for m in args.prefer_models.split(",") if m.strip())
@@ -136,7 +143,7 @@ def main():
     rng.shuffle(combos)
     sample = combos[: args.combos]
 
-    print(f"Bug-hunting {len(sample)} combos (rows-target={args.rows_target:,}, no cProfile)...")
+    print(f"Bug-hunting {len(sample)} combos (mode={args.mode}, rows-target={args.rows_target:,}, no cProfile)...")
     n_ok = 0
     n_fail = 0
     for combo in sample:

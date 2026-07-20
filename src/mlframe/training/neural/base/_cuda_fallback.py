@@ -53,8 +53,8 @@ def _disable_cuda_globally() -> None:
     try:
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
         torch.cuda.is_available = lambda: False
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as _e_disable:  # nosec B110 - best-effort path
+        logger.debug("Failed to hard-disable CUDA globally: %s", _e_disable)
 
 
 def _best_effort_move_to_cpu(model: Any) -> None:
@@ -75,20 +75,21 @@ def _best_effort_reset_cuda_state() -> None:
     try:
         if not torch.cuda.is_available():
             return
-    except Exception:  # nosec B110 - best-effort path
+    except Exception as _e_avail:  # nosec B110 - best-effort path
+        logger.debug("torch.cuda.is_available() itself failed during CUDA-state reset: %s", _e_avail)
         return
     try:
         torch.cuda.synchronize()
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as _e_sync:  # nosec B110 - best-effort path
+        logger.debug("torch.cuda.synchronize() failed during CUDA-state reset: %s", _e_sync)
     try:
         torch.cuda.empty_cache()
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as _e_empty:  # nosec B110 - best-effort path
+        logger.debug("torch.cuda.empty_cache() failed during CUDA-state reset: %s", _e_empty)
     try:
         torch.cuda.ipc_collect()
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as _e_ipc:  # nosec B110 - best-effort path
+        logger.debug("torch.cuda.ipc_collect() failed during CUDA-state reset: %s", _e_ipc)
 
 
 def run_with_cuda_cpu_fallback(

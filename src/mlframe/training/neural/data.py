@@ -642,7 +642,8 @@ class TorchDataModule(LightningDataModule):
                 return len(np.unique(labels))
             elif torch.is_tensor(labels):
                 return len(torch.unique(labels))
-        except Exception:
+        except Exception as e:
+            logger.debug("num_classes probe failed on labels of type %s (%s: %s)", type(labels).__name__, type(e).__name__, e)
             return None
 
         return None

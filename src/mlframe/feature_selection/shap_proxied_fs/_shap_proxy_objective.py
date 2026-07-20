@@ -18,10 +18,13 @@ not inside the numba hot loop -- documented in ``METRIC_CODES``.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, cast
 
 import numpy as np
 from numba import njit, prange
+
+logger = logging.getLogger(__name__)
 
 # Integer codes for the numba hot loop. AUC is intentionally absent (needs sort; use the Python path).
 METRIC_CODES = {"mae": 0, "rmse": 1, "mse": 1, "brier": 2, "logloss": 3}
@@ -200,8 +203,8 @@ def _score_margin_parallel_min_rows() -> int:
             entry = cast(Any, ktc).lookup("shap_proxy_score_margin")
             if isinstance(entry, dict) and entry.get("parallel_min_rows"):
                 val = int(entry["parallel_min_rows"])
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("kernel_tuning_cache lookup for shap_proxy_score_margin failed (%s: %s) -- using default crossover", type(e).__name__, e)
     _score_margin_parallel_min_rows_cache = val
     return val
 
