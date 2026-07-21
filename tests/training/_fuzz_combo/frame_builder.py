@@ -103,6 +103,15 @@ def build_frame_for_combo(combo: FuzzCombo):
             is_point_mass = rng.random(n) < 0.30
             target = np.where(is_point_mass, 0.0, target).astype("float32")
         target_col = "target_reg"
+    elif combo.target_type == "quantile_regression":
+        # Quantile regression (TargetTypes.QUANTILE_REGRESSION) rides the SAME 1-D continuous-target
+        # shape as plain regression -- only suite-side dispatch differs (fits K quantiles instead of
+        # the conditional mean). Reuses the regression target generator verbatim.
+        target = 2.0 * num_cols["num_0"] - 1.5 * num_cols["num_1"] + rng.standard_normal(n) * 0.3
+        if combo._canonical_inject_point_mass():
+            is_point_mass = rng.random(n) < 0.30
+            target = np.where(is_point_mass, 0.0, target).astype("float32")
+        target_col = "target_reg"
     elif combo.target_type == "multi_target_regression":
         # F-24 audit-pass-9 #8: K=2 independent continuous targets derived
         # from disjoint informative features. Shape (N, K=2) float32 so the

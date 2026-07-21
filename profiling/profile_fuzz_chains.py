@@ -150,6 +150,7 @@ def _build_fte_from_combo(
         "multilabel_classification": TargetTypes.MULTILABEL_CLASSIFICATION,
         "learning_to_rank": TargetTypes.LEARNING_TO_RANK,
         "multi_target_regression": TargetTypes.MULTI_TARGET_REGRESSION,
+        "quantile_regression": TargetTypes.QUANTILE_REGRESSION,
     }
     tt = target_type_map[_effective_target_type]
     return SimpleFeaturesAndTargetsExtractor(
