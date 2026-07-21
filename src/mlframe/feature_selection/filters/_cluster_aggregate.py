@@ -188,7 +188,8 @@ def _svd_flip_pc1(Z: np.ndarray, svd_cache: dict | None = None) -> np.ndarray:
     sklearn ``svd_flip`` convention (largest-abs loading positive) for cross-BLAS determinism."""
     _Zc, vt = _svd_compute(Z, svd_cache)
     v = vt[0]
-    v = v * np.sign(v[np.argmax(np.abs(v))] or 1.0)
+    _lead = v[np.argmax(np.abs(v))]
+    v = v * np.sign(_lead if _lead != 0.0 else 1.0)
     return np.asarray(v)
 
 
@@ -205,7 +206,8 @@ def _svd_flip_pcN(Z: np.ndarray, idx: int, svd_cache: dict | None = None) -> np.
     if idx >= vt.shape[0]:
         idx = 0
     v = vt[idx]
-    v = v * np.sign(v[np.argmax(np.abs(v))] or 1.0)
+    _lead = v[np.argmax(np.abs(v))]
+    v = v * np.sign(_lead if _lead != 0.0 else 1.0)
     return np.asarray(v)
 
 
@@ -228,7 +230,8 @@ def _pc1_communalities(Z: np.ndarray, svd_cache: dict | None = None) -> np.ndarr
     if svd_cache is not None and "comm" in svd_cache:
         return np.asarray(svd_cache["comm"])
     v = vt[0]
-    v = v * np.sign(v[np.argmax(np.abs(v))] or 1.0)
+    _lead = v[np.argmax(np.abs(v))]
+    v = v * np.sign(_lead if _lead != 0.0 else 1.0)
     score = Zc @ v
     score_c = score - score.mean()
     score_norm_sq = float(score_c @ score_c)

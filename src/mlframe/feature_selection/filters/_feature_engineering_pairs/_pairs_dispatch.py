@@ -24,8 +24,9 @@ def resolve_fe_dispatch_env_gate() -> _FeDispatchEnvGate:
     GPU-resident-gate (``MLFRAME_FE_GPU_RESIDENT_GATE``) env vars once. Callers without a pre-resolved
     gate (e.g. a direct unit-test call) get the identical values by leaving ``env_gate=None``, which
     falls back to calling this function inline -- so this hoist changes call FREQUENCY, never behavior."""
-    _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
-    _gpu_opted_out = (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1"
+    from .._gpu_policy import gpu_globally_disabled
+
+    _gpu_opted_out = gpu_globally_disabled()
     _resident_gate_on = os.environ.get("MLFRAME_FE_GPU_RESIDENT_GATE", "1").strip().lower() not in ("0", "false", "no", "off")
     return _FeDispatchEnvGate(gpu_opted_out=_gpu_opted_out, resident_gate_on=_resident_gate_on)
 

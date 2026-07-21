@@ -6,13 +6,10 @@ consistency and reproducibility, but NOT the BaseEstimator contract itself --
 behaviour, ``fit`` returning ``self``, and the fitted-attribute conventions
 (``feature_names_in_`` / ``n_features_in_``).
 
-KNOWN GAP (pending fix, do NOT assert the correct contract yet): MRMR.__init__
-resolves ``n_jobs == -1`` to ``psutil.cpu_count`` and materialises a ``None``
-``parallel_kwargs`` into a dict BEFORE ``store_params_in_object``. This violates the
-sklearn rule that ``__init__`` stores ctor args unmodified, so ``get_params`` echoes
-the resolved value for those two params. The lazy-resolve fix lives at the fit site in
-an in-flux module, so the two tests below pin the CURRENT (resolved-in-init) behaviour
-rather than failing; flip them to assert pass-through once the fit-site lazy resolve lands.
+``n_jobs == -1`` and a ``None`` ``parallel_kwargs`` are stored UNMODIFIED by ``__init__``
+(sklearn contract: ctor args must round-trip through ``get_params`` verbatim) and resolved
+lazily at fit time via ``_effective_n_jobs()`` / ``_effective_parallel_kwargs()``
+(``_mrmr_class_config.py``, 08_sklearn_joblib_compat.md finding #1).
 """
 
 from __future__ import annotations
@@ -70,23 +67,21 @@ def test_set_params_mutates_in_place_and_returns_self():
 
 
 @pytest.mark.fast
-def test_n_jobs_minus_one_is_resolved_in_init_current_behaviour():
-    """PENDING FIX: n_jobs=-1 is resolved to a concrete core count inside __init__
-    (sklearn-contract violation: __init__ should store ctor args unmodified).
-    The lazy-resolve fix lives at the fit site in an in-flux module, so this pins the
-    CURRENT behaviour. Flip to ``== -1`` once the fit-site lazy resolve lands."""
+def test_n_jobs_minus_one_passes_through_ctor_unresolved():
+    """n_jobs=-1 survives __init__ unmodified (sklearn contract); resolution to a concrete
+    core count happens lazily at fit time via ``_effective_n_jobs()``."""
     m = MRMR(n_jobs=-1)
-    resolved = m.get_params()["n_jobs"]
-    assert isinstance(resolved, int) and resolved >= 1 and resolved != -1
+    assert m.get_params()["n_jobs"] == -1
+    assert m._effective_n_jobs() >= 1
 
 
 @pytest.mark.fast
-def test_parallel_kwargs_none_is_materialised_in_init_current_behaviour():
-    """PENDING FIX (same in-flux fit-site lazy-resolve as n_jobs): a None parallel_kwargs
-    is turned into a concrete dict inside __init__. Pins current behaviour; flip to
-    ``is None`` once lazily resolved."""
+def test_parallel_kwargs_none_passes_through_ctor_unresolved():
+    """parallel_kwargs=None survives __init__ unmodified; resolution to the threading-backend
+    default dict happens lazily at fit time via ``_effective_parallel_kwargs()``."""
     m = MRMR(parallel_kwargs=None)
-    pk = m.get_params()["parallel_kwargs"]
+    assert m.get_params()["parallel_kwargs"] is None
+    pk = m._effective_parallel_kwargs()
     assert isinstance(pk, dict) and pk.get("backend") == "threading"
 
 

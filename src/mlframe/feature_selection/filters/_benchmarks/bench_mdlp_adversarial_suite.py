@@ -157,7 +157,7 @@ def run_mrmr_confounder_redundancy_stress(n_seeds: int = 40, n: int = 3000) -> "
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     kwargs: "dict[str, Any]" = dict(_MRMR_HARNESS_FIXED_KWARGS)
-    kwargs.update(MRMR_BINNING_METHODS["validated"])
+    kwargs.update(MRMR_BINNING_METHODS["fayyad_irani_oos_validated"])
     results = []
     for seed in range(n_seeds):
         X, y = scen_pure_confounder(n, seed=seed)

@@ -18,6 +18,10 @@ dispatch stays on the exact CPU loop -- byte-for-byte the legacy no-GPU behavior
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import numpy as np
 
 # Production (n, p) grid the cmi gate must rank. n spans the MRMR fit sizes; p (candidate count per greedy
@@ -50,14 +54,15 @@ def cmi_use_cuda(n: int, p: int) -> bool | None:
         # unconditionally, since this was the only other place in the fallback chain that also checks STRICT.
         if fe_gpu_strict_enabled(n=n, p=p):
             return True
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as _strict_exc:  # nosec B110 - optional dependency import guard
+        logger.debug("_cmi_fallback_choice: fe_gpu_strict_enabled probe failed (%s); falling through to the KTC lookup.", _strict_exc)
     if _CMI_SPEC is None:
         return None
     p_bucket = min(_CMI_SWEEP_P, key=lambda b: abs(b - int(p)))
     try:
         choice = _CMI_SPEC.choose(n_samples=int(n), p=int(p_bucket))
-    except Exception:
+    except Exception as _choose_exc:
+        logger.debug("_cmi_fallback_choice: KTC .choose(n_samples=%d, p=%d) failed (%s); no crossover verdict this call.", int(n), int(p_bucket), _choose_exc)
         return None
     if choice == "cuda":
         return True
@@ -133,5 +138,6 @@ try:
         salt=_CMI_SALT,
         cli_label="cmi_batched_cpu_cuda_crossover",
     )
-except Exception:
+except Exception as _spec_exc:
+    logger.debug("info_theory._cmi_cuda_ktc: kernel_tuner spec construction failed (%s); CMI CPU/CUDA crossover stays on the hardcoded bootstrap fallback.", _spec_exc)
     _CMI_SPEC = None

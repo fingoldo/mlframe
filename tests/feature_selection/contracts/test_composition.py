@@ -373,3 +373,46 @@ def test_biz_xor_pair_uplifts_over_parents():
     )
     uplift = out["oos_mean"] / best_parent
     assert uplift >= 2.0, f"XOR pair uplift {uplift:.2f}x over best parent (mi_a={mi_a:.4f}, mi_b={mi_b:.4f}, oos_mean={out['oos_mean']:.4f}) - expected >= 2.0"
+
+
+# ---------------------------------------------------------------------------
+# mrmr_audit_2026-07-20 B-23: a per-fold exception in optimise_hermite_pair
+# must be LOGGED (not silently converted to res=None with zero trace).
+# ---------------------------------------------------------------------------
+
+
+def test_validate_pair_fe_cv_logs_per_fold_exception(monkeypatch, caplog):
+    """A fold that raises inside ``optimise_hermite_pair`` must produce a WARNING log naming the
+    fold index and the real exception type/message -- pre-fix, the bare ``except Exception: res =
+    None`` swallowed it with zero logging, so a genuine bug (not just non-convergence) silently
+    corrupted the honest OOS-uplift statistic with no trace of why a fold's score was missing."""
+    import logging
+
+    import mlframe.feature_selection.filters.hermite_fe as hermite_fe_mod
+
+    x_a, x_b, y = _additive_pair(n=300, seed=30)
+    orig = hermite_fe_mod.optimise_hermite_pair
+    call_idx = {"i": 0}
+
+    def _boom_on_second_fold(*args, **kwargs):
+        """Raise a distinctive, clearly-not-a-convergence-failure error on the SECOND fold call only
+        (the first call is the full-data in-sample reference; fold calls follow)."""
+        call_idx["i"] += 1
+        if call_idx["i"] == 2:
+            raise ValueError("boom-b23-injected-fault")
+        return orig(*args, **kwargs)
+
+    # validate_pair_fe_cv does `from .hermite_fe import optimise_hermite_pair` INSIDE the function
+    # body, so the patch target must be the source module's attribute (re-resolved on each call),
+    # not a composition-module-level name.
+    monkeypatch.setattr(hermite_fe_mod, "optimise_hermite_pair", _boom_on_second_fold)
+    with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.filters.composition"):
+        out = validate_pair_fe_cv(x_a, x_b, y, n_splits=3, n_trials=5, max_degree=2, seed=0)
+
+    assert any("boom-b23-injected-fault" in rec.message for rec in caplog.records), (
+        f"B-23 regression: the injected fold-level exception was not logged; " f"captured messages: {[rec.message for rec in caplog.records]}"
+    )
+    assert any("ValueError" in rec.message for rec in caplog.records)
+    # The fold-failure path must still complete cleanly (res=None -> excluded from the OOS series,
+    # not a crash) -- unchanged behavioural contract, only the silent-swallow is fixed.
+    assert len(out["oos_per_fold"]) == 3

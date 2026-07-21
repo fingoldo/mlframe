@@ -2786,9 +2786,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             from .._binned_numeric_agg_fe import binned_numeric_agg_with_recipes
             _ba_y = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=np.float64).ravel()
             _X_before_ba = list(X.columns)
+            _bas_raw = getattr(self, "fe_binned_numeric_agg_stats", None)
             X_ba, _ba_appended, _ba_recipes = binned_numeric_agg_with_recipes(
                 fe_to_pandas(X), _ba_y,
-                stats=tuple(getattr(self, "fe_binned_numeric_agg_stats", ("mean", "std", "skew", "kurt")) or ("mean",)),
+                stats=tuple(_bas_raw) if _bas_raw is not None else ("mean", "std", "skew", "kurt"),
                 nbins_base=int(getattr(self, "fe_binned_numeric_agg_nbins", 10)),
                 n_folds=int(getattr(self, "fe_kfold_te_folds", 5)),
                 random_state=int(getattr(self, "random_seed", 0) or 0),
@@ -3199,6 +3200,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _rare_category_pre_recipes: dict = {}
     _conditional_residual_pre_recipes: dict = {}
     _conditional_dispersion_pre_recipes: dict = {}
+    _conditional_quantile_rank_pre_recipes: dict = {}
+    _ordinal_pattern_pre_recipes: dict = {}
+    _random_fourier_pre_recipes: dict = {}
+    _sir_direction_pre_recipes: dict = {}
+    _lof_pre_recipes: dict = {}
+    _mahalanobis_density_pre_recipes: dict = {}
     _wavelet_pre_recipes: dict = {}
     _rankgauss_pre_recipes: dict = {}
     _ratio_pre_recipes: dict = {}
@@ -3416,7 +3423,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _ga_groups = [c for c in _ga_groups if c in X.columns] or None  # type: ignore[assignment]
                 _ga_nums = tuple(getattr(self, "fe_grouped_agg_num_cols", ()) or ())
                 _ga_nums = [c for c in _ga_nums if c in X.columns] or None  # type: ignore[assignment]
-                _ga_stats = tuple(getattr(self, "fe_grouped_agg_stats", ()) or ("mean", "std", "min", "max", "nunique", "skew", "median"))
+                _ga_stats_raw = getattr(self, "fe_grouped_agg_stats", None)
+                _ga_stats = tuple(_ga_stats_raw) if _ga_stats_raw is not None else ("mean", "std", "min", "max", "nunique", "skew", "median")
                 _ga_top_k = int(getattr(self, "fe_grouped_agg_top_k", 10))
                 _X_before_ga_cols = list(X.columns)
                 X_ga, _ga_appended, _ga_recipes, _ga_scores = hybrid_grouped_agg_fe(
@@ -3484,7 +3492,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _cga_key_sets = [g for g in _cga_key_sets if len(g) >= 2] or None  # type: ignore[assignment]
                 _cga_nums = tuple(getattr(self, "fe_composite_group_agg_num_cols", ()) or ())
                 _cga_nums = [c for c in _cga_nums if c in X.columns] or None  # type: ignore[assignment]
-                _cga_stats = tuple(getattr(self, "fe_composite_group_agg_stats", ()) or ("mean", "std", "count"))
+                _cga_stats_raw = getattr(self, "fe_composite_group_agg_stats", None)
+                _cga_stats = tuple(_cga_stats_raw) if _cga_stats_raw is not None else ("mean", "std", "count")
                 _cga_max_arity = int(getattr(self, "fe_composite_group_agg_max_arity", 2))
                 _cga_top_k = int(getattr(self, "fe_composite_group_agg_top_k", 10))
                 _X_before_cga_cols = list(X.columns)
@@ -3558,7 +3567,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     if _gq_nums is None:
                         _gq_det_groups = _gq_groups or []
                         _gq_nums = _gq_detect_nums(_gq_raw_view, _gq_det_groups) or None
-                _gq_quantiles = tuple(getattr(self, "fe_grouped_quantile_quantiles", ()) or (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95))
+                _gq_quantiles_raw = getattr(self, "fe_grouped_quantile_quantiles", None)
+                _gq_quantiles = tuple(_gq_quantiles_raw) if _gq_quantiles_raw is not None else (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)
                 _gq_target_aware = bool(getattr(self, "fe_grouped_quantile_target_aware", False))
                 _gq_n_bins = int(getattr(self, "fe_grouped_quantile_n_bins", 5))
                 _gq_top_k = int(getattr(self, "fe_grouped_quantile_top_k", 8))
@@ -3850,8 +3860,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
             if raws_linearly_explain_y(X, y, seed=int(getattr(self, "random_seed", 0) or 0)):
                 _discrete_fe_master = False
-        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
-            pass  # gate is an optimisation; on any failure keep the operators (correct path)
+        except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+            logger.debug("raws_linearly_explain_y gate failed (%s: %s) -- keeping the operators (the safe/correct path)", type(e).__name__, e)
 
     # Shared class-MI target binning for the four discrete-structural FE operators (pairwise-modular / integer-lattice / row-argmax / conditional-gate).
     # All four gate candidates on the SAME 1D y binned with the SAME quantization_nbins via bin_y_for_class_mi; compute the applicability flag + binned
@@ -4186,6 +4196,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.rare_category_features_ = []
     self.conditional_residual_features_ = []
     self.conditional_dispersion_features_ = []
+    self.conditional_quantile_rank_features_ = []
+    self.ordinal_pattern_features_ = []
+    self.random_fourier_features_ = []
+    self.sir_direction_features_ = []
+    self.lof_features_ = []
+    self.mahalanobis_density_features_ = []
     self.wavelet_features_ = []
     self.rankgauss_features_ = []
 
@@ -4396,6 +4412,419 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "MRMR.fit conditional_dispersion FE raised %s: %s; continuing " "without conditional-dispersion columns.",
                     type(_cd_exc).__name__,
                     _cd_exc,
+                )
+
+    # CONDITIONAL QUANTILE-RANK (mrmr_audit_2026-07-20 fe_expansion.md): 4th member of the
+    # conditional-dispersion family. Bin x_j; emit q(row) = empirical_rank(x_i within bin(x_j)) --
+    # the row's TRUE within-bin percentile, not a z-score. MI-gated + self-limiting (a near-
+    # monotone reparametrization on homoscedastic/non-skewed data clears no uplift over raw x_i, so
+    # it does not perturb genuine-feature recovery on canonical fixtures). Routing piggybacks on
+    # hybrid_orth_features_; recipes carry no y -> leak-safe replay.
+    if bool(getattr(self, "fe_conditional_quantile_rank_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: conditional_quantile_rank FE enabled but X is not a "
+                "pandas DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from .._conditional_quantile_rank_fe import hybrid_conditional_quantile_rank_fe
+                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+                _cqr_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+                def _cqr_reject_sink(**_kw):
+                    """Reject-sink callback for the num-x-num conditional-quantile-rank FE stage; records
+                    MI-floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
+                    _record_fe_rejection(self, step=_cqr_step, **_kw)
+
+                _y_for_cqr = _y_np
+                _cqr_cols = tuple(getattr(self, "fe_conditional_quantile_rank_cols", ()) or ())
+                _cqr_cols = [c for c in _cqr_cols if c in X.columns] or None  # type: ignore[assignment]
+                # RAW columns only (same class as conditional_dispersion / wavelet above): the
+                # all-numeric default scope over the already-augmented X builds quantile-rank
+                # features OF engineered columns -> nested recipes the 1-deep replay cannot order
+                # at transform() time. Raw scope keeps every recipe replayable.
+                if _cqr_cols is None:
+                    _cqr_raw = set(_raw_input_cols_pre_fe)
+                    _cqr_cols = [c for c in X.columns if c in _cqr_raw] or None
+                _X_before_cqr_cols = list(X.columns)
+                X_cqr, _cqr_appended, _cqr_recipes, _ = hybrid_conditional_quantile_rank_fe(
+                    X, _y_for_cqr,
+                    num_cols=_cqr_cols,
+                    n_bins=int(getattr(self, "fe_conditional_quantile_rank_n_bins", 10)),
+                    top_k=int(getattr(self, "fe_conditional_quantile_rank_top_k", 10)),
+                    max_pair_cols=int(getattr(self, "fe_conditional_quantile_rank_max_pair_cols", 6)),
+                    mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                    mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                    reject_sink=_cqr_reject_sink,
+                )
+                _cqr_appended = [c for c in _cqr_appended if c not in _X_before_cqr_cols]
+                if _cqr_appended:
+                    X = X_cqr
+                    self.conditional_quantile_rank_features_ = list(_cqr_appended)
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_cqr_appended)
+                    for _r in _cqr_recipes:
+                        if _r.name in _cqr_appended:
+                            _conditional_quantile_rank_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit conditional_quantile_rank: appended %d " "engineered column(s): %s",
+                            len(_cqr_appended),
+                            _cqr_appended[:8],
+                        )
+            except Exception as _cqr_exc:
+                logger.warning(
+                    "MRMR.fit conditional_quantile_rank FE raised %s: %s; continuing " "without conditional-quantile-rank columns.",
+                    type(_cqr_exc).__name__,
+                    _cqr_exc,
+                )
+
+    # ORDINAL PATTERN (Bandt-Pompe) K-fold TARGET ENCODING (mrmr_audit_2026-07-20 fe_expansion.md).
+    # For each K-tuple of raw numeric columns, compute the row's rank-permutation id (0..K!-1) and
+    # K-fold-TE encode it -- a fused single-hop recipe: the intermediate perm_id categorical is
+    # never exposed as its own column, avoiding a 2-deep nested-recipe replay the 1-deep convention
+    # here cannot order. Routing piggybacks on hybrid_orth_features_; recipe carries a frozen
+    # (fit-time) TE lookup, not y -> leak-safe replay.
+    if bool(getattr(self, "fe_ordinal_pattern_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: ordinal_pattern FE enabled but X is not a "
+                "pandas DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from .._ordinal_pattern_fe import hybrid_ordinal_pattern_te_fe
+                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+                _opat_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+                def _opat_reject_sink(**_kw):
+                    """Reject-sink callback for the ordinal-pattern-TE FE stage; records MI-floor
+                    kills into the FE rejection ledger (pure-record, does not affect selection)."""
+                    _record_fe_rejection(self, step=_opat_step, **_kw)
+
+                _y_for_opat = _y_np
+                _opat_cols = tuple(getattr(self, "fe_ordinal_pattern_cols", ()) or ())
+                _opat_cols = [c for c in _opat_cols if c in X.columns] or None  # type: ignore[assignment]
+                # RAW columns only (same class as conditional_dispersion/quantile_rank above): the
+                # all-numeric default scope over the already-augmented X builds ordinal patterns OF
+                # engineered columns -> nested recipes the 1-deep replay cannot order at
+                # transform() time. Raw scope keeps every recipe replayable.
+                if _opat_cols is None:
+                    _opat_raw = set(_raw_input_cols_pre_fe)
+                    _opat_cols = [c for c in X.columns if c in _opat_raw] or None
+                _X_before_opat_cols = list(X.columns)
+                X_opat, _opat_appended, _opat_recipes, _ = hybrid_ordinal_pattern_te_fe(
+                    X, _y_for_opat,
+                    num_cols=_opat_cols,
+                    k=int(getattr(self, "fe_ordinal_pattern_k", 3)),
+                    max_cols_for_tuples=int(getattr(self, "fe_ordinal_pattern_max_cols_for_tuples", 5)),
+                    n_folds=int(getattr(self, "fe_ordinal_pattern_n_folds", 5)),
+                    smoothing=float(getattr(self, "fe_ordinal_pattern_smoothing", 10.0)),
+                    top_k=int(getattr(self, "fe_ordinal_pattern_top_k", 5)),
+                    mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                    mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                    reject_sink=_opat_reject_sink,
+                )
+                _opat_appended = [c for c in _opat_appended if c not in _X_before_opat_cols]
+                if _opat_appended:
+                    X = X_opat
+                    self.ordinal_pattern_features_ = list(_opat_appended)
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_opat_appended)
+                    for _r in _opat_recipes:
+                        if _r.name in _opat_appended:
+                            _ordinal_pattern_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit ordinal_pattern: appended %d " "engineered column(s): %s",
+                            len(_opat_appended),
+                            _opat_appended[:8],
+                        )
+            except Exception as _opat_exc:
+                logger.warning(
+                    "MRMR.fit ordinal_pattern FE raised %s: %s; continuing " "without ordinal-pattern columns.",
+                    type(_opat_exc).__name__,
+                    _opat_exc,
+                )
+
+    # RANDOM FOURIER FEATURES (random kitchen sinks) joint kernel-approximation block
+    # (mrmr_audit_2026-07-20 fe_expansion.md). Unlike every pair/triplet/quadruplet cross-basis
+    # family, this draws m random features that are jointly a smooth function of MANY (5+) raw
+    # columns simultaneously without combinatorial blow-up, approximating an RBF kernel over the
+    # bounded column pool. Routing piggybacks on hybrid_orth_features_; recipe carries the frozen
+    # W-column/phase/bandwidth, never y -> leak-safe replay.
+    if bool(getattr(self, "fe_random_fourier_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: random_fourier FE enabled but X is not a "
+                "pandas DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from .._random_fourier_features_fe import hybrid_random_fourier_fe
+                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+                _rff_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+                def _rff_reject_sink(**_kw):
+                    """Reject-sink callback for the random-fourier FE stage; records MI-floor
+                    kills into the FE rejection ledger (pure-record, does not affect selection)."""
+                    _record_fe_rejection(self, step=_rff_step, **_kw)
+
+                _y_for_rff = _y_np
+                _rff_cols = tuple(getattr(self, "fe_random_fourier_cols", ()) or ())
+                _rff_cols = [c for c in _rff_cols if c in X.columns] or None  # type: ignore[assignment]
+                # RAW columns only (same class as conditional_dispersion/quantile_rank/ordinal_pattern
+                # above): the all-numeric default scope over the already-augmented X builds RFF
+                # features OF engineered columns -> nested recipes the 1-deep replay cannot order at
+                # transform() time. Raw scope keeps every recipe replayable.
+                if _rff_cols is None:
+                    _rff_raw = set(_raw_input_cols_pre_fe)
+                    _rff_cols = [c for c in X.columns if c in _rff_raw] or None
+                _X_before_rff_cols = list(X.columns)
+                X_rff, _rff_appended, _rff_recipes, _ = hybrid_random_fourier_fe(
+                    X, _y_for_rff,
+                    num_cols=_rff_cols,
+                    m=int(getattr(self, "fe_random_fourier_m", 64)),
+                    bandwidth=getattr(self, "fe_random_fourier_bandwidth", None),
+                    max_cols_for_block=int(getattr(self, "fe_random_fourier_max_cols_for_block", 8)),
+                    top_k=int(getattr(self, "fe_random_fourier_top_k", 8)),
+                    mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                    mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                    reject_sink=_rff_reject_sink,
+                )
+                _rff_appended = [c for c in _rff_appended if c not in _X_before_rff_cols]
+                if _rff_appended:
+                    X = X_rff
+                    self.random_fourier_features_ = list(_rff_appended)
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_rff_appended)
+                    for _r in _rff_recipes:
+                        if _r.name in _rff_appended:
+                            _random_fourier_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit random_fourier: appended %d " "engineered column(s): %s",
+                            len(_rff_appended),
+                            _rff_appended[:8],
+                        )
+            except Exception as _rff_exc:
+                logger.warning(
+                    "MRMR.fit random_fourier FE raised %s: %s; continuing " "without random-fourier columns.",
+                    type(_rff_exc).__name__,
+                    _rff_exc,
+                )
+
+    # SLICED INVERSE REGRESSION (SIR) oblique-direction projection (mrmr_audit_2026-07-20
+    # fe_expansion.md). Recovers a genuinely OBLIQUE (rotated) linear combination spread thinly
+    # across several correlated columns -- where every individual weight is too small for that
+    # column's own marginal MI to clear the screening floor, and no pairwise/triplet/quadruplet
+    # product reconstructs the rotated hyperplane. Routing piggybacks on hybrid_orth_features_;
+    # recipe carries the frozen centering/direction, not y -> leak-safe replay.
+    if bool(getattr(self, "fe_sir_direction_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: sir_direction FE enabled but X is not a "
+                "pandas DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from .._sliced_inverse_regression_fe import hybrid_sir_direction_fe
+                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+                _sir_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+                def _sir_reject_sink(**_kw):
+                    """Reject-sink callback for the SIR-direction FE stage; records MI-floor
+                    kills into the FE rejection ledger (pure-record, does not affect selection)."""
+                    _record_fe_rejection(self, step=_sir_step, **_kw)
+
+                _y_for_sir = _y_np
+                _sir_cols = tuple(getattr(self, "fe_sir_direction_cols", ()) or ())
+                _sir_cols = [c for c in _sir_cols if c in X.columns] or None  # type: ignore[assignment]
+                # RAW columns only (same class as conditional_dispersion/quantile_rank/ordinal_pattern/
+                # random_fourier above): the all-numeric default scope over the already-augmented X
+                # builds SIR directions OF engineered columns -> nested recipes the 1-deep replay
+                # cannot order at transform() time. Raw scope keeps every recipe replayable.
+                if _sir_cols is None:
+                    _sir_raw = set(_raw_input_cols_pre_fe)
+                    _sir_cols = [c for c in X.columns if c in _sir_raw] or None
+                _X_before_sir_cols = list(X.columns)
+                X_sir, _sir_appended, _sir_recipes, _ = hybrid_sir_direction_fe(
+                    X, _y_for_sir,
+                    num_cols=_sir_cols,
+                    n_slices=int(getattr(self, "fe_sir_direction_n_slices", 10)),
+                    n_directions=int(getattr(self, "fe_sir_direction_n_directions", 2)),
+                    max_cols_for_block=int(getattr(self, "fe_sir_direction_max_cols_for_block", 8)),
+                    top_k=int(getattr(self, "fe_sir_direction_top_k", 2)),
+                    mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                    mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                    reject_sink=_sir_reject_sink,
+                )
+                _sir_appended = [c for c in _sir_appended if c not in _X_before_sir_cols]
+                if _sir_appended:
+                    X = X_sir
+                    self.sir_direction_features_ = list(_sir_appended)
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_sir_appended)
+                    for _r in _sir_recipes:
+                        if _r.name in _sir_appended:
+                            _sir_direction_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit sir_direction: appended %d " "engineered column(s): %s",
+                            len(_sir_appended),
+                            _sir_appended[:8],
+                        )
+            except Exception as _sir_exc:
+                logger.warning(
+                    "MRMR.fit sir_direction FE raised %s: %s; continuing " "without sir-direction columns.",
+                    type(_sir_exc).__name__,
+                    _sir_exc,
+                )
+
+    # LOCAL OUTLIER FACTOR / k-NN local density-ratio (mrmr_audit_2026-07-20 fe_expansion.md).
+    # LOCAL and non-parametric (unlike a global Mahalanobis ellipsoid), catching a row anomalous
+    # for sitting in a locally-sparse gap between well-separated clusters even when its GLOBAL
+    # distance to the overall mean is unremarkable. Routing piggybacks on hybrid_orth_features_;
+    # recipe carries a bounded frozen reference sample (RAM discipline), never y or the whole fit
+    # frame -> leak-safe replay.
+    if bool(getattr(self, "fe_lof_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: lof FE enabled but X is not a " "pandas DataFrame; the features are skipped. Convert via " "X.to_pandas() before fit() to apply them.",
+                UserWarning,
+                stacklevel=3,
+            )
+        else:
+            try:
+                from .._lof_fe import hybrid_lof_fe
+                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+                _lof_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+                def _lof_reject_sink(**_kw):
+                    """Reject-sink callback for the LOF FE stage; records MI-floor kills into the
+                    FE rejection ledger (pure-record, does not affect selection)."""
+                    _record_fe_rejection(self, step=_lof_step, **_kw)
+
+                _y_for_lof = _y_np
+                _lof_cols = tuple(getattr(self, "fe_lof_cols", ()) or ())
+                _lof_cols = [c for c in _lof_cols if c in X.columns] or None  # type: ignore[assignment]
+                # RAW columns only (same class as conditional_dispersion/quantile_rank/ordinal_pattern/
+                # random_fourier/sir_direction above): the all-numeric default scope over the
+                # already-augmented X builds LOF scores OF engineered columns -> nested recipes the
+                # 1-deep replay cannot order at transform() time. Raw scope keeps every recipe replayable.
+                if _lof_cols is None:
+                    _lof_raw = set(_raw_input_cols_pre_fe)
+                    _lof_cols = [c for c in X.columns if c in _lof_raw] or None
+                _X_before_lof_cols = list(X.columns)
+                X_lof, _lof_appended, _lof_recipes, _ = hybrid_lof_fe(
+                    X, _y_for_lof,
+                    num_cols=_lof_cols,
+                    k=int(getattr(self, "fe_lof_k", 20)),
+                    max_ref=int(getattr(self, "fe_lof_max_ref", 2000)),
+                    max_cols_for_block=int(getattr(self, "fe_lof_max_cols_for_block", 8)),
+                    top_k=int(getattr(self, "fe_lof_top_k", 1)),
+                    mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                    mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                    reject_sink=_lof_reject_sink,
+                )
+                _lof_appended = [c for c in _lof_appended if c not in _X_before_lof_cols]
+                if _lof_appended:
+                    X = X_lof
+                    self.lof_features_ = list(_lof_appended)
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_lof_appended)
+                    for _r in _lof_recipes:
+                        if _r.name in _lof_appended:
+                            _lof_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit lof: appended %d " "engineered column(s): %s",
+                            len(_lof_appended),
+                            _lof_appended[:8],
+                        )
+            except Exception as _lof_exc:
+                logger.warning(
+                    "MRMR.fit lof FE raised %s: %s; continuing " "without lof columns.",
+                    type(_lof_exc).__name__,
+                    _lof_exc,
+                )
+
+    # MULTIVARIATE MAHALANOBIS / GAUSSIAN-COPULA JOINT DENSITY anomaly score (mrmr_audit_2026-07-20
+    # fe_expansion.md). Catches y depending on whether a row sits inside/outside an ELLIPSOIDAL
+    # level-set of a p=15-30-way joint distribution where no single column, pair, triplet, or even
+    # quadruplet cross-basis is individually extreme -- the p-way generalization of the existing
+    # group_distance / conditional-dispersion families' one-column-conditioned-on-one-other-column
+    # scope. Routing piggybacks on hybrid_orth_features_; recipe carries the frozen Ledoit-Wolf
+    # mu/Sigma_inv, never y -> leak-safe replay.
+    if bool(getattr(self, "fe_mahalanobis_density_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: mahalanobis_density FE enabled but X is not a "
+                "pandas DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from .._mahalanobis_density_fe import hybrid_mahalanobis_density_fe
+                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+                _mahal_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+                def _mahal_reject_sink(**_kw):
+                    """Reject-sink callback for the Mahalanobis-density FE stage; records MI-floor
+                    kills into the FE rejection ledger (pure-record, does not affect selection)."""
+                    _record_fe_rejection(self, step=_mahal_step, **_kw)
+
+                _y_for_mahal = _y_np
+                _mahal_cols = tuple(getattr(self, "fe_mahalanobis_density_cols", ()) or ())
+                _mahal_cols = [c for c in _mahal_cols if c in X.columns] or None  # type: ignore[assignment]
+                # RAW columns only (same class as conditional_dispersion/quantile_rank/ordinal_pattern/
+                # random_fourier/sir_direction/lof above): the all-numeric default scope over the
+                # already-augmented X builds Mahalanobis density OF engineered columns -> nested
+                # recipes the 1-deep replay cannot order at transform() time. Raw scope keeps every
+                # recipe replayable.
+                if _mahal_cols is None:
+                    _mahal_raw = set(_raw_input_cols_pre_fe)
+                    _mahal_cols = [c for c in X.columns if c in _mahal_raw] or None
+                _X_before_mahal_cols = list(X.columns)
+                X_mahal, _mahal_appended, _mahal_recipes, _ = hybrid_mahalanobis_density_fe(
+                    X, _y_for_mahal,
+                    num_cols=_mahal_cols,
+                    max_cols_for_block=int(getattr(self, "fe_mahalanobis_density_max_cols_for_block", 20)),
+                    top_k=int(getattr(self, "fe_mahalanobis_density_top_k", 1)),
+                    mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                    mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                    reject_sink=_mahal_reject_sink,
+                )
+                _mahal_appended = [c for c in _mahal_appended if c not in _X_before_mahal_cols]
+                if _mahal_appended:
+                    X = X_mahal
+                    self.mahalanobis_density_features_ = list(_mahal_appended)
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_mahal_appended)
+                    for _r in _mahal_recipes:
+                        if _r.name in _mahal_appended:
+                            _mahalanobis_density_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit mahalanobis_density: appended %d " "engineered column(s): %s",
+                            len(_mahal_appended),
+                            _mahal_appended[:8],
+                        )
+            except Exception as _mahal_exc:
+                logger.warning(
+                    "MRMR.fit mahalanobis_density FE raised %s: %s; continuing " "without mahalanobis-density columns.",
+                    type(_mahal_exc).__name__,
+                    _mahal_exc,
                 )
 
     # HAAR WAVELET / localized multiresolution basis (backlog #13, 2026-06-09).
@@ -4886,6 +5315,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _conditional_dispersion_pre_recipes, _wavelet_pre_recipes,
                 _rankgauss_pre_recipes,
                 _temporal_agg_pre_recipes,
+                _conditional_quantile_rank_pre_recipes,
+                _ordinal_pattern_pre_recipes,
+                _random_fourier_pre_recipes,
+                _sir_direction_pre_recipes,
+                _lof_pre_recipes,
+                _mahalanobis_density_pre_recipes,
             )
             while True:
                 _protected = {
@@ -5013,6 +5448,24 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_conditional_dispersion_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _conditional_dispersion_pre_recipes.pop(_c, None)
+            for _c in list(_conditional_quantile_rank_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _conditional_quantile_rank_pre_recipes.pop(_c, None)
+            for _c in list(_ordinal_pattern_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _ordinal_pattern_pre_recipes.pop(_c, None)
+            for _c in list(_random_fourier_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _random_fourier_pre_recipes.pop(_c, None)
+            for _c in list(_sir_direction_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _sir_direction_pre_recipes.pop(_c, None)
+            for _c in list(_lof_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _lof_pre_recipes.pop(_c, None)
+            for _c in list(_mahalanobis_density_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _mahalanobis_density_pre_recipes.pop(_c, None)
             for _c in list(_wavelet_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _wavelet_pre_recipes.pop(_c, None)
@@ -5114,6 +5567,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _wavelet_pre_recipes,
                         _rankgauss_pre_recipes,
                         _temporal_agg_pre_recipes,
+                        _conditional_quantile_rank_pre_recipes,
+                        _ordinal_pattern_pre_recipes,
+                        _random_fourier_pre_recipes,
+                        _sir_direction_pre_recipes,
+                        _lof_pre_recipes,
+                        _mahalanobis_density_pre_recipes,
                     ):
                         for _c in list(_pre.keys()):
                             if _c in _eng_drop_u:
@@ -5396,6 +5855,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _md = max(2, int(np.floor(np.log2(int(_cap)))))
         _nbins_strategy_kwargs = dict(_nbins_strategy_kwargs or {})
         _nbins_strategy_kwargs.setdefault("max_depth", _md)
+    # Constructor-level shared adaptive-bin-count ceiling (knuth / bayesian_blocks / freedman_diaconis
+    # -- see MRMR.__init__'s max_adaptive_nbins docstring and _adaptive_nbins.MAX_ADAPTIVE_NBINS).
+    # setdefault so an explicit per-method override in nbins_strategy_kwargs (e.g. "knuth_m_max_cap")
+    # still wins.
+    _max_adaptive_nbins = getattr(self, "max_adaptive_nbins", None)
+    if _max_adaptive_nbins is not None:
+        _nbins_strategy_kwargs = dict(_nbins_strategy_kwargs or {})
+        _nbins_strategy_kwargs.setdefault("max_adaptive_nbins", int(_max_adaptive_nbins))
     # The supervised strategies (mdlp / optimal_joint) need y. Pull the raw
     # target column from the input frame -- categorize_dataset is called with
     # _x_for_cat which is a DataFrame; the target column is one of its members
@@ -5653,6 +6120,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         engineered_recipes.update(_conditional_residual_pre_recipes)
     if _conditional_dispersion_pre_recipes:
         engineered_recipes.update(_conditional_dispersion_pre_recipes)
+    if _conditional_quantile_rank_pre_recipes:
+        engineered_recipes.update(_conditional_quantile_rank_pre_recipes)
+    if _ordinal_pattern_pre_recipes:
+        engineered_recipes.update(_ordinal_pattern_pre_recipes)
+    if _random_fourier_pre_recipes:
+        engineered_recipes.update(_random_fourier_pre_recipes)
+    if _sir_direction_pre_recipes:
+        engineered_recipes.update(_sir_direction_pre_recipes)
+    if _lof_pre_recipes:
+        engineered_recipes.update(_lof_pre_recipes)
+    if _mahalanobis_density_pre_recipes:
+        engineered_recipes.update(_mahalanobis_density_pre_recipes)
     if _wavelet_pre_recipes:
         engineered_recipes.update(_wavelet_pre_recipes)
     if _rankgauss_pre_recipes:
@@ -6063,9 +6542,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     data = _dcd_state.factors_data
                     cols = list(_dcd_state.cols)
                     nbins = np.asarray(_dcd_state.factors_nbins, dtype=np.int64)
-            except Exception:  # nosec B110 - non-trivial body
+            except Exception as e:  # nosec B110 - non-trivial body
                 # Best-effort -- if DCDState is malformed, fall through.
-                pass
+                logger.debug("DCDState looked malformed (%s: %s) -- falling through without it", type(e).__name__, e)
 
         # MEMORY: prune fit-time ``_engineered_continuous_`` scratch for engineered columns that did not
         # survive THIS round's screen -- see ``_prune_engineered_continuous_store`` docstring for why this
@@ -6458,18 +6937,43 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ~0 (verified: on 3-way XOR among 5 noise vars ONLY {x0,x1,x2} fires), so noise is never seeded.
     # Off when interactions_max_order<2 (the default) -> byte-identical there. Bounded combo
     # enumeration (candidate + order caps) so wide-p fits stay tractable.
-    if int(getattr(self, "interactions_max_order", 1) or 1) >= 2 and len(selected_vars) >= 0:
+    # NOTE (2026-07-21, test_3way_screening tracked-red follow-up): candidate columns MUST be
+    # re-quantile-binned here, NOT sourced from ``data`` (the fit's MDLP-binned matrix).
+    # MDLP is supervised on each column's OWN marginal relevance to y, and a pure-synergy operand
+    # has ~0 marginal MI BY CONSTRUCTION -- MDLP collapses it to 1-2 bins (measured: x0 of a 3-way
+    # XOR gets nbins=2), which then guts the JOINT-MI resolution this exact detector needs to see
+    # the interaction. Fixed-width equi-frequency quantile bins depend only on rank order, not on
+    # marginal relevance, so a zero-marginal operand keeps its full joint-MI resolution.
+    _iac_max_order = getattr(self, "interactions_max_order", None)
+    if int(_iac_max_order if _iac_max_order is not None else 1) >= 2 and len(selected_vars) >= 0:
         try:
             from .._fe_synergy_screen import detect_synergy_combos
+            from .._mi_greedy_cmi_fe import _quantile_bin
+
             _raw_set_syn = set(self.feature_names_in_)
             _cand_syn = [i for i, _nm in enumerate(cols) if _nm in _raw_set_syn]
             if 2 <= len(_cand_syn) <= 60:
                 _yc_syn = np.asarray(classes_y).astype(np.int64).ravel()
-                _code_cols_syn = {i: np.asarray(data[:, i]).astype(np.int64).ravel() for i in _cand_syn}
+                _X_pd_syn = fe_to_pandas(X)
+                _order_syn = int(_iac_max_order if _iac_max_order is not None else 3)
+                # ADAPTIVE NBINS (2026-07-21): detect_synergy_combos rejects any combo whose joint
+                # cell count leaves fewer than min_rows_per_cell(=5.0 default) rows/cell -- with the
+                # fit's own quantization_nbins (10) an order-3 combo needs 10**3=1000 cells, i.e.
+                # n>=5000, so at n=2000 EVERY order-3 combo was silently skipped regardless of binning
+                # source (measured: quantile-rebin alone did not change the outcome). Size nbins so a
+                # max-order combo clears the floor: nbins = floor((n / (5*min_rows_per_cell))^(1/order)),
+                # clamped to [2, quantization_nbins] -- never coarser than 2 bins, never finer than the
+                # fit's own resolution.
+                _mrpc_syn = 5.0
+                _nbins_syn = int((float(_yc_syn.shape[0]) / (_mrpc_syn * 5.0)) ** (1.0 / max(1, _order_syn)))
+                _nbins_syn = max(2, min(int(self.quantization_nbins), _nbins_syn))
+                _code_cols_syn = {i: _quantile_bin(_X_pd_syn[cols[i]].to_numpy(dtype=np.float64), _nbins_syn).astype(np.int64) for i in _cand_syn}
+                _iac_min_order = getattr(self, "interactions_min_order", None)
                 _combos_syn = detect_synergy_combos(
                     _code_cols_syn, _yc_syn, _cand_syn,
-                    max_order=int(getattr(self, "interactions_max_order", 3) or 3),
-                    min_order=max(2, int(getattr(self, "interactions_min_order", 2) or 2)),
+                    max_order=_order_syn,
+                    min_order=max(2, int(_iac_min_order if _iac_min_order is not None else 2)),
+                    min_rows_per_cell=_mrpc_syn,
                 )
                 _sv_syn = set(selected_vars)
                 _seed_syn = []
@@ -6616,7 +7120,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     return_null_mean=True, parallelism="none", dtype=_rr_q_dtype, prefer_gpu=False,
                 )
                 return float(_sig[3]) < _rr_signif_alpha
-            except Exception:
+            except Exception as e:
+                logger.debug("Marginal-MI significance re-add probe failed (%s: %s) -- permissive re-add", type(e).__name__, e)
                 return True  # significance unavailable -> permissive re-add
 
         _sv_set = set(selected_vars)
@@ -6907,7 +7412,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 A = np.column_stack(design_cols)
                 try:
                     coef, *_ = np.linalg.lstsq(A[tr], _y_for_hinge_gate[tr], rcond=None)
-                except Exception:
+                except Exception as e:
+                    logger.debug("Hinge-gate OLS lstsq failed (%s: %s) -- treating as a failed candidate", type(e).__name__, e)
                     return -np.inf
                 pred = A[va] @ coef
                 return 1.0 - float(np.sum((yv - pred) ** 2)) / ss
@@ -7099,7 +7605,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 try:
                     _q1, _r1 = _rp_sla.qr_insert(_rp_Q, _rp_R, _extra[_rp_tr], _rp_Q.shape[1], which="col")
                     _coef = _rp_sla.solve_triangular(_r1, _q1.T @ _rp_y_tr)
-                except Exception:
+                except Exception as e:
+                    logger.debug("QR-insert regression probe failed (%s: %s) -- treating as a failed candidate", type(e).__name__, e)
                     return -np.inf
                 _A_va = np.column_stack((_rp_base_va, _extra[_rp_va]))
                 return 1.0 - float(np.sum((_yv - _A_va @ _coef) ** 2)) / _rp_ss
@@ -7214,7 +7721,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         return 0.0
                     try:
                         _coef, *_ = np.linalg.lstsq(_A[_cf_tr], _cf_y[_cf_tr], rcond=None)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("Compound-feature OLS lstsq failed (%s: %s) -- treating as a failed candidate", type(e).__name__, e)
                         return -np.inf
                     return 1.0 - float(np.sum((_yv - _A[_cf_va] @ _coef) ** 2)) / _ss
 
@@ -7474,7 +7982,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             return_null_mean=True, parallelism="none", dtype=_pcr_q_dtype, prefer_gpu=False,
                         )
                         return float(_sig[3]) < _pcr_signif_alpha
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("Marginal-MI significance re-add probe failed (%s: %s) -- permissive re-add", type(e).__name__, e)
                         return True
                 _pcr_readd = []
                 # name -> index map built once (O(F)) instead of a ``.index()`` rescan of ``cols`` per
@@ -7578,6 +8087,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # fused whole -- so a fully-subsumed operand drops even when it is
                 # selected alongside the composite (not only when the composite
                 # collapsed the whole selection into the never-empty path).
+                _rrf_redund = getattr(self, "fe_raw_redundancy_retain_frac", None)
                 _kept_redund, _dropped_redund_names = drop_redundant_raw_operands(
                     data=data,
                     cols=cols,
@@ -7589,7 +8099,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     replayable_eng_names=_replayable_eng_names,
                     recipes=engineered_recipes,
                     raw_X=X,
-                    retain_frac=float(getattr(self, "fe_raw_redundancy_retain_frac", 0.15) or 0.15),
+                    retain_frac=float(_rrf_redund) if _rrf_redund is not None else 0.15,
                     linear_usability_keep=bool(getattr(self, "use_simple_mode", False)),
                     tail_subsume_enable=bool(getattr(self, "fe_pair_usability_admission_enable", True)),
                     tail_subsume_min_corr=float(getattr(self, "fe_raw_tail_subsume_min_corr", 0.85)),
@@ -7758,7 +8268,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     """Screening marginal MI(v, y) for raw column index ``_v``, used to pick the survivor between two monotone-twin raw columns (0.0 on a cache miss)."""
                     try:
                         return float(cached_MIs.get((_v,), 0.0))
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("cached_MIs lookup for monotone-twin relevance failed (%s: %s) -- treating as 0.0", type(e).__name__, e)
                         return 0.0
                 from .._feature_engineering_pairs._pairs_core import _abs_corr_finite_njit as _mt_corr_njit
                 _mt_keep: list[int] = []
@@ -8467,7 +8978,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                        factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
                                        return_null_mean=True, parallelism="none", dtype=_eb_qdtype, prefer_gpu=False)
                     return float(_r[3]) < _eb_alpha  # p-value below alpha -> genuine marginal signal
-                except Exception:
+                except Exception as e:
+                    logger.debug("Marginal-MI significance probe failed (%s: %s) -- not silently dropping a possibly-genuine operand", type(e).__name__, e)
                     return True  # estimator error -> do not silently drop a possibly-genuine operand
             _eb_added = []
             for _op in _eb_operands:
@@ -9299,9 +9811,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         self._engineered_recipes_ = _uaed_recipes[:_uaed_eng_keep]
                     self.n_features_ = int(self.support_.size) + min(_uaed_eng_keep, len(_uaed_recipes))
                     self.uaed_elbow_ = int(elbow)
-        except Exception:  # nosec B110 - non-trivial body
+        except Exception as e:  # nosec B110 - non-trivial body
             # UAED is best-effort post-fit; don't break fit() on internal hiccup.
-            pass
+            logger.debug("UAED post-fit adjustment failed (%s: %s) -- keeping the pre-UAED support", type(e).__name__, e)
     # Transient FE-escalation fitting target: full-n array, fit-time only.
     self._fe_escalation_y_rank_ = None
     # Transient prewarp ALS reconstruction target: full-n continuous y, fit-time only.

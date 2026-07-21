@@ -34,7 +34,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_prox
     active_learning_revalidate, importance_topk_ablation, revalidate_top_n, within_cluster_refine,
 )
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_proxy_core_stability import (
-    core_refine, least_core_allocation,
+    auto_should_use_core_refine, core_refine, least_core_allocation,
 )
 
 logger = logging.getLogger(__name__)
@@ -280,5 +280,6 @@ __all__ = [
     "_ucb_stop_remaining_cannot_win",
     "_ucb_auto_slack",
     "core_refine",
+    "auto_should_use_core_refine",
     "least_core_allocation",
 ]

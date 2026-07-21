@@ -182,6 +182,24 @@ def test_error_bias_unmatched_feature_name_is_surfaced_not_silently_dropped(reg_
     assert "not found" in res.figure.suptitle or "skipped" in res.figure.suptitle
 
 
+def test_error_bias_near_constant_huge_magnitude_column_does_not_raise():
+    """A feature whose range is tiny RELATIVE to its magnitude (e.g. a huge, near-constant engineered value) can
+    have a spread so far below float64 precision at that magnitude that ``np.histogram_bin_edges`` can't carve it
+    into ``nbins`` distinct finite-precision edges, raising "Too many bins for data range" -- caught live via a
+    fuzz combo with mlp in the model mix. Must skip that one feature's panel rather than crash the diagnostic."""
+    rng = np.random.default_rng(0)
+    n = 200
+    base = 1e50
+    f_tight = base + np.arange(n, dtype=np.float64) * base * 1e-17
+    f_normal = rng.normal(0, 1, n)
+    X = pd.DataFrame({"f_tight": f_tight, "f_normal": f_normal})
+    yt = f_normal + rng.normal(0, 0.1, n)
+    yp = yt + rng.normal(0, 0.5, n)
+    res = error_bias_per_feature(X, yt, yp, features=["f_tight", "f_normal"])
+    # The tight-range column is skipped (no meaningful spread to bin); the normal one still gets a panel.
+    assert list(res.group_means.index) == ["f_normal"]
+
+
 def test_biz_val_error_bias_over_group_mean_shifts_high():
     """Overestimates injected at HIGH feat0 values: the OVER group's feat0 mean MUST sit materially above MAJORITY.
 

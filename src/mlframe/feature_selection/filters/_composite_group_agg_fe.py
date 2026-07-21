@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 from itertools import combinations
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -515,13 +515,14 @@ def composite_group_agg_with_recipes(
 
 def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 6) -> list[str]:
     """Reuse the Layer 87 / composite_auto_detect int-as-cat detector."""
+    _l87_detect: Optional[Callable[[pd.DataFrame, int], list]] = None
     try:
-        from .._grouped_agg_fe import _auto_detect_group_cols as _l87_detect
+        from ._grouped_agg_fe import _auto_detect_group_cols as _l87_detect
     except Exception:
         _l87_detect = None
     if _l87_detect is not None:
         try:
-            return list(_l87_detect(X, max_cols=max_cols))
+            return list(_l87_detect(X, max_cols))
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed in _composite_group_agg_fe.py:503: %s", e)
             pass

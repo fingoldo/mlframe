@@ -224,6 +224,7 @@ from .ensemble.stacking import (
     max_off_diagonal_correlation,
     stacking_aware_gate,
     shapley_aware_gate,
+    auto_aware_gate,
     residual_dedup_indices,
 )
 from .transforms.interaction_bases import (
@@ -455,6 +456,7 @@ __all__ = [
     "composite_predictions_as_feature", "predict_quantile_ensemble",
     "stacking_aware_gate",
     "shapley_aware_gate",
+    "auto_aware_gate",
     # discovery helpers
     "forward_stepwise_multi_base", "detect_group_column_candidates",
     "detect_time_column_candidates", "sort_df_by_time_column",

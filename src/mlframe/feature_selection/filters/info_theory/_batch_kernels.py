@@ -1,9 +1,12 @@
 """Parallel batched MI kernels: per-pair MI over an array of variable-index pairs, and the FE-candidate MI + permutation noise-gate."""
 from __future__ import annotations
 
+import logging
 import math
 import os
 from typing import Callable, cast
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 from numba import njit, prange
@@ -876,7 +879,8 @@ def select_batch_mi_kernel(n_rows: int, n_cols: int) -> Callable:
             choice = res
         elif res:
             choice = str(res.get("kernel_choice", "v2"))
-    except Exception:
+    except Exception as _kt_exc:
+        logger.debug("select_batch_mi_kernel: kernel_tuning_cache lookup failed (%s); defaulting to kernel v2.", _kt_exc)
         choice = "v2"
     return cast(Callable, batch_mi_with_noise_gate if choice == "v1" else batch_mi_with_noise_gate_v2)
 
@@ -888,7 +892,8 @@ def _run_batch_mi_kernel_sweep():
     try:
         from pyutilz.dev.benchmarking import sweep_backend_grid
         from ..discretization import discretize_2d_quantile_batch
-    except Exception:
+    except Exception as _import_exc:
+        logger.debug("_run_batch_mi_kernel_sweep: benchmarking helper unavailable (%s); sweep skipped, fallback stays v2.", _import_exc)
         return []
 
     def _make_inputs(dims):

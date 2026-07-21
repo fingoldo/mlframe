@@ -159,9 +159,9 @@ def should_skip_candidate(
             target = X if interactions_order > 1 else int(cand_idx)
             if _should_be_pruned(dcd_state, target):
                 return True, nexisting
-        except Exception:  # nosec B110 - non-trivial body
+        except Exception as _dcd_exc:  # nosec B110 - non-trivial body
             # DCD is best-effort; never break candidate evaluation.
-            pass
+            logger.debug("should_skip_candidate: DCD prune-mask lookup failed (%s); skipping DCD short-circuit.", _dcd_exc)
 
     if interactions_order > 1:  # disabled for single predictors 'cause Fleuret formula won't detect pairs predictors
 
@@ -959,7 +959,8 @@ def find_best_partial_gain(
     if dcd_state is not None:
         try:
             from ._dynamic_cluster_discovery import should_be_pruned as _should_be_pruned
-        except Exception:
+        except Exception as _dcd_import_exc:
+            logger.debug("find_best_partial_gain: DCD prune-mask import failed (%s); DCD short-circuit disabled for this call.", _dcd_import_exc)
             _should_be_pruned = None
     best_partial_gain = -LARGE_CONST
     best_key = None

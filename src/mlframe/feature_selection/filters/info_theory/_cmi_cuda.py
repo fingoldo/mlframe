@@ -335,7 +335,14 @@ _XLOGX_EK = None
 # cache does not move the wall here. Mechanism verified (5 same-y/z dispatch calls -> exactly 2 cache entries
 # = y,z uploaded ONCE not per call). KEPT: it is selection-equivalent and can only help (never hurt) at the
 # many-round shapes where the H2D churn IS the safe_cuda_api/.get() overhead; the value is shape-dependent.
-_CMI_RESIDENT_CACHE: dict = {}
+# LRU FIX (mrmr_audit_2026-07-20 gpu_residency.md #1, 2026-07-21): was a plain dict cleared WHOLESALE past 16
+# entries, undoing FIX3's own re-upload-avoidance on any greedy round touching >16 distinct y/z roles.
+# OrderedDict mirrors ``_fe_resident_operands.py``'s ``_FE_RESIDENT_OPERANDS`` exactly: move-to-end on hit,
+# evict only the single coldest entry on overflow.
+from collections import OrderedDict as _CmiResidentOrderedDict
+
+_CMI_RESIDENT_CACHE: "_CmiResidentOrderedDict" = _CmiResidentOrderedDict()
+_CMI_RESIDENT_CACHE_MAX_ENTRIES = 16
 
 
 def _resident_upload(arr, key):
@@ -366,11 +373,12 @@ def _resident_upload(arr, key):
     if cached is not None:
         g, csig = cached
         if csig == sig:
+            _CMI_RESIDENT_CACHE.move_to_end(key)  # LRU: this content is hot
             return g
-    if len(_CMI_RESIDENT_CACHE) > 16:
-        _CMI_RESIDENT_CACHE.clear()
     g = cp.asarray(arr)
     _CMI_RESIDENT_CACHE[key] = (g, sig)
+    if len(_CMI_RESIDENT_CACHE) > _CMI_RESIDENT_CACHE_MAX_ENTRIES:
+        _CMI_RESIDENT_CACHE.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
     return g
 
 

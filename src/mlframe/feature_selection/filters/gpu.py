@@ -619,30 +619,61 @@ def mi_direct_gpu(
         # floats is a bijection) -- preserving the pooled buffer identity downstream consumers rely on.
         _shuf_rng = cp.random.default_rng(base_seed)
         _shuf_n = classes_y_safe.shape[0]
-        for _i in range(npermutations):
-            classes_y_safe[:] = classes_y_safe[cp.argsort(_shuf_rng.random(_shuf_n))]
-            joint_counts.fill(0)
-            compute_joint_hist_cuda(
-                (grid_size,),
-                (block_size,),
-                (classes_x, classes_y_safe, joint_counts, len(classes_x), len(freqs_y)),
-            )
-            compute_mi_from_classes_cuda(
-                (1,),
-                (1,),
-                (classes_x, freqs_x, classes_y_safe, freqs_y_safe, joint_counts, totals, len(classes_x), len(freqs_x), len(freqs_y)),
-            )
+        # RESIDENCY FIX (mrmr_audit_2026-07-20 gpu_residency.md #2): return_null_mean=True forces
+        # max_failed=npermutations above, disabling early-stop -- this loop ALWAYS runs to
+        # completion on that path, so the per-iteration ``totals.get()[0]`` blocking D2H buys
+        # nothing (no early-exit opportunity to preserve) and just pays npermutations syncs.
+        # Stage each iteration's scalar into a resident device buffer instead and read it back
+        # ONCE after the loop, mirroring ``_gpu_batched.py``'s already-fixed batched path (staged
+        # per-batch counts, single end-of-loop sync). The early-stop-eligible (return_null_mean=
+        # False) path is unchanged: it genuinely needs the per-iteration host value to decide
+        # whether to break, so it keeps the per-iteration ``.get()``.
+        if return_null_mean:
+            _mi_resident = cp.empty(npermutations, dtype=cp.float64)
+            for _i in range(npermutations):
+                classes_y_safe[:] = classes_y_safe[cp.argsort(_shuf_rng.random(_shuf_n))]
+                joint_counts.fill(0)
+                compute_joint_hist_cuda(
+                    (grid_size,),
+                    (block_size,),
+                    (classes_x, classes_y_safe, joint_counts, len(classes_x), len(freqs_y)),
+                )
+                compute_mi_from_classes_cuda(
+                    (1,),
+                    (1,),
+                    (classes_x, freqs_x, classes_y_safe, freqs_y_safe, joint_counts, totals, len(classes_x), len(freqs_x), len(freqs_y)),
+                )
+                _mi_resident[_i] = totals[0]  # device-to-device, no D2H sync
 
-            mi = totals.get()[0]
-            _null_sum += float(mi)  # accumulate for the empirical null mean (return_null_mean path)
+            _mi_host = _mi_resident.get()  # ONE blocking D2H for the whole permutation budget
+            _null_sum = float(_mi_host.sum())
+            nfailed = int((_mi_host >= original_mi).sum())
+            _nchecked = npermutations
+            confidence = 1 - nfailed / _nchecked
+        else:
+            for _i in range(npermutations):
+                classes_y_safe[:] = classes_y_safe[cp.argsort(_shuf_rng.random(_shuf_n))]
+                joint_counts.fill(0)
+                compute_joint_hist_cuda(
+                    (grid_size,),
+                    (block_size,),
+                    (classes_x, classes_y_safe, joint_counts, len(classes_x), len(freqs_y)),
+                )
+                compute_mi_from_classes_cuda(
+                    (1,),
+                    (1,),
+                    (classes_x, freqs_x, classes_y_safe, freqs_y_safe, joint_counts, totals, len(classes_x), len(freqs_x), len(freqs_y)),
+                )
 
-            if mi >= original_mi:
-                nfailed += 1
-                if nfailed >= max_failed:
-                    original_mi = 0.0
-                    break
-        confidence = 1 - nfailed / (_i + 1)
-        _nchecked = _i + 1
+                mi = totals.get()[0]
+
+                if mi >= original_mi:
+                    nfailed += 1
+                    if nfailed >= max_failed:
+                        original_mi = 0.0
+                        break
+            confidence = 1 - nfailed / (_i + 1)
+            _nchecked = _i + 1
 
     if return_null_mean:
         # Mirror the CPU mi_direct(return_null_mean=True) contract: empirical null mean over the permutations

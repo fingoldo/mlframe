@@ -3,14 +3,17 @@
 The default discretized plug-in estimator (``compute_mi_from_classes`` in ``info_theory.py``) is fast but biased on small samples and
 high-cardinality conditioning sets. This module exposes alternatives that trade some speed for accuracy:
 
-* ``ksg_mi`` -- k-Nearest-Neighbor estimator (Kraskov 2004), wraps ``sklearn.feature_selection.mutual_info_classif/regression``. Operates
-  on continuous data without discretisation, asymptotically unbiased. ~2-5x slower than discretized plug-in on n=10k.
-* ``miller_madow_mi`` -- discretized plug-in with Miller-Madow bias correction applied to all entropy terms in the MI decomposition.
-  Negligible speed cost.
+* ``ksg_mi_with_target`` / ``ksg_mi_pair`` / ``ksg_mi_with_significance`` -- k-Nearest-Neighbor estimator (Kraskov 2004), wraps
+  ``sklearn.feature_selection.mutual_info_classif/regression``. Operates on continuous data without discretisation, asymptotically
+  unbiased. ~2-5x slower than discretized plug-in on n=10k.
+* Miller-Madow bias correction is applied directly inside the discretized plug-in pipeline (``info_theory.entropy_miller_madow`` /
+  ``compute_mi_mm_from_classes``, toggled via ``use_mi_miller_madow``), not as a separate estimator in this module.
 * ``nsb_mi`` (placeholder) -- Bayesian (Nemenman-Shafee-Bialek) estimator. Best for small N. Implemented via optional dependency on
   ``ndd`` package; raises ``ImportError`` if not installed.
 
-Pick by ``estimator`` kwarg in ``MRMR(estimator="ksg" | "miller_madow" | "nsb" | "plugin")``. Default ``"plugin"`` matches legacy behaviour.
+These are called directly (not via an ``estimator=`` MRMR constructor kwarg, which does not exist); MRMR's own discretized-plug-in MI
+backend is toggled via module-level state in ``info_theory._state_and_dispatch`` (``use_mi_miller_madow`` / ``use_mi_chao_shen`` /
+``use_su_normalization``), not through this module.
 """
 from __future__ import annotations
 

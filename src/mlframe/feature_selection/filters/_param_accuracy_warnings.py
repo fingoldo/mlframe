@@ -97,21 +97,30 @@ ACCURACY_SUBOPTIMAL: list[_Caveat] = [
 
 def warn_accuracy_suboptimal_params(estimator: Any) -> None:
     """Emit ONE consolidated UserWarning listing every accuracy-degrading parameter value set on
-    ``estimator``. Fires at most once per instance (guarded by ``_accuracy_caveats_warned_``). Silent
-    on a default config. Never raises -- a missing attribute is simply skipped."""
-    if getattr(estimator, "_accuracy_caveats_warned_", False):
-        return
+    ``estimator``. Fires at most once PER DISTINCT PARAMETER SNAPSHOT (guarded by
+    ``_accuracy_caveats_warned_for_``, keyed on the checked attrs' values) -- a later ``set_params()``
+    to a different (possibly newly-bad) value re-triggers the check instead of staying silenced by an
+    earlier, unrelated fit. Silent on a default config. Never raises -- a missing attribute is simply
+    skipped."""
+    snapshot = []
     triggered = []
     for c in ACCURACY_SUBOPTIMAL:
-        if not hasattr(estimator, c.attr):
-            continue
         try:
+            if not hasattr(estimator, c.attr):
+                continue
             val = getattr(estimator, c.attr)
+        except Exception:  # nosec B112 - best-effort path (hasattr/getattr on a raising property must not propagate)
+            continue
+        snapshot.append((c.attr, val))
+        try:
             if c.is_bad(val):
                 triggered.append((c, val))
         except Exception:  # nosec B112 - best-effort path
             continue
-    estimator._accuracy_caveats_warned_ = True
+    snapshot_key = tuple(snapshot)
+    if getattr(estimator, "_accuracy_caveats_warned_for_", None) == snapshot_key:
+        return
+    estimator._accuracy_caveats_warned_for_ = snapshot_key
     if not triggered:
         return
     lines = [f"  * {c.attr}={val!r}: {c.cost}. Better: {c.restore}." for c, val in triggered]

@@ -256,6 +256,46 @@ def apply_recipe(
         # bin_mean payload with bin_std.
         from .._extra_fe_families import _apply_conditional_dispersion_recipe
         return _apply_conditional_dispersion_recipe(recipe, X)
+    if recipe.kind == "conditional_quantile_rank":
+        # mrmr_audit_2026-07-20 fe_expansion.md: NUM x NUM conditional QUANTILE-RANK, the 4th member
+        # of the conditional-dispersion family (mean/std -> z-score -> full empirical rank). Replay
+        # digitises x_j with the stored quantile edges and searchsorted's x_i against the stored
+        # per-bin sorted reference values; reads only X.
+        from .._conditional_quantile_rank_fe import _apply_conditional_quantile_rank_recipe
+        return _apply_conditional_quantile_rank_recipe(recipe, X)
+    if recipe.kind == "ordinal_pattern_te":
+        # mrmr_audit_2026-07-20 fe_expansion.md: Bandt-Pompe ordinal-pattern K-fold target
+        # encoding. Replay recomputes the perm_id fresh from the raw K source columns (a
+        # deterministic, y-free pure function) and looks up the frozen TE lookup table -- the
+        # intermediate perm_id categorical is never exposed as its own column/recipe, avoiding a
+        # 2-deep nested-recipe replay the 1-deep convention here cannot order.
+        from .._ordinal_pattern_fe import _apply_ordinal_pattern_te_recipe
+        return _apply_ordinal_pattern_te_recipe(recipe, X)
+    if recipe.kind == "random_fourier":
+        # mrmr_audit_2026-07-20 fe_expansion.md: Random Fourier Features (random kitchen sinks)
+        # joint kernel-approximation block. Replay is closed-form from the frozen W-column/b/
+        # bandwidth + the raw source columns; reads only X.
+        from .._random_fourier_features_fe import _apply_random_fourier_recipe
+        return _apply_random_fourier_recipe(recipe, X)
+    if recipe.kind == "sir_direction":
+        # mrmr_audit_2026-07-20 fe_expansion.md: Sliced Inverse Regression oblique-direction
+        # projection. Replay centers the raw source columns with the frozen x_mean and projects
+        # onto the frozen direction vector; reads only X, no y (y's effect is already baked into
+        # the frozen direction at fit time).
+        from .._sliced_inverse_regression_fe import _apply_sir_direction_recipe
+        return _apply_sir_direction_recipe(recipe, X)
+    if recipe.kind == "lof_score":
+        # mrmr_audit_2026-07-20 fe_expansion.md: Local Outlier Factor / k-NN local density-ratio
+        # feature. Replay scores new rows against the frozen BOUNDED reference set (never the
+        # whole fit frame -- RAM discipline); reads only X, no y.
+        from .._lof_fe import _apply_lof_recipe
+        return _apply_lof_recipe(recipe, X)
+    if recipe.kind == "mahalanobis_density":
+        # mrmr_audit_2026-07-20 fe_expansion.md: multivariate Mahalanobis / Gaussian-copula joint
+        # density anomaly score. Replay is a closed-form quadratic form against the frozen
+        # Ledoit-Wolf mu/Sigma_inv; reads only X, no y.
+        from .._mahalanobis_density_fe import _apply_mahalanobis_density_recipe
+        return _apply_mahalanobis_density_recipe(recipe, X)
     if recipe.kind == "rankgauss":
         # Layer 104 (2026-06-01): rank-Gaussianisation (RankGauss). Replay
         # interpolates each test value's rank against the stored sorted fit

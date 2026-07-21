@@ -80,6 +80,7 @@ def _permutation_feature_importances(
     max_samples: int = _PERM_FI_MAX_SAMPLES,
     random_state: int = _PERM_FI_RANDOM_STATE,
     return_std: bool = False,
+    sample_weight: Optional[np.ndarray] = None,
 ) -> Optional[np.ndarray] | Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """Permutation importance for estimators without native FI / coef.
 
@@ -93,6 +94,13 @@ def _permutation_feature_importances(
     per-feature error-bar whiskers; ``std`` is the per-repeat dispersion
     from ``permutation_importance``. The None failure case becomes
     ``(None, None)`` to keep the tuple shape stable for the caller.
+
+    ``sample_weight`` (aligned to ``X``/``y``), when given, is forwarded to sklearn's
+    ``permutation_importance`` (which sub-samples it consistently with ``X_sub``/``y_sub``) and threaded
+    into the regression branch's ``fast_r2_score`` -- without it, FI ranking for a weighted-fit model is
+    silently computed against an unweighted R2, which can rank features differently than the objective the
+    model actually optimized. The classification branch's ``accuracy_ratio`` has no weighted variant
+    anywhere in this codebase, so it stays unweighted regardless (honestly, not silently).
     """
     # 2026-05-27: ensemble aggregator entries (EnsARITHM/HARM/MEDIAN/...)
     # arrive here with ``model=None`` because the per-member voting
@@ -118,15 +126,26 @@ def _permutation_feature_importances(
         return _fail()
     if X_arr.ndim != 2 or X_arr.shape[0] == 0 or X_arr.shape[0] != y_arr.shape[0]:
         return _fail()
+    sw_arr: Optional[np.ndarray] = None
+    if sample_weight is not None:
+        try:
+            sw_arr = sample_weight.to_numpy() if isinstance(sample_weight, pd.Series) else np.asarray(sample_weight)
+            if sw_arr.shape[0] != X_arr.shape[0]:
+                sw_arr = None
+        except Exception as exc:
+            logger.debug("permutation FI: sample_weight coercion failed; proceeding unweighted: %r", exc, exc_info=True)
+            sw_arr = None
     n = X_arr.shape[0]
     if n > max_samples:
         rng = np.random.default_rng(random_state)
         idx = rng.choice(n, size=max_samples, replace=False)
         X_sub = X_arr[idx]
         y_sub = y_arr[idx]
+        sw_sub = sw_arr[idx] if sw_arr is not None else None
     else:
         X_sub = X_arr
         y_sub = y_arr
+        sw_sub = sw_arr
     # Adaptive scorer: PyTorch-Lightning / Keras / custom predict-only
     # wrappers usually lack a sklearn-style ``.score(X, y)`` method, so
     # ``permutation_importance`` would raise "estimator does not have a
@@ -134,8 +153,13 @@ def _permutation_feature_importances(
     # to r2_score (regression) or accuracy_score (classification) based
     # on predict's dtype keeps both paths working without the caller
     # threading a task hint.
-    def _adaptive_scorer(estimator, X, y):
-        """Score ``estimator`` on a private, writeable copy of ``X`` using r2/accuracy chosen from the predictions' dtype, for wrappers lacking a sklearn-style ``.score()``."""
+    def _adaptive_scorer(estimator, X, y, sample_weight=None):
+        """Score ``estimator`` on a private, writeable copy of ``X`` using r2/accuracy chosen from the predictions' dtype, for wrappers lacking a sklearn-style ``.score()``.
+
+        ``sample_weight`` is accepted (not just ignored) because sklearn's ``permutation_importance``
+        calls ``scoring(estimator, X, y, sample_weight=sample_weight)`` whenever its own ``sample_weight``
+        argument is non-None -- an unweighted-only signature would raise ``TypeError`` on every call.
+        """
         try:
             # CatBoost.predict() flips its input ndarray to read-only; sklearn reuses one X_permuted buffer and
             # shuffles it in place across n_repeats, so predicting on it directly makes the next shuffle raise
@@ -149,7 +173,7 @@ def _permutation_feature_importances(
         if preds_arr.dtype.kind == "f" and y_arr_local.dtype.kind in {"f", "i", "u"}:
             from mlframe.metrics.core import fast_r2_score
             try:
-                return float(fast_r2_score(y_arr_local, preds_arr))
+                return float(fast_r2_score(y_arr_local, preds_arr, sample_weight=sample_weight))
             except Exception as exc:
                 logger.debug("permutation FI: fast_r2_score scoring failed; scoring as -inf: %r", exc, exc_info=True)
                 return -np.inf
@@ -171,6 +195,13 @@ def _permutation_feature_importances(
     # PyTorch matmul releases the GIL in its C++ kernels and there is
     # no model / X pickling cost. RSS overhead measured at <50 MB on
     # the same shape.
+    # This loop calls ``estimator.predict()`` concurrently from many joblib threading-backend workers on this
+    # ONE shared ``model``. For a torch/Lightning-backed estimator this is safe: ``run_with_cuda_cpu_fallback``
+    # (``_cuda_fallback.py``) serializes every Trainer-construction/predict call process-wide via a lock, so no
+    # two threads can ever be mid-forward-pass while another mutates device placement during CUDA-error
+    # recovery, and Lightning's own class-level DataLoader monkeypatching (entered on every predict call) can
+    # never race either. GPU acceleration is NOT sacrificed here -- see the lock's docstring for why forcing
+    # every concurrent predict to CPU (an earlier, narrower attempt at this fix) was unnecessary.
     try:
         import joblib
         with joblib.parallel_backend("threading", n_jobs=-1):
@@ -178,6 +209,7 @@ def _permutation_feature_importances(
                 model, X_sub, y_sub,
                 scoring=_adaptive_scorer,
                 n_repeats=n_repeats, random_state=random_state, n_jobs=-1,
+                sample_weight=sw_sub,
             )
     except Exception as exc:
         logger.warning("permutation_importance failed (%s); skipping FI.", exc)
@@ -468,6 +500,7 @@ def get_model_feature_importances(
     y: np.ndarray | pd.Series | None = None,
     nn_fi_method: str = "auto",
     return_std: bool = False,
+    sample_weight: Optional[np.ndarray] = None,
 ) -> Optional[Union[np.ndarray, pd.DataFrame]] | Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """
     Extract feature importances from a trained model.
@@ -501,6 +534,11 @@ def get_model_feature_importances(
         validation) feature matrix + target. When omitted, the
         fallback is skipped and ``None`` is returned for non-native
         estimators.
+    sample_weight : array-like, optional
+        Aligned to ``X``/``y``. Forwarded to the permutation-importance fallback (see
+        ``_permutation_feature_importances``) so a weighted-fit model's FI ranking reflects the same
+        objective it was actually trained on. Ignored for the native ``feature_importances_``/``coef_``
+        paths (those read the model's own already-weighted-fit attributes directly).
 
     Returns
     -------
@@ -597,7 +635,7 @@ def get_model_feature_importances(
                 y_arr = None
             if y_arr is not None and y_arr.ndim == 2 and y_arr.shape[1] >= len(children):
                 for j in needs_perm:
-                    child_fi = _permutation_feature_importances(children[j], X, y_arr[:, j])
+                    child_fi = _permutation_feature_importances(children[j], X, y_arr[:, j], sample_weight=sample_weight)
                     if child_fi is not None:
                         per_child[j] = np.asarray(child_fi)
         # Drop any child whose permutation also failed (None placeholder).
@@ -642,14 +680,14 @@ def get_model_feature_importances(
                 if net is not None and _n_feats is not None and _n_feats >= _CUDA_PERM_MIN_FEATURES:
                     feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
                 if feature_importances is None:
-                    feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
+                    feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True, sample_weight=sample_weight)  # type: ignore[misc]  # return_std=True always returns the tuple form
         elif nn_fi_method == "permutation_cuda" and net is not None and X is not None and y is not None:
             feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
             if feature_importances is None:
                 logger.info("CUDA-batched FI unavailable; falling back to threading permutation.")
-                feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
+                feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True, sample_weight=sample_weight)  # type: ignore[misc]  # return_std=True always returns the tuple form
         elif X is not None and y is not None:
-            feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
+            feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True, sample_weight=sample_weight)  # type: ignore[misc]  # return_std=True always returns the tuple form
 
     if feature_importances is not None:
         feature_importances = np.asarray(feature_importances, dtype=np.float64)
@@ -686,6 +724,7 @@ def plot_model_feature_importances(
     X: np.ndarray | pd.DataFrame | None = None,
     y: np.ndarray | pd.Series | None = None,
     nn_fi_method: str = "auto",
+    sample_weight: Optional[np.ndarray] = None,
 ) -> Optional[np.ndarray]:
     """
     Plot feature importances for a trained model.
@@ -710,6 +749,8 @@ def plot_model_feature_importances(
         If True, only show features with positive importance.
     plot_file : str, default=""
         Path for saving the plot.
+    sample_weight : array-like, optional
+        Forwarded to the permutation-importance fallback -- see ``get_model_feature_importances``.
 
     Returns
     -------
@@ -717,7 +758,7 @@ def plot_model_feature_importances(
         Feature importances array, or None if extraction failed.
     """
     feature_importances, feature_importances_std = get_model_feature_importances(
-        model=model, columns=columns, X=X, y=y, nn_fi_method=nn_fi_method, return_std=True,
+        model=model, columns=columns, X=X, y=y, nn_fi_method=nn_fi_method, return_std=True, sample_weight=sample_weight,
     )  # type: ignore[misc]  # return_std=True always returns the tuple form
 
     if feature_importances is not None:

@@ -125,8 +125,7 @@ def compose_pair_fe(
                     optimizer=optimizer,
                 )
             except Exception as e:
-                if verbose:
-                    logger.debug("pair (%d,%d) FE failed: %s", i, j, e)
+                logger.debug("compose_pair_fe: pair (%d,%d) FE failed: %s", i, j, e)
                 continue
             if res is None:
                 continue
@@ -222,7 +221,16 @@ def validate_pair_fe_cv(
                 baseline_uplift_threshold=0.0, optimizer=optimizer,
                 seed=seed + fold_idx,
             )
-        except Exception:
+        except Exception as exc:
+            # mrmr_audit_2026-07-20 B-23: log every swallow -- this try/except previously converted ANY
+            # exception (not just expected optimiser non-convergence) to a silent res=None, corrupting the
+            # honest OOS-uplift statistic this function exists to report with zero trace of WHY a fold's
+            # score is missing.
+            logger.warning(
+                "validate_pair_fe_cv: optimise_hermite_pair raised on fold %d (%s: %s); "
+                "treating this fold as a non-informative (mi=0) result.",
+                fold_idx, type(exc).__name__, exc,
+            )
             res = None
         if res is None:
             oos_per_fold.append({

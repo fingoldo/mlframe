@@ -234,15 +234,27 @@ class TestOrder2MaxTFloorDisabled:
     """Groups tests covering TestOrder2MaxTFloorDisabled."""
     def test_perms_zero_matches_explicit_disable(self):
         # Two perms=0 runs are trivially identical; the meaningful check is that
-        # perms=0 takes the no-op path (floor never computed). We assert the
-        # engineered set is exactly the 3 genuine pairs (the loose-gate fixture's
-        # floor-OFF output minus nothing): proves the disable path is live.
+        # perms=0 takes the no-op path (floor never computed). We assert all 3
+        # genuine synergy pairs are COVERED (proves the disable path is live) --
+        # NOT that they surface as 3 separate features: order-2 escalation can
+        # legitimately FUSE two pairs into one compound feature (see
+        # ``_covered_genuine_pairs``'s docstring), so a raw feature-count is a
+        # stale shape proxy for the real contract.
+        #
+        # n_noise=10 (not the module default 40): (x3,x4)'s raw joint MI is genuinely weak on
+        # this fixture (MDLP collapses x3's marginal to 2 bins since x3 alone carries ~0 info
+        # about y, which then dilutes the discretised joint-MI pre-filter for the pair) --
+        # measured rank #947/1031 of candidate synergy pairs by joint MI at n_noise=40, buried
+        # far below the fe_synergy_max_pairs=20 budget cut regardless of the floor. This test's
+        # purpose is only to prove the disable path is live, not to exercise budget-crowding
+        # (that is Gate A's job, on its own wider n_noise=74 fixture) -- a narrower noise pool
+        # here lets (x3,x4) clear the budget via its own weak-but-present signal.
         """Perms zero matches explicit disable."""
-        eng = _fit_engineered(perms=0)
-        gen, _spur = _classify(eng)
-        assert len(gen) >= 3, f"floor-disabled run lost genuine pairs: {eng}"
+        eng = _fit_engineered(perms=0, n_noise=10)
+        cov = _covered_genuine_pairs(eng)
+        assert cov == {0, 1, 2}, f"floor-disabled run lost genuine pairs: covered={cov}, eng={eng}"
         # And re-running is deterministic.
-        eng2 = _fit_engineered(perms=0)
+        eng2 = _fit_engineered(perms=0, n_noise=10)
         assert eng == eng2, f"floor-disabled run non-deterministic: {eng} vs {eng2}"
 
     def test_default_gates_floor_removes_spurious_keeps_genuine(self):

@@ -315,6 +315,14 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # exploratory fit); other recognised keys: ``mdlp_alpha``, ``mdlp_n_permutations``,
         # ``mdlp_bonferroni``, ``mdlp_max_y_classes``, ``mdlp_backend``, ``mdlp_scaled_min_split``.
         nbins_strategy_kwargs: dict | None = None,
+        # Shared per-column bin-count ceiling applied to every adaptive strategy whose own formula
+        # has no natural upper bound (knuth, bayesian_blocks, freedman_diaconis) -- see
+        # ``_adaptive_nbins.MAX_ADAPTIVE_NBINS``. 256 matches MDLP's own implicit ceiling
+        # (max_depth=8 -> 2**8 leaves), so every strategy answers "how many bins can one column
+        # produce" the same way by default. Lower it (e.g. 64) to bound downstream pairwise-MI cost
+        # further on very wide / high-row-count real data; per-method overrides
+        # (``nbins_strategy_kwargs={"knuth_m_max_cap": ..., "bb_m_max_cap": ...}``) still win when set.
+        max_adaptive_nbins: int = 256,
         # Large-n REGRESSION adaptive quantization gate. On a large-n regression target the supervised MDLP per-feature binning
         # under-resolves a heavy-tailed continuous y: the 180-cell large-n MRMR campaign (reg n=100k, 15 seeds) measured a 15/15
         # paired win for fixed 20-bin quantile over MDLP -- holdout R2 0.597 vs 0.481 (+0.116, std 0.0025) and F1 0.909 vs 0.667
@@ -1965,9 +1973,15 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # engineered column's ``mrmr_gain`` is attributed to its recipe kind's family; a
         # ``credit="loo"`` (leave-one-family-out) upgrade is specced for future work when families'
         # outputs are strongly redundant (additive credit double-counts shared value; LOO would not).
-        # Default OFF (opt-in until benched across real datasets -- family usefulness is dataset-
-        # dependent by nature, see the plan's acceptance criteria).
-        fe_budget_learning: bool = False,
+        # Default "auto" (opt-in-once-then-remembered, not opt-in-every-call): "auto" probes the
+        # persisted-budget cache for THIS dataset's fingerprint before the fit and behaves exactly like
+        # ``False`` if nothing is cached there -- it can never silently start learning on a dataset that
+        # has never once been fit with ``fe_budget_learning=True`` explicitly, since that persisted cache
+        # entry is the only way the probe finds anything. Once a caller has opted in at least once for a
+        # given dataset, later "auto" fits on the SAME dataset (e.g. a daily retraining job re-running
+        # this exact MRMR config) resume learning without the caller re-passing ``True`` every call.
+        # Pass ``True``/``False`` explicitly to bypass the probe entirely (unconditionally on/off).
+        fe_budget_learning: bool | str = "auto",
         fe_budget_kwargs: Optional[dict] = None,
         # SEMI-SUPERVISED basis-preprocess fitting
         # (sibling module ``_semi_supervised_fe``). Independent opt-in (does
@@ -2247,6 +2261,17 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # equal to Layer 21 so recipes reuse the ``orth_univariate`` kind
         # and replay is shared infrastructure. Default OFF preserves
         # pickle byte-equivalence.
+        # mrmr_audit_2026-07-16 finding #11 (per-column LCB ratio-to-own-raw-baseline exploding on
+        # weak discrete marginals, letting HSIC always win) was fixed in 1bf0a21db (additive
+        # headroom normalization: (lcb - raw_max) / scale, not a ratio) -- default=False is no
+        # longer gated on a correctness bug. A quick 5-seed AUC benchmark (mixed linear + non-
+        # monotone-cos + high-frequency-sin synthetic, 2026-07-20) came back NEUTRAL: identical
+        # selection and holdout AUC on vs off, because the default plug-in-MI scorer over the
+        # existing Chebyshev degree-2/3 basis already fully captured that signal, leaving no
+        # headroom for the auto-scorer pool to demonstrate an edge. Not evidence either way; a real
+        # decision needs a fixture where the default scorer genuinely under-detects (e.g. a signal
+        # right at the edge of what degree-2/3 Chebyshev can fit) before flipping this default,
+        # given the added n_boot x 9-scorer bootstrap cost per engineered column.
         fe_hybrid_orth_auto_scorer_enable: bool = False,
         fe_hybrid_orth_auto_scorer_n_boot: int = 5,
         # ENSEMBLE-OF-SCORERS rank-fusion for hybrid
@@ -2760,6 +2785,80 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         fe_conditional_dispersion_n_bins: int = 10,
         fe_conditional_dispersion_top_k: int = 10,
         fe_conditional_dispersion_max_pair_cols: int = 6,
+        # CONDITIONAL QUANTILE-RANK (mrmr_audit_2026-07-20 fe_expansion.md): 4th member of the
+        # conditional-dispersion family (grouped_agg mean/std -> composite_group_agg ->
+        # conditional-dispersion z-score/|z| -> conditional quantile-rank). Bin x_j; emit
+        # q(row) = empirical_rank(x_i within bin(x_j)) -- the row's TRUE within-bin percentile,
+        # not a z-score. On a heavy-tailed/skewed conditional distribution a z-score badly
+        # misrepresents "how extreme" a row is (mean/std is not a sufficient statistic for a
+        # skewed shape); quantile-rank resolves it directly. MI-gateable and designed to be
+        # SELF-LIMITING the same way the sibling conditional_dispersion family is (on a
+        # homoscedastic, non-skewed conditional distribution quantile-rank is a near-monotone
+        # reparametrization of the raw column and should clear no uplift). DEFAULT OFF for now,
+        # unlike the sibling: conditional_dispersion earned its default-ON only after the existing
+        # regression/biz_value/fuzz-combo suite (which already treats fe_conditional_dispersion_
+        # enable as a toggle axis) validated it did not perturb genuine-feature recovery anywhere
+        # -- this sibling has not yet been run through that same validation, so default OFF avoids
+        # an unvalidated interaction with dozens of existing fixtures. Flip once validated the same
+        # way. Leak-safe replay (kind ``conditional_quantile_rank``) stores x_j quantile edges + the
+        # per-bin sorted x_i reference values; replay is closed-form searchsorted, no y.
+        fe_conditional_quantile_rank_enable: bool = False,
+        fe_conditional_quantile_rank_cols: tuple = (),
+        fe_conditional_quantile_rank_n_bins: int = 10,
+        fe_conditional_quantile_rank_top_k: int = 10,
+        fe_conditional_quantile_rank_max_pair_cols: int = 6,
+        # mrmr_audit_2026-07-20 fe_expansion.md: Bandt-Pompe ordinal-pattern K-fold target
+        # encoding. Default OFF for the same reason as its sibling above -- brand-new, not yet
+        # validated against the existing fuzz-combo/regression suite. Leak-safe replay (kind
+        # ``ordinal_pattern_te``) recomputes the perm_id fresh from the raw K source columns and
+        # looks up a frozen TE lookup table; no y reference is captured in the recipe.
+        fe_ordinal_pattern_enable: bool = False,
+        fe_ordinal_pattern_cols: tuple = (),
+        fe_ordinal_pattern_k: int = 3,
+        fe_ordinal_pattern_max_cols_for_tuples: int = 5,
+        fe_ordinal_pattern_n_folds: int = 5,
+        fe_ordinal_pattern_smoothing: float = 10.0,
+        fe_ordinal_pattern_top_k: int = 5,
+        # mrmr_audit_2026-07-20 fe_expansion.md: Random Fourier Features (random kitchen sinks)
+        # joint kernel-approximation block. Default OFF -- brand-new, not yet validated against
+        # the existing fuzz-combo/regression suite. Leak-safe replay (kind ``random_fourier``)
+        # stores the frozen W-column/phase/bandwidth; no y reference is captured in the recipe.
+        fe_random_fourier_enable: bool = False,
+        fe_random_fourier_cols: tuple = (),
+        fe_random_fourier_m: int = 64,
+        fe_random_fourier_bandwidth: Optional[float] = None,
+        fe_random_fourier_max_cols_for_block: int = 8,
+        fe_random_fourier_top_k: int = 8,
+        # mrmr_audit_2026-07-20 fe_expansion.md: Sliced Inverse Regression (SIR) oblique-direction
+        # projection feature. Default OFF -- brand-new, not yet validated against the existing
+        # fuzz-combo/regression suite. Leak-safe replay (kind ``sir_direction``) stores the frozen
+        # centering x_mean + direction vector; y's effect is already baked into the frozen
+        # direction at fit time, so the recipe itself carries no y reference.
+        fe_sir_direction_enable: bool = False,
+        fe_sir_direction_cols: tuple = (),
+        fe_sir_direction_n_slices: int = 10,
+        fe_sir_direction_n_directions: int = 2,
+        fe_sir_direction_max_cols_for_block: int = 8,
+        fe_sir_direction_top_k: int = 2,
+        # mrmr_audit_2026-07-20 fe_expansion.md: Local Outlier Factor / k-NN local density-ratio
+        # feature. Default OFF -- brand-new, not yet validated against the existing fuzz-combo/
+        # regression suite. Leak-safe replay (kind ``lof_score``) stores a BOUNDED reference
+        # sample (``fe_lof_max_ref`` rows, never the whole fit frame -- RAM discipline) + its
+        # precomputed density internals; no y reference is captured in the recipe.
+        fe_lof_enable: bool = False,
+        fe_lof_cols: tuple = (),
+        fe_lof_k: int = 20,
+        fe_lof_max_ref: int = 2000,
+        fe_lof_max_cols_for_block: int = 8,
+        fe_lof_top_k: int = 1,
+        # mrmr_audit_2026-07-20 fe_expansion.md: multivariate Mahalanobis / Gaussian-copula joint
+        # density anomaly score. Default OFF -- brand-new, not yet validated against the existing
+        # fuzz-combo/regression suite. Leak-safe replay (kind ``mahalanobis_density``) stores the
+        # frozen Ledoit-Wolf mu/Sigma_inv; no y reference is captured in the recipe.
+        fe_mahalanobis_density_enable: bool = False,
+        fe_mahalanobis_density_cols: tuple = (),
+        fe_mahalanobis_density_max_cols_for_block: int = 20,
+        fe_mahalanobis_density_top_k: int = 1,
         # HAAR WAVELET / localized multiresolution basis (backlog #13, 2026-06-09).
         # A NEW operator for LOCALIZED bump / multiscale piecewise structure the
         # catalog cannot capture: y jumps only inside a narrow sub-window of x, or
@@ -3235,13 +3334,32 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # ORIGINAL ctor values first (restored in the ``finally`` block below) so a crashing fit
         # never leaves the instance with a scaled-down quota baked in for a later ``get_params()``.
         _fe_budget_quota_snapshot: dict[str, int] = {}
-        if bool(getattr(self, "fe_budget_learning", False)):
+        _fe_budget_setting = getattr(self, "fe_budget_learning", False)
+        _fe_budget_learning_effective = bool(_fe_budget_setting)
+        _fe_loaded_budgets: Optional[dict[str, float]] = None
+        if isinstance(_fe_budget_setting, str):
+            if _fe_budget_setting != "auto":
+                raise ValueError(f"fe_budget_learning must be True, False, or 'auto'; got {_fe_budget_setting!r}")
             try:
                 from .._fe_family_budget import dataset_fingerprint as _fe_budget_fp, load_budgets as _fe_load_budgets
 
                 _fe_budget_cols = list(X.columns) if hasattr(X, "columns") else [str(i) for i in range(np.asarray(X).shape[1])]
                 self._fe_budget_fingerprint_ = _fe_budget_fp(len(_fe_budget_cols), _fe_budget_cols)
                 _fe_loaded_budgets = _fe_load_budgets(fingerprint=self._fe_budget_fingerprint_)
+                # "auto" fires ONLY when a previous explicit opt-in already persisted a budget for this
+                # exact dataset fingerprint -- otherwise it is a strict no-op, identical to False.
+                _fe_budget_learning_effective = _fe_loaded_budgets is not None
+            except Exception as _fe_budget_probe_exc:
+                logger.warning("[MRMR] fe_budget_learning='auto': cache probe failed (%s); treating as disabled this fit.", _fe_budget_probe_exc)
+                _fe_budget_learning_effective = False
+        if _fe_budget_learning_effective:
+            try:
+                from .._fe_family_budget import dataset_fingerprint as _fe_budget_fp, load_budgets as _fe_load_budgets
+
+                _fe_budget_cols = list(X.columns) if hasattr(X, "columns") else [str(i) for i in range(np.asarray(X).shape[1])]
+                self._fe_budget_fingerprint_ = _fe_budget_fp(len(_fe_budget_cols), _fe_budget_cols)
+                if _fe_loaded_budgets is None:
+                    _fe_loaded_budgets = _fe_load_budgets(fingerprint=self._fe_budget_fingerprint_)
                 # ``_FE_FAMILY_WALL`` (``_fe_family_timing.py``) is PROCESS-GLOBAL by design (nested
                 # fits / composite-discovery passes accumulate into it so a whole-run summary via
                 # ``log_fe_family_summary()`` reflects the whole suite) -- it is never reset here
@@ -3822,7 +3940,11 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             # whether the pre-fit quota scaling above succeeded (visibility is half the feature's
             # value even before enforcement, per the plan). Never allowed to affect the selection
             # result itself -- wrapped defensively, same posture as provenance population above.
-            if bool(getattr(self, "fe_budget_learning", False)):
+            # Reuses the SAME resolved flag the pre-fit block computed above ("auto" only persists /
+            # reallocates when it actually fired this fit -- a probe that found nothing cached must not
+            # start writing a NEW cache entry, or "auto" would silently flip itself on forever after one
+            # fit, defeating the whole "opt-in-once" contract).
+            if _fe_budget_learning_effective:
                 try:
                     from .._fe_family_budget import (
                         family_credit as _fe_family_credit,

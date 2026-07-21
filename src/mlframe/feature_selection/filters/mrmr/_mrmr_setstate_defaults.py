@@ -286,6 +286,55 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_conditional_dispersion_n_bins": 10,
     "fe_conditional_dispersion_top_k": 10,
     "fe_conditional_dispersion_max_pair_cols": 6,
+    # Conditional quantile-rank (mrmr_audit_2026-07-20 fe_expansion.md). Default OFF in both
+    # legacy pickles and the live ctor -- not yet validated against the existing regression/
+    # biz_value/fuzz-combo suite the way the sibling conditional_dispersion family was before its
+    # own default flipped to ON.
+    "fe_conditional_quantile_rank_enable": False,
+    "fe_conditional_quantile_rank_cols": (),
+    "fe_conditional_quantile_rank_n_bins": 10,
+    "fe_conditional_quantile_rank_top_k": 10,
+    "fe_conditional_quantile_rank_max_pair_cols": 6,
+    # Bandt-Pompe ordinal-pattern K-fold TE (mrmr_audit_2026-07-20). Default OFF in both legacy
+    # pickles and the live ctor -- brand-new, not yet validated against the existing suite.
+    "fe_ordinal_pattern_enable": False,
+    "fe_ordinal_pattern_cols": (),
+    "fe_ordinal_pattern_k": 3,
+    "fe_ordinal_pattern_max_cols_for_tuples": 5,
+    "fe_ordinal_pattern_n_folds": 5,
+    "fe_ordinal_pattern_smoothing": 10.0,
+    "fe_ordinal_pattern_top_k": 5,
+    # Random Fourier Features joint kernel-approximation block (mrmr_audit_2026-07-20). Default
+    # OFF in both legacy pickles and the live ctor -- brand-new, not yet validated.
+    "fe_random_fourier_enable": False,
+    "fe_random_fourier_cols": (),
+    "fe_random_fourier_m": 64,
+    "fe_random_fourier_bandwidth": None,
+    "fe_random_fourier_max_cols_for_block": 8,
+    "fe_random_fourier_top_k": 8,
+    # Sliced Inverse Regression oblique-direction projection (mrmr_audit_2026-07-20). Default OFF
+    # in both legacy pickles and the live ctor -- brand-new, not yet validated.
+    "fe_sir_direction_enable": False,
+    "fe_sir_direction_cols": (),
+    "fe_sir_direction_n_slices": 10,
+    "fe_sir_direction_n_directions": 2,
+    "fe_sir_direction_max_cols_for_block": 8,
+    "fe_sir_direction_top_k": 2,
+    # Local Outlier Factor / k-NN local density-ratio (mrmr_audit_2026-07-20). Default OFF in both
+    # legacy pickles and the live ctor -- brand-new, not yet validated.
+    "fe_lof_enable": False,
+    "fe_lof_cols": (),
+    "fe_lof_k": 20,
+    "fe_lof_max_ref": 2000,
+    "fe_lof_max_cols_for_block": 8,
+    "fe_lof_top_k": 1,
+    # Multivariate Mahalanobis / Gaussian-copula joint density anomaly score
+    # (mrmr_audit_2026-07-20). Default OFF in both legacy pickles and the live ctor -- brand-new,
+    # not yet validated.
+    "fe_mahalanobis_density_enable": False,
+    "fe_mahalanobis_density_cols": (),
+    "fe_mahalanobis_density_max_cols_for_block": 20,
+    "fe_mahalanobis_density_top_k": 1,
     # Haar wavelet basis (backlog #13). Pre-#13 pickles default OFF so the
     # legacy reload path is byte-identical (the live default is ON for new
     # fits via __init__); the fitted-attr list defaults empty.

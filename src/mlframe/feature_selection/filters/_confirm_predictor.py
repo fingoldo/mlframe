@@ -559,16 +559,9 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
             _confirm_use_gpu = use_gpu
             if _confirm_use_gpu:
                 try:
-                    import os as _os
                     from ._analytic_mi_null import analytic_null_min_n, analytic_null_enabled
-                    _cvd = _os.environ.get("CUDA_VISIBLE_DEVICES", None)
-                    _gpu_disabled_env = _os.environ.get("MLFRAME_DISABLE_GPU", "") == "1"
-                    _gpu_hidden_env = _cvd is not None and _cvd.strip() == ""
-                    _gpu_off = False
-                    if _gpu_disabled_env:
-                        _gpu_off = True
-                    elif _gpu_hidden_env:
-                        _gpu_off = True
+                    from ._gpu_policy import gpu_globally_disabled
+                    _gpu_off = gpu_globally_disabled()
                     _analytic_n = analytic_null_enabled() and int(factors_data.shape[0]) >= analytic_null_min_n()
                     if _gpu_off or _analytic_n:
                         _confirm_use_gpu = False

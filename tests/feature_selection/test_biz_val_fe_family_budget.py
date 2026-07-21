@@ -299,3 +299,65 @@ def test_biz_val_fe_budget_floor_prevents_starvation(tmp_path, monkeypatch):
     assert (
         quadruplet_after_flip > quadruplet_before_flip
     ), f"quadruplet's budget did not recover after the bed flip made it the useful family: before={quadruplet_before_flip:.4f}, after={quadruplet_after_flip:.4f}"
+
+
+def test_fe_budget_learning_auto_is_noop_with_no_persisted_cache(tmp_path, monkeypatch):
+    """``fe_budget_learning="auto"`` (the default) on a dataset fingerprint with NOTHING cached yet
+    behaves as a strict no-op -- selection is bit-identical to an explicit ``fe_budget_learning=False``
+    fit, and no ``fe_family_budget_`` report is populated (proof "auto" never silently starts learning
+    on its own; only an explicit ``True`` fit can create the first cache entry)."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    monkeypatch.setattr("mlframe.feature_selection.filters._fe_family_budget._BUDGET_CACHE_DIR", tmp_path)
+    X, y = _make_triplet_useful_bed(seed=40)
+
+    def _fit(budget_learning):
+        """One fit with the given fe_budget_learning setting; returns the fitted estimator."""
+        m = MRMR(
+            fe_hybrid_orth_triplet_enable=True,
+            fe_hybrid_orth_quadruplet_enable=True,
+            fe_budget_learning=budget_learning,
+            verbose=0,
+            random_state=0,
+        )
+        m.fit(X, y)
+        return m
+
+    m_false = _fit(False)
+    m_auto = _fit("auto")
+
+    assert getattr(m_auto, "fe_family_budget_", None) is None, "auto with no cached budget must not populate a report -- it never fired"
+    assert sorted(m_false.get_feature_names_out()) == sorted(m_auto.get_feature_names_out()), "auto with no cached budget diverged from an explicit False fit"
+
+
+def test_fe_budget_learning_auto_resumes_after_one_explicit_opt_in(tmp_path):
+    """Once a caller explicitly opts in with ``fe_budget_learning=True`` for a dataset fingerprint (fit
+    1, persisting a budget), a LATER fit on the SAME data using the default ``"auto"`` picks up and
+    continues learning from that persisted budget without the caller passing ``True`` again -- proof
+    the "opt-in-once-then-remembered" contract actually works end-to-end, not just at the cache layer."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    def _fit(cache_dir, budget_learning):
+        """One fit with an isolated budget-cache dir and the given fe_budget_learning setting; returns the fitted estimator."""
+        import mlframe.feature_selection.filters._fe_family_budget as fb
+
+        fb._BUDGET_CACHE_DIR = cache_dir
+        X, y = _make_triplet_useful_bed(seed=41)
+        m = MRMR(
+            fe_hybrid_orth_triplet_enable=True,
+            fe_hybrid_orth_quadruplet_enable=True,
+            fe_hybrid_orth_quadruplet_seed_k=8,
+            fe_hybrid_orth_quadruplet_top_count=6,
+            fe_budget_learning=budget_learning,
+            verbose=0,
+            random_state=0,
+        )
+        m.fit(X, y)
+        return m
+
+    m1 = _fit(tmp_path, True)  # explicit opt-in, persists a budget
+    m2 = _fit(tmp_path, "auto")  # default, same fingerprint, must pick up fit 1's persisted budget
+
+    assert m1.fe_family_budget_ is not None, "explicit fit 1 did not populate a budget report"
+    assert m2.fe_family_budget_ is not None, "auto fit 2 did not detect and act on the cache fit 1 persisted"
+    assert m2.fe_family_budget_["budgets_after"] != {}, "auto fit 2's reallocation report is empty"

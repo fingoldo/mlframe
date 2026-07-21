@@ -242,10 +242,29 @@ def _maybe_relax_prevalence_for_tail_concentrated_pool(
         return fe_min_pair_mi_prevalence  # any failure keeps the strict prevalence bar (byte-identical)
 
 
+def _get_col_codes_i64(data, col_idx: int, cache: "dict | None") -> np.ndarray:
+    """Contiguous int64 codes for one column of ``data``, memoized per column index when ``cache`` is
+    given. ``data[:, col_idx]`` on a row-major 2D array is never contiguous (column stride skips every
+    other column), so ``np.ascontiguousarray`` on it is a REAL copy every call, not the near-free no-op
+    it is on an already-contiguous 1-D array. A small set of bootstrap/anchor columns gets paired against
+    many different partner columns across the prevalence-gate pre-pass (found live, wellbore-50k cProfile:
+    41902 ``ascontiguousarray`` calls / 22.7s tottime here, confirmed by microbench that a column-slice
+    copy costs ~1ms vs ~0.4us for an already-contiguous array) -- caching collapses the repeats onto one
+    copy per distinct column actually touched within the pre-pass."""
+    if cache is None:
+        return np.ascontiguousarray(data[:, int(col_idx)], dtype=np.int64)
+    cached = cache.get(col_idx)
+    if cached is None:
+        cached = np.ascontiguousarray(data[:, int(col_idx)], dtype=np.int64)
+        cache[col_idx] = cached
+    return cached
+
+
 def _resolve_pair_prevalence_gate(
     raw_vars_pair, pair_mi, ind_elems_mi_sum, *,
     self, data, classes_y, _pair_resident, _pair_mm_bias, _pair_maxt_floor,
     _synergy_added_idx, fe_min_pair_mi_prevalence, _synergy_prev_resolved, _prevalence_debias_auto,
+    _col_codes_cache=None,
 ):
     """Pure (no side effects on ``vars_usage_counter`` / ``prospective_pairs`` / the rejection ledger)
     resolution of the prevalence + order-2 maxT gate state for ONE pair -- factored out of the main loop
@@ -293,8 +312,8 @@ def _resolve_pair_prevalence_gate(
             try:
                 from .._fe_cmi_redundancy_gate import _conditional_perm_null
                 from .._mi_greedy_cmi_fe import _cmi_from_binned
-                _bcodes = np.ascontiguousarray(data[:, int(_boot_idx)], dtype=np.int64)
-                _pcodes = np.ascontiguousarray(data[:, int(_partner_idx)], dtype=np.int64)
+                _bcodes = _get_col_codes_i64(data, _boot_idx, _col_codes_cache)
+                _pcodes = _get_col_codes_i64(data, _partner_idx, _col_codes_cache)
                 _yc = np.ascontiguousarray(classes_y, dtype=np.int64)
                 # SCORING SUBSAMPLE (2026-07-03). This bootstrap-prevalence relaxation runs an observed
                 # CMI + a within-stratum permutation null on the FULL 1M pair codes -- one of the top
@@ -350,9 +369,12 @@ def _prepass_gate_and_usability_candidates(
     both operands resolve) for the batched verdict pass. Filter conditions mirror ``score_prospective_pairs``'
     main loop's own OWN filter chain exactly (``len==2``, not in ``checked_pairs``, both operands considered,
     ``ind_elems_mi_sum>0``) so the returned ``_gate_cache`` has an entry for every pair the main loop will
-    look up."""
+    look up. A single ``_col_codes_cache`` dict is shared across every pair in this walk (``data`` is fixed
+    for the whole call) so the asymmetric-synergy branch's bootstrap/anchor column codes are copied at most
+    once per distinct column touched, not once per pair -- see ``_get_col_codes_i64``."""
     _gate_cache: dict = {}
     _need_usability: list = []
+    _col_codes_cache: dict = {}
     for _pk, _pmi in sort_dict_by_value(cached_MIs).items():
         if len(_pk) != 2 or _pk in checked_pairs:
             continue
@@ -361,7 +383,7 @@ def _prepass_gate_and_usability_candidates(
         _ies = cached_MIs[(_pk[0],)] + cached_MIs[(_pk[1],)]
         if _ies <= 0:
             continue
-        _gate_cache[_pk] = _resolve_pair_prevalence_gate(_pk, _pmi, _ies, **gate_kwargs)
+        _gate_cache[_pk] = _resolve_pair_prevalence_gate(_pk, _pmi, _ies, **gate_kwargs, _col_codes_cache=_col_codes_cache)
         if not usability_enabled or not yc_shape_ok:
             continue
         _pp, _pt, _is_syn_ign, _prevt_ign, _floorcmp_ign = _gate_cache[_pk]
