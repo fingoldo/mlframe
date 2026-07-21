@@ -2829,6 +2829,17 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         fe_random_fourier_bandwidth: Optional[float] = None,
         fe_random_fourier_max_cols_for_block: int = 8,
         fe_random_fourier_top_k: int = 8,
+        # mrmr_audit_2026-07-20 fe_expansion.md: Sliced Inverse Regression (SIR) oblique-direction
+        # projection feature. Default OFF -- brand-new, not yet validated against the existing
+        # fuzz-combo/regression suite. Leak-safe replay (kind ``sir_direction``) stores the frozen
+        # centering x_mean + direction vector; y's effect is already baked into the frozen
+        # direction at fit time, so the recipe itself carries no y reference.
+        fe_sir_direction_enable: bool = False,
+        fe_sir_direction_cols: tuple = (),
+        fe_sir_direction_n_slices: int = 10,
+        fe_sir_direction_n_directions: int = 2,
+        fe_sir_direction_max_cols_for_block: int = 8,
+        fe_sir_direction_top_k: int = 2,
         # HAAR WAVELET / localized multiresolution basis (backlog #13, 2026-06-09).
         # A NEW operator for LOCALIZED bump / multiscale piecewise structure the
         # catalog cannot capture: y jumps only inside a narrow sub-window of x, or

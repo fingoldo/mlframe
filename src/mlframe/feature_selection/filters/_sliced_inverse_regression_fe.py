@@ -20,12 +20,25 @@ screen) picks it up trivially.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Callable, Optional, Sequence
+
 import numpy as np
+import pandas as pd
 import scipy.linalg
 
 from ._mi_greedy_cmi_fe import _quantile_bin
 
-__all__ = ["sir_direction_features"]
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
+
+__all__ = [
+    "sir_direction_features",
+    "engineered_name_sir_direction",
+    "generate_sir_direction_features",
+    "apply_sir_direction",
+    "build_sir_direction_recipe",
+    "hybrid_sir_direction_fe",
+]
 
 
 def sir_direction_features(
@@ -110,3 +123,174 @@ def sir_direction_features(
     k = min(n_directions, p)
     top_dirs = eigvecs[:, order[:k]]
     return np.asarray(Xc @ top_dirs)
+
+
+def engineered_name_sir_direction(cols: Sequence[str], idx: int) -> str:
+    """Deterministic engineered-column name for the ``idx``-th SIR projection direction."""
+    return "sir__" + "_".join(str(c) for c in cols) + f"__dir{idx}"
+
+
+def generate_sir_direction_features(
+    X: "pd.DataFrame", cols: Sequence[str], y: np.ndarray, *, n_slices: int = 10, n_directions: int = 2
+) -> "tuple[pd.DataFrame, dict]":
+    """Fit SIR over ``cols``: compute+freeze the between-slice-mean eigendirections ``v`` and the
+    centering ``x_mean`` (both pure functions of X/y, frozen once at fit time), emit
+    ``n_directions`` named projection columns. Returns ``(enc_df, payload)`` where ``payload``
+    carries the frozen ``x_mean``/``v`` arrays needed for leak-safe replay (``y`` itself is NOT
+    stored -- only its already-baked-in effect on the frozen direction vectors)."""
+    cols = [c for c in cols if c in X.columns]
+    if len(cols) < 1:
+        return pd.DataFrame(index=X.index), {}
+    X_cols = X[cols].to_numpy(dtype=np.float64)
+    n, p = X_cols.shape
+    y_arr = np.asarray(y, dtype=np.float64).ravel()
+    if n < 2 or p < 1 or y_arr.size != n or not np.isfinite(X_cols).all() or not np.isfinite(y_arr).all():
+        return pd.DataFrame(index=X.index), {}
+
+    slice_ids = _quantile_bin(y_arr, nbins=n_slices)
+    uniq_slices = np.unique(slice_ids)
+    if uniq_slices.size < 2:
+        return pd.DataFrame(index=X.index), {}
+
+    x_mean = X_cols.mean(axis=0)
+    Xc = X_cols - x_mean
+    Sigma = (Xc.T @ Xc) / n
+
+    M = np.zeros((p, p), dtype=np.float64)
+    for s in uniq_slices:
+        mask = slice_ids == s
+        n_h = int(mask.sum())
+        if n_h < 1:
+            continue
+        slice_mean_dev = X_cols[mask].mean(axis=0) - x_mean
+        M += (n_h / n) * np.outer(slice_mean_dev, slice_mean_dev)
+
+    trace = float(np.trace(Sigma))
+    if trace <= 1e-12:
+        return pd.DataFrame(index=X.index), {}
+    Sigma_ridge = Sigma + (1e-8 * trace / p) * np.eye(p)
+
+    try:
+        eigvals, eigvecs = scipy.linalg.eigh(M, Sigma_ridge)
+    except (scipy.linalg.LinAlgError, ValueError):
+        return pd.DataFrame(index=X.index), {}
+
+    order = np.argsort(eigvals)[::-1]
+    k = min(int(n_directions), p)
+    top_dirs = eigvecs[:, order[:k]]
+    Z = Xc @ top_dirs
+    names = [engineered_name_sir_direction(cols, i) for i in range(k)]
+    enc = pd.DataFrame(Z, columns=names, index=X.index)
+    payload = {"cols": tuple(cols), "x_mean": x_mean.copy(), "v": top_dirs.copy()}
+    return enc, payload
+
+
+def apply_sir_direction(X_test: "pd.DataFrame", payload: dict) -> "pd.DataFrame":
+    """Replay a fitted SIR block on new rows: project the raw source columns onto the frozen
+    directions after centering with the frozen ``x_mean`` -- reads only X, no ``y``."""
+    cols = list(payload["cols"])
+    missing = [c for c in cols if c not in X_test.columns]
+    if missing:
+        raise KeyError(f"apply_sir_direction: missing column(s) {missing} from X_test")
+    X_cols = X_test[cols].to_numpy(dtype=np.float64)
+    Xc = X_cols - payload["x_mean"]
+    Z = Xc @ payload["v"]
+    names = [engineered_name_sir_direction(cols, i) for i in range(Z.shape[1])]
+    return pd.DataFrame(Z, columns=names, index=X_test.index)
+
+
+def build_sir_direction_recipe(*, name: str, idx: int, cols: Sequence[str], x_mean: np.ndarray, v: np.ndarray) -> "EngineeredRecipe":
+    """Frozen recipe for one SIR projection-direction column. Stores the centering ``x_mean`` +
+    the single direction vector ``v[:, idx]``; replay reads only X, so transform() is
+    leakage-free (the recipe never stores ``y``, only its already-baked-in effect on ``v``)."""
+    from .engineered_recipes import EngineeredRecipe
+
+    return EngineeredRecipe(
+        name=name,
+        kind="sir_direction",
+        src_names=tuple(str(c) for c in cols),
+        extra={"cols": tuple(str(c) for c in cols), "x_mean": np.asarray(x_mean, dtype=np.float64).copy(), "v": np.asarray(v[:, idx], dtype=np.float64).copy()},
+    )
+
+
+def _apply_sir_direction_recipe(recipe, X) -> np.ndarray:
+    """Adapter consumed by ``engineered_recipes.apply_recipe`` for a single SIR direction column."""
+    cols = list(recipe.extra["cols"])
+    if isinstance(X, pd.DataFrame):
+        X_cols = X[cols].to_numpy(dtype=np.float64)
+    else:
+        try:
+            import polars as _pl
+
+            if isinstance(X, _pl.DataFrame):
+                X_cols = X.select(cols).to_numpy().astype(np.float64)
+            else:
+                X_cols = np.column_stack([np.asarray(X[c], dtype=np.float64) for c in cols])
+        except ImportError:
+            X_cols = np.column_stack([np.asarray(X[c], dtype=np.float64) for c in cols])
+    Xc = X_cols - recipe.extra["x_mean"]
+    return np.asarray(Xc @ recipe.extra["v"])
+
+
+def hybrid_sir_direction_fe(
+    X: "pd.DataFrame",
+    y: np.ndarray,
+    *,
+    num_cols: Optional[Sequence[str]] = None,
+    n_slices: int = 10,
+    n_directions: int = 2,
+    max_cols_for_block: int = 8,
+    top_k: int = 2,
+    mi_gate: bool = True,
+    mi_gate_top_k: Optional[int] = None,
+    random_state: int = 0,
+    reject_sink: Optional[Callable[..., None]] = None,
+) -> "tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]":
+    """End-to-end SIR oblique-direction block: bound the column pool by top raw-MI (the family's
+    whole point is a joint OBLIQUE linear combination over many correlated columns, so the pool is
+    capped, not combinatorially enumerated), fit the top ``n_directions`` SIR eigendirections over
+    the bounded column set, MI-gate the emitted direction columns against the raw baseline, keep
+    the top ``top_k``.
+
+    Returns ``(X_aug, appended, recipes, enc_df)``. ``y`` is consumed only by the column-pool
+    ranking + the SIR fit itself + the MI gate; recipes carry the frozen ``x_mean``/direction
+    vector, never ``y``.
+    """
+    if not isinstance(X, pd.DataFrame):
+        raise TypeError(f"hybrid_sir_direction_fe: X must be a pandas DataFrame; got {type(X).__name__}")
+    if num_cols is None or len(num_cols) == 0:
+        num_cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
+    else:
+        num_cols = [c for c in num_cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
+    if len(num_cols) < 1:
+        return X.copy(), [], [], pd.DataFrame()
+
+    if y is not None:
+        from ._extra_fe_families import _top_mi_num_cols  # lazy: break parent<->sibling cycle
+
+        num_cols = _top_mi_num_cols(X, num_cols, y, max_cols_for_block)
+    else:
+        num_cols = list(num_cols)[: int(max_cols_for_block)]
+    if len(num_cols) < 1 or y is None:
+        return X.copy(), [], [], pd.DataFrame()
+
+    enc_df, payload = generate_sir_direction_features(X, num_cols, y, n_slices=n_slices, n_directions=n_directions)
+    if enc_df.empty or not payload:
+        return X.copy(), [], [], pd.DataFrame()
+
+    winners = list(enc_df.columns)
+    if mi_gate:
+        from ._unified_fe_gate import local_mi_gate
+
+        _gate_top_k = int(mi_gate_top_k) if mi_gate_top_k else int(top_k)
+        winners = local_mi_gate(enc_df, y, raw_X=X, top_k=_gate_top_k, reject_sink=reject_sink)
+    else:
+        winners = winners[: int(top_k)]
+    if not winners:
+        return X.copy(), [], [], pd.DataFrame()
+
+    X_aug = pd.concat([X, enc_df[winners]], axis=1)
+    recipes = [
+        build_sir_direction_recipe(name=name, idx=int(name.rsplit("dir", 1)[-1]), cols=payload["cols"], x_mean=payload["x_mean"], v=payload["v"]) for name in winners
+    ]
+    return X_aug, winners, recipes, enc_df

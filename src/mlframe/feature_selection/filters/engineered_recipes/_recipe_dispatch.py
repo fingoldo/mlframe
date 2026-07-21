@@ -277,6 +277,13 @@ def apply_recipe(
         # bandwidth + the raw source columns; reads only X.
         from .._random_fourier_features_fe import _apply_random_fourier_recipe
         return _apply_random_fourier_recipe(recipe, X)
+    if recipe.kind == "sir_direction":
+        # mrmr_audit_2026-07-20 fe_expansion.md: Sliced Inverse Regression oblique-direction
+        # projection. Replay centers the raw source columns with the frozen x_mean and projects
+        # onto the frozen direction vector; reads only X, no y (y's effect is already baked into
+        # the frozen direction at fit time).
+        from .._sliced_inverse_regression_fe import _apply_sir_direction_recipe
+        return _apply_sir_direction_recipe(recipe, X)
     if recipe.kind == "rankgauss":
         # Layer 104 (2026-06-01): rank-Gaussianisation (RankGauss). Replay
         # interpolates each test value's rank against the stored sorted fit

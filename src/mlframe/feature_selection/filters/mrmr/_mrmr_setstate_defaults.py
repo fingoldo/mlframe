@@ -312,6 +312,14 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_random_fourier_bandwidth": None,
     "fe_random_fourier_max_cols_for_block": 8,
     "fe_random_fourier_top_k": 8,
+    # Sliced Inverse Regression oblique-direction projection (mrmr_audit_2026-07-20). Default OFF
+    # in both legacy pickles and the live ctor -- brand-new, not yet validated.
+    "fe_sir_direction_enable": False,
+    "fe_sir_direction_cols": (),
+    "fe_sir_direction_n_slices": 10,
+    "fe_sir_direction_n_directions": 2,
+    "fe_sir_direction_max_cols_for_block": 8,
+    "fe_sir_direction_top_k": 2,
     # Haar wavelet basis (backlog #13). Pre-#13 pickles default OFF so the
     # legacy reload path is byte-identical (the live default is ON for new
     # fits via __init__); the fitted-attr list defaults empty.

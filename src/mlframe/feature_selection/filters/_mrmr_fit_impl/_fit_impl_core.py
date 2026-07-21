@@ -3203,6 +3203,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _conditional_quantile_rank_pre_recipes: dict = {}
     _ordinal_pattern_pre_recipes: dict = {}
     _random_fourier_pre_recipes: dict = {}
+    _sir_direction_pre_recipes: dict = {}
     _wavelet_pre_recipes: dict = {}
     _rankgauss_pre_recipes: dict = {}
     _ratio_pre_recipes: dict = {}
@@ -4196,6 +4197,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.conditional_quantile_rank_features_ = []
     self.ordinal_pattern_features_ = []
     self.random_fourier_features_ = []
+    self.sir_direction_features_ = []
     self.wavelet_features_ = []
     self.rankgauss_features_ = []
 
@@ -4613,6 +4615,75 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "MRMR.fit random_fourier FE raised %s: %s; continuing " "without random-fourier columns.",
                     type(_rff_exc).__name__,
                     _rff_exc,
+                )
+
+    # SLICED INVERSE REGRESSION (SIR) oblique-direction projection (mrmr_audit_2026-07-20
+    # fe_expansion.md). Recovers a genuinely OBLIQUE (rotated) linear combination spread thinly
+    # across several correlated columns -- where every individual weight is too small for that
+    # column's own marginal MI to clear the screening floor, and no pairwise/triplet/quadruplet
+    # product reconstructs the rotated hyperplane. Routing piggybacks on hybrid_orth_features_;
+    # recipe carries the frozen centering/direction, not y -> leak-safe replay.
+    if bool(getattr(self, "fe_sir_direction_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: sir_direction FE enabled but X is not a "
+                "pandas DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from .._sliced_inverse_regression_fe import hybrid_sir_direction_fe
+                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+                _sir_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+                def _sir_reject_sink(**_kw):
+                    """Reject-sink callback for the SIR-direction FE stage; records MI-floor
+                    kills into the FE rejection ledger (pure-record, does not affect selection)."""
+                    _record_fe_rejection(self, step=_sir_step, **_kw)
+
+                _y_for_sir = _y_np
+                _sir_cols = tuple(getattr(self, "fe_sir_direction_cols", ()) or ())
+                _sir_cols = [c for c in _sir_cols if c in X.columns] or None  # type: ignore[assignment]
+                # RAW columns only (same class as conditional_dispersion/quantile_rank/ordinal_pattern/
+                # random_fourier above): the all-numeric default scope over the already-augmented X
+                # builds SIR directions OF engineered columns -> nested recipes the 1-deep replay
+                # cannot order at transform() time. Raw scope keeps every recipe replayable.
+                if _sir_cols is None:
+                    _sir_raw = set(_raw_input_cols_pre_fe)
+                    _sir_cols = [c for c in X.columns if c in _sir_raw] or None
+                _X_before_sir_cols = list(X.columns)
+                X_sir, _sir_appended, _sir_recipes, _ = hybrid_sir_direction_fe(
+                    X, _y_for_sir,
+                    num_cols=_sir_cols,
+                    n_slices=int(getattr(self, "fe_sir_direction_n_slices", 10)),
+                    n_directions=int(getattr(self, "fe_sir_direction_n_directions", 2)),
+                    max_cols_for_block=int(getattr(self, "fe_sir_direction_max_cols_for_block", 8)),
+                    top_k=int(getattr(self, "fe_sir_direction_top_k", 2)),
+                    mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                    mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                    reject_sink=_sir_reject_sink,
+                )
+                _sir_appended = [c for c in _sir_appended if c not in _X_before_sir_cols]
+                if _sir_appended:
+                    X = X_sir
+                    self.sir_direction_features_ = list(_sir_appended)
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_sir_appended)
+                    for _r in _sir_recipes:
+                        if _r.name in _sir_appended:
+                            _sir_direction_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit sir_direction: appended %d " "engineered column(s): %s",
+                            len(_sir_appended),
+                            _sir_appended[:8],
+                        )
+            except Exception as _sir_exc:
+                logger.warning(
+                    "MRMR.fit sir_direction FE raised %s: %s; continuing " "without sir-direction columns.",
+                    type(_sir_exc).__name__,
+                    _sir_exc,
                 )
 
     # HAAR WAVELET / localized multiresolution basis (backlog #13, 2026-06-09).
@@ -5106,6 +5177,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _conditional_quantile_rank_pre_recipes,
                 _ordinal_pattern_pre_recipes,
                 _random_fourier_pre_recipes,
+                _sir_direction_pre_recipes,
             )
             while True:
                 _protected = {
@@ -5242,6 +5314,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_random_fourier_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _random_fourier_pre_recipes.pop(_c, None)
+            for _c in list(_sir_direction_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _sir_direction_pre_recipes.pop(_c, None)
             for _c in list(_wavelet_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _wavelet_pre_recipes.pop(_c, None)
@@ -5346,6 +5421,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _conditional_quantile_rank_pre_recipes,
                         _ordinal_pattern_pre_recipes,
                         _random_fourier_pre_recipes,
+                        _sir_direction_pre_recipes,
                     ):
                         for _c in list(_pre.keys()):
                             if _c in _eng_drop_u:
@@ -5899,6 +5975,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         engineered_recipes.update(_ordinal_pattern_pre_recipes)
     if _random_fourier_pre_recipes:
         engineered_recipes.update(_random_fourier_pre_recipes)
+    if _sir_direction_pre_recipes:
+        engineered_recipes.update(_sir_direction_pre_recipes)
     if _wavelet_pre_recipes:
         engineered_recipes.update(_wavelet_pre_recipes)
     if _rankgauss_pre_recipes:
