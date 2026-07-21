@@ -6859,20 +6859,43 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ~0 (verified: on 3-way XOR among 5 noise vars ONLY {x0,x1,x2} fires), so noise is never seeded.
     # Off when interactions_max_order<2 (the default) -> byte-identical there. Bounded combo
     # enumeration (candidate + order caps) so wide-p fits stay tractable.
+    # NOTE (2026-07-21, test_3way_screening tracked-red follow-up): candidate columns MUST be
+    # re-quantile-binned here, NOT sourced from ``data`` (the fit's MDLP-binned matrix).
+    # MDLP is supervised on each column's OWN marginal relevance to y, and a pure-synergy operand
+    # has ~0 marginal MI BY CONSTRUCTION -- MDLP collapses it to 1-2 bins (measured: x0 of a 3-way
+    # XOR gets nbins=2), which then guts the JOINT-MI resolution this exact detector needs to see
+    # the interaction. Fixed-width equi-frequency quantile bins depend only on rank order, not on
+    # marginal relevance, so a zero-marginal operand keeps its full joint-MI resolution.
     _iac_max_order = getattr(self, "interactions_max_order", None)
     if int(_iac_max_order if _iac_max_order is not None else 1) >= 2 and len(selected_vars) >= 0:
         try:
             from .._fe_synergy_screen import detect_synergy_combos
+            from .._mi_greedy_cmi_fe import _quantile_bin
+
             _raw_set_syn = set(self.feature_names_in_)
             _cand_syn = [i for i, _nm in enumerate(cols) if _nm in _raw_set_syn]
             if 2 <= len(_cand_syn) <= 60:
                 _yc_syn = np.asarray(classes_y).astype(np.int64).ravel()
-                _code_cols_syn = {i: np.asarray(data[:, i]).astype(np.int64).ravel() for i in _cand_syn}
+                _X_pd_syn = fe_to_pandas(X)
+                _order_syn = int(_iac_max_order if _iac_max_order is not None else 3)
+                # ADAPTIVE NBINS (2026-07-21): detect_synergy_combos rejects any combo whose joint
+                # cell count leaves fewer than min_rows_per_cell(=5.0 default) rows/cell -- with the
+                # fit's own quantization_nbins (10) an order-3 combo needs 10**3=1000 cells, i.e.
+                # n>=5000, so at n=2000 EVERY order-3 combo was silently skipped regardless of binning
+                # source (measured: quantile-rebin alone did not change the outcome). Size nbins so a
+                # max-order combo clears the floor: nbins = floor((n / (5*min_rows_per_cell))^(1/order)),
+                # clamped to [2, quantization_nbins] -- never coarser than 2 bins, never finer than the
+                # fit's own resolution.
+                _mrpc_syn = 5.0
+                _nbins_syn = int((float(_yc_syn.shape[0]) / (_mrpc_syn * 5.0)) ** (1.0 / max(1, _order_syn)))
+                _nbins_syn = max(2, min(int(self.quantization_nbins), _nbins_syn))
+                _code_cols_syn = {i: _quantile_bin(_X_pd_syn[cols[i]].to_numpy(dtype=np.float64), _nbins_syn).astype(np.int64) for i in _cand_syn}
                 _iac_min_order = getattr(self, "interactions_min_order", None)
                 _combos_syn = detect_synergy_combos(
                     _code_cols_syn, _yc_syn, _cand_syn,
-                    max_order=int(_iac_max_order if _iac_max_order is not None else 3),
+                    max_order=_order_syn,
                     min_order=max(2, int(_iac_min_order if _iac_min_order is not None else 2)),
+                    min_rows_per_cell=_mrpc_syn,
                 )
                 _sv_syn = set(selected_vars)
                 _seed_syn = []
