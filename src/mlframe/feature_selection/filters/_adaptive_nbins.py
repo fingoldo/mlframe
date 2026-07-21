@@ -48,6 +48,17 @@ from .discretization import _knuth_bin_edges, _bayesian_blocks_bin_edges
 from .supervised_binning import mdlp_bin_edges
 from ._mdlp_validated_split import edges_fayyad_irani_validated
 
+# Shared per-column bin-count ceiling for every adaptive strategy whose own formula has no natural
+# upper bound (knuth, bayesian_blocks). MDLP already lands here implicitly via max_depth=8 -> up to
+# 2**8=256 leaves (supervised_binning.py); freedman_diaconis's own sqrt(N)*4 cap is additionally
+# clamped to this same ceiling below. Kept as one named constant so every strategy answers "how many
+# bins can a single column produce" the same way -- divergent per-method caps (found live: knuth
+# defaulted to 500, bayesian_blocks had NO cap at all) let a single real-data column reach thousands
+# of bins, blowing the downstream joint-cardinality (nbins_a * nbins_b) past both the CUDA
+# shared-memory budget and the row-chunked global-memory fallback's launch-count budget, forcing a
+# multi-thousand-second CPU njit fallback per column pair (found live, 50k-row wellbore GT sweep).
+MAX_ADAPTIVE_NBINS = 256
+
 logger = logging.getLogger(__name__)
 
 # Minimum number of cache-MISS columns before per_feature_edges engages the thread
@@ -83,12 +94,14 @@ def sturges_nbins(n: int) -> int:
     return max(1, math.ceil(1.0 + math.log2(n)))
 
 
-def freedman_diaconis_nbins(x: np.ndarray) -> int:
+def freedman_diaconis_nbins(x: np.ndarray, max_bins: int = MAX_ADAPTIVE_NBINS) -> int:
     """Freedman-Diaconis (1981): n_bins = ceil((max-min) / h)  where h = 2*IQR(x) / n^(1/3).
 
     Robust to outliers via IQR; falls back to Sturges when IQR is 0 (constant /
-    very-discrete data). Floor at 1; cap at sqrt(N)*4 to avoid bin-per-sample on
-    heavy-tail data.
+    very-discrete data). Floor at 1; cap at min(sqrt(N)*4, max_bins) to avoid
+    bin-per-sample on heavy-tail data AND to bound joint-cardinality cost on
+    large real datasets (sqrt(N)*4 alone is unbounded as N grows -- e.g. ~895
+    bins at N=50k, which is what MAX_ADAPTIVE_NBINS additionally clamps).
     """
     x = np.asarray(x, dtype=np.float64).ravel()
     x = x[np.isfinite(x)]
@@ -104,7 +117,7 @@ def freedman_diaconis_nbins(x: np.ndarray) -> int:
     if h <= 0 or span <= 0:
         return sturges_nbins(n)
     nbins = math.ceil(span / h)
-    cap = max(2, int(math.sqrt(n) * 4))
+    cap = min(max(2, int(math.sqrt(n) * 4)), int(max_bins))
     return int(max(1, min(nbins, cap)))
 
 
@@ -220,19 +233,20 @@ def edges_sturges(x: np.ndarray, base: str = "quantile") -> np.ndarray:
     return _edges_from_quantiles(x, n_bins) if base == "quantile" else _edges_from_uniform(x, n_bins)
 
 
-def edges_freedman_diaconis(x: np.ndarray, base: str = "quantile") -> np.ndarray:
+def edges_freedman_diaconis(x: np.ndarray, base: str = "quantile", max_bins: int = MAX_ADAPTIVE_NBINS) -> np.ndarray:
     """Freedman-Diaconis nbins + quantile/uniform edges. Default for ``auto``."""
-    n_bins = freedman_diaconis_nbins(x)
+    n_bins = freedman_diaconis_nbins(x, max_bins=max_bins)
     return _edges_from_quantiles(x, n_bins) if base == "quantile" else _edges_from_uniform(x, n_bins)
 
 
-def edges_knuth(x: np.ndarray, edge_type: str = "uniform", m_max_cap: int = 500) -> np.ndarray:
+def edges_knuth(x: np.ndarray, edge_type: str = "uniform", m_max_cap: int = MAX_ADAPTIVE_NBINS) -> np.ndarray:
     """Knuth (2006) Bayesian-optimal nbins. Flags forwarded to ``_knuth_bin_edges``:
 
     Args:
         edge_type: ``'uniform'`` (legacy faithful) | ``'quantile'`` (audit fix).
-        m_max_cap: ``500`` legacy | ``64`` audit recommendation to stay in
-            low plug-in bias regime on small val-folds.
+        m_max_cap: ``MAX_ADAPTIVE_NBINS`` (256) shared adaptive-bin-count ceiling by default | ``64``
+            audit recommendation to stay in low plug-in bias regime on small val-folds | ``500``
+            legacy pre-unification default.
     """
     full_edges = _knuth_bin_edges(np.asarray(x), edge_type=edge_type, m_max_cap=int(m_max_cap))
     if full_edges.size <= 2:
@@ -240,15 +254,22 @@ def edges_knuth(x: np.ndarray, edge_type: str = "uniform", m_max_cap: int = 500)
     return np.asarray(full_edges[1:-1], dtype=np.float64)
 
 
-def edges_bayesian_blocks(x: np.ndarray, p0: float = 0.05, edge_placement: str = "start", subsample_threshold: int = 0) -> np.ndarray:
+def edges_bayesian_blocks(
+    x: np.ndarray, p0: float = 0.05, edge_placement: str = "start", subsample_threshold: int = 0, m_max_cap: int = MAX_ADAPTIVE_NBINS,
+) -> np.ndarray:
     """Bayesian Blocks (Scargle 2013) variable-width edges. Flags forwarded:
 
     Args:
         p0: ``0.05`` legacy | ``0.10`` audit recommendation for continuous data.
         edge_placement: ``'start'`` legacy | ``'midpoint'`` Scargle/astropy convention fix.
         subsample_threshold: ``0`` disabled | ``1000`` audit fast path.
+        m_max_cap: bound on returned block count, default ``MAX_ADAPTIVE_NBINS`` (256) -- see
+            ``_bayesian_blocks_bin_edges`` docstring (unbounded DP output on near-continuous real
+            data blows up downstream pairwise-MI cost).
     """
-    full_edges = _bayesian_blocks_bin_edges(np.asarray(x), p0=p0, edge_placement=edge_placement, subsample_threshold=int(subsample_threshold))
+    full_edges = _bayesian_blocks_bin_edges(
+        np.asarray(x), p0=p0, edge_placement=edge_placement, subsample_threshold=int(subsample_threshold), m_max_cap=int(m_max_cap),
+    )
     if full_edges.size <= 2:
         return np.array([], dtype=np.float64)
     return np.asarray(full_edges[1:-1], dtype=np.float64)
@@ -646,14 +667,14 @@ def per_feature_edges(
         if method_resolved == "sturges":
             edges = edges_sturges(col, base=base)
         elif method_resolved == "freedman_diaconis":
-            edges = edges_freedman_diaconis(col, base=base)
+            edges = edges_freedman_diaconis(col, base=base, max_bins=kwargs.get("max_adaptive_nbins", MAX_ADAPTIVE_NBINS))
         elif method_resolved == "qs":
             edges = edges_qs(col, alpha=kwargs.get("qs_alpha", 0.30))
         elif method_resolved == "knuth":
             edges = edges_knuth(
                 col,
                 edge_type=kwargs.get("knuth_edge_type", "uniform"),
-                m_max_cap=kwargs.get("knuth_m_max_cap", 500),
+                m_max_cap=kwargs.get("knuth_m_max_cap", kwargs.get("max_adaptive_nbins", MAX_ADAPTIVE_NBINS)),
             )
         elif method_resolved == "bayesian_blocks":
             edges = edges_bayesian_blocks(
@@ -661,12 +682,17 @@ def per_feature_edges(
                 p0=kwargs.get("p0", 0.05),
                 edge_placement=kwargs.get("bb_edge_placement", "start"),
                 subsample_threshold=kwargs.get("bb_subsample_threshold", 0),
+                m_max_cap=kwargs.get("bb_m_max_cap", kwargs.get("max_adaptive_nbins", MAX_ADAPTIVE_NBINS)),
             )
         elif method_resolved == "fayyad_irani":
             assert y is not None  # needs_y guard above raises for this method when y is None
             edges = edges_fayyad_irani(
                 col, y,
-                max_depth=kwargs.get("max_depth", 8),
+                # MDLP's own leaf count is bounded by 2**max_depth -- deriving the default from the
+                # same max_adaptive_nbins ceiling used by knuth/bayesian_blocks/freedman_diaconis
+                # (instead of a hardcoded 8) keeps "how many bins can one column produce" answered
+                # the same way across every strategy. An explicit max_depth still wins.
+                max_depth=kwargs.get("max_depth", max(1, int(math.log2(kwargs.get("max_adaptive_nbins", MAX_ADAPTIVE_NBINS))))),
                 min_split_size=kwargs.get("min_split_size", 5),
                 # Match edges_fayyad_irani / mdlp_bin_edges default ('njit').
                 # The legacy 'python' default here re-introduced the
@@ -693,13 +719,13 @@ def per_feature_edges(
             edges = edges_fayyad_irani_validated(
                 col, y,
                 val_frac=kwargs.get("mdlp_val_frac", 0.3),
-                max_depth=kwargs.get("max_depth", 8),
+                max_depth=kwargs.get("max_depth", max(1, int(math.log2(kwargs.get("max_adaptive_nbins", MAX_ADAPTIVE_NBINS))))),
                 min_split_size=kwargs.get("min_split_size", 5),
                 val_min_split_size=kwargs.get("mdlp_val_min_split_size", 5),
                 random_state=kwargs.get("random_state", 0),
             )
         elif method_resolved == "uniform":
-            edges = edges_uniform(col, n_bins=freedman_diaconis_nbins(col))
+            edges = edges_uniform(col, n_bins=freedman_diaconis_nbins(col, max_bins=kwargs.get("max_adaptive_nbins", MAX_ADAPTIVE_NBINS)))
         elif method_resolved == "mah":
             assert y is not None  # needs_y guard above raises for this method when y is None
             edges = edges_mah(

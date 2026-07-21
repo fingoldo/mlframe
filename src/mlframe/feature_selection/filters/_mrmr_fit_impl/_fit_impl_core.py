@@ -5628,6 +5628,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _md = max(2, int(np.floor(np.log2(int(_cap)))))
         _nbins_strategy_kwargs = dict(_nbins_strategy_kwargs or {})
         _nbins_strategy_kwargs.setdefault("max_depth", _md)
+    # Constructor-level shared adaptive-bin-count ceiling (knuth / bayesian_blocks / freedman_diaconis
+    # -- see MRMR.__init__'s max_adaptive_nbins docstring and _adaptive_nbins.MAX_ADAPTIVE_NBINS).
+    # setdefault so an explicit per-method override in nbins_strategy_kwargs (e.g. "knuth_m_max_cap")
+    # still wins.
+    _max_adaptive_nbins = getattr(self, "max_adaptive_nbins", None)
+    if _max_adaptive_nbins is not None:
+        _nbins_strategy_kwargs = dict(_nbins_strategy_kwargs or {})
+        _nbins_strategy_kwargs.setdefault("max_adaptive_nbins", int(_max_adaptive_nbins))
     # The supervised strategies (mdlp / optimal_joint) need y. Pull the raw
     # target column from the input frame -- categorize_dataset is called with
     # _x_for_cat which is a DataFrame; the target column is one of its members

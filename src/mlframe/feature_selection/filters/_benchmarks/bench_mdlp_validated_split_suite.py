@@ -38,7 +38,9 @@ import logging
 import math
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+
+import orjson
 
 import numpy as np
 import pandas as pd
@@ -374,7 +376,15 @@ def scen_wellbore100k(n_relevant: int, n_redundant: int, seed: int = 0, n: int =
         n_rows = len(real)
         irrelevant_names = list(real.columns)
         categorical_cols = [c for c in irrelevant_names if real[c].dtype.kind in ("i", "u") or str(real[c].dtype) in ("category", "object")]
-        cols: dict = {c: real[c].to_numpy() for c in irrelevant_names}
+        cols: dict = {}
+        for c in irrelevant_names:
+            arr = real[c].to_numpy()
+            if arr.dtype.kind == "f":
+                # real wellbore log columns (e.g. gr_sample_entropy_K100) carry a handful of +/-inf
+                # from upstream feature-engineering divisions; MRMR rejects inf outright, so treat
+                # them as missing like any other real-data gap rather than dropping the column/rows.
+                arr = np.where(np.isinf(arr), np.nan, arr)
+            cols[c] = arr
     except Exception:
         logger.warning("scen_wellbore100k: wellbore parquet unavailable at %s -- falling back to a smaller synthetic-noise-only frame", _WELLBORE_DATA_PATH, exc_info=True)
         n_rows = min(n, 20_000)
@@ -513,6 +523,36 @@ class MrmrGTResult:
     downstream: "DownstreamQuality" = field(default_factory=lambda: DownstreamQuality())
 
 
+def _append_jsonl_result(checkpoint_path: "str | None", result: "MrmrGTResult") -> None:
+    """Append one completed sweep result as a JSON line, flushed immediately. A multi-hour sweep
+    (single-column joint-cardinality blowups can cost 1000s+ per step, see MAX_ADAPTIVE_NBINS) that
+    only accumulates results in an in-process list loses everything if the process is stopped or
+    crashes -- found live (2026-07-21) when asked whether stopping a 3.5h-in wellbore sweep would
+    lose its 23/45 completed results: it would have, nothing was persisted until the final print.
+    Skipped entirely when ``checkpoint_path`` is None (default -- opt-in, not a behaviour change for
+    existing callers)."""
+    if checkpoint_path is None:
+        return
+    with open(checkpoint_path, "ab") as f:
+        f.write(orjson.dumps(asdict(result)))
+        f.write(b"\n")
+
+
+def load_jsonl_results(checkpoint_path: str) -> "list[MrmrGTResult]":
+    """Reload a checkpoint written by :func:`_append_jsonl_result` back into ``MrmrGTResult`` objects
+    (e.g. after a stopped/crashed sweep) -- reconstructs the nested ``DownstreamQuality`` dataclass."""
+    results = []
+    with open(checkpoint_path, "rb") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            row = orjson.loads(line)
+            row["downstream"] = DownstreamQuality(**row["downstream"])
+            results.append(MrmrGTResult(**row))
+    return results
+
+
 def _prf(selected: set, gt: MulticolumnGT) -> tuple:
     relevant = set(gt.relevant)
     noise_and_redundant = set(gt.irrelevant) | set(gt.redundant)
@@ -625,8 +665,19 @@ def _downstream_quality(X: pd.DataFrame, y: np.ndarray, selected: set, gt: Multi
     return result
 
 
-def run_mrmr_gt_config(n: int, n_relevant: int, n_irrelevant: int, n_redundant: int, methods, seeds, config_label: str, compute_downstream: bool = True) -> list:
+def run_mrmr_gt_config(
+    n: int, n_relevant: int, n_irrelevant: int, n_redundant: int, methods, seeds, config_label: str,
+    compute_downstream: bool = True, checkpoint_path: "str | None" = None,
+) -> list:
+    """``checkpoint_path``: when set, each completed (seed, method) result is appended as one JSON
+    line immediately (see :func:`_append_jsonl_result`) so a stopped/crashed sweep loses at most its
+    in-flight step, not everything -- reload with :func:`load_jsonl_results`."""
     results = []
+    seeds = list(seeds)
+    methods = list(methods)
+    total = len(seeds) * len(methods)
+    done = 0
+    t_start = time.perf_counter()
     for seed in seeds:
         X, y, gt = scen_multicolumn(n, n_relevant, n_irrelevant, n_redundant, seed=seed)
         for method in methods:
@@ -635,21 +686,35 @@ def run_mrmr_gt_config(n: int, n_relevant: int, n_irrelevant: int, n_redundant: 
             fit_time_s = time.perf_counter() - t0
             recall, precision, fpr, f1 = _prf(selected, gt)
             dq = _downstream_quality(X, y, selected, gt, seed) if compute_downstream else DownstreamQuality()
-            results.append(
-                MrmrGTResult(
-                    config_label, method, seed, recall, precision, fpr, f1, len(selected),
-                    n_relevant=len(gt.relevant), n_relevant_hit=round(recall * len(gt.relevant)) if gt.relevant else 0,
-                    n_total_cols=X.shape[1], fit_time_s=fit_time_s, downstream=dq,
-                )
+            result = MrmrGTResult(
+                config_label, method, seed, recall, precision, fpr, f1, len(selected),
+                n_relevant=len(gt.relevant), n_relevant_hit=round(recall * len(gt.relevant)) if gt.relevant else 0,
+                n_total_cols=X.shape[1], fit_time_s=fit_time_s, downstream=dq,
+            )
+            results.append(result)
+            _append_jsonl_result(checkpoint_path, result)
+            done += 1
+            print(
+                f"[{config_label}] {done}/{total} (seed={seed} method={method}) "
+                f"fit={fit_time_s:.1f}s downstream={dq.downstream_time_s:.1f}s elapsed={time.perf_counter() - t_start:.1f}s",
+                flush=True,
             )
     return results
 
 
-def run_mrmr_gt_wellbore_config(n_relevant: int, n_redundant: int, methods, seeds, config_label: str, n: int = 100_000, compute_downstream: bool = True) -> list:
+def run_mrmr_gt_wellbore_config(
+    n_relevant: int, n_redundant: int, methods, seeds, config_label: str, n: int = 100_000,
+    compute_downstream: bool = True, checkpoint_path: "str | None" = None,
+) -> list:
     """Same result contract as ``run_mrmr_gt_config``, but scored on ``scen_wellbore100k`` (real
     wellbore log columns as the noise/redundancy pool, synthetic injected signal) instead of the
-    fully-synthetic ``scen_multicolumn``."""
+    fully-synthetic ``scen_multicolumn``. ``checkpoint_path``: see ``run_mrmr_gt_config``."""
     results = []
+    seeds = list(seeds)
+    methods = list(methods)
+    total = len(seeds) * len(methods)
+    done = 0
+    t_start = time.perf_counter()
     for seed in seeds:
         X, y, gt = scen_wellbore100k(n_relevant, n_redundant, seed=seed, n=n)
         for method in methods:
@@ -658,12 +723,18 @@ def run_mrmr_gt_wellbore_config(n_relevant: int, n_redundant: int, methods, seed
             fit_time_s = time.perf_counter() - t0
             recall, precision, fpr, f1 = _prf(selected, gt)
             dq = _downstream_quality(X, y, selected, gt, seed) if compute_downstream else DownstreamQuality()
-            results.append(
-                MrmrGTResult(
-                    config_label, method, seed, recall, precision, fpr, f1, len(selected),
-                    n_relevant=len(gt.relevant), n_relevant_hit=round(recall * len(gt.relevant)) if gt.relevant else 0,
-                    n_total_cols=X.shape[1], fit_time_s=fit_time_s, downstream=dq,
-                )
+            result = MrmrGTResult(
+                config_label, method, seed, recall, precision, fpr, f1, len(selected),
+                n_relevant=len(gt.relevant), n_relevant_hit=round(recall * len(gt.relevant)) if gt.relevant else 0,
+                n_total_cols=X.shape[1], fit_time_s=fit_time_s, downstream=dq,
+            )
+            results.append(result)
+            _append_jsonl_result(checkpoint_path, result)
+            done += 1
+            print(
+                f"[{config_label}] {done}/{total} (seed={seed} method={method}) "
+                f"fit={fit_time_s:.1f}s downstream={dq.downstream_time_s:.1f}s elapsed={time.perf_counter() - t_start:.1f}s",
+                flush=True,
             )
     return results
 
@@ -698,9 +769,10 @@ def run_mrmr_fast_subset() -> list:
     return results
 
 
-def run_mrmr_full_sweep() -> list:
+def run_mrmr_full_sweep(checkpoint_path: "str | None" = None) -> list:
     """Thorough MRMR ground-truth sweep: 2/4/8/16 relevant columns, larger n, 3 seeds/config,
-    ALL registered binning methods (``MRMR_BINNING_METHODS``) -- several minutes, NOT run by pytest."""
+    ALL registered binning methods (``MRMR_BINNING_METHODS``) -- several minutes, NOT run by pytest.
+    ``checkpoint_path``: see ``run_mrmr_gt_config``."""
     results = []
     for n_relevant in (2, 4, 8, 16):
         n = 4000 if n_relevant <= 8 else 12000
@@ -713,6 +785,7 @@ def run_mrmr_full_sweep() -> list:
                 methods=tuple(MRMR_BINNING_METHODS),
                 seeds=range(3),
                 config_label=f"rel{n_relevant}",
+                checkpoint_path=checkpoint_path,
             )
         )
     return results
