@@ -8,9 +8,11 @@ of silently drifting until someone runs the (uncollected) full sweep by hand.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from mlframe.feature_selection.filters._benchmarks.bench_mdlp_validated_split_suite import (
     MRMR_BINNING_METHODS,
+    load_jsonl_results,
     run_mrmr_gt_config,
     run_mrmr_selection,
     scen_wellbore100k,
@@ -64,3 +66,23 @@ def test_scen_wellbore100k_sanitizes_inf_before_mrmr_fit():
     assert not np.isinf(numeric).any(), "scen_wellbore100k must not leak +/-inf into X"
     selected = run_mrmr_selection(X, y, "freedman_diaconis_uniform", random_seed=0)
     assert len(selected) > 0
+
+
+def test_checkpoint_path_persists_every_result_incrementally(tmp_path):
+    """A multi-hour sweep only accumulating results in an in-process list loses everything if the
+    process is stopped or crashes mid-run (found live 2026-07-21: asked whether stopping a 3.5h-in
+    wellbore sweep at 23/45 steps would lose those results -- it would have). checkpoint_path must
+    make every completed step durable immediately, independent of whether the sweep ever returns."""
+    checkpoint = tmp_path / "gt_checkpoint.jsonl"
+    results = run_mrmr_gt_config(
+        n=500, n_relevant=2, n_irrelevant=3, n_redundant=2,
+        methods=("sturges_quantile", "qs_gupta"), seeds=range(1), config_label="chk_test", checkpoint_path=str(checkpoint),
+    )
+    assert checkpoint.exists()
+    reloaded = load_jsonl_results(str(checkpoint))
+    assert len(reloaded) == len(results) == 2
+    for original, reloaded_r in zip(results, reloaded):
+        assert reloaded_r.method == original.method
+        assert reloaded_r.seed == original.seed
+        assert reloaded_r.recall == pytest.approx(original.recall, nan_ok=True)
+        assert reloaded_r.downstream.linear_rmse == pytest.approx(original.downstream.linear_rmse, nan_ok=True)
