@@ -271,6 +271,12 @@ def apply_recipe(
         # 2-deep nested-recipe replay the 1-deep convention here cannot order.
         from .._ordinal_pattern_fe import _apply_ordinal_pattern_te_recipe
         return _apply_ordinal_pattern_te_recipe(recipe, X)
+    if recipe.kind == "random_fourier":
+        # mrmr_audit_2026-07-20 fe_expansion.md: Random Fourier Features (random kitchen sinks)
+        # joint kernel-approximation block. Replay is closed-form from the frozen W-column/b/
+        # bandwidth + the raw source columns; reads only X.
+        from .._random_fourier_features_fe import _apply_random_fourier_recipe
+        return _apply_random_fourier_recipe(recipe, X)
     if recipe.kind == "rankgauss":
         # Layer 104 (2026-06-01): rank-Gaussianisation (RankGauss). Replay
         # interpolates each test value's rank against the stored sorted fit

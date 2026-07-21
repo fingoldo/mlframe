@@ -304,6 +304,14 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_ordinal_pattern_n_folds": 5,
     "fe_ordinal_pattern_smoothing": 10.0,
     "fe_ordinal_pattern_top_k": 5,
+    # Random Fourier Features joint kernel-approximation block (mrmr_audit_2026-07-20). Default
+    # OFF in both legacy pickles and the live ctor -- brand-new, not yet validated.
+    "fe_random_fourier_enable": False,
+    "fe_random_fourier_cols": (),
+    "fe_random_fourier_m": 64,
+    "fe_random_fourier_bandwidth": None,
+    "fe_random_fourier_max_cols_for_block": 8,
+    "fe_random_fourier_top_k": 8,
     # Haar wavelet basis (backlog #13). Pre-#13 pickles default OFF so the
     # legacy reload path is byte-identical (the live default is ON for new
     # fits via __init__); the fitted-attr list defaults empty.

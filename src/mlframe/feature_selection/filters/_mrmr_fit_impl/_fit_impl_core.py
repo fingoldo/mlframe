@@ -3202,6 +3202,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _conditional_dispersion_pre_recipes: dict = {}
     _conditional_quantile_rank_pre_recipes: dict = {}
     _ordinal_pattern_pre_recipes: dict = {}
+    _random_fourier_pre_recipes: dict = {}
     _wavelet_pre_recipes: dict = {}
     _rankgauss_pre_recipes: dict = {}
     _ratio_pre_recipes: dict = {}
@@ -4194,6 +4195,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.conditional_dispersion_features_ = []
     self.conditional_quantile_rank_features_ = []
     self.ordinal_pattern_features_ = []
+    self.random_fourier_features_ = []
     self.wavelet_features_ = []
     self.rankgauss_features_ = []
 
@@ -4542,6 +4544,75 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "MRMR.fit ordinal_pattern FE raised %s: %s; continuing " "without ordinal-pattern columns.",
                     type(_opat_exc).__name__,
                     _opat_exc,
+                )
+
+    # RANDOM FOURIER FEATURES (random kitchen sinks) joint kernel-approximation block
+    # (mrmr_audit_2026-07-20 fe_expansion.md). Unlike every pair/triplet/quadruplet cross-basis
+    # family, this draws m random features that are jointly a smooth function of MANY (5+) raw
+    # columns simultaneously without combinatorial blow-up, approximating an RBF kernel over the
+    # bounded column pool. Routing piggybacks on hybrid_orth_features_; recipe carries the frozen
+    # W-column/phase/bandwidth, never y -> leak-safe replay.
+    if bool(getattr(self, "fe_random_fourier_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: random_fourier FE enabled but X is not a "
+                "pandas DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from .._random_fourier_features_fe import hybrid_random_fourier_fe
+                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+                _rff_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+                def _rff_reject_sink(**_kw):
+                    """Reject-sink callback for the random-fourier FE stage; records MI-floor
+                    kills into the FE rejection ledger (pure-record, does not affect selection)."""
+                    _record_fe_rejection(self, step=_rff_step, **_kw)
+
+                _y_for_rff = _y_np
+                _rff_cols = tuple(getattr(self, "fe_random_fourier_cols", ()) or ())
+                _rff_cols = [c for c in _rff_cols if c in X.columns] or None  # type: ignore[assignment]
+                # RAW columns only (same class as conditional_dispersion/quantile_rank/ordinal_pattern
+                # above): the all-numeric default scope over the already-augmented X builds RFF
+                # features OF engineered columns -> nested recipes the 1-deep replay cannot order at
+                # transform() time. Raw scope keeps every recipe replayable.
+                if _rff_cols is None:
+                    _rff_raw = set(_raw_input_cols_pre_fe)
+                    _rff_cols = [c for c in X.columns if c in _rff_raw] or None
+                _X_before_rff_cols = list(X.columns)
+                X_rff, _rff_appended, _rff_recipes, _ = hybrid_random_fourier_fe(
+                    X, _y_for_rff,
+                    num_cols=_rff_cols,
+                    m=int(getattr(self, "fe_random_fourier_m", 64)),
+                    bandwidth=getattr(self, "fe_random_fourier_bandwidth", None),
+                    max_cols_for_block=int(getattr(self, "fe_random_fourier_max_cols_for_block", 8)),
+                    top_k=int(getattr(self, "fe_random_fourier_top_k", 8)),
+                    mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                    mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                    reject_sink=_rff_reject_sink,
+                )
+                _rff_appended = [c for c in _rff_appended if c not in _X_before_rff_cols]
+                if _rff_appended:
+                    X = X_rff
+                    self.random_fourier_features_ = list(_rff_appended)
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_rff_appended)
+                    for _r in _rff_recipes:
+                        if _r.name in _rff_appended:
+                            _random_fourier_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit random_fourier: appended %d " "engineered column(s): %s",
+                            len(_rff_appended),
+                            _rff_appended[:8],
+                        )
+            except Exception as _rff_exc:
+                logger.warning(
+                    "MRMR.fit random_fourier FE raised %s: %s; continuing " "without random-fourier columns.",
+                    type(_rff_exc).__name__,
+                    _rff_exc,
                 )
 
     # HAAR WAVELET / localized multiresolution basis (backlog #13, 2026-06-09).
@@ -5034,6 +5105,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _temporal_agg_pre_recipes,
                 _conditional_quantile_rank_pre_recipes,
                 _ordinal_pattern_pre_recipes,
+                _random_fourier_pre_recipes,
             )
             while True:
                 _protected = {
@@ -5167,6 +5239,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_ordinal_pattern_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _ordinal_pattern_pre_recipes.pop(_c, None)
+            for _c in list(_random_fourier_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _random_fourier_pre_recipes.pop(_c, None)
             for _c in list(_wavelet_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _wavelet_pre_recipes.pop(_c, None)
@@ -5270,6 +5345,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _temporal_agg_pre_recipes,
                         _conditional_quantile_rank_pre_recipes,
                         _ordinal_pattern_pre_recipes,
+                        _random_fourier_pre_recipes,
                     ):
                         for _c in list(_pre.keys()):
                             if _c in _eng_drop_u:
@@ -5813,6 +5889,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         engineered_recipes.update(_conditional_quantile_rank_pre_recipes)
     if _ordinal_pattern_pre_recipes:
         engineered_recipes.update(_ordinal_pattern_pre_recipes)
+    if _random_fourier_pre_recipes:
+        engineered_recipes.update(_random_fourier_pre_recipes)
     if _wavelet_pre_recipes:
         engineered_recipes.update(_wavelet_pre_recipes)
     if _rankgauss_pre_recipes:
