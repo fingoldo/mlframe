@@ -3204,6 +3204,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _ordinal_pattern_pre_recipes: dict = {}
     _random_fourier_pre_recipes: dict = {}
     _sir_direction_pre_recipes: dict = {}
+    _lof_pre_recipes: dict = {}
     _wavelet_pre_recipes: dict = {}
     _rankgauss_pre_recipes: dict = {}
     _ratio_pre_recipes: dict = {}
@@ -4198,6 +4199,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.ordinal_pattern_features_ = []
     self.random_fourier_features_ = []
     self.sir_direction_features_ = []
+    self.lof_features_ = []
     self.wavelet_features_ = []
     self.rankgauss_features_ = []
 
@@ -4684,6 +4686,74 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "MRMR.fit sir_direction FE raised %s: %s; continuing " "without sir-direction columns.",
                     type(_sir_exc).__name__,
                     _sir_exc,
+                )
+
+    # LOCAL OUTLIER FACTOR / k-NN local density-ratio (mrmr_audit_2026-07-20 fe_expansion.md).
+    # LOCAL and non-parametric (unlike a global Mahalanobis ellipsoid), catching a row anomalous
+    # for sitting in a locally-sparse gap between well-separated clusters even when its GLOBAL
+    # distance to the overall mean is unremarkable. Routing piggybacks on hybrid_orth_features_;
+    # recipe carries a bounded frozen reference sample (RAM discipline), never y or the whole fit
+    # frame -> leak-safe replay.
+    if bool(getattr(self, "fe_lof_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: lof FE enabled but X is not a " "pandas DataFrame; the features are skipped. Convert via " "X.to_pandas() before fit() to apply them.",
+                UserWarning,
+                stacklevel=3,
+            )
+        else:
+            try:
+                from .._lof_fe import hybrid_lof_fe
+                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+                _lof_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+                def _lof_reject_sink(**_kw):
+                    """Reject-sink callback for the LOF FE stage; records MI-floor kills into the
+                    FE rejection ledger (pure-record, does not affect selection)."""
+                    _record_fe_rejection(self, step=_lof_step, **_kw)
+
+                _y_for_lof = _y_np
+                _lof_cols = tuple(getattr(self, "fe_lof_cols", ()) or ())
+                _lof_cols = [c for c in _lof_cols if c in X.columns] or None  # type: ignore[assignment]
+                # RAW columns only (same class as conditional_dispersion/quantile_rank/ordinal_pattern/
+                # random_fourier/sir_direction above): the all-numeric default scope over the
+                # already-augmented X builds LOF scores OF engineered columns -> nested recipes the
+                # 1-deep replay cannot order at transform() time. Raw scope keeps every recipe replayable.
+                if _lof_cols is None:
+                    _lof_raw = set(_raw_input_cols_pre_fe)
+                    _lof_cols = [c for c in X.columns if c in _lof_raw] or None
+                _X_before_lof_cols = list(X.columns)
+                X_lof, _lof_appended, _lof_recipes, _ = hybrid_lof_fe(
+                    X, _y_for_lof,
+                    num_cols=_lof_cols,
+                    k=int(getattr(self, "fe_lof_k", 20)),
+                    max_ref=int(getattr(self, "fe_lof_max_ref", 2000)),
+                    max_cols_for_block=int(getattr(self, "fe_lof_max_cols_for_block", 8)),
+                    top_k=int(getattr(self, "fe_lof_top_k", 1)),
+                    mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                    mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                    reject_sink=_lof_reject_sink,
+                )
+                _lof_appended = [c for c in _lof_appended if c not in _X_before_lof_cols]
+                if _lof_appended:
+                    X = X_lof
+                    self.lof_features_ = list(_lof_appended)
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_lof_appended)
+                    for _r in _lof_recipes:
+                        if _r.name in _lof_appended:
+                            _lof_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit lof: appended %d " "engineered column(s): %s",
+                            len(_lof_appended),
+                            _lof_appended[:8],
+                        )
+            except Exception as _lof_exc:
+                logger.warning(
+                    "MRMR.fit lof FE raised %s: %s; continuing " "without lof columns.",
+                    type(_lof_exc).__name__,
+                    _lof_exc,
                 )
 
     # HAAR WAVELET / localized multiresolution basis (backlog #13, 2026-06-09).
@@ -5178,6 +5248,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _ordinal_pattern_pre_recipes,
                 _random_fourier_pre_recipes,
                 _sir_direction_pre_recipes,
+                _lof_pre_recipes,
             )
             while True:
                 _protected = {
@@ -5317,6 +5388,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_sir_direction_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _sir_direction_pre_recipes.pop(_c, None)
+            for _c in list(_lof_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _lof_pre_recipes.pop(_c, None)
             for _c in list(_wavelet_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _wavelet_pre_recipes.pop(_c, None)
@@ -5422,6 +5496,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _ordinal_pattern_pre_recipes,
                         _random_fourier_pre_recipes,
                         _sir_direction_pre_recipes,
+                        _lof_pre_recipes,
                     ):
                         for _c in list(_pre.keys()):
                             if _c in _eng_drop_u:
@@ -5977,6 +6052,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         engineered_recipes.update(_random_fourier_pre_recipes)
     if _sir_direction_pre_recipes:
         engineered_recipes.update(_sir_direction_pre_recipes)
+    if _lof_pre_recipes:
+        engineered_recipes.update(_lof_pre_recipes)
     if _wavelet_pre_recipes:
         engineered_recipes.update(_wavelet_pre_recipes)
     if _rankgauss_pre_recipes:

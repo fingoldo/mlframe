@@ -2840,6 +2840,17 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         fe_sir_direction_n_directions: int = 2,
         fe_sir_direction_max_cols_for_block: int = 8,
         fe_sir_direction_top_k: int = 2,
+        # mrmr_audit_2026-07-20 fe_expansion.md: Local Outlier Factor / k-NN local density-ratio
+        # feature. Default OFF -- brand-new, not yet validated against the existing fuzz-combo/
+        # regression suite. Leak-safe replay (kind ``lof_score``) stores a BOUNDED reference
+        # sample (``fe_lof_max_ref`` rows, never the whole fit frame -- RAM discipline) + its
+        # precomputed density internals; no y reference is captured in the recipe.
+        fe_lof_enable: bool = False,
+        fe_lof_cols: tuple = (),
+        fe_lof_k: int = 20,
+        fe_lof_max_ref: int = 2000,
+        fe_lof_max_cols_for_block: int = 8,
+        fe_lof_top_k: int = 1,
         # HAAR WAVELET / localized multiresolution basis (backlog #13, 2026-06-09).
         # A NEW operator for LOCALIZED bump / multiscale piecewise structure the
         # catalog cannot capture: y jumps only inside a narrow sub-window of x, or

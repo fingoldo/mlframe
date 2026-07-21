@@ -284,6 +284,12 @@ def apply_recipe(
         # the frozen direction at fit time).
         from .._sliced_inverse_regression_fe import _apply_sir_direction_recipe
         return _apply_sir_direction_recipe(recipe, X)
+    if recipe.kind == "lof_score":
+        # mrmr_audit_2026-07-20 fe_expansion.md: Local Outlier Factor / k-NN local density-ratio
+        # feature. Replay scores new rows against the frozen BOUNDED reference set (never the
+        # whole fit frame -- RAM discipline); reads only X, no y.
+        from .._lof_fe import _apply_lof_recipe
+        return _apply_lof_recipe(recipe, X)
     if recipe.kind == "rankgauss":
         # Layer 104 (2026-06-01): rank-Gaussianisation (RankGauss). Replay
         # interpolates each test value's rank against the stored sorted fit
