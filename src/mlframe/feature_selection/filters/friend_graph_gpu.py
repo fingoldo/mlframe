@@ -91,6 +91,27 @@ except Exception:
 # ---------------------------------------------------------------------------
 
 
+def _entropy_resident_enabled() -> bool:
+    """Whether the on-device segmented entropy reduction (``_friend_graph_gpu_entropy_resident``,
+    mrmr_audit_2026-07-20 gpu_residency.md #8) engages, collapsing the raw-counts D2H at each of the
+    3 cupy-backend sites (node marginals, relevance joints, pairwise edges) into a single small
+    (n_segments,) readback.
+
+    OPT-IN, default OFF (``MLFRAME_FRIEND_GRAPH_GPU_ENTROPY_RESIDENT=1``): unlike every other
+    device_born_* mechanism in this codebase (tolerant of ~1e-9 FP-reorder divergence), THIS
+    module's own docstring documents its bit-identity contract as non-negotiable -- the edge
+    significance floor is a float comparison, and a divergence even at machine-epsilon could flip a
+    genuinely borderline edge's admit/reject decision and change graph topology. Measured divergence
+    against the CPU path is ~1e-16 (float64 machine-epsilon) on the fixtures this module's own test
+    suite exercises -- well inside the codebase's standard ~1e-9 parity bar -- but this module's
+    OWN stricter contract is not overridden unilaterally; this flag lets it be validated broadly
+    (a wider seed/shape sweep, explicitly checking near-floor edges) before a future change flips
+    the default on, per the audit proposal's own staged guidance."""
+    import os
+
+    return os.environ.get("MLFRAME_FRIEND_GRAPH_GPU_ENTROPY_RESIDENT", "0").strip().lower() in ("1", "true", "on", "yes")
+
+
 def _entropy_from_counts(counts: np.ndarray, n: int) -> float:
     """Shannon entropy (nats) of an integer histogram, reproducing the CPU build to the bit.
 
@@ -212,12 +233,22 @@ def friend_graph_stats_cupy(
     total_node = int(off_node[k])
     d_off_node = cp.asarray(off_node[:k].reshape(1, k))  # (1, k)
     d_node_idx = (d_off_node + d_sub.astype(cp.int64)).reshape(-1)  # (n*k,)
-    node_counts = cp.asnumpy(cp.bincount(d_node_idx, minlength=total_node)[:total_node])
+    d_node_counts = cp.bincount(d_node_idx, minlength=total_node)[:total_node]
 
     H: dict = {}
-    for i in range(k):
-        block = node_counts[off_node[i] : off_node[i + 1]]
-        H[int(sel_arr[i])] = _entropy_from_counts(block, n)
+    if _entropy_resident_enabled():
+        try:
+            from ._friend_graph_gpu_entropy_resident import entropy_segments_gpu
+
+            h_node = entropy_segments_gpu(cp, d_node_counts, n, off_node)
+            H = {int(sel_arr[i]): float(h_node[i]) for i in range(k)}
+        except Exception:
+            H = {}
+    if not H:
+        node_counts = cp.asnumpy(d_node_counts)
+        for i in range(k):
+            block = node_counts[off_node[i] : off_node[i + 1]]
+            H[int(sel_arr[i])] = _entropy_from_counts(block, n)
 
     # ----- Feature-target relevance (single-target fast path on GPU; else CPU).
     rel: dict | None = {}
@@ -243,13 +274,22 @@ def friend_graph_stats_cupy(
             else:
                 code = d_y_flat + va * np.int64(nb_y)  # nbins_first = nbins[t]
             d_codes[:, i] = code + np.int64(off_rel[i])
-        rel_counts = cp.asnumpy(cp.bincount(d_codes.reshape(-1), minlength=total_rel)[:total_rel])
+        d_rel_counts = cp.bincount(d_codes.reshape(-1), minlength=total_rel)[:total_rel]
         assert rel is not None  # this branch starts with rel = {} above
+        h_xy_by_i = None
+        if _entropy_resident_enabled():
+            try:
+                from ._friend_graph_gpu_entropy_resident import entropy_segments_gpu
+
+                h_xy_by_i = entropy_segments_gpu(cp, d_rel_counts, n, off_rel)
+            except Exception:
+                h_xy_by_i = None
+        if h_xy_by_i is None:
+            rel_counts = cp.asnumpy(d_rel_counts)
+            h_xy_by_i = np.array([_entropy_from_counts(rel_counts[off_rel[i] : off_rel[i + 1]], n) for i in range(k)])
         for i in range(k):
             f = int(sel_arr[i])
-            block = rel_counts[off_rel[i] : off_rel[i + 1]]
-            h_xy = _entropy_from_counts(block, n)
-            rel[f] = H[f] + h_y - h_xy  # raw mi() value (mi() does not clamp relevance)
+            rel[f] = H[f] + h_y - float(h_xy_by_i[i])  # raw mi() value (mi() does not clamp relevance)
     else:
         rel = None  # caller computes relevance on CPU
 
@@ -306,15 +346,27 @@ def friend_graph_stats_cupy(
             d_tile_off = cp.asarray(tile_off.reshape(rows, 1))
             tile_total = int(off_pair[stop] - off_pair[start])
             flat = (code + d_tile_off).reshape(-1)
-            tile_counts = cp.asnumpy(cp.bincount(flat, minlength=tile_total)[:tile_total])
+            d_tile_counts = cp.bincount(flat, minlength=tile_total)[:tile_total]
+            tile_off_bounds = np.empty(rows + 1, dtype=np.int64)
+            tile_off_bounds[:rows] = tile_off
+            tile_off_bounds[rows] = tile_total
+            h_ab_by_r = None
+            if _entropy_resident_enabled():
+                try:
+                    from ._friend_graph_gpu_entropy_resident import entropy_segments_gpu
+
+                    h_ab_by_r = entropy_segments_gpu(cp, d_tile_counts, n, tile_off_bounds)
+                except Exception:
+                    h_ab_by_r = None
+            if h_ab_by_r is None:
+                tile_counts = cp.asnumpy(d_tile_counts)
+                h_ab_by_r = np.array([_entropy_from_counts(tile_counts[int(tile_off_bounds[r]) : int(tile_off_bounds[r + 1])], n) for r in range(rows)])
             for r in range(rows):
                 p = start + r
-                lo = int(off_pair[p] - off_pair[start])
-                hi = int(off_pair[p + 1] - off_pair[start])
-                h_ab = _entropy_from_counts(tile_counts[lo:hi], n)
+                h_ab = float(h_ab_by_r[r])
                 m = H[int(pa[p])] + H[int(pb[p])] - h_ab
                 edge_mi[(int(pa[p]), int(pb[p]))] = m if m > 0.0 else 0.0
-            del va, vb, code, flat, tile_counts
+            del va, vb, code, flat, d_tile_counts
             start = stop
 
     return FriendGraphGPUStats(H=H, rel=rel, edge_mi=edge_mi, backend="cupy")

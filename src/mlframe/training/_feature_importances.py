@@ -171,6 +171,20 @@ def _permutation_feature_importances(
     # PyTorch matmul releases the GIL in its C++ kernels and there is
     # no model / X pickling cost. RSS overhead measured at <50 MB on
     # the same shape.
+    # ``_force_cpu_predict`` (2026-07-21): this loop calls ``estimator.predict()`` concurrently from many
+    # joblib threading-backend workers on this ONE shared ``model``. For a torch/Lightning-backed estimator,
+    # letting each thread independently decide GPU-vs-CPU risks the exact device-churn corruption already
+    # documented for the multilabel predict path (see _base_predict.py): one thread's CUDA-error recovery
+    # mutates the shared model's device placement while a sibling thread is still mid-forward-pass on the same
+    # CUDA tensors, a data race that can crash the whole process with a native access violation. Force every
+    # concurrent predict in this loop to CPU up front -- permutation importance is a diagnostic, not a hot
+    # training path, so losing GPU acceleration here is a small, already-precedented cost.
+    _had_force_cpu_attr = hasattr(model, "_force_cpu_predict")
+    _prior_force_cpu = getattr(model, "_force_cpu_predict", None)
+    try:
+        model._force_cpu_predict = True
+    except Exception as _e_force_cpu:  # nosec B110 - best-effort path
+        logger.debug("Could not set _force_cpu_predict on %r (%s); proceeding without the CPU-forcing guard.", type(model).__name__, _e_force_cpu)
     try:
         import joblib
         with joblib.parallel_backend("threading", n_jobs=-1):
@@ -182,6 +196,14 @@ def _permutation_feature_importances(
     except Exception as exc:
         logger.warning("permutation_importance failed (%s); skipping FI.", exc)
         return _fail()
+    finally:
+        try:
+            if _had_force_cpu_attr:
+                model._force_cpu_predict = _prior_force_cpu
+            else:
+                del model._force_cpu_predict
+        except Exception as _e_restore:  # nosec B110 - best-effort path
+            logger.debug("Could not restore _force_cpu_predict on %r (%s).", type(model).__name__, _e_restore)
     mean = np.asarray(result.importances_mean, dtype=np.float64)
     if return_std:
         std = np.asarray(getattr(result, "importances_std", np.zeros_like(mean)), dtype=np.float64)
