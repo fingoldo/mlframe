@@ -417,6 +417,18 @@ def _conditional_perm_null(
     # rows changes _renumber_joint's first-appearance cell labelling, so the entropy sum reduces in
     # a different order (~1e-13 drift). Not worth trading bit-identity for a win that vanishes to
     # 1.01x at n=30k (the njit CMI + argsort dominate, not the alloc/scatter).
+    # bench-attempt-rejected (2026-07-21): batching this loop's per-perm ``np.argsort(z_rank + keys,
+    # kind="stable")`` into ONE ``np.argsort(z_rank[:, None] + keys_all, axis=0, kind="stable")`` call,
+    # mirroring the GPU branches' ``axis=0`` batching above -- motivated by cProfile on a wellbore-50k
+    # STRICT-CPU MRMR.fit showing np.ndarray.argsort at 1279s tottime / 6695s wall (19%), nearly all of
+    # it here. Verified bit-identical (RNG draw order unchanged) but measured 0.63-0.75x -- SLOWER, not
+    # faster: an isolated microbench showed the argsort work itself costs the same either way (numpy's
+    # axis=0 sort iterates columns internally, no real vectorisation win for argsort specifically), while
+    # building the (n, n_perm) key matrix adds real allocation/broadcast overhead the streaming per-perm
+    # version doesn't pay. Confirms this exact function's OWN 2026-07-05 note: the argsort/CMI eval is
+    # genuine O(n log n) work, not alloc/dispatch overhead -- there is no batching shortcut available on
+    # the CPU path (unlike GPU, where the batching win comes from eliminating N kernel-launch overheads,
+    # not from vectorising the sort itself). Left as the simple per-perm loop.
     nulls = np.empty(_nperm, dtype=np.float64)
     for i in range(_nperm):
         keys = rng.random(n_size)
