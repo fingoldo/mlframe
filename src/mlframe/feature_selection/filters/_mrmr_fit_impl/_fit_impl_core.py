@@ -3205,6 +3205,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _random_fourier_pre_recipes: dict = {}
     _sir_direction_pre_recipes: dict = {}
     _lof_pre_recipes: dict = {}
+    _mahalanobis_density_pre_recipes: dict = {}
     _wavelet_pre_recipes: dict = {}
     _rankgauss_pre_recipes: dict = {}
     _ratio_pre_recipes: dict = {}
@@ -4200,6 +4201,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.random_fourier_features_ = []
     self.sir_direction_features_ = []
     self.lof_features_ = []
+    self.mahalanobis_density_features_ = []
     self.wavelet_features_ = []
     self.rankgauss_features_ = []
 
@@ -4756,6 +4758,75 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _lof_exc,
                 )
 
+    # MULTIVARIATE MAHALANOBIS / GAUSSIAN-COPULA JOINT DENSITY anomaly score (mrmr_audit_2026-07-20
+    # fe_expansion.md). Catches y depending on whether a row sits inside/outside an ELLIPSOIDAL
+    # level-set of a p=15-30-way joint distribution where no single column, pair, triplet, or even
+    # quadruplet cross-basis is individually extreme -- the p-way generalization of the existing
+    # group_distance / conditional-dispersion families' one-column-conditioned-on-one-other-column
+    # scope. Routing piggybacks on hybrid_orth_features_; recipe carries the frozen Ledoit-Wolf
+    # mu/Sigma_inv, never y -> leak-safe replay.
+    if bool(getattr(self, "fe_mahalanobis_density_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: mahalanobis_density FE enabled but X is not a "
+                "pandas DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from .._mahalanobis_density_fe import hybrid_mahalanobis_density_fe
+                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+                _mahal_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+                def _mahal_reject_sink(**_kw):
+                    """Reject-sink callback for the Mahalanobis-density FE stage; records MI-floor
+                    kills into the FE rejection ledger (pure-record, does not affect selection)."""
+                    _record_fe_rejection(self, step=_mahal_step, **_kw)
+
+                _y_for_mahal = _y_np
+                _mahal_cols = tuple(getattr(self, "fe_mahalanobis_density_cols", ()) or ())
+                _mahal_cols = [c for c in _mahal_cols if c in X.columns] or None  # type: ignore[assignment]
+                # RAW columns only (same class as conditional_dispersion/quantile_rank/ordinal_pattern/
+                # random_fourier/sir_direction/lof above): the all-numeric default scope over the
+                # already-augmented X builds Mahalanobis density OF engineered columns -> nested
+                # recipes the 1-deep replay cannot order at transform() time. Raw scope keeps every
+                # recipe replayable.
+                if _mahal_cols is None:
+                    _mahal_raw = set(_raw_input_cols_pre_fe)
+                    _mahal_cols = [c for c in X.columns if c in _mahal_raw] or None
+                _X_before_mahal_cols = list(X.columns)
+                X_mahal, _mahal_appended, _mahal_recipes, _ = hybrid_mahalanobis_density_fe(
+                    X, _y_for_mahal,
+                    num_cols=_mahal_cols,
+                    max_cols_for_block=int(getattr(self, "fe_mahalanobis_density_max_cols_for_block", 20)),
+                    top_k=int(getattr(self, "fe_mahalanobis_density_top_k", 1)),
+                    mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                    mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                    reject_sink=_mahal_reject_sink,
+                )
+                _mahal_appended = [c for c in _mahal_appended if c not in _X_before_mahal_cols]
+                if _mahal_appended:
+                    X = X_mahal
+                    self.mahalanobis_density_features_ = list(_mahal_appended)
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_mahal_appended)
+                    for _r in _mahal_recipes:
+                        if _r.name in _mahal_appended:
+                            _mahalanobis_density_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit mahalanobis_density: appended %d " "engineered column(s): %s",
+                            len(_mahal_appended),
+                            _mahal_appended[:8],
+                        )
+            except Exception as _mahal_exc:
+                logger.warning(
+                    "MRMR.fit mahalanobis_density FE raised %s: %s; continuing " "without mahalanobis-density columns.",
+                    type(_mahal_exc).__name__,
+                    _mahal_exc,
+                )
+
     # HAAR WAVELET / localized multiresolution basis (backlog #13, 2026-06-09).
     # A NEW operator for LOCALIZED bump / multiscale piecewise structure: y jumps
     # only inside a narrow sub-window of x (Fourier Gibbs-rings it, spline's fixed
@@ -5249,6 +5320,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _random_fourier_pre_recipes,
                 _sir_direction_pre_recipes,
                 _lof_pre_recipes,
+                _mahalanobis_density_pre_recipes,
             )
             while True:
                 _protected = {
@@ -5391,6 +5463,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_lof_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _lof_pre_recipes.pop(_c, None)
+            for _c in list(_mahalanobis_density_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _mahalanobis_density_pre_recipes.pop(_c, None)
             for _c in list(_wavelet_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _wavelet_pre_recipes.pop(_c, None)
@@ -5497,6 +5572,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _random_fourier_pre_recipes,
                         _sir_direction_pre_recipes,
                         _lof_pre_recipes,
+                        _mahalanobis_density_pre_recipes,
                     ):
                         for _c in list(_pre.keys()):
                             if _c in _eng_drop_u:
@@ -6054,6 +6130,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         engineered_recipes.update(_sir_direction_pre_recipes)
     if _lof_pre_recipes:
         engineered_recipes.update(_lof_pre_recipes)
+    if _mahalanobis_density_pre_recipes:
+        engineered_recipes.update(_mahalanobis_density_pre_recipes)
     if _wavelet_pre_recipes:
         engineered_recipes.update(_wavelet_pre_recipes)
     if _rankgauss_pre_recipes:

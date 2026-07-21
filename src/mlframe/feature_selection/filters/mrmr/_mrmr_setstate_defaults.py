@@ -328,6 +328,13 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_lof_max_ref": 2000,
     "fe_lof_max_cols_for_block": 8,
     "fe_lof_top_k": 1,
+    # Multivariate Mahalanobis / Gaussian-copula joint density anomaly score
+    # (mrmr_audit_2026-07-20). Default OFF in both legacy pickles and the live ctor -- brand-new,
+    # not yet validated.
+    "fe_mahalanobis_density_enable": False,
+    "fe_mahalanobis_density_cols": (),
+    "fe_mahalanobis_density_max_cols_for_block": 20,
+    "fe_mahalanobis_density_top_k": 1,
     # Haar wavelet basis (backlog #13). Pre-#13 pickles default OFF so the
     # legacy reload path is byte-identical (the live default is ON for new
     # fits via __init__); the fitted-attr list defaults empty.

@@ -18,12 +18,23 @@ ONE other (binned) column; this is the p-way generalization using the FULL covar
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
 import numpy as np
+import pandas as pd
 from sklearn.covariance import LedoitWolf
 
-__all__ = ["mahalanobis_density_feature"]
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
+
+__all__ = [
+    "mahalanobis_density_feature",
+    "engineered_name_mahalanobis_density",
+    "generate_mahalanobis_density_features",
+    "apply_mahalanobis_density",
+    "build_mahalanobis_density_recipe",
+    "hybrid_mahalanobis_density_fe",
+]
 
 
 def mahalanobis_density_feature(
@@ -70,3 +81,139 @@ def mahalanobis_density_feature(
     delta = X - mu
     d2 = np.einsum("ni,ij,nj->n", delta, Sigma_inv, delta)
     return np.asarray(np.sqrt(np.maximum(d2, 0.0)))
+
+
+def engineered_name_mahalanobis_density(cols: Sequence[str]) -> str:
+    """Deterministic engineered-column name for the joint Mahalanobis-density score."""
+    return "mahal__" + "_".join(str(c) for c in cols)
+
+
+def generate_mahalanobis_density_features(X: "pd.DataFrame", cols: Sequence[str]) -> "tuple[pd.DataFrame, dict]":
+    """Fit one joint Mahalanobis-density score over ``cols``: Ledoit-Wolf shrink the mean/precision
+    on the fit rows, score every fit row, and freeze ``mu``/``Sigma_inv`` for leak-safe replay
+    (both are pure functions of X, no ``y`` reference). Returns ``(enc_df, payload)``."""
+    cols = [c for c in cols if c in X.columns]
+    if len(cols) < 1:
+        return pd.DataFrame(index=X.index), {}
+    X_cols = X[cols].to_numpy(dtype=np.float64)
+    n, p = X_cols.shape
+    if p < 1 or n < p + 1 or not np.isfinite(X_cols).all():
+        return pd.DataFrame(index=X.index), {}
+
+    lw = LedoitWolf().fit(X_cols)
+    mu = lw.location_
+    Sigma_inv = lw.get_precision()
+    delta = X_cols - mu
+    d2 = np.einsum("ni,ij,nj->n", delta, Sigma_inv, delta)
+    scores = np.sqrt(np.maximum(d2, 0.0))
+
+    name = engineered_name_mahalanobis_density(cols)
+    enc = pd.DataFrame({name: scores}, index=X.index)
+    payload = {"cols": tuple(cols), "mu": np.asarray(mu, dtype=np.float64).copy(), "Sigma_inv": np.asarray(Sigma_inv, dtype=np.float64).copy()}
+    return enc, payload
+
+
+def apply_mahalanobis_density(X_test: "pd.DataFrame", payload: dict) -> "pd.DataFrame":
+    """Replay a fitted Mahalanobis-density score on new rows: closed-form quadratic form against
+    the frozen ``mu``/``Sigma_inv`` -- reads only X, no ``y``."""
+    cols = list(payload["cols"])
+    missing = [c for c in cols if c not in X_test.columns]
+    if missing:
+        raise KeyError(f"apply_mahalanobis_density: missing column(s) {missing} from X_test")
+    X_cols = X_test[cols].to_numpy(dtype=np.float64)
+    delta = X_cols - payload["mu"]
+    d2 = np.einsum("ni,ij,nj->n", delta, payload["Sigma_inv"], delta)
+    scores = np.sqrt(np.maximum(d2, 0.0))
+    name = engineered_name_mahalanobis_density(cols)
+    return pd.DataFrame({name: scores}, index=X_test.index)
+
+
+def build_mahalanobis_density_recipe(*, name: str, cols: Sequence[str], mu: np.ndarray, Sigma_inv: np.ndarray) -> "EngineeredRecipe":
+    """Frozen recipe for the Mahalanobis-density score column. Stores the frozen ``mu``/
+    ``Sigma_inv``; replay reads only X, so transform() is leakage-free."""
+    from .engineered_recipes import EngineeredRecipe
+
+    return EngineeredRecipe(
+        name=name,
+        kind="mahalanobis_density",
+        src_names=tuple(str(c) for c in cols),
+        extra={"cols": tuple(str(c) for c in cols), "mu": np.asarray(mu, dtype=np.float64).copy(), "Sigma_inv": np.asarray(Sigma_inv, dtype=np.float64).copy()},
+    )
+
+
+def _apply_mahalanobis_density_recipe(recipe, X) -> np.ndarray:
+    """Adapter consumed by ``engineered_recipes.apply_recipe``."""
+    cols = list(recipe.extra["cols"])
+    if isinstance(X, pd.DataFrame):
+        X_cols = X[cols].to_numpy(dtype=np.float64)
+    else:
+        try:
+            import polars as _pl
+
+            if isinstance(X, _pl.DataFrame):
+                X_cols = X.select(cols).to_numpy().astype(np.float64)
+            else:
+                X_cols = np.column_stack([np.asarray(X[c], dtype=np.float64) for c in cols])
+        except ImportError:
+            X_cols = np.column_stack([np.asarray(X[c], dtype=np.float64) for c in cols])
+    delta = X_cols - recipe.extra["mu"]
+    d2 = np.einsum("ni,ij,nj->n", delta, recipe.extra["Sigma_inv"], delta)
+    return np.asarray(np.sqrt(np.maximum(d2, 0.0)))
+
+
+def hybrid_mahalanobis_density_fe(
+    X: "pd.DataFrame",
+    y: np.ndarray,
+    *,
+    num_cols: Optional[Sequence[str]] = None,
+    max_cols_for_block: int = 20,
+    top_k: int = 1,
+    mi_gate: bool = True,
+    mi_gate_top_k: Optional[int] = None,
+    random_state: int = 0,
+    reject_sink: Optional[Callable[..., None]] = None,
+) -> "tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]":
+    """End-to-end joint Mahalanobis-density feature: bound the column pool by top raw-MI (the
+    family's own point is a p=15-30-way joint ellipsoidal level-set, so the pool is capped, not
+    combinatorially enumerated), compute the single Ledoit-Wolf-shrunk Mahalanobis score, MI-gate
+    it against the raw baseline.
+
+    Returns ``(X_aug, appended, recipes, enc_df)``. ``y`` is consumed only by the column-pool
+    ranking + the MI gate; recipes carry the frozen ``mu``/``Sigma_inv``, never ``y``.
+    """
+    if not isinstance(X, pd.DataFrame):
+        raise TypeError(f"hybrid_mahalanobis_density_fe: X must be a pandas DataFrame; got {type(X).__name__}")
+    if num_cols is None or len(num_cols) == 0:
+        num_cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
+    else:
+        num_cols = [c for c in num_cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
+    if len(num_cols) < 1:
+        return X.copy(), [], [], pd.DataFrame()
+
+    if y is not None:
+        from ._extra_fe_families import _top_mi_num_cols  # lazy: break parent<->sibling cycle
+
+        num_cols = _top_mi_num_cols(X, num_cols, y, max_cols_for_block)
+    else:
+        num_cols = list(num_cols)[: int(max_cols_for_block)]
+    if len(num_cols) < 1:
+        return X.copy(), [], [], pd.DataFrame()
+
+    enc_df, payload = generate_mahalanobis_density_features(X, num_cols)
+    if enc_df.empty or not payload:
+        return X.copy(), [], [], pd.DataFrame()
+
+    winners = list(enc_df.columns)
+    if mi_gate and y is not None:
+        from ._unified_fe_gate import local_mi_gate
+
+        _gate_top_k = int(mi_gate_top_k) if mi_gate_top_k else int(top_k)
+        winners = local_mi_gate(enc_df, y, raw_X=X, top_k=_gate_top_k, reject_sink=reject_sink)
+    else:
+        winners = winners[: int(top_k)]
+    if not winners:
+        return X.copy(), [], [], pd.DataFrame()
+
+    X_aug = pd.concat([X, enc_df[winners]], axis=1)
+    recipes = [build_mahalanobis_density_recipe(name=name, cols=payload["cols"], mu=payload["mu"], Sigma_inv=payload["Sigma_inv"]) for name in winners]
+    return X_aug, winners, recipes, enc_df

@@ -290,6 +290,12 @@ def apply_recipe(
         # whole fit frame -- RAM discipline); reads only X, no y.
         from .._lof_fe import _apply_lof_recipe
         return _apply_lof_recipe(recipe, X)
+    if recipe.kind == "mahalanobis_density":
+        # mrmr_audit_2026-07-20 fe_expansion.md: multivariate Mahalanobis / Gaussian-copula joint
+        # density anomaly score. Replay is a closed-form quadratic form against the frozen
+        # Ledoit-Wolf mu/Sigma_inv; reads only X, no y.
+        from .._mahalanobis_density_fe import _apply_mahalanobis_density_recipe
+        return _apply_mahalanobis_density_recipe(recipe, X)
     if recipe.kind == "rankgauss":
         # Layer 104 (2026-06-01): rank-Gaussianisation (RankGauss). Replay
         # interpolates each test value's rank against the stored sorted fit
