@@ -263,6 +263,14 @@ def apply_recipe(
         # per-bin sorted reference values; reads only X.
         from .._conditional_quantile_rank_fe import _apply_conditional_quantile_rank_recipe
         return _apply_conditional_quantile_rank_recipe(recipe, X)
+    if recipe.kind == "ordinal_pattern_te":
+        # mrmr_audit_2026-07-20 fe_expansion.md: Bandt-Pompe ordinal-pattern K-fold target
+        # encoding. Replay recomputes the perm_id fresh from the raw K source columns (a
+        # deterministic, y-free pure function) and looks up the frozen TE lookup table -- the
+        # intermediate perm_id categorical is never exposed as its own column/recipe, avoiding a
+        # 2-deep nested-recipe replay the 1-deep convention here cannot order.
+        from .._ordinal_pattern_fe import _apply_ordinal_pattern_te_recipe
+        return _apply_ordinal_pattern_te_recipe(recipe, X)
     if recipe.kind == "rankgauss":
         # Layer 104 (2026-06-01): rank-Gaussianisation (RankGauss). Replay
         # interpolates each test value's rank against the stored sorted fit
