@@ -256,6 +256,13 @@ def apply_recipe(
         # bin_mean payload with bin_std.
         from .._extra_fe_families import _apply_conditional_dispersion_recipe
         return _apply_conditional_dispersion_recipe(recipe, X)
+    if recipe.kind == "conditional_quantile_rank":
+        # mrmr_audit_2026-07-20 fe_expansion.md: NUM x NUM conditional QUANTILE-RANK, the 4th member
+        # of the conditional-dispersion family (mean/std -> z-score -> full empirical rank). Replay
+        # digitises x_j with the stored quantile edges and searchsorted's x_i against the stored
+        # per-bin sorted reference values; reads only X.
+        from .._conditional_quantile_rank_fe import _apply_conditional_quantile_rank_recipe
+        return _apply_conditional_quantile_rank_recipe(recipe, X)
     if recipe.kind == "rankgauss":
         # Layer 104 (2026-06-01): rank-Gaussianisation (RankGauss). Replay
         # interpolates each test value's rank against the stored sorted fit

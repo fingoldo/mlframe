@@ -2777,6 +2777,28 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         fe_conditional_dispersion_n_bins: int = 10,
         fe_conditional_dispersion_top_k: int = 10,
         fe_conditional_dispersion_max_pair_cols: int = 6,
+        # CONDITIONAL QUANTILE-RANK (mrmr_audit_2026-07-20 fe_expansion.md): 4th member of the
+        # conditional-dispersion family (grouped_agg mean/std -> composite_group_agg ->
+        # conditional-dispersion z-score/|z| -> conditional quantile-rank). Bin x_j; emit
+        # q(row) = empirical_rank(x_i within bin(x_j)) -- the row's TRUE within-bin percentile,
+        # not a z-score. On a heavy-tailed/skewed conditional distribution a z-score badly
+        # misrepresents "how extreme" a row is (mean/std is not a sufficient statistic for a
+        # skewed shape); quantile-rank resolves it directly. MI-gateable and designed to be
+        # SELF-LIMITING the same way the sibling conditional_dispersion family is (on a
+        # homoscedastic, non-skewed conditional distribution quantile-rank is a near-monotone
+        # reparametrization of the raw column and should clear no uplift). DEFAULT OFF for now,
+        # unlike the sibling: conditional_dispersion earned its default-ON only after the existing
+        # regression/biz_value/fuzz-combo suite (which already treats fe_conditional_dispersion_
+        # enable as a toggle axis) validated it did not perturb genuine-feature recovery anywhere
+        # -- this sibling has not yet been run through that same validation, so default OFF avoids
+        # an unvalidated interaction with dozens of existing fixtures. Flip once validated the same
+        # way. Leak-safe replay (kind ``conditional_quantile_rank``) stores x_j quantile edges + the
+        # per-bin sorted x_i reference values; replay is closed-form searchsorted, no y.
+        fe_conditional_quantile_rank_enable: bool = False,
+        fe_conditional_quantile_rank_cols: tuple = (),
+        fe_conditional_quantile_rank_n_bins: int = 10,
+        fe_conditional_quantile_rank_top_k: int = 10,
+        fe_conditional_quantile_rank_max_pair_cols: int = 6,
         # HAAR WAVELET / localized multiresolution basis (backlog #13, 2026-06-09).
         # A NEW operator for LOCALIZED bump / multiscale piecewise structure the
         # catalog cannot capture: y jumps only inside a narrow sub-window of x, or

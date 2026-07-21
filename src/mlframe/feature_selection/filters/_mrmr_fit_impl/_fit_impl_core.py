@@ -3200,6 +3200,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _rare_category_pre_recipes: dict = {}
     _conditional_residual_pre_recipes: dict = {}
     _conditional_dispersion_pre_recipes: dict = {}
+    _conditional_quantile_rank_pre_recipes: dict = {}
     _wavelet_pre_recipes: dict = {}
     _rankgauss_pre_recipes: dict = {}
     _ratio_pre_recipes: dict = {}
@@ -4190,6 +4191,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.rare_category_features_ = []
     self.conditional_residual_features_ = []
     self.conditional_dispersion_features_ = []
+    self.conditional_quantile_rank_features_ = []
     self.wavelet_features_ = []
     self.rankgauss_features_ = []
 
@@ -4400,6 +4402,74 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "MRMR.fit conditional_dispersion FE raised %s: %s; continuing " "without conditional-dispersion columns.",
                     type(_cd_exc).__name__,
                     _cd_exc,
+                )
+
+    # CONDITIONAL QUANTILE-RANK (mrmr_audit_2026-07-20 fe_expansion.md): 4th member of the
+    # conditional-dispersion family. Bin x_j; emit q(row) = empirical_rank(x_i within bin(x_j)) --
+    # the row's TRUE within-bin percentile, not a z-score. MI-gated + self-limiting (a near-
+    # monotone reparametrization on homoscedastic/non-skewed data clears no uplift over raw x_i, so
+    # it does not perturb genuine-feature recovery on canonical fixtures). Routing piggybacks on
+    # hybrid_orth_features_; recipes carry no y -> leak-safe replay.
+    if bool(getattr(self, "fe_conditional_quantile_rank_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: conditional_quantile_rank FE enabled but X is not a "
+                "pandas DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from .._conditional_quantile_rank_fe import hybrid_conditional_quantile_rank_fe
+                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+                _cqr_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+                def _cqr_reject_sink(**_kw):
+                    """Reject-sink callback for the num-x-num conditional-quantile-rank FE stage; records
+                    MI-floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
+                    _record_fe_rejection(self, step=_cqr_step, **_kw)
+
+                _y_for_cqr = _y_np
+                _cqr_cols = tuple(getattr(self, "fe_conditional_quantile_rank_cols", ()) or ())
+                _cqr_cols = [c for c in _cqr_cols if c in X.columns] or None  # type: ignore[assignment]
+                # RAW columns only (same class as conditional_dispersion / wavelet above): the
+                # all-numeric default scope over the already-augmented X builds quantile-rank
+                # features OF engineered columns -> nested recipes the 1-deep replay cannot order
+                # at transform() time. Raw scope keeps every recipe replayable.
+                if _cqr_cols is None:
+                    _cqr_raw = set(_raw_input_cols_pre_fe)
+                    _cqr_cols = [c for c in X.columns if c in _cqr_raw] or None
+                _X_before_cqr_cols = list(X.columns)
+                X_cqr, _cqr_appended, _cqr_recipes, _ = hybrid_conditional_quantile_rank_fe(
+                    X, _y_for_cqr,
+                    num_cols=_cqr_cols,
+                    n_bins=int(getattr(self, "fe_conditional_quantile_rank_n_bins", 10)),
+                    top_k=int(getattr(self, "fe_conditional_quantile_rank_top_k", 10)),
+                    max_pair_cols=int(getattr(self, "fe_conditional_quantile_rank_max_pair_cols", 6)),
+                    mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                    mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                    reject_sink=_cqr_reject_sink,
+                )
+                _cqr_appended = [c for c in _cqr_appended if c not in _X_before_cqr_cols]
+                if _cqr_appended:
+                    X = X_cqr
+                    self.conditional_quantile_rank_features_ = list(_cqr_appended)
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_cqr_appended)
+                    for _r in _cqr_recipes:
+                        if _r.name in _cqr_appended:
+                            _conditional_quantile_rank_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit conditional_quantile_rank: appended %d " "engineered column(s): %s",
+                            len(_cqr_appended),
+                            _cqr_appended[:8],
+                        )
+            except Exception as _cqr_exc:
+                logger.warning(
+                    "MRMR.fit conditional_quantile_rank FE raised %s: %s; continuing " "without conditional-quantile-rank columns.",
+                    type(_cqr_exc).__name__,
+                    _cqr_exc,
                 )
 
     # HAAR WAVELET / localized multiresolution basis (backlog #13, 2026-06-09).
@@ -4890,6 +4960,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _conditional_dispersion_pre_recipes, _wavelet_pre_recipes,
                 _rankgauss_pre_recipes,
                 _temporal_agg_pre_recipes,
+                _conditional_quantile_rank_pre_recipes,
             )
             while True:
                 _protected = {
@@ -5017,6 +5088,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_conditional_dispersion_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _conditional_dispersion_pre_recipes.pop(_c, None)
+            for _c in list(_conditional_quantile_rank_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _conditional_quantile_rank_pre_recipes.pop(_c, None)
             for _c in list(_wavelet_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _wavelet_pre_recipes.pop(_c, None)
@@ -5118,6 +5192,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _wavelet_pre_recipes,
                         _rankgauss_pre_recipes,
                         _temporal_agg_pre_recipes,
+                        _conditional_quantile_rank_pre_recipes,
                     ):
                         for _c in list(_pre.keys()):
                             if _c in _eng_drop_u:
@@ -5657,6 +5732,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         engineered_recipes.update(_conditional_residual_pre_recipes)
     if _conditional_dispersion_pre_recipes:
         engineered_recipes.update(_conditional_dispersion_pre_recipes)
+    if _conditional_quantile_rank_pre_recipes:
+        engineered_recipes.update(_conditional_quantile_rank_pre_recipes)
     if _wavelet_pre_recipes:
         engineered_recipes.update(_wavelet_pre_recipes)
     if _rankgauss_pre_recipes:

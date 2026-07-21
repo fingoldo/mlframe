@@ -286,6 +286,15 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_conditional_dispersion_n_bins": 10,
     "fe_conditional_dispersion_top_k": 10,
     "fe_conditional_dispersion_max_pair_cols": 6,
+    # Conditional quantile-rank (mrmr_audit_2026-07-20 fe_expansion.md). Default OFF in both
+    # legacy pickles and the live ctor -- not yet validated against the existing regression/
+    # biz_value/fuzz-combo suite the way the sibling conditional_dispersion family was before its
+    # own default flipped to ON.
+    "fe_conditional_quantile_rank_enable": False,
+    "fe_conditional_quantile_rank_cols": (),
+    "fe_conditional_quantile_rank_n_bins": 10,
+    "fe_conditional_quantile_rank_top_k": 10,
+    "fe_conditional_quantile_rank_max_pair_cols": 6,
     # Haar wavelet basis (backlog #13). Pre-#13 pickles default OFF so the
     # legacy reload path is byte-identical (the live default is ON for new
     # fits via __init__); the fitted-attr list defaults empty.
