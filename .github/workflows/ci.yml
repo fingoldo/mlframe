@@ -160,7 +160,7 @@ jobs:
   # be redundant, not safer.
   ruff-blocking:
     name: Ruff (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@f26052fd4fee0d667aa6f4c3290d77e7ca6c1c06  # v1.2.0
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@393c9839ee600097a351116584233ea365649927  # v1.3.0
     with:
       ignore: "C901"
 
@@ -184,7 +184,7 @@ jobs:
 
   lint-advisory:
     name: lint (advisory)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@f26052fd4fee0d667aa6f4c3290d77e7ca6c1c06  # v1.2.0
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@393c9839ee600097a351116584233ea365649927  # v1.3.0
     with:
       source-path: src/mlframe
       run-import-linter: true
@@ -199,7 +199,7 @@ jobs:
   # reusable workflows (py-ci-shared v1.1.0+) point them at tests/ instead of the whole repo.
   tests-ruff-blocking:
     name: Ruff tests/ (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@f26052fd4fee0d667aa6f4c3290d77e7ca6c1c06  # v1.2.0
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@393c9839ee600097a351116584233ea365649927  # v1.3.0
     with:
       check-path: tests
       ignore: "C901"
