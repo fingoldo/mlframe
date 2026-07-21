@@ -8,7 +8,7 @@ resolves transparently.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 if TYPE_CHECKING:
     from ..feature_handling.config import FeatureHandlingConfig
@@ -682,10 +682,6 @@ def train_mlframe_models_suite(
     # Save metadata early so partial training runs leave already-trained models usable.
     _finalize_and_save_metadata(ctx)
 
-    # Maps slugified names back to originals for load_mlframe_suite.
-    slug_to_original_target_type: dict[str, Any] = {}
-    slug_to_original_target_name: dict[str, Any] = {}
-
     ctx._all_target_audits = pr.run_temporal_audit_batch(
         behavior_config=behavior_config,
         features_and_targets_extractor=features_and_targets_extractor,
@@ -695,7 +691,11 @@ def train_mlframe_models_suite(
     )
 
     for target_type, targets in tqdmu_lazy_start(target_by_type.items(), desc="target type"):
-        slug_to_original_target_type[slugify(str(target_type).lower())] = target_type
+        # Written directly onto ctx (not a throwaway local) so _finalize_and_save_metadata's
+        # `if ctx.slug_to_original_target_type:` guard sees it -- mirrors how
+        # ctx.slug_to_original_target_name is populated (mutated in place downstream in
+        # _phase_train_one_target_model_setup.py rather than threaded back up from a local here).
+        ctx.slug_to_original_target_type[slugify(str(target_type).lower())] = target_type
 
         # !TODO ! optimize for creation of inner feature matrices of cb,lgb,xgb here. They should be created once per featureset, not once per target.
         for cur_target_name, cur_target_values in tqdmu_lazy_start(targets.items(), desc="target"):

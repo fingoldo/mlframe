@@ -342,7 +342,10 @@ def report_probabilistic_model_perf(
     if custom_rice_metric and custom_rice_metric != custom_ice_metric:
         robust_integral_error = custom_rice_metric(y_true=targets, y_score=probs)
 
-    if not classes:
+    # Explicit None/empty check instead of `if not classes:` -- the bare-truthiness form crashes with
+    # "truth value of an array with more than one element is ambiguous" for any ndarray `classes` with
+    # >=2 elements, a case the function's own type hint (Sequence | np.ndarray | None) documents as supported.
+    if classes is None or len(classes) == 0:
         if is_multilabel:
             # K independent labels named 0..K-1
             classes = list(range(targets_arr.shape[1]))

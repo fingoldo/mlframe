@@ -27,6 +27,13 @@ class NoiseAugmentedEnsemble:
         self.k = int(k)
         self.sigma_scale = float(sigma_scale)
         self.seed = int(seed)
+        # Attach predict_proba only when the base estimator actually supports it, so
+        # hasattr(ensemble, "predict_proba")-based classifier/regressor dispatch (used
+        # throughout this codebase's reporting/prediction paths) sees a regression base
+        # correctly as probability-incapable, instead of discovering the mismatch only
+        # when predict_proba is actually called and raises deep inside its own loop.
+        if hasattr(base_estimator, "predict_proba"):
+            self.predict_proba = self._predict_proba_impl
 
     def fit(self, X, y):
         """Fit ``k`` independent clones of ``base_estimator``, each on ``X`` perturbed by its own Gaussian jitter stream (scaled per-feature by ``sigma_scale * std``); jitter streams are spawned from one seed via ``SeedSequence.spawn`` for reproducible, mutually-independent member noise."""
@@ -59,7 +66,7 @@ class NoiseAugmentedEnsemble:
         preds = np.stack([np.asarray(e.predict(Xf)) for e in self.estimators_], axis=0)
         return preds.mean(axis=0)
 
-    def predict_proba(self, X):
+    def _predict_proba_impl(self, X):
         """Average the ``k`` members' predicted class probabilities on the unperturbed query ``X``."""
         Xf = np.asarray(X, dtype=np.float64)
         probs = np.stack([np.asarray(e.predict_proba(Xf)) for e in self.estimators_], axis=0)

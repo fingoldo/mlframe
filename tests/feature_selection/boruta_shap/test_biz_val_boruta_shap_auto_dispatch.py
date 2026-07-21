@@ -26,7 +26,7 @@ from sklearn.model_selection import train_test_split
 
 
 def _make(n, p, inf, seed):
-    """Helper that make."""
+    """Returns ``(pd.DataFrame(X, columns=[f'f{i}' for i in range(p)]), pd.Series(y))`` (after 1 setup step)."""
     X, y = make_classification(n_samples=n, n_features=p, n_informative=inf, n_redundant=0, shuffle=False, random_state=seed)
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), pd.Series(y)
 
@@ -41,7 +41,7 @@ def _holdout_auc(X, y, selected, seed):
 
 
 def _fit(measure, X, y, seed, n_trials=12):
-    """Helper that fit."""
+    """Test helper: from mlframe.feature_selection.boruta_shap import BorutaShap; kw = dict(model=RandomForestClassifier(n_estimators=80, n...; if measure in ('permutation', 'auto'): kw['permutation_n_...."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     kw = dict(

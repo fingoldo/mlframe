@@ -18,7 +18,7 @@ from mlframe.preprocessing.temporal_drift_augment import augment_temporal_drift
 
 
 def _make_panel(n_entities: int, seed: int):
-    """Helper that make panel."""
+    """Builds seeded synthetic test data; returns ``(pd.DataFrame(rows), labels)``."""
     rng = np.random.default_rng(seed)
     rows = []
     labels = {}
@@ -120,7 +120,7 @@ def _make_long_noisy_history_panel(n_entities: int, n_periods: int, seed: int, i
 
 
 def _last_row_standardized(df: pd.DataFrame) -> pd.DataFrame:
-    """Helper that last row standardized."""
+    """Returns ``pd.DataFrame(out)`` (after 2 setup steps)."""
     out = []
     for _entity_id, grp in df.sort_values(["entity_id", "t"]).groupby("entity_id"):
         z = (grp["x"].iloc[-1] - grp["x"].mean()) / (grp["x"].std(ddof=1) + 1e-9)

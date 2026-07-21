@@ -220,12 +220,12 @@ from .acf_lag_selection import select_significant_lags
 from .two_step_target_encode import two_step_recency_weighted_target_encode
 from .polars_dynamic_window import polars_dynamic_window_aggregate
 from .sequence2vec_categorical import train_sequence2vec, sequence2vec_entity_features
-from .relational_dfs import ChildTableSpec, compute_relational_features, stack_relational_features
+from .relational_dfs import ChildTableSpec, RelationalHop, compute_relational_features, stack_relational_chain, stack_relational_features
 from .windowed_edge_diff import windowed_edge_aggregate_diff
 from .magnitude_sample_weight import magnitude_sample_weight
 from .boolean_pair_interactions import boolean_pair_interactions, is_binary_column
 from .sentinel_missing_count import add_sentinel_missing_count_feature, detect_column_sentinel, detect_sentinel_values
-from .categorical_group_concat import concat_categorical_group
+from .categorical_group_concat import auto_concat_categorical_groups, concat_categorical_group, discover_categorical_groups
 from .categorical_powerset_concat import categorical_powerset_concat
 from .binned_unique_count import binned_unique_count
 from .multi_decomposition_bank import multi_decomposition_feature_bank
@@ -254,6 +254,11 @@ __all__ = [
     "nadaraya_watson_smooth",
     "per_group_nadaraya_watson_smooth",
     "add_anchor_extrapolation_features",
+    "anchor_density_features",
+    "anchor_ewm_features",
+    "anchor_quadratic_extrapolation_features",
+    "anchor_residual_rmse_features",
+    "rows_until_next_anchor",
     "add_fast_rolling_stats",
     "add_ohlcv_ratios_rlags",
     "add_ohlcv_ta_indicators",
@@ -284,9 +289,22 @@ __all__ = [
     "get_numaggs_names",
     "get_simple_stats_names",
     "higuchi_fd",
+    "multi_scale_hurst",
+    "dfa_alpha2_quadratic",
+    "multifractal_dfa",
     "iter_group_segments",
+    "per_group_rank",
+    "per_group_shift",
+    "per_group_cum_reduce",
+    "per_group_rolling_reduce",
+    "per_group_nth",
     "knn_aggregate",
     "knn_within_bucket_aggregate",
+    "inverse_distance_weighted_aggregate",
+    "knn_gradient_features",
+    "knn_label_dispersion_features",
+    "local_density_features",
+    "radius_aggregate",
     "merge_perticker_and_wholemarket_features",
     "numaggs_over_matrix_rows",
     "particle_filter_posterior",
@@ -355,7 +373,9 @@ __all__ = [
     "train_sequence2vec",
     "sequence2vec_entity_features",
     "ChildTableSpec",
+    "RelationalHop",
     "compute_relational_features",
+    "stack_relational_chain",
     "stack_relational_features",
     "windowed_edge_aggregate_diff",
     "magnitude_sample_weight",
@@ -365,6 +385,8 @@ __all__ = [
     "detect_column_sentinel",
     "detect_sentinel_values",
     "concat_categorical_group",
+    "discover_categorical_groups",
+    "auto_concat_categorical_groups",
     "categorical_powerset_concat",
     "binned_unique_count",
     "multi_decomposition_feature_bank",

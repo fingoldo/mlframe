@@ -478,7 +478,7 @@ def particle_filter_posterior(
 
     from .grouped import iter_group_segments
     sort_idx, starts, ends = iter_group_segments(group_ids)
-    for s, e in zip(starts, ends):
+    for g, (s, e) in enumerate(zip(starts, ends)):
         idx_seg = sort_idx[s:e]
         seg_obs = obs[idx_seg]
         seg_prior = prior_arr[idx_seg]
@@ -490,7 +490,10 @@ def particle_filter_posterior(
             transition_sigma=transition_sigma,
             observation_sigma=observation_sigma,
             resample_threshold=resample_threshold,
-            rng=np.random.default_rng(seed),
+            # A distinct per-group sub-stream, NOT the same `seed` re-created every iteration -- the latter
+            # correlated every group's particle-noise draws with each other, contradicting this function's
+            # own "no particle bleed across groups" contract.
+            rng=np.random.default_rng([seed, g]),
         )
         out_p10[idx_seg] = res[:, 0]
         out_p50[idx_seg] = res[:, 1]

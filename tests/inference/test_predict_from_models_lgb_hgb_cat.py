@@ -49,7 +49,7 @@ def _build_polars_frame_with_cat(n: Optional[int] = None, seed: int = 0):
     # n=600 still exercises the iter#80 LGB-vs-HGB dtype-dispatch sensor path
     # with cat_low present at meaningful cardinality (5 categories); the
     # original n=3000 was suite-overkill for a code-path regression probe.
-    """Helper that build polars frame with cat."""
+    """Returns ``df`` (after 3 setup steps)."""
     if n is None:
         n = 600 if is_fast_mode() else 1200
     rng = np.random.default_rng(seed)
@@ -65,7 +65,7 @@ def _build_polars_frame_with_cat(n: Optional[int] = None, seed: int = 0):
 
 
 def _run_suite_binary(df, models_list):
-    """Helper that run suite binary."""
+    """Returns ``train_mlframe_models_suite(df=df, target_name='y', model_name='prof', features_and_targ...`` (after 1 setup step)."""
     fte = SimpleFeaturesAndTargetsExtractor(
         classification_targets=["y"],
         classification_exact_values={"y": 1},

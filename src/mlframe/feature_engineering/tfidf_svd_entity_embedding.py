@@ -111,6 +111,15 @@ def tfidf_svd_entity_embedding(
         diagnostic, instead of leaking/refitting on the new batch. Default ``False`` preserves the prior
         return type and is bit-identical to the pre-extension behavior.
 
+    Leakage note
+    ------------
+    This function is target-free (never touches ``y``), so it cannot leak TARGET information -- but it DOES
+    fit the TF-IDF vocabulary/IDF weights and the SVD basis on whatever ``df`` is passed in. Calling it on a
+    combined train+val/test frame lets val/test entities' categories influence the fitted vocabulary and
+    basis, which then embeds the "training" rows too. For CV/train-test discipline, prefer
+    ``return_fitted=True`` and call :meth:`FittedTfidfSvdEntityEmbedding.transform_new_entities` per split
+    instead of calling this convenience form on the combined frame.
+
     Returns
     -------
     pd.DataFrame

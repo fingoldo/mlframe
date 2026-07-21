@@ -8,6 +8,7 @@ methods they replaced.
 """
 from __future__ import annotations
 
+import inspect
 import logging
 from copy import deepcopy
 from typing import Any, Dict
@@ -20,30 +21,22 @@ def get_params(self, deep: bool = True) -> Dict[str, Any]:
 
     All __init__ parameters must be included for sklearn.base.clone() to work correctly.
     """
-    # Wave 26 P1 fix (2026-05-20): pre-fix ``trainer_params`` and
-    # ``tune_params`` were returned by reference even with deep=True;
-    # the four sibling param-dicts (model_params, network_params,
-    # datamodule_params, swa_params) were correctly deepcopied. This
-    # asymmetry was an oversight: sklearn's clone() calls
-    # get_params(deep=True) and rebinds into a new instance. Any
-    # downstream mutation of the clone's trainer_params (e.g. setting
-    # a new logger) poisoned the original estimator that was still
-    # being trained.
-    params = {
-        "model_class": self.model_class,
-        "model_params": deepcopy(self.model_params) if deep else self.model_params,
-        "network_params": deepcopy(self.network_params) if deep else self.network_params,
-        "datamodule_class": self.datamodule_class,
-        "datamodule_params": deepcopy(self.datamodule_params) if deep else self.datamodule_params,
-        "trainer_params": deepcopy(self.trainer_params) if deep else self.trainer_params,
-        "use_swa": self.use_swa,
-        "swa_params": deepcopy(self.swa_params) if deep and self.swa_params else self.swa_params,
-        "tune_params": deepcopy(self.tune_params) if deep and self.tune_params else self.tune_params,
-        "tune_batch_size": self.tune_batch_size,
-        "float32_matmul_precision": self.float32_matmul_precision,
-        "early_stopping_rounds": self.early_stopping_rounds,
-        "monotonic_decline_patience": self.monotonic_decline_patience,
-    }
+    # Enumerated from the real __init__ signature (not a hand-maintained key list) so a newly-added
+    # constructor parameter can never silently go missing here again -- a hand-maintained list previously
+    # drifted 10 params stale (use_ema, ema_params, label_smoothing, focal_loss_gamma, focal_loss_alpha,
+    # capture_iteration_metrics, random_state, class_weight, use_learnable_cat_embeddings,
+    # categorical_embed_dim), so sklearn.base.clone() (used by cross_val_score / GridSearchCV /
+    # StackingClassifier / any Pipeline step) silently dropped those params back to their constructor
+    # defaults on every clone.
+    sig = inspect.signature(type(self).__init__)
+    params: Dict[str, Any] = {}
+    for name in sig.parameters:
+        if name == "self":
+            continue
+        value = getattr(self, name)
+        if deep and isinstance(value, dict):
+            value = deepcopy(value)
+        params[name] = value
     return params
 
 

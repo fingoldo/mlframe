@@ -99,9 +99,16 @@ def select_target(
             return None
         if hasattr(idx, "__len__") and len(idx) == 0:
             return None
+        # Normalise any array-like idx (including a plain Python list/tuple, which has no
+        # .dtype) to a numpy array up front. Without this, a pd.Series target with a
+        # non-default index combined with a plain-list idx falls through to pandas
+        # *label*-based indexing below instead of positional -- silently wrong row
+        # selection.
+        if not hasattr(idx, "dtype"):
+            idx = np.asarray(idx)
         if isinstance(target_arr, (pl.Series, np.ndarray)):
             return target_arr[idx]
-        if hasattr(idx, "dtype") and idx.dtype != bool:
+        if idx.dtype != bool:
             return target_arr.iloc[idx]
         return target_arr[idx]
 

@@ -40,6 +40,52 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+try:  # numba is a core mlframe dep; the pure-numpy fallback keeps the module importable in a stripped CI env.
+    import numba
+
+    _HAVE_NUMBA = True
+except Exception:  # pragma: no cover -- numba always present in prod
+    _HAVE_NUMBA = False
+
+
+def _njit(func):
+    """Apply ``numba.njit(cache=True)`` when available, else return the plain Python function (correctness-preserving)."""
+    if _HAVE_NUMBA:
+        return numba.njit(cache=True)(func)
+    return func
+
+
+def _causal_rolling_mean_impl(y_sorted: np.ndarray, window: int) -> np.ndarray:
+    """Trailing mean over ``y[i-window .. i-1]`` via an O(n) running-window sum (add the entering
+    element, drop the one leaving the window) instead of an O(n*window) per-row ``.mean()`` rescan.
+    Mirrors ``_grouped_causal_bases.py::_grouped_trailing_impl``'s single-series case."""
+    n = y_sorted.shape[0]
+    out = np.full(n, np.nan, dtype=np.float64)
+    win_sum = 0.0
+    for i in range(n):
+        if i >= window:
+            out[i] = win_sum / window
+        win_sum += y_sorted[i]
+        if i >= window:
+            win_sum -= y_sorted[i - window]
+    return out
+
+
+def _causal_rolling_median_impl(y_sorted: np.ndarray, window: int) -> np.ndarray:
+    """Trailing median over ``y[i-window .. i-1]``. Same O(n*window) algorithm as the plain-Python
+    version, just JIT-compiled -- a true O(1)-amortized sliding-window median needs a balanced-heap
+    structure numba can't easily express; this keeps the numerics identical while cutting the
+    per-window Python/np.median call overhead."""
+    n = y_sorted.shape[0]
+    out = np.full(n, np.nan, dtype=np.float64)
+    for i in range(window, n):
+        out[i] = np.median(y_sorted[i - window : i])
+    return out
+
+
+_causal_rolling_mean_kernel = _njit(_causal_rolling_mean_impl)
+_causal_rolling_median_kernel = _njit(_causal_rolling_median_impl)
+
 
 def _extract_column(df: Any, col: str) -> np.ndarray:
     """Pull a single column as a 1-D float64 ndarray (polars or pandas), no frame copy.
@@ -85,13 +131,11 @@ def _causal_rolling(y_sorted: np.ndarray, window: int, *, median: bool) -> np.nd
     shift-1 series so the current target can never enter the window -- causal by construction.
     """
     n = y_sorted.shape[0]
-    out = np.full(n, np.nan, dtype=np.float64)
     if window < 1:
-        return out
-    for i in range(window, n):
-        past = y_sorted[i - window : i]  # strictly earlier than row i
-        out[i] = np.median(past) if median else past.mean()
-    return out
+        return np.full(n, np.nan, dtype=np.float64)
+    if median:
+        return np.asarray(_causal_rolling_median_kernel(y_sorted, window))
+    return np.asarray(_causal_rolling_mean_kernel(y_sorted, window))
 
 
 def _causal_diff(y_sorted: np.ndarray) -> np.ndarray:

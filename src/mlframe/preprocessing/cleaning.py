@@ -110,13 +110,12 @@ def _update_sub_df_col(
 ) -> tuple:
     """Refresh ``col``'s value_counts (and nunique) for the analysed sub-frame, re-slicing ``df`` via ``analyse_mask`` first when provided. Called after a column has been narrowed to the analysis subset so the cardinality stats reflect that subset, not the full frame."""
     if analyse_mask is not None:
-        # Unconditionally refresh from df.loc[...]: heuristics based on
-        # ``values.base`` were unreliable across pandas <2 / >=2 copy-on-write
-        # combos. A defensive copy on the sub_df is safe for the value_counts
-        # path below and works correctly under both pandas eras.
-        sub_df = sub_df.copy() if col in sub_df else sub_df
-        sub_df[col] = df.loc[analyse_mask, col]
-    col_unique_values = sub_df[col].value_counts(dropna=False)
+        # Compute value_counts directly from df.loc[analyse_mask, col] -- a fresh Series -- instead
+        # of copying (even shallowly) the full, potentially huge sub_df just to temporarily overwrite
+        # one column before immediately reading it back out.
+        col_unique_values = df.loc[analyse_mask, col].value_counts(dropna=False)
+    else:
+        col_unique_values = sub_df[col].value_counts(dropna=False)
     nunique = len(col_unique_values)
     collect()
     return col_unique_values, nunique
@@ -310,7 +309,10 @@ def is_variable_truly_continuous(
 
     use_quantiles = None
 
-    if calculated_quantiles or use_quantile:
+    # `calculated_quantiles is not None`, not a truthiness check: a caller following the documented
+    # contract passes a 2-element np.ndarray, and `bool(<2-element ndarray>)` raises
+    # "the truth value of an array with more than one element is ambiguous".
+    if calculated_quantiles is not None or use_quantile:
 
         if calculated_quantiles is None:
             if use_quantile > 0.5:
@@ -763,7 +765,7 @@ def analyse_and_clean_features(
                     else:
                         real_val = val
                 if (real_val is not None) and (na_val is not True):
-                    if type(real_val) is str:
+                    if isinstance(real_val, str):
                         repl_value: Any = "not " + real_val
                     else:
                         if col_is_numeric:
@@ -894,3 +896,15 @@ def apply_features_cleaning(df: pd.DataFrame, features_cleaning: dict, update_da
     if constant_features:
         df = df.drop(columns=constant_features)
     return df
+
+
+__all__ = [
+    "NDIGITS",
+    "DATEFRACTS_CODES",
+    "DATEFRACTS_MULTIPLIERS",
+    "is_variable_truly_continuous",
+    "suggest_non_outlying_data_indices",
+    "fragment_df_on_ram_usage_increase",
+    "analyse_and_clean_features",
+    "apply_features_cleaning",
+]

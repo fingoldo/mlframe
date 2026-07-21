@@ -38,13 +38,23 @@ def _snapshot_stats_for_k(
     column_prefix: str,
 ) -> dict:
     """Neighbor-aggregate + distance-ratio columns for one ``k``, slicing the top-``k`` columns out of an
-    already max-k-sized sorted neighbor table (no re-search)."""
+    already max-k-sized sorted neighbor table (no re-search).
+
+    When ``n_snapshots <= k`` there are fewer real (non-self) neighbors than requested, and the sorted
+    neighbor table is padded with the self-match placeholder (``-1`` index / ``inf`` distance, always sorted
+    to the tail). Those placeholder slots are masked out of the aggregates (NaN, skipped by the ``nan*``
+    reducers) and out of the distance-ratio's ``kth_nn`` (falls back to the same 1.0 "maximally isolated"
+    value the ``kth_nn == 0`` case already gets) instead of silently reading an unrelated snapshot's values
+    via numpy's ``-1``-means-last-row fancy indexing and dividing by ``inf``.
+    """
     idx_k = neighbor_idx_sorted[:, :k]
     dists_k = dists_sorted[:, :k]
+    valid_k = idx_k >= 0  # False only at the self-match placeholder position (at most one per row, at the tail)
 
     out: dict = {}
     for col_j, col in enumerate(feature_cols):
         neighbor_vals = vectors[idx_k, col_j]  # (n_snapshots, k)
+        neighbor_vals = np.where(valid_k, neighbor_vals, np.nan)
         for stat in agg_stats:
             reducer = getattr(np, f"nan{stat}", None) or getattr(np, stat)
             out[f"{column_prefix}_{col}_{stat}"] = reducer(neighbor_vals, axis=1)
@@ -52,8 +62,10 @@ def _snapshot_stats_for_k(
     k_eff = dists_k.shape[1]
     first_nn = dists_k[:, 0]
     kth_nn = dists_k[:, k_eff - 1]
-    # 1.0 (maximally "isolated/uncertain") for the degenerate all-neighbors-at-distance-0 case.
-    distance_ratio = np.divide(first_nn, kth_nn, out=np.ones_like(first_nn), where=kth_nn > 0)
+    # 1.0 (maximally "isolated/uncertain") for the degenerate all-neighbors-at-distance-0 case, AND for the
+    # too-few-real-neighbors case (kth_nn == inf, the placeholder distance).
+    valid_ratio = np.isfinite(kth_nn) & (kth_nn > 0)
+    distance_ratio = np.divide(first_nn, kth_nn, out=np.ones_like(first_nn), where=valid_ratio)
     out[f"{column_prefix}_distance_ratio"] = distance_ratio
     return out
 

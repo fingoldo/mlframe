@@ -60,7 +60,10 @@ def _make_scenario(name, rng):
 
 
 def _score(alpha, cats_tr, y_tr, cats_te, y_te):
-    enc = LeakageSafeEncoder(method="woe", smoothing=alpha, random_state=0)
+    # method="woe" only ever reads self.woe_smoothing, never self.smoothing -- sweeping `smoothing=alpha`
+    # produced a bit-identical LeakageSafeEncoder (and therefore identical transform() output) for every
+    # alpha in the grid, measuring no signal at all for the parameter this bench claims to tune.
+    enc = LeakageSafeEncoder(method="woe", woe_smoothing=alpha, random_state=0)
     enc.fit(cats_tr, y_tr)
     woe_te = enc.transform(cats_te)
     if len(np.unique(y_te)) < 2:
@@ -78,7 +81,7 @@ def run():
     ]
     seeds = [0, 1, 2]
     # results[alpha] = list of test-AUCs
-    agg = {a: [] for a in ALPHAS}
+    agg: dict[float, list[float]] = {a: [] for a in ALPHAS}
     wins = {a: 0 for a in ALPHAS}
     cells = 0
     print(f"{'scenario':<26} {'seed':<5} " + " ".join(f"a={a:<6}" for a in ALPHAS))

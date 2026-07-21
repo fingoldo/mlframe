@@ -22,7 +22,7 @@ from mlframe.feature_selection.unanimous_permutation_prune import unanimous_perm
 
 
 def _scoring(y_true, y_pred):
-    """Helper that scoring."""
+    """Returns ``-float(np.sqrt(np.mean((np.asarray(y_true) - np.asarray(y_pred)) ** 2)))``."""
     return -float(np.sqrt(np.mean((np.asarray(y_true) - np.asarray(y_pred)) ** 2)))
 
 

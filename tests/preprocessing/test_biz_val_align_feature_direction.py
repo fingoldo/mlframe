@@ -17,7 +17,7 @@ from mlframe.preprocessing.align_feature_direction import align_feature_directio
 
 
 def _make_mixed_orientation_dataset(n: int, n_features: int, seed: int):
-    """Helper that make mixed orientation dataset."""
+    """Builds seeded synthetic test data; returns ``(pd.DataFrame(cols), y)``."""
     rng = np.random.default_rng(seed)
     y = rng.integers(0, 2, n)
     true_signal = np.where(y == 1, 1.0, -1.0)

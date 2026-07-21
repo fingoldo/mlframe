@@ -95,7 +95,12 @@ class AdditiveDecompositionRegressor(BaseEstimator, RegressorMixin):
         return trunk, component_heads
 
     def _validate_component_constraints(self) -> Dict[str, str]:
-        """Validate that ``component_constraints`` only names known components and supported constraint kinds."""
+        """Validate that ``component_names`` is non-empty and ``component_constraints`` only names known components and supported constraint kinds."""
+        if not self.component_names:
+            raise ValueError(
+                "AdditiveDecompositionRegressor: component_names must be non-empty -- with no components, "
+                "the primary prediction (sum of component heads) is undefined."
+            )
         constraints = self.component_constraints or {}
         unknown_components = set(constraints) - set(self.component_names)
         if unknown_components:
@@ -164,18 +169,48 @@ class AdditiveDecompositionRegressor(BaseEstimator, RegressorMixin):
 
         mse = nn.MSELoss()
 
-        self.train_losses_ = []
-        for _ in range(self.n_epochs):
-            optimizer.zero_grad()
-            hidden = self.trunk_(X_t)
+        def _joint_loss(x_batch, y_primary_batch, component_targets_batch):
+            """One forward pass through the shared trunk + every component head; returns the weighted joint loss."""
+            hidden = self.trunk_(x_batch)
             component_preds = {name: self._apply_component_constraint(name, self.component_heads_[name](hidden), constraints) for name in self.component_names}
             primary_pred = sum(component_preds.values())
-            loss = mse(primary_pred, y_primary_t)
-            for name, target_t in component_targets_t.items():
+            loss = mse(primary_pred, y_primary_batch)
+            for name, target_t in component_targets_batch.items():
                 loss = loss + self.component_task_weight * mse(component_preds[name], target_t)
-            loss.backward()
-            optimizer.step()
-            self.train_losses_.append(float(loss.item()))
+            return loss
+
+        self.train_losses_ = []
+        n = X_t.shape[0]
+        if self.batch_size is None or self.batch_size >= n:
+            # Full-batch path (default): unchanged from before mini-batch support was added.
+            for _ in range(self.n_epochs):
+                optimizer.zero_grad()
+                loss = _joint_loss(X_t, y_primary_t, component_targets_t)
+                loss.backward()
+                optimizer.step()
+                self.train_losses_.append(float(loss.item()))
+        else:
+            # Mini-batch SGD: reshuffle row order once per epoch (seeded off random_state so the
+            # per-epoch batch composition is reproducible), one optimizer step per batch, epoch loss
+            # = the mean of that epoch's per-batch losses (a diagnostics-only summary, not the loss
+            # actually backpropagated on any single step).
+            rng = np.random.default_rng(self.random_state)
+            bs = int(self.batch_size)
+            for _ in range(self.n_epochs):
+                perm = rng.permutation(n)
+                epoch_losses = []
+                for start in range(0, n, bs):
+                    idx = perm[start : start + bs]
+                    idx_t = torch.from_numpy(idx)
+                    optimizer.zero_grad()
+                    loss = _joint_loss(
+                        X_t[idx_t], y_primary_t[idx_t],
+                        {name: target_t[idx_t] for name, target_t in component_targets_t.items()},
+                    )
+                    loss.backward()
+                    optimizer.step()
+                    epoch_losses.append(float(loss.item()))
+                self.train_losses_.append(float(np.mean(epoch_losses)))
 
         return self
 

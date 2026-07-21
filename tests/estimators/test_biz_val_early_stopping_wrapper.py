@@ -31,7 +31,7 @@ from mlframe.estimators.early_stopping import EarlyStoppingWrapper
 
 
 def _rmse(y_true, y_pred):
-    """Helper that rmse."""
+    """Returns ``float(np.sqrt(mean_squared_error(y_true, y_pred)))``."""
     return float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
 
@@ -41,7 +41,7 @@ def _rmse(y_true, y_pred):
 
 
 def _classification_data(seed: int = 1, n: int = 400, d: int = 8):
-    """Helper that classification data."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.RandomState(seed)
     X = rng.randn(n, d).astype(np.float64)
     w = np.array([1.6, -1.3, 0.9, -0.5] + [0.0] * (d - 4))
@@ -50,7 +50,7 @@ def _classification_data(seed: int = 1, n: int = 400, d: int = 8):
 
 
 def _regression_data(seed: int = 1, n: int = 400, d: int = 8):
-    """Helper that regression data."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.RandomState(seed)
     X = rng.randn(n, d).astype(np.float64)
     w = np.array([2.0, -1.5, 1.0, -0.7] + [0.0] * (d - 4))

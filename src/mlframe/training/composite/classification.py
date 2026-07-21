@@ -208,7 +208,7 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
         """Total margin = base margin (from the column or the fitted base estimator) + the inner's raw residual margin."""
         if not hasattr(self, "estimator_"):
             from sklearn.exceptions import NotFittedError
-            raise NotFittedError("CompositeClassificationEstimator.predict called before fit.")
+            raise NotFittedError("CompositeClassificationEstimator.decision_function called before fit.")
         if self.base_margin_column is not None:
             base_margin = self._extract_margin_column(X)
             X_inner = self._drop_margin_column(X)
@@ -243,30 +243,10 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
         better-calibrated. Returns the per-bin arrays + the scalar ECE so the
         caller can plot or gate on it.
         """
+        from ._calibration_binning import top_label_calibration_bins
+
         proba = self.predict_proba(X)
-        conf = proba.max(axis=1)
-        pred = self.classes_[np.argmax(proba, axis=1)]
-        y_true = np.asarray(y).reshape(-1)
-        correct = (pred == y_true).astype(np.float64)
-        edges = np.linspace(0.0, 1.0, int(n_bins) + 1)
-        idx = np.clip(np.digitize(conf, edges[1:-1]), 0, int(n_bins) - 1)
-        bin_conf = np.full(int(n_bins), np.nan)
-        bin_acc = np.full(int(n_bins), np.nan)
-        bin_cnt = np.zeros(int(n_bins), dtype=np.int64)
-        ece = 0.0
-        n = conf.size
-        for b in range(int(n_bins)):
-            m = idx == b
-            c = int(m.sum())
-            bin_cnt[b] = c
-            if c:
-                bin_conf[b] = float(conf[m].mean())
-                bin_acc[b] = float(correct[m].mean())
-                ece += (c / n) * abs(bin_conf[b] - bin_acc[b])
-        return {
-            "bin_confidence": bin_conf, "bin_accuracy": bin_acc,
-            "bin_count": bin_cnt, "ece": float(ece),
-        }
+        return top_label_calibration_bins(y, proba, self.classes_, n_bins=n_bins)
 
 
 # Split-conformal prediction SETS. Bound from ``composite/conformal_classification.py``

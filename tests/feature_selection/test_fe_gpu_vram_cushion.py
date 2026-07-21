@@ -93,7 +93,7 @@ def test_pool_retained_blocks_released_before_declining(monkeypatch, vram):
 
     def _meminfo():
         # 0.52 GB free before the pool is flushed; 3.5 GB free after (the observed live condition).
-        """Helper that meminfo."""
+        """Returns ``(int(3.5 * GB), 4 * GB) if state['freed'] else (int(0.52 * GB), 4 * GB)``."""
         return (int(3.5 * GB), 4 * GB) if state["freed"] else (int(0.52 * GB), 4 * GB)
 
     monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _FatPool())
@@ -120,7 +120,7 @@ def test_pool_flush_still_declines_when_genuinely_full(monkeypatch, vram):
             state["freed"] = True
 
     def _meminfo():
-        """Helper that meminfo."""
+        """Returns ``(620 * MB, 4 * GB) if state['freed'] else (520 * MB, 4 * GB)``."""
         return (620 * MB, 4 * GB) if state["freed"] else (520 * MB, 4 * GB)
 
     monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _SmallPool())
@@ -171,7 +171,7 @@ def test_permissive_when_memgetinfo_raises(monkeypatch, vram):
     import cupy as cp
 
     def _boom():
-        """Helper that boom."""
+        """Always raises ``RuntimeError('simulated memGetInfo failure')``."""
         raise RuntimeError("simulated memGetInfo failure")
 
     monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", _boom)

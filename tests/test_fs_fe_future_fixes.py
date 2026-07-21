@@ -36,7 +36,7 @@ def test_fs_p1_1_passthrough_fit_transform_forwards_groups():
     received: dict = {}
 
     def fake_fit_transform(X, y=None, groups=None):
-        """Helper that fake fit transform."""
+        """Returns ``X`` (after 1 setup step)."""
         received["groups"] = groups
         return X
 

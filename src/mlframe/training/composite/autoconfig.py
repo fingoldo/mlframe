@@ -208,11 +208,12 @@ def suggest_discovery_config(
         strictly_positive = bool(yf.size and float(yf.min()) > 0.0)
         if strictly_positive and "log_y" not in base_transforms:
             added_transforms.append("log_y")
-        rationale["transforms"] = (
-            f"target skew={skew:.2f} > {_SKEW_TRANSFORM_MIN}: strongly right-"
-            "skewed, added tail-compressing y-transform(s) "
-            f"{added_transforms} (log_y only when target>0)."
-        )
+        if added_transforms:
+            rationale["transforms"] = (
+                f"target skew={skew:.2f} > {_SKEW_TRANSFORM_MIN}: strongly right-"
+                "skewed, added tail-compressing y-transform(s) "
+                f"{added_transforms} (log_y only when target>0)."
+            )
 
     heavy_tail = abs(skew) > _HEAVY_TAIL_SKEW or kurt > _HEAVY_TAIL_KURT
     if heavy_tail:

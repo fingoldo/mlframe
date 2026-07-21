@@ -38,12 +38,12 @@ from mlframe.estimators.early_stopping import EarlyStoppingWrapper
 
 
 def _rmse(y_true, y_pred):
-    """Helper that rmse."""
+    """Returns ``float(np.sqrt(mean_squared_error(y_true, y_pred)))``."""
     return float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
 
 def _clf_data(seed=1, n=400, d=8):
-    """Helper that clf data."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.RandomState(seed)
     X = rng.randn(n, d).astype(np.float64)
     w = np.array([1.6, -1.3, 0.9, -0.5] + [0.0] * (d - 4))
@@ -52,7 +52,7 @@ def _clf_data(seed=1, n=400, d=8):
 
 
 def _reg_data(seed=1, n=400, d=8):
-    """Helper that reg data."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.RandomState(seed)
     X = rng.randn(n, d).astype(np.float64)
     w = np.array([2.0, -1.5, 1.0, -0.7] + [0.0] * (d - 4))
@@ -75,7 +75,7 @@ _REG_FACTORIES = {
 
 
 def _fit_es(factory, X, y, **kw):
-    """Helper that fit es."""
+    """Returns ``es`` (after 3 setup steps)."""
     kw.setdefault("patience", 6)
     es = EarlyStoppingWrapper(factory(), max_iter=_MAX_N, validation_fraction=0.15, **kw)
     with warnings.catch_warnings():

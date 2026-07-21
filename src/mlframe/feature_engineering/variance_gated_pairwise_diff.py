@@ -34,8 +34,12 @@ def variance_gated_pairwise_diff(
     columns
         Numeric columns to combine pairwise.
     min_variance
-        A pair's diff column is kept only if ``np.var(diff) > min_variance`` (drops near-constant diffs --
-        e.g. two near-duplicate columns whose difference carries almost no signal).
+        A pair's diff column is kept only if its variance exceeds this threshold (drops near-constant diffs
+        -- e.g. two near-duplicate columns whose difference carries almost no signal). Computed as ``var(a) +
+        var(b) - 2*cov(a, b)`` via ``np.cov`` (see the implementation note below), whose default ``ddof=1``
+        (sample variance) differs from ``np.var(diff)``'s default ``ddof=0`` (population variance) by a
+        factor of ``n/(n-1)`` -- immaterial at any real-world ``n``, but stated explicitly here since the two
+        aren't literally the same formula.
     chunk_size
         Number of candidate pairs processed per batch before pruning -- bounds peak memory to
         ``O(chunk_size * n_rows)`` instead of ``O(C(n_cols, 2) * n_rows)``.

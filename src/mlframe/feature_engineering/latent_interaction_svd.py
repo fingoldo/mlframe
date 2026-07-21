@@ -207,6 +207,15 @@ def latent_interaction_features(
     col_uniq, col_inv = np.unique(events_df[col_entity].to_numpy(), return_inverse=True)
     n_rows, n_cols = len(row_uniq), len(col_uniq)
 
+    if min(n_rows, n_cols) < 2:
+        # TruncatedSVD needs >=2 features; n_eff = min(n_components, max(1, min(n_rows, n_cols) - 1)) floors
+        # to 1 here, and sklearn's own internal error ("Found array with 1 feature(s) ... a minimum of 2 is
+        # required") gives no indication this traces back to a degenerate (single-distinct-entity) input.
+        raise ValueError(
+            f"latent_interaction_features: need >=2 distinct entities on both {row_entity!r} and {col_entity!r} "
+            f"for a meaningful SVD; got n_rows={n_rows}, n_cols={n_cols}."
+        )
+
     M = sparse.coo_matrix((weights, (row_inv, col_inv)), shape=(n_rows, n_cols)).tocsr()
 
     tfidf = None

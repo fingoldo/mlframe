@@ -108,10 +108,18 @@ def compute_band_conditional_anchor_features(
         anchor_parent_band = np.zeros(n_anchors_total, dtype=np.int32)
         band_y_mean = np.zeros(effective_n_bands, dtype=np.float32)
         band_y_std = np.zeros(effective_n_bands, dtype=np.float32)
+        band_empty = np.zeros(effective_n_bands, dtype=bool)
         for b, mask in enumerate(masks):
             X_band = Xt_s[mask]
             y_band = y_t[mask]
             if X_band.shape[0] < 1:
+                band_empty[b] = True
+                # Still label these anchor slots with their TRUE parent band (not the np.zeros default of
+                # 0), so band_masses/argmax_band aren't mislabeled into band 0 -- the anchors themselves
+                # are masked out of the softmax below, so their zero band_y_mean/band_y_std never leak
+                # into flat_y_mean/flat_y_std either.
+                for a_local in range(anchors_per_band):
+                    anchor_parent_band[b * anchors_per_band + a_local] = b
                 continue
             band_y_mean[b] = float(y_band.mean())
             band_y_std[b] = float(y_band.std()) + 1e-9
@@ -140,6 +148,9 @@ def compute_band_conditional_anchor_features(
         diffs = Xq_s[:, None, :] - all_anchors[None, :, :]  # (n_q, n_anchors_total, d)
         sq = (diffs**2).sum(axis=-1)
         scores = -sq
+        if band_empty.any():
+            scores = scores.copy()
+            scores[:, band_empty[anchor_parent_band]] = -np.inf
         weights = _softmax(scores, temp=temp)  # (n_q, n_anchors_total)
         entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)
 

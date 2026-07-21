@@ -60,7 +60,7 @@ def test_evaluate_grouped_still_runs_with_widened_report_dict():
     class _FixedPredictor:
         """Groups tests covering FixedPredictor."""
         def predict(self, X):
-            """Helper that predict."""
+            """Returns ``(X['score'].to_numpy() > 0).astype(int)``."""
             return (X["score"].to_numpy() > 0).astype(int)
 
     rng = np.random.default_rng(1)

@@ -36,7 +36,7 @@ def _legacy_scorer(_est, _X, _y):
 
 
 def _perm(model, X, y, scoring, seed=42, n_repeats=5):
-    """Helper that perm."""
+    """Returns ``permutation_importance(model, X, y, scoring=scoring, n_repeats=n_repeats, random_state=...``."""
     return permutation_importance(
         model,
         X,

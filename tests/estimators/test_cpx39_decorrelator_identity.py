@@ -21,7 +21,7 @@ def _reference_double_loop(X: pd.DataFrame, threshold: float) -> set:
 
 
 def _make(n=2000, p=60, n_corr=15, seed=0):
-    """Helper that make."""
+    """Builds seeded synthetic test data; returns ``pd.DataFrame(X)``."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, p))
     for _ in range(n_corr):

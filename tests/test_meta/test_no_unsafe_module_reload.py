@@ -146,7 +146,7 @@ def _node_has_restore(node: ast.AST) -> bool:
 
 
 def _iter_func_defs(tree: ast.AST):
-    """Helper that iter func defs."""
+    """Test helper: for node in ast.walk(tree): if isinstance(node, (ast.Func...."""
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             yield node

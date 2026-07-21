@@ -127,6 +127,7 @@ class NaiveBayesLogOddsEnsembler(BaseEstimator, ClassifierMixin):
         if self.classes_.shape[0] != 2:
             raise ValueError("NaiveBayesLogOddsEnsembler only supports binary classification")
 
+        self.n_features_in_ = n_features
         self.blocks_ = blocks
         self.models_: list[ClassifierMixin] = []
         for block in blocks:
@@ -154,6 +155,11 @@ class NaiveBayesLogOddsEnsembler(BaseEstimator, ClassifierMixin):
     def predict_proba(self, X: npt.ArrayLike) -> npt.NDArray[np.float64]:
         """Combine per-block log-odds via summation (with optional prior correction) into class probabilities."""
         X_arr = np.asarray(X, dtype=np.float64)
+        if X_arr.shape[1] != self.n_features_in_:
+            raise ValueError(
+                f"NaiveBayesLogOddsEnsembler.predict_proba: X has {X_arr.shape[1]} feature(s), but this "
+                f"estimator was fitted with {self.n_features_in_} feature(s)."
+            )
         logits = self._per_model_log_odds(X_arr)
         combined = logits.sum(axis=1)
         if self.prior_correction:

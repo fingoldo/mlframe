@@ -17,7 +17,7 @@ from mlframe.calibration.group_zero_sum_constraint import apply_group_zero_sum_c
 
 
 def _make_double_zero_sum_target_with_biased_predictions(n_a: int, n_b: int, seed: int):
-    """Helper that make double zero sum target with biased predictions."""
+    """Builds seeded synthetic test data; returns ``(pred, true_y, group_a, group_b)``."""
     rng = np.random.default_rng(seed)
     n = n_a * n_b
     group_a = np.repeat(np.arange(n_a), n_b)  # e.g. date_id
@@ -34,7 +34,7 @@ def _make_double_zero_sum_target_with_biased_predictions(n_a: int, n_b: int, see
 
 
 def _max_abs_group_sum(values: np.ndarray, group: np.ndarray, n_groups: int) -> float:
-    """Helper that max abs group sum."""
+    """Returns ``float(max((abs(values[group == g].sum()) for g in range(n_groups))))``."""
     return float(max(abs(values[group == g].sum()) for g in range(n_groups)))
 
 

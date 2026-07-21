@@ -55,7 +55,7 @@ def _local_lift_and_pr_auc(y_neighbors: np.ndarray, dists: np.ndarray, y_global_
     if task == "binary":
         # Local PR_AUC: treat distance as a "negative score" (closer = higher score). Sort by ascending dist (already done), label = y.
         # PR_AUC = area under precision-recall curve where positives ranked by similarity (1/dist).
-        # We use trapezoidal integration: precision_i = cumulative_positives / (i+1), recall_i = cumulative_positives / total_positives.
+        # precision_i = cumulative_positives / (i+1), recall_i = cumulative_positives / total_positives (step-sum AP below, NOT trapezoidal -- see that comment).
         cum_pos = np.cumsum(y_neighbors, axis=1)
         total_pos = cum_pos[:, -1]  # may be 0 for some queries
         i_arange = (np.arange(k) + 1).astype(np.float32)

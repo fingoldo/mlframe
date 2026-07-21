@@ -238,7 +238,10 @@ class CompositeMultiOutputEstimator(MultiOutputMixin, RegressorMixin, BaseEstima
                 # when column_specs was a list AND already declares a base -- then
                 # the list's explicit base stays (the map only FILLS missing bases
                 # for list specs). For a shared/None spec the map always sets it.
-                already = specs[k].get("base_column") or specs[k].get("base_columns")
+                # Explicit-presence check, not truthiness: `base_column=""` is falsy but IS a
+                # declared value -- `or` would silently treat it as "not declared" and let the
+                # base-map override it.
+                already = specs[k].get("base_column") is not None or specs[k].get("base_columns") is not None
                 list_specified = not isinstance(cs, Mapping) and cs is not None
                 if not (list_specified and already):
                     if isinstance(base, str):

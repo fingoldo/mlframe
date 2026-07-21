@@ -95,10 +95,12 @@ def compute_quantile_band_attention_features(
         band_centroids = np.zeros((effective_n_bands, Xt_s.shape[1]), dtype=np.float32)
         band_y_mean = np.zeros(effective_n_bands, dtype=np.float32)
         band_y_std = np.zeros(effective_n_bands, dtype=np.float32)
+        band_empty = np.zeros(effective_n_bands, dtype=bool)
         for b, mask in enumerate(masks):
             X_band = Xt_s[mask]
             y_band = y_t[mask]
             if X_band.shape[0] < 1:
+                band_empty[b] = True
                 continue
             band_centroids[b] = X_band.mean(axis=0)
             band_y_mean[b] = float(y_band.mean())
@@ -107,6 +109,13 @@ def compute_quantile_band_attention_features(
         diffs = Xq_s[:, None, :] - band_centroids[None, :, :]  # (n_q, n_bands, d)
         sq = (diffs**2).sum(axis=-1)
         scores = -sq
+        if band_empty.any():
+            # An empty band's zero-initialised centroid sits at the standardized-space origin -- near the
+            # data center, not a neutral "far away" point -- so it would otherwise compete for softmax
+            # attention weight with a phantom y_mean=y_std=0 and silently pull agg_y_mean/agg_y_std toward
+            # 0 for queries near the center. Mask it out of the softmax entirely.
+            scores = scores.copy()
+            scores[:, band_empty] = -np.inf
         weights = _softmax(scores, temp=temp)  # (n_q, n_bands)
         entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)
         agg_y_mean = (weights * band_y_mean[None, :]).sum(axis=-1).astype(np.float32)

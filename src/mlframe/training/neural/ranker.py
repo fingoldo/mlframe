@@ -677,8 +677,15 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         """
         if isinstance(X, pd.DataFrame):
             # Defence-in-depth: caller should already have removed qid/target columns.
-            X = X.select_dtypes(include=[np.number])
-            return np.asarray(X.to_numpy(dtype=np.float32, copy=False))
+            numeric = X.select_dtypes(include=[np.number])
+            dropped = [c for c in X.columns if c not in numeric.columns]
+            if dropped:
+                # A caller who forgot to strip qid/target columns is the intended case, but this equally
+                # masks a caller who forgot to ENCODE a genuine categorical feature -- the model would
+                # silently train on fewer features than intended with no signal anything was dropped. Log
+                # the names so a real encoding gap is at least visible.
+                logger.warning("MLPRanker._x_to_array: dropping %d non-numeric column(s) from X: %s", len(dropped), dropped)
+            return np.asarray(numeric.to_numpy(dtype=np.float32, copy=False))
         return np.asarray(X, dtype=np.float32)
 
     def _fit_imputer(self, X_arr: np.ndarray) -> None:
@@ -790,6 +797,17 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         # through Lightning's `seed_everything(workers=False)`-equivalent contract.
         # If the caller wants global torch determinism they call torch.manual_seed
         # themselves before calling fit.
+
+        # Seed the network weight-init / dropout draws so two fit() calls with the same `seed` are
+        # bit-identical, as the constructor's own docstring promises -- pre-fix only GroupBatchSampler's
+        # query-shuffle order (a local numpy RNG, per Wave 49's own note above) was seeded; torch's global
+        # RNG (weight init / dropout) drew from whatever process-wide state happened to exist at call
+        # time. Save/restore (not a permanent torch.manual_seed) keeps this from polluting sibling code in
+        # the same process, honouring Wave 49's original "no global RNG mutation" concern while still
+        # making THIS estimator's own repeated fit() calls reproducible.
+        _prior_torch_rng_state = torch.get_rng_state()
+        _prior_cuda_rng_state = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+        torch.manual_seed(int(self.seed))
 
         X_arr = self._x_to_array(X)
         y_arr = np.asarray(y, dtype=np.float32).ravel()
@@ -912,11 +930,16 @@ class MLPRanker(BaseEstimator, RegressorMixin):
             # per-query update; 32 = batched gradient update.
             accumulate_grad_batches=self.accumulate_grad_batches,
         )
-        trainer.fit(
-            model=self.module_,
-            train_dataloaders=train_loader,
-            val_dataloaders=val_loader,
-        )
+        try:
+            trainer.fit(
+                model=self.module_,
+                train_dataloaders=train_loader,
+                val_dataloaders=val_loader,
+            )
+        finally:
+            torch.set_rng_state(_prior_torch_rng_state)
+            if _prior_cuda_rng_state is not None:
+                torch.cuda.set_rng_state_all(_prior_cuda_rng_state)
         # iter357: the per-query batch caches built by install_pair_index_cache
         # are only useful during fit. Lightning's Trainer retains a reference
         # to train_ds via the DataLoader; without explicit cleanup those

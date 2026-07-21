@@ -17,7 +17,7 @@ from mlframe.evaluation.adversarial_feature_audit import adversarial_validation_
 
 
 def _make_data(seed: int):
-    """Helper that make data."""
+    """Builds seeded synthetic test data; returns ``(X_train, y_train, X_test)``."""
     rng = np.random.default_rng(seed)
     n_train, n_test = 2500, 1000
 

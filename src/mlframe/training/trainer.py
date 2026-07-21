@@ -181,6 +181,7 @@ def _compute_oof_preds(
     random_seed: int,
     group_ids=None,
     has_time: bool = False,
+    sample_weight=None,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """Compute K-fold OOF predictions for level-1 stacking. Returns (oof_preds, oof_probs) or (None, None) on skip.
 
@@ -196,6 +197,12 @@ def _compute_oof_preds(
     are non-trivial to retrofit through ``cross_val_predict`` and the level-1 stacker only reads ``oof_preds`` when
     ``max_ensembling_level > 1``; for the multi-output case we fail fast at the stacker rather than risk silently
     miscomputing OOFs. Empty/None inputs return (None, None) so callers proceed with normal training.
+
+    ``sample_weight``, when given (aligned to ``train_df``, i.e. already sliced to the same rows), is threaded
+    into each fold's ``.fit()`` call so the OOF sub-models optimize the SAME weighted objective as the real
+    (already-fit) model being stacked -- without this, a weighted suite's OOF predictions silently come from
+    an unweighted refit, a systematically different sub-model than the one actually deployed as an ensemble
+    member.
     """
     if train_df is None or train_target is None:
         return None, None
@@ -241,7 +248,7 @@ def _compute_oof_preds(
         # keeping the OOF surface temporally honest (no future row predicts a past one).
         return _compute_oof_preds_timeseries(
             estimator=estimator, train_df=train_df, train_target=train_target,
-            method=method, n_splits=n_splits,
+            method=method, n_splits=n_splits, sample_weight=sample_weight,
         )
 
     if group_ids is not None and len(group_ids) == n_rows:
@@ -255,6 +262,15 @@ def _compute_oof_preds(
         splitter = KFold(n_splits=n_splits, shuffle=True, random_state=random_seed)
         _groups_arg = None
 
+    # sklearn's cross_val_predict slices any array-like `params` entry to each fold's train indices
+    # automatically (same mechanism the older `fit_params=` kwarg used before sklearn's metadata-routing
+    # rename) -- pass the FULL (train_df-aligned) sample_weight array, not pre-sliced per fold. Only
+    # thread it when the cloned estimator's .fit() actually accepts it (mirrors _setup_sample_weight's
+    # own check) -- an unsupported kwarg would otherwise make cross_val_predict raise TypeError on every
+    # fold and OOF silently skip entirely, which is worse than just falling back to an unweighted OOF fit.
+    _cvp_params = None
+    if sample_weight is not None and "sample_weight" in get_function_param_names(estimator.fit):
+        _cvp_params = {"sample_weight": np.asarray(sample_weight)}
     try:
         oof = cross_val_predict(
             estimator,
@@ -264,6 +280,7 @@ def _compute_oof_preds(
             groups=_groups_arg,
             method=method,
             n_jobs=1,
+            params=_cvp_params,
         )
     except (ValueError, TypeError, RuntimeError, NotImplementedError) as exc:
         logger.info("OOF prediction skipped: %s", exc)
@@ -274,11 +291,14 @@ def _compute_oof_preds(
     return np.asarray(oof), None
 
 
-def _compute_oof_preds_timeseries(*, estimator, train_df, train_target, method: str, n_splits: int) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+def _compute_oof_preds_timeseries(
+    *, estimator, train_df, train_target, method: str, n_splits: int, sample_weight=None
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """Manual TimeSeriesSplit OOF: cross_val_predict can't be used (TimeSeriesSplit is not a partition).
 
     Returns (oof_preds, oof_probs) where the warm-up rows (those never in any test fold) are NaN. Downstream OOF
-    consumers mask non-finite rows before scoring.
+    consumers mask non-finite rows before scoring. ``sample_weight`` (aligned to ``train_df``), when given and
+    supported by ``estimator.fit``, is sliced per fold the same way ``y_arr`` is -- see ``_compute_oof_preds``.
     """
     from sklearn.base import clone as _clone
     from sklearn.model_selection import TimeSeriesSplit
@@ -288,6 +308,8 @@ def _compute_oof_preds_timeseries(*, estimator, train_df, train_target, method: 
     except TypeError:
         return None, None
     y_arr = np.asarray(train_target)
+    sw_arr = np.asarray(sample_weight) if sample_weight is not None else None
+    _threads_weight = sw_arr is not None and "sample_weight" in get_function_param_names(estimator.fit)
 
     def _row(df, idx):
         """Frame-agnostic positional row/index subset: uses ``.iloc`` for pandas-like frames, plain indexing otherwise (numpy/polars)."""
@@ -301,7 +323,11 @@ def _compute_oof_preds_timeseries(*, estimator, train_df, train_target, method: 
     try:
         for tr_idx, te_idx in tss.split(np.arange(n_rows)):
             est = _clone(estimator)
-            est.fit(_row(train_df, tr_idx), y_arr[tr_idx])
+            if _threads_weight:
+                assert sw_arr is not None  # _threads_weight is only True when sw_arr is not None (see its definition above)
+                est.fit(_row(train_df, tr_idx), y_arr[tr_idx], sample_weight=sw_arr[tr_idx])
+            else:
+                est.fit(_row(train_df, tr_idx), y_arr[tr_idx])
             if method == "predict_proba":
                 p = np.asarray(est.predict_proba(_row(train_df, te_idx)))
                 if oof_proba is None:

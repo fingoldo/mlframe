@@ -182,7 +182,10 @@ def wrap_with_logging(
             # LRU touch: move existing entry to most-recent slot.
             _PROXY_CLS_CACHE.move_to_end(cache_key)
         else:
-            ProxyCls = type("_LoggingProxy", (_LoggingProxy,), {})
+            # "__slots__": () -- without it, every dynamically-created subclass implicitly gets a
+            # __dict__ in addition to the base class's slotted _inner, defeating the point of slots
+            # (a small but unnecessary per-wrapped-instance memory overhead).
+            ProxyCls = type("_LoggingProxy", (_LoggingProxy,), {"__slots__": ()})
 
             for name in instrumented:
                 # Bind name per-iteration via default args to avoid the

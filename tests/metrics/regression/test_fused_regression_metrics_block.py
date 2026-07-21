@@ -73,15 +73,26 @@ def test_empty_input_returns_zero_dict():
     assert out == {"MAE": 0.0, "RMSE": 0.0, "MaxError": 0.0, "R2": 0.0}
 
 
-def test_constant_y_true_returns_r2_zero_when_perfect():
-    """sklearn convention: constant y_true with zero residuals -> R^2 = 0.0."""
+def test_constant_y_true_returns_r2_one_when_perfect():
+    """sklearn convention (verified directly against sklearn.metrics.r2_score, audits/full_audit_2026-07-21/
+    metrics_all.md F1): constant y_true with a PERFECT fit -> R^2 = 1.0, not 0.0."""
     y_true = np.full(100, 5.0, dtype=np.float64)
     y_pred = y_true.copy()
     out = fast_regression_metrics_block(y_true, y_pred)
-    assert out["R2"] == 0.0
+    assert out["R2"] == 1.0
     assert out["MAE"] == 0.0
     assert out["RMSE"] == 0.0
     assert out["MaxError"] == 0.0
+
+
+def test_constant_y_true_returns_r2_zero_when_imperfect():
+    """sklearn convention: constant y_true with ANY nonzero residual -> R^2 = 0.0, not -inf (F1)."""
+    y_true = np.full(100, 5.0, dtype=np.float64)
+    y_pred = y_true.copy()
+    y_pred[0] = 6.0
+    out = fast_regression_metrics_block(y_true, y_pred)
+    assert out["R2"] == 0.0
+    assert np.isfinite(out["R2"])
 
 
 def test_multidim_input_raises():

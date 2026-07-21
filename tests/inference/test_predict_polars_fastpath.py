@@ -27,7 +27,7 @@ from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
 
 def _build_polars_frame(n: int = 3_000, seed: int = 0) -> pl.DataFrame:
-    """Helper that build polars frame."""
+    """Builds seeded synthetic test data; returns ``pl.DataFrame({'x0': rng.normal(size=n).astype('float32'), 'x1': rng.normal(size=n).asty...``."""
     rng = np.random.default_rng(seed)
     return pl.DataFrame(
         {
@@ -40,7 +40,7 @@ def _build_polars_frame(n: int = 3_000, seed: int = 0) -> pl.DataFrame:
 
 
 def _run_suite(df: pl.DataFrame, models_list: list[str]):
-    """Helper that run suite."""
+    """Returns ``train_mlframe_models_suite(df=df, target_name='y', model_name='fastpath', features_and_...`` (after 1 setup step)."""
     fte = SimpleFeaturesAndTargetsExtractor(regression_targets=["y"])
     return train_mlframe_models_suite(
         df=df,
@@ -74,7 +74,7 @@ def test_predict_from_models_polars_fastpath_cb_keeps_polars():
     orig_helper = predict_mod.get_pandas_view_of_polars_df
 
     def _spy(_df, *a, **kw):
-        """Helper that spy."""
+        """Returns ``orig_helper(_df, *a, **kw)`` (after 1 setup step)."""
         call_counter["n"] += 1
         return orig_helper(_df, *a, **kw)
 
@@ -122,7 +122,7 @@ def test_predict_from_models_polars_fastpath_xgb_keeps_polars():
     orig_helper = predict_mod.get_pandas_view_of_polars_df
 
     def _spy(_df, *a, **kw):
-        """Helper that spy."""
+        """Returns ``orig_helper(_df, *a, **kw)`` (after 1 setup step)."""
         call_counter["n"] += 1
         return orig_helper(_df, *a, **kw)
 

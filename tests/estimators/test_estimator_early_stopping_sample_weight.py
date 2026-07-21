@@ -18,7 +18,7 @@ CatBoostRegressor = pytest.importorskip("catboost").CatBoostRegressor
 
 
 def _data(n=200, seed=0):
-    """Helper that data."""
+    """Builds seeded synthetic test data; returns ``(X, y, w)``."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 4))
     y = (X[:, 0] + rng.normal(scale=0.3, size=n) > 0).astype(int)

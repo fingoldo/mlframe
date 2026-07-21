@@ -31,7 +31,7 @@ class DummyModel:
         self.feature_names_in_ = np.array(feats)
 
     def predict_proba(self, X):
-        """Helper that predict proba."""
+        """Returns ``np.tile([0.4, 0.6], (len(X), 1))``."""
         return np.tile([0.4, 0.6], (len(X), 1))
 
 
@@ -42,7 +42,7 @@ class DummyCatBoostModel:
         self.feature_names_ = list(feats)
 
     def predict_proba(self, X):
-        """Helper that predict proba."""
+        """Returns ``np.tile([0.4, 0.6], (len(X), 1))``."""
         return np.tile([0.4, 0.6], (len(X), 1))
 
 
@@ -50,7 +50,7 @@ class DummyNoFeatureNamesModel:
     """Stand-in for a model exposing neither name attribute at all."""
 
     def predict_proba(self, X):
-        """Helper that predict proba."""
+        """Returns ``np.tile([0.4, 0.6], (len(X), 1))``."""
         return np.tile([0.4, 0.6], (len(X), 1))
 
 
@@ -121,12 +121,12 @@ def test_load_features_dump_with_sidecar_loads(tmp_path):
 
 @pytest.fixture
 def X():
-    """Helper that X."""
+    """Returns ``pd.DataFrame({'a': [1.0, 2.0, 3.0], 'b': [4.0, 5.0, 6.0]})``."""
     return pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
 
 
 def _make_featureset(tmp_path, name, feats_json, model_fname, model_feats, model_cls=DummyModel):
-    """Helper that make featureset."""
+    """Test helper: infer = tmp_path / 'infer'; fsdir = infer / name; fsdir.mkdir(parents=True)."""
     infer = tmp_path / "infer"
     fsdir = infer / name
     fsdir.mkdir(parents=True)
@@ -226,21 +226,21 @@ def test_read_features_file_absent_falls_back_to_X_columns(tmp_path, X):
 class _BinClf:
     """Groups tests covering BinClf."""
     def predict_proba(self, X):
-        """Helper that predict proba."""
+        """Returns ``np.tile([0.3, 0.7], (len(X), 1))``."""
         return np.tile([0.3, 0.7], (len(X), 1))
 
 
 class _MultiClf:
     """Groups tests covering MultiClf."""
     def predict_proba(self, X):
-        """Helper that predict proba."""
+        """Returns ``np.tile([0.1, 0.2, 0.7], (len(X), 1))``."""
         return np.tile([0.1, 0.2, 0.7], (len(X), 1))
 
 
 class _Reg:
     """Groups tests covering Reg."""
     def predict(self, X):
-        """Helper that predict."""
+        """Returns ``np.arange(len(X), dtype=float)``."""
         return np.arange(len(X), dtype=float)
 
 

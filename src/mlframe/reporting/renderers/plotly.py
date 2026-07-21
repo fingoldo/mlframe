@@ -41,7 +41,7 @@ from ._kaleido import (
 )
 from ._plotly_interactivity import apply_interactivity, html_config
 from ._plotly_color import _axis_ref, _rgba, _mpl_to_plotly_cmap
-from ._shared_helpers import _HEATMAP_MAX_TICKS, _finite_range, _thin_tick_positions  # noqa: F401 -- re-exported for callers importing the tick-thinning constant from this module
+from ._shared_helpers import _HEATMAP_MAX_TICKS, _finite_range, _per_series_flags, _thin_tick_positions  # noqa: F401 -- re-exported for callers importing the tick-thinning constant from this module
 
 logger = logging.getLogger(__name__)
 
@@ -106,16 +106,6 @@ def _warn_scatter_downsample(n: int) -> None:
             n, _SCATTER_MAX_POINTS,
         )
         _SCATTER_DOWNSAMPLE_WARNED = True
-
-
-def _per_series_flags(flag, n: int):
-    """Normalize a per-series bool flag (single bool / tuple / None) into a length-n bool list."""
-    if flag is None:
-        return [False] * n
-    if isinstance(flag, (tuple, list, np.ndarray)):
-        seq = list(flag)
-        return [bool(seq[i]) if i < len(seq) else False for i in range(n)]
-    return [bool(flag)] * n
 
 
 def _line_uses_secondary_y(p) -> bool:
@@ -755,7 +745,12 @@ class PlotlyRenderer:
                            line=dict(color=cols[i % len(cols)], dash=dash),
                            marker=dict(color=cols[i % len(cols)], size=5),
                            name=labels[i] if i < len(labels) else None,
-                           showlegend=any(labels),
+                           # Per-series, not any(labels) applied identically to every trace: the latter set
+                           # showlegend=True on an UNLABELED series whenever ANY other series in the same
+                           # panel had a label, rendering a blank/"undefined" legend row for it. matplotlib
+                           # doesn't have this problem (ax.get_legend_handles_labels() omits unlabeled
+                           # artists automatically).
+                           showlegend=bool(labels[i]) if i < len(labels) else False,
                            **trace_kw),
                 row=row, col=col, **sec_kw,
             )

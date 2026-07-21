@@ -45,7 +45,7 @@ def _fit_select(X_tr, y_tr, step, seed):
 
 
 def _jaccard(a, b):
-    """Helper that jaccard."""
+    """Returns ``len(sa & sb) / max(1, len(sa | sb))`` (after 1 setup step)."""
     sa, sb = set(a), set(b)
     return len(sa & sb) / max(1, len(sa | sb))
 
@@ -75,7 +75,7 @@ def test_biz_val_dichotomic_step_auto_is_selection_equivalent(seed):
     assert jac >= 0.9, f"seed={seed}: auto vs midpoint Jaccard {jac:.2f} < 0.9 -- adaptive step altered the selection"
 
     def _hold(sup):
-        """Helper that hold."""
+        """Builds seeded synthetic test data; returns ``accuracy_score(y_te, m.predict(X_te[sup]))``."""
         m = LogisticRegression(max_iter=300, random_state=seed)
         m.fit(X_tr[sup], y_tr)
         return accuracy_score(y_te, m.predict(X_te[sup]))

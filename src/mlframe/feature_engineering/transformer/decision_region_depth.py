@@ -72,7 +72,27 @@ def compute_decision_region_depth_features(
         else:
             model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
             pred_orig = np.asarray(model.predict(Xq_s)).astype(np.float32)
-            train_resid_decile = float(np.quantile(np.abs(y_t - model.predict(Xt_s)), 0.10))
+            # train_resid_decile drives the "did the prediction flip" threshold below. An IN-SAMPLE
+            # residual (model.predict(Xt_s), the same rows it was just fit on) is close to y_t almost by
+            # construction, understating the true residual spread and making the flip threshold too tight
+            # . Use an inner-KFold(3) OOF
+            # residual instead (the ``model`` object used for the actual probing below stays the full fit,
+            # unaffected -- Xq_s is genuinely held-out regardless).
+            n_t = Xt_s.shape[0]
+            if n_t < 3:
+                oof_resid = np.abs(y_t - model.predict(Xt_s))
+            else:
+                from sklearn.model_selection import KFold
+                oof_pred = np.zeros(n_t, dtype=np.float32)
+                inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(fold_seed) + 11)
+                for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt_s)):
+                    m_inner = lgb.LGBMRegressor(
+                        n_estimators=50, max_depth=3, learning_rate=0.1,
+                        random_state=int(fold_seed) + 7 + inner_idx, verbose=-1, n_jobs=-1,
+                    ).fit(Xt_s[in_tr], y_t[in_tr])
+                    oof_pred[in_val] = np.asarray(m_inner.predict(Xt_s[in_val])).astype(np.float32)
+                oof_resid = np.abs(y_t - oof_pred)
+            train_resid_decile = float(np.quantile(oof_resid, 0.10))
             orig_class = None
 
         rng = np.random.default_rng(int(fold_seed))

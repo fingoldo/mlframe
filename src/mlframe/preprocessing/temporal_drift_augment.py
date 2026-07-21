@@ -62,6 +62,23 @@ def augment_temporal_drift(
         ``df`` with augmented rows appended (index reset), plus a bool ``_temporal_drift_augmented`` column
         (``False`` on original rows) so callers can filter/weight them separately if desired. When
         ``weight_by_recency=True``, also includes a float ``_sample_weight`` column.
+
+    Usage
+    -----
+    Real (``_temporal_drift_augmented=False``) rows are the UNMODIFIED input panel, every period at its raw
+    scale -- they are deliberately left untouched (``result.loc[~result["_temporal_drift_augmented"]]``
+    always equals ``df`` exactly) so a caller can pick whatever real-row representation they need. Synthetic
+    rows, however, have ``feature_cols`` OVERWRITTEN with a truncated-history z-score in those SAME columns.
+    Concatenating the full returned frame directly therefore mixes raw-scale and z-score-scale values in one
+    column. To build a single, internally
+    scale-consistent training frame, select and standardize the real rows yourself before combining, e.g.
+    via :func:`select_true_last_standardized` (the true-last-period-per-entity, full-history-z-scored
+    counterpart to this function's truncated-history synthetic rows)::
+
+        real = select_true_last_standardized(df, entity_col, time_col, feature_cols)
+        augmented = augment_temporal_drift(df, entity_col, time_col, feature_cols)
+        synthetic_only = augmented.loc[augmented["_temporal_drift_augmented"]]
+        train = pd.concat([real, synthetic_only], axis=0, ignore_index=True)
     """
     if feature_cols is None:
         feature_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c not in (entity_col, time_col)]
@@ -113,4 +130,55 @@ def augment_temporal_drift(
     return pd.concat(augmented_frames, axis=0, ignore_index=True)
 
 
-__all__ = ["augment_temporal_drift"]
+def select_true_last_standardized(
+    df: pd.DataFrame,
+    entity_col: str,
+    time_col: str,
+    feature_cols: Optional[Sequence[str]] = None,
+) -> pd.DataFrame:
+    """Collapse a (entity, time) panel to one row per entity -- the TRUE last-observed period,
+    ``feature_cols`` standardized (z-score, ``ddof=1``) against that entity's OWN FULL history.
+
+    This is the "real-row" half of the usage pattern :func:`augment_temporal_drift` intentionally leaves to
+    the caller (see its docstring's Usage section): concatenate this function's output with
+    ``augment_temporal_drift(...).loc[lambda d: d["_temporal_drift_augmented"]]`` to get a single frame
+    where every row -- true-last (full-history z-score) and synthetic (truncated-history z-score) alike --
+    is standardized the same way, avoiding the raw-vs-z-score scale mismatch. Vectorized equivalent of the per-entity Python loop
+    ``tests/preprocessing/test_biz_val_temporal_drift_augment.py`` hand-rolls for this exact purpose.
+
+    Parameters
+    ----------
+    df
+        One row per (entity, time period).
+    entity_col, time_col
+        Grouping and ordering columns.
+    feature_cols
+        Columns to standardize; defaults to all numeric columns other than ``entity_col``/``time_col``.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per entity (the true last period), with ``feature_cols`` z-scored against that entity's own
+        full history (``0.0`` where the entity has a single period or zero variance, i.e. an undefined
+        ``ddof=1`` std -- same fallback convention as :func:`augment_temporal_drift`'s synthetic rows). All
+        other columns keep that row's original values.
+    """
+    if feature_cols is None:
+        feature_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c not in (entity_col, time_col)]
+    feature_cols = list(feature_cols)
+
+    ordered = df.sort_values([entity_col, time_col], kind="mergesort").reset_index(drop=True)
+    entity_groups = ordered.groupby(entity_col, sort=False)
+
+    full_mean = entity_groups[feature_cols].transform("mean")
+    full_std = entity_groups[feature_cols].transform("std")
+    safe_std = full_std.where(full_std > 0, np.nan)
+    standardized = (ordered[feature_cols] - full_mean) / safe_std
+
+    last_mask = entity_groups.cumcount() == (entity_groups[entity_col].transform("size") - 1)
+    out = ordered.loc[last_mask].copy()
+    out[feature_cols] = standardized.loc[last_mask].where(safe_std.loc[last_mask].notna(), 0.0)
+    return out.reset_index(drop=True)
+
+
+__all__ = ["augment_temporal_drift", "select_true_last_standardized"]

@@ -19,16 +19,24 @@ KEYS = ("cusum_pos", "cusum_neg", "rows_since_reset", "n_resets_in_window")
 
 
 def _old_cusum(values, threshold=None, *, group_ids=None, drift=0.0):
-    """Verbatim PRE-optimization pure-Python cusum_features."""
+    """Verbatim PRE-optimization pure-Python cusum_features.
+
+    Threshold auto-derivation is PER-GROUP (not one global value reused across every group) when
+    ``group_ids`` is given and ``threshold`` is ``None`` -- this reference was updated to match F8's fix
+    (audits/full_audit_2026-07-21/fe_top_a.md) once ``cusum_features`` itself stopped applying one shared,
+    potentially wrong-scale threshold across groups with different scales; a global-threshold reference here
+    would otherwise pin the exact bug that fix removed.
+    """
     arr = np.asarray(values, dtype=np.float64)
     n = arr.size
-    if threshold is None:
-        finite = arr[np.isfinite(arr)]
+
+    def _default_threshold(seg):
+        """Helper: Default threshold."""
+        finite = seg[np.isfinite(seg)]
         if finite.size < 2:
-            threshold = 1.0
-        else:
-            mad = float(np.median(np.abs(finite - np.median(finite))))
-            threshold = 5.0 * mad * 1.4826 if mad > 0 else 1.0
+            return 1.0
+        mad = float(np.median(np.abs(finite - np.median(finite))))
+        return 5.0 * mad * 1.4826 if mad > 0 else 1.0
 
     out_pos = np.zeros(n)
     out_neg = np.zeros(n)
@@ -42,6 +50,7 @@ def _old_cusum(values, threshold=None, *, group_ids=None, drift=0.0):
             return
         seg = arr[idx_seg]
         seg_mean = float(np.nanmean(seg)) if np.isfinite(seg).any() else 0.0
+        seg_threshold = threshold if threshold is not None else _default_threshold(seg)
         pos = neg = rows_since = 0.0
         n_resets = 0
         for i in range(m):
@@ -56,7 +65,7 @@ def _old_cusum(values, threshold=None, *, group_ids=None, drift=0.0):
             dev = x - seg_mean
             pos = max(0.0, pos + dev - drift)
             neg = min(0.0, neg + dev + drift)
-            if (pos > threshold) or (neg < -threshold):
+            if (pos > seg_threshold) or (neg < -seg_threshold):
                 pos = neg = rows_since = 0.0
                 n_resets += 1
             else:

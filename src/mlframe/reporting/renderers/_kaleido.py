@@ -10,9 +10,18 @@ oneshot-retry / HTML-fallback recovery ladder. ``plotly.py`` re-exports the publ
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Tuple
 
 logger = logging.getLogger(__name__)
+
+# Guards every check-then-act transition on the module-global kaleido state below (server-started
+# flag, burned/fail-count, oneshot counters). Reentrant because `_restart_kaleido_server` calls
+# `_ensure_kaleido_server_started` while already holding it. `render_and_save`'s multi-backend path
+# can call into this module from several ThreadPoolExecutor workers concurrently; the lock only
+# wraps the state transitions themselves (not the actual kaleido write), so it stays cheap relative
+# to the ~13s Chromium spawn this code already amortizes.
+_KALEIDO_STATE_LOCK = threading.RLock()
 
 # Process-singleton: track whether the persistent kaleido sync server
 # is up so we don't pay the ~10-15s Chromium-spawn cost on every PNG /
@@ -49,21 +58,24 @@ _KALEIDO_ONESHOT_TOTAL_WALL_S = 0.0
 def get_kaleido_oneshot_stats() -> Tuple[int, float]:
     """Returns (n_oneshot_calls, total_wall_seconds) so suite-end
     reporting can quote concrete numbers. Cleared via ``reset_kaleido_oneshot_stats``."""
-    return _KALEIDO_ONESHOT_CALL_COUNT, _KALEIDO_ONESHOT_TOTAL_WALL_S
+    with _KALEIDO_STATE_LOCK:
+        return _KALEIDO_ONESHOT_CALL_COUNT, _KALEIDO_ONESHOT_TOTAL_WALL_S
 
 
 def reset_kaleido_oneshot_stats() -> None:
     """Zero the cumulative oneshot-fallback counters (call/wall-time), typically between test runs or suite invocations."""
     global _KALEIDO_ONESHOT_CALL_COUNT, _KALEIDO_ONESHOT_TOTAL_WALL_S
-    _KALEIDO_ONESHOT_CALL_COUNT = 0
-    _KALEIDO_ONESHOT_TOTAL_WALL_S = 0.0
+    with _KALEIDO_STATE_LOCK:
+        _KALEIDO_ONESHOT_CALL_COUNT = 0
+        _KALEIDO_ONESHOT_TOTAL_WALL_S = 0.0
 
 
 def record_kaleido_oneshot_call(wall_s: float) -> None:
     """Accumulate one oneshot-fallback write's wall time into the process-global stats used by the suite-end summary."""
     global _KALEIDO_ONESHOT_CALL_COUNT, _KALEIDO_ONESHOT_TOTAL_WALL_S
-    _KALEIDO_ONESHOT_CALL_COUNT += 1
-    _KALEIDO_ONESHOT_TOTAL_WALL_S += wall_s
+    with _KALEIDO_STATE_LOCK:
+        _KALEIDO_ONESHOT_CALL_COUNT += 1
+        _KALEIDO_ONESHOT_TOTAL_WALL_S += wall_s
 
 
 # Hard ceiling on a single persistent write_fig_sync call. Beyond this the call is treated as
@@ -75,25 +87,28 @@ _KALEIDO_PERSISTENT_TIMEOUT_S = 30.0
 
 def _is_kaleido_persistent_burned() -> bool:
     """True once the persistent-server path has been given up on for this process (fail threshold crossed or force-burned)."""
-    return _KALEIDO_PERSISTENT_BURNED
+    with _KALEIDO_STATE_LOCK:
+        return _KALEIDO_PERSISTENT_BURNED
 
 
 def _record_kaleido_persistent_failure() -> bool:
     """Increment failure counter; return True if we just crossed the
     threshold (caller should burn the persistent path)."""
     global _KALEIDO_PERSISTENT_FAIL_COUNT, _KALEIDO_PERSISTENT_BURNED
-    _KALEIDO_PERSISTENT_FAIL_COUNT += 1
-    if _KALEIDO_PERSISTENT_FAIL_COUNT >= _KALEIDO_PERSISTENT_FAIL_THRESHOLD:
-        _KALEIDO_PERSISTENT_BURNED = True
-        return True
-    return False
+    with _KALEIDO_STATE_LOCK:
+        _KALEIDO_PERSISTENT_FAIL_COUNT += 1
+        if _KALEIDO_PERSISTENT_FAIL_COUNT >= _KALEIDO_PERSISTENT_FAIL_THRESHOLD:
+            _KALEIDO_PERSISTENT_BURNED = True
+            return True
+        return False
 
 
 def _mark_kaleido_persistent_burned() -> None:
     """Force-burn the persistent path (legacy entry, kept for tests
     and external callers)."""
     global _KALEIDO_PERSISTENT_BURNED
-    _KALEIDO_PERSISTENT_BURNED = True
+    with _KALEIDO_STATE_LOCK:
+        _KALEIDO_PERSISTENT_BURNED = True
 
 
 def _restart_kaleido_server() -> bool:
@@ -109,23 +124,24 @@ def _restart_kaleido_server() -> bool:
     """
     global _KALEIDO_SERVER_STARTED
     global _KALEIDO_PERSISTENT_FAIL_COUNT, _KALEIDO_PERSISTENT_BURNED
-    try:
-        import kaleido
-    except ImportError:
-        return False
-    if _KALEIDO_SERVER_STARTED:
+    with _KALEIDO_STATE_LOCK:
         try:
-            kaleido.stop_sync_server(silence_warnings=True)
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _kaleido.py:116: %s", e)
-            pass
-        _KALEIDO_SERVER_STARTED = False
-    started = _ensure_kaleido_server_started()
-    if started:
-        # Successful restart: the persistent path is usable again; clear cumulative-failure state.
-        _KALEIDO_PERSISTENT_FAIL_COUNT = 0
-        _KALEIDO_PERSISTENT_BURNED = False
-    return started
+            import kaleido
+        except ImportError:
+            return False
+        if _KALEIDO_SERVER_STARTED:
+            try:
+                kaleido.stop_sync_server(silence_warnings=True)
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _kaleido.py:116: %s", e)
+                pass
+            _KALEIDO_SERVER_STARTED = False
+        started = _ensure_kaleido_server_started()
+        if started:
+            # Successful restart: the persistent path is usable again; clear cumulative-failure state.
+            _KALEIDO_PERSISTENT_FAIL_COUNT = 0
+            _KALEIDO_PERSISTENT_BURNED = False
+        return started
 
 
 def _ensure_kaleido_server_started() -> bool:
@@ -133,40 +149,41 @@ def _ensure_kaleido_server_started() -> bool:
     server is up after the call, False if kaleido isn't installed.
     """
     global _KALEIDO_SERVER_STARTED
-    if _KALEIDO_SERVER_STARTED:
-        return True
-    try:
-        import kaleido
-    except ImportError:
-        return False
-    try:
-        # silence_warnings=True so the "already started" message doesn't spam logs if some other
-        # caller already started the server.
-        kaleido.start_sync_server(silence_warnings=True)
-        _KALEIDO_SERVER_STARTED = True
-        # Register cleanup so the Chromium subprocess gets a clean exit rather than the "Resorting
-        # to unclean kill browser" warning at interpreter shutdown.
-        import atexit
-        def _stop():
-            """Stop the kaleido sync server at interpreter shutdown so the Chromium subprocess exits cleanly."""
-            try:
-                kaleido.stop_sync_server(silence_warnings=True)
-            except Exception:  # nosec B110 - optional dependency import guard
-                pass
-        atexit.register(_stop)
-        return True
-    except Exception as e:
-        global _KALEIDO_START_WARN_EMITTED
-        if not _KALEIDO_START_WARN_EMITTED:
-            logger.warning(
-                "[plotly-render] kaleido sync server unavailable (%s); will "
-                "use the slower per-call oneshot path. This warning fires "
-                "ONCE per process; check the suite-end wall-share summary "
-                "for cumulative oneshot cost. To enable the fast path, "
-                "upgrade kaleido (>=1.x ships ``start_sync_server``).", e,
-            )
-            _KALEIDO_START_WARN_EMITTED = True
-        return False
+    with _KALEIDO_STATE_LOCK:
+        if _KALEIDO_SERVER_STARTED:
+            return True
+        try:
+            import kaleido
+        except ImportError:
+            return False
+        try:
+            # silence_warnings=True so the "already started" message doesn't spam logs if some other
+            # caller already started the server.
+            kaleido.start_sync_server(silence_warnings=True)
+            _KALEIDO_SERVER_STARTED = True
+            # Register cleanup so the Chromium subprocess gets a clean exit rather than the "Resorting
+            # to unclean kill browser" warning at interpreter shutdown.
+            import atexit
+            def _stop():
+                """Stop the kaleido sync server at interpreter shutdown so the Chromium subprocess exits cleanly."""
+                try:
+                    kaleido.stop_sync_server(silence_warnings=True)
+                except Exception:  # nosec B110 - optional dependency import guard
+                    pass
+            atexit.register(_stop)
+            return True
+        except Exception as e:
+            global _KALEIDO_START_WARN_EMITTED
+            if not _KALEIDO_START_WARN_EMITTED:
+                logger.warning(
+                    "[plotly-render] kaleido sync server unavailable (%s); will "
+                    "use the slower per-call oneshot path. This warning fires "
+                    "ONCE per process; check the suite-end wall-share summary "
+                    "for cumulative oneshot cost. To enable the fast path, "
+                    "upgrade kaleido (>=1.x ships ``start_sync_server``).", e,
+                )
+                _KALEIDO_START_WARN_EMITTED = True
+            return False
 
 
 def _oneshot_write_static(fig: Any, path: str, fmt: str) -> None:

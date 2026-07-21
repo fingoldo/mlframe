@@ -10,7 +10,7 @@ from mlframe.feature_selection.filters.info_theory._entropy_kernels import condi
 
 
 def _fixture(kx, n=4000, seed=0):
-    """Helper that fixture."""
+    """Builds seeded synthetic test data; returns ``(fd, nb, np.array([0], np.int64), np.array([1], np.int64), np.array([2], np.int64))``."""
     rng = np.random.default_rng(seed)
     x = rng.integers(0, kx, n)
     y = rng.integers(0, 2, n)

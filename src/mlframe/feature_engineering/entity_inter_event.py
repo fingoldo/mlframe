@@ -110,7 +110,16 @@ if _NUMBA_AVAILABLE:
     def _windowed_stats_by_time_njit(
         values_sorted: np.ndarray, timestamps_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, window_time: float
     ) -> tuple:
-        """Compute per-row trailing time-windowed mean/std within each group's sorted range."""
+        """Compute per-row trailing time-windowed mean/std within each group's sorted range.
+
+        Uses a numerically-stable Welford-style incremental mean/M2 with add AND remove steps -- not the raw
+        sum/sum-of-squares recurrence (``var = total_sq/cnt - mean**2``), which is prone to catastrophic
+        cancellation for larger-magnitude inputs (its own ``if var < 0.0: var = 0.0`` guard was a symptom of
+        exactly this). The sibling ``_windowed_stats_by_count_njit`` already uses a genuine two-pass
+        mean-then-deviation computation for the same reason; this kernel now matches its precision while
+        keeping the amortized O(n)-per-group two-pointer scan (a fixed-count window can afford a full
+        re-scan per row; a variable-length time window benefits more from the sliding accumulator).
+        """
         # two-pointer sliding window ended by row `i` -- amortized O(n) per group, since `lo` only advances.
         n = values_sorted.shape[0]
         means = np.full(n, np.nan, dtype=np.float64)
@@ -119,30 +128,37 @@ if _NUMBA_AVAILABLE:
             s = starts[g]
             e = ends[g]
             lo = s
-            total = 0.0
-            total_sq = 0.0
             cnt = 0
+            mean = 0.0
+            M2 = 0.0
             for i in range(s, e):
                 while lo < i and timestamps_sorted[lo] <= timestamps_sorted[i] - window_time:
                     v_lo = values_sorted[lo]
                     if not np.isnan(v_lo):
-                        total -= v_lo
-                        total_sq -= v_lo * v_lo
-                        cnt -= 1
+                        if cnt == 1:
+                            cnt = 0
+                            mean = 0.0
+                            M2 = 0.0
+                        else:
+                            new_cnt = cnt - 1
+                            delta = v_lo - mean
+                            mean = mean - delta / new_cnt
+                            M2 = M2 - delta * (v_lo - mean)
+                            cnt = new_cnt
                     lo += 1
                 v_i = values_sorted[i]
                 if not np.isnan(v_i):
-                    total += v_i
-                    total_sq += v_i * v_i
                     cnt += 1
+                    delta = v_i - mean
+                    mean = mean + delta / cnt
+                    M2 = M2 + delta * (v_i - mean)
                 if cnt == 0:
                     continue
-                m = total / cnt
-                means[i] = m
+                means[i] = mean
                 if cnt == 1:
                     stds[i] = 0.0
                     continue
-                var = total_sq / cnt - m * m
+                var = M2 / cnt
                 if var < 0.0:
                     var = 0.0
                 stds[i] = np.sqrt(var)

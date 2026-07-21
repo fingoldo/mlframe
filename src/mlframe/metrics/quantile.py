@@ -29,7 +29,7 @@ are quantile-LEVELS).
 
 from __future__ import annotations
 
-from typing import Dict, Sequence
+from typing import Any, Dict, Sequence
 
 import numpy as np
 
@@ -494,7 +494,3 @@ __all__ = [
     "quantile_summary",
     "crps_from_quantiles",
 ]
-
-
-# Late-bound type alias to avoid touching the typing import line.
-from typing import Any

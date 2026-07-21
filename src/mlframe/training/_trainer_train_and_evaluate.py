@@ -748,6 +748,7 @@ def train_and_evaluate_model(
                         random_seed=int(oof_random_seed),
                         group_ids=group_ids[train_idx] if (group_ids is not None and train_idx is not None) else None,
                         has_time=bool(oof_has_time),
+                        sample_weight=_pre_pipeline_sample_weight,
                     )
                     try:
                         if _oof_preds is not None:
@@ -941,6 +942,19 @@ def train_and_evaluate_model(
         if test_res is not None:
             test_preds, test_probs, columns = test_res
 
+        # Same test_idx-slicing convention as `_pre_pipeline_sample_weight` above (train_idx-sliced),
+        # so the confidence-analysis diagnostic reflects the same weighted objective the real model
+        # was trained on instead of silently reverting to unweighted.
+        _test_sample_weight = None
+        if sample_weight is not None and test_idx is not None:
+            try:
+                if isinstance(sample_weight, (pd.Series, pd.DataFrame)):
+                    _test_sample_weight = np.asarray(sample_weight.iloc[test_idx].values, dtype=np.float64)
+                else:
+                    _test_sample_weight = np.asarray(sample_weight, dtype=np.float64)[test_idx]
+            except (TypeError, ValueError, IndexError):
+                _test_sample_weight = None
+
         maybe_run_confidence_analysis(
             run_test=_run_test,
             confidence=confidence,
@@ -951,6 +965,7 @@ def train_and_evaluate_model(
             model_type_name=model_type_name,
             figsize=figsize,
             verbose=verbose,
+            sample_weight=_test_sample_weight,
         )
 
     if (compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics) and verbose:

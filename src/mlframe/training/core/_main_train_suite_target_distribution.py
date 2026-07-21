@@ -72,8 +72,9 @@ def _maybe_auto_drop_after_feature_analyzer(
                 logger.debug("suppressed in _main_train_suite_target_distribution.py:70: %s", e)
                 continue
             if abs(_c) >= _dup_threshold:
-                # Drop the alphabetically-larger; if either is already in
-                # drop_set, skip so we don't drop both halves of the pair.
+                # Greedy chain collapse: drop the alphabetically-larger of a fresh pair; once either
+                # side is already in drop_set, add whichever side ISN'T yet dropped instead (so a
+                # correlated chain A-B, B-C collapses to a single survivor A, not left half-dropped).
                 drop_set.add(_b if _a not in drop_set and _b not in drop_set else (_a if _b in drop_set else _b))
     if not drop_set:
         return train_df, val_df, test_df, []
@@ -171,9 +172,23 @@ def _run_target_distribution_analyzer(
                     _picked_type_name = "regression" if str(_tt_key).endswith("REGRESSION") else "classification"
                     break
 
-        if _picked_target is not None and train_idx is not None:
+        _picked_target_usable = _picked_target is not None and train_idx is not None
+        if _picked_target_usable:
+            _train_idx_arr = np.asarray(train_idx)
+            _y_arr_precheck = np.asarray(_picked_target)
+            if _train_idx_arr.size == 0 or _y_arr_precheck.size < int(_train_idx_arr.max()) + 1:
+                logger.warning(
+                    "_run_target_distribution_analyzer: picked target array (size=%d) is shorter than "
+                    "train_idx implies, or train_idx is empty; skipping the mini-HPT target-distribution "
+                    "analyzer for this suite rather than silently analyzing the full unfiltered "
+                    "(train+val+test) target array.",
+                    _y_arr_precheck.size,
+                )
+                _picked_target_usable = False
+
+        if _picked_target_usable:
             _y_arr = np.asarray(_picked_target)
-            _y_train = _y_arr[train_idx] if _y_arr.size >= np.max(train_idx) + 1 else _y_arr
+            _y_train = _y_arr[train_idx]
             _g_train = None
             if group_ids is not None:
                 _g_arr = np.asarray(group_ids).reshape(-1)

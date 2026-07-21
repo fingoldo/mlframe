@@ -355,6 +355,8 @@ def show_classifier_calibration(
     all_performances: list = []
     data: np.ndarray = np.empty((0, 4))
     performances: dict = {}
+    all_x: list = []
+    all_y: list = []
     for i in range(nintervals):
         if i == nintervals - 1:
             r = s
@@ -383,12 +385,18 @@ def show_classifier_calibration(
                 ax.plot(x, y, alpha=alpha, label=metrics_formatted, markersize=marker_size, marker="o")
             else:
                 ax.scatter(x, y, alpha=alpha, label=metrics_formatted, s=marker_size)
-            lo = r
+            all_x.append(np.asarray(x))
+            all_y.append(np.asarray(y))
+        lo = r
     # Derived from title only; needed by the show_table branch too, so it must be bound even when
     # skip_plotting short-circuits the plotting block below.
     is_profit = "profit" in title.lower()
     if not skip_plotting:
-        x_min, x_max = np.min(x), np.max(x)
+        # Span the diagonal reference line across ALL plotted intervals, not just the last one --
+        # per-interval x/y ranges can differ, so using only the last interval's min/max would draw a
+        # diagonal that visually mis-spans the earlier intervals' points.
+        x_min = min(float(np.min(a)) for a in all_x)
+        x_max = max(float(np.max(a)) for a in all_x)
         # y_min, y_max = np.min(y), np.max(y)
         ax.legend(loc="lower right")
         if not append:

@@ -11,7 +11,7 @@ sklearn's own imputers, so it composes with mlframe's existing fill logic rather
 """
 from __future__ import annotations
 
-from typing import Dict, Optional, Sequence, Union
+from typing import Any, Dict, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -23,6 +23,99 @@ def _mode_or_nan(s: pd.Series) -> Union[int, float, str]:
     return mode_vals.iloc[0] if len(mode_vals) else np.nan
 
 
+def fit_missing_indicator_imputation(
+    df: pd.DataFrame,
+    columns: Optional[Sequence[str]] = None,
+    strategy: str = "median",
+    fill_values: Optional[Dict[str, Union[int, float, str]]] = None,
+    group_col: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Learn, per column, the fill statistic (global and, if ``group_col`` given, per-group) to replay via
+    :func:`apply_missing_indicator_imputation`.
+
+    Fit on train ONCE and replay the returned state on val/test/inference data -- calling
+    ``impute_with_missing_indicator`` (or this function) separately on each split derives each split's fill
+    values from its OWN distribution, a train/serve statistic mismatch (and, if a frame spans train+val/test,
+    direct look-ahead leakage into train's fill values).
+
+    Columns with zero missing values in ``df`` are skipped (nothing to learn), matching
+    ``impute_with_missing_indicator``'s own skip behavior.
+
+    Parameters mirror :func:`impute_with_missing_indicator` (minus ``indicator_suffix``, an apply-time
+    concern only).
+
+    Returns
+    -------
+    dict
+        Opaque fit state to pass to :func:`apply_missing_indicator_imputation`.
+    """
+    if strategy not in ("median", "mean", "mode"):
+        raise ValueError(f"fit_missing_indicator_imputation: strategy must be 'median', 'mean', or 'mode'; got {strategy!r}.")
+    fill_values = fill_values or {}
+
+    cols = list(columns) if columns is not None else [c for c in df.columns if df[c].isna().any()]
+    group_by = df.groupby(group_col, dropna=False) if group_col is not None else None
+
+    columns_state: Dict[str, Dict[str, Any]] = {}
+    for col in cols:
+        if not df[col].isna().any():
+            continue
+        if col in fill_values:
+            columns_state[col] = {"kind": "explicit", "value": fill_values[col]}
+            continue
+
+        if strategy == "median":
+            global_fill = df[col].median()
+        elif strategy == "mean":
+            global_fill = df[col].mean()
+        else:  # mode
+            global_fill = _mode_or_nan(df[col])
+
+        if group_col is None:
+            columns_state[col] = {"kind": "global", "value": global_fill}
+        else:
+            assert group_by is not None
+            if strategy == "median":
+                group_stat = group_by[col].median()
+            elif strategy == "mean":
+                group_stat = group_by[col].mean()
+            else:  # mode: no vectorized groupby reduction
+                group_stat = group_by[col].agg(_mode_or_nan)
+            columns_state[col] = {"kind": "group", "group_stat": group_stat, "global_fallback": global_fill}
+
+    return {"group_col": group_col, "columns": columns_state}
+
+
+def apply_missing_indicator_imputation(df: pd.DataFrame, fit_state: Dict[str, Any], indicator_suffix: str = "_was_missing") -> pd.DataFrame:
+    """Replay a fit state learned by :func:`fit_missing_indicator_imputation` onto ``df`` (train, val, test,
+    or a single inference row -- the same learned fill values every time, no recomputation from ``df``
+    itself).
+
+    The paired ``{col}{indicator_suffix}`` column always reflects THIS ``df``'s own missingness (that part is
+    never "learned" -- it is inherently per-row); only the FILL VALUE is replayed from ``fit_state``. Columns
+    in ``fit_state`` but absent from ``df`` are silently skipped.
+    """
+    group_col = fit_state["group_col"]
+    out = df.copy(deep=False)
+    for col, info in fit_state["columns"].items():
+        if col not in out.columns:
+            continue
+        mask = out[col].isna()
+        out[f"{col}{indicator_suffix}"] = mask.to_numpy()
+        if not mask.any():
+            continue
+
+        kind = info["kind"]
+        if kind in ("explicit", "global"):
+            out[col] = out[col].fillna(info["value"])
+        else:  # "group"
+            assert group_col is not None
+            group_fill = out[group_col].map(info["group_stat"]).fillna(info["global_fallback"])
+            out[col] = out[col].fillna(group_fill)
+
+    return out
+
+
 def impute_with_missing_indicator(
     df: pd.DataFrame,
     columns: Optional[Sequence[str]] = None,
@@ -32,6 +125,11 @@ def impute_with_missing_indicator(
     group_col: Optional[str] = None,
 ) -> pd.DataFrame:
     """Impute missing values per column and append a paired ``{col}{indicator_suffix}`` boolean column.
+
+    Single-frame fit+apply convenience wrapper around :func:`fit_missing_indicator_imputation` +
+    :func:`apply_missing_indicator_imputation`. For train/test (or train/inference) consistency, call those
+    two functions directly instead: fit once on train, apply the SAME learned fill values to every other
+    split -- calling this combined wrapper separately per split reproduces the train/serve statistic mismatch.
 
     Parameters
     ----------
@@ -60,47 +158,8 @@ def impute_with_missing_indicator(
         ``df`` (shallow copy) with each imputed column's NaNs filled in place, plus one new boolean
         ``{col}{indicator_suffix}`` column per imputed column marking which rows were originally missing.
     """
-    if strategy not in ("median", "mean", "mode"):
-        raise ValueError(f"impute_with_missing_indicator: strategy must be 'median', 'mean', or 'mode'; got {strategy!r}.")
-    fill_values = fill_values or {}
-
-    cols = list(columns) if columns is not None else [c for c in df.columns if df[c].isna().any()]
-    out = df.copy(deep=False)
-    # grouped once and reused across all columns -- rebuilding the groupby index per column would repeat
-    # the (non-trivial) group-key factorization work for every imputed column.
-    group_by = out.groupby(group_col, dropna=False) if group_col is not None else None
-
-    for col in cols:
-        mask = out[col].isna()
-        if not mask.any():
-            continue
-        out[f"{col}{indicator_suffix}"] = mask.to_numpy()
-        if col in fill_values:
-            out[col] = out[col].fillna(fill_values[col])
-            continue
-
-        if strategy == "median":
-            global_fill = out[col].median()
-        elif strategy == "mean":
-            global_fill = out[col].mean()
-        else:  # mode
-            global_fill = _mode_or_nan(out[col])
-
-        if group_col is None:
-            out[col] = out[col].fillna(global_fill)
-        else:
-            assert group_by is not None
-            if strategy == "median":
-                group_fill = group_by[col].transform("median")
-            elif strategy == "mean":
-                group_fill = group_by[col].transform("mean")
-            else:  # mode: no vectorized groupby reduction, but per-group (not per-row) cost via agg + map
-                group_stat = group_by[col].agg(_mode_or_nan)
-                group_fill = out[group_col].map(group_stat)
-            group_fill = group_fill.fillna(global_fill)  # groups with zero non-missing values
-            out[col] = out[col].fillna(group_fill)
-
-    return out
+    fit_state = fit_missing_indicator_imputation(df, columns, strategy, fill_values, group_col)
+    return apply_missing_indicator_imputation(df, fit_state, indicator_suffix=indicator_suffix)
 
 
-__all__ = ["impute_with_missing_indicator"]
+__all__ = ["impute_with_missing_indicator", "fit_missing_indicator_imputation", "apply_missing_indicator_imputation"]

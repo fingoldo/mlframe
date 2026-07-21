@@ -38,7 +38,7 @@ _BASELINE_PATH = TEST_META_DIR / "_debt_baseline.json"
 
 
 def _refresh_requested() -> bool:
-    """Helper that refresh requested."""
+    """Returns ``'--refresh-debt-baseline' in sys.argv``."""
     return "--refresh-debt-baseline" in sys.argv
 
 

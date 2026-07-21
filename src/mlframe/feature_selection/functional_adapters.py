@@ -22,21 +22,22 @@ from .zero_importance_pruning import iterative_zero_importance_pruning
 
 def _is_classification_target(y: np.ndarray) -> bool:
     """Same low-cardinality heuristic as ``ace._default_estimator`` -- integer/label y with a
-    small number of unique values is treated as classification, everything else as regression."""
-    y_arr = np.asarray(y)
-    n = y_arr.shape[0]
-    if y_arr.dtype.kind in ("i", "u", "b", "O", "U", "S"):
-        return bool(np.unique(y_arr).size <= max(20, int(np.sqrt(max(n, 1)))))
-    return False
+    small number of unique values is treated as classification, everything else as regression.
+
+    Delegates to the shared ``_sklearn_defaults.is_classification_target`` (see that module for the
+    float-binary-target ambiguity warning).
+    """
+    from mlframe.feature_selection._sklearn_defaults import is_classification_target
+
+    return is_classification_target(y)
 
 
 def _default_tree_estimator(y: np.ndarray, random_state: int = 0):
-    """Task-appropriate RandomForest default, mirrors ``ace._default_estimator`` verbatim."""
-    from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+    """Task-appropriate RandomForest default, mirrors ``ace._default_estimator`` verbatim (both now
+    delegate to the shared ``_sklearn_defaults.default_tree_estimator`` heuristic)."""
+    from mlframe.feature_selection._sklearn_defaults import default_tree_estimator
 
-    if _is_classification_target(y):
-        return RandomForestClassifier(n_estimators=120, n_jobs=-1, random_state=random_state, max_features="sqrt")
-    return RandomForestRegressor(n_estimators=120, n_jobs=-1, random_state=random_state, max_features="sqrt")
+    return default_tree_estimator(y, random_state=random_state, n_estimators=120)
 
 
 def _default_pointwise_scoring(y: np.ndarray):

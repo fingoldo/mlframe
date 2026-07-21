@@ -104,11 +104,26 @@ def _restore_caller_frame_columns(X, original_cols):
         added = [c for c in X.columns if c not in original_cols]
     except Exception:
         return
-    if added:
+    if not added:
+        return
+    try:
+        X.drop(columns=added, inplace=True)
+    except TypeError:
+        # polars DataFrame: `.drop()` has no inplace= kwarg (always returns a NEW frame). Pre-fix,
+        # `_restore_caller_frame_columns` was only ever CALLED for a pandas DataFrame (the isinstance guard
+        # at its call site), so a bare polars DataFrame -- reachable when a caller invokes a
+        # hygienic_fit-decorated selector directly on polars data, bypassing MRMR's internal Arrow-backed
+        # pandas bridge -- never even reached this far. A wrapped fit CAN genuinely mutate a polars frame
+        # in place via `DataFrame.hstack(..., in_place=True)` (confirmed: polars has no public in-place
+        # drop, so swapping the internal `_df` handle -- the same object every alias of X shares -- is the
+        # only way to remove columns with the SAME "caller's reference now reflects the restored schema"
+        # semantics pandas' inplace=True gives).
         try:
-            X.drop(columns=added, inplace=True)
-        except Exception:  # nosec B110 - best-effort path
+            X._df = X.drop(added)._df
+        except Exception:  # nosec B110 - best-effort path; a future polars version could drop the private _df handle
             pass
+    except Exception:  # nosec B110 - best-effort path
+        pass
 
 
 def hygienic_fit(fit_method):
@@ -126,6 +141,11 @@ def hygienic_fit(fit_method):
             import pandas as _pd
             if isinstance(X, _pd.DataFrame):
                 original_cols = list(X.columns)
+            else:
+                # A bare polars DataFrame passed directly (bypassing MRMR's internal pandas bridge).
+                import polars as _pl
+                if isinstance(X, _pl.DataFrame):
+                    original_cols = list(X.columns)
         except Exception:
             original_cols = None
         with preserve_global_rng():
@@ -163,9 +183,12 @@ def preserve_global_rng() -> Iterator[None]:
 
 def get_pipeline_last_element(clf) -> object:
     """Return the last step's estimator from a fitted sklearn ``Pipeline``."""
-    for elem in clf.named_steps.values():  # noqa: B007 -- last-iteration value used after the loop, below
-        pass
-    return elem
+    steps = list(clf.named_steps.values())
+    if not steps:
+        # An empty Pipeline (a caller building one with a variable step list that ends up empty after
+        # filtering) previously left `elem` unbound, raising an opaque UnboundLocalError/NameError.
+        raise ValueError("get_pipeline_last_element: clf.named_steps is empty.")
+    return steps[-1]
 
 
 def get_full_classifier_name(clf: Any) -> str:

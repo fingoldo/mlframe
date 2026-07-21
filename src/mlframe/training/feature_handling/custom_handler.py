@@ -76,6 +76,15 @@ class CustomHandler:
         self.column = column
         self.params = params
         self.group_columns = list(group_columns) if group_columns else None
+        if self.group_columns:
+            # Accepted and stored for a future group-aware fit (re-invoking the wrapped user transformer
+            # per group), but fit()/transform() below do not yet implement it -- warn so a caller passing
+            # this doesn't silently get an ordinary global fit instead.
+            logger.warning(
+                "CustomHandler(column=%r).group_columns=%r is set but group-aware fitting is not yet "
+                "implemented; the wrapped transformer is fit globally (group_columns is ignored).",
+                column, self.group_columns,
+            )
         self._fitted = False
 
     @property

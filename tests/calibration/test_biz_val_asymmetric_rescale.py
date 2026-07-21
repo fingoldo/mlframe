@@ -15,7 +15,7 @@ from mlframe.calibration.asymmetric_rescale import apply_asymmetric_rescale, cro
 
 
 def _make_asymmetric_miscalibration_dataset(n: int, seed: int):
-    """Helper that make asymmetric miscalibration dataset."""
+    """Builds seeded synthetic test data; returns ``(y_true, y_pred)``."""
     rng = np.random.default_rng(seed)
     y_true = rng.normal(size=n)
     # the model systematically shrinks negative predictions toward zero relative to positive ones (a real,
@@ -25,7 +25,7 @@ def _make_asymmetric_miscalibration_dataset(n: int, seed: int):
 
 
 def _neg_mse(y_true, y_pred):
-    """Helper that neg mse."""
+    """Returns ``-float(np.mean((y_true - y_pred) ** 2))``."""
     return -float(np.mean((y_true - y_pred) ** 2))
 
 

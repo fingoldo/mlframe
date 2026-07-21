@@ -21,7 +21,7 @@ unsupervised behavior.
 """
 from __future__ import annotations
 
-from typing import Dict, Optional, Sequence, Union
+from typing import Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -30,32 +30,58 @@ from scipy.stats import pearsonr, skew
 _CANDIDATE_TRANSFORMS = ("identity", "sqrt_signed", "log1p_signed", "boxcox", "yeo_johnson")
 
 
-def _apply_transform(x: np.ndarray, transform_name: str) -> Optional[np.ndarray]:
-    """Apply the named power/variance-stabilizing transform to ``x``, returning ``None`` if it isn't applicable."""
+def _apply_transform(x: np.ndarray, transform_name: str, fitted_params: Optional[object] = None) -> Tuple[Optional[np.ndarray], Optional[object]]:
+    """Apply the named power/variance-stabilizing transform to ``x``.
+
+    When ``fitted_params`` is ``None`` (the search phase), FITS the transform's free parameter (Box-Cox
+    lambda / Yeo-Johnson power) from ``x`` and returns it alongside the transformed array. When
+    ``fitted_params`` is given (the apply phase, reusing a value this function itself returned earlier),
+    REPLAYS that exact fitted parameter instead of refitting from ``x`` -- refitting on a different frame
+    than the one searched/selected silently applies a different function than the one whose skew/target-
+    correlation was measured.
+
+    Returns
+    -------
+    tuple
+        ``(transformed_or_None, fitted_params_or_None)`` -- ``transformed`` is ``None`` if the transform
+        isn't applicable to ``x`` (or, in the apply phase, to ``fitted_params``).
+    """
     if transform_name == "identity":
-        return x
+        return x, None
     if transform_name == "sqrt_signed":
-        return np.asarray(np.sign(x) * np.sqrt(np.abs(x)), dtype=np.float64)
+        return np.asarray(np.sign(x) * np.sqrt(np.abs(x)), dtype=np.float64), None
     if transform_name == "log1p_signed":
-        return np.asarray(np.sign(x) * np.log1p(np.abs(x)), dtype=np.float64)
+        return np.asarray(np.sign(x) * np.log1p(np.abs(x)), dtype=np.float64), None
     if transform_name == "boxcox":
         if np.any(x <= 0):
-            return None  # Box-Cox requires strictly positive input.
-        from scipy.stats import boxcox
+            return None, None  # Box-Cox requires strictly positive input.
+        if fitted_params is None:
+            from scipy.stats import boxcox
 
-        try:
-            transformed, _ = boxcox(x)
-        except ValueError:
-            return None
-        return np.asarray(transformed, dtype=np.float64)
+            try:
+                transformed, lmbda = boxcox(x)
+            except ValueError:
+                return None, None
+            return np.asarray(transformed, dtype=np.float64), float(lmbda)
+        from scipy.special import boxcox as boxcox_apply
+
+        return np.asarray(boxcox_apply(x, fitted_params), dtype=np.float64), fitted_params
     if transform_name == "yeo_johnson":
         from sklearn.preprocessing import PowerTransformer
 
+        if fitted_params is None:
+            transformer = PowerTransformer(method="yeo-johnson")
+            try:
+                transformed = transformer.fit_transform(x.reshape(-1, 1)).ravel()
+            except ValueError:
+                return None, None
+            return np.asarray(transformed, dtype=np.float64), transformer
+        assert isinstance(fitted_params, PowerTransformer)
         try:
-            transformed = PowerTransformer(method="yeo-johnson").fit_transform(x.reshape(-1, 1)).ravel()
+            transformed = fitted_params.transform(x.reshape(-1, 1)).ravel()
         except ValueError:
-            return None
-        return np.asarray(transformed, dtype=np.float64)
+            return None, None
+        return np.asarray(transformed, dtype=np.float64), fitted_params
     raise ValueError(f"_apply_transform: unknown transform_name {transform_name!r}")
 
 
@@ -125,12 +151,14 @@ def gaussian_power_transform_search(
 
         abs_skews: Dict[str, float] = {}
         transformed_by_name: Dict[str, np.ndarray] = {}
+        fitted_params_by_name: Dict[str, object] = {}
         for transform_name in candidate_transforms:
-            transformed = _apply_transform(finite_fill, transform_name)
+            transformed, fitted_params = _apply_transform(finite_fill, transform_name)
             if transformed is None or not np.all(np.isfinite(transformed)) or np.std(transformed) == 0.0:
                 continue
             abs_skews[transform_name] = float(abs(skew(transformed)))
             transformed_by_name[transform_name] = transformed
+            fitted_params_by_name[transform_name] = fitted_params
 
         if not abs_skews:
             continue
@@ -157,7 +185,13 @@ def gaussian_power_transform_search(
             info["target_correlation_rejected"] = rejected
 
         best_transform = min(eligible, key=eligible.get)  # type: ignore[arg-type]
-        info = {"best_transform": best_transform, "best_abs_skew": abs_skews[best_transform], "all_abs_skew": abs_skews, **info}
+        info = {
+            "best_transform": best_transform,
+            "best_abs_skew": abs_skews[best_transform],
+            "all_abs_skew": abs_skews,
+            "best_fitted_params": fitted_params_by_name[best_transform],
+            **info,
+        }
         results[col] = info
 
     return results
@@ -165,6 +199,11 @@ def gaussian_power_transform_search(
 
 def apply_gaussian_power_transform(df: pd.DataFrame, search_result: Dict[str, dict]) -> pd.DataFrame:
     """Apply the winning transform from :func:`gaussian_power_transform_search`'s result to each column.
+
+    Replays the EXACT fitted Box-Cox lambda / Yeo-Johnson power parameter ``gaussian_power_transform_search``
+    learned (via ``info["best_fitted_params"]``) rather than refitting from whatever ``df`` is passed here --
+    calling this on a different frame than the one searched on (the natural search-on-train/apply-to-val
+    workflow) now applies the SAME function that was measured and selected, not a freshly-refit one.
 
     Returns ``df`` (shallow copy) with each searched column replaced by its best-scoring transform in place.
     """
@@ -175,7 +214,7 @@ def apply_gaussian_power_transform(df: pd.DataFrame, search_result: Dict[str, di
         finite_fill = raw.copy()
         if finite.size:
             finite_fill[~np.isfinite(finite_fill)] = np.median(finite)
-        transformed = _apply_transform(finite_fill, info["best_transform"])
+        transformed, _ = _apply_transform(finite_fill, info["best_transform"], fitted_params=info.get("best_fitted_params"))
         if transformed is not None:
             out[col] = transformed
     return out

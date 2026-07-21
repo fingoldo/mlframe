@@ -574,8 +574,12 @@ def _batch_per_class_ice_kernel(
         # ---- Calibration binning (uniform-strategy, fixed nbins) ----
         # Replicates fast_calibration_binning + calibration_metrics_from_freqs
         # logic inline so the kernel stays single-entry.
-        min_val = 1.0
-        max_val = 0.0
+        # Seed from the first sample (not a fixed [1.0, 0.0]) -- mirrors
+        # _fast_calibration_binning_serial ("gold") so predictions outside [0,1] bin against the actual data
+        # range instead of one sentinel never being touched when a class's predicted-probability column is
+        # entirely <0 or entirely >1.
+        min_val = y_p[0]
+        max_val = y_p[0]
         for i in range(N):
             v = y_p[i]
             if v > max_val:
@@ -589,6 +593,13 @@ def _batch_per_class_ice_kernel(
             multiplier = (nbins - 1) / span
             for i in range(N):
                 ind = int(np.floor((y_p[i] - min_val) * multiplier))
+                # FP-boundary clamp (same guard as the gold serial kernel): at y_p[i] == max_val this is
+                # exactly nbins-1 in exact arithmetic, but floating-point rounding can push it to nbins,
+                # which would write out of the pockets_pred/pockets_true bounds under @njit (bounds-checking off).
+                if ind < 0:
+                    ind = 0
+                elif ind >= nbins:
+                    ind = nbins - 1
                 pockets_pred[ind] += 1
                 pockets_true[ind] += y_t[i]
         else:

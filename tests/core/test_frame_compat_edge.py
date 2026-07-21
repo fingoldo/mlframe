@@ -56,7 +56,7 @@ def test_duck_typed_polars_dataframe_uses_to_pandas():
         __module__ = "polars.fake"
 
         def to_pandas(self):
-            """Helper that to pandas."""
+            """Returns ``pd.DataFrame({'d': [9]})``."""
             return pd.DataFrame({"d": [9]})
 
     FakePolarsDF.__name__ = "DataFrame"
@@ -76,7 +76,7 @@ def test_to_pandas_raises_falls_back_to_asarray():
         __module__ = "polars.x"
 
         def to_pandas(self):
-            """Helper that to pandas."""
+            """Always raises ``RuntimeError('boom')``."""
             raise RuntimeError("boom")
 
         def __array__(self, dtype=None):

@@ -14,7 +14,7 @@ import pytest
 
 
 def _gen_pair(n=200, m=150, seed=0):
-    """Helper that gen pair."""
+    """Builds seeded synthetic test data; returns ``(x, y)``."""
     rng = np.random.default_rng(seed)
     x = rng.normal(0, 1, n).astype(np.float32)
     y = rng.normal(0, 1, m).astype(np.float32)

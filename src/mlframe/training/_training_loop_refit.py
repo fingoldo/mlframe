@@ -344,14 +344,18 @@ def _maybe_refit_on_collapsed_predictions(
         if _ratio2 >= _COLLAPSED_PRED_STD_FRACTION:
             return True
 
-    # All ladder rungs exhausted; restore the original network_params
-    # so downstream (predict, save, serialise) sees the user-configured
-    # network rather than the last failed-rung mutation.
-    _inner.network_params = _orig_snapshot
+    # All ladder rungs exhausted. `_inner.network_params` already reflects the LAST-attempted rung
+    # (set at the top of the loop, line ~319, before that rung's fit) and `_inner.network` (the live
+    # torch weights) was fit under that SAME candidate -- the two must stay in sync. Restoring
+    # `_orig_snapshot` here (the pre-collapse, collapse-TRIGGERING config) would make network_params
+    # describe an architecture the live network was never actually fit under; any later caller that
+    # reads it (get_params()/sklearn.clone(), e.g. trainer.py's OOF stacking path) would silently
+    # rebuild a fresh instance from the WRONG, known-bad config instead of the last-tried one.
     logger_.warning(
         "[pred-collapse] %s ladder exhausted without recovering a "
-        "healthy fit; keeping last attempt. Downstream chart will "
-        "show the truth (R^2 likely < 0).",
+        "healthy fit; keeping last attempt (network_params reflects "
+        "the last-tried rung, not the original pre-collapse config). "
+        "Downstream chart will show the truth (R^2 likely < 0).",
         model_type_name,
     )
     return False

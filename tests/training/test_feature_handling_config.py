@@ -381,7 +381,11 @@ class TestSubConfigExtraForbid:
     @pytest.mark.parametrize(
         "config_cls,bad_kwargs",
         [
-            (CacheConfig, {"persistence": "off"}),  # typo
+            # "presistence" (transposed letters) is not a real field; genuine typo of "persistence".  # codespell:ignore presistence
+            # A prior version of this parametrization used the correctly-spelled "persistence" -- a
+            # real, valid CacheConfig field -- which pydantic's extra="forbid" naturally accepts
+            # rather than rejects, so the test silently exercised no typo-detection at all.
+            (CacheConfig, {"presistence": "off"}),  # typo  # codespell:ignore presistence
             (MemoryConfig, {"budgett_gb": 16.0}),
             (PricingConfig, {"capacity_usd": 5.0}),
             (LoggingConfig, {"verbose_logging": True}),  # actually shouldn't exist

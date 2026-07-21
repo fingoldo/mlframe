@@ -62,6 +62,26 @@ pytestmark = pytest.mark.skipif(
 # =====================================================================
 
 
+@pytest.fixture(autouse=True)
+def _isolate_lgb_module_cache():
+    """Clear the module-level Dataset cache before and after every test.
+
+    Several fixtures in this file (``small_classification_data`` /
+    ``small_regression_data``) deliberately use the same fixed seed and shape, so
+    their X content -- and therefore its content-fingerprint cache key -- is
+    IDENTICAL across different test functions. Without this isolation, the
+    module-level cache (which survives sklearn.clone(), unlike the old
+    instance-only cache) would let one test's cached train Dataset leak into an
+    unrelated later test via a same-X, different-y collision, producing a
+    hard-to-diagnose order-dependent failure.
+    """
+    from mlframe.training.lgb_shim import _lgb_cache_clear
+
+    _lgb_cache_clear()
+    yield
+    _lgb_cache_clear()
+
+
 @pytest.fixture
 def small_classification_data():
     """Tiny but real classification dataset -- converges in a few trees."""
@@ -283,8 +303,9 @@ class TestLGBDatasetReuse:
 
         m = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
         m.fit(X, y, eval_set=[(X_val, y_val)])
-        assert m._cached_val_dataset is not None
-        assert m._cached_val_dataset.num_data() == len(y_val)
+        assert len(m._cached_val_datasets) == 1
+        (dval,) = m._cached_val_datasets.values()
+        assert dval.num_data() == len(y_val)
 
     def test_categorical_feature_change_misses_cache(self, small_classification_data):
         """Cache key must include categorical_feature -- changing it
@@ -458,9 +479,10 @@ class TestLGBShimEdgeCases:
 
         m = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
         m.fit(X, y, eval_set=[(X_val_a, y_val_a)])
-        first_val_id = id(m._cached_val_dataset)
+        # Most-recently-used entry in the multi-slot dict (LRU move_to_end keeps it last).
+        first_val_id = id(next(reversed(m._cached_val_datasets.values())))
         m.fit(X, y, eval_set=[(X_val_b, y_val_b)])
-        second_val_id = id(m._cached_val_dataset)
+        second_val_id = id(next(reversed(m._cached_val_datasets.values())))
         assert first_val_id != second_val_id, "val Dataset was reused for a different X_val -- cache key bug"
 
     def test_sample_weight_round_trip_on_first_fit(self, small_classification_data):
@@ -491,8 +513,9 @@ class TestLGBShimEdgeCases:
         # Bare tuple, NOT wrapped in a list.
         m.fit(X, y, eval_set=(X_val, y_val))
         # Cache populated correctly -- val Dataset has the right row count.
-        assert m._cached_val_dataset is not None
-        assert m._cached_val_dataset.num_data() == len(y_val)
+        assert len(m._cached_val_datasets) == 1
+        (dval,) = m._cached_val_datasets.values()
+        assert dval.num_data() == len(y_val)
 
     def test_no_warnings_on_repeat_fit(self, small_classification_data):
         """Repeated .fit() must not spam UserWarning / FutureWarning
@@ -571,12 +594,16 @@ class TestLGBShimCacheHandoffInCoreLoop:
         """Behaviourally verify the forward-transfer helper used by core.py's
         weight-schema loop: ``_forward_dataset_reuse_cache(src=template,
         dst=clone)`` copies the LGB Dataset cache (``_cached_train_dataset``
-        / ``_cached_val_dataset``) from a fitted template onto a fresh
+        / ``_cached_val_datasets``) from a fitted template onto a fresh
         sklearn.clone() so the next weight-schema iteration's shim hits
         set_label / set_weight in place instead of rebuilding the binned
         Dataset. Drop the helper (or omit the LGB attrs from
         ``_DATASET_REUSE_CACHE_ATTRS``) and this test fails -- shim runs
         but produces no reuse, a silent perf regression.
+
+        ``_cached_val_datasets`` (plural) is a dict keyed by val content
+        signature -- multi-slot, not a single pointer -- so a multi-eval-set
+        fit doesn't only ever cache the LAST entry.
         """
         from sklearn.base import clone
         from mlframe.training.core._phase_train_one_target import (
@@ -587,7 +614,7 @@ class TestLGBShimCacheHandoffInCoreLoop:
         # LGB-specific cache attrs MUST be inside the shared tuple so the
         # generic forward helper carries them across clone(). If somebody
         # drops them, dataset reuse silently dies for the LGB shim.
-        for _attr in ("_cached_train_dataset", "_cached_val_dataset"):
+        for _attr in ("_cached_train_dataset", "_cached_val_datasets"):
             assert (
                 _attr in _DATASET_REUSE_CACHE_ATTRS
             ), f"{_attr!r} missing from _DATASET_REUSE_CACHE_ATTRS -- the forward helper will not propagate the LGB cache."
@@ -600,13 +627,13 @@ class TestLGBShimCacheHandoffInCoreLoop:
         template.fit(X, y, eval_set=[(X_val, y_val)])
         # Precondition: template carries populated caches.
         assert template._cached_train_dataset is not None
-        assert template._cached_val_dataset is not None
+        assert len(template._cached_val_datasets) == 1
 
         cloned = clone(template)
         # sklearn.clone() yields a virgin instance -- precondition for the test
         # to be meaningful.
         assert cloned._cached_train_dataset is None
-        assert cloned._cached_val_dataset is None
+        assert len(cloned._cached_val_datasets) == 0
 
         # The forward-transfer helper invoked by core.py.
         _forward_dataset_reuse_cache(template, cloned)
@@ -619,7 +646,7 @@ class TestLGBShimCacheHandoffInCoreLoop:
             "clone got None / different obj; next iteration's shim will "
             "rebuild the binned Dataset (silent perf regression)."
         )
-        assert cloned._cached_val_dataset is template._cached_val_dataset, "forward helper failed to propagate _cached_val_dataset"
+        assert cloned._cached_val_datasets == template._cached_val_datasets, "forward helper failed to propagate _cached_val_datasets"
 
     def test_lgb_shim_factory_is_invoked_from_configure_lightgbm(self, monkeypatch):
         """``_configure_lightgbm_params`` must dispatch through ``_lgb_classifier_cls`` /
@@ -749,13 +776,15 @@ class TestLGBShimPickleAndCacheLifecycle:
         state = m.__getstate__()
         for _attr in (
             "_cached_train_dataset",
-            "_cached_val_dataset",
             "_cached_train_key",
-            "_cached_val_key",
         ):
             assert (
                 state.get(_attr) is None
             ), f"__getstate__ must null {_attr!r} before pickling -- the lightgbm.Dataset holds ctypes pointers that can't be serialised."
+        # Multi-slot val cache: __getstate__ strips it to an EMPTY dict (not None -- the
+        # attribute is always a dict, see _init_cache), same rationale (unpicklable ctypes
+        # pointers inside the Dataset values).
+        assert state.get("_cached_val_datasets") == {}, "__getstate__ must empty _cached_val_datasets before pickling"
         # But the LIVE instance's cache is untouched -- getstate must
         # not have mutated ``self.__dict__`` as a side effect.
         assert m._cached_train_dataset is not None
@@ -774,12 +803,12 @@ class TestLGBShimPickleAndCacheLifecycle:
         m2.__setstate__(legacy_state)
         for _attr in (
             "_cached_train_dataset",
-            "_cached_val_dataset",
             "_cached_train_key",
-            "_cached_val_key",
         ):
             assert hasattr(m2, _attr), f"__setstate__ must re-init {_attr!r} for backward compatibility with pre-shim saves"
             assert getattr(m2, _attr) is None
+        assert hasattr(m2, "_cached_val_datasets"), "__setstate__ must re-init _cached_val_datasets for backward compatibility with pre-shim saves"
+        assert m2._cached_val_datasets == {}
 
     def test_clear_cache_releases_dataset(self, small_classification_data):
         """``clear_cache()`` must drop all cache references so the C++
@@ -792,8 +821,7 @@ class TestLGBShimPickleAndCacheLifecycle:
         m.clear_cache()
         assert m._cached_train_dataset is None
         assert m._cached_train_key is None
-        assert m._cached_val_dataset is None
-        assert m._cached_val_key is None
+        assert len(m._cached_val_datasets) == 0
 
     def test_fit_after_clear_cache_rebuilds(self, small_classification_data):
         """After ``clear_cache()`` + a new ``fit()``, the cache repopulates

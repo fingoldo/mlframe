@@ -554,6 +554,7 @@ def evaluate_model(
         probs=probs,
         df=df,
         show_fi=show_fi,
+        verbose=bool(verbose),
         **kwargs,
     )
 

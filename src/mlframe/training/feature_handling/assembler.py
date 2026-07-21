@@ -232,7 +232,7 @@ def assemble_for_model(
     embedding_blocks = [b for b in blocks if b.output_kind == "embedding"]
     routing_trace: List[str] = []
 
-    if model_kind in ("cb", "xgb", "lgb") or accepts_sparse(model_kind):
+    if accepts_sparse(model_kind):  # SPARSE_AWARE_MODELS already includes cb/xgb/lgb -- see routing.py
         # ---- Two-track concat -------------------------------------
         sparse_mat: Optional[sp.csr_matrix] = None
         sparse_names: List[str] = []

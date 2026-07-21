@@ -20,7 +20,7 @@ from mlframe.evaluation.compare_cv_schemes import compare_cv_schemes
 
 
 def _rmse(y_true, y_pred):
-    """Helper that rmse."""
+    """Returns ``float(np.sqrt(mean_squared_error(y_true, y_pred)))``."""
     return float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
 

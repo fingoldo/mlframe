@@ -401,7 +401,10 @@ class HuggingFaceProvider:
                         from transformers import AutoModel
                         self._model = AutoModel.from_pretrained(
                             self._load_model_name, revision=self._load_revision,
-                            torch_dtype="float32", trust_remote_code=self._load_trust_remote,
+                            # A real torch.dtype object, matching the primary load path (line ~192) --
+                            # not the bare string "float32", whose acceptance by from_pretrained's
+                            # torch_dtype kwarg is transformers-version-dependent.
+                            torch_dtype=torch.float32, trust_remote_code=self._load_trust_remote,
                         ).to("cpu").eval()
                         self._device = "cpu"
                         consecutive_ok = 0

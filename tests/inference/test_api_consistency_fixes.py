@@ -12,11 +12,11 @@ class _BinaryClf:
     """Classifier whose predict returns LABELS and predict_proba returns probabilities."""
 
     def predict(self, X):
-        """Helper that predict."""
+        """Returns ``np.zeros(len(X), dtype=int)``."""
         return np.zeros(len(X), dtype=int)
 
     def predict_proba(self, X):
-        """Helper that predict proba."""
+        """Returns ``np.column_stack([1 - p1, p1])`` (after 2 setup steps)."""
         n = len(X)
         p1 = np.linspace(0.1, 0.9, n)
         return np.column_stack([1 - p1, p1])
@@ -26,7 +26,7 @@ class _Regressor:
     """No predict_proba -> falls back to predict."""
 
     def predict(self, X):
-        """Helper that predict."""
+        """Returns ``np.arange(len(X), dtype=float)``."""
         return np.arange(len(X), dtype=float)
 
 
@@ -59,11 +59,11 @@ def test_api21_multiclass_returns_full_proba_matrix():
     class _MultiClf:
         """Groups tests covering MultiClf."""
         def predict(self, X):
-            """Helper that predict."""
+            """Returns ``np.zeros(len(X), dtype=int)``."""
             return np.zeros(len(X), dtype=int)
 
         def predict_proba(self, X):
-            """Helper that predict proba."""
+            """Returns ``np.tile([0.2, 0.3, 0.5], (n, 1))`` (after 1 setup step)."""
             n = len(X)
             return np.tile([0.2, 0.3, 0.5], (n, 1))
 

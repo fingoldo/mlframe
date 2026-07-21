@@ -697,9 +697,13 @@ def _bin_top_label_calibration(
     sample_n: int,
     random_state: int,
 ) -> dict[str, Any]:
-    """Equal-width top-label reliability binning mirroring
-    ``CompositeClassificationEstimator.calibration_report`` so the standalone
-    plotter produces the identical curve. Subsamples to ``sample_n`` rows."""
+    """Equal-width top-label reliability binning, delegating the shared binning core to
+    ``_calibration_binning.top_label_calibration_bins`` (the SAME function
+    ``CompositeClassificationEstimator.calibration_report`` calls) so the standalone plotter
+    produces the identical curve by construction, not by two independently-maintained
+    implementations happening to agree. Subsamples to ``sample_n`` rows."""
+    from ._calibration_binning import top_label_calibration_bins
+
     proba_arr = np.asarray(proba, dtype=np.float64)
     if proba_arr.ndim != 2:
         raise ValueError("plot_reliability_diagram: proba must be a 2D (n, n_classes) array.")
@@ -708,29 +712,15 @@ def _bin_top_label_calibration(
     idx = _subsample_idx(n, sample_n, random_state)
     proba_arr = proba_arr[idx]
     y_arr = y_arr[idx]
-    conf = proba_arr.max(axis=1)
-    # Map argmax column back to a label via the sorted unique labels -- the same
-    # class ordering sklearn's ``classes_`` (and the estimator) uses.
+    # Map argmax column back to a label via the sorted unique labels -- the same class ordering
+    # sklearn's ``classes_`` (and the estimator) uses. This caller has no fitted estimator to read
+    # classes_ from directly (it only receives raw proba/y_true arrays), so it derives a proxy;
+    # falls back to raw column indices when the observed label count doesn't match proba's width
+    # (e.g. not every class is present in this particular slice).
     classes = np.unique(y_arr)
-    pred = classes[np.argmax(proba_arr, axis=1)] if classes.size == proba_arr.shape[1] else np.argmax(proba_arr, axis=1)
-    correct = (pred == y_arr).astype(np.float64)
-    nb = int(n_bins)
-    edges = np.linspace(0.0, 1.0, nb + 1)
-    binid = np.clip(np.digitize(conf, edges[1:-1]), 0, nb - 1)
-    bin_conf = np.full(nb, np.nan)
-    bin_acc = np.full(nb, np.nan)
-    bin_cnt = np.zeros(nb, dtype=np.int64)
-    ece = 0.0
-    m = conf.size
-    for b in range(nb):
-        sel = binid == b
-        c = int(sel.sum())
-        bin_cnt[b] = c
-        if c:
-            bin_conf[b] = float(conf[sel].mean())
-            bin_acc[b] = float(correct[sel].mean())
-            ece += (c / m) * abs(bin_conf[b] - bin_acc[b])
-    return {"bin_confidence": bin_conf, "bin_accuracy": bin_acc, "bin_count": bin_cnt, "ece": float(ece)}
+    if classes.size != proba_arr.shape[1]:
+        classes = np.arange(proba_arr.shape[1])
+    return top_label_calibration_bins(y_arr, proba_arr, classes, n_bins=n_bins)
 
 
 def plot_interval_coverage(

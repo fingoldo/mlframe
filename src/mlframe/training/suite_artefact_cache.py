@@ -1,4 +1,4 @@
-"""Cross-process / cross-run suite-level artefact cache (Wave 8 / A5 architectural).
+"""Cross-process / cross-run suite-level artefact cache.
 
 mlframe today has multiple in-process caches (``_PRE_PIPELINE_CACHE``, ``PipelineCache``, ``DiscoveryCache``, ``MRMR._FIT_CACHE``, ``FeatureCache``) but no single facade that turns deterministic SUITE-LEVEL artefacts (``fit_and_transform_pipeline`` output, ``apply_preprocessing_extensions`` output, ``trainset_features_stats``, dummy baselines, composite target specs) into a cross-process disk cache. PySR symbolic FE alone can take minutes per call; on a CI / multi-worker setup every fresh process pays that full cost.
 
@@ -16,15 +16,12 @@ Public surface:
 * :func:`get_default_cache` -- process-wide lazy singleton honouring env vars.
 * :func:`cache_artefact` -- decorator that binds a function to ``get_default_cache()`` and keys per-call from positional / kwarg inputs (mirrors ``functools.lru_cache`` shape but persists to disk).
 
-Wire-in proofs-of-concept (this commit):
-* ``mlframe.training.core._phase_helpers_fit_pipeline._cached_fit_and_transform_pipeline`` -- wraps ``fit_and_transform_pipeline``.
-* ``mlframe.training.core._phase_helpers_fit_pipeline._cached_apply_preprocessing_extensions`` -- wraps ``apply_preprocessing_extensions``.
-
-Remaining producers (TODO; tracked in pipeline-cache-critique.md A5 architectural proposal):
-* ``trainset_features_stats`` (already opt-in via precompute bundle -- finish the disk layer per #1)
-* ``composite_target_specs`` (#1, producer side missing in ``_precompute.py``)
-* ``dummy_baselines`` (#1)
-* ``_PRE_PIPELINE_CACHE`` promoted to disk (#7 + #11 -- needs random_seed + lib_version fold first)
+Wiring status: this module is implemented and unit-tested (``tests/training/test_suite_artefact_cache.py``)
+but NOT currently wired into any call site -- ``mlframe.training.core._phase_helpers_fit_pipeline``
+(the intended integration point for ``fit_and_transform_pipeline`` / ``apply_preprocessing_extensions``)
+does not reference ``cache_artefact`` / ``SuiteArtefactCache`` / ``get_default_cache`` anywhere. Treat
+this as a standalone, ready-to-wire facade rather than an already-integrated cross-process cache;
+finishing the wire-in (or deciding it's no longer needed) is future work, not assumed-done.
 """
 from __future__ import annotations
 

@@ -11,7 +11,7 @@ from mlframe.votenrank.stability_exp import spearman_exp
 
 
 def _lb():
-    """Helper that lb."""
+    """Builds seeded synthetic test data; returns ``Leaderboard(table, weights={c: 1.0 for c in cols})``."""
     rng = np.random.default_rng(0)
     idx = [f"M{i}" for i in range(8)]
     cols = [f"t{j}" for j in range(6)]

@@ -16,7 +16,7 @@ from mlframe.utils.safe_pickle import (
 
 
 def _make_pickle(path: str, obj):
-    """Helper that make pickle."""
+    """Test helper: with open(path, 'wb') as f: pickle.dump(obj, f, protocol=...."""
     with open(path, "wb") as f:
         pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
 

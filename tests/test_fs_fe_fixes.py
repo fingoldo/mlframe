@@ -114,7 +114,7 @@ def test_timeseries_window_var_empty_no_nameerror():
     df = pd.DataFrame({"x": np.arange(20, dtype=np.float64)})
 
     def apply_fcn(df, row_features, targets, features_names, dataset_name):
-        """Helper that apply fcn."""
+        """Test spy/callback: records each invocation (row_features.append(float(df['x'].sum())); if not features_names or dataset_name not in features_nam...)."""
         row_features.append(float(df["x"].sum()))
         if not features_names or dataset_name not in features_names:
             features_names.append(dataset_name)

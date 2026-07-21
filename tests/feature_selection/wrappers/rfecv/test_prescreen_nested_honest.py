@@ -17,12 +17,12 @@ from tests.feature_selection._biz_val_synth import make_signal_plus_noise, as_df
 
 
 def _logreg():
-    """Helper that logreg."""
+    """Returns ``LogisticRegression(max_iter=200, random_state=0)``."""
     return LogisticRegression(max_iter=200, random_state=0)
 
 
 def _base(**over):
-    """Helper that base."""
+    """Builds seeded synthetic test data; returns ``kw``."""
     kw = dict(cv=3, random_state=0, leakage_corr_threshold=None, n_features_selection_rule="argmax", max_refits=4)
     kw.update(over)
     return kw
@@ -32,7 +32,7 @@ def _base(**over):
 # into the universe, and small fold-train n (~60 of 90) makes noise that spuriously correlates with y over the FULL
 # sample fail the per-fold train-only prescreen -- exactly the leakage the nested pass removes.
 def _fit(nested, n=90, p_signal=2, p_noise=100, seed=1):
-    """Helper that fit."""
+    """Test helper: X, y, sig = make_signal_plus_noise(n=n, p_signal=p_signal...; Xdf, ys = as_df(X, y); r = RFECV(estimator=_logreg(), **_base(prescreen='univari...."""
     X, y, sig = make_signal_plus_noise(n=n, p_signal=p_signal, p_noise=p_noise, seed=seed)
     Xdf, ys = as_df(X, y)
     r = RFECV(estimator=_logreg(), **_base(prescreen="univariate_ht", prescreen_top_k=15, prescreen_fdr_level=0.99, prescreen_nested=nested))
@@ -41,7 +41,7 @@ def _fit(nested, n=90, p_signal=2, p_noise=100, seed=1):
 
 
 def _best(r):
-    """Helper that best."""
+    """Returns ``max(r.cv_results_['cv_mean_perf'])``."""
     return max(r.cv_results_["cv_mean_perf"])
 
 

@@ -250,7 +250,7 @@ class _FakeInner:
         self.k = k
 
     def fit(self, X, y):
-        """Helper that fit."""
+        """Performs 1 setup step, then returns self unchanged."""
         self.support_ = np.arange(min(self.k, X.shape[1]), dtype=np.int64)
         return self
 

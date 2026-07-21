@@ -55,7 +55,7 @@ class TestClassificationNaNTargetRouting:
         orig_kw = ht._kw_p_numeric_multiclass
 
         def _bin(*a, **k):
-            """Helper that bin."""
+            """Returns ``orig_bin(*a, **k)`` (after 1 setup step)."""
             chosen["route"] = "binary"
             return orig_bin(*a, **k)
 

@@ -14,7 +14,7 @@ from mlframe.calibration.group_bias_correction import apply_group_bias_correctio
 
 
 def _make_opposite_bias_dataset(n_per_group: int, seed: int):
-    """Helper that make opposite bias dataset."""
+    """Builds seeded synthetic test data; returns ``(true_demand, y_pred, groups)``."""
     rng = np.random.default_rng(seed)
     groups = np.repeat(["store_A", "store_B", "store_C", "store_D"], n_per_group)
     n = len(groups)

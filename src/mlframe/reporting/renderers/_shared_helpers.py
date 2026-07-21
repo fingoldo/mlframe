@@ -31,3 +31,13 @@ def _finite_range(mat):
     if finite.size == 0:
         return None
     return float(finite.min()), float(finite.max())
+
+
+def _per_series_flags(flag, n: int):
+    """Normalize a per-series bool flag (single bool / tuple / None) into a length-n bool list."""
+    if flag is None:
+        return [False] * n
+    if isinstance(flag, (tuple, list, np.ndarray)):
+        seq = list(flag)
+        return [bool(seq[i]) if i < len(seq) else False for i in range(n)]
+    return [bool(flag)] * n

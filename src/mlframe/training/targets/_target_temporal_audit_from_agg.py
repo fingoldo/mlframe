@@ -88,7 +88,7 @@ def _audit_from_agg(
             timestamp_col=timestamp_col, granularity=granularity,
             bins=bins, change_point_indices=[], segments=[],
             warnings=[
-                f"only {len(kept_bins)} non-sparse bins after the {min_bin_fraction}Г— median-n_obs filter "
+                f"only {len(kept_bins)} non-sparse bins after the {min_bin_fraction}× median-n_obs filter "
                 f"- too few for a temporal audit. Consider a finer granularity or a longer time span.",
             ],
             actionable={},
@@ -132,7 +132,7 @@ def _audit_from_agg(
     if n_dropped > 0:
         warnings.append(
             f"{n_dropped} bin(s) dropped from the audit (n_obs < "
-            f"{int(threshold_n):_} = {min_bin_fraction}Г— median bin size). "
+            f"{int(threshold_n):_} = {min_bin_fraction}× median bin size). "
             "Typically the partial first / last bins of your time range; "
             "if this number is large, consider a wider granularity."
         )
@@ -163,8 +163,3 @@ def _audit_from_agg(
         bins=bins, change_point_indices=boundaries, segments=segments,
         warnings=warnings, actionable=actionable,
     )
-
-
-# -----------------------------------------------------------------------------
-# Plotting
-# -----------------------------------------------------------------------------

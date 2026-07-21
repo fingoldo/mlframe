@@ -133,12 +133,25 @@ class HeteroscedasticCompositeEstimator(BaseEstimator, RegressorMixin):
         except ImportError:
             return None
 
-    def fit(self, X: Any, y: Any, sample_weight: np.ndarray | None = None, **fit_kwargs: Any) -> "HeteroscedasticCompositeEstimator":
+    def fit(
+        self, X: Any, y: Any, sample_weight: np.ndarray | None = None,
+        X_cal: Any | None = None, y_cal: Any | None = None, **fit_kwargs: Any,
+    ) -> "HeteroscedasticCompositeEstimator":
         """Fit the mean composite plus the predictive-variance head on the T-scale.
 
         The mean is a :class:`CompositeTargetEstimator`; the variance is either ngboost's native scale head (when the
         inner is an ``NGBRegressor``) or a second regressor on the log squared T-residuals. A global calibration factor is
-        then fit on the training residuals. Returns ``self``.
+        then fit on residuals. Returns ``self``.
+
+        X_cal, y_cal
+            Optional HELD-OUT calibration rows (disjoint from ``X``/``y`` -- the caller's responsibility, mirroring
+            ``conformal.py``'s own split-conformal convention in this same package). When given, ``sigma_calibration_``
+            is fit on genuinely out-of-sample residuals (mean/variance predictions on ``X_cal``, evaluated against
+            ``y_cal``) instead of the in-sample training residuals. ``None`` (default) keeps the prior in-sample
+            behavior UNCHANGED -- in-sample calibration is optimistic almost by construction (the variance head is
+            trained to predict close to exactly these residuals, so ``resid/sigma`` is close to 1 in-sample regardless
+            of true predictive quality), so ``predict_std``/``predict_interval`` are at risk of under-covering on
+            genuinely new data unless ``X_cal``/``y_cal`` is supplied.
         """
         if self.base_estimator is None and not self.prefer_ngboost:
             raise ValueError("HeteroscedasticCompositeEstimator: base_estimator must not be None (or enable prefer_ngboost).")
@@ -187,7 +200,17 @@ class HeteroscedasticCompositeEstimator(BaseEstimator, RegressorMixin):
             self.variance_estimator_ = var_inner
             sigma_train = np.exp(0.5 * np.asarray(var_inner.predict(X), dtype=np.float64).reshape(-1))
 
-        self.sigma_calibration_ = self._fit_calibration(resid[finite], sigma_train[finite])
+        if X_cal is not None and y_cal is not None:
+            y_cal_arr = np.asarray(y_cal, dtype=np.float64).reshape(-1)
+            base_cal = self._base_of(mean, transform, X_cal, n_rows=y_cal_arr.shape[0])
+            t_target_cal = np.asarray(transform.forward(y_cal_arr, base_cal, params), dtype=np.float64).reshape(-1)
+            t_hat_cal = np.asarray(mean.estimator_.predict(X_cal), dtype=np.float64).reshape(-1)
+            resid_cal = t_target_cal - t_hat_cal
+            sigma_cal = self._ngboost_sigma(mean.estimator_, X_cal) if use_ngboost else np.exp(0.5 * np.asarray(var_inner.predict(X_cal), dtype=np.float64).reshape(-1))
+            finite_cal = np.isfinite(t_target_cal) & np.isfinite(t_hat_cal) & np.isfinite(sigma_cal)
+            self.sigma_calibration_ = self._fit_calibration(resid_cal[finite_cal], sigma_cal[finite_cal])
+        else:
+            self.sigma_calibration_ = self._fit_calibration(resid[finite], sigma_train[finite])
 
         ref_names = getattr(mean, "feature_names_in_", None)
         if ref_names is not None:

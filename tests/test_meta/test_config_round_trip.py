@@ -83,7 +83,7 @@ _OPAQUE_FIELDS: set[str] = {
 
 
 def _config_classes() -> list[type[BaseModel]]:
-    """Helper that config classes."""
+    """Returns ``out`` (after 2 setup steps)."""
     out = []
     for _, obj in inspect.getmembers(configs_module, inspect.isclass):
         if not (issubclass(obj, BaseModel) and obj is not BaseModel):

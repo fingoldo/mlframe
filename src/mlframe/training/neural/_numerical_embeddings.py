@@ -86,14 +86,20 @@ class PeriodicLinearEmbedding(nn.Module):
         # Per-feature input to the projection Linear:
         # 2 * n_frequencies (sin + cos) + 1 (raw, if included).
         per_feat_in = 2 * n_frequencies + (1 if include_raw else 0)
-        # Stack per-feature Linears into one big block-diagonal Linear
-        # for efficiency (single GEMM). Equivalent to in_features
-        # independent Linear(per_feat_in -> embed_dim) but the
-        # in_features axis is the "channel" axis of the conv-like op.
-        # Implement via a single Linear over (in_features * per_feat_in)
-        # then reshape; the block-diagonal structure is enforced
-        # implicitly because we keep per-feature slices separate.
-        self.proj = nn.Linear(in_features * per_feat_in, in_features * embed_dim)
+        self.per_feat_in = per_feat_in
+        # TRUE block-diagonal per-feature projection: in_features independent Linear(per_feat_in ->
+        # embed_dim) heads, applied via one batched matmul (torch.einsum) instead of a single dense
+        # Linear(in_features*per_feat_in -> in_features*embed_dim). A plain nn.Linear over the flattened
+        # input has no mechanism enforcing block-diagonal weights -- gradient descent is free to (and
+        # generically will) learn nonzero cross-feature weights, contradicting this module's own
+        # documented "per-feature independent" design and inflating params/FLOPs from O(in_features) to
+        # O(in_features^2).
+        self.proj_weight = nn.Parameter(torch.empty(in_features, per_feat_in, embed_dim))
+        self.proj_bias = nn.Parameter(torch.empty(in_features, embed_dim))
+        # Matches nn.Linear's default init (kaiming-uniform-equivalent bound of 1/sqrt(fan_in)) per head.
+        _bound = 1.0 / math.sqrt(per_feat_in)
+        nn.init.uniform_(self.proj_weight, -_bound, _bound)
+        nn.init.uniform_(self.proj_bias, -_bound, _bound)
         self.activation = activation_cls() if activation_cls is not None else nn.Identity()
 
         # ``example_input_array`` so MLPTorchModel's wrapper can do
@@ -115,8 +121,11 @@ class PeriodicLinearEmbedding(nn.Module):
             per_feat = torch.cat([sines, cosines, x.unsqueeze(-1)], dim=-1)  # (N, D, 2K+1)
         else:
             per_feat = torch.cat([sines, cosines], dim=-1)  # (N, D, 2K)
-        flat = per_feat.flatten(1)  # (N, D * (2K[+1]))
-        return cast(torch.Tensor, self.activation(self.proj(flat)))  # (N, D * embed_dim)
+        # Batched per-feature matmul: feature d's (2K[+1],)-input only ever touches feature d's own
+        # (per_feat_in, embed_dim) weight block -- true block-diagonal, no cross-feature mixing.
+        proj_out = torch.einsum("ndk,dko->ndo", per_feat, self.proj_weight) + self.proj_bias  # (N, D, embed_dim)
+        flat = proj_out.flatten(1)  # (N, D * embed_dim)
+        return cast(torch.Tensor, self.activation(flat))
 
     def extra_repr(self) -> str:
         """Extra constructor-arg summary shown in ``repr(module)`` / ``print(module)``, per the standard ``nn.Module`` hook."""

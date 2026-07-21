@@ -397,7 +397,11 @@ def preprocess_dataframe(
                     len(scan["inf_counts"]), sum(scan["inf_counts"].values()),
                     sorted(scan["inf_counts"]),
                 )
-            df = df.with_columns(_cs.float().replace([float("inf"), float("-inf")], 0.0))
+            # NaN (not 0.0): a hardcoded fill value pre-split biases the post-split imputer's
+            # learned mean/median toward the sentinel, exactly the bias the module docstring
+            # explains and the fillna_value branch below already avoids (matches its own
+            # cs.float().replace([...], float("nan")) pattern).
+            df = df.with_columns(_cs.float().replace([float("inf"), float("-inf")], float("nan")))
         # Float32 cast is the only remaining work; the fillna_value=None
         # branch is unreachable in the batched fastpath since _do_fix_inf
         # gates on fillna_value is None.
@@ -417,15 +421,15 @@ def preprocess_dataframe(
     if config.fillna_value is not None:
         df = _process_special_values(df, fill_value=config.fillna_value, verbose=verbose)
     elif not _use_batched and config.fix_infinities:
-        df = process_infinities(df, fill_value=0.0, verbose=verbose)
+        df = process_infinities(df, fill_value=float("nan"), verbose=verbose)
     elif not _use_batched and _frame_contains_inf(df):
         logger.error(
             "fix_infinities=False but data contains np.inf in numeric "
-            "columns. Auto-fixing to 0.0 to avoid an opaque XGB / HGB / "
+            "columns. Auto-fixing to NaN to avoid an opaque XGB / HGB / "
             "sklearn crash later. Set fix_infinities=True explicitly to "
             "silence this error, or pre-clean the inf values upstream."
         )
-        df = process_infinities(df, fill_value=0.0, verbose=verbose)
+        df = process_infinities(df, fill_value=float("nan"), verbose=verbose)
 
     if verbose:
         logger.info("Preprocessing: %s -> %s", original_shape, df.shape)

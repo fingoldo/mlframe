@@ -71,7 +71,7 @@ def _fp_cache_max_default() -> int:
 
 
 _FP_CACHE_MAX = _fp_cache_max_default()
-_fingerprint_cache: "OrderedDict[Tuple[int, int, int], ContentFingerprint]" = OrderedDict()
+_fingerprint_cache: "OrderedDict[Tuple[int, int, int, int], ContentFingerprint]" = OrderedDict()
 # Module lock that serialises mutations of the fingerprint memo and the
 # session token. Without it, ``_fp_cache_put`` / ``_fp_cache_get`` racing
 # with ``reset_session`` (which clears the memo) can interleave through
@@ -82,9 +82,14 @@ _fingerprint_cache: "OrderedDict[Tuple[int, int, int], ContentFingerprint]" = Or
 _FP_LOCK = threading.Lock()
 
 
-def _fp_cache_key(df: Any) -> "Optional[Tuple[int, int, int]]":
-    """Build the ``(id, n_cols, columns_signature)`` cache key. Returns ``None`` on any backend
-    failure so the caller skips the memo (defensive: cache miss is the safe fallback)."""
+def _fp_cache_key(df: Any, n_sample: int) -> "Optional[Tuple[int, int, int, int]]":
+    """Build the ``(id, n_cols, columns_signature, n_sample)`` cache key. Returns ``None`` on any backend
+    failure so the caller skips the memo (defensive: cache miss is the safe fallback).
+
+    ``n_sample`` is part of the key because it changes WHICH rows get sampled into the content hash --
+    without it, two calls on the identical ``df`` object with different ``n_sample`` would silently
+    reuse the first call's ``ContentFingerprint`` for the second.
+    """
     try:
         cols = list(df.columns)
     except Exception:
@@ -96,12 +101,12 @@ def _fp_cache_key(df: Any) -> "Optional[Tuple[int, int, int]]":
         col_sig = hash(tuple(cols))
     except Exception:
         return None
-    return (id(df), len(cols), col_sig)
+    return (id(df), len(cols), col_sig, int(n_sample))
 
 
-def _fp_cache_get(df: Any) -> "Optional[ContentFingerprint]":
-    """Look up ``df`` in the fingerprint memo by its ``(id, n_cols, columns_signature)`` key; bumps LRU order on hit, returns ``None`` on miss."""
-    key = _fp_cache_key(df)
+def _fp_cache_get(df: Any, n_sample: int) -> "Optional[ContentFingerprint]":
+    """Look up ``df`` in the fingerprint memo by its ``(id, n_cols, columns_signature, n_sample)`` key; bumps LRU order on hit, returns ``None`` on miss."""
+    key = _fp_cache_key(df, n_sample)
     if key is None:
         return None
     with _FP_LOCK:
@@ -111,9 +116,9 @@ def _fp_cache_get(df: Any) -> "Optional[ContentFingerprint]":
         return val
 
 
-def _fp_cache_put(df: Any, fp: "ContentFingerprint") -> None:
+def _fp_cache_put(df: Any, fp: "ContentFingerprint", n_sample: int) -> None:
     """Store ``fp`` under ``df``'s cache key, moving it to MRU position and evicting the LRU entry once over ``_FP_CACHE_MAX``."""
-    key = _fp_cache_key(df)
+    key = _fp_cache_key(df, n_sample)
     if key is None:
         return
     with _FP_LOCK:
@@ -303,7 +308,7 @@ def fingerprint_df(
     100-700x faster than the legacy ``to_arrow().to_pandas().to_csv()`` triple-convert. Falls back to
     the legacy path when xxhash isn't installed so caller's deps stay minimal.
     """
-    cached = _fp_cache_get(df) if columns is None else None
+    cached = _fp_cache_get(df, n_sample) if columns is None else None
     if cached is not None:
         return cached
     n_rows = len(df)
@@ -421,7 +426,7 @@ def fingerprint_df(
         sampled_rows_hash=sampled_rows_hash,
     )
     if columns is None:
-        _fp_cache_put(df, fp)
+        _fp_cache_put(df, fp, n_sample)
     return fp
 
 

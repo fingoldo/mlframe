@@ -158,6 +158,7 @@ def cv_stability_check(
     metric_curves: Sequence[Sequence[float]],
     max_sign_change_ratio: float = 0.4,
     min_seeds: int = 2,
+    maximize: bool = True,
 ) -> dict:
     """Flag a hyperparameter-vs-metric curve as noisy/untrustworthy before acting on it.
 
@@ -171,6 +172,12 @@ def cv_stability_check(
         seed's curve as jagged/non-smooth (chasing noise rather than a real trend).
     min_seeds
         Minimum number of seed curves required to assess cross-seed agreement.
+    maximize
+        ``True`` for a metric where higher is better (AUC, correlation, accuracy, the default); ``False`` for
+        a loss (RMSE, log-loss) where lower is better -- mirrors ``select_best_iteration_by_aggregate_cv``'s
+        own ``maximize`` convention in the same package. Without this, "agreement" was always measured
+        against ``argmax``, so a loss-type curve's cross-seed check silently agreed on the WORST
+        hyperparameter with high confidence.
 
     Returns
     -------
@@ -201,8 +208,9 @@ def cv_stability_check(
         sign_changes = int(np.sum(nonzero[1:] != nonzero[:-1]))
         jagged_flags.append((sign_changes / len(nonzero)) > max_sign_change_ratio)
 
-    mean_argmax = int(np.argmax(mean_curve))
-    argmax_agreements = [abs(int(np.argmax(curve)) - mean_argmax) <= 1 for curve in curves]
+    _argopt = np.argmax if maximize else np.argmin
+    mean_argmax = int(_argopt(mean_curve))
+    argmax_agreements = [abs(int(_argopt(curve)) - mean_argmax) <= 1 for curve in curves]
 
     jagged_seed_fraction = float(np.mean(jagged_flags))
     cross_seed_argmax_agreement = float(np.mean(argmax_agreements))

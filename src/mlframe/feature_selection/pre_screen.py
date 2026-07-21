@@ -179,17 +179,29 @@ def compute_unsupervised_drops(
             if not pd.api.types.is_numeric_dtype(col.dtype):
                 continue
             try:
-                # Sparse columns: variance is degenerate when computed on
-                # the dense materialisation (most cells = fill_value). Use
-                # variance of the stored sp_values instead -- if every
-                # stored cell is identical, the column is constant in the
-                # meaningful sense; otherwise it carries signal.
+                # Sparse columns: variance computed over just the stored (non-fill) values ignores the
+                # fill-value mass entirely -- a sparse column with 999 fill cells and one stored value 5.0
+                # has a true population variance of ~0.025 (genuinely informative), but variance-of-stored
+                # alone reports 0.0 (a single stored value has zero variance by definition) and drops it.
+                # Worse, ANY number of identically-valued stored entries (e.g. a rare binary flag stored as
+                # three 1.0s among a thousand 0.0s) hits the same false-zero. Reconstruct the closed-form
+                # population variance over the FULL column (stored cells + implicit fill-value cells)
+                # instead, ignoring NaN cells the same way plain nanvar does.
                 if _is_sparse:
-                    sp_vals = np.asarray(col.values.sp_values)
-                    if sp_vals.size <= 1:
+                    sp_vals = np.asarray(col.values.sp_values, dtype=np.float64)
+                    finite_sp = sp_vals[~np.isnan(sp_vals)]
+                    fill_value = float(col.values.fill_value)
+                    n_total = int(col.shape[0])
+                    n_fill_cells = n_total - sp_vals.size  # implicit (non-stored) cells, always == fill_value
+                    n_fill_valid = 0 if np.isnan(fill_value) else n_fill_cells
+                    n_valid = int(finite_sp.size) + n_fill_valid
+                    if n_valid <= 1:
                         var_val = 0.0
                     else:
-                        var_val = float(np.nanvar(sp_vals))
+                        sum_valid = float(finite_sp.sum()) + n_fill_valid * fill_value
+                        sumsq_valid = float(np.square(finite_sp).sum()) + n_fill_valid * (fill_value**2)
+                        mean_valid = sum_valid / n_valid
+                        var_val = sumsq_valid / n_valid - mean_valid**2
                 else:
                     var_val = float(col.var())
             except (TypeError, ValueError):

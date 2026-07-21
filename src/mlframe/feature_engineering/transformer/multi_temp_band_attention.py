@@ -98,10 +98,12 @@ def compute_multi_temp_band_attention_features(
         band_centroids = np.zeros((effective_n_bands, Xt_s.shape[1]), dtype=np.float32)
         band_y_mean = np.zeros(effective_n_bands, dtype=np.float32)
         band_y_std = np.zeros(effective_n_bands, dtype=np.float32)
+        band_empty = np.zeros(effective_n_bands, dtype=bool)
         for b, mask in enumerate(masks):
             X_band = Xt_s[mask]
             y_band = y_t[mask]
             if X_band.shape[0] < 1:
+                band_empty[b] = True
                 continue
             band_centroids[b] = X_band.mean(axis=0)
             band_y_mean[b] = float(y_band.mean())
@@ -109,6 +111,11 @@ def compute_multi_temp_band_attention_features(
         diffs = Xq_s[:, None, :] - band_centroids[None, :, :]
         sq = (diffs**2).sum(axis=-1)  # (n_q, n_bands)
         scores = -sq
+        if band_empty.any():
+            # Same empty-band-at-origin phantom-anchor issue as quantile_band_attention.py's F2, repeated
+            # across all temperatures here since they all share the same `scores`.
+            scores = scores.copy()
+            scores[:, band_empty] = -np.inf
         n_q = Xq_s.shape[0]
         out_blocks = np.zeros((n_q, n_temps * features_per_temp), dtype=np.float32)
         for ti, t in enumerate(temps_list):

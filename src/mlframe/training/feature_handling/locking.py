@@ -1,7 +1,7 @@
 """
 PID-aware filelock with stale-lock reclaim.
 
-Round-3 chaos C5 + C16: the standard ``filelock`` package does NOT
+The standard ``filelock`` package does NOT
 detect when the process holding a lock has died (OOM-killed,
 SIGSEGV-crashed, kernel-panic'd). The next acquirer blocks
 indefinitely on a ghost lock. For mlframe's cross-process cache,
@@ -172,10 +172,9 @@ class PIDAwareFileLock:
                 os.unlink(self._meta_path())
             except FileNotFoundError:
                 pass
-            # Wave 52 (2026-05-20): wrap release() in its own try/except so
-            # a filelock Timeout / OSError on lock-file unlink (Windows paging
-            # stress) doesn't mask the in-flight exception from the `with` body
-            # AND doesn't propagate a release-side error past the user.
+            # Wrap release() in its own try/except so a filelock Timeout / OSError on lock-file unlink
+            # (Windows paging stress) doesn't mask the in-flight exception from the `with` body AND
+            # doesn't propagate a release-side error past the user.
             try:
                 self._lock.release()
             except Exception as _rel_err:

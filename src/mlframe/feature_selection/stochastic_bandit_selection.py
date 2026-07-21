@@ -48,7 +48,12 @@ def _stochastic_bandit_selection_core(
     needs each run's permanently locked-in "top_feats" pool to compute cross-seed stability.
     """
     if cv is None:
-        cv = KFold(n_splits=3, shuffle=True, random_state=0)
+        # Seed from the caller's own random_state (was a literal 0, ignoring it entirely) -- otherwise
+        # every epoch's candidate subset is scored against the EXACT SAME 3 folds regardless of
+        # random_state, so two "independent" seeds (including every per-seed run inside
+        # stochastic_bandit_selection_ensemble) only ever vary in their subset draws, silently
+        # undercounting fold-variance as a source of cross-seed disagreement.
+        cv = KFold(n_splits=3, shuffle=True, random_state=random_state)
     rng = np.random.default_rng(random_state)
 
     columns = list(X.columns)

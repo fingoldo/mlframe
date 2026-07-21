@@ -116,8 +116,10 @@ def predictor_disagreement_iqr(preds: np.ndarray) -> np.ndarray:
 
 def predictor_disagreement_var(preds: np.ndarray) -> np.ndarray:
     """Per-row unbiased sample variance across the N predictors."""
+    # _coerce_preds already raises for arr.shape[1] < 2, so the arr.shape[1] > 1 branch below was always
+    # taken.
     arr = _coerce_preds(preds)
-    return np.asarray(arr.var(axis=1, ddof=1)) if arr.shape[1] > 1 else np.zeros(arr.shape[0])
+    return np.asarray(arr.var(axis=1, ddof=1))
 
 
 def predictor_pairwise_abs_diffs(preds: np.ndarray) -> np.ndarray:

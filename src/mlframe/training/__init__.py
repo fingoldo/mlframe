@@ -254,6 +254,35 @@ _LAZY_IMPORTS = {
     # ``_model_factories`` module directly. Lazy to avoid eagerly importing the
     # heavy model-factory module (which pulls in feature_selection) at package import.
     "_patch_lgb_feature_names_in_setter": ("._model_factories", "_patch_lgb_feature_names_in_setter"),
+    # Early stopping helpers
+    "PartialFitESWrapper": ("._partial_fit_es_wrapper", "PartialFitESWrapper"),
+    # Public uncertainty / calibration / conformal utilities (predict-time helpers callable
+    # directly). Lazy like everything else above -- these used to be eager `from X import Y`
+    # statements at the bottom of this file, contradicting the module's own stated
+    # "bare `import mlframe.training` no longer mutates lightgbm internals" lazy-import design
+    # (a bare import paid for all of these submodules' transitive costs regardless of whether
+    # the caller ever touches them).
+    "conformal_classification_report": ("._conformal_finalize", "conformal_classification_report"),
+    "conformal_regression_report": ("._conformal_finalize", "conformal_regression_report"),
+    "infer_split_structure": ("._conformal_finalize", "infer_split_structure"),
+    "DistributionalRecalibrator": ("._regression_calibration", "DistributionalRecalibrator"),
+    "PointRecalibrator": ("._regression_calibration", "PointRecalibrator"),
+    "RecalibratedRegressor": ("._regression_calibration", "RecalibratedRegressor"),
+    "duan_log_smearing_factor": ("._regression_calibration", "duan_log_smearing_factor"),
+    "fit_point_recalibrator": ("._regression_calibration", "fit_point_recalibrator"),
+    "smearing_predict": ("._regression_calibration", "smearing_predict"),
+    "tta_predict": ("._tta", "tta_predict"),
+    "tta_predict_spread": ("._tta", "tta_predict_spread"),
+    "evaluate_tta_quality": ("._uncertainty_eval", "evaluate_tta_quality"),
+    "mc_dropout_predict": ("._mc_dropout", "mc_dropout_predict"),
+    "predictive_entropy": ("._mc_dropout", "predictive_entropy"),
+    "NoiseAugmentedEnsemble": ("._noise_ensemble", "NoiseAugmentedEnsemble"),
+    "select_best_iteration_by_aggregate_cv": ("._aggregate_cv_early_stopping", "select_best_iteration_by_aggregate_cv"),
+    "reconstruct_pseudo_group_ids": ("._pseudo_group_reconstruction", "reconstruct_pseudo_group_ids"),
+    "OverlappingWalkForwardCV": ("._overlapping_walk_forward_cv", "OverlappingWalkForwardCV"),
+    "cv_stability_check": ("._overlapping_walk_forward_cv", "cv_stability_check"),
+    "easy_ensemble_fit_predict": ("._easy_ensemble", "easy_ensemble_fit_predict"),
+    "DirectHorizonBucketForecaster": ("._direct_horizon_bucket_forecaster", "DirectHorizonBucketForecaster"),
 }
 
 _cache: dict = {}
@@ -276,8 +305,6 @@ def __getattr__(name):
 
 # train_and_evaluate_model is now in trainer.py and loaded via _LAZY_IMPORTS
 
-
-from ._partial_fit_es_wrapper import PartialFitESWrapper
 
 __all__ = [
     # Core functions
@@ -404,30 +431,8 @@ __all__ = [
 ]
 
 
-# Public uncertainty / calibration / conformal utilities (predict-time helpers callable directly).
-from ._conformal_finalize import (
-    conformal_classification_report,
-    conformal_regression_report,
-    infer_split_structure,
-)
-from ._regression_calibration import (
-    DistributionalRecalibrator,
-    PointRecalibrator,
-    RecalibratedRegressor,
-    duan_log_smearing_factor,
-    fit_point_recalibrator,
-    smearing_predict,
-)
-from ._tta import tta_predict, tta_predict_spread
-from ._uncertainty_eval import evaluate_tta_quality
-from ._mc_dropout import mc_dropout_predict, predictive_entropy
-from ._noise_ensemble import NoiseAugmentedEnsemble
-from ._aggregate_cv_early_stopping import select_best_iteration_by_aggregate_cv
-from ._pseudo_group_reconstruction import reconstruct_pseudo_group_ids
-from ._overlapping_walk_forward_cv import OverlappingWalkForwardCV, cv_stability_check
-from ._easy_ensemble import easy_ensemble_fit_predict
-from ._direct_horizon_bucket_forecaster import DirectHorizonBucketForecaster
-
+# Public uncertainty / calibration / conformal utilities (predict-time helpers callable
+# directly) -- lazy via _LAZY_IMPORTS above, matching the rest of this module's design.
 __all__ += [
     "conformal_regression_report",
     "conformal_classification_report",

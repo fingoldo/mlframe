@@ -47,7 +47,7 @@ def auto_precision(user_precision: str) -> str:
     return user_precision
 
 
-def maybe_enable_cudnn_rnn_autotune(rnn_type: RNNType) -> None:
+def maybe_enable_cudnn_rnn_autotune(rnn_type: RNNType) -> "bool | None":
     """F-45: enable cuDNN persistent-RNN kernel via benchmark=True.
 
     Documented 2-3x lift on Ampere+ where the persistent kernel lives.
@@ -60,17 +60,25 @@ def maybe_enable_cudnn_rnn_autotune(rnn_type: RNNType) -> None:
       * CUDA unavailable
       * deterministic flag is on (benchmark + deterministic conflict)
       * compute capability < 8.0 (no persistent-RNN kernel exists)
+
+    Returns the PRIOR value of ``torch.backends.cudnn.benchmark`` when this call actually flips it, or
+    ``None`` when skipped (nothing to restore). ``torch.backends.cudnn.benchmark`` is a process-global
+    PyTorch flag -- the caller MUST restore the returned prior value (in a ``finally``) once its own
+    ``trainer.fit()`` call returns, or every OTHER model trained later in the same process silently
+    inherits ``benchmark=True`` and its non-deterministic cuDNN algorithm selection.
     """
     if rnn_type == RNNType.TRANSFORMER:
-        return
+        return None
     if not torch.cuda.is_available():
-        return
+        return None
     if torch.backends.cudnn.deterministic:
-        return
+        return None
     try:
         cc = torch.cuda.get_device_capability()
     except Exception:
-        return
+        return None
     if cc < (8, 0):
-        return
+        return None
+    prior = torch.backends.cudnn.benchmark
     torch.backends.cudnn.benchmark = True
+    return prior

@@ -196,10 +196,13 @@ def find_best_mps_sequence(
     tc: transaction cost parameter (if tc_mode_is_fraction True -> fraction of price per trade,
         else fixed currency per trade)
     tc_mode_is_fraction: boolean (True => fraction-of-price, False => fixed)
+    shift: shift the reconstructed positions this many steps to the LEFT (positions[:-shift] = positions[shift:]),
+        backfilling the vacated left tail from the first remaining value -- use to compensate for a known
+        signal-availability lag (e.g. positions decided from data only available `shift` steps after the
+        interval they'd apply to). 0 (default) leaves positions unshifted.
     Returns:
       positions: int8 array length (n-1) with values -1,0,1 representing position held on interval t->t+1
-      total_profit: float64 cumulative profit (after transaction costs)
-      cumulative_profits: float64 array length (n-1) of running cum profit after each interval
+      profits: float64 array length (n-1) of per-interval profit (after transaction costs)
     """
     n = prices.shape[0]
     if n < 2:
@@ -338,6 +341,9 @@ def find_maximum_profit_system(
     prices: 1D array-like of closing prices
     tc: transaction cost (fraction-of-price if tc_mode='fraction', else fixed currency)
     tc_mode: 'fraction' or 'fixed'
+    shift: shift the reconstructed positions this many steps to the LEFT (backfilling the vacated left tail),
+        forwarded to find_best_mps_sequence -- use to compensate for a known signal-availability lag. 0
+        (default) leaves positions unshifted.
     returns: dict with keys 'positions', 'profits'
 
     prices = np.array([100.0, 101.5, 100.0, 99.0, 100.5, 102.0, 101.0])
@@ -748,4 +754,11 @@ def compute_mps_targets(
                 )
             )
 
-    return cast(pl.DataFrame, pl.concat([el for el in targets_dfs if el is not None and len(el) > 0]))
+    non_empty_dfs = [el for el in targets_dfs if el is not None and len(el) > 0]
+    if not non_empty_dfs:
+        # Every group was skipped (all-null price history, or <2 rows after smoothing) -- pl.concat([]) raises,
+        # which would break this function's own Optional[pl.DataFrame] contract for a public, directly-callable
+        # function (safely_compute_mps's broad except Exception masks this for ITS callers, but a caller of
+        # compute_mps_targets directly does not get that safety net).
+        return None
+    return cast(pl.DataFrame, pl.concat(non_empty_dfs))

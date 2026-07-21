@@ -16,7 +16,7 @@ from mlframe.feature_selection.filters._temporal_agg_fe import (
 
 def _train():
     # one entity, train values at times 1..4
-    """Helper that train."""
+    """Returns ``pd.DataFrame({'entity': ['u'] * 4, 'tcol': [1, 2, 3, 4], 'x0': [10.0, 20.0, 30.0, 40.0]})``."""
     return pd.DataFrame({"entity": ["u"] * 4, "tcol": [1, 2, 3, 4], "x0": [10.0, 20.0, 30.0, 40.0]})
 
 

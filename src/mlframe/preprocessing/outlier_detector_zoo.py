@@ -182,25 +182,32 @@ def select_outlier_threshold(
     if arr.ndim != 1:
         raise ValueError(f"select_outlier_threshold: expected a 1-D score array, got shape {arr.shape}.")
     n = arr.shape[0]
+    # NaN-safe by construction: a NaN score is "unknown", never "extreme", so it must never be flagged as an
+    # outlier under any method. Plain np.percentile
+    # propagates a single NaN into the CUTOFF itself (turning off flagging for every row, not just the NaN
+    # one); plain np.argpartition sorts NaN as the largest value (spuriously flagging it under "contamination").
+    finite_mask = ~np.isnan(arr)
     if method == "contamination":
         if not 0.0 <= contamination <= 1.0:
             raise ValueError(f"select_outlier_threshold: contamination must be in [0, 1], got {contamination}.")
+        n_finite = int(finite_mask.sum())
         n_flag = round(contamination * n)
-        if n_flag <= 0:
+        if n_flag <= 0 or n_finite == 0:
             return np.zeros(n, dtype=bool)
-        if n_flag >= n:
-            return np.ones(n, dtype=bool)
-        cutoff_idx = np.argpartition(arr, n - n_flag)[n - n_flag :]
+        if n_flag >= n_finite:
+            return np.asarray(finite_mask.copy())
+        finite_idx = np.flatnonzero(finite_mask)
+        cutoff_idx = finite_idx[np.argpartition(arr[finite_idx], n_finite - n_flag)[n_finite - n_flag :]]
         flags = np.zeros(n, dtype=bool)
         flags[cutoff_idx] = True
         return flags
     if method == "percentile":
         if not 0.0 <= percentile <= 100.0:
             raise ValueError(f"select_outlier_threshold: percentile must be in [0, 100], got {percentile}.")
-        cutoff = np.percentile(arr, percentile)
-        return arr > cutoff
+        cutoff = np.nanpercentile(arr, percentile)
+        return np.asarray(arr > cutoff, dtype=bool)  # NaN > cutoff is False, so NaN rows are never flagged.
     if method == "iqr":
-        q1, q3 = np.percentile(arr, [25.0, 75.0])
+        q1, q3 = np.nanpercentile(arr, [25.0, 75.0])
         cutoff = q3 + iqr_multiplier * (q3 - q1)
         return np.asarray(arr > cutoff, dtype=bool)
     raise ValueError(f"select_outlier_threshold: unknown method {method!r}; choose one of {_THRESHOLD_METHODS}.")

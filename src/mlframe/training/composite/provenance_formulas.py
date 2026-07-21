@@ -180,6 +180,12 @@ def _f_linear_residual_multi(t: str, b: str, p: dict) -> tuple[str, str]:
     )
 
 
+def _f_linear_residual_multi_robust(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'linear_residual_multi_robust': delegates to ``_f_linear_residual_multi`` since both fit the same linear form once alphas/beta are computed, just with an outlier-robust (trimmed-LS) estimator."""
+    t_expr, y_expr = _f_linear_residual_multi(t, b, p)
+    return f"{t_expr}  (alphas=trimmed-LS, outlier-robust)", y_expr
+
+
 def _f_linear_residual_grouped(t: str, b: str, p: dict) -> tuple[str, str]:
     """Formula strings for 'linear_residual_grouped': residual after subtracting a per-group linear contribution of the base (James-Stein shrunk toward the reported global alpha/beta)."""
     a_g = _fmt(p.get("alpha_global"))
@@ -615,7 +621,7 @@ _TRANSFORM_FORMULA_BUILDERS: dict[str, Any] = {
     "seasonal_residual": _f_seasonal_residual,
     "volatility_normalized_residual": _f_volatility_normalized_residual,
     "asinh_residual_multi": _f_asinh_residual_multi,
-    "linear_residual_multi_robust": _f_linear_residual_multi,
+    "linear_residual_multi_robust": _f_linear_residual_multi_robust,
     "rolling_quantile_ratio_centered": _f_rolling_quantile_ratio,
     "ewma_residual_grouped": _f_ewma_residual_grouped,
     "frac_diff_grouped": _f_frac_diff_grouped,

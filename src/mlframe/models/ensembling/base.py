@@ -697,21 +697,23 @@ def combine_probs(
         else:
             combined = np.mean(stacked, axis=0)
     elif flav == "median":
-        if sample_weight is not None:
-            try:
-                combined = np.quantile(stacked, 0.5, axis=0, weights=sample_weight, method="inverted_cdf")
-            except TypeError:
-                combined = np.median(stacked, axis=0)
-        else:
-            # ``np.median`` over ``np.quantile(stacked, 0.5, axis=0)`` -- same
-            # rationale as the iter119 fix in ``compute_member_quality_gate``:
-            # ``np.quantile`` with q=0.5 falls back to apply_along_axis, while
-            # ``np.median`` uses numpy's dedicated C reduction. Bench at the
-            # c0056 multilabel-chain shapes (K=3, N=40k, C=3) shows 11 ms ->
-            # 7 ms (~1.5x); 2-D (K=3, N=200k): 19 ms -> 11 ms (~1.7x). Both
-            # propagate NaN identically -- the existing non_finite_mask
-            # arith-fallback further below catches any NaN cells either way.
-            combined = np.median(stacked, axis=0)
+        # sample_weight is a per-ROW vector (length N), not a per-MEMBER vector, so it cannot be
+        # applied to a reduction over axis=0 (the member axis, length M) -- passing it as
+        # np.quantile(..., axis=0, weights=sample_weight) is a shape/semantic mismatch (mirrors the
+        # already-fixed bug at the sibling _compute_outlier_gate call site in predict.py). This
+        # flavour's own docstring already documents "median ignores weights silently" for
+        # precomputed_weights (the member-axis weights); sample_weight is ignored here for the same
+        # reason -- there is no member axis for a per-row weight to apply to.
+        #
+        # ``np.median`` over ``np.quantile(stacked, 0.5, axis=0)`` -- same
+        # rationale as the iter119 fix in ``compute_member_quality_gate``:
+        # ``np.quantile`` with q=0.5 falls back to apply_along_axis, while
+        # ``np.median`` uses numpy's dedicated C reduction. Bench at the
+        # c0056 multilabel-chain shapes (K=3, N=40k, C=3) shows 11 ms ->
+        # 7 ms (~1.5x); 2-D (K=3, N=200k): 19 ms -> 11 ms (~1.7x). Both
+        # propagate NaN identically -- the existing non_finite_mask
+        # arith-fallback further below catches any NaN cells either way.
+        combined = np.median(stacked, axis=0)
     elif flav == "quad":
         sq = stacked * stacked
         if weights_arr is not None:

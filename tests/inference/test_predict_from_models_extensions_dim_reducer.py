@@ -23,7 +23,7 @@ import polars as pl
 
 
 def _make_small_frame(n_rows: int = 600, seed: int = 123) -> pl.DataFrame:
-    """Helper that make small frame."""
+    """Builds seeded synthetic test data; returns ``pl.DataFrame({'x0': rng.normal(size=n_rows).astype(np.float32), 'x1': rng.normal(size=n...``."""
     rng = np.random.default_rng(seed)
     return pl.DataFrame(
         {

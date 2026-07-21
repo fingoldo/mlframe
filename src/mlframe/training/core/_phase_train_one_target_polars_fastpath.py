@@ -63,9 +63,12 @@ def resolve_pandas_view_cache_budget_bytes() -> float:
     ctype = os.environ.get("MLFRAME_PANDAS_VIEW_CACHE_TYPE", "").strip().upper()
     size_raw = os.environ.get("MLFRAME_PANDAS_VIEW_CACHE_SIZE", "").strip()
     # Deprecated-alias path: old MAX_MB set and the new vars not -> treat as ABSOLUTE_MB.
+    # `0` is a legitimate explicit "disable the cache" budget (never reuse) -- an `or _DEFAULT_ABS_BYTES`
+    # falsy-shortcut would silently revert that explicit request back to the 2 GB default (0.0 is falsy
+    # in Python). Only a genuinely malformed value falls back to the default, via the except clause.
     if _legacy_mb is not None and not ctype and not size_raw:
         try:
-            return max(0.0, float(_legacy_mb)) * (1024**2) or _DEFAULT_ABS_BYTES
+            return max(0.0, float(_legacy_mb)) * (1024**2)
         except ValueError:
             return _DEFAULT_ABS_BYTES
     if not ctype:
@@ -74,16 +77,18 @@ def resolve_pandas_view_cache_budget_bytes() -> float:
         size = float(size_raw) if size_raw else (0.2 if ctype != "ABSOLUTE_MB" else 2048.0)
     except ValueError:
         size = 0.2 if ctype != "ABSOLUTE_MB" else 2048.0
-    if size <= 0:
-        return _DEFAULT_ABS_BYTES
+    # Same "0 is a legitimate explicit value, not an error" rule as the legacy path above -- a negative
+    # explicit SIZE clamps to 0 (mirrors the legacy path's own `max(0.0, ...)`) rather than falling back
+    # to the default; the internal not-provided defaults (0.2 / 2048.0) are always positive, so this only
+    # ever clamps a genuinely user-supplied non-positive value.
+    size = max(0.0, size)
     if ctype == "ABSOLUTE_MB":
         return size * (1024**2)
     try:
         import psutil
         vm = psutil.virtual_memory()
         base = vm.available if ctype == "FREE_RAM_SHARE" else vm.total
-        budget = float(size) * float(base)
-        return budget if budget > 0 else _DEFAULT_ABS_BYTES
+        return float(size) * float(base)
     except Exception:
         return _DEFAULT_ABS_BYTES
 

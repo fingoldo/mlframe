@@ -19,7 +19,7 @@ import numba
 
 
 def _yj_forward_cur(y: np.ndarray, lam: float) -> np.ndarray:
-    """Helper that yj forward cur."""
+    """Test helper: out = np.empty_like(y, dtype=np.float64); nonneg = y >= 0.0; pos = y[nonneg]."""
     out = np.empty_like(y, dtype=np.float64)
     nonneg = y >= 0.0
     pos = y[nonneg]
@@ -36,7 +36,7 @@ def _yj_forward_cur(y: np.ndarray, lam: float) -> np.ndarray:
 
 
 def _yj_forward_where(y: np.ndarray, lam: float) -> np.ndarray:
-    """Helper that yj forward where."""
+    """Returns ``np.where(y >= 0.0, pos_branch, neg_branch)`` (after 3 setup steps)."""
     abs_y = np.abs(y)
     if abs(lam) < 1e-12:
         pos_branch = np.log1p(abs_y)
@@ -51,7 +51,7 @@ def _yj_forward_where(y: np.ndarray, lam: float) -> np.ndarray:
 
 @numba.njit(cache=True, fastmath=True, parallel=True)
 def _yj_forward_numba_par(y: np.ndarray, lam: float) -> np.ndarray:
-    """Helper that yj forward numba par."""
+    """Test helper: n = y.shape[0]; out = np.empty(n, dtype=np.float64); lam_is_zero = abs(lam) < 1e-12."""
     n = y.shape[0]
     out = np.empty(n, dtype=np.float64)
     lam_is_zero = abs(lam) < 1e-12
@@ -76,7 +76,7 @@ def _yj_forward_numba_par(y: np.ndarray, lam: float) -> np.ndarray:
 
 @numba.njit(cache=True, fastmath=True)
 def _yj_forward_numba_serial(y: np.ndarray, lam: float) -> np.ndarray:
-    """Helper that yj forward numba serial."""
+    """Test helper: n = y.shape[0]; out = np.empty(n, dtype=np.float64); lam_is_zero = abs(lam) < 1e-12."""
     n = y.shape[0]
     out = np.empty(n, dtype=np.float64)
     lam_is_zero = abs(lam) < 1e-12
@@ -100,7 +100,7 @@ def _yj_forward_numba_serial(y: np.ndarray, lam: float) -> np.ndarray:
 
 
 def main() -> None:
-    """Helper that main."""
+    """Builds seeded synthetic test data for this test."""
     rng = np.random.default_rng(0)
     sizes = [50_000, 200_000, 405_000, 1_000_000]
     lams = np.linspace(-1.8, 3.8, 12).tolist()
@@ -123,7 +123,7 @@ def main() -> None:
                     raise AssertionError(f"{name} mismatch at n={n} lam={lam}: maxdiff={md}")
 
         def _bench(fn):
-            """Helper that bench."""
+            """Returns ``sorted(t)[1] * 1000`` (after 2 setup steps)."""
             t = []
             for _ in range(3):
                 s = time.perf_counter()

@@ -57,37 +57,75 @@ class _TTRWithEvalSetScaling(TransformedTargetRegressor):
                 self._y_train_clip_high_ = float("+inf")
                 self._y_train_mean_ = 0.0
                 self._y_train_std_ = 0.0
-        except Exception:
+        except Exception as _clip_bound_err:
             self._y_train_clip_low_ = float("-inf")
             self._y_train_clip_high_ = float("+inf")
             self._y_train_mean_ = 0.0
             self._y_train_std_ = 0.0
-        self.transformer_ = _clone(self.transformer) if self.transformer is not None else None
-        if self.transformer_ is not None:
-            self.transformer_.fit(y_arr_2d)
-            # Intercept + transform eval_set's y_val before delegating.
-            if "eval_set" in fit_params and fit_params["eval_set"] is not None:
-                es = fit_params["eval_set"]
-                if isinstance(es, tuple) and len(es) == 2:
-                    X_val, y_val = es
-                    y_val_arr = np.asarray(y_val, dtype=np.float64)
-                    y_val_2d = y_val_arr.reshape(-1, 1) if y_val_arr.ndim == 1 else y_val_arr
-                    y_val_scaled = self.transformer_.transform(y_val_2d).reshape(y_val_arr.shape)
-                    fit_params["eval_set"] = (X_val, y_val_scaled)
-                elif isinstance(es, list):
-                    new_es = []
-                    for entry in es:
-                        if isinstance(entry, tuple) and len(entry) == 2:
-                            X_v, y_v = entry
-                            y_v_arr = np.asarray(y_v, dtype=np.float64)
-                            y_v_2d = y_v_arr.reshape(-1, 1) if y_v_arr.ndim == 1 else y_v_arr
-                            y_v_scaled = self.transformer_.transform(y_v_2d).reshape(y_v_arr.shape)
-                            new_es.append((X_v, y_v_scaled))
-                        else:
-                            new_es.append(entry)
-                    fit_params["eval_set"] = new_es
-        # Defer the actual fit to the parent (which will refit transformer + call regressor.fit).
+            logger.debug(
+                "ttr y-train-clip bound computation failed (non-fatal, defensive predict-time clip disabled): %s",
+                _clip_bound_err,
+            )
+        if self.transformer is not None and "eval_set" in fit_params and fit_params["eval_set"] is not None:
+            # Fit a THROWAWAY transformer clone purely to scale eval_set's y through the same
+            # distribution self.transformer_ will end up fitted to. self.transformer_ itself is
+            # established by the parent's super().fit() call below (which independently fits its
+            # own transformer_ on y) -- pre-fitting self.transformer_ here too would silently fit
+            # the SAME attribute twice per call (wasteful for deterministic transformers like
+            # StandardScaler, and would silently double-apply a STOCHASTIC transformer's randomness
+            # inconsistently between the two fits).
+            _es_transformer = _clone(self.transformer)
+            _es_transformer.fit(y_arr_2d)
+            es = fit_params["eval_set"]
+            if isinstance(es, tuple) and len(es) == 2:
+                X_val, y_val = es
+                y_val_arr = np.asarray(y_val, dtype=np.float64)
+                y_val_2d = y_val_arr.reshape(-1, 1) if y_val_arr.ndim == 1 else y_val_arr
+                y_val_scaled = _es_transformer.transform(y_val_2d).reshape(y_val_arr.shape)
+                fit_params["eval_set"] = (X_val, y_val_scaled)
+            elif isinstance(es, list):
+                new_es = []
+                for entry in es:
+                    if isinstance(entry, tuple) and len(entry) == 2:
+                        X_v, y_v = entry
+                        y_v_arr = np.asarray(y_v, dtype=np.float64)
+                        y_v_2d = y_v_arr.reshape(-1, 1) if y_v_arr.ndim == 1 else y_v_arr
+                        y_v_scaled = _es_transformer.transform(y_v_2d).reshape(y_v_arr.shape)
+                        new_es.append((X_v, y_v_scaled))
+                    else:
+                        new_es.append(entry)
+                fit_params["eval_set"] = new_es
+        # Defer the actual fit to the parent (which fits self.transformer_ + the inner regressor).
         return super().fit(X, y, **fit_params)
+
+    def _apply_predict_clip(self, pred_trans, orig_ndim: int = 1):
+        """Apply the documented y-space defensive clip (bounds computed in ``fit()``); shared by both the transformer-configured and no-transformer ``predict()`` paths so the safety net applies unconditionally."""
+        _clip_low = getattr(self, "_y_train_clip_low_", float("-inf"))
+        _clip_high = getattr(self, "_y_train_clip_high_", float("+inf"))
+        if np.isfinite(_clip_low) or np.isfinite(_clip_high):
+            import os as _os
+            if not _os.environ.get("MLFRAME_TTR_DISABLE_PREDICT_CLIP"):
+                try:
+                    _arr = np.asarray(pred_trans, dtype=np.float64)
+                    _n_low = int(np.sum(_arr < _clip_low))
+                    _n_high = int(np.sum(_arr > _clip_high))
+                    if _n_low or _n_high:
+                        logger.warning(
+                            "[ttr-predict-clip] %s emitted %d row(s) "
+                            "below %.4g and %d row(s) above %.4g (target "
+                            "train range expanded by 3 sigma). Clipping. "
+                            "Disable via MLFRAME_TTR_DISABLE_PREDICT_CLIP=1.",
+                            type(self.regressor_).__name__,
+                            _n_low, _clip_low, _n_high, _clip_high,
+                        )
+                        pred_trans = np.clip(_arr, _clip_low, _clip_high)
+                        if pred_trans.shape == _arr.shape and orig_ndim == 1:
+                            pred_trans = pred_trans.reshape(-1)
+                except Exception as _clip_err:
+                    logger.debug(
+                        "ttr-predict-clip failed (non-fatal): %s", _clip_err,
+                    )
+        return pred_trans
 
     def predict(self, X, **predict_params):
         """Predict + diagnostic check on the scaled-space prediction range.
@@ -107,7 +145,12 @@ class _TTRWithEvalSetScaling(TransformedTargetRegressor):
         so operators see the scaled-space outlier directly.
         """
         if self.transformer_ is None:
-            return super().predict(X, **predict_params)
+            # No transformer configured: skip the scaled-space extrapolation sensor (only
+            # meaningful in transformer-scaled space) but still apply the documented y-space
+            # defensive clip below -- its rationale (bounding y_hat to the observed train
+            # range +/- 3 sigma) doesn't depend on a transformer being configured.
+            pred_trans = super().predict(X, **predict_params)
+            return self._apply_predict_clip(pred_trans)
         # iter191 (2026-05-23): inline the parent TransformedTargetRegressor.predict
         # path so we predict ONCE (not twice). The previous form called
         # self.regressor_.predict(X) for the sensor probe then super().predict(X)
@@ -159,29 +202,4 @@ class _TTRWithEvalSetScaling(TransformedTargetRegressor):
         # without distorting in-distribution predictions (3 sigma above
         # observed train range is well past any honest extrapolation
         # boundary). Opt out via MLFRAME_TTR_DISABLE_PREDICT_CLIP=1.
-        _clip_low = getattr(self, "_y_train_clip_low_", float("-inf"))
-        _clip_high = getattr(self, "_y_train_clip_high_", float("+inf"))
-        if np.isfinite(_clip_low) or np.isfinite(_clip_high):
-            import os as _os
-            if not _os.environ.get("MLFRAME_TTR_DISABLE_PREDICT_CLIP"):
-                try:
-                    _arr = np.asarray(pred_trans, dtype=np.float64)
-                    _n_low = int(np.sum(_arr < _clip_low))
-                    _n_high = int(np.sum(_arr > _clip_high))
-                    if _n_low or _n_high:
-                        logger.warning(
-                            "[ttr-predict-clip] %s emitted %d row(s) "
-                            "below %.4g and %d row(s) above %.4g (target "
-                            "train range expanded by 3 sigma). Clipping. "
-                            "Disable via MLFRAME_TTR_DISABLE_PREDICT_CLIP=1.",
-                            type(self.regressor_).__name__,
-                            _n_low, _clip_low, _n_high, _clip_high,
-                        )
-                        pred_trans = np.clip(_arr, _clip_low, _clip_high)
-                        if pred_trans.shape == _arr.shape and t_hat_np.ndim == 1:
-                            pred_trans = pred_trans.reshape(-1)
-                except Exception as _clip_err:
-                    logger.debug(
-                        "ttr-predict-clip failed (non-fatal): %s", _clip_err,
-                    )
-        return pred_trans
+        return self._apply_predict_clip(pred_trans, orig_ndim=t_hat_np.ndim)

@@ -32,10 +32,16 @@ def _ensure_logging_visible(level: int = logging.INFO) -> None:
     # back-to-back ``train_mlframe_models_suite`` calls re-walk the handler list and
     # re-assign formatters that already satisfy the contract.
     if root.handlers and (root.level != logging.NOTSET and root.level <= level):
-        for h in root.handlers:
+        def _is_timestamped(h) -> bool:
+            """True if handler ``h``'s formatter already includes ``%(asctime)``."""
             existing = getattr(h.formatter, "_fmt", None) if h.formatter else None
-            if existing and "%(asctime)" in existing:
-                return
+            return bool(existing and "%(asctime)" in existing)
+
+        # ALL handlers must already be timestamped, not just the first one found -- a handler appended
+        # by another package (e.g. Jupyter) BETWEEN two calls would otherwise never get upgraded, since
+        # an earlier-installed, already-fixed handler iterated first would trigger this early return.
+        if all(_is_timestamped(h) for h in root.handlers):
+            return
 
     timestamped = logging.Formatter(desired_fmt, datefmt=desired_datefmt)
 

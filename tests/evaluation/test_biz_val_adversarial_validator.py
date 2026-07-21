@@ -19,7 +19,7 @@ from mlframe.evaluation import AdversarialValidator
 
 
 def _make_shifted_scenario(seed: int):
-    """Helper that make shifted scenario."""
+    """Builds seeded synthetic test data; returns ``(X_train, y_train, regime, X_test, y_test)``."""
     rng = np.random.default_rng(seed)
     n_train, n_test = 3000, 600
 
@@ -63,7 +63,7 @@ def test_biz_val_adversarial_validator_fold_selection_tracks_true_test_score():
     val_idx_random, remainder_idx_random = perm[:n_val], perm[n_val:]
 
     def _fit_eval(remainder_idx, val_idx):
-        """Helper that fit eval."""
+        """Returns ``(val_mae, test_mae)`` (after 3 setup steps)."""
         model = LinearRegression().fit(X_train.iloc[remainder_idx][["x"]], y_train[remainder_idx])
         val_mae = mean_absolute_error(y_train[val_idx], model.predict(X_train.iloc[val_idx][["x"]]))
         test_mae = mean_absolute_error(y_test, model.predict(X_test[["x"]]))

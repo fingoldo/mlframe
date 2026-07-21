@@ -12,7 +12,7 @@ class _AdditiveModel:
     """f(x) = 3*x0 + 2*x1 (no interaction) -> H(0,1) must be ~0."""
 
     def predict(self, X):
-        """Helper that predict."""
+        """Returns ``3.0 * X[:, 0] + 2.0 * X[:, 1]`` (after 1 setup step)."""
         X = np.asarray(X, dtype=np.float64)
         return 3.0 * X[:, 0] + 2.0 * X[:, 1]
 
@@ -21,13 +21,13 @@ class _ProductModel:
     """f(x) = x0 * x1 (pure interaction, no main effect at mean 0) -> H(0,1) must be high."""
 
     def predict(self, X):
-        """Helper that predict."""
+        """Returns ``X[:, 0] * X[:, 1]`` (after 1 setup step)."""
         X = np.asarray(X, dtype=np.float64)
         return X[:, 0] * X[:, 1]
 
 
 def _data(seed=0, n=1500, d=4):
-    """Helper that data."""
+    """Returns ``np.random.default_rng(seed).normal(size=(n, d))``."""
     return np.random.default_rng(seed).normal(size=(n, d))
 
 

@@ -18,7 +18,7 @@ pytestmark = [pytest.mark.fast]
 
 
 def _make_miscalibrated(n: int, seed: int = 7) -> tuple[np.ndarray, np.ndarray]:
-    """Helper that make miscalibrated."""
+    """Builds seeded synthetic test data; returns ``(raw, y)``."""
     rng = np.random.default_rng(seed)
     raw = rng.uniform(0.0, 1.0, size=n)
     # True probability is a steeper sigmoid of raw; raw is under-confident at the tails.

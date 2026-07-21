@@ -148,7 +148,7 @@ class LocalDiskBackend:
         """Advisory existence check; subject to TOCTOU races with concurrent
         writers/evictors. Callers MUST NOT rely on a True result implying that
         a subsequent ``get(key)`` will succeed -- use ``get(key, default=None)``
-        and check for None instead. Wave 48 (2026-05-20): contract documented."""
+        and check for None instead."""
         return os.path.exists(self._value_path(key))
 
     def delete(self, key: str) -> None:
@@ -205,11 +205,10 @@ class LocalDiskBackend:
             with self._lru_mem_lock:
                 yield
         finally:
-            # Wave 52 (2026-05-20): forward in-flight exception info to __exit__
-            # (CM contract) AND wrap in try/except so PIDAwareFileLock cleanup
-            # errors (unlink races, release timeouts) don't mask the yield-body
-            # exception. Without forwarding, the inner lock manager couldn't run
-            # exception-aware suppression / logging.
+            # Forward in-flight exception info to __exit__ (CM contract) AND wrap in try/except so
+            # PIDAwareFileLock cleanup errors (unlink races, release timeouts) don't mask the yield-body
+            # exception. Without forwarding, the inner lock manager couldn't run exception-aware
+            # suppression / logging.
             import sys as _sys, logging as _lg
             _exc = _sys.exc_info()
             try:

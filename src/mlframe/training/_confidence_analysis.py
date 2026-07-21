@@ -47,6 +47,7 @@ def run_confidence_analysis(
     figsize: tuple[float, float] = (10, 6),
     plot_file: str = "",
     verbose: bool = False,
+    sample_weight: np.ndarray | None = None,
 ) -> Any:
     """Analyze which features most affect prediction confidence.
 
@@ -54,6 +55,12 @@ def run_confidence_analysis(
     are single-sourced from ``ConfidenceAnalysisConfig`` field defaults when left ``None`` so
     the two layers can never drift. ``plot_file`` (when set) saves the SHAP beeswarm to disk
     and the figure is always closed afterwards (no pyplot-registry leak in long sessions).
+
+    ``sample_weight`` (aligned to ``test_df``'s rows, which stay 1:1 with the input throughout this
+    function -- only columns are dropped/filled, never rows) is threaded into the confidence
+    ``CatBoostRegressor.fit()`` call so the confidence diagnostic reflects the SAME weighted objective
+    the real model was trained on, instead of silently reverting to an unweighted fit. A ``sample_weight``
+    key already present in ``fit_params`` takes precedence (an explicit caller override).
     """
     from .configs import ConfidenceAnalysisConfig
     _caf = ConfidenceAnalysisConfig.model_fields
@@ -109,6 +116,16 @@ def run_confidence_analysis(
         fit_params_copy = copy.copy(fit_params)
         if "eval_set" in fit_params_copy:
             del fit_params_copy["eval_set"]
+    if sample_weight is not None and "sample_weight" not in fit_params_copy:
+        _sw_arr = np.asarray(sample_weight)
+        if hasattr(test_df, "shape") and _sw_arr.shape[0] == test_df.shape[0]:
+            fit_params_copy["sample_weight"] = _sw_arr
+        else:
+            logger.debug(
+                "run_confidence_analysis: sample_weight length %s does not match test_df rows %s; fitting unweighted.",
+                _sw_arr.shape[0] if _sw_arr.ndim else "scalar",
+                getattr(test_df, "shape", (None,))[0],
+            )
 
     # Drop text / embedding columns from test_df upfront.
     # SHAP's TreeExplainer rebuilds a CatBoost Pool using ONLY

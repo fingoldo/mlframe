@@ -11,7 +11,7 @@ from mlframe.feature_selection.filters.permutation import parallel_mi_prange_wit
 
 
 def _fixture(n=1500, kx=4, seed=0):
-    """Helper that fixture."""
+    """Builds seeded synthetic test data; returns ``(classes_x, freqs_x, y, freqs_y)``."""
     rng = np.random.default_rng(seed)
     classes_x = rng.integers(0, kx, n).astype(np.int32)
     y = ((classes_x + rng.integers(0, 2, n)) % 2).astype(np.int32)  # y correlated with x

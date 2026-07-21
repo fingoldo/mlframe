@@ -66,6 +66,12 @@ class MissingAwareComposite(BaseEstimator, RegressorMixin):
         train ``y`` median instead. Default 0.5.
     impute_strategy
         ``"median"`` (default) or ``"mean"`` of the FINITE train base.
+    n_splits, random_state
+        K-fold CV settings for the OOF pass used to estimate ``missing_offset_``
+        (mirrors :func:`composite_oof_predictions`, used elsewhere in this
+        cluster for the same in-sample-optimism reason). When the train set has
+        fewer than ``max(2, n_splits)`` rows, OOF is skipped and the offset
+        falls back to the in-sample composite prediction (with a warning).
 
     Attributes set at fit
     ---------------------
@@ -89,10 +95,14 @@ class MissingAwareComposite(BaseEstimator, RegressorMixin):
         composite: Optional[CompositeTargetEstimator] = None,
         max_missing_frac: float = 0.5,
         impute_strategy: str = "median",
+        n_splits: int = 5,
+        random_state: int = 42,
     ) -> None:
         self.composite = composite
         self.max_missing_frac = max_missing_frac
         self.impute_strategy = impute_strategy
+        self.n_splits = n_splits
+        self.random_state = random_state
 
     # ------------------------------------------------------------------
     def _base_column_name(self) -> str:
@@ -206,15 +216,40 @@ class MissingAwareComposite(BaseEstimator, RegressorMixin):
         self.use_offset_ = bool(missing_mask.any() and finite_base.size > 0 and self.missing_fraction_ <= self.max_missing_frac)
 
         # Learn the per-missing offset: the mean gap between the true y on the
-        # missing-base TRAIN rows and the inner composite's prediction there (with
-        # base imputed). MNAR missingness shifts y on those rows; the offset
-        # recovers that shift that the plain composite ignores. Computed on the
-        # SAME imputed train frame the inner was fit on -- train-only, no leakage.
+        # missing-base TRAIN rows and a prediction there (with base imputed).
+        # MNAR missingness shifts y on those rows; the offset recovers that
+        # shift that the plain composite ignores. The prediction side comes
+        # from an OOF pass (mirroring composite_oof_predictions elsewhere in
+        # this cluster), not self.composite_.predict(X_imp) directly -- the
+        # inner's in-sample predictions are typically more accurate than on
+        # genuinely new missing-base rows, which would understate the offset.
         self.missing_offset_ = 0.0
         if self.use_offset_:
-            pred_train = np.asarray(self.composite_.predict(X_imp), dtype=np.float64).reshape(-1)
+            if n >= max(2, self.n_splits):
+                from .ensemble.feature_stacking import composite_oof_predictions
+
+                oof_fit_kwargs = dict(fit_kwargs)
+                if sample_weight is not None:
+                    oof_fit_kwargs["sample_weight"] = sample_weight
+                pred_used = composite_oof_predictions(
+                    lambda: clone(self.composite),
+                    X_imp,
+                    y_arr,
+                    n_splits=self.n_splits,
+                    random_state=self.random_state,
+                    fit_kwargs=oof_fit_kwargs or None,
+                )
+            else:
+                logger.warning(
+                    "MissingAwareComposite: only %d train rows (<max(2,n_splits=%d)); "
+                    "missing_offset_ falls back to the in-sample composite prediction "
+                    "instead of an OOF pass.",
+                    n,
+                    self.n_splits,
+                )
+                pred_used = np.asarray(self.composite_.predict(X_imp), dtype=np.float64).reshape(-1)
             miss_y = y_arr[missing_mask]
-            miss_pred = pred_train[missing_mask]
+            miss_pred = pred_used[missing_mask]
             both = np.isfinite(miss_y) & np.isfinite(miss_pred)
             if both.any():
                 self.missing_offset_ = float(np.mean(miss_y[both] - miss_pred[both]))

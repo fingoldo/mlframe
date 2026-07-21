@@ -27,9 +27,11 @@ def cascade_select_stable(
 ) -> Dict[str, Any]:
     """Run :func:`cascade_select` across ``n_bootstrap`` row-resamples and keep only stable features.
 
-    Opt-in wrapper: with ``n_bootstrap`` left at its default of 1 run's worth of behavior disabled (i.e. when
-    this function is simply not called), ``cascade_select`` itself is untouched -- this module only orchestrates
-    repeated calls to it, it does not alter ``cascade_select``'s own logic or defaults in any way.
+    Default ``n_bootstrap=20``: calling this function always runs 20 independent bootstrap-resampled
+    `cascade_select` passes and keeps only features stable across a ``stability_threshold`` fraction of
+    them. This module only orchestrates repeated calls to `cascade_select` -- it does not alter
+    `cascade_select`'s own logic or defaults in any way; a caller who wants the single-run, unwrapped
+    behavior simply calls `cascade_select` directly instead of this function.
 
     Parameters
     ----------

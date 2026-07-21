@@ -92,7 +92,7 @@ def test_early_stop_tentative_defaults_off_and_roundtrips():
 
 
 def _jac(a, b):
-    """Helper that jac."""
+    """Returns ``1.0 if not a and (not b) else len(a & b) / len(a | b)`` (after 1 setup step)."""
     a, b = set(a), set(b)
     return 1.0 if not a and not b else len(a & b) / len(a | b)
 

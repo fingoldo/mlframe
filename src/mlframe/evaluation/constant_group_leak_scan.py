@@ -110,6 +110,12 @@ def constant_group_target_scan(
         raise ValueError(f"constant_group_target_scan: combo_max_size must be >= 1, got {combo_max_size}")
 
     y = np.asarray(y, dtype=np.float64)
+    # np.var is NOT NaN-safe, unlike the per-group pandas groupby(...).var() used below (skipna by
+    # default) -- a single NaN in y would otherwise make overall_var itself NaN, and `NaN <= 0.0` is
+    # False, so the zero-variance guard below would never fire; every row's min_group_variance_ratio
+    # would then silently come out NaN (x / NaN) with flagged=False, hiding a real leak with no error.
+    if np.isnan(y).any():
+        raise ValueError("constant_group_target_scan: y contains NaN; drop or impute NaN target rows before scanning.")
     overall_var = float(np.var(y, ddof=1)) if len(y) > 1 else 0.0
     if overall_var <= 0.0:
         raise ValueError("constant_group_target_scan: y has zero overall variance -- nothing to compare groups against")

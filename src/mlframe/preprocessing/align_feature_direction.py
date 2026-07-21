@@ -27,14 +27,21 @@ def batch_univariate_auc(X: np.ndarray, y_arr: np.ndarray) -> np.ndarray:
     Computing ranks for the whole matrix in one vectorized ``np.argsort(axis=0)`` pass, instead of one
     sklearn call per column, replaces N heavyweight Python-level calls with a single C-level batch op.
     """
+    is_pos = y_arr == 1
+    n_pos = int(is_pos.sum())
+    n_neg = len(y_arr) - n_pos
+    if n_pos == 0 or n_neg == 0:
+        # A single-class y makes AUC undefined (n_pos*n_neg == 0). Pre-fix this divided silently,
+        # producing inf/nan AUCs (RuntimeWarning, not raised) that then compare False against 0.5
+        # everywhere, so callers silently treated every column as "no flip needed" instead of
+        # erroring.
+        raise ValueError(f"batch_univariate_auc: y_arr is single-class (n_pos={n_pos}, n_neg={n_neg}); AUC is undefined. Filter to a genuinely two-class y before calling.")
+
     order = np.argsort(X, axis=0)
     ranks = np.empty_like(order, dtype=np.float64)
     rank_values = np.broadcast_to((np.arange(X.shape[0]) + 1)[:, None], order.shape)
     np.put_along_axis(ranks, order, rank_values, axis=0)  # 1-based ranks; ties broken arbitrarily (matches roc_auc_score's tie handling closely enough for a sign/threshold decision)
 
-    is_pos = y_arr == 1
-    n_pos = int(is_pos.sum())
-    n_neg = len(y_arr) - n_pos
     sum_ranks_pos = ranks[is_pos].sum(axis=0)
     return np.asarray((sum_ranks_pos - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg))
 

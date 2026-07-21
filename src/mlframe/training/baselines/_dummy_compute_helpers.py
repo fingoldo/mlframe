@@ -292,6 +292,22 @@ def _coerce_y(y: Any, target_type: str, target_name: str) -> np.ndarray | None:
                 target_name, target_type, e,
             )
             return None
+    elif arr.dtype.kind == "f":
+        # A non-object FLOAT classification target with genuine fractional values (e.g. an upstream
+        # label-encoding bug, or a target_type misconfiguration routing a continuous score through the
+        # classification path) previously reached the unguarded ``.astype(np.int64)`` cast downstream
+        # unchecked -- truncation (2.9 -> 2), not rounding, silently produces wrong class assignments with
+        # no error. Loud-log the same way the object-dtype branch already does for a failed cast, instead
+        # of silently truncating.
+        finite = arr[np.isfinite(arr)]
+        if finite.size and not np.allclose(finite, np.round(finite)):
+            logger.warning(
+                "[dummy-baselines] target='%s' has float dtype with genuine fractional values for %s "
+                "(e.g. a label-encoding bug or misconfigured target_type); truncating toward zero would "
+                "silently produce wrong class assignments -- skipping",
+                target_name, target_type,
+            )
+            return None
     return arr
 
 

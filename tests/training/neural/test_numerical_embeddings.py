@@ -54,7 +54,7 @@ def test_plr_embedding_gradients_flow():
     loss = out.sum()
     loss.backward()
     assert emb.coeffs.grad is not None and emb.coeffs.grad.abs().sum() > 0
-    assert emb.proj.weight.grad is not None and emb.proj.weight.grad.abs().sum() > 0
+    assert emb.proj_weight.grad is not None and emb.proj_weight.grad.abs().sum() > 0
 
 
 def test_plr_embedding_rejects_non_2d_input():

@@ -19,7 +19,7 @@ from mlframe.reporting.spec import (
     ScatterPanelSpec, ViolinPanelSpec,
 )
 
-from ._shared_helpers import _HEATMAP_MAX_TICKS, _finite_range, _thin_tick_positions  # noqa: F401 -- re-exported for callers importing the tick-thinning constant from this module
+from ._shared_helpers import _HEATMAP_MAX_TICKS, _finite_range, _per_series_flags, _thin_tick_positions  # noqa: F401 -- re-exported for callers importing the tick-thinning constant from this module
 
 logger = logging.getLogger(__name__)
 
@@ -61,16 +61,6 @@ def _err_to_mpl(err):
     if isinstance(err, tuple):
         return np.vstack([np.asarray(err[0], dtype=float), np.asarray(err[1], dtype=float)])
     return np.asarray(err, dtype=float)
-
-
-def _per_series_flags(flag, n: int):
-    """Normalize a per-series bool flag (single bool / tuple / None) into a length-n bool list."""
-    if flag is None:
-        return [False] * n
-    if isinstance(flag, (tuple, list, np.ndarray)):
-        seq = list(flag)
-        return [bool(seq[i]) if i < len(seq) else False for i in range(n)]
-    return [bool(flag)] * n
 
 
 class MatplotlibRenderer:

@@ -16,7 +16,7 @@ from mlframe.estimators.early_stopping import EarlyStoppingWrapper
 
 
 def _is_fitted(est) -> bool:
-    """Helper that is fitted."""
+    """Attempts ``check_is_fitted(est)``, tolerating failure (see the except clause for the fallback)."""
     try:
         check_is_fitted(est)
         return True
@@ -25,7 +25,7 @@ def _is_fitted(est) -> bool:
 
 
 def _data(regression: bool):
-    """Helper that data."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.default_rng(0)
     X = rng.standard_normal((80, 4))
     if regression:

@@ -20,7 +20,7 @@ from mlframe.signal.gp_smoothing import compute_gp_smoothed_features, gp_smooth_
 
 
 def _make_sparse_lightcurve_dataset(n_objects: int, seed: int):
-    """Helper that make sparse lightcurve dataset."""
+    """Builds seeded synthetic test data; returns ``(pd.DataFrame(rows), labels, query_times)``."""
     rng = np.random.default_rng(seed)
     query_times = np.linspace(0, 20, 8)
     rows = []
@@ -39,7 +39,7 @@ def _make_sparse_lightcurve_dataset(n_objects: int, seed: int):
 
 
 def _nearest_raw_features(df: pd.DataFrame, entities: np.ndarray, query_times: np.ndarray) -> np.ndarray:
-    """Helper that nearest raw features."""
+    """Returns ``out`` (after 2 setup steps)."""
     out = np.zeros((len(entities), len(query_times)))
     for i, e in enumerate(entities):
         sub = df[df["obj"] == e]
@@ -118,7 +118,7 @@ def test_biz_val_gp_smooth_irregular_series_ensemble_beats_best_single_scale_mix
     candidate_scales = [0.4, 2.0, 10.0]
 
     def _mse_for_scale(length_scale: float) -> float:
-        """Helper that mse for scale."""
+        """Returns ``float(np.mean(sq_errors))`` (after 2 setup steps)."""
         sq_errors = []
         for i, e in enumerate(entities):
             sub = grouped[e]

@@ -69,12 +69,38 @@ def compute_sign_residual_baseline_features(
         if task == "binary":
             m_mu = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
                                       random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
-            mu_train = np.asarray(m_mu.predict_proba(Xt_s))[:, 1].astype(np.float32)
             mu_query = np.asarray(m_mu.predict_proba(Xq_s))[:, 1].astype(np.float32)
         else:
             m_mu = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
-            mu_train = np.asarray(m_mu.predict(Xt_s)).astype(np.float32)
             mu_query = np.asarray(m_mu.predict(Xq_s)).astype(np.float32)
+        # mu_train drives BOTH sign_target (the second model's classification target) and residual_scale
+        # below -- an IN-SAMPLE mu_train is close to y_t almost by construction, making sign_target close
+        # to a coin flip on near-zero in-sample residuals (rather than the genuine over/under-prediction
+        # direction) and understating residual_scale. Use an inner-KFold(3) OOF mu_train instead -- m_mu
+        # itself (fit on the full Xt_s) stays the model used for mu_query, genuinely held-out regardless.
+        n_t = Xt_s.shape[0]
+        if n_t < 3:
+            if task == "binary":
+                mu_train = np.asarray(m_mu.predict_proba(Xt_s))[:, 1].astype(np.float32)
+            else:
+                mu_train = np.asarray(m_mu.predict(Xt_s)).astype(np.float32)
+        else:
+            from sklearn.model_selection import KFold
+            mu_train = np.zeros(n_t, dtype=np.float32)
+            inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(fold_seed) + 11)
+            for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt_s)):
+                if task == "binary":
+                    m_inner = lgb.LGBMClassifier(
+                        n_estimators=50, max_depth=3, learning_rate=0.1,
+                        random_state=int(fold_seed) + 21 + inner_idx, verbose=-1, n_jobs=-1,
+                    ).fit(Xt_s[in_tr], y_t[in_tr].astype(np.int32))
+                    mu_train[in_val] = np.asarray(m_inner.predict_proba(Xt_s[in_val]))[:, 1].astype(np.float32)
+                else:
+                    m_inner = lgb.LGBMRegressor(
+                        n_estimators=50, max_depth=3, learning_rate=0.1,
+                        random_state=int(fold_seed) + 21 + inner_idx, verbose=-1, n_jobs=-1,
+                    ).fit(Xt_s[in_tr], y_t[in_tr])
+                    mu_train[in_val] = np.asarray(m_inner.predict(Xt_s[in_val])).astype(np.float32)
         # Sign target: 1 if y > mu_hat (under-prediction), else 0.
         sign_target = (y_t > mu_train).astype(np.int32)
         # If degenerate (all same sign), pad fallback

@@ -1,10 +1,9 @@
 """
 One-line preset factories for :class:`FeatureHandlingConfig`.
 
-Round-2 UX U-R2-2: the verbose ``FeatureHandlingConfig(per_model={...
-nested-4-levels ...})`` is fine for power users, but the 80% case
-("just TF-IDF for everyone" / "CatBoost-native everywhere") should
-fit on one line.
+The verbose ``FeatureHandlingConfig(per_model={... nested-4-levels
+...})`` is fine for power users, but the 80% case ("just TF-IDF for
+everyone" / "CatBoost-native everywhere") should fit on one line.
 """
 
 from __future__ import annotations
@@ -72,7 +71,11 @@ def cb_native_only(**fhc_kwargs: Any) -> FeatureHandlingConfig:
         default_text=[TextHandlerSpec(method="drop", params=NoParams(kind="drop"))],
         default_cat=[CatHandlerSpec(method="ordinal", params=NoParams(kind="ordinal"))],
         per_model={
+            # cb needs its OWN cat override too, not just text -- without it every model (including cb)
+            # fell through to the ordinal default_cat above, silently defeating this preset's entire
+            # stated purpose (CatBoost native categorical handling).
             "cb": ModelHandlingOverride(
+                cat=[CatHandlerSpec(method="native", params=NoParams(kind="native"))],
                 text=[TextHandlerSpec(method="native", params=NoParams(kind="native"))],
             ),
         },

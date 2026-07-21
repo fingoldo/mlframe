@@ -17,12 +17,12 @@ from mlframe.votenrank.constrained_weight_blend import constrained_weight_blend
 
 
 def _rmse(y_true, y_pred):
-    """Helper that rmse."""
+    """Returns ``float(np.sqrt(np.mean((y_true - y_pred) ** 2)))``."""
     return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
 
 def _make_drifted_dataset(seed: int):
-    """Helper that make drifted dataset."""
+    """Builds seeded synthetic test data; returns ``(x_train, y_train, train_preds, x_test, y_test, test_preds)``."""
     rng = np.random.default_rng(seed)
     n_region_a_train, n_region_b_train = 900, 100  # train dominated by region A
     n_region_b_test = 400  # test is ENTIRELY region B -- the drift scenario
@@ -36,12 +36,12 @@ def _make_drifted_dataset(seed: int):
     y_test = np.sin(x_test * 3.0)
 
     def model_1(x):  # good in region A [0,1], poor (noisy) in region B [2,3]
-        """Helper that model 1."""
+        """Returns ``np.where(is_a, np.sin(x * 3.0), np.sin(x * 3.0) + 1.5 * rng.standard_normal(len(x)))`` (after 1 setup step)."""
         is_a = x < 1.5
         return np.where(is_a, np.sin(x * 3.0), np.sin(x * 3.0) + 1.5 * rng.standard_normal(len(x)))
 
     def model_2(x):  # good in region B [2,3], poor (noisy) in region A
-        """Helper that model 2."""
+        """Returns ``np.where(is_a, np.sin(x * 3.0) + 1.5 * rng.standard_normal(len(x)), np.sin(x * 3.0))`` (after 1 setup step)."""
         is_a = x < 1.5
         return np.where(is_a, np.sin(x * 3.0) + 1.5 * rng.standard_normal(len(x)), np.sin(x * 3.0))
 
@@ -156,11 +156,11 @@ def test_biz_val_adversarial_stochastic_blend_convergence_diagnostic_no_drift_fl
     y_train = np.sin(x_train * 3.0)
 
     def model_1(x):
-        """Helper that model 1."""
+        """Returns ``np.sin(x * 3.0) + 0.4 * rng.standard_normal(len(x))``."""
         return np.sin(x * 3.0) + 0.4 * rng.standard_normal(len(x))
 
     def model_2(x):
-        """Helper that model 2."""
+        """Returns ``np.sin(x * 3.0) + 0.1 * rng.standard_normal(len(x))``."""
         return np.sin(x * 3.0) + 0.1 * rng.standard_normal(len(x))
 
     train_preds = [model_1(x_train), model_2(x_train)]

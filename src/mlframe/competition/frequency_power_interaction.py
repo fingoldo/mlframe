@@ -75,7 +75,11 @@ def frequency_power_interaction(
         count_clip_range: ``(low, high)`` clip bounds applied to the per-value
             occurrence count before using it as the exponent, default ``(1, 3)``
             per the source write-up (an unclipped count exponent can blow up for
-            highly-repeated values and small ``feature_range`` magnitudes).
+            highly-repeated values and small ``feature_range`` magnitudes). MUST
+            be integer bounds -- a fractional exponent applied to a MinMax-scaled
+            value that lands negative (which the default ``feature_range=(-4, 4)``
+            always produces for below-midpoint inputs) is mathematically undefined
+            and raises ``ValueError`` up front rather than silently yielding NaN.
 
     Returns:
         A ``FrequencyPowerInteractionResult`` with the scaled feature, raw and
@@ -95,6 +99,12 @@ def frequency_power_interaction(
     low, high = count_clip_range
     if not (low <= high):
         raise ValueError(f"count_clip_range must have low <= high, got {count_clip_range}")
+    if not (float(low).is_integer() and float(high).is_integer()):
+        # The source trick always clips to a WHOLE-number exponent (per-value occurrence count is an
+        # integer). A fractional exponent combined with the default feature_range=(-4, 4) (which always
+        # produces negative-scaled values for below-midpoint inputs) makes np.power(negative, fractional)
+        # silently return NaN (only a RuntimeWarning, no exception) -- reject it up front instead.
+        raise ValueError(f"count_clip_range must have integer bounds (got {count_clip_range}); a fractional exponent on a negative scaled value is undefined.")
 
     _uniques, inverse, raw_counts = np.unique(arr, return_inverse=True, return_counts=True)
     counts = raw_counts[inverse].astype(np.int64)

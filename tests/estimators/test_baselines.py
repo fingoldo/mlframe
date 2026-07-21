@@ -10,7 +10,7 @@ from mlframe.estimators.baselines import get_best_dummy_score
 
 
 def _xy_clf():
-    """Helper that xy clf."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.default_rng(0)
     X = rng.random((60, 4))
     y = (rng.random(60) > 0.5).astype(int)
@@ -20,7 +20,7 @@ def _xy_clf():
 
 
 def _xy_reg():
-    """Helper that xy reg."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.default_rng(0)
     X = rng.random((60, 4))
     y = rng.random(60)

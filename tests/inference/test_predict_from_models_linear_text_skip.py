@@ -37,7 +37,7 @@ from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
 
 def _build_frame_with_text(n: int = 3_000, seed: int = 0):
-    """Helper that build frame with text."""
+    """Builds seeded synthetic test data; returns ``df``."""
     rng = np.random.default_rng(seed)
     _vocab = np.array("alpha beta gamma delta epsilon zeta".split(), dtype=object)
     _idx = rng.integers(0, len(_vocab), (n, 4))
@@ -53,7 +53,7 @@ def _build_frame_with_text(n: int = 3_000, seed: int = 0):
 
 
 def _run_suite(df, models_list):
-    """Helper that run suite."""
+    """Returns ``train_mlframe_models_suite(df=df, target_name='y', model_name='prof', features_and_targ...`` (after 1 setup step)."""
     fte = SimpleFeaturesAndTargetsExtractor(regression_targets=["y"])
     return train_mlframe_models_suite(
         df=df,

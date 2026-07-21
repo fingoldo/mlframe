@@ -55,17 +55,24 @@ class _SelectFirstNCols(BaseEstimator, TransformerMixin):
         self.support_ = np.ones(len(self.kept_cols), dtype=bool)
 
     def transform(self, X):
-        """Helper that transform."""
+        """Test helper (part of the Stand-in for a fitted MRMR/RFECV selector: at transform-time it
+drops every column except a fixed numeric set, mimicking how a
+fitted selector silently drops text/embedding cols at predict.
+
+2026-05-21: inherits from BaseEstimator + TransformerMixin so
+sklearn 1.6+ resolves ``__sklearn_tags__`` via the MRO (the
+pre-fix bare-class version raised AttributeError at Pipeline
+construction) fixture): if isinstance(X, pd.DataFrame): return X.loc[:, self.kept...; raise TypeError(f'unsupported X type: {type(X)}')."""
         if isinstance(X, pd.DataFrame):
             return X.loc[:, self.kept_cols]
         raise TypeError(f"unsupported X type: {type(X)}")
 
     def fit(self, X, y=None):
-        """Helper that fit."""
+        """No-op fit stub; returns self unchanged (satisfies the sklearn fit/set_params contract without doing real work)."""
         return self
 
     def fit_transform(self, X, y=None):
-        """Helper that fit transform."""
+        """Returns ``self.transform(X)``."""
         return self.transform(X)
 
 
@@ -129,7 +136,7 @@ def _build_minimal_suite():
             # how to consume. In production the text/embedding columns would
             # be processed by the model's own native text encoder; in this
             # test we just drop them.
-            """Helper that predict."""
+            """Returns ``self._numeric_model.predict(X_num)`` (after 1 setup step)."""
             if isinstance(X, pd.DataFrame):
                 X_num = X.loc[:, self._numeric_features]
             else:

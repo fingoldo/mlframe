@@ -425,7 +425,7 @@ def _process_single_ensemble_method(
         # Degenerate-class-balance check on the filtered target. A confidence
         # filter that "keeps the rows the ensemble agrees on" tends to keep
         # almost-all-positive (or almost-all-negative) subsets on imbalanced
-        # data РІР‚вЂќ one prod log showed 21 negatives vs 81_815 positives in the
+        # data — one prod log showed 21 negatives vs 81_815 positives in the
         # 10 % VAL slice, and the resulting ``BR=0.026 %`` looked like a
         # headline win until you noticed it was reporting on a degenerate
         # split. Marker is binary-classification only; regression has no

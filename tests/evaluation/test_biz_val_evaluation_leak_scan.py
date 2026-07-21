@@ -15,7 +15,7 @@ from mlframe.evaluation.leak_scan import scan_temporal_leak
 
 
 def _make_leak_data(n: int, seed: int):
-    """Helper that make leak data."""
+    """Builds seeded synthetic test data; returns ``(X, split_labels)``."""
     rng = np.random.default_rng(seed)
     split_labels = rng.integers(0, 10, size=n)  # e.g. 10 time buckets / folds
     leak_col = split_labels.astype(np.float64) * 100.0 + rng.standard_normal(n) * 2.0  # strongly tracks the split

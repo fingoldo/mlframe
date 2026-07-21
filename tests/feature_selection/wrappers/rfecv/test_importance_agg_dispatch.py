@@ -97,7 +97,7 @@ def test_aggregate_linear_vectorized_matches_per_row_reference():
     import pandas as pd
 
     def _reference(signed_importances, eps=1e-12):
-        """Helper that reference."""
+        """Test helper: table = pd.DataFrame(signed_importances); if table.empty: return {}; out = {}."""
         table = pd.DataFrame(signed_importances)
         if table.empty:
             return {}

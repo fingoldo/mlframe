@@ -24,12 +24,12 @@ from mlframe.votenrank.correlation_diversity_ablation import diversity_ablation_
 
 
 def _log_loss(y_true, y_pred):
-    """Helper that log loss."""
+    """Returns ``float(log_loss(y_true, np.clip(y_pred, 1e-06, 1 - 1e-06)))``."""
     return float(log_loss(y_true, np.clip(y_pred, 1e-6, 1 - 1e-6)))
 
 
 def _make_local_structure_dataset(n: int, seed: int):
-    """Helper that make local structure dataset."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 10))
     y = ((np.sin(X[:, 0] * 2) + np.cos(X[:, 1] * 2) + 0.3 * rng.standard_normal(n)) > 0).astype(int)

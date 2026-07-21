@@ -152,7 +152,7 @@ _USER_DEFERRED_DEAD_HELPERS: set[str] = {
 
 
 def _python_files() -> list[Path]:
-    """Helper that python files."""
+    """Returns ``out`` (after 2 setup steps)."""
     out: list[Path] = []
     for py in MLFRAME_DIR.rglob("*.py"):
         if any(frag in py.parts for frag in _SKIP_PATH_FRAGMENTS):

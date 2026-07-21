@@ -19,7 +19,7 @@ from mlframe.estimators.early_stopping import EarlyStoppingWrapper
 
 
 def _rmse(yt, yp):
-    """Helper that rmse."""
+    """Returns ``float(np.sqrt(mean_squared_error(yt, yp)))``."""
     return float(np.sqrt(mean_squared_error(yt, yp)))
 
 

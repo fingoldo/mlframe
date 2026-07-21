@@ -14,13 +14,13 @@ from mlframe.votenrank.confidence_gated_blend import confidence_gated_blend
 
 
 def _log_loss(y: np.ndarray, p: np.ndarray) -> float:
-    """Helper that log loss."""
+    """Returns ``float(-np.mean(y * np.log(p) + (1 - y) * np.log(1 - p)))`` (after 1 setup step)."""
     p = np.clip(p, 1e-7, 1 - 1e-7)
     return float(-np.mean(y * np.log(p) + (1 - y) * np.log(1 - p)))
 
 
 def _make_data(seed: int):
-    """Helper that make data."""
+    """Builds seeded synthetic test data; returns ``(y, ensemble_pred, auxiliary_pred, auxiliary_confidence)``."""
     rng = np.random.default_rng(seed)
     n = 4000
     z = rng.normal(0, 1, n)

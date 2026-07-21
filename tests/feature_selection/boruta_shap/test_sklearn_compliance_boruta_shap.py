@@ -15,7 +15,7 @@ from mlframe.feature_selection.boruta_shap import BorutaShap
 
 
 def _data(seed=0):
-    """Helper that data."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.default_rng(seed)
     n = 200
     X = pd.DataFrame(

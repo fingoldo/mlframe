@@ -23,7 +23,7 @@ Reference: He et al. 2014 (Facebook GBDT+LR); Cheng & Koc 2016 (Wide & Deep).
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import polars as pl
@@ -45,6 +45,7 @@ def compute_boosting_leaf_features(
     max_depth: int = 4,
     learning_rate: float = 0.1,
     n_splits: int = 5,
+    splitter: Optional[Any] = None,
     encoding: str = "ordinal",
     column_prefix: str = "leaf",
     dtype: type = np.float32,
@@ -61,7 +62,11 @@ def compute_boosting_leaf_features(
         ``max_depth``    - depth cap. depth=4 → max 16 leaves per tree → cluster granularity comparable to a typical kNN k=16-32.
         ``encoding``     - "ordinal" (default, return raw leaf indices as float; LGB/CB/XGB all handle these as categorical implicitly) or "onehot" (explode to
                            binary indicator matrix; faster for linear downstream models, ballooning for tree downstream so default is ordinal).
-        ``n_splits``     - KFold n_splits for OOF leaf extraction on train. 5 is standard.
+        ``n_splits``     - KFold n_splits for OOF leaf extraction on train, used only when ``splitter`` is omitted. 5 is standard.
+        ``splitter``     - Optional pre-built sklearn-compatible splitter for Mode A's OOF leaf extraction (overrides ``n_splits``'s internal ``KFold``), so an
+                           orchestrating pipeline can align this mechanism's fold boundaries with its own outer fold structure -- every other Mode-A/B transformer
+                           in this cluster accepts one. ``None`` (default) keeps the prior internal ``KFold(n_splits, shuffle=True, random_state=seed)`` behavior
+                           unchanged.
 
     Output: polars DataFrame ``(N, n_estimators)`` for ordinal encoding (one column per tree, named ``{column_prefix}_t{tree_id}``) or
     ``(N, sum_per_tree_leaves)`` for onehot. Row order matches the relevant input.
@@ -99,8 +104,8 @@ def compute_boosting_leaf_features(
     if X_query is None:
         # Mode A (OOF on train).
         leaf_out = np.empty((X_train.shape[0], n_estimators), dtype=np.int32)
-        splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
-        for fold_train_idx, fold_val_idx in splitter.split(X_train):
+        effective_splitter = splitter if splitter is not None else KFold(n_splits=n_splits, shuffle=True, random_state=seed)
+        for fold_train_idx, fold_val_idx in effective_splitter.split(X_train):
             model = _make_model()
             model.fit(X_train[fold_train_idx], y_train[fold_train_idx])
             leaf_out[fold_val_idx] = model.predict(X_train[fold_val_idx], pred_leaf=True).astype(np.int32, copy=False)

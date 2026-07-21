@@ -20,7 +20,7 @@ def _codes_ncats_h(n, p, card, seed):
     ncats = np.full(p, card, dtype=np.int64)
 
     def ent(c):
-        """Helper that ent."""
+        """Returns ``float(-(pr * np.log(pr)).sum())`` (after 2 setup steps)."""
         t = c.sum()
         pr = c[c > 0] / t
         return float(-(pr * np.log(pr)).sum())

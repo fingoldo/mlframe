@@ -23,12 +23,12 @@ from mlframe.preprocessing.degradation_augment import augment_to_match_test_dist
 
 
 def _make_clean_train_noisy_test(seed: int):
-    """Helper that make clean train noisy test."""
+    """Builds seeded synthetic test data; returns ``(X_train, y_train, X_test, y_test)``."""
     rng = np.random.default_rng(seed)
     n_train, n_test = 500, 400
 
     def _make(n, noise_std):
-        """Helper that make."""
+        """Test helper: true_x1 = rng.normal(size=n); true_x2 = rng.normal(size=n); y = 2.0 * true_x1 + 1.5 * true_x2 + rng.normal(scale=0.3,...."""
         true_x1 = rng.normal(size=n)
         true_x2 = rng.normal(size=n)
         y = 2.0 * true_x1 + 1.5 * true_x2 + rng.normal(scale=0.3, size=n)
@@ -43,7 +43,7 @@ def _make_clean_train_noisy_test(seed: int):
 
 
 def _fit_and_score(X_train, y_train, X_test, y_test) -> float:
-    """Helper that fit and score."""
+    """Returns ``float(mean_squared_error(y_test, reg.predict(X_test)))`` (after 1 setup step)."""
     reg = LinearRegression().fit(X_train, y_train)
     return float(mean_squared_error(y_test, reg.predict(X_test)))
 

@@ -58,7 +58,7 @@ def test_median_and_stable_json_bodies():
 
 
 def pytest_importorskip_pyarrow():
-    """Helper that pytest importorskip pyarrow."""
+    """Returns ``pytest.importorskip('pyarrow')`` (after 1 setup step)."""
     import pytest
 
     return pytest.importorskip("pyarrow")

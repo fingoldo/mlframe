@@ -73,10 +73,27 @@ rmse_score = make_scorer(rmse_loss, greater_is_better=False)
 
 
 def rmsle_loss(y_true, y_pred):
-    """Root mean squared logarithmic error. Negative predictions are clipped to 0."""
+    """Root mean squared logarithmic error. Negative predictions AND negative true values are clipped to 0.
+
+    ``y_pred`` was already clipped; ``y_true`` was not, so a negative true value silently produced a NaN (or
+    a numpy RuntimeWarning "invalid value encountered in log1p") with no indication the target isn't actually
+    on a valid RMSLE domain. A rate-limited warning
+    fires when clipping ``y_true`` actually changes a value (mirrors the numba ``fast_rmsle`` counterpart's
+    own negative-row warning), since it usually signals an upstream target-scale bug worth investigating.
+    """
     y_true = np.asarray(y_true, dtype=float)
     y_pred = np.asarray(y_pred, dtype=float)
-    return np.sqrt(np.mean(np.power(np.log1p(y_true) - np.log1p(np.clip(y_pred, 0, None)), 2)))
+    if (y_true < 0).any():
+        import warnings
+
+        warnings.warn(
+            f"rmsle_loss: {int((y_true < 0).sum())} of {y_true.size} y_true values were negative and clipped "
+            "to 0; RMSLE is defined only on non-negative targets, check that the target really is on a "
+            "count / log-scale.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return np.sqrt(np.mean(np.power(np.log1p(np.clip(y_true, 0, None)) - np.log1p(np.clip(y_pred, 0, None)), 2)))
 
 
 rmsle_score = make_scorer(rmsle_loss, greater_is_better=False)

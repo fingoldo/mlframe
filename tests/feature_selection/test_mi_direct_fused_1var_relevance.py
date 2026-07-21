@@ -28,7 +28,7 @@ def _legacy_mi_bx(fd, ix, factors_nbins, classes_y, freqs_y, dtype=np.int32):
 
 
 def _make(n, nb_x, nb_y, seed):
-    """Helper that make."""
+    """Builds seeded synthetic test data; returns ``(fd, factors_nbins, cy, fy)``."""
     rng = np.random.default_rng(seed)
     x = rng.integers(0, nb_x, size=n).astype(np.int32)
     y = ((x + rng.integers(0, nb_y, size=n)) % nb_y).astype(np.int32)

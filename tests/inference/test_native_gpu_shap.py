@@ -17,7 +17,7 @@ shap = pytest.importorskip("shap")
 
 
 def _cuda_available() -> bool:
-    """Helper that cuda available."""
+    """Attempts ``import cupy as cp``, tolerating failure (see the except clause for the fallback)."""
     try:
         import cupy as cp
 
@@ -30,7 +30,7 @@ _skip_no_cuda = pytest.mark.skipif(not _cuda_available(), reason="no CUDA GPU av
 
 
 def _make_data(n: int, f: int, seed: int):
-    """Helper that make data."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, f)).astype(np.float32)
     logit = X[:, 0] * 1.5 - X[:, 1] * 0.7 + 0.3 * X[:, 2] * X[:, 3]

@@ -60,20 +60,20 @@ def compute_numerical_aggregates_numba(
 ) -> list:  # pragma: no cover
     """Compute statistical aggregates over 1d array of float32 values.
     E mid2(abs(x-mid1(X))) where mid1, mid2=averages of any kind
-    E Р¤СѓРЅРєС†РёРё РѕС€РёР±РѕРє РёРЅРѕРіРґР° Рё РєР»Р°СЃСЃРЅС‹Рµ РїСЂРёР·РЅР°РєРё...
+    E Функции ошибок иногда и классные признаки...
     V What happens first: min or max? Add relative percentage of min/max indices
     V Add absolute values of min/max indices?
-    V Р”РѕР±Р°РІРёС‚СЊ РєРѕР»РёС‡РµСЃС‚РІРѕ РїРµСЂРµСЃРµС‡РµРЅРёР№ СЃСЂРµРґРЅРёС… Рё РјРµРґРёР°РЅРЅРѕРіРѕ Р·РЅР°С‡РµРЅРёР№, Р»РёРЅРёРё slope? (trend reversions)
-        РҐРѕС‚СЏ СЌС‚Рѕ РјРѕР¶РЅРѕ РІ С‚.С‡. РїРѕР»СѓС‡РёС‚СЊ, РІС‹Р·РІР°РІ СЃС‚Р°С‚Сѓ РЅР°Рґ РЅРѕСЂРјРёСЂРѕРІР°РЅРЅС‹Рј РёР»Рё РґРµС‚СЂРµРЅРґРёСЂРѕРІР°РЅРЅС‹Рј СЂСЏРґРѕРј (x-X_avg) РёР»Рё (x-(slope*x+x[0]))
-    V СѓР±СЂР°С‚СЊ РіСЌРїС‹. СЌС‚Рѕ СЃС‚Р°С‚РёСЃС‚РёРєР° РІС‚РѕСЂРѕРіРѕ РїРѕСЂСЏРґРєР° Рё РґРѕР»Р¶РЅР° СЃС‡РёС‚Р°С‚СЊСЃСЏ РѕС‚РґРµР»СЊРЅРѕ. РїСЂРёС‡РµРј РјРѕР¶РЅРѕ СЃС‡РёС‚Р°С‚СЊ РѕС‚ СЂР°Р·РЅРѕСЃС‚РµР№ РёР»Рё РѕС‚ РѕС‚РЅРѕС€РµРЅРёР№.
-    V РІР·РІРµС€РµРЅРЅС‹Рµ СЃС‚Р°С‚С‹ СЃС‡РёС‚Р°С‚СЊ РѕС‚РґРµР»СЊРЅС‹Рј РІС‹Р·РѕРІРѕРј ( Рё РЅРµ С‚РѕР»СЊРєРѕ СЃСЂРµРґРЅРµР°СЂРёС„РјРµС‚РёС‡РµСЃРєРёРµ, Р° Р’РЎР•).
-    Р”РѕР±Р°РІРёС‚СЊ
-        V СЃСЂРµРґРЅРµРµ РєСѓР±РёС‡РµСЃРєРѕРµ,
+    V Добавить количество пересечений средних и медианного значений, линии slope? (trend reversions)
+        Хотя это можно в т.ч. получить, вызвав стату над нормированным или детрендированным рядом (x-X_avg) или (x-(slope*x+x[0]))
+    V убрать гэпы. это статистика второго порядка и должна считаться отдельно. причем можно считать от разностей или от отношений.
+    V взвешенные статы считать отдельным вызовом ( и не только среднеарифметические, а ВСЕ).
+    Добавить
+        V среднее кубическое,
         V entropy
         V hurst
         V R2
-        E? СЃСЂРµРґРЅРµРµ РІРёРЅР·РѕСЂРёР·РёСЂРѕРІР°РЅРЅРѕРµ (https://ru.wikipedia.org/wiki/%D0%92%D0%B8%D0%BD%D0%B7%D0%BE%D1%80%D0%B8%D0%B7%D0%BE%D0%B2%D0%B0%D0%BD%D0%BD%D0%BE%D0%B5_%D1%81%D1%80%D0%B5%D0%B4%D0%BD%D0%B5%D0%B5).
-        E? СѓСЃРµС‡С‘РЅРЅРѕРµ,
+        E? среднее винзоризированное (https://ru.wikipedia.org/wiki/%D0%92%D0%B8%D0%BD%D0%B7%D0%BE%D1%80%D0%B8%D0%B7%D0%BE%D0%B2%D0%B0%D0%BD%D0%BD%D0%BE%D0%B5_%D1%81%D1%80%D0%B5%D0%B4%D0%BD%D0%B5%D0%B5).
+        E? усечённое,
         E? tukey mean
         V fit variable to a number of known distributions!! their params become new features
         V drawdowns, negative drawdowns (for shorts), dd duration (%)
@@ -133,7 +133,7 @@ def compute_numerical_aggregates_numba(
     nmaxupdates, nminupdates = 0, 0
 
     n_last_crossings, n_last_touches = 0, 0
-    # numba Optional[NoneType|float64] segfaults under numba 0.62 / numpy 2.2 вЂ”
+    # numba Optional[NoneType|float64] segfaults under numba 0.62 / numpy 2.2 —
     # use a bool flag + sentinel float so the variable type is invariant.
     has_prev_d = False
     prev_d = 0.0
@@ -211,7 +211,7 @@ def compute_numerical_aggregates_numba(
                     weighted_harmonic_mean += next_weight * addend
 
             if return_n_zer_pos_int:
-                # Was `next_value % 1` вЂ” robust for positive floats but fragile around negative
+                # Was `next_value % 1` — robust for positive floats but fragile around negative
                 # values and denormals. `np.floor(x) == x` is the exact integer check.
                 if np.floor(next_value) == next_value:
                     ninteger = ninteger + 1

@@ -150,14 +150,26 @@ def _set_inner_objective(model: Any, family: str, tweedie_power: float) -> None:
     """
     try:
         import lightgbm as lgb
-        if isinstance(model, lgb.LGBMRegressor):
-            params: dict[str, Any] = {"objective": _FAMILY_OBJECTIVE[family]}
-            if family == "tweedie":
-                params["tweedie_variance_power"] = float(tweedie_power)
-            model.set_params(**params)
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in glm.py:153: %s", e)
-        pass
+    except Exception:
+        return
+    if not isinstance(model, lgb.LGBMRegressor):
+        return
+    params: dict[str, Any] = {"objective": _FAMILY_OBJECTIVE[family]}
+    if family == "tweedie":
+        params["tweedie_variance_power"] = float(tweedie_power)
+    try:
+        model.set_params(**params)
+    except (TypeError, ValueError, KeyError) as e:
+        # set_params rejected a family-matched kwarg (e.g. a LightGBM version that renamed
+        # tweedie_variance_power, or a caller subclass with a narrower signature) -- the inner
+        # keeps its prior objective, which may now mismatch the requested family's deviance.
+        logger.warning(
+            "CompositeGLMEstimator could not set the family-matched LightGBM objective %r; "
+            "the inner keeps its current objective, which may not match the '%s' deviance: %s",
+            params,
+            family,
+            e,
+        )
 
 
 class CompositeGLMEstimator(BaseEstimator, RegressorMixin):

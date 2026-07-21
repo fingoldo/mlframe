@@ -14,7 +14,7 @@ import pytest
 
 
 def _data(n: int = 300, p: int = 12, seed: int = 0):
-    """Helper that data."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(rng.normal(size=(n, p)), columns=[f"f{i}" for i in range(p)])
     y = ((1.5 * X["f0"] - 0.8 * X["f1"] + rng.normal(scale=0.5, size=n)) > 0).astype(int)

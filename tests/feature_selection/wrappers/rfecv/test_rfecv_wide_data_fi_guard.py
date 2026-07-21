@@ -180,7 +180,7 @@ class TestWideDataGuardConfig:
         assert sel.wide_data_fi_n_repeats == 4
 
     def test_defaults(self):
-        """Helper that defaults."""
+        """Test helper (part of the Groups tests covering TestWideDataGuardConfig fixture): sel = RFECV(estimator=_fast_rf()); assert sel.wide_data_fi_fallback is True; assert sel.wide_data_fi_threshold == 200."""
         sel = RFECV(estimator=_fast_rf())
         assert sel.wide_data_fi_fallback is True
         assert sel.wide_data_fi_threshold == 200

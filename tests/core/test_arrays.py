@@ -16,17 +16,17 @@ ARR_SIZE = 100_000  # reduced from 1_000_000 for test speed
 
 @pytest.fixture
 def rng():
-    """Helper that rng."""
+    """Returns ``np.random.default_rng(0)``."""
     return np.random.default_rng(0)
 
 
 def _baseline_argsort(vals):
-    """Helper that baseline argsort."""
+    """Returns ``np.argsort(vals)``."""
     return np.argsort(vals)
 
 
 def _baseline_argsort_indexed(vals, indices):
-    """Helper that baseline argsort indexed."""
+    """Returns ``indices[np.argsort(fr)]`` (after 1 setup step)."""
     fr = vals[indices]
     return indices[np.argsort(fr)]
 

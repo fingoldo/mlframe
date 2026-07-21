@@ -16,7 +16,7 @@ from mlframe.calibration.group_zero_sum_constraint import apply_group_zero_sum_c
 
 
 def _make_zero_sum_target_with_biased_predictions(n_groups: int, group_size: int, seed: int):
-    """Helper that make zero sum target with biased predictions."""
+    """Builds seeded synthetic test data; returns ``(pred, true_y, group)``."""
     rng = np.random.default_rng(seed)
     n = n_groups * group_size
     group = np.repeat(np.arange(n_groups), group_size)

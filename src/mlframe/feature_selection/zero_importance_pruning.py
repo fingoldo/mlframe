@@ -5,9 +5,13 @@ importance features, and re-evaluates 5-fold CV log loss, repeating until no fur
 then keeps the feature-exclusion set with lowest CV log loss." Distinct from mlframe's existing selectors:
 RFECV drops the single worst-ranked feature per round; `greedy_backward_elimination` evaluates removing EACH
 candidate via a fresh CV pass (O(features^2 x folds)). This drops the WHOLE batch of zero/near-zero native
-`feature_importances_` features per round in one refit, tracking CV score only once per round and stopping on
-degradation -- an O(features x rounds) fast pre-filter for tree ensembles with cheap native importances,
-meant to run BEFORE the heavier MRMR/RFECV passes on a huge feature set, not to replace them.
+`feature_importances_` features per round in one refit, tracking CV score only once per round. It does NOT
+stop early on a degrading round -- every round's `candidate_remaining` becomes the new working set
+regardless of its CV score, and the loop runs to `max_rounds` (or until no zero-importance feature remains
+/ every remaining feature would be dropped); the BEST-scoring round's feature set is remembered separately
+and returned at the end, so a mid-run regression is simply not selected as the winner, not a stop signal --
+an O(features x rounds) fast pre-filter for tree ensembles with cheap native importances, meant to run
+BEFORE the heavier MRMR/RFECV passes on a huge feature set, not to replace them.
 """
 from __future__ import annotations
 

@@ -199,6 +199,17 @@ def test_nse_equals_r2_score():
     assert fast_nash_sutcliffe(y, p) == pytest.approx(r2_score(y, p), abs=1e-12)
 
 
+def test_nse_constant_y_true_matches_sklearn_r2_convention():
+    """F3 (audits/full_audit_2026-07-21/metrics_all.md): a constant y_true previously returned NaN here (vs.
+    0.0/-inf in this package's OTHER R2-family kernels, none matching real sklearn) -- must now match
+    sklearn.metrics.r2_score's actual 1.0-perfect/0.0-imperfect convention, same as the other kernels."""
+    y = np.full(50, 3.0)
+    assert fast_nash_sutcliffe(y, y.copy()) == 1.0
+    p_imperfect = y.copy()
+    p_imperfect[0] = 4.0
+    assert fast_nash_sutcliffe(y, p_imperfect) == 0.0
+
+
 def test_iter607_pearson_corr_mixed_dtypes_bit_equivalent():
     """iter607: fast_pearson_corr dropped the unconditional
     ``dtype=np.float64`` cast. Pin bit-equivalence across the dtype
@@ -451,14 +462,28 @@ def test_extended_block_empty_input():
 
 
 def test_extended_block_constant_y():
-    """Constant y -> ss_tot=0 -> R2/EV undefined (we return -inf / nan)."""
+    """Constant y, CONSTANT-OFFSET (uniform bias) residual -> R2=0.0 but ExplainedVariance=1.0 -- verified
+    directly against real sklearn.metrics.r2_score/explained_variance_score. R2 uses raw SSE (a constant
+    bias hurts it), EV uses Var(residual) (a perfectly constant residual has zero variance, so EV=1.0
+    regardless of its mean) -- both were previously -inf/NaN here; see F2 in
+    audits/full_audit_2026-07-21/metrics_all.md."""
     y = np.full(100, 5.0)
     p = np.full(100, 5.5)
     block = fast_regression_metrics_block_extended(y, p)
     # MAE/RMSE finite
     assert block["MAE"] == pytest.approx(0.5, abs=1e-12)
-    # R2 follows sklearn convention: -inf when ss_tot=0 and SSE>0
-    assert block["R2"] == float("-inf")
+    assert block["R2"] == 0.0
+    assert block["ExplainedVariance"] == 1.0
+    assert block["NSE"] == 0.0
+
+
+def test_extended_block_constant_y_perfect_fit():
+    """Constant y, PERFECT fit -> R2/EV/NSE = 1.0 (sklearn convention), not the pre-fix -inf/NaN/0.0."""
+    y = np.full(100, 5.0)
+    block = fast_regression_metrics_block_extended(y, y.copy())
+    assert block["R2"] == 1.0
+    assert block["ExplainedVariance"] == 1.0
+    assert block["NSE"] == 1.0
 
 
 # ----- Adjusted R^2 -----

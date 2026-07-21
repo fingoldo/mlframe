@@ -319,11 +319,13 @@ class CompositeSurvivalEstimator(BaseEstimator, RegressorMixin):
         return np.asarray(X, dtype=np.float64)
 
     def predict(self, X: Any) -> np.ndarray:
-        """Predict the MEDIAN survival time; ``exp(base_logtime + inner_hat)``.
+        """Predict survival time; ``exp(base_logtime + inner_hat)``, always non-negative (``exp`` of a real).
 
-        Always non-negative (``exp`` of a real). For the survival-aware inner the
-        residual point prediction is the model's risk-score-derived expected
-        residual log-time; for observed_only it is the regressed residual.
+        For ``censoring_mode_ == "observed_only"`` the inner directly regresses the residual
+        log-time, so this IS a calibrated median-survival-time prediction. For
+        ``censoring_mode_ == "aware"`` the residual is instead derived from the survival-aware
+        inner's RISK SCORE (see :meth:`_predict_aware_resid_log`) -- it preserves the C-index
+        ranking, not a calibrated median; do not treat its output as a true median survival time.
         """
         if not hasattr(self, "inner_"):
             from sklearn.exceptions import NotFittedError

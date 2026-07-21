@@ -1,13 +1,13 @@
 """
 Runtime capability detection for polars-ds.
 
-Round-3 architecture R2-15 + future-proofing F14: probing
-``hasattr(Blueprint, "tfidf")`` is brittle (a method may exist but
-raise NotImplementedError on certain dtypes / platforms). The
-``try-invoke`` probe runs each capability check on a tiny synthetic
-DataFrame and catches; positive results are cached in module memory,
-negative results retry on next call so a transient import error
-during first call doesn't permanently disable a feature.
+Detection is a plain ``hasattr(Blueprint, "tfidf")``-style presence check, NOT a try-invoke probe on a
+synthetic frame -- a method existing on the class does not guarantee it succeeds at call time for every
+dtype/platform combination (it may still raise ``NotImplementedError`` or similar). Callers of
+:class:`PolarsNativeDispatcher` must still be prepared to handle a runtime failure even when ``has(op)``
+returns ``True``; this module only tells you the op EXISTS, not that it WORKS on your specific data.
+Positive results are cached for process lifetime; negative results (e.g. polars-ds not installed) are NOT
+cached, so a mid-session ``pip install`` is picked up on the next call.
 
 The :class:`PolarsNativeDispatcher` consumes this and routes handler
 operations to polars-ds when available, sklearn fallback otherwise.
@@ -31,12 +31,11 @@ from typing import FrozenSet, Optional
 logger = logging.getLogger(__name__)
 
 
-# Operations we currently know how to use OR plan to use in the
-# upcoming phases. Each entry: (capability_key, probe_lambda) where
-# the probe accepts a Blueprint or pds module and runs the actual
-# call on a tiny synthetic frame.
+# Operations we currently know how to use OR plan to use. Each entry is a plain capability-name string,
+# checked via hasattr on the Blueprint class / pds module (see the module docstring for why this is a
+# presence check, not a guarantee the op succeeds at call time).
 #
-# Keep this in sync with the dispatcher consumers in phases C, D, E.
+# Keep this in sync with the dispatcher consumers.
 
 _BLUEPRINT_OPS = (
     "scale",
@@ -75,10 +74,8 @@ _CACHED_VERSION: Optional[str] = None
 
 
 def _polars_ds_available() -> bool:
-    """Cheap presence check via ``importlib.util.find_spec`` -- does
-    NOT execute the module body. Round-3 security S5: prevents
-    user-controlled ``polars_ds.py`` shadow packages from running
-    code at FHC construction.
+    """Cheap presence check via ``importlib.util.find_spec`` -- does NOT execute the module body, so a
+    user-controlled ``polars_ds.py`` shadow package can't run arbitrary code at FHC construction time.
     """
     return importlib.util.find_spec("polars_ds") is not None
 

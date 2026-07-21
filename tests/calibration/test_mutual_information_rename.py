@@ -11,7 +11,7 @@ pytest.importorskip("sklearn")
 
 
 def _data(seed: int = 0):
-    """Helper that data."""
+    """Builds seeded synthetic test data; returns ``(y_true, y_pred)``."""
     rng = np.random.default_rng(seed)
     y_pred = rng.random(500)
     y_true = (rng.random(500) < y_pred).astype(np.float64)

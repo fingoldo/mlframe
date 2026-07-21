@@ -15,7 +15,7 @@ from mlframe.preprocessing.cleaning_helpers import map_elementwise_dedup
 
 
 def _clean(s):
-    """Helper that clean."""
+    """Returns ``s.strip().lower() if isinstance(s, str) else s``."""
     return s.strip().lower() if isinstance(s, str) else s
 
 

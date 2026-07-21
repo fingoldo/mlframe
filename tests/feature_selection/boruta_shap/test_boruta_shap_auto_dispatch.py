@@ -19,13 +19,13 @@ from sklearn.ensemble import RandomForestClassifier
 
 
 def _clean(n=1500, p=10, inf=6, seed=0):
-    """Helper that clean."""
+    """Returns ``(pd.DataFrame(X, columns=[f'f{i}' for i in range(p)]), pd.Series(y))`` (after 1 setup step)."""
     X, y = make_classification(n_samples=n, n_features=p, n_informative=inf, n_redundant=0, shuffle=False, random_state=seed)
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), pd.Series(y)
 
 
 def _noisy(n=250, p=50, inf=4, seed=0):
-    """Helper that noisy."""
+    """Returns ``(pd.DataFrame(X, columns=[f'f{i}' for i in range(p)]), pd.Series(y))`` (after 1 setup step)."""
     X, y = make_classification(n_samples=n, n_features=p, n_informative=inf, n_redundant=0, shuffle=False, random_state=seed)
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), pd.Series(y)
 

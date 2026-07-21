@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Callable, Optional, cast
+from typing import Any, Callable, Optional, cast
 
 import torch
 
@@ -69,6 +69,22 @@ _TRITON_VERDICT: dict = {}
 # Override the empirical gate: "0"/"off"/"false" force eager, "1"/"on"/"true"
 # force Triton (skips calibration), anything else / unset -> auto-calibrate.
 _TRITON_ENV_VAR: str = "MLFRAME_MUON_TRITON"
+
+
+def _get_kernel_tuning_cache() -> "Any":
+    """Return the shared ``KernelTuningCache`` singleton, or ``None`` if pyutilz/FS is unavailable.
+
+    Mirrors ``mlframe.calibration._ktc_dispatch._get_cache`` -- the project's established pattern for
+    consulting the repo's own persisted per-hardware measurement cache.
+    """
+    try:
+        from mlframe.feature_selection.filters import get_kernel_tuning_cache
+    except Exception:
+        return None
+    try:
+        return get_kernel_tuning_cache()
+    except Exception:  # pragma: no cover - defensive; singleton already guards.
+        return None
 
 
 def _build_triton_ns_fn() -> Optional[Callable]:
@@ -298,15 +314,44 @@ def maybe_newton_schulz_triton(
         return None
 
     if forced is not True:
-        key = (dev_index, _size_bucket(min(G.shape)))
+        size_bucket = _size_bucket(min(G.shape))
+        key = (dev_index, size_bucket)
         verdict = _TRITON_VERDICT.get(key)
         if verdict is None:
-            speedup = _calibrate_triton_vs_eager(fn, tuple(G.shape), G.dtype, G.device, steps)
-            verdict = speedup >= _TRITON_WIN_MARGIN
+            device_name = torch.cuda.get_device_name(dev_index)
+            # Route through the repo's shared per-hardware measurement cache
+            # (pyutilz.performance.kernel_tuning / mlframe.feature_selection.filters.get_kernel_tuning_cache)
+            # so this one-shot calibration persists across process restarts on the same host instead of
+            # re-measuring every process -- the device name is baked into the kernel name so a host with
+            # more than one distinct GPU model still gets a correct per-model verdict.
+            _kernel_name = f"muon_triton_ns__{device_name.replace(' ', '_')}"
+            _shape, _dtype, _device = tuple(G.shape), G.dtype, G.device
+
+            def _tuner() -> "list[dict]":
+                """Measure Triton vs eager once at this shape and return the region KTC persists."""
+                _speedup = _calibrate_triton_vs_eager(fn, _shape, _dtype, _device, steps)
+                return [{"use_triton": _speedup >= _TRITON_WIN_MARGIN, "speedup": _speedup, "size_bucket_max": size_bucket}]
+
+            cache = _get_kernel_tuning_cache()
+            speedup = None
+            if cache is not None:
+                try:
+                    result = cache.get_or_tune(
+                        _kernel_name, dims={"size_bucket": size_bucket}, tuner=_tuner,
+                        axes=["size_bucket"], fallback={"use_triton": False}, async_sweep=False,
+                    )
+                    if isinstance(result, dict) and "use_triton" in result:
+                        verdict = bool(result["use_triton"])
+                        speedup = result.get("speedup")
+                except Exception as exc:
+                    logger.debug("Muon Triton KTC lookup failed (%s); falling back to in-process calibration.", exc)
+            if verdict is None:
+                speedup = _calibrate_triton_vs_eager(fn, _shape, _dtype, _device, steps)
+                verdict = speedup >= _TRITON_WIN_MARGIN
             _TRITON_VERDICT[key] = verdict
             logger.info(
                 "Muon Triton calibration on %s (bucket %d): %.2fx vs eager -> %s",
-                torch.cuda.get_device_name(dev_index), key[1], speedup,
+                device_name, size_bucket, speedup if speedup is not None else float("nan"),
                 "Triton" if verdict else "eager",
             )
         if not verdict:

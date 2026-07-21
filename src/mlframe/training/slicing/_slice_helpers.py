@@ -212,21 +212,23 @@ def build_slice_eval_sets(
         )
         return []
 
-    if group_ids is not None and source == "random":
-        # Ranker / qid-aware path: partition by query group, not random rows. Falling back
-        # silently is unsafe (NDCG on partial queries is meaningless); switch path + WARN.
-        from sklearn.model_selection import GroupKFold
-        logger.warning(
-            "build_slice_eval_sets: source='random' with group_ids supplied; switching to " "GroupKFold so query boundaries are preserved (ranker-safe shards)",
-        )
-        gkf = GroupKFold(n_splits=k)
-        row_idx_lists = [test_idx for _, test_idx in gkf.split(np.arange(n), groups=np.asarray(group_ids))]
-        return _materialize(val_X, y_arr, row_idx_lists, prefix="valid_shard_r", sample_weight=sample_weight, base_margin=base_margin, group_ids=group_ids)
-
     out: list[SliceEvalSet] = []
 
     if source in ("random", "both"):
-        row_idx_lists = _random_shards(n, k, y_arr, random_state=random_state)
+        if group_ids is not None:
+            # Ranker / qid-aware path: partition by query group, not random rows. Falling back
+            # silently is unsafe (NDCG on partial queries is meaningless); switch path + WARN.
+            # Covers BOTH source="random" and source="both" (random shards unioned with fairness
+            # shards) -- the random-shard half carries the identical query-boundary risk either way.
+            from sklearn.model_selection import GroupKFold
+            logger.warning(
+                "build_slice_eval_sets: source=%r with group_ids supplied; switching the random-shard "
+                "half to GroupKFold so query boundaries are preserved (ranker-safe shards)", source,
+            )
+            gkf = GroupKFold(n_splits=k)
+            row_idx_lists = [test_idx for _, test_idx in gkf.split(np.arange(n), groups=np.asarray(group_ids))]
+        else:
+            row_idx_lists = _random_shards(n, k, y_arr, random_state=random_state)
         out.extend(_materialize(val_X, y_arr, row_idx_lists, prefix="valid_shard_r", sample_weight=sample_weight, base_margin=base_margin, group_ids=group_ids))
 
     if source == "temporal":

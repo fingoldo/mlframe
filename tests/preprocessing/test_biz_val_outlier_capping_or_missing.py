@@ -18,7 +18,7 @@ from mlframe.preprocessing.outlier_capping_or_missing import outlier_cap_or_miss
 
 
 def _make_dataset_with_outliers(n_rows: int, seed: int, outlier_frac: float = 0.02):
-    """Helper that make dataset with outliers."""
+    """Builds seeded synthetic test data; returns ``(pd.DataFrame({'x': x_corrupted}), y)``."""
     rng = np.random.default_rng(seed)
     x = rng.normal(size=n_rows)
     y = 2.0 * x + rng.normal(scale=0.3, size=n_rows)
@@ -30,7 +30,7 @@ def _make_dataset_with_outliers(n_rows: int, seed: int, outlier_frac: float = 0.
 
 
 def _fit_rmse(X_train, y_train, X_test, y_test) -> float:
-    """Helper that fit rmse."""
+    """Returns ``float(mean_squared_error(y_test, model.predict(X_test)) ** 0.5)`` (after 1 setup step)."""
     model = Ridge().fit(X_train, y_train)
     return float(mean_squared_error(y_test, model.predict(X_test)) ** 0.5)
 

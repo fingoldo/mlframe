@@ -11,7 +11,7 @@ from mlframe.votenrank import data_processing as dp
 
 def _make_glue():
     # Two rows share the model name "DupModel" -> must be disambiguated to DupModel_1 / DupModel_2.
-    """Helper that make glue."""
+    """Returns ``pd.DataFrame({'Rank': [1, 2, 3], 'Name': ['n1', 'n2', 'n3'], 'URL': ['u1', 'u2', 'u3'],...``."""
     return pd.DataFrame(
         {
             "Rank": [1, 2, 3],

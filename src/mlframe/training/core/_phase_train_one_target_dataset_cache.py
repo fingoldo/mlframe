@@ -24,13 +24,19 @@ logger = logging.getLogger(__name__)
 # XGB DMatrix / LGB Dataset reuse cache attribute names: forwarded across sklearn.clone() in both
 # directions (template -> clone before fit; clone -> template after fit) so the weight-schema loop
 # reuses the heavy binned dataset via set_label / set_weight instead of rebuilding.
+#
+# "_cached_val_datasets" (plural) is lgb_shim's multi-slot val-Dataset cache -- a dict keyed by
+# val content signature, not a single pointer (fixed 2026-07-21: the prior single
+# "_cached_val_dataset" slot only ever held the LAST eval-set entry across a multi-eval-set fit. The generic getattr/setattr
+# transfer below works unchanged for a dict value; only the skip_none/falsy guard below needed
+# updating so an empty (not just None) source doesn't null out a populated destination.
 _DATASET_REUSE_CACHE_ATTRS = (
     "_cached_train_dmatrix",
     "_cached_train_key",
     "_cached_val_dmatrix",
     "_cached_val_key",
     "_cached_train_dataset",
-    "_cached_val_dataset",
+    "_cached_val_datasets",
 )
 
 
@@ -41,15 +47,16 @@ def _forward_dataset_reuse_cache(src, dst, attrs=_DATASET_REUSE_CACHE_ATTRS, *, 
     inline the same loop with slightly different ``if _val is not None`` guard. Centralised here so
     additions to ``_DATASET_REUSE_CACHE_ATTRS`` flow to both call sites automatically.
 
-    ``skip_none=True`` matches the back-transfer's behaviour: only carry non-None caches up to the
-    template, otherwise a clone that did not populate the cache would NULL out the template's prior
-    value and defeat the reuse.
+    ``skip_none=True`` matches the back-transfer's behaviour: only carry POPULATED caches up to the
+    template (a falsy check, so this covers both ``None`` pointer-attrs and an EMPTY
+    ``_cached_val_datasets`` dict uniformly), otherwise a clone that did not populate the cache
+    would null out (or empty out) the template's prior value and defeat the reuse.
     """
     for _attr in attrs:
         if not hasattr(src, _attr):
             continue
         _val = getattr(src, _attr)
-        if skip_none and _val is None:
+        if skip_none and not _val:
             continue
         try:
             setattr(dst, _attr, _val)
@@ -138,7 +145,9 @@ def _invalidate_polars_feature_side_cache(ctx) -> None:
                 if not isinstance(_sub_key, tuple) or len(_sub_key) < 2:
                     continue
                 _kind = _sub_key[1]
-                if _kind == "pl" or _kind is True:
+                # Membership, not `is True` identity -- a numpy bool or any other truthy-but-not-`True`-identical
+                # supports_polars value must still match so this polars-tier entry gets invalidated.
+                if _kind in ("pl", True):
                     _polars_sub_keys.append(_sub_key)
             for _k in _polars_sub_keys:
                 _group_map.pop(_k, None)
@@ -200,7 +209,8 @@ def _capture_dataset_reuse_cache(
 
     Runs BEFORE ``_maybe_clear_shim_cache`` so the next target gets the live binned dataset
     (XGB DMatrix / LGB Dataset) rather than the post-clear None. Skips entries whose value is
-    None - those entries would defeat the next target's cache-hit check (``is not None``).
+    falsy (None, or an empty ``_cached_val_datasets`` dict) - those entries would defeat the next
+    target's cache-hit check.
     """
     if model_template is None:
         return
@@ -209,7 +219,7 @@ def _capture_dataset_reuse_cache(
         if not hasattr(model_template, _attr):
             continue
         _val = getattr(model_template, _attr)
-        if _val is None:
+        if not _val:
             continue
         captured[_attr] = _val
     if captured:

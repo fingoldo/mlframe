@@ -19,12 +19,12 @@ from mlframe.votenrank.geometric_weight_blend import geometric_weight_blend
 
 
 def _sigmoid(z: np.ndarray) -> np.ndarray:
-    """Helper that sigmoid."""
+    """Returns ``np.asarray(1.0 / (1.0 + np.exp(-z)))``."""
     return np.asarray(1.0 / (1.0 + np.exp(-z)))
 
 
 def _make_independent_evidence_dataset(n: int, seed: int):
-    """Helper that make independent evidence dataset."""
+    """Builds seeded synthetic test data; returns ``(y, preds)``."""
     rng = np.random.default_rng(seed)
     coef = 4.0
     x1 = rng.normal(size=n)
@@ -39,7 +39,7 @@ def _make_independent_evidence_dataset(n: int, seed: int):
 
 
 def _log_loss(y_true, y_pred):
-    """Helper that log loss."""
+    """Returns ``float(log_loss(y_true, np.clip(y_pred, 1e-07, 1 - 1e-07)))``."""
     return float(log_loss(y_true, np.clip(y_pred, 1e-7, 1 - 1e-7)))
 
 

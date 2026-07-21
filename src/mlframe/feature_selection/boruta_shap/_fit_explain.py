@@ -447,6 +447,11 @@ def fit(self, X, y):
         _accepted_history: list = []
         _n_total_cols = len(self.all_columns)  # full original count -> matches the validated bench Bonferroni base
 
+        if self.n_trials < 1:
+            # range(self.n_trials) never executes the loop body when n_trials<=0, leaving the `trial` loop
+            # variable (read unconditionally below at "if new_ncols != last_ncols or trial % 5 == 0")
+            # unbound -> NameError instead of a clear validation error.
+            raise ValueError(f"BorutaShap.fit: n_trials must be >= 1, got {self.n_trials}.")
         pbar = tqdmu(range(self.n_trials), desc="Feature selection", disable=not self.verbose)
         last_ncols = 0
         for trial in pbar:

@@ -41,26 +41,42 @@ def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
-    """Fit a small in-fold LightGBM baseline on ``(Xt, y_t)`` and return its in-sample predictions (probability for binary, raw value for regression), used to derive hard-row residuals for anchor selection."""
+    """Fit a small LightGBM baseline via an inner KFold(3) and return its OUT-OF-FOLD predictions on Xt
+    (probability for binary, raw value for regression), used to derive honest hard-row residuals for anchor
+    selection.
+
+    An in-sample prediction is close to y_t almost by construction, understating the true residual and
+    distorting which rows look "hard". Matches residual_stratified_distance.py's own
+    ``_compute_oof_residuals`` pattern in this same cluster. Falls back to a single in-sample fit when there are
+    too few rows for a 3-fold inner split.
+    """
     try:
         import lightgbm as lgb
     except ImportError as exc:
         raise ImportError("multi_temp_cbhr requires lightgbm") from exc
-    if task == "binary":
-        model = lgb.LGBMClassifier(
-            n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
-            random_state=int(seed), verbose=-1, n_jobs=-1,
-        )
-        model.fit(Xt, y_t.astype(np.int32))
-        preds = np.asarray(model.predict_proba(Xt))[:, 1].astype(np.float32)
-    else:
-        model = lgb.LGBMRegressor(
-            n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
-            random_state=int(seed), verbose=-1, n_jobs=-1,
-        )
+    n = Xt.shape[0]
+    if n < 3:
+        if task == "binary":
+            model = lgb.LGBMClassifier(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
+            model.fit(Xt, y_t.astype(np.int32))
+            return np.asarray(model.predict_proba(Xt))[:, 1].astype(np.float32)
+        model = lgb.LGBMRegressor(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         model.fit(Xt, y_t)
-        preds = np.asarray(model.predict(Xt)).astype(np.float32)
-    return np.asarray(preds)
+        return np.asarray(model.predict(Xt)).astype(np.float32)
+
+    from sklearn.model_selection import KFold
+    preds = np.zeros(n, dtype=np.float32)
+    inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11)
+    for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt)):
+        if task == "binary":
+            m = lgb.LGBMClassifier(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1, random_state=int(seed) + 7 + inner_idx, verbose=-1, n_jobs=-1)
+            m.fit(Xt[in_tr], y_t[in_tr].astype(np.int32))
+            preds[in_val] = np.asarray(m.predict_proba(Xt[in_val]))[:, 1].astype(np.float32)
+        else:
+            m = lgb.LGBMRegressor(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1, random_state=int(seed) + 7 + inner_idx, verbose=-1, n_jobs=-1)
+            m.fit(Xt[in_tr], y_t[in_tr])
+            preds[in_val] = np.asarray(m.predict(Xt[in_val])).astype(np.float32)
+    return preds
 
 
 def _topk_within_subset(values: np.ndarray, subset_idx: np.ndarray, k: int) -> np.ndarray:
@@ -134,11 +150,17 @@ def compute_multi_temp_cbhr_features(
 
         pos_top = _topk_within_subset(abs_residuals, pos_mask_idx, n_hard_per_side)
         neg_top = _topk_within_subset(abs_residuals, neg_mask_idx, n_hard_per_side)
+        pos_side_empty = pos_top.size == 0
+        neg_side_empty = neg_top.size == 0
         if pos_top.size < n_hard_per_side:
             if pos_top.size > 0:
                 pad = np.full(n_hard_per_side - pos_top.size, pos_top[-1])
                 pos_top = np.concatenate([pos_top, pad])
             else:
+                # No positive-side rows this fold: a placeholder index (row 0) is needed to keep anchors_X's
+                # shape fixed, but it must NEVER contribute -- reusing it unmasked would silently substitute
+                # an arbitrary (likely wrong-class) row as every positive-side anchor. Masked out of the
+                # softmax below instead.
                 pos_top = np.zeros(n_hard_per_side, dtype=np.int64)
         if neg_top.size < n_hard_per_side:
             if neg_top.size > 0:
@@ -155,6 +177,12 @@ def compute_multi_temp_cbhr_features(
         diffs = Xq_s[:, None, :] - anchors_X[None, :, :]
         sq = (diffs**2).sum(axis=-1)
         scores = -sq
+        if pos_side_empty or neg_side_empty:
+            scores = scores.copy()
+            if pos_side_empty:
+                scores[:, :n_hard_per_side] = -np.inf
+            if neg_side_empty:
+                scores[:, n_hard_per_side:] = -np.inf
 
         n_q = Xq_s.shape[0]
         out_blocks = np.zeros((n_q, n_temps * features_per_temp), dtype=np.float32)

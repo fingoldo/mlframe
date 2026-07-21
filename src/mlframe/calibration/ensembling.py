@@ -237,6 +237,8 @@ def odds_ratio_combine(
     p = np.asarray(member_probs, dtype=np.float64)
     if p.ndim != 2:
         raise ValueError(f"odds_ratio_combine: member_probs must be 2D (n_samples, n_members); got shape {p.shape}")
+    if p.shape[1] == 0:
+        raise ValueError(f"odds_ratio_combine: member_probs has 0 members (shape {p.shape}); at least one member is required.")
 
     if check_independence and p.shape[1] >= 2:
         diag = member_residual_correlation(p, clip=clip)

@@ -19,7 +19,7 @@ from mlframe.calibration.policy import _ece_score
 
 
 def _make_calibration_data(n: int, noise: float, seed: int):
-    """Helper that make calibration data."""
+    """Builds seeded synthetic test data; returns ``(p_raw, y)``."""
     rng = np.random.default_rng(seed)
     p_raw = rng.uniform(0.0, 1.0, size=n)
     true_prob = np.clip(p_raw + noise * rng.standard_normal(n), 0.0, 1.0)

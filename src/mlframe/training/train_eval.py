@@ -195,7 +195,10 @@ def optimize_model_for_storage(
     -----
     This function modifies the model object in-place.
     """
-    is_classification = target_type == TargetTypes.BINARY_CLASSIFICATION
+    # is_classification covers binary/multiclass/multilabel (not just binary): *_preds is
+    # recreatable from *_probs for all three (>=0.5 threshold for binary/multilabel, argmax
+    # for multiclass), matching the docstring's unqualified "for classification models" claim.
+    is_classification = target_type.is_classification
 
     if is_classification:
         # Remove *_preds for classification (can be recreated from *_probs >= 0.5)

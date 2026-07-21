@@ -23,6 +23,12 @@ def compute_distributional_moments_features(
     except ImportError as exc:
         raise ImportError("distributional_moments requires lightgbm") from exc
     seed = require_seed(seed)
+    # _process's skew/kurtosis/tail-mass derivation hardcodes preds_q[:, 0]/[:, 2]/[:, 3]/[:, 4]/[:, 5]/[:, 6],
+    # assuming exactly the 7-entry default ordering. A different-length quantiles crashes on the regression
+    # path (IndexError) or silently zero-pads/misaligns on the binary path (gammas[:len(quantiles)] truncates
+    # to gammas' own 7 entries).
+    if len(quantiles) != 7:
+        raise ValueError(f"distributional_moments requires exactly 7 quantiles (q05/q15/q25/q50/q75/q85/q95 by position); got {len(quantiles)}.")
     validate_numeric_input(X_train, name="X_train", allow_fp16=False)
     if X_query is not None:
         validate_numeric_input(X_query, name="X_query", allow_fp16=False)

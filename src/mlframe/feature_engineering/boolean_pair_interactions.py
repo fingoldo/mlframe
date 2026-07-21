@@ -60,8 +60,14 @@ def boolean_pair_interactions(
     Returns
     -------
     pd.DataFrame
-        One column per ``(pair, operator)`` combination, named ``"{col_a}__{op}__{col_b}"``, dtype ``int8``
-        (0/1). ``len(columns) choose 2`` pairs x ``len(operators)`` columns total -- combinatorial, meant to
+        One column per ``(pair, operator)`` combination, named ``"{col_a}__{op}__{col_b}"``. dtype ``int8``
+        (0/1) for a pair where both inputs are fully non-null (the common case, bit-identical to before this
+        fix); a pair where either input has ANY missing value gets a ``float32`` column instead, with the
+        AND/OR/XOR result set to NaN at every row where either input was NaN -- ``is_binary_column``'s own
+        auto-detection explicitly tolerates NaN (a legitimate "unknown" binary indicator), so the combination
+        step must propagate that NaN rather than silently mis-casting it into a wrong 0/1 result (which
+        ``to_numpy(dtype=np.int8)`` did before this fix).
+        ``len(columns) choose 2`` pairs x ``len(operators)`` columns total -- combinatorial, meant to
         be pruned by a downstream feature selector, not used wholesale (or via ``prune_against_target``).
     """
     if columns is None:
@@ -74,15 +80,29 @@ def boolean_pair_interactions(
         raise ValueError(f"boolean_pair_interactions: unsupported operators {invalid_ops}, expected subset of {{'and', 'or', 'xor'}}")
 
     out: Dict[str, np.ndarray] = {}
-    arrs = {c: df[c].to_numpy(dtype=np.int8) for c in columns}
+    raw = {c: df[c].to_numpy(dtype=np.float64) for c in columns}
+    nan_masks = {c: np.isnan(raw[c]) for c in columns}
+    # NaN positions filled with 0 before the int8 cast so the bitwise ops below never touch a garbage
+    # sentinel value; any row this fill actually affects is overwritten with NaN afterward (see nan_row below).
+    arrs = {c: np.where(nan_masks[c], 0, raw[c]).astype(np.int8) for c in columns}
+
+    def _propagate_nan(result_i8: np.ndarray, nan_row: np.ndarray) -> np.ndarray:
+        """Casts to float32 and overwrites rows flagged in ``nan_row`` with NaN; no-ops (int8, no copy) if none are flagged."""
+        if not nan_row.any():
+            return result_i8
+        result_f32 = result_i8.astype(np.float32)
+        result_f32[nan_row] = np.nan
+        return result_f32
+
     for col_a, col_b in combinations(columns, 2):
         a, b = arrs[col_a], arrs[col_b]
+        nan_row = nan_masks[col_a] | nan_masks[col_b]
         if "and" in operators:
-            out[f"{col_a}__and__{col_b}"] = (a & b).astype(np.int8)
+            out[f"{col_a}__and__{col_b}"] = _propagate_nan((a & b).astype(np.int8), nan_row)
         if "or" in operators:
-            out[f"{col_a}__or__{col_b}"] = (a | b).astype(np.int8)
+            out[f"{col_a}__or__{col_b}"] = _propagate_nan((a | b).astype(np.int8), nan_row)
         if "xor" in operators:
-            out[f"{col_a}__xor__{col_b}"] = (a ^ b).astype(np.int8)
+            out[f"{col_a}__xor__{col_b}"] = _propagate_nan((a ^ b).astype(np.int8), nan_row)
 
     result = pd.DataFrame(out, index=df.index)
 

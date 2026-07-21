@@ -629,10 +629,14 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # as kwargs through fit / forward. The transform's own fit signature
         # enforces presence.
         groups_train: np.ndarray | None = None
+        # FULL-length companion to groups_train, needed by the recurrent branch below (which runs forward()
+        # over the full-length y_seq/base_seq, NOT the [valid]-compacted y_train/base_train).
+        groups_full: np.ndarray | None = None
         if transform.requires_groups:
             if not self.group_column:
                 raise ValueError(f"CompositeTargetEstimator: transform '{self.transform_name}' " f"requires groups; configure ``group_column`` on the wrapper.")
-            groups_train = _extract_groups(X, self.group_column)[valid]
+            groups_full = _extract_groups(X, self.group_column)
+            groups_train = groups_full[valid]
         # transform_fit_kwargs is separate from fit_kwargs (which is
         # the caller's pass-through to the inner estimator's .fit() at
         # the bottom of this method). Only ``groups`` flows into the
@@ -641,6 +645,14 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         transform_fit_kwargs: dict[str, Any] = {}
         if groups_train is not None:
             transform_fit_kwargs["groups"] = groups_train
+        if _callable_accepts_param(transform.fit, "row_index"):
+            # transform.fit() always sees domain-filter-COMPACTED y_train/base_train (unlike forward(),
+            # which the recurrent branch below routes through the FULL sequence) -- a transform whose
+            # fit needs each row's TRUE absolute position (e.g. seasonal_residual's phase = row_index %
+            # period) would otherwise silently learn from COMPACTED-array position instead, misaligned
+            # whenever any row was dropped. Signature-gated so only a
+            # transform that declares this param receives it.
+            transform_fit_kwargs["row_index"] = np.flatnonzero(valid)
         # Signature-gate sample_weight instead of an ``except TypeError`` retry.
         # A TypeError raised DEEP inside a weight-aware transform.fit (bad dtype
         # / shape) would otherwise be mis-read as "no sample_weight support" and
@@ -680,8 +692,13 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
                     base_seq = np.column_stack([_carry_forward_fill(base_arr[:, j], np.isfinite(base_arr[:, j])) for j in range(base_arr.shape[1])])
             else:
                 base_seq = base_arr
+            # y_seq/base_seq are full-length (n rows), so `groups` for this forward() call must be too --
+            # the [valid]-sliced groups_train (length valid.sum()) would misalign every per-group index
+            # against the full-length sequence, scrambling row identity inside every *_grouped recurrent
+            # transform and leaving part of the output buffer uninitialized.
+            recurrent_forward_kwargs: dict[str, Any] = {"groups": groups_full} if groups_full is not None else {}
             t_full = transform.forward(
-                y_seq, base_seq, transform_params, **transform_forward_kwargs,
+                y_seq, base_seq, transform_params, **recurrent_forward_kwargs,
             )
             t_train = np.asarray(t_full, dtype=np.float64).reshape(-1)[valid]
         else:

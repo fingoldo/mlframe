@@ -49,7 +49,7 @@ class TestPermutationForwardsParams:
         captured = {}
 
         def _spy(model_, data_, target_, *, n_repeats, random_state, n_jobs, **kw):
-            """Helper that spy."""
+            """Returns ``_Res()`` (after 3 setup steps)."""
             captured["n_repeats"] = n_repeats
             captured["random_state"] = random_state
 
@@ -85,7 +85,7 @@ class TestPermutationForwardsParams:
         captured = {}
 
         def _spy(model_, data_, target_, *, n_repeats, random_state, n_jobs, **kw):
-            """Helper that spy."""
+            """Returns ``_Res()`` (after 3 setup steps)."""
             captured["n_repeats"] = n_repeats
             captured["random_state"] = random_state
 

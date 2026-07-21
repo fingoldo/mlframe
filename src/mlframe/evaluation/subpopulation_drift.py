@@ -21,6 +21,7 @@ def subpopulation_ratio_drift_check(
     subgroup_col: str,
     ratio_threshold: float = 2.0,
     include_severity_score: bool = False,
+    dropna: bool = True,
 ) -> pd.DataFrame:
     """Compare train vs test prevalence of every value of ``subgroup_col``; flag strong shifts.
 
@@ -45,6 +46,12 @@ def subpopulation_ratio_drift_check(
         :func:`_drift_severity_score`), letting callers rank subgroup values -- and, via
         :func:`rank_subpopulation_drift_severity`, whole candidate columns -- by degree of drift rather than
         only a threshold pass/fail flag.
+    dropna
+        ``pandas.Series.value_counts``'s own default (``True``) silently excludes any NaN value of
+        ``subgroup_col`` from both train/test prevalence -- a shifted NaN RATE between train/test is
+        precisely the kind of drift this function exists to catch, and would otherwise be invisible. Set
+        ``False`` to include NaN as its own subgroup value in the comparison (row's ``subgroup_value`` is
+        ``NaN``). Default ``True`` keeps output bit-identical to the pre-existing behavior when omitted.
 
     Returns
     -------
@@ -57,9 +64,18 @@ def subpopulation_ratio_drift_check(
     if subgroup_col not in train_df.columns or subgroup_col not in test_df.columns:
         raise ValueError(f"subpopulation_ratio_drift_check: subgroup_col={subgroup_col!r} must be present in both frames")
 
-    train_prev = train_df[subgroup_col].value_counts(normalize=True)
-    test_prev = test_df[subgroup_col].value_counts(normalize=True)
-    all_values = sorted(set(train_prev.index.tolist()) | set(test_prev.index.tolist()), key=lambda v: (str(type(v)), v))
+    train_prev = train_df[subgroup_col].value_counts(normalize=True, dropna=dropna)
+    test_prev = test_df[subgroup_col].value_counts(normalize=True, dropna=dropna)
+    combined_index = set(train_prev.index.tolist()) | set(test_prev.index.tolist())
+    # NaN != NaN, so a plain set union keeps a NaN from train_prev's index and a DIFFERENT (not `is`-identical)
+    # NaN from test_prev's index as two distinct entries -- collapse to at most one canonical NaN value
+    # (only relevant when dropna=False) before sorting.
+    has_nan = any(pd.isna(v) for v in combined_index)
+    non_nan_values = {v for v in combined_index if not pd.isna(v)}
+    # type-string then value: safe now that NaN (a str/float mix hazard) has been removed from this sort.
+    all_values = sorted(non_nan_values, key=lambda v: (str(type(v)), v))
+    if has_nan:
+        all_values.append(float("nan"))
 
     rows = []
     for value in all_values:

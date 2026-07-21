@@ -14,22 +14,19 @@ They are re-exported below so existing
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, OrderedDict, Sequence, TYPE_CHECKING
+from typing import Any, Callable, OrderedDict, Sequence
 
 import numpy as np
 import pandas as pd
 
-# Sibling-file re-exports (Wave 92). Imports are at top-level so the symbols
-# resolve at module load; each sub-file lazy-imports back from this module
-# inside its function body, which is safe because that load happens at call
-# time (post module-load).
-from ._dummy_baseline_regression import _compute_regression_baselines
-from ._dummy_baseline_classification import _compute_classification_baselines
-from ._dummy_baseline_quantile import _compute_quantile_baselines
-
-if TYPE_CHECKING:
-    # Forward annotation only -- runtime import lives inside compute_dummy_baselines() to break the circular load with dummy_baselines.py.
-    from .dummy import BaselineReport
+# Sibling-file re-exports. Imports are at top-level so the symbols resolve at
+# module load; each sub-file lazy-imports back from this module inside its
+# function body, which is safe because that load happens at call time (post
+# module-load). Callers (dummy.py, tests/training/baselines/test_dummy_baseline_compute_split.py)
+# still do `from ._dummy_baseline_compute import _compute_regression_baselines` etc.
+from ._dummy_baseline_regression import _compute_regression_baselines  # noqa: F401 -- re-exported, see above
+from ._dummy_baseline_classification import _compute_classification_baselines  # noqa: F401 -- re-exported, see above
+from ._dummy_baseline_quantile import _compute_quantile_baselines  # noqa: F401 -- re-exported, see above
 
 logger = logging.getLogger(__name__)
 
@@ -375,292 +372,18 @@ def _safe_metric(metric_fn: Callable, y_true: np.ndarray, y_pred: np.ndarray, **
 # ---------------------------------------------------------------------
 
 
-def compute_dummy_baselines(
-    target_type: str,
-    target_name: str,
-    *,
-    train_X: Any,
-    val_X: Any,
-    test_X: Any,
-    train_y: Any,
-    val_y: Any,
-    test_y: Any,
-    timestamps_train: Any = None,
-    timestamps_val: Any = None,
-    timestamps_test: Any = None,
-    group_ids_train: Any = None,
-    group_ids_val: Any = None,
-    group_ids_test: Any = None,
-    doc_ids_train: Any = None,
-    doc_ids_val: Any = None,
-    doc_ids_test: Any = None,
-    cat_features: Sequence[str] | None = None,
-    target_label_encoder: Any = None,
-    quantile_alphas: Sequence[float] | None = None,
-    config: Any = None,
-    plot_file_prefix: str = "",
-) -> BaselineReport:
-    """Compute dummy baselines for one (target_type, target_name).
+def compute_dummy_baselines(*args, **kwargs):
+    """Delegates to the canonical implementation in ``dummy.py``.
 
-    Public entry point. Routes to per-target dispatcher, computes
-    per-cell metrics in isolated try/except, picks strongest with
-    non-degeneracy + paired-bootstrap robustness gates, optionally
-    saves overlay plot for strongest baseline.
+    Wave 92 (2026-05-21) split this facade out from the monolith; this module's own docstring claimed the
+    split moved the function OUT of here (leaving only a re-export), but a complete second copy of the
+    function body remained -- already drifted from the canonical ``dummy.py`` version (missing the
+    ``config.overlay_plot`` feature entirely) and importable/callable with zero production call sites.
+    Lazy import avoids a circular load: ``dummy.py`` imports FROM this module at its own top level.
     """
-    import time as _time
-    # Lazy local imports for circular-load helpers (dummy_baselines.py <- this module).
-    from .dummy import (
-        BaselineReport,
-        _bootstrap_ci_for_strongest,
-        _coerce_y,
-        _compute_ltr_baselines,
-        _compute_metrics_table,
-        _compute_multi_output_regression,
-        _compute_multilabel_baselines,
-        _empty_report,
-        _is_finite_mask,
-        _normalize_timestamps,
-        _paired_bootstrap_vs_runner_up,
-        _pick_strongest,
-    )
-    t0 = _time.time()
+    from .dummy import compute_dummy_baselines as _canonical_compute_dummy_baselines
 
-    if config is None:
-        from ..configs import DummyBaselinesConfig
-        config = DummyBaselinesConfig()
-
-    # Coerce y to 1D / 2D numpy as appropriate (object-dtype gate).
-    train_y_arr = _coerce_y(train_y, target_type, target_name)
-    val_y_arr = _coerce_y(val_y, target_type, target_name) if val_y is not None else None
-    test_y_arr = _coerce_y(test_y, target_type, target_name) if test_y is not None else None
-
-    if train_y_arr is None:
-        return _empty_report(target_type, target_name, t0, reason="object-dtype-target")
-
-    n_train = len(train_y_arr)
-    n_val = 0 if val_y_arr is None else len(val_y_arr)
-    n_test = 0 if test_y_arr is None else len(test_y_arr)
-    n_train_finite = int(_is_finite_mask(train_y_arr).sum()) if train_y_arr.ndim == 1 else n_train
-    n_val_finite = int(_is_finite_mask(val_y_arr).sum()) if val_y_arr is not None and val_y_arr.ndim == 1 else n_val
-    n_test_finite = int(_is_finite_mask(test_y_arr).sum()) if test_y_arr is not None and test_y_arr.ndim == 1 else n_test
-
-    # Skip block if both val and test are uninformative
-    if n_val_finite < 2 and n_test_finite < 2:
-        logger.warning(
-            "[DUMMY_BASELINES] FAILED target='%s' - both val (%d/%d finite) and "
-            "test (%d/%d finite) targets have <2 finite values",
-            target_name, n_val_finite, n_val, n_test_finite, n_test,
-        )
-        return _empty_report(target_type, target_name, t0, reason="both-splits-uninformative")
-
-    # Multi-output regression. For 2D y in regression / quantile_regression,
-    # run the dispatcher per output and aggregate per-output strongest +
-    # cross-output normalized strongest. Headline emission stays one verdict
-    # block per target (not K verdicts).
-    if target_type in ("regression", "quantile_regression") and train_y_arr.ndim == 2 and train_y_arr.shape[1] > 1:
-        return _compute_multi_output_regression(
-            target_type=target_type,
-            target_name=target_name,
-            train_X=train_X, val_X=val_X, test_X=test_X,
-            train_y_arr=train_y_arr, val_y_arr=val_y_arr, test_y_arr=test_y_arr,
-            timestamps_train=timestamps_train, timestamps_val=timestamps_val,
-            timestamps_test=timestamps_test,
-            cat_features=cat_features,
-            config=config,
-            plot_file_prefix=plot_file_prefix,
-            t0=t0,
-            n_train=n_train, n_val=n_val, n_test=n_test,
-            n_train_finite=n_train_finite, n_val_finite=n_val_finite,
-            n_test_finite=n_test_finite,
-        )
-
-    # Normalize timestamps once (mixed-tz handling).
-    ts_train = _normalize_timestamps(timestamps_train)
-    ts_val = _normalize_timestamps(timestamps_val)
-    ts_test = _normalize_timestamps(timestamps_test)
-
-    # Dispatch by target_type
-    val_preds: dict[str, np.ndarray] = {}
-    test_preds: dict[str, np.ndarray] = {}
-    extras: dict[str, Any] = {}
-
-    if target_type == "quantile_regression" and quantile_alphas is not None:
-        # Per-alpha empirical-quantile baselines + pinball-loss metric.
-        # Falls back to regression path when quantile_alphas not provided.
-        val_preds, test_preds, extras = _compute_quantile_baselines(
-            target_name, train_y_arr, val_y_arr, test_y_arr,
-            list(quantile_alphas), config,
-        )
-        extras["quantile_alphas"] = list(quantile_alphas)
-    elif target_type in ("regression", "quantile_regression"):
-        val_preds, test_preds, extras = _compute_regression_baselines(
-            target_name, train_X, val_X, test_X,
-            train_y_arr, val_y_arr, test_y_arr,
-            ts_train, ts_val, ts_test,
-            cat_features, config, target_type=target_type,
-        )
-    elif target_type in ("binary_classification", "multiclass_classification"):
-        # Determine n_classes from train + val + test union
-        all_y = np.concatenate([
-            train_y_arr,
-            val_y_arr if val_y_arr is not None else np.array([], dtype=train_y_arr.dtype),
-            test_y_arr if test_y_arr is not None else np.array([], dtype=train_y_arr.dtype),
-        ])
-        unique_classes = np.unique(all_y[~pd.isna(all_y)] if all_y.dtype.kind in "fc" else all_y)
-        n_classes = max(2, len(unique_classes))
-        # Label-encode to positions 0..K-1 against the sorted class union. The classification
-        # baselines assume positional labels: ``np.bincount(train_y, minlength=K)`` (returns
-        # max(label)+1 wide for non-0-indexed labels -> phantom class-0 column -> wrong-width
-        # (N, K) prob matrices) and ``log_loss(y, p, labels=np.arange(K))`` in the metrics table
-        # (raises when a raw label like 3 is not in {0,1,2} -> every classification metric NaN).
-        # Integer multiclass targets are NOT label-encoded upstream (only string/object are), so
-        # {1,2,3} / {10,20,30} reach here raw. searchsorted is identity for already-0..K-1 labels,
-        # so the common path is bit-identical; only non-contiguous / non-0-based labels are remapped.
-        _cls_sorted = unique_classes
-        if len(_cls_sorted) and not np.array_equal(_cls_sorted, np.arange(len(_cls_sorted))):
-            def _enc(_y):
-                """Remap raw class labels to their sorted-position index via searchsorted; passthrough on already-0..K-1 labels, None-safe for optional splits."""
-                if _y is None:
-                    return None
-                return np.searchsorted(_cls_sorted, np.asarray(_y)).astype(np.int64)
-            train_y_arr = _enc(train_y_arr)
-            val_y_arr = _enc(val_y_arr)
-            test_y_arr = _enc(test_y_arr)
-        val_preds, test_preds, extras = _compute_classification_baselines(
-            target_name, train_X, val_X, test_X,
-            train_y_arr, val_y_arr, test_y_arr,
-            ts_train, cat_features, config,
-            target_type=target_type, n_classes=n_classes,
-        )
-        extras["n_classes"] = n_classes
-        extras["class_labels"] = list(_cls_sorted)
-    elif target_type == "multilabel_classification":
-        val_preds, test_preds, extras = _compute_multilabel_baselines(
-            target_name, train_y_arr, val_y_arr, test_y_arr, config,
-        )
-    elif target_type == "learning_to_rank":
-        val_preds, test_preds, extras = _compute_ltr_baselines(
-            target_name,
-            train_y_arr, val_y_arr, test_y_arr,
-            group_ids_train, group_ids_val, group_ids_test,
-            ts_train, ts_val, ts_test,
-            config,
-            doc_ids_train=doc_ids_train,
-            doc_ids_val=doc_ids_val,
-            doc_ids_test=doc_ids_test,
-        )
-    else:
-        return _empty_report(
-            target_type, target_name, t0,
-            reason=f"unsupported target_type={target_type}",
-        )
-
-    # Compute metrics table
-    table, primary_metric = _compute_metrics_table(
-        target_type, val_preds, test_preds, val_y_arr, test_y_arr,
-        group_ids_val=group_ids_val, group_ids_test=group_ids_test,
-        extras=extras,
-    )
-
-    # Strongest-pick: non-degeneracy gate + paired-bootstrap
-    strongest, ts_period_used = _pick_strongest(
-        target_type, table, val_y_arr, test_y_arr, primary_metric, extras, config,
-    )
-
-    # Paired-bootstrap robustness: compute delta vs runner-up + 95% CI +
-    # P(strongest beats runner-up). Below `strongest_min_beat_runner_up_prob`
-    # the strongest is annotated as TIE and the overlay plot is skipped.
-    # Gated on the same n-threshold as bootstrap CI -- at large n the
-    # point-estimate signal-to-noise is high enough that paired bootstrap
-    # is just expensive ceremony (~3-4s on n=10^5).
-    n_ref_for_paired = min(
-        n_val_finite if n_val_finite > 0 else 10_000_000,
-        n_test_finite if n_test_finite > 0 else 10_000_000,
-    )
-    if strongest is not None and primary_metric is not None and n_ref_for_paired < config.bootstrap_ci_threshold:
-        try:
-            paired = _paired_bootstrap_vs_runner_up(
-                target_type, strongest, primary_metric, table,
-                val_preds, test_preds, val_y_arr, test_y_arr,
-                n_resamples=config.paired_bootstrap_n_resamples,
-                seed=_per_target_seed(config.random_state, target_name) + 1,
-            )
-            if paired is not None:
-                extras["paired_bootstrap"] = paired
-                if paired.get("p_strongest_beats") is not None and (paired["p_strongest_beats"] < config.strongest_min_beat_runner_up_prob):
-                    extras["tie"] = True
-        except Exception as e:
-            logger.debug(
-                "[dummy-baselines] target='%s' paired-bootstrap failed (%s); skipping",
-                target_name, e,
-            )
-
-    # Bootstrap CI for strongest baseline when min(n_val, n_test) < 2000.
-    # Below that threshold the noise floor on RMSE / log_loss / NDCG is non-
-    # trivial (>1%), so a CI grounds the verdict line. Above 2000, point
-    # estimate is accurate to <1% and CI is suppressed to keep output compact.
-    n_ref_for_ci = min(
-        n_val_finite if n_val_finite > 0 else 10_000_000,
-        n_test_finite if n_test_finite > 0 else 10_000_000,
-    )
-    if strongest is not None and primary_metric is not None and n_ref_for_ci < config.bootstrap_ci_threshold and n_ref_for_ci >= 10:
-        try:
-            ci = _bootstrap_ci_for_strongest(
-                target_type, strongest, primary_metric,
-                val_preds, test_preds, val_y_arr, test_y_arr,
-                n_resamples=config.bootstrap_ci_n_resamples,
-                seed=_per_target_seed(config.random_state, target_name),
-            )
-            if ci is not None:
-                extras["bootstrap_ci"] = ci
-        except Exception as e:
-            logger.debug(
-                "[dummy-baselines] target='%s' bootstrap CI failed (%s); skipping",
-                target_name, e,
-            )
-
-    # Dummy-baselines overlay plot REMOVED.
-    # The standard ``report_regression_model_perf`` / ``report_probabilistic_model_perf``
-    # already produce per-model scatter + residual + calibration charts
-    # with full title-metric headers. Re-rendering a separate
-    # baseline-overlay PNG was redundant noise on disk and operators
-    # asked to "see my standard charts and reports, not a new chart
-    # type". The dummy-baselines TABLE (val/test metric grid + strongest
-    # verdict line) remains the actionable artifact.
-    plot_path = None
-
-    # Expose strongest-baseline val/test predictions via
-    # ``extras`` so a downstream consumer (core.py, between
-    # dummy-baselines computation and the per-target model-training
-    # loop) can render the "best-baseline-overlay" pre-training chart
-    # the user repeatedly asked for. We keep the prediction arrays
-    # OUT of ``BaselineReport``'s top-level fields (they'd bloat
-    # JSON serialization of metadata.pkl) and store them in extras
-    # under explicit keys that the renderer reads by name. Memory
-    # cost: 2 x n_split float arrays per target, freed once the
-    # renderer consumes them.
-    if strongest is not None:
-        sv = val_preds.get(strongest)
-        st = test_preds.get(strongest)
-        if sv is not None:
-            extras["strongest_val_preds"] = np.asarray(sv)
-        if st is not None:
-            extras["strongest_test_preds"] = np.asarray(st)
-
-    elapsed_s = _time.time() - t0
-    return BaselineReport(
-        target_type=target_type,
-        target_name=target_name,
-        table=table,
-        strongest=strongest,
-        primary_metric=primary_metric,
-        ts_period_used=ts_period_used,
-        plot_path=plot_path,
-        elapsed_s=elapsed_s,
-        n_train=n_train, n_val=n_val, n_test=n_test,
-        n_train_finite=n_train_finite, n_val_finite=n_val_finite, n_test_finite=n_test_finite,
-        extras=extras,
-    )
+    return _canonical_compute_dummy_baselines(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------

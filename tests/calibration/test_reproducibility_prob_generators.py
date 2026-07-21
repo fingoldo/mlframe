@@ -11,14 +11,14 @@ import pytest
 
 
 def _global_state_unchanged(before) -> bool:
-    """Helper that global state unchanged."""
+    """Returns ``before[0] == after[0] and np.array_equal(before[1], after[1]) and (before[2:] == after[...`` (after 1 setup step)."""
     after = np.random.get_state()
     return before[0] == after[0] and np.array_equal(before[1], after[1]) and before[2:] == after[2:]
 
 
 @pytest.fixture(scope="module")
 def _probs():
-    """Helper that probs."""
+    """Builds seeded synthetic test data; returns ``(p, y)``."""
     rng = np.random.default_rng(0)
     p = np.clip(rng.normal(0.5, 0.2, size=300), 1e-3, 1 - 1e-3)
     y = (rng.random(300) < p).astype(int)

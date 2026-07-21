@@ -1226,18 +1226,14 @@ class TestTrainMlframeModelsSuiteUseGroups:
         """Install a spy that captures the ``groups`` kwarg and returns
         a deterministic 60/20/20 split so the rest of the suite can run.
 
-        Patches the symbol at EVERY use site. Wave 105 (2026-05-21) moved
-        ``_phase_train_val_test_split`` (the function that actually calls
-        ``make_train_test_split``) out of ``_phase_helpers`` into the new
-        sibling ``_phase_helpers_fit_split``; both modules carry their
-        own top-level ``from ..splitting import make_train_test_split``
-        binding, so patching just one leaves the other live and the spy
-        never fires.
+        The function that actually calls ``make_train_test_split`` lives in
+        ``_phase_helpers_fit_split`` (its own top-level ``from ..splitting import
+        make_train_test_split`` binding) -- ``_phase_helpers`` no longer imports
+        that name at all, so only the sibling needs patching.
         """
-        from mlframe.training.core import _phase_helpers as _ph_mod
         from mlframe.training.core import _phase_helpers_fit_split as _ph_fs_mod
 
-        def _fake_split(df, **kwargs):
+        def _fake_split(df, *, return_calib=False, **kwargs):
             """Fake split."""
             captured["groups"] = kwargs.get("groups")
             n = len(df)
@@ -1246,12 +1242,12 @@ class TestTrainMlframeModelsSuiteUseGroups:
             test_idx = np.arange(n - n_test, n)
             val_idx = np.arange(n - n_test - n_val, n - n_test)
             train_idx = np.arange(0, n - n_test - n_val)
+            # make_train_test_split(return_calib=True) additionally returns a (calib_idx,
+            # calib_details) pair; the real caller always passes return_calib=True.
+            if return_calib:
+                return train_idx, val_idx, test_idx, "", "", "", None, ""
             return train_idx, val_idx, test_idx, "", "", ""
 
-        # Patch both module-bindings so whichever path the suite walks
-        # (the legacy _phase_helpers path or the wave-105 sibling path)
-        # routes through the spy.
-        monkeypatch.setattr(_ph_mod, "make_train_test_split", _fake_split)
         monkeypatch.setattr(_ph_fs_mod, "make_train_test_split", _fake_split)
 
     def test_groups_flow_when_use_groups_true(self, monkeypatch, tmp_path):

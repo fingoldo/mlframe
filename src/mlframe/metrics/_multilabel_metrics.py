@@ -291,8 +291,21 @@ def _pack_for_bitmap(arr: np.ndarray) -> np.ndarray:
 
 
 def _coerce_multilabel_array(arr) -> np.ndarray:
-    """Single-pass cast to contiguous uint8 (N, K). Reshape (N,) -> (N, 1)."""
-    a = np.ascontiguousarray(np.asarray(arr), dtype=np.uint8)
+    """Validate every value is a genuine 0/1 (or boolean) indicator, then cast to contiguous uint8 (N, K).
+    Reshape (N,) -> (N, 1).
+
+    A NaN or out-of-{0,1} value (e.g. a raw class-index column passed by mistake) previously cast silently
+    into an in-range-but-wrong uint8 code (undefined-but-typically-0 on NaN, truncated on e.g. 2.7) instead
+    of raising, corrupting hamming/subset/jaccard/F1 results.
+    """
+    a_in = np.asarray(arr)
+    if a_in.dtype != np.bool_:
+        a_float = a_in.astype(np.float64, copy=False)
+        if not np.isfinite(a_float).all():
+            raise ValueError("multilabel array must not contain NaN/inf values.")
+        if not ((a_float == 0.0) | (a_float == 1.0)).all():
+            raise ValueError("multilabel array must contain only 0/1 indicator values.")
+    a = np.ascontiguousarray(a_in, dtype=np.uint8)
     if a.ndim == 1:
         return a.reshape(-1, 1)
     if a.ndim == 2:
@@ -323,6 +336,8 @@ def hamming_loss(y_true, y_pred) -> float:
     Same return-value semantics as ``sklearn.metrics.hamming_loss``.
     """
     yt, yp = _validate_multilabel_pair(y_true, y_pred)
+    # Separately benchmarked/tuned element-count gate (N*K), not the row-count _PARALLEL_MULTILABEL_THRESHOLD
+    # subset_accuracy/jaccard_score_multilabel share below.
     if yt.shape[0] * yt.shape[1] > 1_000_000:
         return float(_fast_hamming_loss_par(yt, yp))
     return float(_fast_hamming_loss_seq(yt, yp))

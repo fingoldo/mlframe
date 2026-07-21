@@ -49,6 +49,12 @@ def spectral_seriation(M: np.ndarray, *, method: str = "fiedler") -> np.ndarray:
     M = np.ascontiguousarray(M, dtype=np.float64)
     if M.ndim != 2 or M.shape[0] != M.shape[1]:
         raise ValueError(f"spectral_seriation: M must be square 2-D, got shape {M.shape}.")
+    if not np.all(np.isfinite(M)):
+        # A NaN/Inf entry propagates into the Laplacian and surfaces as an opaque
+        # numpy.linalg.LinAlgError: Eigenvalues did not converge deep inside np.linalg.eigh, which doesn't
+        # name the actual problem and could equally be a genuine numerical-convergence failure on a valid
+        # matrix.
+        raise ValueError("spectral_seriation: M contains NaN/Inf entries.")
     n = M.shape[0]
     if n <= 2:
         return np.arange(n)

@@ -41,7 +41,7 @@ def test_scratch_build_byte_identical_to_np_delete(p):
 
 
 def _make(n=4000, p=30, seed=0):
-    """Helper that make."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, p))
     X[:, 1] += 0.7 * X[:, 0]

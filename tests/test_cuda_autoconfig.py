@@ -11,7 +11,7 @@ import mlframe
 
 
 def _make_fake_pip_nvvm(root):
-    """Helper that make fake pip nvvm."""
+    """Test helper: nvvm = root / 'nvidia' / 'cuda_nvcc' / 'nvvm'; (nvvm / 'bin').mkdir(parents=True); (nvvm / 'libdevice').mkdir(parents=True)."""
     nvvm = root / "nvidia" / "cuda_nvcc" / "nvvm"
     (nvvm / "bin").mkdir(parents=True)
     (nvvm / "libdevice").mkdir(parents=True)
@@ -21,7 +21,7 @@ def _make_fake_pip_nvvm(root):
 
 
 def _clear_cuda_env(monkeypatch):
-    """Helper that clear cuda env."""
+    """Test helper: for k in list(os.environ): if k == 'CUDA_HOME' or k == 'C...."""
     for k in list(os.environ):
         if k == "CUDA_HOME" or k == "CUDA_PATH" or k.startswith("CUDA_PATH_V") or k == "MLFRAME_NO_CUDA_AUTOCONFIG":
             monkeypatch.delenv(k, raising=False)

@@ -30,8 +30,14 @@ def compute_oof_yhat_within(
     subsets still partition cleanly.
     """
     n = X_sub.shape[0]
-    n_splits = min(aux_n_splits, n) if n >= 2 else 2
-    n_splits = max(2, n_splits)
+    if n < 2:
+        # KFold(n_splits=2) on 0 or 1 rows raises ValueError, contradicting this docstring's "capped to the
+        # subset size so tiny subsets still partition cleanly" claim. A per-outer-fold train complement can
+        # legitimately be this small on a tiny dataset -- return a neutral zero y_hat instead of crashing,
+        # matching the undersized-subset convention this cluster's sibling conformal_*.py files already use
+        # for the same failure mode.
+        return np.zeros(n, dtype=np.float32)
+    n_splits = max(2, min(aux_n_splits, n))
     y_hat = np.zeros(n, dtype=np.float32)
     aux_splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
     for tr_idx, va_idx in aux_splitter.split(X_sub):

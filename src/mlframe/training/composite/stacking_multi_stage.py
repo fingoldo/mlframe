@@ -208,7 +208,10 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
         except ImportError:
             pass
         if isinstance(X, pd.DataFrame):
-            out = X.copy()
+            # Shallow copy: the loop below only ever appends new meta-feature columns, never
+            # mutates an existing column of X -- called on every predict(), so a deep copy here
+            # (frames here can be 100+GB) would be paid on every inference call for zero benefit.
+            out = X.copy(deep=False)
             for name, vals in meta_cols.items():
                 out[name] = vals
             return out

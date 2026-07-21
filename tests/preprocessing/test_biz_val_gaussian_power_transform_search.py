@@ -105,10 +105,10 @@ def test_biz_val_gaussian_power_transform_search_target_guard_rejects_signal_des
 
 
 def _apply_transform_for_test(x: np.ndarray, transform_name: str) -> np.ndarray:
-    """Helper that apply transform for test."""
+    """Fits ``transform_name`` on ``x`` and returns the transformed array (discards the fitted params)."""
     from mlframe.preprocessing.gaussian_power_transform_search import _apply_transform
 
-    out = _apply_transform(x, transform_name)
+    out, _fitted_params = _apply_transform(x, transform_name)
     assert out is not None
     return out
 

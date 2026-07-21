@@ -8,10 +8,31 @@ fixes that residual bias cheaply, without retraining, using only a held-out vali
 """
 from __future__ import annotations
 
+import logging
 from typing import Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+
+def _canonical_group_key_series(group: np.ndarray) -> pd.Series:
+    """Stringify group labels the SAME way at fit and apply time, so an int64<->float64 dtype drift between
+    the two calls (e.g. a stray NaN elsewhere in the same store_id column upcasting it between the validation
+    run and a later scoring run) can't silently split one logical group into two different string keys
+    (``3`` vs ``3.0``). A genuine NaN group label is preserved as NaN (not stringified) so it still falls
+    through pandas' own dropna-groupby / dict-lookup-miss behavior unchanged.
+    """
+    arr = np.asarray(group)
+    if np.issubdtype(arr.dtype, np.floating):
+        is_nan = np.isnan(arr)
+        is_whole = ~is_nan & (arr == np.floor(arr))
+        safe_int_arr = np.where(is_whole, arr, 0).astype(np.int64)
+        keys = np.where(is_whole, safe_int_arr.astype(str), arr.astype(str)).astype(object)
+        keys[is_nan] = np.nan
+        return pd.Series(keys)
+    return pd.Series(arr).astype(str)
 
 
 def fit_group_bias_correction(
@@ -53,9 +74,27 @@ def fit_group_bias_correction(
     dict
         ``{group_value: correction_ratio}`` -- store this and reapply via ``apply_group_bias_correction`` at
         inference; never recompute on rows without ground truth (that's what this validation-slice-only fit
-        exists to avoid).
+        exists to avoid). Keys are canonicalized (see :func:`_canonical_group_key_series`) so a numeric
+        group column that drifts int64<->float64 between the fit and apply calls still matches. Rows whose
+        ``group`` is NaN are excluded from the table (logged as a warning) and fall back to ``default_ratio``
+        at apply time.
     """
-    df = pd.DataFrame({"y_true": np.asarray(y_true, dtype=np.float64), "y_pred": np.asarray(y_pred, dtype=np.float64), "group": group})
+    n_nan_groups = int(pd.isna(pd.Series(group)).sum())
+    if n_nan_groups:
+        logger.warning(
+            "fit_group_bias_correction: %d row(s) have a NaN group label and are excluded from the fitted "
+            "correction table (pandas groupby dropna=True); those rows will silently receive default_ratio "
+            "at apply time unless handled upstream.",
+            n_nan_groups,
+        )
+
+    df = pd.DataFrame(
+        {
+            "y_true": np.asarray(y_true, dtype=np.float64),
+            "y_pred": np.asarray(y_pred, dtype=np.float64),
+            "group": _canonical_group_key_series(group).to_numpy(),
+        }
+    )
     # A per-group loop calling sub["y_true"].mean()/sub["y_pred"].mean() separately pays pandas per-group
     # column-access + reduction overhead TWICE per group (measured as the dominant cProfile cost at
     # n_groups=2000). A single groupby(...).agg(["mean", "count"]) computes both means and the group size for
@@ -85,11 +124,23 @@ def fit_group_bias_correction(
 
 
 def apply_group_bias_correction(y_pred: np.ndarray, group: np.ndarray, ratios: Dict[str, float], default_ratio: float = 1.0) -> np.ndarray:
-    """Apply previously-fitted per-group ratios: ``corrected = y_pred * ratios.get(group, default_ratio)``."""
+    """Apply previously-fitted per-group ratios: ``corrected = y_pred * ratios.get(group, default_ratio)``.
+
+    ``group`` is canonicalized the same way ``fit_group_bias_correction`` keyed ``ratios`` (see
+    :func:`_canonical_group_key_series`), so an int64<->float64 dtype drift in the group column between the
+    fit and apply calls does not silently miss every lookup.
+    """
     # A per-row Python dict.get() list comprehension is a real bottleneck at large n (measured as the
     # dominant cost at n=500k). pandas.Series.map with a dict does the same lookup via a vectorized C-level
     # hashtable pass instead of a Python-level loop.
-    group_arr = pd.Series(group).astype(str)
+    group_arr = _canonical_group_key_series(group)
+    n_nan_groups = int(pd.isna(group_arr).sum())
+    if n_nan_groups:
+        logger.warning(
+            "apply_group_bias_correction: %d row(s) have a NaN group label and will receive default_ratio=%s.",
+            n_nan_groups,
+            default_ratio,
+        )
     ratio_lookup = group_arr.map(ratios).fillna(default_ratio).to_numpy(dtype=np.float64)
     return np.asarray(np.asarray(y_pred, dtype=np.float64) * ratio_lookup)
 

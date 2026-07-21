@@ -181,7 +181,12 @@ def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
                 _tf = _t[np.isfinite(_t)]
                 if _tf.size >= 10:
                     _med_t = float(np.median(_tf))
-                    _mad_t = float(np.median(np.abs(_tf - _med_t))) * 1.4826
+                    # RAW (unscaled) MAD, matching fit() / from_fitted_inner()'s identical envelope formula
+                    # in _estimator.py -- this site previously applied the extra normal-consistent *1.4826
+                    # scale factor those two don't, silently widening the post-drift-refit T-clip envelope
+                    # by ~48% for the same underlying spread purely as a side effect of ever calling
+                    # .update() with a firing drift correction.
+                    _mad_t = float(np.median(np.abs(_tf - _med_t)))
                     if _mad_t > 0:
                         self.fitted_params_["t_clip_low"] = _med_t - 10.0 * _mad_t
                         self.fitted_params_["t_clip_high"] = _med_t + 10.0 * _mad_t

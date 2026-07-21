@@ -18,11 +18,11 @@ class _IdentityCal:
     """Returns the (positive-class) probability unchanged as a 1D array."""
 
     def fit(self, X, y):
-        """Helper that fit."""
+        """No-op fit stub; returns self unchanged (satisfies the sklearn fit/set_params contract without doing real work)."""
         return self
 
     def transform(self, X):
-        """Helper that transform."""
+        """Returns ``np.asarray(X, dtype=float).ravel()``."""
         return np.asarray(X, dtype=float).ravel()
 
 
@@ -30,11 +30,11 @@ class _OverflowCal:
     """Emits out-of-range values so the adapter's [0,1] clip is exercised."""
 
     def fit(self, X, y):
-        """Helper that fit."""
+        """No-op fit stub; returns self unchanged (satisfies the sklearn fit/set_params contract without doing real work)."""
         return self
 
     def transform(self, X):
-        """Helper that transform."""
+        """Returns ``np.asarray(X, dtype=float).ravel() * 5.0 - 2.0``."""
         return np.asarray(X, dtype=float).ravel() * 5.0 - 2.0
 
 
@@ -42,11 +42,11 @@ class _PredictOnlyCal:
     """Exposes ``predict`` but not ``transform`` -> adapter must fall back to predict."""
 
     def fit(self, X, y):
-        """Helper that fit."""
+        """No-op fit stub; returns self unchanged (satisfies the sklearn fit/set_params contract without doing real work)."""
         return self
 
     def predict(self, X):
-        """Helper that predict."""
+        """Returns ``np.asarray(X, dtype=float).ravel()``."""
         return np.asarray(X, dtype=float).ravel()
 
 
@@ -54,17 +54,17 @@ class TopFoo:
     # Name must start with "Top" so _calibrator_needs_2d_probs's prefix check fires.
     """Groups tests covering TopFoo."""
     def fit(self, X, y):
-        """Helper that fit."""
+        """No-op fit stub; returns self unchanged (satisfies the sklearn fit/set_params contract without doing real work)."""
         return self
 
     def transform(self, X):
-        """Helper that transform."""
+        """Returns ``np.asarray(X, dtype=float)``."""
         return np.asarray(X, dtype=float)
 
 
 @pytest.fixture
 def calib_data():
-    """Helper that calib data."""
+    """Returns ``(p, y)`` (after 2 setup steps)."""
     p = np.array([0.1, 0.4, 0.6, 0.9])
     y = np.array([0, 0, 1, 1])
     return p, y

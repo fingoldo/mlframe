@@ -223,7 +223,12 @@ def evaluate_estimators(
 
                 if baseline_model is not None:
                     eval_set = Pool(X_test_val, y_test_val)
-                    eval_set.set_baseline(baseline_model.predict(X_test_val).astype(int))
+                    # CatBoost's set_baseline expects a raw-margin score per row, not necessarily an
+                    # integer -- `.astype(int)` used to TRUNCATE any continuous baseline (e.g. a
+                    # regressor/probability-emitting baseline_model) down to 0/1 instead of raising,
+                    # silently discarding the baseline's informativeness. A hard-label classifier's
+                    # predict() (already 0.0/1.0-valued) is unaffected by dropping the cast.
+                    eval_set.set_baseline(np.asarray(baseline_model.predict(X_test_val), dtype=np.float64))
                 else:
                     eval_set = (X_test_val, y_test_val)
 
@@ -396,9 +401,15 @@ def evaluate_estimators(
 
                             """Standard sklearn code"""
 
-                            for pos_label in range(nclasses):
-                                prob_pos = probs[:, pos_label]
-                                prob_true, prob_pred = calibration_curve(y_test_test == pos_label, prob_pos, n_bins=calibration_nbins)
+                            # `_calib_class_label` (NOT `pos_label`) -- a plain `for` loop has no block
+                            # scope, so reusing the function's own `pos_label` parameter name here would
+                            # silently overwrite it (Python has no loop-local scoping); every later
+                            # estimator's `preds = (probs[:, pos_label] > threshold)...` above would then
+                            # see the LAST class index this loop reached instead of the caller's requested
+                            # `pos_label`, corrupting threshold predictions for every subsequent estimator.
+                            for _calib_class_label in range(nclasses):
+                                prob_pos = probs[:, _calib_class_label]
+                                prob_true, prob_pred = calibration_curve(y_test_test == _calib_class_label, prob_pos, n_bins=calibration_nbins)
 
                                 plt.figure(figsize=figsize)
                                 ax1 = plt.subplot2grid((3, 1), (0, 0), rowspan=2)
@@ -413,7 +424,7 @@ def evaluate_estimators(
                                 ax1.set_ylabel("Fraction of positives")
                                 ax1.set_ylim((-0.05, 1.05))
                                 ax1.legend(loc="lower right")
-                                ax1.set_title(f"Calibration plot for {display_labels[pos_label]}")
+                                ax1.set_title(f"Calibration plot for {display_labels[_calib_class_label]}")
 
                                 ax2.set_xlabel("Mean predicted value")
                                 ax2.set_ylabel("Count")
@@ -441,10 +452,25 @@ def evaluate_estimators(
 
 
 def evaluate_grouped(
-    pipe: Any, X_test: Any, y_test: Any, by_column: str = "Вакансия_Должность", ntop: int = 100, min_population=100, all_cats: Optional[dict] = None
+    pipe: Any,
+    X_test: Any,
+    y_test: Any,
+    by_column: str = "Вакансия_Должность",
+    ntop: int = 100,
+    min_population=100,
+    all_cats: Optional[dict] = None,
+    count_col_name: str = "Откликов",
+    precision_col_name: str = "Точность",
+    recall_col_name: str = "Полнота",
 ):
     """
-    Показать точность обученной простой модели в разбивке по Должностям
+    Показать точность обученной простой модели в разбивке по Должностям (job-recruiting-domain
+    diagnostic; ``by_column`` defaults to a Russian column name for that original use case, but is
+    already a plain parameter -- pass any grouping column).
+
+    ``count_col_name``/``precision_col_name``/``recall_col_name`` override the 3 hardcoded Russian output
+    labels ("Откликов"/"Точность"/"Полнота" -- "responses"/"precision"/"recall"); defaults preserve the
+    exact pre-existing output shape for callers who don't pass them.
     """
     if all_cats is None:
         all_cats = {}
@@ -513,12 +539,12 @@ def evaluate_grouped(
             if not failed:
                 stats = rp["weighted avg"]
                 if stats:
-                    res.append({by_column: position, "Откликов": qty, "Точность": stats["precision"], "Полнота": stats["recall"]})
+                    res.append({by_column: position, count_col_name: qty, precision_col_name: stats["precision"], recall_col_name: stats["recall"]})
                 # res.append({'Должность':position,'Откликов':qty,'Точность':precision_score(y_test[idx], preds, average='macro'),'Полнота':recall_score(y_test[idx], preds, average='macro')})
 
     by_position = pd.DataFrame(res)
 
-    return by_position.sort_values(by="Точность", ascending=False).reset_index(drop=True)
+    return by_position.sort_values(by=precision_col_name, ascending=False).reset_index(drop=True)
 
 
 # ****************************************************************************************************************************

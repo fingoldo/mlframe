@@ -15,7 +15,7 @@ from mlframe.votenrank.dual_optimizer_blend import dual_optimizer_weight_blend
 
 
 def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Helper that rmse."""
+    """Returns ``float(np.sqrt(np.mean((y_true - y_pred) ** 2)))``."""
     return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
 
@@ -69,7 +69,7 @@ def test_biz_val_dual_optimizer_blend_coord_descent_catches_correlated_blind_spo
     dip_depth = 0.6
 
     def _adversarial_loss(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-        """Helper that adversarial loss."""
+        """Test helper: w = y_pred; d_true = float(np.linalg.norm(w - w_true)); if d_true < dip_radius: return decoy_loss - dip_depth * (...."""
         w = y_pred  # identity-trick: the "blended prediction" IS the weight vector itself
         d_true = float(np.linalg.norm(w - w_true))
         if d_true < dip_radius:

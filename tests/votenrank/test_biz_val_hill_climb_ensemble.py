@@ -15,12 +15,12 @@ from mlframe.votenrank.hill_climb import hill_climb_ensemble
 
 
 def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Helper that rmse."""
+    """Returns ``float(np.sqrt(np.mean((y_true - y_pred) ** 2)))``."""
     return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
 
 def _make_model_pool(n_samples: int, n_good: int, n_bad: int, seed: int):
-    """Helper that make model pool."""
+    """Builds seeded synthetic test data; returns ``(y_true, good_preds + bad_preds)``."""
     rng = np.random.default_rng(seed)
     y_true = rng.standard_normal(n_samples) * 3.0
     good_preds = [y_true + 0.3 * rng.standard_normal(n_samples) for _ in range(n_good)]
@@ -127,7 +127,7 @@ def test_biz_val_hill_climb_ensemble_bagging_generalizes_better_than_single_path
     )
 
     def _holdout_rmse(weights: np.ndarray) -> float:
-        """Helper that holdout rmse."""
+        """Returns ``_rmse(y_holdout, blended)`` (after 2 setup steps)."""
         blended = np.zeros(n_holdout)
         for idx, w in enumerate(weights):
             blended += w * holdout_preds[idx]

@@ -820,4 +820,4 @@ def delong_test(
     }
 
 
-__all__ = ["bootstrap_metric", "delong_test", "auc_variance", "auc_ci"]
+__all__ = ["bootstrap_metric", "bootstrap_metrics", "delong_test", "auc_variance", "auc_ci"]

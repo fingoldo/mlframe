@@ -165,7 +165,8 @@ class HybridSelector:
                  cooccur_weight: str = "gain", cluster_rep: str = "first",
                  mrmr_synergy_cap: int = 250,
                  hybrid_corr_max_features: int = 2000,
-                 random_state: int = 42, classification: "Optional[bool]" = None, name: str = "hybrid"):
+                 random_state: int = 42, classification: "Optional[bool]" = None, name: str = "hybrid",
+                 keep_augmented_data: bool = True):
         # cooccur_weight (default "gain" -- MEASURED win on interaction beds): how the tree member ranks candidate
         # co-occurrence PAIRS proposed from GBM split co-occurrence. "count" weights a pair by raw frequency (how many
         # trees split on both a and b); "gain" weights it by the summed split GAIN the two features contribute within
@@ -258,6 +259,13 @@ class HybridSelector:
         # and skip value-sniffing entirely (mirrors hetero_vote / ShapProxiedFS which take an explicit classification=).
         self.classification = classification
         self.name = name
+        # keep_augmented_data (default True -- preserves the pre-existing behavior every _benchmarks/fs_hybrid/
+        # combine-rule/diagnostic script depends on: self._Xaug_/self._y_ populated after fit()). A live
+        # (non-pickled) fitted HybridSelector otherwise retains a full copy of the augmented (raw + engineered)
+        # training data for its whole in-process lifetime -- __getstate__ already drops both before pickling, so
+        # this only matters for a caller keeping the fitted object around unpickled (e.g. a long-lived service).
+        # Set False to free that memory immediately after fit() instead of waiting for pickling/GC.
+        self.keep_augmented_data = keep_augmented_data
 
     # ------------------------------------------------------------------ shared-once artifacts
     def _shared_perm_fi(self, X, y):
@@ -470,8 +478,10 @@ class HybridSelector:
 
     def _run_boruta_premerge(self, X, y, relevant):
         """BorutaShap on the SHARED cluster representatives (premerge, R2b-6), then re-expand accepted reps. Uses the
-        boruta_driver importance measure ("permutation" held-out by default -> ~0 noise leak, vs "gini" which admits
-        the top spurious column and caps the linear downstream under vote=1)."""
+        boruta_driver importance measure -- "gini" by default (measured net-negative for "permutation" without FE;
+        see __init__'s boruta_driver comment for the full benchmark), with "permutation" available as the
+        high-precision, held-out option (~0 noise leak, vs "gini" which admits the top spurious column and caps the
+        linear downstream under vote=1)."""
         from mlframe.feature_selection.boruta_shap import BorutaShap
         from sklearn.ensemble import RandomForestClassifier
         # restrict the shared clusters to the relevant survivors; rep = highest-FI member of each restricted cluster
@@ -587,7 +597,10 @@ class HybridSelector:
         # engineered = MRMR-engineered + the ADMITTED tree products (rejected ones are already pruned). Both are
         # candidate engineered columns exempt from the raw-FI prescreen (they passed their own FE/synergy gate).
         engineered = set(self._eng_rename.values()) | set(getattr(self, "_tree_prod_names_", []))
-        self._Xaug_, self._y_ = X_aug, y  # stashed for combine-rule variants/diagnostics (benchmark composition class)
+        if self.keep_augmented_data:
+            self._Xaug_, self._y_ = X_aug, y  # stashed for combine-rule variants/diagnostics (benchmark composition class)
+        else:
+            self._Xaug_, self._y_ = None, None
 
         # shared artifacts: restrict the already-computed FI to the kept columns (no recompute), cluster the kept frame
         self.fi_ = {c: fi_full.get(c, 0.0) for c in cols}

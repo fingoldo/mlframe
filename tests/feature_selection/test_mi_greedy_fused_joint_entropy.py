@@ -128,7 +128,7 @@ def test_greedy_construct_no_redundant_cmi_from_binned_calls():
     orig = m._cmi_from_binned
 
     def _counting(*args, **kwargs):
-        """Helper that counting."""
+        """Returns ``orig(*args, **kwargs)`` (after 1 setup step)."""
         calls["n"] += 1
         return orig(*args, **kwargs)
 

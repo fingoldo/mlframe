@@ -47,7 +47,7 @@ class _AlwaysFailingModel:
         self.feature_names_in_ = np.array(["x0", "x1"], dtype=object)
 
     def predict(self, X):
-        """Helper that predict."""
+        """Always raises ``RuntimeError(self._msg)``."""
         raise RuntimeError(self._msg)
 
 
@@ -66,7 +66,7 @@ def _build_models_dict(*, n_models: int = 1, fail: bool = True):
                 feature_names_in_ = np.array(["x0", "x1"], dtype=object)
 
                 def predict(self, X):
-                    """Helper that predict."""
+                    """Returns ``np.zeros(len(X), dtype=np.float64)``."""
                     return np.zeros(len(X), dtype=np.float64)
 
             inner = _Ok()
@@ -75,7 +75,7 @@ def _build_models_dict(*, n_models: int = 1, fail: bool = True):
 
 
 def _build_df():
-    """Helper that build df."""
+    """Builds seeded synthetic test data; returns ``pd.DataFrame({'x0': rng.standard_normal(50).astype(np.float64), 'x1': rng.standard_norm...``."""
     rng = np.random.default_rng(0)
     return pd.DataFrame(
         {
@@ -151,7 +151,7 @@ def test_partial_success_does_not_raise() -> None:
         feature_names_in_ = np.array(["x0", "x1"], dtype=object)
 
         def predict(self, X):
-            """Helper that predict."""
+            """Returns ``np.full(len(X), 1.5, dtype=np.float64)``."""
             return np.full(len(X), 1.5, dtype=np.float64)
 
     working = SimpleNamespace(model=_Ok(), pre_pipeline=None)

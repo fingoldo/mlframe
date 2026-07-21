@@ -23,7 +23,7 @@ from typing import Optional, Dict, List
 # it where actually needed.
 
 from pyutilz.system import get_gpuinfo_gpu_info
-from ._gpu_probe import CUDA_IS_AVAILABLE
+from ._gpu_probe import CUDA_IS_AVAILABLE  # noqa: F401 -- re-exported so `helpers.CUDA_IS_AVAILABLE` keeps resolving for existing callers
 
 # `_probe_xgb_gpu_support` / `_probe_lgb_gpu_support` re-export was dropped:
 # they are private to `_gpu_probe.py` (only used to compute the module-level
@@ -47,15 +47,6 @@ from .callbacks import (  # noqa: F401
 )
 
 logger = logging.getLogger(__name__)
-
-
-# Constant - CUDA availability
-try:
-    from numba.cuda import is_available as is_cuda_available
-
-    CUDA_IS_AVAILABLE = is_cuda_available()
-except (ImportError, AttributeError, ModuleNotFoundError):
-    CUDA_IS_AVAILABLE = False
 
 
 # Per-library GPU support gating. ``CUDA_IS_AVAILABLE`` (numba probe)

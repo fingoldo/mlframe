@@ -13,6 +13,7 @@ from typing import Any, Optional, Tuple
 
 import numpy as np
 
+from mlframe.config import CATBOOST_MODEL_TYPES
 from .pipeline import _prepare_test_split
 from ._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
 from .cb import _predict_with_fallback
@@ -32,6 +33,7 @@ def maybe_run_confidence_analysis(
     model_type_name: str,
     figsize: Any,
     verbose: Any,
+    sample_weight: Optional[np.ndarray] = None,
 ) -> None:
     """Run the optional SHAP/confidence analysis on the test split when enabled.
 
@@ -50,7 +52,12 @@ def maybe_run_confidence_analysis(
         text_features=fit_params.get("text_features") if fit_params else None,
         embedding_features=fit_params.get("embedding_features") if fit_params else None,
         confidence_model_kwargs=dict(confidence.model_kwargs) if confidence.model_kwargs else {},
-        fit_params=fit_params if model_type_name == "CatBoostRegressor" else None,
+        # The confidence model built inside run_confidence_analysis is ALWAYS a fresh
+        # CatBoostRegressor regardless of model_type_name (trainer.py never builds it from the
+        # caller's actual estimator), so there is no type-compatibility reason to forward CB-native
+        # fit kwargs (cat_features/text_features/etc. the caller already tuned) only when the ORIGINAL
+        # model happened to be a CatBoostRegressor -- any CatBoost model type qualifies equally.
+        fit_params=fit_params if model_type_name in CATBOOST_MODEL_TYPES else None,
         use_shap=confidence.use_shap,
         max_features=confidence.max_features,
         cmap=confidence.cmap,
@@ -59,6 +66,7 @@ def maybe_run_confidence_analysis(
         ylabel=confidence.ylabel,
         figsize=figsize,
         verbose=verbose,
+        sample_weight=sample_weight,
     )
 
 

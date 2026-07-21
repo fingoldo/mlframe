@@ -565,7 +565,11 @@ def compute_numaggs(
             return_distributional=return_distributional,
             return_entropy=return_entropy,
             return_hurst=return_hurst,
-            return_float32=True,
+            # Forward the OUTER caller's own return_float32 instead of hard-coding True -- a caller
+            # requesting return_float32=False (full float64 precision) previously still got this recursive
+            # lintrend-approx block silently rounded through np.float32 before being folded back into the
+            # (otherwise float64) output tuple.
+            return_float32=return_float32,
             return_profit_factor=False,
             return_drawdown_stats=False,
             return_n_zer_pos_int=return_n_zer_pos_int,

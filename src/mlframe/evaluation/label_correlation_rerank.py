@@ -259,12 +259,20 @@ def optimize_group_blend_weight(
         for w in weight_grid:
             candidate_weights = dict(weights)
             candidate_weights[group] = float(w)
+            # Rerank ALL previously-optimized groups too (not just the one under test), each still using
+            # its own already-decided weight via `candidate_weights` -- otherwise the CV score being
+            # searched here is computed against a scores array where earlier groups are left as raw
+            # (unblended) scores, which does not match what `label_correlation_rerank(...,
+            # correlated_groups=all_groups, group_weights=weights)` will actually produce once every group
+            # is genuinely applied together. This is what makes the search a real coordinate ascent instead
+            # of silently degrading to "each group tuned independently".
+            candidate_groups = [*weights.keys(), group]
             fold_scores = []
             for fold in range(n_splits):
                 mask = fold_ids == fold
                 if not mask.any():
                     continue
-                reranked = label_correlation_rerank(pred_scores[mask], correlated_pairs=[], correlated_groups=[group], group_weights=candidate_weights)
+                reranked = label_correlation_rerank(pred_scores[mask], correlated_pairs=[], correlated_groups=candidate_groups, group_weights=candidate_weights)
                 fold_scores.append(metric_fn(y_arr[mask], reranked))
             if fold_scores:
                 mean_score = float(np.mean(fold_scores))

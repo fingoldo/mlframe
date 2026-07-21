@@ -99,7 +99,11 @@ def get_model_best_iter(model: object) -> int | None:
             try:
                 return int(val)
             except (TypeError, ValueError):
-                return int(val)
+                # A bad value on THIS field (e.g. a model exposing best_iteration_="n/a") must fall
+                # through to the next field / tree_count_ fallback / None, matching this function's own
+                # docstring -- re-calling int(val) here re-raised the identical exception instead of
+                # degrading gracefully.
+                continue
     tree_count = getattr(real_model, "tree_count_", None)
     if tree_count is not None:
         try:

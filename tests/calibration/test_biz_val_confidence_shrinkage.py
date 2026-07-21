@@ -14,7 +14,7 @@ from mlframe.calibration.confidence_shrinkage import apply_confidence_shrinkage,
 
 
 def _top1_accuracy(pred_dict: dict, true_relevant: np.ndarray) -> float:
-    """Helper that top1 accuracy."""
+    """Test helper: names = list(pred_dict.keys()); matrix = np.column_stack([pred_dict[n] for n in names]); top1_idx = np.argmax(matrix, axis=1)."""
     names = list(pred_dict.keys())
     matrix = np.column_stack([pred_dict[n] for n in names])
     top1_idx = np.argmax(matrix, axis=1)
@@ -129,7 +129,7 @@ def test_biz_val_confidence_shrinkage_per_segment_beats_global_when_reliability_
     )["out"]
 
     def _noisy_segment_variance(shrunk: np.ndarray) -> float:
-        """Helper that noisy segment variance."""
+        """Returns ``float(np.var(shrunk[noisy_mask]))`` (after 1 setup step)."""
         noisy_mask = segment_ids == "noisy"
         return float(np.var(shrunk[noisy_mask]))
 
@@ -137,7 +137,7 @@ def test_biz_val_confidence_shrinkage_per_segment_beats_global_when_reliability_
         # Brier-style calibration error against the true 0/1 label -- unlike Pearson correlation (invariant
         # to any positive-weight affine shrink), this DOES penalize partial shrinkage: pulling a genuinely
         # informative prediction toward the neutral value moves it away from the true label and raises MSE.
-        """Helper that reliable segment mse."""
+        """Returns ``float(np.mean((shrunk[reliable_mask] - oof_label[reliable_mask]) ** 2))`` (after 1 setup step)."""
         reliable_mask = segment_ids == "reliable"
         return float(np.mean((shrunk[reliable_mask] - oof_label[reliable_mask]) ** 2))
 

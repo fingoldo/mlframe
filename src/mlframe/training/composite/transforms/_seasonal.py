@@ -6,8 +6,13 @@ small candidate grid (``_SEASONAL_PERIOD_CANDIDATES`` capped at ``n // 3`` so ev
 
 Index-position phase assumption. Like ``ewma_residual``, the transform is defined on the ROW SEQUENCE: phase is the row's position modulo ``period``
 within the batch it is evaluated on, NOT a calendar field. The caller is responsible for chronological, gap-free row order at fit and predict, and a
-predict batch is assumed to start at phase 0 (the same stateless-batch convention the EWMA anchor uses). Given the phase, the transform is pointwise
-(no neighbour reads), so ``recurrent=False`` is correct: dropping a row shifts later phases exactly as it would shift them in the caller's own frame.
+predict batch is assumed to start at phase 0 (the same stateless-batch convention the EWMA anchor uses). Given the phase, the transform IS pointwise
+(no neighbour reads) -- but it is still registered ``recurrent=True``, because that flag's real purpose in ``CompositeTargetEstimator.fit()`` is not
+"needs neighbour values", it's "must see the FULL, uncompacted row sequence to compute correct per-row state": this transform's per-row phase is an
+ABSOLUTE POSITION in that sequence, and the wrapper's ordinary (non-recurrent) path compacts away domain-violating rows BEFORE calling forward(),
+which silently shifts every later row's array position -- and hence its phase -- whenever a row is dropped. That shift is introduced by the wrapper's
+OWN internal domain-filter compaction, not by anything visible in the caller's own frame (the caller passed a full, gap-free series), which found this exact position-vs-neighbour distinction get missed by an earlier version
+of this comment.
 """
 from __future__ import annotations
 
@@ -19,10 +24,16 @@ _SEASONAL_PERIOD_CANDIDATES: tuple[int, ...] = (4, 5, 7, 12, 24, 52)
 """Candidate seasonal periods for the fit-time grid search: intra-month week (4/5), week of daily data (7), months (12), hours (24), weeks of year (52)."""
 
 
-def _seasonal_phase_means(y_f: np.ndarray, period: int) -> tuple[np.ndarray, float]:
-    """Per-phase means of ``y_f`` (NaN-aware) + the residual variance after subtracting them. Empty phases fall back to the global mean."""
+def _seasonal_phase_means(y_f: np.ndarray, period: int, row_index: np.ndarray | None = None) -> tuple[np.ndarray, float]:
+    """Per-phase means of ``y_f`` (NaN-aware) + the residual variance after subtracting them. Empty phases fall back to the global mean.
+
+    ``row_index``: optional absolute row-position array (same length as ``y_f``), used instead of
+    ``arange(len(y_f))`` when the phase must reflect the row's TRUE position in some larger original
+    sequence -- see ``_seasonal_residual_fit``'s ``row_index`` parameter.
+    """
     n = y_f.size
-    phase = np.arange(n, dtype=np.int64) % period
+    idx = row_index if row_index is not None else np.arange(n, dtype=np.int64)
+    phase = idx % period
     finite = np.isfinite(y_f)
     global_mean = float(np.mean(y_f[finite])) if finite.any() else 0.0
     sums = np.bincount(phase[finite], weights=y_f[finite], minlength=period)
@@ -37,13 +48,24 @@ def _seasonal_residual_fit(
     y: np.ndarray, base: np.ndarray | None,
     period: int | None = None,
     _finite_mask: np.ndarray | None = None,
+    row_index: np.ndarray | None = None,
 ) -> dict[str, Any]:
-    """Learn per-phase means. ``period`` may be supplied explicitly (like other transforms accept ``k`` / ``d`` fit kwargs); otherwise it is chosen from ``_SEASONAL_PERIOD_CANDIDATES`` (capped at n//3) by minimum residual variance, ties to the smaller period."""
+    """Learn per-phase means. ``period`` may be supplied explicitly (like other transforms accept ``k`` / ``d`` fit kwargs); otherwise it is chosen from ``_SEASONAL_PERIOD_CANDIDATES`` (capped at n//3) by minimum residual variance, ties to the smaller period.
+
+    ``row_index``: optional absolute-position array (same length as ``y``), signature-gated in from
+    ``CompositeTargetEstimator.fit()`` (mirroring its ``sample_weight`` gating). ``fit()`` is always called
+    on domain-filter-COMPACTED ``y``/``base`` regardless of the ``recurrent`` flag (unlike ``forward()``,
+    which the recurrent branch routes through the FULL sequence) -- so without ``row_index``, phase would be
+    computed from COMPACTED-array position, silently misaligned whenever any row was dropped between fit's
+    input and the row's true position.
+    ``None`` (the default, e.g. for a direct/standalone call) falls back to ``arange(len(y))``, unchanged.
+    """
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
     n = y_f.size
+    row_idx = np.asarray(row_index, dtype=np.int64).reshape(-1) if row_index is not None else None
     if period is not None:
         period = max(1, int(period))
-        means, _ = _seasonal_phase_means(y_f, period)
+        means, _ = _seasonal_phase_means(y_f, period, row_idx)
         return {"period": period, "phase_means": means, "y_train_mean": float(means.mean())}
     candidates = [p for p in _SEASONAL_PERIOD_CANDIDATES if p <= max(n // 3, 1)]
     if not candidates:
@@ -52,11 +74,11 @@ def _seasonal_residual_fit(
     best_period = candidates[0]
     best_var = float("inf")
     for p in candidates:
-        means, var = _seasonal_phase_means(y_f, p)
+        means, var = _seasonal_phase_means(y_f, p, row_idx)
         if var < best_var - 1e-15:
             best_var = var
             best_period = p
-    means, _ = _seasonal_phase_means(y_f, best_period)
+    means, _ = _seasonal_phase_means(y_f, best_period, row_idx)
     return {"period": int(best_period), "phase_means": means, "y_train_mean": float(means.mean())}
 
 

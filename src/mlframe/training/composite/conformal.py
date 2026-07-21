@@ -70,7 +70,7 @@ def conformal_quantile(residuals: np.ndarray, alpha: float) -> float:
 _CONFORMAL_SIGMA_NBINS = 20
 
 
-def _conformal_internal_split(n_cal: int, time_ordering=None) -> tuple[np.ndarray, np.ndarray]:
+def _conformal_internal_split(n_cal: int, time_ordering=None, random_state: int = 0) -> tuple[np.ndarray, np.ndarray]:
     """Two-way calibration split for the normalized score's sigma_hat fit / calibrate halves.
 
     Returns ``(fit_idx, cal_idx)`` -- positional indices into the calibration rows.
@@ -85,7 +85,10 @@ def _conformal_internal_split(n_cal: int, time_ordering=None) -> tuple[np.ndarra
     """
     half = n_cal // 2
     if time_ordering is None or time_ordering is False:
-        rng = np.random.default_rng(0)
+        # Caller-controlled random_state (previously hardcoded to 0 -- every call with the same n_cal got
+        # the identical fit/calibrate split regardless of caller intent, silently correlating repeated
+        # calibration draws on the same calibration pool).
+        rng = np.random.default_rng(random_state)
         perm = rng.permutation(n_cal)
         return perm[:half], perm[half:]
     if time_ordering is True:
@@ -143,7 +146,7 @@ def _sigma_for(edges: np.ndarray, sigma: np.ndarray, y_pred: np.ndarray) -> np.n
     return sigma[idx]
 
 
-def calibrate_conformal(self, X_cal, y_cal, alpha=0.1, score="normalized", time_ordering=None):
+def calibrate_conformal(self, X_cal, y_cal, alpha=0.1, score="normalized", time_ordering=None, random_state: int = 0):
     """Fit the split-conformal radius from a held-out calibration set.
 
     ``X_cal`` / ``y_cal`` MUST be rows the inner estimator did NOT train on
@@ -183,6 +186,11 @@ def calibrate_conformal(self, X_cal, y_cal, alpha=0.1, score="normalized", time_
 
     Marginal coverage ``>= 1 - alpha`` holds for BOTH scores (the finite-sample
     split-conformal guarantee is on the exchangeable score, not on its scale).
+
+    ``random_state`` seeds the internal random fit/calibrate half-split used by ``score="normalized"`` (no
+    effect on ``"absolute"`` or on a blocked/temporal split, which is deterministic by construction).
+    Defaults to ``0`` for backward-compatible determinism; vary it to decorrelate repeated/bootstrapped
+    calibration draws on the same calibration pool.
     """
     if not hasattr(self, "estimator_"):
         from sklearn.exceptions import NotFittedError
@@ -214,7 +222,7 @@ def calibrate_conformal(self, X_cal, y_cal, alpha=0.1, score="normalized", time_
         time_ord = time_ordering
         if time_ord is None:
             time_ord = getattr(self, "_is_temporal_", None) or getattr(self, "_time_ordering_", None)
-        fit_idx, cal_idx = _conformal_internal_split(n_cal, time_ord)
+        fit_idx, cal_idx = _conformal_internal_split(n_cal, time_ord, random_state=random_state)
         half = fit_idx.size
         if half >= 2 and cal_idx.size >= 1:
             edges, sigma, _ = _fit_sigma_model(y_pred[fit_idx], np.abs(residuals[fit_idx]))
@@ -369,12 +377,24 @@ def predict_interval_cqr(self, X, alpha=0.1):
     return np.clip(lower, lo_b, hi_b), np.clip(upper, lo_b, hi_b)
 
 
+# Stable sentinel for a missing/NaN group label -- see _normalize_groups below.
+_MONDRIAN_NAN_SENTINEL = "__nan__"
+
+
 def _normalize_groups(groups, n: int) -> np.ndarray:
     """Coerce a group label vector to a 1-D object array of length ``n``.
 
     Accepts ndarray / list / pandas Series / polars Series; never copies a
     frame. Raises on a length mismatch so a mis-aligned ``groups`` is caught at
     calibration rather than silently mis-binning the residuals.
+
+    NaN/missing labels are normalized to the stable ``_MONDRIAN_NAN_SENTINEL`` string here, at the ONE
+    shared entry point both ``calibrate_conformal_mondrian`` and ``predict_interval_mondrian`` call --
+    ``pd.factorize(..., use_na_sentinel=False)`` deliberately keeps a NaN label as its own certifiable group,
+    but two INDEPENDENT factorize calls (fit-time vs predict-time) produce DIFFERENT ``float('nan')`` Python
+    objects, and ``nan != nan``, so ``lab in per_group`` always missed even a certified NaN group at predict
+    time, silently routing it to the OOD fallback. A plain string sentinel hashes/compares
+    normally, so both factorize calls now agree on the same group identity for a missing label.
     """
     if hasattr(groups, "to_numpy"):
         g = np.asarray(groups.to_numpy())
@@ -383,6 +403,12 @@ def _normalize_groups(groups, n: int) -> np.ndarray:
     g = g.reshape(-1)
     if g.shape[0] != n:
         raise ValueError(f"groups has {g.shape[0]} entries but {n} rows were expected")
+    import pandas as pd
+
+    nan_mask = pd.isna(g)
+    if nan_mask.any():
+        g = g.astype(object)
+        g[nan_mask] = _MONDRIAN_NAN_SENTINEL
     return g
 
 

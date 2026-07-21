@@ -78,8 +78,19 @@ def detect_calendar_anomalies(
     has_baseline = ~np.isnan(baseline_arr)
     flagged = has_baseline & (deviation_ratio > deviation_ratio_threshold)
 
+    # Divide for a HIGH-side anomaly (y >= baseline: ratio=y/baseline, so y/ratio=baseline -- correct), but
+    # MULTIPLY for a LOW-side anomaly (y < baseline: ratio=baseline/y, so y/ratio=y**2/baseline, which pulls
+    # the value FURTHER from baseline, not toward it; y*ratio=baseline is the right formula there instead).
     corrected = y.copy()
-    corrected[flagged] = y[flagged] / deviation_ratio[flagged]
+    low_side = y < baseline_arr
+    with np.errstate(invalid="ignore"):
+        ratio_corrected = np.where(low_side, y * deviation_ratio, y / deviation_ratio)
+    finite_ratio = np.isfinite(deviation_ratio)
+    corrected[flagged & finite_ratio] = ratio_corrected[flagged & finite_ratio]
+    # deviation_ratio is inf only when lo <= 0 < hi (a degenerate non-positive side): both y/inf (silently
+    # collapses to ~0) and y*inf (+/-inf or NaN) are meaningless here: the mathematically consistent
+    # "fully corrected toward baseline" value in that limit is simply the baseline itself.
+    corrected[flagged & ~finite_ratio] = baseline_arr[flagged & ~finite_ratio]
 
     result = {
         "flagged": flagged,

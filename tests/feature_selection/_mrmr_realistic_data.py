@@ -46,7 +46,7 @@ import pandas as pd
 # 1:1 to the ``distribution`` axis the fuzzer parametrises over.
 # ---------------------------------------------------------------------------
 def _draw(rng: np.random.Generator, kind: str, n: int) -> np.ndarray:
-    """Helper that draw."""
+    """Test helper: if kind == 'uniform': return rng.uniform(0.2, 1.2, n); if kind == 'uniform_signed': return rng.uniform(-2.5, 2.5...; if kind == 'normal': return rng.normal(0.0, 1.0, n)."""
     if kind == "uniform":
         return rng.uniform(0.2, 1.2, n)  # strictly positive -> log/div safe
     if kind == "uniform_signed":

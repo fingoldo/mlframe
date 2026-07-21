@@ -15,7 +15,7 @@ from mlframe.preprocessing.outlier_detector_zoo import make_outlier_detector, se
 
 
 def _make_known_contamination_dataset(seed: int = 0, n_inliers: int = 950, n_outliers: int = 50):
-    """Helper that make known contamination dataset."""
+    """Builds seeded synthetic test data; returns ``(X, y_true)``."""
     rng = np.random.default_rng(seed)
     inliers = rng.normal(loc=0.0, scale=1.0, size=(n_inliers, 5))
     outliers = rng.normal(loc=25.0, scale=1.0, size=(n_outliers, 5))
@@ -26,7 +26,7 @@ def _make_known_contamination_dataset(seed: int = 0, n_inliers: int = 950, n_out
 
 
 def _anomaly_scores(X: np.ndarray) -> np.ndarray:
-    """Helper that anomaly scores."""
+    """Builds seeded synthetic test data; returns ``-detector.decision_function(X)``."""
     detector = make_outlier_detector("isolation_forest", n_estimators=200, random_state=0)
     detector.fit(X)
     return -detector.decision_function(X)  # negate to higher = more anomalous

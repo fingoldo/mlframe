@@ -23,14 +23,16 @@ def apply_sticky_state_persistence_floor(probs: np.ndarray, active_class: np.nda
     probs
         ``(n, k)`` predicted class-probability matrix.
     active_class
-        ``(n,)`` integer index (into the ``k`` classes) of the currently-active class per row.
+        ``(n,)`` integer index (into the ``k`` classes) of the currently-active class per row. Raises
+        ``ValueError`` if any value falls outside ``[0, k)``.
     floor
-        Minimum probability to enforce for the active class, in ``[0, 1)``. Rows where the active class's
-        raw probability already exceeds ``floor`` are returned unchanged. Either a single scalar applied to
-        every class uniformly, or a ``(k,)`` per-class floor vector -- different classes can genuinely have
-        different persistence tendencies (e.g. a state that almost never spontaneously changes vs. one that
-        flips often), so a single global floor is a compromise between them. Opt-in: passing a scalar
-        reproduces the original uniform-floor behavior bit-for-bit.
+        Minimum probability to enforce for the active class, in ``[0, 1)`` -- raises ``ValueError`` outside
+        that range (``floor >= 1`` would drive the renormalized "rest" probability mass negative). Rows
+        where the active class's raw probability already exceeds ``floor`` are returned unchanged. Either a
+        single scalar applied to every class uniformly, or a ``(k,)`` per-class floor vector -- different
+        classes can genuinely have different persistence tendencies (e.g. a state that almost never
+        spontaneously changes vs. one that flips often), so a single global floor is a compromise between
+        them. Opt-in: passing a scalar reproduces the original uniform-floor behavior bit-for-bit.
 
     Returns
     -------
@@ -42,11 +44,18 @@ def apply_sticky_state_persistence_floor(probs: np.ndarray, active_class: np.nda
     probs_src = np.asarray(probs, dtype=np.float64)
     active = np.asarray(active_class)
     n = probs_src.shape[0]
+    k = probs_src.shape[1]
+
+    floor_arr = np.asarray(floor, dtype=np.float64)
+    if np.any(floor_arr < 0.0) or np.any(floor_arr >= 1.0):
+        raise ValueError(f"apply_sticky_state_persistence_floor: floor must be in [0, 1), got {floor!r}.")
+    if n and (np.any(active < 0) or np.any(active >= k)):
+        raise ValueError(f"apply_sticky_state_persistence_floor: active_class must index into [0, {k}), got {active_class!r}.")
+
     row_idx = np.arange(n)
 
     active_prob = probs_src[row_idx, active]
 
-    floor_arr = np.asarray(floor, dtype=np.float64)
     # scalar floor stays a scalar through the arithmetic below (no per-row array materialized) so the
     # uniform-floor path is bit-identical to the pre-per-class-vector implementation.
     floor_per_row: Union[float, np.ndarray] = float(floor_arr) if floor_arr.ndim == 0 else floor_arr[active]

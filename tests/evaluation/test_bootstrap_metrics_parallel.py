@@ -15,7 +15,7 @@ _R = 400  # above the n_bootstrap>=256 gate
 
 
 def _data(seed=0):
-    """Helper that data."""
+    """Builds seeded synthetic test data; returns ``(y, p)``."""
     rng = np.random.default_rng(seed)
     y = (rng.random(_N) < 0.35).astype(np.float64)
     p = np.clip(0.2 + 0.5 * y + rng.standard_normal(_N) * 0.3, 1e-6, 1 - 1e-6)
@@ -23,12 +23,12 @@ def _data(seed=0):
 
 
 def _mf():
-    """Helper that mf."""
+    """Returns ``{'brier': lambda yy, pp: float(np.mean((yy - pp) ** 2)), 'mean_p': lambda yy, pp: float...``."""
     return {"brier": lambda yy, pp: float(np.mean((yy - pp) ** 2)), "mean_p": lambda yy, pp: float(np.mean(pp))}
 
 
 def _ci(res):
-    """Helper that ci."""
+    """Returns ``{k: (round(v['lo'], 10), round(v['hi'], 10)) for k, v in res.items()}``."""
     return {k: (round(v["lo"], 10), round(v["hi"], 10)) for k, v in res.items()}
 
 

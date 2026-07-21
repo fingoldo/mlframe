@@ -13,12 +13,12 @@ from mlframe.votenrank.constrained_weight_blend import constrained_weight_blend
 
 
 def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Helper that rmse."""
+    """Returns ``float(np.sqrt(np.mean((y_true - y_pred) ** 2)))``."""
     return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
 
 def _make_model_pool(n_samples: int, n_good: int, n_bad: int, seed: int):
-    """Helper that make model pool."""
+    """Builds seeded synthetic test data; returns ``(y_true, good_preds + bad_preds)``."""
     rng = np.random.default_rng(seed)
     y_true = rng.standard_normal(n_samples) * 3.0
     good_preds = [y_true + 0.3 * rng.standard_normal(n_samples) for _ in range(n_good)]

@@ -17,7 +17,7 @@ from mlframe.evaluation.subpopulation_drift import rank_subpopulation_drift_seve
 
 
 def _make_shifted_subpopulation_data(n_train: int, n_test: int, seed: int):
-    """Helper that make shifted subpopulation data."""
+    """Builds seeded synthetic test data; returns ``(train_df, test_df)``."""
     rng = np.random.default_rng(seed)
     train_shift_col = rng.choice(["A", "B"], size=n_train, p=[0.90, 0.10])
     test_shift_col = rng.choice(["A", "B"], size=n_test, p=[0.99, 0.01])

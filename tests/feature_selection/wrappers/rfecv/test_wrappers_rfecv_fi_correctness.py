@@ -264,7 +264,7 @@ class TestDummySubmitKnob:
         orig = MBHOptimizer.submit_evaluations
 
         def tracked(self, candidates, evaluations, durations):
-            """Helper that tracked."""
+            """Returns ``orig(self, candidates, evaluations, durations)`` (after 1 setup step)."""
             submitted.extend(list(candidates))
             return orig(self, candidates, evaluations, durations)
 
@@ -288,7 +288,7 @@ class TestDummySubmitKnob:
         orig = MBHOptimizer.submit_evaluations
 
         def tracked(self, candidates, evaluations, durations):
-            """Helper that tracked."""
+            """Returns ``orig(self, candidates, evaluations, durations)`` (after 1 setup step)."""
             submitted.extend(list(candidates))
             return orig(self, candidates, evaluations, durations)
 

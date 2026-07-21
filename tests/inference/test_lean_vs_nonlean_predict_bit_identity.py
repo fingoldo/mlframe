@@ -38,7 +38,7 @@ _ZSTD = dict(level=4, write_checksum=True, write_content_size=True, threads=0)
 
 
 def _make_holdout(n: int = 400, seed: int = 7) -> pd.DataFrame:
-    """Helper that make holdout."""
+    """Builds seeded synthetic test data; returns ``pd.DataFrame({'f0': rng.normal(size=n).astype('float32'), 'f1': rng.normal(size=n).asty...``."""
     rng = np.random.default_rng(seed)
     return pd.DataFrame(
         {

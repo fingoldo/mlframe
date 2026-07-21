@@ -16,7 +16,7 @@ from mlframe.metrics.calibration._calibration_plot import (
 
 
 def _clean(n, seed):
-    """Helper that clean."""
+    """Builds seeded synthetic test data; returns ``(yt, yp)``."""
     rng = np.random.default_rng(seed)
     yp = rng.uniform(0, 1, n)
     yt = (rng.uniform(0, 1, n) < yp).astype(np.int64)

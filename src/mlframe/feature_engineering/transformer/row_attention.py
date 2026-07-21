@@ -216,6 +216,7 @@ def build_key_bank(
         fp = _key_bank_fingerprint(
             X_train=X_train, seed=seed, n_heads=n_heads, head_dim=head_dim,
             metric="cosine", standardize=standardize, ann_M=ann_M, ann_ef_construction=ann_ef_construction,
+            projection=projection, dtype=dtype,
         )
         cached = try_load_key_bank(cache_dir, fp)
         if cached is not None:
@@ -304,6 +305,11 @@ def attend(
     q_proj = apply_projection(X_q_std, bank.projections, l2_normalize=True)  # (n_heads, n_query, head_dim)
     n_query = X_query.shape[0]
 
+    # Identity check (not a __name__ string match, fragile if the callable is ever wrapped e.g. via
+    # functools.wraps under a different name, or renamed) against the actual imported symbol. _kernels_cupy imports cupy lazily inside its own
+    # functions, so importing the module itself here is safe even without a GPU/cupy installed.
+    from ._kernels_cupy import row_attention_stage4_cupy
+
     outputs: dict[str, np.ndarray] = {}
     for h in range(bank.n_heads):
         topk_ids, _dists = query_topk(bank.ann_indices[h], q_proj[h], k=k, ef_search=ann_ef_search, num_threads=num_threads)
@@ -312,7 +318,7 @@ def attend(
         x_mean_v = np.empty((n_query, bank.head_dim), dtype=np.float32)
 
         # If the bank is GPU-resident AND we're using the cupy stage 4, pass device arrays through to avoid re-upload.
-        if bank.k_proj_device is not None and stage4_callable.__name__ == "row_attention_stage4_cupy":
+        if bank.k_proj_device is not None and stage4_callable is row_attention_stage4_cupy:
             stage4_callable(
                 q_proj[h], bank.k_proj[h], bank.y_train, topk_ids, softmax_temp,
                 y_mean_v, y_std_v, x_mean_v,

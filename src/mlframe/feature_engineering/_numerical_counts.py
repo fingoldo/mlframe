@@ -137,8 +137,7 @@ def compute_nunique_modes_quantiles_numpy(
 
         max_modes = min(max_modes, len(counts))
 
-        # Wave 58 (2026-05-20): lexsort with value as tiebreaker so tied
-        # counts give a deterministic mode pick across runs.
+        # lexsort with value as tiebreaker so tied counts give a deterministic mode pick across runs.
         modes_indices = np.lexsort((vals, -counts))[:max_modes]
 
         first_mode_count = counts[modes_indices[0]]
@@ -172,9 +171,8 @@ def compute_nunique_modes_quantiles_numpy(
     else:
         res = ()
 
-    # Wave 21 P1: nanquantile so a NaN in arr doesn't poison all returned
-    # quantile feature values silently. The public feature aggregator runs
-    # on caller-supplied 1-D series; NaN is common in raw data.
+    # nanquantile so a NaN in arr doesn't poison all returned quantile feature values silently.
+    # The public feature aggregator runs on caller-supplied 1-D series; NaN is common in raw data.
     quantiles = np.nanquantile(arr, q, method=quantile_method)  # type: ignore[call-overload]  # quantile_method is a plain str param (any of numpy's valid method literals); over-typing it as a Literal isn't worth the API churn
     res = res + tuple(quantiles)  # .tolist()
 

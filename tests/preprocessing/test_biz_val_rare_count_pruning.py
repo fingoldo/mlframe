@@ -21,7 +21,7 @@ from mlframe.preprocessing.rare_count_pruning import collapse_rare_categories, d
 
 
 def _make_small_n_dataset(n: int, seed: int):
-    """Helper that make small n dataset."""
+    """Builds seeded synthetic test data; returns ``(df, y)``."""
     rng = np.random.default_rng(seed)
     # a few genuinely informative, well-populated categories...
     informative_cat = rng.choice(["A", "B", "C"], size=n, p=[0.4, 0.35, 0.25])
@@ -40,7 +40,7 @@ def test_biz_val_collapse_rare_categories_reduces_overfitting_on_small_n():
     X_train, X_test, y_train, y_test = train_test_split(df, y, test_size=0.3, random_state=0)
 
     def _encode(frame: pd.DataFrame) -> pd.DataFrame:
-        """Helper that encode."""
+        """Returns ``pd.get_dummies(frame)``."""
         return pd.get_dummies(frame)
 
     model_raw = RandomForestRegressor(n_estimators=100, random_state=0)
@@ -95,7 +95,7 @@ def _make_target_aware_dataset(n: int, seed: int):
 
 
 def _split_preserving_special(df: pd.DataFrame, y: np.ndarray, special_idx: np.ndarray, seed: int):
-    """Helper that split preserving special."""
+    """Builds seeded synthetic test data; returns ``(df.iloc[train_idx], y[train_idx], df.iloc[test_idx], y[test_idx])``."""
     rng = np.random.default_rng(seed)
     test_special = special_idx[:25]
     train_special = special_idx[25:]
@@ -109,7 +109,7 @@ def _split_preserving_special(df: pd.DataFrame, y: np.ndarray, special_idx: np.n
 
 
 def _fit_and_auc(X_train: pd.DataFrame, y_train: np.ndarray, X_test: pd.DataFrame, y_test: np.ndarray) -> float:
-    """Helper that fit and auc."""
+    """Test helper: train_enc = pd.get_dummies(X_train); test_enc = pd.get_dummies(X_test).reindex(columns=train_e...; clf = LogisticRegression(max_iter=200)."""
     train_enc = pd.get_dummies(X_train)
     test_enc = pd.get_dummies(X_test).reindex(columns=train_enc.columns, fill_value=0)
     clf = LogisticRegression(max_iter=200)

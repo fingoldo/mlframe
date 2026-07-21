@@ -72,6 +72,10 @@ from mlframe.training.feature_handling.text_detection import (
 
 logger = logging.getLogger(__name__)
 
+# (method, group_columns) tuples already warned about via the group_columns-is-a-no-op WARNING below --
+# process-lifetime dedup so a suite iterating many targets/models doesn't spam the log once per call.
+_GROUP_COLUMNS_WARN_SEEN: set = set()
+
 if TYPE_CHECKING:
     import pandas as pd  # noqa: F401
     import polars as pl  # noqa: F401
@@ -296,6 +300,19 @@ def feature_handling_apply(
     # Cat axis (target encoders only -- ordinal/onehot/native handled
     # elsewhere in the existing pipeline path)
     for cat_spec in cat_specs:
+        if cat_spec.group_columns:
+            # group_columns ("group-aware encoding") is declared but not yet consumed anywhere in this
+            # loop or by LeakageSafeEncoder -- warn (once per column-tuple) so a caller relying on it
+            # notices they're silently getting ordinary global-fold encoding instead of per-group stats.
+            _gc_key = (cat_spec.method, tuple(cat_spec.group_columns))
+            if _gc_key not in _GROUP_COLUMNS_WARN_SEEN:
+                _GROUP_COLUMNS_WARN_SEEN.add(_gc_key)
+                logger.warning(
+                    "CatHandlerSpec(method=%r).group_columns=%r is set but group-aware encoding is not "
+                    "yet implemented; falling back to ordinary global-fold encoding (group_columns is "
+                    "silently ignored).",
+                    cat_spec.method, cat_spec.group_columns,
+                )
         target_cols = cat_spec.apply_to_columns or cat_cols
         for col in target_cols:
             if cat_spec.method.startswith("target_") or cat_spec.method == "woe":
@@ -474,8 +491,13 @@ def _apply_target_encoder(
         key = InMemoryKey(
             session_id=session_id,
             df_token=train_id,
-            # Hash y content so multi-target suites don't collide on the same df_token/column slot.
-            train_idx_token=_target_content_token(train_target),
+            # Fold the target's content token together with a column-content token (same sampling
+            # strategy _apply_text_encoder already uses) -- hashing only train_target left two calls
+            # sharing id(train_df) + an identical train_target but a DIFFERENT categorical column (e.g.
+            # two different binnings/recodings of the same column name, or an OD mask that preserves the
+            # target but changes the column) silently replay each other's cached (encoder, oof_train),
+            # the exact collision class _apply_text_encoder was already hardened against.
+            train_idx_token=_combine_content_tokens(_target_content_token(train_target), _text_column_content_token(train_df, column)),
             column=column,
             params_canonical_hash=canonical_params_hash(params),
             provider_signature=f"target_encoder:{method}",
@@ -602,6 +624,23 @@ def _target_content_token(train_target: Any) -> int:
             "otherwise replay target-1's fitted state for target-2).", _e,
         )
         return id(train_target) & ((1 << 63) - 1)
+
+
+def _combine_content_tokens(*tokens: int) -> int:
+    """Fold multiple independent 63-bit content tokens into one 63-bit ``InMemoryKey.train_idx_token``.
+
+    True boost::hash_combine-style mixing: each step folds the RUNNING ``combined`` accumulator into
+    the per-token transform (not just XOR-ing independently-transformed tokens in), so the combined
+    token depends on ALL inputs including their ORDER. A prior version transformed each token in
+    isolation (``combined ^= token*A + B``) -- feeding the same raw token value twice (or two tokens
+    that happen to collide) then cancelled to 0 via XOR-with-self, the exact degenerate collision this
+    function exists to prevent.
+    """
+    mask = (1 << 63) - 1
+    combined = 0
+    for t in tokens:
+        combined = (combined ^ ((int(t) + 0x9E3779B97F4A7C15 + (combined << 6) + (combined >> 2)) & mask)) & mask
+    return combined
 
 
 __all__ = [

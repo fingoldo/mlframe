@@ -83,7 +83,12 @@ def test_mydecorrelator_dataframe_no_full_wrap():
     dec.fit(df)
     out = dec.transform(df)
     assert isinstance(out, pd.DataFrame)
-    assert set(out.columns) == set(df.columns) - dec.correlated_features_
+    # correlated_features_ is canonical integer POSITIONS (not names) as of the F6 fix in
+    # audits/full_audit_2026-07-21/feature_selection_nonmrmr.md -- resolve back to names via the fit-time
+    # column order before comparing, so this test targets the real dropped-columns behaviour rather than
+    # an internal representation detail.
+    dropped_names = {df.columns[c] for c in dec.correlated_features_}
+    assert set(out.columns) == set(df.columns) - dropped_names
     # a and b are perfectly correlated; exactly one is dropped.
     assert len(out.columns) == 2
 

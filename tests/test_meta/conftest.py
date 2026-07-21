@@ -23,6 +23,7 @@ _REFRESH_FLAGS = [
     "--refresh-debt-baseline",
     "--refresh-docstring-baseline",
     "--refresh-logger-baseline",
+    "--refresh-mojibake-baseline",
     "--refresh-mutable-defaults-baseline",
     "--refresh-resource-handle-baseline",
 ]

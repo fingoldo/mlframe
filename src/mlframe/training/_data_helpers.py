@@ -204,16 +204,21 @@ def _setup_sample_weight(sample_weight, train_idx, model_obj, fit_params):
     if "sample_weight" not in get_function_param_names(model_obj.fit):
         return
 
-    if isinstance(sample_weight, (pd.Series, pd.DataFrame)):
-        if train_idx is not None:
-            fit_params["sample_weight"] = sample_weight.iloc[train_idx].values
-        else:
-            fit_params["sample_weight"] = sample_weight.values
-    else:
-        if train_idx is not None:
-            fit_params["sample_weight"] = sample_weight[train_idx]
-        else:
-            fit_params["sample_weight"] = sample_weight
+    if isinstance(sample_weight, pd.DataFrame):
+        # A DataFrame sample_weight is a single-column frame in practice; squeeze to a Series
+        # so the shared dispatch below applies uniformly regardless of train_idx.
+        sample_weight = sample_weight.iloc[:, 0]
+    # Route through _extract_target_subset for the pandas/polars/numpy dispatch AND its
+    # boolean-mask -> integer-position normalisation (a bool train_idx worked via numpy-style
+    # indexing on pandas/plain-array sample_weight but raised InvalidOperationError on a
+    # pl.Series -- this helper never had a polars branch at all, unlike its sibling
+    # _extract_target_subset, which was fixed for exactly this divergence).
+    subset = _extract_target_subset(sample_weight, train_idx)
+    if isinstance(subset, pd.Series):
+        subset = subset.values
+    elif isinstance(subset, pl.Series):
+        subset = subset.to_numpy()
+    fit_params["sample_weight"] = subset
 
 
 def _initialize_mutable_defaults(drop_columns, default_drop_columns, fi_kwargs, confidence_model_kwargs):
@@ -421,7 +426,12 @@ def _setup_model_info_and_paths(model, model_name, model_name_prefix, plot_file,
 
     if model_name_prefix:
         model_name = model_name_prefix + model_name
-    if model_type_name not in model_name:
+    # Whitespace-delimited TOKEN check, not raw substring: a model_name that merely CONTAINS
+    # model_type_name as part of an unrelated word (e.g. model_type_name="CB" and a
+    # user-supplied prefix containing "CBOW-embeddings") would otherwise silently skip the
+    # intended prefixing, letting two different model types collide on the same
+    # model_file_name and overwrite each other's .dump.
+    if model_type_name not in model_name.split():
         model_name = model_type_name + " " + model_name
 
     # Falsy guard: avoid creating a relative `./models/` leak when data_dir="".
@@ -694,9 +704,21 @@ def _groupids_to_sizes(group_ids: Any) -> np.ndarray | None:
     arr = np.asarray(group_ids)
     if arr.size == 0:
         return np.empty(0, dtype=np.int64)
-    # Run-length encode consecutive equal qids.
+    # Run-length encode consecutive equal qids -- silently WRONG on out-of-order input (a qid
+    # reappearing after a gap gets split into two separate "groups"), so surface a violation of
+    # the documented sorted-by-qid contract instead of letting it silently corrupt eval_group
+    # sizes (which LightGBM would then misinterpret as extra query boundaries).
     boundaries = np.concatenate([[0], np.flatnonzero(np.diff(arr)) + 1, [arr.size]])
-    return np.diff(boundaries).astype(np.int64)
+    sizes = np.diff(boundaries).astype(np.int64)
+    if boundaries.size - 1 > np.unique(arr).size:
+        logger.warning(
+            "_groupids_to_sizes: group_ids is not sorted by qid (a qid value reappears after a "
+            "gap) -- %d run-length group(s) detected but only %d unique qid(s) exist. LightGBM's "
+            "eval_group will treat the same query as multiple groups, silently corrupting the "
+            "ranking eval. Sort rows by qid before calling this helper.",
+            boundaries.size - 1, np.unique(arr).size,
+        )
+    return sizes
 
 
 # Model categories that already wire val/eval_set through ``_setup_eval_set`` and have

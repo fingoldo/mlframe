@@ -9,27 +9,6 @@ if TYPE_CHECKING:
     import polars as pl
 
 
-def _polars_categorical_dtypes():
-    """Lazy import to avoid importing polars at module level."""
-    import polars as pl
-    return (pl.Categorical, pl.Utf8, pl.String)
-
-
-def _is_polars_categorical(dtype) -> bool:
-    """True for any polars string-like/categorical dtype (Categorical, Utf8, String, or an Enum instance) that HGB must cast before training."""
-    if dtype in _polars_categorical_dtypes():
-        return True
-    import polars as pl
-    if hasattr(pl, "Enum") and isinstance(dtype, pl.Enum):
-        return True
-    return False
-
-
-def _get_polars_cat_columns(df: "pl.DataFrame") -> list:
-    """Column names in ``df`` whose dtype is categorical/string-like per ``_is_polars_categorical``."""
-    return [name for name, dtype in df.schema.items() if _is_polars_categorical(dtype)]
-
-
 class HGBStrategy(ModelPipelineStrategy):
     """
     Strategy for HistGradientBoosting models.
@@ -79,9 +58,12 @@ class HGBStrategy(ModelPipelineStrategy):
         """
         import polars as pl
 
+        # Lazy: strategies/__init__.py imports HGBStrategy from this module at its own top level,
+        # so a top-level `from . import get_polars_cat_columns` here would be a circular import.
+        from . import get_polars_cat_columns
         from ..utils import filter_existing
 
-        schema_cats = set(_get_polars_cat_columns(df))
+        schema_cats = set(get_polars_cat_columns(df))
         all_cats = schema_cats | set(cat_features or [])
         existing = filter_existing(df, all_cats)
         if not existing:

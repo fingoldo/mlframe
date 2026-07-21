@@ -14,7 +14,7 @@ SKLEARN_MATRIX_YAML = REPO_ROOT / ".github" / "workflows" / "sklearn-matrix-ci.y
 
 
 def _read_yaml_text() -> str:
-    """Helper that read yaml text."""
+    """Returns ``SKLEARN_MATRIX_YAML.read_text(encoding='utf-8')``."""
     return SKLEARN_MATRIX_YAML.read_text(encoding="utf-8")
 
 

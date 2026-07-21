@@ -291,8 +291,21 @@ class DiskCache:
             return lock
 
     def _key_path(self, key: str) -> Path:
-        """File path under ``cache_dir`` for ``key``."""
-        return self.cache_dir / f"{key}.pkl"
+        """File path under ``cache_dir`` for ``key``.
+
+        ``key`` is meant to be a content-addressable hash (per the module docstring: "Content-addressable,
+        NOT path-keyed"), but nothing previously enforced that -- a key containing ``..``/path separators
+        (e.g. ``"../evil"``) resolved OUTSIDE ``cache_dir``, writing/reading the pickle (and its .sha256
+        sidecar) wherever the traversal pointed. Every internal caller already produces safe hex digests
+        via ``hash_object``/``compose_key``/``hash_array_summary``, so this never fired in-repo, but the
+        class is a shared, widely-reused (99+ call sites) public utility whose ``get``/``put`` accept an
+        arbitrary ``str``.
+        """
+        candidate = (self.cache_dir / f"{key}.pkl").resolve()
+        cache_root = self.cache_dir.resolve()
+        if cache_root not in candidate.parents:
+            raise ValueError(f"DiskCache: key {key!r} resolves outside cache_dir ({candidate} not under {cache_root}); refusing.")
+        return candidate
 
     def get(self, key: str) -> Optional[Any]:
         """Return the cached value for ``key``, or ``None`` on miss.

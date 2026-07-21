@@ -46,7 +46,7 @@ _USER_DEFERRED_SUBCONFIGS: dict[str, str] = {
 
 
 def _consumer_corpus() -> str:
-    """Helper that consumer corpus."""
+    """Returns ``'\n'.join(chunks)`` (after 2 setup steps)."""
     chunks: list[str] = []
     for py in MLFRAME_DIR.rglob("*.py"):
         if py.resolve() == Path(configs_module.__file__).resolve():
@@ -81,7 +81,7 @@ def _is_basemodel_field(cls: type[BaseModel], field_name: str) -> bool:
 
 
 def _subconfig_fields() -> list[tuple[type[BaseModel], str]]:
-    """Helper that subconfig fields."""
+    """Returns ``out`` (after 2 setup steps)."""
     out: list[tuple[type[BaseModel], str]] = []
     for _, obj in inspect.getmembers(configs_module, inspect.isclass):
         if not (issubclass(obj, BaseModel) and obj is not BaseModel):

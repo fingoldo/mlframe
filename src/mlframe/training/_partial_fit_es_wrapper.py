@@ -204,7 +204,8 @@ class PartialFitESWrapper:
                     random_state=self.random_state, max_iter=self.max_iter,
                     is_classification=self.is_classification, budget_param=self.budget_param,
                     budget_min=self.budget_min, budget_max=self.budget_max,
-                    verbose=self.verbose)
+                    verbose=self.verbose,
+                    external_X_val=self.external_X_val, external_y_val=self.external_y_val)
 
     def set_params(self, **kw) -> "PartialFitESWrapper":
         """Set wrapper attributes directly via ``setattr`` for each keyword, per the sklearn estimator protocol.
@@ -291,6 +292,14 @@ class PartialFitESWrapper:
         """
         # Guard against early access during unpickling when self.estimator may not be set yet.
         if name == "estimator":
+            raise AttributeError(name)
+        # Never forward dunder/protocol names (__sklearn_clone__, __deepcopy__, __reduce__, ...) to
+        # the wrapped estimator: sklearn's clone() probes hasattr(obj, "__sklearn_clone__") before
+        # falling back to get_params()/__init__, and unconditional dunder forwarding here made that
+        # probe find the WRAPPED estimator's __sklearn_clone__ -- clone(wrapper) silently returned a
+        # clone of the inner estimator, discarding the wrapper entirely (not just external_X_val/
+        # external_y_val, but the whole PartialFitESWrapper identity).
+        if name.startswith("__") and name.endswith("__"):
             raise AttributeError(name)
         est = self.__dict__.get("estimator")
         if est is None:

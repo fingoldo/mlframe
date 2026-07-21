@@ -14,7 +14,7 @@ import pytest
 
 
 def _synth(seed: int = 0, n: int = 300):
-    """Helper that synth."""
+    """Builds seeded synthetic test data; returns ``(probs, target)``."""
     rng = np.random.default_rng(seed)
     p1 = rng.random(n)
     probs = np.column_stack([1 - p1, p1])

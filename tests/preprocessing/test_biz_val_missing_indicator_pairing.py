@@ -18,7 +18,7 @@ from mlframe.preprocessing.missing_indicator_pairing import impute_with_missing_
 
 
 def _make_mnar_dataset(n_rows: int, seed: int):
-    """Helper that make mnar dataset."""
+    """Builds seeded synthetic test data; returns ``(pd.DataFrame({'x': x_observed}), y)``."""
     rng = np.random.default_rng(seed)
     x = rng.normal(size=n_rows)
     is_missing = rng.random(n_rows) < 0.4

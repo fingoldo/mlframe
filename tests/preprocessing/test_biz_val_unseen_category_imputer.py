@@ -19,7 +19,7 @@ from mlframe.preprocessing.unseen_category_imputer import UnseenCategoryImputer
 
 
 def _make_skewed_category_data(n_train: int, n_test: int, seed: int):
-    """Helper that make skewed category data."""
+    """Builds seeded synthetic test data; returns ``(train_df, train_y, test_df, test_y)``."""
     rng = np.random.default_rng(seed)
     cat_means = {"A": 0.2, "B": 0.5, "C": 0.8, "D": 0.5}
     train_cat = rng.choice(list(cat_means), n_train, p=[0.1, 0.1, 0.7, 0.1])  # C (mean 0.8) is the train mode.
@@ -55,7 +55,7 @@ def test_biz_val_unseen_category_imputer_beats_global_mean_fallback():
 
 
 def _make_non_dominant_category_data(n_train: int, n_test: int, seed: int):
-    """Helper that make non dominant category data."""
+    """Builds seeded synthetic test data; returns ``(train_df, train_y, test_df, test_y)``."""
     rng = np.random.default_rng(seed)
     cat_means = {"A": 0.8, "B": 0.5, "C": 0.2, "D": 0.15}  # A (mean 0.8) is the dominant train mode.
     train_cat = rng.choice(list(cat_means), n_train, p=[0.7, 0.1, 0.1, 0.1])

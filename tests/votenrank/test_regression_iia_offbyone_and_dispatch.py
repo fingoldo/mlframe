@@ -12,7 +12,7 @@ from mlframe.votenrank import iia_exp
 
 
 def _table(n_models, n_tasks=5):
-    """Helper that table."""
+    """Builds seeded synthetic test data; returns ``pd.DataFrame(rng.uniform(size=(n_models, n_tasks)), index=idx, columns=cols)``."""
     rng = np.random.default_rng(0)
     idx = [f"M{i}" for i in range(n_models)]
     cols = [f"t{j}" for j in range(n_tasks)]
@@ -33,7 +33,7 @@ def test_compute_iia_processes_the_last_model():
     orig = iia_exp.fine_sorted_ranking
 
     def spy(ranking):
-        """Helper that spy."""
+        """Returns ``orig(ranking)`` (after 1 setup step)."""
         calls["n"] += 1
         return orig(ranking)
 

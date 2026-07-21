@@ -583,7 +583,7 @@ def compute_dummy_baselines(
         try:
             _fig = plot_best_dummy_baseline_overlay(
                 report, val_y=val_y_arr, test_y=test_y_arr,
-                save_path=_ov_save, show=False,
+                save_path=_ov_save, show=False, random_state=getattr(config, "random_state", 0),
             )
             if _fig is not None and _ov_save:
                 report = report._replace(plot_path=_ov_save)

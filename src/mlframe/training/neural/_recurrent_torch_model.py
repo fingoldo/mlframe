@@ -516,7 +516,11 @@ class RecurrentTorchModel(L.LightningModule):
     def validation_step(self, batch: dict, batch_idx: int) -> None:
         """Validation step."""
         logits = self._forward_batch(batch)
-        loss = self._compute_weighted_loss(logits, batch["labels"], None)
+        # batch.get("sample_weights"), not a hardcoded None -- RecurrentDataModule.val_dataloader() DOES
+        # thread val_sample_weight into the batch, and EarlyStopping/ModelCheckpoint both monitor val_loss,
+        # so a hardcoded None silently computed best-epoch selection on an unweighted metric even when the
+        # caller explicitly asked for weighted validation.
+        loss = self._compute_weighted_loss(logits, batch["labels"], batch.get("sample_weights"))
         self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
 
         if self._has_metrics:
@@ -597,7 +601,7 @@ class RecurrentTorchModel(L.LightningModule):
         # loss by ``N / sum(w)`` whenever weights aren't uniform-mean-1.
         # Pre-fix all three branches used ``.mean()`` which divided by
         # ``N`` (or ``N*K`` for multilabel); with ``weights=[10, 0, 0]``
-        # and ``losses=[1, 1, 1]`` that produced 10/3 в‰€ 3.33 instead of
+        # and ``losses=[1, 1, 1]`` that produced 10/3 ≈ 3.33 instead of
         # the only-non-zero-weight sample's 1.0.
         _w_eps = torch.tensor(1e-12, dtype=logits.dtype, device=logits.device)
         if self.is_regression:

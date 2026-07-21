@@ -32,7 +32,7 @@ def _redundant_data(n=1500, seed=0):
 
 
 def _fit(premerge):
-    """Helper that fit."""
+    """Test helper: from mlframe.feature_selection.boruta_shap import BorutaShap; X, y = _redundant_data(); b = BorutaShap(model=RandomForestClassifier(n_estimators=...."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     X, y = _redundant_data()

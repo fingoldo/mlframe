@@ -24,7 +24,7 @@ rng = np.random.default_rng(0)
 
 
 def mk(N):
-    """Helper that mk."""
+    """Returns ``(rng.standard_normal(N).astype(np.float64), (np.arange(N) // 1000000).astype(np.int64))``."""
     return rng.standard_normal(N).astype(np.float64), (np.arange(N) // 1_000_000).astype(np.int64)
 
 

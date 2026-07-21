@@ -19,7 +19,7 @@ from mlframe.evaluation.distribution_matching_subset_search import distribution_
 
 
 def _make_regime_dependent_blocks(n_blocks_total: int, rows_per_block: int, seed: int):
-    """Helper that make regime dependent blocks."""
+    """Builds seeded synthetic test data; returns ``pd.DataFrame(rows)``."""
     rng = np.random.default_rng(seed)
     rows = []
     for b in range(n_blocks_total):
@@ -109,7 +109,7 @@ def test_biz_val_greedy_swap_beats_random_at_equal_budget():
     )
 
     def rmse_for(best_blocks):
-        """Helper that rmse for."""
+        """Returns ``float(mean_squared_error(target_y_true, model.predict(target_df[['x']])) ** 0.5)`` (after 2 setup steps)."""
         matched_train = train_df[train_df["block"].isin(best_blocks)]
         model = Ridge().fit(matched_train[["x"]], matched_train["y"])
         return float(mean_squared_error(target_y_true, model.predict(target_df[["x"]])) ** 0.5)
@@ -176,7 +176,7 @@ def test_biz_val_distribution_matching_subset_search_joint_energy_catches_correl
     # n_blocks == the exact number of blocks present in each frame -- "random" with n_trials=1 deterministically
     # scores that ONE full candidate set (no sampling ambiguity), letting us compare the two fixed candidates directly.
     def score(df: pd.DataFrame, joint_distance_mode):
-        """Helper that score."""
+        """Returns ``result['best_score']`` (after 1 setup step)."""
         result = distribution_matching_subset_search(
             df,
             target_df,

@@ -186,7 +186,27 @@ class GatedRegressionMixture(BaseEstimator, RegressorMixin):
 
         for branch in (_LOW, _HIGH):
             mask = (route == branch) & ~band
-            if not mask.any() or branch not in self.branch_models_:
+            if not mask.any():
+                continue
+            if branch not in self.branch_models_:
+                # This branch had zero routed rows at FIT time (so no model exists), but genuinely does
+                # receive rows at PREDICT time (an imbalanced subpop_label distribution or an extreme
+                # threshold makes this realistic, not just theoretical). Falling straight through left
+                # out[mask] at its np.zeros init value -- a silent, undetectable wrong prediction. Fall back to the OTHER
+                # branch's model (mirrors the soft-routing band's own have_low/have_high fallback below),
+                # or raise if neither branch was ever fitted.
+                other = _HIGH if branch == _LOW else _LOW
+                if other not in self.branch_models_:
+                    raise RuntimeError(
+                        f"GatedRegressionMixture.predict: neither branch has a fitted model; cannot predict "
+                        f"for {int(mask.sum())} row(s) routed to branch {branch!r}."
+                    )
+                logger.warning(
+                    "GatedRegressionMixture: branch %s has no fitted model (zero rows routed to it at fit "
+                    "time); falling back to branch %s for %d predict-time row(s).",
+                    branch, other, int(mask.sum()),
+                )
+                out[mask] = self._predict_branch(other, X, proba, mask)
                 continue
             out[mask] = self._predict_branch(branch, X, proba, mask)
 

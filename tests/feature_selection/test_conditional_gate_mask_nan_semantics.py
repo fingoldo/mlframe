@@ -11,7 +11,7 @@ import numpy as np
 
 
 def _old(cv, av, taus):
-    """Helper that old."""
+    """Returns ``f`` (after 2 setup steps)."""
     f = np.empty((cv.shape[0], len(taus)))
     for j, t in enumerate(taus):
         f[:, j] = (cv > t).astype(np.float64) * av
@@ -19,7 +19,7 @@ def _old(cv, av, taus):
 
 
 def _new(cv, av, taus):
-    """Helper that new."""
+    """Returns ``f`` (after 2 setup steps)."""
     f = np.empty((cv.shape[0], len(taus)))
     for j, t in enumerate(taus):
         np.multiply(av, cv > t, out=f[:, j])

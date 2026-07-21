@@ -12,11 +12,17 @@ chosen) rather than reimplementing either.
 """
 from __future__ import annotations
 
+import warnings
 from typing import Any, Optional, Sequence
 
 import numpy as np
 import numpy.typing as npt
 from scipy.stats import spearmanr
+
+_PAIRWISE_MATRIX_WARN_N = 20_000
+"""Above this many members, the O(n^2) pairwise-comparison boolean matrices below get large enough
+(400M+ bool elements) to be worth a heads-up -- fine at the diagnostic-scale member counts (tens to
+thousands of blend-weight candidates) this function is designed for."""
 
 
 def check_pairwise_score_correlation(
@@ -69,12 +75,22 @@ def check_pairwise_score_correlation(
     # the mlframe FE benchmark this pattern was found in -- see _orth_extra_basis_fe.py's docstring for the
     # derivation): argsort once for the sort order, scatter 0..n-1 into that order's positions.
     def _ranks(v: np.ndarray) -> np.ndarray:
+        """Rank of each element in ``v`` (0-indexed, ascending), via one argsort + scatter."""
         order = np.argsort(v)
         r = np.empty(v.size, dtype=np.intp)
         r[order] = np.arange(v.size)
         return r
 
     rank_a, rank_b = _ranks(a), _ranks(b)
+    if n > _PAIRWISE_MATRIX_WARN_N:
+        warnings.warn(
+            f"check_pairwise_score_correlation: {n} members exceeds {_PAIRWISE_MATRIX_WARN_N}; the O(n^2) "
+            f"pairwise-comparison matrices below will materialize ~{n * n:,} bool elements each. This "
+            "function is designed for diagnostic-scale member counts (blend-weight candidates), not "
+            "row-scale data.",
+            UserWarning,
+            stacklevel=2,
+        )
     # vectorized pairwise-comparison matrices instead of an O(n^2) Python double loop (44x faster at n=500,
     # bit-identical) -- broadcast each rank vector against itself to get every pair's ">" relation in one
     # pass, then compare the two boolean matrices only on the upper triangle (each unordered pair once).

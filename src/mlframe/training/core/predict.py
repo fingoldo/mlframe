@@ -609,7 +609,13 @@ def _run_batched(
         if _parts:
             try:
                 merged[_key] = np.concatenate(_parts, axis=0)
-            except ValueError:
+            except ValueError as _ce:
+                _total_rows = sum(len(p) for p in _parts)
+                logger.warning(
+                    "_run_batched: np.concatenate(%r) failed across %d batches (%s); result TRUNCATED to "
+                    "batch 0's %d rows (of %d total input rows). Shapes: %s.",
+                    _key, len(_parts), _ce, len(_parts[0]), _total_rows, [np.shape(p) for p in _parts],
+                )
                 merged[_key] = _parts[0]
     # input_df concatenated row-wise so consumers reading the post-extensions frame from the result still see all rows.
     _input_parts: list = [b.get("input_df") for b in batch_outs if b.get("input_df") is not None]
@@ -619,7 +625,13 @@ def _run_batched(
                 merged["input_df"] = pl.concat(_input_parts, how="vertical")
             else:
                 merged["input_df"] = pd.concat(_input_parts, axis=0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _ce:
+            _total_rows = sum(len(p) for p in _input_parts)
+            logger.warning(
+                "_run_batched: concatenating 'input_df' failed across %d batches (%s); result TRUNCATED to "
+                "batch 0's %d rows (of %d total input rows).",
+                len(_input_parts), _ce, len(_input_parts[0]), _total_rows,
+            )
             merged["input_df"] = _input_parts[0]
     return merged
 

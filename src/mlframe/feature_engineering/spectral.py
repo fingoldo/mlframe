@@ -36,31 +36,40 @@ from .grouped import per_group_sliding_window
 
 
 def _bands_for(K: int, n_bands: int = 3) -> Tuple[Tuple[int, int], ...]:
-    """Default lo/mid/hi band edges for an rfft of length K.
+    """Default lo/mid/hi (or n_bands-way) band edges for an rfft of length K.
 
-    Skips DC bin (bin 0). The default 3-band split lo/mid/hi divides
-    the non-DC spectrum into thirds by index. Configurable via the
-    ``bands`` kwarg on the public functions when a finer split is
-    needed.
+    Skips DC bin (bin 0): the ``n_freq - 1`` remaining (non-DC) bins are split into ``n_bands`` contiguous,
+    non-overlapping, gap-free ranges via cumulative integer division (the standard "distribute m items into n
+    nearly-equal chunks" formula) -- guaranteed to partition ``[1, n_freq)`` exactly regardless of
+    divisibility. The prior formula used ad-hoc integer-division edges (a hard-coded asymmetric split for
+    ``n_bands == 3``, floor-width for the generic case) that overlapped, omitted bins, or even included bin 0
+    (DC) for small ``window_K``. At very small
+    ``window_K`` (fewer than ``n_bands`` non-DC bins available), the earliest band(s) come out empty
+    (``start == end``, contributing 0 energy) rather than overlapping or stealing DC -- an honest "not enough
+    spectral resolution" signal, not a silently wrong one.
     """
     n_freq = K // 2 + 1
     if n_bands < 1:
         raise ValueError(f"n_bands must be >= 1, got {n_bands}")
-    if n_bands == 3:
-        return (
-            (1, max(2, n_freq // 6)),
-            (n_freq // 6, n_freq // 2),
-            (n_freq // 2, n_freq),
-        )
-    # Generic equal-width split skipping DC
-    width = max(1, (n_freq - 1) // n_bands)
-    edges = [(1 + i * width, min(n_freq, 1 + (i + 1) * width)) for i in range(n_bands)]
-    return tuple(edges)
+    m = max(0, n_freq - 1)
+    edges = [1 + (i * m) // n_bands for i in range(n_bands + 1)]
+    return tuple((edges[i], edges[i + 1]) for i in range(n_bands))
 
 
 def _detrend_zero_mean(wins: np.ndarray) -> np.ndarray:
     """Subtract per-window mean. Avoids DC dominating the spectrum."""
     return np.asarray(wins - wins.mean(axis=1, keepdims=True))
+
+
+def _nan_impute_segment(seg: np.ndarray) -> np.ndarray:
+    """NaN-fill ``seg`` with its own finite mean (0.0 if entirely NaN) before an FFT/power computation.
+
+    Shared by every ``rolling_spectral_*``/``rolling_periodicity_score`` function in this module (was
+    duplicated 6x identically.
+    """
+    # all-NaN window: nanmean is NaN and `NaN or 0` keeps NaN (NaN is truthy), so guard explicitly
+    seg_mean = float(np.nanmean(seg)) if np.isfinite(seg).any() else 0.0
+    return np.where(np.isfinite(seg), seg, seg_mean)
 
 
 def rolling_spectral_band_energies(
@@ -247,8 +256,7 @@ def rolling_spectral_centroid(
         values, group_ids, window_K=window_K,
     ):
         seg = values[sort_idx_seg].astype(np.float64)
-        seg_mean = float(np.nanmean(seg)) if np.isfinite(seg).any() else 0.0  # all-NaN window: nanmean is NaN and `NaN or 0` keeps NaN (NaN is truthy), so guard explicitly
-        seg_f = np.where(np.isfinite(seg), seg, seg_mean)
+        seg_f = _nan_impute_segment(seg)
         spec, _ = _spec_pow(seg_f, window_K, detrend)
         n_freq = spec.shape[1]
         k = np.arange(n_freq, dtype=np.float64)
@@ -277,8 +285,7 @@ def rolling_spectral_bandwidth(
         values, group_ids, window_K=window_K,
     ):
         seg = values[sort_idx_seg].astype(np.float64)
-        seg_mean = float(np.nanmean(seg)) if np.isfinite(seg).any() else 0.0  # all-NaN window: nanmean is NaN and `NaN or 0` keeps NaN (NaN is truthy), so guard explicitly
-        seg_f = np.where(np.isfinite(seg), seg, seg_mean)
+        seg_f = _nan_impute_segment(seg)
         spec, _ = _spec_pow(seg_f, window_K, detrend)
         n_freq = spec.shape[1]
         k = np.arange(n_freq, dtype=np.float64)
@@ -316,11 +323,14 @@ def rolling_spectral_rolloff(
         values, group_ids, window_K=window_K,
     ):
         seg = values[sort_idx_seg].astype(np.float64)
-        seg_mean = float(np.nanmean(seg)) if np.isfinite(seg).any() else 0.0  # all-NaN window: nanmean is NaN and `NaN or 0` keeps NaN (NaN is truthy), so guard explicitly
-        seg_f = np.where(np.isfinite(seg), seg, seg_mean)
+        seg_f = _nan_impute_segment(seg)
         spec, _ = _spec_pow(seg_f, window_K, detrend)
         cum = np.cumsum(spec, axis=1)
-        total = cum[:, -1:] + 1e-12
+        # No epsilon here (unlike centroid's denom, `total` is never a divisor in this function): at
+        # percentile=1.0 (explicitly allowed by this function's own validation), `target = total + eps`
+        # was strictly greater than the true cumulative total at every bin, so `cum >= target` was False
+        # everywhere and argmax silently returned bin 0 instead of the correct last bin.
+        total = cum[:, -1:]
         targets = percentile * total
         # First column index where cum >= target per row.
         idx = (cum >= targets).argmax(axis=1)
@@ -352,8 +362,7 @@ def rolling_spectral_flatness(
         values, group_ids, window_K=window_K,
     ):
         seg = values[sort_idx_seg].astype(np.float64)
-        seg_mean = float(np.nanmean(seg)) if np.isfinite(seg).any() else 0.0  # all-NaN window: nanmean is NaN and `NaN or 0` keeps NaN (NaN is truthy), so guard explicitly
-        seg_f = np.where(np.isfinite(seg), seg, seg_mean)
+        seg_f = _nan_impute_segment(seg)
         spec, _ = _spec_pow(seg_f, window_K, detrend)
         # Drop DC bin (always 0 after detrend; would give log(0) noise).
         s = spec[:, 1:] + eps
@@ -391,8 +400,7 @@ def rolling_spectral_flux(
         values, group_ids, window_K=window_K,
     ):
         seg = values[sort_idx_seg].astype(np.float64)
-        seg_mean = float(np.nanmean(seg)) if np.isfinite(seg).any() else 0.0  # all-NaN window: nanmean is NaN and `NaN or 0` keeps NaN (NaN is truthy), so guard explicitly
-        seg_f = np.where(np.isfinite(seg), seg, seg_mean)
+        seg_f = _nan_impute_segment(seg)
         spec, _ = _spec_pow(seg_f, window_K, detrend)
         mag = np.sqrt(spec)
         # Flux at row r = sum over k of (mag[r, k] - mag[r-1, k])^2.
@@ -434,8 +442,7 @@ def rolling_periodicity_score(
         values, group_ids, window_K=window_K,
     ):
         seg = values[sort_idx_seg].astype(np.float64)
-        seg_mean = float(np.nanmean(seg)) if np.isfinite(seg).any() else 0.0  # all-NaN window: nanmean is NaN and `NaN or 0` keeps NaN (NaN is truthy), so guard explicitly
-        seg_f = np.where(np.isfinite(seg), seg, seg_mean)
+        seg_f = _nan_impute_segment(seg)
         spec, _ = _spec_pow(seg_f, window_K, detrend)
         acf = np.fft.irfft(spec, n=window_K, axis=1)
         # Use first half (lags 0 .. K//2) where ACF is meaningful.

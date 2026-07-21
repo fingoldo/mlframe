@@ -101,17 +101,22 @@ def _key_bank_fingerprint(
     standardize: bool,
     ann_M: int,
     ann_ef_construction: int,
+    projection: str,
+    dtype: Any,
 ) -> str:
     """Produce a deterministic content-addressed cache key for the (projections, k_proj, ann_indices) artefacts.
 
     Hash inputs (in order, with delimiters so a length collision in any component cannot accidentally collide):
         - X_train.tobytes()         (the actual data; bytes hashing avoids casting issues)
         - X_train.dtype, X_train.shape
-        - seed, n_heads, head_dim, metric, standardize, ann_M, ann_ef_construction
+        - seed, n_heads, head_dim, metric, standardize, ann_M, ann_ef_construction, projection, dtype
 
     Bytes-level hashing of large X is the right call for correctness despite the cost (~3 GB/s sha256 on modern CPUs ~= 1-3 s for 10M, d=64). The alternative
     (hash a downsampled fingerprint) silently collides on data that differs only outside the sample - the kind of bug that surfaces only when somebody adds new
     rows but the cache returns stale state.
+
+    ``projection`` and ``dtype`` are part of the key: switching between them (e.g. ``"random"`` vs ``"pls"``) produces a structurally different
+    ``projections``/``k_proj`` even with every other build parameter unchanged, so both must invalidate the cache.
     """
     h = hashlib.sha256()
     h.update(b"X_train|")
@@ -134,6 +139,10 @@ def _key_bank_fingerprint(
     h.update(str(int(ann_M)).encode())
     h.update(b"|ann_ef_construction|")
     h.update(str(int(ann_ef_construction)).encode())
+    h.update(b"|projection|")
+    h.update(str(projection).encode())
+    h.update(b"|build_dtype|")
+    h.update(str(np.dtype(dtype)).encode())
     return h.hexdigest()
 
 

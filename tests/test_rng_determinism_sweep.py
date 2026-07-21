@@ -14,7 +14,7 @@ from mlframe.metrics._fairness_metrics import create_robustness_standard_bins
 
 
 def _pick(seed):
-    """Helper that pick."""
+    """Test helper: orig = list(range(30)); evaluated = {3: 0.1, 9: 0.2, 17: 0.3}; rng = np.random.default_rng(seed)."""
     orig = list(range(30))
     evaluated = {3: 0.1, 9: 0.2, 17: 0.3}
     rng = np.random.default_rng(seed)

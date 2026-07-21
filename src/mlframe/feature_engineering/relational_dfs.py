@@ -75,7 +75,14 @@ def compute_relational_features(
     """
     as_of = parent_df[[parent_id_col, cutoff_col]].rename(columns={parent_id_col: "__entity__", cutoff_col: "__as_of__"})
 
-    result = parent_df.copy()
+    if not child_specs:
+        # Only this early-return path needs a defensive copy -- it's the only case where the
+        # caller could otherwise receive a live alias to their own frame. When child_specs is
+        # non-empty, the loop's first pd.concat always allocates a fresh object anyway, making
+        # an upfront copy here redundant.
+        return parent_df.copy()
+
+    result = parent_df
     for spec in child_specs:
         agg = leakage_safe_aggregate(
             history_df=spec.child_df.rename(columns={spec.foreign_key_col: "__entity__"}),

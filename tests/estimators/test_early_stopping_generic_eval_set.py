@@ -15,21 +15,21 @@ class _EvalSetRecorder:
         self.seen_train_rows = None
 
     def get_params(self, deep=True):
-        """Helper that get params."""
+        """Returns ``{}``."""
         return {}
 
     def set_params(self, **params):
-        """Helper that set params."""
+        """No-op set_params stub; returns self unchanged (satisfies the sklearn fit/set_params contract without doing real work)."""
         return self
 
     def fit(self, X, y, eval_set=None):
-        """Helper that fit."""
+        """Performs 2 setup steps, then returns self unchanged."""
         self.seen_eval_set = eval_set
         self.seen_train_rows = len(X)
         return self
 
     def predict(self, X):
-        """Helper that predict."""
+        """Returns ``np.zeros(len(X))``."""
         return np.zeros(len(X))
 
 
@@ -39,20 +39,20 @@ class _NoEvalSet:
         self.seen_train_rows = None
 
     def get_params(self, deep=True):
-        """Helper that get params."""
+        """Returns ``{}``."""
         return {}
 
     def set_params(self, **params):
-        """Helper that set params."""
+        """No-op set_params stub; returns self unchanged (satisfies the sklearn fit/set_params contract without doing real work)."""
         return self
 
     def fit(self, X, y):
-        """Helper that fit."""
+        """Performs 1 setup step, then returns self unchanged."""
         self.seen_train_rows = len(X)
         return self
 
     def predict(self, X):
-        """Helper that predict."""
+        """Returns ``np.zeros(len(X))``."""
         return np.zeros(len(X))
 
 

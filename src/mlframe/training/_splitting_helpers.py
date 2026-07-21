@@ -46,6 +46,11 @@ def _perform_split(sorted_items, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf,
     test_seq = val_seq = None
     test_list = []
     val_list = []
+    # Effective (post-clamp) shuffled counts, reported back to the caller so the printed
+    # "+N<unit>" detail string reflects rows actually mixed in, not the pre-clamp request --
+    # default to the requested count; overwritten below only when clamping actually occurs.
+    eff_test_shuf = n_test_shuf
+    eff_val_shuf = n_val_shuf
 
     # Sequential test (most recent) -- same for both placements.
     if n_test_seq > 0:
@@ -70,29 +75,29 @@ def _perform_split(sorted_items, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf,
     # or test_size + val_size jointly exceed n_total). Clamp with a WARN
     # so the caller sees the issue and the split still produces a result.
     if n_test_shuf > 0:
-        _eff_test_shuf = min(n_test_shuf, len(remaining))
-        if _eff_test_shuf < n_test_shuf:
+        eff_test_shuf = min(n_test_shuf, len(remaining))
+        if eff_test_shuf < n_test_shuf:
             logger.warning(
                 "Shuffled test size %d exceeds remaining pool %d after "
                 "sequential allocation; clamping to %d.",
-                n_test_shuf, len(remaining), _eff_test_shuf,
+                n_test_shuf, len(remaining), eff_test_shuf,
             )
-        if _eff_test_shuf > 0:
-            test_shuf_idx = rng.choice(len(remaining), _eff_test_shuf, replace=False)
+        if eff_test_shuf > 0:
+            test_shuf_idx = rng.choice(len(remaining), eff_test_shuf, replace=False)
             test_list.append(remaining[test_shuf_idx])
             remaining = np.delete(remaining, test_shuf_idx)
 
     # Shuffled val from remaining (same clamp rationale).
     if n_val_shuf > 0:
-        _eff_val_shuf = min(n_val_shuf, len(remaining))
-        if _eff_val_shuf < n_val_shuf:
+        eff_val_shuf = min(n_val_shuf, len(remaining))
+        if eff_val_shuf < n_val_shuf:
             logger.warning(
                 "Shuffled val size %d exceeds remaining pool %d after "
                 "sequential / test allocation; clamping to %d.",
-                n_val_shuf, len(remaining), _eff_val_shuf,
+                n_val_shuf, len(remaining), eff_val_shuf,
             )
-        if _eff_val_shuf > 0:
-            val_shuf_idx = rng.choice(len(remaining), _eff_val_shuf, replace=False)
+        if eff_val_shuf > 0:
+            val_shuf_idx = rng.choice(len(remaining), eff_val_shuf, replace=False)
             val_list.append(remaining[val_shuf_idx])
             remaining = np.delete(remaining, val_shuf_idx)
 
@@ -100,7 +105,7 @@ def _perform_split(sorted_items, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf,
     val_items = np.concatenate(val_list) if val_list else np.array([], dtype=remaining.dtype)
     train_items = remaining
 
-    return train_items, val_items, test_items, val_seq, test_seq
+    return train_items, val_items, test_items, val_seq, test_seq, eff_test_shuf, eff_val_shuf
 
 def _build_details(timestamps, idx, sequential_idx, n_shuffled, unit) -> str:
     """Build a detail string for a split set.

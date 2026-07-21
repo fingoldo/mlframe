@@ -489,17 +489,24 @@ def predict_quantile(
     low = params.get("y_clip_low", float("-inf"))
     high = params.get("y_clip_high", float("inf"))
     _t_low_total = _t_high_total = 0
+    # y-clip hit counters: predict() computes and reports these (see the low_hits/high_hits pattern at this
+    # module's `_inverse_with_fallback` call site), but predict_quantile's np.clip(y_col, low, high) below
+    # was never counted -- runtime_stats_["y_clip_low_hits"/"y_clip_high_hits"] silently never moved for the
+    # quantile path even while clipping was actually happening on every batch.
+    _y_low_total = _y_high_total = 0
 
     def _invert_one(t_col: np.ndarray) -> np.ndarray:
         """T-clip (parity with predict) + domain-aware inverse + y-clip for one
-        quantile level. Accumulates the T-clip hits into the closure totals."""
-        nonlocal _t_low_total, _t_high_total
+        quantile level. Accumulates the T-clip and y-clip hits into the closure totals."""
+        nonlocal _t_low_total, _t_high_total, _y_low_total, _y_high_total
         t_clipped, _tl, _th = _apply_t_clip(self, t_col.reshape(-1), params)
         _t_low_total += _tl
         _t_high_total += _th
         y_col = _inverse_with_fallback(
             self, transform, t_clipped, base_arr, domain_ok, params, inverse_kwargs,
         )
+        _y_low_total += int(np.sum(y_col < low))
+        _y_high_total += int(np.sum(y_col > high))
         return np.asarray(np.clip(y_col, low, high))
 
     n_violation = int((~domain_ok).sum())
@@ -507,7 +514,7 @@ def predict_quantile(
     if alpha_is_scalar:
         y_q = _invert_one(t_raw)
         _record_runtime_stats(
-            self, n_rows, n_violation, 0, 0, _t_low_total, _t_high_total,
+            self, n_rows, n_violation, _y_low_total, _y_high_total, _t_low_total, _t_high_total,
         )
         return y_q
 
@@ -516,7 +523,7 @@ def predict_quantile(
         # against the single base column we already extracted (which is 1-D).
         y_q = _invert_one(t_raw).reshape(-1, 1)
         _record_runtime_stats(
-            self, n_rows, n_violation, 0, 0, _t_low_total, _t_high_total,
+            self, n_rows, n_violation, _y_low_total, _y_high_total, _t_low_total, _t_high_total,
         )
         return y_q
     if t_raw.ndim != 2:
@@ -524,6 +531,6 @@ def predict_quantile(
     # Per-column inverse: base_arr is (n_samples,), so reshape to broadcast.
     cols = [_invert_one(t_raw[:, k]) for k in range(t_raw.shape[1])]
     _record_runtime_stats(
-        self, n_rows, n_violation, 0, 0, _t_low_total, _t_high_total,
+        self, n_rows, n_violation, _y_low_total, _y_high_total, _t_low_total, _t_high_total,
     )
     return np.column_stack(cols)

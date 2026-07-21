@@ -252,8 +252,23 @@ def render_and_save(
                         exc_info=True,
                     )
     else:
-        # Single-backend path: skip the thread pool overhead.
-        _results = [_do_backend(backend, fmts) for backend, fmts in output.backends]
+        # Single-backend path: skip the thread pool overhead, but still go through the SAME try/except +
+        # _record_render_failure bookkeeping the multi-backend path uses a few lines above -- this is the
+        # COMMON case (most call sites request one backend), and a bare list comprehension here previously
+        # neither counted a rendering exception in get_render_failure_stats() (undercounting the suite-end
+        # "N charts silently dropped" summary) nor caught it, so it propagated to whatever called
+        # render_and_save -- some call sites outside this cluster invoke it with no wrapping try/except of
+        # their own.
+        _results = []
+        for backend, fmts in output.backends:
+            try:
+                _results.append(_do_backend(backend, fmts))
+            except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate (see the multi-backend branch above)
+                _record_render_failure(timed_out=False)
+                logger.warning(
+                    "render_and_save: single-backend render failed; one render output dropped. " "See get_render_failure_stats().",
+                    exc_info=True,
+                )
 
     # Main-thread post-processing: interactive show + cleanup. Both touch
     # pyplot / Jupyter display hooks that are NOT thread-safe.

@@ -434,9 +434,9 @@ def setup_configuration(
         metadata=metadata,
     )
     # TrainingContext is slots=True with no ``feature_handling_config`` slot. Stashing via ``ctx.artifacts`` is the only
-    # in-scope path; the FH consumer in _phase_train_one_target reads ``getattr(ctx, "feature_handling_config", None)``
-    # and needs a separate follow-up to fall back to ``ctx.artifacts["feature_handling_config"]`` (or _training_context.py
-    # gains the slot). Until then the value is reachable via artifacts so downstream wiring is unblocked.
+    # in-scope path; the FH consumer in ``_phase_train_one_target_helpers.py`` (``_maybe_run_feature_handling_apply``)
+    # already falls back to ``ctx.artifacts["feature_handling_config"]`` when ``getattr(ctx, "feature_handling_config",
+    # None)`` is unset, so the value stashed here is reachable end-to-end.
     if feature_handling_config is not None:
         ctx.artifacts["feature_handling_config"] = feature_handling_config
     # Stash prior values of the process-wide overrides flipped above so _phase_finalize

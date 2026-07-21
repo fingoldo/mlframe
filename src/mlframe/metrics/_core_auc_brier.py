@@ -180,6 +180,9 @@ def fast_roc_auc_unstable(y_true: np.ndarray, y_score: np.ndarray) -> float:
         y_score = y_score.to_numpy()
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
+    # fast_roc_auc (below) validates this; this sibling didn't, so a mismatched length reached the @njit
+    # kernel with bounds-checking off and read out-of-bounds memory instead of raising.
+    _check_equal_length(y_true, y_score)
     # No ``kind=stable``: numpy default quicksort is 2-3x faster and
     # numerically identical when scores have no exact ties (the dominant
     # case for float64 model outputs).
@@ -448,6 +451,9 @@ def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
         if isinstance(sample_weight, (pd.Series, pl.Series)):
             sample_weight = sample_weight.to_numpy()
         sample_weight = np.ascontiguousarray(np.asarray(sample_weight), dtype=np.float64)
+        # A stale/mismatched-length sample_weight (e.g. carried over from a previous fold) otherwise reached
+        # fast_numba_auc_weighted's w[desc_score_indices] indexing with numba bounds-checking off.
+        _check_equal_length(y_true, sample_weight)
         return float(fast_numba_auc_weighted(
             y_true=np.asarray(y_true, dtype=np.float64), y_score=y_score, sample_weight=sample_weight, desc_score_indices=desc_score_indices
         ))

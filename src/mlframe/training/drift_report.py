@@ -191,12 +191,17 @@ def compute_label_distribution_drift(
     val = _to_numpy_or_none(val_target)
     test = _to_numpy_or_none(test_target)
 
-    if train is None:
+    if train is None or train.size == 0:
+        # A legitimate-but-empty train split (0-row split, non-None) hit the multiclass branch's
+        # ``np.concatenate([a for a in (train, val, test) if a is not None and a.size > 0])`` with an
+        # empty list whenever val/test were also None -- raised a bare, context-free
+        # "need at least one array to concatenate" instead of this same graceful no-op the `train is
+        # None` case already gets. An empty train split carries no more baseline signal than a None one.
         return {
             "target_type": target_type,
             "splits": {},
             "drifts": {},
-            "warnings": ["train_target is None - no drift report computed."],
+            "warnings": [f"train_target is {'None' if train is None else 'empty (0 rows)'} - no drift report computed."],
             "warn_threshold_pp": warn_threshold_pp,
         }
 

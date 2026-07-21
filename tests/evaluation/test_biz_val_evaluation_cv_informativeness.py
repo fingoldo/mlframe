@@ -17,12 +17,12 @@ from mlframe.evaluation.cv_informativeness import cv_informativeness_check
 
 
 def _neg_rmse(y_true, y_pred):
-    """Helper that neg rmse."""
+    """Returns ``-float(np.sqrt(mean_squared_error(y_true, y_pred)))``."""
     return -float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
 
 def _make_group_splits(group_ids: np.ndarray):
-    """Helper that make group splits."""
+    """Test helper: for g in np.unique(group_ids): test_idx = np.flatnonzero(...."""
     for g in np.unique(group_ids):
         test_idx = np.flatnonzero(group_ids == g)
         train_idx = np.flatnonzero(group_ids != g)
@@ -60,7 +60,7 @@ def test_biz_val_cv_informativeness_confirms_informative_groups():
 
 
 def _make_variable_size_group_splits(group_ids: np.ndarray):
-    """Helper that make variable size group splits."""
+    """Test helper: for g in np.unique(group_ids): test_idx = np.flatnonzero(...."""
     for g in np.unique(group_ids):
         test_idx = np.flatnonzero(group_ids == g)
         train_idx = np.flatnonzero(group_ids != g)

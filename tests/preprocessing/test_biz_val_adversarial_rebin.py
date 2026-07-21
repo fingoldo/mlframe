@@ -16,7 +16,7 @@ from mlframe.reporting.charts.drift import adversarial_auc
 
 
 def _make_skewed_column(seed: int):
-    """Helper that make skewed column."""
+    """Builds seeded synthetic test data; returns ``(pd.Series(train_vals, name='cat_col'), pd.Series(test_vals, name='cat_col'))``."""
     rng = np.random.default_rng(seed)
     n_train, n_test = 4000, 4000
 

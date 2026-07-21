@@ -18,10 +18,13 @@ distributions). The fix is post-hoc:
 
 from __future__ import annotations
 
+import logging
 from typing import Sequence
 
 import numba
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 @numba.njit(cache=True)
@@ -116,6 +119,21 @@ def fix_quantile_crossing(
         # Vectorised monotone-shortcut mask: rows already sorted ascending
         # skip the PAVA entirely. ``np.diff`` along axis=1.
         _is_mono = np.all(np.diff(preds64, axis=1) >= 0, axis=1)
+        # A NaN cell makes every np.diff comparison in that row False (NaN comparisons are
+        # always False), so _is_mono is already False for NaN rows -- but the PAVA kernel's
+        # own val[m-1] > val[m] comparisons are ALSO always False on NaN, so it never pools
+        # and the row comes back unchanged anyway. Route NaN rows through the same verbatim-
+        # copy branch _is_mono already provides (isotonic projection isn't defined for a
+        # missing value) and warn explicitly instead of silently passing them through.
+        _has_nan_row = np.any(np.isnan(preds64), axis=1)
+        if _has_nan_row.any():
+            logger.warning(
+                "fix_quantile_crossing(mode='isotonic'): %d/%d row(s) contain NaN quantile "
+                "predictions (upstream booster instability); passed through UNFIXED (still "
+                "possibly crossing) -- isotonic projection is not defined for a missing value.",
+                int(_has_nan_row.sum()), preds64.shape[0],
+            )
+        _is_mono = _is_mono | _has_nan_row
         return np.asarray(_isotonic_rows_pava(preds64, _is_mono, out))
 
     raise ValueError(f"fix_quantile_crossing mode must be sort/isotonic/none; " f"got {mode!r}")

@@ -70,7 +70,7 @@ def test_b3_bonferroni_base_is_full_feature_count():
     orig = bs.bonferoni_corrections
 
     def _spy(pvals, alpha=0.05, n_tests=None):
-        """Helper that spy."""
+        """Returns ``orig(pvals, alpha=alpha, n_tests=n_tests)`` (after 1 setup step)."""
         captured["n_tests"] = n_tests
         return orig(pvals, alpha=alpha, n_tests=n_tests)
 

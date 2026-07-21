@@ -20,7 +20,7 @@ from mlframe.votenrank.rank_splice import segment_rank_splice
 
 
 def _make_miscalibrated_specialist_dataset(n_main: int, n_segment: int, seed: int):
-    """Helper that make miscalibrated specialist dataset."""
+    """Builds seeded synthetic test data; returns ``(main_scores, specialist_scores, y, segment_mask)``."""
     rng = np.random.default_rng(seed)
     y_main = rng.integers(0, 2, n_main)
     main_scores_main = rng.uniform(0.3, 0.7, n_main) + 0.2 * y_main  # well-calibrated main-model scores
@@ -82,7 +82,7 @@ def test_segment_rank_splice_preserves_segment_value_multiset():
 
 
 def _make_dual_noisy_segment_dataset(n_segment: int, seed: int):
-    """Helper that make dual noisy segment dataset."""
+    """Builds seeded synthetic test data; returns ``(main_scores_segment, specialist_scores, y_segment)``."""
     rng = np.random.default_rng(seed)
     y_segment = rng.integers(0, 2, n_segment)
     # Both the main model and the specialist have genuine but individually-noisy signal on this segment --

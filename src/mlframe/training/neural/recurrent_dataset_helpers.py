@@ -26,7 +26,9 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------------------------------------------------------------------------------
 
 import copy
+import os
 
+from collections import OrderedDict
 from enum import Enum
 from pathlib import Path
 from typing import Any, cast
@@ -50,6 +52,13 @@ from ._recurrent_torch_model import RecurrentTorchModel
 # module-level constant so the save/load round-trip and the wrapper
 # initialisation agree on the same fallback.
 _DEFAULT_SEQ_INPUT_SIZE: int = 4
+
+# LRU cap for _RecurrentWrapperBase._prediction_cache, mirroring the flat MLP's
+# _CUDA_GRAPH_PREDICT_CACHE_MAX pattern (_flat_torch_module/_flat_torch_predict_accel.py). Without a cap,
+# a permutation-importance-style loop issuing many distinct predict()/predict_proba() calls per fit
+# accumulates one full-size cached array per distinct call for the whole lifetime of the (possibly
+# long-lived) fitted estimator -- unbounded host RAM growth.
+_PREDICTION_CACHE_MAX = max(1, int(os.environ.get("MLFRAME_RECURRENT_PREDICTION_CACHE_MAX", "16")))
 
 
 # Substring-match on the monitor name was buggy: "val_log_likelihood" contains
@@ -123,7 +132,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         self._aux_input_size: int = 0
         self._seq_input_size: int = _DEFAULT_SEQ_INPUT_SIZE
         self._feature_scaler: StandardScaler | None = None
-        self._prediction_cache: dict[bytes, np.ndarray] = {}
+        self._prediction_cache: "OrderedDict[bytes, np.ndarray]" = OrderedDict()
         # Categorical factorization state (tabular block only; sequences never carry cats). Populated by ``_factorize_cats_fit`` and replayed by
         # ``_apply_cat_codes`` at predict. ``_cat_cardinalities_`` None == no learnable-cat embedding active for this fit.
         self._cat_code_maps_: dict | None = None
@@ -152,7 +161,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         # the next fit) and move the torch model to CPU so no CUDA tensor reaches the pickle.
         state = self.__dict__.copy()
         state["trainer"] = None
-        state["_prediction_cache"] = {}
+        state["_prediction_cache"] = OrderedDict()
         model = state.get("model")
         if model is not None:
             try:
@@ -165,7 +174,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
     def __setstate__(self, state: dict) -> None:
         self.__dict__.update(state)
         self.trainer = None
-        self._prediction_cache = {}
+        self._prediction_cache = OrderedDict()
 
     def _validate_inputs(
         self,
@@ -242,14 +251,19 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
             is_regression=self._is_regression,
         )
 
-    def _create_eval_dataset(self, eval_set: tuple) -> RecurrentDataset:
-        """Create validation dataset from eval_set tuple. Replays the fit-time cat factorization on the val tabular block (no-op when none)."""
+    def _create_eval_dataset(self, eval_set: tuple, sample_weight: np.ndarray | None = None) -> RecurrentDataset:
+        """Create validation dataset from eval_set tuple. Replays the fit-time cat factorization on the val tabular block (no-op when none).
+
+        ``sample_weight`` (the wrapper's ``eval_sample_weight`` fit() kwarg) is threaded straight into the
+        val ``RecurrentDataset`` so ``validation_step``'s ``batch.get("sample_weights")`` actually has
+        something to read.
+        """
         if len(eval_set) == 2:
             features, labels = eval_set
-            return self._create_dataset(None, self._apply_cat_codes(features), labels)
+            return self._create_dataset(None, self._apply_cat_codes(features), labels, sample_weight)
         elif len(eval_set) == 3:
             sequences, features, labels = eval_set
-            return self._create_dataset(sequences, self._apply_cat_codes(features), labels)
+            return self._create_dataset(sequences, self._apply_cat_codes(features), labels, sample_weight)
         else:
             raise ValueError(f"eval_set must have 2 or 3 elements, got {len(eval_set)}")
 
@@ -410,10 +424,15 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         from ._recurrent_perf import auto_precision
         return auto_precision(self._cfg.precision)
 
-    def _maybe_enable_cudnn_rnn_autotune(self) -> None:
-        """Turn on cuDNN's RNN autotuner when the configured RNN type benefits from it; no-op otherwise."""
+    def _maybe_enable_cudnn_rnn_autotune(self) -> "bool | None":
+        """Turn on cuDNN's RNN autotuner when the configured RNN type benefits from it; no-op otherwise.
+
+        Returns the prior ``torch.backends.cudnn.benchmark`` value (or ``None`` if unchanged) -- the
+        caller MUST restore it in a ``finally`` around ``trainer.fit()`` so this process-global flag
+        doesn't leak into unrelated models trained later in the same process.
+        """
         from ._recurrent_perf import maybe_enable_cudnn_rnn_autotune
-        maybe_enable_cudnn_rnn_autotune(self._cfg.rnn_type)
+        return maybe_enable_cudnn_rnn_autotune(self._cfg.rnn_type)
 
     def _create_trainer(self, has_validation: bool, plot: bool) -> tuple[L.Trainer, Any]:
         """Create Lightning Trainer with callbacks."""
@@ -489,6 +508,20 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
     def _clear_cache(self) -> None:
         """Clear prediction cache."""
         self._prediction_cache.clear()
+
+    def _cache_get(self, cache_key: bytes) -> "np.ndarray | None":
+        """LRU-aware cache lookup: a hit moves the entry to the most-recently-used end."""
+        if cache_key not in self._prediction_cache:
+            return None
+        self._prediction_cache.move_to_end(cache_key)
+        return self._prediction_cache[cache_key]
+
+    def _cache_put(self, cache_key: bytes, result: np.ndarray) -> None:
+        """Insert a prediction result, evicting the least-recently-used entry once over the cap."""
+        self._prediction_cache[cache_key] = result
+        self._prediction_cache.move_to_end(cache_key)
+        while len(self._prediction_cache) > _PREDICTION_CACHE_MAX:
+            self._prediction_cache.popitem(last=False)
 
     def save(self, path: str | Path) -> None:
         """Save model to disk.
@@ -618,6 +651,7 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         sample_weight: np.ndarray | None = None,
         sequences: list[np.ndarray] | None = None,
         eval_set: tuple | None = None,
+        eval_sample_weight: np.ndarray | None = None,
         class_weight: dict[int, float] | None = None,
         plot: bool = False,
         plot_file: str | Path | None = None,
@@ -632,6 +666,8 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
             sample_weight: (n_samples,) per-sample weights
             sequences: List of (seq_len, n_features) arrays
             eval_set: Validation data tuple
+            eval_sample_weight: (n_val_samples,) per-validation-row weights, threaded into val_loss /
+                early-stopping / checkpoint-selection so weighted validation is actually honoured.
             class_weight: Class weights dict
             plot: Whether to enable logging
             plot_file: Path for logs (unused, for compatibility)
@@ -697,7 +733,7 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         # Encode the eval_set labels through the same ``classes_`` mapping so the val CrossEntropy head sees in-range 0..k-1 positions too.
         if eval_set is not None and _is_single_label:
             eval_set = (*eval_set[:-1], np.searchsorted(self.classes_, np.asarray(eval_set[-1])).astype(np.int64))
-        val_dataset = self._create_eval_dataset(eval_set) if eval_set else None
+        val_dataset = self._create_eval_dataset(eval_set, eval_sample_weight) if eval_set else None
 
         train_loader = self._create_dataloader(train_dataset, shuffle=True)
         val_loader = self._create_dataloader(val_dataset, shuffle=False) if val_dataset else None
@@ -712,8 +748,14 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         )
 
         self.trainer, checkpoint_callback = self._create_trainer(val_loader is not None, plot)
-        self._maybe_enable_cudnn_rnn_autotune()
-        self.trainer.fit(self.model, train_loader, val_loader)
+        _prior_cudnn_benchmark = self._maybe_enable_cudnn_rnn_autotune()
+        from ._base_logging import suppress_lightning_workers_warning
+        try:
+            with suppress_lightning_workers_warning():
+                self.trainer.fit(self.model, train_loader, val_loader)
+        finally:
+            if _prior_cudnn_benchmark is not None:
+                torch.backends.cudnn.benchmark = _prior_cudnn_benchmark
 
         if checkpoint_callback is not None and checkpoint_callback.best_model_path:
             try:
@@ -763,8 +805,9 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         features = self._prepare_predict_features(features)
 
         cache_key = self._compute_cache_key(features, sequences)
-        if cache_key in self._prediction_cache:
-            return self._prediction_cache[cache_key]
+        _cached = self._cache_get(cache_key)
+        if _cached is not None:
+            return _cached
 
         n_samples = len(sequences) if sequences is not None else len(features)
 
@@ -775,18 +818,26 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         )
         loader = self._create_dataloader(dataset, shuffle=False, batch_size=batch_size)
 
+        # Same CUDA-broken-host guard _create_trainer applies at fit time (see that method's comment): on a
+        # host where fit already downgraded to CPU because the CUDA probe failed, a bare
+        # accelerator=self._cfg.accelerator here would still try CUDA and crash with "CUDA error: an
+        # illegal memory access". _probe_cuda_is_usable() is memoised process-wide so this costs nothing
+        # after the first call.
+        from ._base_tensor_helpers import safe_accelerator
         predict_trainer = L.Trainer(
-            accelerator=self._cfg.accelerator,
+            accelerator=safe_accelerator(self._cfg.accelerator),
             precision=cast(Any, self._auto_precision()),
             logger=False,
             enable_progress_bar=False,
             enable_model_summary=False,
         )
-        predictions = predict_trainer.predict(self.model, loader)
+        from ._base_logging import suppress_lightning_workers_warning
+        with suppress_lightning_workers_warning():
+            predictions = predict_trainer.predict(self.model, loader)
 
         result = np.asarray(torch.cat(cast(list, predictions), dim=0).float().cpu().numpy().astype(np.float32))
 
-        self._prediction_cache[cache_key] = result
+        self._cache_put(cache_key, result)
         return result
 
     def predict(
@@ -837,6 +888,7 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
         sample_weight: np.ndarray | None = None,
         sequences: list[np.ndarray] | None = None,
         eval_set: tuple | None = None,
+        eval_sample_weight: np.ndarray | None = None,
         plot: bool = False,
         plot_file: str | Path | None = None,
         cat_features: list[str] | None = None,
@@ -850,6 +902,8 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
             sample_weight: (n_samples,) per-sample weights
             sequences: List of (seq_len, n_features) arrays
             eval_set: Validation data tuple
+            eval_sample_weight: (n_val_samples,) per-validation-row weights, threaded into val_loss /
+                early-stopping / checkpoint-selection so weighted validation is actually honoured.
             plot: Whether to enable logging
             plot_file: Path for logs (unused, for compatibility)
             cat_features: Tabular categorical column names to factorize + learn entity embeddings for (HYBRID / FEATURES_ONLY). No-op in
@@ -887,7 +941,7 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
         L.seed_everything(self.random_state, workers=True)
 
         train_dataset = self._create_dataset(sequences, features, labels, sample_weight)
-        val_dataset = self._create_eval_dataset(eval_set) if eval_set else None
+        val_dataset = self._create_eval_dataset(eval_set, eval_sample_weight) if eval_set else None
 
         train_loader = self._create_dataloader(train_dataset, shuffle=True)
         val_loader = self._create_dataloader(val_dataset, shuffle=False) if val_dataset else None
@@ -902,8 +956,14 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
         )
 
         self.trainer, checkpoint_callback = self._create_trainer(val_loader is not None, plot)
-        self._maybe_enable_cudnn_rnn_autotune()
-        self.trainer.fit(self.model, train_loader, val_loader)
+        _prior_cudnn_benchmark = self._maybe_enable_cudnn_rnn_autotune()
+        from ._base_logging import suppress_lightning_workers_warning
+        try:
+            with suppress_lightning_workers_warning():
+                self.trainer.fit(self.model, train_loader, val_loader)
+        finally:
+            if _prior_cudnn_benchmark is not None:
+                torch.backends.cudnn.benchmark = _prior_cudnn_benchmark
 
         if checkpoint_callback is not None and checkpoint_callback.best_model_path:
             try:
@@ -953,8 +1013,9 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
         features = self._prepare_predict_features(features)
 
         cache_key = self._compute_cache_key(features, sequences)
-        if cache_key in self._prediction_cache:
-            return self._prediction_cache[cache_key]
+        _cached = self._cache_get(cache_key)
+        if _cached is not None:
+            return _cached
 
         n_samples = len(sequences) if sequences is not None else len(features)
 
@@ -965,16 +1026,24 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
         )
         loader = self._create_dataloader(dataset, shuffle=False, batch_size=batch_size)
 
+        # Same CUDA-broken-host guard _create_trainer applies at fit time (see that method's comment): on a
+        # host where fit already downgraded to CPU because the CUDA probe failed, a bare
+        # accelerator=self._cfg.accelerator here would still try CUDA and crash with "CUDA error: an
+        # illegal memory access". _probe_cuda_is_usable() is memoised process-wide so this costs nothing
+        # after the first call.
+        from ._base_tensor_helpers import safe_accelerator
         predict_trainer = L.Trainer(
-            accelerator=self._cfg.accelerator,
+            accelerator=safe_accelerator(self._cfg.accelerator),
             precision=cast(Any, self._auto_precision()),
             logger=False,
             enable_progress_bar=False,
             enable_model_summary=False,
         )
-        predictions = predict_trainer.predict(self.model, loader)
+        from ._base_logging import suppress_lightning_workers_warning
+        with suppress_lightning_workers_warning():
+            predictions = predict_trainer.predict(self.model, loader)
 
         result = np.asarray(torch.cat(cast(list, predictions), dim=0).float().cpu().numpy().astype(np.float32))
 
-        self._prediction_cache[cache_key] = result
+        self._cache_put(cache_key, result)
         return result

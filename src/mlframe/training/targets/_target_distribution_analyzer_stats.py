@@ -106,7 +106,7 @@ def _max_abs_lag_autocorr(y: np.ndarray, lags: tuple[int, ...] = (1, 2, 3, 5)) -
     return best_corr, best_lag
 
 
-def _lag1_autocorr_grouped(y: np.ndarray, group_ids: np.ndarray, min_group_size: int = 4) -> float:
+def _lag1_autocorr_grouped(y: np.ndarray, group_ids: np.ndarray, min_group_size: int = 4) -> tuple[float, int]:
     """Per-group lag-1 autocorr aggregated across groups via Fisher-z + reverse.
 
     For data where rows have a natural sequence WITHIN each group but not across
@@ -123,13 +123,17 @@ def _lag1_autocorr_grouped(y: np.ndarray, group_ids: np.ndarray, min_group_size:
     reflecting "AR is present within most groups". A critique-agent
     flagged the original size-weighted form for exactly this skew sensitivity.
 
-    Groups smaller than ``min_group_size`` rows are skipped (with a stamp in the
-    returned via global ``_lag1_grouped_skipped_count`` -- not yet wired but
-    reserved for future observability). Returns NaN when no qualifying groups
-    remain.
+    Groups smaller than ``min_group_size`` rows are skipped.
+
+    Returns
+    -------
+    (aggregated_autocorr, n_groups_skipped)
+        ``aggregated_autocorr`` is NaN when no qualifying groups remain.
+        ``n_groups_skipped`` counts groups excluded for being smaller than
+        ``min_group_size`` (the caller surfaces this for observability).
     """
     if y.size != group_ids.size or y.size < min_group_size:
-        return float("nan")
+        return float("nan"), 0
     z_values: list[float] = []
     uniq = np.unique(group_ids)
     skipped = 0
@@ -147,9 +151,9 @@ def _lag1_autocorr_grouped(y: np.ndarray, group_ids: np.ndarray, min_group_size:
         ar_capped = max(-0.9999, min(0.9999, ar_g))
         z_values.append(math.atanh(ar_capped))
     if not z_values:
-        return float("nan")
+        return float("nan"), skipped
     z_mean = float(np.mean(z_values))
-    return math.tanh(z_mean)
+    return math.tanh(z_mean), skipped
 
 
 def _check_within_group_ordering(group_ids: np.ndarray, n_check: int = 1024) -> bool:

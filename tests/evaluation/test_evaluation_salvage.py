@@ -36,7 +36,7 @@ from mlframe.training.callbacks import stop_file
 
 
 def _precision_at_top_decile(y, p):
-    """Helper that precision at top decile."""
+    """Returns ``float(np.mean(y[idx]))`` (after 2 setup steps)."""
     k = max(1, len(p) // 10)
     idx = np.argsort(-p)[:k]
     return float(np.mean(y[idx]))
@@ -326,7 +326,7 @@ def test_make_brier_precision_scorer():
 
 
 def _import_keras_or_skip():
-    """Helper that import keras or skip."""
+    """Test helper: pytest.importorskip('tensorflow'); pytest.importorskip('keras'); from mlframe.training.neural.keras_compat import build_ke...."""
     pytest.importorskip("tensorflow")
     pytest.importorskip("keras")
     from mlframe.training.neural.keras_compat import build_keras_mlp

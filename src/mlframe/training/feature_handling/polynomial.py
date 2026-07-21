@@ -1,10 +1,13 @@
 """
 Polynomial feature interactions (opt-in).
 
-Round-3 future-proofing F19. Exposed via
-``PreprocessingBackendConfig.polynomial_degree``; default ``None``
-(disabled). Wraps either :class:`sklearn.preprocessing.PolynomialFeatures`
-or polars-ds ``Blueprint.polynomial_features`` when available.
+Exposed via ``PreprocessingBackendConfig.polynomial_degree``; default ``None`` (disabled).
+
+sklearn-only fallback: the constructor accepts ``prefer_polarsds`` and builds a
+:class:`~mlframe.training.feature_handling.polars_capability.PolarsNativeDispatcher`, but
+``fit``/``transform`` below always use :class:`sklearn.preprocessing.PolynomialFeatures` -- the
+polars-ds ``Blueprint.polynomial_features`` dispatch path is not yet wired in (unlike
+``prefer_polarsds``'s constructor-level acceptance suggests). ``prefer_polarsds`` is currently a no-op.
 
 Memory safety: a degree-2 polynomial of 100 numeric features yields
 ~5050 cols (n*(n+1)/2 + n + 1). The wrapper logs an INFO line at fit
@@ -18,10 +21,6 @@ import logging
 from typing import Any, List, Optional
 
 import numpy as np
-
-from mlframe.training.feature_handling.polars_capability import (
-    PolarsNativeDispatcher,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +61,10 @@ class PolynomialFeatureExpander:
         self.degree = degree
         self.interaction_only = interaction_only
         self.include_bias = include_bias
-        self._dispatcher = PolarsNativeDispatcher(prefer_polarsds=prefer_polarsds)
+        # prefer_polarsds is accepted (kept for API compat / future use) but currently a no-op -- see the
+        # module docstring. Not constructing a PolarsNativeDispatcher here since it would never be
+        # consulted (a real capability-detection call for nothing).
+        self.prefer_polarsds = prefer_polarsds
         self._impl: Optional[Any] = None
         self._n_features_in: Optional[int] = None
         self._fitted: bool = False

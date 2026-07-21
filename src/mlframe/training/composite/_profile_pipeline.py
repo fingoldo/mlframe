@@ -2,7 +2,7 @@
 extensions (discovery time-aware screen, conformal / CQR intervals, base-margin
 classification). Run as:
 
-    python -m mlframe.training.composite._profile_pipeline [n] [--full]
+    python -m mlframe.training.composite._profile_pipeline [n]
 
 Prints the top cumulative-time hotspots per stage so a maintainer can re-profile
 after a change. Per CLAUDE.md: cProfile inflates pandas/sklearn deep-stack call

@@ -59,6 +59,11 @@ def weighted_kappa(y_true: np.ndarray, y_pred: np.ndarray, *, weights: str = "qu
     if yt.min() < 0 or yp.min() < 0:
         raise ValueError("weighted_kappa: labels must be non-negative integers.")
     n = int(n_classes) if n_classes is not None else int(max(yt.max(), yp.max())) + 1
+    if n_classes is not None and (yt.max() >= n or yp.max() >= n):
+        # _confusion_matrix's obs[y_true[k], y_pred[k]] += 1.0 runs under @njit with bounds-checking off --
+        # an out-of-range label from a too-small explicit n_classes writes out of bounds (crash or silent
+        # memory corruption) instead of raising.
+        raise ValueError(f"weighted_kappa: n_classes={n} but labels reach up to {int(max(yt.max(), yp.max()))}; labels must lie in [0, n_classes).")
     if n < 2:
         return 1.0  # single class, ratings trivially agree
 

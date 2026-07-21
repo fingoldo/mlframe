@@ -20,7 +20,7 @@ Reference: stacked transformer encoders (Vaswani et al. 2017); label propagation
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Union
 
 import numpy as np
 import polars as pl
@@ -45,6 +45,7 @@ def compute_stacked_row_attention(
     softmax_temp: float = 1.0,
     standardize: bool = True,
     projection: Literal["random", "pls"] = "random",
+    gpu_stage4: Union[bool, Literal["auto"]] = False,
     return_all_layers: bool = True,
     column_prefix: str = "stack",
     dtype: type = np.float32,
@@ -61,6 +62,10 @@ def compute_stacked_row_attention(
         - If ``return_all_layers=False``: only the final layer's output, shape ``(N, n_heads)``.
 
     Per-layer seed is ``seed + 1000 * layer`` so each layer uses independent random projections (when projection="random") or independent PLS noise (when "pls").
+
+    ``gpu_stage4`` (default ``False``, unlike ``compute_row_attention``'s own ``"auto"`` default): every layer's ``compute_row_attention`` call forces CPU stage-4
+    scoring unless the caller opts in here. Each of the ``n_layers`` calls pays its own stage-4 cost, so a GPU-equipped caller stacking several layers on a large
+    ``k`` may want ``gpu_stage4="auto"`` or ``True``.
 
     Mode A (X_query=None): OOF features for X_train rows via the splitter. Layer i in Mode A is fed layer (i-1)'s OOF outputs as new X.
     Mode B (X_query!=None): Mode A for X_train AND Mode B for X_query at each layer. Layer i's bank is built from layer (i-1)'s OOF train outputs, and queried
@@ -88,7 +93,7 @@ def compute_stacked_row_attention(
             X_train=current_X_train, y_train=y_train, X_query=None, splitter=splitter,
             seed=layer_seed, n_heads=n_heads, head_dim=layer_head_dim, k=k,
             softmax_temp=softmax_temp, aggregate=("y_mean",), standardize=standardize,
-            projection=projection, gpu_stage4=False, dedupe_threshold=None,
+            projection=projection, gpu_stage4=gpu_stage4, dedupe_threshold=None,
             allow_overcomplete=True, dtype=dtype,
         ).to_numpy().astype(dtype, copy=False)
         layer_outputs_train.append(out_train)
@@ -99,7 +104,7 @@ def compute_stacked_row_attention(
                 X_train=current_X_train, y_train=y_train, X_query=current_X_query, splitter=splitter,
                 seed=layer_seed, n_heads=n_heads, head_dim=layer_head_dim, k=k,
                 softmax_temp=softmax_temp, aggregate=("y_mean",), standardize=standardize,
-                projection=projection, gpu_stage4=False, dedupe_threshold=None,
+                projection=projection, gpu_stage4=gpu_stage4, dedupe_threshold=None,
                 allow_overcomplete=True, dtype=dtype,
             ).to_numpy().astype(dtype, copy=False)
             layer_outputs_query.append(out_query)

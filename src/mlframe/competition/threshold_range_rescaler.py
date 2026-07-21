@@ -34,12 +34,19 @@ from sklearn.model_selection import StratifiedKFold
 
 @dataclass
 class ThresholdCorrection:
-    """A single fitted ``(subgroup, threshold, multiplier)`` correction rule."""
+    """A single fitted ``(subgroup, threshold, multiplier)`` correction rule.
+
+    ``fold_scores`` (one entry per CV fold that had both classes present) lets a caller additionally
+    gate acceptance on variance across folds -- e.g. reject a correction whose mean gain is driven by
+    one lucky fold -- further hardening the "only accept improvements that generalize across the CV
+    split" intent ``min_improvement`` already partially serves on its own.
+    """
 
     subgroup: str
     threshold: float
     multiplier: float
     cv_score: float
+    fold_scores: list[float] = field(default_factory=list)
 
 
 @dataclass
@@ -49,6 +56,7 @@ class ThresholdRangeRescalerResult:
     baseline_cv_score: float
     final_cv_score: float
     corrections: list[ThresholdCorrection] = field(default_factory=list)
+    baseline_fold_scores: list[float] = field(default_factory=list)
 
 
 class ThresholdRangeRescaler:
@@ -120,19 +128,30 @@ class ThresholdRangeRescaler:
         self.corrections_: list[ThresholdCorrection] = []
         self.baseline_cv_score_: float = float("nan")
         self.final_cv_score_: float = float("nan")
+        self.baseline_fold_scores_: list[float] = []
 
-    def _cv_score(self, preds: np.ndarray, y: np.ndarray) -> float:
-        """Return the mean ``metric_fn`` score across stratified CV folds, skipping folds missing a class."""
-        skf = StratifiedKFold(n_splits=self.n_splits, shuffle=True, random_state=self.random_state)
+    def _cv_score(self, preds: np.ndarray, y: np.ndarray, fold_test_indices: list[np.ndarray]) -> tuple[float, list[float]]:
+        """Return ``(mean_score, per_fold_scores)`` across the GIVEN CV fold test indices, skipping folds missing a class.
+
+        ``fold_test_indices`` is computed ONCE by the caller (see ``fit``), not re-split on every call: the
+        StratifiedKFold partition depends only on ``y`` and ``self.random_state``, both constant across an
+        entire ``fit()`` call, so re-instantiating and re-splitting per grid-search candidate (hundreds to
+        thousands of calls for a realistic subgroup x threshold x multiplier grid) recomputed the identical
+        partition from scratch every time.
+
+        ``per_fold_scores`` is exposed (see ``ThresholdCorrection.fold_scores``) so a caller can
+        additionally gate acceptance on variance across folds, e.g. reject a candidate whose mean gain
+        is driven by one lucky fold -- ``min_improvement`` alone only checks the mean.
+        """
         fold_scores = []
-        for _, test_idx in skf.split(preds, y):
+        for test_idx in fold_test_indices:
             y_test = y[test_idx]
             if len(np.unique(y_test)) < 2:
                 continue
-            fold_scores.append(self.metric_fn(y_test, preds[test_idx]))
+            fold_scores.append(float(self.metric_fn(y_test, preds[test_idx])))
         if not fold_scores:
             raise ValueError("could not compute CV score: no fold had both classes present")
-        return float(np.mean(fold_scores))
+        return float(np.mean(fold_scores)), fold_scores
 
     def fit(
         self,
@@ -167,8 +186,14 @@ class ThresholdRangeRescaler:
             if mask_arr.shape[0] != preds_arr.shape[0]:
                 raise ValueError(f"subgroup mask {name!r} length does not match preds")
 
+        # The fold partition depends only on `y_arr`/`self.random_state` (StratifiedKFold.split's `X`
+        # argument is only used for its length), both fixed for this whole `fit()` call -- compute it
+        # once and reuse it across every grid-search candidate instead of re-splitting per candidate.
+        skf = StratifiedKFold(n_splits=self.n_splits, shuffle=True, random_state=self.random_state)
+        fold_test_indices = [test_idx for _, test_idx in skf.split(preds_arr, y_arr)]
+
         working = preds_arr.copy()
-        self.baseline_cv_score_ = self._cv_score(working, y_arr)
+        self.baseline_cv_score_, self.baseline_fold_scores_ = self._cv_score(working, y_arr, fold_test_indices)
         current_score = self.baseline_cv_score_
         self.corrections_ = []
 
@@ -190,11 +215,13 @@ class ThresholdRangeRescaler:
                             continue
                         candidate = working.copy()
                         candidate[hit] = np.clip(candidate[hit] * multiplier, 0.0, 1.0)
-                        score = self._cv_score(candidate, y_arr)
+                        score, cand_fold_scores = self._cv_score(candidate, y_arr, fold_test_indices)
                         gain = score - current_score
                         if gain > best_gain:
                             best_gain = gain
-                            best_choice = ThresholdCorrection(subgroup=name, threshold=float(threshold), multiplier=float(multiplier), cv_score=score)
+                            best_choice = ThresholdCorrection(
+                                subgroup=name, threshold=float(threshold), multiplier=float(multiplier), cv_score=score, fold_scores=cand_fold_scores
+                            )
                             best_corrected = candidate
 
             if best_choice is None or best_corrected is None:
@@ -227,9 +254,10 @@ class ThresholdRangeRescaler:
         return self.transform(preds, subgroups)
 
     def result(self) -> ThresholdRangeRescalerResult:
-        """Return a snapshot of fit diagnostics (baseline/final CV score, corrections)."""
+        """Return a snapshot of fit diagnostics (baseline/final CV score, corrections, per-fold scores)."""
         return ThresholdRangeRescalerResult(
             baseline_cv_score=self.baseline_cv_score_,
             final_cv_score=self.final_cv_score_,
             corrections=list(self.corrections_),
+            baseline_fold_scores=list(self.baseline_fold_scores_),
         )

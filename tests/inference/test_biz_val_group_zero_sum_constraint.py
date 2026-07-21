@@ -120,7 +120,7 @@ def test_biz_val_apply_group_zero_sum_constraint_preserve_rank_order_reduces_vio
     preserved_corrected = apply_group_zero_sum_constraint(preds, group_ids, preserve_rank_order=True, **kwargs)
 
     def total_violation_depth(corrected: np.ndarray) -> float:
-        """Helper that total violation depth."""
+        """Returns ``total`` (after 2 setup steps)."""
         total = 0.0
         for g in range(n_groups):
             member_mask = group_ids == g

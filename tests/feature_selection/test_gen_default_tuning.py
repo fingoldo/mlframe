@@ -72,7 +72,7 @@ def _fake_spec(kernel_name="fake_kernel", *, gpu=True, salt=3):
     is a tiny local function so ``code_version()`` is stable + non-None."""
 
     def _ref(x):  # body hashed into code_version
-        """Helper that ref."""
+        """Returns ``x + 1``."""
         return x + 1
 
     return TunerSpec(

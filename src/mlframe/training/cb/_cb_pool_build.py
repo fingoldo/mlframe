@@ -204,12 +204,18 @@ def _maybe_get_or_build_cb_pool(
         # ``SetNumericTarget`` path only accepts numeric / unset targets.
         # That means we can only reuse across WEIGHT swaps, not label
         # swaps, for classification pools. Strategy: skip ``set_label``
-        # unless the caller actually supplied a different target (by id
-        # against the last target we stored). Always mutate weight --
-        # ``set_weight`` has no target-type restriction.
-        last_target_id = getattr(cached, "_mlframe_last_target_id", None)
+        # unless the caller actually supplied a genuinely different target
+        # (by CONTENT fingerprint, not id() -- CPython can and does reuse a
+        # just-freed array's memory address for a new allocation of matching
+        # size, e.g. RFECV inner CV folds slicing a fresh train_target = y[fold_mask]
+        # each iteration; an id() collision there would silently keep a stale
+        # label on the reused Pool while training proceeds against fresh data).
+        # Always mutate weight -- ``set_weight`` has no target-type restriction.
+        from mlframe.training.pipeline._pipeline_cache import _full_target_content_hash
+        last_target_sig = getattr(cached, "_mlframe_last_target_sig", None)
         try:
-            if last_target_id is None or id(train_target) != last_target_id:
+            _target_sig = _full_target_content_hash(train_target)
+            if last_target_sig is None or _target_sig != last_target_sig:
                 # Label swap. Cast to float32 -- the Pool was built with a
                 # float32 label (see build path below), and CB's C++
                 # ``SetNumericTarget`` rejects anything but Float/None. If
@@ -222,7 +228,7 @@ def _maybe_get_or_build_cb_pool(
                 except Exception:
                     _label_for_swap = train_target
                 cached.set_label(_label_for_swap)
-                cached._mlframe_last_target_id = id(train_target)
+                cached._mlframe_last_target_sig = _target_sig
             if sample_weight is not None:
                 cached.set_weight(sample_weight)
             # Post-swap verification: confirm the cached Pool's label is
@@ -248,7 +254,7 @@ def _maybe_get_or_build_cb_pool(
                 len(cat_features),
                 len(text_features),
                 len(embedding_features),
-                " + label" if last_target_id != id(train_target) else "",
+                " + label" if (last_target_sig is None or _target_sig != last_target_sig) else "",
             )
             return cached
         except Exception as exc:
@@ -302,7 +308,8 @@ def _maybe_get_or_build_cb_pool(
         logger.warning("[cb-pool-reuse] Pool construction failed (%s: %s); falling back to rebuild-every-fit sklearn path.", type(exc).__name__, exc)
         return None
 
-    pool._mlframe_last_target_id = id(train_target)
+    from mlframe.training.pipeline._pipeline_cache import _full_target_content_hash
+    pool._mlframe_last_target_sig = _full_target_content_hash(train_target)
     # Cache feature lists on the Pool so callers (notably the dynamic CB
     # ``text_processing`` injection in ``_train_model_with_fallback``)
     # can introspect them without round-tripping through fit_params,

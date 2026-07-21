@@ -18,7 +18,7 @@ warnings.filterwarnings("ignore")
 
 
 def _make_mrmr(**overrides):
-    """Helper that make mrmr."""
+    """Returns ``MRMR(**kwargs)`` (after 3 setup steps)."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     kwargs = dict(verbose=0, random_seed=0)
@@ -27,7 +27,7 @@ def _make_mrmr(**overrides):
 
 
 def _build(seed: int, n: int = 12000):
-    """Helper that build."""
+    """Builds seeded synthetic test data; returns ``(X, pd.Series(y, name='y'))``."""
     rng = np.random.default_rng(seed)
     x = rng.uniform(-3.0, 3.0, size=n)
     cols = {"a": x}
@@ -42,7 +42,7 @@ def _build(seed: int, n: int = 12000):
 
 
 def run_fit(seed):
-    """Helper that run fit."""
+    """Returns ``m`` (after 3 setup steps)."""
     X, y = _build(seed)
     m = _make_mrmr()
     m.fit(X, y)
@@ -51,7 +51,7 @@ def run_fit(seed):
 
 def main():
     # warm
-    """Helper that main."""
+    """Test helper: run_fit(99); run_fit(98); pr = cProfile.Profile()."""
     run_fit(99)
     run_fit(98)
     pr = cProfile.Profile()

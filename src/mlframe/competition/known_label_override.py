@@ -146,12 +146,16 @@ def known_label_override(
     """
     preds_arr: np.ndarray = np.asarray(preds, dtype=float)
     out: np.ndarray = preds_arr.copy()
-    midpoint = (positive_value + negative_value) / 2.0
 
     for idx, recovered_label in known_label_map.items():
         if idx < 0 or idx >= out.shape[0]:
             raise IndexError(f"known_label_map row index {idx} out of bounds for preds of length {out.shape[0]}")
-        is_recovered_positive = recovered_label >= midpoint
+        # "Closer to positive_value" (per this docstring's own contract), NOT `>= midpoint` -- the
+        # midpoint comparison silently assumed an ascending negative_value < positive_value convention
+        # and applied every override in the OPPOSITE direction for a caller using a reversed scale
+        # (e.g. positive_value=0.0, negative_value=1.0). `<=` (not `<`) preserves the exact
+        # tie-breaking-toward-positive behavior the old `>= midpoint` formula had at the midpoint itself.
+        is_recovered_positive = abs(recovered_label - positive_value) <= abs(recovered_label - negative_value)
         if asymmetric_safe_direction == "positive" and is_recovered_positive:
             out[idx] = positive_value
         elif asymmetric_safe_direction == "negative" and not is_recovered_positive:

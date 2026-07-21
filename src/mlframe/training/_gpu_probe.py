@@ -67,17 +67,3 @@ if CUDA_IS_AVAILABLE and not XGB_GPU_AVAILABLE:
     )
 if CUDA_IS_AVAILABLE and not LGB_GPU_AVAILABLE:
     logger.info("[gpu-probe] LightGBM GPU support not opted-in " "(``MLFRAME_TRUST_LGB_CUDA`` not set). LGB will run on CPU.")
-
-
-# =============================================================================
-# Multi-output (multiclass + multilabel) dispatch helpers — 2026-04-24
-# =============================================================================
-#
-# Probability-surface contract: every classification estimator's
-# ``predict_proba`` is canonicalised to ``(N, K)`` shape regardless of
-# source — sklearn binary returns ``(N, 2)``, ``MultiOutputClassifier``
-# returns ``List[(N, 2)]``, CB native ``MultiLogloss`` returns ``(N, K)``
-# already. The canonicalizer + decision-rule pair below wraps that
-# heterogeneity behind two pure functions used at every site that
-# previously hard-coded ``probs[:, 1]`` (4 sites in core.py, 3 in
-# evaluation.py, 2 in automl.py).

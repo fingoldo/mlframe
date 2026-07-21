@@ -142,7 +142,7 @@ def test_polars_numeric_loop_skips_null_scan_for_noncastable_dtype(monkeypatch):
     orig_is_null = pl.Series.is_null
 
     def spy_is_null(self):
-        """Helper that spy is null."""
+        """Returns ``orig_is_null(self)`` (after 1 setup step)."""
         if self.name:
             scanned.append(self.name)
         return orig_is_null(self)

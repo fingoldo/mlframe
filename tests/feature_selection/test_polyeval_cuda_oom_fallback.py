@@ -27,7 +27,7 @@ def test_polyeval_dispatch_falls_back_to_cpu_on_cuda_error(monkeypatch):
     monkeypatch.setattr(hf, "_warn_polyeval_cuda_fallback_once", lambda exc: None)
 
     def _boom(basis, xx, cc, device=None):
-        """Helper that boom."""
+        """Always raises ``RuntimeError('cudaErrorMemoryAllocation: out of memory')``."""
         raise RuntimeError("cudaErrorMemoryAllocation: out of memory")
 
     monkeypatch.setattr(hf, "_polyeval_cuda", _boom)
@@ -77,7 +77,7 @@ def test_resident_vram_gate_noop_on_query_failure(monkeypatch):
     cp = pytest.importorskip("cupy")
 
     def _raise():
-        """Helper that raise."""
+        """Always raises ``RuntimeError('no device')``."""
         raise RuntimeError("no device")
 
     monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", _raise)

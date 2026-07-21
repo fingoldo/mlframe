@@ -266,15 +266,26 @@ def _fit_cb_ranker(
     _CB_NA = "__MLFRAME_NA__"
 
     def _fill_obj_cat_nones(_df):
-        """Replaces Python ``None`` in object-dtype declared cat columns with the sentinel so CatBoost's Pool doesn't choke on it."""
+        """Replaces null cells in declared cat columns (object-dtype OR pandas CategoricalDtype) with
+        the sentinel so CatBoost's Pool doesn't choke on them. Mirrors the identical
+        object-dtype-vs-CategoricalDtype handling in ``_ranker_suite_train.py``'s FTE prep and the main
+        CB training path's own ``__MISSING__``-sentinel convention."""
         if not isinstance(_df, pd.DataFrame) or not cat_features:
             return _df
         _upd = {}
         for _c in cat_features:
-            if _c in _df.columns and _df[_c].dtype == object:
-                _col = _df[_c]
+            if _c not in _df.columns:
+                continue
+            _col = _df[_c]
+            if _col.dtype == object:
                 if _col.isna().any():
                     _upd[_c] = _col.where(_col.notna(), _CB_NA)
+            elif isinstance(_col.dtype, pd.CategoricalDtype):
+                if _col.isna().any():
+                    _series = _col
+                    if _CB_NA not in _series.cat.categories:
+                        _series = _series.cat.add_categories(_CB_NA)
+                    _upd[_c] = _series.fillna(_CB_NA)
         return _df.assign(**_upd) if _upd else _df
 
     X_tr = _fill_obj_cat_nones(X_tr)

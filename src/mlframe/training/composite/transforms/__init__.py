@@ -13,51 +13,7 @@ from typing import (
 
 import numpy as np
 
-try:
-    import numba as _numba
-    _HAS_NUMBA = True
-except Exception:  # pragma: no cover
-    _numba = None
-    _HAS_NUMBA = False
-
 logger = logging.getLogger(__name__)
-
-
-# Module-level numba kernels (JIT compile on first call). Pure-Python fallback
-# is the recursion in-line below when numba is not installed.
-if _HAS_NUMBA:
-
-    @_numba.njit(cache=True)
-    def _ewma_kernel(base_f: np.ndarray, alpha: float, anchor: float) -> np.ndarray:
-        n = base_f.size
-        out = np.empty(n, dtype=np.float64)
-        state = anchor
-        for i in range(n):
-            x = base_f[i]
-            if np.isfinite(x):
-                state = (1.0 - alpha) * state + alpha * x
-            out[i] = state
-        return out
-
-    @_numba.njit(cache=True)
-    def _frac_diff_inverse_kernel(
-        t_f: np.ndarray, lags: int, weights: np.ndarray, anchor: float,
-    ) -> np.ndarray:
-        n = t_f.size
-        out = np.empty(n, dtype=np.float64)
-        inv_w0 = 1.0 / weights[0]
-        for i in range(n):
-            lag_sum = 0.0
-            upper = min(i + 1, lags + 1)
-            for k_idx in range(1, upper):
-                lag_sum += weights[k_idx] * out[i - k_idx]
-            for k_idx in range(upper, lags + 1):
-                lag_sum += weights[k_idx] * anchor
-            out[i] = (t_f[i] - lag_sum) * inv_w0
-        return out
-else:
-    _ewma_kernel = None
-    _frac_diff_inverse_kernel = None
 
 
 # Soft-cap MAD floor: when MAD(T_train) is below

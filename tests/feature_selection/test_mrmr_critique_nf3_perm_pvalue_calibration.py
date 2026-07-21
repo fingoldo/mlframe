@@ -22,7 +22,7 @@ from mlframe.feature_selection.filters.info_theory._entropy_kernels import condi
 
 
 def _cache():
-    """Helper that cache."""
+    """Returns ``NumbaDict.empty(key_type=types.unicode_type, value_type=types.float64)``."""
     return NumbaDict.empty(key_type=types.unicode_type, value_type=types.float64)
 
 

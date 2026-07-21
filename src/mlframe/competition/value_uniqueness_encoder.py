@@ -31,6 +31,7 @@ REPEATS_ONLY_TARGET_1 = "repeats_only_with_target_1"
 REPEATS_ONLY_TARGET_0 = "repeats_only_with_target_0"
 REPEATS_MIXED_TARGET = "repeats_mixed_target"
 REPEATS_UNKNOWN_TARGET = "repeats_unknown_target"
+MISSING_VALUE = "missing_value"
 
 VALUE_UNIQUENESS_CATEGORIES = (
     UNIQUE_GLOBALLY,
@@ -38,6 +39,7 @@ VALUE_UNIQUENESS_CATEGORIES = (
     REPEATS_ONLY_TARGET_0,
     REPEATS_MIXED_TARGET,
     REPEATS_UNKNOWN_TARGET,
+    MISSING_VALUE,
 )
 
 
@@ -64,8 +66,16 @@ def _build_train_value_to_flag(values: pd.Series, y_train: np.ndarray) -> dict:
 
 
 def _encode_train_column(values: pd.Series, value_to_flag: dict) -> pd.Series:
-    """Map each train value to its precomputed uniqueness/target-co-occurrence flag."""
-    flags = values.map(value_to_flag).to_numpy()
+    """Map each train value to its precomputed uniqueness/target-co-occurrence flag.
+
+    ``value_to_flag`` (built via a NaN-dropping ``groupby``) has no entry for a NaN train value, so
+    ``.map`` would otherwise leave a raw, undocumented ``NaN`` in the output instead of one of the
+    documented categories -- routed to the explicit ``MISSING_VALUE`` category instead.
+    """
+    flags = values.map(value_to_flag).to_numpy(dtype=object)
+    missing = values.isna().to_numpy()
+    if missing.any():
+        flags[missing] = MISSING_VALUE
     return pd.Series(flags, index=values.index, dtype="object")
 
 
@@ -90,13 +100,20 @@ def _encode_test_column(values: pd.Series, real_mask_col: np.ndarray | None, tra
     novel_counts = pd.Series(real_values).value_counts()
 
     values_series = pd.Series(raw)
-    seen_in_train = values_series.isin(train_value_to_flag.keys()).to_numpy()
+    is_missing = values_series.isna().to_numpy()
+    # A NaN test value must never fall through to the novel-value count path below: `.isin`/`.map`
+    # both treat NaN as never matching (dict has no NaN key, value_counts() drops NaN by default), so
+    # counts_for_novel would silently resolve to 0 -> UNIQUE_GLOBALLY, an undocumented asymmetry with
+    # the train-side MISSING_VALUE flag (see _encode_train_column). Route it there explicitly instead.
+    seen_in_train = values_series.isin(train_value_to_flag.keys()).to_numpy() & ~is_missing
 
     flags = np.empty(len(raw), dtype=object)
     if seen_in_train.any():
         flags[seen_in_train] = values_series[seen_in_train].map(train_value_to_flag).to_numpy()
+    if is_missing.any():
+        flags[is_missing] = MISSING_VALUE
 
-    novel_mask = ~seen_in_train
+    novel_mask = ~seen_in_train & ~is_missing
     if novel_mask.any():
         counts_for_novel = values_series[novel_mask].map(novel_counts).fillna(0).to_numpy()
         novel_flags = np.where(counts_for_novel <= 1, UNIQUE_GLOBALLY, REPEATS_UNKNOWN_TARGET)
@@ -129,6 +146,9 @@ def value_uniqueness_encoder(
       (train rows only).
     - ``"repeats_unknown_target"``: value repeats (count > 1) - assigned to test rows only,
       since test labels are never available/used (no leakage).
+    - ``"missing_value"``: the raw value is NaN/None, on either the train or test side -- never
+      routed through the count/target logic above (a NaN is not "unique" or "repeating" in any
+      meaningful sense).
 
     Causality / no-leakage guarantees:
         - Train-row flags are computed using ONLY ``train`` values and ``y_train`` -

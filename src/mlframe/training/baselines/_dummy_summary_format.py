@@ -247,6 +247,15 @@ def format_suite_end_summary(
     return "\n".join(lines)
 
 
+def _pick_rmse(metric_dict: dict) -> "float | None":
+    """Prefer ``val_RMSE``, falling back to ``RMSE``, using an explicit None-check (not a truthy ``or``
+    fallback) -- an RMSE of exactly 0.0 (a perfectly-fit or degenerate constant target, plausible on the
+    small synthetic regressions this module's own tests use) is falsy and previously fell through to the
+    (possibly absent/stale) fallback key instead of being used directly."""
+    v = metric_dict.get("val_RMSE")
+    return v if v is not None else metric_dict.get("RMSE")
+
+
 def format_unified_target_verdict_table(
     dummy_baselines_metadata: dict[str, Any],
     best_model_metrics_by_target: dict[tuple[str, str], dict[str, float]] | None = None,
@@ -289,19 +298,29 @@ def format_unified_target_verdict_table(
         raw_metric = slot["raw"] or {}
         comp_specs = slot["composites"]
         # Prefer val_RMSE; fall back to whatever the slot has.
-        raw_val = raw_metric.get("val_RMSE") or raw_metric.get("RMSE")
+        raw_val = _pick_rmse(raw_metric)
+
+        def _rmse_sort_key(c: tuple) -> float:
+            """RMSE of one composite spec, for ranking by min(); never None (see the generator filter below)."""
+            # The generator filter below only admits entries with a non-None _pick_rmse, so this
+            # is never actually None -- narrowed explicitly since min()'s key= return type must
+            # support ordering, which float | None does not.
+            v = _pick_rmse(c[1])
+            assert v is not None
+            return v
+
         best_comp = min(
-            (c for c in comp_specs if (c[1].get("val_RMSE") or c[1].get("RMSE")) is not None),
-            key=lambda c: c[1].get("val_RMSE") or c[1].get("RMSE"),
+            (c for c in comp_specs if _pick_rmse(c[1]) is not None),
+            key=_rmse_sort_key,
             default=None,
         )
-        comp_val = best_comp[1].get("val_RMSE") or best_comp[1].get("RMSE") if best_comp else None
+        comp_val = _pick_rmse(best_comp[1]) if best_comp else None
         ct_val = None
         if cross_target_ensemble_metrics:
             ct_entry = cross_target_ensemble_metrics.get((str(tt), raw_name))
             if ct_entry:
-                ct_val = ct_entry.get("val_RMSE") or ct_entry.get("RMSE")
-        lift = (float(raw_val) / float(comp_val)) if (raw_val and comp_val and comp_val > 0) else None
+                ct_val = _pick_rmse(ct_entry)
+        lift = (float(raw_val) / float(comp_val)) if (raw_val is not None and comp_val is not None and comp_val > 0) else None
         verdict_parts = []
         if lift is not None and lift > 1.05:
             verdict_parts.append("COMPOSITE_WINS")

@@ -76,7 +76,7 @@ def test_D_release_clears_dataset_reuse_cache():
         artifacts={
             "dataset_reuse_cache": {
                 "model_a": {"_cached_train_dmatrix": object()},
-                "model_b": {"_cached_val_dataset": object()},
+                "model_b": {"_cached_val_datasets": {("sig",): object()}},
             },
         },
     )

@@ -13,7 +13,7 @@ import pandas as pd
 
 def _positional_select(y, indices):
     # Mirrors the fixed line in reports.py.
-    """Helper that positional select."""
+    """Returns ``y.iloc[indices] if hasattr(y, 'iloc') else y[indices]``."""
     return y.iloc[indices] if hasattr(y, "iloc") else y[indices]
 
 

@@ -66,7 +66,9 @@ def multi_window_aggregate(
     out = pd.DataFrame({entity_col: query[entity_col].to_numpy()})
 
     for horizon in lookback_horizons:
-        windowed_history = history_df.copy()
+        # history_df is read-only here (passed straight through to leakage_safe_aggregate, never
+        # sliced/mutated) -- no need for a full-frame copy per horizon (frames here can be 100+ GB.
+        windowed_history = history_df
         # tag each history row with the horizon-specific "window start" so a per-horizon leakage_safe_aggregate
         # call only sees rows within [cutoff - horizon, cutoff) -- reuse the vetted as-of aggregation machinery
         # rather than duplicating its cumsum/searchsorted logic.

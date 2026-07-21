@@ -149,9 +149,23 @@ def _build_cross_target_ensemble_for_target(
                     _oof_kfold_mtr = int(getattr(
                         composite_target_discovery_config, "oof_kfold", 5,
                     ))
+                    # Same ctx.sample_weights[target] -> filtered_train_idx slicing the general (non-MTR)
+                    # path below uses for `_sw_for_oof` -- computed independently here since this MTR
+                    # branch runs BEFORE that later block. Without it, the honest-OOF NNLS weights were
+                    # silently fit as if every row were equally important on a weighted suite.
+                    _ctx_sw_dict_mtr = getattr(ctx, "sample_weights", None) if ctx is not None else None
+                    _sw_for_mtr_oof = None
+                    if isinstance(_ctx_sw_dict_mtr, dict) and _ctx_sw_dict_mtr:
+                        _sw_raw_mtr = _ctx_sw_dict_mtr.get(_orig_tname)
+                        if _sw_raw_mtr is not None:
+                            try:
+                                _sw_for_mtr_oof = np.asarray(_sw_raw_mtr)[filtered_train_idx]
+                            except (TypeError, IndexError):
+                                _sw_for_mtr_oof = None
                     _oof_weights = compute_mtr_oof_nnls_weights(
                         _mtr_components, filtered_train_df, _y_arr_mtr,
                         kfold=_oof_kfold_mtr, random_state=_oof_random_state,
+                        sample_weight=_sw_for_mtr_oof,
                     )
             except Exception as _mtr_oof_err:
                 logger.warning(

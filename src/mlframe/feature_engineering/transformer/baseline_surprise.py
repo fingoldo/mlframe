@@ -41,21 +41,48 @@ logger = logging.getLogger(__name__)
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: str, seed: int) -> tuple[np.ndarray, np.ndarray]:
-    """Fit a small LightGBM baseline (classifier for ``task="binary"``, regressor otherwise) on ``(Xt, y_t)`` and return both its in-sample train predictions and its query predictions."""
+    """Fit a small LightGBM baseline (classifier for ``task="binary"``, regressor otherwise) and return
+    (OUT-OF-FOLD train predictions via an inner KFold(3), query predictions from a single full-Xt fit).
+
+    ``p_train`` drives ``surprise_train`` (the per-row "hardness" signal below); an in-sample p_train is
+    close to y_t almost by construction, understating the true surprise. ``p_query`` is a genuinely
+    held-out prediction regardless (Xq was never part of the fit), so it stays a single full fit for
+    maximum data efficiency. Matches residual_stratified_distance.py's own OOF pattern in this same
+    cluster.
+    """
     try:
         import lightgbm as lgb
     except ImportError as exc:
         raise ImportError("baseline_surprise requires lightgbm") from exc
-    if task == "binary":
-        m = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
-        m.fit(Xt, y_t.astype(np.int32))
-        p_train = np.asarray(m.predict_proba(Xt))[:, 1].astype(np.float32)
-        p_query = np.asarray(m.predict_proba(Xq))[:, 1].astype(np.float32)
+
+    def _make_and_fit(X_fit: np.ndarray, y_fit: np.ndarray, rs: int) -> Any:
+        """Fits and returns an LGBMClassifier (task="binary") or LGBMRegressor on (X_fit, y_fit)."""
+        if task == "binary":
+            m = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=rs, verbose=-1, n_jobs=-1)
+            m.fit(X_fit, y_fit.astype(np.int32))
+        else:
+            m = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=rs, verbose=-1, n_jobs=-1)
+            m.fit(X_fit, y_fit)
+        return m
+
+    def _predict(m: Any, X: np.ndarray) -> np.ndarray:
+        """Predicted P(y=1) (task="binary") or predicted value, as float32."""
+        if task == "binary":
+            return np.asarray(m.predict_proba(X))[:, 1].astype(np.float32)
+        return np.asarray(m.predict(X)).astype(np.float32)
+
+    n = Xt.shape[0]
+    if n < 3:
+        p_train = _predict(_make_and_fit(Xt, y_t, int(seed)), Xt)
     else:
-        m = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
-        m.fit(Xt, y_t)
-        p_train = np.asarray(m.predict(Xt)).astype(np.float32)
-        p_query = np.asarray(m.predict(Xq)).astype(np.float32)
+        from sklearn.model_selection import KFold
+        p_train = np.zeros(n, dtype=np.float32)
+        inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11)
+        for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt)):
+            m_inner = _make_and_fit(Xt[in_tr], y_t[in_tr], int(seed) + 7 + inner_idx)
+            p_train[in_val] = _predict(m_inner, Xt[in_val])
+
+    p_query = _predict(_make_and_fit(Xt, y_t, int(seed)), Xq)
     return p_train, p_query
 
 

@@ -54,6 +54,7 @@ def compute_mtr_oof_nnls_weights(
     *,
     kfold: int = 5,
     random_state: int = 42,
+    sample_weight: np.ndarray | None = None,
 ) -> np.ndarray | None:
     """Return ``(n_components, n_targets)`` per-column NNLS weights from honest train-K-fold OOF, or ``None``.
 
@@ -83,6 +84,11 @@ def compute_mtr_oof_nnls_weights(
     Each EXCLUDED component is logged once at WARNING naming the partial forfeiture so the degradation is visible
     in prod logs; the success (all components survive) and not-applicable paths stay quiet.
 
+    ``sample_weight`` (aligned to ``X_train``/``y_train``), when given, is sliced per fold the same way ``y_tr``
+    is and threaded into each component's fold-refit via ``_maybe_pass_sample_weight`` (graceful per-estimator
+    fallback to unweighted, same helper the single-target cross-target ensemble path already uses) -- without
+    it, a weighted suite's honest-OOF NNLS weights were silently fit as if every row were equally important.
+
     Bench note: per-component exclusion only ADDS rows to the survivor set relative to the previous code (which
     survived only when ALL components were clean); on the all-clean case it is bit-identical to the prior NNLS
     solve, so it cannot regress the ``bench_mtr_nnls_oof.py`` majority-win verdict (that bench has no failing
@@ -92,6 +98,8 @@ def compute_mtr_oof_nnls_weights(
     from sklearn.model_selection import KFold
     from scipy.optimize import nnls
 
+    from ...composite.ensemble import _maybe_pass_sample_weight
+
     try:
         y_arr = np.asarray(y_train, dtype=np.float64)
         if y_arr.ndim == 1:
@@ -100,6 +108,7 @@ def compute_mtr_oof_nnls_weights(
         n_comp = len(components)
         if n_comp < 2 or n < max(50, kfold * 2):
             return None
+        sw_arr = None if sample_weight is None else np.asarray(sample_weight)
         oof = np.full((n_comp, n, k), np.nan, dtype=np.float64)
         # Per-component health: a component is excluded if ANY fold-refit raises
         # (recorded in ``excluded``) or it emits a non-finite OOF cell (detected
@@ -110,12 +119,13 @@ def compute_mtr_oof_nnls_weights(
             X_tr = _slice_rows_by_idx(X_train, tr_idx)
             X_ho = _slice_rows_by_idx(X_train, ho_idx)
             y_tr = y_arr[tr_idx]
+            sw_tr = None if sw_arr is None else sw_arr[tr_idx]
             for ci, comp in enumerate(components):
                 if ci in excluded:
                     continue  # already failed in an earlier fold -> skip the refit
                 try:
                     cl = clone(comp)
-                    cl.fit(X_tr, y_tr)
+                    _maybe_pass_sample_weight(cl, X_tr, y_tr, sw_tr)
                     p = np.asarray(cl.predict(X_ho), dtype=np.float64)
                     if p.ndim == 1:
                         p = p.reshape(-1, 1)

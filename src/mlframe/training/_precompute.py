@@ -281,9 +281,10 @@ def precompute_all(
             _max_ncats = _maybe
     stats = precompute_trainset_features_stats(train_df, max_ncats_to_track=_max_ncats)
 
-    # The two helpers below currently return empty dicts; preserve the None sentinel on the bundle
-    # so the suite's "if precomputed.X is not None" gate keeps recomputing inline rather than
-    # silently skipping with no data.
+    # precompute_dummy_baselines / precompute_composite_target_specs always raise
+    # NotImplementedError (see their own docstrings) and are never called here; leave both
+    # bundle slots at None so the suite's "if precomputed.X is not None" gate keeps recomputing
+    # inline rather than silently skipping with no data.
     return TrainMlframeSuitePrecomputed(
         trainset_features_stats=stats,
         dummy_baselines=None,

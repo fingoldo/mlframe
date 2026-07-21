@@ -96,6 +96,16 @@ class GaussianMixtureClassifier(BaseEstimator, ClassifierMixin):
         for cls in self.classes_:
             mask = y_arr == cls
             X_cls = X_arr[mask]
+            if X_cls.shape[0] < 2:
+                # n_components = min(n_components_per_class, X_cls.shape[0]) already guards against
+                # over-parameterizing a small class, but sklearn.mixture.GaussianMixture itself
+                # unconditionally requires ensure_min_samples=2 regardless of n_components -- a class
+                # with exactly 1 sample would otherwise crash with an opaque, class-unaware sklearn
+                # ValueError deep inside gmm.fit().
+                raise ValueError(
+                    f"GaussianMixtureClassifier.fit: class {cls!r} has only {X_cls.shape[0]} sample(s); "
+                    "at least 2 are required to fit a GaussianMixture for that class."
+                )
             n_components = min(self.n_components_per_class, X_cls.shape[0])
             gmm = GaussianMixture(
                 n_components=n_components,

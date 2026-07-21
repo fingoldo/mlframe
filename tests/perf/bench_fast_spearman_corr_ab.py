@@ -37,7 +37,7 @@ rankdata = _sps.rankdata
 def scalar_old(yt, yp):
     # Lazy mlframe import: keeping it out of module scope lets the rankdata-only
     # microbench run in a clean (numba-free) process without the segfault.
-    """Helper that scalar old."""
+    """Test helper: from mlframe.metrics.rank_correlation import _spearmanr_b...; YT = np.asarray(yt, dtype=np.float64).reshape(1, -1); YP = np.asarray(yp, dtype=np.float64).reshape(1, -1)."""
     from mlframe.metrics.rank_correlation import _spearmanr_batched_numpy
 
     YT = np.asarray(yt, dtype=np.float64).reshape(1, -1)
@@ -48,7 +48,7 @@ def scalar_old(yt, yp):
 
 
 def scalar_new(yt, yp):
-    """Helper that scalar new."""
+    """Test helper: yt = np.asarray(yt, dtype=np.float64); yp = np.asarray(yp, dtype=np.float64); if yt.shape[0] < 2: return np.nan."""
     yt = np.asarray(yt, dtype=np.float64)
     yp = np.asarray(yp, dtype=np.float64)
     if yt.shape[0] < 2:
@@ -98,7 +98,7 @@ def rankdata_only_microbench():
 
 
 def main():
-    """Helper that main."""
+    """Test helper: print('iter70: REJECTED -- see module docstring. Measured...; print('=== rankdata-only microbench ==='); rankdata_only_microbench()."""
     print(
         "iter70: REJECTED -- see module docstring. Measured rankdata-only delta below "
         "(run in a clean process WITHOUT mlframe imported; the in-process scalar A/B "

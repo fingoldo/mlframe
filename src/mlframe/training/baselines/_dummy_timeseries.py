@@ -133,7 +133,7 @@ def _infer_ts_step_periods(ts_train: np.ndarray) -> tuple[str, list[int]]:
     return "irregular", [1]
 
 
-def _detect_acf_periods(y_train: np.ndarray, n_train: int) -> list[int]:
+def _detect_acf_periods(y_train: np.ndarray, n_train: int, random_state: int = 42) -> list[int]:
     """ACF-based period detection (differencing + stratified sample).
 
     Uses statsmodels.tsa.stattools.acf on first-differenced y_train.
@@ -142,6 +142,11 @@ def _detect_acf_periods(y_train: np.ndarray, n_train: int) -> list[int]:
 
     statsmodels imported lazily inside the function (D17): import
     failure -> empty list + INFO log, not module-load failure.
+
+    ``random_state`` (default 42, preserving the prior hardcoded behavior when the caller doesn't thread
+    ``config.random_state`` through) seeds the stratified-window sampling used when ``n_train > 50_000`` --
+    without it, two suite runs configured with different seeds always sampled the identical ACF windows,
+    silently ignoring the caller's own reproducibility knob.
     """
     try:
         from statsmodels.tsa.stattools import acf
@@ -156,7 +161,7 @@ def _detect_acf_periods(y_train: np.ndarray, n_train: int) -> list[int]:
     # uniform-random sample of contiguous-windowed sub-segments
     # (preserves local autocorrelation). Cap at 50000 rows for ACF.
     if n_train > 50_000:
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng(random_state)
         # Take 5 contiguous windows of 10000 rows each, randomly placed.
         window_size = 10_000
         n_windows = 5
@@ -208,6 +213,7 @@ def _resolve_ts_periods(
     y_train: np.ndarray,
     ts_train: np.ndarray,
     extra_periods: Sequence[int] = (),
+    random_state: int = 42,
 ) -> tuple[list[int], dict[str, Any]]:
     """Combine step-size + ACF + user-extra periods into final candidate list.
 
@@ -231,7 +237,7 @@ def _resolve_ts_periods(
     diagnostics["step_label"] = step_label
     diagnostics["step_periods"] = step_periods
 
-    acf_periods = _detect_acf_periods(y_train, n_train)
+    acf_periods = _detect_acf_periods(y_train, n_train, random_state=random_state)
     diagnostics["acf_periods"] = acf_periods
 
     # Combine: step + acf + user-extra, dedup, cap at 5, sort.

@@ -199,14 +199,25 @@ class GroupedBlockStacker(BaseEstimator, RegressorMixin):
             valid_mask = np.asarray(mask_fn(X_group), dtype=bool)
             self.group_valid_rates_[group_name] = float(valid_mask.mean()) if n else 0.0
 
+            # sample_weight (full length n, aligned to y_arr) sliced to this group's valid rows -- matches
+            # this cluster's own established pattern (segment_routed.py / count_weighted_blend.py):
+            # composite_oof_predictions further slices it PER FOLD internally. Previously dropped entirely
+            # for both the per-group OOF call and the full-data refit, so only the meta-model ever honored
+            # a caller-supplied sample_weight.
+            sw_group_valid = sample_weight[valid_mask] if sample_weight is not None else None
             oof_col = np.full(n, np.nan, dtype=np.float64)
             if valid_mask.sum() >= max(2, self.n_splits):
                 X_group_valid = pd.DataFrame(X_group[valid_mask], columns=[str(c) for c in columns])
-                oof_valid = composite_oof_predictions(submodel_factory, X_group_valid, y_arr[valid_mask], n_splits=self.n_splits, random_state=self.random_state)
+                oof_fit_kwargs = {"sample_weight": sw_group_valid} if sw_group_valid is not None else None
+                oof_valid = composite_oof_predictions(
+                    submodel_factory, X_group_valid, y_arr[valid_mask],
+                    n_splits=self.n_splits, random_state=self.random_state, fit_kwargs=oof_fit_kwargs,
+                )
                 oof_col[valid_mask] = oof_valid
 
                 full_model = submodel_factory()
-                full_model.fit(X_group_valid, y_arr[valid_mask])
+                full_fit_kwargs = {"sample_weight": sw_group_valid} if sw_group_valid is not None else {}
+                full_model.fit(X_group_valid, y_arr[valid_mask], **full_fit_kwargs)
                 self.submodels_[group_name] = full_model
             else:
                 logger.warning("GroupedBlockStacker: group '%s' has only %d valid rows (<max(2,n_splits)); skipped.", group_name, int(valid_mask.sum()))

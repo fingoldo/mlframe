@@ -60,8 +60,11 @@ def _compute_regression_baselines(
     # --- Constant baselines (mean / median / quantile) ---
     n_val = 0 if val_y is None else len(val_y)
     n_test = 0 if test_y is None else len(test_y)
-    train_mean = float(np.mean(train_y))
-    train_median = float(np.median(train_y))
+    # nan* variants: a single NaN in train_y (a realistic partially-labeled-data occurrence) previously
+    # made plain np.mean/np.median/np.quantile return NaN, wiping out every constant-prediction baseline
+    # and collapsing the whole verdict to strongest=None even when val/test are fully finite.
+    train_mean = float(np.nanmean(train_y))
+    train_median = float(np.nanmedian(train_y))
 
     val_preds["mean"] = np.full(n_val, train_mean)
     test_preds["mean"] = np.full(n_test, train_mean)
@@ -70,7 +73,7 @@ def _compute_regression_baselines(
     test_preds["median"] = np.full(n_test, train_median)
 
     for q_label, q_alpha in [("quantile_p25", 0.25), ("quantile_p75", 0.75)]:
-        c = float(np.quantile(train_y, q_alpha, method="linear"))
+        c = float(np.nanquantile(train_y, q_alpha, method="linear"))
         val_preds[q_label] = np.full(n_val, c)
         test_preds[q_label] = np.full(n_test, c)
 
@@ -163,7 +166,7 @@ def _compute_regression_baselines(
         ts_test = _normalize_timestamps(timestamps_test)
         if ts_train is not None and ts_val is not None and ts_test is not None and _is_temporally_monotonic(ts_train, ts_val, ts_test):
             periods, ts_diag = _resolve_ts_periods(
-                train_y, ts_train, config.ts_extra_periods,
+                train_y, ts_train, config.ts_extra_periods, random_state=getattr(config, "random_state", 42),
             )
             extras["ts_diagnostics"] = ts_diag
             logger.debug(
@@ -171,7 +174,7 @@ def _compute_regression_baselines(
                 target_name,
                 ts_diag.get("step_label"),
                 ts_diag.get("step_periods"),
-                ts_diag.get("acf_peaks"),
+                ts_diag.get("acf_periods"),
                 ts_diag.get("using"),
             )
 
@@ -198,13 +201,16 @@ def _compute_regression_baselines(
                 val_sn = np.array([train_y[-P + (k % P)] for k in range(n_val)])
                 test_sn = np.array([train_y[-P + (k % P)] for k in range(n_test)])
                 label = f"seasonal_naive_p{P} (ts)"
-                if P in (ts_diag.get("acf_peaks") or []):
+                if P in (ts_diag.get("acf_periods") or []):
                     label = f"seasonal_naive_p{P} (ts, ACF-detected)"
                 val_preds[label] = val_sn
                 test_preds[label] = test_sn
 
             # rolling_mean: include only when ACF detected a peak >= W
-            acf_peaks = ts_diag.get("acf_peaks") or []
+            # ts_diag's real key is "acf_periods" (matches _dummy_timeseries.py's own internal name); the
+            # stale "acf_peaks" read here always missed, so rolling_mean_w{7,30} (ts) never fired and
+            # seasonal_naive_pP never got its ", ACF-detected" suffix.
+            acf_peaks = ts_diag.get("acf_periods") or []
             for W in (7, 30):
                 if W < len(train_y) and any(p >= W for p in acf_peaks):
                     c = float(np.mean(train_y[-W:]))

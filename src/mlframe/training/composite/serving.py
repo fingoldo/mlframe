@@ -25,8 +25,11 @@ that would silently mis-predict at serve time.
 """
 from __future__ import annotations
 
+import logging
 import math
 from typing import Any, Callable, Dict
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 
@@ -329,6 +332,18 @@ def load_serving_spec(
     y_clip_high = float(params.get("y_clip_high", float("+inf")))
     _med = params.get("y_train_median", 0.0)
     fallback_const = float(_med) if np.isfinite(_med) else 0.0
+    if not np.isfinite(_med):
+        # Bit-identical parity with CompositeTargetEstimator's own fit-time coercion
+        # (estimator/_estimator.py) and predict-time _finite_median_fallback -- both silently
+        # coerce a non-finite y_train_median to 0.0. The fit-time path logs a warning when this
+        # first happens; this loaded-spec path is often reached later / in a different process
+        # (a spec exported once, loaded many times) where that original warning was never seen,
+        # so it is re-surfaced here too.
+        logger.warning(
+            "load_serving_spec: spec's y_train_median is non-finite (degenerate training domain); "
+            "fallback constant set to 0.0. Predict-time fallback will return 0 instead of NaN for "
+            "domain-violating rows.",
+        )
 
     def predict(base: Any, inner_raw_pred: Any) -> np.ndarray:
         """Applies T-clip -> domain-aware inverse -> y-clip/fallback to reproduce ``CompositeTargetEstimator.predict`` in pure numpy."""

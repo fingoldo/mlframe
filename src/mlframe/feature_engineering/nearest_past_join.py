@@ -103,7 +103,10 @@ def nearest_past_join(
     tier_col
         If given (only meaningful together with ``fallback_by_chain``), the name of an added integer column
         recording which tier matched each row: 0 for ``by`` itself, 1.. for ``fallback_by_chain`` entries in
-        order, -1 if no tier produced a match at all.
+        order, -1 if no tier produced a match at all. Each ``right_value_cols`` entry is retried independently
+        per row across tiers (one column matching at a fine tier does not stop a still-null sibling column
+        from being retried at a coarser one), so this records the LAST (coarsest) tier that resolved ANY of
+        that row's columns, not necessarily every column's own tier.
 
     Returns
     -------
@@ -126,9 +129,13 @@ def nearest_past_join(
     for new_name in attached_names:
         out[new_name] = pd.NA
     matched_tier = pd.Series(-1, index=out.index, dtype="int64")
-    unresolved = pd.Series(True, index=out.index)
+    # Per-(row, column) outstanding mask -- a row must keep retrying at coarser tiers for whichever of its
+    # OWN attached columns are still null, not get dropped from retry entirely the moment ANY ONE column
+    # matches (the matched right-row can be non-null in one right_value_col and null in another).
+    still_needed = pd.DataFrame(True, index=out.index, columns=attached_names)
 
     for tier_idx, tier_by_list in enumerate(tiers):
+        unresolved = still_needed.any(axis=1)
         if not unresolved.any():
             break
         unresolved_idx = out.index[unresolved.to_numpy()]
@@ -145,15 +152,13 @@ def nearest_past_join(
             row_group_sizes = np.full(len(candidate), len(right_df))
 
         sparse = row_group_sizes < min_group_size
-        resolved = pd.Series(False, index=candidate.index)
         for new_name in attached_names:
-            col_resolved = candidate[new_name].notna().to_numpy() & ~sparse
+            needed_here = still_needed.loc[candidate.index, new_name].to_numpy()
+            col_resolved = candidate[new_name].notna().to_numpy() & ~sparse & needed_here
             resolved_idx = candidate.index[col_resolved]
             out.loc[resolved_idx, new_name] = candidate.loc[resolved_idx, new_name].to_numpy()
-            resolved |= col_resolved
-
-        matched_tier.loc[candidate.index[resolved.to_numpy()]] = tier_idx
-        unresolved.loc[candidate.index[resolved.to_numpy()]] = False
+            still_needed.loc[resolved_idx, new_name] = False
+            matched_tier.loc[resolved_idx] = tier_idx
 
     if tier_col is not None:
         out[tier_col] = matched_tier.to_numpy()

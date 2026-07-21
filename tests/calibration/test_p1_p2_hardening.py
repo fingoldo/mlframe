@@ -11,7 +11,7 @@ import pytest
 
 
 def _synth_binary(seed: int = 0, n: int = 300):
-    """Helper that synth binary."""
+    """Builds seeded synthetic test data; returns ``(probs, target)``."""
     rng = np.random.default_rng(seed)
     p1 = rng.random(n)
     probs = np.column_stack([1 - p1, p1])
@@ -83,7 +83,7 @@ def test_missing_ice_column_does_not_raise_keyerror():
     def _fake_report_model_perf(*args, metrics=None, **kwargs):
         # The real report_model_perf stores the per-class metric dict at metrics[1] (class_id 1);
         # compare_postcalibrators's PERF_DICT_COL=1 flattens that. No "ice"/"feature_importances" here.
-        """Helper that fake report model perf."""
+        """Returns ``(None, None)`` (after 1 setup step)."""
         if metrics is not None:
             metrics[1] = {"auc": 0.9}
         return None, None
@@ -122,7 +122,7 @@ def test_metric_key_mismatch_logs_warning(caplog):
     ]
 
     def _fake_report_model_perf(*args, model_name="", metrics=None, **kwargs):
-        """Helper that fake report model perf."""
+        """Returns ``(None, None)`` (after 2 setup steps)."""
         if metrics is None:
             return None, None
         if "Iso2" in model_name:

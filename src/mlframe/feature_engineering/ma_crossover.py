@@ -24,7 +24,7 @@ def ma_crossover_features(
     column_prefix: str = "ma_crossover",
     *,
     group_ids: Optional[np.ndarray] = None,
-    long_window_weight_power: float = 0.0,
+    short_window_weight_power: float = 0.0,
 ) -> pd.DataFrame:
     """Pairwise MA differences, sign votes, a summed crossover score, and its row-over-row delta.
 
@@ -41,17 +41,18 @@ def ma_crossover_features(
         into one frame): ``vote_sum_delta`` is computed via a group-aware first difference
         (``per_group_shift``) that resets at each group boundary, instead of a naive ``diff()`` that
         would otherwise leak the last row of one entity into the first row of the next.
-    long_window_weight_power
+    short_window_weight_power
         Opt-in (default ``0.0`` -- every pair weighted equally, bit-identical to the original
         equal-weight vote). When ``> 0``, each pair's vote is weighted by ``short ** power`` (the
         pair's SHORT window size raised to this power) before summing into ``vote_sum``/
         ``vote_sum_delta``. A pair's reliability is set by its noisier, SHORT leg -- a pair like
         ``(3, 90)`` still flips on almost every single-bar wiggle in the 3-period MA even though its
         partner is long, so weighting by the long leg alone (an earlier, buggy version of this
-        parameter) still let noise-anchored cross pairs dominate the vote. Weighting by the short leg
-        penalizes every pair anchored to a noisy short MA regardless of its partner's length, which is
-        what actually suppresses false flips; genuinely long-vs-long pairs (both legs large) end up with
-        the highest weight, as intended. Typical values: ``1.0``-``2.0``.
+        parameter, and its old misleading name ``long_window_weight_power``  still let noise-anchored cross pairs dominate the
+        vote. Weighting by the short leg penalizes every pair anchored to a noisy short MA regardless of
+        its partner's length, which is what actually suppresses false flips; genuinely long-vs-long
+        pairs (both legs large) end up with the highest weight, as intended. Typical values:
+        ``1.0``-``2.0``.
 
     Returns
     -------
@@ -79,13 +80,13 @@ def ma_crossover_features(
         # instead of a separate np.stack + np.nansum pass over all pairs -- avoids materializing an extra
         # (n_rows, n_pairs) array just to reduce it away; measured as the dominant cProfile cost otherwise.
         vote_contribution = np.where(np.isnan(vote), 0.0, vote)
-        if long_window_weight_power:
+        if short_window_weight_power:
             # weight by the SHORT leg's window size, not the long leg's: a pair like (3, 90) still has a
             # noisy short MA driving most of its sign flips, so weighting on `long` alone (its prior
             # formulation) gave noise-dominated cross pairs the same huge weight as genuinely reliable
             # long-vs-long pairs. Weighting on `short` penalizes every pair anchored to a noisy short MA,
             # regardless of how long its partner is, which is what actually suppresses false flips.
-            vote_contribution = vote_contribution * (float(short) ** long_window_weight_power)
+            vote_contribution = vote_contribution * (float(short) ** short_window_weight_power)
         vote_sum = vote_contribution if vote_sum is None else vote_sum + vote_contribution
 
     assert vote_sum is not None  # guaranteed: len(windows) >= 2 checked above -> at least one pair iterated.

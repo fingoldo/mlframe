@@ -111,11 +111,11 @@ class TestPostcalibrationClip:
         class _Identity:
             """Groups tests covering Identity."""
             def fit(self, X, y):
-                """Helper that fit."""
+                """No-op fit stub; returns self unchanged (satisfies the sklearn fit/set_params contract without doing real work)."""
                 return self
 
             def transform(self, X):
-                """Helper that transform."""
+                """Returns ``X``."""
                 return X  # pass-through 1D
 
         pc = BinaryPostCalibrator(calibrator=_Identity())

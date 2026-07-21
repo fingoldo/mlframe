@@ -32,11 +32,11 @@ class _FakeDev:
 
     @property
     def size(self):
-        """Helper that size."""
+        """Returns ``self._h.size``."""
         return self._h.size
 
     def max(self):
-        """Helper that max."""
+        """Returns ``int(self._h.max())``."""
         return int(self._h.max())
 
 

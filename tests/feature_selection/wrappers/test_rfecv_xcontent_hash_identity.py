@@ -17,14 +17,14 @@ from mlframe.feature_selection.wrappers.rfecv._fit_init import _stream_hash_arra
 
 
 def _streamed(arr: np.ndarray) -> str:
-    """Helper that streamed."""
+    """Returns ``h.hexdigest()`` (after 2 setup steps)."""
     h = hashlib.blake2b(digest_size=12)
     _stream_hash_array(h, arr)
     return h.hexdigest()
 
 
 def _whole(arr: np.ndarray) -> str:
-    """Helper that whole."""
+    """Returns ``hashlib.blake2b(np.ascontiguousarray(arr).tobytes(), digest_size=12).hexdigest()``."""
     return hashlib.blake2b(np.ascontiguousarray(arr).tobytes(), digest_size=12).hexdigest()
 
 

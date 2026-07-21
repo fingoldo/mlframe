@@ -19,7 +19,7 @@ from mlframe.preprocessing.outlier_detector_zoo import make_outlier_detector
 
 
 def _make_local_outlier_dataset(seed: int = 0):
-    """Helper that make local outlier dataset."""
+    """Builds seeded synthetic test data; returns ``(X, outlier_row)``."""
     rng = np.random.default_rng(seed)
     dense = rng.normal(loc=(0.0, 0.0), scale=0.15, size=(300, 2))
     sparse = rng.normal(loc=(15.0, 15.0), scale=3.0, size=(60, 2))

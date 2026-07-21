@@ -48,7 +48,7 @@ __all__ = [
 
 import logging
 import os
-from typing import Any, Callable, Iterator, Tuple, cast
+from typing import Any, Callable, Iterator, Optional, Tuple, cast
 
 import numpy as np
 
@@ -309,13 +309,25 @@ def per_group_apply(
     out = np.full(out_shape, fill_value, dtype=output_dtype)
     sort_idx, starts, ends = iter_group_segments(group_ids)
     values_sorted = values_arr[sort_idx]
+    n_groups_attempted = 0
+    n_groups_failed = 0
+    last_err: Optional[Exception] = None
     for s, e in zip(starts, ends):
         seg = values_sorted[s:e]
         if seg.size < min_group_size:
             continue
+        n_groups_attempted += 1
         try:
             res = fn(seg)
         except Exception as err:
+            # A per-group failure (e.g. a numerically degenerate segment fn can't handle) is
+            # tolerated -- that's the documented "skip and fill" contract. But if EVERY attempted
+            # group fails, that's a systematic bug in the caller-supplied fn (wrong signature,
+            # unconditional exception), not a per-group edge case; silently returning an
+            # all-fill_value array in that case is the "error silently swallowed into wrong
+            # downstream behavior" pattern, so we escalate below instead.
+            n_groups_failed += 1
+            last_err = err
             logger.warning(
                 "per_group_apply: fn raised on group of size %d: %s; "
                 "filling with %s.",
@@ -329,6 +341,12 @@ def per_group_apply(
             raise ValueError(f"per_group_apply: fn returned shape {res.shape} but " f"segment length is {e - s}; per-row output expected.")
         # Scatter into output array. Trailing dims (if any) flow naturally.
         out[sort_idx[s:e]] = res
+    if n_groups_attempted > 0 and n_groups_failed == n_groups_attempted:
+        raise RuntimeError(
+            f"per_group_apply: fn raised on ALL {n_groups_attempted} attempted group(s) -- this "
+            f"looks like a systematic bug in fn (not a per-group edge case), so returning an "
+            f"all-{fill_value} array would silently hide it. Last error: {last_err!r}"
+        ) from last_err
     return out
 
 

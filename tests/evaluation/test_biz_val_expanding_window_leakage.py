@@ -18,7 +18,7 @@ from mlframe.evaluation import detect_expanding_window_feature_leakage
 
 
 def _make_rate_driven_dataset(n: int, n_cats: int, seed: int):
-    """Helper that make rate driven dataset."""
+    """Builds seeded synthetic test data; returns ``(pd.DataFrame({'t': t, 'cat': cat}), y)``."""
     rng = np.random.default_rng(seed)
     cat_rate = rng.uniform(0.5, 5.0, n_cats)
     cat_probs = cat_rate / cat_rate.sum()
@@ -29,7 +29,7 @@ def _make_rate_driven_dataset(n: int, n_cats: int, seed: int):
 
 
 def _frequency_count_fit_transform(fit_df: pd.DataFrame, transform_df: pd.DataFrame) -> np.ndarray:
-    """Helper that frequency count fit transform."""
+    """Returns ``transform_df['cat'].map(counts).fillna(0).to_numpy(dtype=np.float64)`` (after 1 setup step)."""
     counts = fit_df["cat"].value_counts()
     return transform_df["cat"].map(counts).fillna(0).to_numpy(dtype=np.float64)
 
@@ -60,7 +60,7 @@ def test_detect_expanding_window_feature_leakage_no_leak_when_feature_is_time_in
     y = rng.normal(size=n)
 
     def _random_fit_transform(fit_df: pd.DataFrame, transform_df: pd.DataFrame) -> np.ndarray:
-        """Helper that random fit transform."""
+        """Returns ``np.random.default_rng(0).normal(size=len(transform_df))``."""
         return np.random.default_rng(0).normal(size=len(transform_df))
 
     result = detect_expanding_window_feature_leakage(df, "t", y, _random_fit_transform, lambda: LinearRegression(), n_splits=4, scoring="r2")
@@ -97,7 +97,7 @@ def test_biz_val_detect_expanding_window_feature_leakage_auto_remediate_eliminat
     assert not np.isnan(remediated_feature).any()
 
     def _remediated_lookup_fit_transform(fit_df: pd.DataFrame, transform_df: pd.DataFrame) -> np.ndarray:
-        """Helper that remediated lookup fit transform."""
+        """Returns ``remediated_feature[transform_df.index.to_numpy()]``."""
         return remediated_feature[transform_df.index.to_numpy()]
 
     remediated_rerun = detect_expanding_window_feature_leakage(

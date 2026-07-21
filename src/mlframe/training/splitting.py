@@ -326,7 +326,7 @@ def make_train_test_split(
     if wholeday_splitting and timestamps is not None:
         # Date-based splitting
         sorted_dates = np.sort(unique_dates)
-        train_dates, val_dates, test_dates, val_dates_seq, test_dates_seq = _perform_split(
+        train_dates, val_dates, test_dates, val_dates_seq, test_dates_seq, eff_test_shuf, eff_val_shuf = _perform_split(
             sorted_dates, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf, rng, _effective_val_placement
         )
 
@@ -427,15 +427,15 @@ def make_train_test_split(
         else:
             train_details = "(empty)"
 
-        val_details = _build_details(timestamps, val_idx, val_seq_idx, n_val_shuf, "D")
-        test_details = _build_details(timestamps, test_idx, test_seq_idx, n_test_shuf, "D")
+        val_details = _build_details(timestamps, val_idx, val_seq_idx, eff_val_shuf, "D")
+        test_details = _build_details(timestamps, test_idx, test_seq_idx, eff_test_shuf, "D")
 
     elif timestamps is not None:
         # Row-based splitting with timestamps. Use ``kind="stable"`` so that
         # ties keep their original positional order; default quicksort
         # reshuffles ties run-to-run which makes seeded splits non-reproducible.
         sorted_idx = np.argsort(timestamps.values, kind="stable")
-        train_idx, val_idx, test_idx, val_idx_seq, test_idx_seq = _perform_split(
+        train_idx, val_idx, test_idx, val_idx_seq, test_idx_seq, eff_test_shuf, eff_val_shuf = _perform_split(
             sorted_idx, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf, rng, _effective_val_placement
         )
 
@@ -447,8 +447,11 @@ def make_train_test_split(
         # LATER split so max(train_ts) < min(val_ts) <= min(test_ts) strictly.
         # Only for the fully-sequential path: shuffled / partial-sequential
         # portions intentionally interleave timestamps, so a tie split there is
-        # by request, not a bug.
-        _fully_sequential = n_test_shuf == 0 and n_val_shuf == 0
+        # by request, not a bug. Uses the EFFECTIVE (post-clamp) counts: if the
+        # shuffled pool was exhausted and _perform_split clamped both to 0, the
+        # actual output IS fully sequential and needs the de-leak fix even
+        # though shuffling was originally requested.
+        _fully_sequential = eff_test_shuf == 0 and eff_val_shuf == 0
         if _fully_sequential and len(train_idx):
             _ts_vals = timestamps.values
             if _effective_val_placement == "backward":
@@ -478,8 +481,8 @@ def make_train_test_split(
             train_details = f"{_fmt_ts(timestamps.iloc[train_idx].min())}/{_fmt_ts(timestamps.iloc[train_idx].max())}"
         else:
             train_details = "(empty)"
-        val_details = _build_details(timestamps, val_idx, val_idx_seq, n_val_shuf, "R")
-        test_details = _build_details(timestamps, test_idx, test_idx_seq, n_test_shuf, "R")
+        val_details = _build_details(timestamps, val_idx, val_idx_seq, eff_val_shuf, "R")
+        test_details = _build_details(timestamps, test_idx, test_idx_seq, eff_test_shuf, "R")
 
     else:
         # Row-based splitting without timestamps (fallback to sklearn).
@@ -793,6 +796,20 @@ def make_train_test_split(
     # "Input data must have at least one feature" or an empty-eval-set crash).
     # The fallback paths above already redirect the recoverable wholeday-collapse
     # case to row-based; a still-empty split here is a genuine misconfiguration.
+    # test_size=1.0 (val_size=0.0) is a legitimate, explicitly-requested "evaluate-only, no
+    # training" configuration (regression-tested since 2026-04-19 -- test_splitting_edges.py's
+    # NaT-strftime-on-empty-train sensor) and must NOT raise here, mirroring how the val/test
+    # guards below only fire when a POSITIVE requested size produced nothing. test_size < 1.0
+    # means the user did not claim the whole pool via test alone, so an empty train here is a
+    # genuine floor-to-zero / aging-limit surprise, not the user's explicit intent.
+    if test_size < 1.0 and len(train_idx) == 0:
+        raise ValueError(
+            f"Split produced 0 train rows on n={len(df)} rows (mode={'wholeday' if wholeday_splitting and timestamps is not None else 'sequential/row'}, "
+            f"val_size={val_size}, test_size={test_size}, trainset_aging_limit={trainset_aging_limit}). "
+            f"The same floor-to-zero / wholeday-collapse mechanisms that can empty val_idx/test_idx "
+            f"(guarded above) can also empty train_idx, most commonly a large trainset_aging_limit on "
+            f"a small n. Reduce val_size/test_size/trainset_aging_limit, or increase n."
+        )
     if val_size > 0 and len(val_idx) == 0:
         raise ValueError(
             f"Split produced 0 validation rows from val_size={val_size} on "

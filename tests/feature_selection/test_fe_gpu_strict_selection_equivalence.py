@@ -22,7 +22,7 @@ pytestmark = [
 
 
 def _make(n, seed):
-    """Helper that make."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame({f"f{i}": rng.standard_normal(n) for i in range(22)})
     xi = (rng.standard_normal(n) * 3).astype(int)
@@ -33,7 +33,7 @@ def _make(n, seed):
 
 
 def _select(X, y, strict, seed):
-    """Helper that select."""
+    """Test helper: os.environ['MLFRAME_FE_GPU_STRICT'] = strict; try: MRMR._FIT_CACHE.clear() except Exception: pass; m = MRMR(fe_ntop_features=8, interactions_max_order=2, n_...."""
     os.environ["MLFRAME_FE_GPU_STRICT"] = strict
     try:
         MRMR._FIT_CACHE.clear()

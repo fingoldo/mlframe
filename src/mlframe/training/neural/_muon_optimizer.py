@@ -222,3 +222,28 @@ class MuonAdamWHybrid(Optimizer):
             self._muon.zero_grad(set_to_none=set_to_none)
         if self._adamw is not None:
             self._adamw.zero_grad(set_to_none=set_to_none)
+
+    def state_dict(self) -> dict:
+        """Checkpoint both wrapped optimizers' state, mirroring the sibling ``Lookahead``/``SAM`` wrappers
+        in this same optimizer family.
+
+        The base ``torch.optim.Optimizer.state_dict()`` this class would otherwise inherit only sees
+        ``self.state``/``self.param_groups`` -- but all real per-parameter momentum/moment-estimate state
+        lives in ``self._muon.state``/``self._adamw.state``, which the base implementation has no way to
+        see. Without this override, a normal Lightning checkpoint resume (``ckpt_path=...`` or
+        ``ModelCheckpoint(save_weights_only=False)``) silently loses all Muon momentum buffers and AdamW
+        moment estimates on reload.
+        """
+        return {
+            "muon": self._muon.state_dict() if self._muon is not None else None,
+            "adamw": self._adamw.state_dict() if self._adamw is not None else None,
+        }
+
+    def load_state_dict(self, state_dict: dict) -> None:
+        """Restore both wrapped optimizers' state from the format written by ``state_dict``."""
+        muon_state = state_dict.get("muon")
+        if muon_state is not None and self._muon is not None:
+            self._muon.load_state_dict(muon_state)
+        adamw_state = state_dict.get("adamw")
+        if adamw_state is not None and self._adamw is not None:
+            self._adamw.load_state_dict(adamw_state)

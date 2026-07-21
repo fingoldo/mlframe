@@ -22,22 +22,32 @@ hidden cross-target CB Pool / LGB Dataset rebuilds.
 This module exposes a single ``compute_signature(X)`` that:
 
 1. Reads ``columns``, ``shape``, ``dtypes`` (cheap, O(n_cols)).
-2. Hashes a 3-row sample (first, middle, last) of X to disambiguate
-   genuinely different content with identical column/shape signatures
-   (eg. two ``.iloc`` slices into the same logical X carry identical
-   shapes -- the row-sample distinguishes them when they cover
-   different index ranges).
+2. Hashes an evenly-strided row sample (count scales with ``sqrt(n_rows)``,
+   capped at 64) of X to disambiguate genuinely different content with
+   identical column/shape signatures (eg. two ``.iloc`` slices into the
+   same logical X carry identical shapes -- the row-sample distinguishes
+   them when they cover different index ranges). A fixed 3-row sample
+   (first/middle/last) previously collided whenever two structurally-
+   similar-but-content-different frames happened to agree at exactly
+   those 3 positions -- realistic in the composite-target-discovery /
+   ensemble-refit regime this cache targets, where many near-identical
+   row-wise-extension frames share a base X.
 3. Returns a hashable tuple usable as a dict key.
 
-The fingerprint is O(n_cols), not O(n_rows): a 4M-row × 25-col frame
-hashes in microseconds. Near-perfect cache hit on identical logical
-data (different Python ids); clean miss on actually-different content.
+The fingerprint stays sub-linear in n_rows (capped at 64 sampled rows
+regardless of frame size): a 4M-row × 25-col frame still hashes in
+microseconds. Near-perfect cache hit on identical logical data
+(different Python ids); much lower collision odds on actually-different
+content than the old fixed-3-row scheme.
 """
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
+
+_MAX_SAMPLE_ROWS = 64
 
 
 def compute_signature(X: Any, *, extra: tuple = ()) -> tuple:
@@ -97,8 +107,20 @@ def _canonicalise_row(row_values: Any) -> tuple:
     return tuple(out)
 
 
+def _sample_indices(n_rows: int) -> tuple:
+    """Evenly-strided row indices covering ``[0, n_rows-1]``, count scaling with
+    ``sqrt(n_rows)`` (min 3, capped at :data:`_MAX_SAMPLE_ROWS`) so the fingerprint stays
+    sub-linear while sampling far more of the frame than a fixed first/middle/last triple."""
+    n_samples = min(_MAX_SAMPLE_ROWS, max(3, int(math.sqrt(n_rows))))
+    if n_samples >= n_rows:
+        return tuple(range(n_rows))
+    # round(i * (n_rows-1) / (n_samples-1)) evenly spans [0, n_rows-1]; dict.fromkeys
+    # dedupes any indices that round to the same position while preserving order.
+    return tuple(dict.fromkeys(round(i * (n_rows - 1) / (n_samples - 1)) for i in range(n_samples)))
+
+
 def _row_sample_hash(X: Any, n_rows: int | None) -> int | None:
-    """Hash a 3-row sample (first, middle, last) of ``X``.
+    """Hash an evenly-strided row sample of ``X`` (see :func:`_sample_indices`).
 
     Returns ``None`` when sampling fails (unknown DataFrame variant,
     no rows, hashable-row coercion failure). A None hash collapses to
@@ -114,7 +136,7 @@ def _row_sample_hash(X: Any, n_rows: int | None) -> int | None:
     """
     if n_rows is None or n_rows < 1:
         return None
-    indices = (0, n_rows // 2, n_rows - 1)
+    indices = _sample_indices(n_rows)
     samples: list = []
     # Polars fast path FIRST: many polars frames also expose ``iloc``
     # via newer compat layers, but we want the O(n_cols) ``row()`` call

@@ -48,7 +48,7 @@ _STDLIB_JSON_WHITELIST = {
 
 
 def _iter_test_files() -> list[Path]:
-    """Helper that iter test files."""
+    """Returns ``[p for p in TESTS_DIR.rglob('*.py') if p.name != 'test_conventions.py']``."""
     return [p for p in TESTS_DIR.rglob("*.py") if p.name != "test_conventions.py"]
 
 

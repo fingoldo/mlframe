@@ -72,7 +72,11 @@ def _operators_for_preset(preset: str) -> Tuple[List[str], List[str]]:
         binary = ["+", "*"]
         unary = [OPERATOR_JULIA_SIGNATURES["safe_log"], OPERATOR_JULIA_SIGNATURES["inv"]]
     elif preset == "standard":
-        binary = ["+", "-", "*", "/", "max", "min"]
+        binary = [
+            "+", "-", "*", "/", "max", "min",
+            OPERATOR_JULIA_SIGNATURES["harmonic_mean"],
+            OPERATOR_JULIA_SIGNATURES["xlogy"],
+        ]
         unary = [
             OPERATOR_JULIA_SIGNATURES["safe_log"],
             OPERATOR_JULIA_SIGNATURES["safe_sqrt"],
@@ -81,6 +85,8 @@ def _operators_for_preset(preset: str) -> Tuple[List[str], List[str]]:
             "tanh",
             "exp",
             OPERATOR_JULIA_SIGNATURES["inv"],
+            OPERATOR_JULIA_SIGNATURES["gauss"],
+            OPERATOR_JULIA_SIGNATURES["softplus"],
         ]
     elif preset == "physics":
         binary = ["+", "-", "*", "/", "^"]
@@ -115,6 +121,10 @@ def _complexity_for_preset(preset: str) -> Dict[str, int]:
             "square": 1,
             "sign": 1,
             "inv": 2,
+            "gauss": 2,
+            "softplus": 2,
+            "harmonic_mean": 2,
+            "xlogy": 2,
         }
     if preset == "physics":
         return {
@@ -139,7 +149,12 @@ def _nested_constraints_for_preset(preset: str) -> Dict[str, Dict[str, int]]:
     if preset == "minimal":
         return {"safe_log": {"safe_log": 0}}
     if preset == "standard":
-        return {"exp": {"exp": 0}, "safe_log": {"safe_log": 0}}
+        return {
+            "exp": {"exp": 0},
+            "safe_log": {"safe_log": 0},
+            "gauss": {"gauss": 0},
+            "softplus": {"softplus": 0},
+        }
     if preset == "physics":
         return {
             "sin": {"sin": 0, "cos": 0},

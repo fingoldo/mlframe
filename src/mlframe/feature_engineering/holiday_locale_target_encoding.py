@@ -28,6 +28,7 @@ def holiday_name_target_encode_cross_locale(
     smoothing: float = 1.0,
     prior: Optional[float] = None,
     cross_locale_shrinkage: Optional[float] = None,
+    causal_prior: bool = False,
 ) -> np.ndarray:
     """Ordered (causal, leakage-safe) target encoding of a per-(country, holiday-name) key.
 
@@ -62,6 +63,13 @@ def holiday_name_target_encode_cross_locale(
         a holiday gets the cross-country name-level prior in full (weight ``k / (0 + k) == 1``); a country
         with abundant local history is barely pulled off its own mean (``local_count >> k``). This is the
         standard empirical-Bayes/James-Stein shrinkage-by-count recipe, applied causally.
+    causal_prior
+        Default ``False`` reproduces the original behaviour: ``global_prior`` is a single scalar computed
+        over the FULL ``y`` array, including rows that occur causally AFTER the row being encoded (matches
+        CatBoost's own published "ordered target statistics" design, which also uses a single
+        global-average prior). Set ``True`` for a strictly zero-leakage prior: each row uses the EXPANDING
+        mean of ``y`` over only the rows strictly before it in ``order`` (row 0 falls back to the explicit
+        ``prior`` if given, else ``0.0``). See ``ordered_target_encode``'s identical parameter.
 
     Returns
     -------
@@ -77,11 +85,19 @@ def holiday_name_target_encode_cross_locale(
     else:
         sort_idx = np.argsort(np.asarray(order), kind="mergesort")
 
-    global_prior = float(np.mean(y_arr)) if prior is None else float(prior)
-
     sorted_names = names_arr[sort_idx]
     sorted_countries = countries_arr[sort_idx]
     sorted_y = y_arr[sort_idx]
+
+    if causal_prior:
+        # Strictly zero-leakage prior: see ordered_target_encode's causal_prior docstring.
+        global_running_sum = np.cumsum(sorted_y) - sorted_y
+        global_running_count = np.arange(n, dtype=np.float64)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            global_prior_sorted = global_running_sum / global_running_count
+        global_prior_sorted[0] = float(prior) if prior is not None else 0.0
+    else:
+        global_prior_sorted = np.full(n, float(np.mean(y_arr)) if prior is None else float(prior), dtype=np.float64)
     # NUL-joined composite key: holiday names/country codes are free-text strings that may themselves
     # contain any other separator, but never a NUL byte, so this can't accidentally collide two distinct
     # (country, name) pairs onto the same key.
@@ -92,7 +108,7 @@ def holiday_name_target_encode_cross_locale(
     local_grp = df.groupby("local", sort=False)["y"]
     local_running_sum = local_grp.cumsum() - sorted_y
     local_running_count = local_grp.cumcount()
-    local_mean = (local_running_sum + smoothing * global_prior) / (local_running_count + smoothing)
+    local_mean = (local_running_sum + smoothing * global_prior_sorted) / (local_running_count + smoothing)
 
     if cross_locale_shrinkage is None:
         encoded_sorted = local_mean
@@ -103,7 +119,7 @@ def holiday_name_target_encode_cross_locale(
         name_grp = df.groupby("name", sort=False)["y"]
         name_running_sum = name_grp.cumsum() - sorted_y
         name_running_count = name_grp.cumcount()
-        global_name_mean = (name_running_sum + smoothing * global_prior) / (name_running_count + smoothing)
+        global_name_mean = (name_running_sum + smoothing * global_prior_sorted) / (name_running_count + smoothing)
 
         local_count_f = local_running_count.astype(np.float64)
         encoded_sorted = (local_count_f * local_mean + k * global_name_mean) / (local_count_f + k)

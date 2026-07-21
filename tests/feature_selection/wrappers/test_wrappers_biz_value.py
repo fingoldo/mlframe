@@ -282,7 +282,7 @@ def test_stable_selection_across_seeds():
         supports.append(_selected_idx(rfecv, X_df))
 
     def _jaccard(a: set, b: set) -> float:
-        """Helper that jaccard."""
+        """Returns ``len(a & b) / len(a | b)`` (after 2 setup steps)."""
         if not a and not b:
             return 1.0
         if not a or not b:

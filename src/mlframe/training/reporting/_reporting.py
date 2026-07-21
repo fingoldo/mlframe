@@ -59,7 +59,14 @@ def _reporting_field_default(field_name: str):
         try:
             from ..configs import ReportingConfig
             cache[field_name] = ReportingConfig.model_fields[field_name].default
-        except Exception:
+        except (ImportError, KeyError) as e:
+            # Narrowed from a bare `except Exception` (which also silently absorbed e.g. an AttributeError
+            # from a pydantic version bump changing model_fields' shape) to the two genuine "config
+            # unavailable" cases (import-cycle avoidance, a renamed/removed field), now logged so a real
+            # bug is at least discoverable -- the result is memoized, so an unnoticed failure previously
+            # disabled panel_emphasis="data_aware"'s default-detection for the rest of the process with
+            # zero trace in the logs.
+            logger.debug("_reporting_field_default(%r): config unavailable (%s); caching None.", field_name, e)
             cache[field_name] = None
     return cache[field_name]
 
@@ -345,7 +352,14 @@ def report_model_perf(
     report_title : str, default=""
         Title prefix for reports.
     use_weights : bool, default=True
-        Whether to use weighted calibration metrics.
+        NOT a genuine per-sample weight vector -- despite the name, this only controls whether the
+        calibration-MAE aggregation inside the calibration report is BIN-COUNT weighted (each confidence
+        bin's contribution scaled by how many rows fall in it) vs unweighted. There is currently no
+        parameter anywhere in this function that accepts a genuine per-row ``sample_weight`` array: every
+        reported metric (AUC, PR AUC, Brier, log loss, calibration, fairness) is computed fully unweighted
+        even when the underlying model was fit with ``sample_weight``. Threading real per-row weighting
+        through the full classification-metrics pipeline would need weighted kernel variants for each of
+        those metrics (most don't have one today) -- a larger undertaking than this flag's name suggests.
     calib_report_ndigits : int, default=2
         Decimal digits for calibration metrics.
     verbose : bool, default=False
@@ -599,6 +613,11 @@ def report_model_perf(
             # / ``coef_`` (PyTorch-Lightning MLP, Keras nets, custom predict-
             # only wrappers). When the inner exposes a native source the
             # permutation path is skipped automatically.
+            # NOTE: report_model_perf itself has no genuine per-row sample_weight parameter (its own
+            # ``use_weights`` is bin-count weighting, unrelated -- see this function's docstring), so
+            # the permutation-FI fallback's own ``sample_weight`` support (see
+            # ``_permutation_feature_importances``) can only be reached by a caller passing
+            # ``sample_weight=...`` explicitly via ``fi_kwargs``, not automatically from this scope.
             _fi_X = df[list(columns)] if (df is not None and columns is not None and len(columns) > 0) else None
             feature_importances = plot_model_feature_importances(
                 model=model,

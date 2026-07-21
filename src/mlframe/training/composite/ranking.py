@@ -91,6 +91,28 @@ def _group_boundaries(group: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return sort_idx, sizes
 
 
+def _sorted_group_segments(group: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Stable-sort ``group``, returning ``(sort_idx, starts, ends)`` contiguous-segment boundaries.
+
+    ``sort_idx[starts[i]:ends[i]]`` are the ORIGINAL row indices of the i-th group (in the order groups first
+    appear after sorting). Sharing this ONE O(n log n) sort + O(n) boundary scan across every per-group loop
+    in this module replaces each function's own ``for gid in np.unique(group): m = group == gid`` -- an
+    O(n * n_groups) rescan of the full array once per group -- with a single O(n) walk over contiguous
+    slices, matching the amortized cost this module's own docstring already claims for the wrapper-side work
+    .
+    """
+    sort_idx = np.argsort(group, kind="stable")
+    sorted_g = group[sort_idx]
+    n = sorted_g.shape[0]
+    if n == 0:
+        empty = np.array([], dtype=np.int64)
+        return sort_idx, empty, empty
+    change = np.flatnonzero(sorted_g[1:] != sorted_g[:-1]) + 1
+    starts = np.concatenate(([0], change))
+    ends = np.concatenate((change, [n]))
+    return sort_idx, starts, ends
+
+
 def _within_group_residual(y: np.ndarray, base: np.ndarray, group: np.ndarray, mode: str) -> np.ndarray:
     """Residual rank signal of ``y`` against ``base``, computed WITHIN each group.
 
@@ -99,16 +121,20 @@ def _within_group_residual(y: np.ndarray, base: np.ndarray, group: np.ndarray, m
     ``mode="rank"``: ``rank(y) - rank(base)`` within the group (scale-free ordering
     residual). Both are returned on the ORIGINAL row order.
     """
-    res = np.empty(y.shape[0], dtype=np.float64)
-    for gid in np.unique(group):
-        m = group == gid
-        yi = y[m]
-        bi = base[m]
+    sort_idx, starts, ends = _sorted_group_segments(group)
+    y_sorted = y[sort_idx]
+    base_sorted = base[sort_idx]
+    res_sorted = np.empty(y.shape[0], dtype=np.float64)
+    for s, e in zip(starts, ends):
+        yi = y_sorted[s:e]
+        bi = base_sorted[s:e]
         if mode == "rank":
-            res[m] = _rank01(yi) - _rank01(bi)
+            res_sorted[s:e] = _rank01(yi) - _rank01(bi)
         else:  # "diff"
             d = yi - bi
-            res[m] = d - d.mean()
+            res_sorted[s:e] = d - d.mean()
+    res = np.empty(y.shape[0], dtype=np.float64)
+    res[sort_idx] = res_sorted
     return res
 
 
@@ -146,28 +172,32 @@ def _residual_to_gains(res: np.ndarray, group: np.ndarray) -> np.ndarray:
     every group spans the full label range regardless of its residual scale -- this
     is what makes the per-group DCG meaningful.
     """
-    gains = np.zeros(res.shape[0], dtype=np.int32)
     nb = _LAMBDARANK_NUM_GAINS
-    for gid in np.unique(group):
-        m = group == gid
-        r = res[m]
+    sort_idx, starts, ends = _sorted_group_segments(group)
+    res_sorted = res[sort_idx]
+    gains_sorted = np.zeros(res.shape[0], dtype=np.int32)
+    for s, e in zip(starts, ends):
+        r = res_sorted[s:e]
         if r.size == 1 or np.ptp(r) == 0:
-            gains[m] = 0
             continue
         # Rank within group -> scale to [0, nb-1] integer levels.
         rk = _rank01(r)
         lvl = np.floor(rk / max(rk.max(), 1.0) * (nb - 1) + 0.5).astype(np.int32)
-        gains[m] = lvl
+        gains_sorted[s:e] = lvl
+    gains = np.zeros(res.shape[0], dtype=np.int32)
+    gains[sort_idx] = gains_sorted
     return gains
 
 
 def _ndcg_at_k(y_true: np.ndarray, scores: np.ndarray, group: np.ndarray, k: int) -> float:
     """Mean NDCG@k over groups using the standard ``2**rel - 1`` gain / log2 discount."""
     vals = []
-    for gid in np.unique(group):
-        m = group == gid
-        yt = y_true[m]
-        sc = scores[m]
+    sort_idx, starts, ends = _sorted_group_segments(group)
+    y_sorted = y_true[sort_idx]
+    scores_sorted = scores[sort_idx]
+    for s, e in zip(starts, ends):
+        yt = y_sorted[s:e]
+        sc = scores_sorted[s:e]
         kk = min(k, yt.size)
         order = np.argsort(-sc, kind="stable")[:kk]
         gains = 2.0 ** yt[order] - 1.0
@@ -227,12 +257,16 @@ class CompositeRankEstimator(BaseEstimator, RegressorMixin):
         residual_mode: str = "rank",
         drop_base_feature: bool = True,
         base_weight: float = 1.0,
+        random_state: int = 0,
     ):
         self.base_column = base_column
         self.base_estimator = base_estimator
         self.residual_mode = residual_mode
         self.drop_base_feature = drop_base_feature
         self.base_weight = base_weight
+        # Seeds the pairwise fallback's within-group pair subsampling on wide groups (previously hardcoded
+        # to 0 with no way to vary or reproduce it independently across fits).
+        self.random_state = random_state
 
     # -- column / frame helpers -------------------------------------------------
     def _extract_base(self, X: Any) -> np.ndarray:
@@ -288,9 +322,10 @@ class CompositeRankEstimator(BaseEstimator, RegressorMixin):
         """
         diffs: list[np.ndarray] = []
         labels: list[int] = []
-        rng = np.random.default_rng(0)
-        for gid in np.unique(group):
-            idx = np.flatnonzero(group == gid)
+        rng = np.random.default_rng(self.random_state)
+        _sort_idx, _starts, _ends = _sorted_group_segments(group)
+        for s, e in zip(_starts, _ends):
+            idx = _sort_idx[s:e]
             m = idx.size
             if m < 2:
                 continue
@@ -395,10 +430,14 @@ class CompositeRankEstimator(BaseEstimator, RegressorMixin):
         if group is None:
             return np.asarray(self.base_weight * _zscore(base) + _zscore(inner))
         g = np.asarray(group).reshape(-1)
+        sort_idx, starts, ends = _sorted_group_segments(g)
+        base_sorted = base[sort_idx]
+        inner_sorted = inner[sort_idx]
+        out_sorted = np.empty(base.shape[0], dtype=np.float64)
+        for s, e in zip(starts, ends):
+            out_sorted[s:e] = self.base_weight * _zscore(base_sorted[s:e]) + _zscore(inner_sorted[s:e])
         out = np.empty(base.shape[0], dtype=np.float64)
-        for gid in np.unique(g):
-            m = g == gid
-            out[m] = self.base_weight * _zscore(base[m]) + _zscore(inner[m])
+        out[sort_idx] = out_sorted
         return out
 
     def rank(self, X: Any, group: Any) -> dict[Any, np.ndarray]:
@@ -410,10 +449,12 @@ class CompositeRankEstimator(BaseEstimator, RegressorMixin):
         g = np.asarray(group).reshape(-1)
         scores = self.predict(X, group=g)
         orderings: dict[Any, np.ndarray] = {}
-        for gid in np.unique(g):
-            idx = np.flatnonzero(g == gid)
+        sort_idx, starts, ends = _sorted_group_segments(g)
+        sorted_g = g[sort_idx]
+        for s, e in zip(starts, ends):
+            idx = sort_idx[s:e]
             order = idx[np.argsort(-scores[idx], kind="stable")]
-            orderings[gid] = order
+            orderings[sorted_g[s]] = order
         return orderings
 
 

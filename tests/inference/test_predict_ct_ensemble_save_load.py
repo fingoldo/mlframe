@@ -22,7 +22,7 @@ import numpy as np
 # file`` on the local Windows zstandard build. This bypass writes the file directly (no atomic rename, no extra
 # fsync) which is acceptable in a test context. The underlying io.py is in the LOCKED scope of the directive.
 def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, durable=False):
-    """Helper that save threads zero."""
+    """Test helper: import dill; import zstandard as zstd; try: with open(file, 'wb') as f: compressor = zstd.ZstdCo...."""
     import dill  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
     import zstandard as zstd
 

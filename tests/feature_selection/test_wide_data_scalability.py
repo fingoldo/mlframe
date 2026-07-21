@@ -114,7 +114,7 @@ def test_hybrid_selector_completes_and_narrows_wide(p):
     orig = hs.corr_clusters
 
     def _guarded(Xc, *a, **k):
-        """Helper that guarded."""
+        """Returns ``orig(Xc, *a, **k)`` (after 2 setup steps)."""
         seen["ncols"] = Xc.shape[1]
         assert Xc.shape[1] <= cap, f"corr_clusters got {Xc.shape[1]} cols > cap {cap} (full p x p risk)"
         return orig(Xc, *a, **k)

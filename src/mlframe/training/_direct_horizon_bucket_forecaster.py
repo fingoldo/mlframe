@@ -9,10 +9,13 @@ pattern over recursive forecasting.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 class DirectHorizonBucketForecaster:
@@ -102,6 +105,15 @@ class DirectHorizonBucketForecaster:
 
             if edge_blend_width > 0:
                 self._blend_bucket_edges(X, preds, horizon_day, group, group_mask, feature_cols, edge_blend_width)
+
+        n_nan = int(np.isnan(preds).sum())
+        if n_nan:
+            logger.warning(
+                "DirectHorizonBucketForecaster.predict: %d/%d row(s) got NaN -- no fitted model covers their "
+                "(group, bucket) (out-of-range horizon_day, an unseen group at predict time, or NaN in "
+                "group_col).",
+                n_nan, len(preds),
+            )
         return preds
 
     def _blend_bucket_edges(

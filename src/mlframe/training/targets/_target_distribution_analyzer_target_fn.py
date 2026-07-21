@@ -18,6 +18,7 @@ import math
 from typing import Any, Literal, Optional
 
 import numpy as np
+import pandas as pd
 
 from ._target_distribution_analyzer import (
     TargetDistributionReport,
@@ -79,20 +80,31 @@ def analyze_target_distribution(
     TargetDistributionReport
     """
     y = np.asarray(y).reshape(-1)
-    if y.dtype.kind != "f":
-        y_for_stats = y.astype(np.float64)
-    else:
-        y_for_stats = y
-    finite = np.isfinite(y_for_stats)
-    if not np.all(finite):
-        y_for_stats = y_for_stats[finite]
-    n = int(y_for_stats.size)
 
+    # target_type must be resolved BEFORE any numeric cast: a classification target
+    # can legitimately carry string/object class labels (a standard sklearn pattern),
+    # and unconditionally casting to float64 here crashes on them regardless of an
+    # explicit target_type="classification".
     ttype: Literal["regression", "classification"]
     if target_type == "auto":
         ttype = _classify_target_type(y)
     else:
         ttype = target_type
+
+    if ttype == "regression":
+        y_for_stats = y.astype(np.float64) if y.dtype.kind != "f" else y
+        finite = np.isfinite(y_for_stats)
+        if not np.all(finite):
+            y_for_stats = y_for_stats[finite]
+    else:
+        # Classification: drop missing entries without requiring the whole array to
+        # be finite-float (string/object class labels have no notion of "finite").
+        if y.dtype.kind == "f":
+            keep = np.isfinite(y)
+        else:
+            keep = ~pd.isna(y)
+        y_for_stats = y[keep] if not np.all(keep) else y
+    n = int(y_for_stats.size)
 
     diagnostics: dict[str, float] = {"n_samples": float(n)}
     pathologies: list[str] = []
@@ -219,9 +231,10 @@ def analyze_target_distribution(
                         "the AR signal is being destroyed by post-FTE row shuffling.",
                         100.0 * float(np.mean(_gids_finite[:-1] == _gids_finite[1:])),
                     )
-                ar = _lag1_autocorr_grouped(y_for_stats, _gids_finite)
+                ar, _n_groups_skipped = _lag1_autocorr_grouped(y_for_stats, _gids_finite)
                 ar_source = "per_group"
                 diagnostics["lag1_autocorr_per_group"] = ar
+                diagnostics["lag1_autocorr_per_group_groups_skipped"] = float(_n_groups_skipped)
         if math.isfinite(ar) and abs(ar) > _STRONG_AR_PEARSON_LAG1:
             pathologies.append(f"strong_AR_target(lag1_corr={ar:.3f}, source={ar_source})")
             # Real prod root cause: MLP with per-row layernorm collapses
@@ -261,8 +274,9 @@ def analyze_target_distribution(
                 knob_overrides=knob_overrides, diagnostics=diagnostics,
                 knob_overrides_provenance=knob_overrides_provenance,
             )
-        # Class frequency table.
-        classes, counts = np.unique(y, return_counts=True)
+        # Class frequency table. Use y_for_stats (missing-dropped), not the raw y, so a
+        # numeric target with NaN doesn't get NaN counted as its own spurious class.
+        classes, counts = np.unique(y_for_stats, return_counts=True)
         n_classes = int(classes.size)
         diagnostics["n_classes"] = float(n_classes)
         if n_classes < 2:
@@ -293,8 +307,12 @@ def analyze_target_distribution(
             _stamp_prov("lgb_kwargs", "class_weight", "balanced", "class_imbalance")
             _stamp_prov("xgb_kwargs", "scale_pos_weight", max(1.0, ratio), "class_imbalance")
             _stamp_prov("cb_kwargs", "auto_class_weights", "Balanced", "class_imbalance")
-        # Rare classes.
-        rare_classes = [int(c) for c, k in zip(classes, counts) if int(k) < _RARE_CLASS_MIN_N]
+        # Rare classes. Keep class labels in their native dtype (not force-cast to int):
+        # labels can legitimately be strings, and only the count is used below -- forcing
+        # int() here previously both mis-displayed float labels (e.g. 1.4/1.6 both -> 1,
+        # not that the truncated value is ever actually surfaced) and would crash outright
+        # on string-labeled classification targets.
+        rare_classes = [c for c, k in zip(classes, counts) if int(k) < _RARE_CLASS_MIN_N]
         diagnostics["n_rare_classes"] = float(len(rare_classes))
         if rare_classes:
             pathologies.append(f"rare_classes(n={len(rare_classes)}, min_n_threshold={_RARE_CLASS_MIN_N})")

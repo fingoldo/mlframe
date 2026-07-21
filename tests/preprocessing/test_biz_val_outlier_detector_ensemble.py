@@ -16,7 +16,7 @@ from mlframe.preprocessing.outlier_detector_zoo import make_ensemble_outlier_sco
 
 
 def _make_mixed_outlier_dataset(seed: int = 0):
-    """Helper that make mixed outlier dataset."""
+    """Builds seeded synthetic test data; returns ``(X, labels, local_row, global_row)``."""
     rng = np.random.default_rng(seed)
     dense = rng.normal(loc=(0.0, 0.0), scale=0.15, size=(300, 2))
     sparse = rng.normal(loc=(15.0, 15.0), scale=3.0, size=(60, 2))
@@ -31,7 +31,7 @@ def _make_mixed_outlier_dataset(seed: int = 0):
 
 
 def _single_detector_auc(method: str, X: np.ndarray, labels: np.ndarray, **kwargs) -> float:
-    """Helper that single detector auc."""
+    """Builds seeded synthetic test data; returns ``float(roc_auc_score(labels, anomaly_score))``."""
     detector = make_outlier_detector(method, random_state=0, **kwargs)
     if method == "lof":
         detector.fit_predict(X)

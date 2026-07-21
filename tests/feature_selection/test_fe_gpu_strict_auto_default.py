@@ -13,7 +13,7 @@ import mlframe.feature_selection.filters._fe_gpu_strict as S
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
-    """Helper that isolate."""
+    """Test helper: monkeypatch.delenv('MLFRAME_FE_GPU_STRICT', raising=False); monkeypatch.delenv('MLFRAME_FE_GPU_STRICT_AUTO_MIN_N', ra...; S.clear_auto_fit_n()."""
     monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
     monkeypatch.delenv("MLFRAME_FE_GPU_STRICT_AUTO_MIN_N", raising=False)
     S.clear_auto_fit_n()

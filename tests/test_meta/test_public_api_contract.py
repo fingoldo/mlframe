@@ -30,7 +30,7 @@ from mlframe.training.models import create_linear_model
 
 @pytest.fixture(scope="module")
 def regression_data():
-    """Helper that regression data."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.default_rng(123)
     n_rows, n_features = 100, 5
     X = rng.standard_normal((n_rows, n_features))
@@ -40,7 +40,7 @@ def regression_data():
 
 @pytest.fixture(scope="module")
 def binary_data():
-    """Helper that binary data."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.default_rng(123)
     n_rows, n_features = 100, 5
     X = rng.standard_normal((n_rows, n_features))

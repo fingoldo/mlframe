@@ -79,7 +79,8 @@ _LOW_VAR_NUNIQUE: int = 2  # binary features with imbalance flagged separately
 _REDUNDANT_CORR_THRESHOLD: float = 0.95  # |Pearson| above this -> redundant pair
 _HIGH_CARDINALITY_MAX: int = 100  # categorical features above this -> recommend encoder
 _NAN_FRACTION_THRESHOLD: float = 0.5  # 50%+ NaN rate -> structural issue, not random missingness
-_LEAKAGE_CORR_THRESHOLD: float = 0.99  # feature-target |corr| above this -> suspected leakage
+_LEAKAGE_CORR_THRESHOLD: float = 0.99  # feature-target |corr| (regression/binary) or per-class AUC (multiclass) above this -> suspected leakage
+_LEAKAGE_MAX_CLASSES_FOR_AUC: int = 20  # multiclass leakage detector cap: avoids an O(n_features * n_classes) AUC sweep on high-cardinality integer-coded columns
 # Computing the full correlation matrix is O(n_features^2). Cap to keep the analyzer
 # fast on wide frames; redundant-pair detection is a heuristic, not a guarantee.
 _REDUNDANCY_MAX_NUMERIC_FEATURES: int = 500

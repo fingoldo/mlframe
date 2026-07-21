@@ -42,7 +42,7 @@ def test_cap_preserves_most_frequent_categories():
 
 
 def _sel(X, y, cap):
-    """Helper that sel."""
+    """Returns ``list(m.get_feature_names_out())`` (after 1 setup step)."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         m = MRMR(max_runtime_mins=1, fe_max_steps=0, verbose=0, max_categorical_cardinality=cap)

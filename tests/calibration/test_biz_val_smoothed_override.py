@@ -15,7 +15,7 @@ from mlframe.calibration.smoothed_override import apply_smoothed_override
 
 
 def _make_override_scenario(n: int, rule_error_rate: float, seed: int):
-    """Helper that make override scenario."""
+    """Builds seeded synthetic test data; returns ``(y_true, model_pred, known_label, override_mask)``."""
     rng = np.random.default_rng(seed)
     y_true = rng.uniform(0, 1, n)
 

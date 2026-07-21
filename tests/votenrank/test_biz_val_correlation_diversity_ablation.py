@@ -17,12 +17,12 @@ from mlframe.votenrank.correlation_diversity_ablation import diversity_ablation_
 
 
 def _rmse(y_true, y_pred):
-    """Helper that rmse."""
+    """Returns ``float(np.sqrt(np.mean((y_true - y_pred) ** 2)))``."""
     return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
 
 def _make_diverse_ensemble_dataset(n: int, seed: int):
-    """Helper that make diverse ensemble dataset."""
+    """Builds seeded synthetic test data; returns ``(y_true, {'model_a': model_a, 'model_b': model_b, 'model_c': model_c})``."""
     rng = np.random.default_rng(seed)
     x_shared = rng.normal(size=n)
     x_diverse = rng.normal(size=n)
@@ -126,7 +126,7 @@ def test_biz_val_diversity_ablation_greedy_search_avoids_redundant_trio():
     assert len(selected) == 1, f"expected the greedy search to avoid over-including the redundant trio (only 1 of 3 needed), got {selected}"
 
     def _blend_rmse(names):
-        """Helper that blend rmse."""
+        """Returns ``_rmse(y_true, np.mean([oof_preds[n] for n in names], axis=0))``."""
         return _rmse(y_true, np.mean([oof_preds[n] for n in names], axis=0))
 
     naive_all_loss = _blend_rmse(["best", "c1", "c2", "c3"])  # naive: include every pairwise-flagged candidate

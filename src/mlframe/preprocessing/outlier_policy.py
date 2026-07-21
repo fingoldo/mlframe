@@ -113,7 +113,10 @@ def apply_outlier_policy(
         columns = [c for c in X.select_dtypes(include=[np.number]).columns]
 
     if is_tree_based_model(model, unwrap_pipeline=unwrap_pipeline):
-        out = X.copy()
+        # Shallow copy: only a new outlier_score column is appended below, X's existing
+        # columns are never mutated in place -- matches the sibling preprocessing modules'
+        # convention for large (100+GB) frames.
+        out = X.copy(deep=False)
         col_arr = X[columns].to_numpy(dtype=np.float64)
         mins = np.nanquantile(col_arr, cap_quantiles[0], axis=0)
         maxs = np.nanquantile(col_arr, cap_quantiles[1], axis=0)
@@ -124,7 +127,10 @@ def apply_outlier_policy(
     # one batched DataFrame.quantile() call across all columns instead of two per-column Series.quantile()
     # calls each -- the quantile partition itself dominates either way, but batching still measured ~18%
     # faster at n=1M/50 cols (2.65s vs 3.22s) by avoiding repeated per-column dispatch overhead.
-    out = X.copy()
+    # Shallow copy: out[columns] = ... below replaces those columns' underlying arrays in `out`
+    # entirely (pandas column assignment never writes into the shared buffer in place), so X's
+    # original data is never touched.
+    out = X.copy(deep=False)
     bounds = X[columns].quantile([cap_quantiles[0], cap_quantiles[1]])
     out[columns] = out[columns].clip(lower=bounds.loc[cap_quantiles[0]], upper=bounds.loc[cap_quantiles[1]], axis=1)
     return out

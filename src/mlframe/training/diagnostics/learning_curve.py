@@ -122,6 +122,7 @@ class LearningCurveConfig:
     sizes: Tuple[float, ...] = DEFAULT_SIZES
     holdout: float = 0.2
     n_jobs: int = -1
+    parallel_backend: str = "threads"
     warm_start: bool = False
     time_budget_s: Optional[float] = None
     random_state: int = 0
@@ -293,6 +294,7 @@ def compute_learning_curve(
     scorer: Any,
     holdout: float = 0.2,
     n_jobs: int = -1,
+    parallel_backend: str = "threads",
     warm_start: bool = False,
     random_state: int = 0,
     time_budget_s: Optional[float] = None,
@@ -320,6 +322,12 @@ def compute_learning_curve(
         holdout is disjoint from every train subset by construction.
     n_jobs : int
         Parallel workers across sizes (joblib). Ignored on the ``warm_start`` path (shared state -> serial).
+    parallel_backend : "threads" or "processes", default "threads"
+        ``joblib.Parallel``'s ``prefer=``. Threads keep ``X_pool``/``X_hold`` as shared column views across
+        workers (RAM-safe on 100+GB frames, per this module's own design) since numpy/pandas/sklearn ``.fit``
+        releases the GIL for its heavy lifting. Set to ``"processes"`` only when ``estimator_factory`` genuinely
+        needs process isolation (a non-GIL-releasing pure-Python estimator) -- each worker then pickles/copies
+        the full pool, defeating the zero-copy claim above.
     warm_start : bool
         When True AND the estimator supports it, continue ONE model across the nested prefixes instead of K fresh
         refits (much cheaper). Silently falls back to fresh refits when unsupported.
@@ -421,7 +429,7 @@ def compute_learning_curve(
         if len(run_counts) > 1 and n_jobs != 1:
             from joblib import Parallel, delayed
 
-            results = Parallel(n_jobs=n_jobs, prefer="processes")(delayed(_job)(c) for c in run_counts)
+            results = Parallel(n_jobs=n_jobs, prefer=parallel_backend)(delayed(_job)(c) for c in run_counts)
         else:
             results = [_job(c) for c in run_counts]
 

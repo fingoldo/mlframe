@@ -113,6 +113,7 @@ def _select_significant_lags_per_group(
     per_group: Dict[object, dict] = {}
     lag_support_count: Dict[int, int] = {}
     lag_pacf_sums: Dict[int, float] = {}
+    lag_scored_count: Dict[int, int] = {}
     band_sum = 0.0
 
     for group_label in np.unique(groups):
@@ -126,6 +127,7 @@ def _select_significant_lags_per_group(
             lag_support_count[lag] = lag_support_count.get(lag, 0) + 1
         for lag, v in group_result["pacf_values"].items():
             lag_pacf_sums[lag] = lag_pacf_sums.get(lag, 0.0) + v
+            lag_scored_count[lag] = lag_scored_count.get(lag, 0) + 1
 
     n_groups_scored = len(per_group)
     if n_groups_scored == 0:
@@ -138,7 +140,12 @@ def _select_significant_lags_per_group(
         consensus = consensus[:max_candidates]
     consensus.sort()
 
-    pacf_by_lag = {lag: total / n_groups_scored for lag, total in lag_pacf_sums.items()}
+    # Divide each lag's PACF sum by the number of groups that actually SCORED that lag (its own
+    # ``max_lag = min(max_lag, group_series.shape[0] - 1)`` can be shorter than another group's), not the
+    # fixed n_groups_scored total -- for panels with heterogeneous group lengths, a higher lag scored by only
+    # a few long groups was silently diluted by the full group count, contradicting this function's own
+    # documented "group-wise average PACF among groups where the lag was scored" contract.
+    pacf_by_lag = {lag: total / lag_scored_count[lag] for lag, total in lag_pacf_sums.items()}
 
     return {
         "significant_lags": consensus,

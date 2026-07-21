@@ -23,7 +23,7 @@ try:
 except ImportError:  # pragma: no cover
 
     def fast_subset(values, **_):
-        """Helper that fast subset."""
+        """Returns ``list(values)``."""
         return list(values)
 
 

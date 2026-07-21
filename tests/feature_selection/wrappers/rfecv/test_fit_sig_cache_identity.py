@@ -22,26 +22,26 @@ def _raw(est):
 class _AcceptsSW:
     """Groups tests covering AcceptsSW."""
     def fit(self, X, y, sample_weight=None):
-        """Helper that fit."""
+        """No-op fit stub; returns self unchanged (satisfies the sklearn fit/set_params contract without doing real work)."""
         return self
 
 
 class _RejectsSW:
     """Groups tests covering RejectsSW."""
     def fit(self, X, y):
-        """Helper that fit."""
+        """No-op fit stub; returns self unchanged (satisfies the sklearn fit/set_params contract without doing real work)."""
         return self
 
 
 class _Kwargs:
     """Groups tests covering Kwargs."""
     def fit(self, X, y, **kwargs):
-        """Helper that fit."""
+        """No-op fit stub; returns self unchanged (satisfies the sklearn fit/set_params contract without doing real work)."""
         return self
 
 
 def _cached(est):
-    """Helper that cached."""
+    """Returns ``_fit_accepts_sample_weight(key)`` (after 1 setup step)."""
     key = getattr(est.fit, "__func__", est.fit)
     return _fit_accepts_sample_weight(key)
 

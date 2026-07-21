@@ -29,7 +29,7 @@ class _LatencyModel:
         self._rng = rng
 
     def predict(self, X):
-        """Helper that predict."""
+        """Returns ``np.full(n, self.true_offset) + self._rng.normal(scale=self.noise_scale, size=n)`` (after 2 setup steps)."""
         time.sleep(self.latency_seconds)
         n = len(X)
         return np.full(n, self.true_offset) + self._rng.normal(scale=self.noise_scale, size=n)
@@ -38,7 +38,7 @@ class _LatencyModel:
 def _make_models(rng: np.random.Generator, n_models: int = 6):
     # Priority order: best-first, each contributing independent noise around the true value (0.0) -- more
     # models averaged narrows the ensemble's error toward 0 by the usual sqrt(n) averaging argument.
-    """Helper that make models."""
+    """Returns ``[_LatencyModel(true_offset=0.0, noise_scale=1.0, latency_seconds=0.01, rng=rng) for _ i...``."""
     return [_LatencyModel(true_offset=0.0, noise_scale=1.0, latency_seconds=0.01, rng=rng) for _ in range(n_models)]
 
 
@@ -104,7 +104,7 @@ def test_biz_val_time_budget_ensemble_value_per_ms_avoids_starving_accurate_mode
     # Cheap-first (naive static priority): several near-worthless fast models ranked ahead of one slow but
     # much more accurate model -- under a tight budget the naive order never reaches the accurate model.
     def _make_cheap_first(rng):
-        """Helper that make cheap first."""
+        """Returns ``[*cheap, accurate]`` (after 2 setup steps)."""
         cheap = [_LatencyModel(true_offset=3.0, noise_scale=1.0, latency_seconds=0.001, rng=rng) for _ in range(4)]
         accurate = _LatencyModel(true_offset=0.0, noise_scale=0.05, latency_seconds=0.01, rng=rng)
         return [*cheap, accurate]

@@ -13,7 +13,7 @@ from mlframe.core.stats import get_tukey_fences_multiplier_for_quantile
 
 
 def _reference(values, q0, q1, lo, hi):
-    """Helper that reference."""
+    """Returns ``(vis, n_out)`` (after 2 setup steps)."""
     vis = values[(values >= q0) & (values <= q1)]
     n_out = int((values < lo).sum() + (values > hi).sum())
     return vis, n_out

@@ -33,8 +33,14 @@ def match_missingness_rate(X_train: pd.DataFrame, X_test: pd.DataFrame, rng: np.
     pandas ``.loc`` indexing) -- a per-column ``.loc[idx, col] =`` loop was measured as the dominant
     cProfile hotspot (pandas indexer resolution overhead, not real work).
     """
-    values = X_train.to_numpy(dtype=np.float64, copy=True)
-    test_values = X_test.to_numpy(dtype=np.float64, copy=False)
+    # Numeric columns only (matches match_noise_level's own dispatch): a non-numeric
+    # (categorical/object/string) column can't round-trip through a float64 numpy array, so
+    # X_train.to_numpy(dtype=np.float64) on the WHOLE frame crashed with "could not convert
+    # string to float" on any realistic mixed-dtype frame. Non-numeric columns pass through unchanged.
+    numeric_cols = X_train.select_dtypes(include=[np.number]).columns
+    out = X_train.copy(deep=False)
+    values = out[numeric_cols].to_numpy(dtype=np.float64, copy=True)
+    test_values = X_test[numeric_cols].to_numpy(dtype=np.float64, copy=False)
     n_rows = values.shape[0]
     for j in range(values.shape[1]):
         col_vals = values[:, j]
@@ -49,7 +55,8 @@ def match_missingness_rate(X_train: pd.DataFrame, X_test: pd.DataFrame, rng: np.
         if n_to_null > 0:
             drop_idx = rng.choice(non_null_idx, size=n_to_null, replace=False)
             col_vals[drop_idx] = np.nan
-    return pd.DataFrame(values, columns=X_train.columns, index=X_train.index)
+    out[numeric_cols] = values
+    return out
 
 
 def match_noise_level(X_train: pd.DataFrame, X_test: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
@@ -60,7 +67,7 @@ def match_noise_level(X_train: pd.DataFrame, X_test: pd.DataFrame, rng: np.rando
     ``match_missingness_rate``.
     """
     numeric_cols = X_train.select_dtypes(include=[np.number]).columns
-    out = X_train.copy()
+    out = X_train.copy(deep=False)
     values = out[numeric_cols].to_numpy(dtype=np.float64, copy=True)
     test_values = X_test[numeric_cols].to_numpy(dtype=np.float64, copy=False)
     for j in range(values.shape[1]):

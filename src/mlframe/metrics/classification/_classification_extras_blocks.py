@@ -330,10 +330,19 @@ def fast_multiclass_confusion_metrics_block(
     recall = np.where(row_sums > 0, diag / np.maximum(row_sums, 1), 0.0)
     f1_denom = precision + recall
     f1 = np.where(f1_denom > 0, 2 * precision * recall / np.maximum(f1_denom, 1e-30), 0.0)
-    # Macro
-    macro_precision = float(precision.mean())
-    macro_recall = float(recall.mean())
-    macro_f1 = float(f1.mean())
+    # Macro over classes PRESENT in y_true OR y_pred only (matches fast_classification_report's
+    # macro_over_present=True convention / sklearn.metrics.classification_report semantics) -- a class
+    # declared via n_classes but absent from both arrays would otherwise contribute a zeroed P/R/F1 and
+    # DEFLATE the macro averages by n_present/n_classes, the exact bug fast_classification_report's
+    # macro_over_present flag was added to fix, left unfixed in this sibling fused block.
+    present_macro = (row_sums > 0) | (col_sums > 0)
+    macro_count = int(present_macro.sum())
+    if macro_count > 0:
+        macro_precision = float(precision[present_macro].sum() / macro_count)
+        macro_recall = float(recall[present_macro].sum() / macro_count)
+        macro_f1 = float(f1[present_macro].sum() / macro_count)
+    else:
+        macro_precision = macro_recall = macro_f1 = 0.0
     # Weighted (by true support)
     sup_total = row_sums.sum()
     weighted_precision = float((precision * row_sums).sum() / sup_total)
@@ -344,8 +353,12 @@ def fast_multiclass_confusion_metrics_block(
     micro_precision = accuracy
     micro_recall = accuracy
     micro_f1 = accuracy
-    # Balanced accuracy = mean per-class recall
-    balanced_accuracy = float(recall.mean())
+    # Balanced accuracy = mean per-class recall over classes PRESENT IN y_true only (recall is undefined,
+    # not zero, for a class with no true support) -- matches fast_classification_report's own
+    # balanced_accuracy convention (present_mask = supports > 0), same present-class-only fix as macro
+    # P/R/F1 above but keyed on support alone, not the union with predictions.
+    present_recall = row_sums > 0
+    balanced_accuracy = float(recall[present_recall].mean()) if present_recall.any() else 0.0
     # Gorodkin multiclass MCC
     tp_dot = float((row_sums * col_sums).sum())
     t2 = float((row_sums * row_sums).sum())

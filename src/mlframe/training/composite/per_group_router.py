@@ -134,9 +134,17 @@ class PerGroupCompositeRouter(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X: Any) -> np.ndarray:
-        """Route each row to its own group's fitted submodel, falling back to the global submodel elsewhere."""
+        """Route each row to its own group's fitted submodel, falling back to the global submodel elsewhere.
+
+        The global fallback submodel only runs inference on rows whose group has no submodel
+        (unrouted rows), not on the full ``X`` -- when most groups have their own submodel (the
+        common/intended case), running the global model over every row first and immediately
+        discarding most of that output was wasted inference work.
+        """
         group_vals = _extract_groups(X, self.group_column)
-        preds = np.asarray(self.global_estimator_.predict(_drop_group_column(X, self.group_column)), dtype=np.float64)
+        n = len(group_vals)
+        preds = np.full(n, np.nan, dtype=np.float64)
+        routed_mask = np.zeros(n, dtype=bool)
         for group_val, est in self.group_estimators_.items():
             mask = group_vals == group_val
             if not mask.any():
@@ -144,6 +152,12 @@ class PerGroupCompositeRouter(BaseEstimator, RegressorMixin):
             X_group = X.loc[mask] if isinstance(X, pd.DataFrame) else X.filter(mask)
             X_group = _drop_group_column(X_group, self.group_column)
             preds[mask] = np.asarray(est.predict(X_group), dtype=np.float64)
+            routed_mask |= mask
+        fallback_mask = ~routed_mask
+        if fallback_mask.any():
+            X_fallback = X.loc[fallback_mask] if isinstance(X, pd.DataFrame) else X.filter(fallback_mask)
+            X_fallback = _drop_group_column(X_fallback, self.group_column)
+            preds[fallback_mask] = np.asarray(self.global_estimator_.predict(X_fallback), dtype=np.float64)
         return preds
 
 

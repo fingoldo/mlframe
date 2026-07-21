@@ -73,7 +73,7 @@ def test_prewarm_failure_is_swallowed_not_raised(monkeypatch):
     import mlframe.feature_selection.filters._joblib_safe as joblib_safe
 
     def _boom(*args, **kwargs):
-        """Helper that boom."""
+        """Always raises ``RuntimeError('simulated loky failure')``."""
         raise RuntimeError("simulated loky failure")
 
     monkeypatch.setattr(joblib_safe, "disable_cuda_in_worker", _boom)

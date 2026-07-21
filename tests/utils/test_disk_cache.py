@@ -211,7 +211,7 @@ def test_disk_cache_concurrent_same_key(tmp_path: Path):
     errors = []
 
     def worker():
-        """Helper that worker."""
+        """Attempts ``for _ in range(5): cache.put('shared', payload)``, tolerating failure (see the except clause for the fallback)."""
         try:
             for _ in range(5):
                 cache.put("shared", payload)
@@ -247,7 +247,7 @@ def test_disk_cache_concurrent_same_key_distinct_payloads_never_corrupt(tmp_path
     errors = []
 
     def worker(i):
-        """Helper that worker."""
+        """Attempts ``for _ in range(8): cache.put('shared', payloads[i])``, tolerating failure (see the except clause for the fallback)."""
         try:
             for _ in range(8):
                 cache.put("shared", payloads[i])

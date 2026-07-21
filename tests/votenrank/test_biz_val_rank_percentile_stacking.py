@@ -21,7 +21,7 @@ from mlframe.votenrank.rank_percentile_stacking import rank_percentile_transform
 
 
 def _rmse(y_true, y_pred):
-    """Helper that rmse."""
+    """Returns ``float(np.sqrt(mean_squared_error(y_true, y_pred)))``."""
     return float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
 

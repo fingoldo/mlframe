@@ -181,8 +181,13 @@ def _bootstrap_block(
             # tied/discrete base auto-falls back to exact argsort in the factory.
             _make_auc_resampler = make_bootstrap_auc_resampler
         except ImportError as exc:
-            out["status"] = "skipped"
-            out["reason"] = f"mlframe metrics import failed: {exc}"
+            # Per-metric skip entries (matching the ECE except-block just below), NOT a whole-block
+            # `out["status"]` -- execution falls through to the independent ECE try-block regardless,
+            # and a whole-block status key would contradict a legitimately-populated `out["ece"]` if
+            # that import succeeds on its own.
+            _import_skip_reason = f"mlframe metrics import failed: {exc}"
+            for _skipped_metric in ("roc_auc", "brier", "log_loss"):
+                out[_skipped_metric] = {"status": "skipped", "reason": _import_skip_reason}
         # ECE via the policy module's _ece_score (consistent with auto-pick).
         try:
             from mlframe.calibration.policy import _ece_score

@@ -247,6 +247,8 @@ def _anchor_features_for_segment(
     anchor_values: list = []
     last_anchor_row: int = -1
     last_anchor_val: float = np.nan
+    cached_slope: float = 0.0
+    have_slope: bool = False
     for i in range(n):
         if is_anchor[i] and np.isfinite(label[i]):
             anchor_positions.append(i)
@@ -260,27 +262,36 @@ def _anchor_features_for_segment(
             rows_since[i] = 0.0
             last_val[i] = last_anchor_val
             extrap[i] = last_anchor_val  # on the anchor itself
+            # The rolling anchor window only changes HERE (a new anchor arrived), so the OLS
+            # slope over it is only recomputed here too -- O(K) once per anchor, not O(K) on
+            # EVERY row of the segment (the previous form recomputed the full fit from scratch
+            # even on non-anchor rows where the window was unchanged.
+            if len(anchor_positions) >= 2:
+                xs = np.asarray(anchor_positions, dtype=np.float64)
+                ys = np.asarray(anchor_values, dtype=np.float64)
+                xm = xs.mean()
+                ym = ys.mean()
+                num = ((xs - xm) * (ys - ym)).sum()
+                den = ((xs - xm) ** 2).sum()
+                cached_slope = num / den if den > 1e-12 else 0.0
+                have_slope = True
+            elif len(anchor_positions) == 1:
+                cached_slope = 0.0
+                have_slope = True
         else:
             if last_anchor_row >= 0:
                 rows_since[i] = float(i - last_anchor_row)
                 last_val[i] = last_anchor_val
-        # Compute / cache slope over the rolling anchor window.
-        if len(anchor_positions) >= 2:
-            xs = np.asarray(anchor_positions, dtype=np.float64)
-            ys = np.asarray(anchor_values, dtype=np.float64)
-            xm = xs.mean()
-            ym = ys.mean()
-            num = ((xs - xm) * (ys - ym)).sum()
-            den = ((xs - xm) ** 2).sum()
-            slope = num / den if den > 1e-12 else 0.0
-            local_slope[i] = slope
+        # Slope for this row is whatever the current anchor window last produced -- it cannot
+        # have changed since the window itself only mutates in the anchor branch above.
+        if have_slope:
+            local_slope[i] = cached_slope
             if last_anchor_row >= 0 and not is_anchor[i]:
-                extrap[i] = last_anchor_val + slope * (i - last_anchor_row)
-        elif len(anchor_positions) == 1:
-            local_slope[i] = 0.0
-            if last_anchor_row >= 0 and not is_anchor[i]:
-                # No slope estimate yet; flat extrapolation.
-                extrap[i] = last_anchor_val
+                if len(anchor_positions) >= 2:
+                    extrap[i] = last_anchor_val + cached_slope * (i - last_anchor_row)
+                else:
+                    # No slope estimate yet (single anchor so far); flat extrapolation.
+                    extrap[i] = last_anchor_val
     return {
         "rows_since": rows_since,
         "last_anchor_value": last_val,

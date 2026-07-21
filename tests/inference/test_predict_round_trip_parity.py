@@ -50,7 +50,7 @@ def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, dur
 
 
 def _build_polars_frame(n: int = 1_500, seed: int = 0) -> pl.DataFrame:
-    """Helper that build polars frame."""
+    """Builds seeded synthetic test data; returns ``pl.DataFrame({'x0': rng.normal(size=n).astype('float32'), 'x1': rng.normal(size=n).asty...``."""
     rng = np.random.default_rng(seed)
     return pl.DataFrame(
         {
@@ -230,7 +230,7 @@ def _train_multi_target_suite(df, target_type, tmp_path, model_name):
 
 
 def _atomic_write_bytes_threads_zero(target_path, writer_fn):
-    """Helper that atomic write bytes threads zero."""
+    """Returns ``True`` (after 1 setup step)."""
     with open(target_path, "wb") as f:
         writer_fn(f)
     return True
@@ -299,17 +299,16 @@ def test_in_memory_and_disk_predict_agree_on_multilabel(tmp_path):
     )
 
     def _per_label(res):
-        """Helper that per label."""
+        """Test helper: returns the canonical ``(n, 3)`` per-label probability matrix stored under
+        ``probabilities[<key>]`` for the multilabel target (column j = P(label_j=1))."""
         probs = res.get("probabilities", {})
         key = next(k for k in probs if k.startswith("multilabel_classification"))
-        per_label = probs[key]
-        assert isinstance(per_label, list) and len(per_label) == 3
+        per_label = np.asarray(probs[key])
+        assert per_label.shape == (n, 3)
         return per_label
 
     mem_res = predict_from_models(df=df, models=models, metadata=metadata, features_and_targets_extractor=fte, return_probabilities=True, verbose=0)
     mem = _per_label(mem_res)
-    for arr in mem:
-        assert np.asarray(arr).shape == (n, 2)
     ep_mem = mem_res.get("ensemble_probabilities")
     assert ep_mem is not None, "multilabel ensemble_probabilities should be populated, not None"
     ep_mem = np.asarray(ep_mem)
@@ -322,10 +321,9 @@ def test_in_memory_and_disk_predict_agree_on_multilabel(tmp_path):
         df=df, models=loaded_models, metadata=loaded_metadata, features_and_targets_extractor=fte, return_probabilities=True, verbose=0
     )
     disk = _per_label(disk_res)
-    for li, (a, d) in enumerate(zip(mem, disk)):
-        np.testing.assert_allclose(
-            np.asarray(a), np.asarray(d), rtol=1e-4, atol=1e-4, err_msg=f"multilabel label {li} disk-load predict drifted beyond float precision"
-        )
+    np.testing.assert_allclose(
+        mem, disk, rtol=1e-4, atol=1e-4, err_msg="multilabel per-label probabilities drifted across disk round-trip beyond float precision"
+    )
     np.testing.assert_allclose(
         ep_mem,
         np.asarray(disk_res["ensemble_probabilities"]),

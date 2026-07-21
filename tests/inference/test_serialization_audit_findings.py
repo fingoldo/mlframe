@@ -25,14 +25,14 @@ from sklearn.linear_model import LogisticRegression
 
 
 def _sha256_hex(path: Path) -> str:
-    """Helper that sha256 hex."""
+    """Returns ``h.hexdigest()`` (after 2 setup steps)."""
     h = hashlib.sha256()
     h.update(path.read_bytes())
     return h.hexdigest()
 
 
 def _write_sidecar(path: Path) -> None:
-    """Helper that write sidecar."""
+    """Test helper: (path.parent / (path.name + '.sha256')).write_text(_sha25...."""
     (path.parent / (path.name + ".sha256")).write_text(_sha256_hex(path) + "  " + path.name + "\n", encoding="utf-8")
 
 
@@ -42,7 +42,7 @@ class _FakeModelWrongFeatures:
     feature_names_in_ = np.array(["b", "a"])
 
     def predict(self, X):
-        """Helper that predict."""
+        """Returns ``np.zeros(len(X))``."""
         return np.zeros(len(X))
 
 

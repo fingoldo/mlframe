@@ -178,11 +178,15 @@ def nadaraya_watson_smooth(
 
 
 @njit(fastmath=False, cache=True)
-def _nw_per_group(v_sorted, x_sorted, starts, ends, kernel_code, bandwidth):
-    """In-sample NW smoothing within each contiguous group; per-group Silverman bandwidth if ``bandwidth<=0``."""
+def _nw_per_group(v_sorted, x_sorted, w_sorted, starts, ends, kernel_code, bandwidth, use_w):
+    """In-sample NW smoothing within each contiguous group; per-group Silverman bandwidth if ``bandwidth<=0``.
+
+    ``w_sorted`` is an optional per-sample multiplier on the kernel weight (same contract as the
+    flat ``nadaraya_watson_smooth``'s ``sample_weight``), sorted into the same group/order as
+    ``v_sorted``/``x_sorted``; pass a length-1 dummy array with ``use_w=False`` to disable it.
+    """
     n = v_sorted.shape[0]
     out = np.empty(n, dtype=np.float64)
-    w_dummy = np.ones(1, dtype=np.float64)
     for g in range(starts.shape[0]):
         s = starts[g]
         e = ends[g]
@@ -193,8 +197,9 @@ def _nw_per_group(v_sorted, x_sorted, starts, ends, kernel_code, bandwidth):
             out[s] = v_sorted[s]
             continue
         h = bandwidth if bandwidth > 0.0 else _silverman_bandwidth(x_sorted[s:e])
+        w_seg = w_sorted[s:e] if use_w else w_sorted
         for q in range(s, e):
-            out[q] = _nw_at(x_sorted[q], x_sorted[s:e], v_sorted[s:e], w_dummy, kernel_code, h, False)
+            out[q] = _nw_at(x_sorted[q], x_sorted[s:e], v_sorted[s:e], w_seg, kernel_code, h, use_w)
     return out
 
 
@@ -205,10 +210,18 @@ def per_group_nadaraya_watson_smooth(
     order: np.ndarray | None = None,
     bandwidth: float = -1.0,
     kernel: str = "gaussian",
+    sample_weight: np.ndarray | None = None,
 ) -> np.ndarray:
     """Per-entity NW smoothing of ``values`` along ``order`` (e.g. denoise each road-arc's speed over time).
 
     Returns a smoothed value per original row (aligned to the input). ``bandwidth <= 0`` -> per-group Silverman.
+
+    Parameters
+    ----------
+    sample_weight : np.ndarray, optional
+        Per-sample multiplier on the kernel weight, same contract as the flat
+        :func:`nadaraya_watson_smooth`'s ``sample_weight`` (compose kernel proximity with a
+        recency / seasonal-analog weight); applied within each group independently.
     """
     if kernel not in KERNELS:
         raise ValueError(f"per_group_nadaraya_watson_smooth: kernel must be one of {KERNELS}, got {kernel!r}.")
@@ -219,6 +232,13 @@ def per_group_nadaraya_watson_smooth(
         raise ValueError("per_group_nadaraya_watson_smooth: values and group_ids length mismatch.")
     if n == 0:
         return np.empty(0, dtype=np.float64)
+    use_w = sample_weight is not None
+    if use_w:
+        weights = np.ascontiguousarray(sample_weight, dtype=np.float64)
+        if weights.shape[0] != n:
+            raise ValueError("per_group_nadaraya_watson_smooth: sample_weight length mismatch.")
+    else:
+        weights = np.ones(1, dtype=np.float64)
     if order is not None:
         order = np.ascontiguousarray(order, dtype=np.float64)
         if order.shape[0] != n:
@@ -231,10 +251,11 @@ def per_group_nadaraya_watson_smooth(
     g_sorted = group_ids[sort_idx]
     v_sorted = values[sort_idx]
     x_sorted = np.ascontiguousarray(x_axis[sort_idx], dtype=np.float64)
+    w_sorted = weights[sort_idx] if use_w else weights
     bnd = np.where(g_sorted[1:] != g_sorted[:-1])[0] + 1
     starts = np.concatenate((np.array([0], dtype=np.int64), bnd.astype(np.int64)))
     ends = np.concatenate((bnd.astype(np.int64), np.array([n], dtype=np.int64)))
-    smoothed_sorted = _nw_per_group(v_sorted, x_sorted, starts, ends, KERNELS.index(kernel), float(bandwidth))
+    smoothed_sorted = _nw_per_group(v_sorted, x_sorted, w_sorted, starts, ends, KERNELS.index(kernel), float(bandwidth), use_w)
     out = np.empty(n, dtype=np.float64)
     out[sort_idx] = smoothed_sorted
     return out

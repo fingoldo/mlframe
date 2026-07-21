@@ -35,7 +35,7 @@ _KNOWN_UNDISPATCHED: set[tuple[str, str]] = set()
 
 
 def _consumer_corpus() -> str:
-    """Helper that consumer corpus."""
+    """Returns ``'\n'.join(chunks)`` (after 2 setup steps)."""
     chunks: list[str] = []
     for py in MLFRAME_DIR.rglob("*.py"):
         if py.resolve() == Path(configs_module.__file__).resolve():

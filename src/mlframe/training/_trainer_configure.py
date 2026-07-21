@@ -10,7 +10,7 @@ from __future__ import annotations
 import copy
 import logging
 from timeit import default_timer as timer
-from typing import Any, Callable, Sequence, TYPE_CHECKING
+from typing import Any, Callable, Optional, Sequence, TYPE_CHECKING
 if TYPE_CHECKING:
     from ._configs_base import TargetTypes
     from ._model_configs import LinearModelConfig, MultilabelDispatchConfig
@@ -182,15 +182,15 @@ def _get_training_configs_cached(**kwargs):
 
 
 def configure_training_params(
-    df: pd.DataFrame = None,
-    train_df: pd.DataFrame = None,
-    test_df: pd.DataFrame = None,
-    val_df: pd.DataFrame = None,
-    target: pd.Series = None,
-    target_label_encoder: object = None,
-    train_target: pd.Series = None,
-    test_target: pd.Series = None,
-    val_target: pd.Series = None,
+    df: Optional[pd.DataFrame] = None,
+    train_df: Optional[pd.DataFrame] = None,
+    test_df: Optional[pd.DataFrame] = None,
+    val_df: Optional[pd.DataFrame] = None,
+    target: Optional[pd.Series] = None,
+    target_label_encoder: Optional[object] = None,
+    train_target: Optional[pd.Series] = None,
+    test_target: Optional[pd.Series] = None,
+    val_target: Optional[pd.Series] = None,
     train_idx: np.ndarray | None = None,
     val_idx: np.ndarray | None = None,
     test_idx: np.ndarray | None = None,

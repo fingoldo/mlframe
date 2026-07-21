@@ -19,7 +19,7 @@ import pytest
 
 
 def _make_df(n=200):
-    """Helper that make df."""
+    """Returns ``pd.DataFrame({'a': np.arange(n), 'b': np.arange(n) * 2})``."""
     return pd.DataFrame({"a": np.arange(n), "b": np.arange(n) * 2})
 
 

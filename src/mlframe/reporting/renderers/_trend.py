@@ -45,6 +45,8 @@ def robust_fit_endpoints(x: np.ndarray, y: np.ndarray, method: str) -> Optional[
         return None
 
     if x.size > _TREND_FIT_CAP:
+        # Hardcoded seed (not caller-configurable) is deliberate: this is a visual overlay, and re-rendering
+        # the same (x, y) should draw the identical trend line rather than jittering with process entropy.
         rng = np.random.default_rng(0)
         keep = rng.choice(x.size, size=_TREND_FIT_CAP - 2, replace=False)
         # Always retain the x extremes so the fit spans the full range it will be drawn across.

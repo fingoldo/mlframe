@@ -33,7 +33,11 @@ def _counts(a, b):
     """Return (|A∩B|, |A|, |B|) for a, b given as boolean masks (equal length) or as sets/iterables."""
     a_arr = np.asarray(a)
     b_arr = np.asarray(b)
-    if a_arr.dtype == bool or (a_arr.dtype != object and b_arr.dtype == bool):
+    # BOTH arrays must be boolean-dtype to take the mask branch. Pre-fix, the OR-based check fired
+    # whenever EITHER side was bool-dtype (as long as the other wasn't object-dtype), so a genuine boolean
+    # mask paired with a same-length non-boolean array (e.g. an int array of item ids, not a mask) had the
+    # latter silently reinterpreted as a mask via astype(bool) instead of falling through to set semantics.
+    if a_arr.dtype == bool and b_arr.dtype == bool:
         if a_arr.shape != b_arr.shape:
             raise ValueError("set_similarity: boolean masks must have the same shape.")
         am = a_arr.astype(bool)

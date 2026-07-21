@@ -55,6 +55,10 @@ class MetricSpec:
     description: str = ""
 
 
+# Written by register_metric/unregister_metric with no lock -- fine today (only written at import time
+# by the four _register_builtin_* calls below, plus any user code calling register_metric, both
+# single-threaded call patterns). If runtime registration from parallel workers is ever added, this dict
+# needs a lock around every read-modify-write (register/unregister), not just the writes in isolation.
 _REGISTRY: dict[TargetTypes, dict[str, MetricSpec]] = {}
 
 

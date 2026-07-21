@@ -66,7 +66,7 @@ def _refresh_requested() -> bool:
 
 
 def _public_names() -> list[str]:
-    """Helper that public names."""
+    """Test helper: lazy = getattr(training_pkg, '_LAZY_IMPORTS', {}); explicit = getattr(training_pkg, '__all__', []); names = sorted(set(lazy.keys()) | set(explicit))."""
     lazy = getattr(training_pkg, "_LAZY_IMPORTS", {})
     explicit = getattr(training_pkg, "__all__", [])
     names = sorted(set(lazy.keys()) | set(explicit))
@@ -98,7 +98,7 @@ def _capture_class(obj: type) -> dict:
     #    private mixin layout; only the public base (``BaseEstimator``,
     #    ``ClassifierMixin``, ``RegressorMixin``, ``TransformerMixin``,
     #    ``MetaEstimatorMixin``) matters for the API contract.
-    """Helper that capture class."""
+    """Test helper: _SKIP_NAMES = {'ReprEnum'}; _CANONICAL_ENUMS = {'StrEnum', 'IntEnum', 'Enum', 'IntFla...; _PUBLIC_SKLEARN_MIXINS = {'BaseEstimator', 'ClassifierMix...."""
     _SKIP_NAMES = {"ReprEnum"}
     _CANONICAL_ENUMS = {"StrEnum", "IntEnum", "Enum", "IntFlag", "Flag"}
     _PUBLIC_SKLEARN_MIXINS = {
@@ -147,7 +147,7 @@ def _capture_class(obj: type) -> dict:
 
 
 def _build_snapshot() -> dict:
-    """Helper that build snapshot."""
+    """Returns ``snapshot`` (after 2 setup steps)."""
     snapshot: dict[str, dict] = {}
     for name in _public_names():
         try:

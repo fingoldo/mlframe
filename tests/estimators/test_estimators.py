@@ -15,12 +15,12 @@ from mlframe.estimators.base import (
 
 
 def _xy_clf():
-    """Helper that xy clf."""
+    """Returns ``make_classification(n_samples=50, n_features=4, random_state=0)``."""
     return make_classification(n_samples=50, n_features=4, random_state=0)
 
 
 def _xy_reg():
-    """Helper that xy reg."""
+    """Returns ``make_regression(n_samples=50, n_features=4, noise=0.1, random_state=0)``."""
     return make_regression(n_samples=50, n_features=4, noise=0.1, random_state=0)
 
 
@@ -112,7 +112,7 @@ def test_default_stratify_none_auto_stratifies_imbalanced_classifier_split():
     real_train_test_split = base_mod.train_test_split
 
     def _spy(*args, **kwargs):
-        """Helper that spy."""
+        """Returns ``real_train_test_split(*args, **kwargs)`` (after 1 setup step)."""
         captured["stratify"] = kwargs.get("stratify")
         return real_train_test_split(*args, **kwargs)
 

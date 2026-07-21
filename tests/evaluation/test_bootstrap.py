@@ -116,12 +116,12 @@ def test_delong_rejects_multiclass():
 
 
 def _bm_metric_set():
-    """Helper that bm metric set."""
+    """Returns ``{'roc_auc': auc, 'brier': brier, 'log_loss': ll}`` (after 3 setup steps)."""
     auc = lambda yy, pp: float(roc_auc_score(yy, pp))
     brier = lambda yy, pp: float(np.mean((yy - pp) ** 2))
 
     def ll(yy, pp):
-        """Helper that ll."""
+        """Returns ``float(-np.mean(yy * np.log(pc) + (1 - yy) * np.log(1 - pc)))`` (after 1 setup step)."""
         pc = np.clip(pp, 1e-15, 1 - 1e-15)
         return float(-np.mean(yy * np.log(pc) + (1 - yy) * np.log(1 - pc)))
 
@@ -188,7 +188,7 @@ def test_bootstrap_metrics_isolates_a_failing_metric():
     p = 1.0 / (1.0 + np.exp(-score))
 
     def boom(yy, pp):
-        """Helper that boom."""
+        """Always raises ``RuntimeError('always fails')``."""
         raise RuntimeError("always fails")
 
     res = bootstrap_metrics(

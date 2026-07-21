@@ -578,10 +578,11 @@ _TRANSFORMS_REGISTRY_EXTENDED: dict[str, Transform] = {
         fit=_seasonal_residual_fit,
         domain_check=_seasonal_residual_domain,
         description=(
-            "T = y - seasonal_mean(phase) with phase = row_index % period. ``period`` may be supplied via fit kwargs or is selected on train by minimum residual variance over a small grid ({4, 5, 7, 12, 24, 52} capped at n/3). Index-position-based like ewma_residual: phase is the row's position in the batch, not a calendar field -- caller supplies chronological, gap-free rows and a predict batch starts at phase 0. Pointwise given the phase (recurrent=False)."
+            "T = y - seasonal_mean(phase) with phase = row_index % period. ``period`` may be supplied via fit kwargs or is selected on train by minimum residual variance over a small grid ({4, 5, 7, 12, 24, 52} capped at n/3). Index-position-based like ewma_residual: phase is the row's ABSOLUTE position in the full input sequence, not a calendar field -- caller supplies chronological, gap-free rows and a predict batch starts at phase 0. recurrent=True (even though the transform is pointwise given the phase, with no neighbour reads) so CompositeTargetEstimator.fit()'s domain-filter never compacts the sequence before computing phase: compacting shifts every later row's ARRAY position (hence its phase) whenever a mid-series row is dropped for a domain violation, silently corrupting the learned per-phase means."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
         requires_base=False,
+        recurrent=True,
     ),
     "volatility_normalized_residual": Transform(
         name="volatility_normalized_residual",

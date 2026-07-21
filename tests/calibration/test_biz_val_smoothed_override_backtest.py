@@ -16,7 +16,7 @@ from mlframe.calibration.smoothed_override_backtest import backtest_override
 
 
 def _make_confidence_gated_scenario(n: int, seed: int):
-    """Helper that make confidence gated scenario."""
+    """Builds seeded synthetic test data; returns ``(y_true, model_pred, override_pred, confidence)``."""
     rng = np.random.default_rng(seed)
     y_true = rng.uniform(0, 1, n)
     model_pred = y_true + rng.normal(scale=0.15, size=n)

@@ -52,7 +52,7 @@ def test_f1_stability_selection_does_not_count_zero_fi_noise():
     class _FakeEst:
         """Groups tests covering FakeEst."""
         def fit(self, X, y):
-            """Helper that fit."""
+            """No-op fit stub; returns self unchanged (satisfies the sklearn fit/set_params contract without doing real work)."""
             return self
 
     orig_clone = ss.clone

@@ -72,6 +72,17 @@ except Exception:
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
+class _CalibTestOverlapError(ValueError):
+    """Raised only by ``train_postcalibrators``' own deliberate calib==test leakage guard.
+
+    Kept as a distinct type (not a string-matched plain ``ValueError``) so the outer
+    ``except (TypeError, ValueError)`` around the equality checks can re-raise exactly this guard trip and
+    let every other ``TypeError``/``ValueError`` (e.g. non-comparable dtypes) fall through to the
+    "skip the equality check" branch, without depending on the exact wording of the guard's message staying
+    in sync with a substring check.
+    """
+
+
 def _try_import_class(module_path: str, class_name: str) -> Optional[type]:
     """Import ``class_name`` from ``module_path``, or None when the optional dep is missing."""
     try:
@@ -155,8 +166,19 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
         self,
         calib_probs: np.ndarray,
         calib_target: np.ndarray,
+        sample_weight: Optional[np.ndarray] = None,
     ) -> "BinaryPostCalibrator":
-        """Fit the wrapped calibrator on calib-set probabilities/targets, resolving its transform method name once (predict/transform/venn-abers) for reuse in ``postcalibrate_probs``."""
+        """Fit the wrapped calibrator on calib-set probabilities/targets, resolving its transform method name once (predict/transform/venn-abers) for reuse in ``postcalibrate_probs``.
+
+        ``sample_weight``, when given, is passed through to the wrapped calibrator's own fit method ONLY if
+        that method's signature actually accepts a ``sample_weight`` keyword (checked via
+        ``inspect.signature`` -- the calibrator zoo mixes sklearn estimators that support it (e.g.
+        ``IsotonicRegression``, ``LogisticRegression``) with third-party calibrators that don't). When the
+        wrapped calibrator does NOT support it, a WARNING is logged (once) so the caller knows their weights
+        were silently dropped for this specific calibrator, rather than the previous behavior of having no
+        parameter to pass weights to at all. The Venn-Abers path does not support weighting (fits directly
+        on stored ``(p_cal, y_cal)`` via a from-scratch algorithm, not a generic ``.fit()`` call).
+        """
         # sklearn ClassifierMixin tooling (CalibratedClassifierCV, cross_val_predict, check_is_fitted) expects
         # ``classes_`` and ``n_features_in_`` after fit. We set them from the raw inputs BEFORE the prob reshape so a
         # 2D (n, n_classes) prob matrix reports its real feature width.
@@ -168,8 +190,30 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
         calib_probs = self._transform_probs(calib_probs)
 
         if not self._is_venn_abers(self.calibrator):
-            getattr(self.calibrator, self.fit_method_name)(calib_probs, calib_target)
+            _fit_fn = getattr(self.calibrator, self.fit_method_name)
+            if sample_weight is not None:
+                import inspect
+                try:
+                    _accepts_sw = "sample_weight" in inspect.signature(_fit_fn).parameters
+                except (TypeError, ValueError):
+                    _accepts_sw = False
+                if _accepts_sw:
+                    _fit_fn(calib_probs, calib_target, sample_weight=sample_weight)
+                else:
+                    logger.warning(
+                        "[calibration] BinaryPostCalibrator.fit: wrapped calibrator %r's %s() does not "
+                        "accept sample_weight; fitting unweighted (weights silently ignored for this "
+                        "calibrator).",
+                        type(self.calibrator).__name__, self.fit_method_name,
+                    )
+                    _fit_fn(calib_probs, calib_target)
+            else:
+                _fit_fn(calib_probs, calib_target)
         else:
+            if sample_weight is not None:
+                logger.warning(
+                    "[calibration] BinaryPostCalibrator.fit: Venn-Abers calibration does not support " "sample_weight; fitting unweighted.",
+                )
             self.y_cal = calib_target
             self.p_cal = calib_probs
 
@@ -364,6 +408,7 @@ def compare_postcalibrators(
     selection: str = "inner_cv",
     inner_cv_splits: int = 5,
     random_state: Optional[int] = 0,
+    sample_weight: Optional[np.ndarray] = None,
 ) -> tuple[Optional[pd.DataFrame], dict, dict[str, str]]:
     """Given calibration and (optionally) OOS probabilities and true targets, fits a number of
     calibrator models on the calib set and computes ML metrics on a held-out slice. When ``oos_probs``/
@@ -379,6 +424,13 @@ def compare_postcalibrators(
     - ``"self_eval"`` (legacy): each calibrator is fit AND scored on the exact same calib rows --
       optimistic, since a flexible calibrator (Isotonic, spline, BBQ) can interpolate its own reported
       metrics toward "perfect" purely by memorising the data it saw. Kept for replay / A-B comparison.
+
+    ``sample_weight``, when given, is aligned to ``calib_probs``/``calib_target`` (length == calib set size)
+    and threaded through every calibrator fit (full-set refit, and each inner_cv fold's fit, sliced to that
+    fold's train rows) via ``BinaryPostCalibrator.fit``'s own ``sample_weight`` support -- see that method's
+    docstring for which wrapped calibrators actually honor it (a calibrator whose fit signature has no
+    ``sample_weight`` keyword is fit unweighted, with a warning). ``None`` (default) preserves the
+    pre-existing fully-unweighted behavior bit-for-bit.
 
     A calibrator whose fit/predict raises is skipped (logged as a warning, not fatal) so the remaining
     candidates still complete and are not lost. Returns ``(metrics_df, fit_calibrators, failed_calibrators)``:
@@ -432,6 +484,9 @@ def compare_postcalibrators(
     # and fixed (flexible calibrators like Isotonic interpolate their own score toward "perfect").
     calib_probs_np = np.asarray(calib_probs)
     calib_target_np = np.asarray(calib_target)
+    sample_weight_np = np.asarray(sample_weight) if sample_weight is not None else None
+    if sample_weight_np is not None and sample_weight_np.shape[0] != calib_target_np.shape[0]:
+        raise ValueError(f"compare_postcalibrators: sample_weight length {sample_weight_np.shape[0]} != calib_target length {calib_target_np.shape[0]}.")
     _eval_probs = oos_probs if oos_probs is not None else calib_probs
     _eval_target = oos_target if oos_target is not None else calib_target
     _eval_label = "OOS" if oos_probs is not None else "CALIB (self-eval, optimistic)"
@@ -529,7 +584,8 @@ def compare_postcalibrators(
                         held_mask[held_idx] = True
                         train_idx = np.flatnonzero(~held_mask)
                         fold_clf = copy.deepcopy(clf)
-                        fold_clf.fit(calib_probs_np[train_idx], calib_target_np[train_idx])
+                        fold_sw = sample_weight_np[train_idx] if sample_weight_np is not None else None
+                        fold_clf.fit(calib_probs_np[train_idx], calib_target_np[train_idx], sample_weight=fold_sw)
                         fold_pred = np.asarray(fold_clf.postcalibrate_probs(calib_probs_np[held_idx]))
                         if oof_calibrated is None:
                             oof_calibrated = np.empty((calib_target_np.shape[0], *fold_pred.shape[1:]), dtype=fold_pred.dtype)
@@ -539,12 +595,12 @@ def compare_postcalibrators(
 
                     # Refit on the FULL calib set for the deployment artefact persisted to disk.
                     start = timer()
-                    clf.fit(calib_probs, calib_target)
+                    clf.fit(calib_probs, calib_target, sample_weight=sample_weight_np)
                     fit_calibrators[calibrator_name] = clf
                     predicting_time = timer() - start
                     _row_eval_target = calib_target_np
                 else:
-                    clf.fit(calib_probs, calib_target)
+                    clf.fit(calib_probs, calib_target, sample_weight=sample_weight_np)
                     fit_calibrators[calibrator_name] = clf
                     fitting_time = timer() - start
 
@@ -675,6 +731,7 @@ def train_postcalibrators(
     calib_probs_per_model: Optional[Sequence[np.ndarray]] = None,
     calib_target: Optional[np.ndarray] = None,
     metadata: Optional[dict] = None,
+    sample_weight: Optional[np.ndarray] = None,
 ) -> dict:
     """Fit postcalibrators on a DISJOINT calibration split.
 
@@ -696,6 +753,10 @@ def train_postcalibrators(
     ``ensembling_method`` defaults to the suite-chosen flavour from
     ``metadata["ensembles_chosen"]`` (per target). Pass an explicit string to override; pass
     ``None`` and supply ``metadata`` to inherit the suite winner.
+
+    ``sample_weight``, when given, is a per-row weight vector aligned to ``calib_target``, forwarded to
+    ``compare_postcalibrators`` (see that function's docstring for exactly which wrapped calibrators honor
+    it). ``None`` (default) preserves the pre-existing fully-unweighted calibration fitting.
 
     Returns
     -------
@@ -746,7 +807,7 @@ def train_postcalibrators(
                 # array_equal handles dtype mismatches and avoids deprecation noise on ndarray==
                 try:
                     if np.array_equal(_tt_np, _calib_target_np):
-                        raise ValueError(
+                        raise _CalibTestOverlapError(
                             "train_postcalibrators: calib_target appears to be identical to "
                             f"model '{_name}'.test_target. Refusing to fit calibrators on the "
                             "honest holdout split (in-sample calibration read-out). Use a "
@@ -755,15 +816,15 @@ def train_postcalibrators(
                     # Same shape, not equal in order -- check whether it's the SAME multiset of values just
                     # reshuffled (the exact-equality check above is blind to row order).
                     if np.array_equal(np.sort(_tt_np, axis=None), np.sort(_calib_target_np, axis=None)):
-                        raise ValueError(
+                        raise _CalibTestOverlapError(
                             "train_postcalibrators: calib_target has the SAME multiset of values as model "
                             f"'{_name}'.test_target -- same rows, reordered. Refusing to fit calibrators on a "
                             "reshuffled honest holdout. Use a dedicated calibration split disjoint from test."
                         )
-                except (TypeError, ValueError) as _eq_err:
-                    if "identical" in str(_eq_err) or "reordered" in str(_eq_err):
-                        raise
-                    # Non-comparable dtypes (e.g. mixed-type pandas Series) -- skip the equality check.
+                except _CalibTestOverlapError:
+                    raise
+                except (TypeError, ValueError):
+                    pass  # Non-comparable dtypes (e.g. mixed-type pandas Series) -- skip the equality check.
 
             # Row-ID/index overlap: catches subset/superset reuse (different shape, so the checks above
             # never ran) and reordering even when dtypes prevent a direct value comparison.
@@ -880,6 +941,7 @@ def train_postcalibrators(
         oos_target=None,
         calib_type="calib",
         include_patterns=include_patterns,
+        sample_weight=sample_weight,
     )
     logger.info("train_postcalibrators: calib-set comparison metrics for %s: %s", model_name, calib_test_metrics)
     if failed_calibrators:

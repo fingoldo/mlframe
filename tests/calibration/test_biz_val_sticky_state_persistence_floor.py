@@ -20,7 +20,7 @@ from mlframe.calibration.sticky_state_persistence_floor import (
 
 
 def _make_sticky_state_with_flicker(n: int, n_classes: int, n_flicker: int, seed: int):
-    """Helper that make sticky state with flicker."""
+    """Builds seeded synthetic test data; returns ``(true_state, probs)``."""
     rng = np.random.default_rng(seed)
     true_state = np.zeros(n, dtype=int)
     cur = 0
@@ -46,7 +46,7 @@ def _make_sticky_state_with_flicker(n: int, n_classes: int, n_flicker: int, seed
 
 
 def _simulate_sequential(probs: np.ndarray, floor: float) -> np.ndarray:
-    """Helper that simulate sequential."""
+    """Test helper: n = probs.shape[0]; preds = np.zeros(n, dtype=int); preds[0] = np.argmax(probs[0])."""
     n = probs.shape[0]
     preds = np.zeros(n, dtype=int)
     preds[0] = np.argmax(probs[0])

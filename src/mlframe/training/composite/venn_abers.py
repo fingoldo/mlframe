@@ -93,8 +93,13 @@ def _ivap_envelope(w: np.ndarray, ysum: np.ndarray, aug: float) -> np.ndarray:
     covering bin ``i`` of the augmented diagram -- i.e. the sklearn ``IsotonicRegression``
     fit at ``g_i`` of ``cal + (g_i, aug)``, bit-exact (validated to ~1e-16 vs the per-
     point sklearn refit). The inner ``min over r`` is taken over the suffix's lower convex
-    hull (built once, right-to-left), so the kernel is near-linear, replacing the prior
-    ``O(grid)`` sklearn refits.
+    hull (built once, right-to-left, amortized O(1) per hull update), but the outer
+    ``max over lo`` explicitly rescans ``lo = i..0`` for every bin ``i`` -- that scan alone is
+    ``sum_{i=0}^{g-1}(i+1) = O(g^2)`` total, NOT near-linear in ``g`` (the number of unique
+    calibration scores). Still a large improvement over the prior ``O(grid * n log n)``
+    per-point sklearn refit (``g`` is typically much smaller than the row count ``n``), but a
+    caller with a very large calibration set should be aware the cost grows quadratically in
+    ``g``, not linearly.
     """
     Wc = np.concatenate(([0.0], np.cumsum(w)))  # length g+1, corner X coords
     Yc = np.concatenate(([0.0], np.cumsum(ysum)))  # corner Y coords

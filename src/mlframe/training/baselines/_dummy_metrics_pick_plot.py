@@ -75,13 +75,10 @@ def _compute_metrics_table(
             vp = val_preds.get(name)
             tp = test_preds.get(name)
             for split_name, y, p in [("val", val_y, vp), ("test", test_y, tp)]:
-                pinball_per_a: list[float] = []
                 if p is not None and y is not None and len(p) == len(y) and p.ndim == 2 and p.shape[1] == len(alphas):
                     for j, a in enumerate(alphas):
                         v = _safe_metric(mean_pinball_loss, y, p[:, j], alpha=a)
                         row[f"{split_name}_pinball@{a:.3f}"] = v
-                        if _isfinite(v):
-                            pinball_per_a.append(v if j in non_boundary_idx else float("nan"))
                     if non_boundary_idx:
                         non_boundary_vals = [
                             row[f"{split_name}_pinball@{alphas[j]:.3f}"]
@@ -333,6 +330,7 @@ def plot_best_dummy_baseline_overlay(
     save_path: str | None = None,
     show: bool = True,
     figsize: tuple[float, float] = (12, 4.5),
+    random_state: int = 0,
 ) -> Any | None:
     """Pre-training overlay for the strongest dummy baseline.
 
@@ -378,8 +376,10 @@ def plot_best_dummy_baseline_overlay(
         "regression", "quantile_regression",
     )
 
-    # Sample big arrays to keep render fast on millions of rows.
-    rng = np.random.default_rng(0)
+    # Sample big arrays to keep render fast on millions of rows. random_state defaults to 0 (preserving
+    # the prior hardcoded behavior when the caller doesn't thread config.random_state through) -- display-
+    # only, low practical impact, but the same unparameterized-seed pattern as F9.
+    rng = np.random.default_rng(random_state)
     plot_sample = 20_000
 
     def _maybe_subsample(y, p):

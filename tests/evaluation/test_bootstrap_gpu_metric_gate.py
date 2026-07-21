@@ -18,7 +18,7 @@ _R = 400  # above the n_bootstrap>=256 gate
 
 
 def _data(seed=0):
-    """Helper that data."""
+    """Builds seeded synthetic test data; returns ``(y, p)``."""
     rng = np.random.default_rng(seed)
     y = (rng.random(_N) < 0.35).astype(np.float64)
     p = np.clip(0.2 + 0.5 * y + rng.standard_normal(_N) * 0.3, 1e-6, 1 - 1e-6)
@@ -29,24 +29,25 @@ def _gpu_bound_metric(yy, pp):
     # The point-estimate call happens unconditionally (bootstrap_metrics computes it before the parallel gate),
     # so the dead branch keeps the callable runnable while still leaving 'torch' in its co_names for the static
     # callable_looks_gpu_bound heuristic to detect.
-    """Helper that gpu bound metric."""
+    """Returns ``float(np.mean((yy - pp) ** 2))`` (after 1 setup step)."""
     if False:
         torch.zeros(1)  # noqa: F821
     return float(np.mean((yy - pp) ** 2))
 
 
 def _cpu_metric(yy, pp):
-    """Helper that cpu metric."""
+    """Returns ``float(np.mean((yy - pp) ** 2))``."""
     return float(np.mean((yy - pp) ** 2))
 
 
 def _spy_parallel(monkeypatch):
-    """Helper that spy parallel."""
+    """Patches ``joblib.Parallel`` with a counting wrapper; returns the shared ``{"n": <call count>}`` dict."""
     calls = {"n": 0}
     from joblib import Parallel as _RealParallel
 
     class _CountingParallel:
-        """Groups tests covering CountingParallel."""
+        """Delegates to the real ``joblib.Parallel`` while counting instantiations."""
+
         def __init__(self, *a, **kw):
             calls["n"] += 1
             self._inner = _RealParallel(*a, **kw)

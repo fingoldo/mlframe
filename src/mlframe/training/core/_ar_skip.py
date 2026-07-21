@@ -85,7 +85,8 @@ def _recompute_lag1_ar_per_group(y_full, group_ids, train_idx) -> Optional[float
         finite = np.isfinite(yt)
         if int(finite.sum()) < 100:
             return None
-        ar = float(_lag1_autocorr_grouped(yt[finite], gt[finite]))
+        ar, _n_skipped = _lag1_autocorr_grouped(yt[finite], gt[finite])
+        ar = float(ar)
         return ar if np.isfinite(ar) else None
     except Exception:  # -- a recompute failure must never abort discovery
         return None

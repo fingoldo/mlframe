@@ -29,7 +29,7 @@ def _capturing_fn() -> tuple[callable, dict]:
     captured: dict = {}
 
     def fn(X):
-        """Helper that fn."""
+        """Returns ``np.zeros(len(X), dtype=np.float64)`` (after 3 setup steps)."""
         captured["X"] = X
         captured["type"] = type(X).__name__
         captured["arr"] = X.to_numpy() if hasattr(X, "to_numpy") else np.asarray(X)
@@ -39,7 +39,7 @@ def _capturing_fn() -> tuple[callable, dict]:
 
 
 def _synth_with_nans(n_rows: int, n_cols: int, nan_rate: float, seed: int) -> np.ndarray:
-    """Helper that synth with nans."""
+    """Builds seeded synthetic test data; returns ``arr``."""
     rng = np.random.default_rng(seed)
     arr = rng.normal(size=(n_rows, n_cols)).astype(np.float64)
     mask = rng.random(arr.shape) < nan_rate

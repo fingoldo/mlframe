@@ -40,7 +40,7 @@ from mlframe.feature_selection.filters.info_theory import (
 
 
 def _discretize(X, nb=5):
-    """Helper that discretize."""
+    """Test helper: n, p = X.shape; D = np.zeros((n, p), dtype=np.int32); nbins = np.zeros(p, dtype=np.int64)."""
     n, p = X.shape
     D = np.zeros((n, p), dtype=np.int32)
     nbins = np.zeros(p, dtype=np.int64)
@@ -56,7 +56,7 @@ def _discretize(X, nb=5):
 
 
 def _ctx(D, y, nbins):
-    """Helper that ctx."""
+    """Test helper: n = D.shape[0]; yc = np.ascontiguousarray(y.astype(np.int64)); ky = int(np.unique(yc).size)."""
     n = D.shape[0]
     yc = np.ascontiguousarray(y.astype(np.int64))
     ky = int(np.unique(yc).size)

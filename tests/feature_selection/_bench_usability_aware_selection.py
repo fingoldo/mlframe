@@ -49,7 +49,7 @@ BI = {"add": lambda u, v: u + v, "sub": lambda u, v: u - v, "mul": lambda u, v: 
 
 
 def scrub(v):
-    """Helper that scrub."""
+    """Returns ``np.nan_to_num(np.asarray(v, float), nan=0, posinf=0, neginf=0)``."""
     return np.nan_to_num(np.asarray(v, float), nan=0, posinf=0, neginf=0)
 
 
@@ -92,7 +92,7 @@ def lin_mae(cols):
 
 
 def abscorr(u, v):
-    """Helper that abscorr."""
+    """Returns ``abs(r) if np.isfinite(r) else 0.0`` (after 2 setup steps)."""
     if np.std(u) < 1e-12 or np.std(v) < 1e-12:
         return 0.0
     r = np.corrcoef(u, v)[0, 1]
@@ -100,7 +100,7 @@ def abscorr(u, v):
 
 
 def greedy(K=6, w=0.0):
-    """Helper that greedy."""
+    """Returns ``sel`` (after 2 setup steps)."""
     sel = []
     for _ in range(K):
         r_va = lin_fit_resid(sel, va)  # held-out residual after selected (REMOVES a2/b dominance)

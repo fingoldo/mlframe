@@ -108,7 +108,11 @@ def ewma_multi_alpha_features(
     ----------
     values
         ``(n,)`` value column (e.g. a binary product-presence indicator), in the row order reflecting each
-        entity's true chronological sequence.
+        entity's true chronological sequence. NaN/inf are zero-filled before the recurrence (matching
+        ``training.targets``/``stationarity.py``'s ``ewma_residual`` convention elsewhere in this codebase)
+        -- without this, a single missing observation anywhere in an entity's history would permanently
+        NaN-poison every subsequent EWMA value for that entity (``alpha*NaN + (1-alpha)*x`` is NaN, and stays
+        NaN forever once introduced).
     group_ids
         ``(n,)`` entity/group key aligned to ``values``.
     alphas
@@ -143,6 +147,7 @@ def ewma_multi_alpha_features(
     values_arr = np.ascontiguousarray(values, dtype=np.float64)
     sort_idx, starts, ends = iter_group_segments(group_ids)
     values_sorted = values_arr[sort_idx]
+    values_sorted = np.where(np.isfinite(values_sorted), values_sorted, 0.0)
     starts64 = starts.astype(np.int64)
     ends64 = ends.astype(np.int64)
 

@@ -15,14 +15,14 @@ class _AllColModel:
         self.seen_ids = []
 
     def fit(self, X, y):
-        """Helper that fit."""
+        """Performs 2 setup steps, then returns self unchanged."""
         X = np.asarray(X)
         # Least-squares weights so score reflects each feature's contribution.
         self.w, *_ = np.linalg.lstsq(X, np.asarray(y), rcond=None)
         return self
 
     def score(self, X, y):
-        """Helper that score."""
+        """Test spy/callback: records each invocation (Xa = np.asarray(X); self.seen_ids.append(id(X)); pred = Xa @ self.w)."""
         Xa = np.asarray(X)
         self.seen_ids.append(id(X))
         pred = Xa @ self.w

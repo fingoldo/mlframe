@@ -16,7 +16,7 @@ from mlframe.estimators.base import ClassifierWithEarlyStopping
 
 @pytest.fixture
 def xy():
-    """Helper that xy."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.default_rng(0)
     X = rng.uniform(0.01, 0.99, size=(50, 3))
     y = rng.integers(0, 2, size=50)

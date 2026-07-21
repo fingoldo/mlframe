@@ -314,6 +314,10 @@ def local_linear_detrend(
 
     Implementation uses prefix-sum (Σx, Σx², Σxy, Σy) so per-row cost
     is O(1) after a single O(n) prefix pass per group. K must be >= 2.
+
+    NaN/inf values in ``values`` are zero-filled before the rolling OLS fit (same convention as this module's
+    ``ewma_residual``), biasing the fitted slope/residual toward the imputed zero for any window containing
+    one -- not propagated as NaN and not excluded from the window's regression.
     """
     if window_K < 2:
         raise ValueError(f"window_K must be >= 2, got {window_K}")
@@ -323,7 +327,7 @@ def local_linear_detrend(
     out_slope = np.full(n, fill_value, dtype=np.float64)
 
     def _fit_segment(seg: np.ndarray) -> tuple:
-        """Rolling-OLS residual + slope for one contiguous segment via a vectorized sliding-window covariance formula (no explicit per-row solve): returns ``(residual, slope)`` arrays, NaN-filled for the first ``window_K - 1`` rows and any segment shorter than ``window_K``."""
+        """Rolling-OLS residual + slope for one contiguous segment via a vectorized sliding-window covariance formula (no explicit per-row solve): returns ``(residual, slope)`` arrays, NaN-filled for the first ``window_K - 1`` rows and any segment shorter than ``window_K``. NaN/inf in ``seg`` are zero-filled before the fit, biasing the fitted slope/residual toward the imputed zero for any window containing one."""
         # For each row r >= K-1: fit on rows [r-K+1, r].
         seg_f = np.where(np.isfinite(seg), seg, 0.0)
         m = seg.size
@@ -390,28 +394,41 @@ def cusum_features(
     """
     arr = np.asarray(values, dtype=np.float64)
     n = arr.size
-    if threshold is None:
-        finite = arr[np.isfinite(arr)]
+
+    def _default_threshold(seg: np.ndarray) -> float:
+        """5 * MAD (scaled to a normal-consistent std estimate) of the finite values in ``seg``, or 1.0 as a floor when too few/degenerate."""
+        finite = seg[np.isfinite(seg)]
         if finite.size < 2:
-            threshold = 1.0
-        else:
-            mad = float(np.median(np.abs(finite - np.median(finite))))
-            threshold = 5.0 * mad * 1.4826 if mad > 0 else 1.0
+            return 1.0
+        mad = float(np.median(np.abs(finite - np.median(finite))))
+        return 5.0 * mad * 1.4826 if mad > 0 else 1.0
+
+    if threshold is None:
+        auto_threshold = True
+        # Per-group MAD, not a single value from the FULL (ungrouped) array -- this module's own header
+        # docstring promises "Per-group support ... avoiding bleed across group boundaries", but a threshold
+        # derived from the global scale silently applies one shared CUSUM sensitivity to every group even
+        # when groups differ substantially in scale.
+        # Ungrouped calls (group_ids=None) are unaffected: the single "group" already IS the full array.
+        fixed_threshold: Optional[float] = None
+    else:
+        auto_threshold = False
+        fixed_threshold = float(threshold)
 
     out_pos = np.zeros(n, dtype=np.float64)
     out_neg = np.zeros(n, dtype=np.float64)
     out_since = np.zeros(n, dtype=np.float64)
     out_count = np.zeros(n, dtype=np.float64)
 
-    threshold = float(threshold)
-
     def _walk(idx_seg: np.ndarray) -> None:
-        """Run the two-sided CUSUM recurrence over one group's row indices (relative to the segment's own mean) and scatter the resulting pos/neg CUSUM, rows-since-reset, and reset-count back into the full-length output arrays at ``idx_seg``."""
+        """Run the two-sided CUSUM recurrence over one group's row indices (relative to the segment's own mean, and -- when no explicit threshold was given -- the segment's own MAD-derived threshold) and scatter the resulting pos/neg CUSUM, rows-since-reset, and reset-count back into the full-length output arrays at ``idx_seg``."""
         if idx_seg.size == 0:
             return
         seg = arr[idx_seg]
         seg_mean = float(np.nanmean(seg)) if np.isfinite(seg).any() else 0.0
-        p, ng, sc, ct = _cusum_walk_njit(seg, seg_mean, threshold, drift)
+        seg_threshold = _default_threshold(seg) if auto_threshold else fixed_threshold
+        assert seg_threshold is not None
+        p, ng, sc, ct = _cusum_walk_njit(seg, seg_mean, seg_threshold, drift)
         out_pos[idx_seg] = p
         out_neg[idx_seg] = ng
         out_since[idx_seg] = sc

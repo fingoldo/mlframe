@@ -1,4 +1,14 @@
-"""Synthetic-probability generation for calibration testing: derive plausible predicted-probability vectors from binary outcomes (target discrimination/calibration), and perturb/rank-shuffle a probability vector while holding its statistics close to a reference."""
+"""Synthetic-probability generation for calibration testing.
+
+- ``generate_probs_from_outcomes``: derive plausible predicted-probability vectors from known binary
+  outcomes (chunked, roughly-calibrated).
+- ``generate_similar_probs_logit_space``: perturb an existing probability vector via Gaussian noise in
+  logit space.
+- ``generate_similar_probs_random_walk``: perturb an existing probability vector via a bounded random walk.
+- ``generate_similar_probs``: perturb an existing probability vector, iterating to keep it close to the
+  original Brier Score and ROC AUC.
+- ``generate_similar_probs_by_ranking``: rank-preserving bin-shuffle + noise variant of the above.
+"""
 
 from __future__ import annotations
 
@@ -226,52 +236,93 @@ def generate_similar_probs(
 
 
 def generate_similar_probs_by_ranking(
-    predicted_probs: np.ndarray, true_outcomes: np.ndarray, n_bins: int = 10, noise_scale: float = 0.001, random_state: Optional[int] = None
+    predicted_probs: np.ndarray,
+    true_outcomes: np.ndarray,
+    n_bins: int = 10,
+    noise_scale: float = 0.001,
+    n_iterations: int = 1,
+    random_state: Optional[int] = None,
 ) -> np.ndarray:
     """
     Generates a new set of probabilities by shuffling within ranked bins,
-    preserving the ranking and maintaining Brier Score and ROC AUC.
+    preserving the ranking and (over ``n_iterations`` candidate draws) verifying it stays close to the
+    ORIGINAL Brier Score and ROC AUC against ``true_outcomes`` -- the same closeness-tracking pattern
+    :func:`generate_similar_probs` uses, since a single rank-preserving shuffle+noise draw is only
+    APPROXIMATELY metric-preserving, not verified.
 
     Args:
         predicted_probs (np.ndarray): Original predicted probabilities (0-1).
         true_outcomes (np.ndarray): True binary outcomes (0 or 1).
         n_bins (int): Number of bins to group the probabilities into (e.g., quantiles).
         noise_scale (float): Amount of random noise to add after shuffling to introduce variation.
+        n_iterations (int): Number of candidate draws to try, keeping the one closest to the original
+            Brier Score/ROC AUC (early-stops once a draw is within 1% of both). ``1`` (default) reproduces
+            the original single-draw behavior bit-for-bit, with no metric verification.
 
     Returns:
         np.ndarray: A new set of similar probabilities.
     """
     rng = check_random_state(random_state)
-    # Get ranks of predicted probabilities
-    ranks = rankdata(predicted_probs, method="ordinal")
     n = len(predicted_probs)
 
-    # Create bins based on the ranks (grouping into approximately equal-sized bins)
-    bins = np.floor_divide(ranks * n_bins, n)
+    def _one_draw() -> np.ndarray:
+        """One rank-preserving shuffle-within-bin + noise draw over ``predicted_probs``."""
+        # Get ranks of predicted probabilities
+        ranks = rankdata(predicted_probs, method="ordinal")
+        # Create bins based on the ranks (grouping into approximately equal-sized bins)
+        bins = np.floor_divide(ranks * n_bins, n)
 
-    similar_probs = predicted_probs.copy()
+        similar_probs = predicted_probs.copy()
 
-    # Shuffle within each bin.
-    # bench-attempt-rejected (2026-07): replacing this np.unique + per-bin np.where scan with a
-    # single stable-argsort-by-bin + contiguous-slice walk was bit-identical (stable sort preserves
-    # ascending intra-bin index order -> same rng.shuffle draw order) but SLOWER at every tested cell
-    # (n in {1e5,1e6} x n_bins in {10,100}): e.g. n=1e6,n_bins=10 old 96ms vs argsort 220ms/contig
-    # 223ms (0.43x). The O(n_bins*N) boolean scans are vectorized cache-friendly passes and n_bins is
-    # small, so they beat the O(N log N) argsort + fancy-index gather/scatter.
-    for bin_value in np.unique(bins):
-        bin_indices = np.where(bins == bin_value)[0]
-        # Extract the probabilities in this bin
-        bin_probs = similar_probs[bin_indices]
-        # Shuffle them
-        rng.shuffle(bin_probs)
-        # Assign the shuffled values back to their positions
-        similar_probs[bin_indices] = bin_probs
+        # Shuffle within each bin.
+        # bench-attempt-rejected (2026-07): replacing this np.unique + per-bin np.where scan with a
+        # single stable-argsort-by-bin + contiguous-slice walk was bit-identical (stable sort preserves
+        # ascending intra-bin index order -> same rng.shuffle draw order) but SLOWER at every tested cell
+        # (n in {1e5,1e6} x n_bins in {10,100}): e.g. n=1e6,n_bins=10 old 96ms vs argsort 220ms/contig
+        # 223ms (0.43x). The O(n_bins*N) boolean scans are vectorized cache-friendly passes and n_bins is
+        # small, so they beat the O(N log N) argsort + fancy-index gather/scatter.
+        for bin_value in np.unique(bins):
+            bin_indices = np.where(bins == bin_value)[0]
+            # Extract the probabilities in this bin
+            bin_probs = similar_probs[bin_indices]
+            # Shuffle them
+            rng.shuffle(bin_probs)
+            # Assign the shuffled values back to their positions
+            similar_probs[bin_indices] = bin_probs
 
-    if noise_scale:
-        # Add small noise to ensure variation
-        similar_probs += rng.normal(0, noise_scale, size=predicted_probs.shape)
+        if noise_scale:
+            # Add small noise to ensure variation
+            similar_probs += rng.normal(0, noise_scale, size=predicted_probs.shape)
 
-        # Ensure probabilities are still between 0 and 1
-        similar_probs = np.clip(similar_probs, 0, 1)
+            # Ensure probabilities are still between 0 and 1
+            similar_probs = np.clip(similar_probs, 0, 1)
 
-    return np.asarray(similar_probs)
+        return np.asarray(similar_probs)
+
+    if n_iterations <= 1:
+        return _one_draw()
+
+    original_brier_score = fast_brier_score_loss(true_outcomes, predicted_probs)
+    original_auc = fast_roc_auc(true_outcomes, predicted_probs)
+
+    best_probs: Optional[np.ndarray] = None
+    best_score = np.inf
+    for _ in range(n_iterations):
+        candidate = _one_draw()
+        new_brier_score = fast_brier_score_loss(true_outcomes, candidate)
+        new_auc = fast_roc_auc(true_outcomes, candidate)
+        score = abs(new_brier_score - original_brier_score) / max(abs(original_brier_score), 1e-12) + abs(new_auc - original_auc) / max(
+            abs(original_auc), 1e-12
+        )
+        # `best_probs is None` keeps the first draw as a fallback even when `score` comes out NaN (degenerate
+        # true_outcomes/predicted_probs, e.g. a single-class fold) -- `nan < best_score` is always False, so
+        # relying on the score comparison alone would leave best_probs unset and return None from a function
+        # typed to always return an ndarray.
+        if best_probs is None or score < best_score:
+            best_score = score
+            best_probs = candidate
+        if np.isclose(new_brier_score, original_brier_score, rtol=0.01) and np.isclose(new_auc, original_auc, rtol=0.01):
+            return candidate
+
+    assert best_probs is not None  # guaranteed by the "first draw" fallback above (n_iterations > 1 here)
+    return best_probs

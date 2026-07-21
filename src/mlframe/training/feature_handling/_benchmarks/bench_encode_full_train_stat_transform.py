@@ -10,11 +10,11 @@ Run: python -m mlframe.training.feature_handling._benchmarks.bench_encode_full_t
 from __future__ import annotations
 
 import sys
-sys.modules.setdefault("cupy", None)
+sys.modules.setdefault("cupy", None)  # type: ignore[arg-type]  # avoid cold cupy import segfault on py3.14
 import time
+from typing import Literal
 
 import numpy as np
-import pandas as pd
 
 from mlframe.training.feature_handling.target_encoders import LeakageSafeEncoder
 
@@ -32,7 +32,12 @@ def _make_data(n: int, n_cat: int, seed: int = 0):
     return X_train, y, X_test
 
 
-def bench(method: str, n: int = 10_000_000, n_cat: int = 200, reps: int = 3):
+def bench(
+    method: Literal["target_mean", "target_m_estimate", "target_james_stein", "target_loo", "woe"],
+    n: int = 10_000_000,
+    n_cat: int = 200,
+    reps: int = 3,
+):
     X_train, y, X_test = _make_data(n, n_cat)
     enc = LeakageSafeEncoder(method=method, cv=3)
     enc.fit_transform(X_train, y)

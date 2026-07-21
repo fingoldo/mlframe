@@ -20,7 +20,7 @@ from mlframe.evaluation.imputation_sensitivity_check import imputation_sensitivi
 
 
 def _make_regime_shift_missingness_data(n: int, seed: int):
-    """Helper that make regime shift missingness data."""
+    """Builds seeded synthetic test data; returns ``(X_zero, X_mean, X_mode, y)``."""
     rng = np.random.default_rng(seed)
     t = np.arange(n)
     promo_true = rng.integers(0, 2, n).astype(np.float64)

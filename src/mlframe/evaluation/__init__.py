@@ -15,7 +15,7 @@ callers keep working at the cost of a one-time deferred import.
 from __future__ import annotations
 
 
-from mlframe.evaluation.bootstrap import auc_ci, auc_variance, bootstrap_metric, delong_test
+from mlframe.evaluation.bootstrap import auc_ci, auc_variance, bootstrap_metric, bootstrap_metrics, delong_test
 from mlframe.evaluation.noise_band import cv_score_equivalence_band, is_within_noise_band
 from mlframe.evaluation.cv_delta_triage import triage_cv_delta
 from mlframe.evaluation.leak_scan import scan_temporal_leak

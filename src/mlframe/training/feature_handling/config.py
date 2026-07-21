@@ -497,10 +497,27 @@ class FeatureHandlingConfig(BaseConfig):
             return list(value)
         if isinstance(value, spec_cls):
             return [value]
-        # String shorthand: treat as method name with NoParams default.
+        # String shorthand: treat as method name with NoParams default. Only works for methods that take
+        # no params at all (native/ordinal/onehot/drop/embedding) -- a real method name like "tfidf"
+        # needs an explicit params object (e.g. TfidfParams(...)) and NoParams(kind=value) itself raises
+        # a raw pydantic ValidationError; catch it and re-raise a clear message naming the actual problem
+        # instead of leaving the caller to decode an opaque "kind" Literal-mismatch trace.
         if isinstance(value, str):
+            from pydantic import ValidationError
+
             from mlframe.training.feature_handling.handlers import NoParams
-            return [spec_cls(method=value, params=NoParams(kind=value))]  # type: ignore[arg-type]  # string-shorthand method name; NoParams.kind's Literal set is validated by pydantic at construction
+            try:
+                params = NoParams(kind=value)  # type: ignore[arg-type]  # string-shorthand method name; validated below
+            except ValidationError as exc:
+                _kind_annotation = NoParams.model_fields["kind"].annotation
+                assert _kind_annotation is not None  # "kind" is a required Literal[...] field, always annotated
+                raise ValueError(
+                    f"{spec_cls.__name__}: string shorthand {value!r} is not a no-params method. The bare-string "
+                    f"shorthand only works for {sorted(_kind_annotation.__args__)!r} "
+                    f"(methods that take no configuration); {value!r} requires an explicit params object -- "
+                    f"pass {spec_cls.__name__}(method={value!r}, params=<TheRightParams>(...)) instead."
+                ) from exc
+            return [spec_cls(method=value, params=params)]
         raise TypeError(f"unsupported value type for {spec_cls.__name__}: {type(value).__name__}")
 
     def _effective_text_specs(self, model_kind: str) -> List[TextHandlerSpec]:

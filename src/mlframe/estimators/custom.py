@@ -402,6 +402,7 @@ class MyDecorrelator(BaseEstimator, TransformerMixin):
 
     def fit(self, X, y=None):
         """Compute pairwise correlations and mark later-indexed columns of any pair exceeding ``threshold`` for dropping."""
+        feature_names_in = list(X.columns) if isinstance(X, pd.DataFrame) else None
         X = pd.DataFrame(X)
         corr_matrix = X.corr()
         # Vectorized upper-triangle (k=1) decorrelation: a column is dropped when its absolute correlation
@@ -410,19 +411,29 @@ class MyDecorrelator(BaseEstimator, TransformerMixin):
         # correlated pair is the one dropped, matching the original ``for j in range(i)`` double loop exactly.
         cols = corr_matrix.columns
         upper = np.triu(np.abs(corr_matrix.to_numpy()), k=1)
-        correlated_features = {cols[c] for c in range(len(cols)) if (upper[:, c] > self.threshold).any()}
-        self.correlated_features_ = correlated_features
+        # Canonical form: always INTEGER POSITIONS, resolved against the fit-time column order, regardless
+        # of whether `fit` saw a DataFrame (string names) or an ndarray (already positions). Pre-fix,
+        # correlated_features_ was keyed by whatever `fit` happened to see, so calling `transform` with the
+        # OTHER container type (e.g. fit on a DataFrame, transform on an ndarray) made `j not in
+        # correlated_features_` True for every j (a string set never contains an int) -- every column was
+        # silently kept, defeating the transformer with no error.
+        self.correlated_features_ = {c for c in range(len(cols)) if (upper[:, c] > self.threshold).any()}
+        self.feature_names_in_ = feature_names_in
+        self.n_features_in_ = len(cols)
         return self
 
     def transform(self, X, y=None, **kwargs):
         """Drop the columns flagged as correlated in ``fit``, without wrapping the input into a fresh DataFrame."""
         check_is_fitted(self)
-        # Drop correlated columns without wrapping the whole input into a fresh DataFrame
-        # on every call: a DataFrame already supports ``.drop`` directly, and an ndarray's
-        # columns are dropped by integer index, avoiding the broadcast-copy of the wrap.
+        n_cols = X.shape[1] if hasattr(X, "shape") else len(np.asarray(X)[0])
+        if n_cols != self.n_features_in_:
+            raise ValueError(f"MyDecorrelator.transform: X has {n_cols} columns but was fit on {self.n_features_in_}.")
+        # correlated_features_ is always integer positions (see fit's comment) -- position-based indexing
+        # works identically for a DataFrame or an ndarray input, regardless of which type `fit` saw.
         if isinstance(X, pd.DataFrame):
-            return X.drop(labels=self.correlated_features_, axis=1)
-        keep = [j for j in range(np.asarray(X).shape[1]) if j not in self.correlated_features_]
+            drop_labels = [X.columns[c] for c in self.correlated_features_]
+            return X.drop(labels=drop_labels, axis=1)
+        keep = [j for j in range(n_cols) if j not in self.correlated_features_]
         return np.asarray(X)[:, keep]
 
 

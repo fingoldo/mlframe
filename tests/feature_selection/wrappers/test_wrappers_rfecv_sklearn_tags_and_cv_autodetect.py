@@ -24,7 +24,7 @@ from tests.training.synthetic import make_sklearn_classification_df
 
 
 def _rfecv(**kw):
-    """Helper that rfecv."""
+    """Returns ``_RFECV(**kw)`` (after 1 setup step)."""
     from mlframe.feature_selection.wrappers import RFECV as _RFECV
 
     return _RFECV(**kw)
@@ -467,7 +467,7 @@ class TestAdaptiveOptimizerSurrogate:
             ).fit(Xdf, y)
 
         def _time(cfg):
-            """Helper that time."""
+            """Returns ``best`` (after 2 setup steps)."""
             best = float("inf")
             for _ in range(3):
                 t0 = time.perf_counter()

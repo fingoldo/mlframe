@@ -356,13 +356,23 @@ def _peak_trough_counts(wins: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     Strict definition: position ``i`` is a peak iff
     ``w[i-1] < w[i] > w[i+1]``. End positions (0, K-1) are never
     counted because they cannot be checked symmetrically.
+
+    A NaN comparison is always ``False``, so a NaN anywhere in a window would otherwise silently UNDERCOUNT
+    peaks/troughs (never raise, never signal) instead of propagating a "can't compute" result -- unlike every
+    other rolling function in this module, which explicitly checks ``np.isfinite``. A window containing any
+    NaN gets ``NaN`` for both counts here, matching this module's own ``fill_value=np.nan`` "can't compute"
+    convention.
     """
     wmid = wins[:, 1:-1]
     wleft = wins[:, :-2]
     wright = wins[:, 2:]
-    n_peaks = ((wmid > wleft) & (wmid > wright)).sum(axis=1)
-    n_troughs = ((wmid < wleft) & (wmid < wright)).sum(axis=1)
-    return n_peaks.astype(np.float64), n_troughs.astype(np.float64)
+    n_peaks = ((wmid > wleft) & (wmid > wright)).sum(axis=1).astype(np.float64)
+    n_troughs = ((wmid < wleft) & (wmid < wright)).sum(axis=1).astype(np.float64)
+    has_nan = ~np.isfinite(wins).all(axis=1)
+    if has_nan.any():
+        n_peaks[has_nan] = np.nan
+        n_troughs[has_nan] = np.nan
+    return n_peaks, n_troughs
 
 
 def rolling_n_peaks(
@@ -644,10 +654,6 @@ def rolling_integral_above_baseline(
     last K observations sit above the typical level for this group.
     """
     out = np.full(values.size, fill_value, dtype=np.float64)
-    if baseline is not None and baseline_fn != "median":
-        # The two are mutually exclusive -- one chosen explicit baseline
-        # wins, fn is only used when no array supplied.
-        pass
     for sort_idx_seg, wins, write_idx in per_group_sliding_window(
         values, group_ids, window_K=window_K,
     ):

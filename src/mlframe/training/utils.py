@@ -473,8 +473,14 @@ def get_pandas_view_of_polars_df(
         (fixed domain preserved across slices), not a post-hoc Arrow-level
         cache.
     """
-    if pl is None or not isinstance(df, (pl.DataFrame, pl.Series)):
-        raise TypeError(f"Input must be a Polars DataFrame or Series, got {type(df).__name__}")
+    # pl.Series was previously accepted by this guard's TypeError message but never actually
+    # implemented -- every code path past this point assumes a DataFrame (df.schema, df.to_arrow()
+    # returning a pa.Table with .columns, per-column dict casts); a genuine pl.Series would crash with
+    # an unrelated AttributeError deep inside instead of behaving as the (never-true) contract claimed.
+    # No caller in this codebase passes a Series (verified by grep across all ~25 call sites), so the
+    # guard is narrowed to match the ACTUAL implementation rather than silently attempting Series support.
+    if pl is None or not isinstance(df, pl.DataFrame):
+        raise TypeError(f"Input must be a Polars DataFrame, got {type(df).__name__}")
 
     # iter628 (perf): single-entry "last result" memo. c0008 @100k
     # profile showed 8 calls / 8.08s cumtime to this bridge across

@@ -52,7 +52,7 @@ KNOWN_NON_DECLARED_EXCEPTIONS = {
 
 
 def _normalize(name: str) -> str:
-    """Helper that normalize."""
+    """Returns ``name.lower().replace('_', '-')``."""
     return name.lower().replace("_", "-")
 
 
@@ -66,7 +66,7 @@ def _declared_dependency_names() -> set[str]:
     _spec_re = re.compile(r"^[A-Za-z0-9_.\-]+")
 
     def _add_all(specs):
-        """Helper that add all."""
+        """Test helper: for spec in specs: m = _spec_re.match(spec) if m: names.a...."""
         for spec in specs:
             m = _spec_re.match(spec)
             if m:

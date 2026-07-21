@@ -96,6 +96,21 @@ def _uniform_ref_fractions(edges: np.ndarray) -> np.ndarray:
     return np.full(n_bins, 1.0 / n_bins, dtype=np.float64)
 
 
+def _missing_data_fraction(values: np.ndarray) -> float:
+    """Fraction of ``values`` that is non-finite (NaN/Inf) or the array is empty (-> 1.0).
+
+    PSI/KS both degrade to a "matches reference perfectly" reading (PSI=0, KS=0) on an
+    empty/all-non-finite sample -- exactly the opposite of the intended drift signal when an
+    upstream feed breaks (all-NaN base column, every row hitting a domain-violation fallback).
+    This is reported as its OWN alert signal alongside PSI/KS so a broken feed is never silently
+    read as "no drift".
+    """
+    a = np.asarray(values, dtype=np.float64).reshape(-1)
+    if a.size == 0:
+        return 1.0
+    return float(np.mean(~np.isfinite(a)))
+
+
 def _psi(ref_frac: np.ndarray, new_frac: np.ndarray) -> float:
     """Population Stability Index between two binned fraction vectors.
 
@@ -155,6 +170,12 @@ class CompositeDriftMonitor:
         for the ``residual_rmse`` trend (FIFO).
     sketch_quantiles
         Quantile-knot count per column sketch (default 10 deciles).
+    missing_data_threshold
+        Fraction of non-finite/missing values in a new batch's base column or predictions above
+        which a ``base_missing[col]`` / ``prediction_missing`` signal alerts. An empty or
+        all-non-finite sample makes PSI/KS degrade to a "matches reference perfectly" (PSI=0,
+        KS=0) reading -- the exact opposite of "catch drift" -- so this signal exists specifically
+        to catch a broken/renamed upstream feed that PSI/KS alone would silently miss.
     recommend_update_on
         Which signals, when alerting, set ``recommend_update=True`` (the hook
         the ``online_refit`` ``update()`` path consumes). Default: any base or
@@ -178,6 +199,7 @@ class CompositeDriftMonitor:
         rolling_rmse_window: int = 20,
         sketch_quantiles: int = _DEFAULT_SKETCH_QUANTILES,
         recommend_update_on: Sequence[str] = ("base", "residual"),
+        missing_data_threshold: float = 0.5,
         on_drift: Any = None,
     ) -> None:
         if not hasattr(estimator, "fitted_params_"):
@@ -185,6 +207,7 @@ class CompositeDriftMonitor:
         self.estimator = estimator
         self.base_psi_threshold = float(base_psi_threshold)
         self.prediction_psi_threshold = float(prediction_psi_threshold)
+        self.missing_data_threshold = float(missing_data_threshold)
         self.base_ks_threshold = float(base_ks_threshold)
         self.residual_mean_z_threshold = float(residual_mean_z_threshold)
         self.residual_scale_log_threshold = float(residual_scale_log_threshold)
@@ -298,6 +321,10 @@ class CompositeDriftMonitor:
         # (1) base-column distribution drift (PSI + KS per column).
         for col, knots in sketch["base_knots"].items():
             new_base = _extract_base(X, col)
+            missing_frac = _missing_data_fraction(new_base)
+            signals[f"base_missing[{col}]"] = {
+                "value": missing_frac, "alert": missing_frac > self.missing_data_threshold,
+            }
             ref_frac = _uniform_ref_fractions(knots)
             new_frac = _bin_fractions(new_base, knots)
             psi_val = _psi(ref_frac, new_frac)
@@ -311,6 +338,10 @@ class CompositeDriftMonitor:
 
         # (2) prediction drift (PSI of y_hat vs the train y_hat sketch).
         y_hat = np.asarray(self.estimator.predict(X), dtype=np.float64).reshape(-1)
+        pred_missing_frac = _missing_data_fraction(y_hat)
+        signals["prediction_missing"] = {
+            "value": pred_missing_frac, "alert": pred_missing_frac > self.missing_data_threshold,
+        }
         pred_knots = sketch["pred_knots"]
         pred_psi = _psi(_uniform_ref_fractions(pred_knots), _bin_fractions(y_hat, pred_knots))
         signals["prediction_psi"] = {

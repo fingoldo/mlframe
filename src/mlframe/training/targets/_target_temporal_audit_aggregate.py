@@ -104,8 +104,13 @@ _POLARS_BIN_TRUNCATE: dict[Granularity, str] = {
 def _polars_rate_expr(target_col: str, target_type: str, alias: str):
     """Build a polars aggregation expr for one target's per-bin rate."""
     if target_type == "binary_classification":
-        # P(y=1): treat null as 0, then mean over (val > 0)
-        return (pl.col(target_col).fill_null(0) > 0).cast(pl.Float64).mean().alias(alias)
+        # P(y=1) over non-null rows only. A prior `fill_null(0) > 0` then `.mean()`
+        # counted null rows as negatives in the denominator, deflating the reported
+        # rate by roughly the null fraction -- mirrors the fix already applied to the
+        # pandas twin (_aggregate_by_time_pandas). sum/count of an all-null
+        # bin is 0.0/0.0 = NaN, matching the pandas twin's explicit NaN-for-empty-bin.
+        col = pl.col(target_col)
+        return ((col.fill_null(0) > 0).cast(pl.Float64).sum() / col.is_not_null().sum().cast(pl.Float64)).alias(alias)
     return pl.col(target_col).cast(pl.Float64).mean().alias(alias)
 
 

@@ -17,6 +17,14 @@ immediately while the sweep measures in a background thread and persists the win
 (this process and every future process on this host).
 
 Env override: ``MLFRAME_ODDS_COMBINE_BACKEND=njit_single|njit_parallel|cupy``.
+
+This module does NOT also check ``MLFRAME_DISABLE_GPU`` -- that convention (``feature_selection.filters.
+_gpu_policy.gpu_globally_disabled``) is used exclusively via relative imports from within
+``feature_selection/filters/**`` (verified by grep: every call site lives there), so it is a
+package-internal convention for that subsystem, not a repo-wide contract. A caller who wants CPU-only
+odds-ratio combination uses this module's own ``MLFRAME_ODDS_COMBINE_BACKEND`` override, or the CUDA
+runtime's own ``CUDA_VISIBLE_DEVICES=""`` (already respected implicitly, since a cupy call simply fails
+and falls back to CPU when no device is visible).
 """
 from __future__ import annotations
 
@@ -44,11 +52,13 @@ def _get_cache() -> Any:
     """Return the shared ``KernelTuningCache`` singleton, or ``None`` if pyutilz/FS is unavailable."""
     try:
         from mlframe.feature_selection.filters import get_kernel_tuning_cache
-    except Exception:  # pyutilz / FS package unavailable -> hardcoded fallback.
+    except Exception as exc:  # pyutilz / FS package unavailable -> hardcoded fallback.
+        logger.debug("odds_ratio_combine: kernel_tuning_cache unavailable (%s); using hardcoded fallback.", exc)
         return None
     try:
         return get_kernel_tuning_cache()
-    except Exception:  # pragma: no cover - defensive; singleton already guards.
+    except Exception as exc:  # pragma: no cover - defensive; singleton already guards.
+        logger.debug("odds_ratio_combine: get_kernel_tuning_cache() failed (%s); using hardcoded fallback.", exc)
         return None
 
 

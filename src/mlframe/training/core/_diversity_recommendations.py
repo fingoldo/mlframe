@@ -38,28 +38,39 @@ def _member_oof_array(member: Any, is_classification: bool) -> Optional[np.ndarr
     return np.asarray(_arr, dtype=np.float64).ravel()
 
 
-def _member_individual_score(member: Any, is_classification: bool) -> Optional[float]:
-    """Pull a comparable single-model score from ``member.metrics['val']`` (case-insensitive key match)."""
+def _member_individual_score(member: Any, is_classification: bool, *, oof_fallback: Optional[tuple] = None) -> Optional[float]:
+    """Pull a comparable single-model score from ``member.metrics['val']`` (case-insensitive key match).
+
+    ``oof_fallback``, when given as ``(y_true, oof_pred)``, is used to derive a score from the member's
+    own OOF surface instead of returning ``None`` (which kills the WHOLE diagnostic, not just this one
+    member) when val metrics are unavailable -- e.g. a suite run with ``compute_valset_metrics=False``.
+    The fallback keeps the SAME "higher is better" direction the val-derived score already uses: raw RMSE
+    for regression (already lower-is-better, matching ``rmse``/``mae``), negated log-loss for
+    classification (so it still points higher-is-better, matching ``roc_auc``/``pr_auc``).
+    """
     from ._ensemble_chooser import _lookup_metric_ci
 
     _metrics = getattr(member, "metrics", None)
-    if not isinstance(_metrics, dict):
-        return None
-    _val = _metrics.get("val")
-    if not isinstance(_val, dict):
-        return None
-    if is_classification and 1 in _val and isinstance(_val[1], dict):
-        _val = _val[1]
-    _metric_names = ("roc_auc", "pr_auc") if is_classification else ("rmse", "mae")
-    for _name in _metric_names:
-        _score = _lookup_metric_ci(_val, _name)
-        if _score is not None:
-            try:
-                _f = float(_score)
-            except (TypeError, ValueError):
-                continue
-            if np.isfinite(_f):
-                return _f
+    if isinstance(_metrics, dict):
+        _val = _metrics.get("val")
+        if isinstance(_val, dict):
+            if is_classification and 1 in _val and isinstance(_val[1], dict):
+                _val = _val[1]
+            _metric_names = ("roc_auc", "pr_auc") if is_classification else ("rmse", "mae")
+            for _name in _metric_names:
+                _score = _lookup_metric_ci(_val, _name)
+                if _score is not None:
+                    try:
+                        _f = float(_score)
+                    except (TypeError, ValueError):
+                        continue
+                    if np.isfinite(_f):
+                        return _f
+    if oof_fallback is not None:
+        _y_oof, _pred_oof = oof_fallback
+        _loss = _classification_loss_fn(_y_oof, _pred_oof) if is_classification else _regression_loss_fn(_y_oof, _pred_oof)
+        if np.isfinite(_loss):
+            return -_loss if is_classification else _loss
     return None
 
 
@@ -118,7 +129,7 @@ def compute_diversity_recommendations(
             _oof_target = np.asarray(_y).ravel()
         elif len(_oof_target) != len(_arr):
             return None
-        _score = _member_individual_score(_m, _is_classification)
+        _score = _member_individual_score(_m, _is_classification, oof_fallback=(np.asarray(_y).ravel(), _arr))
         if _score is None:
             return None
         _tag = short_model_tag(getattr(_m, "model", _m))

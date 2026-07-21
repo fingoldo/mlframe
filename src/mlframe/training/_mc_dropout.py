@@ -46,9 +46,13 @@ def mc_dropout_predict(module, X, *, n: int = 16):
     was_training = module.training
     module.eval()
     n_drop = _set_dropout_train(module)
-    with torch.no_grad():
-        preds = [np.asarray(module(X).detach().cpu().numpy()) for _ in range(max(1, n))]
-    module.train(was_training)
+    try:
+        with torch.no_grad():
+            preds = [np.asarray(module(X).detach().cpu().numpy()) for _ in range(max(1, n))]
+    finally:
+        # A raise mid-loop (OOM, bad input) must not leave dropout submodules stuck in train mode
+        # while the rest of the module sits in eval -- the docstring promises restoration on exit.
+        module.train(was_training)
     stacked = np.stack(preds, axis=0)
     return stacked.mean(axis=0), stacked.std(axis=0), n_drop
 

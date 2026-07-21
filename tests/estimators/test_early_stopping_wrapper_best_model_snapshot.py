@@ -17,7 +17,7 @@ from mlframe.estimators.early_stopping import EarlyStoppingWrapper
 
 
 def _fit():
-    """Helper that fit."""
+    """Builds seeded synthetic test data; returns ``(m, Xv, yv)``."""
     rng = np.random.RandomState(1)
     X = rng.randn(120, 6)
     y = (X[:, 0] + 0.3 * rng.randn(120) > 0).astype(int)

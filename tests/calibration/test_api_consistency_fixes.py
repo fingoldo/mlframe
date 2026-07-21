@@ -61,12 +61,12 @@ class _IdentityCalibrator:
     """Minimal calibrator with fit/transform that returns probs unchanged."""
 
     def fit(self, p, y):
-        """Helper that fit."""
+        """Performs 1 setup step, then returns self unchanged."""
         self._fitted = True
         return self
 
     def transform(self, p):
-        """Helper that transform."""
+        """Returns ``np.asarray(p, dtype=np.float64)``."""
         return np.asarray(p, dtype=np.float64)
 
 
@@ -98,7 +98,7 @@ def test_api32_show_classifier_calibration_propagates_unexpected_error(monkeypat
     import mlframe.calibration.quality as quality
 
     def _boom(*args, **kwargs):
-        """Helper that boom."""
+        """Always raises ``KeyError('unexpected internal bug')``."""
         raise KeyError("unexpected internal bug")
 
     monkeypatch.setattr(quality, "estimate_calibration_quality_binned", _boom)
@@ -116,7 +116,7 @@ def test_api32_show_classifier_calibration_swallows_expected_valueerror(monkeypa
     import mlframe.calibration.quality as quality
 
     def _boom(*args, **kwargs):
-        """Helper that boom."""
+        """Always raises ``ValueError('expected data-shape issue')``."""
         raise ValueError("expected data-shape issue")
 
     monkeypatch.setattr(quality, "estimate_calibration_quality_binned", _boom)

@@ -38,7 +38,7 @@ import pandas as pd
 # input distributions
 # ---------------------------------------------------------------------------
 def draw(rng: np.random.Generator, distribution: str, n: int) -> np.ndarray:
-    """Helper that draw."""
+    """Returns ``rng.random(n)`` (after 3 setup steps)."""
     if distribution == "normal":
         return rng.standard_normal(n)
     if distribution == "lognormal":
@@ -49,7 +49,7 @@ def draw(rng: np.random.Generator, distribution: str, n: int) -> np.ndarray:
 
 
 def _pos(x: np.ndarray) -> np.ndarray:
-    """Helper that pos."""
+    """Returns ``np.abs(x) + 0.001``."""
     return np.abs(x) + 1e-3
 
 
@@ -68,7 +68,7 @@ class SuiteCase:
 
 
 def _frame(cols: dict, sig: np.ndarray, rng, distribution: str, noise_scale: float = 0.05):
-    """Helper that frame."""
+    """Test helper: sig = np.asarray(sig, dtype=float); sd = np.nanstd(sig); sd = sd if np.isfinite(sd) and sd > 0 else 1.0."""
     sig = np.asarray(sig, dtype=float)
     sd = np.nanstd(sig)
     sd = sd if (np.isfinite(sd) and sd > 0) else 1.0

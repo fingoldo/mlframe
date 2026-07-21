@@ -13,6 +13,7 @@ bit-identical to before this module existed.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
@@ -20,6 +21,8 @@ import numpy as np
 import pandas as pd
 
 from mlframe.feature_selection.stochastic_bandit_selection import _stochastic_bandit_selection_core
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -73,6 +76,17 @@ def stochastic_bandit_selection_ensemble(
     """
     if len(seeds) < 1:
         raise ValueError("seeds must contain at least one random seed")
+    if len(seeds) < 2:
+        # A single seed is still allowed (e.g. a caller deliberately comparing single-seed vs ensemble
+        # recall, as tests/feature_selection/test_biz_val_stochastic_bandit_selection.py does), but
+        # `stability` then trivially reports 1.0 for every selected feature -- not the meaningful
+        # cross-seed diagnostic this docstring promises. Warn rather than raise so that legitimate
+        # single-seed use is not broken.
+        logger.warning(
+            "stochastic_bandit_selection_ensemble: only %d seed(s) supplied; stability will trivially be "
+            "1.0 for every selected feature. At least 2 seeds are needed for a meaningful diagnostic.",
+            len(seeds),
+        )
 
     per_seed_best_subsets: List[List[str]] = []
     per_seed_selected_feats: List[List[str]] = []

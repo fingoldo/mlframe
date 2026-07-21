@@ -1,4 +1,4 @@
-"""Temporal target audit вЂ” detect P(y) shifts over time, find change points.
+"""Temporal target audit — detect P(y) shifts over time, find change points.
 
 A real-world drift incident (a job-board scraping pipeline running in
 forward mode) revealed that:
@@ -7,21 +7,21 @@ forward mode) revealed that:
   positive-only (selection-biased) at ~98%; a several-month window
   had an unbiased ~40% rate; the most recent month is unbiased ~40% again.
 - Without a per-bin time-series view of the target, this regime change
-  is invisible вЂ” the operator sees the AGGREGATE rate (74%) and
+  is invisible — the operator sees the AGGREGATE rate (74%) and
   thinks they have a balanced classification problem when in fact
   they have multiple regimes mixed.
 
 This module ships:
 
-- `audit_target_over_time(...)` вЂ” group-by-time + change-point
+- `audit_target_over_time(...)` — group-by-time + change-point
   detection, returns a structured `TemporalAuditResult`.
-- `plot_target_over_time(...)` вЂ” matplotlib-based time-series plot
+- `plot_target_over_time(...)` — matplotlib-based time-series plot
   with change points marked, saves to disk (or returns Figure).
-- `_pick_granularity(...)` вЂ” auto-pick a time bin width that yields
+- `_pick_granularity(...)` — auto-pick a time bin width that yields
   30-50 non-empty bins (configurable via env / args).
-- `find_change_points_zscore(...)` вЂ” generic 1-D change-point
-  detector. Could move to `pyutilz` later (useful for trading too вЂ”
-  the user said "Р±СѓРґРµС‚ РїРѕР»РµР·РЅРѕ Рё РґР»СЏ С‚СЂРµР№РґРёРЅРіР° РїРѕР·Р¶Рµ").
+- `find_change_points_zscore(...)` — generic 1-D change-point
+  detector. Could move to `pyutilz` later (useful for trading too —
+  the user said "будет полезно и для трейдинга позже").
 
 Wiring: opt-in via `TrainingBehaviorConfig.target_temporal_audit_*`.
 When the config field `target_temporal_audit_column` is set,
@@ -34,9 +34,9 @@ Public surface:
 - plot_target_over_time
 - find_change_points_zscore
 - TemporalAuditResult (dataclass)
-- DEFAULT_MIN_BIN_FRACTION_FOR_FILTER  вЂ” bin must have в‰Ґ this many obs
+- DEFAULT_MIN_BIN_FRACTION_FOR_FILTER  — bin must have ≥ this many obs
   to be plotted / used; default 0.5 of the median bin size.
-- DEFAULT_ZSCORE_THRESHOLD вЂ” 3.0 (3 MADs from rolling median)
+- DEFAULT_ZSCORE_THRESHOLD — 3.0 (3 MADs from rolling median)
 """
 from __future__ import annotations
 
@@ -65,12 +65,12 @@ from ._target_temporal_audit_coerce import (
 
 DEFAULT_MIN_BIN_FRACTION_FOR_FILTER: float = 0.5
 """A bin is kept (plotted, used in change-point detection) only if its
-n_obs >= this fraction Г— median bin size. Filters out the tiny tail
+n_obs >= this fraction × median bin size. Filters out the tiny tail
 bins that would dominate the curve with high-variance noise."""
 
 DEFAULT_ZSCORE_THRESHOLD: float = 3.0
 """Default threshold for the z-score change-point detector. A bin is
-flagged if |rate - rolling_median| > threshold Г— rolling_MAD (modified
+flagged if |rate - rolling_median| > threshold × rolling_MAD (modified
 z-score)."""
 
 DEFAULT_ZSCORE_WINDOW: int = 7
@@ -82,7 +82,7 @@ DEFAULT_PELT_MODEL: str = "l2"
 """Default cost model for ruptures.Pelt: ``"l2"`` (mean-shift detection
 via squared error). Other choices: ``"l1"`` (median-shift, more
 robust to outliers), ``"rbf"`` (kernel-based, detects general
-distributional changes вЂ” slower, sensitive to penalty)."""
+distributional changes — slower, sensitive to penalty)."""
 
 DEFAULT_PELT_MIN_SEGMENT_SIZE: int = 2
 """Minimum number of bins per segment in Pelt. ``2`` is the natural
@@ -178,13 +178,13 @@ class TemporalAuditResult:
             of returned array equals length of this input.
         segment : str, default "most_recent_stable"
             Selection rule:
-            * ``"most_recent_stable"`` вЂ” last segment with n_bins в‰Ґ 3
-              (the operator-friendly default вЂ” most-recent regime,
+            * ``"most_recent_stable"`` — last segment with n_bins ≥ 3
+              (the operator-friendly default — most-recent regime,
               skipping single-bin spikes).
-            * ``"largest"`` вЂ” segment with the most observations.
-            * ``"all_stable"`` вЂ” all segments with n_bins в‰Ґ 3 (omits
+            * ``"largest"`` — segment with the most observations.
+            * ``"all_stable"`` — all segments with n_bins ≥ 3 (omits
               short transient regimes).
-            * ``"first"`` / ``"last"`` вЂ” first / last segment by index.
+            * ``"first"`` / ``"last"`` — first / last segment by index.
 
         Returns
         -------
@@ -267,7 +267,7 @@ class TemporalAuditResult:
             if end_idx < len(kept):
                 end_ts = _normalize_bin_ts(kept[end_idx].bin_start)
             else:
-                # Tail segment вЂ” use last bin's left edge + granularity
+                # Tail segment — use last bin's left edge + granularity
                 # span as the (open) right edge.
                 end_ts = _normalize_bin_ts(kept[-1].bin_start) + gran_delta
             seg_mask = (ts >= start_ts) & (ts < end_ts)
@@ -303,10 +303,10 @@ def audit_target_over_time(
     """Audit a target column over time, return a structured result.
 
     Steps:
-    1. Coerce to pandas (lazy вЂ” uses polars groupby if df is pl.DataFrame).
+    1. Coerce to pandas (lazy — uses polars groupby if df is pl.DataFrame).
     2. Pick granularity (or use the supplied one) to land in [30, 50] bins.
     3. Aggregate ``target_col`` by time bin.
-    4. Filter out sparse bins (< `min_bin_fraction` Г— median(n_obs)).
+    4. Filter out sparse bins (< `min_bin_fraction` × median(n_obs)).
     5. Run z-score change-point detection.
     6. Split into segments, compute per-segment mean_rate.
     7. Build warnings + actionable summary.
@@ -324,13 +324,13 @@ def audit_target_over_time(
     target_type : str
         ``"binary_classification"`` (rate = P(y=1)) or any other string
         (rate = mean(target)). Multiclass / multilabel are NOT
-        supported in this audit yet вЂ” fall through to mean(y).
+        supported in this audit yet — fall through to mean(y).
     granularity : str
         ``"auto"`` (default) or one of minute/hour/day/week/month/
         quarter/year.
     min_bin_fraction : float
-        Bin kept only if n_obs >= this Г— median(n_obs). 0.5 by default
-        вЂ” drops the tail bins that have noisy rates.
+        Bin kept only if n_obs >= this × median(n_obs). 0.5 by default
+        — drops the tail bins that have noisy rates.
     z_threshold : float
         Modified-z-score threshold for change-point detection.
     z_window : int
@@ -352,7 +352,7 @@ def audit_target_over_time(
     """
     target_name = target_name or target_col
 
-    # 1. Aggregation вЂ” prefer polars path when input is polars.
+    # 1. Aggregation — prefer polars path when input is polars.
     if _HAS_POLARS and isinstance(df, pl.DataFrame):
         # Granularity check needs timestamps as a python iterable
         ts_for_picker = df[timestamp_col].to_list()
@@ -406,8 +406,8 @@ def audit_targets_over_time(
 
     Equivalent to calling :func:`audit_target_over_time` once per
     target, but does the costly polars group-by-time aggregation a
-    single time and slices out per-target rates. For 9M rows Г— 5
-    targets this is ~5Г— faster than the per-target loop because the
+    single time and slices out per-target rates. For 9M rows × 5
+    targets this is ~5× faster than the per-target loop because the
     bin-assignment + groupby cost dominates.
 
     Per-target ``TemporalAuditResult`` is returned by name. The
@@ -428,10 +428,10 @@ def audit_targets_over_time(
         Mapping from target NAME (used as the key in the returned
         dict) to a spec, where the spec is one of:
 
-        * a string вЂ” the source column name in ``df``. Target type is
+        * a string — the source column name in ``df``. Target type is
           inferred as ``"binary_classification"`` (the most common
           case). Use the longer form below to override.
-        * a tuple ``(column_name, target_type)`` вЂ” explicit
+        * a tuple ``(column_name, target_type)`` — explicit
           ``column_name`` and ``target_type``
           (``"binary_classification"`` / ``"regression"``).
 
@@ -497,7 +497,7 @@ def audit_targets_over_time(
         if not (_HAS_POLARS and isinstance(df, pl.DataFrame)) and not isinstance(df, pd.DataFrame):
             df = pd.DataFrame(df)
 
-    # 2. ONE aggregation pass вЂ” polars fastpath multi-agg, pandas
+    # 2. ONE aggregation pass — polars fastpath multi-agg, pandas
     #    fallback runs per-target (less efficient but correct).
     if _HAS_POLARS and isinstance(df, pl.DataFrame):
         agg = _aggregate_by_time_polars_multi(

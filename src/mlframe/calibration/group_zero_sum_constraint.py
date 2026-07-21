@@ -9,10 +9,13 @@ data, so it applies directly to any prediction at inference time.
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def apply_group_zero_sum_constraint(predictions: np.ndarray, group: np.ndarray, weights: Optional[np.ndarray] = None, target_sum: float = 0.0) -> np.ndarray:
@@ -27,7 +30,9 @@ def apply_group_zero_sum_constraint(predictions: np.ndarray, group: np.ndarray, 
     predictions
         ``(n,)`` raw model predictions.
     group
-        ``(n,)`` group label per row (e.g. a combined ``date_id``/``seconds_in_bucket`` key).
+        ``(n,)`` group label per row (e.g. a combined ``date_id``/``seconds_in_bucket`` key). A NaN group
+        label is excluded from the fitted offset table (pandas groupby's own ``dropna=True``) and receives
+        offset ``0.0`` (a logged warning, no correction) -- not an error.
     weights
         ``(n,)`` per-row weight, or ``None`` for an unweighted (equal-weight) sum/mean within each group.
     target_sum
@@ -40,6 +45,14 @@ def apply_group_zero_sum_constraint(predictions: np.ndarray, group: np.ndarray, 
     """
     pred_arr = np.asarray(predictions, dtype=np.float64)
     w_arr = np.ones_like(pred_arr) if weights is None else np.asarray(weights, dtype=np.float64)
+
+    n_nan_groups = int(pd.isna(pd.Series(group)).sum())
+    if n_nan_groups:
+        logger.warning(
+            "apply_group_zero_sum_constraint: %d row(s) have a NaN group label; pandas groupby excludes them "
+            "from the fitted offset table and they receive offset=0.0 (no correction) unchanged.",
+            n_nan_groups,
+        )
 
     df = pd.DataFrame({"pred": pred_arr, "w": w_arr, "wpred": pred_arr * w_arr, "group": group})
     agg = df.groupby("group", sort=False).agg(w_sum=("w", "sum"), wpred_sum=("wpred", "sum"))

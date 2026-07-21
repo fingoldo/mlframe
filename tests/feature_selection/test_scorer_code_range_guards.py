@@ -12,7 +12,7 @@ from mlframe.feature_selection.filters._relaxmrmr_3d import relax_mrmr_score
 
 
 def _valid():
-    """Helper that valid."""
+    """Builds seeded synthetic test data; returns ``(x, [s], y)``."""
     rng = np.random.default_rng(0)
     x = rng.integers(0, 3, 200).astype(np.int64)
     s = rng.integers(0, 3, 200).astype(np.int64)

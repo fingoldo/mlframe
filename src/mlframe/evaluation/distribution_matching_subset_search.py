@@ -11,11 +11,17 @@ structure that block-level resampling preserves.
 """
 from __future__ import annotations
 
+import warnings
 from typing import List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
 from numba import njit
+
+_ENERGY_DISTANCE_WARN_N = 20_000
+"""Above this many rows on either side, _energy_distance's O(n*m) pairwise-distance matrices get large
+enough (400M+ float64 elements) to be worth a heads-up -- fine at the block-subset-scale row counts this
+diagnostic is designed for."""
 
 # Combined-size threshold below which the njit two-pointer scan beats the numpy-vectorized path.
 # Measured (scratch A/B, best-of-5): n=200/m=500 (combined 700) -> njit ~3.4x faster (0.0087s vs 0.0295s
@@ -102,6 +108,15 @@ def _energy_distance(sample_mat: np.ndarray, target_mat: np.ndarray, target_targ
     distance does not). ``target_target_dist`` (the target-vs-itself term) is passed in precomputed since the
     target point cloud is invariant across trials -- recomputing it every call would be pure wasted O(m^2) work.
     """
+    if sample_mat.shape[0] > _ENERGY_DISTANCE_WARN_N or target_mat.shape[0] > _ENERGY_DISTANCE_WARN_N:
+        warnings.warn(
+            f"_energy_distance: sample_mat has {sample_mat.shape[0]:,} rows, target_mat has "
+            f"{target_mat.shape[0]:,}; the O(n*m) pairwise-distance matrices this computes scale "
+            "quadratically in row count. This diagnostic is designed for block-subset-scale row counts, "
+            "not full-dataset scale.",
+            UserWarning,
+            stacklevel=2,
+        )
     d_xy = float(np.mean(np.linalg.norm(sample_mat[:, None, :] - target_mat[None, :, :], axis=2)))
     d_xx = float(np.mean(np.linalg.norm(sample_mat[:, None, :] - sample_mat[None, :, :], axis=2)))
     return 2.0 * d_xy - d_xx - target_target_dist

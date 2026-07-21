@@ -88,6 +88,22 @@ def apply_multi_base_forward_stepwise(
     _pool_arrays_cache: dict[tuple[str, frozenset], dict[str, np.ndarray]] = {}
     _base_pool_keys_frozen = frozenset(self._auto_base_pool.keys())
     _y_train_local = y_train
+    # Mirrors _tiny_rerank.py / _yscale_holdout_gate.py's own group-aware CV wiring: without this,
+    # forward_stepwise_multi_base's CV always used its own hardcoded seed=42 (not the caller's
+    # configured random_state) and was group-blind (its own time_aware=True default always won over
+    # the group-aware branch since groups was never even passed), so a grouped dataset's greedy
+    # "does this base help?" decision could be driven by within-group memorization rather than
+    # genuine orthogonal signal.
+    _groups_full_for_multibase = getattr(self, "_group_ids_for_rerank", None)
+    _groups_train_for_multibase = None
+    if _groups_full_for_multibase is not None:
+        try:
+            _ga = np.asarray(_groups_full_for_multibase)
+            if _ga.shape[0] >= int(np.max(train_idx) + 1):
+                _groups_train_for_multibase = _ga[train_idx]
+        except (TypeError, ValueError, IndexError):
+            _groups_train_for_multibase = None
+    _time_aware_for_multibase = bool(getattr(self, "_screen_time_ordered_", False))
     for _spec in kept_specs:
         if _spec.transform_name != "linear_residual":
             _upgraded_specs.append(_spec)
@@ -111,6 +127,9 @@ def apply_multi_base_forward_stepwise(
                 seed_bases=[_spec.base_column],
                 max_k=_multi_max_k,
                 min_marginal_rmse_gain=_multi_min_gain,
+                random_state=self.config.random_state,
+                time_aware=_time_aware_for_multibase,
+                groups=_groups_train_for_multibase,
                 cv_selector_mode=_cv_sel_mode,
                 cv_selector_alpha=_cv_sel_alpha,
                 cv_selector_confidence=_cv_sel_conf,

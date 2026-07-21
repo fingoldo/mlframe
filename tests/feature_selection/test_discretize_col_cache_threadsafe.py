@@ -15,7 +15,7 @@ from mlframe.feature_selection.filters.discretization import _discretization_dat
 
 
 def _cached(arr):
-    """Helper that cached."""
+    """Returns ``dd._discretize_2d_array_col_cached(arr, n_bins=8, method='quantile', min_ncats=2, dtype...``."""
     return dd._discretize_2d_array_col_cached(
         arr,
         n_bins=8,
@@ -39,7 +39,7 @@ def test_concurrent_col_cache_is_correct_and_counter_does_not_drift():
     results: list = []
 
     def worker(cols):
-        """Helper that worker."""
+        """Attempts ``for _ in range(4): sub = np.ascontiguousarray(base[:, cols]) out = _cached(sub) results...``, tolerating failure (see the except clause for the fallback)."""
         try:
             for _ in range(4):
                 sub = np.ascontiguousarray(base[:, cols])

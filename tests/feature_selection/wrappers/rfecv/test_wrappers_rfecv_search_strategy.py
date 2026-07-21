@@ -179,7 +179,7 @@ class TestOptimizerTargetMean:
         orig = MBHOptimizer.submit_evaluations
 
         def tracked(self, candidates, evaluations, durations):
-            """Helper that tracked."""
+            """Returns ``orig(self, candidates, evaluations, durations)`` (after 1 setup step)."""
             for c, v in zip(candidates, evaluations):
                 captured.append((int(c), float(v)))
             return orig(self, candidates, evaluations, durations)

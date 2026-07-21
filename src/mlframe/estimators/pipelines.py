@@ -31,6 +31,7 @@ import joblib
 from mlframe.utils.safe_pickle import (
     _sha256_of_file as _safe_pickle_sha256_of_file,
     verify_sidecar as _safe_pickle_verify_sidecar,
+    write_sidecar,
 )
 
 
@@ -154,7 +155,12 @@ def optimize_pipeline_by_gridsearch(X, Y, title: str, cv_func: Any, cv_results: 
         cv_results[title][paramset_hash] = cv_func(X=X, Y=Y, title=title, **constants)
 
         out_dir = output_dir if output_dir is not None else tempfile.gettempdir()
-        joblib.dump(cv_results, os.path.join(out_dir, f"cv_results-{slugify(title)}.dump"), compress=9)
+        _dump_path = os.path.join(out_dir, f"cv_results-{slugify(title)}.dump")
+        joblib.dump(cv_results, _dump_path, compress=9)
+        # replay_cv_results (below) fail-closed-refuses any dump lacking a .sha256 sidecar -- without this
+        # call the module's own documented round-trip was broken by default (every other joblib/pickle
+        # writer in the codebase pairs a dump with write_sidecar).
+        write_sidecar(_dump_path)
 
         compare_cv_metrics(cv_results=cv_results[title][paramset_hash], extended=False)
         # compare_cv_metrics(cv_results=cv_results, extended=True)

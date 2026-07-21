@@ -44,7 +44,7 @@ def test_regression_ensemble_fallback_uses_mean_not_mode(monkeypatch):
     _orig_mode = _stats.mode
 
     def _spy_mode(*args, **kwargs):
-        """Helper that spy mode."""
+        """Returns ``_orig_mode(*args, **kwargs)`` (after 1 setup step)."""
         mode_call_count["n"] += 1
         return _orig_mode(*args, **kwargs)
 
@@ -86,7 +86,7 @@ def test_classification_ensemble_fallback_still_uses_mode(monkeypatch):
     _orig_mode = _stats.mode
 
     def _spy_mode(*args, **kwargs):
-        """Helper that spy mode."""
+        """Returns ``_orig_mode(*args, **kwargs)`` (after 1 setup step)."""
         mode_call_count["n"] += 1
         return _orig_mode(*args, **kwargs)
 

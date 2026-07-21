@@ -44,7 +44,7 @@ from training.shared import SimpleFeaturesAndTargetsExtractor
 
 
 def _make_regression_df(n_rows: int, n_features: int = 8, seed: int = 0) -> pd.DataFrame:
-    """Helper that make regression df."""
+    """Builds seeded synthetic test data; returns ``pd.DataFrame(cols)``."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n_rows, n_features))
     coefs = rng.normal(size=n_features)
@@ -55,7 +55,7 @@ def _make_regression_df(n_rows: int, n_features: int = 8, seed: int = 0) -> pd.D
 
 
 def run_once(n_rows: int) -> None:
-    """Helper that run once."""
+    """Test helper: df = _make_regression_df(n_rows=n_rows); fte = SimpleFeaturesAndTargetsExtractor(target_column='ta...; tmp_dir = tempfile.mkdtemp(prefix='mlframe_iter135_')."""
     df = _make_regression_df(n_rows=n_rows)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
     tmp_dir = tempfile.mkdtemp(prefix="mlframe_iter135_")
@@ -76,7 +76,7 @@ def run_once(n_rows: int) -> None:
 
 
 def main() -> int:
-    """Helper that main."""
+    """Test helper: parser = argparse.ArgumentParser(description=__doc__); parser.add_argument('--n-rows', type=int, default=5000); parser.add_argument('--top', type=int, default=40)."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--n-rows", type=int, default=5000)
     parser.add_argument("--top", type=int, default=40)

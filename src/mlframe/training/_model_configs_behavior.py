@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Dict, List, Literal, Optional, Union
 
 from pydantic import Field, model_validator
@@ -11,6 +12,8 @@ from ._configs_base import (
     DEFAULT_FAIRNESS_MIN_POP_CAT_THRESH,
     BaseConfig,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class TrainingBehaviorConfig(BaseConfig):
@@ -613,9 +616,11 @@ class QuantileRegressionConfig(BaseConfig):
 
     point_estimate_alpha: float = 0.5
     """Which alpha to use as the point-prediction (for downstream
-    consumers that need a single y_hat). Must be present in ``alphas``
-    -- default 0.5 (median). Mean-of-alphas is the alternative if
-    user picks an alpha not in the set; validator enforces membership.
+    consumers that need a single y_hat) -- default 0.5 (median). If the
+    supplied value isn't present in ``alphas``, the validator silently
+    snaps it to the CLOSEST alpha actually in the grid (logged at DEBUG)
+    rather than raising, so callers don't need to update both fields in
+    lockstep.
     """
 
     coverage_pairs: tuple = ((0.1, 0.9),)
@@ -647,8 +652,13 @@ class QuantileRegressionConfig(BaseConfig):
         # point_estimate_alpha membership is enforced loosely (closest match)
         # so callers don't need to update both fields in lockstep.
         if self.point_estimate_alpha not in alphas:
-            # Find closest alpha (silent snap to nearest grid point).
+            # Snap to the nearest grid point rather than raising -- the docstring above
+            # documents this exact behaviour so a caller isn't surprised by the silent change.
             closest = min(alphas, key=lambda a: abs(a - self.point_estimate_alpha))
+            logger.debug(
+                "QuantileRegressionConfig.point_estimate_alpha=%s not in alphas=%s; snapping to closest %s.",
+                self.point_estimate_alpha, list(alphas), closest,
+            )
             object.__setattr__(self, "point_estimate_alpha", closest)
         for lo, hi in self.coverage_pairs:
             if lo not in alphas or hi not in alphas:

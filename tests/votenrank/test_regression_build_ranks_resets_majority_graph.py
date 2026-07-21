@@ -8,7 +8,7 @@ from mlframe.votenrank import Leaderboard
 
 
 def _make_table(values):
-    """Helper that make table."""
+    """Returns ``pd.DataFrame(values, index=['A', 'B', 'C'], columns=['t1', 't2', 't3'])``."""
     return pd.DataFrame(values, index=["A", "B", "C"], columns=["t1", "t2", "t3"])
 
 

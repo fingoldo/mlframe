@@ -64,7 +64,7 @@ def test_no_np_random_or_bare_random(mod):
 
 
 def _make_mbh(seed):
-    """Helper that make mbh."""
+    """Returns ``opt_mod.MBHOptimizer(search_space=search_space, init_num_samples=5, init_sampling_metho...`` (after 2 setup steps)."""
     pytest.importorskip("catboost")
     search_space = np.arange(1, 101, dtype=np.int32)
     return opt_mod.MBHOptimizer(

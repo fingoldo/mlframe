@@ -12,7 +12,7 @@ import pytest
 
 
 def _assert_importable(module_path: str, symbol: str) -> None:
-    """Helper that assert importable."""
+    """Test helper: mod = importlib.import_module(module_path); assert hasattr(mod, symbol), f'{module_path!r} is missing...."""
     mod = importlib.import_module(module_path)
     assert hasattr(mod, symbol), f"{module_path!r} is missing {symbol!r}"
 

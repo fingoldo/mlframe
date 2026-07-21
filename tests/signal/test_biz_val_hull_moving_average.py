@@ -16,12 +16,12 @@ from mlframe.signal.hull_moving_average import hull_ma_deviation, hull_moving_av
 
 
 def _sma(x: np.ndarray, window: int) -> np.ndarray:
-    """Helper that sma."""
+    """Returns ``np.asarray(pd.Series(x).rolling(window=window, min_periods=window).mean().to_numpy())``."""
     return np.asarray(pd.Series(x).rolling(window=window, min_periods=window).mean().to_numpy())
 
 
 def _make_step_change_series(n: int, change_point: int, seed: int):
-    """Helper that make step change series."""
+    """Builds seeded synthetic test data; returns ``base + rng.normal(scale=0.5, size=n)``."""
     rng = np.random.default_rng(seed)
     base = np.concatenate([np.full(change_point, 100.0), np.full(n - change_point, 130.0)])
     return base + rng.normal(scale=0.5, size=n)
@@ -92,7 +92,7 @@ def test_hull_moving_average_multi_matches_single_window_calls_bit_identical():
 
 
 def _sign_flip_count(signal: np.ndarray, region: np.ndarray, valid: np.ndarray) -> int:
-    """Helper that sign flip count."""
+    """Returns ``int(np.sum(np.diff(signal[idx]) != 0))`` (after 1 setup step)."""
     idx = np.where(region & valid)[0]
     return int(np.sum(np.diff(signal[idx]) != 0))
 

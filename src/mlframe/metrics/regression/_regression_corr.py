@@ -162,6 +162,13 @@ def fast_concordance_index(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     For N <= 5000 uses the O(N^2) numba kernel below; for larger N falls
     back to the tau-b reduction (O(N log N) via scipy).
     """
+    # Coerce + validate up front, matching every sibling in this module (fast_pearson_corr,
+    # fast_kendall_tau, ...) -- a plain Python list (a legal input to every sibling here) has no .shape
+    # attribute, so the un-coerced access below raised an unhelpful AttributeError instead of a validated
+    # error or a graceful result.
+    _check_equal_length(y_true, y_pred)
+    y_true = np.asarray(y_true, dtype=np.float64)
+    y_pred = np.asarray(y_pred, dtype=np.float64)
     if y_true.shape[0] < 2:
         return np.nan
     tau = fast_kendall_tau(y_true, y_pred)

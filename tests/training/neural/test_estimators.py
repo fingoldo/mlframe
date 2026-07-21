@@ -936,26 +936,22 @@ class TestNetworkResetAndClone:
         assert self._get_input_dim(cloned.network) == 20
 
     def test_get_params_includes_all_init_params(self, estimator_params_classifier):
-        """Test that get_params() includes all __init__ parameters required for clone()."""
+        """Test that get_params() includes all __init__ parameters required for clone().
+
+        Introspects the real __init__ signature instead of a hand-maintained list -- a hardcoded list
+        drifted 10 params stale (missed use_ema/ema_params/label_smoothing/focal_loss_gamma/
+        focal_loss_alpha/capture_iteration_metrics/random_state/class_weight/
+        use_learnable_cat_embeddings/categorical_embed_dim), silently passing despite get_params()
+        actually dropping every one of them -- see F16 in audits/full_audit_2026-07-21/training_neural.md.
+        """
+        import inspect
+
         clf = PytorchLightningClassifier(**estimator_params_classifier)
 
         params = clf.get_params()
 
-        # All these must be present for clone() to work
-        required_params = [
-            "model_class",
-            "model_params",
-            "network_params",
-            "datamodule_class",
-            "datamodule_params",
-            "trainer_params",
-            "use_swa",
-            "swa_params",
-            "tune_params",
-            "tune_batch_size",
-            "float32_matmul_precision",
-            "early_stopping_rounds",
-        ]
+        required_params = [name for name in inspect.signature(PytorchLightningClassifier.__init__).parameters if name != "self"]
+        assert len(required_params) > 12, "the real __init__ signature should carry more than the old stale list -- sanity guard against a hollowed-out signature"
 
         for param in required_params:
             assert param in params, f"get_params() missing required param: {param}"

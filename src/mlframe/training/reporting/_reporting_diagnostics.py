@@ -195,6 +195,7 @@ def _build_learning_curve(model, df, targets, columns, target_type, lc_cfg, metr
         result = compute_learning_curve(
             lambda: clone(base), X, np.asarray(targets).ravel(),
             sizes=lc_cfg.sizes, scorer=scorer, holdout=lc_cfg.holdout, n_jobs=lc_cfg.n_jobs,
+            parallel_backend=lc_cfg.parallel_backend,
             warm_start=lc_cfg.warm_start, random_state=lc_cfg.random_state,
             time_budget_s=lc_cfg.time_budget_s, score_repeats=lc_cfg.score_repeats,
             scorer_name=scorer_name, higher_is_better=higher_is_better,

@@ -525,10 +525,15 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
         try:
             import numpy as _np
             import pandas as _pd
-            _arr = _x_for_fit.to_numpy() if isinstance(_x_for_fit, _pd.DataFrame) else _np.asarray(_x_for_fit)
-            if _arr.dtype.kind == "f" and not _np.all(_np.isfinite(_arr[~_np.isnan(_arr)])):
-                pass  # inf already gone here; nan handled below
-            _has_nan = (_arr.dtype.kind == "f") and bool(_np.isnan(_arr).any())
+            if isinstance(_x_for_fit, _pd.DataFrame):
+                # .isna() works per-column without first coercing the whole (possibly
+                # mixed-dtype) frame to one common numpy array via .to_numpy() -- cheaper,
+                # and correctly NaN-free-by-construction for int columns without needing
+                # the numpy dtype.kind=="f" gate the array branch below still needs.
+                _has_nan = bool(_x_for_fit.isna().to_numpy().any())
+            else:
+                _arr = _np.asarray(_x_for_fit)
+                _has_nan = (_arr.dtype.kind == "f") and bool(_np.isnan(_arr).any())
         except Exception:
             _has_nan = False
         if _has_nan:

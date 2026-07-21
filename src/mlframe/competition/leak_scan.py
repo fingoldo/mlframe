@@ -23,6 +23,7 @@ technique").
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -48,9 +49,10 @@ class LeakScanResult:
 
 def _nonnull_nonzero_mask(df: pd.DataFrame) -> np.ndarray:
     """Boolean mask, True where a cell is non-null and (for numeric dtypes) non-zero."""
-    values = df.to_numpy(dtype=object)
-    mask = np.empty(values.shape, dtype=bool)
-    for j in range(values.shape[1]):
+    # Only `df.shape` was ever read from a full `df.to_numpy(dtype=object)` materialization here --
+    # a gratuitous O(n_rows * n_cols) allocation of boxed Python objects for a value never used.
+    mask = np.empty(df.shape, dtype=bool)
+    for j in range(df.shape[1]):
         col = df.iloc[:, j]
         notna = col.notna().to_numpy()
         if pd.api.types.is_numeric_dtype(col):
@@ -110,9 +112,14 @@ def sort_by_density_leak_scan(
         entry NaN), and ``candidate_pairs`` (list of ``(row_idx_a, row_idx_b, overlap)``
         tuples in *original* row-index space, sorted by descending overlap).
     """
-    work = df.copy()
+    # Only copy when a column actually needs to be inserted (target is not None); the common
+    # no-target path never mutates `work` beyond this point (only read via .apply() below), so
+    # a full-frame copy there is avoidable work.
     if target is not None:
+        work = df.copy()
         work.insert(0, "__target__", np.asarray(target))
+    else:
+        work = df
 
     mask = _nonnull_nonzero_mask(work)
     n_rows, n_cols = mask.shape
@@ -188,6 +195,7 @@ def find_shifted_column_groups(
     max_lag: int = 3,
     corr_threshold: float = 0.95,
     min_overlap_rows: int = 10,
+    max_columns: int | None = 500,
 ) -> dict:
     """Best-effort structural leak-hunting: group numeric columns that look like the
     same underlying series shifted by a small row-lag.
@@ -214,6 +222,10 @@ def find_shifted_column_groups(
         min_overlap_rows: minimum number of jointly-non-null rows required at a given
             lag before its correlation is trusted (avoids spurious correlations from
             tiny overlaps).
+        max_columns: if the frame has more than this many numeric columns, emit a
+            ``UserWarning`` before running (the O(n_cols^2 * max_lag) pairwise search
+            can silently run for a very long time on a wide anonymized frame). Does
+            NOT abort the search -- pass ``None`` to disable the check entirely.
 
     Returns:
         dict with keys ``groups`` (list of lists of original column names, one list per
@@ -222,6 +234,14 @@ def find_shifted_column_groups(
         regardless of threshold, for inspection).
     """
     numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    if max_columns is not None and len(numeric_cols) > max_columns:
+        warnings.warn(
+            f"find_shifted_column_groups: {len(numeric_cols)} numeric columns exceeds max_columns="
+            f"{max_columns}; the O(n_cols^2 * max_lag) pairwise search may take a very long time. "
+            "Pass a larger max_columns (or None) to silence this warning.",
+            UserWarning,
+            stacklevel=2,
+        )
     n = len(df)
     arrays = {c: df[c].to_numpy(dtype=float) for c in numeric_cols}
 

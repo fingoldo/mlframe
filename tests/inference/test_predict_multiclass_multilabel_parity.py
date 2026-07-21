@@ -45,14 +45,14 @@ def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, dur
 
 
 def _atomic_write_bytes_threads_zero(target_path, writer_fn):
-    """Helper that atomic write bytes threads zero."""
+    """Returns ``True`` (after 1 setup step)."""
     with open(target_path, "wb") as f:
         writer_fn(f)
     return True
 
 
 def _make_multiclass_df(n: int = 900, seed: int = 0) -> pd.DataFrame:
-    """Helper that make multiclass df."""
+    """Builds seeded synthetic test data; returns ``df``."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, 5)).astype("float32")
     score = X[:, 0] + 0.5 * X[:, 1]
@@ -63,7 +63,7 @@ def _make_multiclass_df(n: int = 900, seed: int = 0) -> pd.DataFrame:
 
 
 def _make_multilabel_df(n: int = 900, seed: int = 808) -> pd.DataFrame:
-    """Helper that make multilabel df."""
+    """Builds seeded synthetic test data; returns ``df``."""
     rng = np.random.default_rng(seed)
     X = rng.normal(0, 1, (n, 6)).astype("float32")
     y1 = (rng.uniform(0, 1, n) < 1.0 / (1.0 + np.exp(-(2.0 * X[:, 0] - X[:, 1])))).astype("int8")
@@ -75,7 +75,7 @@ def _make_multilabel_df(n: int = 900, seed: int = 808) -> pd.DataFrame:
 
 
 def _train_suite(df, target_type, tmp_path, model_name):
-    """Helper that train suite."""
+    """Returns ``(fte, models, metadata)`` (after 3 setup steps)."""
     fte = SimpleFeaturesAndTargetsExtractor(
         target_column="target",
         regression=False,
@@ -103,7 +103,7 @@ def _train_suite(df, target_type, tmp_path, model_name):
 
 
 def _predict(df, models, metadata, fte):
-    """Helper that predict."""
+    """Returns ``predict_from_models(df=df, models=models, metadata=metadata, features_and_targets_extra...``."""
     return predict_from_models(
         df=df,
         models=models,

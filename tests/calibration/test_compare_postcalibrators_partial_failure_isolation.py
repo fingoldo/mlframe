@@ -16,7 +16,7 @@ import numpy as np
 
 
 def _synth(seed: int = 0, n: int = 300):
-    """Helper that synth."""
+    """Builds seeded synthetic test data; returns ``(probs, target)``."""
     rng = np.random.default_rng(seed)
     p1 = rng.random(n)
     probs = np.column_stack([1 - p1, p1])
@@ -32,11 +32,11 @@ def test_compare_postcalibrators_one_bad_calibrator_does_not_kill_the_rest():
     class _BoomCalibrator:
         """Groups tests covering BoomCalibrator."""
         def fit(self, X, y):
-            """Helper that fit."""
+            """Always raises ``RuntimeError('boom: simulated third-party calibrator failure')``."""
             raise RuntimeError("boom: simulated third-party calibrator failure")
 
         def transform(self, X):
-            """Helper that transform."""
+            """Always raises ``RuntimeError('unreachable')``."""
             raise RuntimeError("unreachable")
 
     probs, target = _synth(n=300)

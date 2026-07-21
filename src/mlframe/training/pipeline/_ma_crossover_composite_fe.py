@@ -119,7 +119,12 @@ def apply_ma_crossover_composite_fe(
             for col in columns:
                 mas = _rolling_means(pd_df[col].to_numpy(dtype=np.float64), g, order, windows)
                 mas_series = {w: pd.Series(v.to_numpy()) for w, v in mas.items()}
-                result = ma_crossover_features(mas_series, column_prefix=f"{col}_ma_crossover", group_ids=g, long_window_weight_power=weight_power)
+                # NOTE: this pipeline's own config/metadata attribute keeps its established
+                # "ma_crossover_long_window_weight_power" name (internal wiring, and renaming a persisted
+                # metadata key would silently revert already-fitted/saved pipelines to weight_power=0.0 on
+                # load) even though ma_crossover_features's own parameter was renamed to
+                # short_window_weight_power.
+                result = ma_crossover_features(mas_series, column_prefix=f"{col}_ma_crossover", group_ids=g, short_window_weight_power=weight_power)
                 for c in result.columns:
                     new_cols[c] = result[c].to_numpy()
             out[split_name] = _attach_new_columns(df, new_cols)

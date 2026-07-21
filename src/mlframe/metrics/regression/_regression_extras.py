@@ -424,7 +424,11 @@ def _nash_sutcliffe_kernel(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         num += d_res * d_res
         denom += d_tot * d_tot
     if denom == 0.0:
-        return np.nan
+        # Docstring promises this is "algebraically equivalent to R^2 from sklearn convention" -- that
+        # convention is 1.0 for a perfect fit (num==0) on a constant y_true, 0.0 for an imperfect one, never
+        # NaN (this kernel previously disagreed with sklearn AND with this package's own R2 kernels on this
+        # exact input).
+        return 1.0 if num == 0.0 else 0.0
     return 1.0 - num / denom
 
 
@@ -821,8 +825,10 @@ def fast_regression_metrics_block_extended(
     mae = sum_abs / n
     rmse = float(sqrt(mse))
     if ss_tot <= 0.0:
-        r2 = 0.0 if sum_sqr == 0.0 else float("-inf")
-        ev = np.nan
+        # sklearn convention (verified against sklearn.metrics.r2_score/explained_variance_score directly):
+        # constant y_true with a PERFECT fit -> 1.0; with any nonzero residual -> 0.0. Neither is -inf/NaN.
+        r2 = 1.0 if sum_sqr == 0.0 else 0.0
+        ev = 1.0 if ss_resid == 0.0 else 0.0
         nse = r2
     else:
         r2 = 1.0 - sum_sqr / ss_tot

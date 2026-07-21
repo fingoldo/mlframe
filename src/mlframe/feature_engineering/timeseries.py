@@ -166,10 +166,8 @@ def get_ts_window_name(window_var: str, window_size: float, window_index_name: s
     return window_var + ":" + str(get_human_readable_set_size(window_size))
 
 
-# Wave 96 (2026-05-21): the 11 _emit_* per-transform helpers moved to
-# sibling file _timeseries_emit.py to drop this file below the 1k-line
-# monolith threshold. Re-exported below so existing callers
-# (, etc.)
+# The 11 _emit_* per-transform helpers live in sibling file _timeseries_emit.py
+# (this file's own monolith-split sibling); re-exported below so existing callers
 # keep working.
 from ._timeseries_emit import (
     _emit_groupby_block,
@@ -464,8 +462,8 @@ def compute_splitting_stats(
     captions_vars_sep: str = "-",
 ) -> None:
     """For each sub-variable, the fraction of its sum that falls before the min/max index of ``var``."""
-    # Wave 39 (2026-05-20): empty window after upstream isfinite filter is reachable;
-    # iloc[0]/iloc[-1] on empty frame raises IndexError. Treat as no-op.
+    # An empty window is reachable after the upstream isfinite filter; iloc[0]/iloc[-1] on an
+    # empty frame raises IndexError, so treat it as a no-op instead.
     if len(window_df) == 0:
         return
     splitting_vals: list = []
@@ -543,8 +541,8 @@ def create_windowed_features(
     past_vars_names: list = []
     future_vars_names: list = []
 
-    # Wave 69 (2026-05-20): symmetric past/future window-count expectation; the
-    # past-side check fires below after past_windows_features is computed.
+    # Past/future window-count expectation is symmetric; the past-side check fires
+    # below after past_windows_features is computed.
     past_nwindows_expected = get_nwindows_expected(past_windows)
     future_nwindows_expected = get_nwindows_expected(future_windows)
 
@@ -586,10 +584,9 @@ def create_windowed_features(
             verbose=verbose,
         )
 
-        # Wave 69 (2026-05-20): past-side window-count sanity check, symmetric
-        # with the future-side check at the future-windows branch above. Skip
-        # the row when past windows didn't produce the expected count (data
-        # boundary -- not enough history yet at this base_point).
+        # Past-side window-count sanity check, symmetric with the future-side check at the
+        # future-windows branch above. Skip the row when past windows didn't produce the
+        # expected count (data boundary -- not enough history yet at this base_point).
         if past_nwindows_expected and not past_windows_features and (features_creation_fcn or not row_features):
             continue
 
@@ -656,12 +653,9 @@ def create_and_process_windows(
     """Build all required windows from ``base_point``, apply ``apply_fcn`` to each, return per-window features."""
     res: Dict[str, list] = {}
     for window_var, windows_lengths in windows.items():
-        if forward_direction:
-            windows_l = base_point
-            windows_r = base_point  # initialised so the variable always exists in the else-branch
-        else:
-            windows_l = base_point
-            windows_r = base_point
+        # forward/backward asymmetry is handled later in this loop (the window_var_values slicing
+        # below); both directions start from the same base_point.
+        windows_l = windows_r = base_point
 
         if window_var:
             # Skip this window_var if its column is missing, but keep iterating the rest of `windows`.

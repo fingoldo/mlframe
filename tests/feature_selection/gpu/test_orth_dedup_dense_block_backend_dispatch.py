@@ -60,9 +60,7 @@ def test_dense_block_backend_dispatch_matches_legacy_corrcoef(monkeypatch, backe
     monkeypatch.setenv("MLFRAME_FE_DEDUP_CORR_BACKEND", "numpy")
     kept_legacy = _dedup_collinear_source_cols(X, cols, corr_threshold=0.999)
 
-    assert set(kept_new) == set(kept_legacy), (
-        f"{backend} dense-block dispatch disagrees with the legacy numpy path: {kept_new} vs {kept_legacy}"
-    )
+    assert set(kept_new) == set(kept_legacy), f"{backend} dense-block dispatch disagrees with the legacy numpy path: {kept_new} vs {kept_legacy}"
     assert "dup" not in kept_new
 
 
@@ -75,6 +73,7 @@ def test_resolve_pc_backend_consulted_for_dense_block(monkeypatch):
     orig = od._resolve_pc_backend
 
     def _spy(q, r, n):
+        """Records call arguments for this test's assertions."""
         calls.append((q, r, n))
         return orig(q, r, n)
 

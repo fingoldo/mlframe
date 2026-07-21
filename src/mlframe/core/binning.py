@@ -57,6 +57,21 @@ def fit_bin_smoother(x: np.ndarray, *, n_bins: int = 10, binning: str = "quantil
         lo, hi = float(finite.min()), float(finite.max())
         edges = np.linspace(lo, hi, n_bins + 1) if hi > lo else np.array([lo, hi + 1.0])
     edges = np.unique(edges)  # collapse duplicate quantiles / degenerate ranges
+    if len(edges) < 2:
+        # Every finite value collapsed to a single quantile/uniform edge (a constant / zero-variance
+        # column -- not an exotic corner case, a realistic one: a zero-variance feature, an all-same-
+        # category-coded numeric column, a post-filter column constant within a subset). Pre-fix this left
+        # a smoother with zero-length bin_mean/bin_median and an empty interior, which apply_bin_smoother
+        # then crashed on (np.clip(..., 0, -1) clips every index to -1, and reps[-1] on a zero-length array
+        # raises IndexError). A single degenerate
+        # bin spanning the constant value (mean == median == that value) is a more useful smoother than
+        # raising, and apply_bin_smoother's existing digitize/clip logic already handles a 1-bin smoother
+        # correctly with no further changes there.
+        v = float(edges[0])
+        return {
+            "edges": np.array([v, v]), "interior": np.array([], dtype=np.float64),
+            "bin_mean": np.array([v]), "bin_median": np.array([v]),
+        }
     interior = edges[1:-1]  # cut points fed to np.digitize
     n_actual = len(edges) - 1
 

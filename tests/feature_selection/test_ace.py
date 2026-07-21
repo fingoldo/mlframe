@@ -314,7 +314,7 @@ def test_compare_selectors_jaccard_matches_core_implementation():
     from mlframe.core.set_similarity import jaccard
 
     def _old(a, b):
-        """Helper that old."""
+        """Returns ``1.0 if not union else len(a & b) / len(union)`` (after 2 setup steps)."""
         if not a and not b:
             return 1.0
         union = a | b

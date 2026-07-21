@@ -16,7 +16,7 @@ from mlframe.calibration.prediction_band_correction import apply_prediction_band
 
 
 def _make_biased_band_predictions(n: int, seed: int):
-    """Helper that make biased band predictions."""
+    """Builds seeded synthetic test data; returns ``(y_true, y_pred_biased)``."""
     rng = np.random.default_rng(seed)
     y_true = rng.integers(0, 2, n).astype(float)
     y_pred = np.clip(y_true * 0.6 + rng.normal(scale=0.25, size=n) + 0.2, 0, 1)

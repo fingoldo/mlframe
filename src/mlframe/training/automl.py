@@ -42,6 +42,22 @@ from .utils import log_ram_usage, get_pandas_view_of_polars_df
 LOG_SEPARATOR = "=" * 80
 
 
+def _lama_data_to_probs(data: np.ndarray) -> np.ndarray:
+    """Convert LAMA's raw ``predict(...).data`` array to a ``(N, K)`` probability matrix.
+
+    LAMA's native output shape depends on the ``Task``: a single-column array for binary
+    classification (raw P(y=1)), or a genuine (N, K) multi-column array for a real multiclass
+    Task (K>2, one column per class). Only the single-column case needs the ``[1-p, p]``
+    binary-pair fabrication; a K>2 array is already the real per-class probability matrix and
+    is returned as-is -- fabricating a fake binary pair from column 0 alone (the pre-fix
+    behaviour) would silently discard every other class and mis-score a genuine multiclass
+    Task as class-0-vs-rest binary."""
+    if data.ndim > 1 and data.shape[-1] > 1:
+        return np.asarray(data)
+    pred_col = data[:, 0] if data.ndim > 1 else data
+    return np.asarray(np.vstack([1 - pred_col, pred_col]).T)
+
+
 def train_autogluon_model(
     train_df: pd.DataFrame,
     test_df: Optional[pd.DataFrame] = None,
@@ -243,11 +259,10 @@ def train_lama_model(
             test_target = test_df[target_name]
 
         test_predictions = automl.predict(test_df)
-        # LAMA returns predictions in a specific format (binary classification)
-        # Validate array shape before indexing
+        # Validate array shape before converting (mirrors train_autogluon_model's own shape-aware
+        # dispatch below, which never fabricates a binary pair for a genuine multiclass output).
         if hasattr(test_predictions, "data") and test_predictions.data is not None and test_predictions.data.ndim >= 1 and test_predictions.data.shape[-1] >= 1:
-            pred_col = test_predictions.data[:, 0] if test_predictions.data.ndim > 1 else test_predictions.data
-            test_probs = np.vstack([1 - pred_col, pred_col]).T
+            test_probs = _lama_data_to_probs(test_predictions.data)
         else:
             logger.warning("LAMA predictions have unexpected shape, skipping probability conversion")
             test_probs = None

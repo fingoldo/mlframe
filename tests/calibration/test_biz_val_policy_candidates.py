@@ -21,7 +21,7 @@ pytestmark = [pytest.mark.fast]
 
 
 def _make_sigmoid_miscalibrated(n: int, seed: int = 7):
-    """Helper that make sigmoid miscalibrated."""
+    """Builds seeded synthetic test data; returns ``(raw, y)``."""
     rng = np.random.default_rng(seed)
     raw = rng.uniform(0.0, 1.0, size=n)
     # True prob is a steeper sigmoid of raw -> the distortion is exactly what a Sigmoid/Platt calibrator inverts.

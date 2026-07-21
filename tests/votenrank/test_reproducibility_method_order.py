@@ -30,7 +30,7 @@ print("|".join(rank))
 
 
 def _run(hashseed: str) -> str:
-    """Helper that run."""
+    """Test helper: env = dict(os.environ); env['PYTHONHASHSEED'] = hashseed; env['CUDA_VISIBLE_DEVICES'] = ''."""
     env = dict(os.environ)
     env["PYTHONHASHSEED"] = hashseed
     env["CUDA_VISIBLE_DEVICES"] = ""

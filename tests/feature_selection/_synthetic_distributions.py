@@ -80,29 +80,29 @@ DIVISOR_FLOOR = 0.25
 
 
 def _uniform(rng: np.random.Generator, n: int) -> np.ndarray:
-    """Helper that uniform."""
+    """Returns ``rng.uniform(0.0, 1.0, n).astype(np.float64)``."""
     return rng.uniform(0.0, 1.0, n).astype(np.float64)
 
 
 def _normal(rng: np.random.Generator, n: int) -> np.ndarray:
-    """Helper that normal."""
+    """Returns ``rng.normal(0.0, 1.0, n).astype(np.float64)``."""
     return rng.normal(0.0, 1.0, n).astype(np.float64)
 
 
 def _lognormal(rng: np.random.Generator, n: int) -> np.ndarray:
     # sigma=1.0 gives a clearly right-skewed, heavy-ish right tail; always > 0.
-    """Helper that lognormal."""
+    """Returns ``rng.lognormal(mean=0.0, sigma=1.0, size=n).astype(np.float64)``."""
     return rng.lognormal(mean=0.0, sigma=1.0, size=n).astype(np.float64)
 
 
 def _exponential(rng: np.random.Generator, n: int) -> np.ndarray:
-    """Helper that exponential."""
+    """Returns ``rng.exponential(scale=1.0, size=n).astype(np.float64)``."""
     return rng.exponential(scale=1.0, size=n).astype(np.float64)
 
 
 def _gamma(rng: np.random.Generator, n: int) -> np.ndarray:
     # shape=2.0 -> right-skewed, strictly positive, lighter tail than lognormal.
-    """Helper that gamma."""
+    """Returns ``rng.gamma(shape=2.0, scale=1.0, size=n).astype(np.float64)``."""
     return rng.gamma(shape=2.0, scale=1.0, size=n).astype(np.float64)
 
 
@@ -116,7 +116,7 @@ def _student_t(rng: np.random.Generator, n: int) -> np.ndarray:
 def _pareto(rng: np.random.Generator, n: int) -> np.ndarray:
     # Lomax/Pareto-II via numpy's pareto (shape a=2.0). Power-law right tail,
     # strictly positive. Values are (1+X) so support starts at 0.
-    """Helper that pareto."""
+    """Returns ``rng.pareto(a=2.0, size=n).astype(np.float64)``."""
     return rng.pareto(a=2.0, size=n).astype(np.float64)
 
 
@@ -130,7 +130,7 @@ def _beta_u(rng: np.random.Generator, n: int) -> np.ndarray:
 def _bimodal(rng: np.random.Generator, n: int) -> np.ndarray:
     # Two-component Gaussian mixture (modes at -3 and +3): a mixture-of-
     # subpopulations marginal that no single unimodal family captures.
-    """Helper that bimodal."""
+    """Returns ``(centers + rng.normal(0.0, 1.0, n)).astype(np.float64)`` (after 2 setup steps)."""
     comp = rng.integers(0, 2, size=n)
     centers = np.where(comp == 0, -3.0, 3.0)
     return (centers + rng.normal(0.0, 1.0, n)).astype(np.float64)

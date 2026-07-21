@@ -691,15 +691,22 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
 
         cached = _CB_VAL_POOL_CACHE.get(key)
         if cached is not None:
-            last_target_id = getattr(cached, "_mlframe_last_target_id", None)
+            # Content fingerprint, not id() -- CPython can reuse a just-freed array's memory
+            # address for a new allocation of matching size (same id-reuse bug class already
+            # fixed for the cache KEY above); an id() collision here would silently keep a
+            # stale val label on the reused Pool. See _full_target_content_hash's docstring.
+            from mlframe.training.pipeline._pipeline_cache import _full_target_content_hash
+            last_target_sig = getattr(cached, "_mlframe_last_target_sig", None)
             try:
-                if last_target_id != id(val_target):
+                _target_sig = _full_target_content_hash(val_target)
+                _label_changed = last_target_sig != _target_sig
+                if _label_changed:
                     try:
                         _lab = _coerce_label_for_cb_pool(val_target)
                     except Exception:
                         _lab = val_target
                     cached.set_label(_lab)
-                    cached._mlframe_last_target_id = id(val_target)
+                    cached._mlframe_last_target_sig = _target_sig
                 logger.info(
                     "[cb-val-pool-reuse] hit key=(cols=%d,n=%d,cat=%d,text=%d,emb=%d) " "swapped%s without rebuild",
                     len(key[0]) if key[0] is not None else 0,
@@ -707,7 +714,7 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
                     len(cat_features),
                     len(text_features),
                     len(embedding_features),
-                    " label" if last_target_id != id(val_target) else "",
+                    " label" if _label_changed else "",
                 )
                 rewritten.append(cached)
                 changed = True
@@ -742,7 +749,8 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
             rewritten.append(entry)
             continue
 
-        val_pool._mlframe_last_target_id = id(val_target)
+        from mlframe.training.pipeline._pipeline_cache import _full_target_content_hash
+        val_pool._mlframe_last_target_sig = _full_target_content_hash(val_target)
         # Stash a content-fingerprint on the Pool so the predict-side
         # lookup in ``_predict_with_fallback`` can do a cols + shape +
         # dtypes content match when ``id(val_df)`` has shifted between

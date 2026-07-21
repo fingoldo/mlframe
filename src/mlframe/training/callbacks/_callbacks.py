@@ -114,6 +114,11 @@ class UniversalCallback:
         # memory profile unchanged).
         self.slice_aggregate_history: list[float] = []
         self.slice_shard_score_history: list[list[float]] = []
+        # Always kept (independent of slice_persist_history) so slice_min_delta_in_se's SE-scaling
+        # works regardless of whether the FULL Pareto-plot history is retained -- only the single
+        # most recent shard-values list is needed for the min_delta computation, so this doesn't
+        # reintroduce the memory-growth slice_persist_history=False was added to avoid.
+        self._last_slice_shard_values: list[float] | None = None
         self.slice_resolved_dataset_names: list[str] | None = None
 
         # Tracks whether the booster ran to (almost) its full iteration budget without our
@@ -271,6 +276,7 @@ class UniversalCallback:
                 # this round; we'll try again next call.
                 return None
             shard_values.append(float(shard_hist[-1]))
+        self._last_slice_shard_values = list(shard_values)
         if self.slice_persist_history:
             self.slice_shard_score_history.append(list(shard_values))
         direction: Literal["min", "max"] = "min" if self.mode == "min" else "max"
@@ -354,8 +360,11 @@ class UniversalCallback:
                     slice_value = self._compute_slice_aggregate()
                     if slice_value is None and not self.slice_diagnostic_only:
                         return False
-                    if self.slice_persist_history and self.slice_shard_score_history:
-                        slice_shards = self.slice_shard_score_history[-1]
+                    # Independent of slice_persist_history: _last_slice_shard_values is always kept
+                    # (see _compute_slice_aggregate) so slice_min_delta_in_se scaling works even when
+                    # the caller left the full Pareto-plot history off.
+                    if self._last_slice_shard_values:
+                        slice_shards = self._last_slice_shard_values
                 if self.slice_diagnostic_only:
                     current_value = history[-1]
                     effective_delta = self.min_delta

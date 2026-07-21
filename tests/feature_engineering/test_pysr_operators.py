@@ -174,6 +174,58 @@ def test_safe_log_sympy_mapping_returns_nan_on_nonpositive_input():
     assert float(pos_result) == pytest.approx(float(sp.log(2)))
 
 
+def test_standard_preset_wires_previously_unused_custom_operators():
+    """Regression for audits/full_audit_2026-07-21/fe_top_b.md F13: gauss, softplus,
+    harmonic_mean, and xlogy were defined + always built into extra_sympy_mappings but
+    never referenced by any preset. The standard (default) preset must now include all
+    four, and their complexity weights must be present alongside them."""
+    out = get_preset_kwargs("standard")
+    unary_names = out["unary_operators"]
+    binary_names = out["binary_operators"]
+    weights = out["complexity_of_operators"]
+
+    for unary_op in ("gauss", "softplus"):
+        sig = OPERATOR_JULIA_SIGNATURES[unary_op]
+        assert sig in unary_names, f"{unary_op!r} Julia signature missing from standard unary_operators"
+        assert unary_op in weights, f"{unary_op!r} missing a complexity_of_operators weight"
+
+    for binary_op in ("harmonic_mean", "xlogy"):
+        sig = OPERATOR_JULIA_SIGNATURES[binary_op]
+        assert sig in binary_names, f"{binary_op!r} Julia signature missing from standard binary_operators"
+        assert binary_op in weights, f"{binary_op!r} missing a complexity_of_operators weight"
+
+
+def test_gauss_sympy_mapping_matches_julia_semantics():
+    """gauss(x) = exp(-x^2); pin the sympy predict-time mapping matches the Julia train-time one."""
+    out = get_preset_kwargs("standard")
+    gauss = out["extra_sympy_mappings"]["gauss"]
+    expr = gauss(sp.Symbol("x"))
+    assert float(expr.subs(sp.Symbol("x"), 0.0)) == pytest.approx(1.0)
+    assert float(expr.subs(sp.Symbol("x"), 2.0)) == pytest.approx(float(sp.exp(-4)))
+
+
+def test_harmonic_mean_sympy_mapping_returns_nan_on_nonpositive_sum():
+    """harmonic_mean(x, y) is NaN when x+y <= 0 (matches the Julia branch, never throws)."""
+    out = get_preset_kwargs("standard")
+    harmonic_mean = out["extra_sympy_mappings"]["harmonic_mean"]
+    expr = harmonic_mean(sp.Symbol("x"), sp.Symbol("y"))
+    nan_result = expr.subs({sp.Symbol("x"): -3.0, sp.Symbol("y"): 3.0})  # x+y == 0
+    pos_result = expr.subs({sp.Symbol("x"): 2.0, sp.Symbol("y"): 4.0})
+    assert nan_result == sp.nan
+    assert float(pos_result) == pytest.approx(2 * 2.0 * 4.0 / (2.0 + 4.0))
+
+
+def test_xlogy_sympy_mapping_returns_nan_on_nonpositive_y():
+    """xlogy(x, y) is NaN when y <= 0 (matches the Julia branch, never throws)."""
+    out = get_preset_kwargs("standard")
+    xlogy = out["extra_sympy_mappings"]["xlogy"]
+    expr = xlogy(sp.Symbol("x"), sp.Symbol("y"))
+    nan_result = expr.subs({sp.Symbol("x"): 3.0, sp.Symbol("y"): -1.0})
+    pos_result = expr.subs({sp.Symbol("x"): 3.0, sp.Symbol("y"): 2.0})
+    assert nan_result == sp.nan
+    assert float(pos_result) == pytest.approx(3.0 * float(sp.log(2)))
+
+
 def test_safe_sqrt_sympy_mapping_handles_negative_inputs():
     """Safe sqrt sympy mapping handles negative inputs."""
     out = get_preset_kwargs("standard")

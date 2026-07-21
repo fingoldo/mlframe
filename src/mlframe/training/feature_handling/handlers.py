@@ -186,6 +186,10 @@ class TextHandlerSpec(BaseModel, HandlerSpec):
     output: Literal["auto", "concat_with_numeric", "as_embedding_feature", "sparse_block"] = "auto"
     apply_to_columns: Optional[List[str]] = None
     svd_dim: Optional[int] = None  # per-handler SVD override
+    # Declared for ABC symmetry with CatHandlerSpec.group_columns (see the HandlerSpec ABC contract) --
+    # NOT currently consumed by any text handler; setting it has no effect (matches CatHandlerSpec's own
+    # current state, see the group-aware-encoding gap this field's sibling documents).
+    group_columns: Optional[List[str]] = None
 
     @classmethod
     def axis(cls) -> Axis:
@@ -251,7 +255,11 @@ class CatHandlerSpec(BaseModel, HandlerSpec):
     params: CatHandlerParams = Field(default_factory=lambda: NoParams(kind="drop"), discriminator="kind")
 
     apply_to_columns: Optional[List[str]] = None
-    group_columns: Optional[List[str]] = None  # group-aware encoding
+    # Group-aware encoding (per-group target statistics instead of global-fold). NOT YET CONSUMED by
+    # the cat-axis apply loop or LeakageSafeEncoder -- setting this currently has no effect. apply.py's
+    # cat-axis loop warns when it sees a non-None value so a caller relying on it notices, rather than
+    # silently getting ordinary global encoding.
+    group_columns: Optional[List[str]] = None
 
     @classmethod
     def axis(cls) -> Axis:

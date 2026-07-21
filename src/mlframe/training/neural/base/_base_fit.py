@@ -26,7 +26,7 @@ from lightning.pytorch.loggers import CSVLogger
 from sklearn.base import ClassifierMixin, RegressorMixin
 
 from mlframe.metrics.core import compute_probabilistic_multiclass_error
-from .._base_logging import MetricSpec, _rmse_metric
+from .._base_logging import MetricSpec, _rmse_metric, suppress_lightning_workers_warning
 from .._base_tensor_helpers import to_tensor_any, safe_accelerator
 from ._base_losses import _make_binary_focal_loss, _validate_no_nan_inf
 from .._base_callbacks import BestEpochModelCheckpoint, ValLossDivergenceCallback, MonotonicDeclineStopCallback
@@ -324,7 +324,12 @@ class _FitMixin(_FitPrepMixin):
                 num_classes = self.n_labels_
             else:
                 if is_partial_fit and classes is not None:
-                    self.classes_ = np.asarray(classes)
+                    # self.classes_ was already correctly set above (line ~209) from
+                    # self._label_encoder.classes_ -- guaranteed SORTED, matching the index space
+                    # _label_encoder.transform()/inverse_transform() use. Re-assigning it here to the
+                    # caller's raw (possibly-unsorted) `classes` array would desync self.classes_[i] from
+                    # predict_proba's column i.
+                    pass
                 elif not hasattr(self, "classes_"):
                     # Must be ndarray (not list) for numpy fancy indexing in evaluation.py::report_probabilistic_model_perf
                     # (line ``preds = model.classes_[preds]`` fails on list + ndarray index). Sklearn convention is classes_ ndarray.
@@ -843,14 +848,17 @@ class _FitMixin(_FitPrepMixin):
         from ._cuda_fallback import run_with_cuda_cpu_fallback
 
         _fit_accelerator = str(trainer_params.get("accelerator", "auto"))
-        _, trainer = run_with_cuda_cpu_fallback(
-            action="fit",
-            primary_trainer=trainer,
-            model=self.model,
-            accelerator=_fit_accelerator,
-            run_fn=lambda t: t.fit(model=self.model, datamodule=dm),
-            build_cpu_trainer=lambda: L.Trainer(**{**trainer_params, "accelerator": "cpu", "devices": 1}, callbacks=callbacks),
-        )
+        # suppress_lightning_workers_warning() was defined + documented as "wrap the trainer.fit()/
+        # predict() invocations" but never actually called anywhere.
+        with suppress_lightning_workers_warning():
+            _, trainer = run_with_cuda_cpu_fallback(
+                action="fit",
+                primary_trainer=trainer,
+                model=self.model,
+                accelerator=_fit_accelerator,
+                run_fn=lambda t: t.fit(model=self.model, datamodule=dm),
+                build_cpu_trainer=lambda: L.Trainer(**{**trainer_params, "accelerator": "cpu", "devices": 1}, callbacks=callbacks),
+            )
 
         # Expose per-epoch train/val history (booster ``evals_result_`` shape) + the best epoch so the
         # reporting layer's training-curve chart picks it up with no neural-specific code (it already

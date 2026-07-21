@@ -12,7 +12,7 @@ WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "numba-coverage.yml"
 
 
 def _workflow_text() -> str:
-    """Helper that workflow text."""
+    """Returns ``WORKFLOW_PATH.read_text(encoding='utf-8')`` (after 1 setup step)."""
     assert WORKFLOW_PATH.exists(), f"missing nightly numba-coverage workflow at {WORKFLOW_PATH}"
     return WORKFLOW_PATH.read_text(encoding="utf-8")
 

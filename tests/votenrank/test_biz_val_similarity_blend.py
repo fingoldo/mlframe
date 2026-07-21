@@ -19,7 +19,7 @@ from mlframe.votenrank import SimilarityBlendEnsemble
 
 
 def _make_two_region_dataset(seed: int):
-    """Helper that make two region dataset."""
+    """Builds seeded synthetic test data; returns ``(X_a_train, y_a_train, X_b_train, y_b_train, X_test, y_test)``."""
     rng = np.random.default_rng(seed)
     w_a = np.array([2.0, -1.0])
     w_b = np.array([-3.0, 4.0])

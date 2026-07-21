@@ -8,6 +8,11 @@ window). Neither combines a FIXED-SIZE sliding window with within-window recency
 as-of that row (leakage-safe: only observations up to and including the current row are ever used). This module
 is that missing combination, reusing the existing ``mlframe.core.recency_weights`` weight-vector math rather
 than reimplementing the decay schemes.
+
+NaN handling: neither ``values`` nor the weighted-mean/std computation checks for NaN anywhere. A NaN inside a
+row's trailing window silently poisons that row's weighted ``num``/``den`` accumulation to NaN (an honest
+failure -- the output is NaN, not silently wrong -- but undocumented until this note. Impute/drop NaNs in ``values`` before calling if that propagation
+isn't wanted.
 """
 from __future__ import annotations
 

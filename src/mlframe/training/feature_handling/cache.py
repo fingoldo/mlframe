@@ -30,8 +30,9 @@ Reuse semantics:
 Eviction:
   * In-memory: LRU within ``cache.ram_max_gb``. ``cache.ram_reserve_gb``
     floor on remaining system RAM via :func:`psutil.virtual_memory`.
-  * Disk: LRU within ``cache.disk_evict_when_free_below_gb`` /
-    ``cache.disk_min_free_gb`` thresholds.
+  * Disk: oldest-file-first (by mtime -- reads don't touch mtime, so this is write-order, not a true
+    access-order LRU) within ``cache.disk_evict_when_free_below_gb`` / ``cache.disk_min_free_gb``
+    thresholds, checked after every disk write.
 
 Eviction strategies:
   * "lru" -- straight LRU (default for in-memory).
@@ -44,6 +45,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import sys
 import threading
 import time
@@ -304,8 +306,7 @@ class FeatureCache:
 
     def _disk_dir(self) -> str:
         """Resolve the cache directory. ``cache.dir`` (None -> error
-        when persistence != "off"); ensures dir exists with mode 0o700.
-        Round-3 S11: cross-tenant leakage defence.
+        when persistence != "off"); ensures dir exists with mode 0o700 (cross-tenant leakage defence).
         """
         d = self._cfg.dir
         if d is None:
@@ -325,9 +326,8 @@ class FeatureCache:
     def _read_from_disk(self, disk_key: DiskKey) -> Optional[Any]:
         """Read and deserialise the disk-tier entry for ``disk_key``, returning None on any miss (missing file or corrupt payload)."""
         path = self._path_for(disk_key)
-        # Wave 48 (2026-05-20): the prior exists-then-deserialize was redundant
-        # (the except Exception already handled missing-file). Drop the precheck
-        # so the TOCTOU race window collapses to zero.
+        # No exists-then-deserialize precheck: the except Exception below already handles missing-file,
+        # and a precheck would only reopen a TOCTOU race window between the check and the read.
         allow_pickle = bool(getattr(self._cfg, "allow_pickle", False))
         try:
             return _deserialize(path, allow_pickle=allow_pickle)
@@ -362,6 +362,52 @@ class FeatureCache:
                 _swrite(path)
             except OSError as _sc_err:
                 logger.debug("FeatureCache sidecar write failed (value written OK): %s", _sc_err)
+        self._maybe_evict_disk()
+
+    def _maybe_evict_disk(self) -> None:
+        """LRU-by-mtime disk-tier eviction against ``cache.disk_evict_when_free_below_gb`` /
+        ``cache.disk_min_free_gb`` -- documented since this module's introduction but never
+        implemented, so a long-running suite with disk persistence enabled grew the cache directory
+        without bound. Triggered after every disk write (cheap no-op check when free space is
+        already comfortably above the threshold); evicts the OLDEST ``.bin`` entries (by mtime,
+        since the disk tier has no separate access-order sidecar) until free space is back above
+        ``disk_min_free_gb``, or there is nothing left to evict.
+        """
+        evict_below_gb = getattr(self._cfg, "disk_evict_when_free_below_gb", None)
+        if not evict_below_gb:
+            return
+        try:
+            d = self._disk_dir()
+            free_bytes = shutil.disk_usage(d).free
+        except Exception:
+            return
+        if free_bytes >= evict_below_gb * 1e9:
+            return
+        target_free_bytes = max(0.0, getattr(self._cfg, "disk_min_free_gb", 0.0) or 0.0) * 1e9
+        try:
+            entries = [(os.path.join(d, fn), os.path.getmtime(os.path.join(d, fn))) for fn in os.listdir(d) if fn.endswith(".bin")]
+        except Exception as exc:
+            logger.warning("FeatureCache disk eviction: failed to list %s: %s", d, exc)
+            return
+        entries.sort(key=lambda t: t[1])  # oldest mtime first
+        n_evicted = 0
+        for path, _mtime in entries:
+            if free_bytes >= target_free_bytes:
+                break
+            try:
+                size = os.path.getsize(path)
+                os.remove(path)
+                free_bytes += size
+                n_evicted += 1
+            except OSError as exc:
+                logger.debug("FeatureCache disk eviction: could not remove %s: %s", path, exc)
+        if n_evicted:
+            with self._lock:
+                self._evictions += n_evicted
+            logger.info(
+                "FeatureCache disk eviction: removed %d stale entry(s) from %s (free space was below %.1f GB)",
+                n_evicted, d, evict_below_gb,
+            )
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -423,7 +469,7 @@ class CachePickleRefusedError(RuntimeError):
 
 
 def _serialize(value: Any, fileobj: Any, *, allow_pickle: bool = False) -> None:
-    """Serialise to disk via numpy ``.npz``. Round-3 R3-10: dtype
+    """Serialise to disk via numpy ``.npz``, dtype
     preserved exactly via ``np.save`` so fp16 stored = fp16 loaded
     (no silent fp32 promotion via pickle pathways).
 
@@ -478,13 +524,13 @@ def _deserialize(path: str, *, allow_pickle: bool = False) -> Any:
     pickle-only payload on disk raises :class:`CachePickleRefusedError`
     instead of executing the pickle stream."""
     try:
-        # Wave 42 (2026-05-20): np.load returns an NpzFile wrapping a zipfile +
-        # mmap-backed handle when the payload is npz. Prior code never called
-        # npz.close(), leaking one OS handle per successful cache read; on
-        # Windows this blocks later overwrite/eviction (PermissionError), on
-        # Linux it eventually hits EMFILE in long CV/RFECV loops. Use the with-
-        # block and materialise arrays via np.array(...) before exiting so the
-        # caller gets owned buffers (mmap views would go invalid on close).
+        # np.load returns an NpzFile wrapping a zipfile + mmap-backed handle
+        # when the payload is npz. Not closing it leaks one OS handle per
+        # cache read; on Windows this blocks later overwrite/eviction
+        # (PermissionError), on Linux it eventually hits EMFILE in long
+        # CV/RFECV loops. Use the with-block and materialise arrays via
+        # np.array(...) before exiting so the caller gets owned buffers
+        # (mmap views would go invalid on close).
         loaded = np.load(path, allow_pickle=allow_pickle, mmap_mode="r")
     except Exception:
         if not allow_pickle:
@@ -517,9 +563,9 @@ def _deserialize(path: str, *, allow_pickle: bool = False) -> Any:
             return np.array(npz[npz.files[0]])
         # ``kind`` is a uint8 ASCII-byte vector (post-audit format) OR a
         # legacy object-dtype length-1 array. Decode both.
-        # Wave 77 (2026-05-21): handle legacy bytes-typed object arrays too --
-        # `str(b"ndarray") == "b'ndarray'"` would silently miss the kind==
-        # checks below and raise ValueError("unknown serialised kind ...").
+        # Handle legacy bytes-typed object arrays too -- `str(b"ndarray") ==
+        # "b'ndarray'"` would silently miss the kind== checks below and
+        # raise ValueError("unknown serialised kind ...").
         if kind_arr.dtype == np.uint8:
             kind = bytes(kind_arr).decode("ascii")
         else:

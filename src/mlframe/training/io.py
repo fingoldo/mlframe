@@ -75,6 +75,15 @@ _LEAN_STRIP_FIELDS = frozenset({
     # soon as any caller flips oof_n_splits>=2.
     "oof_preds",
     "oof_probs",
+    # Same class of leak, same origin (compute_calib_and_oof_outputs stamps all six onto the
+    # identical model namespace): oof_target is the OOF-loop's target-array twin of oof_preds/
+    # oof_probs; calib_probs/calib_target/calib_preds are the held-out calibration-slice arrays
+    # (populated whenever TrainingSplitConfig.calib_size is non-trivial). All four are per-row/
+    # per-calib-slice arrays, inference-irrelevant, and were left out of the original P0 #2 fix.
+    "oof_target",
+    "calib_probs",
+    "calib_target",
+    "calib_preds",
 })
 
 

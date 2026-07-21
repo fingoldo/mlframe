@@ -18,7 +18,7 @@ from mlframe.evaluation.group_leakage_guard import assert_no_group_leakage
 
 
 def _make_nested_table(seed: int):
-    """Helper that make nested table."""
+    """Builds seeded synthetic test data; returns ``(X, y, entity_ids)``."""
     rng = np.random.default_rng(seed)
     n_entities = 150
     rows_per_entity = 6
@@ -64,7 +64,7 @@ def test_biz_val_leaky_split_actually_inflates_cv_score_vs_group_kfold():
     X, y, entity_ids = _make_nested_table(seed=2)
 
     def _cv_auc(splits):
-        """Helper that cv auc."""
+        """Returns ``float(np.mean(scores))`` (after 2 setup steps)."""
         scores = []
         for train_idx, test_idx in splits:
             model = RandomForestClassifier(n_estimators=60, max_depth=4, random_state=0, n_jobs=1)

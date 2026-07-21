@@ -35,9 +35,9 @@ surfaces a (harmless, lower-ranked) synthetic that simply duplicates structure
 the additive bases already cover. The OOS gate downstream rejects it when it
 adds no holdout value; the pure-interaction case wins decisively (bench).
 
-This module is research-only by default. ``discover_interaction_bases`` is wired
-into the discovery base-resolution path ONLY when
-``config.interaction_base_discovery=True`` (opt-in). See the committed bench
+``discover_interaction_bases`` is wired into the discovery base-resolution path
+whenever ``config.interaction_base_discovery_enabled`` is true, which is the
+DEFAULT (``= True``) -- not opt-in. See the committed bench
 ``_benchmarks/bench_interaction_base_discovery.py`` + biz_value test for the
 measured verdict on the pure-interaction synthetic.
 """

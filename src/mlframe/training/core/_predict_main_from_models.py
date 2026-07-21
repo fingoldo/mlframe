@@ -502,17 +502,20 @@ def predict_from_models(
                     _primary_for_model = df_pre_pipeline if isinstance(model, _CTE_cls) else input_for_model
                     if return_probabilities and hasattr(model, "predict_proba"):
                         probs = _try_predict(model.predict_proba, _primary_for_model, df_pre_pipeline)
-                        # Keep the raw per-model output (multilabel MultiOutputClassifier returns a
-                        # list of (N, 2) per-label arrays consumers rely on); canonicalize to (N, K)
-                        # for the ensemble + shape-based decision logic so the list path does not crash
-                        # at probs.ndim and the multilabel ensemble combine actually runs.
-                        results["probabilities"][model_name] = probs
                         _ml_classes = getattr(model_obj, "classes_", None)
                         if _ml_classes is None:
                             _estimators = getattr(model_obj, "estimators_", None)
                             if _estimators is not None:
                                 _ml_classes = [getattr(_e, "classes_", None) for _e in _estimators]
+                        # Canonicalise to (N, K) BEFORE storing. _predict_with_fallback's own
+                        # _wrap_predict_result already does this on the normal (non-retry) path, but
+                        # _try_predict_with_pp_fallback's TypeError/encoder-mismatch retry branch calls
+                        # model.predict_proba() directly and can still hand back the raw
+                        # MultiOutputClassifier list form -- canonicalising unconditionally here
+                        # (a no-op on an already-(N, K) array) guarantees every consumer of
+                        # results["probabilities"][model_name] sees one consistent shape.
                         probs = _canonical_predict_proba_shape(probs, classes_=_ml_classes)
+                        results["probabilities"][model_name] = probs
                         all_probs.append(probs)
                         per_target_probs.setdefault((target_type, target_name), []).append(probs)
                         _is_cal = _is_post_hoc_calibrated_model(model_obj)

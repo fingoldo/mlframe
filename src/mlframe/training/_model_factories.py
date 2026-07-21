@@ -502,9 +502,8 @@ def _get_neural_components():
     return MLPNeuronsByLayerArchitecture, PytorchLightningRegressor, PytorchLightningClassifier
 
 
-from numba.cuda import is_available as is_cuda_available
+from ._gpu_probe import CUDA_IS_AVAILABLE  # noqa: F401 -- re-exported for `from ._model_factories import CUDA_IS_AVAILABLE` consumers
 
-CUDA_IS_AVAILABLE = is_cuda_available()
 MODELS_SUBDIR = "models"
 GPU_VRAM_SAFE_SATURATION_LIMIT: float = 0.9
 GPU_VRAM_SAFE_FREE_LIMIT_GB: float = 0.1

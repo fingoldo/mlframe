@@ -7,7 +7,7 @@ so existing imports continue to work.
 
 Pre-split header (kept for context):
 
-Temporal target audit вЂ” detect P(y) shifts over time, find change points.
+Temporal target audit — detect P(y) shifts over time, find change points.
 
 A real-world drift incident (a job-board scraping pipeline running in
 forward mode) revealed that:
@@ -16,21 +16,21 @@ forward mode) revealed that:
   positive-only (selection-biased) at ~98%; a several-month window
   had an unbiased ~40% rate; the most recent month is unbiased ~40% again.
 - Without a per-bin time-series view of the target, this regime change
-  is invisible вЂ” the operator sees the AGGREGATE rate (74%) and
+  is invisible — the operator sees the AGGREGATE rate (74%) and
   thinks they have a balanced classification problem when in fact
   they have multiple regimes mixed.
 
 This module ships:
 
-- `audit_target_over_time(...)` вЂ” group-by-time + change-point
+- `audit_target_over_time(...)` — group-by-time + change-point
   detection, returns a structured `TemporalAuditResult`.
-- `plot_target_over_time(...)` вЂ” matplotlib-based time-series plot
+- `plot_target_over_time(...)` — matplotlib-based time-series plot
   with change points marked, saves to disk (or returns Figure).
-- `_pick_granularity(...)` вЂ” auto-pick a time bin width that yields
+- `_pick_granularity(...)` — auto-pick a time bin width that yields
   30-50 non-empty bins (configurable via env / args).
-- `find_change_points_zscore(...)` вЂ” generic 1-D change-point
-  detector. Could move to `pyutilz` later (useful for trading too вЂ”
-  the user said "Р±СѓРґРµС‚ РїРѕР»РµР·РЅРѕ Рё РґР»СЏ С‚СЂРµР№РґРёРЅРіР° РїРѕР·Р¶Рµ").
+- `find_change_points_zscore(...)` — generic 1-D change-point
+  detector. Could move to `pyutilz` later (useful for trading too —
+  the user said "будет полезно и для трейдинга позже").
 
 Wiring: opt-in via `TrainingBehaviorConfig.target_temporal_audit_*`.
 When the config field `target_temporal_audit_column` is set,
@@ -43,9 +43,9 @@ Public surface:
 - plot_target_over_time
 - find_change_points_zscore
 - TemporalAuditResult (dataclass)
-- DEFAULT_MIN_BIN_FRACTION_FOR_FILTER  вЂ” bin must have в‰Ґ this many obs
+- DEFAULT_MIN_BIN_FRACTION_FOR_FILTER  — bin must have ≥ this many obs
   to be plotted / used; default 0.5 of the median bin size.
-- DEFAULT_ZSCORE_THRESHOLD вЂ” 3.0 (3 MADs from rolling median)
+- DEFAULT_ZSCORE_THRESHOLD — 3.0 (3 MADs from rolling median)
 """
 
 from __future__ import annotations
@@ -91,14 +91,14 @@ def find_change_points_pelt(
     PELT is the canonical algorithm for offline change-point detection:
     given a cost function and a constant penalty per change point, it
     returns the partition that minimises ``total_cost +
-    penalty Г— n_changepoints``. With pruning it runs in O(n) practical
-    / O(nВІ) worst-case.
+    penalty × n_changepoints``. With pruning it runs in O(n) practical
+    / O(n²) worst-case.
 
     Penalty auto-tuning
     -------------------
     When ``penalty`` is ``None`` (default), we use a BIC-style
-    estimator: ``pen = log(n) Г— max(var(rates), eps)``. For binary-rate
-    series this lands on a sensible default вЂ” empirically detected
+    estimator: ``pen = log(n) × max(var(rates), eps)``. For binary-rate
+    series this lands on a sensible default — empirically detected
     all 4 transitions in the user's production drift pattern. Override
     explicitly if the auto-pen leaves you with too many or too few
     points.
@@ -126,7 +126,7 @@ def find_change_points_pelt(
     -------
     list of int
         Boundary indices in pairs ``[start_0, end_0_excl, start_1,
-        end_1_excl, ...]`` вЂ” same convention as
+        end_1_excl, ...]`` — same convention as
         ``find_change_points_zscore``. Conversion from ruptures' format
         (which returns ``[end_0, end_1, ..., n]`` excluding 0) to our
         anomaly-pair format is handled internally.
@@ -136,7 +136,7 @@ def find_change_points_pelt(
     if n < min_segment_size * 2:
         return []
 
-    # Optional weight-based bin filter вЂ” drop very-small-n bins so they
+    # Optional weight-based bin filter — drop very-small-n bins so they
     # don't bias the segmentation. We keep the full series shape and
     # only re-weight by replacing dropped bins with the running median
     # so they neither add a "segment" nor force a split.
@@ -158,7 +158,7 @@ def find_change_points_pelt(
     # Auto-tune penalty: BIC-style. The within-segment residual variance
     # is unknown, so we use overall data variance as an upper bound;
     # times log(n). A floor protects against degenerate constant series
-    # (var в‰€ 0 в†’ no segmentation).
+    # (var ≈ 0 → no segmentation).
     if penalty is None:
         var = float(np.var(rates_for_fit))
         penalty = max(0.05, var * math.log(max(n, 2)))
@@ -173,8 +173,8 @@ def find_change_points_pelt(
     # Convert to our [start_0, end_0_excl, start_1, end_1_excl, ...]
     # boundary-pairs format. The "anomaly intervals" are the segments
     # whose mean differs from the global median by more than
-    # 0.5 Г— MAD-equivalent. Operators want a flat list of segment
-    # boundaries вЂ” convert directly.
+    # 0.5 × MAD-equivalent. Operators want a flat list of segment
+    # boundaries — convert directly.
     if not bkps or len(bkps) <= 1:
         return []
     boundaries: list[int] = []
@@ -185,7 +185,7 @@ def find_change_points_pelt(
             boundaries.append(int(end))
             prev = end
     # The very first / last "segments" cover [0:end_0] and [end_{-2}:n]
-    # вЂ” these are NOT anomaly intervals, they're the regime-segments.
+    # — these are NOT anomaly intervals, they're the regime-segments.
     # For change-point output we want the *transition points*: the
     # indices where regime switches. So remove the [0, end_0] and
     # [last_start, n] outer pairs to get just the inner transitions.
@@ -225,10 +225,10 @@ def find_change_points_zscore(
 
     * **Global-median baseline** (default, ``window=None``). The
       median of ``rates`` is the baseline; bins are flagged if
-      ``|rate - median| > z_threshold Г— MAD`` (with a fall-through
+      ``|rate - median| > z_threshold × MAD`` (with a fall-through
       ``|rate - median| > abs_min_spread`` for the degenerate
       MAD-near-zero case). Right for "dominant baseline + a few
-      anomaly regimes" patterns вЂ” the user's selection-bias case
+      anomaly regimes" patterns — the user's selection-bias case
       where ~80% of bins sit at one rate and a contiguous regime
       sits at another.
 
@@ -249,7 +249,7 @@ def find_change_points_zscore(
         Per-bin target rate.
     weights : ndarray, shape (n,), optional
         Per-bin weight (typically n_obs). When provided, bins with
-        n_obs below ``0.1 Г— median(weights)`` are excluded from the
+        n_obs below ``0.1 × median(weights)`` are excluded from the
         baseline median (they're too noisy to anchor it).
     z_threshold : float
         Modified-z-score threshold. 3.0 = strong outlier; 2.0 = loose.
@@ -261,7 +261,7 @@ def find_change_points_zscore(
         applied if even). If None (default), use global median.
     abs_min_spread : float
         Absolute baseline-vs-rate spread above which a bin is flagged
-        even when the modified z-score is degenerate (MAD в‰€ 0). 0.05
+        even when the modified z-score is degenerate (MAD ≈ 0). 0.05
         means "5 percentage points off the baseline" for binary
         targets.
 

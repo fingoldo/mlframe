@@ -17,7 +17,7 @@ from sklearn.ensemble import RandomForestClassifier
 
 
 def _make(n=1200, seed=0):
-    """Helper that make."""
+    """Returns ``(pd.DataFrame(X, columns=cols), pd.Series(y), [f'inf_{i}' for i in range(4)], [f'noise_...`` (after 2 setup steps)."""
     X, y = make_classification(n_samples=n, n_features=8, n_informative=4, n_redundant=0, n_repeated=0, shuffle=False, random_state=seed)
     cols = [f"inf_{i}" for i in range(4)] + [f"noise_{i}" for i in range(4)]
     return pd.DataFrame(X, columns=cols), pd.Series(y), [f"inf_{i}" for i in range(4)], [f"noise_{i}" for i in range(4)]

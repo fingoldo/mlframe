@@ -114,18 +114,48 @@ class MultiTaskAuxiliaryLossRegressor(BaseEstimator, RegressorMixin):
         mse = nn.MSELoss()
         bce = nn.BCEWithLogitsLoss()
 
-        self.train_losses_ = []
-        for _ in range(self.n_epochs):
-            optimizer.zero_grad()
-            hidden = self.trunk_(X_t)
-            loss = mse(self.primary_head_(hidden), y_primary_t)
+        def _joint_loss(x_batch, y_primary_batch, y_aux_binary_batch, y_aux_regression_batch):
+            """One forward pass through the shared trunk + all active heads; returns the weighted joint loss."""
+            hidden = self.trunk_(x_batch)
+            loss = mse(self.primary_head_(hidden), y_primary_batch)
             if self.aux_binary_head_ is not None:
-                loss = loss + self.aux_task_weight * bce(self.aux_binary_head_(hidden), y_aux_binary_t)
+                loss = loss + self.aux_task_weight * bce(self.aux_binary_head_(hidden), y_aux_binary_batch)
             if self.aux_regression_head_ is not None:
-                loss = loss + self.aux_task_weight * mse(self.aux_regression_head_(hidden), y_aux_regression_t)
-            loss.backward()
-            optimizer.step()
-            self.train_losses_.append(float(loss.item()))
+                loss = loss + self.aux_task_weight * mse(self.aux_regression_head_(hidden), y_aux_regression_batch)
+            return loss
+
+        self.train_losses_ = []
+        n = X_t.shape[0]
+        if self.batch_size is None or self.batch_size >= n:
+            # Full-batch path (default): unchanged from before mini-batch support was added.
+            for _ in range(self.n_epochs):
+                optimizer.zero_grad()
+                loss = _joint_loss(X_t, y_primary_t, y_aux_binary_t, y_aux_regression_t)
+                loss.backward()
+                optimizer.step()
+                self.train_losses_.append(float(loss.item()))
+        else:
+            # Mini-batch SGD: reshuffle row order once per epoch (seeded off random_state so the
+            # per-epoch batch composition is reproducible), one optimizer step per batch, epoch loss
+            # = the mean of that epoch's per-batch losses (a diagnostics-only summary, not the loss
+            # actually backpropagated on any single step).
+            rng = np.random.default_rng(self.random_state)
+            bs = int(self.batch_size)
+            for _ in range(self.n_epochs):
+                perm = rng.permutation(n)
+                epoch_losses = []
+                for start in range(0, n, bs):
+                    idx = perm[start : start + bs]
+                    optimizer.zero_grad()
+                    loss = _joint_loss(
+                        X_t[idx], y_primary_t[idx],
+                        y_aux_binary_t[idx] if y_aux_binary_t is not None else None,
+                        y_aux_regression_t[idx] if y_aux_regression_t is not None else None,
+                    )
+                    loss.backward()
+                    optimizer.step()
+                    epoch_losses.append(float(loss.item()))
+                self.train_losses_.append(float(np.mean(epoch_losses)))
 
         return self
 

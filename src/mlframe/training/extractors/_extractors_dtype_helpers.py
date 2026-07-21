@@ -208,9 +208,10 @@ def get_sample_weights_by_recency(
         _delta_secs = (date_series.max() - date_series).dt.total_seconds().to_numpy()
     _min_age_days = 1.0 / 86400.0  # one-second floor
     _log_min_age = np.log(_min_age_days)
-    # log(span_days) for span<1 day is negative -> max_drop negative.
-    # Use log(span_in_seconds) baseline so the gradient stays positive
-    # for sub-day spans too.
+    # log(span_days) alone would go negative for span<1 day, but subtracting _log_min_age here makes
+    # this log(span_days) - log(min_age_days) = log(span_days / min_age_days) = log(span_in_seconds)
+    # by ratio-cancellation (min_age_days is the one-second floor in days) -- so max_drop stays
+    # non-negative for sub-day spans without ever needing to convert span_days to seconds directly.
     max_drop = (np.log(span_days) - _log_min_age) * weight_drop_per_year
 
     # base folds every loop-invariant term of ``min_weight + max_drop - (log(days_from_max) - log_min_age) * wdpy``

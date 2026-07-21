@@ -269,7 +269,18 @@ class CompositeQuantileEstimator(BaseEstimator, RegressorMixin):
             raise ValueError("CompositeQuantileEstimator: base_estimator must not be None.")
         # Surface a typo'd transform name at fit, not on the first predict.
         get_transform(self.transform_name)
-        quantiles = self._resolve_quantiles()
+        requested_quantiles = self._resolve_quantiles()
+        decreasing = bool(_transform_inverse_decreasing(self.transform_name))
+        if decreasing:
+            # predict_quantile's complementary-head lookup (head_q = 1 - q, see below) needs the COMPLEMENT
+            # of every requested level to also be fitted -- an asymmetric grid (e.g. (0.1, 0.3, 0.5)) on a
+            # decreasing-inverse transform previously fit only the literal requested levels, guaranteeing a
+            # ValueError at predict_quantile() even for the estimator's own default (self.quantiles_) grid.
+            # Fit the union of the requested grid and its complements; self.quantiles_ stays the caller's
+            # ORIGINAL grid (unaugmented) so predict_quantile()'s default output shape is unchanged.
+            quantiles = np.unique(np.concatenate([requested_quantiles, 1.0 - requested_quantiles]))
+        else:
+            quantiles = requested_quantiles
 
         estimators: dict[float, CompositeTargetEstimator] = {}
         for q in quantiles:
@@ -287,16 +298,19 @@ class CompositeQuantileEstimator(BaseEstimator, RegressorMixin):
             estimators[float(q)] = head
 
         self.estimators_ = estimators
-        self.quantiles_ = quantiles
+        # The caller's ORIGINAL grid (not the augmented fit set) -- predict_quantile()'s default request
+        # and predict()'s "nearest to 0.5" lookup must reflect exactly what the caller configured; the
+        # complement heads fitted above exist in self.estimators_ purely to make _lookup_head(1-q) resolve.
+        self.quantiles_ = requested_quantiles
         # Detect a monotone-DECREASING transform inverse (e.g. reciprocal_residual,
         # y = 1/(T + 1/base)): a head trained for the tau-quantile of T then yields
         # the (1-tau)-quantile of y, so the column labelled tau must take the head
         # trained at (1-tau). Without this the raw (enforce_non_crossing=False)
         # columns are silently swapped: column "0.1" carries the 0.9 y-quantile.
-        self._inverse_decreasing_ = _transform_inverse_decreasing(self.transform_name)
+        self._inverse_decreasing_ = decreasing
         # Inherit feature names from the median (or first) head for sklearn
         # introspection parity; all heads saw the same X so any head works.
-        ref_head = estimators[float(quantiles[np.argmin(np.abs(quantiles - 0.5))])]
+        ref_head = estimators[float(requested_quantiles[np.argmin(np.abs(requested_quantiles - 0.5))])]
         ref_names = getattr(ref_head, "feature_names_in_", None)
         if ref_names is not None:
             self.feature_names_in_ = list(ref_names)
@@ -372,8 +386,14 @@ class CompositeQuantileEstimator(BaseEstimator, RegressorMixin):
         """
         q_arr = self.quantiles_
         nearest = float(q_arr[np.argmin(np.abs(q_arr - 0.5))])
+        # Same complementary-head lookup predict_quantile() applies: on a decreasing-inverse
+        # transform the y-quantile at level `nearest` is produced by the head trained for
+        # (1 - nearest) of T. Skipping this (as a bare self._lookup_head(nearest) would) can
+        # mislabel the "median" when the grid omits 0.5 exactly.
+        decreasing = bool(getattr(self, "_inverse_decreasing_", False))
+        head_q = 1.0 - nearest if decreasing else nearest
         return np.asarray(
-            self._lookup_head(nearest).predict(X), dtype=np.float64,
+            self._lookup_head(head_q).predict(X), dtype=np.float64,
         ).reshape(-1)
 
     def _lookup_head(self, q: float) -> CompositeTargetEstimator:

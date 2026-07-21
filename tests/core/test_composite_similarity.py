@@ -78,7 +78,7 @@ def test_biz_val_tuned_combination_beats_equal_weight_and_single_blocks():
     k = 9
 
     def knn_acc(S):
-        """Helper that knn acc."""
+        """Returns ``res.score`` (after 1 setup step)."""
         res = fit_composite_similarity([S], y, k=k)  # single-block: weight is irrelevant to accuracy, just measures S
         return res.score
 

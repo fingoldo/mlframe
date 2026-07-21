@@ -8,7 +8,7 @@ import numpy as np
 
 
 def _make(random_state, classification):
-    """Helper that make."""
+    """Returns ``bs.model_`` (after 3 setup steps)."""
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     # sklearn clone-ability: the verbatim ``model`` param stays None; ``check_model`` resolves the default

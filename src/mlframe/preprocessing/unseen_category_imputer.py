@@ -58,6 +58,12 @@ class UnseenCategoryImputer:
         caller can monitor how often the fallback actually fires in production and catch category drift (a
         rising fallback rate on a column that was previously stable). Disabled by default since it is a pure
         diagnostic add-on with no effect on the transformed output.
+    impute_nan
+        ``True`` (default, prior behavior, bit-identical) means a genuine NaN cell is ALSO treated as
+        "unreliable" and mode/nearest-imputed -- ``value_counts()`` never puts NaN in ``known_categories_``,
+        so every NaN cell falls into the same unreliable-category fallback as an unseen/rare string value.
+        Set ``False`` to leave NaN cells untouched (e.g. when a separate downstream imputer or missing-
+        indicator step is meant to own NaN handling for this column).
     """
 
     def __init__(
@@ -67,6 +73,7 @@ class UnseenCategoryImputer:
         similarity_mode: str = "mode",
         value_column: Optional[str] = None,
         track_fallback_stats: bool = False,
+        impute_nan: bool = True,
     ) -> None:
         if similarity_mode not in ("mode", "nearest"):
             raise ValueError(f"similarity_mode must be 'mode' or 'nearest', got {similarity_mode!r}")
@@ -77,6 +84,7 @@ class UnseenCategoryImputer:
         self.similarity_mode = similarity_mode
         self.value_column = value_column
         self.track_fallback_stats = track_fallback_stats
+        self.impute_nan = impute_nan
         self.known_categories_: Dict[str, set] = {}
         self.mode_: Dict[str, object] = {}
         # Per column: known categories sorted by their train-time average value_column, and that sorted average array.
@@ -115,6 +123,8 @@ class UnseenCategoryImputer:
             if known is None:
                 continue
             unreliable_mask = ~df[col].isin(known)
+            if not self.impute_nan:
+                unreliable_mask &= df[col].notna()
             if self.track_fallback_stats:
                 n_total = len(df)
                 n_fallback = int(unreliable_mask.sum())

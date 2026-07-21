@@ -39,7 +39,7 @@ def _make_data():
 
 
 def _fit(fi_decay_rate: float):
-    """Helper that fit."""
+    """Returns ``sel`` (after 3 setup steps)."""
     X, y = _make_data()
     sel = RFECV(
         estimator=DecisionTreeClassifier(max_depth=3, random_state=0),
@@ -57,7 +57,7 @@ def _fit_with_spy(fi_decay_rate: float, monkeypatch):
     real = _ol.get_next_features_subset
 
     def _spy(*args, **kwargs):
-        """Helper that spy."""
+        """Returns ``real(*args, **kwargs)`` (after 1 setup step)."""
         recorded.append(kwargs.get("fi_run_order"))
         return real(*args, **kwargs)
 

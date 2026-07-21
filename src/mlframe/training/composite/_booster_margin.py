@@ -36,26 +36,34 @@ def inner_raw_margin(
     to ``(n,)`` (single-output regression).
     """
     out = None
+    # Only the OPTIONAL-DEPENDENCY IMPORT is guarded below (a library genuinely not installed is a
+    # legitimate "skip this family" case). The isinstance check + .predict() call are OUTSIDE the
+    # guard: if `model` genuinely matches a family but its .predict() call raises for a real reason
+    # (not fitted, wrong column count, a version-mismatch pickle), that exception now propagates
+    # instead of being silently swallowed and re-surfaced as a misleading "no raw-margin path"
+    # NotImplementedError that hides the real stack trace.
+    lgb: Any
     try:
         import lightgbm as lgb
-        if isinstance(model, getattr(lgb, lgbm_attr)):
-            out = model.predict(X, raw_score=True)
     except Exception:  # nosec B110 - optional dependency import guard
-        pass
+        lgb = None
+    if lgb is not None and isinstance(model, getattr(lgb, lgbm_attr)):
+        out = model.predict(X, raw_score=True)
     if out is None:
+        xgb: Any
         try:
             import xgboost as xgb
-            if isinstance(model, getattr(xgb, xgb_attr)):
-                out = model.predict(X, output_margin=True)
         except Exception:  # nosec B110 - optional dependency import guard
-            pass
+            xgb = None
+        if xgb is not None and isinstance(model, getattr(xgb, xgb_attr)):
+            out = model.predict(X, output_margin=True)
     if out is None:
         try:
             import catboost as cb
-            if isinstance(model, getattr(cb, catboost_attr)):
-                out = model.predict(X, prediction_type="RawFormulaVal")
         except Exception:  # nosec B110 - optional dependency import guard
-            pass
+            cb = None
+        if cb is not None and isinstance(model, getattr(cb, catboost_attr)):
+            out = model.predict(X, prediction_type="RawFormulaVal")
     if out is None:
         raise NotImplementedError(
             f"{wrapper_name}: inner {type(model).__name__!r} has no raw-margin path "

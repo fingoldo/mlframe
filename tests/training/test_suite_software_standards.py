@@ -19,12 +19,18 @@ import pytest
 
 
 def test_ensure_config_dict_unknown_key_raises():
-    """Ensure config dict unknown key raises."""
+    """Ensure config dict unknown key raises.
+
+    ``"iterations"`` was this test's original example key; ``ModelHyperparamsConfig`` has since gained
+    it as a genuinely declared field (an unrelated, legitimate schema change), so it no longer
+    demonstrates the unknown-key path -- re-framed to a key that is still genuinely undeclared.
+    """
     from mlframe.training.core._setup_helpers import _ensure_config
     from mlframe.training.configs import ModelHyperparamsConfig
 
+    assert "totally_bogus_key_xyz" not in ModelHyperparamsConfig.model_fields
     with pytest.raises(ValueError, match="unknown config key"):
-        _ensure_config({"iterations": 100}, ModelHyperparamsConfig, {})
+        _ensure_config({"totally_bogus_key_xyz": 100}, ModelHyperparamsConfig, {})
 
 
 def test_ensure_config_dict_known_field_ok():

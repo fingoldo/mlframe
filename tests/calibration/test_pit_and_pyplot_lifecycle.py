@@ -62,7 +62,7 @@ def test_plot_pit_diagram_routes_through_spec_pipeline(tmp_path, monkeypatch):
     real = renderers.render_and_save
 
     def _spy(spec, output, base_path, **kwargs):
-        """Helper that spy."""
+        """Returns ``real(spec, output, base_path, **kwargs)`` (after 1 setup step)."""
         captured["spec"] = spec
         return real(spec, output, base_path, **kwargs)
 

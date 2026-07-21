@@ -17,7 +17,7 @@ from mlframe.evaluation.bootstrap import auc_ci, auc_variance
 
 
 def _draw(rng, n, auc_target):
-    """Helper that draw."""
+    """Test helper: mu = scipy.stats.norm.ppf(auc_target) * np.sqrt(2.0); y = (rng.random(n) < 0.5).astype(int); if y.sum() < 2 or n - y.sum() < 2: y[:2] = 1 y[-2:] = 0."""
     mu = scipy.stats.norm.ppf(auc_target) * np.sqrt(2.0)
     y = (rng.random(n) < 0.5).astype(int)
     if y.sum() < 2 or (n - y.sum()) < 2:
@@ -78,7 +78,7 @@ def test_auc_ci_rejects_unknown_method():
 
 
 def _truth_sd(n, auc_t, n_truth=1500):
-    """Helper that truth sd."""
+    """Builds seeded synthetic test data; returns ``(float(a.std(ddof=1)), float(a.mean()))``."""
     rng = np.random.default_rng(20260615)
     a = np.empty(n_truth)
     for i in range(n_truth):

@@ -131,11 +131,11 @@ def test_generate_probs_deterministic_under_threads():
     # A process/njit-global RNG seed inside the kernel would let concurrent seed=9 calls
     # clobber the seed=7 stream -> non-deterministic ref reproduction.
     def _same():
-        """Helper that same."""
+        """Returns ``generate_probs_from_outcomes(outcomes, random_state=7)``."""
         return generate_probs_from_outcomes(outcomes, random_state=7)
 
     def _other():
-        """Helper that other."""
+        """Returns ``generate_probs_from_outcomes(outcomes, random_state=9)``."""
         return generate_probs_from_outcomes(outcomes, random_state=9)
 
     with ThreadPoolExecutor(max_workers=8) as ex:

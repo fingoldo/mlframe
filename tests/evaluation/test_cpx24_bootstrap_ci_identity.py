@@ -26,7 +26,7 @@ def test_cpx24_jackknife_idx_mask_flip_identical_to_delete():
     data = rng.standard_normal(n)
 
     def metric_idx(idx):
-        """Helper that metric idx."""
+        """Returns ``float(data[idx].mean() + data[idx].std())``."""
         return float(data[idx].mean() + data[idx].std())
 
     # OLD reduction inline (np.delete per iter).
@@ -66,7 +66,7 @@ def test_cpx24_bootstrap_metric_ci_reproducible():
     y_pred = rng.random(400)
 
     def acc(yt, yp):
-        """Helper that acc."""
+        """Returns ``float(((yp > 0.5).astype(int) == yt).mean())``."""
         return float(((yp > 0.5).astype(int) == yt).mean())
 
     r1 = bs.bootstrap_metric(y_true, y_pred, acc, n_bootstrap=500, random_state=42, method="bca")
@@ -88,7 +88,7 @@ def test_cpx24_bootstrap_metric_bca_uses_jackknife_idx_path():
     captured = {}
 
     def metric_idx(idx):
-        """Helper that metric idx."""
+        """Returns ``float(full_scores[idx].mean())``."""
         return float(full_scores[idx].mean())
 
     jk = bs._jackknife_metric_idx(n, metric_idx)

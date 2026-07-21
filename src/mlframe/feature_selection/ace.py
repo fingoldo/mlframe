@@ -354,13 +354,10 @@ def _default_estimator(y: np.ndarray, n: int, random_state: int):
     """Task-appropriate RandomForest default: classifier for low-cardinality integer/label y, else regressor.
 
     Дьяконов recommends ensembles of trees for importance; a modest forest converges the importances
-    (slide 19) without the runtime of a production fit."""
-    from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+    (slide 19) without the runtime of a production fit. Delegates to the shared
+    ``_sklearn_defaults.default_tree_estimator`` heuristic (see that module for the float-binary-target
+    ambiguity warning); this function was previously a byte-for-byte duplicate of
+    ``functional_adapters._default_tree_estimator``."""
+    from mlframe.feature_selection._sklearn_defaults import default_tree_estimator
 
-    n_estimators = 120
-    is_classification = False
-    if y.dtype.kind in ("i", "u", "b", "O", "U", "S"):
-        is_classification = np.unique(y).size <= max(20, int(np.sqrt(n)))
-    if is_classification:
-        return RandomForestClassifier(n_estimators=n_estimators, n_jobs=-1, random_state=random_state, max_features="sqrt")
-    return RandomForestRegressor(n_estimators=n_estimators, n_jobs=-1, random_state=random_state, max_features="sqrt")
+    return default_tree_estimator(y, n=n, random_state=random_state, n_estimators=120)

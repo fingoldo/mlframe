@@ -45,17 +45,27 @@ def _fit_anomaly_predict(Xt: np.ndarray, Xq: np.ndarray, seed: int) -> np.ndarra
     """Fit 2 IsolationForest models on Xt with different seeds, return 5 features per Xq row."""
     from sklearn.ensemble import IsolationForest
 
-    iso1 = IsolationForest(n_estimators=100, contamination="auto", random_state=int(seed), n_jobs=-1, max_samples=min(256, Xt.shape[0]))
+    max_samples = min(256, Xt.shape[0])
+    iso1 = IsolationForest(n_estimators=100, contamination="auto", random_state=int(seed), n_jobs=-1, max_samples=max_samples)
     iso1.fit(Xt)
     s1 = -iso1.score_samples(Xq).astype(np.float32)  # negate so higher = more anomalous
 
-    iso2 = IsolationForest(n_estimators=100, contamination="auto", random_state=int(seed) + 41, n_jobs=-1, max_samples=min(256, Xt.shape[0]))
+    iso2 = IsolationForest(n_estimators=100, contamination="auto", random_state=int(seed) + 41, n_jobs=-1, max_samples=max_samples)
     iso2.fit(Xt)
     s2 = -iso2.score_samples(Xq).astype(np.float32)
 
     mean = ((s1 + s2) / 2.0).astype(np.float32)
     std = (np.abs(s1 - s2) / 2.0).astype(np.float32)  # |diff|/2 = std of 2 values
-    global_mean_train = float(((-iso1.score_samples(Xt) + -iso2.score_samples(Xt)) / 2.0).mean())
+    # global_mean_train only needs a representative estimate of the training-set score distribution, not an
+    # exhaustive rescore of every train row -- score a max_samples-sized subsample (the same sample size
+    # each tree was already fit on) instead of the full Xt, cutting this from O(n_train) to O(max_samples)
+    # per model per fold.
+    if Xt.shape[0] > max_samples:
+        sub_idx = np.random.default_rng(int(seed) + 97).choice(Xt.shape[0], size=max_samples, replace=False)
+        X_sub = Xt[sub_idx]
+    else:
+        X_sub = Xt
+    global_mean_train = float(((-iso1.score_samples(X_sub) + -iso2.score_samples(X_sub)) / 2.0).mean())
     rel_z = (mean - global_mean_train).astype(np.float32)
 
     return np.column_stack([s1, s2, mean, std, rel_z])

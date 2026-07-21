@@ -32,6 +32,13 @@ import pandas as pd
 
 DEFAULT_HIERARCHICAL_LEVEL_NAMES = ("major", "major_minor", "major_minor_patch")
 
+# ``pd.Series.astype("string").str.split(sep)`` maps a missing entry (None/NaN) to ``pd.NA`` rather than
+# an empty list, so a naive ``.map(len)``/slice-and-join over the split result crashes on any missing
+# version-string row (a realistic input -- older records commonly lack a version string). Missing rows
+# are routed to this single sentinel token at every hierarchical level instead, so they still get a
+# (shared, consistent) train+test-union frequency rather than crashing or silently dropping out.
+_MISSING_LEVEL_TOKEN = "__missing__"
+
 
 def _union_value_counts(train_series: pd.Series, test_series: pd.Series) -> pd.Series:
     """Return value counts computed over the concatenation of the train and test series."""
@@ -146,6 +153,10 @@ def train_test_union_frequency_encode_hierarchical_components(
 
     train_parts = train_str.str.split(hierarchical_split_sep)
     test_parts = test_str.str.split(hierarchical_split_sep)
+    # Route missing entries (pd.NA, produced by .str.split on a None/NaN input) to a single sentinel
+    # part-list instead of crashing on the .map(len)/slice-and-join calls below.
+    train_parts = train_parts.map(lambda parts: parts if isinstance(parts, list) else [_MISSING_LEVEL_TOKEN])
+    test_parts = test_parts.map(lambda parts: parts if isinstance(parts, list) else [_MISSING_LEVEL_TOKEN])
 
     max_depth = 0
     if len(train_parts) > 0:

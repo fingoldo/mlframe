@@ -197,13 +197,27 @@ class ChainedWindowForecaster(BaseEstimator, RegressorMixin):
             chain_predictions.append(pred)
             chain_mse[i] = np.mean((pred - np.asarray(y_target_sequence[i], dtype=np.float64)) ** 2)
 
-        growth_ratio = chain_mse / chain_mse[0]
+        # A perfect fit at position 0 (chain_mse[0] == 0, plausible on a synthetic/degenerate
+        # fixture) leaves relative growth undefined: a plain division produces inf/nan, and the
+        # threshold comparison below would trip on ANY nonzero later-position MSE (0 *
+        # accumulation_threshold == 0), regardless of how small. Report growth_ratio honestly
+        # (1.0 where a later position is ALSO exactly 0 -- still a perfect fit; +inf where it
+        # isn't -- a true infinite relative increase from a zero baseline) but skip the
+        # RELATIVE-threshold trustworthy_horizon check in this degenerate case rather than let an
+        # undefined denominator manufacture a false "untrustworthy" verdict from a tiny absolute
+        # MSE; the position stays "trustworthy" by the same default the loop already uses when the
+        # threshold is never crossed.
+        if chain_mse[0] > 0.0:
+            growth_ratio = chain_mse / chain_mse[0]
+        else:
+            growth_ratio = np.where(chain_mse == 0.0, 1.0, np.inf)
 
         trustworthy_horizon = n_positions
-        for i in range(n_positions):
-            if chain_mse[i] > accumulation_threshold * chain_mse[0]:
-                trustworthy_horizon = i
-                break
+        if chain_mse[0] > 0.0:
+            for i in range(n_positions):
+                if chain_mse[i] > accumulation_threshold * chain_mse[0]:
+                    trustworthy_horizon = i
+                    break
 
         return {
             "chain_predictions": chain_predictions,

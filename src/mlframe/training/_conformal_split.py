@@ -25,6 +25,15 @@ def _resolve_counts(n: int, calib_frac: float, conformal_frac: float) -> tuple[i
     return n_calib, n_conf
 
 
+def _check_nonzero_floor(calib_frac: float, conformal_frac: float, n_calib: int, n_conf: int, n: int, unit: str) -> None:
+    """Raise when a genuinely non-zero requested fraction floors to 0 ``unit``s (rows or groups) --
+    shared by all three carvers so a future edit to the guard can't silently regress just one of them."""
+    if conformal_frac and conformal_frac > 0 and n_conf == 0:
+        raise ValueError(f"conformal_frac={conformal_frac} over {n} {unit}(s) floors to 0 conformal {unit}s; need more {unit}s or a larger fraction.")
+    if calib_frac and calib_frac > 0 and n_calib == 0:
+        raise ValueError(f"calib_frac={calib_frac} over {n} {unit}(s) floors to 0 calib {unit}s; need more {unit}s or a larger fraction.")
+
+
 def carve_calib_conformal_iid(
     train_idx: np.ndarray,
     calib_frac: float,
@@ -36,6 +45,7 @@ def carve_calib_conformal_iid(
     idx = np.asarray(train_idx)
     n = idx.size
     n_calib, n_conf = _resolve_counts(n, calib_frac, conformal_frac)
+    _check_nonzero_floor(calib_frac, conformal_frac, n_calib, n_conf, n, "row")
     if n_calib + n_conf >= n:
         raise ValueError(f"calib+conformal ({n_calib}+{n_conf}) leaves no train rows out of {n}")
     rng = np.random.default_rng(seed)
@@ -70,6 +80,7 @@ def carve_calib_conformal_temporal(
         order = np.argsort(time_values, kind="stable")
         idx = idx[order]
     n_calib, n_conf = _resolve_counts(n, calib_frac, conformal_frac)
+    _check_nonzero_floor(calib_frac, conformal_frac, n_calib, n_conf, n, "row")
     purge = max(0, int(purge))
     # Lay out from the most-recent end backwards: conformal | purge | calib | purge | fit.
     conf_start = n - n_conf
@@ -105,11 +116,7 @@ def carve_calib_conformal_grouped(
     g = uniq.size
     n_g_conf = int(np.floor(conformal_frac * g)) if conformal_frac and conformal_frac > 0 else 0
     n_g_calib = int(np.floor(calib_frac * g)) if calib_frac and calib_frac > 0 else 0
-    # A non-zero requested fraction that floors to 0 groups silently produces an empty calib/conformal slice (too few groups for the fraction).
-    if conformal_frac and conformal_frac > 0 and n_g_conf == 0:
-        raise ValueError(f"conformal_frac={conformal_frac} over {g} group(s) floors to 0 conformal groups; need more groups or a larger fraction.")
-    if calib_frac and calib_frac > 0 and n_g_calib == 0:
-        raise ValueError(f"calib_frac={calib_frac} over {g} group(s) floors to 0 calib groups; need more groups or a larger fraction.")
+    _check_nonzero_floor(calib_frac, conformal_frac, n_g_calib, n_g_conf, g, "group")
     if n_g_conf + n_g_calib >= g:
         raise ValueError(f"calib+conformal groups ({n_g_calib}+{n_g_conf}) leave no fit groups out of {g}")
     rng = np.random.default_rng(seed)

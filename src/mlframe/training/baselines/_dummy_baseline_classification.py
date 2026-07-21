@@ -46,15 +46,28 @@ def _compute_classification_baselines(
     n_test = 0 if test_y is None else len(test_y)
     seed = _per_target_seed(config.random_state, target_name)
 
+    def _finite_int_labels(y: np.ndarray) -> np.ndarray:
+        """Drop non-finite (NaN/Inf) entries before the int64 cast: ``np.nan`` cast to int64 is an
+        implementation-defined large-magnitude value (observed as a large negative number on this box),
+        and ``np.bincount`` raises on a negative element -- a single missing/NaN label (a realistic
+        real-world occurrence on partially-labeled data) otherwise crashes the whole dummy-baselines phase
+        for that target."""
+        y_arr = np.asarray(y)
+        finite = y_arr[np.isfinite(y_arr)] if y_arr.dtype.kind in "fc" else y_arr
+        return finite.astype(np.int64)
+
     def _prior_from(y: np.ndarray | None) -> np.ndarray:
         """Class-marginal distribution of ``y`` (uniform fallback for None/empty or an all-zero bincount); used only for the oracle/eval-split-aware baselines, never the honest train-only prior (see the comment below)."""
         if y is None or len(y) == 0:
             return train_prior
-        bc = np.bincount(np.asarray(y).astype(np.int64), minlength=n_classes).astype(np.float64)
+        y_int = _finite_int_labels(y)
+        if y_int.size == 0:
+            return train_prior
+        bc = np.bincount(y_int, minlength=n_classes).astype(np.float64)
         return bc / bc.sum() if bc.sum() > 0 else np.full(n_classes, 1.0 / n_classes)
 
     # Compute train priors
-    train_y_int = train_y.astype(np.int64)
+    train_y_int = _finite_int_labels(train_y)
     bincounts = np.bincount(train_y_int, minlength=n_classes).astype(np.float64)
     train_prior = bincounts / bincounts.sum() if bincounts.sum() > 0 else np.full(n_classes, 1.0 / n_classes)
 

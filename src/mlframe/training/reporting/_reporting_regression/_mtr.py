@@ -89,7 +89,7 @@ def render_mtr_report(
                 _r2_k = float(_r2_for_chart(_yt_k[_mask_k], _yp_k[_mask_k]))
                 _metrics_str = f"target {_k_idx}: R^2={_r2_k:+.4f} " f"RMSE={_rmse_k:.4f} MAE={_mae_k:.4f}"
                 _spec = build_regression_panel_spec(
-                    _yt_k, _yp_k, audit=_audit_k,
+                    _yt_k[_mask_k], _yp_k[_mask_k], audit=_audit_k,
                     header_str=f"{report_title or model_name} target {_k_idx}",
                     metrics_str=_metrics_str,
                     figsize=figsize, plot_sample_size=plot_sample_size,

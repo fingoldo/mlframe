@@ -96,7 +96,13 @@ def detect_expanding_window_feature_leakage(
     """
     from sklearn.model_selection import cross_val_score
 
-    order = np.argsort(df[time_col].to_numpy())
+    # kind="stable": with a non-stable sort, `auto_remediate=True`'s internal verification re-check
+    # (which calls this SAME function again on the already-sorted `df_sorted`) could break ties among
+    # duplicate `time_col` values differently on the second argsort than the first, silently permuting
+    # `remediated_sorted`'s row alignment out from under `_remediated_fit_transform`'s index lookup. A
+    # stable sort applied to an ALREADY-sorted (possibly tied) sequence is provably the identity
+    # permutation, so the second call's re-sort is always a true no-op regardless of ties.
+    order = np.argsort(df[time_col].to_numpy(), kind="stable")
     df_sorted = df.iloc[order].reset_index(drop=True)
     y_sorted = np.asarray(y)[order]
     n = len(df_sorted)

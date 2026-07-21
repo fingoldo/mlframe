@@ -17,7 +17,7 @@ from mlframe.core.recency_step_weight import recency_step_weight
 
 
 def _make_regime_shift_data(n: int, shift_day: int, seed: int):
-    """Helper that make regime shift data."""
+    """Builds seeded synthetic test data; returns ``(X, y, days)``."""
     rng = np.random.default_rng(seed)
     days = np.arange(n)
     X = rng.normal(size=(n, 10))

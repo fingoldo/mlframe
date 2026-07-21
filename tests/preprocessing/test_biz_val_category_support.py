@@ -25,7 +25,7 @@ def _make_disjoint_category_data(n_train: int, n_test: int, n_cats_per_split: in
     rng = np.random.default_rng(seed)
 
     def _draw_split(n_rows, cat_offset):
-        """Helper that draw split."""
+        """Test helper: zipf_weights = 1.0 / np.arange(1, n_cats_per_split + 1); zipf_weights /= zipf_weights.sum(); cats = rng.choice(np.arange(n_cats_per_split) + cat_offse...."""
         zipf_weights = 1.0 / np.arange(1, n_cats_per_split + 1)
         zipf_weights /= zipf_weights.sum()
         cats = rng.choice(np.arange(n_cats_per_split) + cat_offset, size=n_rows, p=zipf_weights)
@@ -124,7 +124,7 @@ def _make_near_uniform_overlapping_category_data(n_train: int, n_test: int, n_sh
     cat_means = rng.uniform(0.1, 0.9, size=n_cats)
 
     def _draw_split(n_rows, allowed_cat_ids):
-        """Helper that draw split."""
+        """Returns ``(cats, y)`` (after 3 setup steps)."""
         cats = rng.choice(allowed_cat_ids, size=n_rows)
         y_prob = cat_means[cats]
         y = (rng.random(n_rows) < y_prob).astype(np.float64)

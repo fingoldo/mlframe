@@ -280,6 +280,7 @@ def _compute_oof_with_external_holdout(
     sample_weight: np.ndarray | None,
     full_key: tuple | None,
     group_ids: np.ndarray | None = None,
+    random_state: int = 0,
 ) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """Fit each component clone on full train, predict on caller-supplied external holdout (typically the suite's val split).
 
@@ -334,7 +335,7 @@ def _compute_oof_with_external_holdout(
                         _group_for_valid = None
                 _X_fit_c, _t_fit_c, _X_ev_c, _t_ev_c, _fm_c = (
                     _carve_inner_eval_split(
-                        X_train_valid, t_train, random_state=0,
+                        X_train_valid, t_train, random_state=int(random_state),
                         group_ids=_group_for_valid, return_fit_mask=True,
                     )
                 )
@@ -359,7 +360,7 @@ def _compute_oof_with_external_holdout(
                 inner_clone = clone(inner)
                 _X_fit_r, _y_fit_r, _X_ev_r, _y_ev_r, _fm_r = (
                     _carve_inner_eval_split(
-                        X_stack_t, y_train_full, random_state=0,
+                        X_stack_t, y_train_full, random_state=int(random_state),
                         group_ids=group_ids, return_fit_mask=True,
                     )
                 )
@@ -703,6 +704,7 @@ def compute_oof_holdout_predictions(
             sample_weight=sample_weight,
             full_key=_full_key,
             group_ids=group_ids,
+            random_state=random_state,
         )
 
     # Decide whether to do a time-aware split. Only the EXPLICIT ``time_ordering`` signal (the suite threads ctx.timestamps here) flips to a trailing-slice holdout. The old behaviour also probed every base column and auto-switched if ANY was monotone -- a false positive on sorted-but-non-temporal bases (sorted ids, binned features) that silently turned a random holdout into a trailing slice and changed the OOF leakage profile. Random shuffle is the safe default when no explicit time signal is given.

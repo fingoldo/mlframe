@@ -70,6 +70,16 @@ def report_regression_model_perf(
     n_features: int | None = None,
     plot_outputs: str | None = None,
     plot_dpi: int | None = None,
+    # Per-row weights for the headline MAE/RMSE/R2 metrics (the ones with a genuine weighted
+    # kernel: fast_mean_absolute_error / fast_root_mean_squared_error / fast_r2_score all accept
+    # sample_weight). MaxError has no weighted variant anywhere (matches sklearn's own
+    # max_error, which is likewise unweighted) and stays unweighted regardless. The 8 "extended"
+    # metrics (MBE/MAPE_mean/SMAPE/wMAPE/CV_RMSE/NSE/Pearson/ExplainedVariance) have no weighted
+    # kernel implementation anywhere in the codebase today, so they ALSO stay unweighted even
+    # when sample_weight is supplied -- see the fast-path branch below for exactly which metrics
+    # this affects. When set, the fast fused-block path is skipped (the fused kernel has no
+    # weighted variant) in favour of the individual weighted fast_* calls.
+    sample_weight: np.ndarray | None = None,
     # 2026-05-23 audit-followup #2: train-y envelope for the collapse sensor.
     # When supplied, the sensor's linear-extrapolation branch additionally
     # checks pred range against the TRAIN-y range, not just the in-batch
@@ -152,10 +162,10 @@ def report_regression_model_perf(
     if isinstance(targets, pd.Series):
         targets = targets.values
 
-    # Numba fast helpers now cover full sklearn signature
-    # (1-D / 2-D, sample_weight, multioutput) so all regression metric
-    # call sites here go through the fast path. 6-23x faster than
-    # sklearn at production size.
+    # The underlying mlframe.metrics.regression fast_* kernels cover the full sklearn signature
+    # (1-D / 2-D, sample_weight, multioutput), but the FUSED block this call site uses on the
+    # common 1-D path (fast_regression_metrics_block_extended, below) does not thread
+    # sample_weight through -- see that branch for which metrics are actually weight-aware here.
     targets_arr = np.asarray(targets)
     preds_arr = np.asarray(preds)
 
@@ -189,6 +199,14 @@ def report_regression_model_perf(
         y_train_min=y_train_min, y_train_max=y_train_max, y_train_std=y_train_std,
         model_name=model_name, report_title=report_title,
     )
+    # Single source of truth from here on: the clip is documented as landing "BEFORE metrics + chart", but
+    # only preds_arr (feeding the numeric metrics) was reassigned -- the residual audit, the DSL chart
+    # path, the legacy matplotlib chart, and this function's own return value all kept reading the
+    # ORIGINAL, unclipped `preds`. During the exact catastrophic-extrapolation scenario the clip exists to
+    # guard against, the title/metrics would show a plausible clipped R2 while the chart/audit/returned
+    # predictions (later stored as entry.test_preds and consumed throughout the rest of the reporting
+    # pipeline) silently showed the raw, unclipped values.
+    preds = preds_arr
     if targets_arr.ndim > 1 and targets_arr.shape[1] > 1:
         # WARN-loud when this multioutput path
         # fires. Multilabel classification SHOULD route to
@@ -216,12 +234,13 @@ def report_regression_model_perf(
     # 2-D / multioutput regression keeps the legacy per-output dispatch since the
     # multioutput aggregation has a non-trivial dispatch and fusing one target's
     # pass doesn't compose cleanly across outputs.
-    if targets_arr.ndim == 1 and preds_arr.ndim == 1:
+    if targets_arr.ndim == 1 and preds_arr.ndim == 1 and sample_weight is None:
         # 2026-05-28 audit batch: switched from fast_regression_metrics_block
         # (4 metrics: MAE/RMSE/MaxError/R2) to the EXTENDED block that lands
         # 12 metrics in the SAME 2 numba passes. 5.8-10.5x faster than the
         # equivalent 12 separate calls; see comment block in
         # ``mlframe.metrics._regression_extras`` for measured speedups.
+        # Only reachable when sample_weight is None: the fused kernel has no weighted variant.
         from mlframe.metrics.core import fast_regression_metrics_block_extended
         _block = fast_regression_metrics_block_extended(targets_arr, preds_arr)
         MAE = _block["MAE"]
@@ -239,15 +258,21 @@ def report_regression_model_perf(
         _ext_Pearson = _block["Pearson"]
         _ext_EV = _block["ExplainedVariance"]
     else:
+        # Either a 2-D/multioutput target, OR sample_weight was supplied (the fused block has no
+        # weighted variant). MAE/RMSE/R2 correctly honor sample_weight here via their own
+        # fast_*(sample_weight=...) kernels; the 8 "extended" metrics have no weighted kernel
+        # anywhere in the codebase and stay unweighted (NaN placeholders, matching the pre-existing
+        # 2-D-path behavior) rather than silently mixing weighted and unweighted numbers in one report.
         _ext_MBE = _ext_MAPE_mean = _ext_SMAPE = _ext_wMAPE = np.nan
         _ext_CV_RMSE = _ext_NSE = _ext_Pearson = _ext_EV = np.nan
-        MAE = fast_mean_absolute_error(targets_arr, preds_arr)
+        MAE = fast_mean_absolute_error(targets_arr, preds_arr, sample_weight=sample_weight)
         # 2-D max_error returns per-output array; the existing reporting
         # contract is a single scalar (overall max), so reduce explicitly.
+        # No weighted variant exists (matches sklearn's own unweighted max_error).
         _max_err = fast_max_error(targets_arr, preds_arr)
         MaxError = float(np.max(_max_err)) if isinstance(_max_err, np.ndarray) else _max_err
-        R2 = fast_r2_score(targets_arr, preds_arr)
-        RMSE = fast_root_mean_squared_error(targets_arr, preds_arr)
+        R2 = fast_r2_score(targets_arr, preds_arr, sample_weight=sample_weight)
+        RMSE = fast_root_mean_squared_error(targets_arr, preds_arr, sample_weight=sample_weight)
 
     # Prediction-collapse / extrapolation / mean-shift / out-of-envelope sensor (carved to _sensors.py). Logs a HARD
     # WARNING when predictions look pathological so operators see it in the run log instead of eyeballing scatters.
@@ -474,6 +499,7 @@ def report_regression_model_perf(
             pass
 
         def _render_regression_token(token: str) -> str:
+            """Formats one metric title token (e.g. "MAE", "RMSE") as its ``name=value`` chart-title fragment; "" if not finite/recognized."""
             if token == "MAE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return f"MAE={_fmt(MAE, report_ndigits)}"
             if token == "RMSE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential

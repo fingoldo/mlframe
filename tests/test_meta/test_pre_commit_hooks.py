@@ -13,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _read_text(path: Path) -> str:
-    """Helper that read text."""
+    """Returns ``path.read_text(encoding='utf-8')``."""
     return path.read_text(encoding="utf-8")
 
 

@@ -137,7 +137,7 @@ def test_mi_direct_thread_safe():
     results: list = [None, None]
 
     def _worker(idx):
-        """Helper that worker."""
+        """Test helper: results[idx] = mi_direct(factors_data, x=(0,), y=(1,), fa...."""
         results[idx] = mi_direct(factors_data, x=(0,), y=(1,), factors_nbins=factors_nbins, min_nonzero_confidence=1.0, npermutations=0, dtype=np.int32)
 
     threads = [threading.Thread(target=_worker, args=(i,)) for i in range(2)]
@@ -168,7 +168,7 @@ def test_arr2str_deterministic_under_threads():
     results: list[str] = [None, None]  # type: ignore
 
     def _worker(idx):
-        """Helper that worker."""
+        """Test helper: results[idx] = arr2str(arr)."""
         results[idx] = arr2str(arr)
 
     threads = [threading.Thread(target=_worker, args=(i,)) for i in range(2)]
@@ -204,7 +204,7 @@ def test_prewarm_concurrent_no_race():
     errors: list[BaseException] = []
 
     def _warm():
-        """Helper that warm."""
+        """Attempts ``prewarm_fs_numba_cache(verbose=False)``, tolerating failure (see the except clause for the fallback)."""
         try:
             prewarm_fs_numba_cache(verbose=False)
         except BaseException as exc:

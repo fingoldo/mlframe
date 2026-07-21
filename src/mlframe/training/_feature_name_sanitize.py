@@ -109,12 +109,24 @@ def sanitize_frame_columns(df):
         return df
 
 
-def sanitize_name_list(names: Optional[Sequence]) -> Optional[Sequence]:
+def sanitize_name_list(names: Optional[Sequence], full_columns: Optional[Sequence] = None) -> Optional[Sequence]:
     """Remap a list of feature names (e.g. ``cat_features``) through the same
     pure map. Non-string entries (column indices) pass through unchanged.
-    Returns the input unchanged when nothing is hostile."""
+    Returns the input unchanged when nothing is hostile.
+
+    ``full_columns``, when given, should be the SAME column sequence passed to
+    ``sanitize_frame_columns``/``build_safe_mapping`` for the associated frame --
+    the collision-safe mapping is then built against that full universe so a
+    hostile name here maps to EXACTLY the same safe name the frame itself was
+    renamed to (a name list sanitised independently, without this shared
+    universe, could otherwise dedupe differently than the frame and end up
+    referencing a column that doesn't exist, or the wrong one). Without
+    ``full_columns`` this at least dedupes within ``names`` itself -- better
+    than no collision tracking at all, but not guaranteed frame-consistent.
+    """
     if not names:
         return names
     if not any(isinstance(n, str) and _is_hostile(n) for n in names):
         return names
-    return [safe_feature_name(n) if isinstance(n, str) else n for n in names]
+    mapping = build_safe_mapping(full_columns if full_columns is not None else names)
+    return [mapping.get(n, safe_feature_name(n)) if isinstance(n, str) else n for n in names]

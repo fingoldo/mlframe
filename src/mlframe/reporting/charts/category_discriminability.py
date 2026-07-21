@@ -106,10 +106,11 @@ def _iter_categorical_columns(X: Any, features: Optional[Sequence[str]]):
     import pandas as pd
 
     def _is_categorical_like(col) -> bool:
+        """True if ``col`` should be treated as categorical: pandas CategoricalDtype, or a non-list/array-holding object column."""
         dt = col.dtype
         if isinstance(dt, pd.CategoricalDtype):
             return True
-        if dt == object:
+        if pd.api.types.is_object_dtype(dt):
             # An object column holding non-scalar elements (e.g. a materialized embedding column) can't be
             # categorized -- ``s.astype("category")`` factorizes via hashing, and numpy arrays/lists aren't
             # hashable, raising "TypeError: unhashable type: 'numpy.ndarray'". A single embedding vector isn't

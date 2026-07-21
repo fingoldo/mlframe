@@ -19,6 +19,7 @@ import hashlib
 import logging
 import os
 import threading
+import weakref
 from collections import OrderedDict
 
 import numpy as np
@@ -247,12 +248,42 @@ def _content_fingerprint_for_cache(arr) -> tuple:
 # this with train_df then val_df then train_df again on the next target.
 # Cap is 16 entries so the cache never grows unbounded if id() is recycled
 # by GC across a long-running session.
-_PIPELINE_X_HASH_CACHE: "OrderedDict[tuple, str]" = OrderedDict()
+_PIPELINE_X_HASH_CACHE: "OrderedDict[tuple, tuple[weakref.ReferenceType, str]]" = OrderedDict()
 _PIPELINE_X_HASH_CACHE_MAX = 16
 
 # Symmetric (id, shape) memo for the target-side full-content hash (mirrors the X-side cache above).
-_PIPELINE_TARGET_HASH_CACHE: "OrderedDict[tuple, str]" = OrderedDict()
+_PIPELINE_TARGET_HASH_CACHE: "OrderedDict[tuple, tuple[weakref.ReferenceType, str]]" = OrderedDict()
 _PIPELINE_TARGET_HASH_CACHE_MAX = 16
+
+
+def _weakref_cache_get(cache: "OrderedDict[tuple, tuple[weakref.ReferenceType, str]]", key: tuple, arr) -> "str | None":
+    """Look up ``key`` in an (id, shape)-keyed hash memo, honoring the entry ONLY if its stored
+    weakref still resolves to the SAME object.
+
+    A plain ``(id(arr), shape)`` key collides when CPython recycles a just-freed array's memory
+    address for a new allocation of matching shape -- routine under e.g. RFECV inner CV folds
+    slicing a fresh same-shape target array every iteration. Without the weakref check, a stale
+    digest from the FREED array would be returned for the new, differently-content array.
+    """
+    entry = cache.get(key)
+    if entry is None:
+        return None
+    ref, digest = entry
+    if ref() is arr:
+        cache.move_to_end(key)
+        return digest
+    return None
+
+
+def _weakref_cache_put(cache: "OrderedDict[tuple, tuple[weakref.ReferenceType, str]]", key: tuple, arr, digest: str, max_entries: int) -> None:
+    """Store ``digest`` under ``key`` alongside a weakref to ``arr`` (see ``_weakref_cache_get``); no-ops if ``arr`` doesn't support weak references (rare; just skips caching, not a correctness issue)."""
+    try:
+        ref = weakref.ref(arr)
+    except TypeError:
+        return
+    cache[key] = (ref, digest)
+    if len(cache) > max_entries:
+        cache.popitem(last=False)
 
 
 def _full_x_content_hash(arr) -> str:
@@ -277,9 +308,8 @@ def _full_x_content_hash(arr) -> str:
     # iter632 fast-path: id+shape discriminates against GC-recycled id collisions and is safe because train/val frames are not mutated between cache_key invocations within the suite (preserve the same guarantee as iter625 / iter627).
     sh = getattr(arr, "shape", None)
     id_shape = (id(arr), sh if sh is not None else (None,))
-    cached = _PIPELINE_X_HASH_CACHE.get(id_shape)
+    cached = _weakref_cache_get(_PIPELINE_X_HASH_CACHE, id_shape, arr)
     if cached is not None:
-        _PIPELINE_X_HASH_CACHE.move_to_end(id_shape)
         return cached
     try:
         # iter299 (2026-05-26): polars-native hash path. The legacy
@@ -315,9 +345,7 @@ def _full_x_content_hash(arr) -> str:
             if col_names:
                 h.update(col_names.encode())
             _result = h.hexdigest()
-            _PIPELINE_X_HASH_CACHE[id_shape] = _result
-            if len(_PIPELINE_X_HASH_CACHE) > _PIPELINE_X_HASH_CACHE_MAX:
-                _PIPELINE_X_HASH_CACHE.popitem(last=False)
+            _weakref_cache_put(_PIPELINE_X_HASH_CACHE, id_shape, arr, _result, _PIPELINE_X_HASH_CACHE_MAX)
             return _result
         if pl is not None and isinstance(arr, pl.Series):
             try:
@@ -368,9 +396,7 @@ def _full_x_content_hash(arr) -> str:
                 if col_names:
                     h.update(col_names.encode())
                 _result = h.hexdigest()
-                _PIPELINE_X_HASH_CACHE[id_shape] = _result
-                if len(_PIPELINE_X_HASH_CACHE) > _PIPELINE_X_HASH_CACHE_MAX:
-                    _PIPELINE_X_HASH_CACHE.popitem(last=False)
+                _weakref_cache_put(_PIPELINE_X_HASH_CACHE, id_shape, arr, _result, _PIPELINE_X_HASH_CACHE_MAX)
                 return _result
             # Fallback to legacy to_numpy + tobytes path on any polars failure
             # (mixed-dtype frame polars can't ingest, etc).
@@ -407,9 +433,7 @@ def _full_x_content_hash(arr) -> str:
         if col_names:
             h.update(col_names.encode())
         _result = h.hexdigest()
-        _PIPELINE_X_HASH_CACHE[id_shape] = _result
-        if len(_PIPELINE_X_HASH_CACHE) > _PIPELINE_X_HASH_CACHE_MAX:
-            _PIPELINE_X_HASH_CACHE.popitem(last=False)
+        _weakref_cache_put(_PIPELINE_X_HASH_CACHE, id_shape, arr, _result, _PIPELINE_X_HASH_CACHE_MAX)
         return _result
     except Exception:
         return ""
@@ -428,17 +452,18 @@ def _full_target_content_hash(arr) -> str:
     (cost ~5us per 100k cells; well under any cache benefit). Returns an empty string on conversion failure so the
     caller can decide to skip the cache rather than serve a wrong-content hit.
 
-    Carries the same (id, shape)-keyed LRU memo as the X-side ``_full_x_content_hash``: the target is called
-    twice per pipeline-fit (get/set pair) and re-visited on the train/val/multi-target alternation, all on a
-    pinned array. id-recycling is bounded by also keying on shape. Saves the O(rows) re-hash on every repeat.
+    Carries the same (id, shape)-keyed LRU memo as the X-side ``_full_x_content_hash``, guarded by
+    ``_weakref_cache_get``/``_weakref_cache_put`` against id-recycling (a same-shape array reusing a
+    just-freed array's address, e.g. RFECV inner CV folds slicing a fresh target every iteration)
+    since (id, shape) alone is not sufficient -- verified the collision reproduces without the
+    weakref check. Saves the O(rows) re-hash on every genuine repeat (same object, pinned array).
     """
     if arr is None:
         return ""
     sh = getattr(arr, "shape", None)
     id_shape = (id(arr), sh if sh is not None else (None,))
-    cached = _PIPELINE_TARGET_HASH_CACHE.get(id_shape)
+    cached = _weakref_cache_get(_PIPELINE_TARGET_HASH_CACHE, id_shape, arr)
     if cached is not None:
-        _PIPELINE_TARGET_HASH_CACHE.move_to_end(id_shape)
         return cached
     try:
         if isinstance(arr, np.ndarray):
@@ -458,9 +483,7 @@ def _full_target_content_hash(arr) -> str:
         h.update(str(np_arr.shape).encode())
         h.update(str(np_arr.dtype).encode())
         _result = h.hexdigest()
-        _PIPELINE_TARGET_HASH_CACHE[id_shape] = _result
-        if len(_PIPELINE_TARGET_HASH_CACHE) > _PIPELINE_TARGET_HASH_CACHE_MAX:
-            _PIPELINE_TARGET_HASH_CACHE.popitem(last=False)
+        _weakref_cache_put(_PIPELINE_TARGET_HASH_CACHE, id_shape, arr, _result, _PIPELINE_TARGET_HASH_CACHE_MAX)
         return _result
     except Exception:
         return ""

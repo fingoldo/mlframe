@@ -15,7 +15,7 @@ from mlframe.inference.entity_prediction_collapse import collapse_predictions_by
 
 
 def _make_entity_level_label_dataset(n_entities: int, rows_per_entity: int, seed: int):
-    """Helper that make entity level label dataset."""
+    """Builds seeded synthetic test data; returns ``(row_predictions, y_row, entity_ids)``."""
     rng = np.random.default_rng(seed)
     entity_ids = np.repeat(np.arange(n_entities), rows_per_entity)
     n = len(entity_ids)

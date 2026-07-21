@@ -236,3 +236,6 @@ def compute_naive_outlier_score(X_train: np.ndarray, X_test: np.ndarray) -> np.n
     d = X_test.shape[1]
     counts = count_num_outofranges(X_test, mins, maxs)
     return np.asarray(counts.astype(np.float64) / max(d, 1))
+
+
+__all__ = ["reject_outliers", "compute_outlier_detector_score", "count_num_outofranges", "compute_naive_outlier_score"]

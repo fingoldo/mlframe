@@ -252,6 +252,61 @@ def _build_dataset(
 
 
 # ---------------------------------------------------------------------
+# Module-level Dataset cache, keyed by content fingerprint. Mirrors
+# xgb_shim's ``_XGB_DMATRIX_CACHE``/``_xgb_cache_get``/``_xgb_cache_put``
+# exactly. Without this, sklearn.clone() of an LGB shim (the same
+# CompositeCrossTargetEnsemble OOF refit pattern documented as the
+# motivating case for the XGB module cache) produces a fresh instance
+# with an empty instance-level cache and silently rebuilds the whole
+# binned Dataset from scratch on every clone -- the exact cost this
+# shim exists to eliminate, just never actually delivered on the LGB
+# side because no module-level fallback existed.
+#
+# ``MLFRAME_LGB_CACHE_DISABLE=1`` env var forces bypass (testing only).
+from collections import OrderedDict as _OrderedDict
+import os as _os
+import threading as _threading
+
+_LGB_DATASET_CACHE: "_OrderedDict[tuple, Any]" = _OrderedDict()
+_LGB_DATASET_CACHE_CAP: int = 8
+_LGB_DATASET_CACHE_LOCK = _threading.Lock()
+
+
+def _lgb_cache_disabled() -> bool:
+    """True when the ``MLFRAME_LGB_CACHE_DISABLE`` env var is set, forcing every Dataset cache lookup/store to be a no-op (diagnostics / A-B testing escape hatch)."""
+    return bool(_os.environ.get("MLFRAME_LGB_CACHE_DISABLE"))
+
+
+def _lgb_cache_get(key: tuple):
+    """LRU-ordered lookup of a cached Dataset by content-signature ``key``; touches the entry to most-recently-used on hit, returns None on miss or when the cache is disabled."""
+    if _lgb_cache_disabled() or key is None:
+        return None
+    with _LGB_DATASET_CACHE_LOCK:
+        ds = _LGB_DATASET_CACHE.get(key)
+        if ds is not None:
+            _LGB_DATASET_CACHE.move_to_end(key)
+        return ds
+
+
+def _lgb_cache_put(key: tuple, dataset: Any) -> None:
+    """Store ``dataset`` under ``key`` in the LRU Dataset cache, evicting the least-recently-used entry once the cache exceeds ``_LGB_DATASET_CACHE_CAP``."""
+    if _lgb_cache_disabled() or key is None or dataset is None:
+        return
+    with _LGB_DATASET_CACHE_LOCK:
+        if key in _LGB_DATASET_CACHE:
+            _LGB_DATASET_CACHE.move_to_end(key)
+        _LGB_DATASET_CACHE[key] = dataset
+        while len(_LGB_DATASET_CACHE) > _LGB_DATASET_CACHE_CAP:
+            _LGB_DATASET_CACHE.popitem(last=False)
+
+
+def _lgb_cache_clear() -> None:
+    """Release all cached Datasets (call between long-running suite invocations to free C++ memory)."""
+    with _LGB_DATASET_CACHE_LOCK:
+        _LGB_DATASET_CACHE.clear()
+
+
+# ---------------------------------------------------------------------
 # Mixin -- shared fit-with-cache logic
 # ---------------------------------------------------------------------
 
@@ -270,22 +325,30 @@ class _DatasetReuseMixin:
     # super().__init__().
     _cached_train_dataset: Any | None
     _cached_train_key: tuple | None
-    _cached_val_dataset: Any | None
-    _cached_val_key: tuple | None
+    # Per-eval-set-content val Dataset cache (NOT a single slot): a fit() call with
+    # N eval_set entries needs N simultaneously-cached val Datasets, one per distinct
+    # val_key. A single _cached_val_dataset/_cached_val_key pair gets overwritten by
+    # every loop iteration, so only the LAST eval-set entry from the LAST fit() call
+    # ever hits.
+    _cached_val_datasets: "_OrderedDict[tuple, Any]"
 
     # Names of cache attributes. Listed once so ``__getstate__`` /
     # ``clear_cache`` / the forward-/backward-transfer blocks in
     # ``core.py`` stay in sync. Two groups: ``_CACHE_POINTER_ATTRS``
     # are the heavyweight C++-backed Dataset objects (unpicklable when
     # constructed, costly in RAM), ``_CACHE_KEY_ATTRS`` are the
-    # lightweight tuple signatures that guard them.
-    _CACHE_POINTER_ATTRS: tuple = ("_cached_train_dataset", "_cached_val_dataset")
-    _CACHE_KEY_ATTRS: tuple = ("_cached_train_key", "_cached_val_key")
+    # lightweight tuple signatures that guard them. The val-side
+    # multi-slot dict (``_cached_val_datasets``) is handled separately
+    # since it isn't a single pointer/key pair.
+    _CACHE_POINTER_ATTRS: tuple = ("_cached_train_dataset",)
+    _CACHE_KEY_ATTRS: tuple = ("_cached_train_key",)
+    _VAL_DATASET_SLOTS_CAP: int = 8
 
     def _init_cache(self) -> None:
-        """Reset all cache pointer/key attributes to None; called from __init__ and after unpickling since the pointer attrs cannot survive a pickle round-trip."""
+        """Reset all cache pointer/key attributes to None (and the val-Dataset dict to empty); called from __init__ and after unpickling since the pointer attrs cannot survive a pickle round-trip."""
         for _attr in self._CACHE_POINTER_ATTRS + self._CACHE_KEY_ATTRS:
             setattr(self, _attr, None)
+        self._cached_val_datasets = _OrderedDict()
 
     # ------------------------------------------------------------------
     # Pickle / joblib round-trip -- strip cached Dataset on save
@@ -313,6 +376,8 @@ class _DatasetReuseMixin:
         # stale-key-looking-valid trap on load.
         for _attr in self._CACHE_POINTER_ATTRS + self._CACHE_KEY_ATTRS:
             state[_attr] = None
+        # Val Datasets are the same unpicklable ctypes-pointer objects; strip the whole dict.
+        state["_cached_val_datasets"] = _OrderedDict()
         # Wave 19 P1: stamp the lightgbm version at save time. The booster
         # JSON inside the unmodified __dict__ is library-version-sensitive;
         # without this stamp the load side has no way to detect a minor
@@ -337,6 +402,8 @@ class _DatasetReuseMixin:
         for _attr in self._CACHE_POINTER_ATTRS + self._CACHE_KEY_ATTRS:
             if not hasattr(self, _attr):
                 setattr(self, _attr, None)
+        if not hasattr(self, "_cached_val_datasets"):
+            self._cached_val_datasets = _OrderedDict()
         # Wave 19 P1: compare the saved lightgbm version against the live
         # one. WARN-only (booster libs are typically forward-compatible
         # for minor versions) so loads of older artifacts don't fail; the
@@ -450,9 +517,20 @@ class _DatasetReuseMixin:
         self._mlframe_train_cat_dtypes = {_c: _dt for _c, _dt in X.dtypes.items() if str(_dt) == "category"} if hasattr(X, "dtypes") else {}
 
         # ---- Train Dataset: cache-or-build ---------------------------
+        # Lookup priority mirrors xgb_shim: instance cache (fast path) -> module-level
+        # cache (survives sklearn.clone(), e.g. composite-ensemble OOF refit) -> fresh build.
         train_key = _signature_of(X, categorical_feature)
+        dtrain = None
+        _train_source = "miss"
         if self._cached_train_key == train_key and self._cached_train_dataset is not None:
             dtrain = self._cached_train_dataset
+            _train_source = "instance"
+        else:
+            _global_train_hit = _lgb_cache_get(train_key)
+            if _global_train_hit is not None:
+                dtrain = _global_train_hit
+                _train_source = "module"
+        if dtrain is not None:
             # Validate that label cardinality matches the cached Dataset
             # before any set_label/set_weight: cache hit on ``X`` does NOT
             # guarantee ``y`` has the same length (caller can pass a
@@ -481,9 +559,12 @@ class _DatasetReuseMixin:
                 # set ones to clear any prior weight; LightGBM treats
                 # an all-1 weight identically to no-weight.
                 dtrain.set_weight(np.ones(dtrain.num_data(), dtype=np.float32))
+            # Promote a module-cache hit to instance-level for the next call on this instance.
+            self._cached_train_dataset = dtrain
+            self._cached_train_key = train_key
             logger.debug(
-                "[lgb-shim] reused cached train Dataset (id=%d)",
-                id(dtrain),
+                "[lgb-shim] reused %s cached train Dataset (id=%d)",
+                _train_source, id(dtrain),
             )
         else:
             dtrain = _build_dataset(
@@ -494,8 +575,9 @@ class _DatasetReuseMixin:
             )
             self._cached_train_dataset = dtrain
             self._cached_train_key = train_key
+            _lgb_cache_put(train_key, dtrain)
             logger.debug(
-                "[lgb-shim] built fresh train Dataset (id=%d)",
+                "[lgb-shim] built fresh train Dataset (id=%d); stored in module cache for cross-clone reuse",
                 id(dtrain),
             )
 
@@ -547,12 +629,32 @@ class _DatasetReuseMixin:
                 y_val = self._transform_y_for_eval(y_val_raw)
                 w_val = w_val_inline if w_val_inline is not None else (eval_sample_weight[i] if eval_sample_weight and i < len(eval_sample_weight) else None)
                 init_val = eval_init_score[i] if eval_init_score and i < len(eval_init_score) else None
-                val_key = _signature_of(X_val, categorical_feature)
-                if self._cached_val_key == val_key and self._cached_val_dataset is not None:
-                    dval = self._cached_val_dataset
+                # Composite key (val content, train content) so we only reuse a val Dataset when
+                # BOTH match -- a val Dataset's bin mapping is baked in from whichever dtrain it
+                # was built with reference= against; reusing it under a DIFFERENT train Dataset
+                # would silently score against stale bins. Lookup chain mirrors train: instance
+                # dict slot (multi-eval-set safe, unlike the old single-pair slot that only ever
+                # cached the LAST eval-set entry -- see F2) -> module cache (cross-clone reuse,
+                # see F1) -> fresh build.
+                val_key = (_signature_of(X_val, categorical_feature), train_key)
+                dval = self._cached_val_datasets.get(val_key)
+                _val_source = "instance" if dval is not None else "miss"
+                if dval is None:
+                    dval = _lgb_cache_get(val_key)
+                    if dval is not None:
+                        _val_source = "module"
+                if dval is not None:
                     dval.set_label(np.asarray(y_val))
                     if w_val is not None:
                         dval.set_weight(np.asarray(w_val))
+                    self._cached_val_datasets[val_key] = dval
+                    self._cached_val_datasets.move_to_end(val_key)
+                    while len(self._cached_val_datasets) > self._VAL_DATASET_SLOTS_CAP:
+                        self._cached_val_datasets.popitem(last=False)
+                    logger.debug(
+                        "[lgb-shim] reused %s cached val Dataset (id=%d)",
+                        _val_source, id(dval),
+                    )
                 else:
                     dval = _build_dataset(
                         X_val, y_val, w_val,
@@ -561,8 +663,15 @@ class _DatasetReuseMixin:
                         feature_name=feature_name,
                         init_score=init_val,
                     )
-                    self._cached_val_dataset = dval
-                    self._cached_val_key = val_key
+                    self._cached_val_datasets[val_key] = dval
+                    self._cached_val_datasets.move_to_end(val_key)
+                    while len(self._cached_val_datasets) > self._VAL_DATASET_SLOTS_CAP:
+                        self._cached_val_datasets.popitem(last=False)
+                    _lgb_cache_put(val_key, dval)
+                    logger.debug(
+                        "[lgb-shim] built fresh val Dataset (id=%d); stored in module cache for cross-clone reuse",
+                        id(dval),
+                    )
                 valid_sets.append(dval)
                 if i == 0:
                     _iter_metrics_Xval = X_val

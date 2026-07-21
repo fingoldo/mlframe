@@ -12,7 +12,7 @@ from mlframe.votenrank.leaderboard.leaderboard_impl import Leaderboard
 
 
 def _reference_winning_votes(lb):
-    """Helper that reference winning votes."""
+    """Returns ``(-pd.Series(data=out, index=pd.Series(lb.models, name='Name'))).sort_values(ascending=F...`` (after 2 setup steps)."""
     out = []
     for model in lb.models:
         models_scores = ((lb.ranks < lb.ranks.loc[model]) * lb.weights).sum(axis=1)

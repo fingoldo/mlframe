@@ -32,12 +32,12 @@ _BASELINE_PATH = Path(__file__).resolve().parent / "_source_proxy_baseline.json"
 
 
 def _refresh_requested() -> bool:
-    """Helper that refresh requested."""
+    """Returns ``'--refresh-source-proxy-baseline' in sys.argv``."""
     return "--refresh-source-proxy-baseline" in sys.argv
 
 
 def _build_current() -> set[str]:
-    """Helper that build current."""
+    """Returns ``keys`` (after 2 setup steps)."""
     keys: set[str] = set()
     for p in _REPO_TESTS.rglob("*.py"):
         if "__pycache__" in p.parts:

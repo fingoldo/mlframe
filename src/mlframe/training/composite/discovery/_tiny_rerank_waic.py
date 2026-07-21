@@ -62,7 +62,11 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
     from ._eval_waic import compute_transform_waic
 
     n_folds = int(getattr(self.config, "transform_waic_n_folds", 4) or 4)
-    rs = int(getattr(self, "random_seed", 0) or 0)
+    # `self.random_seed` does not exist on CompositeTargetDiscovery -- the configured seed lives at
+    # `self.config.random_state` (which every other call site in the sibling _tiny_rerank.py module
+    # reads correctly). The old `getattr(self, "random_seed", 0)` always fell through to the
+    # default, silently pinning this K-fold split to seed 0 regardless of the caller's random_state.
+    rs = int(getattr(self.config, "random_state", 0) or 0)
     yb = np.asarray(y_screen, dtype=np.float64).ravel()
     waic: dict[int, float] = {}
     for i, spec in enumerate(kept_specs):

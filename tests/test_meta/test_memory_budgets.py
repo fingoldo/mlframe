@@ -38,7 +38,7 @@ _BUDGETS_MB: dict[str, float] = {
 
 @pytest.fixture(scope="module")
 def small_regression_data():
-    """Helper that small regression data."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.default_rng(123)
     n_rows, n_features = 200, 8
     X = rng.standard_normal((n_rows, n_features))

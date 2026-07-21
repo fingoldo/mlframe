@@ -16,7 +16,7 @@ import mlframe.config as cfg
 
 
 def _all_config_enums():
-    """Helper that all config enums."""
+    """Returns ``out`` (after 2 setup steps)."""
     out = []
     for name in dir(cfg):
         obj = getattr(cfg, name)

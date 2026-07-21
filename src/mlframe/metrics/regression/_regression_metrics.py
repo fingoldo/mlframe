@@ -142,7 +142,9 @@ def _fast_r2_score_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         ss_res += d_res * d_res
         ss_tot += d_tot * d_tot
     if ss_tot == 0.0:
-        return 0.0  # sklearn convention for constant y_true
+        # sklearn convention for constant y_true: 1.0 for a perfect fit (ss_res==0), else 0.0 -- NOT a flat
+        # 0.0 always, which silently returns 0.0 even for a perfect fit.
+        return 1.0 if ss_res == 0.0 else 0.0
     return 1.0 - ss_res / ss_tot
 
 
@@ -162,7 +164,7 @@ def _fast_r2_score_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         ss_res += d_res * d_res
         ss_tot += d_tot * d_tot
     if ss_tot == 0.0:
-        return 0.0
+        return 1.0 if ss_res == 0.0 else 0.0
     return 1.0 - ss_res / ss_tot
 
 
@@ -262,7 +264,8 @@ def _fast_r2_score_weighted_seq(y_true, y_pred, w):
         ss_res += d_res * d_res * w[i]
         ss_tot += d_tot * d_tot * w[i]
     if ss_tot == 0.0:
-        return 0.0
+        # sklearn convention: see _fast_r2_score_seq's comment above.
+        return 1.0 if ss_res == 0.0 else 0.0
     return 1.0 - ss_res / ss_tot
 
 
@@ -286,7 +289,7 @@ def _fast_r2_score_weighted_par(y_true, y_pred, w):
         ss_res += d_res * d_res * w[i]
         ss_tot += d_tot * d_tot * w[i]
     if ss_tot == 0.0:
-        return 0.0
+        return 1.0 if ss_res == 0.0 else 0.0
     return 1.0 - ss_res / ss_tot
 
 
@@ -818,8 +821,9 @@ def fast_regression_metrics_block(
     mse = sum_sqr / n
     rmse = float(np.sqrt(mse))
     if ss_tot <= 0.0:
-        # sklearn convention: constant y_true and zero residuals -> R^2 = 0.0
-        r2 = 0.0 if sum_sqr == 0.0 else float("-inf")
+        # sklearn convention (verified against sklearn.metrics.r2_score directly): constant y_true with a
+        # PERFECT fit -> R^2 = 1.0; constant y_true with any nonzero residual -> R^2 = 0.0. NOT -inf.
+        r2 = 1.0 if sum_sqr == 0.0 else 0.0
     else:
         r2 = 1.0 - sum_sqr / ss_tot
     return {"MAE": float(mae), "RMSE": rmse, "MaxError": float(max_abs), "R2": float(r2)}

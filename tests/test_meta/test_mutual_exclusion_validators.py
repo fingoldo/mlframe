@@ -58,7 +58,7 @@ _PATTERNS = [
 
 
 def _config_classes() -> list[type[BaseModel]]:
-    """Helper that config classes."""
+    """Returns ``out`` (after 2 setup steps)."""
     out = []
     for _, obj in inspect.getmembers(configs_module, inspect.isclass):
         if not (issubclass(obj, BaseModel) and obj is not BaseModel):
@@ -79,7 +79,7 @@ def _config_classes() -> list[type[BaseModel]]:
 
 
 def _has_default(info: FieldInfo) -> bool:
-    """Helper that has default."""
+    """Returns ``False`` (after 2 setup steps)."""
     if info.default is not PydanticUndefined and info.default is not Ellipsis:
         return True
     if info.default_factory is not None:
@@ -88,7 +88,7 @@ def _has_default(info: FieldInfo) -> bool:
 
 
 def _required_sentinels(cls: type[BaseModel]) -> dict:
-    """Helper that required sentinels."""
+    """Returns ``out`` (after 2 setup steps)."""
     out: dict = {}
     for name, info in cls.model_fields.items():
         if not _has_default(info):

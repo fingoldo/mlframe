@@ -887,7 +887,7 @@ def test_biz_val_rfecv_property_no_crash_on_random_configs():
     )
     @settings(max_examples=5, deadline=None)
     def _property(n, p_signal, p_noise, cv, seed):
-        """Helper that property."""
+        """Test helper: X, y, _ = make_signal_plus_noise(n=n, p_signal=p_signal, ...; df, _ys = as_df(X, y); sel = RFECV(estimator=RandomForestClassifier(random_state...."""
         X, y, _ = make_signal_plus_noise(
             n=n,
             p_signal=p_signal,

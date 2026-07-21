@@ -48,7 +48,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 @pytest.fixture
 def small_regression_data():
-    """Helper that small regression data."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame(
         {
@@ -63,7 +63,7 @@ def small_regression_data():
 
 @pytest.fixture
 def small_classification_data():
-    """Helper that small classification data."""
+    """Builds seeded synthetic test data; returns ``(X, y)``."""
     rng = np.random.default_rng(0)
     X = rng.normal(size=(40, 3))
     y = (X[:, 0] > 0).astype(int)
@@ -106,7 +106,7 @@ class TestCompositeTargetEstimatorCompliance:
     """
 
     def _make(self):
-        """Helper that make."""
+        """Returns ``CompositeTargetEstimator(base_estimator=LinearRegression(), transform_name='diff', base...`` (after 1 setup step)."""
         from mlframe.training.composite import CompositeTargetEstimator
 
         return CompositeTargetEstimator(
@@ -158,7 +158,7 @@ class TestLagPredictDeployableModelCompliance:
     """
 
     def _make(self):
-        """Helper that make."""
+        """Returns ``_LagPredictDeployableModel(lag_column='base')`` (after 1 setup step)."""
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
 
         return _LagPredictDeployableModel(lag_column="base")
@@ -195,7 +195,7 @@ class TestLagPredictDeployableModelCompliance:
 class TestESTransformedTargetRegressorCompliance:
     """Groups tests covering TestESTransformedTargetRegressorCompliance."""
     def _make(self):
-        """Helper that make."""
+        """Returns ``ESTransformedTargetRegressor(regressor=LinearRegression(), func=np.log1p, inverse_func=...`` (after 1 setup step)."""
         from mlframe.estimators.custom import ESTransformedTargetRegressor
 
         # log1p / expm1 round-trip; both are vector-safe, finite-preserving.
@@ -242,7 +242,7 @@ class TestEstimatorWithEarlyStoppingCompliance:
     """
 
     def _make(self):
-        """Helper that make."""
+        """Returns ``EstimatorWithEarlyStopping(base_estimator=LogisticRegression(max_iter=200))`` (after 1 setup step)."""
         from mlframe.estimators.base import EstimatorWithEarlyStopping
 
         return EstimatorWithEarlyStopping(base_estimator=LogisticRegression(max_iter=200))
@@ -271,7 +271,7 @@ class TestEstimatorWithEarlyStoppingCompliance:
 class TestRegressorWithEarlyStoppingCompliance:
     """Groups tests covering TestRegressorWithEarlyStoppingCompliance."""
     def _make(self):
-        """Helper that make."""
+        """Returns ``RegressorWithEarlyStopping(base_estimator=LinearRegression())`` (after 1 setup step)."""
         from mlframe.estimators.base import RegressorWithEarlyStopping
 
         return RegressorWithEarlyStopping(base_estimator=LinearRegression())
@@ -310,7 +310,7 @@ class TestRegressorWithEarlyStoppingCompliance:
 class TestPdOrdinalEncoderCompliance:
     """Groups tests covering TestPdOrdinalEncoderCompliance."""
     def _make(self):
-        """Helper that make."""
+        """Returns ``PdOrdinalEncoder()`` (after 1 setup step)."""
         from mlframe.estimators.custom import PdOrdinalEncoder
 
         return PdOrdinalEncoder()
@@ -346,7 +346,7 @@ class TestPdOrdinalEncoderCompliance:
 class TestPdKBinsDiscretizerCompliance:
     """Groups tests covering TestPdKBinsDiscretizerCompliance."""
     def _make(self):
-        """Helper that make."""
+        """Returns ``PdKBinsDiscretizer(n_bins=3, encode='ordinal', strategy='uniform', subsample=None)`` (after 1 setup step)."""
         from mlframe.estimators.custom import PdKBinsDiscretizer
 
         # encode='ordinal' to avoid the sparse densify path; the wrapper handles both but ordinal is the happy path for narrow asserts. subsample=None overrides the stale 'warn' default that sklearn>=1.5 rejects via _param_validation.
@@ -390,7 +390,7 @@ class TestRFECVCompliance:
     """
 
     def _make(self):
-        """Helper that make."""
+        """Returns ``RFECV(estimator=LogisticRegression(max_iter=200), cv=2, max_refits=2, max_noimproving_i...`` (after 1 setup step)."""
         from mlframe.feature_selection.wrappers.rfecv import RFECV
 
         # Quiet defaults to avoid swamping the test log; small budgets so the

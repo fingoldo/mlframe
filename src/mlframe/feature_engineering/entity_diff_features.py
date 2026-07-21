@@ -58,7 +58,11 @@ def entity_diff_features(
         feature_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c != entity_col]
     feature_cols = list(feature_cols)
 
-    out = df.copy()
+    # Shallow copy: the loop below only ever appends new columns (out[col_name] = ...), never
+    # mutates an existing column in place, so a deep copy of a potentially large panel frame is
+    # unnecessary -- matches the established convention elsewhere in this package (e.g.
+    # sentinel_missing_count.py, categorical_group_concat.py).
+    out = df.copy(deep=False)
     group_ids = df[entity_col].to_numpy()
     lag_list = list(n_ for n_ in (lags if lags is not None else [n]))
     for col in feature_cols:

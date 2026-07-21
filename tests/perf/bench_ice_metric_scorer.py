@@ -13,7 +13,7 @@ from mlframe.metrics._ice_metric import compute_probabilistic_multiclass_error
 
 
 def _make_binary(n, seed=0):
-    """Helper that make binary."""
+    """Builds seeded synthetic test data; returns ``(yt, p)``."""
     rng = np.random.default_rng(seed)
     yt = (rng.random(n) < 0.3).astype(np.int64)
     p = rng.random(n)
@@ -22,7 +22,7 @@ def _make_binary(n, seed=0):
 
 
 def _make_multiclass(n, k, seed=0):
-    """Helper that make multiclass."""
+    """Builds seeded synthetic test data; returns ``(yt, score)``."""
     rng = np.random.default_rng(seed)
     yt = rng.integers(0, k, size=n).astype(np.int64)
     score = rng.random((n, k))
@@ -31,7 +31,7 @@ def _make_multiclass(n, k, seed=0):
 
 
 def run(reps=4000):
-    """Helper that run."""
+    """Test helper: yt_b, p_b = _make_binary(20000); yt_m, s_m = _make_multiclass(20000, 3); compute_probabilistic_multiclass_error(yt_b, p_b)."""
     yt_b, p_b = _make_binary(20000)
     yt_m, s_m = _make_multiclass(20000, 3)
     # warm numba

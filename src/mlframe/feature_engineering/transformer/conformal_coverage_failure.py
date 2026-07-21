@@ -49,6 +49,11 @@ def compute_conformal_coverage_failure_features(
             Xt_s, Xq_s = Xt, Xq
         # Split train into 2 halves: fit on half1, get residuals on half2, compute α-quantile
         n = Xt_s.shape[0]
+        # Tiny-train regime (n<4) empties h1 (n//2==0) or h2, then lgb.fit on empty raises opaquely and
+        # downstream quantile/kNN produce garbage. Mirrors conformal_locally_adaptive.py's own guard for
+        # the identical half-split pattern.
+        if n < 4:
+            return np.zeros((Xq_s.shape[0], n_features_out), dtype=np.float32)
         idx = np.arange(n)
         rng = np.random.default_rng(int(fold_seed))
         rng.shuffle(idx)

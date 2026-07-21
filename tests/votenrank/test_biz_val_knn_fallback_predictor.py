@@ -20,7 +20,7 @@ from mlframe.votenrank.knn_fallback_predictor import KNNFallbackPredictor
 
 
 def _make_blind_spot_dataset(n: int, seed: int):
-    """Helper that make blind spot dataset."""
+    """Builds seeded synthetic test data; returns ``(X, y, in_blind_spot)``."""
     rng = np.random.default_rng(seed)
     X = rng.uniform(-3, 3, size=(n, 2))
 

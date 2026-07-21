@@ -279,6 +279,14 @@ def topk_by_partition(arr: np.ndarray, k: int, axis: int | None = None, ascendin
     else:
         arr = np.asarray(arr).copy()
 
+    # np.argpartition(..., axis=None) returns FLAT indices into the flattened array, but the axis=None
+    # branches below (`arr[ind]`, `ind[ind_part]`, `vals_part[ind_part]`) index `arr` directly -- on a
+    # multi-dimensional array those flat indices used to fancy-index along axis 0 instead, giving wrong
+    # values or an IndexError. Flatten up front for axis=None, mirroring what np.argpartition/np.argsort
+    # already do internally for that mode.
+    if axis is None:
+        arr = arr.ravel()
+
     # len() on multi-dim arrays gives len of first axis; use shape[axis] for per-axis cap.
     n_along_axis = arr.shape[axis] if axis is not None else arr.size
     k = min(k, n_along_axis)
@@ -289,6 +297,13 @@ def topk_by_partition(arr: np.ndarray, k: int, axis: int | None = None, ascendin
         return empty_ind, empty_val
 
     # np.argpartition requires kth in [0, n-1]; clamp.
+    # k < n_along_axis (the common case): kth=k is safe as-is -- argpartition puts the k SMALLEST elements
+    # in positions [0, k), so partitioning at kth=k (not k-1) still guarantees all of our top-k candidates
+    # land in the first k slots, just with one extra (the (k+1)-th smallest) also partitioned into place.
+    # k == n_along_axis (selecting everything): kth=k would be out of bounds (valid range is [0, n-1]), so
+    # this branch clamps to kth=k-1 instead -- selecting "everything up to but not including the last slot"
+    # is equivalent to a full partition when k spans the whole axis. The outer min(part_kth, n_along_axis-1)
+    # is a second belt-and-suspenders clamp for the same [0, n-1] bound.
     part_kth = min(k - 1, n_along_axis - 1) if k == n_along_axis else k
     ind = np.argpartition(arr, min(part_kth, n_along_axis - 1), axis=axis)
     # Slice first k along axis.

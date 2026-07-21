@@ -15,7 +15,7 @@ from mlframe.preprocessing.sibling_group_cold_start_fill import sibling_group_co
 
 
 def _make_drifting_sibling_groups(n_groups: int, rows_per_group: int, n_cold_start: int, seed: int):
-    """Helper that make drifting sibling groups."""
+    """Builds seeded synthetic test data; returns ``(df, true_level, mask_cold)``."""
     rng = np.random.default_rng(seed)
     levels = np.cumsum(rng.normal(scale=0.5, size=n_groups)) + 50
     group_ids = np.repeat(np.arange(n_groups), rows_per_group)
@@ -60,7 +60,7 @@ def test_sibling_group_cold_start_fill_leaves_non_missing_groups_untouched():
 
 
 def _make_drifting_sibling_groups_interior_missing(n_groups: int, rows_per_group: int, n_cold_start: int, seed: int):
-    """Helper that make drifting sibling groups interior missing."""
+    """Builds seeded synthetic test data; returns ``(df, true_level, mask_cold)``."""
     rng = np.random.default_rng(seed)
     levels = np.cumsum(rng.normal(scale=0.5, size=n_groups)) + 50
     group_ids = np.repeat(np.arange(n_groups), rows_per_group)

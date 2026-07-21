@@ -23,6 +23,31 @@ from .base import to_tensor_any
 
 logger = logging.getLogger(__name__)
 
+# Shared 2GB eager-vs-lazy safety threshold: below this, a full-frame copy is cheap and worth the
+# per-batch conversion savings; above it, a full copy risks doubling peak RAM on a 100+GB frame. Used by
+# both TorchDataset's own eager-tensor gate and TorchDataModule._convert_features_dtype's astype gate -- the dtype conversion previously ran
+# unconditionally, ahead of and regardless of TorchDataset's gate, allocating a full copy before that gate
+# ever got a say).
+_EAGER_CONVERSION_BYTES_CAP = 2 * 1024**3  # 2 GB
+
+
+def _estimate_bytes(obj) -> int:
+    """Best-effort byte-size estimate for an ndarray / polars / pandas carrier; 0 if unknown/unavailable.
+
+    pandas.DataFrame has neither ``.nbytes`` nor ``.estimated_size`` (only Series/Index expose
+    ``.nbytes``).
+    """
+    try:
+        if hasattr(obj, "nbytes"):
+            return int(obj.nbytes)
+        if hasattr(obj, "estimated_size"):
+            return int(obj.estimated_size())
+        if isinstance(obj, pd.DataFrame):
+            return int(obj.memory_usage(deep=True).sum())
+    except Exception:
+        pass
+    return 0
+
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # TorchDataset
@@ -74,19 +99,11 @@ class TorchDataset(Dataset):
         # Eager-convert features to torch.Tensor in __init__ to avoid per-batch isinstance + .to(dtype, device) chain (~38us/call) in __getitem__.
         # Memory-safety: eager conversion copies the underlying buffer. For HUGE frames (100GB+) this would OOM; threshold on byte-size and fall back
         # to the legacy per-batch path above the cap. 2GB is safely below any typical RAM budget AND well above the worst-case 10M-row x 100-col fit.
-        _EAGER_TENSOR_BYTES_CAP = 2 * 1024**3  # 2 GB
-        try:
-            _bytes_estimate = (
-                features.nbytes
-                if hasattr(features, "nbytes")
-                else getattr(features, "estimated_size", lambda: 0)() if hasattr(features, "estimated_size") else 0
-            )
-        except Exception:
-            _bytes_estimate = 0
+        _bytes_estimate = _estimate_bytes(features)
         self._eager_features = (
             isinstance(features, torch.Tensor)
             or _bytes_estimate == 0  # unknown size, prefer eager (small frame)
-            or _bytes_estimate <= _EAGER_TENSOR_BYTES_CAP
+            or _bytes_estimate <= _EAGER_CONVERSION_BYTES_CAP
             or device == "cuda"  # CUDA path always eager (preload semantics)
         )
         if self._eager_features:
@@ -402,6 +419,12 @@ class TorchDataModule(LightningDataModule):
         """
         Convert features to float32 for compatibility.
 
+        Skips the eager ``.astype()`` copy for a frame above the same 2GB threshold ``TorchDataset``
+        itself gates on -- this runs at ``setup()``, ahead of and regardless of that downstream gate, so
+        an unconditional full-frame copy here previously happened BEFORE TorchDataset's own eager/lazy
+        split ever got a say, allocating a full copy of a 100+GB frame either way. The per-batch conversion path (already
+        dtype-aware via ``features_dtype``) casts lazily instead for frames above the cap.
+
         Args:
             feature_names: List of feature attribute names to convert
         """
@@ -410,7 +433,7 @@ class TorchDataModule(LightningDataModule):
             if features is None:
                 continue
 
-            if hasattr(features, "astype"):
+            if hasattr(features, "astype") and _estimate_bytes(features) <= _EAGER_CONVERSION_BYTES_CAP:
                 try:
                     setattr(self, feature_name, features.astype("float32"))
                 except (ValueError, TypeError):
@@ -427,7 +450,9 @@ class TorchDataModule(LightningDataModule):
             if self.trainer is None:
                 return False
             return type(self.trainer.accelerator).__name__ == "CUDAAccelerator"
-        except (AttributeError, Exception):
+        # AttributeError is already a subclass of Exception; the prior (AttributeError, Exception) tuple
+        # was dead/pointless.
+        except Exception:
             return False
 
     def _get_device(self) -> Optional[str]:

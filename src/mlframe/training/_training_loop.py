@@ -304,7 +304,7 @@ def _train_model_with_fallback(
     # Critical: type(pl.DataFrame).__name__ == "DataFrame" -- same as pandas --
     # so we log the module too, otherwise "DataFrame" can hide a Polars frame
     # that should have been converted upstream.
-    _is_polars = isinstance(train_df, pl.DataFrame)
+    _is_polars = pl is not None and isinstance(train_df, pl.DataFrame)
     _is_pandas = isinstance(train_df, pd.DataFrame)
     try:
         if _is_polars:
@@ -398,7 +398,10 @@ def _train_model_with_fallback(
             fit_params["cat_features"] = sorted(_explicit_cats | set(_missing_cats))
         _decategorise_for_text_or_emb = [c for c in _cat_dtype_cols if c in _text_set or c in _emb_set]
         if _decategorise_for_text_or_emb:
-            train_df = train_df.copy() if not getattr(train_df, "_mlframe_filled", False) else train_df
+            # Shallow copy: every site below reassigns whole columns (train_df[_c] = ...), never
+            # mutates a column's buffer in place, so a deep copy of train/eval frames here is
+            # unnecessary (frames here can be 100+GB).
+            train_df = train_df.copy(deep=False) if not getattr(train_df, "_mlframe_filled", False) else train_df
             for _c in _decategorise_for_text_or_emb:
                 # Use ``astype("string").fillna(sentinel)`` so OOV-null cells
                 # (from the train+val joint Enum cast, strict=False on test)
@@ -419,7 +422,7 @@ def _train_model_with_fallback(
                         for _c in _decategorise_for_text_or_emb:
                             if _c in _eval_df_filled.columns:
                                 if not getattr(_eval_df_filled, "_mlframe_filled", False):
-                                    _eval_df_filled = _eval_df_filled.copy()
+                                    _eval_df_filled = _eval_df_filled.copy(deep=False)
                                 _eval_df_filled[_c] = _eval_df_filled[_c].astype("string").fillna("__MISSING__").astype(object)
                                 _eval_df_filled._mlframe_filled = True
                         _new_eval_set.append((_eval_df_filled, _eval_y))
@@ -433,7 +436,7 @@ def _train_model_with_fallback(
             for _c in _cat_cols:
                 _s = train_df[_c]
                 if _s.isna().any():
-                    train_df = train_df.copy() if not getattr(train_df, "_mlframe_filled", False) else train_df
+                    train_df = train_df.copy(deep=False) if not getattr(train_df, "_mlframe_filled", False) else train_df
                     train_df[_c] = _s.astype("string").fillna("__MISSING__").astype("category")
                     train_df._mlframe_filled = True
             # Symmetric fill on eval_set so val/test slices don't trip the
@@ -448,7 +451,7 @@ def _train_model_with_fallback(
                         for _c in _cat_cols:
                             if _c in _eval_df_filled.columns and _eval_df_filled[_c].isna().any():
                                 if not getattr(_eval_df_filled, "_mlframe_filled", False):
-                                    _eval_df_filled = _eval_df_filled.copy()
+                                    _eval_df_filled = _eval_df_filled.copy(deep=False)
                                 _eval_df_filled[_c] = _eval_df_filled[_c].astype("string").fillna("__MISSING__").astype("category")
                                 _eval_df_filled._mlframe_filled = True
                         _new_eval_set.append((_eval_df_filled, _eval_y))
@@ -652,6 +655,7 @@ def _train_model_with_fallback(
 
         elif (
             model_type_name in CATBOOST_MODEL_TYPES
+            and pl is not None
             and isinstance(train_df, pl.DataFrame)
             and (
                 "No matching signature found" in error_str
@@ -758,7 +762,7 @@ def _train_model_with_fallback(
                 new_pairs = []
                 for pair in pairs:
                     X_val, y_val = pair
-                    if isinstance(X_val, pl.DataFrame):
+                    if pl is not None and isinstance(X_val, pl.DataFrame):
                         X_val = get_pandas_view_of_polars_df(X_val)
                         # ``get_pandas_view_of_polars_df`` keys each frame's
                         # pl.Categorical->pl.Enum remap on THAT frame's own

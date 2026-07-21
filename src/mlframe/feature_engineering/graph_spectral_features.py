@@ -115,13 +115,26 @@ def graph_spectral_features(
     avg_deg = 2.0 * m / n
     laplacian_energy = float(np.abs(evL - avg_deg).sum())
 
-    # normalized Laplacian: symmetric, eigenvalues in [0, 2]; isolated nodes contribute a 0 (own component)
-    with np.errstate(divide="ignore"):
-        dinv_sqrt = np.where(deg > 0, 1.0 / np.sqrt(deg), 0.0)
-    Ln = np.eye(n) - (dinv_sqrt[:, None] * A * dinv_sqrt[None, :])
-    Ln = 0.5 * (Ln + Ln.T)  # symmetrize against FP drift
-    evLn = np.clip(np.linalg.eigvalsh(Ln), 0.0, 2.0)
-    largest_norm_lap_eig = float(evLn[-1])  # == 2 iff a bipartite component (spectral bipartiteness signal)
+    # normalized Laplacian: symmetric, eigenvalues in [0, 2]. An isolated (degree-0) node's row/column becomes
+    # the exact standard basis vector e_i (dinv_sqrt zeroes its whole coupling row/col), which is an EXACT
+    # eigenvector of Ln with eigenvalue 1 -- not 0 -- a well-known artifact of this convention (matching
+    # scipy.sparse.csgraph.laplacian(normed=True)). Un-filtered, that spurious eigenvalue=1 displaced genuine
+    # small structural eigenvalues out of the "non-trivial" shape fingerprint. Fixed by excluding isolated nodes from the matrix entirely
+    # (exact, no eigenvalue-by-value guessing) before the eigendecomposition; each remaining connected
+    # component with >=1 edge still contributes its own genuine eigenvalue-0, still filtered by zero_tol below.
+    non_isolated = deg > 0
+    n_reduced = int(non_isolated.sum())
+    if n_reduced == 0:
+        evLn = np.zeros(0, dtype=np.float64)
+    else:
+        A_reduced = A if n_reduced == n else A[np.ix_(non_isolated, non_isolated)]
+        deg_reduced = deg[non_isolated]
+        with np.errstate(divide="ignore"):
+            dinv_sqrt = 1.0 / np.sqrt(deg_reduced)
+        Ln = np.eye(n_reduced) - (dinv_sqrt[:, None] * A_reduced * dinv_sqrt[None, :])
+        Ln = 0.5 * (Ln + Ln.T)  # symmetrize against FP drift
+        evLn = np.clip(np.linalg.eigvalsh(Ln), 0.0, 2.0)
+    largest_norm_lap_eig = float(evLn[-1]) if evLn.size else 0.0  # == 2 iff a bipartite component
     nontrivial = evLn[evLn > zero_tol]
     fingerprint = np.full(k, 2.0, dtype=np.float64)
     take = min(k, nontrivial.shape[0])

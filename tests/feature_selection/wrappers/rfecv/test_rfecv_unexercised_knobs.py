@@ -52,7 +52,7 @@ def _selected_names(r: RFECV) -> list:
 
 
 def _logreg(seed: int = 0):
-    """Helper that logreg."""
+    """Returns ``LogisticRegression(max_iter=200, random_state=seed)``."""
     return LogisticRegression(max_iter=200, random_state=seed)
 
 
@@ -210,7 +210,7 @@ def _prescreen_fdr_body(fast: bool = False):
     Xdf, ys = as_df(X, y)
 
     def _fit(level):
-        """Helper that fit."""
+        """Returns ``set(_selected_names(r))`` (after 2 setup steps)."""
         r = RFECV(estimator=_logreg(), **_base_kwargs(max_refits=3, prescreen="univariate_ht", prescreen_fdr_level=level))
         r.fit(Xdf, ys)
         return set(_selected_names(r))
@@ -258,7 +258,7 @@ def _cpi_depth_body(fast: bool = False):
     rf = RandomForestClassifier(n_estimators=30, random_state=0).fit(Xdf, ys)
 
     def _cpi(depth):
-        """Helper that cpi."""
+        """Returns ``np.array([fi[f] for f in feats], dtype=float)`` (after 1 setup step)."""
         fi = get_feature_importances(
             model=rf,
             current_features=feats,
@@ -294,7 +294,7 @@ def test_cpi_min_samples_leaf_changes_conditional_permutation_fi_vector():
     rf = RandomForestClassifier(n_estimators=30, random_state=0).fit(Xdf, ys)
 
     def _cpi(leaf):
-        """Helper that cpi."""
+        """Returns ``np.array([fi[f] for f in feats], dtype=float)`` (after 1 setup step)."""
         fi = get_feature_importances(
             model=rf,
             current_features=feats,
@@ -326,7 +326,8 @@ class _FoldTaggedLR(ClassifierMixin, BaseEstimator):
         self.bad_rows = bad_rows
 
     def fit(self, X, y, **kw):
-        """Helper that fit."""
+        """Test helper (part of the LogReg shim that records its train-fold row count so a custom scorer can NaN one fold
+deterministically (used to exercise the per-fold NaN-FI policy) fixture): self._train_n = X.shape[0]; self._lr = LogisticRegression(max_iter=200, random_state=...; self.classes_ = self._lr.classes_."""
         self._train_n = X.shape[0]
         self._lr = LogisticRegression(max_iter=200, random_state=self.random_state).fit(X, y)
         self.classes_ = self._lr.classes_
@@ -335,7 +336,7 @@ class _FoldTaggedLR(ClassifierMixin, BaseEstimator):
         return self
 
     def predict(self, X):
-        """Helper that predict."""
+        """Returns ``self._lr.predict(X)``."""
         return self._lr.predict(X)
 
     def predict_proba(self, X):
@@ -346,7 +347,7 @@ class _FoldTaggedLR(ClassifierMixin, BaseEstimator):
 def _make_nan_fold_scorer(bad_rows: int):
     """Make nan fold scorer."""
     def _score(estimator, X, y):
-        """Helper that score."""
+        """Test helper: if getattr(estimator, '_train_n', None) == bad_rows: retu...; try: return float(roc_auc_score(y, estimator.predict_prob...."""
         if getattr(estimator, "_train_n", None) == bad_rows:
             return float("nan")
         try:
@@ -366,7 +367,8 @@ class _UnequalCV:
         self.bad_train = bad_train
 
     def split(self, X=None, y=None, groups=None):
-        """Helper that split."""
+        """Test helper (part of the Two folds where fold-0's train slice is a UNIQUE small size (the deterministic NaN fold)
+and fold-1 is a different (normal) size. Lets a single fold -- not all -- score NaN fixture): idx = np.arange(self.n); yield (idx[:self.bad_train], idx[self.bad_train:]); half = self.n // 2."""
         idx = np.arange(self.n)
         yield idx[: self.bad_train], idx[self.bad_train :]
         half = self.n // 2
@@ -392,7 +394,7 @@ def test_drop_nan_score_fi_excludes_nan_fold_importances_from_voting_pool():
     scorer = _make_nan_fold_scorer(bad)
 
     def _fit(drop):
-        """Helper that fit."""
+        """Builds seeded synthetic test data; returns ``sorted(r.feature_importances_.keys())``."""
         r = RFECV(
             estimator=_FoldTaggedLR(0, bad),
             cv=cv,

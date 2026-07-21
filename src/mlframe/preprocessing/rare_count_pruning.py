@@ -19,7 +19,7 @@ test (i.e. are NOT distinguishable from the rest) get collapsed; the rest keep t
 """
 from __future__ import annotations
 
-from typing import List, Optional, Sequence
+from typing import Dict, FrozenSet, List, Mapping, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -60,6 +60,72 @@ def _target_aware_collapse_mask(codes: np.ndarray, uniques: np.ndarray, y_arr: n
     return result
 
 
+def fit_rare_category_collapse(
+    df: pd.DataFrame,
+    columns: Sequence[str],
+    min_count: int,
+    *,
+    y: Optional[np.ndarray] = None,
+    target_aware: bool = False,
+    alpha: float = 0.5,
+    z_threshold: float = 1.96,
+) -> Dict[str, FrozenSet]:
+    """Learn, per column, the set of category values that should collapse into ``other_label`` at apply time.
+
+    Fit on train ONCE and replay the returned mapping via :func:`apply_rare_category_collapse` on
+    val/test/inference data -- calling ``collapse_rare_categories`` (or this function) SEPARATELY on each
+    split derives independent rare-category sets from each split's own counts (and, under
+    ``target_aware=True``, from each split's own labels), silently diverging train/test category spaces.
+
+    Parameters mirror :func:`collapse_rare_categories` (minus ``other_label``, which is an apply-time
+    concern only).
+
+    Returns
+    -------
+    dict
+        ``{col: frozenset(rare_values_to_collapse)}``; columns with no rare values are omitted.
+    """
+    if target_aware and y is None:
+        raise ValueError("fit_rare_category_collapse: target_aware=True requires y")
+    y_arr: Optional[np.ndarray] = None
+    if target_aware:
+        y_arr = np.ascontiguousarray(np.asarray(y), dtype=np.float64)
+        if y_arr.shape[0] != len(df):
+            raise ValueError(f"fit_rare_category_collapse: y has {y_arr.shape[0]} rows, df has {len(df)}")
+
+    mapping: Dict[str, FrozenSet] = {}
+    for col in columns:
+        counts = df[col].value_counts()
+        rare_values = counts[counts < min_count].index
+        if len(rare_values) == 0:
+            continue
+        if not target_aware:
+            mapping[col] = frozenset(rare_values)
+            continue
+
+        codes, uniques = pd.factorize(df[col], sort=False)
+        collapse_level_mask = _target_aware_collapse_mask(codes, uniques, y_arr, rare_values, alpha, z_threshold)  # type: ignore[arg-type]
+        collapse_values = uniques[collapse_level_mask]
+        if len(collapse_values) > 0:
+            mapping[col] = frozenset(collapse_values)
+    return mapping
+
+
+def apply_rare_category_collapse(df: pd.DataFrame, mapping: Mapping[str, FrozenSet], other_label: str = "__other__") -> pd.DataFrame:
+    """Replay a mapping learned by :func:`fit_rare_category_collapse` onto ``df`` (train, val, test, or a
+    single inference row -- the same mapping every time, no recomputation from ``df`` itself).
+
+    Columns present in ``mapping`` but absent from ``df`` are silently skipped (schema-forgiving, matching
+    ``apply_features_cleaning``'s convention elsewhere in this package).
+    """
+    out = df.copy(deep=False)
+    for col, rare_values in mapping.items():
+        if col not in out.columns:
+            continue
+        out[col] = out[col].where(~out[col].isin(rare_values), other_label)
+    return out
+
+
 def collapse_rare_categories(
     df: pd.DataFrame,
     columns: Sequence[str],
@@ -72,6 +138,11 @@ def collapse_rare_categories(
     z_threshold: float = 1.96,
 ) -> pd.DataFrame:
     """Collapse categorical values occurring fewer than ``min_count`` times (per column) into ``other_label``.
+
+    Single-frame fit+apply convenience wrapper around :func:`fit_rare_category_collapse` +
+    :func:`apply_rare_category_collapse`. For train/test (or train/inference) consistency, call those two
+    functions directly instead: fit once on train, apply the SAME learned mapping to every other split --
+    calling this combined wrapper separately per split reproduces the train/test category-space divergence.
 
     Parameters
     ----------
@@ -100,30 +171,8 @@ def collapse_rare_categories(
     pd.DataFrame
         ``df`` (shallow copy) with rare values in ``columns`` replaced by ``other_label``.
     """
-    if target_aware and y is None:
-        raise ValueError("collapse_rare_categories: target_aware=True requires y")
-    y_arr: Optional[np.ndarray] = None
-    if target_aware:
-        y_arr = np.ascontiguousarray(np.asarray(y), dtype=np.float64)
-        if y_arr.shape[0] != len(df):
-            raise ValueError(f"collapse_rare_categories: y has {y_arr.shape[0]} rows, df has {len(df)}")
-
-    out = df.copy(deep=False)
-    for col in columns:
-        counts = df[col].value_counts()
-        rare_values = counts[counts < min_count].index
-        if len(rare_values) == 0:
-            continue
-        if not target_aware:
-            out[col] = df[col].where(~df[col].isin(rare_values), other_label)
-            continue
-
-        codes, uniques = pd.factorize(df[col], sort=False)
-        collapse_level_mask = _target_aware_collapse_mask(codes, uniques, y_arr, rare_values, alpha, z_threshold)  # type: ignore[arg-type]
-        collapse_values = uniques[collapse_level_mask]
-        if len(collapse_values) > 0:
-            out[col] = df[col].where(~df[col].isin(collapse_values), other_label)
-    return out
+    mapping = fit_rare_category_collapse(df, columns, min_count, y=y, target_aware=target_aware, alpha=alpha, z_threshold=z_threshold)
+    return apply_rare_category_collapse(df, mapping, other_label=other_label)
 
 
 def drop_rare_features(df: pd.DataFrame, columns: Optional[Sequence[str]] = None, min_total_count: int = 20, rare_value: object = 0) -> List[str]:
@@ -158,4 +207,4 @@ def drop_rare_features(df: pd.DataFrame, columns: Optional[Sequence[str]] = None
     return [c for c in cols if counts[c] < min_total_count]
 
 
-__all__ = ["collapse_rare_categories", "drop_rare_features"]
+__all__ = ["collapse_rare_categories", "fit_rare_category_collapse", "apply_rare_category_collapse", "drop_rare_features"]

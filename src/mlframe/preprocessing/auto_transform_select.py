@@ -138,9 +138,11 @@ def select_column_transforms(
     Returns
     -------
     dict
-        ``{column_name: {"best_transform": str, "best_score": float, "all_scores": {transform: score},
-        "probe_mode": str, "context_columns": List[str]}}``. ``probe_mode``/``context_columns`` reflect
-        whichever probe actually produced ``all_scores`` (``"univariate"`` unless ``multivariate_probe=True``).
+        ``{column_name: {"best_transform": str, "best_score": float, "all_scores": {transform: score}}}``.
+        The ``"probe_mode"`` (``"multivariate"``) and ``"context_columns"`` keys are added ONLY when
+        ``multivariate_probe=True`` -- the default (univariate) path omits them entirely, keeping its output
+        dict bit-identical to before this option existed. A caller that wants a uniform schema regardless of
+        mode should read them via ``.get("probe_mode", "univariate")`` / ``.get("context_columns", [])``.
     """
     if columns is None:
         columns = [c for c in df.select_dtypes(include=[np.number]).columns]

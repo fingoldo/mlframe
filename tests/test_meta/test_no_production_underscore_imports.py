@@ -21,7 +21,7 @@ INTERNAL_PREFIX = "mlframe.training.core."
 
 
 def _is_test_adjacent(path: Path) -> bool:
-    """Helper that is test adjacent."""
+    """Test helper: parts = path.parts; rel = path.relative_to(SRC).as_posix() if path.is_relativ...; if rel.startswith('training/core/'): return True."""
     parts = path.parts
     rel = path.relative_to(SRC).as_posix() if path.is_relative_to(SRC) else path.as_posix()
     if rel.startswith("training/core/"):
@@ -35,7 +35,7 @@ def _is_test_adjacent(path: Path) -> bool:
 
 
 def _iter_imports(tree: ast.AST):
-    """Helper that iter imports."""
+    """Test helper: for node in ast.walk(tree): if isinstance(node, ast.Impor...."""
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
             yield node.module

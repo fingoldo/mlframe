@@ -58,10 +58,19 @@ class PseudoLabelingLoop(BaseEstimator):
     ----------
     estimator_factory
         Zero-arg callable returning a fresh unfitted estimator (used both for the K fold-models and for the
-        final combined-data fit each round).
+        final combined-data fit each round). For ``task="classification"``, the K fold-models are scored via
+        ``.predict_proba`` (so they need genuine classifier semantics on the REAL, always-discrete labeled
+        rows), but ``self.final_model_`` is fit on real labels MIXED with soft (continuous, in ``[0, 1]``)
+        pseudo-labels -- a hard sklearn classifier's ``.fit()`` will reject that continuous target. Pass an
+        estimator whose ``.fit()`` accepts a continuous ``[0, 1]`` target (e.g. a regressor trained to
+        predict a probability) for the classification case, or set ``n_rounds=1`` (the default) so the
+        soft-labeled rows are only ever consumed by the final fit, never fed back into a later round's
+        fold-model ensemble.
     task
         ``"regression"`` (``.predict`` output averaged/spread directly) or ``"classification"`` (uses
-        ``.predict_proba``'s positive-class column; requires a binary classifier).
+        ``.predict_proba``'s positive-class column; requires a binary classifier for the fold-model
+        ensemble). Pseudo-labels fed back for the final fit are ALWAYS soft (continuous), never hardened to
+        ``{0, 1}`` -- see ``estimator_factory`` above for what that implies about the estimator you pass.
     n_rounds
         Number of pseudo-labeling rounds. Each round re-scores the FULL unlabeled pool from the fold-model
         ensemble trained on (real labels + the PREVIOUS round's accepted pseudo-labels).
@@ -183,6 +192,14 @@ class PseudoLabelingLoop(BaseEstimator):
         """Run the iterative pseudo-labeling rounds, then fit the final model on real + accepted pseudo-labeled rows."""
         y_arr = np.asarray(y_labeled, dtype=np.float64)
         cur_X, cur_y, cur_w = X_labeled, y_arr, np.ones(len(y_arr), dtype=np.float64)
+        # Soft-labeled twin of cur_y: identical on the REAL rows, but keeps each round's raw (continuous)
+        # mean_pred for the pseudo rows instead of cur_y's hardened {0.0, 1.0} classification labels. cur_y
+        # itself stays hardened for classification so the fold-model ensemble (a genuine classifier, scored
+        # via .predict_proba) can still be RE-FIT on it in a later round -- a hard sklearn classifier rejects
+        # a continuous target. cur_y_soft is used ONLY for the final fit below, which is what this module's
+        # own "soft labels, not hard labels" design promise (and this docstring's estimator_factory note)
+        # actually governs.
+        cur_y_soft = y_arr
         self.pseudo_labels_history_: List[Tuple[np.ndarray, np.ndarray, np.ndarray]] = []
 
         for round_idx in range(self.n_rounds):
@@ -193,21 +210,42 @@ class PseudoLabelingLoop(BaseEstimator):
             self.pseudo_labels_history_.append((accept, mean_pred, confidence))
             logger.info("PseudoLabelingLoop round %d/%d: accepted %d/%d unlabeled rows", round_idx + 1, self.n_rounds, int(accept.sum()), len(accept))
 
-            soft_labels = np.where(mean_pred >= 0.5, 1.0, 0.0) if self.task == "classification" else mean_pred
+            hard_labels = np.where(mean_pred >= 0.5, 1.0, 0.0) if self.task == "classification" else mean_pred
             pseudo_X = _select(X_unlabeled, accept)
-            pseudo_y = soft_labels[accept]
+            pseudo_y_hard = hard_labels[accept]
+            pseudo_y_soft = mean_pred[accept]
             pseudo_w = np.full(int(accept.sum()), self.pseudo_label_weight, dtype=np.float64)
 
             cur_X = _concat(X_labeled, pseudo_X)
-            cur_y = np.concatenate([y_arr, pseudo_y])
+            cur_y = np.concatenate([y_arr, pseudo_y_hard])
+            cur_y_soft = np.concatenate([y_arr, pseudo_y_soft])
             cur_w = np.concatenate([np.ones(len(y_arr), dtype=np.float64), pseudo_w])
 
         self.final_model_ = clone(self.estimator_factory())
         try:
-            self.final_model_.fit(cur_X, cur_y, sample_weight=cur_w)
-        except TypeError:
-            self.final_model_.fit(cur_X, cur_y)
+            self._fit_final(self.final_model_, cur_X, cur_y_soft, cur_w)
+        except ValueError as soft_fit_err:
+            # A genuine hard sklearn classifier (its .fit() rejects a continuous target) cannot consume the
+            # soft pseudo-labels this module now prefers by default; fall back to the hardened labels rather
+            # than crash, but WARN (not silently) -- the whole point of F5's fix is to stop discarding the
+            # calibration signal by default, so a caller relying on the fallback should know it happened.
+            logger.warning(
+                "PseudoLabelingLoop: final_model_.fit() rejected the soft (continuous) pseudo-labels (%s); "
+                "falling back to hardened {0,1} labels. Pass a regressor-style estimator_factory (accepts a "
+                "continuous [0,1] target) to use soft labels for the final fit.",
+                soft_fit_err,
+            )
+            self.final_model_ = clone(self.estimator_factory())
+            self._fit_final(self.final_model_, cur_X, cur_y, cur_w)
         return self
+
+    @staticmethod
+    def _fit_final(model: Any, X: Any, y: np.ndarray, sample_weight: np.ndarray) -> None:
+        """Fit ``model`` with ``sample_weight`` when its ``fit`` accepts the kwarg, else without."""
+        try:
+            model.fit(X, y, sample_weight=sample_weight)
+        except TypeError:
+            model.fit(X, y)
 
     def predict(self, X: Any) -> np.ndarray:
         """Predict with the final model fit on real plus accepted pseudo-labeled rows."""

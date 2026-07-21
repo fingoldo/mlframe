@@ -45,7 +45,7 @@ def _peak_curve():
 
 
 def _pick(rule, smooth_perf, obs, std):
-    """Helper that pick."""
+    """Returns ``int(m.n_features_)`` (after 2 setup steps)."""
     m = _Mock(smooth_perf, rule)
     select_optimal_nfeatures_(m, np.array(NGRID, dtype=float), obs.copy(), std.copy(), smooth_perf=smooth_perf, verbose=False, show_plot=False)
     return int(m.n_features_)

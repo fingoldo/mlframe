@@ -47,6 +47,7 @@ from mlframe.feature_selection.zero_importance_pruning import iterative_zero_imp
 from mlframe.feature_selection.stochastic_bandit_selection import stochastic_bandit_selection
 from mlframe.feature_selection.stochastic_bandit_selection_ensemble import stochastic_bandit_selection_ensemble, EnsembleSelectionResult
 from mlframe.feature_selection.varying_size_top_k_subsets import varying_size_top_k_subsets
+from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote
 
 __all__ = [
     # general
@@ -97,4 +98,6 @@ __all__ = [
     "drop_raw_after_embedding",
     # varying-size top-k feature subsets from a ranked importance list, for stacking diversity
     "varying_size_top_k_subsets",
+    # multi-panel (heterogeneous estimator family) relevance vote, optional CV-skill weighting
+    "heterogeneous_relevance_vote",
 ]
