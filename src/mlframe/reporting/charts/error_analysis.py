@@ -596,7 +596,15 @@ def error_bias_per_feature(
         cf = col[finite]
         if cf.size == 0:
             continue
-        edges = np.histogram_bin_edges(cf, bins=nbins)
+        try:
+            edges = np.histogram_bin_edges(cf, bins=nbins)
+        except ValueError:
+            # A near-constant finite column (e.g. an MLP-engineered feature with ~zero variance) has a range so
+            # tiny that numpy can't carve it into ``nbins`` distinct finite-precision edges -- raises "Too many
+            # bins for data range" (caught live via a fuzz combo with mlp in the model mix). This one feature's
+            # bias panel isn't meaningful anyway (no spread to bin), so skip it rather than aborting the whole
+            # diagnostic (best-effort, matches every other panel in this dispatcher).
+            continue
         centers = (edges[:-1] + edges[1:]) / 2.0
         series: List[np.ndarray] = []
         labels: List[str] = []

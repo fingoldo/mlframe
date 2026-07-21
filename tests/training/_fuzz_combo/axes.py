@@ -61,6 +61,12 @@ AXES: dict[str, tuple[Any, ...]] = {
         # design doc is the source of truth, but canon stays defensive:
         # only models with documented native MTR support keep the value).
         "multi_target_regression",
+        # 2026-07-21: quantile regression (TargetTypes.QUANTILE_REGRESSION). Rides the SAME 1-D
+        # continuous-target shape as plain "regression" (verified: test_biz_val_suite_mrmr_quantile_
+        # regression_excludes_noise reuses a plain regression frame with only target_type flipped) --
+        # every model supports it via native multi-quantile fit (CB/XGB) or a K-independent-fit wrapper
+        # (LGB/HGB/Linear/MLP/Recurrent), so no per-model canon restriction is needed.
+        "quantile_regression",
     ),
     # 2026-05-13: target carrier itself is a fuzz axis. The old fixture
     # always normalised Polars targets to numpy, so MRMR never saw the
