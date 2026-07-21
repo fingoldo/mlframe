@@ -87,6 +87,21 @@ def test_panel_raises_clean_error_on_x_y_length_mismatch():
         separability_panel(X, y, ["a", "b"], sample=200, seed=0)
 
 
+def test_panel_survives_text_feature_column():
+    """A free-text feature column (e.g. a fuzz-injected 'text_0' skills-keyword column) can't be cast to float64
+    -- CatBoost's own text-feature detection rejects the symmetric cast too, raising "could not convert string
+    to float" (caught live via a fuzz combo with a text feature column reaching this scatter). Must label-encode
+    it via np.unique codes instead of crashing, mirroring error_analysis.py's non-numeric column handling."""
+    rng = np.random.default_rng(0)
+    n = 500
+    texts = rng.choice(["python cloud swift", "quantum nlp robotics", "rust wasm edge"], size=n)
+    X = pd.DataFrame({"text_0": texts, "num_0": rng.random(n)})
+    y = rng.integers(0, 2, size=n).astype(float)
+    panel = separability_panel(X, y, ["text_0", "num_0"], sample=200, seed=0)
+    assert isinstance(panel, ScatterPanelSpec)
+    assert np.isfinite(panel.x).all()  # label-encoded, not NaN-substituted (it's a plain string column, not embedding)
+
+
 def test_compose_picks_top2_by_importance():
     """Compose picks top2 by importance."""
     rng = np.random.default_rng(4)

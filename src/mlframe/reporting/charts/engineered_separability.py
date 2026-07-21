@@ -125,12 +125,25 @@ def separability_score(z2: np.ndarray, y: np.ndarray) -> float:
 
 
 def _pull_feature(X: Any, feat: Any) -> np.ndarray:
-    """Pull one feature column of ``X`` (pandas / polars / ndarray) as a contiguous float64 view, no frame copy."""
+    """Pull one feature column of ``X`` (pandas / polars / ndarray) as a contiguous float64 view, no frame copy.
+
+    Non-numeric columns (categorical / free-text strings) are label-encoded via ``np.unique`` codes, mirroring
+    ``error_analysis.py``'s ``_pull_columns_at_rows`` -- CatBoost's own text-feature detection rejects a raw cast
+    of a free-text string column to float64 with a symmetric CatBoostError (caught live via a fuzz combo with a
+    text feature column reaching this scatter, which previously crashed with "could not convert string to
+    float"). A list-valued embedding column (non-scalar elements) can't be stringified the same way, so it gets
+    NaN instead (a single embedding vector isn't a meaningful scatter axis anyway).
+    """
     if hasattr(X, "columns") and not isinstance(X, np.ndarray):
         c = X[feat]
         arr = c.to_numpy() if hasattr(c, "to_numpy") else np.asarray(c)
     else:
         arr = np.asarray(X)[:, feat]
+    if arr.dtype.kind in "OUS" or arr.dtype.kind == "b":
+        if arr.dtype.kind == "O" and any(isinstance(v, (list, tuple, np.ndarray)) for v in arr):
+            return np.full(len(arr), np.nan, dtype=np.float64)
+        _, codes = np.unique(arr.astype(str), return_inverse=True)
+        return codes.astype(np.float64)
     return np.ascontiguousarray(arr, dtype=np.float64)
 
 
