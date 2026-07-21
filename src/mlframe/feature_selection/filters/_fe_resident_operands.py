@@ -98,6 +98,48 @@ def _content_hash(host: Any) -> int:
         return int(_njit_content_hash(words, tail))
     return hash(host.tobytes())
 
+
+# HASH MEMO (mrmr_audit_2026-07-20 gpu_residency.md #6, 2026-07-21): the docstring below used to
+# document this as unaddressed -- "the fit-constant y/z are re-hashed on every role's call". A full
+# caller-side handle-threading rewrite (upload y/z ONCE at the FE-step entry and hand every one of
+# the ~9 documented roles the same resident cupy array by reference) would touch every call site in
+# this file AND _cmi_cuda.py; instead, memoize the O(n) HASH itself keyed on the host array's id(),
+# mirroring the identical id()-plus-weakref-plus-shape/dtype guard convention
+# info_theory._cmi_cuda._cmi_forder_view already uses for its own per-fit cache. When the SAME y/z
+# object is handed to ``resident_operand``/``resident_qbin_codes`` across every role each round (the
+# common case: same dtype request, already contiguous -> ``np.asarray``/``astype(copy=False)``/
+# ``ascontiguousarray`` all return the identical object, not a fresh copy), the hash is computed
+# ONCE per fit instead of once per role-call. A recycled id (the original array GC'd, a new one
+# allocated at the same address) fails the ``ref() is host`` check and falls back to a full
+# recompute -- never a stale hash for different content.
+import weakref as _weakref
+
+_HASH_MEMO: "OrderedDict" = OrderedDict()  # id(host) -> (weakref, shape, dtype_str, hash)
+_HASH_MEMO_MAX_ENTRIES = 64
+
+
+def _content_hash_memoized(host: Any) -> int:
+    """``_content_hash(host)``, memoized on ``id(host)`` with a weakref+shape/dtype recycled-id guard.
+    Falls back to a full recompute whenever the object identity, shape, or dtype does not match the
+    cached entry (a genuinely different array, or the SAME id recycled with different content)."""
+    key = id(host)
+    ent = _HASH_MEMO.get(key)
+    if ent is not None:
+        ref, shape, dtype_str, h = ent
+        if ref() is host and shape == host.shape and dtype_str == host.dtype.str:
+            _HASH_MEMO.move_to_end(key)  # LRU: this identity is hot
+            return int(h)
+    h = _content_hash(host)
+    _HASH_MEMO[key] = (_weakref.ref(host), host.shape, host.dtype.str, h)
+    if len(_HASH_MEMO) > _HASH_MEMO_MAX_ENTRIES:
+        _HASH_MEMO.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
+    return h
+
+
+def clear_hash_memo() -> None:
+    """Drop the id()-keyed hash memo (call at FE-step teardown; mirrors the other resident caches)."""
+    _HASH_MEMO.clear()
+
 # content signature (shape + dtype-str + content hash)  ->  device_array. OrderedDict gives O(1) LRU: hits
 # move-to-end (hot), overflow pops the front (coldest).
 _FE_RESIDENT_OPERANDS: "OrderedDict" = OrderedDict()
@@ -127,9 +169,14 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
     fixedyz_z) shares ONE resident device buffer instead of one upload per role -- the 65%-of-operand-H2D
     cross-role re-upload leak (see module docstring). The content hash is copy-free (``xxh3_64`` over the array
     buffer, tobytes fallback for non-contiguous / no-xxhash), in the same 64-bit collision domain as before.
-    NOTE(caller): the fit-constant ``y`` / ``z`` are re-hashed on every role's call; a caller-side upload-dedup
-    (upload y/z ONCE and pass the resident handle) would skip resident_operand entirely for them, but that is a
-    caller change outside this file. ``dtype`` (optional) is the FINAL dtype the kernel needs
+    NOTE (2026-07-21, mrmr_audit_2026-07-20 gpu_residency.md #6): the O(n) HASH of the fit-constant
+    ``y`` / ``z`` is now memoized on the host array's ``id()`` (``_content_hash_memoized``, weakref
+    + shape/dtype recycled-id guard) -- when the SAME object is handed to this function across every
+    role each round (the common case), the hash is computed ONCE per fit instead of once per
+    role-call. A full caller-side upload-dedup (upload y/z ONCE at the FE-step entry and pass the
+    resident handle directly, skipping ``resident_operand`` entirely for them) would still remove
+    the dict-lookup itself; that is a bigger caller-side plumbing change across ~9 call sites in
+    this file and ``_cmi_cuda.py``, left as further future work. ``dtype`` (optional) is the FINAL dtype the kernel needs
     (e.g. ``cp.float64`` / ``np.int64``); caching in that dtype collapses repeated ``astype(copy=False)`` calls
     AND keeps two roles that want the same values in different dtypes as distinct (correct) entries.
 
@@ -152,7 +199,9 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
 
     # Content signature is the WHOLE key: shape + dtype distinguish dtype/length variants; the content hash
     # deduplicates identical operands across roles and guards against a different-values alias.
-    sig = (host.shape, host.dtype.str, _content_hash(host))
+    # _content_hash_memoized skips the O(n) recompute when the SAME array object (e.g. a fit-constant
+    # y/z passed unchanged across every role) was already hashed this fit -- see its own docstring.
+    sig = (host.shape, host.dtype.str, _content_hash_memoized(host))
     g = _FE_RESIDENT_OPERANDS.get(sig)
     if g is not None:
         _FE_RESIDENT_OPERANDS.move_to_end(sig)  # LRU: this content is hot
@@ -265,7 +314,7 @@ def resident_qbin_codes(a: Any, nbins: int, dtype: Any, compute_fn: Any) -> Any:
         xd = resident_operand(host, "qbin_x", dtype=dtype)
         return compute_fn(cp, xd, int(nbins))
 
-    sig = (host.shape, host.dtype.str, _content_hash(host), int(nbins), str(dtype))
+    sig = (host.shape, host.dtype.str, _content_hash_memoized(host), int(nbins), str(dtype))
     dev = _FE_RESIDENT_QBIN_CODES.get(sig)
     if dev is not None:
         _FE_RESIDENT_QBIN_CODES.move_to_end(sig)  # LRU: this content is hot
@@ -285,6 +334,7 @@ def clear_fe_resident_operands() -> None:
     """Drop the fit-constant FE operand + qbin-code device caches (call at FE-step teardown; mirrors mempool free)."""
     _FE_RESIDENT_OPERANDS.clear()
     _FE_RESIDENT_QBIN_CODES.clear()
+    clear_hash_memo()
 
 
 __all__ = [
@@ -293,4 +343,5 @@ __all__ = [
     "resident_qbin_codes",
     "assemble_resident_matrix",
     "clear_fe_resident_operands",
+    "clear_hash_memo",
 ]
