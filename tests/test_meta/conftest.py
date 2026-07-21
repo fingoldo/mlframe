@@ -43,3 +43,7 @@ def pytest_addoption(parser):
     from py_ci_shared.code_audit_meta import register_refresh_option
 
     register_refresh_option(parser)  # --refresh-code-audit-baseline, shared with every other consumer
+
+    from py_ci_shared.readme_env_var_parity import register_refresh_option as register_readme_env_var_refresh_option
+
+    register_readme_env_var_refresh_option(parser)  # --refresh-readme-env-var-baseline, shared with every other consumer
