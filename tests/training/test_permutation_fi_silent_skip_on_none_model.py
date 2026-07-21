@@ -69,36 +69,6 @@ def test_permutation_fi_still_warns_on_genuine_failure(caplog) -> None:
     # failures.
 
 
-def test_permutation_fi_force_cpu_predict_set_during_loop_and_restored() -> None:
-    """During the threaded permutation-importance loop, model._force_cpu_predict must be True for every
-    predict call (routes concurrent predicts to CPU, avoiding the device-churn race documented in
-    _base_predict.py -- see the 2026-07-21 fix), and cleaned up afterward."""
-    from mlframe.training._feature_importances import _permutation_feature_importances
-
-    seen_flag_values = []
-
-    class _FlagCheckingEstimator:
-        """Groups tests covering flag checking estimator."""
-        def fit(self, X, y):
-            """Fit."""
-            return self
-
-        def predict(self, X):
-            """Predict."""
-            seen_flag_values.append(getattr(self, "_force_cpu_predict", "MISSING"))
-            return np.zeros(len(X))
-
-    rng = np.random.default_rng(0)
-    X = rng.standard_normal((60, 3))
-    y = rng.standard_normal(60)
-    est = _FlagCheckingEstimator()
-    assert not hasattr(est, "_force_cpu_predict")
-    _permutation_feature_importances(est, X, y, n_repeats=2)
-    assert seen_flag_values, "expected predict to have been called at least once"
-    assert all(v is True for v in seen_flag_values), f"expected _force_cpu_predict=True during every predict call, got {set(seen_flag_values)}"
-    assert not hasattr(est, "_force_cpu_predict"), "expected _force_cpu_predict to be cleaned up after the loop"
-
-
 def test_permutation_fi_return_std_tuple_shape_on_none_model() -> None:
     """return_std=True keeps a stable (None, None) tuple on the short-circuit path."""
     from mlframe.training._feature_importances import _permutation_feature_importances

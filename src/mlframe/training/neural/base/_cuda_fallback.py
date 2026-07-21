@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Any, Callable, TypeVar
 
 import torch
@@ -25,6 +26,22 @@ import torch
 logger = logging.getLogger("mlframe.training.neural.base")
 
 T = TypeVar("T")
+
+# Serializes every Trainer-construction-through-predict/fit call process-wide. Lightning's
+# ``_replace_dunder_methods`` (lightning/fabric/utilities/data.py) monkeypatches the ``DataLoader`` CLASS
+# itself (not per-instance) for the duration of each Trainer call, then restores the pre-patch method on exit.
+# If two threads enter concurrently -- exactly what sklearn's ``permutation_importance(..., n_jobs=-1)`` under
+# joblib's threading backend does, calling ``estimator.predict()`` on ONE shared model from many worker threads
+# -- thread B wraps thread A's already-wrapped method, and their restores interleave inconsistently: the wrap
+# depth grows monotonically and PERSISTS process-wide (it's class-level state), eventually blowing Python's
+# recursion limit in a totally unrelated LATER Trainer call (caught live: a fuzz combo's permutation-importance
+# loop corrupted the DataLoader class enough that the SAME combo's later, single-threaded PDP/ICE predict loop
+# hit "RecursionError: maximum recursion depth exceeded" inside Lightning's own wrapper). The identical
+# concurrent-Trainer-access root cause also underlies the CUDA device-churn race documented below (one thread's
+# CUDA-error recovery mutates the shared model's device placement while a sibling thread is mid-forward-pass on
+# the same CUDA tensors). A single process-wide lock around the whole Trainer call eliminates both: no two
+# threads can ever be inside Lightning's Trainer/DataLoader machinery simultaneously.
+_TRAINER_CALL_LOCK = threading.RLock()
 
 CUDA_ERROR_FINGERPRINTS = (
     "CUDA",
@@ -113,47 +130,51 @@ def run_with_cuda_cpu_fallback(
     Returns ``(result, trainer_used)`` so the caller can rebind its own ``trainer`` reference
     (e.g. fit reads ``trainer.callbacks`` afterward) to whichever trainer actually produced the
     result.
+
+    The ENTIRE call (including the happy path) runs under ``_TRAINER_CALL_LOCK`` -- see its module-level
+    comment for why concurrent Trainer construction/predict is unsafe even without a CUDA error in the mix.
     """
-    try:
-        result = run_fn(primary_trainer)
-        return result, primary_trainer
-    except RuntimeError as e:
-        if not is_cuda_runtime_error(e, accelerator):
-            logger.error("%s failed: %s", action.capitalize(), e)
-            raise
-        logger.warning(
-            "%s on accelerator=%r failed with CUDA-side error (%s); retrying on CPU. Common cause: "
-            "another process holds the GPU or the in-process CUDA context was invalidated by an "
-            "earlier failure. The CPU fallback produces equivalent numeric results but loses GPU "
-            "acceleration for this single %s.",
-            action, accelerator, e, action,
-        )
-        _best_effort_move_to_cpu(model)
-        _best_effort_reset_cuda_state()
+    with _TRAINER_CALL_LOCK:
         try:
-            cpu_trainer = build_cpu_trainer()
-            result = run_fn(cpu_trainer)
-            return result, cpu_trainer
-        except Exception as e_cpu:
-            if not is_cuda_runtime_error(e_cpu, accelerator):
+            result = run_fn(primary_trainer)
+            return result, primary_trainer
+        except RuntimeError as e:
+            if not is_cuda_runtime_error(e, accelerator):
+                logger.error("%s failed: %s", action.capitalize(), e)
+                raise
+            logger.warning(
+                "%s on accelerator=%r failed with CUDA-side error (%s); retrying on CPU. Common cause: "
+                "another process holds the GPU or the in-process CUDA context was invalidated by an "
+                "earlier failure. The CPU fallback produces equivalent numeric results but loses GPU "
+                "acceleration for this single %s.",
+                action, accelerator, e, action,
+            )
+            _best_effort_move_to_cpu(model)
+            _best_effort_reset_cuda_state()
+            try:
+                cpu_trainer = build_cpu_trainer()
+                result = run_fn(cpu_trainer)
+                return result, cpu_trainer
+            except Exception as e_cpu:
+                if not is_cuda_runtime_error(e_cpu, accelerator):
+                    logger.error(
+                        "CPU fallback after CUDA %s failure ALSO failed with a non-CUDA error: %s. Original CUDA error: %s",
+                        action, e_cpu, e,
+                    )
+                    raise
                 logger.error(
-                    "CPU fallback after CUDA %s failure ALSO failed with a non-CUDA error: %s. Original CUDA error: %s",
+                    "CPU fallback after CUDA %s failure ALSO failed with a CUDA-side error: %s. The CUDA "
+                    "context is permanently invalidated for this process. Disabling CUDA at the torch "
+                    "module level so subsequent estimators skip GPU and run on CPU; GPU acceleration will "
+                    "resume on the next process restart. Original CUDA error: %s",
                     action, e_cpu, e,
                 )
-                raise
-            logger.error(
-                "CPU fallback after CUDA %s failure ALSO failed with a CUDA-side error: %s. The CUDA "
-                "context is permanently invalidated for this process. Disabling CUDA at the torch "
-                "module level so subsequent estimators skip GPU and run on CPU; GPU acceleration will "
-                "resume on the next process restart. Original CUDA error: %s",
-                action, e_cpu, e,
-            )
-            _disable_cuda_globally()
-            _best_effort_move_to_cpu(model)
-            try:
-                cpu_trainer2 = build_cpu_trainer()
-                result = run_fn(cpu_trainer2)
-                return result, cpu_trainer2
-            except Exception as e_cpu2:
-                logger.error("Even with CUDA hidden the %s failed: %s. Re-raising original CUDA error.", action, e_cpu2)
-                raise
+                _disable_cuda_globally()
+                _best_effort_move_to_cpu(model)
+                try:
+                    cpu_trainer2 = build_cpu_trainer()
+                    result = run_fn(cpu_trainer2)
+                    return result, cpu_trainer2
+                except Exception as e_cpu2:
+                    logger.error("Even with CUDA hidden the %s failed: %s. Re-raising original CUDA error.", action, e_cpu2)
+                    raise

@@ -178,25 +178,6 @@ class _PredictMixin:
         if precision is not None:
             trainer_params["precision"] = precision
 
-        # F-67 prediction-trainer caching REVERTED (2026-06-02): reusing one
-        # L.Trainer across multiple predict() calls accumulates Lightning's
-        # prediction-loop state -- ``predict_loop`` grows ``max_batches`` by one
-        # entry per predict while the (also reused) CombinedLoader keeps a single
-        # iterable, so the SECOND+ predict assigns a length-N list to
-        # ``combined_loader.limits`` against 1 iterable and Lightning raises
-        # "Mismatch in number of limits (N) and number of iterables (1)"
-        # (combined_loader.py:333). That silently broke EVERY multi-predict fit:
-        # val/test/OOF plus the per-feature permutation-importance loop issue
-        # dozens of predicts each, and all but the first failed (each dropped via
-        # the per-model resilience catch, so models reported degraded/no
-        # importances). Lightning Trainers are NOT safe to reuse across
-        # predict() calls -- F-67's "idempotent reset between calls" assumption
-        # was wrong -- and the cache's only benefit case (many predicts per fit)
-        # is exactly its bug case. Build a fresh Trainer per call; the ~236 ms GC
-        # the cache saved is negligible against losing every prediction past the
-        # first. ``_prediction_trainer_cache`` (pickle-excluded at __getstate__)
-        # is left unused.
-        #
         # Multilabel-MLP predict -> CPU (2026-06-02): the multilabel head + the
         # per-feature permutation-importance loop (dozens of predicts per fit)
         # churn the model across devices and intermittently corrupt the CUDA
@@ -209,19 +190,36 @@ class _PredictMixin:
         # acceleration is marginal for a small-MLP predict anyway, and
         # binary/regression MLP predict is unaffected (still GPU). 16-mixed
         # precision is invalid on CPU, so drop it when forcing CPU.
-        # ``_force_cpu_predict`` (2026-07-21): the SAME device-churn corruption the multilabel case above
-        # documents also hits ANY target type once several threads share this one model -- sklearn's
-        # ``permutation_importance(..., n_jobs=-1)`` under joblib's threading backend calls predict()
-        # concurrently across many worker threads. If one thread's predict hits a transient CUDA hiccup, its
-        # recovery mutates the SHARED model's device placement (``model.to("cpu")``, ``torch.cuda.empty_cache()``,
-        # disabling CUDA globally) while sibling threads are still mid-forward-pass on the same CUDA tensors -- a
-        # genuine data race that crashes the WHOLE PROCESS with a native access violation (caught live via a fuzz
-        # combo with mlp under permutation-importance FI). ``_permutation_feature_importances`` sets this flag for
-        # the duration of its threaded loop so every concurrent predict routes to CPU up front instead of racing.
-        if getattr(self, "_is_multilabel", False) or getattr(self, "_force_cpu_predict", False):
+        if getattr(self, "_is_multilabel", False):
             trainer_params["accelerator"] = "cpu"
             trainer_params.pop("precision", None)
-        prediction_trainer = L.Trainer(**cast(dict, trainer_params))
+
+        # F-67 prediction-trainer caching (2026-07-21 reinstated): F-67 originally cached one L.Trainer per
+        # (accelerator, precision) key, but was reverted 2026-06-02 -- reusing a Trainer across predict() calls
+        # accumulated Lightning's prediction-loop state (``predict_loop.max_batches`` grew one entry per call
+        # against the CombinedLoader's single iterable), raising "Mismatch in number of limits (N) and number
+        # of iterables (1)" on the SECOND+ predict. Re-verified against the currently-installed Lightning
+        # (2.6.5): reusing one Trainer across many predict() calls with a FRESH TorchDataModule each time (this
+        # code's actual pattern -- ``datamodule.setup_predict(...)`` above always builds a new datamodule/
+        # dataloader) no longer reproduces that error; the CombinedLoader instance is rebuilt per call, only
+        # the outer Trainer object is reused. Safe now for another reason too: ``run_with_cuda_cpu_fallback``
+        # (``_cuda_fallback.py``) serializes every Trainer call process-wide, so concurrent permutation-
+        # importance threads (the scenario that made F-67's bug "exactly its benefit case") can no longer race
+        # on this cached Trainer's internal state either. Validated (see test_predict_trainer_cache_reuse.py):
+        # 100+ sequential predicts, a real multi-feature permutation_importance sweep, a multilabel model, and
+        # 8-thread concurrent predict -- all clean. Cache key matches the F-67 design (accelerator, precision);
+        # a mid-suite device/precision flip still rebuilds. ``_prediction_trainer_cache`` is pickle-excluded at
+        # __getstate__ (F-73b) since a cached Trainer isn't picklable -- the next predict() after a load()
+        # rebuilds it lazily.
+        _cache_key = (trainer_params.get("accelerator"), trainer_params.get("precision"))
+        _trainer_cache = getattr(self, "_prediction_trainer_cache", None)
+        if _trainer_cache is None:
+            _trainer_cache = {}
+        prediction_trainer = _trainer_cache.get(_cache_key)
+        if prediction_trainer is None:
+            prediction_trainer = L.Trainer(**cast(dict, trainer_params))
+            _trainer_cache[_cache_key] = prediction_trainer
+            self._prediction_trainer_cache = _trainer_cache
 
         # F-G fix: cache the accelerator the current prediction_trainer
         # was built with so the next _predict_raw call (after
