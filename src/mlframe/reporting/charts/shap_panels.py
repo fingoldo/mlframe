@@ -117,16 +117,20 @@ def is_tree_model(model: Any) -> bool:
     return False
 
 
-_CATBOOST_MULTI_OUTPUT_LOSSES: frozenset = frozenset({"multilogloss", "multicrossentropy", "multiclass", "multiclassoneversall"})
+_CATBOOST_MULTI_OUTPUT_LOSS_PREFIXES: tuple = ("multilogloss", "multicrossentropy", "multiclass", "multiquantile")
 
 
 def _is_multi_output_catboost(model: Any) -> bool:
     """True iff ``model`` is a CatBoost estimator trained with a multi-output leaf-value loss (MultiLogloss /
-    MultiCrossEntropy, the multilabel losses; MultiClass / MultiClassOneVsAll, the multiclass losses -- these
-    carry one leaf value per class, the same N-values-per-leaf layout that crashes shap's parser) -- see the
-    caller for why shap's CatBoost parser crashes on these. Detected via ``get_all_params()['loss_function']``
-    (present on every fitted CatBoost estimator); any lookup failure (non-CatBoost model, unfitted, API drift)
-    is treated as "not the risky case" so this never masks an unrelated model type as tree/non-tree.
+    MultiCrossEntropy, the multilabel losses; MultiClass / MultiClassOneVsAll, the multiclass losses; MultiQuantile,
+    the quantile-regression loss -- these all carry one leaf value per output (class / quantile alpha), the same
+    N-values-per-leaf layout that crashes shap's parser) -- see the caller for why shap's CatBoost parser crashes
+    on these. Detected via ``get_all_params()['loss_function']`` (present on every fitted CatBoost estimator);
+    matched by PREFIX rather than exact equality because CatBoost appends its own params to the loss string (e.g.
+    ``"MultiQuantile:alpha=0.1,0.5,0.9"``, caught live via a fuzz combo: quantile_regression target -- an exact-set
+    membership check would never match since the alpha suffix varies per model). Any lookup failure (non-CatBoost
+    model, unfitted, API drift) is treated as "not the risky case" so this never masks an unrelated model type as
+    tree/non-tree.
     """
     get_params = getattr(model, "get_all_params", None)
     if not callable(get_params):
@@ -136,7 +140,7 @@ def _is_multi_output_catboost(model: Any) -> bool:
     except Exception as e:
         logger.debug("get_all_params() probe failed (%s: %s) -- treating as not the CatBoost multi-output risky case", type(e).__name__, e)
         return False
-    return loss in _CATBOOST_MULTI_OUTPUT_LOSSES
+    return loss.startswith(_CATBOOST_MULTI_OUTPUT_LOSS_PREFIXES)
 
 
 def _coerce_float_2d(vals: np.ndarray) -> np.ndarray:
@@ -525,15 +529,17 @@ def shap_summary_and_dependence(
         # n_leaves*n_outputs entries (multiple values per leaf) breaks that formula -- confirmed for MultiLogloss/
         # MultiCrossEntropy (multilabel; caught live via a fuzz combo: models=('cb',) target=multilabel_classification)
         # AND for MultiClass/MultiClassOneVsAll (multiclass, one leaf value per class -- caught live via a separate
-        # fuzz combo: models=('cb','lgb') target=multiclass_classification, cat_feature_count=15). Both produce
-        # malformed/wrongly-sized child-index arrays; SingleTree.__init__ then walks them and reads out of bounds,
-        # crashing the WHOLE PROCESS with a native access violation before any Python-catchable exception, so this
-        # must be caught BEFORE shap.TreeExplainer(model) is ever constructed. Skip rather than risk the crash.
+        # fuzz combo: models=('cb','lgb') target=multiclass_classification, cat_feature_count=15) AND for
+        # MultiQuantile (quantile regression, one leaf value per alpha -- caught live via a third fuzz combo:
+        # models=('cb','lgb','linear','xgb') target=quantile_regression). All three produce malformed/wrongly-sized
+        # child-index arrays; SingleTree.__init__ then walks them and reads out of bounds, crashing the WHOLE
+        # PROCESS with a native access violation before any Python-catchable exception, so this must be caught
+        # BEFORE shap.TreeExplainer(model) is ever constructed. Skip rather than risk the crash.
         return ShapPanelsResult(
             [], [], [], np.empty(0), "none",
-            skipped="CatBoost multi-output (MultiLogloss/MultiCrossEntropy/MultiClass/MultiClassOneVsAll) leaf "
-            "values are not supported by shap's TreeExplainer CatBoost parser -- constructing it risks a native "
-            "crash (see shap_panels.py comment)",
+            skipped="CatBoost multi-output (MultiLogloss/MultiCrossEntropy/MultiClass/MultiClassOneVsAll/"
+            "MultiQuantile) leaf values are not supported by shap's TreeExplainer CatBoost parser -- constructing "
+            "it risks a native crash (see shap_panels.py comment)",
         )
 
     cap = max_rows if tree else min(max_rows, kernel_max_rows)
