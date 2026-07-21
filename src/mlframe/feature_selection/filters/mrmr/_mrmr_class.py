@@ -2253,6 +2253,17 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # equal to Layer 21 so recipes reuse the ``orth_univariate`` kind
         # and replay is shared infrastructure. Default OFF preserves
         # pickle byte-equivalence.
+        # mrmr_audit_2026-07-16 finding #11 (per-column LCB ratio-to-own-raw-baseline exploding on
+        # weak discrete marginals, letting HSIC always win) was fixed in 1bf0a21db (additive
+        # headroom normalization: (lcb - raw_max) / scale, not a ratio) -- default=False is no
+        # longer gated on a correctness bug. A quick 5-seed AUC benchmark (mixed linear + non-
+        # monotone-cos + high-frequency-sin synthetic, 2026-07-20) came back NEUTRAL: identical
+        # selection and holdout AUC on vs off, because the default plug-in-MI scorer over the
+        # existing Chebyshev degree-2/3 basis already fully captured that signal, leaving no
+        # headroom for the auto-scorer pool to demonstrate an edge. Not evidence either way; a real
+        # decision needs a fixture where the default scorer genuinely under-detects (e.g. a signal
+        # right at the edge of what degree-2/3 Chebyshev can fit) before flipping this default,
+        # given the added n_boot x 9-scorer bootstrap cost per engineered column.
         fe_hybrid_orth_auto_scorer_enable: bool = False,
         fe_hybrid_orth_auto_scorer_n_boot: int = 5,
         # ENSEMBLE-OF-SCORERS rank-fusion for hybrid
