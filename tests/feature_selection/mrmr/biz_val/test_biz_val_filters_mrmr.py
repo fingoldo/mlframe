@@ -526,7 +526,10 @@ def test_biz_val_mrmr_max_consec_unconfirmed_higher_keeps_more(max_consec):
     df, ys = as_df(X, y)
     sel = MRMR(verbose=0, random_seed=42, max_consec_unconfirmed=max_consec)
     sel.fit(df, ys)
-    assert 1 <= len(sel.support_) <= df.shape[1]
+    # ``support_`` tracks RAW column indices only and is legitimately empty when the final
+    # selection is 100% engineered composites (e.g. every raw operand got fused into one
+    # composite feature and dropped as subsumed) -- ``n_features_`` is the correct total.
+    assert 1 <= sel.n_features_ <= df.shape[1]
 
 
 @pytest.mark.parametrize("baseline_n", [1, 2, 5])
