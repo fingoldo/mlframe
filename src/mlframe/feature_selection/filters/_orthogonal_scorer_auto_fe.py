@@ -71,6 +71,7 @@ from ._orth_auto_scorer_fe import (
     _score_hsic,
     _score_ksg,
     _score_plug_in,
+    _score_tail_dep,
     _score_xi,
 )
 
@@ -197,6 +198,8 @@ def _compute_per_scorer_rank_table(
             )
         if name == "xi":
             return _score_xi(x_vec, y_vec, random_state=int(random_state))
+        if name == "tail_dep":
+            return _score_tail_dep(x_vec, y_vec, random_state=int(random_state))
         raise ValueError(f"unknown scorer name: {name!r}")
 
     # Batch the column-separable scorers (plug-in MI, copula MI) across all

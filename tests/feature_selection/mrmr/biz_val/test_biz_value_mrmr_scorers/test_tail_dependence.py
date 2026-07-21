@@ -92,6 +92,28 @@ class TestLowerTail:
         assert score > 0.5, f"lower-tail score should detect the joint-minimum structure, got {score:.4f}"
 
 
+class TestScorerPoolWiring:
+    """tail_dep must be a first-class member of the Layer 68/69 scorer pool, dispatchable
+    without raising (mrmr_audit_2026-07-20: wired in the same pass as Xi)."""
+
+    def test_tail_dep_in_scorer_names(self):
+        """Layer 68's SCORER_NAMES tuple must include 'tail_dep'."""
+        from mlframe.feature_selection.filters._orth_auto_scorer_fe import SCORER_NAMES
+
+        assert "tail_dep" in SCORER_NAMES, f"SCORER_NAMES missing 'tail_dep': {SCORER_NAMES}"
+
+    def test_score_tail_dep_dispatches_without_raising(self):
+        """The _score_tail_dep wrapper must return a finite, non-negative value without raising."""
+        from mlframe.feature_selection.filters._orth_auto_scorer_fe import _score_tail_dep
+
+        rng = np.random.default_rng(0)
+        x = rng.standard_normal(500)
+        y = rng.standard_normal(500)
+        val = _score_tail_dep(x, y, random_state=0)
+        assert np.isfinite(val)
+        assert val >= 0.0
+
+
 class TestDegenerateInputsReturnZero:
     """n<2, non-finite input, and an invalid tail argument must return 0.0 / raise cleanly."""
 

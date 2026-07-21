@@ -38,7 +38,7 @@ __all__ = [
 # back-compat: callers that pinned the legacy 4-tuple via
 # ``fe_hybrid_orth_ensemble_scorers`` keep the old behaviour; the auto pool
 # picks HSIC when its bootstrap LCB dominates the other four.
-SCORER_NAMES = ("plug_in", "ksg", "copula", "dcor", "hsic", "xi")
+SCORER_NAMES = ("plug_in", "ksg", "copula", "dcor", "hsic", "xi", "tail_dep")
 
 
 def _score_plug_in(x: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> float:
@@ -126,6 +126,21 @@ def _score_xi(x: np.ndarray, y: np.ndarray, *, random_state: int = 0) -> float:
     return float(xi_correlation(
         np.asarray(x).ravel(), np.asarray(y).ravel(), random_state=int(random_state),
     ))
+
+
+def _score_tail_dep(x: np.ndarray, y: np.ndarray, *, q: float = 0.95, n_perm: int = 50, random_state: int = 0) -> float:
+    """Tail-dependence coefficient -- Layer 73's co-exceedance-rate scorer, distinct from every
+    scorer above (catches a column co-dependent with y ONLY in their joint extreme tail, diluted
+    to a middling value by the full-distribution copula-MI average). Takes the max of the upper
+    and lower tail-dependence coefficients since the extreme co-movement's sign is not known a
+    priori."""
+    from ._orthogonal_tail_dependence_fe import tail_dependence_score
+
+    x_arr = np.asarray(x).ravel()
+    y_arr = np.asarray(y).ravel()
+    upper = tail_dependence_score(x_arr, y_arr, q=q, tail="upper", n_perm=n_perm, random_state=random_state)
+    lower = tail_dependence_score(x_arr, y_arr, q=q, tail="lower", n_perm=n_perm, random_state=random_state)
+    return float(max(upper, lower))
 
 
 def _compute_lcb(values: np.ndarray) -> float:
@@ -284,6 +299,8 @@ def select_best_scorer_per_column(
             )
         if name == "xi":
             return _score_xi(x_vec, y_vec, random_state=int(seed))
+        if name == "tail_dep":
+            return _score_tail_dep(x_vec, y_vec, random_state=int(seed))
         raise ValueError(f"unknown scorer name: {name!r}")
 
     # Per-source baseline: { source_col: { scorer: lcb } }. Computed
