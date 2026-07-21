@@ -9,7 +9,18 @@ deleting them outright), data-acquisition prioritization.
 Engines:
     :func:`knn_shapley` (RECOMMENDED DEFAULT) -- exact closed-form KNN-Shapley (Jia et al., VLDB 2019),
     ``O(n log n)`` per validation point, no retraining. Classification only in v1; continuous targets
-    raise ``NotImplementedError`` pointing at :func:`tmc_shapley`.
+    raise ``NotImplementedError`` pointing at :func:`tmc_shapley` or :func:`knn_shapley_regression_binarize`.
+    :func:`knn_shapley_regression_binarize` -- a cheap proxy for continuous targets: binarizes
+    ``y`` at a train-derived median/quantile split, then runs the exact classification closed form
+    above. Empirically validated (not just theorized) -- see its own module docstring and the biz_val
+    test for the measured verdict on how well the proxy correlates with genuine row usefulness.
+
+Target-type coverage (see ``docs/MULTI_OUTPUT.md`` / ``docs/MULTI_TARGET_REGRESSION.md`` for the
+matrix these mirror): ``BINARY_CLASSIFICATION`` and ``MULTICLASS_CLASSIFICATION`` are :func:`knn_shapley`
+unchanged (the same-class agreement indicator generalizes to any number of classes with no code
+change). ``REGRESSION`` is :func:`knn_shapley_regression_binarize`. ``MULTILABEL_CLASSIFICATION`` and
+``MULTI_TARGET_REGRESSION`` (``(N, K)``-shaped targets) are :func:`knn_shapley_multilabel` /
+:func:`knn_shapley_multi_target_regression` -- K independent per-column valuations averaged per row.
     :func:`tmc_shapley` -- Truncated Monte Carlo Shapley (Ghorbani & Zou, ICML 2019), model-agnostic
     but each marginal contribution is a retrain: cost is ``O(n_permutations * n_rows)`` retrains in the
     worst case (fewer once truncation fires). Only practical for small/medium ``n_rows`` or a
@@ -40,12 +51,17 @@ from __future__ import annotations
 from mlframe.data_valuation._adversarial_reweighting import dro_reweight_fit, project_chi2_ball
 from mlframe.data_valuation._adversarial_validation import adversarial_validation
 from mlframe.data_valuation._knn_shapley import knn_shapley
+from mlframe.data_valuation._knn_shapley_multi_output import knn_shapley_multi_target_regression, knn_shapley_multilabel
+from mlframe.data_valuation._knn_shapley_regression_binarize import knn_shapley_regression_binarize
 from mlframe.data_valuation._mc_sampling import data_banzhaf, propagate_subsample_values, tmc_shapley
 from mlframe.data_valuation._training_weight_adapter import training_sample_weight_from_valuation
 from mlframe.data_valuation._weights import valuation_sample_weight
 
 __all__ = [
     "knn_shapley",
+    "knn_shapley_regression_binarize",
+    "knn_shapley_multilabel",
+    "knn_shapley_multi_target_regression",
     "tmc_shapley",
     "data_banzhaf",
     "propagate_subsample_values",
