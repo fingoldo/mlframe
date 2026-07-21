@@ -259,6 +259,26 @@ def test_quantile_catboost_is_skipped_not_crashed():
     assert res.figures == []
 
 
+def test_multirmse_catboost_is_skipped_not_crashed():
+    """CatBoost's MultiRMSE loss (native multi-target regression) carries one leaf value per target -- the same
+    flat n_leaves*n_outputs leaf-value layout as MultiLogloss/MultiClass/MultiQuantile, so it hits the identical
+    shap CatBoost-parser crash (caught live via a fuzz combo: models=('cb','hgb','lgb','linear','mlp')
+    target=multi_target_regression)."""
+    catboost = pytest.importorskip("catboost")
+
+    rng = np.random.default_rng(0)
+    X = rng.random((300, 5))
+    y = rng.random((300, 2))
+    m = catboost.CatBoostRegressor(loss_function="MultiRMSE", iterations=5, verbose=0)
+    m.fit(X, y)
+    assert sp._is_multi_output_catboost(m) is True
+
+    res = sp.shap_summary_and_dependence(m, X, feature_names=[f"f{i}" for i in range(5)])
+    assert res.skipped is not None
+    assert "multi-output" in res.skipped.lower()
+    assert res.figures == []
+
+
 def test_binary_catboost_not_flagged_as_multi_output():
     """A plain binary CatBoost model (single scalar leaf value) must NOT be caught by the multi-output guard."""
     catboost = pytest.importorskip("catboost")

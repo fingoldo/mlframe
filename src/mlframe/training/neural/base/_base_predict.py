@@ -209,7 +209,16 @@ class _PredictMixin:
         # acceleration is marginal for a small-MLP predict anyway, and
         # binary/regression MLP predict is unaffected (still GPU). 16-mixed
         # precision is invalid on CPU, so drop it when forcing CPU.
-        if getattr(self, "_is_multilabel", False):
+        # ``_force_cpu_predict`` (2026-07-21): the SAME device-churn corruption the multilabel case above
+        # documents also hits ANY target type once several threads share this one model -- sklearn's
+        # ``permutation_importance(..., n_jobs=-1)`` under joblib's threading backend calls predict()
+        # concurrently across many worker threads. If one thread's predict hits a transient CUDA hiccup, its
+        # recovery mutates the SHARED model's device placement (``model.to("cpu")``, ``torch.cuda.empty_cache()``,
+        # disabling CUDA globally) while sibling threads are still mid-forward-pass on the same CUDA tensors -- a
+        # genuine data race that crashes the WHOLE PROCESS with a native access violation (caught live via a fuzz
+        # combo with mlp under permutation-importance FI). ``_permutation_feature_importances`` sets this flag for
+        # the duration of its threaded loop so every concurrent predict routes to CPU up front instead of racing.
+        if getattr(self, "_is_multilabel", False) or getattr(self, "_force_cpu_predict", False):
             trainer_params["accelerator"] = "cpu"
             trainer_params.pop("precision", None)
         prediction_trainer = L.Trainer(**cast(dict, trainer_params))
@@ -246,15 +255,18 @@ class _PredictMixin:
             }
             return L.Trainer(**cast(dict, _cpu_params))
 
+        from .._base_logging import suppress_lightning_workers_warning
+
         try:
-            predictions, _ = run_with_cuda_cpu_fallback(
-                action="predict",
-                primary_trainer=prediction_trainer,
-                model=self.model,
-                accelerator=str(trainer_params.get("accelerator", "auto")),
-                run_fn=lambda t: t.predict(model=self.model, datamodule=datamodule),
-                build_cpu_trainer=_build_cpu_predict_trainer,
-            )
+            with suppress_lightning_workers_warning():
+                predictions, _ = run_with_cuda_cpu_fallback(
+                    action="predict",
+                    primary_trainer=prediction_trainer,
+                    model=self.model,
+                    accelerator=str(trainer_params.get("accelerator", "auto")),
+                    run_fn=lambda t: t.predict(model=self.model, datamodule=datamodule),
+                    build_cpu_trainer=_build_cpu_predict_trainer,
+                )
         except Exception:
             logger.exception("Prediction failed")
             raise
