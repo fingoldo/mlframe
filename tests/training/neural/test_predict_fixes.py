@@ -67,6 +67,41 @@ def test_multilabel_predict_returns_indicator_matrix_not_argmax():
     np.testing.assert_array_equal(out, (raw >= 0.5).astype(np.int64))
 
 
+def test_force_cpu_predict_flag_routes_to_cpu_accelerator():
+    """``_force_cpu_predict`` (2026-07-21): sklearn's permutation_importance(..., n_jobs=-1) under joblib's
+    threading backend calls predict() concurrently across many worker threads sharing ONE model. Letting each
+    thread independently pick GPU risks the same device-churn race already documented for the multilabel
+    predict path (one thread's CUDA-error recovery mutates the shared model while a sibling thread is
+    mid-forward-pass on the same CUDA tensors). _permutation_feature_importances sets this flag for the
+    duration of its loop; predict() must honor it exactly like _is_multilabel and route to cpu."""
+    import mlframe.training.neural.base._base_predict as _bp
+
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(64, 5)).astype(np.float32)
+    y = (X[:, 0] + X[:, 1] > 0).astype(np.int64)
+
+    clf = _classifier(max_epochs=1)
+    clf.fit(X, y)
+    clf._force_cpu_predict = True
+
+    captured = {}
+    _RealTrainer = _bp.L.Trainer
+
+    def _spy_trainer(**kwargs):
+        """Records the kwargs the post-fit predict path builds for lightning.Trainer, then constructs the real trainer."""
+        captured.update(kwargs)
+        return _RealTrainer(**kwargs)
+
+    import unittest.mock as _mock
+
+    with _mock.patch.object(_bp.L, "Trainer", _spy_trainer):
+        clf.predict(X, device="cuda")  # explicit cuda request must still be overridden by the force-cpu flag
+
+    assert (
+        captured.get("accelerator") == "cpu"
+    ), f"_force_cpu_predict=True must force accelerator='cpu' even when device='cuda' is requested; got {captured.get('accelerator')!r}"
+
+
 def test_setup_predict_batch_size_overrides_dataloader_auto():
     """#8: setup_predict(batch_size=N) must win over a dataloader_params
     'batch_size' default (the suite seeds 'auto'), so the predict dataloader
