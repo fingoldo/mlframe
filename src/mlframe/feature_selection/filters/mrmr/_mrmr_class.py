@@ -2807,6 +2807,18 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         fe_conditional_quantile_rank_n_bins: int = 10,
         fe_conditional_quantile_rank_top_k: int = 10,
         fe_conditional_quantile_rank_max_pair_cols: int = 6,
+        # mrmr_audit_2026-07-20 fe_expansion.md: Bandt-Pompe ordinal-pattern K-fold target
+        # encoding. Default OFF for the same reason as its sibling above -- brand-new, not yet
+        # validated against the existing fuzz-combo/regression suite. Leak-safe replay (kind
+        # ``ordinal_pattern_te``) recomputes the perm_id fresh from the raw K source columns and
+        # looks up a frozen TE lookup table; no y reference is captured in the recipe.
+        fe_ordinal_pattern_enable: bool = False,
+        fe_ordinal_pattern_cols: tuple = (),
+        fe_ordinal_pattern_k: int = 3,
+        fe_ordinal_pattern_max_cols_for_tuples: int = 5,
+        fe_ordinal_pattern_n_folds: int = 5,
+        fe_ordinal_pattern_smoothing: float = 10.0,
+        fe_ordinal_pattern_top_k: int = 5,
         # HAAR WAVELET / localized multiresolution basis (backlog #13, 2026-06-09).
         # A NEW operator for LOCALIZED bump / multiscale piecewise structure the
         # catalog cannot capture: y jumps only inside a narrow sub-window of x, or

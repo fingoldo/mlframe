@@ -295,6 +295,15 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_conditional_quantile_rank_n_bins": 10,
     "fe_conditional_quantile_rank_top_k": 10,
     "fe_conditional_quantile_rank_max_pair_cols": 6,
+    # Bandt-Pompe ordinal-pattern K-fold TE (mrmr_audit_2026-07-20). Default OFF in both legacy
+    # pickles and the live ctor -- brand-new, not yet validated against the existing suite.
+    "fe_ordinal_pattern_enable": False,
+    "fe_ordinal_pattern_cols": (),
+    "fe_ordinal_pattern_k": 3,
+    "fe_ordinal_pattern_max_cols_for_tuples": 5,
+    "fe_ordinal_pattern_n_folds": 5,
+    "fe_ordinal_pattern_smoothing": 10.0,
+    "fe_ordinal_pattern_top_k": 5,
     # Haar wavelet basis (backlog #13). Pre-#13 pickles default OFF so the
     # legacy reload path is byte-identical (the live default is ON for new
     # fits via __init__); the fitted-attr list defaults empty.

@@ -3201,6 +3201,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _conditional_residual_pre_recipes: dict = {}
     _conditional_dispersion_pre_recipes: dict = {}
     _conditional_quantile_rank_pre_recipes: dict = {}
+    _ordinal_pattern_pre_recipes: dict = {}
     _wavelet_pre_recipes: dict = {}
     _rankgauss_pre_recipes: dict = {}
     _ratio_pre_recipes: dict = {}
@@ -4192,6 +4193,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.conditional_residual_features_ = []
     self.conditional_dispersion_features_ = []
     self.conditional_quantile_rank_features_ = []
+    self.ordinal_pattern_features_ = []
     self.wavelet_features_ = []
     self.rankgauss_features_ = []
 
@@ -4470,6 +4472,76 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "MRMR.fit conditional_quantile_rank FE raised %s: %s; continuing " "without conditional-quantile-rank columns.",
                     type(_cqr_exc).__name__,
                     _cqr_exc,
+                )
+
+    # ORDINAL PATTERN (Bandt-Pompe) K-fold TARGET ENCODING (mrmr_audit_2026-07-20 fe_expansion.md).
+    # For each K-tuple of raw numeric columns, compute the row's rank-permutation id (0..K!-1) and
+    # K-fold-TE encode it -- a fused single-hop recipe: the intermediate perm_id categorical is
+    # never exposed as its own column, avoiding a 2-deep nested-recipe replay the 1-deep convention
+    # here cannot order. Routing piggybacks on hybrid_orth_features_; recipe carries a frozen
+    # (fit-time) TE lookup, not y -> leak-safe replay.
+    if bool(getattr(self, "fe_ordinal_pattern_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: ordinal_pattern FE enabled but X is not a "
+                "pandas DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from .._ordinal_pattern_fe import hybrid_ordinal_pattern_te_fe
+                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+                _opat_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+                def _opat_reject_sink(**_kw):
+                    """Reject-sink callback for the ordinal-pattern-TE FE stage; records MI-floor
+                    kills into the FE rejection ledger (pure-record, does not affect selection)."""
+                    _record_fe_rejection(self, step=_opat_step, **_kw)
+
+                _y_for_opat = _y_np
+                _opat_cols = tuple(getattr(self, "fe_ordinal_pattern_cols", ()) or ())
+                _opat_cols = [c for c in _opat_cols if c in X.columns] or None  # type: ignore[assignment]
+                # RAW columns only (same class as conditional_dispersion/quantile_rank above): the
+                # all-numeric default scope over the already-augmented X builds ordinal patterns OF
+                # engineered columns -> nested recipes the 1-deep replay cannot order at
+                # transform() time. Raw scope keeps every recipe replayable.
+                if _opat_cols is None:
+                    _opat_raw = set(_raw_input_cols_pre_fe)
+                    _opat_cols = [c for c in X.columns if c in _opat_raw] or None
+                _X_before_opat_cols = list(X.columns)
+                X_opat, _opat_appended, _opat_recipes, _ = hybrid_ordinal_pattern_te_fe(
+                    X, _y_for_opat,
+                    num_cols=_opat_cols,
+                    k=int(getattr(self, "fe_ordinal_pattern_k", 3)),
+                    max_cols_for_tuples=int(getattr(self, "fe_ordinal_pattern_max_cols_for_tuples", 5)),
+                    n_folds=int(getattr(self, "fe_ordinal_pattern_n_folds", 5)),
+                    smoothing=float(getattr(self, "fe_ordinal_pattern_smoothing", 10.0)),
+                    top_k=int(getattr(self, "fe_ordinal_pattern_top_k", 5)),
+                    mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                    mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                    reject_sink=_opat_reject_sink,
+                )
+                _opat_appended = [c for c in _opat_appended if c not in _X_before_opat_cols]
+                if _opat_appended:
+                    X = X_opat
+                    self.ordinal_pattern_features_ = list(_opat_appended)
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_opat_appended)
+                    for _r in _opat_recipes:
+                        if _r.name in _opat_appended:
+                            _ordinal_pattern_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit ordinal_pattern: appended %d " "engineered column(s): %s",
+                            len(_opat_appended),
+                            _opat_appended[:8],
+                        )
+            except Exception as _opat_exc:
+                logger.warning(
+                    "MRMR.fit ordinal_pattern FE raised %s: %s; continuing " "without ordinal-pattern columns.",
+                    type(_opat_exc).__name__,
+                    _opat_exc,
                 )
 
     # HAAR WAVELET / localized multiresolution basis (backlog #13, 2026-06-09).
@@ -4961,6 +5033,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _rankgauss_pre_recipes,
                 _temporal_agg_pre_recipes,
                 _conditional_quantile_rank_pre_recipes,
+                _ordinal_pattern_pre_recipes,
             )
             while True:
                 _protected = {
@@ -5091,6 +5164,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_conditional_quantile_rank_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _conditional_quantile_rank_pre_recipes.pop(_c, None)
+            for _c in list(_ordinal_pattern_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _ordinal_pattern_pre_recipes.pop(_c, None)
             for _c in list(_wavelet_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _wavelet_pre_recipes.pop(_c, None)
@@ -5193,6 +5269,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _rankgauss_pre_recipes,
                         _temporal_agg_pre_recipes,
                         _conditional_quantile_rank_pre_recipes,
+                        _ordinal_pattern_pre_recipes,
                     ):
                         for _c in list(_pre.keys()):
                             if _c in _eng_drop_u:
@@ -5742,6 +5819,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         engineered_recipes.update(_conditional_dispersion_pre_recipes)
     if _conditional_quantile_rank_pre_recipes:
         engineered_recipes.update(_conditional_quantile_rank_pre_recipes)
+    if _ordinal_pattern_pre_recipes:
+        engineered_recipes.update(_ordinal_pattern_pre_recipes)
     if _wavelet_pre_recipes:
         engineered_recipes.update(_wavelet_pre_recipes)
     if _rankgauss_pre_recipes:
