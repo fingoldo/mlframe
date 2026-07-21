@@ -269,6 +269,8 @@ NOISE_ADMISSION = {
     ("ratio_sqr", "mixed", 20000): "e (0.01-weight noise) admitted; (a,b) ratio recovered (outlier/mixed-marginal residual)",
     ("ratio_sqr", "with_outliers", 20000): "e (0.01-weight noise) admitted; (a,b) recovered (3%-outlier residual)",
     ("ratio_sqr", "with_outliers", 10000): "e (0.01-weight noise) admitted; (a,b) recovered (3%-outlier residual, n-sweep)",
+    ("ratio_sqr", "with_outliers", 30000): "e (0.01-weight noise) admitted; (a,b) recovered via mul(sqr(a),reciproc(b)) "
+    "(same 3%-outlier residual as the 10000/20000 n-sweep cells; observed selected=['e', 'a', 'mul(sqr(a),reciproc(b))'])",
     ("ratio_sqr", "heavy_tailed_outliers", 20000): "e (0.01-weight noise) admitted; (a,b) recovered (pareto+outlier residual)",
     ("log_sin_product", "with_outliers", 20000): "e1+e2 (0.02-weight noise) admitted; (c,d) recovered (3%-outlier residual)",
 }

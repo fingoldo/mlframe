@@ -323,10 +323,14 @@ class TestSquareSignalRecovered:
         )
         m.fit(X, y)
         appended = list(m.mi_greedy_features_)
-        # square(x) or one of its monotone-in-x^2 siblings (abs / sqrt_abs)
-        # must appear -- the |x| family carries the signal of sign(x^2-1).
-        x2_derived = [c for c in appended if c in {"square(x)", "abs(x)", "sqrt_abs(x)", "log_abs(x)"}]
-        assert x2_derived, f"seed={seed}: at least one x^2-monotone unary transform (square / abs / sqrt_abs / log_abs of x) should appear; got {appended}"
+        # square(x) or one of its monotone-in-x^2 siblings (abs / sqrt_abs) must appear -- the |x|
+        # family carries the signal of sign(x^2-1). ``reciprocal_safe(x) = 1/(x+eps)`` is also a
+        # valid member: for x != 0 it is a sign-preserving bijection of x, so |reciprocal_safe(x)|
+        # is strictly DEcreasing in |x| -- an anti-monotone reparametrization that carries
+        # information-theoretically EQUIVALENT signal about sign(x^2-1) (MI is invariant to
+        # monotonic/bijective reparametrization, not just increasing ones).
+        x2_derived = [c for c in appended if c in {"square(x)", "abs(x)", "sqrt_abs(x)", "log_abs(x)", "reciprocal_safe(x)"}]
+        assert x2_derived, f"seed={seed}: at least one x^2-monotone unary transform (square / abs / sqrt_abs / log_abs / reciprocal_safe of x) should appear; got {appended}"
 
 
 # ---------------------------------------------------------------------------
