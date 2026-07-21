@@ -201,7 +201,9 @@ def _bayesian_blocks_midpoints(t_sorted: np.ndarray) -> np.ndarray:
     return edges
 
 
-def _bayesian_blocks_bin_edges(a: np.ndarray, p0: float = 0.05, edge_placement: str = "start", subsample_threshold: int = 0) -> np.ndarray:
+def _bayesian_blocks_bin_edges(
+    a: np.ndarray, p0: float = 0.05, edge_placement: str = "start", subsample_threshold: int = 0, m_max_cap: int = 500,
+) -> np.ndarray:
     """Scargle (2013) Bayesian Blocks bin edges.
 
     Args:
@@ -223,6 +225,21 @@ def _bayesian_blocks_bin_edges(a: np.ndarray, p0: float = 0.05, edge_placement: 
             BB DP is O(N^2); sub-sampling to 1000 drops 211 ms -> ~50 ms with
             minimal MI-scoring impact (bin edges only need 1/M quantile-grade
             precision on small val-folds).
+        m_max_cap: Upper bound on the returned block count. Unlike ``edges_knuth``'s
+            same-named cap (chosen up front by a posterior search over M), Bayesian
+            Blocks' DP has no built-in bin-count knob -- on near-continuous real data
+            (e.g. wellbore log columns, 50k rows) it can detect thousands of change
+            points (observed: ~2470 bins on one column, joint cardinality vs another
+            adaptively-binned column = 6.1M), which is both statistically useless
+            (a handful of samples per bin) and catastrophic for downstream pairwise-MI
+            cost -- CUDA rejects the joint histogram outright (``MAX_JOINT_BINS_CUDA``)
+            and the row-chunked global-memory fallback degrades to needing >100k kernel
+            launches, forcing a multi-thousand-second CPU njit fallback per column pair.
+            When the DP finds more than ``m_max_cap`` blocks, evenly-spaced (by rank,
+            not value) change points are kept -- preserves the variable-width character
+            while bounding downstream cost the same way ``knuth``'s cap does. ``500``
+            matches ``edges_knuth``'s legacy default for consistency between the two
+            uncapped-by-construction strategies.
     """
     a = np.asarray(a, dtype=np.float64).ravel()
     a = a[np.isfinite(a)]
@@ -243,6 +260,13 @@ def _bayesian_blocks_bin_edges(a: np.ndarray, p0: float = 0.05, edge_placement: 
         raise ValueError(f"_bayesian_blocks_bin_edges: p0 (false-alarm probability) must be in (0, 1); got {p0}.")
     ncp_prior = 4.0 - math.log(73.53 * p0 * (N**-0.478))
     cp_idx = _bayesian_blocks_inner(a_sorted_dp, ncp_prior)
+    if m_max_cap > 0 and cp_idx.size > m_max_cap:
+        # DP found more change points than the downstream MI path can afford (see m_max_cap
+        # docstring) -- keep an evenly-spaced-by-RANK subset. cp_idx is already sorted (DP walks
+        # left to right), so np.linspace over its own index range preserves order and coverage
+        # across the full domain rather than favouring dense regions.
+        keep = np.unique(np.linspace(0, cp_idx.size - 1, num=m_max_cap, dtype=np.int64))
+        cp_idx = cp_idx[keep]
     # Build edges from change-point indices.
     if edge_placement == "midpoint":
         # Scargle 2013 / astropy convention: edges at cell-boundary midpoints.
