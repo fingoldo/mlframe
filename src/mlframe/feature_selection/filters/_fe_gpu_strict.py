@@ -38,8 +38,9 @@ selection-equivalent to CPU (large n, GPU present), so the SAME compound + recip
 fits are byte-identical to the legacy default. Force ``MLFRAME_FE_GPU_STRICT=0`` to pin the exact CPU path at any n.
 
 RESIDENCY GAP FOUND AND CLOSED (found 2026-07-16, fixed 2026-07-17; ``_mi_greedy_cmi_fe.greedy_cmi_fe_construct``,
-called ONLY from the standalone benchmark script ``_benchmarks/bench_cmi_greedy_noisefloor_marginal_hoist.py``,
-never from ``MRMR.fit``): its STRICT branch used to bin every candidate through the host-materializing
+reachable from ``MRMR.fit`` via ``greedy_cmi_fe_construct_with_recipes`` when ``fe_mi_greedy_cmi_enable=True``
+-- NOT benchmark-only, so a regression of this fix affects any fit run with that flag set): its STRICT branch
+used to bin every candidate through the host-materializing
 ``_quantile_bin`` (D2H per candidate for the ``.tobytes()`` fingerprint) and fold each selected winner into the
 conditioning support Z via the host-only ``_renumber_joint`` -- 212 bulk D2H events / fit on an 8000x11 synthetic
 frame (``test_cmi_residency_traffic.py``). Closed by: (1) binning every candidate once via

@@ -1,5 +1,13 @@
 """Multi-device GPU-resident FE state for the KTC-free ``MLFRAME_FE_GPU_STRICT`` path.
 
+STATUS (mrmr_audit_2026-07-20 gpu_residency.md #10): this is Phase-0 SCAFFOLD, superseded by the
+per-family ``device_born_*`` mechanism (``_gpu_strict_fe/_entry.py``) that actually delivers
+residency today. ``run_fe_step_gpu_strict`` (the only caller of ``ResidentFEState.build``) always
+raises ``NotImplementedError``, caught by ``_mrmr_fe_step/_step_core.py`` which falls through to
+the per-family path -- so nothing here executes in production. Kept (not deleted) because it is a
+real, tested, ready-to-resume Phase-1+ design for a fully multi-device-resident FE step; do NOT
+wire it up piecemeal -- either finish it as a unit or remove it, per ``_entry.py``'s own warning.
+
 The residency contract this state enforces (see the plan + ``_audit.py``):
   * Operands + y are uploaded ONCE PER PARTICIPATING DEVICE (G devices -> G bulk H2D, never per-candidate).
   * The shared operand table is REPLICATED per device (every candidate needs every operand); candidate COLUMNS
