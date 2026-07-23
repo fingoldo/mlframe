@@ -36,9 +36,10 @@ pip install -e ./pyutilz
 pip install -e ./mlframe
 ```
 
-The core install pulls only the lightweight stack (numpy, pandas, polars, scipy,
-scikit-learn, pyarrow, joblib, tqdm, pydantic, numba). Heavier stacks ship as
-optional extras:
+The core install pulls a compact stack (numpy, pandas, polars, scipy, scikit-learn,
+pyarrow, joblib, tqdm, pydantic, numba), plus matplotlib and several other packages
+that are imported unconditionally at module load time -- see `pyproject.toml`'s
+`[project.dependencies]` for the exact list. Heavier stacks ship as optional extras:
 
 ```bash
 pip install mlframe[all,dev]                     # full install (recommended)

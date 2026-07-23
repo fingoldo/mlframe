@@ -376,6 +376,15 @@ def pytest_addoption(parser):
         "datasets (kin8nm, mammography, California Housing, ...) and "
         "takes minutes per case; deselected from the default run.",
     )
+    parser.addoption(
+        "--run-heavy-automl",
+        action="store_true",
+        default=False,
+        help="Include the AutoGluon/LAMA real-training tests in tests/training/test_automl.py "
+        "(heavy optional deps, minutes per case); deselected from the default run. Unlike a bare "
+        "@pytest.mark.skip, these are collected and explicitly deselected so they're visible/runnable "
+        "-- see x_test_suite_architecture.md finding F8.",
+    )
 
 
 def pytest_configure(config):
@@ -394,6 +403,10 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "biz_transformer: feature_engineering/transformer biz_val test (real datasets, multi-boosting); deselected unless --run-biz-transformer is passed.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "heavy_automl: real AutoGluon/LAMA training test (heavy optional deps); deselected unless --run-heavy-automl is passed.",
     )
     # B2#38 marker: opts a test OUT of the ``suppress_convergence_warnings`` autouse filter so
     # ``pytest.warns(ConvergenceWarning)`` can catch the warning instead of having it pre-filtered.
@@ -435,6 +448,15 @@ def pytest_collection_modifyitems(config, items):
         for item in items:
             if "biz_transformer" in item.keywords:
                 item.add_marker(skip_bt)
+
+    # Same opt-in pattern for the AutoGluon/LAMA real-training tests: heavy optional deps, minutes
+    # per case. Previously a permanent, un-opt-in-able @pytest.mark.skip (x_test_suite_architecture.md
+    # F8); now collected and explicitly deselected, so a maintainer can actually run them.
+    if not config.getoption("--run-heavy-automl"):
+        skip_automl = pytest.mark.skip(reason="skipped by default; pass --run-heavy-automl to include real AutoGluon/LAMA training tests")
+        for item in items:
+            if "heavy_automl" in item.keywords:
+                item.add_marker(skip_automl)
 
     # Skip ``no_xdist``-marked items when xdist parallelism is active. Tests
     # that touch shared FS state (numba cache wipe), do heavy in-process

@@ -31,15 +31,14 @@ def _make_regression_df(n: int = 200, seed: int = 7) -> pd.DataFrame:
 
 
 def _try_import_suite():
-    """Mirror the defensive helper from test_biz_val_training_core.py."""
-    try:
-        from mlframe.training.core import train_mlframe_models_suite
-        from mlframe.training import OutputConfig
-        from tests.training.shared import SimpleFeaturesAndTargetsExtractor
+    """F2 (audits/full_audit_2026-07-21/x_test_suite_architecture.md): a genuine kwarg-contract break
+    in this public training API must FAIL these tests, not silently skip them -- a plain import with no
+    defensive except, so an ImportError/AttributeError here surfaces as a loud collection/test error."""
+    from mlframe.training.core import train_mlframe_models_suite
+    from mlframe.training import OutputConfig
+    from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
-        return train_mlframe_models_suite, OutputConfig, SimpleFeaturesAndTargetsExtractor
-    except (ImportError, AttributeError) as e:
-        pytest.skip(f"suite not importable: {e}")
+    return train_mlframe_models_suite, OutputConfig, SimpleFeaturesAndTargetsExtractor
 
 
 # ----------------------------------------------------------------------
@@ -135,7 +134,7 @@ def test_suite_uses_precomputed_stats_when_passed_in(tmp_path, monkeypatch):
         TrainMlframeSuitePrecomputed,
         precompute_trainset_features_stats,
     )
-    from mlframe.training.core import main as _main_mod
+    from mlframe.training import helpers as _helpers_mod
 
     df = _make_regression_df(n=300, seed=17)
     helper_out = precompute_trainset_features_stats(df)
@@ -144,8 +143,14 @@ def test_suite_uses_precomputed_stats_when_passed_in(tmp_path, monkeypatch):
         """Raise."""
         raise _InlineStatsCalled()
 
-    monkeypatch.setattr(_main_mod, "get_trainset_features_stats", _raise)
-    monkeypatch.setattr(_main_mod, "get_trainset_features_stats_polars", _raise)
+    # The runtime call lives in core/_main_train_suite_phases.py via a function-local lazy import
+    # (``from ..helpers import get_trainset_features_stats``), which resolves through the ``helpers``
+    # module's namespace at call time -- patch that module, not a stale ``core.main`` reference (the
+    # monolith-split moved this call site through several carves; ``core.main`` never had this
+    # attribute, and this monkeypatch used to fail silently under this test's own now-removed
+    # except-and-skip guard).
+    monkeypatch.setattr(_helpers_mod, "get_trainset_features_stats", _raise)
+    monkeypatch.setattr(_helpers_mod, "get_trainset_features_stats_polars", _raise)
 
     fte = FTE(target_column="target", regression=True)
     data_dir = str(tmp_path / "data")
@@ -166,8 +171,6 @@ def test_suite_uses_precomputed_stats_when_passed_in(tmp_path, monkeypatch):
         )
     except _InlineStatsCalled:
         pytest.fail("suite called the inline trainset_features_stats path despite the bundle supplying one")
-    except (TypeError, ImportError) as e:
-        pytest.skip(f"suite call broke at non-stats stage during refactor: {e}")
     except Exception as e:
         # Downstream pre-existing failures (e.g. _phase_train_one_target NameError -- locked file,
         # not in scope) are allowed to surface here without failing the test. The skip-when-supplied
@@ -187,17 +190,14 @@ def test_suite_falls_back_to_inline_when_bundle_field_is_none(tmp_path, monkeypa
         TrainMlframeSuitePrecomputed,
         get_trainset_features_stats as _real_pd_stats,
     )
-    from mlframe.training.core import main as _main_mod
 
-    # The body of ``train_mlframe_models_suite`` was moved through
-    # ``_main_train_suite`` -> ``_main_train_suite_phases`` by successive
-    # monolith-split waves. The runtime ``get_trainset_features_stats`` call
-    # lives in ``_main_train_suite_phases`` (function-local lazy import via
-    # ``from ..helpers import get_trainset_features_stats``). Patching only
-    # ``main`` would silently no-op. Patch the source module ``helpers``
-    # too -- the function-local re-imports resolve through that name and
-    # will see the patched function regardless of which carve owns the
-    # caller.
+    # The body of ``train_mlframe_models_suite`` was moved through ``_main_train_suite`` ->
+    # ``_main_train_suite_phases`` by successive monolith-split waves. The runtime
+    # ``get_trainset_features_stats`` call lives in ``_main_train_suite_phases`` (function-local lazy
+    # import via ``from ..helpers import get_trainset_features_stats``), which resolves through the
+    # ``helpers`` module's namespace at call time -- patch that module (there is no ``core.main``
+    # attribute of this name to patch; a prior version of this test tried to and the resulting
+    # AttributeError was silently swallowed by this test's own now-removed except-and-skip guard).
     from mlframe.training import helpers as _helpers_mod
 
     calls = {"n": 0}
@@ -211,7 +211,6 @@ def test_suite_falls_back_to_inline_when_bundle_field_is_none(tmp_path, monkeypa
         _real_pd_stats(*args, **kwargs)
         raise _InlineStatsRanFromBundleNone()
 
-    monkeypatch.setattr(_main_mod, "get_trainset_features_stats", _counting_then_abort)
     monkeypatch.setattr(_helpers_mod, "get_trainset_features_stats", _counting_then_abort)
 
     df = _make_regression_df(n=300, seed=19)
@@ -235,8 +234,6 @@ def test_suite_falls_back_to_inline_when_bundle_field_is_none(tmp_path, monkeypa
         )
     except _InlineStatsRanFromBundleNone:
         raised_sentinel = True
-    except (TypeError, ImportError) as e:
-        pytest.skip(f"suite call broke at non-stats stage during refactor: {e}")
 
     assert calls["n"] >= 1, "expected the inline trainset_features_stats compute to run when the bundle field is None"
     assert raised_sentinel, "expected the suite to reach and execute the patched inline stats function"

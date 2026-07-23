@@ -9,15 +9,11 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
-try:
-    from mlframe.training.configs import TargetTypes
-    from mlframe.training.core import train_mlframe_models_suite
-    from mlframe.training import OutputConfig, ReportingConfig
-    from mlframe.training._feature_selection_config import FeatureSelectionConfig
-except Exception as exc:  # pragma: no cover
-    pytest.skip(f"suite not importable ({exc!r})", allow_module_level=True)
+from mlframe.training.configs import TargetTypes
+from mlframe.training.core import train_mlframe_models_suite
+from mlframe.training import OutputConfig, ReportingConfig
+from mlframe.training._feature_selection_config import FeatureSelectionConfig
 
 from mlframe.feature_engineering.transformer import (
     ShortlistTransformerAdapter,

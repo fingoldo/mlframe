@@ -23,9 +23,9 @@ if TYPE_CHECKING:
 import numpy as np
 import pandas as pd
 import polars as pl
-import joblib
 
 from mlframe.metrics.core import compute_probabilistic_multiclass_error
+from mlframe.training.io import safe_joblib_load
 from .phases import phase
 from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram
 
@@ -349,15 +349,17 @@ def train_and_evaluate_model(
         # Default `trusted_root` to the model file's parent dir when not provided, preserving backward
         # compat for the in-process trained-then-loaded flow (the trainer wrote this file itself).
         # RESIDUAL RISK (audit2 F2): path-containment cannot catch a pickle an attacker plants AT the
-        # expected model_file_name (it's exactly where we look) -- only integrity can. The complete fix
-        # is to write + verify a sha256 sidecar around this save/load pair via
-        # utils.safe_pickle.safe_load (fail-closed on a missing/mismatched sidecar); tracked as an owned
-        # follow-up since it needs the paired SAVE site to emit the sidecar. Until then this default only
-        # blocks gross path escapes, not a planted-at-path pickle.
+        # expected model_file_name (it's exactly where we look) -- only integrity can. safe_joblib_load
+        # below closes the RCE-gadget half (denylists eval/exec/os/subprocess/etc. reconstructors), but
+        # NOT the authenticity half: the complete fix is to write + verify a sha256 sidecar around this
+        # save/load pair via utils.safe_pickle.safe_load (fail-closed on a missing/mismatched sidecar);
+        # tracked as an owned follow-up since it needs the paired SAVE site (not in this file) to emit
+        # the sidecar first. Until then this default only blocks gross path escapes and known RCE
+        # gadgets, not a planted-at-path pickle built from an otherwise-permitted class.
         _root = trusted_root if trusted_root is not None else os.path.dirname(os.path.abspath(model_file_name))
         _validate_trusted_path(model_file_name, _root)
         try:
-            model, *_, pre_pipeline = joblib.load(model_file_name)
+            model, *_, pre_pipeline = safe_joblib_load(model_file_name)
         except (EOFError, OSError, ModuleNotFoundError, pickle.UnpicklingError, AttributeError):
             # Wave 41 (2026-05-20): retraining is expensive; preserve traceback so the
             # operator can distinguish pickle-version mismatch / torch attribute drift /

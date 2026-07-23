@@ -7,11 +7,10 @@ high-level contract invariants for the suite. Existing
 the small set of "must remain true" invariants on the suite's
 public contract.
 
-Defensive: ``training/core.py`` is under active refactor. Each test
-uses minimal config + small synthetic data. On API change (e.g. a
-kwarg renamed mid-refactor), the test ``pytest.skip``s with a clear
-note rather than failing -- so the suite-coverage signal stays
-trustworthy even during transition.
+Each test uses minimal config + small synthetic data. A real API break (e.g. a kwarg renamed) now
+FAILS these tests loudly rather than silently skipping (see x_test_suite_architecture.md finding F1 --
+the prior defensive-skip pattern was found to mask genuine regressions, not just transient refactor
+churn).
 
 Naming: ``test_biz_val_training_<class>_<parameter>``.
 """
@@ -55,16 +54,14 @@ def _make_classification_df(n=400, seed=42):
 
 
 def _try_import_suite():
-    """Defensive import. Skip the test if the suite isn't importable
-    in the current core.py state."""
-    try:
-        from mlframe.training.core import train_mlframe_models_suite
-        from mlframe.training import OutputConfig
-        from tests.training.shared import SimpleFeaturesAndTargetsExtractor
+    """F1 (audits/full_audit_2026-07-21/x_test_suite_architecture.md): a genuine kwarg-contract break
+    in this public training API must FAIL these tests, not silently skip them -- a plain import with no
+    defensive except, so an ImportError/AttributeError here surfaces as a loud collection/test error."""
+    from mlframe.training.core import train_mlframe_models_suite
+    from mlframe.training import OutputConfig
+    from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
-        return train_mlframe_models_suite, OutputConfig, SimpleFeaturesAndTargetsExtractor
-    except (ImportError, AttributeError) as e:
-        pytest.skip(f"suite not importable during refactor: {e}")
+    return train_mlframe_models_suite, OutputConfig, SimpleFeaturesAndTargetsExtractor
 
 
 # ---------------------------------------------------------------------------
@@ -80,21 +77,18 @@ def test_biz_val_training_suite_regression_completes(tmp_path):
     df = _make_regression_df(n=400, seed=42)
     fte = FTE(target_column="target", regression=True)
     data_dir = str(tmp_path / "data")
-    try:
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="m_reg",
-            features_and_targets_extractor=fte,
-            mlframe_models=["lgb"],
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
-            verbose=0,
-            hyperparams_config={"iterations": _DEFAULT_SMOKE_ITERATIONS},
-        )
-    except (TypeError, ImportError) as e:
-        pytest.skip(f"suite call broke during refactor: {e}")
+    models, metadata = train_mlframe_models_suite(
+        df=df,
+        target_name="test_target",
+        model_name="m_reg",
+        features_and_targets_extractor=fte,
+        mlframe_models=["lgb"],
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
+        verbose=0,
+        hyperparams_config={"iterations": _DEFAULT_SMOKE_ITERATIONS},
+    )
     # Behavioural: suite returned a real models mapping (not a stub) with at least one trained estimator under
     # the requested family, and the metadata dict carries the canonical keys downstream consumers depend on.
     assert models is not None, "regression suite returned None models on lgb-only path"
@@ -113,21 +107,18 @@ def test_biz_val_training_suite_classification_completes(tmp_path):
     df = _make_classification_df(n=400, seed=42)
     fte = FTE(target_column="target", regression=False)
     data_dir = str(tmp_path / "data")
-    try:
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="m_clf",
-            features_and_targets_extractor=fte,
-            mlframe_models=["lgb"],
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
-            verbose=0,
-            hyperparams_config={"iterations": _DEFAULT_SMOKE_ITERATIONS},
-        )
-    except (TypeError, ImportError) as e:
-        pytest.skip(f"suite call broke during refactor: {e}")
+    models, metadata = train_mlframe_models_suite(
+        df=df,
+        target_name="test_target",
+        model_name="m_clf",
+        features_and_targets_extractor=fte,
+        mlframe_models=["lgb"],
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
+        verbose=0,
+        hyperparams_config={"iterations": _DEFAULT_SMOKE_ITERATIONS},
+    )
     # Same behavioural contract as the regression path (see above).
     assert models is not None, "classification suite returned None models on lgb-only path"
     assert hasattr(models, "__len__") and len(models) >= 1, f"models container empty after successful classification suite call; got {type(models).__name__}"
@@ -157,21 +148,18 @@ def test_biz_val_training_suite_mlframe_models_subset(tmp_path, model_list):
     df = _make_regression_df(n=300, seed=42)
     fte = FTE(target_column="target", regression=True)
     data_dir = str(tmp_path / "data")
-    try:
-        models, _metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name=f"m_{model_list[0]}",
-            features_and_targets_extractor=fte,
-            mlframe_models=model_list,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
-            verbose=0,
-            hyperparams_config={"iterations": _DEFAULT_SMOKE_ITERATIONS},
-        )
-    except (TypeError, ImportError) as e:
-        pytest.skip(f"suite call broke during refactor: {e}")
+    models, _metadata = train_mlframe_models_suite(
+        df=df,
+        target_name="test_target",
+        model_name=f"m_{model_list[0]}",
+        features_and_targets_extractor=fte,
+        mlframe_models=model_list,
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
+        verbose=0,
+        hyperparams_config={"iterations": _DEFAULT_SMOKE_ITERATIONS},
+    )
     # The chosen model family must be reflected somewhere in the returned models structure. Behavioural pin:
     # the requested family name must appear as a substring of any KEY (target_type / target_name) OR any
     # MODEL OBJECT's class name (the leaf level is a list of model objects, not a dict). The suite-level
@@ -238,19 +226,16 @@ def test_biz_val_training_suite_metadata_dict_schema(tmp_path):
     df = _make_regression_df(n=300, seed=42)
     fte = FTE(target_column="target", regression=True)
     data_dir = str(tmp_path / "data")
-    try:
-        _models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="m_md",
-            features_and_targets_extractor=fte,
-            mlframe_models=["lgb"],
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
-            verbose=0,
-            hyperparams_config={"iterations": _DEFAULT_SMOKE_ITERATIONS},
-        )
-    except (TypeError, ImportError) as e:
-        pytest.skip(f"suite call broke during refactor: {e}")
+    _models, metadata = train_mlframe_models_suite(
+        df=df,
+        target_name="test_target",
+        model_name="m_md",
+        features_and_targets_extractor=fte,
+        mlframe_models=["lgb"],
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
+        verbose=0,
+        hyperparams_config={"iterations": _DEFAULT_SMOKE_ITERATIONS},
+    )
     assert isinstance(metadata, dict), f"metadata must be a dict; got {type(metadata).__name__}"

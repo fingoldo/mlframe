@@ -33,15 +33,14 @@ _SMOKE_ITERATIONS = 2 if is_fast_mode() else 5
 
 
 def _try_import_suite():
-    """Try import suite."""
-    try:
-        from mlframe.training.core import train_mlframe_models_suite
-        from mlframe.training import OutputConfig
-        from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
+    """F2 (audits/full_audit_2026-07-21/x_test_suite_architecture.md): a genuine kwarg-contract break
+    in this public training API must FAIL these tests, not silently skip them -- a plain import with no
+    defensive except, so an ImportError/AttributeError here surfaces as a loud collection/test error."""
+    from mlframe.training.core import train_mlframe_models_suite
+    from mlframe.training import OutputConfig
+    from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
-        return train_mlframe_models_suite, OutputConfig, SimpleFeaturesAndTargetsExtractor
-    except (ImportError, AttributeError) as e:  # pragma: no cover
-        pytest.skip(f"suite not importable: {e}")
+    return train_mlframe_models_suite, OutputConfig, SimpleFeaturesAndTargetsExtractor
 
 
 # ---------------------------------------------------------------------------
@@ -152,11 +151,8 @@ def test_default_extractor_regression_matches_explicit(tmp_path):
     df, _, _ = make_simple_regression_data(n_samples=400, n_features=5, seed=42)
 
     explicit = FTE(regression_targets=["target"])
-    try:
-        r_explicit = _train(suite, OutputConfig, tmp_path, df.copy(), explicit, "expl_reg")
-        r_default = _train(suite, OutputConfig, tmp_path, df.copy(), None, "def_reg")
-    except (TypeError, ImportError) as e:  # pragma: no cover
-        pytest.skip(f"suite call broke: {e}")
+    r_explicit = _train(suite, OutputConfig, tmp_path, df.copy(), explicit, "expl_reg")
+    r_default = _train(suite, OutputConfig, tmp_path, df.copy(), None, "def_reg")
 
     # Both paths produce the SAME regression target name (task inferred as regression)
     assert set(r_default.models) == set(r_explicit.models), f"default vs explicit model keys differ: {set(r_default.models)} != {set(r_explicit.models)}"
@@ -171,11 +167,8 @@ def test_default_extractor_classification_matches_explicit(tmp_path):
     df, _, _, _ = make_simple_classification_data(n_samples=400, n_features=5, seed=42)
 
     explicit = FTE(classification_targets=["target"])
-    try:
-        r_explicit = _train(suite, OutputConfig, tmp_path, df.copy(), explicit, "expl_clf")
-        r_default = _train(suite, OutputConfig, tmp_path, df.copy(), None, "def_clf")
-    except (TypeError, ImportError) as e:  # pragma: no cover
-        pytest.skip(f"suite call broke: {e}")
+    r_explicit = _train(suite, OutputConfig, tmp_path, df.copy(), explicit, "expl_clf")
+    r_default = _train(suite, OutputConfig, tmp_path, df.copy(), None, "def_clf")
 
     assert set(r_default.models) == set(r_explicit.models), f"default vs explicit model keys differ: {set(r_default.models)} != {set(r_explicit.models)}"
     assert len(r_default.models) >= 1

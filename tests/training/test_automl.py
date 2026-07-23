@@ -108,7 +108,7 @@ class TestTrainAutogluonModel:
             result = automl_module.train_autogluon_model(sample_train_df)
             assert result is None
 
-    @pytest.mark.skip(reason="AutoGluon heavy dependency - run manually if needed")
+    @pytest.mark.heavy_automl
     def test_basic_training(self, sample_train_df, tmp_path):
         """Test basic AutoGluon training."""
         init_params = {"path": str(tmp_path / "ag_model")}
@@ -131,7 +131,7 @@ class TestTrainAutogluonModel:
         if isinstance(result.metrics, dict):
             assert len(result.metrics) > 0, "AutoGluon metrics dict empty"
 
-    @pytest.mark.skip(reason="AutoGluon heavy dependency - run manually if needed")
+    @pytest.mark.heavy_automl
     def test_training_with_test_df(self, sample_train_df, sample_test_df, tmp_path):
         """Test AutoGluon training with test evaluation."""
         init_params = {"path": str(tmp_path / "ag_model")}
@@ -232,7 +232,7 @@ class TestTrainLamaModel:
             result = automl_module.train_lama_model(sample_train_df)
             assert result is None
 
-    @pytest.mark.skip(reason="LAMA heavy dependency - run manually if needed")
+    @pytest.mark.heavy_automl
     def test_basic_training(self, sample_train_df):
         """Test basic LAMA training."""
         from lightautoml.tasks import Task
@@ -249,7 +249,7 @@ class TestTrainLamaModel:
         assert hasattr(result, "model")
         assert hasattr(result, "metrics")
 
-    @pytest.mark.skip(reason="LAMA heavy dependency - run manually if needed")
+    @pytest.mark.heavy_automl
     def test_training_with_test_df(self, sample_train_df, sample_test_df):
         """Test LAMA training with test evaluation."""
         from lightautoml.tasks import Task
