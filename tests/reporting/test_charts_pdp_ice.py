@@ -425,3 +425,30 @@ def test_carrier_with_categoricals_drops_list_valued_embedding_column():
     assert isinstance(out["cat"].dtype, pd.CategoricalDtype)
     assert out["emb"].dtype == object  # left untouched, not a crash
     assert np.array_equal(out["num"].to_numpy(), df["num"].to_numpy())
+
+
+def test_pdp_survives_native_text_feature_column():
+    """Regression: ``_carrier_with_categoricals`` used to blanket-cast every non-numeric object column (including a
+    CatBoost native TEXT-feature column) to pandas 'category' dtype -- CatBoost then rejects the Pool build with
+    "has dtype 'category' but is not in cat_features list" (a pandas carrier) or crashes the whole process with a
+    native access violation (a polars carrier), caught live via a fuzz combo's PDP diagnostic sweeping a numeric
+    feature while a sibling text-feature column was present. The text column must be left at its original dtype."""
+    cb = pytest.importorskip("catboost")
+    import numpy as np
+    import pandas as pd
+    from mlframe.reporting.charts.pdp_ice import compute_pdp
+
+    rng = np.random.default_rng(0)
+    n = 200
+    df = pd.DataFrame(
+        {
+            "num_0": rng.standard_normal(n),
+            "num_1": rng.standard_normal(n),
+            "text_0": rng.choice(["python cloud swift", "quantum nlp robotics", "rust wasm edge"], size=n),
+        }
+    )
+    y = rng.integers(0, 2, size=n)
+    model = cb.CatBoostClassifier(iterations=20, verbose=False, text_features=["text_0"]).fit(df, y)
+
+    res = compute_pdp(model, df, "num_0", grid=5, sample=50)
+    assert np.all(np.isfinite(res["pdp"]))
