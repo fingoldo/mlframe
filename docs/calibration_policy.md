@@ -1,4 +1,4 @@
-# Calibration policy guide (AP12)
+# Calibration policy guide
 
 Probability calibration in mlframe is governed by ``pick_best_calibrator`` (``src/mlframe/calibration/policy.py``), a small policy that selects among ``Sigmoid`` (Platt scaling), ``Isotonic`` (PAV), ``Beta`` (Kull et al. 2017), and ``Spline`` calibrators (``CANDIDATE_NAMES``) by comparing **out-of-fold Expected Calibration Error (ECE)**, using an honest held-out inner-CV estimate by default.
 

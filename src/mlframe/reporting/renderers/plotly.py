@@ -250,6 +250,11 @@ class PlotlyRenderer:
         """Write ``fig`` to ``path`` in ``fmt`` (case-insensitive): ``html`` via ``write_html``, ``json`` via ``to_json``, ``png/svg/pdf`` via kaleido (falls back to html with a WARN if kaleido is missing). Raises ``ValueError`` on an unsupported format."""
         fmt = fmt.lower()
         if fmt == "html":
+            # include_plotlyjs="cdn" embeds a <script src="https://cdn.plot.ly/..."> reference instead of
+            # inlining plotly.js (~3-4 MB) into every report -- a deliberate file-size tradeoff. On a host
+            # with no outbound internet access (air-gapped training box, audited enterprise network) the
+            # resulting HTML renders as blank panels with no error surfaced to the viewer. Switch to
+            # include_plotlyjs=True (or a vendored local copy) if offline report viewing is required.
             fig.write_html(path, include_plotlyjs="cdn", auto_open=False, config=html_config())
         elif fmt == "json":
             with open(path, "w", encoding="utf-8") as f:

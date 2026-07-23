@@ -83,7 +83,7 @@ dependencies = [
     # src/mlframe/{feature_engineering/numerical,feature_selection/filters/*}
     # and would otherwise raise ImportError on `import mlframe`. Audited via
     # AST top-level scan on 2026-05-15.
-    "antropy>=0.1",
+    "antropy>=0.1.4",
     # 2026-05-28: astropy removed from CORE deps. Native impls of Bayesian Blocks
     # (Scargle 2013) and Knuth's rule (Knuth 2006) ship in
     # feature_selection/filters/discretization.py:histogram(). All consumers
@@ -102,7 +102,12 @@ dependencies = [
     # carry (kept as defensive degradation, not exercised once this floor is guaranteed present).
     "xxhash>=3.0",
     # pyutilz is not yet on PyPI. Install it from GitHub before mlframe:
-    #   pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git"
+    #   pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@08284bdc247740ccab4f490afab50f276f5eb3cd"
+    # X_SECURITY_API_PACKAGING-5 fix (mrmr_audit_2026-07-22): pin to a specific commit SHA, not the
+    # floating default branch -- an unpinned, same-day pyutilz commit once silently flipped a shared
+    # helper's default argument and broke MRMR.fit() for every caller (CORE_CLASS-1), with no version
+    # boundary anywhere in this dependency graph that could have caught or rolled back the change.
+    # Bump the SHA deliberately (with a CHANGELOG entry) when a new pyutilz feature is actually needed.
     # The version specifier below works once pyutilz is published; until then,
     # pip needs to resolve pyutilz from the user's environment (already installed).
     "pyutilz>=1.0.0",
@@ -276,9 +281,10 @@ db = [
     "zstandard>=0.21",
 ]
 
-# Signal-processing / scientific extras (entropy, wavelets, astropy).
+# Signal-processing / scientific extras (entropy, wavelets, astropy). antropy is NOT listed here --
+# it's already a hard core dependency (see [project.dependencies] above), so re-listing it here would
+# misleadingly imply it's opt-in.
 signal = [
-    "antropy>=0.1.4",
     "astropy>=5.3",
     "entropy-estimators>=0.0.1",
     "pywavelets>=1.4",
@@ -404,7 +410,10 @@ dev = [
     # Shared CI/lint tooling (black_filtered_apply / format_warn / bandit_warn / vulture_warn),
     # consumed by .pre-commit-config.yaml's `language: system` local hooks. Not yet on PyPI --
     # install from GitHub, mirroring the existing pyutilz dependency pattern.
-    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git",
+    # X_SECURITY_API_PACKAGING-5 fix (mrmr_audit_2026-07-22): pinned to a specific commit SHA rather
+    # than the floating default branch (see the matching pyutilz note above for the rationale). Bump
+    # deliberately (with a CHANGELOG entry) when a new py-ci-shared feature is actually needed.
+    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@5d803e0b0a4e1df392c48a020cc0080644e08928",
 ]
 
 [project.scripts]

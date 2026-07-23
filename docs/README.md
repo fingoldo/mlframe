@@ -21,6 +21,8 @@ deeper material in the docs root.
 | [`MULTI_TARGET_REGRESSION.md`](MULTI_TARGET_REGRESSION.md) | Multi-target (K-column) regression support matrix and integration roadmap |
 | [`SELECTION_BIAS.md`](SELECTION_BIAS.md) | PU-learning and drift-correction wrappers for biased-sampling problems |
 | [`DEBUGGING_UPSTREAM_ERRORS.md`](DEBUGGING_UPSTREAM_ERRORS.md) | Decoding cryptic errors raised by sklearn / LightGBM / CatBoost under the suite |
+| [`visualization.md`](visualization.md) | Reference for the charts `train_mlframe_models_suite` emits and how to tune them |
+| [`gallery/index.md`](gallery/index.md) | Rendered example gallery of every chart type |
 
 See also [`docs/examples/composite_targets.md`](examples/composite_targets.md) for the tiered composite-target recipes.
 
@@ -38,3 +40,4 @@ where relevant), not user API documentation.
 | [`date_features_kaggle_research.md`](date_features_kaggle_research.md) | Calendar / cyclical date-feature survey behind `create_date_features` |
 | [`NUMERICAL_STABILITY_REPORT.md`](NUMERICAL_STABILITY_REPORT.md) | Catastrophic-cancellation audit + benchmark of the numba moment kernels |
 | [`WAVE5_GPU_ROADMAP.md`](WAVE5_GPU_ROADMAP.md) | GPU-acceleration roadmap notes |
+| [`SHAP_PROXIED_FS_GAME_THEORY.md`](SHAP_PROXIED_FS_GAME_THEORY.md) | `ShapProxiedFS` game-theory extensions (gt_01-gt_09) research verdict |

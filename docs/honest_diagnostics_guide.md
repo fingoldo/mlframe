@@ -1,4 +1,4 @@
-# Honest diagnostics guide (AP13)
+# Honest diagnostics guide
 
 The ``honest_diagnostics`` aggregator (``src/mlframe/training/honest_diagnostics.py``) consolidates the audit-trail diagnostics that previously lived as scattered per-target logs into a single structured report. It is wired into ``finalize`` and default ON via ``ReportingConfig.honest_estimator_diagnostics``.
 

@@ -167,39 +167,70 @@ def test_stop_file(tmp_path):
 
 
 def test_catboost_stopfile_smoke(tmp_path):
-    """Catboost stopfile smoke."""
+    """F7 (audits/full_audit_2026-07-21/x_test_suite_architecture.md): actually exercise the stop
+    detection, not just construction. CatBoost convention: after_iteration returns False to stop."""
     pytest.importorskip("catboost")
     from mlframe.training.callbacks import CatBoostStopFileCallback
 
-    cb = CatBoostStopFileCallback(str(tmp_path / "stop.flag"))
-    assert cb is not None
+    flag = tmp_path / "stop.flag"
+    cb = CatBoostStopFileCallback(str(flag))
+    assert cb.after_iteration(info=None) is True, "must NOT signal stop before the stop-file exists"
+    flag.write_text("x")
+    assert cb.after_iteration(info=None) is False, "must signal stop (return False) once the stop-file exists"
 
 
 def test_lightgbm_stopfile_smoke(tmp_path):
-    """Lightgbm stopfile smoke."""
-    pytest.importorskip("lightgbm")
+    """F7: LightGBM convention: __call__ raises EarlyStopException once the stop-file exists, and is a
+    no-op (no exception) before it does."""
+    lgb = pytest.importorskip("lightgbm")
     from mlframe.training.callbacks import LightGBMStopFileCallback
 
-    cb = LightGBMStopFileCallback(str(tmp_path / "stop.flag"))
-    assert cb is not None
+    flag = tmp_path / "stop.flag"
+    cb = LightGBMStopFileCallback(str(flag))
+
+    class _FakeEnv:
+        """Minimal stand-in for lightgbm's callback env (iteration + evaluation_result_list)."""
+
+        iteration = 3
+        evaluation_result_list = []
+
+    cb(_FakeEnv())  # before the stop-file exists: must not raise
+    flag.write_text("x")
+    with pytest.raises(lgb.callback.EarlyStopException):
+        cb(_FakeEnv())
 
 
 def test_xgboost_stopfile_smoke(tmp_path):
-    """Xgboost stopfile smoke."""
+    """F7: XGBoost convention: after_iteration returns True once the stop-file exists."""
     pytest.importorskip("xgboost")
     from mlframe.training.callbacks import XGBoostStopFileCallback
 
-    cb = XGBoostStopFileCallback(str(tmp_path / "stop.flag"))
-    assert cb is not None
+    flag = tmp_path / "stop.flag"
+    cb = XGBoostStopFileCallback(str(flag))
+    assert cb.after_iteration(model=None, epoch=0, evals_log={}) is False, "must NOT signal stop before the stop-file exists"
+    flag.write_text("x")
+    assert cb.after_iteration(model=None, epoch=1, evals_log={}) is True, "must signal stop (return True) once the stop-file exists"
 
 
 def test_lightning_stopfile_smoke(tmp_path):
-    """Lightning stopfile smoke."""
+    """F7: PyTorch-Lightning convention: on_train_epoch_end sets trainer.should_stop=True once the
+    stop-file exists."""
     pytest.importorskip("pytorch_lightning")
     from mlframe.training.callbacks import LightningStopFileCallback
 
-    cb = LightningStopFileCallback(str(tmp_path / "stop.flag"))
-    assert cb is not None
+    class _FakeTrainer:
+        """Minimal stand-in exposing only the attribute the callback mutates."""
+
+        should_stop = False
+
+    flag = tmp_path / "stop.flag"
+    cb = LightningStopFileCallback(str(flag))
+    trainer = _FakeTrainer()
+    cb.on_train_epoch_end(trainer, pl_module=None)
+    assert trainer.should_stop is False, "must NOT signal stop before the stop-file exists"
+    flag.write_text("x")
+    cb.on_train_epoch_end(trainer, pl_module=None)
+    assert trainer.should_stop is True, "must signal stop (should_stop=True) once the stop-file exists"
 
 
 # ---------------------------------------------------------------------------

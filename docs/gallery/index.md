@@ -3,12 +3,13 @@
 Every chart / diagnostic in the mlframe reporting subsystem, rendered to PNG on synthetic
 data chosen to make each chart meaningful. Regenerate with `python scripts/render_gallery.py`.
 
-Total images: 40 across 19 categories.
+Total images: 45 across 26 categories.
 
 ## Contents
 
 - [regression](#regression)
 - [binary](#binary)
+- [risk_coverage](#risk-coverage)
 - [model_card](#model-card)
 - [multiclass](#multiclass)
 - [multilabel](#multilabel)
@@ -19,13 +20,19 @@ Total images: 40 across 19 categories.
 - [error_analysis](#error-analysis)
 - [prediction_stability](#prediction-stability)
 - [slice_finder](#slice-finder)
+- [fairness_calibration](#fairness-calibration)
+- [calibration_by_feature](#calibration-by-feature)
+- [calibration_heatmap_2d](#calibration-heatmap-2d)
 - [pdp_ice](#pdp-ice)
+- [pdp_2d](#pdp-2d)
 - [model_comparison](#model-comparison)
 - [split_comparison](#split-comparison)
 - [training_curve](#training-curve)
 - [learning_curve](#learning-curve)
 - [temporal](#temporal)
 - [shap_panels](#shap-panels)
+- [shap_interactions](#shap-interactions)
+- [shap_per_instance](#shap-per-instance)
 
 ## regression
 
@@ -78,6 +85,14 @@ Decision-curve analysis: model net-benefit vs treat-all / treat-none policies.
 Reliability diagram with Wilson CI bands + binning-free smoothed (isotonic) overlay + bootstrap 95% band (significant-fraction annotation) + standard & debiased ECE annotation + population histogram.
 
 ![calibration_reliability](binary/calibration_reliability.png)
+
+## risk_coverage
+
+### risk_coverage
+
+Risk-coverage (selective prediction): accuracy rises as you abstain on the least-confident cases; gap over the flat random-rejection line is the value of confidence-ranked deferral.
+
+![risk_coverage](risk_coverage/risk_coverage.png)
 
 ## model_card
 
@@ -219,6 +234,30 @@ Worst-K feature-value slices ranked by error-degradation x support.
 
 ![slice_finder](slice_finder/slice_finder.png)
 
+## fairness_calibration
+
+### fairness_calibration
+
+Per-subgroup reliability overlay + per-group ECE bar; max-min ECE gap as a calibration-fairness disparity (one group deliberately miscalibrated).
+
+![fairness_calibration](fairness_calibration/fairness_calibration.png)
+
+## calibration_by_feature
+
+### calibration_by_feature
+
+Per-feature calibration: reliability + ECE conditioned on quantile bins of a continuous feature. The model is calibrated for low feature values but overconfident for high ones, so the per-bin ECE line climbs across the feature range and the max-min heterogeneity metric trips red -- a miscalibration a single pooled curve hides.
+
+![calibration_by_feature](calibration_by_feature/calibration_by_feature.png)
+
+## calibration_heatmap_2d
+
+### calibration_heatmap_2d
+
+2D calibration-ECE heatmap over a quantile grid of two features. The model is overconfident ONLY in the high-f0 AND high-f1 corner (a localized pocket either 1D view averages away); that corner cell lights up red on the RdYlGn_r grid while the rest stays green, and the worst-cell ECE + location is the headline.
+
+![calibration_heatmap_2d](calibration_heatmap_2d/calibration_heatmap_2d.png)
+
 ## pdp_ice
 
 ### pdp_ice
@@ -226,6 +265,14 @@ Worst-K feature-value slices ranked by error-degradation x support.
 1-D PDP+ICE for the top features and a 2-D PDP interaction heatmap (small sklearn model).
 
 ![pdp_ice](pdp_ice/pdp_ice.png)
+
+## pdp_2d
+
+### pdp_2d
+
+2-D partial-dependence response surface (filled contour) for the top interacting feature pair on a planted f0*f1 twist.
+
+![pdp_2d](pdp_2d/pdp_2d.png)
 
 ## model_comparison
 
@@ -281,26 +328,30 @@ SHAP beeswarm + dependence plots for a small tree model.
 
 ![shap_shap_beeswarm](shap_panels/shap_shap_beeswarm.png)
 
-### shap_shap_dependence_0_f0
+### shap_shap_dependence_grid0
 
 SHAP beeswarm + dependence plots for a small tree model.
 
-![shap_shap_dependence_0_f0](shap_panels/shap_shap_dependence_0_f0.png)
+![shap_shap_dependence_grid0](shap_panels/shap_shap_dependence_grid0.png)
 
-### shap_shap_dependence_1_f1
+## shap_interactions
 
-SHAP beeswarm + dependence plots for a small tree model.
+### shap_interactions_interaction_top_pairs
 
-![shap_shap_dependence_1_f1](shap_panels/shap_shap_dependence_1_f1.png)
+SHAP feature-pair interaction summary: top-pairs bar + interaction-strength heatmap.
 
-### shap_shap_dependence_2_f2
+![shap_interactions_interaction_top_pairs](shap_interactions/shap_interactions_interaction_top_pairs.png)
 
-SHAP beeswarm + dependence plots for a small tree model.
+### shap_interactions_interaction_heatmap
 
-![shap_shap_dependence_2_f2](shap_panels/shap_shap_dependence_2_f2.png)
+SHAP feature-pair interaction summary: top-pairs bar + interaction-strength heatmap.
 
-### shap_shap_dependence_3_f4
+![shap_interactions_interaction_heatmap](shap_interactions/shap_interactions_interaction_heatmap.png)
 
-SHAP beeswarm + dependence plots for a small tree model.
+## shap_per_instance
 
-![shap_shap_dependence_3_f4](shap_panels/shap_shap_dependence_3_f4.png)
+### shap_per_instance
+
+Per-instance SHAP attribution for the top-K most-confident-wrong predictions (signed-SHAP bar per costly error).
+
+![shap_per_instance](shap_per_instance/shap_per_instance.png)

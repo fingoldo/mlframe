@@ -49,6 +49,7 @@ import shutil
 import sys
 import threading
 import time
+import zipfile
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import (
@@ -131,6 +132,20 @@ class FeatureCache:
         self._hits_disk = 0
         self._misses = 0
         self._evictions = 0
+
+    def __getstate__(self) -> dict:
+        """Drop the unpicklable ``threading.Lock`` (a fresh one is created in ``__setstate__``); no
+        pickling path currently reaches this class, but it's the same "live object survives only
+        because nobody pickles the parent yet" precondition that bit ``training/neural/ranker.py``'s
+        ``trainer_``/CUDA-tensor exclusion once already -- defensive guard against a future caller."""
+        state = self.__dict__.copy()
+        state["_lock"] = None
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore state and re-create the ``threading.Lock`` dropped by ``__getstate__``."""
+        self.__dict__.update(state)
+        self._lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Stats
@@ -532,6 +547,13 @@ def _deserialize(path: str, *, allow_pickle: bool = False) -> Any:
         # np.array(...) before exiting so the caller gets owned buffers
         # (mmap views would go invalid on close).
         loaded = np.load(path, allow_pickle=allow_pickle, mmap_mode="r")
+    except (OSError, zipfile.BadZipFile):
+        # OSError (PermissionError from a locked file on Windows, a genuine disk-read failure, ...) and
+        # zipfile.BadZipFile (a truncated npz from a crashed write) are real I/O/corruption failures, not
+        # a "this is a legacy pickle payload" signal -- let them propagate as themselves instead of being
+        # funnelled into an attempted-unpickle-of-non-pickle-bytes fallback below, which would previously
+        # raise a confusing UnpicklingError that hides the real underlying error.
+        raise
     except Exception:
         if not allow_pickle:
             raise CachePickleRefusedError(
