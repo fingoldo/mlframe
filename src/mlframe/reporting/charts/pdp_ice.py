@@ -204,7 +204,37 @@ def _native_row_subset(carrier: Any, idx: np.ndarray) -> Any:
     return np.asarray(carrier)[idx]
 
 
-def _carrier_with_categoricals(carrier: Any) -> Any:
+def _model_text_feature_names(model: Any, carrier_columns: Optional[List[str]]) -> set:
+    """Column names the model registered as native TEXT features (CatBoost's ``text_features``), so
+    ``_carrier_with_categoricals`` can leave them alone.
+
+    A CatBoost model with ``text_features=[...]`` rejects a 'category'-dtype column for one of those names at
+    Pool-build time ("has dtype 'category' but is not in cat_features list") -- or, on a polars carrier, crashes
+    the process with a native access violation instead of raising cleanly (caught live via a fuzz combo whose PDP
+    diagnostic swept a numeric feature while a sibling text column was present). ``_carrier_with_categoricals``
+    used to blanket-cast every non-numeric object column to category, which is exactly the wrong dtype for a
+    text-feature column. Unwraps a Pipeline's final estimator the same way ``_training_loop.py`` does.
+    """
+    inner = model
+    steps = getattr(model, "steps", None)
+    if steps:
+        inner = steps[-1][1]
+    get_text = getattr(inner, "get_text_feature_indices", None)
+    if not callable(get_text):
+        return set()
+    try:
+        idx = get_text()
+    except Exception:
+        return set()
+    if not idx:
+        return set()
+    names = getattr(inner, "feature_names_", None) or carrier_columns
+    if not names:
+        return set()
+    return {names[i] for i in idx if 0 <= i < len(names)}
+
+
+def _carrier_with_categoricals(carrier: Any, model: Any = None) -> Any:
     """Cast a pandas carrier's object/string columns to 'category' (new frame via assign -- untouched blocks reused,
     caller frame not mutated) so a categorical model can predict on it. Non-pandas / already-numeric-or-category
     carriers are returned unchanged."""
@@ -221,6 +251,8 @@ def _carrier_with_categoricals(carrier: Any) -> Any:
     # isn't a meaningful category anyway); they stay their original object dtype and the model call downstream
     # either handles them natively or fails on its own terms, same as any other unsupported dtype.
     obj_cols = [c for c in obj_cols if not any(isinstance(v, (list, tuple, np.ndarray)) for v in carrier[c])]
+    text_cols = _model_text_feature_names(model, list(carrier.columns)) if model is not None else set()
+    obj_cols = [c for c in obj_cols if c not in text_cols]
     return carrier.assign(**{c: carrier[c].astype("category") for c in obj_cols}) if obj_cols else carrier
 
 
@@ -316,7 +348,7 @@ def compute_pdp(
         ``feature_index`` : resolved column index
     """
     vals, carrier, names = _as_2d(X)
-    carrier = _carrier_with_categoricals(carrier)  # so categorical models can predict on the substituted block
+    carrier = _carrier_with_categoricals(carrier, model)  # so categorical models can predict on the substituted block
     n, n_cols = vals.shape
     col_idx = _resolve_feature_index(feature, names, n_cols)
     predict, kind = _scalar_predict(model)
@@ -386,7 +418,7 @@ def compute_pdp_2d(
     ``surface`` (g0 x g1 mean predictions), ``kind``.
     """
     vals, carrier, names = _as_2d(X)
-    carrier = _carrier_with_categoricals(carrier)  # categorical models must predict on native (not float) dtypes
+    carrier = _carrier_with_categoricals(carrier, model)  # categorical models must predict on native (not float) dtypes
     n, n_cols = vals.shape
     i0 = _resolve_feature_index(features[0], names, n_cols)
     i1 = _resolve_feature_index(features[1], names, n_cols)
