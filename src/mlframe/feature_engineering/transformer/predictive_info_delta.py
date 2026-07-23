@@ -81,7 +81,11 @@ def compute_predictive_info_delta_features(
         # Bin train baseline predictions.
         bin_edges = np.quantile(p_train, np.linspace(0.0, 1.0, n_bins + 1))
         train_bin = np.zeros(p_train.shape[0], dtype=np.int32)
-        H_y_per_bin = np.zeros(n_bins, dtype=np.float32)
+        # Global marginal entropy H_y (already computed above for both branches) is the correct
+        # fallback for an empty bin -- H(y) - H(y|bin) = 0 ("no information gain from this bin") is
+        # neutral, whereas the previous 0.0 default falsely read as "perfectly certain" (var==1 for
+        # regression's log-variance form).
+        H_y_per_bin = np.full(n_bins, H_y, dtype=np.float32)
         for b in range(n_bins):
             if b == 0:
                 mask = p_train <= bin_edges[b + 1]

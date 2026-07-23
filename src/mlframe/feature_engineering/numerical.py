@@ -762,7 +762,7 @@ def numaggs_over_matrix_rows(vals: np.ndarray, numagg_params: dict, rolling_ma: 
 
 
 def compute_numaggs_parallel(
-    df: pd.DataFrame = None,
+    df: Optional[pd.DataFrame] = None,
     cols: Optional[Sequence] = None,
     values: Optional[np.ndarray] = None,
     use_diffs: bool = False,
@@ -787,6 +787,7 @@ def compute_numaggs_parallel(
         n_jobs = psutil.cpu_count(logical=False) or psutil.cpu_count(logical=True) or 1
 
     if values is None:
+        assert df is not None  # guaranteed by the `values is None and (df is None or cols is None)` check above
         values = df.loc[:, cols].values
 
     res = parallel_run(

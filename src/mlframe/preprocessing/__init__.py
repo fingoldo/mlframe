@@ -31,3 +31,6 @@ from mlframe.preprocessing.sibling_group_cold_start_fill import sibling_group_co
 from mlframe.preprocessing.missing_indicator_pairing import impute_with_missing_indicator
 from mlframe.preprocessing.outlier_capping_or_missing import outlier_cap_or_missing
 from mlframe.preprocessing.outlier_detector_zoo import make_outlier_detector, make_ensemble_outlier_scores, select_outlier_threshold
+
+# Curate the star-import surface explicitly (mirrors mlframe.metrics.__init__'s pattern).
+__all__ = sorted(name for name in globals() if not name.startswith("_"))

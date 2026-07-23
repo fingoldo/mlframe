@@ -49,6 +49,13 @@ def _per_target_seed(base_seed: int, target_name: str) -> int:
     with the prior offset range; the result is folded into a non-
     negative int32 so it round-trips through numpy RNGs that reject
     negative seeds.
+
+    Deliberately NOT the shared ``mlframe.core.helpers.derive_seed`` (unlike
+    ``training.honest_diagnostics._derive_seed`` / ``training.composite.ensemble.derive_seeds``, which
+    both delegate to it): switching hash construction here would silently change every already-persisted
+    ``BaselineReport``'s stochastic-baseline predictions for the SAME target/seed pair, breaking the
+    exact backward-compat contract this function's own docstring documents above. If that reproducibility
+    boundary is ever intentionally reset, migrate to the shared helper then.
     """
     import hashlib as _hashlib
     _digest = _hashlib.blake2b(target_name.encode("utf-8"), digest_size=4).digest()

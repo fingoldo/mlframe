@@ -42,8 +42,12 @@ from timeit import default_timer as timer
 import joblib
 from os.path import join
 from pyutilz.strings import slugify
+# TargetTypes is used as a function-default value below (train_postcalibrators's task_type param),
+# which is evaluated at def-time, so it cannot be deferred into a function body like the other two
+# training/models imports -- calibration/ is a lower-level package that training/ orchestrates, and
+# this is the one asymmetric eager cross-layer import; see report_model_perf/ensemble_probabilistic_
+# predictions below, which ARE deferred, since both are only used inside function bodies.
 from mlframe.training import TargetTypes
-from mlframe.models.ensembling import ensemble_probabilistic_predictions
 
 from sklearn import config_context
 from sklearn.base import BaseEstimator, ClassifierMixin
@@ -53,7 +57,6 @@ import pandas as pd, numpy as np
 from pyutilz.system import tqdmu
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
-from mlframe.training.evaluation import report_model_perf
 from mlframe.calibration.policy import _stratified_inner_folds
 
 # Heavy optional deps (netcal/pycalib pull torch transitively → DLL-load can fail
@@ -127,7 +130,11 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
         transform_method_name: str = "transform",
         needs_2d_probs: Optional[bool] = None,
     ) -> None:
-        store_params_in_object(obj=self, params=get_parent_func_args())
+        # postfix="" -- this class reads attributes back by their BARE param name (see the class-level
+        # annotations above); pyutilz's store_params_in_object() now defaults postfix to "_param_" to
+        # round-trip with load_object_params_into_func(), which broke every bare-name reader that
+        # didn't pin the old convention explicitly.
+        store_params_in_object(obj=self, params=get_parent_func_args(), postfix="")
 
     def _calibrator_needs_2d_probs(self, calibrator: object) -> bool:
         """Returns True if the wrapped calibrator expects a 2D (n_samples, n_classes) prob matrix.
@@ -450,6 +457,10 @@ def compare_postcalibrators(
 
     # get_postcalibrators/BinaryPostCalibrator wrap third-party BINARY calibrators only (see class
     # docstring): postcalibrate_probs unconditionally reduces to a positive-class column and reshapes
+    # Deferred: calibration/ is a lower-level package that training/ orchestrates; this avoids an
+    # eager module-scope training/ import for a name only used inside this function body.
+    from mlframe.training.evaluation import report_model_perf
+
     # 1D output into a (n, 2) matrix, which is only correct for exactly 2 classes. A 3+-class or
     # single-class calib_target must raise here rather than silently mis-fit deep inside sklearn/netcal.
     _classes_check = np.unique(np.asarray(calib_target))
@@ -915,6 +926,10 @@ def train_postcalibrators(
     for _i, _p in enumerate(_calib_arrays):
         if _p.shape[0] != _n_calib:
             raise ValueError(f"train_postcalibrators: calib_probs_per_model[{_i}] has {_p.shape[0]} rows; " f"expected {_n_calib} aligned to calib_target.")
+
+    # Deferred: calibration/ is a lower-level package that models.ensembling/ sits above; this avoids
+    # an eager module-scope import for a name only used inside this function body.
+    from mlframe.models.ensembling import ensemble_probabilistic_predictions
 
     # ensemble_probabilistic_predictions returns a 3-tuple (preds, uncertainty, confident_idx).
     # Pre-fix this site unpacked into TWO names -- raising ValueError on every reachable call.

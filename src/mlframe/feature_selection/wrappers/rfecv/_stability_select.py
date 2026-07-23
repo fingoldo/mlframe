@@ -14,6 +14,7 @@ import pandas as pd
 
 from sklearn.base import clone
 
+from ._fit_fold import _fit_accepts_sample_weight
 from .._enums import VotesAggregation
 from .._helpers import (
     get_actual_features_ranking,
@@ -149,6 +150,14 @@ def _fit_stability_selection(self, X, y, signature):
             top_k, n_features, self.stability_threshold, len(estimators_list),
         )
 
+    # W1: self._fit_sample_weight_ was previously never read anywhere in this function -- a caller
+    # who validated their weighted-fit setup on the default (MBH) path, then flipped
+    # stability_selection=True for the small-n/high-p regime this method targets, silently lost
+    # their weighting with no warning. Sliced by the SAME per-bootstrap idx as X_sub/y_sub so the
+    # weight-to-row correspondence stays correct.
+    _fit_sw = getattr(self, "_fit_sample_weight_", None)
+    _fit_sw_arr = np.asarray(_fit_sw) if _fit_sw is not None else None
+
     for b in range(int(self.stability_n_bootstrap)):
         idx = rng.choice(n_samples, size=sub_size, replace=False)
         if is_df:
@@ -157,13 +166,19 @@ def _fit_stability_selection(self, X, y, signature):
             X_sub = X[idx]
         y_arr = np.asarray(y)
         y_sub = y_arr[idx]
+        sw_sub = _fit_sw_arr[idx] if _fit_sw_arr is not None else None
 
         # Aggregate FI across estimators within this bootstrap.
         per_feature_score_sum = np.zeros(n_features, dtype=float)
         for est in estimators_list:
             est_clone = clone(est)
+            _fit_kwargs = {}
+            if sw_sub is not None:
+                _fit_key = getattr(est_clone.fit, "__func__", est_clone.fit)
+                if _fit_accepts_sample_weight(_fit_key):
+                    _fit_kwargs["sample_weight"] = sw_sub
             try:
-                est_clone.fit(X_sub, y_sub)
+                est_clone.fit(X_sub, y_sub, **_fit_kwargs)
             except Exception as exc:
                 if self.verbose:
                     logger.warning(
@@ -178,6 +193,10 @@ def _fit_stability_selection(self, X, y, signature):
                     data=X_sub, target=y_sub,
                     importance_getter=importance_getter,
                     n_repeats=int(getattr(self, "_effective_n_repeats", None) or getattr(self, "n_repeats", 5) or 5),
+                    # W3: same fix as the main RFECV fold path -- derive a per-bootstrap seed from the
+                    # SAME rng stream already driving this bootstrap's subsample draw, instead of
+                    # get_feature_importances' hardcoded random_state=0 default on every bootstrap.
+                    random_state=int(rng.integers(0, 2**31 - 1)),
                 )
             except Exception as exc:
                 if self.verbose:

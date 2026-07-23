@@ -23,10 +23,9 @@ def kendall_tau(df):
 
 def agreement_rate(df, k, top_k=True):
     """Fraction of each method's top/bottom-``k`` models that also appear in the "AM" ranking's top/bottom-``k`` (clamped to the smallest available subset)."""
-    # Wave 60 (2026-05-20): clamp k to actual subset size so `iloc[-k:]` doesn't
-    # silently return the WHOLE subset (and divide by k anyway, inflating the
-    # agreement rate vs AM). The prior code on a 3-row leaderboard with k=10
-    # would count all 3 rows but still divide by 10 -- silently misreporting
+    # Clamp k to actual subset size so `iloc[-k:]` doesn't silently return the WHOLE subset
+    # (and divide by k anyway, inflating the agreement rate vs AM). On a 3-row leaderboard with
+    # k=10, unclamped code would count all 3 rows but still divide by 10 -- silently misreporting
     # agreement.
     res_d = {}
     _k_eff = k

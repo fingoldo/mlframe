@@ -165,7 +165,10 @@ class MBHOptimizer:
         # ----------------------------------------------------------------------------------------------------------------------------
 
         params = get_parent_func_args()
-        store_params_in_object(obj=self, params=params)
+        # postfix="" -- see mlframe.calibration.post's identical fix comment: this class reads
+        # attributes back by their bare param name, but store_params_in_object()'s default postfix
+        # changed to "_param_" without every caller being updated.
+        store_params_in_object(obj=self, params=params, postfix="")
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # RNG discipline — seed-threadable randomness
@@ -198,6 +201,14 @@ class MBHOptimizer:
             known_candidates = np.array(known_candidates)
         if not isinstance(known_evaluations, np.ndarray):
             known_evaluations = np.array(known_evaluations)
+        # F1: force float64 so the dedup path's np.full(..., +/-np.inf, dtype=_ys.dtype) sentinel
+        # below never silently casts to an integer dtype -- np.full(n, np.inf, dtype=np.int64) AND
+        # np.full(n, -np.inf, dtype=np.int64) both collapse to INT64_MIN under numpy's unsafe cast
+        # (RuntimeWarning only, no exception), so a caller passing integer-typed known_evaluations
+        # (a natural thing to do per this class's own docstring) silently corrupted the Minimize-
+        # direction dedup aggregation to a constant INT64_MIN for every deduplicated point.
+        if known_evaluations.dtype.kind in ("i", "u", "b"):
+            known_evaluations = known_evaluations.astype(np.float64)
         self.known_candidates = known_candidates
         self.known_evaluations = known_evaluations
 
@@ -324,6 +335,13 @@ class MBHOptimizer:
             _etr_kwargs.setdefault("random_state", 0)
             _etr_kwargs.setdefault("n_jobs", 1)
             self.model = _ETRWithStd(ExtraTreesRegressor(**_etr_kwargs))
+        else:
+            # F2: matches the Wave-31 assert->ValueError conversion the other constructor checks
+            # already got a few dozen lines above -- an unrecognized model_name previously left
+            # self.model unset entirely, surfacing only later as an opaque
+            # AttributeError: 'MBHOptimizer' object has no attribute 'model' on the first
+            # suggest_candidate() call instead of a clear failure at construction time.
+            raise ValueError(f"MBHOptimizer: model_name must be one of 'CBQ'/'CB'/'ETR'; got {self.model_name!r}.")
 
     def suggest_candidate(self):
         """Get next most promising candidate. Keeps a buffer of suggested, but not yet evaluated candidates, to avoid recommending them again.

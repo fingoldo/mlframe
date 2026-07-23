@@ -19,3 +19,6 @@ from mlframe.models.rf_proximity import *
 from mlframe.models.lgbm_defaults import default_lgbm_params
 from mlframe.models.additive_interaction_diagnostic import additive_interaction_diagnostic
 from mlframe.models.masked_multilabel_objective import flatten_masked_multilabel, masked_multilabel_logloss_objective
+
+# Curate the star-import surface explicitly (mirrors mlframe.metrics.__init__'s pattern).
+__all__ = sorted(name for name in globals() if not name.startswith("_"))

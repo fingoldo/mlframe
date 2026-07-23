@@ -54,10 +54,18 @@ def _find_borderline_positives(X_pos: np.ndarray, X_full: np.ndarray, y_full: np
         return np.zeros(0, dtype=bool)
     k_used = min(k + 1, X_full.shape[0])  # +1 because nearest is self
     nn = NearestNeighbors(n_neighbors=k_used).fit(X_full)
-    _dists, ids = nn.kneighbors(X_pos)
-    # Exclude self (first column is typically the row itself if X_pos ⊂ X_full).
-    # Heuristic: drop first neighbour if distance is ~0.
-    y_neigh = y_full[ids[:, 1:]]
+    dists, ids = nn.kneighbors(X_pos)
+    # Exclude self (first column is the row itself ONLY when X_pos truly is a subset of X_full at
+    # distance ~0) -- with duplicate rows in X_full a genuine other neighbour can legitimately sort
+    # first (tied distance 0), so unconditionally dropping column 0 would exclude a real neighbour
+    # instead of self, letting self leak into the neighbour set that decides "borderline". Check
+    # per-row whether column 0 is actually the self-match (dist ~0) before dropping it; rows where
+    # it isn't (no exact self-row present, e.g. X_pos wasn't drawn from X_full) drop the FARTHEST
+    # neighbour instead, keeping the same neighbour count (k_used - 1) either way.
+    is_self_match = dists[:, 0] <= 1e-12
+    ids_excl_self = ids[:, 1:]
+    ids_excl_farthest = ids[:, :-1]
+    y_neigh = np.where(is_self_match[:, None], y_full[ids_excl_self], y_full[ids_excl_farthest])
     negative_rate = (y_neigh <= 0.5).mean(axis=1)
     return np.asarray(negative_rate > 0.5)
 

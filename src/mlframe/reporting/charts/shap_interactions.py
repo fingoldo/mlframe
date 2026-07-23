@@ -13,7 +13,6 @@ KernelExplainer interaction approximation -- it is prohibitively slow and not wh
 
 from __future__ import annotations
 
-import logging
 import os
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Sequence, Tuple
@@ -28,14 +27,12 @@ except ImportError:  # plt-using paths are guarded; matplotlib-less envs skip pl
 from mlframe.reporting.charts._sampling import subsample_preserving_extremes
 from mlframe.reporting.charts.shap_panels import (
     _close_figs,
-    _matplotlib_formats,
+    _save_figure,
     _as_frame_and_names,
     _row_subset,
     _score_proxy,
     is_tree_model,
 )
-
-logger = logging.getLogger(__name__)
 
 # Interaction values are O(F^2) per row -- much heavier than plain SHAP, so the row cap is small.
 DEFAULT_MAX_ROWS: int = 2_000
@@ -173,23 +170,6 @@ def _render_heatmap(mat: np.ndarray, names: Sequence[str]) -> Any:
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="mean |interaction|")
     fig.tight_layout()
     return fig
-
-
-def _save_figure(fig: Any, base: str, plot_outputs: Optional[str]) -> List[str]:
-    """Save ``fig`` to ``base`` honouring matplotlib format(s) in ``plot_outputs`` (raster/vector only)."""
-    formats = _matplotlib_formats(plot_outputs)
-    root, ext = os.path.splitext(base)
-    if ext:  # explicit extension on base path wins over the DSL
-        formats = [ext.lstrip(".").lower()]
-    written: List[str] = []
-    for fmt in formats:
-        path = f"{root}.{fmt}"
-        try:
-            fig.savefig(path, bbox_inches="tight")
-            written.append(path)
-        except Exception as save_err:
-            logger.warning("SHAP interaction savefig failed for %s: %s", path, save_err)
-    return written
 
 
 def _base_for(plot_file: str, suffix: str) -> str:

@@ -141,6 +141,12 @@ def _benjamini_yekutieli(p_values: np.ndarray, alpha: float) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # Numeric feature vs binary / multiclass target: Mann-Whitney U (binary) /
 # Kruskal-Wallis (multiclass).
+#
+# _rank_with_ties / _mann_whitney_u_z / _kruskal_wallis_h are not called anywhere in production or
+# benchmarks -- every real call site uses the combined-single-sort _v2 variants below instead. Kept
+# deliberately as the bit-identity reference these _v2 kernels are regression-tested against
+# (tests/feature_selection/wrappers/test_wrappers_statistical_fixes.py::TestSingleSortKernelsBitIdentical),
+# not leftover dead code.
 
 
 @njit(cache=True)

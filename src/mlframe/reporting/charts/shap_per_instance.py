@@ -22,7 +22,6 @@ predicted prob, the true label, and the top contributing features.
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Sequence, Tuple
 
@@ -36,8 +35,8 @@ except ImportError:  # plt-using paths are guarded; matplotlib-less envs skip pl
 from mlframe.reporting.charts.shap_panels import (
     _as_frame_and_names,
     _close_figs,
-    _matplotlib_formats,
     _row_subset,
+    _save_figure,
     _shap_values_2d,
     is_tree_model,
 )
@@ -242,30 +241,13 @@ def _render(
 
         paths: List[str] = []
         if plot_file:
-            paths = _save(fig, plot_file, plot_outputs)
+            paths = _save_figure(fig, plot_file, plot_outputs)
         return fig, paths
     finally:
         # The figure is rendered to disk, not displayed; leaving it open leaks it into matplotlib's global registry on
         # every call. Mirror shap_panels: close every figure opened since entry (incl. the saved one and any mid-flow leak).
         leaked = [plt.figure(num) for num in plt.get_fignums() if num not in figs_before]
         _close_figs(leaked)
-
-
-def _save(fig: Any, plot_file: str, plot_outputs: Optional[str]) -> List[str]:
-    """Save the figure honouring the matplotlib raster/vector formats in ``plot_outputs`` (PNG default)."""
-    formats = _matplotlib_formats(plot_outputs)
-    root, ext = os.path.splitext(plot_file)
-    if ext:
-        formats = [ext.lstrip(".").lower()]
-    written: List[str] = []
-    for fmt in formats:
-        path = f"{root}.{fmt}"
-        try:
-            fig.savefig(path, bbox_inches="tight")
-            written.append(path)
-        except Exception as save_err:
-            logger.warning("SHAP per-instance savefig failed for %s: %s", path, save_err)
-    return written
 
 
 __all__ = [

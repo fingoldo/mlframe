@@ -1,8 +1,7 @@
-"""Cross-target ensemble + OOF utilities: CompositeCrossTargetEnsemble (stack/weighted/mean strategies with validation gate), compute_oof_holdout_predictions, derive_seeds (sha256-stable subseed derivation), detect_gpu_in_use, env_signature. Split out of composite.py to keep ensemble concerns separate from discovery; composite.py re-exports every symbol below at its bottom for full back-compat."""
+"""Cross-target ensemble + OOF utilities: CompositeCrossTargetEnsemble (stack/weighted/mean strategies with validation gate), compute_oof_holdout_predictions, derive_seeds (delegates to mlframe.core.helpers.derive_seed), detect_gpu_in_use, env_signature. Split out of composite.py to keep ensemble concerns separate from discovery; composite.py re-exports every symbol below at its bottom for full back-compat."""
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from collections import OrderedDict
 from typing import (
@@ -109,18 +108,16 @@ def _transform_via(pp: Any, X: Any) -> Any:
 def derive_seeds(random_state: int, components: Sequence[str]) -> dict[str, int]:
     """Derive deterministic per-component seeds from a master seed.
 
-    Uses sha256 truncation to keep values stable across Python/numpy versions (no dependence on hash() salt randomisation); returns a dict mapping each component name to a 32-bit unsigned int.
+    Delegates to the canonical :func:`mlframe.core.helpers.derive_seed` per component; returns a dict
+    mapping each component name to an int in ``[0, 2**31 - 1)``.
 
     Why: threading one ``random_state`` through several randomness sources (MI sampling, tiny-model CV split, OOF holdout split, bootstrap CI) correlates them (an "easy" MI sample coincides with an "easy" CV split); independent sub-seeds break that while staying reproducible (same master seed -> same sub-seeds).
 
     Currently provided for external callers only: discovery does NOT yet thread these sub-seeds into its randomness sources, so wiring it in would change every draw and is not bit-identical.
     """
-    import struct
-    out: dict[str, int] = {}
-    for c in components:
-        h = hashlib.sha256(f"{random_state}::{c}".encode()).digest()
-        out[c] = struct.unpack("<I", h[:4])[0]
-    return out
+    from mlframe.core.helpers import derive_seed
+
+    return {c: derive_seed(random_state, c) for c in components}
 
 
 def detect_gpu_in_use(mlframe_models: Sequence[str]) -> list[str]:

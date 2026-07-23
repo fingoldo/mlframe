@@ -66,3 +66,20 @@ def test_numba_coverage_workflow_collects_coverage() -> None:
     text = _workflow_text()
     assert "--cov=src/mlframe" in text, "workflow must collect coverage on src/mlframe"
     assert "--cov-report=xml" in text, "workflow must produce coverage.xml for upload/artifact"
+
+
+def test_numba_coverage_workflow_nightly_gate_is_intentionally_off() -> None:
+    """F6 (audits/full_audit_2026-07-21/x_cicd_dependencies.md): the job body is gated behind
+    `if: inputs.run`, which is falsy on the schedule trigger -- so the nightly cron fires the workflow
+    shell every night but the job never actually runs unless a human manually dispatches with the
+    checkbox ticked. This is a documented, intentional Actions-minutes-budget stopgap, not a bug -- but
+    the OTHER numba-coverage tests above only pin the trigger's mere EXISTENCE, which can't detect this
+    effectively-permanent-off state. Pin the `default: false` explicitly so a future accidental flip to
+    `true` (restoring real nightly runs, presumably deliberately once the budget allows) is a visible,
+    intentional test change -- not a silent drift either direction."""
+    text = _workflow_text()
+    assert "if: inputs.run" in text, "job must stay gated behind the manual-dispatch input (see file header comment for why)"
+    assert "default: false" in text, (
+        "inputs.run's default must stay 'false' while the Actions-minutes budget stopgap is in effect; "
+        "flip both this default AND the assertion together once nightly runs are meant to resume"
+    )

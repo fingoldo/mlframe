@@ -755,7 +755,11 @@ def combine_probs(
     # predict now does the same so a single NaN cell doesn't poison the whole batch.
     non_finite_mask = ~np.isfinite(combined)
     if non_finite_mask.any():
-        _arith = np.mean(stacked, axis=0)
+        # F4: honour precomputed_weights (NNLS/Caruana weights) here too -- previously this always
+        # recomputed an UNWEIGHTED mean even when the main flavour reduction had used weights_arr,
+        # so any row that fell into this fallback silently reverted to unweighted arithmetic mean
+        # for that row only, while every other row stayed correctly weighted.
+        _arith = np.average(stacked, axis=0, weights=weights_arr) if weights_arr is not None else np.mean(stacked, axis=0)
         # Wave 78 (2026-05-21): hard-assert shape contract -- np.where broadcasts
         # silently on shape mismatch, which would silently produce wrong-shape
         # ensemble output if a future flavour returns a different reduce shape.

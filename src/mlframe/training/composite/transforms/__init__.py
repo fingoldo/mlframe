@@ -357,3 +357,9 @@ from .naming import (
 
 # Read-only view exported to callers; the underlying ``_TRANSFORMS_REGISTRY`` is module-private and any extension layer must edit it explicitly. Prevents test / extension code from pop-ing a transform and silently corrupting subsequent suite runs in the same process.
 TRANSFORMS_REGISTRY: "Mapping[str, Transform]" = _MappingProxyType(_TRANSFORMS_REGISTRY)
+
+# Curate the star-import surface explicitly. Unlike the other packages' __init__.py (which filter out
+# underscore names as genuinely private), this module's own docstring documents that composite.py
+# re-exports EVERY symbol below -- including the underscore-prefixed per-transform helpers, which are
+# intentionally shared implementation pieces, not accidental leaks -- so only dunders are excluded here.
+__all__ = sorted(name for name in globals() if not name.startswith("__"))

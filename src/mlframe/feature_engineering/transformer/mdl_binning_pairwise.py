@@ -180,15 +180,17 @@ def compute_mdl_binning_pairwise_features(
     def _process(Xt, Xq, y_t):
         """Fit MDL bin edges on ``(Xt, y_t)`` and compute the 5 aggregate features for each row of ``Xq``."""
         d = Xt.shape[1]
-        # Discretize y for MDL: regression → quintile bin; binary → as-is
-        if y_t.dtype != np.int32:
-            if (y_t == 0).sum() + (y_t == 1).sum() == y_t.size:
-                y_class = y_t.astype(np.int32)
-                n_classes = 2
-            else:
-                qs = np.quantile(y_t, [0.2, 0.4, 0.6, 0.8])
-                y_class = np.digitize(y_t, qs).astype(np.int32)
-                n_classes = 5
+        # Discretize y for MDL: regression -> quintile bin; binary -> as-is. Honours the caller's
+        # explicit `task` (closed over from the outer function) instead of re-inferring it from
+        # y_t's values -- a caller passing task="binary" for a {-1,1}- or {1,2}-coded target
+        # previously silently got 5-class quantile binning instead of the requested 2-class binning.
+        if task == "binary":
+            y_class = y_t.astype(np.int32)
+            n_classes = 2
+        else:
+            qs = np.quantile(y_t, [0.2, 0.4, 0.6, 0.8])
+            y_class = np.digitize(y_t, qs).astype(np.int32)
+            n_classes = 5
         # MDL bin edges per feature
         all_edges = []
         for j in range(d):

@@ -145,24 +145,34 @@ def compute_class_balanced_hard_row_features(
         # Pick K/2 hardest within each side.
         pos_top = _topk_within_subset(abs_residuals, pos_mask_idx, n_hard_per_side)
         neg_top = _topk_within_subset(abs_residuals, neg_mask_idx, n_hard_per_side)
-        # Pad if either side has fewer than n_hard_per_side; pad with last index (or zero-row pad).
-        if pos_top.size < n_hard_per_side:
-            if pos_top.size > 0:
-                pad = np.full(n_hard_per_side - pos_top.size, pos_top[-1])
-                pos_top = np.concatenate([pos_top, pad])
-            else:
-                pos_top = np.zeros(n_hard_per_side, dtype=np.int64)
-        if neg_top.size < n_hard_per_side:
-            if neg_top.size > 0:
-                pad = np.full(n_hard_per_side - neg_top.size, neg_top[-1])
-                neg_top = np.concatenate([neg_top, pad])
-            else:
-                neg_top = np.zeros(n_hard_per_side, dtype=np.int64)
+        # Empty-side sentinel anchors: previously an all-empty side fell back to REPEATING training
+        # row index 0, n_hard_per_side times, as that side's "hardest anchors" -- an arbitrary row
+        # that could belong to the opposite class. Instead, place the empty side's anchors far
+        # outside the standardised data manifold (softmax-negligible distance weight against any
+        # real query row) with a neutral y/residual value, matching multi_baseline_hard_row.py's
+        # identical fix.
+        _FAR = 1e4
+        d = Xt_s.shape[1]
+        if pos_top.size > 0 and pos_top.size < n_hard_per_side:
+            pos_top = np.concatenate([pos_top, np.full(n_hard_per_side - pos_top.size, pos_top[-1])])
+        if neg_top.size > 0 and neg_top.size < n_hard_per_side:
+            neg_top = np.concatenate([neg_top, np.full(n_hard_per_side - neg_top.size, neg_top[-1])])
 
-        anchors_idx = np.concatenate([pos_top, neg_top])
-        anchors_X = Xt_s[anchors_idx]  # (n_total, d)
-        anchors_y = y_t[anchors_idx].astype(np.float32)
-        anchors_abs = abs_residuals[anchors_idx].astype(np.float32)
+        anchors_X_list = []
+        anchors_y_list = []
+        anchors_abs_list = []
+        for top in (pos_top, neg_top):
+            if top.size > 0:
+                anchors_X_list.append(Xt_s[top])
+                anchors_y_list.append(y_t[top].astype(np.float32))
+                anchors_abs_list.append(abs_residuals[top].astype(np.float32))
+            else:
+                anchors_X_list.append(np.full((n_hard_per_side, d), _FAR, dtype=np.float32))
+                anchors_y_list.append(np.zeros(n_hard_per_side, dtype=np.float32))
+                anchors_abs_list.append(np.zeros(n_hard_per_side, dtype=np.float32))
+        anchors_X = np.concatenate(anchors_X_list, axis=0)  # (n_total, d)
+        anchors_y = np.concatenate(anchors_y_list, axis=0)
+        anchors_abs = np.concatenate(anchors_abs_list, axis=0)
 
         diffs = Xq_s[:, None, :] - anchors_X[None, :, :]  # (n_q, n_total, d)
         sq = (diffs**2).sum(axis=-1)

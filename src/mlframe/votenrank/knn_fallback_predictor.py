@@ -33,6 +33,8 @@ class KNNFallbackPredictor:
     """
 
     def __init__(self, k: int = 5, metric: str = "l2") -> None:
+        if k < 1:
+            raise ValueError(f"KNNFallbackPredictor: k must be >= 1, got {k!r}.")
         self.k = k
         self.metric = metric
         self._X_train: np.ndarray = np.empty((0, 0))
@@ -56,6 +58,8 @@ class KNNFallbackPredictor:
             i.e. the query row is in a sparse/unfamiliar region of feature space where the fallback itself
             shouldn't be trusted much either).
         """
+        if self._y_train.size == 0:
+            raise ValueError("KNNFallbackPredictor.predict() called before fit() (or fit() was called with an empty training set).")
         X_query_arr = np.asarray(X_query, dtype=np.float32)
         dists, ids = knn_search(self._X_train, X_query_arr, self.k, metric=self.metric)
         neighbor_targets = self._y_train[ids]

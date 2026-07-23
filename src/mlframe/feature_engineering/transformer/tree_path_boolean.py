@@ -109,7 +109,8 @@ def compute_tree_path_boolean_features(
             pred_q = np.asarray(m.predict(Xq_s)).astype(np.float32)
         try:
             paths = _extract_top_paths(m.booster_, Xt_s, top_k=n_paths)
-        except Exception:
+        except Exception as exc:
+            logger.info("tree_path_boolean: path extraction failed (%s); falling back to constant-1.0 columns.", exc)
             paths = []
         # Pad to n_paths if fewer extracted
         while len(paths) < n_paths:

@@ -31,7 +31,6 @@ import pandas as pd
 
 from mlframe.feature_engineering.categorical_group_concat import concat_categorical_group
 from mlframe.feature_selection.drop_near_noise_univariate_auc import drop_near_noise_univariate_auc
-from mlframe.training.feature_handling.ordered_target_encoder import ordered_target_encode_batch
 
 
 def categorical_powerset_concat(
@@ -91,6 +90,10 @@ def categorical_powerset_concat(
         composite_names.append(feature_name)
 
     if prune_against_target is not None and composite_names:
+        # Deferred: feature_engineering/ is meant to be usable independently of the training/
+        # orchestrator; this avoids an eager module-scope training/ import for a name only used here.
+        from mlframe.training.feature_handling.ordered_target_encoder import ordered_target_encode_batch
+
         y, min_score = prune_against_target
         y_arr = np.asarray(y)
         encoded = pd.DataFrame(ordered_target_encode_batch({name: out[name].to_numpy() for name in composite_names}, y_arr, smoothing=prune_smoothing))

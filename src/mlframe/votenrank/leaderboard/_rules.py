@@ -10,7 +10,12 @@ from ..utils import ranking2top
 
 
 def mean_ranking(self, mean_type: str = "arithmetic"):
-    """Rank models by weighted arithmetic or geometric mean score across tasks; NaN cells filled with the task median when the table is partial."""
+    """Rank models by weighted arithmetic or geometric mean score across tasks; NaN cells filled with the task median when the table is partial.
+
+    ``mean_type="geometric"`` requires every score to be strictly positive (``scipy.stats.gmean``'s own
+    domain constraint) -- a task column with a zero or negative score (plausible for a raw margin/log-loss
+    metric) otherwise silently drives that model's geometric-mean aggregate to ``0``/``NaN``.
+    """
     table = self.table.copy()
     if self.is_partial:
         table = table.fillna(table.median())
@@ -18,6 +23,11 @@ def mean_ranking(self, mean_type: str = "arithmetic"):
     if mean_type == "arithmetic":
         return (table * self.weights / self.weights.sum()).sum(axis=1).sort_values(ascending=False)
     elif mean_type == "geometric":
+        if not (table > 0).all().all():
+            raise ValueError(
+                "mean_ranking(mean_type='geometric') requires every score to be strictly positive "
+                "(scipy.stats.gmean's domain constraint); found a zero/negative score in the table."
+            )
         scores = pd.Series(index=table.index, data=gmean(table, axis=1, weights=self.weights))
         return scores.sort_values(ascending=False)
     else:
@@ -29,8 +39,21 @@ def mean_election(self, mean_type: str = "arithmetic"):
     return ranking2top(self.mean_ranking(mean_type=mean_type))
 
 
+def _partial_table_guard(self, method_name: str) -> None:
+    """F6: raise on a partial table for methods with no fill/skip strategy of their own.
+
+    ``pandas.sum(skipna=True)`` silently drops each model's NaN tasks, so different models would be
+    compared on effectively different numbers of tasks with no warning -- these methods are only ever
+    routed away from partial tables via ``elect_all``/``rank_all``'s ``PARTIAL_METHODS`` filter; called
+    directly they had no protection of their own.
+    """
+    if self.is_partial:
+        raise ValueError(f"{method_name}: table is partial (contains NaN); this method has no NaN-fill strategy. Use a complete table or a method in PARTIAL_METHODS.")
+
+
 def _approval_ranking(self, acceptance_threshold: int, rank_type: str = "max"):
     """Approval-style ranking: weighted count of tasks where a model's rank is at or above ``acceptance_threshold``."""
+    _partial_table_guard(self, "plurality_ranking/_approval_ranking")
     if rank_type == "min":
         return ((self.ranks <= acceptance_threshold) * self.weights).sum(axis=1).sort_values(ascending=False)
     elif rank_type == "max":
@@ -51,6 +74,7 @@ def plurality_election(self):
 
 def threshold_election(self):
     """Iteratively eliminate models ranked last-among-remaining, task-weighted, until only the joint winner(s) remain."""
+    _partial_table_guard(self, "threshold_election")
     candidate_models = self.models
     for step in range(self.n_models, 1, -1):
         current_ranking = ((self.max_ranks.loc[candidate_models] != step) * self.weights).sum(axis=1)
@@ -61,6 +85,7 @@ def threshold_election(self):
 
 def borda_ranking(self):
     """Rank models by Borda count: weighted sum of ``n_models - rank`` (points) across tasks."""
+    _partial_table_guard(self, "borda_ranking")
     return ((self.n_models - self.max_ranks) * self.weights).sum(axis=1).sort_values(ascending=False)
 
 
@@ -71,6 +96,7 @@ def borda_election(self):
 
 def dowdall_ranking(self):
     """Rank models by Dowdall (reciprocal-rank) score: weighted sum of ``1/rank`` across tasks."""
+    _partial_table_guard(self, "dowdall_ranking")
     return ((1 / self.ranks) * self.weights).sum(axis=1).sort_values(ascending=False)
 
 

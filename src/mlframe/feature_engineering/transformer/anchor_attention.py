@@ -219,7 +219,9 @@ def compute_anchor_attention(
             X_va_s = X_va
         anchors = _fit_anchors(X_tr_s, n_anchors=n_anchors, seed=int(seed) + fold_idx)
         train_dists = _squared_dists(X_tr_s, anchors)
-        train_assign = np.argmin(train_dists, axis=1)
+        # Same NaN-poisoned-row bucket-to-0 bug Mode B's np.nanargmin above already guards against --
+        # plain np.argmin returns 0 on an all-NaN row, silently contaminating anchor 0's aggregate.
+        train_assign = np.nanargmin(train_dists, axis=1)
         anchor_aggs = _compute_anchor_aggregates(y_tr, train_assign, n_anchors=n_anchors, aggregates=aggregate)
         scores = _score_rows_against_anchors(X_va_s, anchors, anchor_aggs, softmax_temp=softmax_temp, n_anchors=n_anchors)
         sim = scores["similarity"]

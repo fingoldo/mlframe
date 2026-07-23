@@ -45,8 +45,13 @@ def test_f1_stability_selection_does_not_count_zero_fi_noise():
     y = (X["f0"] + X["f1"] + X["f2"] > 0).astype(int).to_numpy()
 
     # Monkeypatch the FI getter + estimator clone so every bootstrap returns FI on exactly f0/f1/f2.
-    def _fake_get_fi(model, current_features, data, target, importance_getter, n_repeats):
-        """Fake get fi."""
+    def _fake_get_fi(model, current_features, data, target, importance_getter, n_repeats, random_state=0):
+        """Fake get fi.
+
+        W3: real get_feature_importances() is now called with an explicit random_state= (a
+        per-bootstrap seed) from _fit_stability_selection, so this stub must accept the same kwarg
+        (ignored here -- output is deterministic regardless).
+        """
         return {"f0": 1.0, "f1": 0.9, "f2": 0.8}
 
     class _FakeEst:

@@ -248,9 +248,10 @@ def sigma_median_heuristic(
         X_sub = X[idx]
     else:
         X_sub = X
-    # Always use the block-wise pairwise reduction. The naive broadcast (X_sub[:, None, :] - X_sub[None, :, :]) materialises an n_sub^2 * d float32 cube which
-    # OOMs at d > 16 for n_sub=2048 (e.g. d=50 -> 800 MB). The block-wise path stores only the n_sub^2 distance matrix and one (chunk, d) gemm input at a time -
-    # peak memory ~n_sub^2 * 8 bytes = 32 MB for n_sub=2048, independent of d.
+    # Routes through scipy's pdist (see _median_pairwise_chunked's own docstring) rather than the
+    # naive broadcast (X_sub[:, None, :] - X_sub[None, :, :]), which materialises an n_sub^2 * d
+    # float32 cube that OOMs at d > 16 for n_sub=2048 (e.g. d=50 -> 800 MB); pdist's C implementation
+    # only ever holds the n_sub*(n_sub-1)/2 upper-triangle output, independent of d.
     return _median_pairwise_chunked(X_sub, chunk=256)
 
 

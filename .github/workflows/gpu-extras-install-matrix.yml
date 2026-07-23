@@ -48,6 +48,13 @@ jobs:
           - extra: "gpu-cuda11"
             python-version: "3.14"
             experimental: true
+          # F7 (audits/full_audit_2026-07-21/x_cicd_dependencies.md): match this repo's own blanket
+          # "every 3.14 leg is experimental" policy (cp314 wheel coverage for the heavy GPU stack
+          # is not yet reliably published) -- the cuda12x "gpu" extra was left non-experimental here
+          # while the parallel cuda11 rows above already were, an unintentional policy asymmetry.
+          - extra: "gpu"
+            python-version: "3.14"
+            experimental: true
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4

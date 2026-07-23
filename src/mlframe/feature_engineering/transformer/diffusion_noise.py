@@ -125,7 +125,13 @@ def compute_diffusion_noise_features(
             Xq_s = Xq
         Xt_pos, Xt_neg = _slice(Xt_s, y_t)
         if Xt_pos.shape[0] < 2 or Xt_neg.shape[0] < 2:
-            return np.zeros((Xq_s.shape[0], 2 * len(noise_scales) * len(_K_SCALES)), dtype=np.float32)
+            # Degenerate fold: same sentinel-consistency fix as cluster_smote.py's sibling case --
+            # 1e6 ("very far") for every pos-distance column instead of a misleading 0.0 ("identical
+            # to positive manifold"), 0.0 for every log_gap column (log(1e6)-log(1e6)=0, "no signal"),
+            # matching what _kth_nearest_dists' own empty-subset sentinel would produce for both sides.
+            n_k = len(_K_SCALES)
+            block = np.concatenate([np.full((Xq_s.shape[0], n_k), 1e6), np.zeros((Xq_s.shape[0], n_k))], axis=1)
+            return np.tile(block, (1, len(noise_scales))).astype(np.float32)
         # Learn per-feature std from positives.
         sigma_per_feature = Xt_pos.std(axis=0).astype(np.float32) + 1e-6
         neg_d = _kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES))

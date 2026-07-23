@@ -88,10 +88,7 @@ def preprocess_value(value):
     7-model VALUE leaderboard roster (Human + 6 submitted systems), matching the source table's
     row order.
     """
-    value = value.set_index("Model").drop(columns=["Mean-Rank", "Meta-Ave"])
-    value = value.replace({"-": np.nan})
-    value = value.astype(float)
-    value.index = [
+    _expected_roster = [
         "Human",
         "craig.starr",
         "DuKG",
@@ -100,5 +97,20 @@ def preprocess_value(value):
         "HERO 3",
         "HERO 4",
     ]
+    # F3: the hardcoded roster below assumes the source table's row order never changes; verify it
+    # against the real "Model" column BEFORE overwriting, so a re-scrape with a different row order
+    # (new submission inserted mid-table, site re-sorts by score) raises instead of silently mislabeling.
+    actual_roster = value["Model"].tolist()
+    if actual_roster != _expected_roster:
+        raise ValueError(
+            f"preprocess_value: scraped VALUE leaderboard row order {actual_roster} no longer matches "
+            f"the hardcoded roster {_expected_roster}; update the roster (or read names from the "
+            "'Model' column directly) before relabeling."
+        )
+
+    value = value.set_index("Model").drop(columns=["Mean-Rank", "Meta-Ave"])
+    value = value.replace({"-": np.nan})
+    value = value.astype(float)
+    value.index = _expected_roster
 
     return value

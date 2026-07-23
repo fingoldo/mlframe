@@ -70,7 +70,8 @@ def _fit_4baselines_predict_on_query(
             m3 = LogisticRegression(max_iter=200, solver="liblinear", random_state=int(seed) + 2)
             m3.fit(Xt, y_t.astype(np.int32))
             p3 = m3.predict_proba(Xq)[:, 1].astype(np.float32)
-        except Exception:
+        except Exception as exc:
+            logger.info("baseline_disagreement_v2: LogisticRegression fit failed (%s); falling back to constant rate.", exc)
             p3 = np.full(Xq.shape[0], float(y_t.mean()), dtype=np.float32)
         m4 = ExtraTreesClassifier(n_estimators=100, max_depth=8, random_state=int(seed) + 3, n_jobs=-1)
         m4.fit(Xt, y_t.astype(np.int32))

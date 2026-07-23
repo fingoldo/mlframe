@@ -85,7 +85,25 @@ def swap_noise_augment(
         n_swap = int(col_mask.sum())
         if n_swap == 0:
             continue
+        dest_idx = np.flatnonzero(col_mask)
         perm = rng.permutation(n)[:n_swap]
+        # Exclude self-assignment (the docstring's contract is "a genuinely different row"): an
+        # unrestricted permutation can, by chance, draw a swapped row's own index as its own
+        # replacement source (probability ~n_swap/n per cell), silently no-op'ing that cell instead
+        # of corrupting it. Bounded rejection-redraw for the colliding entries only -- collisions are
+        # rare (n_swap/n), so this converges in O(1) expected iterations.
+        self_collision = perm == dest_idx
+        _max_retries = 20
+        for _ in range(_max_retries):
+            if not self_collision.any():
+                break
+            n_collide = int(self_collision.sum())
+            perm[self_collision] = rng.integers(0, n, size=n_collide)
+            self_collision = perm == dest_idx
+        if self_collision.any():
+            # Extremely unlikely (n<=1 available donor after exclusion, e.g. n==2); fall back to a
+            # cyclic shift for the remaining colliding entries so they still never draw themselves.
+            perm[self_collision] = (dest_idx[self_collision] + 1) % n
         X_out[col_mask, j] = X[perm, j]
     return X_out
 

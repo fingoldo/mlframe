@@ -606,7 +606,10 @@ class RFECV(BaseEstimator, TransformerMixin):
             for _k, _v in _dump.items():
                 if _k in params:
                     params[_k] = _v
-        store_params_in_object(obj=self, params=params)
+        # postfix="" -- see mlframe.calibration.post's identical fix comment: this class reads
+        # attributes back by their bare param name, but store_params_in_object()'s default postfix
+        # changed to "_param_" without every caller being updated.
+        store_params_in_object(obj=self, params=params, postfix="")
         self.signature = None
 
     def __sklearn_tags__(self):
@@ -792,6 +795,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         return np.where(mask)[0] if indices else mask
 
     def transform(self, X, y=None):
+        """Return ``X`` reduced to the selected (``support_``) feature columns; raises ``NotFittedError`` if called before ``fit``."""
         # Polars X (callers like _passthrough_cols_fit_transform keep the native frame) breaks the legacy ``X[:, self.support_]`` mask
         # path with ``expected N values when selecting columns by boolean mask, got M`` when the polars schema has more cols than the
         # fit-time support_ (because RFECV.fit dropped zero-variance cols at entry). Convert to pandas so the name-keyed transform path
@@ -857,6 +861,7 @@ from ._fit import fit as _fit_func
 
 @functools.wraps(_fit_func)
 def _fit_with_rng_hygiene(self, *args, **kwargs):
+    """Call the real ``fit`` wrapped in a snapshot/restore of the process-global RNG state (see below)."""
     # _rfecv_fit.fit calls set_random_seed(random_state) to make sub-estimators
     # with random_state=None reproducible WITHIN the fit; that clobbers the
     # caller's process-global numpy/random RNG (the violation set_random_seed's

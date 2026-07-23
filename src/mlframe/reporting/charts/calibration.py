@@ -500,6 +500,8 @@ def build_calibration_spec(
 
 def _reliability_curve(p: np.ndarray, y: np.ndarray, edges: np.ndarray) -> np.ndarray:
     """Observed positive rate per uniform bin (nan for empty bins). Vectorized via bincount."""
+    finite = np.isfinite(p) & np.isfinite(y)
+    p, y = p[finite], y[finite]
     nbins = len(edges) - 1
     bin_ids = np.clip(np.digitize(p, edges, right=False) - 1, 0, nbins - 1)
     counts = np.bincount(bin_ids, minlength=nbins).astype(np.float64)

@@ -157,7 +157,13 @@ def compute_cluster_smote_features(
             Xq_s = Xq
         Xt_pos, Xt_neg = _slice(Xt_s, y_t)
         if Xt_pos.shape[0] < 2 or Xt_neg.shape[0] < 2:
-            return np.zeros((Xq_s.shape[0], 2 * len(_K_SCALES)), dtype=np.float32)
+            # Degenerate fold: not enough rows to run cluster-SMOTE. A raw 0.0 distance reads as
+            # "identical to the positive manifold" -- the worst possible value semantically, and
+            # inconsistent with _kth_nearest_dists' OWN 1e6 ("very far") sentinel for an empty
+            # subset just below. Emit what that sentinel would produce for BOTH sides: 1e6 distance
+            # columns, and log_gap = log(1e6) - log(1e6) = 0.0 ("no discriminating signal").
+            n_k = len(_K_SCALES)
+            return np.concatenate([np.full((Xq_s.shape[0], n_k), 1e6), np.zeros((Xq_s.shape[0], n_k))], axis=1).astype(np.float32)
         n_synthetic = max(50, int(Xt_pos.shape[0] * oversample))
         n_clusters_eff = max(2, min(n_clusters, Xt_pos.shape[0] // 4))
         X_synth_pos = _cluster_smote_synthesize(Xt_pos, n_clusters=n_clusters_eff, n_synthetic_total=n_synthetic, k_neighbors=k_smote, seed=fold_seed)

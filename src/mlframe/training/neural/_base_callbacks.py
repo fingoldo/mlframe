@@ -46,7 +46,10 @@ class AggregatingValidationCallback(Callback):
         # Forward to Lightning's Callback base so any future state it sets in __init__ is populated (currently a no-op).
         super().__init__()
         params = get_parent_func_args()
-        store_params_in_object(obj=self, params=params)
+        # postfix="" -- see mlframe.calibration.post's identical fix comment: this class reads
+        # attributes back by their bare param name, but store_params_in_object()'s default postfix
+        # changed to "_param_" without every caller being updated.
+        store_params_in_object(obj=self, params=params, postfix="")
         self.init_accumulators()
 
     def init_accumulators(self):

@@ -10,6 +10,7 @@ quantile-y-prediction (interpolated rank).
 """
 from __future__ import annotations
 import logging
+from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 from ._utils import require_seed, validate_numeric_input
@@ -18,9 +19,17 @@ logger = logging.getLogger(__name__)
 
 
 def compute_multi_threshold_ordinal_features(
-    X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
-    standardize=True, column_prefix="multthr", dtype=np.float32,
-):
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_query: Optional[np.ndarray] = None,
+    splitter: Optional[Any] = None,
+    *,
+    seed: int,
+    task: Literal["binary", "regression"] = "regression",
+    standardize: bool = True,
+    column_prefix: str = "multthr",
+    dtype: type = np.float32,
+) -> pl.DataFrame:
     """Multi-threshold ordinal stack: fit K binary LightGBM classifiers (regression quantile thresholds, or binary top-3-importance sub-population splits), then aggregate their per-query probabilities into max/mean/entropy, monotonicity-violation count, and interpolated quantile-rank features."""
     try:
         import lightgbm as lgb
@@ -80,11 +89,14 @@ def compute_multi_threshold_ordinal_features(
         # Monotonicity violations: count adjacent pairs where p[k] < p[k+1] (should be non-increasing for ordinal targets)
         diffs = np.diff(preds, axis=1)
         n_violations = (diffs > 0).sum(axis=1).astype(np.float32)
-        # Quantile-y-prediction: interpolated rank where p crosses 0.5
-        rank_pred = np.zeros(Xq_s.shape[0], dtype=np.float32)
-        for q_i in range(Xq_s.shape[0]):
-            cross = np.where(preds[q_i] < 0.5)[0]
-            rank_pred[q_i] = float(cross[0]) if len(cross) > 0 else float(preds.shape[1])
+        # Quantile-y-prediction: interpolated rank where p crosses 0.5. Vectorised: np.argmax on a
+        # boolean array returns the FIRST True index (matching the per-row np.where(...)[0][0] this
+        # replaced), but also returns 0 on an all-False row (no crossing) -- the has_cross mask
+        # overrides those rows to preds.shape[1], matching the original per-row fallback exactly.
+        below_half = preds < 0.5
+        has_cross = below_half.any(axis=1)
+        first_cross = np.argmax(below_half, axis=1)
+        rank_pred = np.where(has_cross, first_cross, preds.shape[1]).astype(np.float32)
         return np.column_stack([max_p, mean_p, entropy, n_violations, rank_pred])
 
     def _make_df(feats):
@@ -103,7 +115,7 @@ def compute_multi_threshold_ordinal_features(
     if splitter is None:
         raise ValueError("Mode A requires splitter.")
     n_train = X_train_f.shape[0]
-    out = np.zeros((n_train, n_features_out), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
     for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_train_f)):
         out[val_idx] = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100).astype(dtype, copy=False)
         logger.info("multi_threshold_ordinal: fold %d done", fold_idx + 1)

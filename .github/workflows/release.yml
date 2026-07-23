@@ -68,6 +68,7 @@ jobs:
     name: publish to PyPI
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment:
       name: pypi
       url: https://pypi.org/p/mlframe

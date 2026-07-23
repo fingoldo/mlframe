@@ -16,8 +16,6 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-sns.set(style="whitegrid")
-
 from . import Leaderboard
 
 
@@ -97,6 +95,7 @@ def spearman_exp(lb, num_repeats, exp_range, top_k=7):
 
 def count_and_plot(lb, num_repeats, exp_range, top_k=7):
     """Run :func:`spearman_exp` and plot each ranking method's correlation-vs-missingness curve onto the current axes."""
+    sns.set(style="whitegrid")
     exp_res = spearman_exp(lb, num_repeats, exp_range, top_k)
     for col, nums in exp_res.items():
         sns.lineplot(x=exp_range, y=nums, label=col)
@@ -117,6 +116,7 @@ def get_res_df(exp_range, exp_res):
 
 def create_exp_pic(exp_range, exp_res, filename=None):
     """Render the stability curves as a formatted figure (custom legend labels for the mean/optimality-gap methods) and optionally save it to ``filename`` as PDF."""
+    sns.set(style="whitegrid")
     df = get_res_df(exp_range * 100, exp_res)
     _fig, _ax = plt.subplots(figsize=(7, 6))
 

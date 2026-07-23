@@ -121,10 +121,17 @@ def compute_prediction_band_attention_features(
             else:
                 masks.append((preds_tr > quantiles[b]) & (preds_tr <= quantiles[b + 1]))
 
-        band_centroids = np.zeros((effective_n_bands, Xt_s.shape[1]), dtype=np.float32)
-        band_y_mean = np.zeros(effective_n_bands, dtype=np.float32)
-        band_y_std = np.zeros(effective_n_bands, dtype=np.float32)
-        band_pred_mean = np.zeros(effective_n_bands, dtype=np.float32)
+        # Global fallback for an empty prediction-quantile band (tied preds_tr values collapsing a
+        # boundary) -- a phantom band left at 0.0 would otherwise sit near the origin in standardised
+        # space and receive a spurious near-zero-distance softmax weight instead of a neutral one.
+        global_centroid = Xt_s.mean(axis=0)
+        global_y_mean = float(y_t.mean())
+        global_y_std = float(y_t.std()) + 1e-9
+        global_pred_mean = float(preds_tr.mean())
+        band_centroids = np.tile(global_centroid, (effective_n_bands, 1)).astype(np.float32)
+        band_y_mean = np.full(effective_n_bands, global_y_mean, dtype=np.float32)
+        band_y_std = np.full(effective_n_bands, global_y_std, dtype=np.float32)
+        band_pred_mean = np.full(effective_n_bands, global_pred_mean, dtype=np.float32)
         for b, mask in enumerate(masks):
             X_band = Xt_s[mask]
             y_band = y_t[mask]

@@ -136,13 +136,21 @@ def test_swap_noise_augment_column_swap_probs_wrong_length_raises():
         pass
 
 
-def test_swap_noise_augment_default_behavior_unchanged_bit_identical():
-    """Regression guard: not passing ``column_swap_probs`` must reproduce the pre-extension uniform-rate
-    code path bit-for-bit, including RNG consumption order."""
+def test_swap_noise_augment_default_behavior_matches_self_exclusion_reference():
+    """Regression guard: not passing ``column_swap_probs`` must reproduce the uniform-rate code path
+    bit-for-bit against an independent reference implementation of the SAME (self-exclusion-corrected)
+    algorithm.
+
+    fe_transformer_b.md F25: the docstring's contract is "drawn from a genuinely different row of the
+    SAME column" -- the pre-fix algorithm's unrestricted `rng.permutation(n)[:n_swap]` could, by
+    chance, draw a swapped cell's own row index as its own replacement source (a silent no-op
+    corruption, probability ~n_swap/n per cell). This test previously pinned THAT bug as "the correct
+    bit-identical reference"; re-framed to pin the corrected, self-exclusion-respecting algorithm
+    instead -- reverting F25 would fail this test just as surely as it would have failed the old one."""
     X = np.random.default_rng(42).normal(size=(500, 6))
     out_new = swap_noise_augment(X, swap_prob=0.2, rng=np.random.default_rng(11))
 
-    # Independent re-implementation of the ORIGINAL (pre-extension) algorithm, to compare against.
+    # Independent re-implementation of the CURRENT (self-exclusion-corrected) algorithm.
     rng = np.random.default_rng(11)
     n, d = X.shape
     X_out = np.array(X, copy=True)
@@ -152,7 +160,17 @@ def test_swap_noise_augment_default_behavior_unchanged_bit_identical():
         n_swap = int(col_mask.sum())
         if n_swap == 0:
             continue
+        dest_idx = np.flatnonzero(col_mask)
         perm = rng.permutation(n)[:n_swap]
+        self_collision = perm == dest_idx
+        for _ in range(20):
+            if not self_collision.any():
+                break
+            n_collide = int(self_collision.sum())
+            perm[self_collision] = rng.integers(0, n, size=n_collide)
+            self_collision = perm == dest_idx
+        if self_collision.any():
+            perm[self_collision] = (dest_idx[self_collision] + 1) % n
         X_out[col_mask, j] = X[perm, j]
 
     assert np.array_equal(out_new, X_out)

@@ -101,8 +101,10 @@ def compute_ib_baseline_codes_features(
             codes_train += (tp[:, b] > median).astype(np.int32) * (bins_per_baseline**b)
             codes_query += (qp[:, b] > median).astype(np.int32) * (bins_per_baseline**b)
         n_codes = bins_per_baseline**3
-        code_y_mean = np.zeros(n_codes, dtype=np.float32)
-        code_y_std = np.zeros(n_codes, dtype=np.float32)
+        # Global fallback for an empty baseline-code cell (0.0 misleadingly reads as a genuine
+        # zero-target/zero-spread cell rather than "no training rows fell into this code").
+        code_y_mean = np.full(n_codes, float(y_t.mean()), dtype=np.float32)
+        code_y_std = np.full(n_codes, float(y_t.std()) + 1e-9, dtype=np.float32)
         for c in range(n_codes):
             mask = codes_train == c
             if mask.sum() > 0:

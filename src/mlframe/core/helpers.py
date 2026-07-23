@@ -9,6 +9,7 @@ from __future__ import annotations
 # LOGGING
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
+import hashlib
 import logging
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,24 @@ import pyutilz.polarslib as pllib
 ########################################################################################################################################################################################################################################
 # Helper functions
 ########################################################################################################################################################################################################################################
+
+
+def derive_seed(master_seed: int, key: str) -> int:
+    """Derive a stable, reproducible sub-seed for ``key`` from a single ``master_seed``.
+
+    Threading one ``random_state`` through several independent randomness sources (e.g. MI sampling,
+    a CV split, a bootstrap draw) correlates them -- an "easy" sample for one source can coincide with
+    an "easy" split for another. Hashing ``(master_seed, key)`` together breaks that correlation while
+    staying deterministic (same master seed + key -> same sub-seed, stable across processes/runs
+    regardless of ``PYTHONHASHSEED``, unlike Python's builtin salted ``hash()``). Range is
+    ``[0, 2**31 - 1)`` for sklearn/numpy splitter compatibility (both reject negative/oversized seeds).
+
+    This is the canonical seed-derivation helper for mlframe; do not hand-roll a new one -- see
+    ``training.honest_diagnostics._derive_seed`` and ``training.composite.ensemble.derive_seeds``,
+    which delegate here.
+    """
+    h = hashlib.blake2b(f"{int(master_seed)}|{key}".encode(), digest_size=4).digest()
+    return int.from_bytes(h, "big") % (2**31 - 1)
 
 
 def MakeSureBlasAndLaPackAreInstalled():

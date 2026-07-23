@@ -44,7 +44,10 @@ def _sanitize_X_inputs(self, X, y):
     to each step.
     """
     # p >> n with no max_nfeatures cap - MBH search space is O(p) and each iter is a CV fit, so runtime is unbounded.
-    if X.shape[1] >= 5000 and self.max_nfeatures is None and getattr(self, "verbose", 0):
+    # W9: unconditional (was gated on verbose, default 0, so this never fired under default settings) --
+    # a one-time O(1) per-fit diagnostic, not per-iteration noise, matching the unconditional leakage-scan
+    # warning a few paragraphs below in this same file.
+    if X.shape[1] >= 5000 and self.max_nfeatures is None:
         logger.warning(
             "RFECV: p=%d features with no max_nfeatures cap. The "
             "MBH search space is O(p) and each iter is a CV fit; runtime "
@@ -58,7 +61,7 @@ def _sanitize_X_inputs(self, X, y):
     if self.max_runtime_mins is not None:
         if self.max_runtime_mins < 0:
             raise ValueError(f"max_runtime_mins must be >= 0; got {self.max_runtime_mins}")
-        if 0 < self.max_runtime_mins < (1.0 / 60.0) and getattr(self, "verbose", 0):
+        if 0 < self.max_runtime_mins < (1.0 / 60.0):  # W9: unconditional, see rationale above
             logger.warning(
                 "RFECV: max_runtime_mins=%.4f is < 1 second. Did you mean "
                 "to pass seconds instead of minutes? RFECV will likely "
@@ -67,7 +70,7 @@ def _sanitize_X_inputs(self, X, y):
             )
 
     # cv >= n_samples (LeaveOneOut on small data) gives 1-sample test folds where most metrics are undefined.
-    if isinstance(self.cv, int) and self.cv >= X.shape[0] and getattr(self, "verbose", 0):
+    if isinstance(self.cv, int) and self.cv >= X.shape[0]:  # W9: unconditional, see rationale above
         logger.warning(
             "RFECV: cv=%d >= n_samples=%d (effectively LeaveOneOut). "
             "Per-fold test set has 1 sample; ROC AUC and many other "
@@ -298,7 +301,7 @@ def _sanitize_X_inputs(self, X, y):
     # but tree FI inflates them via split-frequency bias. Knockoffs assume
     # Gaussian and become meaningless. Threshold: numeric dtype AND
     # nunique > 0.5 * n_rows AND n_rows >= 50.
-    if isinstance(X, pd.DataFrame) and X.shape[0] >= 50 and getattr(self, "verbose", 0):
+    if isinstance(X, pd.DataFrame) and X.shape[0] >= 50:  # W9: unconditional, see rationale above
         from pandas.api.types import is_numeric_dtype as _is_num
         _suspicious_hicard: list = []
         _n = X.shape[0]

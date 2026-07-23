@@ -7,6 +7,7 @@ rank by lift against target; emit top-K itemsets as boolean features per query.
 """
 from __future__ import annotations
 import logging
+from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 from ._utils import require_seed, validate_numeric_input
@@ -15,9 +16,21 @@ logger = logging.getLogger(__name__)
 
 
 def compute_apriori_itemsets_features(
-    X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
-    n_bins=5, top_k=8, min_support=0.05, max_len=3, standardize=True, column_prefix="apri", dtype=np.float32,
-):
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_query: Optional[np.ndarray] = None,
+    splitter: Optional[Any] = None,
+    *,
+    seed: int,
+    task: Literal["binary", "regression"] = "regression",
+    n_bins: int = 5,
+    top_k: int = 8,
+    min_support: float = 0.05,
+    max_len: int = 3,
+    standardize: bool = True,
+    column_prefix: str = "apri",
+    dtype: type = np.float32,
+) -> pl.DataFrame:
     """Mine frequent itemsets on quantile-discretized X and emit top-K target-lift-ranked itemset membership as boolean features.
 
     Per fold: discretize each train-fold feature into ``n_bins`` quantile bins, mine frequent itemsets (up to ``max_len``
@@ -81,7 +94,11 @@ def compute_apriori_itemsets_features(
         df_train = pd.DataFrame(bin_matrix_train, columns=col_names)
         try:
             frequent = fpgrowth(df_train, min_support=min_support, use_colnames=True, max_len=max_len)
-        except Exception:
+        except Exception as exc:
+            # Logged so a genuine fpgrowth crash (mlxtend version mismatch, malformed input) is
+            # distinguishable from the legitimate "no frequent itemsets found" case -- both
+            # previously looked identical to the caller (an all-zero-feature fallback).
+            logger.info("apriori_itemsets: fpgrowth failed (%s); falling back to all-zero features", exc)
             frequent = pd.DataFrame()
         if frequent.empty:
             # Fallback
@@ -137,7 +154,7 @@ def compute_apriori_itemsets_features(
     if splitter is None:
         raise ValueError("Mode A requires splitter.")
     n_train = X_train_f.shape[0]
-    out = np.zeros((n_train, n_features_out), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
     for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_train_f)):
         out[val_idx] = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx]).astype(dtype, copy=False)
         logger.info("apriori_itemsets: fold %d done", fold_idx + 1)

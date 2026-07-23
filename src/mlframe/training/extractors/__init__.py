@@ -56,9 +56,13 @@ class FeaturesAndTargetsExtractorProtocol(Protocol):
 
     ftextractor_emitted_columns: Dict[str, List[str]]
 
-    def add_features(self, df: Union[pd.DataFrame, pl.DataFrame]) -> Union[pd.DataFrame, pl.DataFrame]: ...
+    def add_features(self, df: Union[pd.DataFrame, pl.DataFrame]) -> Union[pd.DataFrame, pl.DataFrame]:
+        """Return ``df`` with any extractor-added feature columns appended."""
+        ...
 
-    def build_targets(self, df: Union[pd.DataFrame, pl.DataFrame]) -> dict: ...
+    def build_targets(self, df: Union[pd.DataFrame, pl.DataFrame]) -> dict:
+        """Return the extractor's target dict (e.g. ``{name: array}``) built from ``df``."""
+        ...
 
 
 class FeaturesAndTargetsExtractor:
@@ -98,7 +102,11 @@ class FeaturesAndTargetsExtractor:
         sequence_group_column: Optional[str] = None,
     ):
         params = get_parent_func_args()
-        store_params_in_object(obj=self, params=params)
+        # postfix="" -- see mlframe.calibration.post's identical fix comment: this class reads
+        # attributes back by their bare param name (e.g. self.columns_to_drop a few lines below),
+        # but store_params_in_object()'s default postfix changed to "_param_" without every caller
+        # being updated.
+        store_params_in_object(obj=self, params=params, postfix="")
 
         if self.columns_to_drop is None:
             self.columns_to_drop = set()

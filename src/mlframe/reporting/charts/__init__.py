@@ -105,6 +105,21 @@ from mlframe.reporting.charts.fuzzy_membership import (
 from mlframe.reporting.charts.spectral_embedding import (
     compose_spectral_embedding_figure, spectral_embedding_panel, spectral_layout,
 )
+from mlframe.reporting.charts.interaction_strength import (
+    compose_interaction_strength_figure, interaction_strength_panel,
+)
+from mlframe.reporting.charts.prediction_stability import (
+    PredictionStabilityResult, compose_prediction_stability_figure, compute_prediction_stability,
+)
+from mlframe.reporting.charts.risk_coverage import (
+    RiskCoverageResult, build_risk_coverage_spec, compute_risk_coverage,
+)
+from mlframe.reporting.charts.shap_interactions import (
+    ShapInteractionResult, shap_interaction_summary,
+)
+from mlframe.reporting.charts.pdp_2d import (
+    compose_pdp_2d_figure, interaction_residual,
+)
 # Public re-export of the chart-sampling helpers so cross-package consumers (renderers, diagnostics_dispatch, training-side reporting) import them from the package surface instead of the ``_sampling`` implementation module.
 from mlframe.reporting.charts._sampling import subsample_preserving_extremes, prebin_histogram
 
@@ -195,4 +210,16 @@ __all__ = [
     "DEFAULT_REGRESSION_PANELS",
     "pacf_levinson",
     "significance_band",
+    "compose_interaction_strength_figure",
+    "interaction_strength_panel",
+    "PredictionStabilityResult",
+    "compose_prediction_stability_figure",
+    "compute_prediction_stability",
+    "RiskCoverageResult",
+    "build_risk_coverage_spec",
+    "compute_risk_coverage",
+    "ShapInteractionResult",
+    "shap_interaction_summary",
+    "compose_pdp_2d_figure",
+    "interaction_residual",
 ]

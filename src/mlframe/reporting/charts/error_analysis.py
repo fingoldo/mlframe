@@ -26,10 +26,13 @@ subsampled with extremes preserved; curves stay under a few thousand vertices.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels,
@@ -232,7 +235,12 @@ def _top_split_features(
         tree = DecisionTreeRegressor(max_depth=max_depth, random_state=seed)
         tree.fit(fit_mat, fit_err)
         imp = np.asarray(tree.feature_importances_, dtype=np.float64)
-    except Exception:
+    except (ValueError, ImportError) as e:
+        logger.warning(
+            "[reporting.charts] weak-segment tree fit failed (%s: %s); falling back to a weaker single-feature " "median-split surrogate ranking.",
+            type(e).__name__,
+            e,
+        )
         # Surrogate ranking: a feature whose high/low halves differ most in mean error is the most error-discriminating.
         imp = np.zeros(n_cols, dtype=np.float64)
         for j in range(n_cols):
@@ -280,7 +288,9 @@ def weak_segment_heatmap(
     """
     err = _per_row_error(y_true, y_pred, task=task)
     mat, names = _resolve_feature_matrix(X, feature_names)
-    finite = np.isfinite(err)
+    # Inf in any feature column crashes DecisionTreeRegressor.fit (ValueError); NaN feature values are
+    # tolerated by modern sklearn and left alone so the tree can still use those rows.
+    finite = np.isfinite(err) & ~np.any(np.isinf(mat), axis=1)
     if not np.all(finite):
         err = err[finite]
         mat = mat[finite]

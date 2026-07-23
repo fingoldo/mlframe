@@ -329,6 +329,13 @@ def _eval_fold_body(
             cpi_min_samples_leaf=int(getattr(self, "cpi_min_samples_leaf", 10)),
             # Prefer the wide-data-guard's effective n_repeats (set in RFECV.fit) over the user-facing self.n_repeats.
             n_repeats=int(getattr(self, "_effective_n_repeats", None) or getattr(self, "n_repeats", 5) or 5),
+            # W3: get_feature_importances' own default (random_state=0) was never overridden here, so
+            # every permutation/CPI FI computation across every fold of every outer iteration drew
+            # from the identical RNG seed -- the fold-voting ensemble's cross-fold permutation-noise
+            # component was less independent than it appeared. fold_seed is already deterministic
+            # (derived from self._rng per fold) and distinct per fold, matching the pattern the
+            # frac-subsampling local_rng above already uses.
+            random_state=int(fold_seed),
         )
         if must_include_resolved:
             must_set = set(must_include_resolved)
@@ -392,6 +399,13 @@ def _eval_fold_body(
             _dummy = score - fudge
         else:
             # Computed OUTSIDE the lock (it can be slow); only the append is guarded.
-            _dummy = get_best_dummy_score(estimator=estimator, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test, scoring=scoring)
+            # W5: thread the SAME fold train/test weights the real per-N scores already use, so the
+            # N=0 anchor (early-exit "dummy already beats this subset" check, cv_results_ diagnostic
+            # row) is directly comparable to the weighted real-N scores instead of an apples-to-oranges
+            # unweighted-vs-weighted comparison.
+            _dummy = get_best_dummy_score(
+                estimator=estimator, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test, scoring=scoring,
+                train_sample_weight=_fold_train_sw, test_sample_weight=_fold_test_sw,
+            )
         with _FOLD_STATE_LOCK:
             dummy_scores.append(_dummy)

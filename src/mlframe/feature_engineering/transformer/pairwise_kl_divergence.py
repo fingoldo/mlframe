@@ -29,7 +29,7 @@ def _bernoulli_kl(p: np.ndarray, q: np.ndarray) -> np.ndarray:
     return np.asarray(p_c * np.log(p_c / q_c) + (1 - p_c) * np.log((1 - p_c) / (1 - q_c)))
 
 
-def _gaussian_kl(mu_i: np.ndarray, mu_j: np.ndarray, sigma_i: float, sigma_j: float) -> np.ndarray:
+def _gaussian_kl(mu_i: np.ndarray, mu_j: np.ndarray, sigma_i: "np.ndarray | float", sigma_j: "np.ndarray | float") -> np.ndarray:
     """Elementwise KL(N(mu_i, sigma_i^2) || N(mu_j, sigma_j^2)), variances tiny-epsilon-floored against zero-residual baselines."""
     var_i = sigma_i**2 + 1e-9
     var_j = sigma_j**2 + 1e-9
@@ -131,7 +131,12 @@ def compute_pairwise_kl_features(
             # For Gaussian JS, use mixture mean.
             mean_mu = (p1 + p2 + p3) / 3.0
             mean_var = ((sigmas[0] ** 2 + sigmas[1] ** 2 + sigmas[2] ** 2) / 3.0) + ((p1 - mean_mu) ** 2 + (p2 - mean_mu) ** 2 + (p3 - mean_mu) ** 2) / 3.0
-            mean_sigma = float(np.sqrt(mean_var.mean()))
+            # Per-row mixture sigma, NOT a single query-set-wide scalar (mean_var.mean() previously
+            # collapsed every row's mixture spread into one average, so js silently blended each
+            # row's true divergence with the query-set average on every call, not just an edge case).
+            # _gaussian_kl is purely elementwise numpy arithmetic, so an array sigma_j broadcasts
+            # through it identically to a scalar -- no change needed inside the function itself.
+            mean_sigma = np.sqrt(mean_var).astype(np.float32)
             js = ((_gaussian_kl(p1, mean_mu, sigmas[0], mean_sigma) + _gaussian_kl(p2, mean_mu, sigmas[1], mean_sigma) + _gaussian_kl(p3, mean_mu, sigmas[2], mean_sigma)) / 3.0).astype(np.float32)
         max_kl = np.maximum(kl12, np.maximum(kl23, kl13)).astype(np.float32)
         return np.column_stack([kl12, kl23, kl13, max_kl, js])

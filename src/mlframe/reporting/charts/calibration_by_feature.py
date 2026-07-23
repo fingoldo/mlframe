@@ -114,8 +114,9 @@ def _per_bin_ece(
     yt = np.asarray(y_true, dtype=np.float64).ravel()
     ys = np.asarray(y_score, dtype=np.float64).ravel()
     fv = np.asarray(feature_values, dtype=np.float64).ravel()
-    n = min(yt.size, ys.size, fv.size)
-    yt, ys, fv = yt[:n], ys[:n], fv[:n]
+    n = yt.size
+    if not (ys.size == n == fv.size):
+        raise ValueError(f"calibration_by_feature: y_true ({n}), y_score ({ys.size}), feature_values ({fv.size}) must have equal length")
 
     finite = np.isfinite(yt) & np.isfinite(ys) & np.isfinite(fv)
     yt, ys, fv = yt[finite], ys[finite], fv[finite]

@@ -67,6 +67,13 @@ from mlframe.reporting.spec import (
 )
 
 
+def _finite_rows(y: np.ndarray, P: np.ndarray) -> np.ndarray:
+    """Boolean mask of rows where ``y`` and every column of ``P`` are finite."""
+    if y.shape[0] == 0:
+        return np.zeros(0, dtype=bool)
+    return np.asarray(np.isfinite(y) & np.all(np.isfinite(P), axis=1))
+
+
 def _model_diagnostics_decompose():
     """Return ``model_diagnostics.scoring.(decompose, PinballLoss)`` or ``None``.
 
@@ -96,11 +103,13 @@ def _reliability_panel(y_true, preds_NK, alphas) -> LinePanelSpec:
 
     y = np.asarray(y_true, dtype=np.float64).ravel()
     P = np.asarray(preds_NK, dtype=np.float64)
+    row_ok = _finite_rows(y, P)
+    y, P = y[row_ok], P[row_ok]
     a_arr = np.asarray(alphas, dtype=np.float64)
     K = a_arr.shape[0]
     emp = np.zeros(K)
     for k in range(K):
-        emp[k] = float(np.mean(y <= P[:, k]))
+        emp[k] = float(np.mean(y <= P[:, k])) if y.size else float("nan")
     diag = a_arr.copy()
     return LinePanelSpec(
         x=a_arr,
@@ -273,6 +282,8 @@ def _coverage_panel(y_true, preds_NK, alphas) -> PanelSpec:
     """
     y = np.asarray(y_true, dtype=np.float64).ravel()
     P = np.asarray(preds_NK, dtype=np.float64)
+    row_ok = _finite_rows(y, P)
+    y, P = y[row_ok], P[row_ok]
     n = y.shape[0]
     pairs = _symmetric_interval_pairs(alphas)
     if not pairs:
@@ -391,10 +402,9 @@ def _quantile_reliability_panel(y_true, preds_NK, alphas) -> PanelSpec:
     P = np.asarray(preds_NK, dtype=np.float64)
     a_arr = np.asarray(alphas, dtype=np.float64)
     K = a_arr.shape[0]
-    n = y.shape[0]
 
     # Isotonic + np.quantile both need >=1 finite (y, q) row; empty or all-NaN inputs index OOB / raise in sklearn.
-    row_ok = np.isfinite(y) & np.all(np.isfinite(P), axis=1) if n else np.zeros(0, dtype=bool)
+    row_ok = _finite_rows(y, P)
     if int(row_ok.sum()) < 2:
         return AnnotationPanelSpec(
             text="Quantile reliability skipped: needs >= 2 finite (y, q) rows",
@@ -463,7 +473,7 @@ def _pinball_decomp_panel(y_true, preds_NK, alphas) -> PanelSpec:
     cats = tuple(f"{a_arr[k]:g}" for k in range(K))
 
     # Both the plain pinball and the CORP isotonic fit need finite (y, q) rows; non-finite raises in sklearn / NaN-poisons.
-    row_ok = np.isfinite(y) & np.all(np.isfinite(P), axis=1) if y.size else np.zeros(0, dtype=bool)
+    row_ok = _finite_rows(y, P)
     y = y[row_ok]
     P = P[row_ok]
     n = y.shape[0]
@@ -535,12 +545,14 @@ def _quantile_crossing_panel(y_true, preds_NK, alphas) -> PanelSpec:
     P = np.asarray(preds_NK, dtype=np.float64)
     a_arr = np.asarray(alphas, dtype=np.float64)
     K = a_arr.shape[0]
-    n = P.shape[0]
     if K < 2:
         return AnnotationPanelSpec(
             text="Quantile crossing skipped: needs >= 2 alphas",
             title="Quantile crossing (adjacent-pair violation rate)",
         )
+    row_ok = np.all(np.isfinite(P), axis=1) if P.shape[0] else np.zeros(0, dtype=bool)
+    P = P[row_ok]
+    n = P.shape[0]
     cats: List[str] = []
     rates = np.empty(K - 1, dtype=np.float64)
     counts = np.empty(K - 1, dtype=np.int64)

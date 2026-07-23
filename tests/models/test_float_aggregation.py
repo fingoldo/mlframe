@@ -67,7 +67,16 @@ def test_production_default_flavour_is_mean():
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_biz_val_robust_float_ensemble_beats_mean_on_outlier_folds(seed):
     """Floor: robust RMSE <= 0.55 * mean RMSE when 2 of 6 members are corrupted outlier folds.
-    Measured ~0.20-0.50x across the 5 bench scenarios; raw mean has zero breakdown point."""
+    Measured ~0.20-0.50x across the 5 bench scenarios; raw mean has zero breakdown point.
+
+    F5 (audits/full_audit_2026-07-21/models_all.md): combine_float_predictions's own bare default
+    changed from "robust" to "mean" to match the ALREADY-mean production resolver
+    (_resolve_float_ensemble_flavour, see test_production_default_flavour_is_mean) -- production never
+    relied on the function's bare default anyway (always passed flavour= explicitly), so this was a
+    latent default-mismatch, not a behavior change for real training. This test's target is the
+    "robust" flavour's outlier-fold benefit, not "whatever the bare default resolves to" -- pass it
+    explicitly so the assertion keeps testing what it always meant to test.
+    """
     rng = np.random.default_rng(seed)
     n = 3000
     x = rng.normal(size=(n, 4))
@@ -79,7 +88,7 @@ def test_biz_val_robust_float_ensemble_beats_mean_on_outlier_folds(seed):
     stacked = np.stack(members)
 
     rmse_mean = _rmse(combine_float_predictions(stacked, flavour="mean"), y)
-    rmse_robust = _rmse(combine_float_predictions(stacked), y)  # default flavour
+    rmse_robust = _rmse(combine_float_predictions(stacked, flavour="robust"), y)
     assert rmse_robust <= 0.55 * rmse_mean, f"robust {rmse_robust:.4f} vs mean {rmse_mean:.4f}"
 
 
@@ -121,7 +130,10 @@ def test_mad_factor_sweep_verdict_keeps_default_mean():
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_biz_val_robust_float_ensemble_clean_regime_within_10pct_of_mean(seed):
     """Robust must NOT materially hurt when all members are clean: RMSE within 10% of raw mean.
-    Measured ~6% penalty (MAD-gate keeps mean efficiency when nothing is flagged)."""
+    Measured ~6% penalty (MAD-gate keeps mean efficiency when nothing is flagged).
+
+    F5: see test_biz_val_robust_float_ensemble_beats_mean_on_outlier_folds -- pass flavour="robust"
+    explicitly now that the bare default is "mean"."""
     rng = np.random.default_rng(seed)
     n = 3000
     x = rng.normal(size=(n, 4))
@@ -130,5 +142,5 @@ def test_biz_val_robust_float_ensemble_clean_regime_within_10pct_of_mean(seed):
     stacked = np.stack([y + rng.normal(0.0, 0.3 * sd, size=n) for _ in range(6)])
 
     rmse_mean = _rmse(combine_float_predictions(stacked, flavour="mean"), y)
-    rmse_robust = _rmse(combine_float_predictions(stacked), y)
+    rmse_robust = _rmse(combine_float_predictions(stacked, flavour="robust"), y)
     assert rmse_robust <= 1.10 * rmse_mean, f"robust {rmse_robust:.4f} vs mean {rmse_mean:.4f}"

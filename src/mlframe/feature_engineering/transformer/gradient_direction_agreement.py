@@ -61,8 +61,13 @@ def _gradient(model, X: np.ndarray, is_binary: bool, eps: float) -> np.ndarray:
     for j in range(d):
         col = X[:, j].copy()
         X[:, j] = col + eps
-        p_plus = _predict(model, X, is_binary)
-        X[:, j] = col
+        try:
+            p_plus = _predict(model, X, is_binary)
+        finally:
+            # Restore unconditionally: X may alias the caller's own X_query (standardize=False
+            # skips the RobustScaler copy), so a mid-loop exception from model.predict/predict_proba
+            # must never leave column j permanently perturbed in the caller's array.
+            X[:, j] = col
         grad[:, j] = (p_plus - p_base) / eps
     return grad
 

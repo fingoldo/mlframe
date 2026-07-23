@@ -109,8 +109,14 @@ def compute_class_mahalanobis_features(
         pos_mask = y_t > 0.5
         neg_mask = ~pos_mask
         if pos_mask.sum() < 2 or neg_mask.sum() < 2:
+            # Degenerate fold: 0.0 for m_pos/m_neg reads as "sits exactly at the class centroid" --
+            # the worst possible value semantically. 1e6 ("very far"), matching the same
+            # empty-subset sentinel convention used package-wide (_knn_helper.py, cluster_smote.py,
+            # etc.); m_gap = 1e6 - 1e6 = 0.0 ("no discriminating signal"), same pattern as the
+            # sibling distance-based files in this cluster.
             n_q = Xq_s.shape[0]
-            return np.zeros(n_q, dtype=np.float32), np.zeros(n_q, dtype=np.float32), np.zeros(n_q, dtype=np.float32)
+            far = np.full(n_q, 1e6, dtype=np.float32)
+            return far, far, np.zeros(n_q, dtype=np.float32)
         mu_pos, inv_pos = _shrunk_covariance(Xt_s[pos_mask])
         mu_neg, inv_neg = _shrunk_covariance(Xt_s[neg_mask])
         m_pos = _mahalanobis(Xq_s, mu_pos, inv_pos)

@@ -9,6 +9,7 @@ emit cluster id one-hot bin + log-distance to top-3 centroids + cluster size + c
 """
 from __future__ import annotations
 import logging
+from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 from ._utils import require_seed, validate_numeric_input
@@ -17,9 +18,18 @@ logger = logging.getLogger(__name__)
 
 
 def compute_target_kmeans_codebook_features(
-    X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
-    n_clusters=20, standardize=True, column_prefix="tkmc", dtype=np.float32,
-):
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_query: Optional[np.ndarray] = None,
+    splitter: Optional[Any] = None,
+    *,
+    seed: int,
+    task: Literal["binary", "regression"] = "regression",
+    n_clusters: int = 20,
+    standardize: bool = True,
+    column_prefix: str = "tkmc",
+    dtype: type = np.float32,
+) -> pl.DataFrame:
     """Fit a fast LightGBM baseline per train fold, cluster [X, ŷ_baseline] jointly via MiniBatchKMeans, and emit per-query cluster id + cluster y-mean + cluster size + distance-to-nearest-centroid + log-distance-to-3rd-nearest-centroid (5 columns). See module docstring for the mechanism rationale."""
     try:
         import lightgbm as lgb
@@ -96,7 +106,7 @@ def compute_target_kmeans_codebook_features(
     if splitter is None:
         raise ValueError("Mode A requires splitter.")
     n_train = X_train_f.shape[0]
-    out = np.zeros((n_train, n_features_out), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
     for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_train_f)):
         out[val_idx] = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100).astype(dtype, copy=False)
         logger.info("target_kmeans_codebook: fold %d done", fold_idx + 1)

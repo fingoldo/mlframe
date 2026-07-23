@@ -167,7 +167,9 @@ def shapley_blend(
     """Prune + blend a model pool by Shapley value; returns a hill-climb-compatible result dict.
 
     ``weights = clip(values, 0)``; members with ``value <= prune_below * values.sum()`` are pruned
-    (``prune_below=0.0`` keeps every non-negative-value member). ``blended`` is the weighted mean of
+    (``prune_below=0.0`` keeps every strictly-positive-value member -- the pruning comparison is a
+    strict ``>``, so a member with an exact-zero clipped weight, including any originally-negative
+    Shapley value, is pruned too). ``blended`` is the weighted mean of
     survivors (``renormalize=True`` rescales survivor weights to sum to 1).
 
     Returns a dict with keys ``weights`` (``(n_models,)``, zero for pruned members), ``ensemble_pred``,

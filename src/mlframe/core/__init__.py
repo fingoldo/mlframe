@@ -29,3 +29,8 @@ from mlframe.core.set_similarity import *
 from mlframe.core.binning import *
 from mlframe.core.composite_similarity import *
 from mlframe.core.helpers import *
+
+# Curate the star-import surface explicitly (mirrors mlframe.metrics.__init__'s pattern) so a future
+# same-named public helper added to two submodules silently shadowing one another becomes at least
+# grep-discoverable via this list, instead of a fully uncurated "every non-underscore global".
+__all__ = sorted(name for name in globals() if not name.startswith("_"))

@@ -28,3 +28,6 @@ from mlframe.utils._param_oracle import (
     loads_json,
     stable_json,
 )
+
+# Curate the star-import surface explicitly (mirrors mlframe.metrics.__init__'s pattern).
+__all__ = sorted(name for name in globals() if not name.startswith("_"))

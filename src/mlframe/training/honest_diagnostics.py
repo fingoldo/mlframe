@@ -30,7 +30,6 @@ instead of crashing the suite finalize phase.
 """
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 from datetime import datetime, timezone
@@ -70,12 +69,12 @@ def _is_binary_classif(y: np.ndarray) -> bool:
 def _derive_seed(master_seed: int, key: str) -> int:
     """Derive a stable per-target/per-block bootstrap seed from the suite master seed.
 
-    Hashing the (master_seed, key) pair gives each target an independent-but-reproducible seed so the whole diagnostics
-    run is reproducible from the one master seed, while distinct targets don't share a single fixed-0 seed. Kept in the
-    int32 range for sklearn / numpy splitter compatibility.
+    Thin delegate to the canonical :func:`mlframe.core.helpers.derive_seed` (kept as a local name since
+    call sites in this module already use the underscore-prefixed form).
     """
-    h = hashlib.blake2b(f"{int(master_seed)}|{key}".encode(), digest_size=4).digest()
-    return int.from_bytes(h, "big") % (2**31 - 1)
+    from mlframe.core.helpers import derive_seed
+
+    return derive_seed(master_seed, key)
 
 
 def _bootstrap_block(

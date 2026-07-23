@@ -13,8 +13,6 @@ from typing import Any, Mapping, Optional, Sequence
 
 import numpy as np
 
-from mlframe.models.ensembling.selection import rank_average_blend
-
 _METHODS = ("isolation_forest", "lof", "ecod")
 
 
@@ -126,6 +124,10 @@ def make_ensemble_outlier_scores(
     """
     if len(methods) < 2:
         raise ValueError(f"make_ensemble_outlier_scores: need >=2 methods to ensemble; got {methods!r}.")
+    # Deferred: preprocessing/ is a foundational data-prep layer; this avoids an eager module-scope
+    # import into the models/ensembling layer for a name only used here.
+    from mlframe.models.ensembling.selection import rank_average_blend
+
     kwargs_by_method = detector_kwargs or {}
     stacked = np.vstack([_fit_anomaly_score(method, X, random_state=random_state, detector_kwargs=kwargs_by_method.get(method, {})) for method in methods])
     return rank_average_blend(stacked, weights=weights)

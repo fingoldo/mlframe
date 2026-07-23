@@ -89,7 +89,12 @@ if _PYDANTIC_AVAILABLE:
         """
 
         # Voting + aggregation
-        votes_aggregation_method: Any = None  # VotesAggregation enum; left untyped to avoid circular import
+        # W4: default must match RFECV.__init__'s flat default (VotesAggregation.Borda) per this
+        # module's own stated invariant, or auto_tune's override-detection
+        # (getattr(self, k) == getattr(SearchConfig(), k)) silently treats every un-overridden user
+        # as having explicitly overridden this field. "Borda" (not None) -- VotesAggregation is a
+        # str Enum, so VotesAggregation.Borda == "Borda" holds without importing the enum here.
+        votes_aggregation_method: Any = "Borda"  # VotesAggregation enum; left untyped to avoid circular import
         use_all_fi_runs: bool = True
         use_last_fi_run_only: bool = False
         use_one_freshest_fi_run: bool = False

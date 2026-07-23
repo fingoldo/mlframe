@@ -119,6 +119,15 @@ def compute_bgmm_density_ratio_features(
         n_q = Xq_s.shape[0]
         all_feats = np.zeros((n_q, len(component_counts) * 3), dtype=np.float32)
         if Xt_pos.shape[0] < 2 or Xt_neg.shape[0] < 2:
+            # Degenerate fold: 0.0 for every column is inconsistent with _fit_bgmm_and_score's OWN
+            # -30.0 "low-density" sentinel for its identical too-few-rows case just below. Fill
+            # log_p_pos/log_p_neg with -30.0 (matching that sentinel) and log_ratio with 0.0
+            # (-30.0 - -30.0 = 0.0, "no discriminating signal"), for every component-count scale.
+            for scale_idx in range(len(component_counts)):
+                base = scale_idx * 3
+                all_feats[:, base + 0] = -30.0
+                all_feats[:, base + 1] = -30.0
+                all_feats[:, base + 2] = 0.0
             return all_feats
         # bench-attempt-rejected (2026-06-08): the 6 BGM fits (len(component_counts) x {pos,neg}) are
         # independent and dominate the FE shortlist wall (~96%: this transformer is ~21s of a ~22s

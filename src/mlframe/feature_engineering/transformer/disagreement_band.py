@@ -66,7 +66,8 @@ def _fit_3baselines_in_sample(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: 
             m3 = LogisticRegression(max_iter=200, solver="liblinear", random_state=int(seed) + 2)
             m3.fit(Xt, y_t.astype(np.int32))
             preds[:, 2] = m3.predict_proba(Xt)[:, 1].astype(np.float32)
-        except Exception:
+        except Exception as exc:
+            logger.info("disagreement_band: LogisticRegression fit failed (%s); falling back to constant rate.", exc)
             preds[:, 2] = float(y_t.mean())
     else:
         m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
@@ -132,10 +133,18 @@ def compute_disagreement_band_features(
             else:
                 masks.append((disagreement > quantiles[b]) & (disagreement <= quantiles[b + 1]))
 
-        band_centroids = np.zeros((effective_n_bands, Xt_s.shape[1]), dtype=np.float32)
-        band_y_mean = np.zeros(effective_n_bands, dtype=np.float32)
-        band_y_std = np.zeros(effective_n_bands, dtype=np.float32)
-        band_disagreement_mean = np.zeros(effective_n_bands, dtype=np.float32)
+        # Global fallback for a band that ends up empty (tied disagreement values collapsing a
+        # quantile boundary) -- a phantom band left at 0.0 would otherwise sit near the origin in
+        # standardised space and receive a spurious near-zero-distance softmax weight instead of a
+        # neutral one.
+        global_centroid = Xt_s.mean(axis=0)
+        global_y_mean = float(y_t.mean())
+        global_y_std = float(y_t.std()) + 1e-9
+        global_disagreement_mean = float(disagreement.mean())
+        band_centroids = np.tile(global_centroid, (effective_n_bands, 1)).astype(np.float32)
+        band_y_mean = np.full(effective_n_bands, global_y_mean, dtype=np.float32)
+        band_y_std = np.full(effective_n_bands, global_y_std, dtype=np.float32)
+        band_disagreement_mean = np.full(effective_n_bands, global_disagreement_mean, dtype=np.float32)
         for b, mask in enumerate(masks):
             X_band = Xt_s[mask]
             y_band = y_t[mask]

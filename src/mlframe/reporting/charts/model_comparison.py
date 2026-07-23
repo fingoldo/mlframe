@@ -248,8 +248,13 @@ def _corr_heatmap_panel(per_model: Mapping[str, Mapping[str, Any]], subsample: i
     if len(names) < 2:
         return AnnotationPanelSpec(text="Correlation heatmap needs >= 2 models\nwith predictions", title="Prediction correlation")
     cols: List[np.ndarray] = [c for n in names if (c := _model_score(per_model[n])) is not None]
-    n_rows = min(c.shape[0] for c in cols)
-    cols = [c[:n_rows] for c in cols]
+    lengths = {c.shape[0] for c in cols}
+    if len(lengths) > 1:
+        raise ValueError(
+            f"_corr_heatmap_panel: models have mismatched row counts {dict(zip(names, (c.shape[0] for c in cols)))} "
+            "-- row i of each model's predictions must refer to the same underlying sample for a correlation "
+            "heatmap to be meaningful; truncating would silently pair unrelated rows."
+        )
     mat = np.column_stack(cols)
     finite_rows = np.isfinite(mat).all(axis=1)
     mat = mat[finite_rows]

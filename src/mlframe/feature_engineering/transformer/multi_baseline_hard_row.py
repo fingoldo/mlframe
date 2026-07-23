@@ -70,8 +70,9 @@ def _fit_3baselines_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: in
             m3 = LogisticRegression(max_iter=200, solver="liblinear", random_state=int(seed) + 2)
             m3.fit(Xt, y_t.astype(np.int32))
             preds_list.append(m3.predict_proba(Xt)[:, 1].astype(np.float32))
-        except Exception:
+        except Exception as exc:
             # Fallback: constant baseline = class prior.
+            logger.info("multi_baseline_hard_row: LogisticRegression fit failed (%s); falling back to constant class prior.", exc)
             preds_list.append(np.full(Xt.shape[0], float(y_t.mean()), dtype=np.float32))
     else:
         m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
@@ -157,23 +158,35 @@ def compute_multi_baseline_hard_row_features(
 
         pos_top = _topk_within_subset(combined, pos_mask_idx, n_hard_per_side)
         neg_top = _topk_within_subset(combined, neg_mask_idx, n_hard_per_side)
-        if pos_top.size < n_hard_per_side:
-            if pos_top.size > 0:
-                pad = np.full(n_hard_per_side - pos_top.size, pos_top[-1])
-                pos_top = np.concatenate([pos_top, pad])
-            else:
-                pos_top = np.zeros(n_hard_per_side, dtype=np.int64)
-        if neg_top.size < n_hard_per_side:
-            if neg_top.size > 0:
-                pad = np.full(n_hard_per_side - neg_top.size, neg_top[-1])
-                neg_top = np.concatenate([neg_top, pad])
-            else:
-                neg_top = np.zeros(n_hard_per_side, dtype=np.int64)
+        # Empty-side sentinel anchors: previously np.zeros(...) fell back to REPEATING training row
+        # index 0, n_hard_per_side times, as that side's "hardest anchors" -- an arbitrary row that
+        # could belong to the opposite class, contaminating every val row's attention weights against
+        # a phantom same-side anchor set. Instead, place the empty side's anchors far outside the
+        # standardised data manifold (softmax-negligible distance weight against any real query row)
+        # with a neutral y/combined value, so this side's aggregate columns degrade toward "no
+        # signal" instead of silently reflecting a wrong-class row's real target.
+        _FAR = 1e4
+        d = Xt_s.shape[1]
+        if pos_top.size > 0 and pos_top.size < n_hard_per_side:
+            pos_top = np.concatenate([pos_top, np.full(n_hard_per_side - pos_top.size, pos_top[-1])])
+        if neg_top.size > 0 and neg_top.size < n_hard_per_side:
+            neg_top = np.concatenate([neg_top, np.full(n_hard_per_side - neg_top.size, neg_top[-1])])
 
-        anchors_idx = np.concatenate([pos_top, neg_top])
-        anchors_X = Xt_s[anchors_idx]
-        anchors_y = y_t[anchors_idx].astype(np.float32)
-        anchors_combined = combined[anchors_idx].astype(np.float32)
+        anchors_X_list = []
+        anchors_y_list = []
+        anchors_combined_list = []
+        for top in (pos_top, neg_top):
+            if top.size > 0:
+                anchors_X_list.append(Xt_s[top])
+                anchors_y_list.append(y_t[top].astype(np.float32))
+                anchors_combined_list.append(combined[top].astype(np.float32))
+            else:
+                anchors_X_list.append(np.full((n_hard_per_side, d), _FAR, dtype=np.float32))
+                anchors_y_list.append(np.zeros(n_hard_per_side, dtype=np.float32))
+                anchors_combined_list.append(np.zeros(n_hard_per_side, dtype=np.float32))
+        anchors_X = np.concatenate(anchors_X_list, axis=0)
+        anchors_y = np.concatenate(anchors_y_list, axis=0)
+        anchors_combined = np.concatenate(anchors_combined_list, axis=0)
 
         diffs = Xq_s[:, None, :] - anchors_X[None, :, :]
         sq = (diffs**2).sum(axis=-1)

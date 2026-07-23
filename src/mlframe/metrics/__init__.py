@@ -5,6 +5,16 @@ Submodules:
     quantile  - quantile-specific metrics (pinball, coverage).
     ranking   - ranking-task metrics (NDCG, MRR, ...).
     scoring   - sklearn-compatible scoring wrappers.
+
+Import convention: this package's ``__all__`` (below) is the curated EXTERNAL-facing surface -- the
+one a caller outside ``metrics/`` who doesn't know the internal module layout should reach for. It is
+NOT a mandate that every internal call site rewrite ``from mlframe.metrics.core import X`` to
+``from mlframe.metrics import X``: ``core.py`` (unlike the underscore-prefixed internal submodules) is
+itself an intentionally public, directly-importable module, and importing straight from it avoids
+eagerly loading this package's other submodules (``quantile``/``ranking``/``scoring``/``calibration``/
+``classification``/``regression``/``iteration_metrics``) just to reach one ``core`` symbol. Both forms
+are supported and bit-identical (the facade re-exports ``core`` in full via ``from .core import *``);
+pick whichever import-cost tradeoff fits the call site.
 """
 
 from __future__ import annotations

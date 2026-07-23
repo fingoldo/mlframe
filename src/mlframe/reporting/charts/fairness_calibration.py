@@ -122,8 +122,9 @@ def compose_fairness_calibration_figure(
     yt = np.asarray(y_true, dtype=np.float64).ravel()
     ys = np.asarray(y_score, dtype=np.float64).ravel()
     grp = np.asarray(subgroups).ravel()
-    n = min(yt.size, ys.size, grp.size)
-    yt, ys, grp = yt[:n], ys[:n], grp[:n]
+    n = yt.size
+    if not (ys.size == n == grp.size):
+        raise ValueError(f"fairness_calibration: y_true ({n}), y_score ({ys.size}), subgroups ({grp.size}) must have equal length")
 
     finite = np.isfinite(yt) & np.isfinite(ys)
     yt, ys, grp = yt[finite], ys[finite], grp[finite]
@@ -243,8 +244,9 @@ def compute_subgroup_ece_disparity(
     yt = np.asarray(y_true, dtype=np.float64).ravel()
     ys = np.asarray(y_score, dtype=np.float64).ravel()
     grp = np.asarray(subgroups).ravel()
-    n = min(yt.size, ys.size, grp.size)
-    yt, ys, grp = yt[:n], ys[:n], grp[:n]
+    n = yt.size
+    if not (ys.size == n == grp.size):
+        raise ValueError(f"fairness_calibration: y_true ({n}), y_score ({ys.size}), subgroups ({grp.size}) must have equal length")
     finite = np.isfinite(yt) & np.isfinite(ys)
     yt, ys, grp = yt[finite], ys[finite], grp[finite]
 

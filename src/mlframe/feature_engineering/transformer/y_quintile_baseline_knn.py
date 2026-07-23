@@ -120,7 +120,12 @@ def compute_y_quintile_baseline_knn_features(
         pred_train = _fit_baseline_predict(Xt_s, y_t, Xt_s, task=task, seed=fold_seed)
 
         if task == "binary":
-            strata_edges = np.array([0.0, 0.2, 0.4, 0.6, 0.8, 1.0]) - 1e-9
+            # No epsilon shift: the >=lo & <hi (all bands) / >=lo & <=hi (last band) masking scheme
+            # below already handles boundary ties correctly on its own. Shifting every edge down by
+            # 1e-9 previously made the LAST stratum's mask >=0.8-1e-9 & <=1.0-1e-9, so any row whose
+            # baseline probability is exactly 1.0 (LightGBM can saturate to this on well-separated
+            # small folds) failed every stratum's mask and silently vanished from all 5 neighbour banks.
+            strata_edges = np.array([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
             y_for_strata = pred_train  # use baseline OOF prob for binary (target is 0/1)
         else:
             strata_edges = np.quantile(y_t, np.linspace(0.0, 1.0, _N_STRATA + 1))

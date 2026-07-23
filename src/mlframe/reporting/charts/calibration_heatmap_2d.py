@@ -88,8 +88,9 @@ def compute_calibration_heatmap_2d(
     ys = np.asarray(y_score, dtype=np.float64).ravel()
     fx = np.asarray(feat_x, dtype=np.float64).ravel()
     fy = np.asarray(feat_y, dtype=np.float64).ravel()
-    n = min(yt.size, ys.size, fx.size, fy.size)
-    yt, ys, fx, fy = yt[:n], ys[:n], fx[:n], fy[:n]
+    n = yt.size
+    if not (ys.size == n == fx.size == fy.size):
+        raise ValueError(f"calibration_heatmap_2d: y_true ({n}), y_score ({ys.size}), feat_x ({fx.size}), " f"feat_y ({fy.size}) must have equal length")
 
     finite = np.isfinite(yt) & np.isfinite(ys) & np.isfinite(fx) & np.isfinite(fy)
     yt, ys, fx, fy = yt[finite], ys[finite], fx[finite], fy[finite]

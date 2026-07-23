@@ -53,11 +53,32 @@ class Leaderboard:
 
         self.weights = pd.Series(index=self.tasks, data=1.0)
         weight_dict = weights or {}
+        # F1: a typo'd/nonexistent task key would otherwise silently enlarge self.weights via pandas
+        # .loc, inflating weights.sum() (the mean_ranking/optimality_gap_ranking denominator) with a
+        # bogus entry that never multiplies anything in the numerator -- a silent score-magnitude bug.
+        unknown_tasks = set(weight_dict) - set(self.tasks)
+        if unknown_tasks:
+            raise ValueError(f"Leaderboard: weights key(s) {sorted(unknown_tasks)} do not match any table column (tasks: {self.tasks}).")
         for task, weight in weight_dict.items():
             self.weights.loc[task] = weight
+        # F5: mean_ranking(mean_type="arithmetic") / optimality_gap_ranking both divide by
+        # self.weights.sum() -- an all-zero-weights Leaderboard (a legal Dict[str, float]) would
+        # otherwise silently produce inf/NaN scores for every model instead of raising.
+        if self.weights.sum() <= 0:
+            raise ValueError(f"Leaderboard: weights must sum to a positive value; got {self.weights.sum()!r} from {weight_dict!r}.")
 
         self.models = self.table.index.tolist()
         self.n_models = len(self.models)
+        # F2: every _rules.py/_cw.py method does self.ranks.loc[model] expecting a 1-D Series; a
+        # duplicated model name returns a 2-D DataFrame instead and silently corrupts every pairwise
+        # comparison. data_processing.py's preprocess_glue/preprocess_sglue already dedupe for exactly
+        # this reason -- a caller who skips that step (or merges two tables) hits this directly.
+        if not self.table.index.is_unique:
+            dupes = self.table.index[self.table.index.duplicated()].unique().tolist()
+            raise ValueError(
+                f"Leaderboard: table.index has duplicate model name(s) {dupes}; every model name must be "
+                "unique. See data_processing.preprocess_glue/preprocess_sglue for the expected dedup step."
+            )
 
         self.ranks: pd.DataFrame = None  # set for real by build_ranks() below before any use
         self.max_ranks: pd.DataFrame = None
@@ -216,8 +237,8 @@ class Leaderboard:
         """Rank models within each ``task_groups`` group (a partition of ``self.tasks``) via ``ranking_method``, then wrap the per-group scores as a new :class:`Leaderboard`."""
         group_merged: list = list(itertools.chain.from_iterable(task_groups.values()))
         group_set, group_counts = np.unique(group_merged, return_counts=True)
-        # Wave 31 (2026-05-20): assert -> ValueError. SILENT-CORRECTNESS
-        # bug under -O: partition violations produced wrong meta-tables.
+        # assert -> ValueError: an assert-based check silently disappears under -O, letting
+        # partition violations produce wrong meta-tables with no error at all.
         if set(group_set) != set(self.tasks):
             raise ValueError(f"get_meta_leaderboard: group partition tasks {set(group_set)} " f"do not match self.tasks {set(self.tasks)}.")
         if group_counts.max() != 1:
@@ -275,7 +296,7 @@ class Leaderboard:
         """Partition all models into "feasible" (some task-weighting makes them the Condorcet winner) vs "infeasible", per :func:`find_weights_for_condorcet`."""
         result: Dict[str, list] = {"feasible": [], "infeasible": []}
         for model in tqdm(self.models):
-            if self.find_weights_for_condorcet(model, restrictions) == "infeasible":
+            if self.find_weights_for_condorcet(model, restrictions) is None:
                 result["infeasible"].append(model)
             else:
                 result["feasible"].append(model)

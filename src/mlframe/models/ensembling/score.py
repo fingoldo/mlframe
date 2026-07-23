@@ -85,7 +85,7 @@ def score_ensemble(
     max_std_relative: float = 2.5,
     ensure_prob_limits: bool = True,
     nbins: int = 100,
-    ensembling_methods=SIMPLE_ENSEMBLING_METHODS,
+    ensembling_methods=None,
     uncertainty_quantile: float = 0.1,
     normalize_stds_by_mean_preds: bool = False,
     custom_ice_metric: Optional[Callable] = None,
@@ -186,6 +186,13 @@ def score_ensemble(
     """
 
     level_models_and_predictions = models_and_predictions
+    # F8: default was the module-level SIMPLE_ENSEMBLING_METHODS list object itself (a classic mutable-
+    # default foot-gun) -- no current code path mutates it in place today (both
+    # filter_sign_sensitive_flavours/collapse_to_single_flavour_if_identical below always rebind to a
+    # fresh list), but a future in-place edit (.append/.remove) would silently corrupt the shared
+    # default for every subsequent call in the process. None + materialize-a-copy is immune regardless.
+    if ensembling_methods is None:
+        ensembling_methods = list(SIMPLE_ENSEMBLING_METHODS)
     res, is_regression, ensembling_methods, ensure_prob_limits = _validate_score_ensemble_inputs(
         level_models_and_predictions=level_models_and_predictions,
         ensembling_methods=ensembling_methods,

@@ -14,8 +14,6 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from mlframe.training.feature_handling.ordered_target_encoder import ordered_target_encode
-
 
 def two_step_recency_weighted_target_encode(
     events_df: pd.DataFrame,
@@ -80,6 +78,10 @@ def two_step_recency_weighted_target_encode(
     for col in feature_col_list[1:]:
         composite_series = composite_series.str.cat(events_df[col].astype(str), sep="|")
     composite_cat = composite_series.to_numpy()
+    # Deferred: feature_engineering/ is meant to be usable independently of the training/
+    # orchestrator; this avoids an eager module-scope training/ import for a name only used here.
+    from mlframe.training.feature_handling.ordered_target_encoder import ordered_target_encode
+
     step1_encoding = ordered_target_encode(composite_cat, np.asarray(y, dtype=np.float64), order=order, smoothing=smoothing)
 
     time_vals = events_df[time_col].to_numpy(dtype=np.float64)

@@ -117,45 +117,9 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
-# --- FUTURE SKETCH, inert, not real YAML (2026-07-10) ---------------------------------------
-#
-# codecov-numba: a re-scoped replacement for the job above, narrowed to ACTUALLY numba-touching
-# tests instead of whole subpackage directories. Not implemented because numba usage turned out to
-# be pervasive (@njit appears in ~190 src/mlframe/**/*.py files spanning nearly every subpackage --
-# feature_engineering, feature_selection/filters, metrics, training/composite, reporting/charts,
-# calibration, core -- so a directory-based include list wouldn't actually narrow anything vs. the
-# job above). The real fix is a `@pytest.mark.numba` marker applied to tests that specifically
-# exercise @njit-decorated code paths (no such marker exists yet -- would need a triage pass over
-# the ~190 files above to tag their tests), then `pytest -m numba` here instead of whole
-# directories. Sketch once that marker exists:
-#
-# jobs:
-#   codecov-numba:
-#     if: false
-#     name: pytest -m numba with NUMBA_DISABLE_JIT=1 (kernel-body coverage)
-#     runs-on: ubuntu-latest
-#     timeout-minutes: 120  # a truly-scoped numba-only run should be far shorter than the 340min above
-#     env:
-#       NUMBA_DISABLE_JIT: "1"
-#       PYTHONUNBUFFERED: "1"
-#     steps:
-#       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-#         with:
-#           persist-credentials: false
-#       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
-#         with:
-#           python-version: "3.11"
-#       - run: |
-#           git clone --depth 1 https://github.com/fingoldo/pyutilz.git
-#           pip install "./pyutilz[system,pandas,polars,database]"
-#           pip install -e ".[all,dev]"
-#       - run: |
-#           pytest -m "numba and not slow and not gpu and not multigpu" \
-#             --cov=src/mlframe --cov-report=xml --timeout=600
-#       - uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238  # v4
-#         if: success()
-#         with:
-#           file: ./coverage.xml
-#           flags: numba
-#           fail_ci_if_error: false
-#           token: ${{ secrets.CODECOV_TOKEN }}
+# Future idea (2026-07-10, not implemented): a re-scoped "codecov-numba" job narrowed to ACTUALLY
+# numba-touching tests via a `@pytest.mark.numba` marker (doesn't exist yet -- would need a triage
+# pass tagging tests across the ~190 src/mlframe/**/*.py files that use @njit) instead of whole
+# subpackage directories, which wouldn't narrow anything today since numba usage is pervasive across
+# nearly every subpackage. The full job sketch that was here lives in git history (see this file's
+# blame around 2026-07-10) if this gets picked up.

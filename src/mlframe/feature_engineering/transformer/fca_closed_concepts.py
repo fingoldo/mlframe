@@ -63,7 +63,8 @@ def compute_fca_closed_concepts_features(
             # depend on a library-internal ordering rather than the data.
             all_concepts.sort(key=lambda x: (-len(x[0]), tuple(sorted(x[1]))))
             top_concepts = all_concepts[:top_k]
-        except Exception:
+        except Exception as exc:
+            logger.info("fca_closed_concepts: lattice construction failed (%s); falling back to no concepts.", exc)
             top_concepts = []
         # Evaluate concept-membership on query rows (does query row satisfy concept's intent?)
         top_indicators_q = np.zeros((Xq.shape[0], top_k), dtype=np.float32)

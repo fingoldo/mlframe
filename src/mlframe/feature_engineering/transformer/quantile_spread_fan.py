@@ -65,15 +65,25 @@ def compute_quantile_spread_fan_features(
         if task == "binary":
             # 3 classifiers with sample_weight reweighting: gamma=0 (uniform), gamma=2 (positive emphasis), gamma=5 (strong)
             preds = np.zeros((Xq_s.shape[0], 3), dtype=np.float32)
-            for i, gamma in enumerate([0.0, 2.0, 5.0]):
-                if gamma > 0:
-                    p_mean = float(y_t.mean())
-                    sw = np.where(y_t > 0.5, (1.0 - p_mean) ** gamma, p_mean**gamma).astype(np.float32)
-                else:
-                    sw = None
-                m = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed) + i, verbose=-1, n_jobs=-1)
-                m.fit(Xt_s, y_t.astype(np.int32), sample_weight=sw)
-                preds[:, i] = np.asarray(m.predict_proba(Xq_s))[:, 1].astype(np.float32)
+            y_t_int = y_t.astype(np.int32)
+            if y_t_int.sum() == 0 or y_t_int.sum() == y_t_int.shape[0]:
+                # Single-class fold: unlike the sibling files in this cluster, this branch had no
+                # guard at all -- in the gamma>0 reweighting branch, sample_weight becomes literally
+                # all-zero when p_mean is 0.0 or 1.0 ((1-p_mean)**gamma == 0), risking a crash or a
+                # degenerate zero-weighted fit. Constant-rate fallback, matching
+                # multi_threshold_ordinal.py's identical guard for the same single-class case.
+                const_pred = float(y_t_int.mean())
+                preds[:, :] = const_pred
+            else:
+                for i, gamma in enumerate([0.0, 2.0, 5.0]):
+                    if gamma > 0:
+                        p_mean = float(y_t.mean())
+                        sw = np.where(y_t > 0.5, (1.0 - p_mean) ** gamma, p_mean**gamma).astype(np.float32)
+                    else:
+                        sw = None
+                    m = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed) + i, verbose=-1, n_jobs=-1)
+                    m.fit(Xt_s, y_t_int, sample_weight=sw)
+                    preds[:, i] = np.asarray(m.predict_proba(Xq_s))[:, 1].astype(np.float32)
             q10, q50, q90 = preds[:, 0], preds[:, 1], preds[:, 2]
         else:
             preds = np.zeros((Xq_s.shape[0], 3), dtype=np.float32)

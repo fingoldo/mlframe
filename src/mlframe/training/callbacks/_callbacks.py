@@ -101,7 +101,10 @@ class UniversalCallback:
     ) -> None:
 
         params = get_parent_func_args()
-        store_params_in_object(obj=self, params=params)
+        # postfix="" -- see mlframe.calibration.post's identical fix comment: this class reads
+        # attributes back by their bare param name, but store_params_in_object()'s default postfix
+        # changed to "_param_" without every caller being updated.
+        store_params_in_object(obj=self, params=params, postfix="")
 
         self.start_time = None
         self.best_metric = None

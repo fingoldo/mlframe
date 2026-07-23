@@ -145,7 +145,7 @@ def _table_from_runs(feature_importances: dict) -> pd.DataFrame:
     return pd.DataFrame(feature_importances)
 
 
-def aggregate_tree(feature_importances: dict, k_cv: float = 1.0, eps: float = 1e-12) -> dict:
+def aggregate_tree(feature_importances: dict, k_cv: float = 1.0, eps: float = 1e-12, run_weights: Union[dict, None] = None) -> dict:
     """Variance-down-weighted mean of tree/GBM gain importances across folds.
 
     score = mean / (1 + k_cv * cv), cv = std / (|mean| + eps).
@@ -153,19 +153,35 @@ def aggregate_tree(feature_importances: dict, k_cv: float = 1.0, eps: float = 1e
     A feature whose gain is steady across folds keeps (almost) its full mean; one
     whose gain swings wildly fold-to-fold (cv high) is discounted toward 0. Single
     -fold features (1 run) get cv=0 -> raw mean (no information to penalise).
+
+    ``run_weights`` (W2): optional ``dict[run_key -> weight]`` (e.g. ``fi_decay_rate``'s exponential
+    recency weights) -- when given, the mean/std become weighted (per-row, over that row's finite
+    columns only, so a feature missing from some runs still normalises correctly). ``None`` (the
+    default) is bit-identical to the pre-W2 unweighted form.
     """
     table = _table_from_runs(feature_importances)
     if table.empty:
         return {}
-    means = table.mean(axis=1, skipna=True)
-    # ddof=0 so a 1-run feature yields std 0 rather than NaN.
-    stds = table.std(axis=1, skipna=True, ddof=0).fillna(0.0)
+    if run_weights:
+        w = pd.Series({c: float(run_weights.get(c, 1.0)) for c in table.columns})
+        finite = table.notna()
+        w_masked = finite.mul(w, axis=1)
+        w_sum = w_masked.sum(axis=1)
+        means = table.fillna(0.0).mul(w_masked).sum(axis=1) / w_sum.replace(0.0, np.nan)
+        sq_dev = (table.sub(means, axis=0)) ** 2
+        variance = sq_dev.fillna(0.0).mul(w_masked).sum(axis=1) / w_sum.replace(0.0, np.nan)
+        means = means.fillna(0.0)
+        stds = np.sqrt(variance.fillna(0.0))
+    else:
+        means = table.mean(axis=1, skipna=True)
+        # ddof=0 so a 1-run feature yields std 0 rather than NaN.
+        stds = table.std(axis=1, skipna=True, ddof=0).fillna(0.0)
     cv = stds / (means.abs() + eps)
     scores = means / (1.0 + k_cv * cv)
     return {feat: float(scores[feat]) for feat in table.index}
 
 
-def aggregate_linear(signed_importances: dict, eps: float = 1e-12) -> dict:
+def aggregate_linear(signed_importances: dict, eps: float = 1e-12, run_weights: Union[dict, None] = None) -> dict:
     """Sign-harmony aggregation of SIGNED linear coef across folds.
 
     score = |mean(signed_coef)| * sign_agreement,
@@ -176,6 +192,10 @@ def aggregate_linear(signed_importances: dict, eps: float = 1e-12) -> dict:
     A feature positive in 3 folds and negative in 2 has agreement 0.6 and a
     signed mean near 0 -> demoted hard vs a consistently-positive feature
     (agreement 1.0, full magnitude).
+
+    ``run_weights`` (W2): optional ``dict[run_key -> weight]`` -- both the signed mean and the
+    sign-agreement fraction become weighted (by count of contributing runs). ``None`` (the default)
+    is bit-identical to the pre-W2 unweighted form.
     """
     table = _table_from_runs(signed_importances)
     if table.empty:
@@ -185,17 +205,25 @@ def aggregate_linear(signed_importances: dict, eps: float = 1e-12) -> dict:
     # mean over finite entries, sign-agreement over |coef|>eps entries, both order-independent.
     M = table.to_numpy(dtype=float)
     finite = np.isfinite(M)
+    if run_weights:
+        w = np.asarray([float(run_weights.get(c, 1.0)) for c in table.columns], dtype=float)
+    else:
+        w = np.ones(M.shape[1], dtype=float)
+    w_finite = np.where(finite, w[None, :], 0.0)
     cnt_finite = finite.sum(axis=1)
+    w_sum_finite = w_finite.sum(axis=1)
     M_fin = np.where(finite, M, 0.0)
-    sum_fin = M_fin.sum(axis=1)
+    sum_fin = (M_fin * w_finite).sum(axis=1)
     with np.errstate(invalid="ignore", divide="ignore"):
-        mean_signed = sum_fin / cnt_finite
+        mean_signed = sum_fin / w_sum_finite
     pos = (M > eps) & finite
     neg = (M < -eps) & finite
-    n_pos = pos.sum(axis=1)
-    n_nz = n_pos + neg.sum(axis=1)
+    w_pos = (pos * w[None, :]).sum(axis=1)
+    w_neg = (neg * w[None, :]).sum(axis=1)
+    w_nz = w_pos + w_neg
+    n_nz = pos.sum(axis=1) + neg.sum(axis=1)
     with np.errstate(invalid="ignore", divide="ignore"):
-        frac_pos = n_pos / n_nz
+        frac_pos = w_pos / w_nz
     agreement = np.maximum(frac_pos, 1.0 - frac_pos)
     agreement = np.where(n_nz == 0, 1.0, agreement)  # all-zero coef row: no disharmony
     scores = np.abs(mean_signed) * agreement
@@ -262,9 +290,9 @@ def aggregate_importances_dispatched(
     from ._helpers_importance import get_actual_features_ranking
 
     if family == "tree" and feature_importances:
-        scores = aggregate_tree(feature_importances, k_cv=k_cv)
+        scores = aggregate_tree(feature_importances, k_cv=k_cv, run_weights=run_weights)
     elif family == "linear" and signed_importances:
-        scores = aggregate_linear(signed_importances)
+        scores = aggregate_linear(signed_importances, run_weights=run_weights)
     else:
         return get_actual_features_ranking(
             feature_importances=feature_importances,

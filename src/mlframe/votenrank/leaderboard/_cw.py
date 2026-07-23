@@ -17,8 +17,8 @@ def _get_tasks_onehot(self, tasks: List[str]):
     return idxs
 
 
-def _find_weights_for_majority_graph(self, edge_list: List[Tuple[str, str]], restrictions: Optional[Dict[str, List]] = None):
-    """Solve for per-task weights (summing to 1, in [0,1]) consistent with the pairwise majority ``edge_list`` (loser, winner) and any ``restrictions`` (bounds/inequalities/objective), or return ``"infeasible"``."""
+def _find_weights_for_majority_graph(self, edge_list: List[Tuple[str, str]], restrictions: Optional[Dict[str, List]] = None) -> Optional[Dict[str, float]]:
+    """Solve for per-task weights (summing to 1, in [0,1]) consistent with the pairwise majority ``edge_list`` (loser, winner) and any ``restrictions`` (bounds/inequalities/objective), or return ``None`` if infeasible."""
     params: Dict[str, Any] = {
         "weights_to_minimize": None,
         "weights_to_maximize": None,
@@ -90,4 +90,4 @@ def _find_weights_for_majority_graph(self, edge_list: List[Tuple[str, str]], res
     if sol["success"]:
         return {task: weight for task, weight in zip(self.tasks, sol["x"])}
     else:
-        return "infeasible"
+        return None

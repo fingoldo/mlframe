@@ -113,8 +113,11 @@ def compute_local_curvature_features(
                 out[q, 2] = resid_diff
                 out[q, 3] = lin_val
                 out[q, 4] = quad_val
-            except Exception:
-                # Singular matrix or other numerical issue; use zeros
+            except Exception as exc:
+                # Singular matrix or other numerical issue; use zeros. Logged (matching the sibling
+                # local_linear.py's identical per-row fallback) so a real failure rate is visible
+                # instead of only ever surfacing as unexplained all-zero rows downstream.
+                logger.info("local_curvature: fit failed on row %d (%s); leaving zeros", int(q), exc)
                 out[q] = 0.0
         return out
 

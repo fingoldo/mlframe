@@ -13,10 +13,13 @@ for the measured numbers and rationale (no backend dominates uniformly; cupy onl
 """
 from __future__ import annotations
 
+import logging
 import os
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from sklearn.isotonic import IsotonicRegression
@@ -185,8 +188,8 @@ def confidence_gated_blend(
     if backend == "cupy":
         try:
             return _blend_cupy(ensemble_pred, auxiliary_pred, auxiliary_confidence, confidence_threshold, gated_weight, default_weight)
-        except Exception:
-            pass  # GPU unavailable/failed -> fall through to numpy.
+        except Exception as exc:  # GPU unavailable/failed -> fall through to numpy.
+            logger.debug("confidence_gated_blend: cupy backend unavailable/failed (%s); falling back to numpy.", exc)
     return _blend_numpy(ensemble_pred, auxiliary_pred, auxiliary_confidence, confidence_threshold, gated_weight, default_weight)
 
 

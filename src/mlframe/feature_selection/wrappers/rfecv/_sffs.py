@@ -64,6 +64,16 @@ def _sffs_swap_pass(
     not_sorted = sorted(not_in_set, key=lambda f: (-fi_mean.get(f, 0.0), str(f)))
     swap_in = not_sorted[:K]
 
+    # W6: thread the caller's sample_weight into the swap pass's own cross_val_score calls, matching
+    # the main CV-elimination path's weighting -- was previously always unweighted with no disclosure
+    # (the existing docstring/call-site comment only names fit_params/val_cv/early-stopping as skipped,
+    # sample_weight is a distinct code path). sklearn 1.8's cross_val_score only accepts the
+    # metadata-routing `params=` kwarg (the old `fit_params=` was removed), and with
+    # enable_metadata_routing at its default False, params={"sample_weight": full_length_array} still
+    # auto-slices per CV fold exactly like the old fit_params did.
+    _sw = getattr(self, "_fit_sample_weight_", None)
+    _cv_score_kwargs = {"params": {"sample_weight": _sw}} if _sw is not None else {}
+
     cur_set = list(best_set)
     cur_score = float(best_score_ref)
     n_swaps_accepted = 0
@@ -84,6 +94,7 @@ def _sffs_swap_pass(
             trial_scores = cross_val_score(
                 clone(estimator), trial_X, y, cv=cv,
                 scoring=scoring, n_jobs=1,
+                **_cv_score_kwargs,
             )
         except Exception as _exc:
             if verbose:

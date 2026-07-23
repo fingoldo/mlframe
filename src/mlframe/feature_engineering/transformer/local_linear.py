@@ -91,7 +91,7 @@ def compute_local_linear_attention(
         n_anchor = X_anchor.shape[0]
         out = np.zeros((n_anchor, n_out_cols), dtype=dtype)
         # Build ANN index over the neighbour pool.
-        index = build_hnsw_index(X_neighbour_pool, space="cosine", M=16, ef_construction=100, num_threads=None)
+        index = build_hnsw_index(X_neighbour_pool, space="cosine", M=16, ef_construction=100, num_threads=None, random_state=seed)
         topk_ids, _ = query_topk(index, X_anchor, k=k)
         Xn_all = X_neighbour_pool[topk_ids].astype(np.float64, copy=False)  # (N, k, d)
         yn_all = y_neighbour_pool[topk_ids].astype(np.float64, copy=False)  # (N, k)

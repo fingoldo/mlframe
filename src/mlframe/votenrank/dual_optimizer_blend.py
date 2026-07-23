@@ -161,6 +161,10 @@ def dual_optimizer_weight_blend(
     """
     preds = np.stack([np.asarray(p, dtype=np.float64) for p in oof_preds], axis=0)
     y = np.asarray(y_true)
+    # F10: _coordinate_descent_simplex_search's rng.choice(n_models, size=2, replace=False) requires a
+    # population of >= 2 -- a single-candidate pool is a legitimate (if degenerate) input otherwise.
+    if include_coord_descent and preds.shape[0] < 2:
+        raise ValueError(f"dual_optimizer_weight_blend: include_coord_descent=True requires >= 2 models, got {preds.shape[0]}.")
 
     slsqp_result = constrained_weight_blend(oof_preds, y_true, loss_fn, n_restarts=n_restarts, random_state=random_state)
     optuna_weights = _optuna_simplex_weight_search(preds, y, loss_fn, n_trials=n_optuna_trials, random_state=random_state)

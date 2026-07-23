@@ -91,7 +91,11 @@ def compute_geodesic_kgraph_features(
             finite_max = float(min_geo_per_train[np.isfinite(min_geo_per_train)].max()) if np.any(np.isfinite(min_geo_per_train)) else 1.0
             min_geo_per_train = np.where(np.isfinite(min_geo_per_train), min_geo_per_train, finite_max).astype(np.float32)
         else:
-            min_geo_per_train = np.zeros(n_t, dtype=np.float32)
+            # No source rows survived (empty target class / bottom quintile after a fold split) --
+            # 1e6 ("very far"), matching the sentinel-for-empty-subset convention used consistently
+            # elsewhere in this package (_knn_helper.py, active_virtual.py, adasyn_smote.py, etc.).
+            # 0.0 ("very close") was the opposite of every other empty-subset fallback in the package.
+            min_geo_per_train = np.full(n_t, 1e6, dtype=np.float32)
 
         # For each query, find K NN in train (raw X), aggregate min_geo_per_train.
         k_q_eff = min(k_query, n_t)

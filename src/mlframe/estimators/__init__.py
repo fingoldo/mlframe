@@ -16,3 +16,6 @@ from mlframe.estimators.custom import *
 from mlframe.estimators.baselines import *
 from mlframe.estimators.early_stopping import *
 from mlframe.estimators.pipelines import *
+
+# Curate the star-import surface explicitly (mirrors mlframe.metrics.__init__'s pattern).
+__all__ = sorted(name for name in globals() if not name.startswith("_"))

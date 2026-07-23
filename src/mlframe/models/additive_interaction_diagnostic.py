@@ -107,8 +107,9 @@ def additive_interaction_diagnostic(
 
     # ratio can legitimately be negative (an additive-only model scoring WORSE than a constant predictor is
     # itself strong evidence the signal is interaction-driven, not additive) -- only undefined when the full
-    # model itself has no signal to compare against.
-    ratio = float(additive_score / full_score) if full_score > 0 else float("nan")
+    # model itself has no signal to compare against (full_score == 0, not merely negative -- a negative-but-
+    # real full_score is still informative and should compute a (very negative) ratio, not force nan).
+    ratio = float(additive_score / full_score) if full_score != 0 else float("nan")
 
     result: Dict[str, Any] = {
         "full_model_cv_score": full_score,
