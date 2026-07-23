@@ -27,7 +27,7 @@ jobs:
     # is fast and deterministic) but inconsistent with the rest of the codebase's own discipline.
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v4
         with:
           persist-credentials: false
 
