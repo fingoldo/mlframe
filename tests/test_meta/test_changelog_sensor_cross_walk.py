@@ -11,6 +11,11 @@ historical entries pre-date the convention and are not enforced.
 This is a soft drift signal -- the audit-cycle section can carry a small number of doc-only entries that
 genuinely have no associated test (CHANGELOG cosmetic, version bumps, README updates). The threshold
 ``_MAX_UNCITED_FIX_FRACTION`` allows up to 15% of fix-tagged entries to be doc-only before the test fails.
+
+Implementation note: this test used to hand-roll its own bullet/threshold logic; it now delegates to the
+shared engine in ``py_ci_shared.changelog_promise_parity`` (the same engine production_scrapers uses for
+its own "CHANGELOG promise resolved elsewhere" check), so the two independently-discovered "a CHANGELOG
+claim needs a cross-walk" checks in this ecosystem share one implementation instead of drifting copies.
 """
 
 from __future__ import annotations
@@ -19,6 +24,11 @@ import re
 from pathlib import Path
 
 import pytest
+
+from py_ci_shared.changelog_promise_parity import (
+    assert_changelog_bullets_satisfy_pattern,
+    extract_section,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CHANGELOG = _REPO_ROOT / "CHANGELOG.md"
@@ -59,12 +69,10 @@ def _load_audit_cycle_section() -> str:
     heading down to (but not including) the second matching dated heading.
     """
     content = _CHANGELOG.read_text(encoding="utf-8")
-    matches = list(_AUDIT_SECTION_PATTERN.finditer(content))
-    if not matches:
+    section = extract_section(content, _AUDIT_SECTION_PATTERN)
+    if not section:
         pytest.skip("CHANGELOG.md has no audit-cycle section; convention not yet applicable")
-    start = matches[0].start()
-    end = matches[1].start() if len(matches) > 1 else len(content)
-    return content[start:end]
+    return section
 
 
 def test_audit_cycle_section_present():
@@ -83,21 +91,14 @@ def test_each_fix_bullet_mentions_a_sensor_or_meta_test():
     fraction exceeds the threshold AND there is at least one cited bullet (otherwise the section is too small
     to drift-detect on).
     """
-    section = _load_audit_cycle_section()
-    bullets = re.findall(r"^- \*\*[^*]+\*\*[^\n]*(?:\n[ \t]+[^\n-][^\n]*)*", section, re.MULTILINE)
-    fix_bullets = [b for b in bullets if _FIX_BULLET_PATTERN.search(b)]
-    if not fix_bullets:
-        pytest.skip("audit-cycle section has no fix bullets; convention can't drift")
-    uncited = [b for b in fix_bullets if not _SENSOR_REFERENCE_PATTERN.search(b)]
-    cited_n = len(fix_bullets) - len(uncited)
-    fraction = len(uncited) / len(fix_bullets)
-    if fraction > _MAX_UNCITED_FIX_FRACTION and cited_n > 0:
-        bullet_titles = [re.match(r"^- \*\*([^*]+)\*\*", b).group(1) for b in uncited if re.match(r"^- \*\*([^*]+)\*\*", b)]
-        raise AssertionError(
-            f"{len(uncited)}/{len(fix_bullets)} fix bullets ({fraction:.0%}) lack a sensor / meta-test reference "
-            f"(threshold {_MAX_UNCITED_FIX_FRACTION:.0%}). Per ``feedback_test_every_bug_fix`` every fix should "
-            f"cite its regression test. Bullets:\n  - " + "\n  - ".join(bullet_titles)
-        )
+    assert_changelog_bullets_satisfy_pattern(
+        _CHANGELOG,
+        _FIX_BULLET_PATTERN,
+        _SENSOR_REFERENCE_PATTERN,
+        section_pattern=_AUDIT_SECTION_PATTERN,
+        max_unsatisfied_fraction=_MAX_UNCITED_FIX_FRACTION,
+        label="fix bullet",
+    )
 
 
 # NOTE: the former ``test_known_wave17_findings_cite_their_sensors`` was removed
