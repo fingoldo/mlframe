@@ -25,14 +25,13 @@ moved bodies stay byte-for-byte identical to the original inline blocks.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 from timeit import default_timer as timer
-from typing import List, Optional, Sequence, Tuple, cast
+from typing import Optional, cast
 
 import numba
 import numpy as np
 from numba.core import types
-from joblib import delayed
+from joblib import Parallel, delayed
 
 from pyutilz.parallel import split_list_into_chunks
 
@@ -73,124 +72,10 @@ from ._confirm_predictor_engineered import (
     _prefer_engineered_order,
 )
 
-
-@dataclass
-class ScreenContext:
-    """Bundle of shared/static screening state threaded into the confirmation primitives.
-
-    Static fields (data, algorithm parameters, thresholds) are set once by the orchestrator;
-    the four caches are mutated in place across candidates; the per-order fields
-    (``candidates`` .. ``failed_candidates``) are reassigned by the caller between predictors
-    and interaction orders.
-    """
-
-    # --- data / target ---
-    factors_data: np.ndarray
-    factors_nbins: Sequence[int]
-    factors_names: Sequence[str]
-    y: Sequence[int]
-    data_copy: np.ndarray
-    classes_y: np.ndarray
-    classes_y_safe: object
-    freqs_y: np.ndarray
-    freqs_y_safe: object
-    # --- algorithm params ---
-    mrmr_relevance_algo: str
-    mrmr_redundancy_algo: str
-    reduce_gain_on_subelement_chosen: bool
-    max_veteranes_interactions_order: int
-    only_unknown_interactions: bool
-    use_gpu: bool
-    use_simple_mode: bool
-    extra_x_shuffling: bool
-    engineered_lineage: object
-    # --- performance ---
-    n_workers: int
-    workers_pool: object
-    parallel_kwargs: dict
-    # --- confidence / stopping ---
-    baseline_npermutations: int
-    full_npermutations: int
-    min_nonzero_confidence: float
-    max_failed: int
-    min_relevance_gain: float
-    max_consec_unconfirmed: int
-    max_runtime_mins: float
-    max_confirmation_cand_nbins: int
-    random_seed: int
-    # --- misc ---
-    verbose: int
-    ndigits: int
-    start_time: float
-    num_possible_candidates: int
-    # --- shared MI caches (mutated in place) ---
-    cached_MIs: dict
-    cached_confident_MIs: dict
-    cached_cond_MIs: object
-    # 2026-06-19: JMIM joint-MI cache (numba typed dict) + 1-elem int64 hit-counter
-    # array, mirroring ``cached_cond_MIs``. Lazily built in ``score_candidates`` on
-    # first use so they persist across greedy rounds (cross-round reuse of the
-    # ``{X} u Z`` multiset key). ``None`` default keeps direct ScreenContext callers
-    # backward-compatible. Both are converted to plain values at any pickling
-    # boundary (the typed dict never escapes onto an instance).
-    cached_jmim_MIs: object = None
-    jmim_hit_counter: object = None
-    entropy_cache: object = None
-    # 2026-07-13 (Wave 13 finding 1): (candidates, cand_names, name_rank) tuple cached across the
-    # ~100-150 confirm_one_predictor calls per interactions_order -- the pool (``ctx.candidates``,
-    # thousands of entries) is reassigned only once per order, so the identity check below is exact.
-    _name_rank_cache: object = None
-    # 2026-07-13 (Wave 13 finding 2): (candidates, {parent_name: [idx, ...]}) index cached the same
-    # way, for ``_confirmable_engineered_child``'s per-winner parent-name rescan (prefer_engineered_rel_eps path).
-    _engineered_parent_index_cache: object = None
-    # 2026-07-16 (wellbore-100k profiling): (z_key, z_classes, z_nclasses) cache for
-    # ``_conditioning_rows_per_cell``'s Z=selected_vars encoding -- see that function's docstring.
-    _z_merge_cache: object = None
-    # 2026-07-19 (MRMR wellbore-4.1M diagnosability): cumulative ``score_candidates`` call count
-    # and wall time across the WHOLE ``screen_predictors`` call (all interactions_orders), so a
-    # future log can directly show whether wall time is dominated by pool_size x |Z| scaling
-    # instead of requiring another multi-agent investigation to reconstruct it after the fact.
-    sc_calls: int = 0
-    sc_wall: float = 0.0
-    # --- per-interactions-order / per-node mutable state ---
-    # These five are ALWAYS populated by the orchestrator before use (never read as None at
-    # runtime); ``None`` is only a dataclass placeholder default (a required-after-defaulted-
-    # field constraint), so they stay typed as their concrete container rather than Optional
-    # -- which would force null-checks onto every one of their many non-nullable call sites.
-    candidates: list = None  # type: ignore[assignment]
-    # 2026-05-30 Wave 9 — DCD state forwarded into ``should_skip_candidate``
-    # for pool_pruned_mask check. ``None`` preserves legacy bit-stable.
-    dcd_state: object = None
-    interactions_order: int = 1
-    selected_vars: list = None  # type: ignore[assignment]
-    selected_interactions_vars: list = None  # type: ignore[assignment]
-    partial_gains: dict = None  # type: ignore[assignment]
-    added_candidates: set = field(default=None)  # type: ignore[arg-type]
-    failed_candidates: set = field(default=None)  # type: ignore[arg-type]
-    # 2026-06-02 — directed-FE tie-break. ``raw_feature_names`` is the set of
-    # ORIGINAL (pre-FE) column names; any ``factors_names[idx]`` not in it is an
-    # engineered transform of its raw parent(s). On a near-tie in selection gain
-    # (within ``prefer_engineered_rel_eps`` relative tolerance) the greedy pick
-    # deterministically prefers the engineered candidate over a raw one: an
-    # engineered column is a function of its parent, so on an MI-tie it dominates
-    # representationally (a shallow downstream can use x1**2-1 but not raw x1),
-    # and the deterministic rule removes the njit-vs-njit_par pick nondeterminism
-    # that the prior index-order tie-break introduced. ``None`` raw-name set
-    # falls back to the syntactic heuristic (a name containing ``(`` or ``__`` is
-    # engineered) so direct callers still get deterministic behaviour. Setting
-    # the rel-eps to ``0.0`` restores the legacy pure-index tie-break.
-    raw_feature_names: object = None
-    prefer_engineered_rel_eps: float = 0.0
-    # 2026-06-02 RC2 — sample-size-aware Fleuret confirmation. When the
-    # conditioning joint ``(X u selected_vars)`` has fewer than this many rows
-    # per occupied cell, the conditional-MI permutation test is finite-sample
-    # unreliable (shuffled-y null CMI ~= real CMI -> over-rejection / premature
-    # stop) so ``confirm_candidate`` falls back to a MARGINAL-MI permutation
-    # test (the X-marginal joint is far better sampled). ``0.0`` restores the
-    # strict legacy conditional test for every candidate. Default ``5.0`` set
-    # by the MRMR ctor (new behaviour ON since ``use_simple_mode=False`` is the
-    # default). Dedup is unaffected (handled by the gain's redundancy term).
-    fe_confirm_undersample_rows_per_cell: float = 0.0
+# X_EFFICIENCY_ARCHITECTURE-1 fix (mrmr_audit_2026-07-22): ScreenContext carved out into
+# _confirm_predictor_context.py to clear the repo's enforced hard 1000-LOC CI gate (this file had crept
+# back to 1007 lines). Re-exported here so every existing import keeps working unchanged.
+from ._confirm_predictor_context import ScreenContext
 
 
 def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expected_gains: np.ndarray):
@@ -559,9 +444,16 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
             _confirm_use_gpu = use_gpu
             if _confirm_use_gpu:
                 try:
+                    import os as _os
                     from ._analytic_mi_null import analytic_null_min_n, analytic_null_enabled
-                    from ._gpu_policy import gpu_globally_disabled
-                    _gpu_off = gpu_globally_disabled()
+                    _cvd = _os.environ.get("CUDA_VISIBLE_DEVICES", None)
+                    _gpu_disabled_env = _os.environ.get("MLFRAME_DISABLE_GPU", "") == "1"
+                    _gpu_hidden_env = _cvd is not None and _cvd.strip() == ""
+                    _gpu_off = False
+                    if _gpu_disabled_env:
+                        _gpu_off = True
+                    elif _gpu_hidden_env:
+                        _gpu_off = True
                     _analytic_n = analytic_null_enabled() and int(factors_data.shape[0]) >= analytic_null_min_n()
                     if _gpu_off or _analytic_n:
                         _confirm_use_gpu = False
@@ -569,19 +461,46 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     logger.debug("suppressed in _confirm_predictor.py:528: %s", e)
                     pass
             if _confirm_use_gpu:
-                bootstrapped_gain, confidence = mi_direct_gpu(
-                    factors_data,
-                    x=X,
-                    y=y,  # type: ignore[arg-type]
-                    factors_nbins=factors_nbins,  # type: ignore[arg-type]
-                    classes_y=classes_y,
-                    freqs_y=freqs_y,
-                    freqs_y_safe=freqs_y_safe,  # type: ignore[arg-type]
-                    classes_y_safe=classes_y_safe,  # type: ignore[arg-type]
-                    min_nonzero_confidence=min_nonzero_confidence,
-                    npermutations=full_npermutations,
-                    base_seed=_marginal_base_seed,
-                )
+                # SCREEN_CONFIRM_A-2 fix (mrmr_audit_2026-07-22): mirror evaluate_candidate's GPU
+                # try/except (evaluation.py, 2026-07-09 fix) -- this call previously had NO exception
+                # handling, unlike every sibling GPU dispatch point in this codebase. A transient CUDA
+                # fault here (driver hiccup, OOM, a poisoned context from an earlier unrelated GPU call)
+                # would otherwise propagate all the way up and crash the whole (possibly hours-long)
+                # MRMR.fit() instead of degrading to CPU for this one candidate.
+                try:
+                    bootstrapped_gain, confidence = mi_direct_gpu(
+                        factors_data,
+                        x=X,
+                        y=y,  # type: ignore[arg-type]
+                        factors_nbins=factors_nbins,  # type: ignore[arg-type]
+                        classes_y=classes_y,
+                        freqs_y=freqs_y,
+                        freqs_y_safe=freqs_y_safe,  # type: ignore[arg-type]
+                        classes_y_safe=classes_y_safe,  # type: ignore[arg-type]
+                        min_nonzero_confidence=min_nonzero_confidence,
+                        npermutations=full_npermutations,
+                        base_seed=_marginal_base_seed,
+                    )
+                except Exception as _gpu_confirm_exc:
+                    logger.warning(
+                        "confirm_candidate: GPU marginal confirmation failed (%s: %s); falling back to CPU for this candidate.",
+                        type(_gpu_confirm_exc).__name__, _gpu_confirm_exc,
+                    )
+                    bootstrapped_gain, confidence = mi_direct(
+                        factors_data,
+                        x=X,
+                        y=y,  # type: ignore[arg-type]
+                        factors_nbins=factors_nbins,  # type: ignore[arg-type]
+                        classes_y=classes_y,
+                        freqs_y=freqs_y,
+                        classes_y_safe=classes_y_safe,  # type: ignore[arg-type]
+                        min_nonzero_confidence=min_nonzero_confidence,
+                        npermutations=full_npermutations,
+                        n_workers=n_workers,
+                        workers_pool=workers_pool,
+                        parallel_kwargs=parallel_kwargs,
+                        base_seed=_marginal_base_seed,
+                    )
             else:
                 if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                     eval_start = timer()
@@ -599,6 +518,12 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     workers_pool=workers_pool,
                     parallel_kwargs=parallel_kwargs,
                     base_seed=_marginal_base_seed,
+                    # SCREEN_CONFIRM_B-4 fix (mrmr_audit_2026-07-22): belt-and-braces -- this branch runs
+                    # precisely when the caller already decided NOT to use GPU (_confirm_use_gpu=False);
+                    # pin prefer_gpu=False explicitly rather than trusting mi_direct's own internal gate
+                    # (which is now also fixed to check gpu_globally_disabled(), but a caller that already
+                    # made the decision should not need to re-trust a callee it opted out of).
+                    prefer_gpu=False,
                 )
                 if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                     logger.info("mi_direct bootstrapped eval took %.1f sec.", timer() - eval_start)
@@ -661,6 +586,16 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
             # permutation stream for the Fleuret conditional recheck.
             _fleuret_base_seed = int(((int(random_seed or 0) * 2654435761) + len(selected_vars) + 1 + hash(X)) & 0xFFFFFFFFFFFFFFFF)
             if n_workers and n_workers > 1 and full_npermutations > NMAX_NONPARALLEL_ITERS:
+                # SCREEN_CONFIRM_A-4 fix (mrmr_audit_2026-07-22): build the Fleuret parallel pool ONCE per
+                # screen round and cache it on ``ctx`` -- pre-fix, ``workers_pool`` was always None here
+                # (deliberately, per the RETIRED note above, for the UNRELATED evaluate_candidates path),
+                # so ``get_fleuret_criteria_confidence_parallel`` rebuilt a fresh joblib.Parallel pool on
+                # EVERY candidate needing the conditional recheck, even though the same ctx/round can
+                # confirm dozens of candidates. Reusing one pool across the round amortises the
+                # construction cost while every other candidate/round still gets a fresh pool as before.
+                if workers_pool is None:
+                    workers_pool = Parallel(n_jobs=n_workers, **(parallel_kwargs or {}))
+                    ctx.workers_pool = workers_pool
                 bootstrapped_gain, confidence, parallel_entropy_cache = get_fleuret_criteria_confidence_parallel(
                     data_copy=data_copy,
                     factors_nbins=factors_nbins,  # type: ignore[arg-type]
@@ -762,7 +697,7 @@ def confirm_one_predictor(
     # reproducible at n=400 AND n=25000). Tie-break instead on the candidate's
     # NAME, which is invariant under column reordering; rank gives a stable,
     # contiguous integer key for ``np.lexsort``.
-    _rank_cache = cast(Optional[Tuple[list, List[str], np.ndarray]], ctx._name_rank_cache)
+    _rank_cache = cast(Optional[tuple[list, list[str], np.ndarray]], ctx._name_rank_cache)
     if _rank_cache is not None and _rank_cache[0] is candidates:
         _cand_names, _name_rank = _rank_cache[1], _rank_cache[2]
     else:

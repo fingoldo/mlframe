@@ -38,9 +38,7 @@ import logging
 import math
 import sys
 import time
-from dataclasses import asdict, dataclass, field
-
-import orjson
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -376,15 +374,7 @@ def scen_wellbore100k(n_relevant: int, n_redundant: int, seed: int = 0, n: int =
         n_rows = len(real)
         irrelevant_names = list(real.columns)
         categorical_cols = [c for c in irrelevant_names if real[c].dtype.kind in ("i", "u") or str(real[c].dtype) in ("category", "object")]
-        cols: dict = {}
-        for c in irrelevant_names:
-            arr = real[c].to_numpy()
-            if arr.dtype.kind == "f":
-                # real wellbore log columns (e.g. gr_sample_entropy_K100) carry a handful of +/-inf
-                # from upstream feature-engineering divisions; MRMR rejects inf outright, so treat
-                # them as missing like any other real-data gap rather than dropping the column/rows.
-                arr = np.where(np.isinf(arr), np.nan, arr)
-            cols[c] = arr
+        cols: dict = {c: real[c].to_numpy() for c in irrelevant_names}
     except Exception:
         logger.warning("scen_wellbore100k: wellbore parquet unavailable at %s -- falling back to a smaller synthetic-noise-only frame", _WELLBORE_DATA_PATH, exc_info=True)
         n_rows = min(n, 20_000)
@@ -523,36 +513,6 @@ class MrmrGTResult:
     downstream: "DownstreamQuality" = field(default_factory=lambda: DownstreamQuality())
 
 
-def _append_jsonl_result(checkpoint_path: "str | None", result: "MrmrGTResult") -> None:
-    """Append one completed sweep result as a JSON line, flushed immediately. A multi-hour sweep
-    (single-column joint-cardinality blowups can cost 1000s+ per step, see MAX_ADAPTIVE_NBINS) that
-    only accumulates results in an in-process list loses everything if the process is stopped or
-    crashes -- found live (2026-07-21) when asked whether stopping a 3.5h-in wellbore sweep would
-    lose its 23/45 completed results: it would have, nothing was persisted until the final print.
-    Skipped entirely when ``checkpoint_path`` is None (default -- opt-in, not a behaviour change for
-    existing callers)."""
-    if checkpoint_path is None:
-        return
-    with open(checkpoint_path, "ab") as f:
-        f.write(orjson.dumps(asdict(result)))
-        f.write(b"\n")
-
-
-def load_jsonl_results(checkpoint_path: str) -> "list[MrmrGTResult]":
-    """Reload a checkpoint written by :func:`_append_jsonl_result` back into ``MrmrGTResult`` objects
-    (e.g. after a stopped/crashed sweep) -- reconstructs the nested ``DownstreamQuality`` dataclass."""
-    results = []
-    with open(checkpoint_path, "rb") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            row = orjson.loads(line)
-            row["downstream"] = DownstreamQuality(**row["downstream"])
-            results.append(MrmrGTResult(**row))
-    return results
-
-
 def _prf(selected: set, gt: MulticolumnGT) -> tuple:
     relevant = set(gt.relevant)
     noise_and_redundant = set(gt.irrelevant) | set(gt.redundant)
@@ -665,19 +625,8 @@ def _downstream_quality(X: pd.DataFrame, y: np.ndarray, selected: set, gt: Multi
     return result
 
 
-def run_mrmr_gt_config(
-    n: int, n_relevant: int, n_irrelevant: int, n_redundant: int, methods, seeds, config_label: str,
-    compute_downstream: bool = True, checkpoint_path: "str | None" = None,
-) -> list:
-    """``checkpoint_path``: when set, each completed (seed, method) result is appended as one JSON
-    line immediately (see :func:`_append_jsonl_result`) so a stopped/crashed sweep loses at most its
-    in-flight step, not everything -- reload with :func:`load_jsonl_results`."""
+def run_mrmr_gt_config(n: int, n_relevant: int, n_irrelevant: int, n_redundant: int, methods, seeds, config_label: str, compute_downstream: bool = True) -> list:
     results = []
-    seeds = list(seeds)
-    methods = list(methods)
-    total = len(seeds) * len(methods)
-    done = 0
-    t_start = time.perf_counter()
     for seed in seeds:
         X, y, gt = scen_multicolumn(n, n_relevant, n_irrelevant, n_redundant, seed=seed)
         for method in methods:
@@ -686,35 +635,21 @@ def run_mrmr_gt_config(
             fit_time_s = time.perf_counter() - t0
             recall, precision, fpr, f1 = _prf(selected, gt)
             dq = _downstream_quality(X, y, selected, gt, seed) if compute_downstream else DownstreamQuality()
-            result = MrmrGTResult(
-                config_label, method, seed, recall, precision, fpr, f1, len(selected),
-                n_relevant=len(gt.relevant), n_relevant_hit=round(recall * len(gt.relevant)) if gt.relevant else 0,
-                n_total_cols=X.shape[1], fit_time_s=fit_time_s, downstream=dq,
-            )
-            results.append(result)
-            _append_jsonl_result(checkpoint_path, result)
-            done += 1
-            print(
-                f"[{config_label}] {done}/{total} (seed={seed} method={method}) "
-                f"fit={fit_time_s:.1f}s downstream={dq.downstream_time_s:.1f}s elapsed={time.perf_counter() - t_start:.1f}s",
-                flush=True,
+            results.append(
+                MrmrGTResult(
+                    config_label, method, seed, recall, precision, fpr, f1, len(selected),
+                    n_relevant=len(gt.relevant), n_relevant_hit=round(recall * len(gt.relevant)) if gt.relevant else 0,
+                    n_total_cols=X.shape[1], fit_time_s=fit_time_s, downstream=dq,
+                )
             )
     return results
 
 
-def run_mrmr_gt_wellbore_config(
-    n_relevant: int, n_redundant: int, methods, seeds, config_label: str, n: int = 100_000,
-    compute_downstream: bool = True, checkpoint_path: "str | None" = None,
-) -> list:
+def run_mrmr_gt_wellbore_config(n_relevant: int, n_redundant: int, methods, seeds, config_label: str, n: int = 100_000, compute_downstream: bool = True) -> list:
     """Same result contract as ``run_mrmr_gt_config``, but scored on ``scen_wellbore100k`` (real
     wellbore log columns as the noise/redundancy pool, synthetic injected signal) instead of the
-    fully-synthetic ``scen_multicolumn``. ``checkpoint_path``: see ``run_mrmr_gt_config``."""
+    fully-synthetic ``scen_multicolumn``."""
     results = []
-    seeds = list(seeds)
-    methods = list(methods)
-    total = len(seeds) * len(methods)
-    done = 0
-    t_start = time.perf_counter()
     for seed in seeds:
         X, y, gt = scen_wellbore100k(n_relevant, n_redundant, seed=seed, n=n)
         for method in methods:
@@ -723,18 +658,12 @@ def run_mrmr_gt_wellbore_config(
             fit_time_s = time.perf_counter() - t0
             recall, precision, fpr, f1 = _prf(selected, gt)
             dq = _downstream_quality(X, y, selected, gt, seed) if compute_downstream else DownstreamQuality()
-            result = MrmrGTResult(
-                config_label, method, seed, recall, precision, fpr, f1, len(selected),
-                n_relevant=len(gt.relevant), n_relevant_hit=round(recall * len(gt.relevant)) if gt.relevant else 0,
-                n_total_cols=X.shape[1], fit_time_s=fit_time_s, downstream=dq,
-            )
-            results.append(result)
-            _append_jsonl_result(checkpoint_path, result)
-            done += 1
-            print(
-                f"[{config_label}] {done}/{total} (seed={seed} method={method}) "
-                f"fit={fit_time_s:.1f}s downstream={dq.downstream_time_s:.1f}s elapsed={time.perf_counter() - t_start:.1f}s",
-                flush=True,
+            results.append(
+                MrmrGTResult(
+                    config_label, method, seed, recall, precision, fpr, f1, len(selected),
+                    n_relevant=len(gt.relevant), n_relevant_hit=round(recall * len(gt.relevant)) if gt.relevant else 0,
+                    n_total_cols=X.shape[1], fit_time_s=fit_time_s, downstream=dq,
+                )
             )
     return results
 
@@ -769,10 +698,9 @@ def run_mrmr_fast_subset() -> list:
     return results
 
 
-def run_mrmr_full_sweep(checkpoint_path: "str | None" = None) -> list:
+def run_mrmr_full_sweep() -> list:
     """Thorough MRMR ground-truth sweep: 2/4/8/16 relevant columns, larger n, 3 seeds/config,
-    ALL registered binning methods (``MRMR_BINNING_METHODS``) -- several minutes, NOT run by pytest.
-    ``checkpoint_path``: see ``run_mrmr_gt_config``."""
+    ALL registered binning methods (``MRMR_BINNING_METHODS``) -- several minutes, NOT run by pytest."""
     results = []
     for n_relevant in (2, 4, 8, 16):
         n = 4000 if n_relevant <= 8 else 12000
@@ -785,7 +713,6 @@ def run_mrmr_full_sweep(checkpoint_path: "str | None" = None) -> list:
                 methods=tuple(MRMR_BINNING_METHODS),
                 seeds=range(3),
                 config_label=f"rel{n_relevant}",
-                checkpoint_path=checkpoint_path,
             )
         )
     return results
@@ -925,146 +852,14 @@ def print_hparam_report(results: list) -> None:
         )
 
 
-# -----------------------------------------------------------------------------
-# Duplicate-row and outlier/heavy-tail robustness.
-#
-# Exact duplicate rows inflate the raw row count the significance test sees without adding
-# independent evidence; check whether this causes over-splitting relative to the same rows
-# without duplication (matched information content). Outlier contamination is checked separately
-# for a degenerate/wrong-result failure mode. Compares validated vs classic fast_mode vs the
-# quantile baseline, multi-seed, distributions reported (not just means).
-# -----------------------------------------------------------------------------
-
-
-@dataclass
-class RobustnessResult:
-    scenario: str
-    perturbation: str  # e.g. "dup_0.50" or "outlier_cauchy"
-    method: str
-    seed: int
-    wall: float
-    bins: int
-    rmse: float
-
-
-def _inject_duplicates(x: np.ndarray, y: np.ndarray, dup_rate: float, seed: int) -> "tuple[np.ndarray, np.ndarray]":
-    """Append ``round(dup_rate * n)`` extra rows, each an exact copy of a randomly chosen existing
-    row -- inflates apparent n without adding independent (x, y) evidence."""
-    rng = np.random.default_rng(seed + 9973)
-    n = x.shape[0]
-    n_dup = int(round(dup_rate * n))
-    if n_dup <= 0:
-        return x, y
-    dup_idx = rng.integers(0, n, n_dup)
-    return np.concatenate([x, x[dup_idx]]), np.concatenate([y, y[dup_idx]])
-
-
-def _inject_outliers(x: np.ndarray, seed: int, kind: str) -> np.ndarray:
-    """``kind='scale'``: 1% of rows multiplied by 100-1000x. ``kind='cauchy'``: 5% of rows replaced
-    by heavy-tailed Cauchy-distributed contamination mixed into the normal base."""
-    rng = np.random.default_rng(seed + 7331)
-    x = x.copy()
-    n = x.shape[0]
-    if kind == "scale":
-        mask = rng.random(n) < 0.01
-        n_mask = int(np.count_nonzero(mask))
-        factors = rng.uniform(100.0, 1000.0, n_mask) * rng.choice([-1.0, 1.0], n_mask)
-        x[mask] = x[mask] * factors
-    elif kind == "cauchy":
-        mask = rng.random(n) < 0.05
-        n_mask = int(np.count_nonzero(mask))
-        x[mask] = rng.standard_cauchy(n_mask) * 50.0
-    else:
-        raise ValueError(kind)
-    return x
-
-
-def run_robustness_one(scenario: str, n: int, perturbation: str, method: str, seed: int) -> RobustnessResult:
-    x, y = SCENARIOS[scenario](n, seed)
-    if perturbation.startswith("dup_"):
-        dup_rate = float(perturbation.split("_", 1)[1])
-        x, y = _inject_duplicates(x, y, dup_rate, seed)
-    elif perturbation.startswith("outlier_"):
-        x = _inject_outliers(x, seed, perturbation.split("_", 1)[1])
-    elif perturbation != "baseline":
-        raise ValueError(perturbation)
-
-    x_finite = np.isfinite(x)
-    n_eff = x.shape[0]
-    train_idx, test_idx = _split(np.arange(n_eff)[x_finite], y[x_finite], seed=seed)
-    x_all, y_all = x[x_finite], y[x_finite]
-    x_tr, y_tr = x_all[train_idx], y_all[train_idx]
-    x_te, y_te = x_all[test_idx], y_all[test_idx]
-
-    t0 = time.perf_counter()
-    if method == "quantile5":
-        edges = np.concatenate([[-np.inf], _edges_from_quantiles(x_tr, 5), [np.inf]])
-    elif method == "fast_mode":
-        edges = mdlp_bin_edges(x_tr, y_tr, fast_mode=True)
-    elif method == "validated":
-        edges = mdlp_bin_edges(x_tr, y_tr, fast_mode=False)
-    else:
-        raise ValueError(method)
-    wall = time.perf_counter() - t0
-    mse, n_bins = _oos_mse(x_tr, y_tr, x_te, y_te, edges)
-    rmse = math.sqrt(mse) if np.isfinite(mse) else float("nan")
-    return RobustnessResult(scenario, perturbation, method, seed, wall, n_bins, rmse)
-
-
-DUP_RATES = (0.0, 0.10, 0.50, 0.90)
-OUTLIER_KINDS = ("scale", "cauchy")
-
-
-def run_robustness_fast() -> list:
-    """1 noise scenario + 1 signal scenario x dup-rate grid x 3 methods x 3 seeds, plus outlier
-    contamination on the signal scenario -- a few seconds total."""
-    results = []
-    for scenario in ("pure_noise", "step_2bp"):
-        for dup_rate in DUP_RATES:
-            for method in ("quantile5", "fast_mode", "validated"):
-                for seed in range(3):
-                    results.append(run_robustness_one(scenario, 1500, f"dup_{dup_rate:.2f}", method, seed))
-    for kind in OUTLIER_KINDS:
-        for method in ("quantile5", "fast_mode", "validated"):
-            for seed in range(3):
-                results.append(run_robustness_one("step_2bp", 1500, f"outlier_{kind}", method, seed))
-    return results
-
-
-def run_robustness_full() -> list:
-    """Duplicate-rate grid + outlier contamination across a broader scenario set, 10 seeds, at
-    n=5000 -- several minutes, NOT run by pytest."""
-    results = []
-    for scenario in ("pure_noise", "step_2bp", "step_5bp", "cauchy_x"):
-        for dup_rate in DUP_RATES:
-            for method in ("quantile5", "fast_mode", "validated"):
-                for seed in range(10):
-                    results.append(run_robustness_one(scenario, 5000, f"dup_{dup_rate:.2f}", method, seed))
-    for scenario in ("pure_noise", "step_2bp", "step_5bp"):
-        for kind in OUTLIER_KINDS:
-            for method in ("quantile5", "fast_mode", "validated"):
-                for seed in range(10):
-                    results.append(run_robustness_one(scenario, 5000, f"outlier_{kind}", method, seed))
-    return results
-
-
-def print_robustness_report(results: list) -> None:
-    from collections import defaultdict
-
-    by_key: dict = defaultdict(list)
-    for r in results:
-        by_key[(r.scenario, r.perturbation, r.method)].append(r)
-    print(f"{'scenario':12s} {'perturbation':14s} {'method':10s} {'n':>4s} {'bins (mean+/-std, min-max)':>30s} {'RMSE':>16s}")
-    for (scenario, perturbation, method), rows in by_key.items():
-        bins = np.array([r.bins for r in rows])
-        rmses = np.array([r.rmse for r in rows if np.isfinite(r.rmse)])
-        rmse_str = f"{rmses.mean():7.3f}+/-{rmses.std():<6.3f}" if rmses.size else "nan"
-        print(
-            f"{scenario:12s} {perturbation:14s} {method:10s} {len(rows):4d} "
-            f"{bins.mean():6.2f}+/-{bins.std():<6.2f} ({bins.min()}-{bins.max()})".ljust(30 + 60)
-            + f" {rmse_str:>16s}"
-        )
-
+# X_EFFICIENCY_ARCHITECTURE-1 fix (mrmr_audit_2026-07-22): the duplicate-row/outlier robustness sweep
+# was carved out into bench_mdlp_robustness.py to clear the repo's enforced hard 1000-LOC CI gate (this
+# file was 1006 lines). Re-exported here so the __main__ block below keeps working unchanged.
+from .bench_mdlp_robustness import (  # noqa: E402,F401
+    DUP_RATES, OUTLIER_KINDS, RobustnessResult,
+    _inject_duplicates, _inject_outliers,
+    print_robustness_report, run_robustness_fast, run_robustness_full, run_robustness_one,
+)
 
 if __name__ == "__main__":
     if "--full" in sys.argv:
