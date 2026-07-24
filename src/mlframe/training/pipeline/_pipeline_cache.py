@@ -94,7 +94,8 @@ def _approx_entry_bytes(entry: tuple) -> int:
             est = getattr(obj, "estimated_size", None)
             if callable(est):
                 total += int(est())
-        except Exception:
+        except Exception as exc:
+            logger.debug("_pipeline_cache: byte-size estimation failed for %r, reporting 0: %s", type(obj).__name__, exc)
             return 0
     return total
 
@@ -156,7 +157,8 @@ def _content_fingerprint_for_cache(arr) -> tuple:
             sample_idx = (0, min(8, n_rows - 1), n_rows // 2, n_rows - 1)
             try:
                 rows = tuple(arr.row(i) for i in sample_idx)
-            except Exception:
+            except Exception as exc:
+                logger.debug("_pipeline_cache: polars DataFrame row-sampling failed, forcing cache-uncachable: %s", exc)
                 return _fresh_uncachable()
             return ("pl", (n_rows, n_cols), col_names, dtypes_str, rows)
 
@@ -173,7 +175,8 @@ def _content_fingerprint_for_cache(arr) -> tuple:
             sample_idx = (0, min(8, n - 1), n // 2, n - 1)
             try:
                 cells = tuple(arr[i] for i in sample_idx)
-            except Exception:
+            except Exception as exc:
+                logger.debug("_pipeline_cache: polars Series cell-sampling failed, forcing cache-uncachable: %s", exc)
                 return _fresh_uncachable()
             return ("pls", (n,), dtype_str, cells)
 
@@ -200,7 +203,8 @@ def _content_fingerprint_for_cache(arr) -> tuple:
                             out.append(v)
                     return tuple(out)
                 rows = tuple(_row_to_hashable(arr.iloc[i]) for i in sample_idx)
-            except Exception:
+            except Exception as exc:
+                logger.debug("_pipeline_cache: pandas DataFrame row-sampling failed, forcing cache-uncachable: %s", exc)
                 return _fresh_uncachable()
             return ("pd", (n_rows, n_cols), col_names, dtypes, rows)
 
@@ -213,7 +217,8 @@ def _content_fingerprint_for_cache(arr) -> tuple:
             sample_idx = (0, min(8, n - 1), n // 2, n - 1)
             try:
                 cells = tuple(arr.iat[i] for i in sample_idx)
-            except Exception:
+            except Exception as exc:
+                logger.debug("_pipeline_cache: pandas Series cell-sampling failed, forcing cache-uncachable: %s", exc)
                 return _fresh_uncachable()
             return ("pds", (n,), dtype_str, cells)
 
@@ -235,10 +240,12 @@ def _content_fingerprint_for_cache(arr) -> tuple:
         idx = [int(i * (n - 1) / 9) for i in range(10)] if n >= 10 else list(range(n))
         try:
             sampled = bytes(np.ascontiguousarray(flat[idx]).tobytes())
-        except Exception:
+        except Exception as exc:
+            logger.debug("_pipeline_cache: ndarray point-sampling failed, forcing cache-uncachable: %s", exc)
             return _fresh_uncachable()
         return ("np", shape, dtype_str, sampled)
-    except Exception:
+    except Exception as exc:
+        logger.debug("_content_fingerprint_for_cache: outer dispatch failed for %r, forcing cache-uncachable: %s", type(arr).__name__, exc)
         return _fresh_uncachable()
 
 
@@ -350,7 +357,8 @@ def _full_x_content_hash(arr) -> str:
         if pl is not None and isinstance(arr, pl.Series):
             try:
                 np_arr = arr.to_numpy()
-            except Exception:
+            except Exception as exc:
+                logger.debug("_full_x_content_hash: polars Series.to_numpy() failed, skipping the full-content hash: %s", exc)
                 return ""
             col_names = str(arr.name) if getattr(arr, "name", None) else ""
         elif isinstance(arr, pd.DataFrame):
@@ -402,13 +410,15 @@ def _full_x_content_hash(arr) -> str:
             # (mixed-dtype frame polars can't ingest, etc).
             try:
                 np_arr = arr.to_numpy()
-            except Exception:
+            except Exception as exc:
+                logger.debug("_full_x_content_hash: pandas DataFrame.to_numpy() fallback failed, skipping the full-content hash: %s", exc)
                 return ""
             col_names = ",".join(str(c) for c in arr.columns)
         elif isinstance(arr, pd.Series):
             try:
                 np_arr = arr.to_numpy()
-            except Exception:
+            except Exception as exc:
+                logger.debug("_full_x_content_hash: pandas Series.to_numpy() failed, skipping the full-content hash: %s", exc)
                 return ""
             col_names = str(arr.name) if arr.name is not None else ""
         elif isinstance(arr, np.ndarray):
@@ -417,7 +427,8 @@ def _full_x_content_hash(arr) -> str:
         else:
             try:
                 np_arr = np.asarray(arr)
-            except Exception:
+            except Exception as exc:
+                logger.debug("_full_x_content_hash: np.asarray() fallback failed, skipping the full-content hash: %s", exc)
                 return ""
             col_names = ""
         if not hasattr(np_arr, "shape") or not hasattr(np_arr, "dtype"):
@@ -435,7 +446,8 @@ def _full_x_content_hash(arr) -> str:
         _result = h.hexdigest()
         _weakref_cache_put(_PIPELINE_X_HASH_CACHE, id_shape, arr, _result, _PIPELINE_X_HASH_CACHE_MAX)
         return _result
-    except Exception:
+    except Exception as exc:
+        logger.debug("_full_x_content_hash: outer dispatch failed for %r, skipping the full-content hash: %s", type(arr).__name__, exc)
         return ""
 
 
@@ -485,7 +497,8 @@ def _full_target_content_hash(arr) -> str:
         _result = h.hexdigest()
         _weakref_cache_put(_PIPELINE_TARGET_HASH_CACHE, id_shape, arr, _result, _PIPELINE_TARGET_HASH_CACHE_MAX)
         return _result
-    except Exception:
+    except Exception as exc:
+        logger.debug("_full_target_content_hash: outer dispatch failed for %r, skipping the full-content hash: %s", type(arr).__name__, exc)
         return ""
 
 
