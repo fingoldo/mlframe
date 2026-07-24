@@ -116,7 +116,7 @@ def _batch_usability_admission_verdicts(self, *, need_usability, y_continuous, c
 
 def _maybe_relax_prevalence_for_tail_concentrated_pool(
     *, self, cached_MIs, numeric_vars_to_consider, data, num_fs_steps, verbose,
-    fe_min_pair_mi_prevalence, cached_operand,
+    fe_min_pair_mi_prevalence, cached_operand, sorted_pairs=None, sort_dict_by_value=None,
 ):
     """TAIL-CONCENTRATION FIRST-SWEEP PREVALENCE RELAXATION (2026-07-03). A co-signal half whose pair joint
     MI is only marginally above its (high) marginal sum -- the F2 (c,d) ``mul(log(c),sin(d))`` half, ratio
@@ -166,9 +166,24 @@ def _maybe_relax_prevalence_for_tail_concentrated_pool(
         # of the max). GPU is NOT engaged here (measured slower than CPU at every scale on this
         # host, see that module's docstring) -- dispatch_batch_pair_usability_corr's un-forced
         # default is CPU.
+        # FE_STEP_B-9 fix (mrmr_audit_2026-07-22): scan candidates in DESCENDING joint-MI order (a principled
+        # importance proxy for "how likely is this the pool's dominant pair"), not raw cached_MIs insertion
+        # order (batch-precompute chunks, then legacy-sweep entries, then any GBM/gradient-seeded additions --
+        # an accident of WHEN a pair was computed, not how relevant it is). For a pool wider than
+        # fe_pair_usability_prescan_max_pairs the old insertion-order scan could silently miss the actual
+        # highest-|corr| dominant pair if it happened to be computed late, weakening the "fires only for the
+        # pool's genuinely dominant pair" specificity this function's docstring claims.
+        # sort_dict_by_value's default is ASCENDING, so the highest-MI pairs are at the END.
+        if sorted_pairs is not None:
+            _sorted_pairs_local = sorted_pairs
+        elif sort_dict_by_value is not None:
+            _sorted_pairs_local = sort_dict_by_value(cached_MIs)
+        else:
+            from pyutilz.pythonlib import sort_dict_by_value as _sort_dict_by_value_fallback
+            _sorted_pairs_local = _sort_dict_by_value_fallback(cached_MIs)
         _scan_pks = []
         _scanned = 0
-        for _pk in cached_MIs.keys():
+        for _pk in reversed(_sorted_pairs_local.keys()):
             if len(_pk) != 2:
                 continue
             if _pk[0] not in numeric_vars_to_consider or _pk[1] not in numeric_vars_to_consider:
@@ -360,7 +375,7 @@ def _resolve_pair_prevalence_gate(
 
 def _prepass_gate_and_usability_candidates(
     *, cached_MIs, checked_pairs, numeric_vars_to_consider, data, sort_dict_by_value,
-    cached_operand, usability_enabled, yc_shape_ok, gate_kwargs,
+    cached_operand, usability_enabled, yc_shape_ok, gate_kwargs, sorted_pairs=None,
 ):
     """Walk every 2-tuple candidate pair ONCE (side-effect-free: no ``vars_usage_counter`` / rejection-ledger
     writes) to (a) resolve + cache the prevalence/maxT/synergy gate state every pair needs -- see
@@ -369,13 +384,22 @@ def _prepass_gate_and_usability_candidates(
     both operands resolve) for the batched verdict pass. Filter conditions mirror ``score_prospective_pairs``'
     main loop's own OWN filter chain exactly (``len==2``, not in ``checked_pairs``, both operands considered,
     ``ind_elems_mi_sum>0``) so the returned ``_gate_cache`` has an entry for every pair the main loop will
-    look up. A single ``_col_codes_cache`` dict is shared across every pair in this walk (``data`` is fixed
-    for the whole call) so the asymmetric-synergy branch's bootstrap/anchor column codes are copied at most
-    once per distinct column touched, not once per pair -- see ``_get_col_codes_i64``."""
+    look up.
+
+    ``sorted_pairs``: FE_STEP_B-4 fix (mrmr_audit_2026-07-22) -- pass the caller's already-computed
+    ``sort_dict_by_value(cached_MIs)`` view (an unmutated dict between the two calls in
+    ``score_prospective_pairs``) to avoid a second full O(n log n) sort + O(n) dict-copy of the whole
+    candidate pool. Falls back to computing it here (the original behaviour) when omitted, so any other
+    caller keeps working unchanged. A single ``_col_codes_cache`` dict is shared across every pair in this
+    walk (``data`` is fixed for the whole call) so the asymmetric-synergy branch's bootstrap/anchor column
+    codes are copied at most once per distinct column touched, not once per pair -- see
+    ``_get_col_codes_i64``."""
     _gate_cache: dict = {}
     _need_usability: list = []
     _col_codes_cache: dict = {}
-    for _pk, _pmi in sort_dict_by_value(cached_MIs).items():
+    if sorted_pairs is None:
+        sorted_pairs = sort_dict_by_value(cached_MIs)
+    for _pk, _pmi in sorted_pairs.items():
         if len(_pk) != 2 or _pk in checked_pairs:
             continue
         if _pk[0] not in numeric_vars_to_consider or _pk[1] not in numeric_vars_to_consider:
@@ -488,12 +512,19 @@ def score_prospective_pairs(
     # ``permnull_cand_x`` sites. The partner / anchor stays host (it is the conditioning ``z``, uploaded by the
     # primitives). Computed once (fit-constant predicate). Byte-identical: same int codes, same partition.
     _pair_resident = _pair_gate_resident_enabled(n=int(data.shape[0]), p=len(numeric_vars_to_consider))
+    # FE_STEP_B-4/B-9 fix (mrmr_audit_2026-07-22): compute the sorted view ONCE, here (before its first
+    # consumer), and reuse it in every downstream consumer in this function -- cached_MIs is not written to
+    # anywhere between here and the main loop below, so re-sorting it a second or third time was a pure
+    # duplicate O(n log n) sort + O(n) dict-copy of the whole candidate pool (singles + all pairs) for no
+    # reason. This same view also gives the dominant-pair prescan below a principled top-K-by-MI candidate
+    # source instead of raw insertion order, at zero extra sort cost.
+    _sorted_pairs = sort_dict_by_value(cached_MIs)
     # See _maybe_relax_prevalence_for_tail_concentrated_pool's docstring for the full rationale (moved out
     # of this function to keep score_prospective_pairs' own cyclomatic complexity manageable).
     fe_min_pair_mi_prevalence = _maybe_relax_prevalence_for_tail_concentrated_pool(
         self=self, cached_MIs=cached_MIs, numeric_vars_to_consider=numeric_vars_to_consider, data=data,
         num_fs_steps=num_fs_steps, verbose=verbose, fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
-        cached_operand=_cached_operand,
+        cached_operand=_cached_operand, sorted_pairs=_sorted_pairs,
     )
 
     # BATCHED USABILITY-ADMISSION PRE-PASS (2026-07-11 perf fix, main-loop call site). Restores the
@@ -528,10 +559,12 @@ def score_prospective_pairs(
         fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence, _synergy_prev_resolved=_synergy_prev_resolved,
         _prevalence_debias_auto=_prevalence_debias_auto,
     )
+    # _sorted_pairs was already computed once, above, before the prevalence-relaxation prescan -- reused here.
     _gate_cache, _need_usability = _prepass_gate_and_usability_candidates(
         cached_MIs=cached_MIs, checked_pairs=checked_pairs, numeric_vars_to_consider=numeric_vars_to_consider,
         data=data, sort_dict_by_value=sort_dict_by_value, cached_operand=_cached_operand,
         usability_enabled=_usability_enabled, yc_shape_ok=_yc_shape_ok, gate_kwargs=_gate_kwargs,
+        sorted_pairs=_sorted_pairs,
     )
     _usability_verdict: dict = {}
     if _need_usability:
@@ -540,7 +573,7 @@ def score_prospective_pairs(
             cached_operand=_cached_operand, cached_single_corr=_cached_single_corr,
         )
 
-    for raw_vars_pair, pair_mi in sort_dict_by_value(cached_MIs).items():
+    for raw_vars_pair, pair_mi in _sorted_pairs.items():
         if len(raw_vars_pair) == 2:
             if raw_vars_pair in checked_pairs:
                 continue

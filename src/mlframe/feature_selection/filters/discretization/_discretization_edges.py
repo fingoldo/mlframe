@@ -61,10 +61,22 @@ def _knuth_best_M(a_sorted: np.ndarray, a_min: float, a_max: float, M_max: int) 
     # (a single median split downstream) instead.
     if n < 1 or not (a_max > a_min):
         return 2
+    # Distinct-value cap: on tie-heavy/low-cardinality data (e.g. an integer column with a handful of
+    # distinct values), Knuth's posterior -- built for continuous data -- keeps favouring M=M_max: each
+    # extra bin beyond the number of distinct values is EMPTY, contributing a small constant
+    # lgamma(0.5) term that the n*log(M) term still outweighs as M grows, so the search never turns
+    # around. Bins beyond the number of distinct values can never carry additional information (every
+    # value already gets its own bin), so cap M at n_distinct -- a data-driven ceiling, not a magic
+    # constant, that leaves genuinely continuous columns (n_distinct large) unaffected.
+    n_distinct = 1
+    for i in range(1, n):
+        if a_sorted[i] != a_sorted[i - 1]:
+            n_distinct += 1
+    _eff_M_max = min(M_max, n_distinct) if n_distinct >= 2 else M_max
     log_gamma_half = math.lgamma(0.5)
     best_M = 2
     best_logp = -1e300
-    for M in range(2, M_max + 1):
+    for M in range(2, _eff_M_max + 1):
         width = (a_max - a_min) / M
         prev = 0
         s = n * math.log(M) + math.lgamma(M / 2.0) - M * log_gamma_half - math.lgamma(n + M / 2.0)

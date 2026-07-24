@@ -8,12 +8,20 @@ existing imports continue to work.
 from __future__ import annotations
 
 import logging
+import threading
 
 import numpy as np
 
 from ._internals import GPU_MAX_BLOCK_SIZE
 
 logger = logging.getLogger(__name__)
+
+# GPU_INFRA_D-2 fix (mrmr_audit_2026-07-22): the property-set + launch pair below mutates a process-wide,
+# module-level compiled-kernel object's CUDA driver attribute (max_dynamic_shared_size_bytes) with no lock.
+# Two threads calling mi_direct_gpu_batched_pairs concurrently with different shared-mem requirements could
+# race: one thread's smaller value could overwrite the other's larger budget before its own launch enqueues,
+# under-provisioning that launch's kernel (OOB shared-memory read/write). This lock makes the set+launch atomic.
+_SHARED_MEM_SET_LOCK = threading.Lock()
 
 
 # ============================================================================
@@ -199,22 +207,26 @@ def mi_direct_gpu_batched_pairs(
         # _batch_pair_mi_cuda_shared_fused.py) only when the STATIC 48KB-per-block default would not
         # cover this call's actual shared-memory need -- avoids touching the property (which some
         # driver versions reject below the static default) on the common small-shape path.
-        if _needed_shared_bytes > 49152 - 2048 and _budget_bytes > 0:
-            try:
-                _gpu_module.compute_joint_hist_multi_pair_shared_cuda.max_dynamic_shared_size_bytes = _needed_shared_bytes
-            except Exception:
-                logger.debug("compute_joint_hist_multi_pair_shared_cuda: opt-in shared-mem set failed; launch may fail and fall back", exc_info=True)
-        _gpu_module.compute_joint_hist_multi_pair_shared_cuda(
-            (grid_x, n_pairs),
-            (block_size,),
-            (
-                factors_data_T_gpu, classes_y_gpu, pairs_a_gpu, pairs_b_gpu,
-                nbins_a_gpu, joint_offsets_gpu,
-                joint_counts_flat, n_rows, n_pairs, nbins_y,
-                np.int32(max_joint_size_y),
-            ),
-            shared_mem=_needed_shared_bytes,
-        )
+        # GPU_INFRA_D-2 fix (mrmr_audit_2026-07-22): the property set + launch must be atomic together --
+        # otherwise a concurrent call with a different _needed_shared_bytes could overwrite the budget
+        # between this thread's set and its own launch enqueuing (see _SHARED_MEM_SET_LOCK's module note).
+        with _SHARED_MEM_SET_LOCK:
+            if _needed_shared_bytes > 49152 - 2048 and _budget_bytes > 0:
+                try:
+                    _gpu_module.compute_joint_hist_multi_pair_shared_cuda.max_dynamic_shared_size_bytes = _needed_shared_bytes
+                except Exception:
+                    logger.debug("compute_joint_hist_multi_pair_shared_cuda: opt-in shared-mem set failed; launch may fail and fall back", exc_info=True)
+            _gpu_module.compute_joint_hist_multi_pair_shared_cuda(
+                (grid_x, n_pairs),
+                (block_size,),
+                (
+                    factors_data_T_gpu, classes_y_gpu, pairs_a_gpu, pairs_b_gpu,
+                    nbins_a_gpu, joint_offsets_gpu,
+                    joint_counts_flat, n_rows, n_pairs, nbins_y,
+                    np.int32(max_joint_size_y),
+                ),
+                shared_mem=_needed_shared_bytes,
+            )
     else:
         _gpu_module.compute_joint_hist_multi_pair_cuda(
             (grid_x, n_pairs),
@@ -231,26 +243,22 @@ def mi_direct_gpu_batched_pairs(
     # MI = sum over non-zero cells of (jc/n) * log(jc * n / (marg_m * marg_y)), in nats.
     n_total = float(n_rows)
     joint_mi_out = np.zeros(n_pairs, dtype=np.float64)
+    # GPU_INFRA_D-5 fix (mrmr_audit_2026-07-22): the per-pair reduction below used to be a pure-Python
+    # triple-nested loop (for k / for m / for y), i.e. O(total joint cells) at native Python speed -- up to
+    # ~1.07e9 cells (the 4GB guard elsewhere in this module), which would dominate wall-clock and defeat the
+    # point of collapsing per-pair kernel launches into one batched launch. Vectorized per-pair with numpy;
+    # SAME formula (sum over non-zero cells of jf * log(jc*n/(mm*my))), zero semantic change.
     for k in range(n_pairs):
         off = int(joint_offsets[k])
         merged_size = int(pair_merged_sizes[k])
         joint_2d = joint_counts_host[off : off + merged_size * nbins_y].reshape(merged_size, nbins_y)
         marg_m = joint_2d.sum(axis=1)
         marg_y = joint_2d.sum(axis=0)
-        # MI in nats
-        mi = 0.0
-        for m in range(merged_size):
-            mm = marg_m[m]
-            if mm == 0:
-                continue
-            for y in range(nbins_y):
-                jc = joint_2d[m, y]
-                if jc == 0:
-                    continue
-                my = marg_y[y]
-                if my == 0:
-                    continue
-                jf = jc / n_total
-                mi += jf * np.log(jc * n_total / (mm * my))
-        joint_mi_out[k] = mi
+        valid = (joint_2d > 0) & (marg_m[:, None] > 0) & (marg_y[None, :] > 0)
+        if not np.any(valid):
+            continue
+        denom = np.where(valid, marg_m[:, None] * marg_y[None, :], 1.0)
+        ratio = np.where(valid, joint_2d * n_total / denom, 1.0)  # ratio==1.0 -> log==0.0 at invalid cells
+        jf = np.where(valid, joint_2d / n_total, 0.0)
+        joint_mi_out[k] = float(np.sum(jf * np.log(ratio)))
     return joint_mi_out

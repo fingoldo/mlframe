@@ -40,11 +40,11 @@ Wiring: opt-in via ``MRMR(fe_hybrid_orth_default_scorer="auto_oracle")``.
 The existing ``"auto"`` (L68) and ``"meta"`` (L76) values keep working
 unchanged; ``"auto_oracle"`` is the new unified path.
 """
-
 from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Any, Mapping, Optional, Sequence
 
 import numpy as np
@@ -71,14 +71,7 @@ __all__ = [
 # a benchmark run can record every scorer the unified path might ever
 # recommend, so the learned posterior is never narrower than either prior.
 ORACLE_SCORER_NAMES = (
-    "plug_in",
-    "ksg",
-    "copula",
-    "dcor",
-    "hsic",
-    "jmim",
-    "tc",
-    "cmim",
+    "plug_in", "ksg", "copula", "dcor", "hsic", "jmim", "tc", "cmim", "xi", "tail_dep",
 )
 
 # Stable ``fn_name`` under which all scorer-selection observations are
@@ -94,6 +87,13 @@ ORACLE_FN_NAME = "orth_scorer_select"
 # LRU-ish cap so a long-lived process cycling through many distinct store paths does not grow unbounded.
 _ROWS_CACHE: "dict[tuple[str, float], list[dict]]" = {}
 _ROWS_CACHE_MAX = 8
+# ORTH_SCORING_B-3 fix (mrmr_audit_2026-07-22): the get-check-evict-write sequence below used to run with
+# no lock -- empirically reproduced 225 crashes/32-thread stress test (`dictionary changed size during
+# iteration` when two threads both call next(iter(_ROWS_CACHE)) while a third mutates it; KeyError when
+# .pop(key) races another thread's eviction of the same key). Needs real contention to trigger (a joblib-
+# parallel grid search fitting several MRMR models concurrently against enough distinct store fingerprints
+# to fill/evict the 8-slot cache), so was invisible under the default single-thread/low-contention path.
+_ROWS_CACHE_LOCK = threading.Lock()
 
 
 def _cached_read_rows(store: Any) -> "list[dict]":
@@ -109,13 +109,18 @@ def _cached_read_rows(store: Any) -> "list[dict]":
     except OSError:
         return list(store.read_rows())
     key = (path, mtime)
-    cached = _ROWS_CACHE.get(key)
-    if cached is not None:
-        return cached
+    with _ROWS_CACHE_LOCK:
+        cached = _ROWS_CACHE.get(key)
+        if cached is not None:
+            return cached
+    # store.read_rows() (real file I/O) deliberately runs OUTSIDE the lock so a slow read from one
+    # thread never blocks other threads' cache lookups; a duplicate concurrent read on a cache miss is
+    # a harmless (if wasteful) recompute, never a correctness issue.
     rows: "list[dict]" = list(store.read_rows())
-    if len(_ROWS_CACHE) >= _ROWS_CACHE_MAX:
-        _ROWS_CACHE.pop(next(iter(_ROWS_CACHE)))  # evict oldest (insertion order)
-    _ROWS_CACHE[key] = rows
+    with _ROWS_CACHE_LOCK:
+        if len(_ROWS_CACHE) >= _ROWS_CACHE_MAX:
+            _ROWS_CACHE.pop(next(iter(_ROWS_CACHE)))  # evict oldest (insertion order)
+        _ROWS_CACHE[key] = rows
     return rows
 
 
@@ -129,12 +134,12 @@ def _quality_objective(output: Any, elapsed_s: float, rss_delta_mb):
     """
     try:
         _scorer, q = output
-    except Exception as _unpack_exc:
-        logger.warning(
-            "_quality_objective: expected a (scorer_name, quality) tuple, got %r (%s); recording quality=NaN " "in the persistent oracle store.",
-            output,
-            _unpack_exc,
-        )
+    except Exception as exc:
+        # ORTH_SCORING_B-7 fix (mrmr_audit_2026-07-22): was unlogged and broader than this module's own
+        # numeric-error conventions elsewhere -- a malformed bake-off output (e.g. a future refactor
+        # changing the closure's return shape) silently persisted quality=NaN into the on-disk Param-Oracle
+        # store with zero diagnostic trace.
+        logger.debug("_quality_objective: could not unpack (scorer_name, quality) from output=%r: %r", output, exc)
         q = float("nan")
     return {"quality": float(q), "elapsed_s": float(elapsed_s)}
 
@@ -225,14 +230,12 @@ class OracleScorerSelector:
         if not rows:
             return None
         from mlframe.utils import stable_json
-
         target_key = stable_json(bucketize_fingerprint(fp))
         exact = [r for r in rows if r.get("fp_bucket_json") == target_key]
         best = self.oracle._best_row(exact, require_confident=True)
         if best is None:
             return None
         from mlframe.utils import loads_json
-
         combo = loads_json(best.get("param_combo_json"))
         scorer = combo.get("scorer")
         if scorer in self.scorer_names:
@@ -247,7 +250,6 @@ class OracleScorerSelector:
                 fingerprint_signal,
                 predict_best_scorer,
             )
-
             if y is None:
                 raise ValueError("cold-start cascade needs y")
             X_df = X if isinstance(X, pd.DataFrame) else pd.DataFrame(np.asarray(X))
@@ -261,10 +263,9 @@ class OracleScorerSelector:
             return self.scorer_names[0]
         except Exception as exc:
             logger.warning(
-                "OracleScorerSelector cold-start cascade failed (%s: %s); " "defaulting to %r.",
-                type(exc).__name__,
-                exc,
-                self.scorer_names[0],
+                "OracleScorerSelector cold-start cascade failed (%s: %s); "
+                "defaulting to %r.",
+                type(exc).__name__, exc, self.scorer_names[0],
             )
             return self.scorer_names[0]
 
@@ -279,11 +280,8 @@ class OracleScorerSelector:
         """
         fp = self.fingerprint(X, y)
         self.oracle.record(
-            fp,
-            {"scorer": str(scorer)},
-            {"quality": float(quality)},
-            ts=ts,
-            fn_name=ORACLE_FN_NAME,
+            fp, {"scorer": str(scorer)}, {"quality": float(quality)},
+            ts=ts, fn_name=ORACLE_FN_NAME,
         )
 
     # ----- benchmark (L68-style bake-off, run ONCE, amortise forever) -----
@@ -332,21 +330,15 @@ class OracleScorerSelector:
         y_arr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
 
         engineered = generate_univariate_basis_features(
-            X_df,
-            cols=cols,
-            degrees=degrees,
-            basis=basis,
+            X_df, cols=cols, degrees=degrees, basis=basis,
         )
         raw_X = X_df[[c for c in (cols or X_df.columns) if c in X_df.columns and pd.api.types.is_numeric_dtype(X_df[c])]]
 
         qualities: dict[str, float] = {}
         if not engineered.empty:
             table = select_best_scorer_per_column(
-                raw_X,
-                engineered,
-                y_arr,
-                n_boot=int(n_boot),
-                random_state=int(random_state),
+                raw_X, engineered, y_arr,
+                n_boot=int(n_boot), random_state=int(random_state),
             )
             # Per-scorer mean normalised LCB across engineered columns: the
             # cross-scorer-comparable headroom metric. ``lcb_norm_per_scorer``
