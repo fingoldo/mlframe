@@ -167,7 +167,7 @@ def _apply_plot_style_overrides(
     if matplotlib_style is not None or matplotlib_rcparams:
         try:
             import matplotlib.pyplot as plt
-        except Exception as _imp_err:
+        except Exception as _imp_err:  # best-effort: a cosmetic style override is never worth failing the suite over
             logger.warning(
                 "[plot_style] matplotlib import failed (%s); matplotlib " "style override skipped.",
                 _imp_err,
@@ -181,7 +181,7 @@ def _apply_plot_style_overrides(
                         logger.info(
                             "[plot_style] matplotlib style: %r", matplotlib_style,
                         )
-                except Exception as _style_err:
+                except Exception as _style_err:  # best-effort
                     logger.warning(
                         "[plot_style] plt.style.use(%r) failed: %s. " "Continuing with the current matplotlib style.",
                         matplotlib_style,
@@ -196,7 +196,7 @@ def _apply_plot_style_overrides(
                             len(matplotlib_rcparams),
                             sorted(matplotlib_rcparams.keys()),
                         )
-                except Exception as _rc_err:
+                except Exception as _rc_err:  # best-effort
                     logger.warning(
                         "[plot_style] plt.rcParams.update(%r) failed: %s. " "Some matplotlib keys may not have been applied.",
                         matplotlib_rcparams,
@@ -206,7 +206,7 @@ def _apply_plot_style_overrides(
     if plotly_template is not None:
         try:
             import plotly.io as pio
-        except Exception as _imp_err:
+        except Exception as _imp_err:  # best-effort
             logger.warning(
                 "[plot_style] plotly import failed (%s); plotly template " "override skipped.",
                 _imp_err,
@@ -218,7 +218,7 @@ def _apply_plot_style_overrides(
                 logger.info(
                     "[plot_style] plotly template: %r", plotly_template,
                 )
-        except Exception as _tpl_err:
+        except Exception as _tpl_err:  # best-effort
             logger.warning(
                 "[plot_style] plotly templates.default = %r failed: %s. " "Continuing with the current plotly template.",
                 plotly_template,
