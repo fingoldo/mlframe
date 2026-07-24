@@ -41,3 +41,15 @@ def test_line_color_does_not_collide_until_palette_exhausted():
 def test_line_color_cycles_after_palette():
     """Line color cycles after palette."""
     assert line_color(len(LINE_PALETTE)) == line_color(0)
+
+
+def test_auto_text_color_logs_on_colormap_lookup_failure(caplog):
+    """A matplotlib colormap lookup failure must be logged (not a silent except-and-'black')."""
+    import logging
+
+    from mlframe.reporting.colors import auto_text_color
+
+    with caplog.at_level(logging.DEBUG, logger="mlframe.reporting.colors"):
+        out = auto_text_color(0.5, "not_a_real_colormap_name")
+    assert out == "black"
+    assert any("colormap lookup" in rec.message for rec in caplog.records)

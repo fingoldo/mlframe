@@ -389,3 +389,73 @@ def test_drift_cache_isolates_distinct_frames():
     fdr._DRIFT_INVARIANT_CACHE.clear()
     rep_b_fresh = compute_feature_distribution_drift(train_b, val_b, test_b, target_type="regression")
     assert means_b == {k: v["train_mean"] for k, v in rep_b_fresh["per_feature"].items()}
+
+
+# ----- silent-swallow logging (baseline-debt wave 4) -----------------------
+
+
+def test_numeric_columns_logs_on_select_dtypes_failure(caplog):
+    """A pandas select_dtypes failure must be logged (not a silent except-and-empty-list)."""
+    import logging
+
+    import mlframe.training.feature_drift_report as fdr
+
+    class _RaisingDF:
+        """Groups tests covering _RaisingDF."""
+
+        def select_dtypes(self, **kwargs):
+            """Always raises ``RuntimeError('boom')``."""
+            raise RuntimeError("boom")
+
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.feature_drift_report"):
+        out = fdr._numeric_columns(_RaisingDF())
+    assert out == []
+    assert any("select_dtypes" in rec.message for rec in caplog.records)
+
+
+def test_categorical_columns_logs_on_select_dtypes_failure(caplog):
+    """A pandas select_dtypes failure in the categorical-columns path must be logged too."""
+    import logging
+
+    import mlframe.training.feature_drift_report as fdr
+
+    class _RaisingDF:
+        """Groups tests covering _RaisingDF."""
+
+        def select_dtypes(self, **kwargs):
+            """Always raises ``RuntimeError('boom')``."""
+            raise RuntimeError("boom")
+
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.feature_drift_report"):
+        out = fdr._categorical_columns(_RaisingDF())
+    assert out == []
+    assert any("select_dtypes" in rec.message for rec in caplog.records)
+
+
+def test_is_unhashable_object_column_logs_on_to_numpy_failure(caplog):
+    """A to_numpy() failure during the unhashable-object probe must be logged, not silently
+    treated as "hashable" with no trace."""
+    import logging
+
+    import mlframe.training.feature_drift_report as fdr
+
+    class _RaisingSeries:
+        """Groups tests covering _RaisingSeries."""
+
+        dtype = np.dtype("O")
+
+        def to_numpy(self):
+            """Always raises ``RuntimeError('boom')``."""
+            raise RuntimeError("boom")
+
+    class _RaisingDF:
+        """Groups tests covering _RaisingDF."""
+
+        def __getitem__(self, key):
+            """Return a `_RaisingSeries` for any column key."""
+            return _RaisingSeries()
+
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.feature_drift_report"):
+        out = fdr._is_unhashable_object_column(_RaisingDF(), "col")
+    assert out is False
+    assert any("unhashable-object probe" in rec.message for rec in caplog.records)
