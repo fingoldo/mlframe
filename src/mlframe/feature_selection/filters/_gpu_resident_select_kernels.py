@@ -275,11 +275,15 @@ _RADIX_SELECT_MAXR = 64  # must match MAXR in the kernel sources
 # this from the device per-block limit before testing the DYNAMIC histogram ``shmem = R*256*4`` -- otherwise
 # dynamic+static can exceed the limit and cuLaunchKernel returns CUDA_ERROR_INVALID_VALUE). Worst case is the
 # fused v2 kernel ``radix_select_interp_f64_v2``: prefix/below/wpref/wsort (4 x MAXR x 8B u64) + rank2w/wsort2w
-# (2 x MAXR x 4B i32) + W (4B i32) + osv_sh (MAXR x 8B f64) = 2048+512+4+512 = 3076B at MAXR=64. The other
-# (f64-original, f32 linear/bsearch/v3) variants use <= this, so gating on the worst case keeps every kernel
-# the path may launch within budget. Bit-identical: gating only changes WHEN the radix path returns None (then
-# the caller takes the cp.percentile fallback, same edges); a passing R still launches unchanged.
-_RADIX_STATIC_SHARED_BYTES = 4 * _RADIX_SELECT_MAXR * 8 + 2 * _RADIX_SELECT_MAXR * 4 + 4 + _RADIX_SELECT_MAXR * 8
+# (2 x MAXR x 4B i32) + W (4B i32) + osv_sh (MAXR x 8B f64) = 2048+512+4+512 = 3076B at MAXR=64. Gating on
+# this keeps every kernel the path may launch within budget in practice, at the current MAXR=64 cap: v3
+# (candidate-compaction, tried first) declares 4 extra shared scalars (scount/cand_ok/have_cand/overflowed,
+# 20B) v2 doesn't have (GPU_INFRA_B-3 fix, mrmr_audit_2026-07-22 -- confirmed v3's real static-shared use is
+# 3096B, not 3076B), but v3's own try/except falls back to v2 on any launch failure, so a future MAXR bump
+# that made the 20B gap decisive would degrade to a slower kernel, never a wrong answer or crash. Bit-identical:
+# gating only changes WHEN the radix path returns None (then the caller takes the cp.percentile fallback,
+# same edges); a passing R still launches unchanged.
+_RADIX_STATIC_SHARED_BYTES = 4 * _RADIX_SELECT_MAXR * 8 + 2 * _RADIX_SELECT_MAXR * 4 + 4 + _RADIX_SELECT_MAXR * 8 + 20
 # Lever B (2026-06-23): threads/block is now KTC-TUNED per host (radix_select_f32 was the biggest kernel,
 # 512 under-utilised the card -- 512->1024 = 1.20x at n=100k/K=583 on the GTX 1050 Ti). The sweep probe
 # forces a specific count via this override (set/reset by _gpu_resident_radix_ktc._radix_edges_with_threads);

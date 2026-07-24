@@ -1,9 +1,13 @@
 """BATCHED, born-on-device GPU path for the wavelet leg-rank MI (replatform step 1, 2026-06-25).
 
-PARALLEL implementation -- this module is SELF-CONTAINED and imported by NOTHING in the production path
-yet; it exists so the batched device design can be built + validated against the per-leg CPU path
-(``_wavelet_basis_fe._binned_mi`` / ``_select_wavelet_legs``) WITHOUT touching/breaking the primary path.
-Once ``test_wavelet_batched_mi_parity`` pins selection-equivalence it gets wired under MLFRAME_FE_GPU_STRICT.
+WIRED (ORTH_BASIS_A-5 fix, mrmr_audit_2026-07-22 -- this docstring was stale): ``_wavelet_basis_fe.py``
+already imports and calls ``select_wavelet_legs_batched`` from this module whenever
+``_binnedmi_gpu_enabled()`` is true, and the underlying ``MLFRAME_FE_GPU_DEVICE_BORN_WAVELET`` flag this
+routes through is DEFAULT ON in production. Originally built as a self-contained parallel implementation
+so the batched device design could be validated against the per-leg CPU path
+(``_wavelet_basis_fe._binned_mi`` / ``_select_wavelet_legs``) without touching/breaking the primary path
+before wiring -- see ``tests/feature_selection/fe/basis/test_wavelet_batched_mi_parity.py`` for the
+selection-equivalence pin that gated that wiring.
 
 WHY batched: the per-leg path calls ``_binned_mi`` ~5x per leg x dozens of legs x ``n_perm`` shuffles =
 thousands of tiny calls, each a separate cp.unique (5-10 cub launches) + H2D -> 118k launches / 5.8k H2D

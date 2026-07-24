@@ -152,7 +152,19 @@ def generate_rolling_window_agg_features(
         "generate_rolling_window_agg_features",
     )
     windows = [str(w) for w in (windows or [])]
-    stats = [s for s in stats if s in ("mean", "std", "count", "min", "max", "median")]
+    # CAT_INTERACTION_B-1 fix (mrmr_audit_2026-07-22): this used to accept "median" into `stats` here, but
+    # _EXPANDING_STAT_CODE / _rolling_stat_past_only(_njit) never map "median" to a code -- calling this
+    # documented-valid public function with stats=["median"] raised a bare `KeyError: 'median'` instead of
+    # computing anything or raising an actionable error. The two-pointer O(1)-per-row accumulator this
+    # kernel uses cannot support a true rolling median (which needs an order-statistic structure, not a
+    # running moment) without a fundamentally different algorithm -- reject it explicitly and clearly
+    # instead of silently accepting it into `stats` only to KeyError deep in the call stack.
+    if "median" in stats:
+        raise ValueError(
+            "generate_rolling_window_agg_features: stat 'median' is not supported by the rolling "
+            f"two-pointer kernel (supported: {sorted(_EXPANDING_STAT_CODE)}); remove it from `stats`."
+        )
+    stats = [s for s in stats if s in _EXPANDING_STAT_CODE]
     encoded: dict[str, np.ndarray] = {}
     raw_recipes: dict[str, dict] = {}
     if not entity_cols or not value_cols or not windows or not stats:

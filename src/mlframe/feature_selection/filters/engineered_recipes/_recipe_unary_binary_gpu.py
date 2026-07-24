@@ -166,15 +166,14 @@ def _gpu_binary(cp, name: str, a, b):
     if name == "heaviside":
         return cp.heaviside(a, b)
     if name == "greater":
-        # mrmr_audit_2026-07-20 P2: cast to int, matching the CPU replay
-        # (feature_engineering.py's "greater"/"less"/"equal" all do
-        # ``.astype(int)``) -- casting to ``a.dtype`` (float) instead
-        # produced a real dtype divergence between the two replay paths.
-        return cp.greater(a, b).astype(cp.int_)
+        # MI_GREEDY_RECIPES-4 fix (mrmr_audit_2026-07-22): was `.astype(a.dtype)` (float32/float64),
+        # diverging from the CPU registry's `.astype(int)` (feature_engineering.py) for identical 0/1
+        # values -- only the returned ndarray dtype differed by backend. Match the CPU int dtype.
+        return cp.greater(a, b).astype(cp.int64)
     if name == "less":
-        return cp.less(a, b).astype(cp.int_)
+        return cp.less(a, b).astype(cp.int64)
     if name == "equal":
-        return cp.equal(a, b).astype(cp.int_)
+        return cp.equal(a, b).astype(cp.int64)
     raise ValueError(f"GPU binary missing for {name!r}")
 
 

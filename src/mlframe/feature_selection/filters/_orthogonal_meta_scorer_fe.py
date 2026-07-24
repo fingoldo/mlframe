@@ -206,7 +206,11 @@ def fingerprint_signal(
             for c in num_cols:
                 try:
                     r = float(X_num[c].corr(y_series, method="pearson"))
-                except _NUMERIC_ERRORS:
+                except _NUMERIC_ERRORS as exc:
+                    # ORTH_SCORING_B-9 fix (mrmr_audit_2026-07-22): was a bare `except Exception`, broader
+                    # than this module's own declared _NUMERIC_ERRORS convention (and the module docstring's
+                    # explicit invariant that a genuine programming error must propagate); unlogged.
+                    logger.debug("meta_scorer pearson corr failed for column %r: %r", c, exc)
                     r = float("nan")
                 if np.isfinite(r):
                     pears.append(abs(r))
@@ -275,12 +279,16 @@ def fingerprint_signal(
                 col_vals = X_sub[c]
                 try:
                     r_sp = float(col_vals.corr(y_sub, method="spearman"))
-                except _NUMERIC_ERRORS:
+                except _NUMERIC_ERRORS as exc:
+                    # ORTH_SCORING_B-9 fix (mrmr_audit_2026-07-22): see the mean_abs_pearson site's matching
+                    # fix above for the full rationale.
+                    logger.debug("meta_scorer spearman corr failed for column %r: %r", c, exc)
                     r_sp = float("nan")
                 try:
                     centered = (col_vals - float(col_vals.mean())).abs()
                     r_sym = float(centered.corr(y_sub, method="pearson"))
-                except _NUMERIC_ERRORS:
+                except _NUMERIC_ERRORS as exc:
+                    logger.debug("meta_scorer symmetric-pearson corr failed for column %r: %r", c, exc)
                     r_sym = float("nan")
                 candidates = [abs(r) for r in (r_sp, r_sym) if np.isfinite(r)]
                 if candidates:

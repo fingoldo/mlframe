@@ -208,9 +208,18 @@ def _fit_prewarp_and_gate_med(
                 if _gvals is None:
                     continue
                 _gf = np.asarray(_gvals, dtype=np.float64)
-                # Reject no-variance operands (a constant gate is dead).
                 _gmed = float(np.nanmedian(_gf)) if _gf.size else 0.0
                 if not np.isfinite(_gmed):
+                    continue
+                # FE_PAIRS_CORE-3 fix (mrmr_audit_2026-07-22): the comment claimed "Reject no-variance
+                # operands (a constant gate is dead)" but the ONLY guard was the isfinite check above,
+                # which does not reject a literal constant, non-finite-safe operand (a degenerate/dummy
+                # column with a well-defined finite median) -- it registered under gate_med and
+                # materialised an all-zero dead column ((x > median) == False everywhere when x is
+                # constant), wasting unary+binary+MI-sweep work for every constant column whenever
+                # fe_gate_med_enable=True. Add the variance guard the comment already promised.
+                _gfinite = _gf[np.isfinite(_gf)]
+                if _gfinite.size == 0 or float(np.nanmax(_gfinite) - np.nanmin(_gfinite)) <= 0.0:
                     continue
                 _gate_med_median_by_var[_gv] = _gmed
     return _prewarp_active, _prewarp_spec_by_var, _gate_med_active, _gate_med_median_by_var

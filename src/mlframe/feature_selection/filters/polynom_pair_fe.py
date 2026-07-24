@@ -559,14 +559,19 @@ def run_polynom_pair_fe(
                 method=quantization_method,
                 dtype=quantization_dtype,
             ).reshape(-1, 1)
-            _new_data_cols.append(_new_binned)
-            _new_col_nbins.append(int(quantization_nbins))
-            _new_col_names.append(_new_col_name)
-            _existing_col_names.add(_new_col_name)
+            # ORTH_BASIS_A-7 fix (mrmr_audit_2026-07-22): the list appends below used to run BEFORE this X
+            # assignment; the outer except only logs and continues, it does not undo an earlier append. If
+            # the X assignment itself raised, the unconditional np.concatenate at the loop's end would still
+            # bake that column into data/cols/nbins with no matching X column and no recipe. Do the
+            # assignment FIRST -- if it raises, nothing has been committed to the survivor lists yet.
             if is_polars_input:
                 X = X.with_columns(pl.Series(_new_col_name, _t_vals))
             else:
                 X[_new_col_name] = _t_vals
+            _new_data_cols.append(_new_binned)
+            _new_col_nbins.append(int(quantization_nbins))
+            _new_col_names.append(_new_col_name)
+            _existing_col_names.add(_new_col_name)
             engineered_features.add(_new_col_name)
             hermite_features_list.append({
                 "name": _new_col_name,

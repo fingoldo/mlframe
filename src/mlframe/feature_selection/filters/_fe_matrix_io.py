@@ -77,6 +77,12 @@ class FeatureMatrix:
 
     def numeric_column(self, name: str) -> np.ndarray:
         """The numeric plane column for ``name`` (KeyError-equivalent ValueError if not numeric)."""
+        # FE_ORCH_BUDGET-3 fix (mrmr_audit_2026-07-22): columns.index(name) returns only the FIRST index
+        # for a duplicate column name; pandas explicitly permits duplicate labels, so a frame with a
+        # repeated name would silently resolve to the wrong column with no error. Raise clearly instead
+        # (this module is currently gated off/unwired, so this cannot regress any live caller today).
+        if self.columns.count(name) > 1:
+            raise ValueError(f"FeatureMatrix.numeric_column: column name {name!r} is not unique in this frame")
         j = self.columns.index(name)
         if self.col_kind[j] != "numeric":
             raise ValueError(f"column {name!r} is not numeric (kind={self.col_kind[j]})")
@@ -220,6 +226,13 @@ def to_feature_matrix(X, *, dtype: Any = np.float32) -> FeatureMatrix:
 def from_feature_matrix(fm: FeatureMatrix):
     """Reconstruct the source-framework object from a :class:`FeatureMatrix`, restoring categorical
     labels and original missingness. Routes back to the framework that produced ``fm``."""
+    # FE_ORCH_BUDGET-3 fix (mrmr_audit_2026-07-22): the per-name dicts (col_objs/data) built below are
+    # keyed by column NAME, so a duplicate name silently overwrites one of the two columns' data in the
+    # round-trip output with no error/warning -- pandas explicitly permits duplicate column labels. Raise
+    # clearly instead (this module is currently gated off/unwired, so this cannot regress any live caller).
+    if len(set(fm.columns)) != len(fm.columns):
+        dupes = sorted({c for c in fm.columns if fm.columns.count(c) > 1})
+        raise ValueError(f"from_feature_matrix: duplicate column name(s) {dupes} would silently collide on round-trip")
     data: dict[str, np.ndarray] = {}
     col_objs: dict[str, Any] = {}
     for j, name in enumerate(fm.columns):

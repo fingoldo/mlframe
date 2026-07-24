@@ -24,7 +24,11 @@ so the threshold adapts to n / cardinality / class balance rather than being a h
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 from ._fe_synergy_screen import _pair_mm_mi_njit, joint_synergy_mi  # noqa: F401
 
@@ -166,8 +170,10 @@ def detect_synergy(
     try:
         from pyutilz.system import kernel_tuning_cache  # noqa: F401
         null_mult = float(_lookup_null_mult())
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as exc:  # nosec B110 - optional dependency import guard
+        # INFO_THEORY_B-4 fix (mrmr_audit_2026-07-22): a genuine kernel_tuning_cache registry bug would
+        # otherwise silently and permanently pin the synergy threshold to the hardcoded default forever.
+        logger.debug("mrmr: kernel_tuning_cache lookup failed for the synergy-detector null multiple; using the hardcoded default: %r", exc, exc_info=True)
     # floor the null scale so a perfectly-clean permuted null (excess==0) still needs a non-trivial real excess.
     eps = 1e-4
     threshold = null_mult * max(null_excess, eps)
@@ -194,8 +200,8 @@ def _lookup_null_mult() -> float:
             val = getter(_TUNING_KEY)
             if val is not None:
                 return float(val)
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as exc:  # nosec B110 - best-effort path
+        logger.debug("mrmr: kernel_tuning_cache get_cached_param lookup failed; using the hardcoded synergy-detector default: %r", exc, exc_info=True)
     return _DEFAULT_NULL_MULT
 
 
