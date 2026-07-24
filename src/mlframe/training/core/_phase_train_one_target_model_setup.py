@@ -97,7 +97,7 @@ def _render_per_target_diagnostics(
                 plot_outputs=plot_outputs, base_path=f"{plot_file}_target",
                 metrics_dict=charts_acc if isinstance(charts_acc, dict) else None,
             )
-        except Exception as _e:
+        except Exception as _e:  # best-effort: a diagnostic chart failure must never abort training
             logger.warning("per-target distribution overlay failed for target='%s': %s", cur_target_name, _e)
 
     _ts_test = None
@@ -115,7 +115,7 @@ def _render_per_target_diagnostics(
                 plot_outputs=plot_outputs, base_path=f"{plot_file}_target",
                 metrics_dict={"charts": charts_acc} if isinstance(charts_acc, dict) else None,
             )
-        except Exception as _e:
+        except Exception as _e:  # best-effort: a diagnostic chart failure must never abort training
             logger.warning("per-target drift/adversarial diagnostics failed for target='%s': %s", cur_target_name, _e)
 
 
@@ -354,7 +354,7 @@ def _setup_per_target_mlframe_models(
                     _plot_path = f"{plot_file}_target_temporal_audit.png"
                     _plot_target_over_time(_audit, save_path=_plot_path)
             metadata.setdefault("target_temporal_audit", {}).setdefault(str(target_type), {})[cur_target_name] = _audit.to_dict()
-        except Exception as _audit_err:
+        except Exception as _audit_err:  # best-effort: a diagnostic chart failure must never abort training
             logger.warning(
                 "target_temporal_audit (per-target render) failed for " "target='%s': %s. Training continues.",
                 cur_target_name,
@@ -499,7 +499,7 @@ def _setup_per_target_mlframe_models(
                 _sklearn_override, _mlframe_override,
                 f" -- untranslated keys: {_untranslated}" if _untranslated else "",
             )
-    except Exception as _fd_aa_err:
+    except Exception as _fd_aa_err:  # best-effort: an auto-tune enhancement failure must never abort training
         logger.warning(
             "feature-drift-auto-action failed for target='%s' (%s); " "training continues without per-target MLP override.",
             cur_target_name,

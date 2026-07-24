@@ -169,7 +169,7 @@ def _bump_lru(signature: str, entry: _ProviderEntry, keep_n: int) -> None:
                 try:
                     evicted.provider.release()
                     evicted.is_loaded = False
-                except Exception as e:  # pragma: no cover
+                except Exception as e:  # pragma: no cover -- best-effort cleanup, provider state is marked unloaded regardless
                     logger.warning("evicting provider release() raised: %s", e)
 
 
@@ -238,7 +238,7 @@ def acquire_provider(
                 try:
                     entry.provider.release()
                     entry.is_loaded = False
-                except Exception as e:  # pragma: no cover
+                except Exception as e:  # pragma: no cover -- best-effort cleanup, provider state is marked unloaded regardless
                     logger.warning("provider release() raised: %s", e)
 
 
@@ -364,7 +364,7 @@ def shutdown_all() -> None:
                 if entry.is_loaded:
                     try:
                         entry.provider.release()
-                    except Exception as e:  # pragma: no cover
+                    except Exception as e:  # pragma: no cover -- best-effort cleanup, provider state is marked unloaded regardless
                         logger.warning("shutdown: release(%s) raised: %s", signature, e)
                     entry.is_loaded = False
         _LRU_HARD.clear()
@@ -380,7 +380,7 @@ def shutdown_all() -> None:
                 if weak_entry.is_loaded:
                     try:
                         weak_entry.provider.release()
-                    except Exception as e:  # pragma: no cover
+                    except Exception as e:  # pragma: no cover -- best-effort cleanup, provider state is marked unloaded regardless
                         logger.warning("shutdown: release(%s) raised: %s", signature, e)
                     weak_entry.is_loaded = False
 

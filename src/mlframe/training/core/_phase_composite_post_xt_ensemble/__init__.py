@@ -295,7 +295,7 @@ def _build_cross_target_ensemble_for_target(
                     _pred = _get_train_pred(_comp, _frame_key)
                     _diff = _pred - _y_train_for_rmse.astype(np.float64)
                     _rmses.append(float(np.sqrt(np.mean(_diff * _diff))))
-                except Exception as _rmse_err:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+                except Exception as _rmse_err:  # noqa: PERF203 -- best-effort per-iteration fault isolation is intentional, not a hoisting candidate
                     logger.warning(
                         "[CompositeCrossTargetEnsemble] could not score "
                         "component '%s' on train: %s. Dropping it from "
@@ -1021,12 +1021,12 @@ def _build_cross_target_ensemble_for_target(
                     getattr(_ensemble, "_output_calibrator", None) is not None,
                     int(_oof_pred_matrix.shape[0]),
                 )
-            except Exception as _calib_err:
+            except Exception as _calib_err:  # best-effort: calibration is an optional enhancement, never worth failing the ensemble build over
                 logger.warning(
                     "[CompositeCrossTargetEnsemble] target='%s' output calibration failed "
                     "(%s); ensemble retained uncalibrated.", _orig_tname, _calib_err,
                 )
-    except Exception as _ens_err:
+    except Exception as _ens_err:  # best-effort: falling back to skipping this target's ensemble, caller handles the missing entry
         logger.warning(
             "[CompositeCrossTargetEnsemble] target='%s' build failed: "
             "%s. Skipping.", _orig_tname, _ens_err,
@@ -1149,7 +1149,7 @@ def _build_cross_target_ensemble_for_target(
                         "Continuing without ensemble chart for this split.",
                         _orig_tname, _split_name, _split_err,
                     )
-    except Exception as _ens_report_err:
+    except Exception as _ens_report_err:  # best-effort: charting failure never invalidates the already-stored ensemble entry
         logger.warning(
             "[CompositeCrossTargetEnsemble] target='%s' could not emit "
             "scatter / log charts: %s. The ensemble entry is still "
