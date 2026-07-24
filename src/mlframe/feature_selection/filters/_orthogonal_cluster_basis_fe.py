@@ -232,7 +232,10 @@ def detect_clusters_by_correlation(
                     dense_names[idx],
                 ))
             mean_corr.sort()
-            members = sorted(dense_names[dense_names.index(name)] for (_, name) in mean_corr[: int(max_cluster_size)])
+            # ORTH_SCORING_B-5 fix (mrmr_audit_2026-07-22): `dense_names[dense_names.index(name)]` was a
+            # no-op O(p) linear-scan re-lookup that just produces `name` back -- `mean_corr` already holds
+            # the actual name strings, so use them directly.
+            members = sorted(name for (_, name) in mean_corr[: int(max_cluster_size)])
         anchor = members[0]
         out[anchor] = members
     return out
@@ -657,7 +660,7 @@ def hybrid_orth_mi_cluster_basis_fe(
             "engineered_col", "anchor", "members", "basis", "degree",
             "aggregator", "baseline_mi", "engineered_mi", "uplift",
         ])
-        return X.copy(), scores_empty
+        return X, scores_empty
     rows = []
     for name, info in meta.items():
         rows.append({

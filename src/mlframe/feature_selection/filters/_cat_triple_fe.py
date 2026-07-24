@@ -461,7 +461,7 @@ def hybrid_cat_triple_fe(
     else:
         cat_cols = [c for c in cat_cols if c in X.columns]
     if len(cat_cols) < 3:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     # ``code_cache`` collects the scorer's per-column ``(uniq_strings, dense_codes)`` -- every survivor's
     # cat_a/cat_b/cat_c was necessarily scored during the beam search (hence already factorised), so the
@@ -473,12 +473,12 @@ def hybrid_cat_triple_fe(
         beam_width=beam_width, top_k_pairs=top_k_pairs, code_cache_out=code_cache,
     )
     if scores.empty:
-        return X.copy(), [], [], scores
+        return X, [], [], scores
 
     keep = scores[scores["ii3"] > float(min_interaction_info)]
     keep = keep.head(int(top_k))
     if keep.empty:
-        return X.copy(), [], [], scores
+        return X, [], [], scores
 
     n = len(X)
     new_cols: dict[str, np.ndarray] = {}
@@ -523,7 +523,7 @@ def hybrid_cat_triple_fe(
         appended.append(name)
 
     if not appended:
-        return X.copy(), [], [], scores
+        return X, [], [], scores
     new_df = pd.DataFrame(new_cols, index=X.index)
     X_aug = pd.concat([X, new_df], axis=1)
     return X_aug, appended, recipes, scores

@@ -597,7 +597,7 @@ def hybrid_orth_mi_three_gate_fe(
         "cmi_support",
     ]
     if engineered.empty:
-        return X.copy(), pd.DataFrame(columns=empty_cols)
+        return X, pd.DataFrame(columns=empty_cols)
 
     raw_X = X[[c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]]
     scores = score_features_by_kfold_oof_mi(
@@ -605,7 +605,7 @@ def hybrid_orth_mi_three_gate_fe(
         n_folds=n_folds, seed=seed, nbins=nbins,
     )
     if scores.empty:
-        return X.copy(), pd.DataFrame(columns=empty_cols)
+        return X, pd.DataFrame(columns=empty_cols)
 
     # Gate 3: CMI conditional on current_support.
     y_int = _coerce_y_int64(y)
@@ -706,7 +706,11 @@ def hybrid_orth_mi_three_gate_fe_with_recipes(
         try:
             _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
-        except Exception:
+        except Exception as exc:
+            # ORTH_SCORING_A-3 fix (mrmr_audit_2026-07-22): was a bare except with zero logging,
+            # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
+            # exception (including a genuine programming bug), with no diagnostic trace.
+            logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
             _pp = None
         recipes.append(build_orth_univariate_recipe(
             name=name, src_name=src,

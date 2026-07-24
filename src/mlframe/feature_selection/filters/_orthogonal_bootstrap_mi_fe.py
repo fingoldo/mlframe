@@ -328,7 +328,7 @@ def hybrid_orth_mi_bootstrap_fe(
         X, cols=cols, degrees=degrees, basis=basis,
     )
     if engineered.empty:
-        return X.copy(), pd.DataFrame(columns=[
+        return X, pd.DataFrame(columns=[
             "engineered_col", "source_col",
             "baseline_mi_mean", "baseline_mi_std", "baseline_mi_lcb",
             "engineered_mi_mean", "engineered_mi_std", "engineered_mi_lcb",
@@ -352,7 +352,7 @@ def hybrid_orth_mi_bootstrap_fe(
     #    because the LCB subtracts 1.96*std before comparison).
     # 2. engineered_mi_lcb >= max(legacy_frac_floor, MAD-noise floor)
     if scores.empty:
-        return X.copy(), scores
+        return X, scores
     max_baseline_lcb = float(scores["baseline_mi_lcb"].max())
     legacy_floor = float(min_abs_mi_frac) * max(0.0, max_baseline_lcb)
 
@@ -438,7 +438,11 @@ def hybrid_orth_mi_bootstrap_fe_with_recipes(
         try:
             _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
-        except Exception:
+        except Exception as exc:
+            # ORTH_SCORING_A-3 fix (mrmr_audit_2026-07-22): was a bare except with zero logging,
+            # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
+            # exception (including a genuine programming bug), with no diagnostic trace.
+            logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
             _pp = None
         recipes.append(build_orth_univariate_recipe(
             name=name, src_name=src,

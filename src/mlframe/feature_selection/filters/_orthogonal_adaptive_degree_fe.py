@@ -300,7 +300,7 @@ def hybrid_orth_mi_adaptive_degree_fe(
             "engineered_col", "source_col", "basis", "degree",
             "baseline_mi", "engineered_mi", "uplift",
         ])
-        return X.copy(), scores_empty
+        return X, scores_empty
     rows = []
     for name, info in meta.items():
         rows.append({
@@ -368,7 +368,11 @@ def hybrid_orth_mi_adaptive_degree_fe_with_recipes(
         try:
             _col_full = np.asarray(X[str(row["source_col"])].to_numpy(), dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, str(row["basis"]), int(row["degree"]), return_params=True)
-        except Exception:
+        except Exception as exc:
+            # ORTH_SCORING_A-3 fix (mrmr_audit_2026-07-22): was a bare except with zero logging,
+            # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
+            # exception (including a genuine programming bug), with no diagnostic trace.
+            logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
             _pp = None
         recipes.append(build_orth_univariate_recipe(
             name=name,

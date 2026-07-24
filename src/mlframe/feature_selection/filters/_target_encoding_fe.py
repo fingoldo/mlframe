@@ -568,7 +568,7 @@ def kfold_target_encode_with_recipes(
     if cat_cols is None or len(cat_cols) == 0:
         cat_cols = auto_detect_te_cols(X, min_card=auto_min_card, max_card=auto_max_card)
     if not cat_cols:
-        return X.copy(), [], []
+        return X, [], []
 
     stats = tuple(stats) if stats else ("mean",)
     te_df, raw_recipes = kfold_target_encode_fit(
@@ -587,7 +587,7 @@ def kfold_target_encode_with_recipes(
 
         keep = set(local_mi_gate(te_df, y, raw_X=X, top_k=mi_gate_top_k, reject_sink=reject_sink))
         if not keep:
-            return X.copy(), [], []
+            return X, [], []
         # Gate operates per OUTPUT column (one per (col, stat)); keep the columns it admits.
         te_df = te_df[[c for c in te_df.columns if c in keep]]
         cat_cols = [c for c in cat_cols if any(engineered_name_te_stat(c, s) in keep for s in stats)]

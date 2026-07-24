@@ -311,7 +311,7 @@ def hybrid_modular_fe(
         "uplift_mean", "uplift_std", "uplift_lcb",
     ]
     if eng.empty:
-        return X.copy(), pd.DataFrame(columns=empty_cols)
+        return X, pd.DataFrame(columns=empty_cols)
 
     raw_X = X[_numeric_cols(X, cols)]
     scores = score_modular_by_bootstrap_mi(
@@ -319,7 +319,7 @@ def hybrid_modular_fe(
         n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins,
     )
     if scores.empty:
-        return X.copy(), scores
+        return X, scores
 
     # MAD noise floor anchored on the RAW BASELINE MI distribution (the genuine
     # null reference), mirroring Layer 90. Anchoring on the engineered-candidate

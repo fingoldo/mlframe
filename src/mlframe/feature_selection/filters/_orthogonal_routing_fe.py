@@ -492,7 +492,7 @@ def hybrid_orth_mi_conditional_routing_fe(
             "engineered_col", "source_col", "basis", "degree", "pre_transform",
             "baseline_mi", "engineered_mi", "uplift",
         ])
-        return X.copy(), scores_empty
+        return X, scores_empty
     rows = []
     for name, info in meta.items():
         rows.append({

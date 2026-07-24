@@ -547,7 +547,7 @@ def hybrid_orth_extra_basis_fe_with_recipes(
         empty_scores = pd.DataFrame(columns=[
             "engineered_col", "source_col", "baseline_mi", "engineered_mi", "uplift",
         ])
-        return X.copy(), empty_scores, []
+        return X, empty_scores, []
     from . import score_features_by_mi_uplift
     raw_X = _Xd[[c for c in (cols or _Xd.columns) if c in _Xd.columns and pd.api.types.is_numeric_dtype(_Xd[c])]]
     # Pass the per-column fit ``meta`` so the ENGINEERED extra-basis matrix is rebuilt DEVICE-BORN from the

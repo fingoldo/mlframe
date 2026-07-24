@@ -348,7 +348,7 @@ def hybrid_orth_mi_lasso_fe(
         X, cols=cols, degrees=degrees, basis=basis,
     )
     if engineered.empty:
-        return X.copy(), pd.DataFrame(columns=[
+        return X, pd.DataFrame(columns=[
             "engineered_col", "source_col", "baseline_mi",
             "engineered_mi", "uplift",
         ])
@@ -362,7 +362,7 @@ def hybrid_orth_mi_lasso_fe(
         random_state=int(random_state),
     )
     if scores.empty:
-        return X.copy(), scores
+        return X, scores
     raw_baselines = scores["baseline_mi"].to_numpy()
     max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
     legacy_floor = float(min_abs_mi_frac) * max(0.0, max_raw_baseline)

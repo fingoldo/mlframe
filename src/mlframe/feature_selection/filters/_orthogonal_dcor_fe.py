@@ -369,7 +369,7 @@ def hybrid_orth_mi_dcor_fe(
         X, cols=cols, degrees=degrees, basis=basis,
     )
     if engineered.empty:
-        return X.copy(), pd.DataFrame(columns=[
+        return X, pd.DataFrame(columns=[
             "engineered_col", "source_col", "baseline_mi",
             "engineered_mi", "uplift",
         ])
@@ -382,7 +382,7 @@ def hybrid_orth_mi_dcor_fe(
         n_sample=int(n_sample), random_state=int(random_state),
     )
     if scores.empty:
-        return X.copy(), scores
+        return X, scores
     # Two-gate selection identical to Layers 65 / 66 for cross-layer parity.
     raw_baselines = scores["baseline_mi"].to_numpy()
     max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
@@ -471,7 +471,11 @@ def hybrid_orth_mi_dcor_fe_with_recipes(
         try:
             _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
-        except Exception:
+        except Exception as exc:
+            # ORTH_SCORING_A-3 fix (mrmr_audit_2026-07-22): was a bare except with zero logging,
+            # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
+            # exception (including a genuine programming bug), with no diagnostic trace.
+            logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
             _pp = None
         recipes.append(build_orth_univariate_recipe(
             name=name, src_name=src,

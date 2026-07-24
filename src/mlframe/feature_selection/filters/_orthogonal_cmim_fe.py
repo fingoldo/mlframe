@@ -535,7 +535,7 @@ def hybrid_orth_mi_cmim_fe(
         "baseline_mi", "engineered_mi", "uplift",
     ]
     if engineered.empty:
-        return X.copy(), pd.DataFrame(columns=empty_cols)
+        return X, pd.DataFrame(columns=empty_cols)
 
     raw_X = X[[c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]]
     scores = score_features_by_cmim(
@@ -544,7 +544,7 @@ def hybrid_orth_mi_cmim_fe(
         n_bins=int(n_bins),
     )
     if scores.empty:
-        return X.copy(), scores
+        return X, scores
     # CMIM-natural absolute floor (same semantics as Layer 72 / 73): a
     # noise-source uplift ratio would explode while the raw CMIM is
     # tiny. ``min_uplift`` is consumed for cross-layer kwargs parity but
@@ -623,7 +623,11 @@ def hybrid_orth_mi_cmim_fe_with_recipes(
         try:
             _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
-        except Exception:
+        except Exception as exc:
+            # ORTH_SCORING_A-3 fix (mrmr_audit_2026-07-22): was a bare except with zero logging,
+            # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
+            # exception (including a genuine programming bug), with no diagnostic trace.
+            logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
             _pp = None
         recipes.append(build_orth_univariate_recipe(
             name=name, src_name=src,

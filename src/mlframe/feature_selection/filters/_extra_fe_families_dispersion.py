@@ -573,7 +573,7 @@ def hybrid_conditional_dispersion_fe(
     else:
         num_cols = [c for c in num_cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if len(num_cols) < 2:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     if y is not None:
         from ._extra_fe_families import _top_mi_num_cols  # lazy: break parent<->sibling cycle
@@ -581,13 +581,13 @@ def hybrid_conditional_dispersion_fe(
     else:
         num_cols = list(num_cols)[: int(max_pair_cols)]
     if len(num_cols) < 2:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     enc_df, raw_recipes = generate_conditional_dispersion_features(
         X, num_cols, n_bins=n_bins, kinds=kinds,
     )
     if enc_df.empty:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     winners = list(enc_df.columns)
     if mi_gate and y is not None:
@@ -633,7 +633,7 @@ def hybrid_conditional_dispersion_fe(
     else:
         winners = winners[: int(top_k)]
     if not winners:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     X_aug = pd.concat([X, enc_df[winners]], axis=1)
     recipes = [

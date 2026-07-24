@@ -466,19 +466,19 @@ def hybrid_group_distance_fe(
     else:
         group_cols = [c for c in group_cols if c in X.columns]
     if not group_cols:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
     if num_cols is None or len(num_cols) == 0:
         num_cols = _auto_detect_num_cols(X, group_cols)
     else:
         num_cols = [c for c in num_cols if c in X.columns]
     if not num_cols:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     enc_df, raw_recipes = generate_group_distance_features(
         X, group_cols, num_cols,
     )
     if enc_df.empty:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     from ._grouped_quantile_fe import score_grouped_quantile_by_mi_uplift
 
@@ -489,7 +489,7 @@ def hybrid_group_distance_fe(
     keep = scores[(scores["mi"] >= float(min_mi)) & (scores["uplift"] >= float(min_uplift))]
     winners = list(keep["engineered_col"].head(int(top_k)))
     if not winners:
-        return X.copy(), [], [], scores
+        return X, [], [], scores
 
     X_aug = pd.concat([X, enc_df[winners]], axis=1)
     recipes = []

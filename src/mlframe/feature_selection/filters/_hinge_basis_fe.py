@@ -722,7 +722,7 @@ def hybrid_hinge_fe_with_recipes(
         empty_scores = pd.DataFrame(columns=[
             "engineered_col", "source_col", "incr_r2", "passed",
         ])
-        return X.copy(), empty_scores, []
+        return X, empty_scores, []
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     rows = []
     # r2_base (the held-out R^2 of [1, x] alone) and the extracted/filled x_src don't depend on the LEG, only

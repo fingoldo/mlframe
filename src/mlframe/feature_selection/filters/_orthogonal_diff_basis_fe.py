@@ -505,7 +505,7 @@ def hybrid_orth_mi_diff_basis_fe(
             "engineered_col", "col_a", "col_b", "basis", "degree", "pair_corr",
             "baseline_mi", "engineered_mi", "uplift",
         ])
-        return X.copy(), scores_empty
+        return X, scores_empty
     rows = []
     for name, info in meta.items():
         rows.append({

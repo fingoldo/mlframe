@@ -754,7 +754,7 @@ def hybrid_temporal_agg_fe(
     entity_cols = [c for c in (entity_cols or []) if c in X.columns]
     value_cols = [c for c in (value_cols or []) if c in X.columns]
     if not entity_cols or not value_cols or time_col not in X.columns:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     enc_exp, rec_exp = generate_expanding_agg_features(
         X, entity_cols, value_cols, time_col, stats=stats,
@@ -778,7 +778,7 @@ def hybrid_temporal_agg_fe(
 
     enc_df = pd.concat([p for p in enc_parts if p.shape[1]], axis=1) if any(p.shape[1] for p in enc_parts) else pd.DataFrame(index=X.index)
     if enc_df.empty:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     y_arr = np.asarray(y)
     if not np.issubdtype(y_arr.dtype, np.integer):
@@ -797,7 +797,7 @@ def hybrid_temporal_agg_fe(
     keep = scores[scores["mi"] >= float(min_mi)]
     winners = list(keep["engineered_col"].head(int(top_k)))
     if not winners:
-        return X.copy(), [], [], scores
+        return X, [], [], scores
 
     from .engineered_recipes import (
         build_temporal_expanding_recipe,

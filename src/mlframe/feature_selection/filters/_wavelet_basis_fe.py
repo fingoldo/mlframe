@@ -844,7 +844,7 @@ def hybrid_wavelet_fe_with_recipes(
         "engineered_col", "source_col", "incr_mi", "smooth_gain", "passed",
     ]
     if engineered.empty:
-        return X.copy(), [], [], pd.DataFrame(columns=_empty_cols)
+        return X, [], [], pd.DataFrame(columns=_empty_cols)
     # y -> discrete class codes for the binned joint-MI gate; bin continuous y.
     y_arr = np.asarray(y).ravel()
     if not np.issubdtype(y_arr.dtype, np.integer) or np.unique(y_arr).size > 20:
