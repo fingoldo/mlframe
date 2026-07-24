@@ -14,7 +14,7 @@ import numpy as np
 from numba import njit
 from numba.core import types
 
-from pyutilz.numbalib import generate_combinations_recursive_njit
+from pyutilz.numbalib import _generate_combinations_recursive_njit_core
 # Module-level import so cloudpickle can resolve tqdmu when the function ships to a joblib worker.
 
 from ._internals import LARGE_CONST, MAX_CONFIRMATION_CAND_NBINS
@@ -271,7 +271,12 @@ def evaluate_gain(
 
     k = 0
     for interactions_order in range(max_veteranes_interactions_order):
-        combs = generate_combinations_recursive_njit(np.array(selected_vars, dtype=np.int32), interactions_order + 1)[::-1]
+        # calls the njit-compiled core directly rather than pyutilz's plain-Python validating wrapper
+        # (generate_combinations_recursive_njit): a bare Python function with a `raise` cannot be called
+        # from this @njit context in nopython mode -- numba reports "Untyped global name" on any cold
+        # compile (a warm on-disk cache from before pyutilz's wrapper regressed to plain Python can mask
+        # this). r = interactions_order + 1 is always >= 1 here, so the wrapper's r<0 validation is moot.
+        combs = _generate_combinations_recursive_njit_core(np.array(selected_vars, dtype=np.int32), interactions_order + 1)[::-1]
 
         for Z in combs:
 

@@ -199,3 +199,26 @@ def test_regression_cat_interactions_short_pair_mm():
     )
     assert out_ii.shape == (1,)
     assert out_idx.shape == (1,)
+
+
+# ---------------------------------------------------------------------------
+# Bug: evaluate_gain called pyutilz's plain-Python validating wrapper
+# (generate_combinations_recursive_njit) from inside its own @njit(cache=True) body instead of the
+# actual numba-dispatched core (_generate_combinations_recursive_njit_core). A bare Python function
+# with a `raise` cannot be called from nopython mode -- numba reports "Untyped global name" on any
+# cold compile. A warm on-disk numba cache from before pyutilz's wrapper regressed to plain Python
+# can mask this, so the bug is latent rather than immediately visible on a machine with stale cache.
+# ---------------------------------------------------------------------------
+
+
+def test_regression_evaluate_gain_combinations_core_is_numba_dispatched():
+    """``evaluation.py`` must import the numba-dispatched core directly, not pyutilz's plain-Python
+    validating wrapper (``generate_combinations_recursive_njit``) -- the wrapper contains a bare
+    ``raise`` and cannot be called from ``evaluate_gain``'s own ``@njit`` context; a cold numba compile
+    hits ``numba.core.errors.TypingError: Untyped global name 'generate_combinations_recursive_njit'``.
+    A warm on-disk numba cache from before pyutilz's wrapper regressed to plain Python can mask this,
+    so the bug is latent rather than immediately visible on a machine with stale cache."""
+    import numba
+    from mlframe.feature_selection.filters import evaluation as _evaluation_module
+
+    assert isinstance(_evaluation_module._generate_combinations_recursive_njit_core, numba.core.registry.CPUDispatcher)
