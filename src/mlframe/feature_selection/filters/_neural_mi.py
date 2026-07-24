@@ -46,6 +46,16 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def _clamp_mi_nonneg(mi: float, estimator: str) -> float:
+    """Clamp an MI estimate to ``[0, inf)``, but never silently coerce a NaN/inf divergence to 0.0 --
+    that would make a failed neural-MI training run indistinguishable from a genuinely near-zero MI.
+    Logs and returns NaN instead so callers can filter/retry on the real failure signature."""
+    if not math.isfinite(mi):
+        logger.warning("%s: MI estimate is non-finite (%s) -- training likely diverged; returning NaN, not 0.0.", estimator, mi)
+        return float("nan")
+    return max(0.0, mi)
+
+
 _NEURAL_MI_DEVICE = os.environ.get("MLFRAME_NEURAL_MI_DEVICE", "auto")
 
 
@@ -201,7 +211,7 @@ def mine_mi(
         converged = float(np.median(mi_trace[-tail:]))
     else:
         converged = float(np.median(mi_trace)) if mi_trace else 0.0
-    return max(0.0, converged)
+    return _clamp_mi_nonneg(converged, "mine_mi")
 
 
 # =============================================================================
@@ -244,11 +254,27 @@ def _get_infonet_model(device: str = "auto"):
             raise RuntimeError(f"InfoNet vendored config missing at {config_path}. " f"Run the vendor copy step from the InfoNet setup script.")
         # Use the vendored infer module via sys.path injection (it has relative-style imports
         # inside the model directory).
+        # USABILITY_B-10 fix (mrmr_audit_2026-07-22): infer.py's own top-level imports (`from model.decoder
+        # import Decoder`, etc.) only resolve via this sys.path injection, but leaving it permanently
+        # inserted made the generic top-level names `model`/`util`/`query`/`decoder`/`encoder`/`attention`
+        # importable process-wide at sys.path[0] (highest priority) for the rest of the interpreter's
+        # lifetime -- a landmine for any other code in the process later doing e.g. `import model`. Once
+        # `infer` (and its `model.*` submodule tree) is imported, it's cached in sys.modules, so future
+        # calls resolve from cache without touching sys.path at all -- scope the injection to just this
+        # one-time import via try/finally.
         import sys
         vendored = str(pkg_root / "_vendored" / "infonet")
-        if vendored not in sys.path:
+        _path_already_present = vendored in sys.path
+        if not _path_already_present:
             sys.path.insert(0, vendored)
-        from infer import load_model
+        try:
+            from infer import load_model
+        finally:
+            if not _path_already_present:
+                try:
+                    sys.path.remove(vendored)
+                except ValueError:
+                    pass
         model = load_model(str(config_path), str(ckpt_path))
         _INFONET_MODEL_CACHE[cache_key] = model
         return model
@@ -342,13 +368,24 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
                 _INFONET_Y_PREP_CACHE.pop(next(iter(_INFONET_Y_PREP_CACHE)))
             _INFONET_Y_PREP_CACHE[_y_key] = yr
 
+    # USABILITY_B-10 fix (mrmr_audit_2026-07-22): see the matching fix in _get_infonet_model above --
+    # scope the sys.path injection to just this import (already cached in sys.modules after the first
+    # call, so this is cheap on every subsequent call too).
     pkg_root = Path(__file__).resolve().parent
     vendored = str(pkg_root / "_vendored" / "infonet")
-    if vendored not in sys.path:
+    _path_already_present = vendored in sys.path
+    if not _path_already_present:
         sys.path.insert(0, vendored)
-    from infer import estimate_mi
+    try:
+        from infer import estimate_mi
+    finally:
+        if not _path_already_present:
+            try:
+                sys.path.remove(vendored)
+            except ValueError:
+                pass
     mi = estimate_mi(model, xr, yr).squeeze().cpu().numpy()
-    return max(0.0, float(mi))
+    return _clamp_mi_nonneg(float(mi), "infonet_mi")
 
 
 # =============================================================================
@@ -579,7 +616,7 @@ def mist_mi(x: np.ndarray, y: np.ndarray, *, loss: str = "mse", calibrated: bool
         mi = float(np.interp(raw, raw_grid, nats_grid))
     else:
         mi = raw
-    return max(0.0, mi)
+    return _clamp_mi_nonneg(mi, "mist_mi")
 
 
 # =============================================================================
@@ -668,7 +705,7 @@ def minde_mi(
                     logger.info("MINDE step %s: mi=%s, loss=%s", step, f"{mi_est:.4f}", f"{loss.item():.4f}")
     if mi_trace:
         converged = float(np.median(mi_trace[-10:])) if len(mi_trace) >= 10 else float(np.median(mi_trace))
-        return max(0.0, converged)
+        return _clamp_mi_nonneg(converged, "minde_mi")
     return 0.0
 
 
@@ -745,7 +782,7 @@ def dpmine_mi(
             logger.info("DPMINE step %s: mi~%s", step, f"{mi_est:.4f}")
     with torch.no_grad():
         mi = (log_p_xy - log_p_x - log_p_y).mean().item()
-    return max(0.0, float(mi))
+    return _clamp_mi_nonneg(float(mi), "dpmine_mi")
 
 
 __all__ = [

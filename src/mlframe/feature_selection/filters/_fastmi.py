@@ -206,7 +206,14 @@ def fastmi(x: np.ndarray, y: np.ndarray, *, grid_size: int = 128, bandwidth: str
             kg = cp.asarray(kernel)
             density_gpu = gp_fftconv(sg, kg, mode="same")
             density = cp.asnumpy(density_gpu)
-        except ImportError:
+        except Exception as exc:
+            # A real runtime GPU fault (OOM, device fault, driver mismatch) must fall back too, not just
+            # a missing cupy install -- otherwise a transient GPU error crashes the whole MI computation
+            # instead of degrading to the (selection-equivalent) CPU FFT path.
+            logger.warning(
+                "fastmi: cupy GPU FFT convolution raised %s: %s; falling back to the CPU path.",
+                type(exc).__name__, exc, exc_info=True,
+            )
             density = _fft_conv_2d(samples, kernel)
     else:
         density = _fft_conv_2d(samples, kernel)
