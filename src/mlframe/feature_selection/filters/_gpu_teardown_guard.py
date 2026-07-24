@@ -16,7 +16,14 @@ illegal-access during a real fit (not finalizing) propagates unchanged, so a gen
 from __future__ import annotations
 
 import sys
+import threading
 
+# GPU_INFRA_C-2 fix (mrmr_audit_2026-07-22): install_cuda_teardown_guard's idempotency check used to be a
+# bare unlocked `if _installed: return` -- two threads racing through it before either set _installed=True
+# could let the second thread's `_prev_unraisablehook = getattr(sys, "unraisablehook", None)` capture the
+# FIRST thread's own `_unraisablehook` wrapper (not the true original), causing infinite self-recursion the
+# next time an unrelated exception fires. This lock makes the whole install atomic (still only ever runs once).
+_install_lock = threading.Lock()
 _installed = False
 _prev_unraisablehook = None
 _prev_excepthook = None
@@ -58,13 +65,15 @@ def _excepthook(exc_type, exc_value, exc_tb):
 
 
 def install_cuda_teardown_guard() -> None:
-    """Idempotently chain the teardown-only illegal-address suppressor onto the unraisable/except hooks."""
+    """Idempotently chain the teardown-only illegal-address suppressor onto the unraisable/except hooks.
+    Thread-safe: the whole check-then-install sequence runs under a lock (GPU_INFRA_C-2 fix)."""
     global _installed, _prev_unraisablehook, _prev_excepthook
-    if _installed:
-        return
-    _prev_unraisablehook = getattr(sys, "unraisablehook", None)
-    _prev_excepthook = getattr(sys, "excepthook", None)
-    if _prev_unraisablehook is not None:
-        sys.unraisablehook = _unraisablehook
-    sys.excepthook = _excepthook
-    _installed = True
+    with _install_lock:
+        if _installed:
+            return
+        _prev_unraisablehook = getattr(sys, "unraisablehook", None)
+        _prev_excepthook = getattr(sys, "excepthook", None)
+        if _prev_unraisablehook is not None:
+            sys.unraisablehook = _unraisablehook
+        sys.excepthook = _excepthook
+        _installed = True

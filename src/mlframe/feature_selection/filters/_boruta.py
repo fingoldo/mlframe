@@ -61,9 +61,7 @@ def boruta_select(
     correction
         Multiple-testing correction used when ``resolve_tentative=True``: ``"bonferroni"`` (per-round alpha
         divided by rounds-so-far times still-undecided features) or ``"bh"`` (Benjamini-Hochberg step-up across
-        the undecided features' p-values each round, at a per-round alpha ALSO divided by rounds-so-far so the
-        repeated per-round testing doesn't inflate the cumulative false-confirm rate the way a flat per-round
-        alpha would). Ignored when ``resolve_tentative=False``.
+        the undecided features' p-values each round). Ignored when ``resolve_tentative=False``.
     convergence_rounds
         Opt-in early stop (only takes effect when ``resolve_tentative=True``): stop iterating once the confirmed
         feature set has been unchanged for this many consecutive rounds AND every feature has a decision (no
@@ -81,6 +79,11 @@ def boruta_select(
     from scipy.stats import binomtest
 
     import pandas as pd
+
+    # USABILITY_A-2 fix (mrmr_audit_2026-07-22): n_iterations<1 left the loop never running, producing a
+    # 0/0 NaN win_rate followed by an unhelpful `binomtest(count, 0, ...)` ValueError from scipy internals.
+    if n_iterations < 1:
+        raise ValueError(f"boruta_select: n_iterations must be >= 1; got {n_iterations}")
 
     if hasattr(X, "columns"):
         cols = list(X.columns)
@@ -137,17 +140,16 @@ def boruta_select(
                         if result.pvalue < corrected_alpha:
                             resolved[j] = "confirmed" if hit_counts[j] / rounds_run > 0.5 else "rejected"
                 elif correction == "bh":
-                    # mrmr_audit_2026-07-20 B-22: BH already corrects ACROSS the m undecided features (its
-                    # step-up procedure IS that correction), but re-running it every round at a FIXED alpha
-                    # never corrects for the REPEATED testing across rounds -- an undecided feature is
-                    # re-tested every round until resolved, so a flat per-round alpha=0.05 inflates the
-                    # cumulative false-confirm rate over a run exactly like an uncorrected bonferroni would.
-                    # Spend the alpha budget across rounds the same way "bonferroni" already does (divide by
-                    # rounds_run), then let BH's step-up handle the per-round across-feature correction.
-                    round_alpha = alpha / rounds_run
+                    # USABILITY_A-13 fix (mrmr_audit_2026-07-22): the BH step-up alone only controls the FDR
+                    # across the SIMULTANEOUS per-feature tests within a single round; run every round at the
+                    # nominal alpha and the repeated-testing-across-rounds inflation the "bonferroni" branch
+                    # above explicitly guards against (dividing by rounds_run) goes uncorrected here. Scale the
+                    # target alpha down by rounds_run the same way, so both branches control the same overall
+                    # error budget across the whole multi-round procedure.
                     pvals = np.array([binomtest(int(hit_counts[j]), rounds_run, p=0.5, alternative="two-sided").pvalue for j in undecided])
                     order = np.argsort(pvals)
                     m = len(pvals)
+                    round_alpha = alpha / rounds_run
                     crit = round_alpha * np.arange(1, m + 1) / m
                     below = pvals[order] <= crit
                     if below.any():

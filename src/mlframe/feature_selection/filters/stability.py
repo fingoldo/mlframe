@@ -280,3 +280,26 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         if hasattr(X, "iloc"):
             return X.iloc[:, self.support_]
         return X[:, self.support_]
+
+    def get_feature_names_out(self, input_features=None):
+        """Selected feature names (sklearn transformer contract). X_SECURITY_API_PACKAGING-1 fix
+        (mrmr_audit_2026-07-22): was missing entirely, unlike ``MRMR``/``GroupAwareMRMR`` in the same
+        module -- a ``Pipeline([("sel", StabilityMRMR(...)), ...]).get_feature_names_out()`` raised
+        ``AttributeError`` even though ``transform()`` already returns a well-defined column subset.
+        Mirrors ``GroupAwareMRMR.get_feature_names_out``'s contract exactly: ``support_`` is an integer
+        index array into ``feature_names_in_``; a passed ``input_features`` must match ``n_features_in_``
+        (sklearn column-drift contract) and, when correct-length, overrides the stored names."""
+        names = getattr(self, "feature_names_in_", None)
+        if input_features is not None:
+            input_features = list(input_features)
+            n_in = int(getattr(self, "n_features_in_", len(input_features)))
+            if len(input_features) != n_in:
+                raise ValueError(
+                    f"input_features has {len(input_features)} elements, expected {n_in} "
+                    f"(n_features_in_); names passed to get_feature_names_out must match the "
+                    f"feature set this selector was fit on (sklearn column-drift contract)."
+                )
+            return np.asarray([input_features[int(i)] for i in self.support_], dtype=object)
+        if names is not None:
+            return np.asarray([names[int(i)] for i in self.support_], dtype=object)
+        return np.asarray([f"f_{int(i)}" for i in self.support_], dtype=object)

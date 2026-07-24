@@ -208,8 +208,16 @@ def score_features_by_ksg_mi_uplift(
         # Near-zero baseline makes the uplift ratio explode past the gate even
         # on a no-signal source; suppress the ratio there and let the absolute
         # MI floor decide (mirrors the JMIM guard).
+        # ORTH_SCORING_A-5 fix (mrmr_audit_2026-07-22): this used to hard-set uplift=0.0 (always failing
+        # gate 1, uplift>=min_uplift) whenever emi was below the FIXED _ABS_MI_FLOOR=1e-3 -- but the real
+        # absolute-MI gate (gate 2, `engineered_mi >= abs_floor`) uses a DYNAMIC MAD-based abs_floor that
+        # can sit BELOW 1e-3, so a candidate with 1e-4 <= emi < 1e-3 could get hard-rejected here even
+        # though it would have cleared the intended dynamic gate 2. Always let gate 2 decide for a
+        # near-zero-baseline candidate (uplift=inf never fails gate 1) -- this only ever WIDENS acceptance
+        # relative to the pre-fix behaviour, never narrows it, so it cannot admit a candidate the intended
+        # dynamic floor itself would reject.
         if baseline < _BASELINE_EPS:
-            uplift = 0.0 if emi < _ABS_MI_FLOOR else float("inf")
+            uplift = float("inf")
         else:
             uplift = emi / baseline
         rows.append({
@@ -263,7 +271,7 @@ def hybrid_orth_mi_ksg_fe(
         X, cols=cols, degrees=degrees, basis=basis,
     )
     if engineered.empty:
-        return X.copy(), pd.DataFrame(columns=[
+        return X, pd.DataFrame(columns=[
             "engineered_col", "source_col", "baseline_mi",
             "engineered_mi", "uplift",
         ])
@@ -276,7 +284,7 @@ def hybrid_orth_mi_ksg_fe(
         n_neighbors=int(n_neighbors), random_state=int(random_state),
     )
     if scores.empty:
-        return X.copy(), scores
+        return X, scores
     # Two-gate selection on KSG-estimated MI:
     # 1. relative: uplift >= min_uplift
     # 2. absolute: engineered_mi >= max(legacy_floor, MAD-noise floor)
@@ -369,8 +377,12 @@ def hybrid_orth_mi_ksg_fe_with_recipes(
         try:
             _col_full = np.asarray(X[src].values, dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
-        except Exception:
-            _pp = None  # best-effort: fall back to the legacy refit-at-replay path
+        except Exception as exc:
+            # ORTH_SCORING_A-3 fix (mrmr_audit_2026-07-22): was a bare except with zero logging,
+            # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
+            # exception (including a genuine programming bug), with no diagnostic trace.
+            logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
+            _pp = None
         recipes.append(build_orth_univariate_recipe(
             name=name, src_name=src,
             basis=chosen_basis, degree=chosen_degree,

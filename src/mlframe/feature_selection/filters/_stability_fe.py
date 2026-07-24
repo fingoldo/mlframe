@@ -161,6 +161,15 @@ def _run_bootstraps(
             n_failed += 1
             continue
         per_boot.append(_engineered_union(m))
+    if not per_boot:
+        # CLUSTERING_STABILITY-1 fix (mrmr_audit_2026-07-22): mirrors StabilityMRMR.fit's post-B-14
+        # contract -- every bootstrap failing means the input is fundamentally too small/degenerate for
+        # MRMR at this sample size, not "some unlucky draws". Raise loudly instead of silently returning
+        # an empty per-bootstrap list a caller could easily mistake for "no stable engineered features".
+        raise RuntimeError(
+            f"stability_select_fe: all {n_bootstraps} bootstraps failed to fit (last error above); "
+            f"the input is too small/degenerate for MRMR at sample_fraction={sample_fraction}."
+        )
     if n_failed:
         logger.warning("stability_select_fe: %d/%d bootstraps failed; frequencies computed over the %d successful ones.", n_failed, n_bootstraps, len(per_boot))
     return per_boot
@@ -361,3 +370,20 @@ class StabilityFESelector(BaseEstimator, TransformerMixin):
     def fit_transform(self, X, y=None, **fit_params):
         """Fit then transform in one call."""
         return self.fit(X, y).transform(X)
+
+    def get_feature_names_out(self, input_features=None):
+        """Selected feature names (sklearn transformer contract). X_SECURITY_API_PACKAGING-1 fix
+        (mrmr_audit_2026-07-22): was missing entirely, unlike ``MRMR``/``GroupAwareMRMR``/``StabilityMRMR``
+        in the same module -- a ``Pipeline([("sel", StabilityFESelector(...)), ...]).get_feature_names_out()``
+        raised ``AttributeError`` even though ``transform()`` already returns a well-defined column subset.
+        Recomputes the SAME stable-AND-reproducible column set ``transform()`` builds (raw columns the
+        full-data MRMR kept, plus stable engineered names it also surfaced) from ``full_mrmr_``'s own
+        ``get_feature_names_out()`` rather than requiring an ``X`` to call ``transform`` against."""
+        if not hasattr(self, "full_mrmr_"):
+            raise RuntimeError("StabilityFESelector.get_feature_names_out called before fit; " "no full_mrmr_ recipes are available.")
+        full_names = list(self.full_mrmr_.get_feature_names_out(input_features))
+        stable_present = [c for c in self.stable_set_ if c in full_names]
+        full_engineered = set(_engineered_union(self.full_mrmr_).keys())
+        raw_kept = [c for c in full_names if c not in full_engineered]
+        keep = raw_kept + [c for c in stable_present if c not in raw_kept]
+        return np.asarray(keep, dtype=object)

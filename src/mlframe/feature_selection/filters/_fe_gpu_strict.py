@@ -38,9 +38,8 @@ selection-equivalent to CPU (large n, GPU present), so the SAME compound + recip
 fits are byte-identical to the legacy default. Force ``MLFRAME_FE_GPU_STRICT=0`` to pin the exact CPU path at any n.
 
 RESIDENCY GAP FOUND AND CLOSED (found 2026-07-16, fixed 2026-07-17; ``_mi_greedy_cmi_fe.greedy_cmi_fe_construct``,
-reachable from ``MRMR.fit`` via ``greedy_cmi_fe_construct_with_recipes`` when ``fe_mi_greedy_cmi_enable=True``
--- NOT benchmark-only, so a regression of this fix affects any fit run with that flag set): its STRICT branch
-used to bin every candidate through the host-materializing
+called ONLY from the standalone benchmark script ``_benchmarks/bench_cmi_greedy_noisefloor_marginal_hoist.py``,
+never from ``MRMR.fit``): its STRICT branch used to bin every candidate through the host-materializing
 ``_quantile_bin`` (D2H per candidate for the ``.tobytes()`` fingerprint) and fold each selected winner into the
 conditioning support Z via the host-only ``_renumber_joint`` -- 212 bulk D2H events / fit on an 8000x11 synthetic
 frame (``test_cmi_residency_traffic.py``). Closed by: (1) binning every candidate once via
@@ -57,6 +56,7 @@ mid-fit) -- see ``_host_bins`` / the ``cand_bins_dev`` truthiness checks through
 from __future__ import annotations
 
 import os
+import threading
 
 # Quiet the intermittent cupy<->numba illegal-address race at interpreter teardown (cosmetic; suppressed ONLY
 # during finalization, never mid-fit -- see _gpu_teardown_guard). Cheap import (no cupy), idempotent install.
@@ -78,8 +78,13 @@ _CUDA_USABLE_CACHE: bool | None = None
 # "0", the exact CPU path runs. ``_AUTO_FIT_N``/``_AUTO_FIT_P`` are the current fit's row/column counts, set by the
 # MRMR entry around fit() (None => AUTO stays off, so any non-MRMR caller is unchanged). Threshold is
 # env-overridable per host.
-_AUTO_FIT_N: int | None = None
-_AUTO_FIT_P: int | None = None
+# GPU_INFRA_C-1 fix (mrmr_audit_2026-07-22): these used to be bare module globals, shared across every
+# thread in the process. StabilityMRMR's bootstrap loop (stability.py) runs Parallel(backend="threading")
+# over per-bootstrap MRMR clones -- i.e. this codebase already fits multiple MRMR instances concurrently on
+# different threads sharing one process -- so two overlapping .fit() calls would read/write each other's
+# fit shape, making the AUTO-STRICT engage/skip decision depend on which other fit happened to be running
+# concurrently. threading.local() gives each thread its own (n, p), closing that non-determinism.
+_auto_fit_state = threading.local()
 # Conservative default: STRICT is measured selection-equivalent to CPU by ~50k, but the AUTO threshold is set at
 # 100k -- the mlframe production regime (100k-100M rows) where the win lands -- so it sits comfortably ABOVE the
 # convergence point AND above every existing test fit (all <=60k stay on the exact CPU path). Env-overridable per host.
@@ -119,16 +124,14 @@ def set_auto_fit_n(n: int | None, p: int | None = None) -> None:
     MRMR.fit sets this at entry and clears it in a finally; ``n=None`` disables the AUTO path entirely (leaving
     STRICT off unless env-forced). ``p`` is optional for backward compatibility with any other caller that only
     ever tracked row count -- omitting it just means the AUTO gate falls back to the pure row-count rule."""
-    global _AUTO_FIT_N, _AUTO_FIT_P
-    _AUTO_FIT_N = int(n) if n is not None else None
-    _AUTO_FIT_P = int(p) if p is not None else None
+    _auto_fit_state.n = int(n) if n is not None else None
+    _auto_fit_state.p = int(p) if p is not None else None
 
 
 def clear_auto_fit_n() -> None:
     """Reset the AUTO fit-row/column-count gate; called in MRMR.fit's finally so a subsequent non-MRMR caller doesn't inherit a stale shape."""
-    global _AUTO_FIT_N, _AUTO_FIT_P
-    _AUTO_FIT_N = None
-    _AUTO_FIT_P = None
+    _auto_fit_state.n = None
+    _auto_fit_state.p = None
 
 
 def _auto_min_n() -> int:
@@ -218,6 +221,6 @@ def fe_gpu_strict_enabled(*, n: int | None = None, p: int | None = None, min_p: 
     if raw in ("1", "true", "on", "yes"):
         return bool(_cuda_usable()) and _passes_call_work_floor()
     if raw in ("", "auto"):
-        if _auto_gate_passes(_AUTO_FIT_N, _AUTO_FIT_P):
+        if _auto_gate_passes(getattr(_auto_fit_state, "n", None), getattr(_auto_fit_state, "p", None)):
             return bool(_cuda_usable()) and _passes_call_work_floor()
     return False

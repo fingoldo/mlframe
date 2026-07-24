@@ -647,9 +647,20 @@ def mi_direct(
             analytic_mi_null, analytic_null_enabled, analytic_null_min_n, analytic_null_applicable,
         )
 
-        _analytic_ok = analytic_null_enabled() and int(factors_data.shape[0]) >= analytic_null_min_n() and not use_su_normalization()
-    except Exception as _analytic_exc:
-        logger.debug("mi_direct: analytic-null gate check failed (%s); falling back to the full permutation path.", _analytic_exc)
+        # SCREEN_CONFIRM_B-2 fix (mrmr_audit_2026-07-22): the analytic-null fast path returned RAW plug-in
+        # MI unconditionally (compute_relevance_score(False, ...), no use_mm/use_cs) while the sub-threshold
+        # permutation path below always applies the active mi_correction -- a silent formula discontinuity
+        # in the reported relevance value exactly at the analytic_null_min_n() threshold whenever
+        # mi_correction='miller_madow'/'chao_shen' is active. Fall through to the exact permutation path
+        # (unchanged) when either correction is active, matching the existing SU/sparsity fall-through pattern.
+        _analytic_ok = (
+            analytic_null_enabled()
+            and int(factors_data.shape[0]) >= analytic_null_min_n()
+            and not use_su_normalization()
+            and not use_mi_miller_madow()
+            and not use_mi_chao_shen()
+        )
+    except Exception:
         _analytic_ok = False
     if _analytic_ok:
         if classes_y is None:
@@ -719,9 +730,16 @@ def mi_direct(
     # surface the empirical null, and the screen's relevance-baseline budget (``npermutations<32``) never reaches the GPU branch anyway, so routing-to-CPU here costs nothing
     # in practice; it only guards the unusual case of a caller asking for the null mean with a large budget on a CUDA host.
     if prefer_gpu and npermutations >= 32 and parallelism in ("outer", "none") and not return_null_mean and not _MI_DIRECT_GPU_FAILED:
+        # SCREEN_CONFIRM_B-4 fix (mrmr_audit_2026-07-22): this internal fastpath gate never consulted
+        # gpu_globally_disabled()/MLFRAME_DISABLE_GPU -- only is_cuda_available() (honors
+        # CUDA_VISIBLE_DEVICES but not the mlframe-specific opt-out). A caller that decided NOT to use
+        # GPU (e.g. confirm_candidate's _confirm_use_gpu=False fallback, which calls plain mi_direct()
+        # with no prefer_gpu=False) could have mi_direct silently re-route to GPU anyway once
+        # npermutations>=32, overriding the caller's explicit opt-out.
         try:
             from pyutilz.core.pythonlib import is_cuda_available
-            _gpu_ok = is_cuda_available()
+            from ._gpu_policy import gpu_globally_disabled
+            _gpu_ok = (not gpu_globally_disabled()) and is_cuda_available()
         except Exception:
             _gpu_ok = False
         if _gpu_ok:

@@ -24,6 +24,7 @@ single MI or R^2 metric cannot.
 from __future__ import annotations
 
 import logging
+import threading
 
 import numpy as np
 
@@ -41,6 +42,10 @@ _FE_UPLIFT_MIN: float = 0.015
 # ``_INFER_CLS_MEMO`` above.
 _BASELINE_CV_MEMO: dict = {}
 _BASELINE_CV_MEMO_MAXSIZE = 64
+# FE_ORCH_BUDGET-2 fix (mrmr_audit_2026-07-22): this and _INFER_CLS_MEMO below used the unlocked
+# `if len(cache) > N: cache.pop(next(iter(cache)))` eviction idiom -- see _unified_fe_gate.py's
+# _FE_GATE_MEMO_LOCK note for the full rationale (same race class, same fix).
+_FE_GATE_MEMO_LOCK = threading.Lock()
 
 
 def _baseline_cv_key(X_base: np.ndarray, y: np.ndarray, *, classification: bool, n_splits: int, seed: int):
@@ -115,7 +120,8 @@ def measure_feature_uplift(
     # X_base-only baseline CV score is deterministic across sibling calls -- cache it keyed on
     # the exact content that determines the split + fit (see ``_baseline_cv_key``).
     _bkey = _baseline_cv_key(X_base, y_enc, classification=classification, n_splits=n_splits, seed=seed)
-    _bcache = _BASELINE_CV_MEMO.get(_bkey) if _bkey is not None else None
+    with _FE_GATE_MEMO_LOCK:
+        _bcache = _BASELINE_CV_MEMO.get(_bkey) if _bkey is not None else None
     _base_scores: list[float] = []
     try:
         _fold_i = 0
@@ -154,9 +160,10 @@ def measure_feature_uplift(
     if not deltas:
         return None
     if _bkey is not None and _bcache is None and _base_scores:
-        if len(_BASELINE_CV_MEMO) > _BASELINE_CV_MEMO_MAXSIZE:
-            _BASELINE_CV_MEMO.pop(next(iter(_BASELINE_CV_MEMO)))
-        _BASELINE_CV_MEMO[_bkey] = _base_scores
+        with _FE_GATE_MEMO_LOCK:
+            if len(_BASELINE_CV_MEMO) > _BASELINE_CV_MEMO_MAXSIZE:
+                _BASELINE_CV_MEMO.pop(next(iter(_BASELINE_CV_MEMO)))
+            _BASELINE_CV_MEMO[_bkey] = _base_scores
     return float(np.mean(deltas))
 
 
@@ -175,7 +182,8 @@ def infer_classification(y: np.ndarray) -> bool:
     _key = None
     try:
         _key = (y.shape, str(y.dtype), hash(y.tobytes()))
-        _hit = _INFER_CLS_MEMO.get(_key)
+        with _FE_GATE_MEMO_LOCK:
+            _hit = _INFER_CLS_MEMO.get(_key)
         if _hit is not None:
             return bool(_hit)
     except Exception:
@@ -188,9 +196,10 @@ def infer_classification(y: np.ndarray) -> bool:
     else:
         _res = np.unique(finite).size <= max(20, int(0.02 * finite.size))
     if _key is not None:
-        if len(_INFER_CLS_MEMO) > 8:
-            _INFER_CLS_MEMO.pop(next(iter(_INFER_CLS_MEMO)))
-        _INFER_CLS_MEMO[_key] = bool(_res)
+        with _FE_GATE_MEMO_LOCK:
+            if len(_INFER_CLS_MEMO) > 8:
+                _INFER_CLS_MEMO.pop(next(iter(_INFER_CLS_MEMO)))
+            _INFER_CLS_MEMO[_key] = bool(_res)
     return bool(_res)
 
 

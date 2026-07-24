@@ -23,8 +23,8 @@ from ..hermite_fe import _detect_heavy_tail, _robust_axis_enabled, _robust_lo_hi
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "generate_extra_basis_features",
-    "hybrid_orth_extra_basis_fe_with_recipes",
+    "generate_extra_basis_features",  # noqa: F822 -- bound lazily via module __getattr__ below
+    "hybrid_orth_extra_basis_fe_with_recipes",  # noqa: F822 -- bound lazily via module __getattr__ below
 ]
 
 
@@ -892,9 +892,23 @@ def _detect_fourier_freq_for_col(
     return float(freqs[0]) if freqs else None
 
 
-# generate/recipe entry points carved to _orth_extra_basis_fe_generate.py (1k-LOC ceiling).
-from ._orth_extra_basis_fe_generate import (  # noqa: F401
-    _build_recipe_from_meta,
-    generate_extra_basis_features,
-    hybrid_orth_extra_basis_fe_with_recipes,
-)
+# generate/recipe entry points carved to _orth_extra_basis_fe_generate.py (1k-LOC ceiling), re-exported
+# here for backward-compat callers importing them from this module.
+#
+# ORTH_BASIS_B-4 fix (mrmr_audit_2026-07-22): this used to be a plain top-level `from
+# ._orth_extra_basis_fe_generate import ...`, but that sibling module ITSELF imports 9 names back from
+# THIS module at ITS OWN top level -- a genuine circular top-level import that only resolved because every
+# current caller happens to trigger it via this module first (so by the time this line executes, this
+# module's names are already bound). Any future caller importing `_orth_extra_basis_fe_generate` FIRST
+# would hit `ImportError: cannot import name ... from partially initialized module`. A lazy module
+# __getattr__ (PEP 562) defers the import to first actual attribute access, breaking the load-order
+# dependency entirely.
+_LAZY_GENERATE_NAMES = ("_build_recipe_from_meta", "generate_extra_basis_features", "hybrid_orth_extra_basis_fe_with_recipes")
+
+
+def __getattr__(name: str):
+    if name in _LAZY_GENERATE_NAMES:
+        from . import _orth_extra_basis_fe_generate as _gen
+
+        return getattr(_gen, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

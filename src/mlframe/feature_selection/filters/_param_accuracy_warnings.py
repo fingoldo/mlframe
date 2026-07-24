@@ -97,30 +97,27 @@ ACCURACY_SUBOPTIMAL: list[_Caveat] = [
 
 def warn_accuracy_suboptimal_params(estimator: Any) -> None:
     """Emit ONE consolidated UserWarning listing every accuracy-degrading parameter value set on
-    ``estimator``. Fires at most once PER DISTINCT PARAMETER SNAPSHOT (guarded by
-    ``_accuracy_caveats_warned_for_``, keyed on the checked attrs' values) -- a later ``set_params()``
-    to a different (possibly newly-bad) value re-triggers the check instead of staying silenced by an
-    earlier, unrelated fit. Silent on a default config. Never raises -- a missing attribute is simply
-    skipped."""
-    snapshot = []
+    ``estimator``. Silent on a default config. Never raises -- a missing attribute is simply skipped.
+
+    USABILITY_A-14 fix (mrmr_audit_2026-07-22): the guard used to be a plain one-shot latch
+    (``_accuracy_caveats_warned_``), so a ``set_params()`` call that degraded a param AFTER the first
+    fit (e.g. flipping ``dcd_enable`` from True to False between two ``fit()`` calls on the same
+    instance) never re-fired the warning. Now the latch stores WHICH attrs last triggered, and re-warns
+    whenever the current triggered set differs from that -- including growing, shrinking, or changing."""
     triggered = []
     for c in ACCURACY_SUBOPTIMAL:
         try:
             if not hasattr(estimator, c.attr):
                 continue
             val = getattr(estimator, c.attr)
-        except Exception:  # nosec B112 - best-effort path (hasattr/getattr on a raising property must not propagate)
-            continue
-        snapshot.append((c.attr, val))
-        try:
             if c.is_bad(val):
                 triggered.append((c, val))
-        except Exception:  # nosec B112 - best-effort path
+        except Exception:  # nosec B112 - best-effort path (hasattr/getattr on a raising property must not propagate)
             continue
-    snapshot_key = tuple(snapshot)
-    if getattr(estimator, "_accuracy_caveats_warned_for_", None) == snapshot_key:
+    triggered_attrs = frozenset(c.attr for c, _val in triggered)
+    if triggered_attrs == getattr(estimator, "_accuracy_caveats_warned_attrs_", frozenset()):
         return
-    estimator._accuracy_caveats_warned_for_ = snapshot_key
+    estimator._accuracy_caveats_warned_attrs_ = triggered_attrs
     if not triggered:
         return
     lines = [f"  * {c.attr}={val!r}: {c.cost}. Better: {c.restore}." for c, val in triggered]

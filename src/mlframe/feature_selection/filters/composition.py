@@ -61,6 +61,11 @@ def compose_pair_fe(
         feature_names = [f"x{i}" for i in range(p_orig)]
     else:
         feature_names = list(feature_names)
+        # USABILITY_A-4 fix (mrmr_audit_2026-07-22): single_mi_cache below is keyed only by column NAME; a
+        # duplicate name (a realistic pandas artefact after certain joins/concats) would silently alias the
+        # second column's MI to the first one's cached value with no error or warning.
+        if len(set(feature_names)) != len(feature_names):
+            raise ValueError(f"compose_pair_fe: feature_names must be unique; got duplicates in {feature_names!r}")
     rounds_log = []
     cur_X = X.copy()
     cur_names = feature_names[:]
@@ -125,7 +130,10 @@ def compose_pair_fe(
                     optimizer=optimizer,
                 )
             except Exception as e:
-                logger.debug("compose_pair_fe: pair (%d,%d) FE failed: %s", i, j, e)
+                # USABILITY_A-11 fix (mrmr_audit_2026-07-22): was `if verbose: logger.debug(...)`, so a
+                # genuinely-broken pair silently vanished with zero trace under the default (non-verbose)
+                # config. Always log at warning level (not opt-in), with the traceback only under verbose.
+                logger.warning("compose_pair_fe: pair (%d,%d) FE failed: %s", i, j, e, exc_info=verbose)
                 continue
             if res is None:
                 continue
@@ -221,15 +229,13 @@ def validate_pair_fe_cv(
                 baseline_uplift_threshold=0.0, optimizer=optimizer,
                 seed=seed + fold_idx,
             )
-        except Exception as exc:
-            # mrmr_audit_2026-07-20 B-23: log every swallow -- this try/except previously converted ANY
-            # exception (not just expected optimiser non-convergence) to a silent res=None, corrupting the
-            # honest OOS-uplift statistic this function exists to report with zero trace of WHY a fold's
-            # score is missing.
+        except Exception as _fold_exc:
+            # USABILITY_A-10 fix (mrmr_audit_2026-07-22): was a bare `except Exception: res = None` with
+            # zero logging, silently corrupting the honest OOS-uplift statistic whenever a fold genuinely
+            # broke (vs. the expected non-convergence `res is None` return) -- indistinguishable from a
+            # clean "no signal in this fold" result. Always log so a systematically-failing fold is visible.
             logger.warning(
-                "validate_pair_fe_cv: optimise_hermite_pair raised on fold %d (%s: %s); "
-                "treating this fold as a non-informative (mi=0) result.",
-                fold_idx, type(exc).__name__, exc,
+                "validate_pair_fe_cv: fold %d optimise_hermite_pair raised %s: %s", fold_idx, type(_fold_exc).__name__, _fold_exc,
             )
             res = None
         if res is None:
