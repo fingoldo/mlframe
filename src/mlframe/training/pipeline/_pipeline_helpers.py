@@ -69,7 +69,8 @@ def _selector_output_columns(selector):
     if support is None and hasattr(selector, "get_support"):
         try:
             support = selector.get_support()
-        except Exception:
+        except Exception as exc:
+            logger.debug("selector.get_support() failed, feature names unresolvable: %s", exc)
             support = None
     if support is None:
         return None
@@ -79,7 +80,8 @@ def _selector_output_columns(selector):
         if support.dtype == bool or (support.size and isinstance(support.flat[0], (bool, np.bool_))):
             return [c for c, keep in zip(names_in, support) if keep]
         return [names_in[int(i)] for i in support]
-    except Exception:
+    except Exception as exc:
+        logger.debug("selector support -> feature-name mapping failed: %s", exc)
         return None
 
 
@@ -417,7 +419,8 @@ def _multilabel_target_to_1d_for_supervised_encoders(target):
         if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
             try:
                 arr = np.stack([np.asarray(c) for c in arr], axis=0)
-            except Exception:
+            except Exception as exc:
+                logger.debug("multilabel target collapse: per-row stack failed, target left unnormalized: %s", exc)
                 return target
     if arr.ndim != 2:
         return target

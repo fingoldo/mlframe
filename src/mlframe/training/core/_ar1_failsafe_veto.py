@@ -14,9 +14,12 @@ never the reverse, and no-ops when val data is absent.
 """
 from __future__ import annotations
 
+import logging
 from typing import Callable, Optional, Sequence
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def decide_ar1_failsafe_val_veto(
@@ -84,7 +87,8 @@ def compute_val_veto(
         return None
     try:
         yv = np.asarray(oof_y_full)[filtered_val_idx].astype(np.float64)
-    except Exception:
+    except Exception as exc:
+        logger.debug("compute_val_veto: val target extraction failed, veto disabled: %s", exc)
         return None
     cache: dict[int, float] = {}
 
@@ -103,5 +107,6 @@ def compute_val_veto(
 
     try:
         return decide_ar1_failsafe_val_veto(oof_names, oof_rmses, lag_failsafe_tol, _val_rmse_of)
-    except Exception:
+    except Exception as exc:
+        logger.debug("compute_val_veto: veto decision failed, OOF-only failsafe runs unchanged: %s", exc)
         return None

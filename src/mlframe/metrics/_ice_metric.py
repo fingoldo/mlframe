@@ -370,7 +370,7 @@ class ICE:
     ) -> None:
 
         # save params
-        store_params_in_object(obj=self, params=get_parent_func_args())
+        store_params_in_object(obj=self, params=get_parent_func_args(), postfix="")
 
         self.nruns = 0
 

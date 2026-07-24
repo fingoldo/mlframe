@@ -111,7 +111,8 @@ def _frame_to_text(obj) -> Optional[str]:
         return None
     try:
         return str(to_string())
-    except Exception:
+    except Exception as exc:
+        logger.debug("_frame_to_text: to_string() rendering failed: %s", exc)
         return None
 
 
@@ -175,9 +176,10 @@ def _canonical_multilabel_y(targets) -> np.ndarray:
         if hasattr(first, "shape") or (hasattr(first, "__len__") and not isinstance(first, (str, bytes))):
             try:
                 targets_arr = np.stack([np.asarray(c) for c in targets_arr], axis=0)
-            except Exception:
+            except Exception as exc:
                 # Unstackable (jagged / mixed shape) — leave as-is so the
                 # caller's exception path surfaces the underlying issue.
+                logger.debug("_canonical_multilabel_y: per-row stack failed, leaving target unstacked: %s", exc)
                 return np.asarray(targets_arr)
 
     # Coerce float-indicator multilabel to int via threshold.

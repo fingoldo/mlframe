@@ -24,7 +24,8 @@ def _caller_logger() -> logging.Logger:
         # Stack: [_caller_logger] -> [public helper] -> [real caller]
         frame = sys._getframe(2)
         return logging.getLogger(frame.f_globals.get("__name__", __name__))
-    except Exception:
+    except Exception as exc:
+        logger.debug("_caller_logger: stack walk failed, attributing to this module instead: %s", exc)
         return logger
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -149,7 +150,8 @@ def get_process_rss_mb() -> float:
     """Current process RSS in MB."""
     try:
         return float(psutil.Process().memory_info().rss / 1024**2)
-    except Exception:
+    except Exception as exc:
+        logger.debug("get_process_rss_mb: RSS probe failed, reporting 0.0: %s", exc)
         return 0.0
 
 

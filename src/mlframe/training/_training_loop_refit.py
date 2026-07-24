@@ -22,6 +22,8 @@ import numpy as np
 
 from mlframe.core.helpers import get_model_best_iter
 
+logger = logging.getLogger(__name__)
+
 _MIN_BEST_ITER_HEALTHY: int = 3
 """Absolute floor below which we consider a booster to have failed to learn (constant prediction, ES at iter=0/1)."""
 
@@ -215,7 +217,8 @@ def _maybe_refit_on_collapsed_predictions(
     """
     try:
         _y = np.asarray(train_target)
-    except Exception:
+    except Exception as exc:
+        logger.debug("collapse-detector: train_target coercion failed, skipping refit-retry check: %s", exc)
         return False
     if _y.ndim != 1 or _y.size < 10:
         return False
@@ -266,7 +269,8 @@ def _maybe_refit_on_collapsed_predictions(
     # Predict on train and check variance ratio.
     try:
         _preds = np.asarray(model.predict(train_df)).reshape(-1)
-    except Exception:
+    except Exception as exc:
+        logger.debug("collapse-detector: train predict failed, skipping refit-retry check: %s", exc)
         return False
     if _preds.size != _y.size:
         return False

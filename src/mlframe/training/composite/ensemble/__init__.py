@@ -180,14 +180,16 @@ def _is_monotone_nondecreasing(arr: np.ndarray) -> bool:
     """
     try:
         a = np.asarray(arr).ravel()
-    except Exception:
+    except Exception as exc:
+        logger.debug("_is_monotone_nondecreasing: np.asarray coercion failed: %s", exc)
         return False
     if a.size < 2:
         return False
     # Cast to float so timestamps / ints alike work; non-numeric -> False.
     try:
         af = a.astype(np.float64, copy=False)
-    except Exception:
+    except Exception as exc:
+        logger.debug("_is_monotone_nondecreasing: float cast failed, non-numeric column: %s", exc)
         return False
     if not np.all(np.isfinite(af)):
         return False

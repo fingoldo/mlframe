@@ -193,7 +193,8 @@ def _patch_dataset_constructors_with_logging() -> None:
             pass
         try:
             return (len(payload), -1)
-        except Exception:
+        except Exception as exc:
+            logger.debug("_model_factories: len(payload) fallback failed, shape unknown: %s", exc)
             return None
 
     def _infer_callsite() -> str:
@@ -209,7 +210,8 @@ def _patch_dataset_constructors_with_logging() -> None:
                     return f"{mod}:{frame.f_lineno}"
                 frame = frame.f_back
             return f"{frame.f_globals.get('__name__', '?')}:{frame.f_lineno}" if frame else "?"
-        except Exception:
+        except Exception as exc:
+            logger.debug("_infer_callsite: stack walk failed, call site unknown: %s", exc)
             return "?"
 
     def _originates_in_internal_loop() -> bool:

@@ -29,7 +29,8 @@ def _probe_xgb_gpu_support() -> bool:
         import xgboost as _xgb
         info = _xgb.build_info() if hasattr(_xgb, "build_info") else {}
         return bool(info.get("USE_CUDA", False))
-    except Exception:
+    except Exception as exc:
+        logger.debug("_probe_xgb_gpu_support: build_info probe failed, assuming no GPU support: %s", exc)
         return False
 
 
@@ -50,7 +51,8 @@ def _probe_lgb_gpu_support() -> bool:
         if os.environ.get("MLFRAME_TRUST_LGB_CUDA") == "1":
             return True
         return False
-    except Exception:
+    except Exception as exc:
+        logger.debug("_probe_lgb_gpu_support: env-var probe failed, assuming no GPU support: %s", exc)
         return False
 
 

@@ -133,3 +133,36 @@ def test_real_model_survives_concurrent_predict_stress():
         t.join(timeout=120)
 
     assert not errors, f"expected zero errors across concurrent predict calls, got: {errors[:5]}"
+
+
+def test_leaked_lightning_dunder_patch_is_repaired_after_a_failed_call():
+    """Regression: ``lightning.fabric.utilities.data._replace_dunder_methods`` has no try/finally around its
+    ``yield`` -- an exception escaping mid-Trainer-call skips its own restore of DataLoader/BatchSampler's
+    patched __init__/__setattr__/__delattr__, leaving them stuck on the class. The NEXT unrelated call then wraps
+    again on top of the still-wrapped method, and depth grows monotonically across purely SEQUENTIAL (no
+    concurrency needed) calls until Python's recursion limit trips -- caught live via a fuzz combo whose 5th
+    sequential model fit in one suite run hit "RecursionError: maximum recursion depth exceeded" inside
+    Lightning's own wrapper, with no threading involved (a different manifestation than the concurrent race the
+    other tests in this file cover). ``run_with_cuda_cpu_fallback`` must unconditionally repair the leak on exit
+    of its OUTERMOST call, regardless of whether run_fn raised."""
+    import torch
+    from torch.utils.data import DataLoader
+    from lightning.fabric.utilities.data import _replace_dunder_methods
+
+    def _failing_run_fn(trainer):
+        """Simulates a Trainer call that raises mid-``_replace_dunder_methods``, leaking the patch."""
+        with _replace_dunder_methods(DataLoader, "dataset"):
+            raise ValueError("simulated mid-Trainer-call failure")
+
+    for _ in range(20):
+        try:
+            run_with_cuda_cpu_fallback(
+                action="fit", primary_trainer="t", model=object(), accelerator="cpu",
+                run_fn=_failing_run_fn, build_cpu_trainer=lambda: "cpu",
+            )
+        except ValueError:
+            pass
+
+    assert "__old__init__" not in DataLoader.__dict__, "leaked Lightning DataLoader patch was not repaired"
+    # A real DataLoader construction must not recurse/hang if the repair worked.
+    DataLoader(torch.utils.data.TensorDataset(torch.zeros(4, 2)), batch_size=2)
