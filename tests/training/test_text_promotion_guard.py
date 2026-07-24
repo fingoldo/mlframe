@@ -167,3 +167,32 @@ class TestMinNonNullTextPromotionGuard:
         df_just_above = self._build_df_polars(n=10_000, non_null_count=100, each_unique_occurs=1)
         text_above, _, _ = _auto_detect_feature_types(df_just_above, cfg, cat_features=["sparse_text"])
         assert "sparse_text" in text_above
+
+
+class TestEnumNeverPromotedToText:
+    """A pl.Enum column is a CLOSED, already-encoded nominal categorical (fixed category set at schema
+    time) -- never free text. Promoting one to text_features leaks its physical integer code (not the
+    decoded string label) into CatBoost's text-feature Pool construction, which then rejects it: "Invalid
+    type for text_feature[...] : text_features must have string type". Caught live via a fuzz combo with a
+    high-cardinality polars Enum column and no honor_user_dtype override (its False default used to leave
+    Enum eligible for text-auto-promotion, contradicting this module's own "pl.Enum stays nominal" docstring).
+    """
+
+    def test_high_cardinality_enum_column_not_promoted(self):
+        """A high-cardinality pl.Enum column must stay out of text_features regardless of cardinality."""
+        n_unique = 200
+        categories = [f"cat_{i:04d}" for i in range(n_unique)]
+        vals = categories * 5  # 1000 rows, well above the default min-non-null floor
+        df = pl.DataFrame({"enum_col": pl.Series("enum_col", vals, dtype=pl.Enum(categories))})
+        cfg = FeatureTypesConfig(auto_detect_feature_types=True, cat_text_cardinality_threshold=50)
+        text, _emb, _dropped = _auto_detect_feature_types(df, cfg, cat_features=["enum_col"])
+        assert "enum_col" not in text, "pl.Enum must never be auto-promoted to text_features regardless of cardinality"
+
+    def test_high_cardinality_utf8_column_still_promoted(self):
+        """Control: a plain (non-Enum) high-cardinality Utf8 column is unaffected by the Enum exclusion."""
+        n_unique = 200
+        vals = [f"cat_{i:04d}" for i in range(n_unique)] * 5
+        df = pl.DataFrame({"str_col": pl.Series("str_col", vals, dtype=pl.Utf8)})
+        cfg = FeatureTypesConfig(auto_detect_feature_types=True, cat_text_cardinality_threshold=50)
+        text, _emb, _dropped = _auto_detect_feature_types(df, cfg, cat_features=["str_col"])
+        assert "str_col" in text

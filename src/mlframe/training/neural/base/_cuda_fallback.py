@@ -42,6 +42,47 @@ T = TypeVar("T")
 # the same CUDA tensors). A single process-wide lock around the whole Trainer call eliminates both: no two
 # threads can ever be inside Lightning's Trainer/DataLoader machinery simultaneously.
 _TRAINER_CALL_LOCK = threading.RLock()
+# Reentrancy depth of ``run_with_cuda_cpu_fallback`` on the thread currently holding ``_TRAINER_CALL_LOCK``
+# (an RLock, so a nested call -- e.g. fit triggering a nested predict -- re-enters on the same thread).
+# Only guarded while the lock is held, so a plain int suffices. Used to run the leaked-patch repair below
+# ONLY on the outermost call's exit -- repairing mid-nesting would strip an outer call's still-active wrap.
+_trainer_call_depth = 0
+
+
+def _repair_leaked_lightning_dunder_patch() -> None:
+    """Undo Lightning's ``DataLoader``/``BatchSampler`` monkeypatch if a Trainer call left it stuck.
+
+    ``lightning.fabric.utilities.data._replace_dunder_methods`` patches ``__init__``/``__setattr__``/
+    ``__delattr__`` on ``DataLoader``/``BatchSampler`` (+ subclasses) for the duration of its ``with`` block,
+    restoring them in the code AFTER its ``yield`` -- but that restore loop is NOT inside a try/finally. Any
+    exception escaping the wrapped block (a CUDA error, a Lightning validation error, anything) skips the
+    restore entirely, leaving the patch stuck on the class. The NEXT unrelated Trainer call re-wraps on top of
+    the still-wrapped method, and depth grows monotonically across purely SEQUENTIAL calls (no concurrency
+    needed) until Python's recursion limit trips -- caught live via a fuzz combo whose 5th sequential model fit
+    in one suite run hit "RecursionError: maximum recursion depth exceeded" inside Lightning's own wrapper, with
+    every fit in that combo running one at a time (this module's ``_TRAINER_CALL_LOCK`` only guards the
+    CONCURRENT-race variant of this same underlying bug; it does nothing for a single thread that leaks on its
+    own exception). Mirrors Lightning's own restore loop exactly, made unconditional by running after every
+    outermost locked call regardless of success/failure -- a no-op when Lightning's own restore already ran.
+    """
+    try:
+        from torch.utils.data import BatchSampler, DataLoader
+    except ImportError:
+        return
+
+    def _all_subclasses(cls: type) -> set:
+        """Every subclass, recursively -- avoids a direct dependency on lightning_utilities (a transitive
+        dep) purely to reuse its identical ``get_all_subclasses`` helper for this one-off walk."""
+        direct = cls.__subclasses__()
+        return set(direct).union(*(_all_subclasses(c) for c in direct)) if direct else set()
+
+    for base_cls in (DataLoader, BatchSampler):
+        for cls in _all_subclasses(base_cls) | {base_cls}:
+            for patched_name in ("__setattr__", "__delattr__", "__init__"):
+                saved_name = f"__old{patched_name}"
+                if saved_name in cls.__dict__:
+                    setattr(cls, patched_name, getattr(cls, saved_name))
+                    delattr(cls, saved_name)
 
 CUDA_ERROR_FINGERPRINTS = (
     "CUDA",
@@ -135,6 +176,8 @@ def run_with_cuda_cpu_fallback(
     comment for why concurrent Trainer construction/predict is unsafe even without a CUDA error in the mix.
     """
     with _TRAINER_CALL_LOCK:
+        global _trainer_call_depth
+        _trainer_call_depth += 1
         try:
             result = run_fn(primary_trainer)
             return result, primary_trainer
@@ -178,3 +221,7 @@ def run_with_cuda_cpu_fallback(
                 except Exception as e_cpu2:
                     logger.error("Even with CUDA hidden the %s failed: %s. Re-raising original CUDA error.", action, e_cpu2)
                     raise
+        finally:
+            _trainer_call_depth -= 1
+            if _trainer_call_depth == 0:
+                _repair_leaked_lightning_dunder_patch()

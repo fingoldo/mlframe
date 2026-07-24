@@ -606,10 +606,19 @@ def _auto_detect_feature_types(
                 if name not in cat_features:
                     embedding_features.append(name)
                 continue
+            # pl.Enum is a CLOSED, already-encoded nominal categorical (its category set is fixed at schema
+            # time) -- never free text, so it must stay nominal unconditionally, not only when
+            # honor_user_dtype is set (this function's own docstring already documents "pl.Enum stays
+            # nominal" as the intended behavior; the code used to contradict it by including Enum in
+            # is_text_like whenever honor_user_dtype was left at its False default). Promoting an Enum
+            # column to text_features leaks its physical integer code (not the decoded string label) into
+            # CatBoost's text-feature Pool construction, which then rejects it: "text_features must have
+            # string type" -- caught live via a fuzz combo with a high-cardinality polars Enum column.
             # pl.Enum is an instance-level dtype (not a class), so isinstance() is required alongside the class-level check.
-            is_text_like = dtype in (pl.String, pl.Utf8, pl.Categorical) or isinstance(dtype, pl.Enum)
-            is_user_categorical_dtype = dtype == pl.Categorical or isinstance(dtype, pl.Enum)
-            if honor_user_dtype and is_user_categorical_dtype:
+            is_enum = isinstance(dtype, pl.Enum)
+            is_text_like = dtype in (pl.String, pl.Utf8, pl.Categorical) and not is_enum
+            is_user_categorical_dtype = dtype == pl.Categorical or is_enum
+            if is_enum or (honor_user_dtype and is_user_categorical_dtype):
                 honored_user_dtype_cols.append(name)
                 continue
             if is_text_like:
@@ -792,9 +801,9 @@ def _auto_detect_feature_types(
         )
     if honored_user_dtype_cols and verbose:
         logger.info(
-            "  honor_user_dtype=True: %d column(s) with explicit categorical "
-            "dtype (pl.Categorical / pl.Enum / pandas category) kept out of "
-            "text-auto-promotion regardless of cardinality: %s",
+            "  %d column(s) with explicit categorical dtype (pl.Categorical / pl.Enum / pandas category) "
+            "kept out of text-auto-promotion regardless of cardinality: pl.Enum always (a closed, "
+            "already-encoded nominal categorical); others only when honor_user_dtype=True: %s",
             len(honored_user_dtype_cols), sorted(honored_user_dtype_cols),
         )
 
