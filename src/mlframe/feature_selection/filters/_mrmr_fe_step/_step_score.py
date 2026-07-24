@@ -1169,4 +1169,13 @@ def materialise_and_finalise_fe_candidates(
                     type(_vote_exc).__name__, _vote_exc,
                 )
 
+    # GROUP-AWARE FE DEMOTION: NOT done here. An early attempt at this check (dropping a zero-within-
+    # group-MI engineered survivor right after the plain pair-search, before "usability-aware retention"
+    # runs later in ``_fit_impl``) was found to be UNDONE: retention re-attaches recipes it judges
+    # linearly-useful by its OWN criterion, independent of any earlier group-aware verdict, from its own
+    # cached recompute -- bypassing ``cols``/``data`` (and this early strip) entirely. The group-aware
+    # demotion therefore runs ONCE, as the LAST thing before ``_fit_impl`` returns (after every
+    # retention/UAED/escalation pass that could still mutate ``self._engineered_recipes_``), covering
+    # both materialised columns and retention-only recipes uniformly -- see ``_fit_impl_core.py``'s
+    # "final choke point" block.
     return prospective_additions, data, cols, nbins, X, selected_vars, n_recommended_features

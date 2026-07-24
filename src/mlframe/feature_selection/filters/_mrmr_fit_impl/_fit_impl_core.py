@@ -474,8 +474,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # univariate nonlinearity, independent of the heavier pair-CROSS-basis stage
     # which stays behind ``fe_hybrid_orth_enable``. Recovery pinned in
     # ``test_biz_value_mrmr_univariate_basis_fe.py``.
-    _hybrid_on = bool(getattr(self, "fe_hybrid_orth_enable", False))
-    _univ_basis_on = bool(getattr(self, "fe_univariate_basis_enable", True))
+    # fe_max_steps==0 is the documented "no FE at all" contract (see e.g. test_group_aware_mi_mrmr.py's
+    # fe_max_steps=0 fixtures): both default-ON families must not fire just because the user never
+    # explicitly touched their own enable flag -- gate on fe_max_steps>0 too, matching the analogous
+    # discrete-structural-operators precedent above (which DOES allow fe_max_steps=0 firing, but only
+    # for an operator the caller explicitly opted into via its own flag -- neither family here has that
+    # explicit-opt-in carve-out, so fe_max_steps=0 disables both unconditionally).
+    _hybrid_on = bool(getattr(self, "fe_hybrid_orth_enable", False)) and fe_max_steps > 0
+    _univ_basis_on = bool(getattr(self, "fe_univariate_basis_enable", True)) and fe_max_steps > 0
     if (_hybrid_on or _univ_basis_on) and _fe_budget_ok():
         # Polars frames: skip with a warning -- hybrid FE pipeline operates on
         # pandas. Native polars support would require a separate code path;
@@ -8387,6 +8393,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ---------------------------------------------------------------------------------------------------------------
 
     selected_vars_names = np.array(cols)[np.array(selected_vars, dtype=np.intp)]
+
     # BUG2 (2026-06-12): the cross-fold stability vote in ``_run_fe_step`` pops a
     # fold-unstable engineered recipe AND de-selects its column for that step, but the
     # materialised bin-code column stays in ``cols``/``data``, so the downstream greedy
@@ -9954,4 +9961,96 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # when present, are untouched).
     if hasattr(self, "support_nonlinear_"):
         self.support_nonlinear_ = self.support_
+
+    # GROUP-AWARE FE DEMOTION (final choke point, AFTER every reintroduction pass). Under
+    # ``group_aware_mi=True`` the raw-feature relevance screen (``evaluate_candidate``) already demotes
+    # a between-group-level "leak" raw feature via group-blocked I(X;Y|G) instead of the naive global MI
+    # -- but EVERY engineered-feature producer (the unary/binary pair search, the hybrid-orth Hermite
+    # basis, polynom/orthogonal families, ...) scores its candidates with the PLAIN global plug-in MI;
+    # none of them consult ``get_group_mi()``. A pair/basis interaction BUILT FROM a demoted leak raw
+    # feature (e.g. ``mul(leak_raw, unrelated)`` or a Hermite product ``leak_raw__He2 * other__He1``)
+    # still carries the leak's between-group signal and clears every naive-MI acceptance gate. An
+    # EARLIER attempt at this check (right after the initial ``selected_vars``/engineered-recipe build)
+    # was found to be undone by later passes -- usability-aware retention (``_retain_extra`` above)
+    # re-attaches recipes it judges linearly-useful by its OWN criterion, independent of any earlier
+    # group-aware verdict -- so this MUST run last, after UAED / retention / every other
+    # ``self._engineered_recipes_``/``self._engineered_features_`` mutation, right before returning.
+    # Recipes still materialised in ``data``/``cols`` (the common case) are re-scored directly; a
+    # retention-only recipe (usability-aware retention re-attaches recipes from its own recompute,
+    # independent of ``cols``/``data``) is replayed via ``apply_recipe`` + discretised the SAME way the
+    # retention pass itself does, so it gets the SAME group-aware check either way. Demotes any whose
+    # within-group MI comes back EXACTLY zero (no genuine within-group signal at all -- a column with any real, however small, within-group
+    # signal survives). A nan group-MI (misaligned segments) is inconclusive and left alone, mirroring the
+    # raw-feature gate's own fallback. No-op -- and therefore byte-identical -- when group_aware_mi is off
+    # / no groups were supplied this fit (``get_group_mi()`` returns ``None``).
+    try:
+        from ..info_theory._state_and_dispatch import get_group_mi as _get_group_mi_final
+        _gmi_final_payload = _get_group_mi_final()
+    except Exception:
+        _gmi_final_payload = None
+    _eng_recipes_final = getattr(self, "_engineered_recipes_", None) or []
+    if _gmi_final_payload is not None and _eng_recipes_final:
+        try:
+            from ..info_theory._group_mi import group_blocked_mi as _group_blocked_mi_final
+            from ..info_theory._group_mi import group_relevance_mi as _group_relevance_mi_final
+
+            _cols_idx_f = {nm: i for i, nm in enumerate(cols)}
+            _gsi_f, _goff_f, _gmr_f, _gsw_f = _gmi_final_payload
+            _classes_y_arr_f = np.asarray(classes_y)
+            _g_n_bins_y_f = int(_classes_y_arr_f.max()) + 1
+            _group_dropped_final: set = set()
+            for _recipe in _eng_recipes_final:
+                _rname = str(getattr(_recipe, "name", ""))
+                _cidx = _cols_idx_f.get(_rname)
+                if _cidx is not None:
+                    # Fast path: the engineered column is still materialised in ``data``/``cols``.
+                    _grp_mi_f = _group_relevance_mi_final(
+                        data, (int(_cidx),), _classes_y_arr_f, np.asarray(nbins), _g_n_bins_y_f,
+                        _gsi_f, _goff_f, min_rows=_gmr_f, size_weighted=_gsw_f, dtype=self.quantization_dtype,
+                    )
+                else:
+                    # Retention-only recipe (usability-aware retention re-attaches it from its OWN
+                    # recompute, bypassing ``cols``/``data`` entirely -- see the comment above). Replay
+                    # the SAME recompute + discretise the retention pass itself uses, then group-block
+                    # directly (a single already-discretised column needs no ``merge_vars`` combination).
+                    try:
+                        from ..engineered_recipes._recipe_dispatch import apply_recipe as _apply_recipe_final
+                        from ..discretization import discretize_array as _discretize_array_final
+
+                        _cv_f = np.asarray(_apply_recipe_final(_recipe, X), dtype=np.float64).ravel()
+                        _cv_f = np.nan_to_num(_cv_f, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                        if _cv_f.shape[0] != _classes_y_arr_f.shape[0]:
+                            continue  # can't align -- leave this recipe alone
+                        _codes_f = _discretize_array_final(_cv_f, n_bins=int(self.quantization_nbins), method=self.quantization_method, dtype=self.quantization_dtype)
+                        _grp_mi_f = _group_blocked_mi_final(
+                            _codes_f, _classes_y_arr_f, _gsi_f, _goff_f,
+                            n_bins_x=int(self.quantization_nbins), n_bins_y=_g_n_bins_y_f,
+                            min_rows=_gmr_f, size_weighted=_gsw_f, use_mm=True,
+                        )
+                    except Exception:
+                        continue  # can't replay/discretise -- leave this recipe alone (conservative)
+                if _grp_mi_f == _grp_mi_f and _grp_mi_f <= 0.0:  # not nan and exactly zero within-group signal
+                    _group_dropped_final.add(_rname)
+            if _group_dropped_final:
+                self._engineered_recipes_ = [_r for _r in _eng_recipes_final if str(getattr(_r, "name", "")) not in _group_dropped_final]
+                _eng_features_final = getattr(self, "_engineered_features_", None) or []
+                self._engineered_features_ = [_fn for _fn in _eng_features_final if str(_fn) not in _group_dropped_final]
+                self.n_features_ = (
+                    len(self.support_) + len(self._engineered_recipes_)
+                    if hasattr(self, "support_")
+                    else int(getattr(self, "n_features_", 0)) - len(_group_dropped_final)
+                )
+                if verbose:
+                    logger.info(
+                        "MRMR: demoted %d engineered feature(s) with zero within-group relevance MI "
+                        "under group_aware_mi (between-group-only leak signature reaching the final selection): %s",
+                        len(_group_dropped_final), sorted(_group_dropped_final),
+                    )
+        except Exception as _group_final_exc:
+            if verbose:
+                logger.warning(
+                    "MRMR group-aware FE demotion (final choke point) failed (%s: %s); keeping the naive-MI selection.",
+                    type(_group_final_exc).__name__, _group_final_exc,
+                )
+
     return self
