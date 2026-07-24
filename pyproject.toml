@@ -102,7 +102,7 @@ dependencies = [
     # carry (kept as defensive degradation, not exercised once this floor is guaranteed present).
     "xxhash>=3.0",
     # pyutilz is not yet on PyPI. Install it from GitHub before mlframe:
-    #   pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@84c66fc8a21c6fa84175247b2e94346432ca118a"
+    #   pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@0ba0748c1062fe8d1a063ff2e5615091a167d214"
     # X_SECURITY_API_PACKAGING-5 fix (mrmr_audit_2026-07-22): pin to a specific commit SHA, not the
     # floating default branch -- an unpinned, same-day pyutilz commit once silently flipped a shared
     # helper's default argument and broke MRMR.fit() for every caller (CORE_CLASS-1), with no version
