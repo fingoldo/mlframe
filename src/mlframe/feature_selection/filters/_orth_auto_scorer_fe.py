@@ -57,11 +57,17 @@ def _score_plug_in(x: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> float:
         return 0.0
     y_arr = np.asarray(y).ravel()
     if not np.issubdtype(y_arr.dtype, np.integer):
-        # _mi_classif_batch's sklearn fallback handles float y via class
-        # binning; the numba dispatch needs int64 y. Cast to int64 if all
-        # unique values fit (small-cardinality classif target).
+        # ORTH_SCORING_B-1 fix (mrmr_audit_2026-07-22): was a bare `y_arr.astype(np.int64)` -- TRUNCATES,
+        # does not densify -- the exact B-18 bug class, reintroduced because this function was carved into
+        # this sibling file (2026-06-06) BEFORE the 2026-07-20 B-18 fix pass, which patched the parent
+        # module but never followed the split here. A fractional low-cardinality y (e.g. [0.1, 0.2, ...])
+        # perfectly separated by x truncates to all-0.0 -> MI=0.0 instead of the correct densified MI.
+        # _mi_classif_batch's sklearn fallback handles float y via class binning; the numba dispatch needs
+        # int64 y. Densify via np.unique(return_inverse=True) if all unique values fit (small-cardinality
+        # classif target), matching every sibling scorer file's _coerce_y_int64 convention.
         uniq = np.unique(y_arr[np.isfinite(y_arr)] if y_arr.dtype.kind in "fc" else y_arr)
         if uniq.size <= 32:
+            _, y_arr = np.unique(y_arr, return_inverse=True)
             y_arr = y_arr.astype(np.int64)
     out = _mi_classif_batch(
         arr.reshape(-1, 1), y_arr, nbins=int(nbins),
@@ -498,7 +504,7 @@ def hybrid_orth_mi_auto_scorer_fe(
         X, cols=cols, degrees=degrees, basis=basis,
     )
     if engineered.empty:
-        return X.copy(), pd.DataFrame(columns=[
+        return X, pd.DataFrame(columns=[
             "engineered_col", "source_col", "baseline_mi", "engineered_mi",
             "uplift", "best_scorer", "lcb_per_scorer",
             "lcb_norm_per_scorer",
@@ -514,7 +520,7 @@ def hybrid_orth_mi_auto_scorer_fe(
         copula_n_bins=int(copula_n_bins), dcor_n_sample=int(dcor_n_sample),
     )
     if scores.empty:
-        return X.copy(), scores
+        return X, scores
     # Two-gate selection identical to Layers 65 / 66 / 67 for cross-layer
     # parity. Baseline LCB scales DIFFER across scorers (KSG MI is in
     # nats, dCor in [0, 1]) but every row in ``scores`` uses ITS column's
@@ -541,7 +547,7 @@ def hybrid_orth_mi_auto_scorer_fe(
     qualified = scores[(scores["uplift"] >= float(min_uplift)) & (scores["engineered_mi"] >= abs_floor)]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
-    X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
+    X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X
     return X_aug, scores
 
 
@@ -572,6 +578,7 @@ def hybrid_orth_mi_auto_scorer_fe_with_recipes(
     differs.
     """
     from .engineered_recipes import build_orth_univariate_recipe
+    from ._orthogonal_univariate_fe import _evaluate_basis_column
 
     X_aug, scores = hybrid_orth_mi_auto_scorer_fe(
         X, y,
@@ -606,8 +613,20 @@ def hybrid_orth_mi_auto_scorer_fe_with_recipes(
                 name,
             )
             continue
+        # ORTH_SCORING_B-2 fix (mrmr_audit_2026-07-22): freeze the fit-time basis-preprocess params
+        # (the B-17 fix, applied to the parent module's ensemble builder but never followed into this
+        # carved-out sibling) so MRMR.transform() on a row-sliced/distribution-shifted test frame replays
+        # the fit-time z-score/min-max axis instead of silently refitting it.
+        _pp = None
+        try:
+            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
+            _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
+        except Exception as exc:
+            logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
+            _pp = None
         recipes.append(build_orth_univariate_recipe(
             name=name, src_name=src,
             basis=chosen_basis, degree=chosen_degree,
+            preprocess_params=_pp,
         ))
     return X_aug, scores, recipes

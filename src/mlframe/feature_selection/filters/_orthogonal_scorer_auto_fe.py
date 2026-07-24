@@ -550,7 +550,7 @@ def hybrid_orth_mi_ensemble_fe(
         X, cols=cols, degrees=degrees, basis=basis,
     )
     if engineered.empty:
-        return X.copy(), pd.DataFrame(columns=[
+        return X, pd.DataFrame(columns=[
             "engineered_col", "source_col", "baseline_mi",
             "engineered_mi", "uplift", "aggregate_rank",
             "per_scorer_rank", "per_scorer_score",
@@ -569,7 +569,7 @@ def hybrid_orth_mi_ensemble_fe(
         dcor_n_sample=int(dcor_n_sample),
     )
     if scores.empty:
-        return X.copy(), scores
+        return X, scores
     # Same two-gate calibration as the auto-scorer path for cross-layer
     # parity (uplift + MAD floor on baseline_mi and engineered_mi).
     raw_baselines = scores["baseline_mi"].to_numpy()
@@ -601,7 +601,7 @@ def hybrid_orth_mi_ensemble_fe(
         qualified = qualified[qualified["aggregate_rank"] <= mutual_cut]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
-    X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
+    X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X
     return X_aug, scores
 
 
