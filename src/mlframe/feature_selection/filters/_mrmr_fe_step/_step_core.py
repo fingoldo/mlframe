@@ -70,20 +70,21 @@ def _free_gpu_fe_mempool() -> bool:
     try:
         from ..info_theory._cmi_cuda import clear_cmi_resident_cache
         clear_cmi_resident_cache()
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as exc:  # nosec B110 - optional dependency import guard
+        logger.debug("mrmr: clearing the CMI resident device cache at FE-step teardown failed (best-effort): %r", exc, exc_info=True)
     # FE operand resident cache: drop the fit-constant operand device copies (y / z / base columns) so their
     # device arrays carry no live reference -> free_all_blocks below can reclaim them (a fit-scoped cache).
     try:
         from .._fe_resident_operands import clear_fe_resident_operands
         clear_fe_resident_operands()
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as exc:  # nosec B110 - optional dependency import guard
+        logger.debug("mrmr: clearing FE resident operands at teardown failed (best-effort): %r", exc, exc_info=True)
     try:
         import cupy as _cp
         _cp.get_default_memory_pool().free_all_blocks()
         return True
-    except Exception:
+    except Exception as exc:
+        logger.debug("mrmr: cupy default-pool free_all_blocks() at FE-step teardown failed (VRAM will not be reclaimed this step): %r", exc, exc_info=True)
         return False
 
 
@@ -101,7 +102,17 @@ def _run_fe_step(self, **kwargs):
     corr_threshold) pair the memo is a single miss-then-store per key, i.e. free within measurement noise."""
     from .._orthogonal_univariate_fe._orth_dedup import dedup_collinear_memo_scope
     with dedup_collinear_memo_scope():
-        return _run_fe_step_impl(self, **kwargs)
+        # FE_STEP_A-1 fix (mrmr_audit_2026-07-22): _free_gpu_fe_mempool() teardown used to be a bare
+        # trailing statement inside _run_fe_step_impl -- any exception raised anywhere in that ~900-line
+        # body after the GPU-STRICT path engaged skipped VRAM-pool cleanup entirely, silently
+        # reintroducing the cross-fit VRAM-bloat degradation (11.2s -> 31.8s -> 32.3s, see the teardown's
+        # own docstring) on the very "repeated MRMR().fit / CV folds" scenario it exists to prevent.
+        # try/finally here (the single choke point every call passes through) guarantees it always runs,
+        # success or exception, without touching the impl function's own body.
+        try:
+            return _run_fe_step_impl(self, **kwargs)
+        finally:
+            _free_gpu_fe_mempool()
 
 
 def _run_fe_step_impl(
@@ -155,16 +166,42 @@ def _run_fe_step_impl(
         from .._fe_gpu_vram import ensure_fe_gpu_pool_limit as _ensure_fe_gpu_pool_limit
         _ensure_fe_gpu_pool_limit()
     except Exception as e:
-        logger.debug("swallowed exception in _step_core.py: %s", e)
-        pass
-    # SEPARATE KTC-free GPU-RESIDENT FE step (MLFRAME_FE_GPU_STRICT + MLFRAME_FE_GPU_STRICT_RESIDENT, default
-    # OFF). When the resident path is enabled it takes over the WHOLE FE step (operands uploaded once per
+        logger.debug("mrmr: ensure_fe_gpu_pool_limit() (VRAM pool cap at FE-step entry) failed (best-effort): %s", e, exc_info=True)
+    # SEPARATE KTC-free GPU-RESIDENT FE step (MLFRAME_FE_GPU_STRICT + MLFRAME_FE_GPU_STRICT_RESIDENT). Per
+    # ``fe_gpu_strict_resident_enabled()``'s own docstring this is now DEFAULT-ON whenever MLFRAME_FE_GPU_STRICT
+    # itself is on (FE_STEP_A-4 fix, mrmr_audit_2026-07-22 -- this comment previously said "default OFF", which
+    # was stale and had led a prior audit to independently mis-conclude this call site had zero production
+    # callers). When the resident path is enabled it takes over the WHOLE FE step (operands uploaded once per
     # device, all compute on GPU kernels, no bulk D2H). Phase 0: the entry is a stub that raises
     # NotImplementedError, so this is INERT (falls through to the existing per-family path below) until later
-    # phases implement it. ``locals()`` here (before any local is bound) is exactly the call params.
+    # phases implement it.
     from .._gpu_strict_fe import fe_gpu_strict_resident_enabled, run_fe_step_gpu_strict
     if fe_gpu_strict_resident_enabled():
-        _fe_args = {k: v for k, v in locals().items() if k not in ("self", "fe_gpu_strict_resident_enabled", "run_fe_step_gpu_strict")}
+        # FE_STEP_A-5 fix: explicit allowlist of the forwarded kwargs, not a locals()-introspection snapshot.
+        # The prior `{k: v for k, v in locals().items() if k not in (...)}` pattern depended on being written
+        # BEFORE any other local was bound in this function -- any future edit inserting a new local-binding
+        # line ahead of this block would silently change the kwarg set forwarded to run_fe_step_gpu_strict,
+        # a bug that would only surface once a later phase actually implements that function.
+        _fe_args = {"data": data, "cols": cols, "nbins": nbins, "X": X, "target_names": target_names,
+            "target_indices": target_indices, "selected_vars": selected_vars, "categorical_vars": categorical_vars,
+            "classes_y": classes_y, "classes_y_safe": classes_y_safe, "freqs_y": freqs_y, "cached_MIs": cached_MIs,
+            "cached_confident_MIs": cached_confident_MIs, "unary_transformations": unary_transformations,
+            "binary_transformations": binary_transformations, "engineered_features": engineered_features,
+            "checked_pairs": checked_pairs, "engineered_recipes": engineered_recipes, "times_spent": times_spent,
+            "num_fs_steps": num_fs_steps, "n_jobs": n_jobs, "prefetch_factor": prefetch_factor,
+            "parallel_kwargs": parallel_kwargs, "_is_polars_input": _is_polars_input, "verbose": verbose,
+            "fe_max_steps": fe_max_steps, "fe_npermutations": fe_npermutations,
+            "fe_max_pair_features": fe_max_pair_features, "fe_print_best_mis_only": fe_print_best_mis_only,
+            "fe_min_nonzero_confidence": fe_min_nonzero_confidence,
+            "fe_min_engineered_mi_prevalence": fe_min_engineered_mi_prevalence,
+            "fe_good_to_best_feature_mi_threshold": fe_good_to_best_feature_mi_threshold,
+            "fe_max_external_validation_factors": fe_max_external_validation_factors,
+            "fe_min_pair_mi": fe_min_pair_mi, "fe_min_pair_mi_prevalence": fe_min_pair_mi_prevalence,
+            "fe_smart_polynom_iters": fe_smart_polynom_iters,
+            "fe_smart_polynom_optimization_steps": fe_smart_polynom_optimization_steps,
+            "fe_min_polynom_degree": fe_min_polynom_degree, "fe_max_polynom_degree": fe_max_polynom_degree,
+            "fe_min_polynom_coeff": fe_min_polynom_coeff, "fe_max_polynom_coeff": fe_max_polynom_coeff,
+            "fe_unary_preset": fe_unary_preset, "fe_binary_preset": fe_binary_preset}
         try:
             return run_fe_step_gpu_strict(self, **_fe_args)
         except NotImplementedError:
@@ -251,7 +288,7 @@ def _run_fe_step_impl(
                 "running cluster-aggregate step anyway (operates on raw "
                 "feature_names_in_, not on selected_vars).",
             )
-            selected_vars = []
+            selected_vars = np.array([], dtype=np.int64)  # FE_STEP_A-8 fix: match the ndarray type the fe_fallback_to_all branch (and the normal caller-provided path) use.
             # 2026-06-03 (wave-9 follow-up, default_filtering.py:165): screening
             # selected nothing but we continue (interaction-only signal / cluster
             # aggregate). Flag this so the smart-polynom optimiser does NOT treat
@@ -269,7 +306,7 @@ def _run_fe_step_impl(
                 "Screening returned 0 features but the synergy bootstrap can seed an interaction-only pool "
                 "(fe_synergy_screen_max_features>0); running the FE pair / smart-polynom search anyway.",
             )
-            selected_vars = []
+            selected_vars = np.array([], dtype=np.int64)  # FE_STEP_A-8 fix: match the ndarray type the fe_fallback_to_all branch (and the normal caller-provided path) use.
             _screening_returned_empty = True
         else:
             logger.info("Skipping Feature Engineering (screening returned 0 features and fe_fallback_to_all=False).")
@@ -286,7 +323,8 @@ def _run_fe_step_impl(
         try:
             _raw_set = set(self.feature_names_in_)
             self._prefe_screened_raw_ = [cols[v] for v in selected_vars if cols[v] in _raw_set]
-        except Exception:
+        except Exception as exc:
+            logger.debug("mrmr: capturing the pre-FE screened-raw safety net failed; support finalisation cannot re-add these raws: %r", exc, exc_info=True)
             self._prefe_screened_raw_ = []
 
     n_recommended_features = 0
@@ -442,6 +480,13 @@ def _run_fe_step_impl(
             min_pairs=int(getattr(self, "fe_rung_min_pairs", 6)),
             verbose=verbose,
         )
+        # FE_STEP_A-6 fix: apply_rung_schedule's own docstring documents ``info`` as "for logging / tests" --
+        # it was computed and silently discarded here with no consumer. Surface it at verbose>=1.
+        if verbose and _rung_info.get("applied"):
+            logger.info(
+                "mrmr: rung-0 pair screen kept %d/%d prospective pairs (keep_frac=%.2f, rel_floor=%.2f).",
+                _rung_info.get("n_kept"), _rung_info.get("n_in"), _rung_info.get("keep_frac", 0.0), _rung_info.get("rel_floor", 0.0),
+            )
 
     # cols-space indices of polynom-pair engineered columns appended by the
     # ``run_polynom_pair_fe`` block below; promoted into ``selected_vars``
@@ -703,7 +748,8 @@ def _run_fe_step_impl(
         # Representative candidate-count for the gate's n*K crossover (a pair generates dozens-to-
         # hundreds of unary/binary candidates); the auto gate is CUDA-presence-gated internally.
         _gpu_fe_active = bool(_fe_gpu_disc_gate(int(getattr(X, "shape", [0])[0] or 0), 256))
-    except Exception:
+    except Exception as exc:
+        logger.debug("mrmr: GPU-FE-active probe failed; downgrading to the serial dispatch path: %r", exc, exc_info=True)
         _gpu_fe_active = False
     if _should_serialize_fe_pair_check(len(prospective_pairs), _gpu_fe_active, _fe_serial_min_pairs_per_worker):
         prospective_additions = check_prospective_fe_pairs(
@@ -1008,6 +1054,7 @@ def _run_fe_step_impl(
     # freeing the UNUSED blocks at each step teardown holds it flat at ~11.2s (pool total stays well under the
     # cap). free_all_blocks only returns blocks with no live reference, so a resident operand table held across
     # the fit is untouched; this is post-compute teardown, never mid-pipeline. Guarded + best-effort.
-    _free_gpu_fe_mempool()
+    # (FE_STEP_A-1 fix: moved into a try/finally in the ``_run_fe_step`` wrapper above this function, so it
+    # also runs on the exception path -- this was previously the only call site and skipped on any raise.)
 
     return data, cols, nbins, X, selected_vars, n_recommended_features

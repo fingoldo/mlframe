@@ -195,7 +195,12 @@ def compute_pair_mis_and_floor(
             # Skip pairs already in cached_confident_MIs (those had a confident permutation outcome).
             _n_pairs_batch = int(_pair_a_arr.shape[0])
             for _i in range(_n_pairs_batch):
-                _p = (int(_pair_a_arr[_i]), int(_pair_b_arr[_i]))
+                # FE_STEP_B-3 fix (mrmr_audit_2026-07-22): canonicalize to a sorted tuple. numeric_vars_to_consider
+                # is rebuilt as a fresh set every FE step and iterated to build the candidate-pair pool; set
+                # iteration order is not guaranteed ascending once it mixes small and large ints (e.g. raw indices
+                # plus later-appended engineered indices), so under fe_max_steps>1 the SAME logical pair could
+                # otherwise land as two divergent dict entries, (a,b) and (b,a), in this fit-persistent dict.
+                _p = tuple(sorted((int(_pair_a_arr[_i]), int(_pair_b_arr[_i]))))
                 if _p not in cached_confident_MIs and _p not in cached_MIs:
                     cached_MIs[_p] = float(_pair_mi_batch[_i])
                     _batch_prefill_count += 1
@@ -491,11 +496,18 @@ def compute_pair_mis_and_floor(
     if _prevalence_debias_auto and not _pair_mm_bias:
         try:
             from .._permutation_null import pairwise_mm_joint_bias
-            _auto_pairs = list(combinations(numeric_vars_to_consider, 2))
-            if _auto_pairs:
-                _auto_pa = np.fromiter((p[0] for p in _auto_pairs), dtype=np.int64, count=len(_auto_pairs))
-                _auto_pb = np.fromiter((p[1] for p in _auto_pairs), dtype=np.int64, count=len(_auto_pairs))
-                _auto_ky = int(np.asarray(freqs_y).shape[0])
+            # FE_STEP_B-2 fix (mrmr_audit_2026-07-22): RAM-bounded chunking, not a full unchunked
+            # list(combinations(...)) materialization -- this module's own design (see the primary
+            # pair-MI sweep a few screens up, and the "NO POOL-SIZE CAP" rationale) explicitly avoids
+            # exactly that O(k^2) tuple/array blowup (~300 MB at k=5000) at a wide production pool.
+            # ``_lazy_chunks`` keeps peak memory O(chunk_size), mirroring the primary sweep's own chunking.
+            _auto_ky = int(np.asarray(freqs_y).shape[0])
+            _auto_n = int(data.shape[0])
+            _auto_min_rpc = float(getattr(self, "fe_confirm_undersample_rows_per_cell", 5.0))
+            _auto_chunk_size = max(1, int(getattr(self, "fe_auto_prevalence_debias_chunk_size", 50_000) or 50_000))
+            for _auto_chunk in _lazy_chunks(combinations(numeric_vars_to_consider, 2), _auto_chunk_size):
+                _auto_pa = np.fromiter((p[0] for p in _auto_chunk), dtype=np.int64, count=len(_auto_chunk))
+                _auto_pb = np.fromiter((p[1] for p in _auto_chunk), dtype=np.int64, count=len(_auto_chunk))
                 _auto_bias = pairwise_mm_joint_bias(data, _auto_pa, _auto_pb, nbins, _auto_ky)
                 # UNDER-SAMPLE GUARD (bias-variance, 2026-06-13): the MM bias (k_joint-1)(k_y-1)/2n is
                 # only a reliable correction when the joint table is adequately occupied. At tiny n the
@@ -507,9 +519,7 @@ def compute_pair_mis_and_floor(
                 # rather than risk the tiny-n harm -- the large-n win (bilinear n=8000 0.195 -> 0.052)
                 # is preserved because there rows-per-cell clears the floor. k_joint is recovered from
                 # the bias: k_joint = 1 + bias*2n/(k_y-1).
-                _auto_n = int(data.shape[0])
-                _auto_min_rpc = float(getattr(self, "fe_confirm_undersample_rows_per_cell", 5.0))
-                for _api, _apr in enumerate(_auto_pairs):
+                for _api, _apr in enumerate(_auto_chunk):
                     _b = float(_auto_bias[_api])
                     if _b > 0.0 and _auto_ky > 1:
                         _kj = 1.0 + (_b * 2.0 * _auto_n) / float(_auto_ky - 1)

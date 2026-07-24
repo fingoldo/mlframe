@@ -45,6 +45,7 @@ rest. They never reference y at transform time (they run only at fit).
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Callable, Optional, Sequence
 
 import numpy as np
@@ -65,6 +66,13 @@ __all__ = [
 
 
 _COERCE_Y_MEMO: dict = {}
+# FE_ORCH_BUDGET-2 fix (mrmr_audit_2026-07-22): this and _RAW_MI_FLOOR_MEMO below used the unlocked
+# `if len(cache) > N: cache.pop(next(iter(cache)))` eviction idiom -- the exact race class the codebase
+# already fixed elsewhere (_MRMR_FIT_CACHE_LOCK in _fit_impl_core.py, _fe_family_timing.py's _LOCK) for
+# concurrent MRMR.fit() calls (multi-target discovery, service workers), a documented supported pattern.
+# Two threads racing the same eviction step could both resolve next(iter(cache)) to the same key, one
+# pops it, the second's pop on the now-missing key raises KeyError uncaught out of these FE gate calls.
+_FE_GATE_MEMO_LOCK = threading.Lock()
 
 
 def _coerce_y_classes(y) -> np.ndarray:
@@ -79,16 +87,18 @@ def _coerce_y_classes(y) -> np.ndarray:
     _key = None
     try:
         _key = (y_arr.shape, str(y_arr.dtype), hash(y_arr.tobytes()))
-        _hit = _COERCE_Y_MEMO.get(_key)
+        with _FE_GATE_MEMO_LOCK:
+            _hit = _COERCE_Y_MEMO.get(_key)
         if _hit is not None:
             return np.asarray(_hit.copy())
     except Exception:
         _key = None
     _res = _coerce_y_classes_impl(y_arr)
     if _key is not None:
-        if len(_COERCE_Y_MEMO) > 8:
-            _COERCE_Y_MEMO.pop(next(iter(_COERCE_Y_MEMO)))
-        _COERCE_Y_MEMO[_key] = _res.copy()
+        with _FE_GATE_MEMO_LOCK:
+            if len(_COERCE_Y_MEMO) > 8:
+                _COERCE_Y_MEMO.pop(next(iter(_COERCE_Y_MEMO)))
+            _COERCE_Y_MEMO[_key] = _res.copy()
     return _res
 
 
@@ -185,7 +195,8 @@ def raw_mi_noise_floor(
     _key = None
     try:
         _key = (tuple(num_cols), arr.shape, hash(arr.tobytes()), hash(y_bin.tobytes()), int(nbins), float(mad_mult))
-        _hit = _RAW_MI_FLOOR_MEMO.get(_key)
+        with _FE_GATE_MEMO_LOCK:
+            _hit = _RAW_MI_FLOOR_MEMO.get(_key)
         if _hit is not None:
             return _hit
     except Exception:
@@ -214,9 +225,10 @@ def raw_mi_noise_floor(
         _res = med + float(mad_mult) * 1.4826 * mad
 
     if _key is not None:
-        if len(_RAW_MI_FLOOR_MEMO) > 8:
-            _RAW_MI_FLOOR_MEMO.pop(next(iter(_RAW_MI_FLOOR_MEMO)))
-        _RAW_MI_FLOOR_MEMO[_key] = _res
+        with _FE_GATE_MEMO_LOCK:
+            if len(_RAW_MI_FLOOR_MEMO) > 8:
+                _RAW_MI_FLOOR_MEMO.pop(next(iter(_RAW_MI_FLOOR_MEMO)))
+            _RAW_MI_FLOOR_MEMO[_key] = _res
     return _res
 
 

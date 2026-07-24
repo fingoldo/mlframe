@@ -56,7 +56,7 @@ Cost is O(n_features_) string building at end of fit().
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterable
+from typing import Any, Iterable, Optional
 
 import numpy as np
 import pandas as pd
@@ -277,8 +277,13 @@ def _origin_from_recipe(recipe: Any) -> tuple[str, dict]:
     return origin, details
 
 
-def _origin_from_rosters(name: str, mrmr_self: Any) -> str:
-    """Fallback origin lookup against the mechanism roster attributes."""
+def _build_roster_membership_sets(mrmr_self: Any) -> list[tuple[set, str]]:
+    """Build each roster attribute's membership set ONCE (USABILITY_B-6 fix, mrmr_audit_2026-07-22:
+    ``_origin_from_rosters`` used to re-convert every one of the 13 roster attrs to a fresh ``list(...)``
+    and do an O(len(roster)) membership test from scratch, PER NAME -- O(n*m) instead of O(n+m) on a
+    kitchen-sink wide FE fit with hundreds of produced-but-unmatched engineered names). Call once before
+    the per-name loop and pass the result to ``_origin_from_rosters``."""
+    sets: list[tuple[set, str]] = []
     for attr, label in _ROSTER_ATTR_TO_ORIGIN:
         # ``or ()`` is unsafe when the roster is an ndarray (truth test
         # raises on size>1). Use an explicit ``None`` guard.
@@ -288,11 +293,25 @@ def _origin_from_rosters(name: str, mrmr_self: Any) -> str:
         try:
             # Force list membership to dodge ndarray ``__contains__``
             # returning a broadcast result on some dtypes.
-            if name in list(roster):
-                return label
+            sets.append((set(list(roster)), label))
         except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-            logging.getLogger(__name__).debug("suppressed in _mrmr_fe_provenance.py:292: %s", e)
+            logging.getLogger(__name__).debug("suppressed in _mrmr_fe_provenance.py (_build_roster_membership_sets): %s", e)
             continue
+    return sets
+
+
+def _origin_from_rosters(name: str, mrmr_self: Any, roster_sets: Optional[list[tuple[set, str]]] = None) -> str:
+    """Fallback origin lookup against the mechanism roster attributes.
+
+    ``roster_sets`` (USABILITY_B-6 fix): pass the pre-built result of ``_build_roster_membership_sets``
+    when calling this in a loop over many names, so each roster is converted to a set ONCE rather than
+    once per name. Falls back to building it fresh (the old, slower behaviour) when omitted, so any other
+    caller of this function keeps working unchanged."""
+    if roster_sets is None:
+        roster_sets = _build_roster_membership_sets(mrmr_self)
+    for roster_set, label in roster_sets:
+        if name in roster_set:
+            return label
     # DCD aggregate fallback: cluster_members_ is keyed by the engineered
     # aggregate name when DCD compose ran.
     cluster_members = getattr(mrmr_self, "cluster_members_", None)
@@ -440,6 +459,7 @@ def compute_fe_provenance(mrmr_self: Any) -> pd.DataFrame:
 
     final_names = _final_feature_order(mrmr_self)
     raw_set = set(feature_names_in)
+    _roster_sets = _build_roster_membership_sets(mrmr_self)
 
     rows = []
     for name in final_names:
@@ -459,7 +479,7 @@ def compute_fe_provenance(mrmr_self: Any) -> pd.DataFrame:
             else:
                 # Engineered name without a recipe -> fall back to roster
                 # attrs. Higher-order interactions land here.
-                origin = _origin_from_rosters(name, mrmr_self)
+                origin = _origin_from_rosters(name, mrmr_self, roster_sets=_roster_sets)
                 details = {}
 
         rows.append(

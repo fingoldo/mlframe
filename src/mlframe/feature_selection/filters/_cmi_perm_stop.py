@@ -27,6 +27,9 @@ from numba import njit
 
 logger = logging.getLogger(__name__)
 
+# SCREEN_CONFIRM_A-3 fix: dense (K_x, K_y, K_z) histogram cap -- see cmi_permutation_stop's inline comment.
+_MAX_K_Z = 10_000
+
 
 @njit(nogil=True, cache=True)
 def _cmi_plugin_njit(x: np.ndarray, y: np.ndarray, z_comp: np.ndarray, K_x: int, K_y: int, K_z: int) -> float:
@@ -96,20 +99,28 @@ def cmi_permutation_stop(x_cand: np.ndarray, y: np.ndarray,
             K_j = int(nbins_selected[j])
             z_comp = z_comp * K_j + col_j.astype(np.int64)
             K_z = K_z * K_j
-            if K_z > 1_000_000:
-                # Conditioning cardinality overflowed the modulus: distinct conditioning states now
-                # collide under ``z_comp % 1_000_000``, so the CMI is measured against a COARSENED Z.
-                # This can make a genuinely relevant feature look insignificant (its conditional
-                # dependence is masked by collided states) and trigger a premature stop -- warn so the
-                # caller can raise nbins / reduce |selected| rather than silently trust a coarse test.
+            if K_z > _MAX_K_Z:
+                # SCREEN_CONFIRM_A-3 fix (mrmr_audit_2026-07-22): this cap used to be 1_000_000 --
+                # _cmi_plugin_njit allocates a DENSE (K_x, K_y, K_z) float64 histogram, so even a modest
+                # K_x=K_y=10 at the old cap was 10*10*1_000_000*8 bytes = ~800 MB, rebuilt from scratch for
+                # the observed call AND every one of n_permutations (default 100) null draws -- a
+                # near-certain OOM/multi-minute hang once ~6+ ten-bin features are selected (K_z reaches
+                # ~1e6 fast: 10**6). Lowered by 100x to _MAX_K_Z=10_000 -- still generous for a
+                # conditional-independence test (worst case K_x=K_y=10: 10*10*10_000*8 bytes = 8 MB) while
+                # removing the realistic OOM/hang risk. Conditioning cardinality overflowed the modulus:
+                # distinct conditioning states now collide under ``z_comp % _MAX_K_Z``, so the CMI is
+                # measured against a COARSENED Z. This can make a genuinely relevant feature look
+                # insignificant (its conditional dependence is masked by collided states) and trigger a
+                # premature stop -- warn so the caller can raise nbins / reduce |selected| rather than
+                # silently trust a coarse test.
                 logger.warning(
-                    "CMI permutation-stop: conditioning cardinality K_z exceeded 1_000_000 after %d/%d "
+                    "CMI permutation-stop: conditioning cardinality K_z exceeded %d after %d/%d "
                     "selected features; truncating z_comp via modulo -- distinct conditioning states "
                     "may collide and mask relevance (risk of premature stop).",
-                    j + 1, len(selected_cols),
+                    _MAX_K_Z, j + 1, len(selected_cols),
                 )
-                z_comp = z_comp % 1_000_000
-                K_z = 1_000_000
+                z_comp = z_comp % _MAX_K_Z
+                K_z = _MAX_K_Z
                 break
     else:
         K_z = 1

@@ -88,7 +88,13 @@ def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int) -> n
             continue
         counts = np.bincount(finite.astype(np.int64), minlength=k)
         # keep the (cap-1) most frequent as 0..cap-2 (freq desc); everything else -> the "other" bucket cap-1.
-        keep = np.argsort(counts)[::-1][: max_cardinality - 1]
+        # DISCRETIZATION-13 fix (mrmr_audit_2026-07-22): kind="stable" so two categories tied exactly at
+        # the cutoff boundary have a deterministic, documented tie-break (first-seen/lowest-index order)
+        # rather than relying on the non-guaranteed default sort's tie behaviour across numpy
+        # versions/architectures. Sort by NEGATED counts (descending) directly, rather than
+        # ascending-then-reverse -- reversing a stable ascending sort would itself un-stabilize the tie
+        # order (it reverses ties' relative order too), defeating the point of "stable".
+        keep = np.argsort(-counts, kind="stable")[: max_cardinality - 1]
         remap = np.full(k, max_cardinality - 1, dtype=np.float64)
         remap[keep] = np.arange(max_cardinality - 1, dtype=np.float64)
         if not _copied:
@@ -444,7 +450,12 @@ def quantize_dig(arr, bins):
 
 @njit(cache=True)
 def quantize_search(arr, bins):
-    """Bin-code assignment via ``np.searchsorted`` on the interior bin edges -- equivalent to ``quantize_dig`` but faster for sorted, dense inputs."""
+    """Bin-code assignment via ``np.searchsorted`` on the interior bin edges -- faster than ``quantize_dig``
+    for sorted, dense inputs. NOT bit-equivalent on-edge (DISCRETIZATION-7 fix, mrmr_audit_2026-07-22):
+    ``digitize(..., right=True)`` and ``searchsorted(..., side="right")`` disagree at an exact edge value
+    (digitize's right=True excludes the left boundary of each bin; searchsorted's side="right" includes it),
+    so a value sitting exactly on a bin edge can land in a different bin between the two. This is the
+    function actually used everywhere live; ``quantize_dig`` has zero non-warmup callers."""
     return np.searchsorted(bins[1:-1], arr, side="right")
 
 
@@ -1174,11 +1185,14 @@ def discretize_2d_array_cuda_row_chunked(
     if method == "uniform":
         col_min_d: Any = None
         col_max_d: Any = None
+        # DISCRETIZATION-1 fix (mrmr_audit_2026-07-22): mirrors the B-12 fix already landed on the
+        # non-chunked sibling discretize_2d_array_cuda -- plain cp.min/cp.max propagate NaN (a single NaN
+        # anywhere in a column poisons that column's min/max to NaN), so use cp.nanmin/cp.nanmax instead.
         for row_start in range(0, n_rows, row_chunk_rows):
             row_end = min(row_start + row_chunk_rows, n_rows)
             d_chunk = cp.asarray(arr[row_start:row_end])
-            cmin = cp.min(d_chunk, axis=0)
-            cmax = cp.max(d_chunk, axis=0)
+            cmin = cp.nanmin(d_chunk, axis=0)
+            cmax = cp.nanmax(d_chunk, axis=0)
             col_min_d = cmin if col_min_d is None else cp.minimum(col_min_d, cmin)
             col_max_d = cmax if col_max_d is None else cp.maximum(col_max_d, cmax)
             del d_chunk
@@ -1191,6 +1205,10 @@ def discretize_2d_array_cuda_row_chunked(
             out_f = (d_chunk - col_min_d) * rev
             out_f = cp.where(_rng > 0, out_f, 0.0)
             out_f = cp.clip(out_f, 0, n_bins - 1)
+            # DISCRETIZATION-1 fix (mrmr_audit_2026-07-22): route individual NaN VALUES to the dedicated
+            # NaN bin code (n_bins), matching the CPU discretize_uniform kernel and the fixed non-chunked
+            # sibling -- without this, cp.clip is a no-op on NaN and it would cast to a garbage int code.
+            out_f = cp.where(cp.isnan(d_chunk), float(n_bins), out_f)
             out[row_start:row_end] = cp.asnumpy(out_f.astype(_out_cp_dtype))
             del d_chunk, out_f
             n_chunks += 1
@@ -1203,7 +1221,13 @@ def discretize_2d_array_cuda_row_chunked(
             sub_arr = arr
         d_sub = cp.asarray(sub_arr)
         qs = cp.linspace(0.0, 100.0, n_bins + 1)
-        bin_edges = cp.percentile(d_sub, qs, axis=0)
+        # DISCRETIZATION-1 fix (mrmr_audit_2026-07-22): mirrors the B-12 fix on the non-chunked sibling --
+        # cp.percentile has no nanpercentile twin, and a plain cp.percentile over a NaN-bearing subsample
+        # poisons EVERY edge for that column with NaN, collapsing the whole column to one degenerate bin.
+        if bool(cp.isnan(d_sub).any()):
+            bin_edges = cp.asarray(np.nanpercentile(sub_arr, cp.asnumpy(qs), axis=0))
+        else:
+            bin_edges = cp.percentile(d_sub, qs, axis=0)
         del d_sub
         # Cut points are derived from ``bin_edges`` ONCE here (fit-constant across every row-chunk below)
         # instead of being re-transposed inside ``_discretize_quantile_rawkernel`` on every chunk call --

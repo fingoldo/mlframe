@@ -221,8 +221,10 @@ def cluster_stability_selection(
         idx = rng.permutation(n)[:half]
         try:
             sel = selector_fn(X.iloc[idx] if _is_df else X[idx], y[idx])
-        except Exception as _sel_exc:
-            logger.debug("bootstrap %d: selector_fn raised (%s); excluding this degenerate subsample.", _b, _sel_exc)
+        except Exception as exc:
+            # CLUSTERING_STABILITY-9 fix (mrmr_audit_2026-07-22): log at debug so a systematically-broken
+            # selector_fn is diagnosable from logs (with debug logging enabled) instead of needing a debugger.
+            logger.debug("cluster_stability_selection: bootstrap %d's selector_fn raised: %r", _b, exc)
             n_failed += 1
             continue
         n_success += 1
@@ -231,6 +233,15 @@ def cluster_stability_selection(
         feat_sel_freq[sel] += 1
         selected_clusters = np.unique(cluster_id[sel])
         cluster_sel_freq[selected_clusters] += 1
+    if n_success == 0:
+        # CLUSTERING_STABILITY-1 fix (mrmr_audit_2026-07-22): mirrors StabilityMRMR.fit's post-B-14
+        # contract -- every bootstrap failing means the input is fundamentally too small/degenerate for
+        # selector_fn at this sample size, not "some unlucky draws". Raise loudly instead of silently
+        # returning an empty/"nothing is stable" result a caller could easily mistake for a real answer.
+        raise RuntimeError(
+            f"cluster_stability_selection: all {int(n_bootstrap)} bootstraps failed (selector_fn raised every "
+            f"time); the input is too small/degenerate for selector_fn at this sample size (half={half})."
+        )
     if n_failed:
         logger.warning(
             "cluster_stability_selection: %d/%d bootstraps failed; frequencies "
@@ -312,8 +323,10 @@ def complementary_pairs_stability(
         try:
             sel_b = np.asarray(selector_fn(X.iloc[idx_b] if _is_df else X[idx_b], y[idx_b]), dtype=np.int64).ravel()
             sel_bc = np.asarray(selector_fn(X.iloc[idx_bc] if _is_df else X[idx_bc], y[idx_bc]), dtype=np.int64).ravel()
-        except Exception as _sel_exc:
-            logger.debug("complementary-pair split: selector_fn raised (%s); excluding this degenerate split.", _sel_exc)
+        except Exception as exc:
+            # CLUSTERING_STABILITY-9 fix (mrmr_audit_2026-07-22): log at debug so a systematically-broken
+            # selector_fn is diagnosable from logs (with debug logging enabled) instead of needing a debugger.
+            logger.debug("complementary_pairs_stability: pair %d's selector_fn raised: %r", _b, exc)
             n_failed += 1
             continue
         n_success += 1
@@ -328,6 +341,13 @@ def complementary_pairs_stability(
             pair_complementary[f] += 1
         for f in union:
             union_freq[f] += 1
+    if n_success == 0:
+        # CLUSTERING_STABILITY-1 fix (mrmr_audit_2026-07-22): mirrors StabilityMRMR.fit's post-B-14
+        # contract -- see cluster_stability_selection's matching fix for the full rationale.
+        raise RuntimeError(
+            f"complementary_pairs_stability: all {int(n_pairs)} pairs failed (selector_fn raised every "
+            f"time); the input is too small/degenerate for selector_fn at this sample size (half={half})."
+        )
     if n_failed:
         logger.warning(
             "complementary_pairs_stability: %d/%d pairs failed; frequencies are "

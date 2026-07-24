@@ -8,11 +8,20 @@ would false-fail; what must be zero is BULK transfer (arrays whose size scales w
 from __future__ import annotations
 
 import contextlib
+import threading
 from typing import Iterator
 
 # bytes at/above which a transfer is "bulk" (a scalar / tiny index is far below; one operand column at
 # n_sub=30k f32 is 120KB, so 8KB cleanly separates scalar decisions from bulk data).
 BULK_BYTES = 8192
+
+# X_EDGE_CASES_BEST_PRACTICES-4 fix (mrmr_audit_2026-07-22): residency_audit() monkeypatches
+# process-wide cp.asarray/cp.asnumpy/cp.ndarray.get with no reentrancy guard. Two overlapping
+# residency_audit() regions on different threads would have the second region's "_orig_*" capture be
+# the first region's wrapper (not the true original), and whichever region exits first restores to a
+# stale value -- silently corrupting the surviving region's byte tally with no error. Serialize entry
+# so only one region's monkeypatch is ever installed at a time.
+_AUDIT_LOCK = threading.RLock()  # RLock: a same-thread nested residency_audit() must not deadlock
 
 
 class ResidencyReport:
@@ -88,18 +97,19 @@ def residency_audit() -> Iterator[ResidencyReport]:
             pass
         return _orig_get(self, *a, **k)
 
-    cp.asarray = _asarray
-    cp.asnumpy = _asnumpy
-    try:
-        cp.ndarray.get = _get  # may be read-only on some cupy builds; guarded
-    except Exception:  # nosec B110 - best-effort path
-        pass
-    try:
-        yield rep
-    finally:
-        cp.asarray = _orig_asarray
-        cp.asnumpy = _orig_asnumpy
+    with _AUDIT_LOCK:
+        cp.asarray = _asarray
+        cp.asnumpy = _asnumpy
         try:
-            cp.ndarray.get = _orig_get
+            cp.ndarray.get = _get  # may be read-only on some cupy builds; guarded
         except Exception:  # nosec B110 - best-effort path
             pass
+        try:
+            yield rep
+        finally:
+            cp.asarray = _orig_asarray
+            cp.asnumpy = _orig_asnumpy
+            try:
+                cp.ndarray.get = _orig_get
+            except Exception:  # nosec B110 - best-effort path
+                pass

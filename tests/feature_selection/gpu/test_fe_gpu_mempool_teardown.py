@@ -18,9 +18,34 @@ from __future__ import annotations
 
 import pytest
 
-cp = pytest.importorskip("cupy")
+import mlframe.feature_selection.filters._mrmr_fe_step._step_core as _step_core_mod
+from mlframe.feature_selection.filters._mrmr_fe_step._step_core import _free_gpu_fe_mempool, _run_fe_step
 
-from mlframe.feature_selection.filters._mrmr_fe_step._step_core import _free_gpu_fe_mempool
+
+def test_teardown_runs_even_when_run_fe_step_impl_raises(monkeypatch):
+    """FE_STEP_A-1 regression (mrmr_audit_2026-07-22): ``_free_gpu_fe_mempool()`` used to be a bare trailing
+    statement inside ``_run_fe_step_impl``, so any exception raised anywhere in that ~900-line body skipped
+    VRAM-pool cleanup entirely -- silently reintroducing the cross-fit VRAM-bloat degradation this teardown
+    exists to prevent, on repeated ``MRMR().fit()`` / CV-fold calls where one fold's FE step happens to raise.
+    Pre-fix: the teardown spy below would NOT have been called (it lived only after the impl call, unreached
+    on exception). Post-fix: ``_run_fe_step``'s try/finally guarantees it runs regardless.
+    """
+    calls = []
+    monkeypatch.setattr(_step_core_mod, "_free_gpu_fe_mempool", lambda: calls.append(1) or True)
+
+    def _raiser(self, **kwargs):
+        """Stand in for ``_run_fe_step_impl`` and always raise, to exercise the teardown's finally branch."""
+        raise RuntimeError("simulated FE-step failure")
+
+    monkeypatch.setattr(_step_core_mod, "_run_fe_step_impl", _raiser)
+
+    with pytest.raises(RuntimeError, match="simulated FE-step failure"):
+        _run_fe_step(object())
+
+    assert calls == [1], "teardown must run exactly once even though _run_fe_step_impl raised"
+
+
+cp = pytest.importorskip("cupy")
 
 
 def test_helper_inert_without_gpu_flags(monkeypatch):

@@ -23,9 +23,38 @@ computed identically.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 import numpy as np
+
+logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
+
+# SCREEN_CONFIRM_B-5 fix (mrmr_audit_2026-07-22): process-level circuit breaker, mirroring
+# _permutation_null_pair_resident.py's order-2 _PAIR_MAXT_GPU_FAILED exactly. A WDDM-TDR
+# cudaErrorLaunchFailure on a small/weak card POISONS the CUDA context, so every subsequent order-1
+# resident-floor attempt this process re-faults; without this (and without ANY logging -- this file had
+# none before this fix), a real device fault would silently re-attempt the GPU on every screen_predictors/
+# FE call for the rest of the fit with zero trace in the logs. Trip on the FIRST fault; reset only via
+# reset_order1_maxt_gpu_circuit_breaker() (tests).
+_ORDER1_MAXT_GPU_FAILED = False
+
+
+def trip_order1_maxt_gpu_circuit_breaker() -> None:
+    """Mark the resident order-1 maxT GPU path dead for the rest of the process (called on a launch fault)."""
+    global _ORDER1_MAXT_GPU_FAILED
+    _ORDER1_MAXT_GPU_FAILED = True
+
+
+def reset_order1_maxt_gpu_circuit_breaker() -> None:
+    """Re-arm the resident order-1 maxT GPU path (tests / after a fresh CUDA context)."""
+    global _ORDER1_MAXT_GPU_FAILED
+    _ORDER1_MAXT_GPU_FAILED = False
+
+
+def order1_maxt_gpu_circuit_breaker_tripped() -> bool:
+    """Whether the order-1 resident maxT GPU path is currently poisoned (skip GPU, use CPU njit floor)."""
+    return _ORDER1_MAXT_GPU_FAILED
 
 # Working-set budget so the largest intermediate -- the (chunk_cand * chunk_perm * n) int64 joint-code
 # array -- stays well inside a small (4GB) card. We size the (cand, perm) tile so that

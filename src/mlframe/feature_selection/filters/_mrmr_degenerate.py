@@ -118,8 +118,16 @@ def _content_key(values: np.ndarray):
     (copy-free for C-contiguous arrays -- the same technique already used by
     ``_fe_resident_operands._content_hash``), falling back to pandas' hash_array
     (numeric/object-safe, handles non-contiguous input) when xxhash is unavailable
-    or the fast path errors for any reason."""
-    arr = np.asarray(values)
+    or the fast path errors for any reason.
+
+    USABILITY_B (found while adding mrmr_audit_2026-07-22 test coverage): two bit-identical columns
+    could previously get DIFFERENT-TYPED keys (xxhash int vs pandas hash_array bytes) whenever their
+    underlying memory layout differed (e.g. ``df['b'] = df['a']`` can leave one C-contiguous and the
+    other not, depending on pandas' block-manager consolidation) -- an int key and a bytes key never
+    compare equal, so the duplicate silently went undetected. Force contiguity first (a no-op copy when
+    already contiguous) so the fast path's OWN dtype/contiguity gate always sees the same answer for
+    equal content, regardless of the caller's original array layout."""
+    arr = np.ascontiguousarray(values)
     if _xxh3_64 is not None and arr.dtype.kind in "fiub" and arr.flags["C_CONTIGUOUS"]:
         try:
             return _xxh3_64(arr)
@@ -165,7 +173,10 @@ def _gram_matrix(M: np.ndarray) -> np.ndarray:
         return np.asarray(M @ M.T)
 
 
-def audit_degenerate_columns(X) -> dict:
+_COLLINEARITY_PASS_MAX_COLS = 4000
+
+
+def audit_degenerate_columns(X, max_collinearity_cols: int = _COLLINEARITY_PASS_MAX_COLS) -> dict:
     """Cheap O(p) degenerate-column scan. Returns ``{column: reason}``.
 
     Order of precedence per column: all_nan > constant > duplicate_of > collinear_with.
@@ -173,6 +184,13 @@ def audit_degenerate_columns(X) -> dict:
     all-NaN column is reported as ``all_nan``, never as a duplicate of another all-NaN
     column). Duplicate / collinear are reported relative to the FIRST (earliest)
     matching column.
+
+    ``max_collinearity_cols`` (USABILITY_B-1 fix, mrmr_audit_2026-07-22): the O(p) all_nan/constant/
+    duplicate checks above always run regardless of width, but the collinearity pass below allocates a
+    dense ``(p, n)`` Gram-matrix input -- unbounded on a genuinely wide raw frame (tens of thousands of
+    columns), a multi-GB-to-tens-of-GB allocation purely for a PURELY DIAGNOSTIC scan that never
+    influences selection. Above this many numeric candidate columns, the collinearity pass is skipped
+    (``collinear_with`` reasons simply won't be reported that fit; all_nan/constant/duplicate still are).
     """
     degenerate: dict = {}
     seen_content: dict = {}  # content_key -> first column name
@@ -206,7 +224,13 @@ def audit_degenerate_columns(X) -> dict:
     # numeric, non-degenerate columns participate; the first column of each collinear
     # group is the reference.
     live = [(n, v, f) for (n, v, f) in numeric_cols if n not in degenerate]
-    if len(live) >= 2:
+    if len(live) > max_collinearity_cols:
+        logger.info(
+            "mrmr degenerate-column audit: skipping the collinearity pass (%d numeric candidate columns "
+            "exceeds max_collinearity_cols=%d) -- all_nan/constant/duplicate reasons are unaffected.",
+            len(live), max_collinearity_cols,
+        )
+    elif len(live) >= 2:
         names = [n for (n, _, _) in live]
         n_rows = live[0][1].shape[0]
         # ROW-major (K, n_rows), not (n_rows, K): writing ``M[k, :] = col`` fills a CONTIGUOUS row,
