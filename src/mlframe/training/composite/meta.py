@@ -33,9 +33,12 @@ the standalone composite on OOS RMSE.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Sequence
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 from sklearn.model_selection import KFold
 
@@ -82,7 +85,8 @@ def _fit_nnls_2col(oof: np.ndarray, y: np.ndarray) -> np.ndarray:
     b = y[finite]
     try:
         w, _residual = nnls(A, b)
-    except Exception:  # pragma: no cover - solver edge
+    except Exception as exc:  # pragma: no cover - solver edge
+        logger.debug("NNLS blend weight solve failed, falling back to an equal split: %s", exc)
         return np.array([0.5, 0.5])
     total = w.sum()
     if not np.isfinite(total) or total <= 0:

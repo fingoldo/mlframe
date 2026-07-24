@@ -202,7 +202,8 @@ def save_mlframe_model(
             cls = type(v)
             mod = getattr(cls, "__module__", "") or ""
             name = cls.__name__
-        except Exception:
+        except Exception as exc:
+            logger.debug("_looks_like_training_bloat: type introspection failed: %s", exc)
             return False
         if mod.startswith(("lightning", "pytorch_lightning")):
             # endswith (not ==) so Trainer subclasses / custom DataModules match.

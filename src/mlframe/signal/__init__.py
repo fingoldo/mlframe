@@ -13,8 +13,11 @@ this package wins the import.
 """
 
 import importlib.util as _ilu
+import logging as _logging
 import os as _os
 import sys as _sys
+
+_logger = _logging.getLogger(__name__)
 
 
 def _load_stdlib_signal():
@@ -35,7 +38,8 @@ def _load_stdlib_signal():
     _sys.modules[modname] = mod
     try:
         spec.loader.exec_module(mod)
-    except Exception:  # pragma: no cover - defensive
+    except Exception as exc:  # pragma: no cover - defensive
+        _logger.debug("_load_stdlib_signal: exec_module failed: %s", exc)
         return None
     finally:
         if _prev is None:

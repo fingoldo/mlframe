@@ -453,7 +453,8 @@ def _captum_integrated_gradients_importance(
         return None
     try:
         X_arr = X.to_numpy() if isinstance(X, pd.DataFrame) else np.asarray(X)
-    except Exception:
+    except Exception as exc:
+        logger.debug("Integrated Gradients: X coercion failed, skipping attribution: %s", exc)
         return None
     if X_arr.ndim != 2 or X_arr.shape[0] == 0:
         return None

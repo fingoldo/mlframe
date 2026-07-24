@@ -7,9 +7,12 @@ TTA spread and the actual error (is the spread an informative uncertainty signal
 """
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def evaluate_tta_quality(
@@ -70,5 +73,6 @@ def _narrow_numeric_frame(df, columns: Sequence[str]):
         if not np.isfinite(arr).all():
             return None
         return arr
-    except Exception:
+    except Exception as exc:
+        logger.debug("TTA uncertainty eval: column extraction/coercion failed: %s", exc)
         return None

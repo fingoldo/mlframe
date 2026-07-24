@@ -13,7 +13,11 @@ takes the exact chunked-cdist + argmin path unchanged.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 _PROPAGATE_SWEEP_N_FULL = [50_000, 200_000, 1_000_000]
 _PROPAGATE_SWEEP_N_SUB = [2_000, 20_000]
@@ -33,7 +37,8 @@ def propagate_use_resident(n_full: int, n_sub: int) -> bool:
     n_sub_bucket = min(_PROPAGATE_SWEEP_N_SUB, key=lambda b: abs(b - int(n_sub)))
     try:
         choice = _PROPAGATE_SPEC.choose(n_full=n_full_bucket, n_sub=n_sub_bucket)
-    except Exception:
+    except Exception as exc:
+        logger.debug("propagate_use_resident: KTC lookup failed, staying on the host path: %s", exc)
         return False
     return bool(choice == "resident")
 

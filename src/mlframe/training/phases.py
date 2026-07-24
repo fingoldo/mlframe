@@ -114,7 +114,8 @@ def _try_get_rss_gb() -> float:
     try:
         import psutil
         return float(psutil.Process().memory_info().rss / (1024 ** 3))
-    except Exception:
+    except Exception as exc:
+        logger.debug("_try_get_rss_gb: RSS probe unavailable: %s", exc)
         return 0.0
 
 

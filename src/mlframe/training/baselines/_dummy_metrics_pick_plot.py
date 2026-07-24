@@ -535,5 +535,6 @@ def _safe_metric_for_title(report: BaselineReport) -> str:
         if isinstance(val, float) and _isfinite(val):
             return f"{val:.4g}"
         return "?"
-    except Exception:
+    except Exception as exc:
+        logger.debug("_safe_metric_for_title: metric lookup failed: %s", exc)
         return "?"

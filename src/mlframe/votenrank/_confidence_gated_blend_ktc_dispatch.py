@@ -43,11 +43,13 @@ def _get_cache() -> Any:
     """Return the shared KernelTuningCache singleton, or None if pyutilz/FS is unavailable."""
     try:
         from mlframe.feature_selection.filters import get_kernel_tuning_cache
-    except Exception:  # pyutilz / FS package unavailable -> hardcoded fallback.
+    except Exception as exc:  # pyutilz / FS package unavailable -> hardcoded fallback.
+        logger.debug("_get_cache: import failed, tuning cache unavailable: %s", exc)
         return None
     try:
         return get_kernel_tuning_cache()
-    except Exception:  # pragma: no cover - defensive; singleton already guards.
+    except Exception as exc:  # pragma: no cover - defensive; singleton already guards.
+        logger.debug("_get_cache: singleton construction failed: %s", exc)
         return None
 
 

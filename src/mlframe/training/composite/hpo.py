@@ -244,7 +244,8 @@ def _default_inner_spaces(inner: Any) -> Dict[str, HPOSpace]:
     """
     try:
         params = inner.get_params()
-    except Exception:  # pragma: no cover - non-sklearn inner
+    except Exception as exc:  # pragma: no cover - non-sklearn inner
+        logger.debug("_default_inner_spaces: get_params() failed, no default space built: %s", exc)
         return {}
     spaces: Dict[str, HPOSpace] = {}
     if "max_depth" in params:

@@ -53,7 +53,8 @@ def _in_interactive_notebook() -> bool:
 
         ip = get_ipython()
         return ip is not None and type(ip).__name__ == "ZMQInteractiveShell"
-    except Exception:
+    except Exception as exc:
+        logger.debug("_in_interactive_notebook: IPython probe failed, assuming non-interactive: %s", exc)
         return False
 
 

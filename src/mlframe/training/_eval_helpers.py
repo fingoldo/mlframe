@@ -349,7 +349,8 @@ def _append_split_rate_suffix(model_name: str, *, split_name: str, target) -> st
     else:
         try:
             arr = np.asarray(target)
-        except Exception:
+        except Exception as exc:
+            logger.debug("model-name suffix: target coercion failed, leaving name unsuffixed: %s", exc)
             return model_name
     if arr.size == 0:
         return model_name

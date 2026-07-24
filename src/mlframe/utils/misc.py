@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 
+import logging
 import os
 import random
 import numpy as np
@@ -12,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+
+logger = logging.getLogger(__name__)
 
 
 def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed: bool = False):
@@ -102,7 +105,8 @@ def _restore_caller_frame_columns(X, original_cols):
         return
     try:
         added = [c for c in X.columns if c not in original_cols]
-    except Exception:
+    except Exception as exc:
+        logger.debug("_restore_caller_frame_columns: column diff failed, leaving frame untouched: %s", exc)
         return
     if not added:
         return

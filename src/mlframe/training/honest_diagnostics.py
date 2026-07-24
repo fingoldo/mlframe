@@ -61,7 +61,8 @@ def _is_binary_classif(y: np.ndarray) -> bool:
         return False
     try:
         u = np.unique(y[np.isfinite(y) if y.dtype.kind in "fc" else slice(None)])
-    except Exception:
+    except Exception as exc:
+        logger.debug("_is_binary_classif: unique-value probe failed: %s", exc)
         return False
     return u.size == 2 and set(u.tolist()).issubset({0, 1})
 

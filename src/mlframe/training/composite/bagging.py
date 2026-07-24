@@ -194,7 +194,8 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
         """
         try:
             valid = set(estimator.get_params(deep=True).keys())
-        except Exception:  # pragma: no cover - non-sklearn estimator
+        except Exception as exc:  # pragma: no cover - non-sklearn estimator
+            logger.debug("_set_member_seed: get_params() failed, seed not pushed: %s", exc)
             return
         to_set = {}
         if "random_state" in valid:

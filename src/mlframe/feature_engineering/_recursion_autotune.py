@@ -44,7 +44,8 @@ def recursion_code_version(kernel_name: str) -> str | None:
 
         fn = bayesian.bocpd_features if kernel_name == "fe_bocpd" else bayesian.online_bayesian_linear_regression
         return str(compute_code_version(fn, salt=_RECURSION_SALT))
-    except Exception:
+    except Exception as exc:
+        logger.debug("recursion_code_version: code-versioning unavailable for %r: %s", kernel_name, exc)
         return None
 
 
