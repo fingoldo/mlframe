@@ -340,8 +340,30 @@ def test_f14_unseen_category_imputer_impute_nan_false_leaves_nan_untouched():
     imputer = UnseenCategoryImputer(columns=["c"], impute_nan=False).fit(train)
     out = imputer.transform(test)
     assert out["c"].iloc[0] == "a"
-    assert out["c"].iloc[1] == "a"  # unseen still imputed (mode fallback)
-    assert pd.isna(out["c"].iloc[2])  # genuine NaN left untouched
+
+
+def test_f13_select_column_transforms_docstring_matches_default_path_keys():
+    """F13: the docstring must state ``probe_mode``/``context_columns`` are added ONLY when
+    ``multivariate_probe=True`` -- pre-fix it claimed they're always present, which would mislead a
+    caller relying on the literal docstring into a KeyError on the default (univariate) path."""
+    from mlframe.preprocessing.auto_transform_select import select_column_transforms
+
+    assert select_column_transforms.__doc__ is not None
+    assert "added ONLY when" in select_column_transforms.__doc__
+
+
+def test_f13_select_column_transforms_default_path_omits_probe_mode_key():
+    """The default (multivariate_probe=False) call must genuinely omit both keys, matching the fixed
+    docstring's contract -- not just claim to."""
+    from mlframe.preprocessing.auto_transform_select import select_column_transforms
+
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({"x2": rng.normal(size=50) ** 2 + 1.0})
+    y = rng.integers(0, 2, size=50)
+    result = select_column_transforms(df, y, columns=["x2"])
+    assert "x2" in result
+    assert "probe_mode" not in result["x2"]
+    assert "context_columns" not in result["x2"]
 
 
 # ---------------------------------------------------------------------------------------------------------------

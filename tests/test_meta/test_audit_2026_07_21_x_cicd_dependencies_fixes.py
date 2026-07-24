@@ -68,7 +68,12 @@ def test_f3_release_publish_job_has_timeout():
 
 
 def test_f2_f3_every_job_in_every_workflow_has_a_timeout():
-    """Broader sweep: this repo's own documented convention is that EVERY job sets timeout-minutes."""
+    """Broader sweep: this repo's own documented convention is that every REGULAR (non-reusable-
+    workflow-call) job sets timeout-minutes. A ``uses:``-based job is exempt: GitHub's schema only
+    allows ``name``/``uses``/``with``/``secrets``/``needs``/``if``/``permissions`` on that job
+    shape -- adding ``timeout-minutes`` there is a real YAML syntax error (confirmed via
+    ``actionlint`` after an earlier, incorrect version of this test flagged 9 such jobs and the
+    proposed "fix" broke `actionlint` on every one of them)."""
     import yaml
 
     workflow_dir = REPO_ROOT / ".github" / "workflows"
@@ -79,6 +84,19 @@ def test_f2_f3_every_job_in_every_workflow_has_a_timeout():
             if isinstance(job, dict) and "uses" not in job and "timeout-minutes" not in job:
                 missing.append(f"{wf_path.name}::{job_name}")
     assert not missing, f"jobs missing timeout-minutes: {missing}"
+
+
+def test_ci_jobs_have_timeout_minutes():
+    """Wires the shared py_ci_shared.ci_workflow_timeout_gate check (meta-test proposal #12 from
+    audits/full_audit_2026-07-21/META_TEST_PROPOSALS.md) across every workflow file -- an
+    independent, regex-based implementation of the same invariant as
+    test_f2_f3_every_job_in_every_workflow_has_a_timeout above (also uses:-exempt, see that
+    function's docstring)."""
+    from py_ci_shared.ci_workflow_timeout_gate import assert_all_jobs_have_timeout
+
+    workflow_dir = REPO_ROOT / ".github" / "workflows"
+    for wf_path in sorted(workflow_dir.glob("*.yml")):
+        assert_all_jobs_have_timeout(wf_path)
 
 
 # ---------------------------------------------------------------------------

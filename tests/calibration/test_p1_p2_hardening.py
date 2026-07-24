@@ -90,7 +90,7 @@ def test_missing_ice_column_does_not_raise_keyerror():
 
     with (
         patch("mlframe.calibration.post.get_postcalibrators", return_value=fake_calibrators),
-        patch("mlframe.calibration.post.report_model_perf", side_effect=_fake_report_model_perf),
+        patch("mlframe.training.evaluation.report_model_perf", side_effect=_fake_report_model_perf),
     ):
         metrics_df, calibrators, _failed = compare_postcalibrators(
             model_name="m",
@@ -133,7 +133,7 @@ def test_metric_key_mismatch_logs_warning(caplog):
 
     with (
         patch("mlframe.calibration.post.get_postcalibrators", return_value=fake_calibrators),
-        patch("mlframe.calibration.post.report_model_perf", side_effect=_fake_report_model_perf),
+        patch("mlframe.training.evaluation.report_model_perf", side_effect=_fake_report_model_perf),
         caplog.at_level("WARNING", logger="mlframe.calibration.post"),
     ):
         _metrics_df, _calibrators, _failed = compare_postcalibrators(

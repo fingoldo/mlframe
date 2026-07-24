@@ -300,3 +300,21 @@ def test_f7_no_mojibake_remains_in_target_temporal_files():
         text = fp.read_text(encoding="utf-8")
         for marker in mojibake_markers:
             assert marker not in text, f"mojibake marker {marker!r} found in {fp}"
+
+
+def test_f8_no_orphaned_wave_106_markers_remain():
+    """F8: both files' orphaned trailing section-header comments (leftovers from the "Wave 106"
+    monolith split, with no matching code below them) are gone -- and per CLAUDE.md's ban on
+    process/audit metadata in comments, no "Wave NN (date)" markers remain anywhere in either file."""
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[3] / "src" / "mlframe" / "training" / "targets"
+    affected = [
+        root / "_target_temporal_plot.py",
+        root / "_target_temporal_audit_from_agg.py",
+    ]
+    for fp in affected:
+        text = fp.read_text(encoding="utf-8")
+        assert "Human-readable text report" not in text
+        assert "# Plotting" not in text
+        assert "Wave " not in text, f"stale 'Wave NN' process marker still present in {fp}"

@@ -102,7 +102,7 @@ dependencies = [
     # carry (kept as defensive degradation, not exercised once this floor is guaranteed present).
     "xxhash>=3.0",
     # pyutilz is not yet on PyPI. Install it from GitHub before mlframe:
-    #   pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@08284bdc247740ccab4f490afab50f276f5eb3cd"
+    #   pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@7192417a06acdca5d3b48ed985dceab52af3993f"
     # X_SECURITY_API_PACKAGING-5 fix (mrmr_audit_2026-07-22): pin to a specific commit SHA, not the
     # floating default branch -- an unpinned, same-day pyutilz commit once silently flipped a shared
     # helper's default argument and broke MRMR.fit() for every caller (CORE_CLASS-1), with no version
@@ -413,7 +413,7 @@ dev = [
     # X_SECURITY_API_PACKAGING-5 fix (mrmr_audit_2026-07-22): pinned to a specific commit SHA rather
     # than the floating default branch (see the matching pyutilz note above for the rationale). Bump
     # deliberately (with a CHANGELOG entry) when a new py-ci-shared feature is actually needed.
-    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@5d803e0b0a4e1df392c48a020cc0080644e08928",
+    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@5851e65e7582a77ea1d37a2ec3c9940cd46f55a7",
 ]
 
 [project.scripts]

@@ -132,6 +132,48 @@ def test_f6_rolling_n_peaks_propagates_nan_for_windows_containing_nan():
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# F7 -- local_linear_detrend zero-filled NaN into the OLS fit, biasing slope/residual toward the imputed zero
+# ---------------------------------------------------------------------------------------------------------------
+
+
+def test_f7_local_linear_detrend_excludes_nan_instead_of_zero_filling():
+    """F7: a NaN inside a window must not bias the fitted slope toward zero on a pure linear ramp."""
+    from mlframe.feature_engineering.stationarity import local_linear_detrend
+
+    x = np.arange(100, dtype=float)
+    x[45] = np.nan
+    out = local_linear_detrend(x, window_K=10)
+    # window ending at row 50 spans [41..50], containing the single NaN at 45; excluding it (not zero-filling
+    # it) recovers slope ~= 1.0. The old zero-fill implementation biased this to ~1.27 (measured).
+    assert abs(out["slope"][50] - 1.0) < 1e-6
+    assert abs(out["residual"][50]) < 1e-6
+
+
+def test_f7_local_linear_detrend_residual_nan_when_last_row_nonfinite():
+    """F7: the residual at a window's last row must be NaN when that row itself is non-finite -- there is
+    nothing to compute a residual against, even though the slope over the other finite rows is still valid."""
+    from mlframe.feature_engineering.stationarity import local_linear_detrend
+
+    x = np.arange(60, dtype=float)
+    x[59] = np.nan
+    out = local_linear_detrend(x, window_K=10)
+    assert np.isnan(out["residual"][59])
+    assert np.isfinite(out["slope"][59])
+
+
+def test_f7_local_linear_detrend_nan_when_fewer_than_two_finite_rows():
+    """F7: a window with fewer than 2 finite observations can't fit a line and must emit NaN, not a
+    zero-biased fake fit."""
+    from mlframe.feature_engineering.stationarity import local_linear_detrend
+
+    x = np.full(20, np.nan)
+    x[0] = 1.0
+    out = local_linear_detrend(x, window_K=10)
+    assert np.isnan(out["slope"][9])
+    assert np.isnan(out["residual"][9])
+
+
+# ---------------------------------------------------------------------------------------------------------------
 # F8 -- cusum_features computed its auto-threshold globally even under per-group mode
 # ---------------------------------------------------------------------------------------------------------------
 

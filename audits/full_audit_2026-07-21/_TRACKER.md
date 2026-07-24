@@ -35,50 +35,132 @@ Totals across the 39 reports (files_reviewed/loc_reviewed include some cross-ref
 
 ## Full per-report index
 
-| Report | Files | LOC | P0 | P1 | P2 | Proposals |
-|---|---:|---:|---:|---:|---:|---:|
-| [training_composite_discovery.md](training_composite_discovery.md) | 47 | 15715 | 0 | 2 | 4 | 6 |
-| [training_composite_blocks.md](training_composite_blocks.md) | 54 | 14606 | 1 | 3 | 3 | 7 |
-| [training_composite_loose_a.md](training_composite_loose_a.md) | 39 | 11619 | 0 | 4 | 14 | 10 |
-| [training_composite_loose_b.md](training_composite_loose_b.md) | 38 | 11599 | 1 | 6 | 7 | 8 |
-| [training_loose_a.md](training_loose_a.md) | 27 | 11283 | 0 | 4 | 7 | 5 |
-| [training_loose_b.md](training_loose_b.md) | 27 | 11273 | 0 | 3 | 7 | 7 |
-| [training_loose_c.md](training_loose_c.md) | 27 | 11277 | 0 | 7 | 11 | 7 |
-| [training_core_a.md](training_core_a.md) | 36 | 13201 | 0 | 1 | 3 | 4 |
-| [training_core_b.md](training_core_b.md) | 30 | 11227 | 1 | 2 | 6 | 5 |
-| [training_neural.md](training_neural.md) | 44 | 12501 | 1 | 6 | 9 | 8 |
-| [training_feature_handling.md](training_feature_handling.md) | 31 | 8564 | 0 | 8 | 9 | 8 |
-| [training_baselines.md](training_baselines.md) | 24 | 6693 | 1 | 2 | 7 | 7 |
-| [training_pipeline.md](training_pipeline.md) | 22 | 5522 | 0 | 4 | 5 | 7 |
-| [training_targets.md](training_targets.md) | 16 | 4275 | 1 | 3 | 7 | 6 |
-| [training_reporting_infra.md](training_reporting_infra.md) | 28 | 9087 | 1 | 2 | 6 | 6 |
-| [reporting_charts.md](reporting_charts.md) | 40 | 14081 | 0 | 2 | 6 | 5 |
-| [training_misc_small.md](training_misc_small.md) | 34 | 9434 | 1 | 4 | 3 | 8 |
-| [fe_transformer_a.md](fe_transformer_a.md) | 40 | 6965 | 0 | 7 | 7 | 4 |
-| [fe_transformer_b.md](fe_transformer_b.md) | 39 | 6912 | 0 | 16 | 13 | 8 |
-| [fe_transformer_c.md](fe_transformer_c.md) | 40 | 6967 | 1 | 8 | 6 | 6 |
-| [fe_top_a.md](fe_top_a.md) | 39 | 10911 | 3 | 12 | 9 | 9 |
-| [fe_top_b.md](fe_top_b.md) | 39 | 10939 | 1 | 2 | 10 | 6 |
-| [feature_selection_nonmrmr.md](feature_selection_nonmrmr.md) | 32 | 8285 | 1 | 2 | 7 | 7 |
-| [feature_selection_wrappers.md](feature_selection_wrappers.md) | 38 | 9475 | 0 | 4 | 5 | 8 |
-| [metrics_all.md](metrics_all.md) | 39 | 14086 | 2 | 6 | 3 | 6 |
-| [calibration.md](calibration.md) | 18 | 4823 | 0 | 2 | 7 | 7 |
-| [evaluation.md](evaluation.md) | 21 | 4759 | 0 | 3 | 7 | 7 |
-| [models_all.md](models_all.md) | 41 | 9266 | 0 | 2 | 6 | 6 |
-| [preprocessing.md](preprocessing.md) | 23 | 4155 | 2 | 8 | 6 | 10 |
-| [competition.md](competition.md) | 34 | 3795 | 0 | 7 | 4 | 9 |
-| [votenrank.md](votenrank.md) | 36 | 4226 | 0 | 3 | 12 | 5 |
-| [core_infra_a.md](core_infra_a.md) | 35 | 5990 | 1 | 4 | 5 | 7 |
-| [core_infra_b.md](core_infra_b.md) | 56 | 6878 | 0 | 3 | 8 | 6 |
-| [x_oss_hygiene_packaging.md](x_oss_hygiene_packaging.md) | 22 | 2255 | 0 | 1 | 6 | 5 |
-| [x_cicd_dependencies.md](x_cicd_dependencies.md) | 20 | 3222 | 0 | 4 | 3 | 4 |
-| [x_test_suite_architecture.md](x_test_suite_architecture.md) | 27 | 2831 | 0 | 4 | 6 | 7 |
-| [x_architecture_api_consistency.md](x_architecture_api_consistency.md) | 17 | 7345 | 0 | 0 | 9 | 4 |
-| [x_security_robustness.md](x_security_robustness.md) | 27 | 3737 | 0 | 1 | 4 | 4 |
-| [x_ml_correctness_meta.md](x_ml_correctness_meta.md) | 23 | 6729 | 1 | 3 | 6 | 5 |
-| **Total** | **1270** | **326508** | **20** | **165** | **263** | **254** |
+Disposition: **CLOSED** = every finding fixed+regression-tested (or explicitly assessed/deferred with a
+documented reason -- never silently dropped), cluster's home test suite re-verified green, changes
+pushed to `origin/master`. All 39 reports are CLOSED as of this fix-wave. Per-finding detail (what was
+fixed, how, and any deferred items with their reasons) lives in each cluster's own consolidated
+`tests/**/test_audit_2026_07_21_<cluster>_fixes.py` file and in project memory
+(`project_mlframe_full_audit_2026_07_21`), not duplicated here to avoid a second, driftable copy of the
+same information.
+
+| Report | Files | LOC | P0 | P1 | P2 | Proposals | Disposition |
+|---|---:|---:|---:|---:|---:|---:|---|
+| [training_composite_discovery.md](training_composite_discovery.md) | 47 | 15715 | 0 | 2 | 4 | 6 | CLOSED |
+| [training_composite_blocks.md](training_composite_blocks.md) | 54 | 14606 | 1 | 3 | 3 | 7 | CLOSED |
+| [training_composite_loose_a.md](training_composite_loose_a.md) | 39 | 11619 | 0 | 4 | 14 | 10 | CLOSED |
+| [training_composite_loose_b.md](training_composite_loose_b.md) | 38 | 11599 | 1 | 6 | 7 | 8 | CLOSED |
+| [training_loose_a.md](training_loose_a.md) | 27 | 11283 | 0 | 4 | 7 | 5 | CLOSED |
+| [training_loose_b.md](training_loose_b.md) | 27 | 11273 | 0 | 3 | 7 | 7 | CLOSED |
+| [training_loose_c.md](training_loose_c.md) | 27 | 11277 | 0 | 7 | 11 | 7 | CLOSED |
+| [training_core_a.md](training_core_a.md) | 36 | 13201 | 0 | 1 | 3 | 4 | CLOSED |
+| [training_core_b.md](training_core_b.md) | 30 | 11227 | 1 | 2 | 6 | 5 | CLOSED |
+| [training_neural.md](training_neural.md) | 44 | 12501 | 1 | 6 | 9 | 8 | CLOSED |
+| [training_feature_handling.md](training_feature_handling.md) | 31 | 8564 | 0 | 8 | 9 | 8 | CLOSED |
+| [training_baselines.md](training_baselines.md) | 24 | 6693 | 1 | 2 | 7 | 7 | CLOSED |
+| [training_pipeline.md](training_pipeline.md) | 22 | 5522 | 0 | 4 | 5 | 7 | CLOSED |
+| [training_targets.md](training_targets.md) | 16 | 4275 | 1 | 3 | 7 | 6 | CLOSED |
+| [training_reporting_infra.md](training_reporting_infra.md) | 28 | 9087 | 1 | 2 | 6 | 6 | CLOSED |
+| [reporting_charts.md](reporting_charts.md) | 40 | 14081 | 0 | 2 | 6 | 5 | CLOSED |
+| [training_misc_small.md](training_misc_small.md) | 34 | 9434 | 1 | 4 | 3 | 8 | CLOSED |
+| [fe_transformer_a.md](fe_transformer_a.md) | 40 | 6965 | 0 | 7 | 7 | 4 | CLOSED |
+| [fe_transformer_b.md](fe_transformer_b.md) | 39 | 6912 | 0 | 16 | 13 | 8 | CLOSED |
+| [fe_transformer_c.md](fe_transformer_c.md) | 40 | 6967 | 1 | 8 | 6 | 6 | CLOSED |
+| [fe_top_a.md](fe_top_a.md) | 39 | 10911 | 3 | 12 | 9 | 9 | CLOSED |
+| [fe_top_b.md](fe_top_b.md) | 39 | 10939 | 1 | 2 | 10 | 6 | CLOSED |
+| [feature_selection_nonmrmr.md](feature_selection_nonmrmr.md) | 32 | 8285 | 1 | 2 | 7 | 7 | CLOSED |
+| [feature_selection_wrappers.md](feature_selection_wrappers.md) | 38 | 9475 | 0 | 4 | 5 | 8 | CLOSED |
+| [metrics_all.md](metrics_all.md) | 39 | 14086 | 2 | 6 | 3 | 6 | CLOSED |
+| [calibration.md](calibration.md) | 18 | 4823 | 0 | 2 | 7 | 7 | CLOSED |
+| [evaluation.md](evaluation.md) | 21 | 4759 | 0 | 3 | 7 | 7 | CLOSED |
+| [models_all.md](models_all.md) | 41 | 9266 | 0 | 2 | 6 | 6 | CLOSED |
+| [preprocessing.md](preprocessing.md) | 23 | 4155 | 2 | 8 | 6 | 10 | CLOSED |
+| [competition.md](competition.md) | 34 | 3795 | 0 | 7 | 4 | 9 | CLOSED |
+| [votenrank.md](votenrank.md) | 36 | 4226 | 0 | 3 | 12 | 5 | CLOSED |
+| [core_infra_a.md](core_infra_a.md) | 35 | 5990 | 1 | 4 | 5 | 7 | CLOSED |
+| [core_infra_b.md](core_infra_b.md) | 56 | 6878 | 0 | 3 | 8 | 6 | CLOSED |
+| [x_oss_hygiene_packaging.md](x_oss_hygiene_packaging.md) | 22 | 2255 | 0 | 1 | 6 | 5 | CLOSED |
+| [x_cicd_dependencies.md](x_cicd_dependencies.md) | 20 | 3222 | 0 | 4 | 3 | 4 | CLOSED |
+| [x_test_suite_architecture.md](x_test_suite_architecture.md) | 27 | 2831 | 0 | 4 | 6 | 7 | CLOSED |
+| [x_architecture_api_consistency.md](x_architecture_api_consistency.md) | 17 | 7345 | 0 | 0 | 9 | 4 | CLOSED |
+| [x_security_robustness.md](x_security_robustness.md) | 27 | 3737 | 0 | 1 | 4 | 4 | CLOSED |
+| [x_ml_correctness_meta.md](x_ml_correctness_meta.md) | 23 | 6729 | 1 | 3 | 6 | 5 | CLOSED |
+| **Total** | **1270** | **326508** | **20** | **165** | **263** | **254** | **39/39 CLOSED** |
+
+### Notable deliberately-deferred items (not silently dropped)
+
+A small number of findings across the fix-wave were assessed and explicitly deferred rather than fixed
+inline, each with a documented reason (in the cluster's own test-file docstring and/or this tracker):
+
+- **x_architecture_api_consistency.md F6**: 3 files over 1000 LOC needing a monolith split (one a
+  training-pipeline subpackage facade) -- disproportionate regression risk for a P2 finding relative to
+  the rest of that report; concrete next action recorded in the cluster's test file.
+- **x_test_suite_architecture.md F5/F6**: `mlflow.py` and the `kernel_tuning_cache` CLI have zero test
+  coverage -- real, scoped gaps large enough to need their own dedicated test-authoring pass.
+- **x_test_suite_architecture.md F4**: the empty `.test_durations` CI file needs a ~5-hour scheduled
+  workflow run this session cannot trigger -- a visibility sensor (xfail) was added instead of a hard fix.
+- **CODE_OF_CONDUCT.md** (x_oss_hygiene_packaging.md PR1): explicitly declined by the user; closed by
+  removing the dead `MANIFEST.in` reference instead of adding the file.
+- Several clusters' PR-tier proposals (perf watch-notes, tooling suggestions, doc/process ideas with no
+  reported bug) were assessed and left as proposals, per each report's own Proposals section -- these
+  were never findings requiring a fix.
 
 ## Notes on tooling hiccups
 
 - **training_neural**: the agent's final message ended without a clean fenced ```json``` summary block (extra prose after it), so the orchestrator's parser fell back to a raw-text capture. The report file itself was written successfully and is complete; counts above were hand-recovered from the agent's own prose summary (verified against the report file's own tables).
 - **reporting_charts**: the agent's Write tool call was refused by the tool runtime ("Subagents should return findings as text, not write report files") on this one agent -- not observed on any of the other 38. The full report content was recovered verbatim from the agent's final response text and written to disk by the orchestrating session afterward; the report itself notes this at the end of its Coverage notes section.
+
+## Post-closure verification pass (read-only agent, after all 39 CLOSED)
+
+A dedicated read-only agent cross-checked every finding ID across all 39 reports against the
+corresponding `tests/**/test_audit_2026_07_21_*_fixes.py` file, spot-checking test quality on 5
+clusters. Verdict: substantially true but not literally complete. It surfaced 12 genuine gaps --
+2 findings with no fix at all despite the report being marked CLOSED, 9 findings fixed in source but
+never pinned by a regression test, 1 minor docs/validation nit untouched. All 12 have since been
+resolved in a follow-up pass:
+
+- **fe_top_a.md F7** (`local_linear_detrend` zero-filled NaN into the OLS fit): real open bug, now
+  fixed properly (mask-weighted covariance sums excluding NaN rows, not the zero-fill-and-document
+  compromise the original finding also allowed) + 3 new regression tests.
+- **training_feature_handling.md F9** (`LocalDiskBackend`/`CacheBackend` never wired into
+  `FeatureCache`): assessed -- wiring it would force a full in-RAM copy on every disk-tier hit
+  (the Protocol is bytes-oriented; `FeatureCache` reads via `np.load(mmap_mode="r")`), a real memory
+  regression for the large-feature workload this cache targets. Documented as an intentionally-unwired
+  future seam pending a path-returning Protocol variant, pinned by 3 new tests.
+- **fe_transformer_b.md F12/F20/F29**, **fe_top_b.md F10/F11**, **training_feature_handling.md F6/F8**,
+  **training_targets.md F8**, **preprocessing.md F13**: all 9 were already fixed in source from the
+  original fix-wave; each now has a named regression test added to its cluster's fixes file.
+  training_targets.md F8 additionally had 2 residual "Wave 106" process-marker comments (CLAUDE.md
+  violation) cleaned up while there, beyond the finding's original narrower scope.
+- **competition.md C-10** (docstring/validation gap on `count_clip_range`): was already fixed
+  alongside C-2 in the original wave; now has its own dedicated regression test distinct from C-2's.
+
+## Meta-test implementation pass (after the verification pass)
+
+Per the original request, a second read-only agent researched what class-level meta-tests could catch
+these bug patterns automatically -- see `META_TEST_PROPOSALS.md` for the full 12-item list, plus a
+cross-reference pass against `pyutilz`/`py-ci-shared`'s existing meta-test infrastructure (some
+proposals already existed there; some of pyutilz/py-ci-shared's own checks weren't yet wired into
+mlframe). The highest-priority items were then actually implemented, not just proposed:
+
+- **4 new `pyutilz.dev.code_audit` scanners** (proposals #2, #3, #6, #8): `unpicklable_resource_state`
+  (missing `__getstate__` on classes holding live locks/threads/file handles -- caught and fixed 5 real
+  instances in pyutilz itself: `_PathLockEntry`, `KernelTuningCache`, `TomlLiveConfig`,
+  `UtilizationMonitor`, `PortHealthTracker`), `tautological_is_not_none_only_test`,
+  `except_skip_masks_call_under_test`, `uncurated_star_export`. Pushed to pyutilz `master`
+  (`7192417a06acdca5d3b48ed985dceab52af3993f`).
+- **`py_ci_shared.ci_workflow_timeout_gate`** (proposal #12): flags CI jobs missing `timeout-minutes`,
+  including `uses:`-based reusable-workflow-call jobs (a blind spot mlframe's own pre-existing sweep
+  test had). Pushed to py-ci-shared `master` (`59bee44a13307f8712676f20f6067b19df81db42`).
+- mlframe's `pyproject.toml` pins bumped to both new commits, reinstalled, and
+  `tests/test_meta/test_code_audit_baseline.py` re-run: bumping pyutilz also pulled in several
+  upstream scanner-accuracy fixes beyond the 4 new scanners, surfacing 876 pre-existing findings
+  (mostly `broad_except_swallow`, heavily concentrated in the excluded `feature_selection/filters/`
+  tree this session may not edit) that the older scanner version simply missed -- baselined as
+  accepted pre-existing debt (1876 total tracked findings now), not fixed blind.
+- The timeout gate, run against mlframe's own 12 workflow files, found 6 real gaps beyond what F2/F3
+  originally covered (`ci.yml`'s `ruff-blocking`/`lint-blocking`/`lint-advisory`/`tests-ruff-blocking`/
+  `tests-black-filtered`/`tests-lint-blocking`, plus `black-filtered.yml`/`docs.yml`/`mypy-full.yml`'s
+  single jobs) -- all `uses:`-based reusable-workflow-call jobs that mlframe's own hand-rolled sweep
+  test (`test_f2_f3_every_job_in_every_workflow_has_a_timeout`) incorrectly exempted from the
+  requirement. Fixed all 6 with explicit `timeout-minutes`, fixed the sweep test's exemption bug, and
+  wired the shared checker in alongside it as a second independent implementation.

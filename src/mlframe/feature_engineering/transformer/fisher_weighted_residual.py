@@ -135,7 +135,9 @@ def compute_fisher_weighted_residual_features(
         weighted_query = resid_query * np.sqrt(fisher_query)
 
         quantiles = np.quantile(weighted_train, np.linspace(0.0, 1.0, n_bands + 1))
-        band_y_mean = np.zeros(n_bands, dtype=np.float32)
+        # Global fallback for an empty band (tied weighted-residual values collapsing a quantile
+        # boundary) -- 0.0 misleadingly reads as a genuinely low-residual band rather than "no data".
+        band_y_mean = np.full(n_bands, float(y_t.mean()), dtype=np.float32)
         for b in range(n_bands):
             if b == 0:
                 mask = weighted_train <= quantiles[b + 1]

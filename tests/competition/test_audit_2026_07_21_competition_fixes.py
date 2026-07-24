@@ -70,6 +70,19 @@ def test_c2_integer_count_clip_range_still_works():
     assert np.all(np.isfinite(result.interaction_feature))
 
 
+def test_c10_count_clip_range_docstring_documents_integer_requirement():
+    """C10: the docstring must call out that count_clip_range MUST be integer bounds and explain the
+    fractional-exponent-on-negative-base failure mode C-2 fixed -- a docs/validation gap distinct from
+    C-2's raise-behaviour itself, since a caller who never triggers the ValueError could still be misled
+    by a docstring silent on the constraint."""
+    from mlframe.competition.frequency_power_interaction import frequency_power_interaction
+
+    doc = frequency_power_interaction.__doc__
+    assert doc is not None
+    assert "MUST" in doc and "integer" in doc
+    assert "NaN" in doc or "nan" in doc
+
+
 # ---------------------------------------------------------------------------
 # C3: value_uniqueness_encoder leaks a raw NaN for a NaN train value, asymmetric with test-side
 # ---------------------------------------------------------------------------
