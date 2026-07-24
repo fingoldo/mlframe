@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import logging
 import os
 import threading
 import uuid
@@ -37,6 +38,8 @@ from typing import Any, Optional, Tuple
 
 import numpy as np
 import orjson
+
+logger = logging.getLogger(__name__)
 
 try:
     import xxhash
@@ -92,14 +95,16 @@ def _fp_cache_key(df: Any, n_sample: int) -> "Optional[Tuple[int, int, int, int]
     """
     try:
         cols = list(df.columns)
-    except Exception:
+    except Exception as exc:
+        logger.debug("_fp_cache_key: df.columns read failed, skipping memo: %s", exc)
         return None
     # Hash the tuple of column names so two same-id-same-count frames with different schemas
     # never collide. ``hash(tuple(...))`` is process-local but stable within one interpreter run,
     # which is exactly the scope this memo lives in.
     try:
         col_sig = hash(tuple(cols))
-    except Exception:
+    except Exception as exc:
+        logger.debug("_fp_cache_key: column-signature hash failed, skipping memo: %s", exc)
         return None
     return (id(df), len(cols), col_sig, int(n_sample))
 

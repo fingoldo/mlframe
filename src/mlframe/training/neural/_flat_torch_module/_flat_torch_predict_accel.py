@@ -174,7 +174,8 @@ class _PredictAccelMixin(_PredictAccelBase):
             _recurrent = (torch.nn.LSTM, torch.nn.GRU, torch.nn.RNN)
             if any(isinstance(m, _recurrent) for m in _net.modules()):
                 return None
-        except Exception:
+        except Exception as exc:
+            logger.debug("torch.compile predict path: recurrent-module scan failed, falling back to eager: %s", exc)
             return None
 
         if self._compiled_predict_fn is None:
@@ -287,7 +288,8 @@ class _PredictAccelMixin(_PredictAccelBase):
             _recurrent = (torch.nn.LSTM, torch.nn.GRU, torch.nn.RNN)
             if any(isinstance(m, _recurrent) for m in _net.modules()):
                 return cast(torch.Tensor, self(x))
-        except Exception:
+        except Exception as exc:
+            logger.debug("CUDA-graph predict path: recurrent-module scan failed, falling back to eager: %s", exc)
             return cast(torch.Tensor, self(x))
 
         _key = (tuple(x.shape), x.dtype, x.device)

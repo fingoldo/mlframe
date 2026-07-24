@@ -70,7 +70,8 @@ def _resolve_pipeline_cache_budget(fraction: Optional[float] = None) -> int:
         budget = min(budget, max(0, available - floor))
         budget = max(2 * 1024 * 1024 * 1024, budget)
         return int(budget)
-    except Exception:
+    except Exception as exc:
+        logger.debug("pipeline-cache byte budget: psutil probe failed, using default limit: %s", exc)
         return _DEFAULT_PIPELINE_CACHE_BYTES_LIMIT
 
 
@@ -105,7 +106,8 @@ def _estimate_slot_nbytes(slot: Any) -> int:
         pass
     try:
         return int(sys.getsizeof(slot))
-    except Exception:
+    except Exception as exc:
+        logger.debug("_estimate_slot_nbytes: sys.getsizeof fallback failed, reporting 0: %s", exc)
         return 0
 
 
