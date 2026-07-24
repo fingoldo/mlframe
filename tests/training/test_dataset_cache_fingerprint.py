@@ -289,3 +289,33 @@ class TestCrossShimInvariant:
         # Same shim, same content -> same key (the load-bearing invariant).
         assert sig_xgb_a == sig_xgb_b
         assert sig_lgb_a == sig_lgb_b
+
+
+class TestRowSampleHashLogsOnFailure:
+    """Baseline-debt wave 5: _row_sample_hash's per-backend sampling fallbacks must log a debug
+    trace when the fast-path sampling fails, instead of silently returning None with zero signal
+    about why the cache key fell back to an id()-based one."""
+
+    def test_iloc_path_logs_on_failure(self, caplog):
+        """Iloc path logs on failure."""
+        import logging
+
+        from mlframe.training._dataset_cache_fingerprint import _row_sample_hash
+
+        class _RaisingIlocIndexer:
+            """`.iloc[idx]` always raises -- `hasattr` must still see a real (non-raising)
+            attribute so the iloc branch is actually entered."""
+
+            def __getitem__(self, idx):
+                """Always raises ``RuntimeError('boom')`` on any index."""
+                raise RuntimeError("boom")
+
+        class _RaisingIlocFrame:
+            """Groups tests covering _RaisingIlocFrame."""
+
+            iloc = _RaisingIlocIndexer()
+
+        with caplog.at_level(logging.DEBUG, logger="mlframe.training._dataset_cache_fingerprint"):
+            out = _row_sample_hash(_RaisingIlocFrame(), n_rows=5)
+        assert out is None
+        assert any("iloc sampling failed" in rec.message for rec in caplog.records)
