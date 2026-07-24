@@ -4,7 +4,7 @@
 vs its raw source column. It accepts an already-materialised host ``engineered_X`` DataFrame and scores it with
 ``mi_classif_batch_chunked`` (the engineered matrix) + ``_mi_classif_batch`` (the raw baseline). Under
 ``MLFRAME_FE_GPU_STRICT`` both route through the resident plug-in MI, so the WHOLE host engineered matrix is
-``cp.asarray``-uploaded at ``_orth_mi_backends.py:311`` (the SF1 share of a 300k STRICT F2 byte-audit:
+``cp.asarray``-uploaded at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (ORTH_BASIS_B-5 fix, mrmr_audit_2026-07-22: dropped the exact line number, which had already gone stale)`` (the SF1 share of a 300k STRICT F2 byte-audit:
 ~72 MB = 64 MB engineered + 8 MB raw).
 
 When EVERY engineered column name parses to a poly basis leg (``"{src}__{code}{degree}"`` with
@@ -92,7 +92,7 @@ def uplift_univariate_eng_mi_resident(
     (``mi_classif_batch_chunked(engineered_X)``).
 
     Rebuilds the engineered poly-leg matrix ON the device from the small resident raw operand columns
-    (collapsing the host engineered-matrix upload at ``_orth_mi_backends.py:311``) and scores it through the
+    (collapsing the host engineered-matrix upload at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (ORTH_BASIS_B-5 fix, mrmr_audit_2026-07-22: dropped the exact line number, which had already gone stale)``) and scores it through the
     SAME percentile-edge resident plug-in MI the host STRICT path uses. Returns the (K,) host float64 MI array
     in ``engineered_X.columns`` order, OR ``None`` when STRICT-residency is off / cupy is unavailable / any
     column is not a poly leg / any cupy fault -- in which case the caller keeps the engineered matrix on the

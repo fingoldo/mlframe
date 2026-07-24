@@ -63,6 +63,11 @@ def null_importance_filter(
         ``threshold`` ``(n_features,)`` (the per-feature percentile cutoff), ``keep_mask`` ``(n_features,)``
         boolean, and (only when ``return_margin_score=True``) ``margin_score`` ``(n_features,)``.
     """
+    # USABILITY_A-3 fix (mrmr_audit_2026-07-22): n_shuffles<1 left null_importances shaped (0, n_features),
+    # and np.percentile on an empty axis raised an unhelpful `IndexError: index -1 is out of bounds`.
+    if n_shuffles < 1:
+        raise ValueError(f"null_importance_filter: n_shuffles must be >= 1; got {n_shuffles}")
+
     rng = np.random.default_rng(random_state)
     real_importance = np.asarray(importance_fn(X, y), dtype=np.float64)
     n_features = real_importance.shape[0]

@@ -205,6 +205,11 @@ def compute_pairs_mis(
                     except (TypeError, ValueError):
                         pass
 
+        # FE_STEP_B-3 fix (mrmr_audit_2026-07-22): canonicalize to a sorted tuple at the point of insertion --
+        # ``all_pairs`` is built from candidate-pool set iteration whose order is not guaranteed ascending once
+        # it mixes small and large ints, so without this the same logical pair could land as two divergent
+        # cached_MIs entries, (a,b) and (b,a), doubling MI computation and downstream scoring bookkeeping.
+        raw_vars_pair = tuple(sorted(raw_vars_pair))
         # ensure that pair as a whole has computed its MI with target
         if raw_vars_pair not in cached_confident_MIs and raw_vars_pair not in cached_MIs:
             ind_elems_mi_sum = cached_MIs[(raw_vars_pair[0],)] + cached_MIs[(raw_vars_pair[1],)]

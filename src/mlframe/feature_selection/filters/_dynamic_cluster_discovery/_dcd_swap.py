@@ -731,6 +731,8 @@ def commit_swap(
     # index in selected_vars, and reseat the cluster bookkeeping under
     # the member as the new anchor. The rest of the pipeline -- bin counts,
     # transform replay, support_ resolution -- already trusts the column.
+    # CLUSTERING_STABILITY-10 fix (mrmr_audit_2026-07-22): SwapDecision.branch always exists (default
+    # "none"), never absent -- the getattr default was unreachable defensive code.
     is_member_swap = decision.branch == "member" and not decision.aggregate_name and decision.binned_rep is None
     if is_member_swap:
         member_idx = new_idx
