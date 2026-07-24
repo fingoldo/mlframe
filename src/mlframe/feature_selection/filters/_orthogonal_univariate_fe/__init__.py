@@ -34,10 +34,15 @@ Why this lives outside of polynom_pair_fe:
   back into MRMR's standard relevance/redundancy gates as ordinary numeric
   columns.
 
-NOT wired into MRMR.fit by default -- explicit opt-in via direct call. The
-existing fe_smart_polynom_iters / fe_max_polynoms knobs cover the auto-wired
-path. Users who want univariate orthogonal expansion call
-``hybrid_orth_mi_fe`` themselves and pass the augmented DataFrame to fit.
+X_EFFICIENCY_ARCHITECTURE-4 fix (mrmr_audit_2026-07-22): this docstring used to claim "NOT wired into
+MRMR.fit by default -- explicit opt-in via direct call" -- FALSE for ``hybrid_orth_mi_fe_with_recipes``,
+which IS the default-on production entry point (``fe_univariate_basis_enable`` defaults to ``True``;
+see ``_mrmr_fit_impl/_fit_impl_core.py``'s "UNIVARIATE-BASIS FE -- DEFAULT ON" call site). This stale
+claim plausibly caused this whole 13-file subpackage to be skipped by every per-file audit cluster in
+the 2026-07-22 wave, since a docstring confidently declaring "opt-in only, not production" is exactly
+the signal that makes an auditor reasonably deprioritize claiming it as in-scope. The standalone
+``hybrid_orth_mi_fe`` function (without the ``_with_recipes``/transform-replay machinery) remains a
+genuinely separate, directly-callable opt-in utility for ad hoc use outside MRMR.fit.
 """
 from __future__ import annotations
 
@@ -594,10 +599,20 @@ def hybrid_orth_mi_fe(
         from .._gpu_resident_fe import fe_gpu_resident_basis_mi_enabled, _cuda_present
         from .._fe_gpu_strict import fe_gpu_strict_enabled
         _p_cols = len(cols) if cols else int(X.shape[1])
-        if (fe_gpu_resident_basis_mi_enabled() or fe_gpu_strict_enabled(n=int(X.shape[0]), p=_p_cols)) and _cuda_present():
+        # X_EFFICIENCY_ARCHITECTURE-3 fix (mrmr_audit_2026-07-22): the GPU-resident twin
+        # (_gpu_build_and_score_univariate) never consults get_unlabeled_pool(), unlike the host builder
+        # (generate_univariate_basis_features) a few lines below, which fits each column's basis-preprocess
+        # params on the labeled+unlabeled POOL whenever fe_semi_supervised_enable=True. Silently using the
+        # GPU path in that case would freeze different (labeled-only) basis-preprocess params purely based
+        # on whether GPU residency happened to engage for this fit -- no error, no test catches it. Bail to
+        # the host path (which DOES thread the aux pool through) whenever a non-empty pool is active, rather
+        # than porting the aux-pool augmentation into the GPU kernel (cheaper, zero correctness risk).
+        from .._semi_supervised_fe import get_unlabeled_pool as _get_unlabeled_pool_gate
+        _aux_pool_active = bool(_get_unlabeled_pool_gate())
+        if (fe_gpu_resident_basis_mi_enabled() or fe_gpu_strict_enabled(n=int(X.shape[0]), p=_p_cols)) and _cuda_present() and not _aux_pool_active:
             _g_mat, _g_names, scores = _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins)
             if _g_mat is None:
-                return X.copy(), scores
+                return X, scores
             _gpu_eng = (_g_mat, _g_names)
     except Exception:
         logger.debug("hybrid_orth_mi_fe: GPU resident basis-MI path failed; host fallback", exc_info=True)
@@ -605,7 +620,7 @@ def hybrid_orth_mi_fe(
     if _gpu_eng is None:
         engineered = generate_univariate_basis_features(X, cols=cols, degrees=degrees, basis=basis, y=y)
         if engineered.empty:
-            return X.copy(), pd.DataFrame(columns=["engineered_col", "source_col", "baseline_mi", "engineered_mi", "uplift"])
+            return X, pd.DataFrame(columns=["engineered_col", "source_col", "baseline_mi", "engineered_mi", "uplift"])
         raw_X = X[[c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]]
         scores = score_features_by_mi_uplift(raw_X, engineered, y, nbins=nbins)
     # Two-gate selection:
@@ -645,26 +660,33 @@ def hybrid_orth_mi_fe(
         5.0,
         float(np.sqrt(2.0 * np.log(max(2.0, 2.0 * n_cands))) + 1.5),
     )
-    if raw_baselines.size >= 4:
-        med = float(np.median(raw_baselines))
-        mad = float(np.median(np.abs(raw_baselines - med)))
-        # 1.4826 * MAD ~= std for a normal distribution.
-        noise_floor = med + sigma_thresh * 1.4826 * mad
-    else:
-        noise_floor = 0.0
+    # X_EDGE_CASES_BEST_PRACTICES-2 fix (mrmr_audit_2026-07-22): this used to hard-gate on
+    # raw_baselines.size >= 4 (below that, noise_floor silently defaulted to 0.0 -- a full no-op).
+    # raw_baselines has one entry per SCORED ENGINEERED COLUMN (~len(degrees) * len(surviving raw
+    # cols)), not per raw source column, so with the default 2 degrees the guard was bypassed whenever
+    # at most 1 raw numeric column reached the scan (mostly-categorical frames, _dedup_collinear_source_cols
+    # collapsing redundant sensors down to 1 survivor, or an explicit short `cols=`) -- exactly the
+    # degenerate-pool-size case the Layer 27 floor exists to guard, defeating BOTH documented safety
+    # gates simultaneously. median/MAD are well-defined at any n >= 1 (n=1: MAD=0, so noise_floor
+    # collapses to that single baseline_mi value itself -- a strict, sound floor given zero evidence of
+    # the noise distribution's spread, not a no-op); always compute it instead of gating on count.
+    med = float(np.median(raw_baselines)) if raw_baselines.size else 0.0
+    mad = float(np.median(np.abs(raw_baselines - med))) if raw_baselines.size else 0.0
+    # 1.4826 * MAD ~= std for a normal distribution.
+    noise_floor = med + sigma_thresh * 1.4826 * mad
     # Layer 27 follow-up: also compute a noise floor on the ENGINEERED MI
     # distribution. On all-noise frames the engineered cols inherit the same
     # noise structure; the top engineered_mi can be artifactually 2-4x the
     # median by pure tail sampling. Bound engineered_mi above the engineered
     # median+sigma*MAD too -- legitimate signals are statistical outliers in
     # the engineered distribution AS WELL.
+    # X_EDGE_CASES_BEST_PRACTICES-2 fix (mrmr_audit_2026-07-22): matching fix to the raw-baseline floor
+    # above -- see that comment for the rationale (no size>=4 hard gate; median/MAD are well-defined at
+    # any n>=1).
     eng_mis = scores["engineered_mi"].to_numpy()
-    if eng_mis.size >= 4:
-        med_e = float(np.median(eng_mis))
-        mad_e = float(np.median(np.abs(eng_mis - med_e)))
-        eng_noise_floor = med_e + sigma_thresh * 1.4826 * mad_e
-    else:
-        eng_noise_floor = 0.0
+    med_e = float(np.median(eng_mis)) if eng_mis.size else 0.0
+    mad_e = float(np.median(np.abs(eng_mis - med_e))) if eng_mis.size else 0.0
+    eng_noise_floor = med_e + sigma_thresh * 1.4826 * mad_e
     abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
     qualified = scores[(scores["uplift"] >= float(min_uplift)) & (scores["engineered_mi"] >= abs_floor)]
     winners = qualified.head(int(top_k))

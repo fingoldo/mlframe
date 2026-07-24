@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 from itertools import combinations
-from typing import Callable, Optional, Sequence
+from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -330,7 +330,16 @@ def generate_composite_group_agg_features(
                 else:
                     agg_series = grouped.agg(_agg_func_for_stat(stat))
                 lookup = {str(k): (float(v) if np.isfinite(v) else 0.0) for k, v in agg_series.items()}
-                global_value = _global_value_for_stat(x, stat)
+                if stat in ("count", "nunique"):
+                    # CAT_INTERACTION_B-2 fix (mrmr_audit_2026-07-22): the whole-population fallback
+                    # (finite.size / np.unique(finite).size) used to emit a WILDLY out-of-distribution
+                    # value for an unseen composite key -- confirmed by direct execution: real per-cell
+                    # count values were 14-25 (n=2000) vs a global fallback of 2000 (the entire training
+                    # set, ~100x). Every OTHER stat's fallback stays on the SAME SCALE as a per-cell value;
+                    # use the median PER-CELL count/nunique across fit-time cells instead.
+                    global_value = float(np.median(agg_series.to_numpy())) if len(agg_series) else 0.0
+                else:
+                    global_value = _global_value_for_stat(x, stat)
                 broadcast = _broadcast_lookup(
                     keys, lookup, global_value,
                     uniq=key_uniq, inverse=key_inverse,
@@ -496,12 +505,12 @@ def composite_group_agg_with_recipes(
     from .engineered_recipes import build_composite_group_agg_recipe
 
     if not group_col_sets or not num_cols:
-        return X.copy(), [], []
+        return X, [], []
     enc_df, raw_recipes = generate_composite_group_agg_features(
         X, group_col_sets, num_cols, stats=stats, max_card_frac=max_card_frac,
     )
     if enc_df.empty:
-        return X.copy(), [], []
+        return X, [], []
     X_aug = pd.concat([X, enc_df], axis=1)
     appended = list(enc_df.columns)
     recipes = [build_composite_group_agg_recipe(name=name, **raw_recipes[name]) for name in appended]
@@ -515,22 +524,15 @@ def composite_group_agg_with_recipes(
 
 def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 6) -> list[str]:
     """Reuse the Layer 87 / composite_auto_detect int-as-cat detector."""
-    _l87_detect: Optional[Callable[[pd.DataFrame, int], list]] = None
+    # CAT_INTERACTION_B-6 fix (mrmr_audit_2026-07-22): this used to try a two-dot
+    # `from .._grouped_agg_fe import ...` FIRST (wrong depth -- `_grouped_agg_fe.py` is a SIBLING, one dot,
+    # not a parent-package member) inside a bare `except Exception`, which always failed and silently fell
+    # through to the correct single-dot import below -- functionally masked, but dead/misleading code.
     try:
         from ._grouped_agg_fe import _auto_detect_group_cols as _l87_detect
-    except Exception:
-        _l87_detect = None
-    if _l87_detect is not None:
-        try:
-            return list(_l87_detect(X, max_cols))
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _composite_group_agg_fe.py:503: %s", e)
-            pass
-    try:
-        from ._grouped_agg_fe import _auto_detect_group_cols as _l87_detect2
-        return _l87_detect2(X, max_cols=max_cols)
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+        return list(_l87_detect(X, max_cols=max_cols))
+    except Exception as exc:  # nosec B110 - optional dependency import guard
+        logger.debug("_auto_detect_group_cols: Layer-87 detector unavailable; falling back to inline heuristic: %r", exc)
     out: list[str] = []
     n = len(X)
     for c in X.columns:
@@ -641,7 +643,7 @@ def hybrid_composite_group_agg_fe(
         group_col_sets = [tuple(c for c in gset if c in X.columns) for gset in group_col_sets]
         group_col_sets = [gset for gset in group_col_sets if len(gset) >= 2]
     if not group_col_sets:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     if num_cols is None or len(num_cols) == 0:
         all_group_cols = sorted({c for gset in group_col_sets for c in gset})
@@ -649,14 +651,14 @@ def hybrid_composite_group_agg_fe(
     else:
         num_cols = [c for c in num_cols if c in X.columns]
     if not num_cols:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     enc_df, raw_recipes = generate_composite_group_agg_features(
         X, group_col_sets, num_cols, stats=stats, max_card_frac=max_card_frac,
         _precomputed_keys=_key_cache,
     )
     if enc_df.empty:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     base_cols = list(num_cols)
     eng_to_source = {name: raw_recipes[name]["num_col"] for name in enc_df.columns}
@@ -666,7 +668,7 @@ def hybrid_composite_group_agg_fe(
     keep = scores[(scores["cmi"] >= float(min_cmi)) & (scores["uplift"] >= float(min_uplift))]
     winners = list(keep["engineered_col"].head(int(top_k)))
     if not winners:
-        return X.copy(), [], [], scores
+        return X, [], [], scores
 
     from .engineered_recipes import build_composite_group_agg_recipe
 

@@ -403,6 +403,7 @@ def lagged_diff_features(
     time_col: str,
     value_cols: Sequence[str],
     periods: Sequence[int] = (1, 2),
+    entity_cols: Optional[Sequence[str]] = None,
 ) -> tuple[pd.DataFrame, dict[str, dict]]:
     """Emit ``lagged_diff_{value_col}__period{p}`` for each (value_col, p).
 
@@ -410,9 +411,19 @@ def lagged_diff_features(
     computed; the output is reordered back to the input row order so the
     appended columns line up with X row-by-row.
 
-    Recipes store ``{time_col, value_col, period}``; replay reproduces the
+    Recipes store ``{time_col, value_col, period, entity_cols}``; replay reproduces the
     sort + lag from X alone (no fit-time state needed -- the operation is
     a pure function of the test frame).
+
+    ``entity_cols`` (CAT_INTERACTION_B-5 fix, mrmr_audit_2026-07-22): optional per-entity scoping,
+    mirroring ``_temporal_agg_fe.generate_lag_features``'s entity-scoped design. Without it (the default,
+    unchanged behaviour), the diff is computed on the GLOBAL time-sorted order -- on a panel/multi-entity
+    dataset this can silently compute a cross-entity diff wherever the global time-sort places one entity's
+    row immediately after a different entity's row. When given, the frame is sorted by ``(entity_key,
+    time_col)`` instead, and a lag whose ``period``-back neighbour in the sorted order belongs to a
+    DIFFERENT entity is zeroed (the same "no cross-boundary lag" contract ``generate_lag_features``'s
+    per-entity ring buffer enforces), so single-series callers are byte-for-byte unaffected while panel
+    callers get correct per-entity lags.
     """
     if len(X) == 0:
         raise ValueError("lagged_diff_features: X is empty")
@@ -424,9 +435,18 @@ def lagged_diff_features(
     periods = tuple(int(p) for p in periods if int(p) >= 1)
     if not periods:
         return pd.DataFrame(index=X.index), {}
+    entity_cols = [c for c in (entity_cols or []) if c in X.columns] or None
 
-    # Sort by time_col; preserve a permutation back to the input order.
-    sort_idx = np.argsort(X[time_col].to_numpy(), kind="mergesort")
+    if entity_cols:
+        from ._temporal_agg_fe import _entity_key_series
+
+        entity_key = _entity_key_series(X, entity_cols).to_numpy()
+        # Sort by (entity_key, time_col) -- lexsort's LAST key is primary.
+        sort_idx = np.lexsort((X[time_col].to_numpy(), entity_key))
+        entity_sorted = entity_key[sort_idx]
+    else:
+        sort_idx = np.argsort(X[time_col].to_numpy(), kind="mergesort")
+        entity_sorted = None
     inv_perm = np.empty_like(sort_idx)
     inv_perm[sort_idx] = np.arange(len(X))
 
@@ -439,6 +459,10 @@ def lagged_diff_features(
             diff_sorted = np.empty_like(x_sorted)
             diff_sorted[:p] = 0.0
             diff_sorted[p:] = x_sorted[p:] - x_sorted[:-p]
+            if entity_sorted is not None:
+                # Zero any diff whose period-back neighbour belongs to a different entity.
+                cross_boundary = entity_sorted[p:] != entity_sorted[:-p]
+                diff_sorted[p:][cross_boundary] = 0.0
             diff = diff_sorted[inv_perm]
             diff = np.nan_to_num(diff, nan=0.0, posinf=0.0, neginf=0.0)
             name = engineered_name_lagged_diff(value_col, p)
@@ -447,21 +471,34 @@ def lagged_diff_features(
                 "time_col": time_col,
                 "value_col": value_col,
                 "period": int(p),
+                "entity_cols": tuple(entity_cols) if entity_cols else None,
             }
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, recipes
 
 
 def apply_lagged_diff(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
-    """Replay a fitted lagged-diff recipe on new data: resort ``X_test`` by ``time_col``, compute the ``period``-step diff, then unsort back to input row order (pure function of X_test alone, no fit-time state needed)."""
+    """Replay a fitted lagged-diff recipe on new data: resort ``X_test`` by ``time_col`` (or ``(entity_cols,
+    time_col)`` when the recipe carries ``entity_cols`` -- CAT_INTERACTION_B-5 fix, mrmr_audit_2026-07-22),
+    compute the ``period``-step diff (zeroed across an entity boundary when entity-scoped), then unsort
+    back to input row order (pure function of X_test alone, no fit-time state needed)."""
     if not isinstance(X_test, pd.DataFrame):
         raise TypeError(f"apply_lagged_diff: X_test must be a DataFrame; got " f"{type(X_test).__name__}")
     time_col = recipe["time_col"]
     value_col = recipe["value_col"]
     period = int(recipe["period"])
+    entity_cols = recipe.get("entity_cols") or None
     if time_col not in X_test.columns or value_col not in X_test.columns:
         raise KeyError(f"apply_lagged_diff: missing column(s) {time_col!r}/{value_col!r} " f"from X_test")
-    sort_idx = np.argsort(X_test[time_col].to_numpy(), kind="mergesort")
+    if entity_cols and all(c in X_test.columns for c in entity_cols):
+        from ._temporal_agg_fe import _entity_key_series
+
+        entity_key = _entity_key_series(X_test, entity_cols).to_numpy()
+        sort_idx = np.lexsort((X_test[time_col].to_numpy(), entity_key))
+        entity_sorted = entity_key[sort_idx]
+    else:
+        sort_idx = np.argsort(X_test[time_col].to_numpy(), kind="mergesort")
+        entity_sorted = None
     inv_perm = np.empty_like(sort_idx)
     inv_perm[sort_idx] = np.arange(len(X_test))
     x = np.asarray(X_test[value_col].to_numpy(), dtype=np.float64)
@@ -469,8 +506,11 @@ def apply_lagged_diff(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     diff_sorted = np.empty_like(x_sorted)
     diff_sorted[:period] = 0.0
     diff_sorted[period:] = x_sorted[period:] - x_sorted[:-period]
+    if entity_sorted is not None:
+        cross_boundary = entity_sorted[period:] != entity_sorted[:-period]
+        diff_sorted[period:][cross_boundary] = 0.0
     out = diff_sorted[inv_perm]
-    return np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
+    return np.asarray(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0))
 
 
 # ---------------------------------------------------------------------------
@@ -514,19 +554,19 @@ def pairwise_ratio_with_recipes(
     from .engineered_recipes import build_pairwise_ratio_recipe
 
     if not cols:
-        return X.copy(), [], []
+        return X, [], []
     cols = [c for c in cols if c in X.columns]
     if len(cols) < 2:
-        return X.copy(), [], []
+        return X, [], []
     enc_df, accepted = pairwise_ratio_features(X, cols, eps=float(eps))
     if not accepted:
-        return X.copy(), [], []
+        return X, [], []
     enc_df, accepted = _gate_ratio_pairs(
         enc_df, accepted, engineered_name_ratio, y, X, mi_gate, mi_gate_top_k,
         reject_sink=reject_sink,
     )
     if not accepted:
-        return X.copy(), [], []
+        return X, [], []
     X_aug = pd.concat([X, enc_df], axis=1)
     appended = list(enc_df.columns)
     recipes = [
@@ -556,19 +596,19 @@ def pairwise_log_ratio_with_recipes(
     from .engineered_recipes import build_pairwise_ratio_recipe
 
     if not cols:
-        return X.copy(), [], []
+        return X, [], []
     cols = [c for c in cols if c in X.columns]
     if len(cols) < 2:
-        return X.copy(), [], []
+        return X, [], []
     enc_df, accepted = pairwise_log_ratio_features(X, cols, eps=float(eps))
     if not accepted:
-        return X.copy(), [], []
+        return X, [], []
     enc_df, accepted = _gate_ratio_pairs(
         enc_df, accepted, engineered_name_log_ratio, y, X, mi_gate, mi_gate_top_k,
         reject_sink=reject_sink,
     )
     if not accepted:
-        return X.copy(), [], []
+        return X, [], []
     X_aug = pd.concat([X, enc_df], axis=1)
     appended = list(enc_df.columns)
     recipes = [
@@ -600,19 +640,19 @@ def grouped_delta_with_recipes(
     from .engineered_recipes import build_grouped_delta_recipe
 
     if not group_col or group_col not in X.columns or not num_cols:
-        return X.copy(), [], []
+        return X, [], []
     num_cols = [c for c in num_cols if c in X.columns and c != group_col]
     if not num_cols:
-        return X.copy(), [], []
+        return X, [], []
     enc_df, raw_recipes = grouped_delta_features(X, group_col, num_cols)
     if enc_df.empty:
-        return X.copy(), [], []
+        return X, [], []
     if mi_gate and y is not None:
         from ._unified_fe_gate import local_mi_gate
 
         keep = set(local_mi_gate(enc_df, y, raw_X=X, top_k=mi_gate_top_k, reject_sink=reject_sink))
         if not keep:
-            return X.copy(), [], []
+            return X, [], []
         enc_df = enc_df[[c for c in enc_df.columns if c in keep]]
     X_aug = pd.concat([X, enc_df], axis=1)
     appended = list(enc_df.columns)
@@ -626,6 +666,7 @@ def lagged_diff_with_recipes(
     time_col: Optional[str] = None,
     value_cols: Optional[Sequence[str]] = None,
     periods: Sequence[int] = (1, 2),
+    entity_cols: Optional[Sequence[str]] = None,
     mi_gate: bool = False,
     mi_gate_top_k: Optional[int] = None,
     y: Optional[np.ndarray] = None,
@@ -635,26 +676,30 @@ def lagged_diff_with_recipes(
 
     ``mi_gate=True`` (with ``y``) applies the Tier-1 local MI floor (Layer 91)
     over the |value_cols| * |periods| lag pool.
+
+    ``entity_cols`` (CAT_INTERACTION_B-5 fix, mrmr_audit_2026-07-22): optional per-entity scoping -- see
+    :func:`lagged_diff_features`'s docstring. ``None`` (the default) preserves the exact prior global-sort
+    behaviour.
     """
     from .engineered_recipes import build_lagged_diff_recipe
 
     if not time_col or time_col not in X.columns or not value_cols:
-        return X.copy(), [], []
+        return X, [], []
     value_cols = [c for c in value_cols if c in X.columns and c != time_col]
     if not value_cols:
-        return X.copy(), [], []
+        return X, [], []
     periods = tuple(int(p) for p in periods if int(p) >= 1)
     if not periods:
-        return X.copy(), [], []
-    enc_df, raw_recipes = lagged_diff_features(X, time_col, value_cols, periods)
+        return X, [], []
+    enc_df, raw_recipes = lagged_diff_features(X, time_col, value_cols, periods, entity_cols=entity_cols)
     if enc_df.empty:
-        return X.copy(), [], []
+        return X, [], []
     if mi_gate and y is not None:
         from ._unified_fe_gate import local_mi_gate
 
         keep = set(local_mi_gate(enc_df, y, raw_X=X, top_k=mi_gate_top_k, reject_sink=reject_sink))
         if not keep:
-            return X.copy(), [], []
+            return X, [], []
         enc_df = enc_df[[c for c in enc_df.columns if c in keep]]
     X_aug = pd.concat([X, enc_df], axis=1)
     appended = list(enc_df.columns)
@@ -734,21 +779,25 @@ def _apply_grouped_delta_recipe(recipe, X) -> np.ndarray:
     )
 
 
-def _coerce_X_for_lagged_diff(X, time_col: str, value_col: str, recipe_name: str) -> pd.DataFrame:
-    """Extract ``time_col``/``value_col`` from an arbitrary carrier (pandas, polars, or structured ndarray) as a pandas DataFrame for ``apply_lagged_diff`` at recipe-replay time."""
+def _coerce_X_for_lagged_diff(X, time_col: str, value_col: str, recipe_name: str, entity_cols: "tuple[str, ...] | None" = None) -> pd.DataFrame:
+    """Extract ``time_col``/``value_col``/``entity_cols`` from an arbitrary carrier (pandas, polars, or structured ndarray) as a pandas DataFrame for ``apply_lagged_diff`` at recipe-replay time."""
     if isinstance(X, pd.DataFrame):
         return X
+    _entity_cols = entity_cols or ()
     try:
         import polars as _pl
         if isinstance(X, _pl.DataFrame):
-            return pd.DataFrame({
-                time_col: X[time_col].to_numpy(),
-                value_col: X[value_col].to_numpy(),
-            })
+            cols = {time_col: X[time_col].to_numpy(), value_col: X[value_col].to_numpy()}
+            for c in _entity_cols:
+                cols[c] = X[c].to_numpy()
+            return pd.DataFrame(cols)
     except ImportError:
         pass
     if isinstance(X, np.ndarray) and X.dtype.names is not None:
-        return pd.DataFrame({time_col: X[time_col], value_col: X[value_col]})
+        cols_np = {time_col: X[time_col], value_col: X[value_col]}
+        for c in _entity_cols:
+            cols_np[c] = X[c]
+        return pd.DataFrame(cols_np)
     raise TypeError(f"recipe '{recipe_name}': cannot extract {time_col!r}/{value_col!r} " f"from X of type {type(X).__name__}")
 
 
@@ -757,7 +806,8 @@ def _apply_lagged_diff_recipe(recipe, X) -> np.ndarray:
     time_col = str(recipe.extra["time_col"])
     value_col = str(recipe.extra["value_col"])
     period = int(recipe.extra["period"])
-    X_view = _coerce_X_for_lagged_diff(X, time_col, value_col, recipe.name)
+    entity_cols = recipe.extra.get("entity_cols") or None
+    X_view = _coerce_X_for_lagged_diff(X, time_col, value_col, recipe.name, entity_cols=entity_cols)
     return apply_lagged_diff(
-        X_view, {"time_col": time_col, "value_col": value_col, "period": period},
+        X_view, {"time_col": time_col, "value_col": value_col, "period": period, "entity_cols": entity_cols},
     )

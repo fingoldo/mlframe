@@ -215,7 +215,18 @@ def generate_grouped_agg_features(
                 else:
                     agg_series = grouped.agg(_agg_func_for_stat(stat))
                 lookup = {canonical_group_token(k): (float(v) if np.isfinite(v) else 0.0) for k, v in agg_series.items()}
-                global_value = _global_value_for_stat(x, stat)
+                if stat == "nunique":
+                    # CAT_INTERACTION_B-2 fix (mrmr_audit_2026-07-22): the whole-population
+                    # np.unique(finite).size fallback used to emit a WILDLY out-of-distribution value for
+                    # an unseen group (confirmed by direct execution: real per-group nunique 241-283 vs a
+                    # global fallback of 4882, ~18x, at n=5000/20 groups) -- every OTHER stat's fallback
+                    # stays on the SAME SCALE as a per-group value (a population mean/std/min/max/median IS
+                    # a plausible per-group value), but the whole-population cardinality is not a plausible
+                    # per-group cardinality. Use the median PER-GROUP nunique across fit-time groups instead
+                    # -- scale-consistent with every other stat's fallback.
+                    global_value = float(np.median(agg_series.to_numpy())) if len(agg_series) else 0.0
+                else:
+                    global_value = _global_value_for_stat(x, stat)
                 broadcast = _broadcast_lookup(g_keys, lookup, global_value)
                 name = engineered_name_grouped_agg(num_col, group_col, stat)
                 encoded[name] = broadcast
@@ -367,16 +378,16 @@ def grouped_agg_with_recipes(
     from .engineered_recipes import build_grouped_agg_recipe
 
     if not group_cols or not num_cols:
-        return X.copy(), [], []
+        return X, [], []
     group_cols = [c for c in group_cols if c in X.columns]
     num_cols = [c for c in num_cols if c in X.columns]
     if not group_cols or not num_cols:
-        return X.copy(), [], []
+        return X, [], []
     enc_df, raw_recipes = generate_grouped_agg_features(
         X, group_cols, num_cols, stats=stats,
     )
     if enc_df.empty:
-        return X.copy(), [], []
+        return X, [], []
     X_aug = pd.concat([X, enc_df], axis=1)
     appended = list(enc_df.columns)
     recipes = [build_grouped_agg_recipe(name=name, **raw_recipes[name]) for name in appended]
@@ -607,7 +618,7 @@ def hybrid_grouped_agg_fe(
     else:
         group_cols = [c for c in group_cols if c in X.columns]
     if not group_cols:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
     _num_cols_auto = num_cols is None or len(num_cols) == 0
     if _num_cols_auto:
         num_cols = _auto_detect_num_cols(X, group_cols)
@@ -622,13 +633,13 @@ def hybrid_grouped_agg_fe(
         assert num_cols is not None  # _num_cols_auto is False here, so num_cols was not None/empty above
         num_cols = [c for c in num_cols if c in X.columns]
     if not num_cols:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     enc_df, raw_recipes = generate_grouped_agg_features(
         X, group_cols, num_cols, stats=stats,
     )
     if enc_df.empty:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     base_cols = list(num_cols)  # condition on the raw source cols
     eng_to_source = {name: raw_recipes[name]["num_col"] for name in enc_df.columns}
@@ -639,7 +650,7 @@ def hybrid_grouped_agg_fe(
     keep = scores[(scores["cmi"] >= float(min_cmi)) & (scores["uplift"] >= float(min_uplift))]
     winners = list(keep["engineered_col"].head(int(top_k)))
     if not winners:
-        return X.copy(), [], [], scores
+        return X, [], [], scores
 
     from .engineered_recipes import build_grouped_agg_recipe
 

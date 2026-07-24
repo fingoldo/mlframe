@@ -443,7 +443,14 @@ def _greedy_score_and_select(
             "baseline_mi", "engineered_mi", "uplift",
         ]), []
 
-    y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
+    # MI_GREEDY_RECIPES-2 fix (mrmr_audit_2026-07-22): was a truncating `.astype(np.int64)` for non-integer
+    # y -- for a continuous y confined to one integer bucket (e.g. a [0,1) probability), truncation
+    # collapses every distinct value to the SAME integer, destroying the signal (the B-18 bug class,
+    # already fixed in 7 sibling orth-scoring files via _coerce_y_int64, but never applied here). Densify
+    # via np.unique instead -- a no-op renumber for an already-integer/already-dense y.
+    _y_raw = np.asarray(y)
+    _, y_arr = np.unique(_y_raw, return_inverse=True)
+    y_arr = y_arr.astype(np.int64)
     raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
     raw_mi_map = dict(zip(list(raw_X.columns), raw_mi.tolist()))
     eng_mi = mi_classif_batch_chunked(engineered, y_arr, nbins=nbins)
@@ -565,15 +572,15 @@ def greedy_mi_fe_construct(
     # 1. Seed pool.
     candidates_pool = [c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if not candidates_pool:
-        return X.copy(), pd.DataFrame(columns=[
+        return X, pd.DataFrame(columns=[
             "engineered_col", "transform", "source_cols",
             "baseline_mi", "engineered_mi", "uplift",
         ])
-    y_arr = (
-        np.asarray(y).astype(np.int64)
-        if not np.issubdtype(np.asarray(y).dtype, np.integer)
-        else np.asarray(y, dtype=np.int64)
-    )
+    # MI_GREEDY_RECIPES-2 fix (mrmr_audit_2026-07-22): see _greedy_score_and_select's matching fix above --
+    # densify via np.unique instead of a truncating `.astype(np.int64)`.
+    _y_raw = np.asarray(y)
+    _, y_arr = np.unique(_y_raw, return_inverse=True)
+    y_arr = y_arr.astype(np.int64)
     raw_arr = X[candidates_pool].to_numpy(dtype=np.float64)
     raw_mi = _mi_classif_batch(raw_arr, y_arr, nbins=nbins)
     order = np.argsort(-raw_mi)
@@ -590,7 +597,7 @@ def greedy_mi_fe_construct(
     # 3-4. Materialise + score + select.
     engineered, parsed = generate_mi_greedy_features(X, candidates)
     if engineered.empty:
-        return X.copy(), pd.DataFrame(columns=[
+        return X, pd.DataFrame(columns=[
             "engineered_col", "transform", "source_cols",
             "baseline_mi", "engineered_mi", "uplift",
         ])

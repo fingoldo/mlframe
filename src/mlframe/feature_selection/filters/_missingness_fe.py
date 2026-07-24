@@ -423,10 +423,10 @@ def missing_indicator_with_recipes(
     from .engineered_recipes import build_missing_indicator_recipe
 
     if not cols:
-        return X.copy(), [], []
+        return X, [], []
     cols = [c for c in cols if c in X.columns]
     if not cols:
-        return X.copy(), [], []
+        return X, [], []
     enc_df, _raw_recipes = missing_indicator_fit(X, cols)
     if mi_gate and y is not None and not enc_df.empty:
         from ._unified_fe_gate import local_mi_gate
@@ -434,7 +434,7 @@ def missing_indicator_with_recipes(
         _floor_ref = raw_X if isinstance(raw_X, pd.DataFrame) and raw_X.shape[1] else X
         keep = set(local_mi_gate(enc_df, y, raw_X=_floor_ref, top_k=mi_gate_top_k, reject_sink=reject_sink))
         if not keep:
-            return X.copy(), [], []
+            return X, [], []
         cols = [c for c in cols if engineered_name_missing_indicator(c) in keep]
         enc_df = enc_df[[engineered_name_missing_indicator(c) for c in cols]]
     X_aug = pd.concat([X, enc_df], axis=1)
@@ -459,10 +459,10 @@ def missingness_count_with_recipes(
     from .engineered_recipes import build_missingness_count_recipe
 
     if not cols:
-        return X.copy(), [], []
+        return X, [], []
     cols = [c for c in cols if c in X.columns]
     if not cols:
-        return X.copy(), [], []
+        return X, [], []
     counts, raw_recipe = missingness_count_fit(X, cols)
     name = engineered_name_missingness_count()
     X_aug = X.copy()
@@ -562,10 +562,10 @@ def missingness_pattern_with_recipes(
     from .engineered_recipes import build_missingness_pattern_recipe
 
     if not cols:
-        return X.copy(), [], []
+        return X, [], []
     cols = [c for c in cols if c in X.columns]
     if not cols:
-        return X.copy(), [], []
+        return X, [], []
     labels, raw_recipe = missingness_pattern_fit(X, cols, top_k=top_k)
     name = engineered_name_missingness_pattern()
     X_aug = X.copy()

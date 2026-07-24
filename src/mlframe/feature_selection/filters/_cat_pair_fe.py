@@ -387,6 +387,13 @@ def _kfold_target_encode_codes(
     applied to the cross cell codes). Returns ``(oof_values, lookup, global_mean)``
     where ``lookup`` maps each cell code to its full-data smoothed mean-of-y.
     """
+    # CAT_INTERACTION_A-8 fix (mrmr_audit_2026-07-22): mirrors the near-sibling kfold_target_encode_fit's
+    # (_target_encoding_fe.py) explicit n_folds>=2 guard. Pre-fix: n_folds=0 raised a raw, unhelpful
+    # ZeroDivisionError from `np.arange(n) % int(n_folds)`; n_folds=1 didn't crash but silently emitted an
+    # entirely-uninformative TE column (every row = global_mean, since train_mask=(fold_ids != 0) is
+    # all(False) and the loop never writes a non-default oof value) with no warning.
+    if n_folds < 2:
+        raise ValueError(f"n_folds must be >= 2; got {n_folds}")
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     n = len(codes)
     global_mean = float(y_arr.mean()) if n else 0.0
@@ -466,7 +473,7 @@ def hybrid_cat_pair_fe(
     else:
         cat_cols = [c for c in cat_cols if c in X.columns]
     if len(cat_cols) < 2 and pairs is None:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     # ``code_cache`` collects the scorer's per-column ``(uniq_strings, dense_codes)`` -- every survivor's
     # cat_i/cat_j was necessarily scored (hence already factorised), so the materialisation loop below reuses
@@ -477,12 +484,12 @@ def hybrid_cat_pair_fe(
         X, y, cat_cols, n_bins=n_bins, pairs=pairs, code_cache_out=code_cache,
     )
     if scores.empty:
-        return X.copy(), [], [], scores
+        return X, [], [], scores
 
     keep = scores[scores["ii"] > float(min_interaction_info)]
     keep = keep.head(int(top_k))
     if keep.empty:
-        return X.copy(), [], [], scores
+        return X, [], [], scores
 
     n = len(X)
     new_cols: dict[str, np.ndarray] = {}
@@ -524,7 +531,7 @@ def hybrid_cat_pair_fe(
         appended.append(name)
 
     if not appended:
-        return X.copy(), [], [], scores
+        return X, [], [], scores
     new_df = pd.DataFrame(new_cols, index=X.index)
     X_aug = pd.concat([X, new_df], axis=1)
     return X_aug, appended, recipes, scores

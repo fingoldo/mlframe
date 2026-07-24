@@ -237,10 +237,21 @@ def score_decompose_by_bootstrap_mi(
 def _parse_engineered_name(name: str):
     """``"{src}__round_0p1"`` -> ('numeric_rounding', src, 0.1);
     ``"{src}__digit_2"`` -> ('digit_extract', src, 2). Returns None on a name
-    that doesn't match either convention."""
+    that doesn't match either convention.
+
+    CAT_INTERACTION_B-4 fix (mrmr_audit_2026-07-22): this used to split on the FIRST "__", which breaks for
+    any raw source column whose own name contains "__" (e.g. flattened-JSON keys like "user__id", or even
+    this codebase's own orth-basis engineered-column convention "{col}__{basis_code}{degree}"): for source
+    "a__b", the emitted name "a__b__digit_1" split to src="a", suffix="b__digit_1", matching neither prefix
+    check, silently returning None -- hybrid_numeric_decompose_fe_with_recipes then skipped building a
+    recipe for that column even though it stayed in X_aug/appended and could be selected, a silent
+    fit/serve mismatch. Anchor on the KNOWN suffix pattern instead: rsplit on "__" and check the resulting
+    suffix against the round_/digit_ prefixes, so any number of "__" occurrences in the source name (as
+    long as it doesn't itself end in a round_/digit_-shaped segment) parses correctly.
+    """
     if "__" not in name:
         return None
-    src, suffix = name.split("__", 1)
+    src, suffix = name.rsplit("__", 1)
     if suffix.startswith(ROUNDING_PREFIX + "_"):
         tok = suffix[len(ROUNDING_PREFIX) + 1 :]
         try:
@@ -298,7 +309,7 @@ def hybrid_numeric_decompose_fe(
         "uplift_mean", "uplift_std", "uplift_lcb",
     ]
     if eng.empty:
-        return X.copy(), pd.DataFrame(columns=empty_cols)
+        return X, pd.DataFrame(columns=empty_cols)
 
     raw_X = X[_numeric_cols(X, cols)]
     scores = score_decompose_by_bootstrap_mi(
@@ -306,7 +317,7 @@ def hybrid_numeric_decompose_fe(
         n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins,
     )
     if scores.empty:
-        return X.copy(), scores
+        return X, scores
 
     # MAD noise floor anchored on the RAW BASELINE MI distribution, NOT the
     # engineered-candidate distribution. The baseline_mi_lcb of the raw source

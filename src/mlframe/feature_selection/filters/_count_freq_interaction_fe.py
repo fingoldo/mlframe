@@ -261,8 +261,12 @@ def cat_num_interaction_fit(
     X : DataFrame
         Must contain both ``cat_col`` and ``num_col``.
     y : ndarray
-        Used ONLY to derive a stratified fold assignment when the target is
-        binary; otherwise random. Not consumed into the residual expression.
+        NOT used to derive fold assignment (CAT_INTERACTION_A-7 fix, mrmr_audit_2026-07-22: this docstring
+        used to claim a stratified-when-binary fold split that the implementation never performs -- fold
+        assignment is always a plain ``rng.permutation(n)``, regardless of ``y``'s dtype/cardinality; a
+        plain random split is a valid, safe OOF scheme here since the leak target is ``num_col``, not
+        ``y``). Referenced only for a length-equality validation check; not consumed into the residual
+        expression.
     cat_col, num_col : str
     n_folds : int, default 5
     smoothing : float, default 10.0
@@ -444,15 +448,15 @@ def count_encode_with_recipes(
     from .engineered_recipes import build_count_encoded_recipe
 
     if not cat_cols:
-        return X.copy(), [], []
+        return X, [], []
     cat_cols = [c for c in cat_cols if c in X.columns]
     if not cat_cols:
-        return X.copy(), [], []
+        return X, [], []
     enc_df, raw_recipes = count_encode_fit(X, cat_cols)
     if mi_gate and y is not None:
         enc_df = _gate_enc(enc_df, y, X, mi_gate, mi_gate_top_k, reject_sink=reject_sink)
         if enc_df.empty:
-            return X.copy(), [], []
+            return X, [], []
         kept = set(enc_df.columns)
         cat_cols = [c for c in cat_cols if engineered_name_count(c) in kept]
     X_aug = pd.concat([X, enc_df], axis=1)
@@ -485,15 +489,15 @@ def frequency_encode_with_recipes(
     from .engineered_recipes import build_frequency_encoded_recipe
 
     if not cat_cols:
-        return X.copy(), [], []
+        return X, [], []
     cat_cols = [c for c in cat_cols if c in X.columns]
     if not cat_cols:
-        return X.copy(), [], []
+        return X, [], []
     enc_df, raw_recipes = frequency_encode_fit(X, cat_cols)
     if mi_gate and y is not None:
         enc_df = _gate_enc(enc_df, y, X, mi_gate, mi_gate_top_k, reject_sink=reject_sink)
         if enc_df.empty:
-            return X.copy(), [], []
+            return X, [], []
         kept = set(enc_df.columns)
         cat_cols = [c for c in cat_cols if engineered_name_freq(c) in kept]
     X_aug = pd.concat([X, enc_df], axis=1)
@@ -533,13 +537,13 @@ def cat_num_interaction_with_recipes(
     from .engineered_recipes import build_cat_num_residual_recipe
 
     if not cat_cols or not num_cols:
-        return X.copy(), [], []
+        return X, [], []
     cat_cols = [c for c in cat_cols if c in X.columns]
     # ``X[c]`` is a DataFrame (no ``.dtype``) when ``c`` is a duplicated column name; skip such ambiguous columns
     # (a single numeric dtype can't be determined) instead of raising AttributeError and losing the whole FE pass.
     num_cols = [c for c in num_cols if c in X.columns and getattr(X[c], "ndim", 2) == 1 and np.issubdtype(X[c].dtype, np.number)]
     if not cat_cols or not num_cols:
-        return X.copy(), [], []
+        return X, [], []
     appended: list[str] = []
     recipes: list = []
     new_cols: dict[str, np.ndarray] = {}
@@ -584,7 +588,7 @@ def cat_num_interaction_with_recipes(
     if mi_gate and not new_df.empty:
         new_df = _gate_enc(new_df, y, X, mi_gate, mi_gate_top_k, reject_sink=reject_sink)
         if new_df.empty:
-            return X.copy(), [], []
+            return X, [], []
         kept = set(new_df.columns)
         appended = [n for n in appended if n in kept]
         recipes = [r for r in recipes if r.name in kept]

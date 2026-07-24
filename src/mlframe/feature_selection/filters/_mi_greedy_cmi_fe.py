@@ -1320,11 +1320,16 @@ def score_candidates_by_cmi(
     """
     if X_cand.empty:
         return pd.Series(dtype=np.float64)
+    # MI_GREEDY_RECIPES-2 fix (mrmr_audit_2026-07-22): this used to `.astype(np.int64)` (TRUNCATE) any
+    # non-integer y BEFORE the np.unique densify below -- for a continuous y confined to one integer
+    # bucket (e.g. a [0,1) probability), truncation collapses every distinct value to the SAME integer
+    # first, so the subsequent np.unique can no longer recover the distinctness (the exact B-18 bug class
+    # already fixed in 7 sibling orth-scoring files via _coerce_y_int64, but never applied here). Densify
+    # directly via np.unique on the RAW y instead -- safe for an already-integer y too (same result).
     y_arr = np.asarray(y)
-    if not np.issubdtype(y_arr.dtype, np.integer):
-        y_arr = y_arr.astype(np.int64)
-    # Bin y by unique-value remap (y is already class-typed at the call
-    # site; this just renumbers to dense 0..K-1).
+    # Bin y by unique-value remap (renumbers to dense 0..K-1; the caller's y may already be class-typed,
+    # in which case this is a no-op renumber, or a raw continuous target, in which case this is what
+    # actually turns it into usable class codes without truncation).
     _, y_bin = np.unique(y_arr, return_inverse=True)
     y_bin = y_bin.astype(np.int64)
 
@@ -1385,8 +1390,15 @@ def greedy_cmi_fe_construct(
     include_trig_on_bounded: bool = True,
     min_cmi_gain: float = 0.005,
     nbins: int = 10,
+    seed: int = 0xC011,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """End-to-end CMI-greedy feature constructor.
+
+    ``seed`` (MI_GREEDY_RECIPES-1 fix, mrmr_audit_2026-07-22): seeds the noise-floor permutation RNG
+    (previously hardcoded to ``0xC011`` with no way to vary it). Defaults to the historical constant so
+    existing pinned tests/behaviour stay byte-identical when the caller does not override it; pass
+    ``self.random_seed`` (or any other seed) to decorrelate the FE admission gate across nominally-
+    independent bootstrap/multi-seed replicates (stability selection, seed ensembles).
 
     Pipeline:
 
@@ -1434,17 +1446,23 @@ def greedy_cmi_fe_construct(
     _cols_source = cols if cols is not None else X.columns
     candidates_pool = [c for c in _cols_source if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if not candidates_pool:
-        return X.copy(), empty_scores
+        return X, empty_scores
 
+    # MI_GREEDY_RECIPES-2 fix (mrmr_audit_2026-07-22): this used to `.astype(np.int64)` (TRUNCATE) any
+    # non-integer y here, BEFORE both the raw_mi scoring below AND the np.unique densify further down --
+    # for a continuous y confined to one integer bucket, truncation collapses every distinct value to the
+    # SAME integer first, so densification downstream can no longer recover the distinctness (the B-18 bug
+    # class). Densify via np.unique ONCE, up front, and reuse the dense y_bin everywhere below -- safe for
+    # an already-integer/already-dense y too (pure renumber, no-op if already 0..K-1).
     y_arr = np.asarray(y)
-    if not np.issubdtype(y_arr.dtype, np.integer):
-        y_arr = y_arr.astype(np.int64)
+    _, y_bin = np.unique(y_arr, return_inverse=True)
+    y_bin = y_bin.astype(np.int64)
 
     # 1. Pick the top-N raw cols by marginal MI as the BINARY-pair source
     #    pool (controls the O(N^2 * |BINARY_TRANSFORMS|) explosion).
     #    Unary candidates still enumerate over the full pool below.
     raw_arr = X[candidates_pool].to_numpy(dtype=np.float64)
-    raw_mi = _mi_classif_batch(raw_arr, y_arr, nbins=nbins)
+    raw_mi = _mi_classif_batch(raw_arr, y_bin, nbins=nbins)
     order = np.argsort(-raw_mi)
     binary_seed_cols = [candidates_pool[i] for i in order[: int(seed_cols_count)]] if int(seed_cols_count) > 0 else list(candidates_pool)
 
@@ -1466,15 +1484,13 @@ def greedy_cmi_fe_construct(
         ))
     engineered, parsed = generate_mi_greedy_features(X, cands)
     if engineered.empty:
-        return X.copy(), empty_scores
+        return X, empty_scores
 
-    # 3. Bin y; start Z EMPTY. Z grows step-by-step from greedy picks
-    #    (under the fragmentation cap below). Starting with several raw
-    #    cols in Z up front pushes joint Z cardinality past the
-    #    chi-squared contingency budget and collapses every candidate's
-    #    CMI toward noise -- defeats the purpose of CMI ranking.
-    _, y_bin = np.unique(y_arr, return_inverse=True)
-    y_bin = y_bin.astype(np.int64)
+    # 3. y_bin was already densified up front (MI_GREEDY_RECIPES-2 fix reuses it here, no re-densify
+    #    needed). Start Z EMPTY. Z grows step-by-step from greedy picks (under the fragmentation cap
+    #    below). Starting with several raw cols in Z up front pushes joint Z cardinality past the
+    #    chi-squared contingency budget and collapses every candidate's CMI toward noise -- defeats the
+    #    purpose of CMI ranking.
     n_samples = int(y_bin.size)
     frag_cap = max(2, n_samples // 5)
     # RESIDENT fit-constant y for the GPU-strict greedy hot path: upload y_bin to the device ONCE here and hand
@@ -1573,7 +1589,10 @@ def greedy_cmi_fe_construct(
     # spurious transforms" failure mode that bias correction alone
     # can't fully suppress at finite n. Recomputed when Z grows so the
     # floor scales with the conditioning's fragmentation.
-    rng_floor = np.random.default_rng(0xC011)
+    # Salt the caller's seed against the historical constant via SeedSequence rather than
+    # handing small user-chosen integers (e.g. random_state=0) straight to the permutation
+    # RNG: raw small seeds can land on unlucky permutation draws (MI_GREEDY_RECIPES-1 follow-up).
+    rng_floor = np.random.default_rng(np.random.SeedSequence([0xC011, seed & 0xFFFFFFFF]))
 
     def _noise_floor_for_current_z() -> float:
         """Permutation-based CMI noise floor for the CURRENT conditioning Z: shuffles y once, samples up to 24 candidates' CMI against the shuffled target, and returns the 95th percentile as the floor a real candidate must clear (combined with the user's ``min_cmi_gain`` via ``max()``). Recomputed as Z grows so the floor tracks the conditioning's fragmentation."""
@@ -1812,6 +1831,7 @@ def greedy_cmi_fe_construct_with_recipes(
     include_trig_on_bounded: bool = True,
     min_cmi_gain: float = 0.005,
     nbins: int = 10,
+    seed: int = 0xC011,
 ):
     """Same as :func:`greedy_cmi_fe_construct` but additionally returns a list
     of ``EngineeredRecipe`` objects (one per appended column) so MRMR.transform
@@ -1820,6 +1840,8 @@ def greedy_cmi_fe_construct_with_recipes(
 
     Recipes reuse kind ``"mi_greedy_transform"`` (same as Layer 26) so the
     replay code path is shared infrastructure.
+
+    ``seed``: see :func:`greedy_cmi_fe_construct`'s matching parameter (MI_GREEDY_RECIPES-1 fix).
     """
     from ._mi_greedy_fe import _parse_binary_name, _parse_unary_name
     from .engineered_recipes import build_mi_greedy_transform_recipe
@@ -1829,7 +1851,7 @@ def greedy_cmi_fe_construct_with_recipes(
         cols=cols, seed_cols_count=seed_cols_count, top_k=top_k,
         include_unary=include_unary, include_binary=include_binary,
         include_trig_on_bounded=include_trig_on_bounded,
-        min_cmi_gain=min_cmi_gain, nbins=nbins,
+        min_cmi_gain=min_cmi_gain, nbins=nbins, seed=seed,
     )
     appended = [c for c in X_aug.columns if c not in X.columns]
     recipes = []

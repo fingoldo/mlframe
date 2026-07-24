@@ -416,7 +416,7 @@ def binned_numeric_agg_with_recipes(
     gcands = [c for c in (group_num_cols or cols) if c in X.columns]
     acands = [c for c in (agg_num_cols or cols) if c in X.columns]
     if not gcands or not acands:
-        return X.copy(), [], []
+        return X, [], []
 
     # GROUP pre-selection by cheap MI(qbin(g); y). y discretised once (deciles) for the relevance proxy.
     y_arr = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=np.float64).ravel()
@@ -430,7 +430,7 @@ def binned_numeric_agg_with_recipes(
     a_var = {a: float(np.var(np.asarray(X[a].to_numpy(), dtype=np.float64))) for a in acands}
     asel = sorted(acands, key=lambda a: a_var.get(a, 0.0), reverse=True)[: max(1, int(max_agg_cols))]
     if not gsel or not asel:
-        return X.copy(), [], []
+        return X, [], []
 
     # PRE-CAP (2026-06-17 perf): the OOF fit below previously computed all gsel x asel pairs and only
     # then capped to top-``max_pairs`` by ``pair_rank`` (group MI, then agg variance) -- both already
@@ -478,10 +478,10 @@ def binned_numeric_agg_with_recipes(
             pairs=_precap_pairs, recipe_only=True,
         )
         if not raw:
-            return X.copy(), [], []
+            return X, [], []
         cand_names = _cap_names(list(raw.keys()), raw)
         if not cand_names:
-            return X.copy(), [], []
+            return X, [], []
         survivor_list = None
         try:
             from ._binned_numeric_agg_resident import local_mi_gate_binagg_resident
@@ -498,7 +498,7 @@ def binned_numeric_agg_with_recipes(
             _surv_set = set(survivor_list)
             survivors = [c for c in cand_names if c in _surv_set]  # capped order, filtered to survivors
             if not survivors:
-                return X.copy(), [], []
+                return X, [], []
             # HOST OOF for the SURVIVOR pairs only (bit-identical values, few columns). The pair-restricted fit
             # may emit sibling stats of a survivor's pair -> keep exactly the survivor columns, in survivor order.
             _surv_pairs = set((raw[_nm]["group_col"], raw[_nm]["agg_col"]) for _nm in survivors)
@@ -510,7 +510,7 @@ def binned_numeric_agg_with_recipes(
             _have = set(feat_df.columns)
             feat_df = feat_df[[c for c in survivors if c in _have]]
             if feat_df.shape[1] == 0:
-                return X.copy(), [], []
+                return X, [], []
 
     if not _device_binagg:
         # HOST path (unchanged behaviour): build ALL capped OOF columns, then the host CPU MI gate.
@@ -520,7 +520,7 @@ def binned_numeric_agg_with_recipes(
             pairs=_precap_pairs,
         )
         if feat_df.shape[1] == 0:
-            return X.copy(), [], []
+            return X, [], []
         feat_df = feat_df[_cap_names(list(feat_df.columns), raw)]
         # PROBE-GATE: keep only columns clearing the local MI floor vs the raw baseline (cheap exit if no signal).
         if mi_gate and feat_df.shape[1] > 0:
@@ -528,7 +528,7 @@ def binned_numeric_agg_with_recipes(
             survivors_set = set(local_mi_gate(feat_df, y, raw_X=X, reject_sink=reject_sink))
             feat_df = feat_df[[c for c in feat_df.columns if c in survivors_set]]
             if feat_df.shape[1] == 0:
-                return X.copy(), [], []
+                return X, [], []
 
     # REDUNDANCY GATE: a ``binagg_*`` column ``stat(a | qbin(g))`` is a deterministic function of its source
     # columns ``(g, a)``. The Tier-1 MI floor above keeps it whenever MI(col; y) clears the raw noise floor,
@@ -629,7 +629,7 @@ def binned_numeric_agg_with_recipes(
                     pass
         feat_df = feat_df[kept_cols]
         if feat_df.shape[1] == 0:
-            return X.copy(), [], []
+            return X, [], []
 
     X_aug = pd.concat([X, feat_df], axis=1)
     recipes = [build_binned_numeric_agg_recipe(n, raw[n]) for n in feat_df.columns]

@@ -337,13 +337,13 @@ def hybrid_rare_category_fe(
     else:
         cat_cols = [c for c in cat_cols if c in X.columns]
     if not cat_cols:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     enc_df, raw_recipes = generate_rare_category_features(
         X, cat_cols, rare_threshold=rare_threshold,
     )
     if enc_df.empty:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     winners = list(enc_df.columns)
     if mi_gate and y is not None:
@@ -356,7 +356,7 @@ def hybrid_rare_category_fe(
     else:
         winners = winners[: int(top_k)]
     if not winners:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     X_aug = pd.concat([X, enc_df[winners]], axis=1)
     recipes = [
@@ -597,20 +597,20 @@ def hybrid_conditional_residual_fe(
     else:
         num_cols = [c for c in num_cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if len(num_cols) < 2:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     if y is not None:
         num_cols = _top_mi_num_cols(X, num_cols, y, max_pair_cols)
     else:
         num_cols = list(num_cols)[: int(max_pair_cols)]
     if len(num_cols) < 2:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     enc_df, raw_recipes = generate_conditional_residual_features(
         X, num_cols, n_bins=n_bins,
     )
     if enc_df.empty:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     winners = list(enc_df.columns)
     if mi_gate and y is not None:
@@ -623,7 +623,7 @@ def hybrid_conditional_residual_fe(
     else:
         winners = winners[: int(top_k)]
     if not winners:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     X_aug = pd.concat([X, enc_df[winners]], axis=1)
     recipes = [build_conditional_residual_recipe(name=name, **raw_recipes[name]) for name in winners]
@@ -866,7 +866,7 @@ def hybrid_rankgauss_fe(
     else:
         num_cols = [c for c in num_cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if not num_cols:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     # Pool bound by raw marginal MI (DPI: don't gate on engineered MI gain).
     if y is not None and len(num_cols) > int(top_k):
@@ -876,7 +876,7 @@ def hybrid_rankgauss_fe(
 
     enc_df, raw_recipes = generate_rankgauss_features(X, num_cols)
     if enc_df.empty:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     winners = list(enc_df.columns)
     X_aug = pd.concat([X, enc_df[winners]], axis=1)
