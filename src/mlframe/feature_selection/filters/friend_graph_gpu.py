@@ -50,7 +50,7 @@ entropy + every keep/drop decision stay on the bit-exact CPU path. Verified by
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 
@@ -693,7 +693,7 @@ def _friend_graph_code_version():
     try:
         from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
 
-        fns = [_friend_graph_cpu_stats, _entropy_from_counts]
+        fns: list[Callable] = [_friend_graph_cpu_stats, _entropy_from_counts]
         if _CUDA_AVAIL:
             fns.append(friend_graph_stats_cuda)
         if _CUPY_AVAIL:

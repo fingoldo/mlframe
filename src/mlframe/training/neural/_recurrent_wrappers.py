@@ -154,7 +154,15 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
 
         if checkpoint_callback is not None and checkpoint_callback.best_model_path:
             try:
-                self.model = RecurrentTorchModel.load_from_checkpoint(
+                # Lightning's `load_from_checkpoint` uses a `_restricted_classmethod` descriptor
+                # whose stub types `__get__` as `type[Never]` on a subclass -- a stub limitation,
+                # not a real type error (the call is correct at runtime). Routed through
+                # getattr() (typed `-> Any`) rather than a `# type: ignore`, since the exact
+                # errors this descriptor produces are sensitive to the installed
+                # mypy/lightning version and a version-pinned ignore risks flipping to an
+                # "unused ignore" error (warn_unused_ignores=true) on a different combination.
+                load_from_checkpoint = getattr(RecurrentTorchModel, "load_from_checkpoint")
+                self.model = load_from_checkpoint(
                     checkpoint_callback.best_model_path,
                     config=self._cfg,
                     seq_input_size=self._seq_input_size,
@@ -362,7 +370,15 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
 
         if checkpoint_callback is not None and checkpoint_callback.best_model_path:
             try:
-                self.model = RecurrentTorchModel.load_from_checkpoint(
+                # Lightning's `load_from_checkpoint` uses a `_restricted_classmethod` descriptor
+                # whose stub types `__get__` as `type[Never]` on a subclass -- a stub limitation,
+                # not a real type error (the call is correct at runtime). Routed through
+                # getattr() (typed `-> Any`) rather than a `# type: ignore`, since the exact
+                # errors this descriptor produces are sensitive to the installed
+                # mypy/lightning version and a version-pinned ignore risks flipping to an
+                # "unused ignore" error (warn_unused_ignores=true) on a different combination.
+                load_from_checkpoint = getattr(RecurrentTorchModel, "load_from_checkpoint")
+                self.model = load_from_checkpoint(
                     checkpoint_callback.best_model_path,
                     config=self._cfg,
                     seq_input_size=self._seq_input_size,

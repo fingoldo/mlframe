@@ -145,12 +145,12 @@ class MultiTaskAuxiliaryLossRegressor(BaseEstimator, RegressorMixin):
                 perm = rng.permutation(n)
                 epoch_losses = []
                 for start in range(0, n, bs):
-                    idx = perm[start : start + bs]
+                    idx_t = torch.from_numpy(perm[start : start + bs])
                     optimizer.zero_grad()
                     loss = _joint_loss(
-                        X_t[idx], y_primary_t[idx],
-                        y_aux_binary_t[idx] if y_aux_binary_t is not None else None,
-                        y_aux_regression_t[idx] if y_aux_regression_t is not None else None,
+                        X_t[idx_t], y_primary_t[idx_t],
+                        y_aux_binary_t[idx_t] if y_aux_binary_t is not None else None,
+                        y_aux_regression_t[idx_t] if y_aux_regression_t is not None else None,
                     )
                     loss.backward()
                     optimizer.step()
