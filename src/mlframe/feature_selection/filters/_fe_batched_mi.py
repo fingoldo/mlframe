@@ -1,8 +1,12 @@
 """Batched born-on-device MI / CMI for the FE candidate pool (replatform step 3, 2026-06-25).
 
-PARALLEL / gated module -- imported by nothing in production yet; it lets the batched device CMI be
-built + parity-validated against the per-call CPU path (``_mi_greedy_cmi_fe._cmi_from_binned``) WITHOUT
-touching the primary path, then wired under MLFRAME_FE_GPU_STRICT.
+WIRED (MI_GREEDY_RECIPES-6 fix, mrmr_audit_2026-07-22 -- this docstring was stale): ``batched_cmi_gpu`` /
+``batched_quantile_bin_gpu`` / ``cmi_device_argmax`` ARE imported and called from
+``_mi_greedy_cmi_fe.py``'s ``greedy_cmi_fe_construct``, production-reachable via
+``MRMR.fit(fe_mi_greedy_cmi_enable=True)`` whenever ``_cmi_gpu_enabled()`` is true
+(``MLFRAME_CMI_GPU=1`` or STRICT-GPU). Originally built as a parallel/gated module so the batched device
+CMI could be built + parity-validated against the per-call CPU path
+(``_mi_greedy_cmi_fe._cmi_from_binned``) without touching the primary path before wiring.
 
 The per-call cp.unique CMI ports (cmi_from_binned / fixed_yz) are launch-bound: nsys measured 118k kernel
 launches + 5.8k H2D in one F2 1M fit because CMI is called per-candidate-per-permutation, each a separate

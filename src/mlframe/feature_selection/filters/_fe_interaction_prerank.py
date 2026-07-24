@@ -199,7 +199,12 @@ def gbm_split_propensity(values: np.ndarray, y: np.ndarray, num_boost_round: int
         ds = lgb.Dataset(X, label=label)
         booster = lgb.train(params, ds, num_boost_round=num_boost_round)
         return booster.feature_importance(importance_type="split").astype(np.float64)
-    except Exception:
+    except Exception as exc:
+        # FE_REDUNDANCY_SYNERGY-10 fix (mrmr_audit_2026-07-22): was unlogged, unlike the adjacent (and
+        # reasonable) `import lightgbm` probe a few lines above -- a genuine LightGBM bug (bad params, a
+        # degenerate label after class-collapse, an internal assertion) silently degraded the
+        # fused/gbm_splits interaction-propensity criterion to an all-zero ingredient with zero trace.
+        logger.debug("gbm_split_propensity: lgb.train/feature_importance failed; falling back to zeros: %r", exc)
         return np.zeros(X.shape[1], dtype=np.float64)
 
 

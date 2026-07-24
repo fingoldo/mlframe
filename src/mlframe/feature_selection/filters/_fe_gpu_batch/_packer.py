@@ -73,6 +73,13 @@ def pack_blocks_to_devices(works: list[int], speeds: list[float], *, prefer: str
     """
     if not works:
         return []
+    # X_EDGE_CASES_BEST_PRACTICES-6 fix (mrmr_audit_2026-07-22): a genuinely empty speeds list (zero
+    # visible devices) used to be treated identically to the single-device case, silently returning
+    # device index 0 for every block -- misleading, since there IS no device 0. Currently unreachable
+    # via the sole caller (multi_gpu_fe_batch_mi already special-cases len(profs)<=1 before calling
+    # this), but a future direct caller must fail loudly rather than get a bogus device assignment.
+    if not speeds:
+        raise ValueError("pack_blocks_to_devices: speeds is empty (zero visible devices) -- no device to assign blocks to.")
     if len(speeds) <= 1:
         return [0] * len(works)
     choice = (prefer or os.environ.get("MLFRAME_FE_VRAM_PACKER", "")).strip().lower()

@@ -115,6 +115,13 @@ def _apply_unary(v, code, xmin):
     elif code == 7:  # sin
         return np.sin(v)
     elif code == 8:  # sign = np.sign
+        # GPU_INFRA_C-8 fix (mrmr_audit_2026-07-22): NaN input used to fall through to the else branch
+        # (IEEE comparisons with NaN are always False) and get coerced to -1.0, disagreeing with both
+        # np.sign(nan)==nan and this module's own cupy twin cp.sign(nan)==nan. Unreachable today via the
+        # only wired caller (_usability_aware_selection.py's _scrub replaces NaN/Inf with 0.0 first), but
+        # this is an exported, reusable function -- fixed for any future direct caller.
+        if np.isnan(v):
+            return v
         return 0.0 if v == 0.0 else (1.0 if v > 0.0 else -1.0)
     elif code == 9:  # rint
         return np.rint(v)

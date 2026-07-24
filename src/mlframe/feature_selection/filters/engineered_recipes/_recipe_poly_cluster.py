@@ -135,8 +135,14 @@ def build_cluster_aggregate_recipe(
     extra.update({k: v for k, v in (diagnostics or {}).items()})  # e.g. pca_var_ratio, representative -- scalars/str only
     # Build-time guard: _extra_equal compares values shallowly (np.array_equal / !=), so nested
     # lists/dicts of arrays would break __eq__/pickle round-trip. Keep extra flat.
+    # MI_GREEDY_RECIPES-8 fix (mrmr_audit_2026-07-22): was a bare `assert`, which is STRIPPED under
+    # `-O`/PYTHONOPTIMIZE -- if that ever applied to a production deployment, a future caller passing a
+    # nested dict/list into `diagnostics=` would silently build a recipe that only fails later (and
+    # confusingly) at _extra_equal/pickle-compare time instead of at construction. Use an explicit raise
+    # so the guard survives regardless of optimization flags.
     for k, v in extra.items():
-        assert isinstance(v, (np.ndarray, str, int, float, bool)), f"cluster_aggregate extra[{k!r}] must be flat ndarray/scalar/str, got {type(v)}"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/engineered_recipes, not reachable with untrusted input
+        if not isinstance(v, (np.ndarray, str, int, float, bool)):
+            raise TypeError(f"cluster_aggregate extra[{k!r}] must be flat ndarray/scalar/str, got {type(v)}")
     return EngineeredRecipe(name=name, kind="cluster_aggregate", src_names=tuple(src_names), quantization=quantization, extra=extra)
 
 

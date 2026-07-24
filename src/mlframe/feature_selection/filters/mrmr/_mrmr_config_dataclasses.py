@@ -243,6 +243,63 @@ def apply_mrmr_config_objects(
             setattr(self, attr_name, getattr(hybrid_orth_config.scorers, field_name))
 
 
+# (config_attr_name, field_map) pairs used by both apply_mrmr_config_objects (via __init__) and
+# invalidate_stale_mrmr_configs (via set_params) -- kept in one place so the two stay in sync.
+_CONFIG_ATTR_FIELD_MAPS = (
+    ("fast_search_config", _FAST_SEARCH_FIELD_MAP),
+    ("stability_config", _STABILITY_FIELD_MAP),
+    ("synergy_config", _SYNERGY_FIELD_MAP),
+    ("group_aware_config", _GROUP_AWARE_FIELD_MAP),
+    ("dcd_config", _DCD_FIELD_MAP),
+)
+
+
+def invalidate_stale_mrmr_configs(self) -> None:
+    """Drop any nested config object (``self.fast_search_config`` etc.) whose recorded field values no
+    longer agree with the CURRENT flat attrs it once set, called after every ``set_params()``.
+
+    Without this, ``set_params(fe_fast_search=False)`` on an ``MRMR(fast_search_config=FastSearchConfig(
+    fe_fast_search=True))`` instance leaves the flat attr and the stale config object disagreeing;
+    ``get_params()`` then reports BOTH (self-inconsistent) to a caller, and ``clone()`` reconstructs via
+    ``MRMR(**get_params())`` -- ``apply_mrmr_config_objects`` re-applies the stale config AFTER the flat
+    kwargs are stored, silently reverting ``fe_fast_search`` back to ``True`` and making sklearn's
+    ``clone()`` post-construction sanity check raise ``RuntimeError`` (the constructor "modifies" a
+    parameter). Nulling the disagreeing config out keeps ``get_params()`` self-consistent: the flat attrs
+    (already correct) become the sole source of truth for that cluster from this point on, exactly as if
+    the config had never been passed. The raw config objects are read ONLY by ``apply_mrmr_config_objects``
+    at ``__init__`` time -- nothing else in this codebase consumes them -- so this is safe.
+    """
+    for config_attr, field_map in _CONFIG_ATTR_FIELD_MAPS:
+        config = getattr(self, config_attr, None)
+        if config is None:
+            continue
+        if any(getattr(self, attr_name, None) != getattr(config, field_name) for field_name, attr_name in field_map.items()):
+            setattr(self, config_attr, None)
+    hybrid_orth_config = getattr(self, "hybrid_orth_config", None)
+    if hybrid_orth_config is not None:
+        _disagrees = any(getattr(self, attr_name, None) != getattr(hybrid_orth_config, field_name) for field_name, attr_name in _HYBRID_ORTH_FIELD_MAP.items())
+        _disagrees = _disagrees or any(
+            getattr(self, attr_name, None) != getattr(hybrid_orth_config.scorers, field_name) for field_name, attr_name in _HYBRID_ORTH_SCORERS_FIELD_MAP.items()
+        )
+        if _disagrees:
+            self.hybrid_orth_config = None
+
+
+def mrmr_set_params(self, **params):
+    """``MRMR.set_params`` override (CORE_CLASS-3 fix): bound directly onto the class in ``mrmr/__init__.py``
+    (not defined on a mixin) because ``BaseEstimator`` -- which already defines ``set_params`` -- sits
+    BEFORE the config mixins in ``MRMR``'s MRO, so a mixin-level override would never be reached. Calling
+    ``BaseEstimator.set_params`` directly (not via ``super()``, since this is a free function, not a class
+    body method) then invalidating any now-stale nested config object keeps ``get_params()`` self-consistent
+    for every subsequent ``clone()`` -- see ``invalidate_stale_mrmr_configs``.
+    """
+    from sklearn.base import BaseEstimator
+
+    BaseEstimator.set_params(self, **params)
+    invalidate_stale_mrmr_configs(self)
+    return self
+
+
 __all__ = [
     "FastSearchConfig",
     "StabilitySelectionConfig",
@@ -252,4 +309,6 @@ __all__ = [
     "HybridOrthScorersConfig",
     "HybridOrthConfig",
     "apply_mrmr_config_objects",
+    "invalidate_stale_mrmr_configs",
+    "mrmr_set_params",
 ]

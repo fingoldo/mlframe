@@ -219,9 +219,12 @@ def usability_greedy_gpu_resident(
             sel_set = set(sel_idx)
             scored = []
             mi_host = cp.asnumpy(mi_dev)
-            # One batched D2H for the whole (P,) use-vector: `float(uses[i])` inside the loop was a
-            # blocking 8-byte device sync PER CANDIDATE per round (P scalar .get()s where one suffices).
-            uses_host = cp.asnumpy(uses) if hasattr(uses, "__cuda_array_interface__") else np.asarray(uses)
+            # GPU_INFRA_C-7 fix (mrmr_audit_2026-07-22): `uses` is already a host numpy array here --
+            # _abscorr_batch_resident is type-hinted -> np.ndarray and returns np.asarray(cp.asnumpy(out))
+            # on every branch -- so the `cp.asnumpy(uses) if hasattr(...) else ...` dead branch (left over
+            # from an earlier refactor where the function may have returned a device array) always took the
+            # no-op np.asarray(uses) path. Removed; uses is used directly.
+            uses_host = uses
             for i in range(P):
                 if i in sel_set:
                     continue

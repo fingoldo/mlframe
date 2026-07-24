@@ -95,10 +95,11 @@ def _visible_device_ids() -> list[int]:
     """CUDA device indices the FE batcher may use: getDeviceCount() filtered by the global GPU off-switches
     and an optional ``MLFRAME_FE_VRAM_DEVICES=0,1`` subset. cupy already remaps CUDA_VISIBLE_DEVICES to a
     dense 0..n-1 range, so indices here are cupy-local."""
-    if os.environ.get("MLFRAME_DISABLE_GPU", "") == "1":
-        return []
-    _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
-    if _cvd is not None and _cvd.strip() == "":
+    # GPU_INFRA_C-9 fix (mrmr_audit_2026-07-22): delegate the MLFRAME_DISABLE_GPU/CUDA_VISIBLE_DEVICES=""
+    # opt-out check to the shared _gpu_policy module instead of a THIRD inline reimplementation of it.
+    from .._gpu_policy import gpu_globally_disabled
+
+    if gpu_globally_disabled():
         return []
     try:
         import cupy as cp

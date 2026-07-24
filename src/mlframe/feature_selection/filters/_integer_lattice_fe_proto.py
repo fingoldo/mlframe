@@ -95,6 +95,12 @@ def scan_integer_lattice_pairs(
     elig = [j for j in range(p) if _is_integer_col(X[:, j])]
     raw_mi = {j: _mi(X[:, j], yi, nbins=nbins) for j in elig}
     hits: list[dict] = []
+    # ORTH_BASIS_A-8 fix (mrmr_audit_2026-07-22): build ONE Generator here instead of re-seeding
+    # np.random.default_rng(rng_seed) fresh inside the innermost loop -- the fresh-reseed-per-candidate
+    # pattern tested every candidate against the IDENTICAL n_perm shuffles of y (same draws every time,
+    # since the generator restarts at the same seed each call), wasteful and reduces the effective
+    # independence of the per-candidate null estimate. Still fully deterministic given the same rng_seed.
+    _rng = np.random.default_rng(rng_seed)
     for ii in range(len(elig)):
         for jj in range(ii + 1, len(elig)):
             a_idx, b_idx = elig[ii], elig[jj]
@@ -105,7 +111,7 @@ def scan_integer_lattice_pairs(
                 mi = _mi(feat, yi, nbins=nbins)
                 if mi < operand_floor + min_margin:
                     continue
-                null_hi = _perm_null_hi(feat, yi, nbins=nbins, n_perm=n_perm, rng=np.random.default_rng(rng_seed))
+                null_hi = _perm_null_hi(feat, yi, nbins=nbins, n_perm=n_perm, rng=_rng)
                 if mi <= null_hi:
                     continue
                 hits.append(

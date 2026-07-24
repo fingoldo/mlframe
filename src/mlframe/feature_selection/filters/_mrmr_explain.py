@@ -229,25 +229,35 @@ def explain_selection(mrmr_self: Any) -> str:
     domain user can read to answer "why these features / what did FE build /
     what would I turn" WITHOUT reading source.
     """
+    # USABILITY_B-8 fix (mrmr_audit_2026-07-22): each section's except-Exception used to embed the
+    # exception's type name into the returned narrative but never called `logger` at all -- unlike every
+    # other file in this cluster, a production failure here (e.g. a corrupted fe_provenance_ DataFrame)
+    # was invisible to log-based monitoring; only a human reading the returned string would ever see it.
+    # The never-raise contract is unchanged; only a debug-level log line is added per section.
     try:
         survivors = _survivor_section(mrmr_self)
     except Exception as exc:  # pragma: no cover - assembly must never break
+        logger.debug("explain_selection: survivor section failed: %r", exc, exc_info=True)
         survivors = f"Surviving features: (unavailable: {type(exc).__name__})."
     try:
         rejections, binding_gate = _rejection_section(mrmr_self)
     except Exception as exc:  # pragma: no cover
+        logger.debug("explain_selection: rejection section failed: %r", exc, exc_info=True)
         rejections, binding_gate = (f"Rejections: (unavailable: {type(exc).__name__}).", None)
     try:
         recommender = _recommender_section(mrmr_self)
     except Exception as exc:  # pragma: no cover
+        logger.debug("explain_selection: recommender section failed: %r", exc, exc_info=True)
         recommender = f"FE recommender: (unavailable: {type(exc).__name__})."
     try:
         whatif = _whatif_section(mrmr_self, binding_gate)
     except Exception as exc:  # pragma: no cover
+        logger.debug("explain_selection: what-if section failed: %r", exc, exc_info=True)
         whatif = f"What-if-flip: (unavailable: {type(exc).__name__})."
     try:
         hint = _hint_line(binding_gate, mrmr_self)
     except Exception as exc:  # pragma: no cover
+        logger.debug("explain_selection: hint line failed: %r", exc, exc_info=True)
         hint = f"Hint: (unavailable: {type(exc).__name__})."
 
     report = "\n".join(

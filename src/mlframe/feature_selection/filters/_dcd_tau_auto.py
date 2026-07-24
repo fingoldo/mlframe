@@ -247,11 +247,15 @@ def _calibrate_tau_auto(
                 continue
             if np.isfinite(s):
                 su_scores.append(float(s))
+    # CLUSTERING_STABILITY-5 fix (mrmr_audit_2026-07-22): populate n_pairs_sampled/n_pairs_finite BEFORE
+    # the len(su_scores)<10 fallback check, not after -- previously these stayed at their 0 init value
+    # whenever this fallback fired, making the surfaced tau_calibration diagnostic under-report how many
+    # pairs were actually sampled/scored (misleading about why calibration didn't run).
+    diagnostics["n_pairs_sampled"] = len(pairs)
+    diagnostics["n_pairs_finite"] = len(su_scores)
     if len(su_scores) < 10:
         return float(fallback), diagnostics
     arr = np.asarray(su_scores, dtype=np.float64)
-    diagnostics["n_pairs_sampled"] = len(pairs)
-    diagnostics["n_pairs_finite"] = int(arr.size)
     diagnostics["su_scores"] = arr
     diagnostics["su_mean"] = float(arr.mean())
     diagnostics["su_std"] = float(arr.std())

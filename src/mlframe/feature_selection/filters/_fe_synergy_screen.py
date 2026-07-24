@@ -23,10 +23,12 @@ signal pair hidden among 189 noise pairs (P=20 features, 190 pairs), the signal 
 
 So a JOINT screen recovers the synergy the marginal screen drops, at equal (near-zero) noise admission.
 
-NOT YET WIRED into ``check_prospective_fe_pairs`` -- this is the screen's validated core + its
-detection-vs-noise contract (test_fe_synergy_screen.py). Wiring it as a rung-0 augmentation (form the
-engineered interaction for pairs whose joint synergy clears a permutation/analytic null even when both
-marginals are ~0) is the next step; gating stays behind that null so noise pairs are never admitted.
+WIRED (FE_REDUNDANCY_SYNERGY-8 fix, mrmr_audit_2026-07-22 -- this docstring was stale): not via
+``check_prospective_fe_pairs`` directly, but ``_mrmr_fit_impl/_fit_impl_core.py`` calls
+``detect_synergy_combos`` for "n-way synergy seeding" (re-adding raw operands of a detected synergy combo
+to ``selected_vars``), gated on ``interactions_max_order>=2``. This is the screen's validated core + its
+detection-vs-noise contract (test_fe_synergy_screen.py); gating stays behind the permutation/analytic null
+so noise pairs are never admitted.
 """
 from __future__ import annotations
 

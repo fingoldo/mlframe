@@ -61,14 +61,16 @@ def ks_stability_filter(
     """
     from scipy.stats import ks_2samp
 
-    if n_splits > 1 and not (0.0 < split_frac <= 1.0):
-        raise ValueError(f"ks_stability_filter: split_frac must be in (0, 1], got {split_frac!r}.")
-
     if feature_cols is None:
         feature_cols = [c for c in train_df.columns if c in test_df.columns and pd.api.types.is_numeric_dtype(train_df[c])]
     feature_cols = list(feature_cols)
 
     multi_split = n_splits > 1
+    if multi_split and not (0.0 < split_frac <= 1.0):
+        # CLUSTERING_STABILITY-8 fix (mrmr_audit_2026-07-22): a split_frac > 1.0 (or <= 0) used to crash
+        # deep inside rng.choice(..., replace=False) with an opaque "a cannot be greater than population
+        # size" ValueError -- validate up front and name the bad argument clearly.
+        raise ValueError(f"ks_stability_filter: split_frac must be in (0.0, 1.0]; got {split_frac!r}")
     rng = np.random.default_rng(random_state) if multi_split else None
 
     rows = []

@@ -282,7 +282,15 @@ def build_raw_redundancy_anchors(
             # per ``ei`` (56980 calls / 0.97s tottime on a 99401x~519 wellbore-shaped profile), reused across
             # every ``_rn`` below via a plain dict lookup. Selection-identical (same values, just computed once).
             _sub_parents = {_sname: _subexpr_signal_parents(_sub) for _sname, _sub in _subtree.items()}
-            for _rn in raw_name_set:
+            # FE_REDUNDANCY_SYNERGY-2 fix (mrmr_audit_2026-07-22): this loop used to iterate the CALLER'S
+            # FULL raw input-feature-name set (P in the tens of thousands on a wide production frame), not
+            # just the raw names actually referenced by this ei's sub-expressions -- an O(P) trivial-but-
+            # non-zero pass (a set-membership + length check per raw name per sub-expression) for a decision
+            # the recipe already narrows to 2-4 relevant raw names. Iterate only the (bounded) union of
+            # actually-referenced parents instead; bit-identical result (excluded raw names never had a
+            # candidate anyway, since `_rn in _sp` would always be False for them).
+            _all_relevant_raws = set().union(*_sub_parents.values()) if _sub_parents else set()
+            for _rn in _all_relevant_raws:
                 _cands = []
                 for _sname, _sub in _subtree.items():
                     _sp = _sub_parents[_sname]
