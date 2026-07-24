@@ -95,7 +95,7 @@ class EarlyStoppingWrapper(BaseEstimator):
         warm_start_step: Optional[int] = None,
         random_state: Optional[int] = None,
     ):
-        store_params_in_object(obj=self, params=get_parent_func_args())
+        store_params_in_object(obj=self, params=get_parent_func_args(), postfix="")
 
     # ------------------------------------------------------------------ helpers
 

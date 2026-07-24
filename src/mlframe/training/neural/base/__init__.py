@@ -65,6 +65,7 @@ try:
         _external_callback_cache: Dict[str, list] = {}
 
         def _load_external_callbacks_cached(group: str) -> list:
+            """Process-cached wrapper around Lightning's own ``_load_external_callbacks``."""
             cached = _external_callback_cache.get(group)
             if cached is None:
                 cached = _orig_load_external_callbacks(group)
@@ -173,6 +174,7 @@ class PytorchLightningEstimator(_FitMixin, _PredictMixin, BaseEstimator):
         return state
 
     def __setstate__(self, state: dict) -> None:
+        """Restore state, then rebuild the (deliberately dropped) prediction-trainer cache empty."""
         self.__dict__.update(state)
         # Rebuilt lazily on the next predict(); start clean.
         self._prediction_trainer_cache: dict = {}
@@ -209,6 +211,7 @@ class PytorchLightningEstimator(_FitMixin, _PredictMixin, BaseEstimator):
         use_learnable_cat_embeddings: bool = True,
         categorical_embed_dim: Optional[int] = None,
     ):
+        """Store every constructor parameter as a direct attribute (sklearn's ``get_params``/``clone`` contract)."""
         # ``random_state``: sklearn-canonical seed parameter (F-06, 2026-05-30).
         # When set to an integer, ``_fit_common`` seeds torch / numpy / Python
         # random + the Lightning DataLoader worker seed at fit() entry, so two
@@ -225,7 +228,7 @@ class PytorchLightningEstimator(_FitMixin, _PredictMixin, BaseEstimator):
         #
         # Don't modify swa_params here (e.g., `swa_params or {}`) because sklearn's clone() requires constructor parameters not be
         # modified. Handle None later.
-        store_params_in_object(obj=self, params=get_parent_func_args())
+        store_params_in_object(obj=self, params=get_parent_func_args(), postfix="")
         # Runtime (non-param) attribute, mirrored in __getstate__/__setstate__. F-67 prediction-trainer caching was reverted 2026-06-02 (Lightning Trainer reuse broke multi-predict fits), so this stays empty -- predict() builds a fresh Trainer per call -- but the attribute must exist so introspection and the pickle-state symmetry don't hit AttributeError on a freshly-constructed (never-pickled) estimator.
         self._prediction_trainer_cache = {}
 
@@ -237,6 +240,8 @@ class PytorchLightningEstimator(_FitMixin, _PredictMixin, BaseEstimator):
 
 
 class PytorchLightningRegressor(RegressorMixin, PytorchLightningEstimator):  # RegressorMixin must come first
+    """sklearn-compatible regressor wrapper around a PyTorch Lightning module."""
+
     _estimator_type = "regressor"
 
 
@@ -245,6 +250,8 @@ class PytorchLightningClassifier(
     ClassifierMixin,
     PytorchLightningEstimator,
 ):  # ClassifierMixin must come first
+    """sklearn-compatible classifier wrapper around a PyTorch Lightning module."""
+
     _estimator_type = "classifier"
 
 
