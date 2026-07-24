@@ -226,6 +226,19 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
     target. Helps capacity-limited / linear downstreams, redundant sensor data, interpretability, and
     tight feature budgets; for tree/GBM downstreams expect no-harm rather than a lift (trees already
     average reflections via splits). ``augment`` adds the aggregate; ``replace`` also drops the members.
+
+    Caching
+    -------
+    USABILITY_B-5 (mrmr_audit_2026-07-22): a previously-fitted ``MRMR`` instance's internal ndarray
+    fitted attributes may become READ-ONLY as a side effect of a LATER, unrelated ``.fit()`` call
+    elsewhere in the process. This happens when that later call hits the process-wide ``_FIT_CACHE``
+    (identical params + content as this instance's own fit) and replays from this instance: the replay
+    logic freezes (``flags.writeable = False``) this instance's own large ndarray attributes in place so
+    they can be safely shared rather than copied. A previously fully-mutable, already-returned instance
+    can therefore start raising ``ValueError: assignment destination is read-only`` on
+    ``instance.some_ndarray_attr[i] = x`` with no code change on the caller's part. Set ``fit_cache_max=0``
+    to opt out of the shared cache entirely if in-place mutation of fitted attributes is required.
+    average reflections via splits). ``augment`` adds the aggregate; ``replace`` also drops the members.
     """
 
     # Set dynamically (to None in _mrmr_class_fit_helpers.py's identity-shortcut path, to a dict in the
@@ -3684,6 +3697,15 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             _safe_restore(lambda: set_bur_lambda(_bur0e), "BUR lambda thread-local (activation-block exception)")
             _safe_restore(lambda: set_mi_miller_madow(_mm0e), "Miller-Madow thread-local (activation-block exception)")
             _safe_restore(lambda: set_mi_chao_shen(_cs0e), "Chao-Shen thread-local (activation-block exception)")
+            # Currently dormant (relaxmrmr_alpha/pid_synergy_bonus/cmi_perm_stop/cpt_test are only
+            # activated further below, strictly after both call sites of this helper) -- restored anyway
+            # so a future reordering that moves those activations earlier, or a new raise point added
+            # between them and the protective try/finally, cannot silently reintroduce the same
+            # thread-local-leak bug class this helper exists to prevent (mrmr_audit_2026-07-22 CORE_CLASS-4).
+            _safe_restore(lambda: set_relaxmrmr_alpha(_relax0e), "RelaxMRMR alpha thread-local (activation-block exception)")
+            _safe_restore(lambda: set_pid_synergy_bonus(_pid0e), "PID synergy-bonus thread-local (activation-block exception)")
+            _safe_restore(lambda: set_cmi_perm_stop(_cmi0e[0], _cmi0e[1], _cmi0e[2]), "CMI-perm-stop thread-local (activation-block exception)")
+            _safe_restore(lambda: set_cpt_test(_cpt0e[0], _cpt0e[1]), "CPT-test thread-local (activation-block exception)")
             raise exc
 
         _mi_norm = getattr(self, "mi_normalization", "none")
@@ -3848,6 +3870,14 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             if _eff_skip != getattr(self, "skip_retraining_on_same_content", True):
                 _orig_skip_content = getattr(self, "skip_retraining_on_same_content", True)
                 self.skip_retraining_on_same_content = _eff_skip
+        # FIT_IMPL_A-1 fix (mrmr_audit_2026-07-22): _fit_impl's large-n regression adaptive-quantization
+        # gate (adaptive_nbins_large_n_reg) permanently overwrote self.nbins_strategy/self.quantization_nbins
+        # in place with no restore anywhere -- breaking the sklearn clone()/get_params() round-trip contract
+        # and permanently freezing a config the gate's own campaign data says LOSES at smaller n on any
+        # subsequent .fit() call on the same instance. Snapshot unconditionally here (mirrors _orig_random_seed
+        # / _orig_skip_content above) and restore in the finally block below regardless of whether the gate fired.
+        _orig_nbins_strategy = getattr(self, "nbins_strategy", None)
+        _orig_quantization_nbins = getattr(self, "quantization_nbins", None)
         try:
             # GLOBAL-RNG CONTAINMENT + SEED DETERMINISM (2026-06-17): a fit consumes process-global
             # ``np.random`` in places no per-call Generator covers (cat-confirm permutation shuffles,
@@ -4037,6 +4067,11 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
                 self.random_seed = cast(Optional[int], _orig_random_seed)
             if _orig_skip_content is not _UNSET:
                 self.skip_retraining_on_same_content = cast(bool, _orig_skip_content)
+            # FIT_IMPL_A-1 fix: restore the adaptive_nbins_large_n_reg gate's in-place overwrite of
+            # nbins_strategy/quantization_nbins so clone()/get_params()/a subsequent .fit() on this same
+            # instance see the constructor's original values, not whatever the gate last computed.
+            _safe_restore(lambda: setattr(self, "nbins_strategy", _orig_nbins_strategy), "nbins_strategy (adaptive_nbins_large_n_reg gate)")
+            _safe_restore(lambda: setattr(self, "quantization_nbins", _orig_quantization_nbins), "quantization_nbins (adaptive_nbins_large_n_reg gate)")
             # restore the fast-search profile overrides (constructor-arg stability).
             # Restore the default screen-subsample knobs to their pre-fit (constructor) values so
             # clone / pickle / repeated-fit see unchanged constructor-arg semantics.

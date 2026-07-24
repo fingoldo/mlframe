@@ -54,13 +54,20 @@ def test_biz_val_adaptive_nbins_gate_default_on():
 
 
 def test_biz_val_adaptive_nbins_fires_on_large_n_regression():
-    """Detected regression at n>=threshold flips the campaign-winner config (nbins_strategy=None, quantization_nbins=20)."""
+    """Detected regression at n>=threshold engages the campaign-winner config (nbins_strategy=None,
+    quantization_nbins=20) for THIS fit -- but (FIT_IMPL_A-1 fix, mrmr_audit_2026-07-22) the constructor-arg
+    attrs are restored to their pre-fit values afterward, exactly like every other transient fit-scoped
+    override in this class (fast-search profile, default-screen-subsample, random_seed/skip-retraining alias
+    reconciliation) -- so a clone()/get_params()/second .fit() on the same instance is not permanently and
+    silently stuck on a config the campaign data says loses at smaller n. Pre-fix this test asserted the
+    mutated, un-restored end-state as if it were permanent-by-design; that was the bug, not the contract.
+    """
     X, y = _reg_xy(n=60_000)
     m = _fast_mrmr()
     m.fit(X, y)
     assert getattr(m, "_adaptive_nbins_large_n_reg_fired_", False) is True
-    assert m.nbins_strategy is None
-    assert m.quantization_nbins == 20
+    assert m.nbins_strategy == "mdlp", "constructor-arg state must be restored after fit(), not left mutated"
+    assert m.quantization_nbins == 10, "constructor-arg state must be restored after fit(), not left mutated"
 
 
 def test_biz_val_adaptive_nbins_no_fire_on_small_n_regression():
