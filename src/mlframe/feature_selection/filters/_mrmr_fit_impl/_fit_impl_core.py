@@ -165,7 +165,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     if hasattr(X, "columns"):
         try:
             _x_cols_sig = tuple(str(c) for c in X.columns)
-        except Exception:
+        except Exception as exc:
+            logger.debug("mrmr: columns-signature hash failed; treating as unknown (forces a cache miss): %r", exc, exc_info=True)
             _x_cols_sig = None
     # 2026-05-30 Wave 9.1 fix (loop iter 36): fold X content hash into
     # the shortcut signature. Pre-fix the signature was
@@ -207,7 +208,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     try:
         _pre_fit_snapshot = getattr(self, "_pre_fit_ctor_params_snapshot_", None)
         _self_params_sig = _hashable_params_signature(_pre_fit_snapshot if _pre_fit_snapshot is not None else self.get_params(deep=True))
-    except Exception:
+    except Exception as exc:
+        logger.debug("mrmr: ctor-params signature hash failed; using a unique sentinel (forces a cache miss): %r", exc, exc_info=True)
         _self_params_sig = object()
     signature = (X.shape, y.shape, _y_hash_for_sig, _x_hash_for_sig, _x_cols_sig, _self_params_sig)
     if getattr(self, "skip_retraining_on_same_content", None) if getattr(self, "skip_retraining_on_same_content", None) is not None else getattr(self, "skip_retraining_on_same_shape", True):
@@ -246,7 +248,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _cache_key = None
         else:
             _cache_key = (_x_sig, _y_sig, _y_name, _y_full_hash, _x_full_hash, _params_sig, _groups_sig)
-    except Exception:
+    except Exception as exc:
+        logger.debug("mrmr: fit-cache key construction failed; skipping cache lookup for this fit: %r", exc, exc_info=True)
         _cache_key = None
     _cached = None
     _replayed = None
@@ -500,7 +503,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _y_for_hybrid = pd.qcut(
                             _y_for_hybrid, q=10, labels=False, duplicates="drop",
                         ).astype(np.int64)
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("mrmr: qcut-based y discretisation failed (heavy ties/NaN); falling back to int-cast: %r", exc, exc_info=True)
                         # qcut can fail when y has heavy ties or NaN. Fall back to
                         # int-cast so the pipeline still runs (signal may degrade
                         # but does not crash the fit).
@@ -619,7 +623,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _y_for_extra = pd.qcut(
                             _y_for_extra, q=10, labels=False, duplicates="drop",
                         ).astype(np.int64)
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("mrmr: y densification failed for the hybrid-orth extra-basis FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_extra = _y_for_extra.astype(np.int64)
         _top_k_for_extra = int(getattr(self, "fe_hybrid_orth_top_k", 5))
         # Effective extra-basis set. Two independent contributors:
@@ -865,7 +870,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _y_for_triplet = pd.qcut(
                             _y_for_triplet, q=10, labels=False, duplicates="drop",
                         ).astype(np.int64)
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("mrmr: y densification failed for the triplet FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_triplet = _y_for_triplet.astype(np.int64)
             # Triplet seed pool is restricted to RAW columns -- never
             # the previously-appended hybrid/extra-basis columns,
@@ -983,7 +989,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _y_for_quad = pd.qcut(
                             _y_for_quad, q=10, labels=False, duplicates="drop",
                         ).astype(np.int64)
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("mrmr: y densification failed for the quadruplet FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_quad = _y_for_quad.astype(np.int64)
             # Restrict the seed pool to RAW source columns -- engineered
             # columns from prior stages would create recipes whose
@@ -1067,7 +1074,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _y_for_aa = pd.qcut(
                             _y_for_aa, q=10, labels=False, duplicates="drop",
                         ).astype(np.int64)
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("mrmr: y densification failed for the adaptive-arity FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_aa = _y_for_aa.astype(np.int64)
             _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
             _aa_cols: list | None = None
@@ -1147,7 +1155,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _y_for_adapt = pd.qcut(
                             _y_for_adapt, q=10, labels=False, duplicates="drop",
                         ).astype(np.int64)
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("mrmr: y densification failed for the adaptive-degree FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_adapt = _y_for_adapt.astype(np.int64)
             # Restrict the seed pool to RAW source columns -- engineered
             # columns from prior stages would create recipes whose
@@ -1226,7 +1235,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _y_for_route = pd.qcut(
                             _y_for_route, q=10, labels=False, duplicates="drop",
                         ).astype(np.int64)
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("mrmr: y densification failed for the conditional-routing FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_route = _y_for_route.astype(np.int64)
             # Restrict the seed pool to RAW source columns -- engineered
             # columns from prior stages would create recipes whose
@@ -1314,7 +1324,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _y_for_diff = pd.qcut(
                             _y_for_diff, q=10, labels=False, duplicates="drop",
                         ).astype(np.int64)
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("mrmr: y densification failed for the diff-basis FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_diff = _y_for_diff.astype(np.int64)
             # Restrict the seed pool to RAW source columns -- engineered
             # columns from prior stages would create recipes whose
@@ -1412,7 +1423,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _y_for_cb = pd.qcut(
                             _y_for_cb, q=10, labels=False, duplicates="drop",
                         ).astype(np.int64)
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("mrmr: y densification failed for the cluster-basis FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_cb = _y_for_cb.astype(np.int64)
             # Restrict to RAW source columns -- engineered columns from
             # prior stages would create recipes whose src_names reference
@@ -1515,7 +1527,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _y_for_boot = pd.qcut(
                             _y_for_boot, q=10, labels=False, duplicates="drop",
                         ).astype(np.int64)
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("mrmr: y densification failed for the bootstrap-MI FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_boot = _y_for_boot.astype(np.int64)
             _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
             if getattr(self, "factors_names_to_use", None):
@@ -1602,7 +1615,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _y_for_tg = pd.qcut(
                             _y_for_tg, q=10, labels=False, duplicates="drop",
                         ).astype(np.int64)
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("mrmr: y densification failed for the three-gate FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_tg = _y_for_tg.astype(np.int64)
             _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
             if getattr(self, "factors_names_to_use", None):
@@ -1696,7 +1710,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _y_for_ksg = pd.qcut(
                             _y_for_ksg, q=10, labels=False, duplicates="drop",
                         ).astype(np.int64)
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("mrmr: y densification failed for the KSG-MI FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_ksg = _y_for_ksg.astype(np.int64)
             _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
             if getattr(self, "factors_names_to_use", None):
@@ -2551,7 +2566,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _y_for_mig = pd.qcut(
                             _y_for_mig, q=10, labels=False, duplicates="drop",
                         ).astype(np.int64)
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("mrmr: y densification failed for the MI-greedy FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_mig = _y_for_mig.astype(np.int64)
             # Restrict the MI-greedy seed pool to RAW source columns only
             # (i.e. exclude hybrid-orth-appended columns from the prior
@@ -2624,7 +2640,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _y_for_cmi = pd.qcut(
                             _y_for_cmi, q=10, labels=False, duplicates="drop",
                         ).astype(np.int64)
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("mrmr: y densification failed for the CMI-greedy FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_cmi = _y_for_cmi.astype(np.int64)
             _eng_already_appended = set(getattr(self, "hybrid_orth_features_", None) or []) | set(self.mi_greedy_features_ or [])
             if getattr(self, "factors_names_to_use", None):
@@ -2644,6 +2661,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 include_unary=bool(getattr(self, "fe_mi_greedy_include_unary", True)),
                 include_binary=bool(getattr(self, "fe_mi_greedy_include_binary", True)),
                 min_cmi_gain=float(self.fe_mi_greedy_cmi_min_gain),
+                # MI_GREEDY_RECIPES-1 fix (mrmr_audit_2026-07-22): was hardcoded to 0xC011 inside
+                # greedy_cmi_fe_construct regardless of random_state, correlating the CMI noise-floor
+                # permutation across nominally-independent bootstrap/multi-seed replicates.
+                seed=int(getattr(self, "random_seed", 0) or 0),
             )
             _cmi_appended = [c for c in X_cmi.columns if c not in _X_before_cmi_cols]
             if _cmi_appended:
@@ -3416,7 +3437,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             _y_for_ga = pd.qcut(
                                 _y_for_ga, q=10, labels=False, duplicates="drop",
                             ).astype(np.int64)
-                        except Exception:
+                        except Exception as exc:
+                            logger.debug("mrmr: y densification failed for the grouped-aggregation FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                             _y_for_ga = _y_for_ga.astype(np.int64)
 
                 _ga_groups = tuple(getattr(self, "fe_grouped_agg_group_cols", ()) or ())
@@ -3482,7 +3504,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             _y_for_cga = pd.qcut(
                                 _y_for_cga, q=10, labels=False, duplicates="drop",
                             ).astype(np.int64)
-                        except Exception:
+                        except Exception as exc:
+                            logger.debug("mrmr: y densification failed for the composite-group-aggregation FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                             _y_for_cga = _y_for_cga.astype(np.int64)
 
                 # key_sets: each entry is a tuple of >= 2 group cols. Empty =>
@@ -5121,7 +5144,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             else:
                 try:
                     _y_for_eng_mi = pd.qcut(_y_for_eng_mi, q=10, labels=False, duplicates="drop").astype(np.int64)
-                except Exception:
+                except Exception as exc:
+                    logger.debug("mrmr: y densification failed for the engineered-MI dedup pass; falling back to truncating int64 cast: %r", exc, exc_info=True)
                     _y_for_eng_mi = _y_for_eng_mi.astype(np.int64)
         else:
             _y_for_eng_mi = _y_for_eng_mi.astype(np.int64)
@@ -5131,7 +5155,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _mi_mat = X[_mi_cols].to_numpy(dtype=np.float64)
                 _mi_vals = _mi_classif_batch(_mi_mat, _y_for_eng_mi, nbins=10)
                 _eng_mi = {_name: float(_v) for _name, _v in zip(_mi_cols, _mi_vals)}
-    except Exception:
+    except Exception as exc:
+        logger.debug("mrmr: engineered-MI dict computation failed; treating as empty (no engineered candidates this round): %r", exc, exc_info=True)
         _eng_mi = {}
 
     def _eng_dedup_prefer(cand: str, kept: str) -> bool:
@@ -5680,7 +5705,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             self._fe_escalation_y_rank_ = _y_esc_rank / max(len(_y_esc_rank) - 1, 1)
         else:
             self._fe_escalation_y_rank_ = None
-    except Exception:
+    except Exception as exc:
+        logger.debug("mrmr: FE-escalation y-rank computation failed; rank unavailable this fit: %r", exc, exc_info=True)
         self._fe_escalation_y_rank_ = None
 
     # PREWARP ALS RECONSTRUCTION TARGET (2026-06-11): stash the RAW CONTINUOUS y so
@@ -5700,7 +5726,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             self._fe_prewarp_y_continuous_ = np.ascontiguousarray(_y_pw_arr, dtype=np.float64)
         else:
             self._fe_prewarp_y_continuous_ = None
-    except Exception:
+    except Exception as exc:
+        logger.debug("mrmr: prewarp continuous-y stash failed; ALS reconstruction target unavailable: %r", exc, exc_info=True)
         self._fe_prewarp_y_continuous_ = None
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -5879,7 +5906,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _y_for_strategy = np.asarray(_x_for_cat[target_names[0]])
                 else:
                     _y_for_strategy = np.asarray(_x_for_cat[target_names[0]])
-            except Exception:
+            except Exception as exc:
+                logger.debug("mrmr: y coercion for discretization-strategy selection failed: %r", exc, exc_info=True)
                 _y_for_strategy = None
     data, cols, nbins = categorize_dataset(
         df=_x_for_cat,
@@ -5940,7 +5968,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             try:
                 _t_raw = np.asarray(_x_for_cat[_t_name].to_numpy() if hasattr(_x_for_cat[_t_name], "to_numpy") else _x_for_cat[_t_name])
             except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _fit_impl_core.py:5376: %s", e)
+                logger.debug("mrmr: extracting raw values for column %r during cat-handling failed: %r", _t_name, e, exc_info=True)
                 continue
             if _t_raw.dtype.kind not in "fiub" or _t_raw.ndim != 1:
                 continue
@@ -5988,7 +6016,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if _store_dt is not None and data.dtype.itemsize > np.dtype(_store_dt).itemsize:
                 data = data.astype(_store_dt, copy=False)
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _fit_impl_core.py:5422: %s", e)
+            logger.debug("mrmr: narrowing stored codes dtype failed: %r", e, exc_info=True)
             pass
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -6181,7 +6209,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             try:
                 _num_raw_values[_ci] = np.asarray(_extract_col_for_num(X, cols[_ci]))
             except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _fit_impl_core.py:5600: %s", e)
+                logger.debug("mrmr: extracting raw numeric column %r values failed: %r", cols[_ci], e, exc_info=True)
                 continue
     _cat_fe_pool_size = len(categorical_vars) + (len(_num_raw_values) if _num_raw_values else 0)
     if cat_fe_cfg.enable and _cat_fe_pool_size >= 2:
@@ -6241,7 +6269,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _cat_block = _x_for_cat.select_dtypes(include=("category", "object", "string", "bool"))
                 if _cat_block.shape[1] > 0:
                     _block_has_nan = bool(_cat_block.isna().to_numpy().any())
-            except Exception:
+            except Exception as exc:
+                logger.debug("mrmr: NaN-block detection failed; treating as unknown: %r", exc, exc_info=True)
                 _block_has_nan = None
             _src_map_cache: dict = {}
             for _ri, r in enumerate(cat_fe_state.recipes):
@@ -6251,7 +6280,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         if _src in _x_for_cat.columns:
                             try:
                                 _src_map_cache[_src] = _build_cat_code_map(_x_for_cat[_src], block_has_nan=_block_has_nan)
-                            except Exception:
+                            except Exception as exc:
+                                logger.debug("mrmr: source-map cache build failed for this recipe source; treating as empty: %r", exc, exc_info=True)
                                 _src_map_cache[_src] = {}
                         else:
                             _src_map_cache[_src] = {}
@@ -6262,7 +6292,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     try:
                         cat_fe_state.recipes[_ri] = r.with_extra(cat_code_maps=_maps_for_recipe)
                     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                        logger.debug("suppressed in _fit_impl_core.py:5680: %s", e)
+                        logger.debug("mrmr: attaching cat_code_maps to recipe %r failed: %r", getattr(r, "name", "?"), e, exc_info=True)
                         pass
         # Cat-FE recipes feed the same engineered_recipes dict numeric FE uses; the fit-end splitter copies
         # any recipe whose engineered name appears in selected_vars_names into ``self._engineered_recipes_``.
@@ -6494,7 +6524,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         try:
             from .._dynamic_cluster_discovery import dcd_summary as _dcd_summary
             self.dcd_ = _dcd_summary(_dcd_state)
-        except Exception:
+        except Exception as exc:
+            logger.debug("mrmr: DCD result attachment failed; dcd_ unavailable: %r", exc, exc_info=True)
             self.dcd_ = None
         # Layer 41 (2026-05-31): self-describing cluster membership accessor.
         # Mirror ``dcd_["cluster_anchors_names"]`` onto the estimator as a
@@ -6522,7 +6553,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     max_levels=int(getattr(self, "dcd_hierarchy_max_levels", 3)),
                     distance=str(getattr(self, "dcd_distance", "su")),
                 )
-            except Exception:
+            except Exception as exc:
+                logger.debug("mrmr: cluster-hierarchy accessor failed; using an empty mapping: %r", exc, exc_info=True)
                 self.cluster_hierarchy_ = {}
         else:
             self.cluster_hierarchy_ = None
@@ -6762,7 +6794,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     if hasattr(self, "_engineered_continuous_"):
         try:
             del self._engineered_continuous_
-        except Exception:
+        except Exception as exc:
+            logger.debug("mrmr: engineered-continuous store failed; using an empty mapping: %r", exc, exc_info=True)
             self._engineered_continuous_ = {}
 
     # Surfaced at verbose>=1 (2026-07-09; was gated behind verbose>2, an unrealistically high bar that
@@ -7103,7 +7136,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # screening-confirmed raw on an estimator error).
         try:
             from ..permutation import mi_direct as _mi_direct_rr
-        except Exception:
+        except Exception as exc:
+            logger.debug("mrmr: mi_direct import/binding failed for the raw-redundancy significance probe; probe disabled: %r", exc, exc_info=True)
             _mi_direct_rr = None  # type: ignore[assignment]
         _rr_signif_alpha = float(os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
         _rr_q_dtype = getattr(self, "quantization_dtype", np.int32)
@@ -7360,7 +7394,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _yv = np.asarray(_yv, dtype=np.float64).reshape(-1)
             if _yv.shape[0] == int(data.shape[0]) and np.all(np.isfinite(_yv)):
                 _y_for_hinge_gate = _yv
-        except Exception:
+        except Exception as exc:
+            logger.debug("mrmr: y coercion for the hinge floor-drop rescue gate failed: %r", exc, exc_info=True)
             _y_for_hinge_gate = None
         # Continuous values of the currently-selected columns (engineered from the
         # snapshot, raw from X) -> the baseline design the leg must beat OOS.
@@ -7395,7 +7430,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             n = leg.shape[0]
             if n != _y_for_hinge_gate.shape[0] or not np.all(np.isfinite(leg)):
                 return 0.0
-            idx = np.arange(n); va = (idx % 3) == 0; tr = ~va
+            # FIT_IMPL_B-3 fix (mrmr_audit_2026-07-22): seeded shuffle-then-stride, not a raw
+            # positional (idx % 3) == 0 split -- the latter is not an honest i.i.d. holdout on
+            # time/group/label-sorted input (this module explicitly supports sorted input elsewhere
+            # via ``groups`` / the ``temporal_agg`` FE family), which can bias the held-out R^2
+            # this gate decides on.
+            _hinge_gate_perm = np.random.default_rng(int(getattr(self, "random_seed", 0) or 0)).permutation(n)
+            va = np.zeros(n, dtype=bool)
+            va[_hinge_gate_perm[: n // 3]] = True
+            tr = ~va
             if int(tr.sum()) < 32 or int(va.sum()) < 16:
                 return 1.0
             yv = _y_for_hinge_gate[va]
@@ -7539,12 +7582,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _rp_yv = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=np.float64).reshape(-1)
             if _rp_yv.shape[0] == int(data.shape[0]) and np.all(np.isfinite(_rp_yv)):
                 _rp_y = _rp_yv
-        except Exception:
+        except Exception as exc:
+            logger.debug("mrmr: y coercion for the raw-protection re-add probe failed; raw protection disabled: %r", exc, exc_info=True)
             _rp_y = None
         if _rp_y is not None:
             _RAW_PROTECT_MIN_INCR_R2 = 0.005  # genuine linear raw signal lifts held-out R^2 >> 0.005; noise ~0
             _rp_n = _rp_y.shape[0]
-            _rp_idx = np.arange(_rp_n); _rp_va = (_rp_idx % 3) == 0; _rp_tr = ~_rp_va
+            # FIT_IMPL_B-3 fix: seeded shuffle-then-stride (see the hinge-gate sibling comment above).
+            _rp_perm = np.random.default_rng(int(getattr(self, "random_seed", 0) or 0)).permutation(_rp_n)
+            _rp_va = np.zeros(_rp_n, dtype=bool)
+            _rp_va[_rp_perm[: _rp_n // 3]] = True
+            _rp_tr = ~_rp_va
             _rp_sel_names = {cols[i] for i in selected_vars if 0 <= i < len(cols)}
             _rp_base = [np.ones(_rp_n)]
             for _sn in _rp_sel_names:
@@ -7587,7 +7635,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _rp_Qty = _rp_Q.T @ _rp_y_tr
                 _rp_coef_base = _rp_sla.solve_triangular(_rp_R, _rp_Qty)
                 _rp_qr_ok = True
-            except Exception:
+            except Exception as exc:
+                logger.debug("mrmr: QR-based raw-protection incremental check failed; falling back to the full-refit path: %r", exc, exc_info=True)
                 _rp_qr_ok = False
 
             def _rp_r2(_extra=None):
@@ -7680,12 +7729,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _cf_yv = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=np.float64).reshape(-1)
                 if _cf_yv.shape[0] == int(data.shape[0]) and np.all(np.isfinite(_cf_yv)):
                     _cf_y = _cf_yv
-            except Exception:
+            except Exception as exc:
+                logger.debug("mrmr: y coercion for the cat-FE floor-drop protection probe failed; protection disabled: %r", exc, exc_info=True)
                 _cf_y = None
             if _cf_y is not None:
                 _CF_PROTECT_MIN_INCR_R2 = 0.005  # genuine encoding lifts held-out R^2 >> 0.005; noise ~0 (same bar as raw protection)
                 _cf_n = _cf_y.shape[0]
-                _cf_idx = np.arange(_cf_n); _cf_va = (_cf_idx % 3) == 0; _cf_tr = ~_cf_va
+                # FIT_IMPL_B-3 fix: seeded shuffle-then-stride (see the hinge-gate sibling comment above).
+                _cf_perm = np.random.default_rng(int(getattr(self, "random_seed", 0) or 0)).permutation(_cf_n)
+                _cf_va = np.zeros(_cf_n, dtype=bool)
+                _cf_va[_cf_perm[: _cf_n // 3]] = True
+                _cf_tr = ~_cf_va
                 _cf_cols_index = {c: i for i, c in enumerate(cols)}
                 _cf_sv_set = set(selected_vars)
                 _cf_sel_names = {cols[i] for i in selected_vars if 0 <= i < len(cols)}
@@ -7697,7 +7751,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     if _cv is None and _sn in X.columns:
                         try:
                             _cv = X[_sn].to_numpy()
-                        except Exception:
+                        except Exception as exc:
+                            logger.debug("mrmr: continuous-value lookup failed for this candidate; treating as unavailable: %r", exc, exc_info=True)
                             _cv = None
                     if _cv is None:
                         _si = _cf_cols_index.get(_sn)
@@ -7744,7 +7799,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         if _cvv_raw is None and _cn in X.columns:
                             try:
                                 _cvv_raw = X[_cn].to_numpy()
-                            except Exception:
+                            except Exception as exc:
+                                logger.debug("mrmr: raw continuous-value lookup failed for this candidate: %r", exc, exc_info=True)
                                 _cvv_raw = None
                         if _cvv_raw is not None:
                             try:
@@ -7949,7 +8005,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _pcr_nb = int(min(max(10, int(np.unique(_pcr_y).size)), max(2, int(data.shape[0]) // 50)))
                         _pcr_y = np.ascontiguousarray(_pcr_qbin(_pcr_yv.astype(np.float64), nbins=_pcr_nb)).astype(np.int64)
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in _fit_impl_core.py:7249: %s", e)
+                    logger.debug("mrmr: post-cluster-rescue y rebinning failed: %r", e, exc_info=True)
                     pass
                 _pcr_eng_cont = _eng_continuous_snapshot
                 from .._fe_raw_redundancy_drop import _TOKEN_SPLIT
@@ -7966,7 +8022,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # failure falls through to the permissive rescue (never drop on an estimator error).
                 try:
                     from ..permutation import mi_direct as _pcr_mi_direct
-                except Exception:
+                except Exception as exc:
+                    logger.debug("mrmr: mi_direct import/binding failed for the post-cluster-rescue significance probe; probe disabled: %r", exc, exc_info=True)
                     _pcr_mi_direct = None  # type: ignore[assignment]
                 _pcr_signif_alpha = float(os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
                 _pcr_q_dtype = getattr(self, "quantization_dtype", np.int32)
@@ -8068,7 +8125,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _yv = np.asarray(_yv).reshape(-1)
                     if _yv.shape[0] == int(data.shape[0]) and np.issubdtype(np.asarray(_yv).dtype, np.number):
                         _y_cont_for_redund = _yv
-                except Exception:
+                except Exception as exc:
+                    logger.debug("mrmr: continuous-y coercion failed for raw-redundancy transform-time replay; replay skipped for this column: %r", exc, exc_info=True)
                     _y_cont_for_redund = None
                 # Only engineered survivors with a replayable recipe (1-deep, in
                 # ``engineered_recipes``) survive into transform output; a nested-
@@ -8168,7 +8226,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         try:
                             _yv_floor = y.values if hasattr(y, "values") else np.asarray(y)
                             _yv_floor = np.asarray(_yv_floor, dtype=np.float64).reshape(-1)
-                        except Exception:
+                        except Exception as exc:
+                            logger.debug("mrmr: classes_y coercion failed for the floor-drop rescue; falling back to a raw classes_y reshape: %r", exc, exc_info=True)
                             _yv_floor = np.asarray(classes_y, dtype=np.float64).reshape(-1)
                         # name -> index map built once (O(F)) instead of a ``.index()`` rescan of
                         # ``cols`` per ``_dn`` (O(F) each) -- turns the O(K*F) loop below into O(K+F).
@@ -8192,14 +8251,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                         _rawv, _yv_floor, _floor_child_vals,
                                         seed=int(getattr(self, "random_seed", 0) or 0),
                                     ))
-                                except Exception:
+                                except Exception as exc:
+                                    logger.debug("mrmr: floor-eligibility check failed for this candidate; treating as ineligible (conservative): %r", exc, exc_info=True)
                                     _eligible_floor = False
                             if not _eligible_floor:
                                 continue
                             try:
                                 from ..info_theory import mi as _floor_mi
                                 _rel = float(_floor_mi(data, np.array([int(_floor_ci)], dtype=np.int64), _tgt_floor, _fn_floor))
-                            except Exception:
+                            except Exception as exc:
+                                logger.debug("mrmr: relevance computation failed for this candidate; treating as zero (conservative): %r", exc, exc_info=True)
                                 _rel = 0.0
                             if _rel > _best_floor_rel:
                                 _best_floor_rel, _best_floor_idx = _rel, int(_floor_ci)
@@ -8646,7 +8707,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         seed=int(getattr(self, "random_seed", 0) or 0), verbose=0,
                     )
                     _subsumed_operand_names = set(_ne_dropped or ())
-            except Exception:
+            except Exception as exc:
+                logger.debug("mrmr: subsumed-operand computation failed; falling back to MI-only pick (best-effort): %r", exc, exc_info=True)
                 _subsumed_operand_names = set()  # best-effort: fall back to MI-only pick
             # C2 ADDITIVE-FUSION EXCLUSION (2026-06-24): never re-attach a raw operand the
             # FE additive-fusion proposer already judged subsumed by the fused ``add(...)``
@@ -8662,7 +8724,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 for _oi in sorted(_eligible_idxs):
                     try:
                         _rel_ne = float(_ne_mi(data, np.array([int(_oi)], dtype=np.int64), _tgt_ne, _fn_ne))
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("mrmr: relevance computation failed for this non-engineered candidate; treating as zero (conservative): %r", exc, exc_info=True)
                         _rel_ne = 0.0
                     if _rel_ne > _best_rel_ne:
                         _best_rel_ne, _best_idx_ne = _rel_ne, int(_oi)
@@ -9146,7 +9209,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             [float(p.get("gain", 0.0)) for p in (predictors or [])],
             dtype=np.float64,
         )
-    except Exception:
+    except Exception as exc:
+        logger.debug("mrmr: mrmr_gains_ computation failed; using an empty array: %r", exc, exc_info=True)
         self.mrmr_gains_ = np.array([], dtype=np.float64)
     # Layer 54: stash the greedy predictor log on ``self`` so the FE
     # provenance helper can map engineered feature names back to their
@@ -9164,7 +9228,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             }
             for p in (predictors or [])
         )
-    except Exception:
+    except Exception as exc:
+        logger.debug("mrmr: predictors-log capture failed; using an empty tuple: %r", exc, exc_info=True)
         self._predictors_log_ = ()
     self.fallback_used_ = False
     self.fallback_metadata_ = None
@@ -9198,7 +9263,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _retention_prep_cache = _ret_prep_fn(
                     self, X, _ret_y_prep, seed=int(getattr(self, "random_seed", 0) or 0),
                 )
-        except Exception:
+        except Exception as exc:
+            logger.debug("mrmr: retention-prep cache build failed; pure-form retention will recompute per-call: %r", exc, exc_info=True)
             _retention_prep_cache = None
         try:
             from .._fe_pure_form_retention import retain_usable_pure_forms
@@ -9240,7 +9306,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                 _yv = np.asarray(_yv).reshape(-1)
                                 if _yv.shape[0] == int(data.shape[0]) and np.issubdtype(np.asarray(_yv).dtype, np.number):
                                     _ret_y_cont = _yv
-                            except Exception:
+                            except Exception as exc:
+                                logger.debug("mrmr: continuous-y coercion failed for pure-form retention; retention skipped for this column: %r", exc, exc_info=True)
                                 _ret_y_cont = None
                         _ret_seed = int(getattr(self, "random_seed", 0) or 0)
                         _kept_extra = []
@@ -9248,7 +9315,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             try:
                                 _cv = np.asarray(_ret_apply(_r_recipe, X), dtype=np.float64).ravel()
                                 _cv = np.nan_to_num(_cv, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-                            except Exception:
+                            except Exception as exc:
+                                logger.debug("mrmr: recipe replay failed while checking form subsumption; conservatively retaining (cannot prove subsumed): %r", exc, exc_info=True)
                                 _kept_extra.append((_r_recipe, _r_name))  # cannot replay -> retain (conservative)
                                 continue
                             if _cv.shape[0] == int(data.shape[0]) and retention_form_is_subsumed(
@@ -9409,11 +9477,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                                     genuine_child_bins=_child_bins,
                                                     allow_linear_usability=bool(getattr(self, "use_simple_mode", False)),
                                                     seed=_rr_seed)
-                            except Exception:
+                            except Exception as exc:
+                                logger.debug("mrmr: discriminator estimator failed; conservatively retaining (never drop genuine signal): %r", exc, exc_info=True)
                                 _retains = True  # estimator error -> never drop genuine signal
                             if not _retains:
                                 _rr_excl_names.add(_base)  # truly subsumed -> exclude from re-attach
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("mrmr: discriminator unavailable; falling back to the conservative blanket exclusion: %r", exc, exc_info=True)
                         # discriminator unavailable -> fall back to the conservative blanket exclusion.
                         _rr_excl_names.update(_rr_cand_subsumed)
                 if _rr_excl_names:
@@ -9504,7 +9574,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             if _vals.shape[0] == _n_rows_post:
                                 _post_eng_cont[_enm] = _vals
                         except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                            logger.debug("suppressed in _fit_impl_core.py:8754: %s", e)
+                            logger.debug("mrmr: post-selection engineered-continuous coercion failed for %r: %r", _enm, e, exc_info=True)
                             continue
                     if _enm not in _post_cols and _enm in _post_eng_cont:
                         _post_extra_cols.append(_post_qbin(np.asarray(_post_eng_cont[_enm], dtype=np.float64), nbins=10))
@@ -9530,7 +9600,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _yv = np.asarray(_yv).reshape(-1)
                         if _yv.shape[0] == _n_rows_post and np.issubdtype(np.asarray(_yv).dtype, np.number):
                             _y_cont_post = _yv
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("mrmr: continuous-y coercion failed for the post-selection drop pass; column skipped: %r", exc, exc_info=True)
                         _y_cont_post = None
                     _, _post_dropped = _post_drop(
                         data=_post_data, cols=_post_cols, selected_cols_idx=_post_sel_idx,
@@ -9566,7 +9637,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                 try:
                                     from ..info_theory import mi as _pf_mi
                                     _rel = float(_pf_mi(data, np.array([int(_bf_ci)], dtype=np.int64), _tgt_pf, _fn_pf))
-                                except Exception:
+                                except Exception as exc:
+                                    logger.debug("mrmr: relevance computation failed for this candidate in the post-drop pass; treating as zero (conservative): %r", exc, exc_info=True)
                                     _rel = 0.0
                                 if _rel > _bf_rel:
                                     _bf_rel, _bf_idx = _rel, _dn
@@ -9690,6 +9762,41 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         from ._finalise import _finalise_empty_support_fallback
         _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, target_indices)
 
+    # FIT_IMPL_B-2 fix (mrmr_audit_2026-07-22): the p>=n FP-control cap above is enforced exactly once,
+    # but the post-selection reconciliation passes below it (emit-both operand re-attach, usability-aware
+    # raw retention, raw-signal-retention augmentation) can each append more raw columns afterward with no
+    # re-check against the cap -- letting the final raw (and n_features_) count silently exceed the
+    # documented max(20, p//3) ceiling on a p>>n fit with real leftover linear-usable raw signal. Re-apply
+    # the same cap here, at the true end of raw-selection mutation for this fit (nothing below this point
+    # adds more raw columns -- only the UAED elbow trim further down, which only shrinks).
+    _pgn_n_final = int(data.shape[0]) if "data" in dir() else 0
+    _pgn_p_final = int(getattr(self, "n_features_in_", 0) or 0)
+    if _pgn_p_final > 0 and _pgn_n_final > 0 and _pgn_p_final >= _pgn_n_final and selected_vars:
+        _pgn_ceiling_final = max(20, _pgn_p_final // 3)
+        _pgn_eng_final = len(getattr(self, "_engineered_recipes_", None) or [])
+        _pgn_budget_final = _pgn_raw_budget(_pgn_ceiling_final, _pgn_eng_final)
+        if len(selected_vars) > _pgn_budget_final:
+            _pgn_cached_final = self.cached_MIs if isinstance(getattr(self, "cached_MIs", None), dict) else {}
+            _pgn_n2ci_final = {c: i for i, c in enumerate(cols)} if "cols" in dir() else {}
+            _fni_pgn_final = self.feature_names_in_
+
+            def _pgn_rel_final(_v):
+                """Screening marginal MI(v, y) for raw index _v, used by the FINAL p>=n cap re-application (after post-selection retention passes)."""
+                _nm = _fni_pgn_final[_v] if _v < len(_fni_pgn_final) else None
+                _ci = _pgn_n2ci_final.get(_nm)
+                return float(_pgn_cached_final.get((_ci,), 0.0)) if _ci is not None else 0.0
+
+            _pgn_overflow_final = len(selected_vars) - _pgn_budget_final
+            selected_vars = [v for v in sorted(selected_vars, key=lambda v: (-_pgn_rel_final(v), int(v)))][:_pgn_budget_final]
+            self.support_ = np.array(selected_vars, dtype=np.int64)
+            self.n_features_ = len(selected_vars) + n_engineered_out
+            if verbose:
+                logger.info(
+                    "MRMR p>=n FP-control: re-capped raw support to top-%d by relevance after post-selection "
+                    "retention passes added %d raw feature(s) beyond the ceiling (p=%d >= n=%d, ceiling=%d, engineered=%d).",
+                    _pgn_budget_final, _pgn_overflow_final, _pgn_p_final, _pgn_n_final, _pgn_ceiling_final, _pgn_eng_final,
+                )
+
     # ---------------------------------------------------------------------------------------------------------------
     # Report FS results
     # ---------------------------------------------------------------------------------------------------------------
@@ -9705,7 +9812,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # (shapes/hashes/columns) stay as computed at fit entry.
     try:
         signature = (*signature[:-1], _hashable_params_signature(self.get_params(deep=True)))
-    except Exception:
+    except Exception as exc:
+        logger.debug("mrmr: final signature hash failed; using a unique sentinel (forces a cache miss / no replay for this fit): %r", exc, exc_info=True)
         signature = (*signature[:-1], object())  # unique token => next identical fit refits (conservative)
     self.signature = signature
     # ran_out_of_time was set only by the outer FE-loop deadline (line ~6714). screen_predictors honours
@@ -9835,7 +9943,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             else:
                 self.mrmr_gains_ = np.concatenate([_g, np.zeros(_nf_final - _g.shape[0], dtype=np.float64)])
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _fit_impl_core.py:9065: %s", e)
+        logger.debug("mrmr: mrmr_gains_ finalisation failed: %r", e, exc_info=True)
         pass
 
     # SUPPORT_NONLINEAR_ ALIAS RE-SYNC. ``support_nonlinear_`` is set right after the FIRST support_
