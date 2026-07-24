@@ -42,10 +42,13 @@ content than the old fixed-3-row scheme.
 """
 from __future__ import annotations
 
+import logging
 import math
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 _MAX_SAMPLE_ROWS = 64
 
@@ -146,7 +149,8 @@ def _row_sample_hash(X: Any, n_rows: int | None) -> int | None:
         try:
             samples = [_canonicalise_row(X.row(idx)) for idx in indices if 0 <= idx < n_rows]
             return hash(tuple(samples))
-        except Exception:
+        except Exception as exc:
+            logger.debug("_row_sample_hash: polars .row() sampling failed, cache key falls back to id()-based: %s", exc)
             return None
     if hasattr(X, "iloc"):
         try:
@@ -159,7 +163,8 @@ def _row_sample_hash(X: Any, n_rows: int | None) -> int | None:
                         vals = list(row)
                     samples.append(_canonicalise_row(vals))
             return hash(tuple(samples))
-        except Exception:
+        except Exception as exc:
+            logger.debug("_row_sample_hash: pandas .iloc sampling failed, cache key falls back to id()-based: %s", exc)
             return None
     if hasattr(X, "to_numpy"):
         try:
@@ -171,7 +176,8 @@ def _row_sample_hash(X: Any, n_rows: int | None) -> int | None:
                         row = row.tolist()
                     samples.append(_canonicalise_row(row))
             return hash(tuple(samples))
-        except Exception:
+        except Exception as exc:
+            logger.debug("_row_sample_hash: to_numpy() sampling failed, cache key falls back to id()-based: %s", exc)
             return None
     if hasattr(X, "__getitem__") and hasattr(X, "ndim"):
         try:
@@ -184,6 +190,7 @@ def _row_sample_hash(X: Any, n_rows: int | None) -> int | None:
                     else:
                         samples.append(_canonicalise_row((row,)))
             return hash(tuple(samples))
-        except Exception:
+        except Exception as exc:
+            logger.debug("_row_sample_hash: np.asarray() sampling failed, cache key falls back to id()-based: %s", exc)
             return None
     return None
