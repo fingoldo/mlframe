@@ -210,6 +210,7 @@ def render_split_error_diagnostics(
         out["worst_k_indices"] = (wk.indices if n <= DIAG_ROW_CAP else sample_idx[wk.indices]).astype(np.int64)
     except Exception:
         logger.exception("diagnostics_dispatch: worst_k_table failed; continuing.")
+        _record(charts, "worst_k_table", False)
 
     yt_s = yt if n <= DIAG_ROW_CAP else yt[sample_idx]
     yp_s = yp if n <= DIAG_ROW_CAP else yp[sample_idx]
