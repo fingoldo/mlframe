@@ -32,7 +32,8 @@ def _fold_is_all_finite(arr) -> bool:
         return False
     try:
         a = arr.to_numpy(copy=False) if hasattr(arr, "to_numpy") else np.asarray(arr)
-    except Exception:
+    except Exception as exc:
+        logger.debug("_fold_is_all_finite: coercion failed, conservatively assuming not-finite: %s", exc)
         return False
     if a.dtype.kind in ("f", "c"):
         return bool(np.isfinite(a).all())

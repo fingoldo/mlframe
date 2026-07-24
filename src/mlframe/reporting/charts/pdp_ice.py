@@ -24,6 +24,7 @@ Efficiency contract (the prediction call is the only cost that scales with data)
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -32,6 +33,8 @@ from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec, PanelSpec,
 )
+
+logger = logging.getLogger(__name__)
 
 # Row cap for ICE / PDP. The PDP mean converges far below this and a legible ICE plot needs only a few hundred
 # curves; capping here makes the per-grid predict cost independent of n.
@@ -224,7 +227,8 @@ def _model_text_feature_names(model: Any, carrier_columns: Optional[List[str]]) 
         return set()
     try:
         idx = get_text()
-    except Exception:
+    except Exception as exc:
+        logger.debug("text-feature index probe failed, treating as no text features: %s", exc)
         return set()
     if not idx:
         return set()

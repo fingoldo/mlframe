@@ -42,7 +42,8 @@ def _rgba(color: str, alpha: float) -> str:
         import matplotlib.colors as mcolors
         r, g, b = mcolors.to_rgb(c)
         return f"rgba({int(r * 255)},{int(g * 255)},{int(b * 255)},{alpha})"
-    except Exception:
+    except Exception as exc:
+        logger.debug("_rgba: color conversion failed for %r, passing through unchanged: %s", color, exc)
         return c
 
 

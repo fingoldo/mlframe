@@ -54,6 +54,7 @@ Probabilistic-forecast communication plot:
 
 from __future__ import annotations
 
+import logging
 from typing import Callable, Dict, List, Sequence
 
 import numpy as np
@@ -65,6 +66,8 @@ from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HistogramPanelSpec,
     LinePanelSpec, PanelSpec,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _finite_rows(y: np.ndarray, P: np.ndarray) -> np.ndarray:
@@ -83,7 +86,8 @@ def _model_diagnostics_decompose():
     try:
         from model_diagnostics.scoring import PinballLoss, decompose
         return decompose, PinballLoss
-    except Exception:
+    except Exception as exc:
+        logger.debug("_model_diagnostics_decompose: model-diagnostics unavailable, using plain pinball: %s", exc)
         return None
 
 

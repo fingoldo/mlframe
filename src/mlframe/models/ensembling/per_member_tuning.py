@@ -72,7 +72,8 @@ def per_member_code_version() -> str | None:
     try:
         from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
         return str(compute_code_version(_numpy_2d, _per_member_mae_std_njit, salt=_PER_MEMBER_SALT))
-    except Exception:
+    except Exception as exc:
+        logger.debug("per_member_code_version: code-versioning unavailable: %s", exc)
         return None
 
 

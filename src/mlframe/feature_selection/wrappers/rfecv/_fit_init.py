@@ -67,7 +67,8 @@ def _current_params_signature(self) -> object:
         from mlframe.feature_selection.filters import _hashable_params_signature
 
         return _hashable_params_signature(self.get_params(deep=True))
-    except Exception:
+    except Exception as exc:
+        logger.debug("RFECV param-signature computation failed, falling back to a unique sentinel: %s", exc)
         return object()
 
 

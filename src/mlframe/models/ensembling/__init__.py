@@ -85,14 +85,17 @@ class EnsembleLeaderboard:
     """
 
     def __init__(self, table: "pd.DataFrame", lb: Any, is_regression: bool) -> None:
+        """Store the per-flavour metric table, the fitted `votenrank.Leaderboard`, and the regression/classification flag."""
         self.table = table
         self.lb = lb
         self.is_regression = bool(is_regression)
 
     def rank_all(self, **kwargs):
+        """Delegate to the wrapped `votenrank.Leaderboard.rank_all`."""
         return self.lb.rank_all(**kwargs)
 
     def to_csv(self, path: str, **kwargs) -> None:
+        """Write the underlying score table to `path` as UTF-8 CSV."""
         # Persist the underlying score table; the rank-method table can be re-derived from it.
         # Force utf-8 so non-ASCII metric/flavour labels survive on Windows (cp1252 default mojibakes them).
         kwargs.setdefault("encoding", "utf-8")
@@ -135,7 +138,8 @@ def _build_votenrank_leaderboard_from_results(res: dict, *, is_regression: bool)
 
         lb = Leaderboard(table=table)
         return EnsembleLeaderboard(table=table, lb=lb, is_regression=is_regression)
-    except Exception:
+    except Exception as exc:
+        logger.debug("ensemble leaderboard build failed: %s", exc)
         return None
 
 
@@ -145,6 +149,7 @@ def compare_ensembles(
     show_plot: bool = True,
     figsize: tuple = (15, 3),
 ) -> pd.DataFrame:
+    """Rank the given ensemble flavours by `sort_metric` and optionally plot the comparison."""
     # Default flipped from "val.*" to "oof.*": ``val`` is already burned for early-stopping (the model's last-iter
     # snapshot was chosen because it scored best on val), so re-using val to pick a flavour is selecting twice on
     # the same surface. ``oof`` is the cross_val_predict held-out signal -- never seen at fit, never used for ES.

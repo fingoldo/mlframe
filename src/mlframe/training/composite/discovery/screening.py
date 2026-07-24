@@ -95,7 +95,8 @@ def _is_numeric_column(df: Any, col: str) -> bool:
                 }
         if isinstance(df, pd.DataFrame):
             return bool(pd.api.types.is_numeric_dtype(df[col]))
-    except Exception:
+    except Exception as exc:
+        logger.debug("_is_numeric_column: numeric-dtype probe failed for column %r: %s", col, exc)
         return False
     return False
 

@@ -308,7 +308,8 @@ def _mi_gain_of(
     try:
         params = transform.fit(y[dom], base[dom])
         t = np.asarray(transform.forward(y, base, params), dtype=np.float64)
-    except Exception:
+    except Exception as exc:
+        logger.debug("transform gain estimate: fit/forward failed for %r: %s", getattr(transform, "name", transform), exc)
         return float("nan")
     finite = np.isfinite(t) & dom
     if finite.sum() < 8:

@@ -80,10 +80,11 @@ def _maybe_sample_for_leak_corr(
     try:
         import psutil as _psutil
         available_bytes = int(_psutil.virtual_memory().available)
-    except Exception:
+    except Exception as exc:
         # No psutil -> can't measure -> trust the legacy full-frame path. The
         # caller's existing try/except for MemoryError still catches this case;
         # we just don't have a way to AVOID the OOM here without psutil.
+        logger.debug("leak-corr matrix sizing: psutil probe failed, trusting the full-frame path: %s", exc)
         return candidate_arrays, y_train
     if needed_bytes <= _LEAK_CORR_ALLOC_AVAIL_FRACTION * available_bytes:
         return candidate_arrays, y_train

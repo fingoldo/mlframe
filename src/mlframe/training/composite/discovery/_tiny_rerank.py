@@ -49,7 +49,8 @@ def _tiny_rerank_ram_checkpoint(label: str) -> None:
     try:
         from ._fit import _process_mem_mb
         rss_mb, uss_mb, commit_mb = _process_mem_mb()
-    except Exception:
+    except Exception as exc:
+        logger.debug("tiny_rerank RAM log: memory probe failed, skipping checkpoint: %s", exc)
         return
     logger.info(
         "[CompositeTargetDiscovery.tiny_rerank.RAM] %s USS=%.0f MB (RSS=%.0f MB, commit=%.0f MB)",

@@ -53,7 +53,8 @@ def _phase_ram_report(state: dict, phase_name: str) -> None:
         return
     try:
         rss_mb, uss_mb, commit_mb = _process_mem_mb()
-    except Exception:
+    except Exception as exc:
+        logger.debug("RAM phase log: memory probe failed, skipping this phase boundary: %s", exc)
         return
     if state.get("baseline_uss_mb") is None:
         state["baseline_uss_mb"] = uss_mb

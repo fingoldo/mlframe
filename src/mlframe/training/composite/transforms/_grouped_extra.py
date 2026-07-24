@@ -16,9 +16,12 @@ All parent / sibling imports are lazy (function-body) so this leaf module stays 
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _group_segments(groups: np.ndarray) -> list[tuple[Any, np.ndarray]]:
@@ -344,7 +347,8 @@ def _grouped_np_fit(
         try:
             per_group[key] = fit_fn(y_f[idx], base_f[idx])
             eligible.add(key)
-        except Exception:  # pragma: no cover - defensive; group falls back to global
+        except Exception as exc:  # pragma: no cover - defensive; group falls back to global
+            logger.debug("grouped-transform per-group fit failed for group %r, falling back to global: %s", key, exc)
             continue
     global_median = float(global_params.get(global_median_key, 0.0))
     c, offsets = _grouped_level_shrinkage(y_f, segments, eligible, global_median)

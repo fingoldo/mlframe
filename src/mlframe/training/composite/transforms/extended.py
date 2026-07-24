@@ -413,7 +413,8 @@ def _smoothing_spline_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
             s=float(params.get("s", 0.0)), ext="const",
         )
         g = np.asarray(spl(bv), dtype=np.float64)
-    except Exception:
+    except Exception as exc:
+        logger.debug("smoothing spline forward: fit/eval failed, falling back to y_mean: %s", exc)
         return np.full(bv.shape, y_mean, dtype=np.float64)
     return np.where(np.isfinite(g), g, y_mean)
 
