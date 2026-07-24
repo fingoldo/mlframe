@@ -166,7 +166,8 @@ def select_target(
                     return None
                 count = int(np.asarray(arr_np == 1, dtype=bool).sum())
                 return float(count) / size
-            except Exception:
+            except Exception as exc:
+                logger.debug("_binary_pos_rate: coercion failed, positive-rate unavailable: %s", exc)
                 return None
 
         train_perc = _binary_pos_rate(train_t)

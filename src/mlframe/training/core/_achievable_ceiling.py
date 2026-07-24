@@ -326,7 +326,8 @@ def measure_achievable_ceiling(
         """Build the tiny probe model: LightGBM if available, else a plain linear fallback."""
         try:
             return _build_tiny_model("lgb", n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate, random_state=int(random_state))
-        except Exception:  # -- lightgbm unavailable -> Ridge proxy (always present via sklearn)
+        except Exception as exc:  # -- lightgbm unavailable -> Ridge proxy (always present via sklearn)
+            logger.debug("[achievable_ceiling] lgb probe model unavailable, falling back to linear: %s", exc)
             return _build_tiny_model("linear", n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate, random_state=int(random_state))
 
     # (a) raw-y tiny-model baseline.

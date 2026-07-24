@@ -75,7 +75,8 @@ def _render_per_target_diagnostics(
             return None
         try:
             return v.to_numpy() if hasattr(v, "to_numpy") else np.asarray(v)
-        except Exception:
+        except Exception as exc:
+            logger.debug("plot-target coercion failed, skipping this split: %s", exc)
             return None
 
     y_by_split = {}

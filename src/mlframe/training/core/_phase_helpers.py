@@ -507,7 +507,8 @@ def _phase_pandas_conversion_and_cat_prep(
             # Linear interp between 1.0x (no cat cols) and 1.5x (>=50% cat).
             scale = 1.0 + (_CAT_SIZE_SAFETY_FACTOR - 1.0) * min(cat_frac / 0.5, 1.0)
             return float(raw_bytes) * float(scale)
-        except Exception:
+        except Exception as exc:
+            logger.debug("_cat_heavy_size: categorical-fraction size estimate failed, using raw bytes: %s", exc)
             return raw_bytes
 
     if was_polars_input:

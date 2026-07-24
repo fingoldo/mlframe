@@ -170,6 +170,7 @@ def _build_extension_steps(config: PreprocessingExtensionsConfig, n_features: in
 
 
 def _build_dim_reducer(name: str, n_components: int, random_state: int):
+    """Instantiate the named dimensionality-reduction estimator with the given output width/seed."""
     if name == "UMAP":
         import importlib.util as _ilu
         if _ilu.find_spec("umap") is None:
@@ -213,11 +214,13 @@ class PySRTransformer:
     """
 
     def __init__(self, model, col_to_index: Dict[str, int], equations: Optional[Dict[str, str]] = None):
+        """Store the fitted PySR model, its column->equation-index map, and optional equation strings."""
         self.model = model
         self.col_to_index = dict(col_to_index)
         self.equations = dict(equations) if equations else {}
 
     def transform(self, df):
+        """Append each missing PySR-derived column to ``df`` via the fitted model's predict."""
         import numpy as _np
         if df is None:
             return df
@@ -230,6 +233,7 @@ class PySRTransformer:
     # Mirror sklearn-pipeline-ish access so ``get_feature_names_out`` callers
     # downstream see the added column names.
     def get_feature_names_out(self):
+        """Names of the PySR-derived columns this transformer adds."""
         return list(self.col_to_index.keys())
 
 
@@ -245,12 +249,14 @@ class PreprocessingExtensionsBundle:
     """
 
     def __init__(self, pysr=None, tfidf=None, sklearn_pipe=None):
+        """Store the optional per-stage extensions (PySR / TF-IDF / sklearn Pipeline)."""
         self.pysr = pysr
         self.tfidf = tfidf
         self.sklearn_pipe = sklearn_pipe
 
     @property
     def feature_names_in_(self):
+        """Delegates to the wrapped sklearn Pipeline's input feature names, or ``None`` if absent."""
         return getattr(self.sklearn_pipe, "feature_names_in_", None)
 
 
@@ -344,6 +350,7 @@ def prepare_dfs_for_catboost_joint(
         # rewrite the per-frame variant did, otherwise the union would
         # silently drop null-bearing rows from the category set.
         def _stringify(series):
+            """Coerce ``series`` to nullable string dtype, mapping NaN to ``nullable_sentinel``."""
             if series.isna().any():
                 return series.astype("string").fillna(nullable_sentinel)
             if series.dtype.name == "category":
@@ -461,6 +468,7 @@ def _select_scalable_numeric_columns(
         stats_row = None
 
     def _scalar(col_name: str, suffix: str):
+        """Look up the batched per-column stat ``__{suffix}__{col_name}`` from ``stats_row``, or None if unbatched."""
         return stats_row[f"__{suffix}__{col_name}"][0] if stats_row is not None else None
 
     for col_name in numeric_cols:
@@ -640,6 +648,7 @@ def create_polarsds_pipeline(
             # None and ``fill_null(None)`` raises "must specify either a fill value or strategy". Exclude
             # such columns from the strategy-based impute step below.
             def _has_finite_value(_name: str) -> bool:
+                """True iff column ``_name`` has at least one non-null (and, for floats, non-NaN) value."""
                 _s = train_df.get_column(_name)
                 if train_df.schema[_name].is_float():
                     return _s.drop_nulls().drop_nans().len() > 0
@@ -708,6 +717,7 @@ def create_polarsds_pipeline(
     # ``cols=None`` (auto-detect) behaviour for byte-for-byte
     # compatibility with the legacy fastpath behaviour.
     def _encodable_cols() -> List[str]:
+        """Categorical-like column names eligible for encoding, excluding text/embedding features."""
         out: List[str] = []
         for name, dtype in train_df.schema.items():
             if name in excluded:
@@ -807,7 +817,8 @@ def _warn_on_schema_drift(
     """
     try:
         other_schema = dict(other_df.schema)
-    except Exception:
+    except Exception as exc:
+        logger.debug("schema-drift check: schema read failed, skipping: %s", exc)
         return  # not a polars frame or schema unavailable -- skip silently
 
     train_cols = set(train_schema.keys())

@@ -89,7 +89,8 @@ def resolve_pandas_view_cache_budget_bytes() -> float:
         vm = psutil.virtual_memory()
         base = vm.available if ctype == "FREE_RAM_SHARE" else vm.total
         return float(size) * float(base)
-    except Exception:
+    except Exception as exc:
+        logger.debug("RAM-share byte budget: psutil probe failed, using default: %s", exc)
         return _DEFAULT_ABS_BYTES
 
 

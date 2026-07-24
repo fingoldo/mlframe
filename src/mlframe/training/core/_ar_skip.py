@@ -11,11 +11,14 @@ reused by the measured precheck to surface the autocorr as an observability fiel
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 import numpy as np
 
 from ..models import is_neural_model
+
+logger = logging.getLogger(__name__)
 
 # Plain (unregularised) linear models extrapolate unboundedly on unseen groups like neural nets do; Ridge is
 # regularised and was the prod-safe baseline (R^2=1.00 where Identity-MLP collapsed to -326), so it is NOT unbounded.
@@ -88,5 +91,6 @@ def _recompute_lag1_ar_per_group(y_full, group_ids, train_idx) -> Optional[float
         ar, _n_skipped = _lag1_autocorr_grouped(yt[finite], gt[finite])
         ar = float(ar)
         return ar if np.isfinite(ar) else None
-    except Exception:  # -- a recompute failure must never abort discovery
+    except Exception as exc:  # -- a recompute failure must never abort discovery
+        logger.debug("_recompute_lag1_ar_per_group: recompute failed, autocorr unavailable: %s", exc)
         return None

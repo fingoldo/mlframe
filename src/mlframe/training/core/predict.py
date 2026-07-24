@@ -370,7 +370,8 @@ def _is_post_hoc_calibrated_model(model_obj: Any) -> bool:
         return False
     try:
         _name = type(model_obj).__name__
-    except Exception:
+    except Exception as exc:
+        logger.debug("_is_post_hoc_calibrated_model: type introspection failed: %s", exc)
         return False
     return _name in ("_PostHocCalibratedModel", "_PostHocMultiCalibratedModel")
 

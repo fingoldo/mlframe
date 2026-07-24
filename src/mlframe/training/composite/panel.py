@@ -54,7 +54,8 @@ def _is_polars_df(x: Any) -> bool:
         import polars as pl
 
         return isinstance(x, pl.DataFrame)
-    except Exception:
+    except Exception as exc:
+        logger.debug("_is_polars_df: polars unavailable or isinstance check failed: %s", exc)
         return False
 
 

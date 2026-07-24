@@ -69,7 +69,8 @@ def _drop_columns_for_mlp(df, cols_to_drop):
         if pl is not None and isinstance(df, pl.DataFrame):
             return df.drop(_drop)
         return df.drop(columns=_drop)
-    except Exception:
+    except Exception as exc:
+        logger.debug("column-drop failed, returning frame unmodified: %s", exc)
         return df
 
 

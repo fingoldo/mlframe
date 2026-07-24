@@ -22,9 +22,13 @@ Layout:
 """
 from __future__ import annotations
 
+import logging
+
 import torch
 
 from ._recurrent_config import RNNType
+
+logger = logging.getLogger(__name__)
 
 
 def auto_precision(user_precision: str) -> str:
@@ -75,7 +79,8 @@ def maybe_enable_cudnn_rnn_autotune(rnn_type: RNNType) -> "bool | None":
         return None
     try:
         cc = torch.cuda.get_device_capability()
-    except Exception:
+    except Exception as exc:
+        logger.debug("maybe_enable_cudnn_rnn_autotune: compute-capability probe failed: %s", exc)
         return None
     if cc < (8, 0):
         return None

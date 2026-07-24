@@ -72,7 +72,8 @@ def _has_scikit_survival() -> bool:
         import sksurv  # noqa: F401
 
         return True
-    except Exception:  # pragma: no cover
+    except Exception as exc:  # pragma: no cover
+        logger.debug("_has_scikit_survival: import failed: %s", exc)
         return False
 
 

@@ -318,7 +318,8 @@ def prewarm(provider: FrozenFeaturizerProvider) -> Future:
             """Done-callback: log a prewarm exception once if the caller never called ``wait_prewarm`` to surface it themselves."""
             try:
                 exc = _fut.exception(timeout=0)
-            except Exception:
+            except Exception as _probe_exc:
+                logger.debug("_log_unhandled: future.exception() probe failed: %s", _probe_exc)
                 return
             if exc is not None:
                 logger.warning(

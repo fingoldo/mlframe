@@ -185,7 +185,8 @@ def _supports_warm_start(est: Any) -> Optional[str]:
         return None
     try:
         params = est.get_params()
-    except Exception:
+    except Exception as exc:
+        logger.debug("_supports_warm_start: get_params() failed: %s", exc)
         return None
     if "warm_start" not in params:
         return None

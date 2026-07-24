@@ -394,7 +394,8 @@ class FeatureCache:
         try:
             d = self._disk_dir()
             free_bytes = shutil.disk_usage(d).free
-        except Exception:
+        except Exception as exc:
+            logger.debug("disk-cache eviction: free-space probe failed, skipping eviction pass: %s", exc)
             return
         if free_bytes >= evict_below_gb * 1e9:
             return

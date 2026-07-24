@@ -11,6 +11,7 @@ identical to the pre-split monolith.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import sys
 from typing import TYPE_CHECKING
@@ -18,6 +19,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ._training_context import TrainingContext  # noqa: F401
 
+logger = logging.getLogger(__name__)
 
 _PARENT_MODULE = "mlframe.training.core._setup_helpers"
 
@@ -149,7 +151,8 @@ def _load_pipeline_disk_cache_into_memory() -> None:
             import json as _json
             with open(path, "r", encoding="utf-8") as fh:
                 data = _json.load(fh)
-    except Exception:
+    except Exception as exc:
+        logger.debug("pipeline disk cache: load failed, treating as absent: %s", exc)
         return  # corrupt file: ignore, will be overwritten on next save
     if not isinstance(data, dict) or data.get("version_tag") != _pipeline_disk_cache_version_tag():
         return  # version mismatch: ignore stale entries

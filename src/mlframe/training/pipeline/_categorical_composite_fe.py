@@ -32,7 +32,8 @@ def _detect_cat_columns(df: Any) -> List[str]:
     if hasattr(df, "select_dtypes"):
         try:
             return [str(c) for c in df.select_dtypes(include=["category", "object", "string"]).columns.tolist()]
-        except Exception:
+        except Exception as exc:
+            logger.debug("_detect_cat_columns: select_dtypes probe failed: %s", exc)
             return []
     return []
 

@@ -164,7 +164,8 @@ def fit_and_transform_pipeline(
                 return False
             try:
                 _first = next((v for v in _series.head(8) if v is not None), None)
-            except Exception:
+            except Exception as exc:
+                logger.debug("_looks_embedding: sample probe failed, treating column as non-embedding: %s", exc)
                 return False
             if _first is None:
                 return False
