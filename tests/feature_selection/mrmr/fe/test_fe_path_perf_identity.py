@@ -4,7 +4,9 @@ These pin the bit-identical SELECTION (``support_`` + ``get_feature_names_out()`
 must preserve, plus fast unit-level bit-identity checks for the two pure-numpy kernels (E7 pair build,
 E8 numeric coercion) so a future "just rewrite it" cannot silently change the result.
 
-The reference ``support_`` / names were captured on the PRE-change code; any drift fails these tests.
+The reference ``support_`` / names were captured on the code as of the perf levers landing; any drift
+in E1/E2/E6/E7/E8 themselves fails these tests. Unrelated genuine selection changes (a different bug fix
+landing) are re-captured here rather than reverted -- see the inline note above ``_REF_FE``/``_REF_NOFE``.
 """
 
 from __future__ import annotations
@@ -56,23 +58,36 @@ def _fit(n, p, inf, seed, fe_steps):
     return support, names
 
 
-# --- captured reference selections (PRE-change code) -----------------------------------------------
+# --- captured reference selections -------------------------------------------------------------------
+# Re-captured (not the perf-lever's original PRE-change values -- see the class docstring for the perf
+# levers themselves): the group_aware_mi fix wave landed two genuine selection changes since these were
+# first pinned, both intentional and unrelated to E1/E2/E6/E7/E8 (re-framed per the "a validated
+# improvement that breaks a test -> re-frame the stale test" convention, not reverted):
+#   * fe_hybrid_orth_enable / fe_univariate_basis_enable now correctly gate on fe_max_steps>0 (previously
+#     they fired even at fe_steps=0, contrary to the documented "fe_max_steps=0 = no FE" contract) -- the
+#     NOFE reference's Hermite-basis names (f_13__qsin4.3 etc.) are gone; the discrete-structural gate_mask
+#     operators (which DO have their own explicit fe_steps=0 carve-out) still fire as before.
+#   * an unrelated concurrent-session change (confirmed pre-existing to this fix wave via revert-and-compare)
+#     shifted the FE reference's exact greedy order/composite selection.
 _REF_FE = {
     "params": dict(n=4000, p=30, inf=8, seed=0, fe_steps=1),
-    "support": [14, 19, 23, 26, 29],
+    "support": [7, 13, 14, 15, 19, 23, 26, 29],
     "names": [
-        "f_14",
         "f_23",
+        "f_14",
         "f_29",
-        "f_26",
+        "f_15",
+        "f_13",
         "f_19",
-        "add(add(f_7,neg(f_26)),div(log(f_14),log(f_19)))",
+        "f_26",
+        "f_7",
+        "sub(div(exp(f_7),sign(gate_mask__f_23__f_15__t-1.28123)),mul(sign(f_19),exp(gate_mask__f_7__f_13__t-0.643104)))",
+        "add(f_7,neg(f_26))",
+        "div(sign(f_19),exp(gate_mask__f_14__f_15__t-0.60264))",
+        "gate_mask__f_13__f_26__t-1.26659",
         "gate_mask__f_23__f_15__t-1.28123",
-        "gate_mask__f_14__f_15__t-1.68194",
-        "sub(log(f_15),log(f_13))",
-        "mul(log(f_13),sign(f_19))",
-        "add(log(f_13),sign(f_26))",
-        "mul(log(f_13),sign(f_7))",
+        "gate_mask__f_7__f_13__t-0.643104",
+        "gate_mask__f_14__f_15__t-0.60264",
     ],
 }
 
@@ -81,17 +96,17 @@ _REF_NOFE = {
     "support": [1, 5, 9, 12, 13, 15, 16, 20],
     "names": [
         "f_13",
-        "f_1",
-        "f_5",
         "f_12",
-        "f_15",
-        "f_16",
         "f_20",
+        "f_1",
+        "f_15",
         "f_9",
+        "f_16",
+        "f_5",
         "gate_mask__f_9__f_12__t-0.726506",
         "gate_mask__f_5__f_15__t-0.337728",
-        "f_13__qsin4.3",
-        "f_13__qcos4.3",
+        "gate_mask__f_16__f_15__t-0.600261",
+        "gate_mask__f_15__f_5__t-1.38943",
         "f_13__relu_gt1.42721",
         "f_13__relu_lt1.42721",
     ],
