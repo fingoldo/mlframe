@@ -120,7 +120,34 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
+# FE_PAIRS_CORE-2 fix (mrmr_audit_2026-07-22): _fe_gpu_discretize_enabled/_fe_gpu_binning_enabled are
+# called up to 3x per pair, once per chunk, and once per ext-val tied-leader-set (unlike their sibling
+# resolve_fe_dispatch_env_gate(), which IS hoisted once per check_prospective_fe_pairs call via
+# _fe_env_gate) -- each call re-reads env vars, imports+calls is_cuda_available(), and (on the default
+# "auto" setting) a kernel_tuning_cache-backed backend-choice lookup, violating the repo's own "hoist the
+# dispatch decision out of hot loops" rule. Threading a hoisted bool through the 4-file call graph
+# (_pairs_core/_pairs_score/_pairs_chunks/_pairs_emit) would be the "proper" fix but touches a lot of the
+# 60+-param hot-loop signature surface for a purely efficiency (not correctness) finding; memoizing each
+# function's own result by its actual inputs is equivalent and self-contained (same inputs -> same
+# output, and the env vars this reads are not supported to change mid-fit -- the already-hoisted
+# _fe_env_gate makes the identical assumption for its own env reads).
+_GPU_GATE_CACHE: dict[tuple, bool] = {}
+_GPU_GATE_CACHE_MAX = 64
+
+
 def _fe_gpu_discretize_enabled(n_rows: int, n_cands: int) -> bool:
+    """Memoized wrapper over :func:`_fe_gpu_discretize_enabled_uncached` -- see FE_PAIRS_CORE-2's note above."""
+    key = ("discretize", int(n_rows), int(n_cands))
+    if key in _GPU_GATE_CACHE:
+        return _GPU_GATE_CACHE[key]
+    result = bool(_fe_gpu_discretize_enabled_uncached(n_rows, n_cands))
+    if len(_GPU_GATE_CACHE) >= _GPU_GATE_CACHE_MAX:
+        _GPU_GATE_CACHE.pop(next(iter(_GPU_GATE_CACHE)))
+    _GPU_GATE_CACHE[key] = result
+    return result
+
+
+def _fe_gpu_discretize_enabled_uncached(n_rows: int, n_cands: int) -> bool:
     """Whether to run the per-pair candidate MI (binning + observed-MI) on the GPU. The GPU path is
     BIT-IDENTICAL to the CPU analytic dispatch (verified maxdiff 0 on binning + observed MI), so the FE
     selection is unchanged either way -- this only chooses the faster backend for the size.
@@ -156,6 +183,18 @@ def _fe_gpu_discretize_enabled(n_rows: int, n_cands: int) -> bool:
 
 
 def _fe_gpu_binning_enabled(n_rows: int, n_cands: int) -> bool:
+    """Memoized wrapper over :func:`_fe_gpu_binning_enabled_uncached` -- see FE_PAIRS_CORE-2's note above."""
+    key = ("binning", int(n_rows), int(n_cands))
+    if key in _GPU_GATE_CACHE:
+        return _GPU_GATE_CACHE[key]
+    result = bool(_fe_gpu_binning_enabled_uncached(n_rows, n_cands))
+    if len(_GPU_GATE_CACHE) >= _GPU_GATE_CACHE_MAX:
+        _GPU_GATE_CACHE.pop(next(iter(_GPU_GATE_CACHE)))
+    _GPU_GATE_CACHE[key] = result
+    return result
+
+
+def _fe_gpu_binning_enabled_uncached(n_rows: int, n_cands: int) -> bool:
     """Whether to run the FE candidate BINNING (``discretize_2d_quantile_batch``) on the GPU.
 
     DECOUPLED (2026-06-23) from ``_fe_gpu_discretize_enabled`` / the full ``fe_gpu_pairs_mi`` analytic
@@ -509,7 +548,13 @@ def check_prospective_fe_pairs(
         # subsample needs the same shape. bincount gives counts -> divide by
         # total to get proportions matching the caller's expectation.
         if classes_y.size > 0 and classes_y.dtype.kind in ("i", "u"):
-            _counts = np.bincount(classes_y.astype(np.int64))
+            # FE_PAIRS_CORE-4 fix (mrmr_audit_2026-07-22): without minlength=, a subsample that happens to
+            # drop every row of the numerically-highest class label silently under-counts freqs_y.shape[0]
+            # (k_y) by the number of missing trailing labels, skewing the MM-debias/tie-band width
+            # (fe_mm_debias_prevalence, default OFF) -- use the PRE-subsample freqs_y width so k_y never
+            # shrinks just because a class got unlucky in the draw.
+            _minlength = int(np.asarray(freqs_y).shape[0])
+            _counts = np.bincount(classes_y.astype(np.int64), minlength=_minlength)
             _total = _counts.sum()
             if _total > 0:
                 freqs_y = _counts.astype(np.float64) / float(_total)

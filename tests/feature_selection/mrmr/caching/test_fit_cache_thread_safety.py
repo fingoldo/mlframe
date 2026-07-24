@@ -187,5 +187,80 @@ def test_concurrent_real_fits_no_exception_and_bounded_cache():
     assert len(set(MRMR._FIT_CACHE.keys())) == len(MRMR._FIT_CACHE)
 
 
+def test_clear_fit_cache_holds_the_canonical_lock():
+    """CORE_CLASS-2 regression (mrmr_audit_2026-07-22/core_class.md): ``clear_fit_cache()`` used to call
+    ``cls._FIT_CACHE.clear()`` with no lock at all, unlike every other ``_FIT_CACHE`` mutation site.
+
+    Structural proof (same technique as ``test_fit_holds_lock_around_every_cache_mutation``, chosen for the
+    same non-flaky reason): instrument ``.clear()`` to record whether this thread holds
+    ``_MRMR_FIT_CACHE_LOCK`` at call time. Pre-fix this is always False; post-fix always True.
+    """
+    lock_states: list[bool] = []
+
+    class _AssertingCache(OrderedDict):
+        """Records whether ``_MRMR_FIT_CACHE_LOCK`` is held by the calling thread on every ``.clear()``."""
+
+        def clear(self):
+            """Log the lock-ownership state, then perform the real clear."""
+            lock_states.append(_MRMR_FIT_CACHE_LOCK._is_owned())
+            super().clear()
+
+    saved_cache = MRMR._FIT_CACHE
+    try:
+        MRMR._FIT_CACHE = _AssertingCache({"k": "v"})
+        n = MRMR.clear_fit_cache()
+    finally:
+        MRMR._FIT_CACHE = saved_cache
+
+    assert n == 1
+    assert lock_states == [True], f"clear_fit_cache() must hold _MRMR_FIT_CACHE_LOCK while clearing; got {lock_states!r}"
+
+
+def test_clear_fit_cache_concurrent_with_in_flight_fits():
+    """CORE_CLASS-2 regression: a thread calling ``clear_fit_cache()`` mid-fit-storm must not raise ``KeyError``
+    in another thread's cache-hit path (the unlocked ``.clear()`` could interleave between a lock-protected
+    membership check and the immediately-following subscript read in ``_fit_impl_core.py``).
+    """
+    MRMR.clear_fit_cache()
+    errors: list = []
+    stop = threading.Event()
+
+    def fit_worker(tid: int):
+        """Repeatedly fit a fresh MRMR instance, racing against ``clearer()``'s cache drains."""
+        try:
+            k = 0
+            while not stop.is_set():
+                seed = tid * 1000 + k
+                X, y = _tiny_frame(seed)
+                sel = _fast_selector(seed)
+                sel.fit_cache_max = 4
+                sel.fit(X, y)
+                k += 1
+                if k >= 8:
+                    break
+        except Exception as exc:
+            errors.append((tid, repr(exc)))
+
+    def clearer():
+        """Repeatedly drain the fit cache while ``fit_worker`` threads are concurrently populating it."""
+        try:
+            for _ in range(20):
+                MRMR.clear_fit_cache()
+        except Exception as exc:
+            errors.append(("clearer", repr(exc)))
+        finally:
+            stop.set()
+
+    threads = [threading.Thread(target=fit_worker, args=(t,)) for t in range(4)]
+    threads.append(threading.Thread(target=clearer))
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=120)
+    stop.set()
+
+    assert not errors, f"concurrent clear_fit_cache()+fit() raised: {errors[:5]}"
+
+
 if __name__ == "__main__":  # pragma: no cover -- manual smoke run
     raise SystemExit(pytest.main([__file__, "-v"]))

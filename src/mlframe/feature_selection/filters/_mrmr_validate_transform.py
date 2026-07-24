@@ -224,41 +224,52 @@ def _validate_inputs(self, X, y):
             raise ValueError(f"MRMR.fit: duplicate column names not supported: {dups}")
     # Numeric-column extraction for NaN / Inf validation. Object-dtype frames (numeric + cat/string mixed) used to slip through because the whole frame was
     # converted to object-dtype where dtype.kind != "f"; scan numeric columns explicitly instead.
-    _arr: np.ndarray | None = None
+    #
+    # USABILITY_B-2 fix (mrmr_audit_2026-07-22): this used to materialize a FULL COPY of every numeric
+    # column via a single `.select_dtypes(include=["number"]).to_numpy()` / `.select(_num_cols).to_numpy()`
+    # call -- upcasting a mixed int/float frame to one common float64 block, unconditionally, on every fit,
+    # even though an all-integer numeric block can never hold inf (the dtype check that would have skipped
+    # it only ran AFTER the copy). Now: only FLOAT columns are selected (ints are skipped before any array
+    # construction, not after), and each is scanned ONE AT A TIME so at most one column's worth of memory
+    # is ever materialized, with an early exit on the first inf found -- never a `(n, p)` dense copy.
     try:
+        _float_col_arrays: list = []
         try:
             import polars as _pl
             if isinstance(X, _pl.DataFrame):
-                _num_cols = [n for n, d in X.schema.items() if d.is_numeric()]
-                if _num_cols:
-                    _arr = X.select(_num_cols).to_numpy()
-                # else: no numeric columns -- _arr stays None, nothing to validate.
+                _float_cols = [n for n, d in X.schema.items() if d.is_float()]
+                _float_col_arrays = [(n, X[n].to_numpy()) for n in _float_cols]
             elif hasattr(X, "select_dtypes"):
-                _arr = X.select_dtypes(include=["number"]).to_numpy()
+                _float_df = X.select_dtypes(include=["floating"])
+                _float_col_arrays = [(c, _float_df[c].to_numpy()) for c in _float_df.columns]
             else:
-                _arr = X.to_numpy()
+                _arr_fallback = X.to_numpy() if hasattr(X, "to_numpy") else None
+                if _arr_fallback is not None and _arr_fallback.dtype.kind == "f":
+                    _float_col_arrays = [("<all>", _arr_fallback)]
         except ImportError:
-            _arr = X.to_numpy() if hasattr(X, "to_numpy") else None
-        if _arr is not None and _arr.dtype.kind == "f":
-            if np.isinf(_arr).any():
+            _arr_fallback = X.to_numpy() if hasattr(X, "to_numpy") else None
+            if _arr_fallback is not None and _arr_fallback.dtype.kind == "f":
+                _float_col_arrays = [("<all>", _arr_fallback)]
+        for _col_name, _col_arr in _float_col_arrays:
+            if np.isinf(_col_arr).any():
                 raise ValueError(
-                    "MRMR.fit: input X contains +/-inf values. Replace or drop these rows before fitting; the discretization step produces undefined bins on inf."
+                    f"MRMR.fit: input X contains +/-inf values (column {_col_name!r}). Replace or drop these rows before fitting; the discretization step produces undefined bins on inf."
                 )
             # NaN is allowed and routed through `self.nan_strategy` (default
             # "separate_bin": NaN rows get an honest dedicated bin instead of
             # being merged into bin-0 or imputed silently). transform()
             # preserves NaN in the returned X for downstream NaN-aware models
             # (catboost, lightgbm, xgboost histogram tree).
-        # Object-dtype columns can smuggle a Python ``float('inf')`` past the float-only scan above (they are excluded from select_dtypes("number")
-        # and the polars numeric set). Scan them too when present so the same undefined-bin failure is caught at the boundary, not deep in discretisation.
+        # Object-dtype columns can smuggle a Python ``float('inf')`` past the float-only scan above (they are excluded from select_dtypes("floating")
+        # and the polars float set). Scan them too when present, one column at a time, so the same undefined-bin failure is caught at the boundary.
         if hasattr(X, "select_dtypes"):
             _obj = X.select_dtypes(include=["object"])
-            if _obj.shape[1] > 0:
-                _obj_arr = _obj.to_numpy()
-                _obj_floats = np.frompyfunc(lambda v: isinstance(v, float) and np.isinf(v), 1, 1)(_obj_arr).astype(bool)
+            for _obj_col in _obj.columns:
+                _obj_col_arr = _obj[_obj_col].to_numpy()
+                _obj_floats = np.frompyfunc(lambda v: isinstance(v, float) and np.isinf(v), 1, 1)(_obj_col_arr).astype(bool)
                 if _obj_floats.any():
                     raise ValueError(
-                        "MRMR.fit: input X contains +/-inf values in object-dtype column(s). Replace or drop these rows before fitting; the discretization step produces undefined bins on inf."
+                        f"MRMR.fit: input X contains +/-inf values in object-dtype column {_obj_col!r}. Replace or drop these rows before fitting; the discretization step produces undefined bins on inf."
                     )
     except ValueError:
         raise  # re-raise our own ValueError
@@ -703,4 +714,3 @@ def _append_engineered(self, base_out, X, recipes):
         base_out.astype(common_dtype, copy=False),
         engineered_arr.astype(common_dtype, copy=False),
     ])
-

@@ -58,8 +58,17 @@ class _MRMRConfigMixin:
         suites (model retraining boundary, JupyterHub kernel reuse, web-service request boundary) when
         long-lived workers must release fitted-MRMR memory. Without this, the cache holds up to
         ``fit_cache_max`` (default 4) full MRMR instances per process for as long as the process lives."""
-        n = len(cls._FIT_CACHE)
-        cls._FIT_CACHE.clear()
+        # Must take the SAME canonical lock every _FIT_CACHE read/write site in _fit_impl_core.py uses --
+        # otherwise this can interleave between another thread's lock-protected membership check and its
+        # immediately-following subscript read, raising KeyError in that concurrently-fitting thread.
+        # Lazy import (mirrors the lazy mrmr<->_mrmr_fit_impl import pattern elsewhere in this cluster):
+        # _fit_impl_core may not be imported yet if no .fit() has run in this process, but the lock itself
+        # is a plain module-level object with no import-time side effects.
+        from .._mrmr_fit_impl._fit_impl_core import _MRMR_FIT_CACHE_LOCK
+
+        with _MRMR_FIT_CACHE_LOCK:
+            n = len(cls._FIT_CACHE)
+            cls._FIT_CACHE.clear()
         return n
 
     @classmethod

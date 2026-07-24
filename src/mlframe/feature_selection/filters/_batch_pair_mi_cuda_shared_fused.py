@@ -37,9 +37,15 @@ opt-in budget, or CUDA/CuPy/the opt-in probe are unavailable -- the existing ``b
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 import numpy as np
+
+# GPU_INFRA_D-2 fix (mrmr_audit_2026-07-22): guards the max_dynamic_shared_size_bytes property-set +
+# launch pair below so a concurrent call with a different shared_bytes requirement cannot race and
+# under-provision another thread's launch (same pattern/fix as _gpu_pairs.py's _SHARED_MEM_SET_LOCK).
+_SHARED_MEM_SET_LOCK = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +193,11 @@ def batch_pair_mi_cuda_shared_fused(
     n_samples = int(factors_data.shape[0])
     n_features = int(factors_data.shape[1])
     n_classes_y = int(freqs_y.shape[0])
+    if n_samples == 0:
+        # GPU_INFRA_A-2 fix (mrmr_audit_2026-07-22): mirrors batch_pair_mi_cupy's explicit
+        # `if n_samples == 0: return zeros` guard -- without it, `inv_n = 1.0 / float(n_samples)` below
+        # raises ZeroDivisionError for an empty input.
+        return np.zeros(n_pairs, dtype=np.float64)
 
     nbins_i = np.ascontiguousarray(nbins, dtype=np.int32)
     joint_cards = nbins_i[np.ascontiguousarray(pair_a, dtype=np.int64)].astype(np.int64) * nbins_i[np.ascontiguousarray(pair_b, dtype=np.int64)].astype(np.int64)
@@ -201,11 +212,6 @@ def batch_pair_mi_cuda_shared_fused(
 
     kernel = _get_shared_fused_kernel()
     static_budget = 49152 - _DRIVER_SHARED_MEM_HEADROOM_BYTES
-    if shared_bytes > static_budget:
-        # Only touch the opt-in property when actually needed -- CuPy raises if this is set below the
-        # device's static default on some driver versions, so avoid the call on the common (small-shape)
-        # path where the static budget already suffices.
-        kernel.max_dynamic_shared_size_bytes = shared_bytes
 
     d_factors = _cp.asarray(np.ascontiguousarray(factors_data, dtype=np.int32))
     d_pair_a = _cp.asarray(np.ascontiguousarray(pair_a, dtype=np.int64))
@@ -216,16 +222,25 @@ def batch_pair_mi_cuda_shared_fused(
     d_mi_out = _cp.zeros(n_pairs, dtype=_cp.float64)
 
     inv_n = 1.0 / float(n_samples)
-    kernel(
-        (n_pairs,), (threads_per_block,),
-        (
-            d_factors, d_pair_a, d_pair_b, d_nbins, d_classes_y, d_freqs_y,
-            np.int64(n_samples), np.int32(n_features), np.int32(n_pairs),
-            np.int32(max_joint), np.int32(n_classes_y), np.float64(inv_n),
-            d_mi_out,
-        ),
-        shared_mem=shared_bytes,
-    )
+    # GPU_INFRA_D-2 fix (mrmr_audit_2026-07-22): the property set + launch must be atomic together, or a
+    # concurrent call with a different shared_bytes requirement could race and under-provision this launch
+    # (same shared singleton-kernel-attribute pattern as _gpu_pairs.py's identical fix; see its module note).
+    with _SHARED_MEM_SET_LOCK:
+        if shared_bytes > static_budget:
+            # Only touch the opt-in property when actually needed -- CuPy raises if this is set below the
+            # device's static default on some driver versions, so avoid the call on the common (small-shape)
+            # path where the static budget already suffices.
+            kernel.max_dynamic_shared_size_bytes = shared_bytes
+        kernel(
+            (n_pairs,), (threads_per_block,),
+            (
+                d_factors, d_pair_a, d_pair_b, d_nbins, d_classes_y, d_freqs_y,
+                np.int64(n_samples), np.int32(n_features), np.int32(n_pairs),
+                np.int32(max_joint), np.int32(n_classes_y), np.float64(inv_n),
+                d_mi_out,
+            ),
+            shared_mem=shared_bytes,
+        )
     return np.asarray(_cp.asnumpy(d_mi_out))
 
 

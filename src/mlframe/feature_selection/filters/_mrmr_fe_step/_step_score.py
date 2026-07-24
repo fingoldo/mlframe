@@ -235,6 +235,16 @@ def materialise_and_finalise_fe_candidates(
                     _new_tpf.add((_cfg, _new_pos))
             _new_tvals = _tvals[:, _keep_idx]
             _new_ncols = [_ncols[i] for i in _keep_idx]
+            # FE_STEP_B-8 fix (mrmr_audit_2026-07-22): a length-mismatched _nnb used to pass through
+            # UNFILTERED (not narrowed to _keep_idx), silently reintroducing the nbins-vs-cols length
+            # mismatch this filtering exists to prevent. Log so a genuine producer-shape bug is never
+            # indistinguishable from the expected None case.
+            if _nnb is not None and (not hasattr(_nnb, "__len__") or len(_nnb) != len(_ncols)):
+                logger.warning(
+                    "mrmr: _nnb length mismatch (expected %d columns) while filtering to kept columns; "
+                    "passing it through UNFILTERED -- a downstream nbins/cols length assertion may now fire.",
+                    len(_ncols),
+                )
             _new_nnb = [_nnb[i] for i in _keep_idx] if _nnb is not None and hasattr(_nnb, "__len__") and len(_nnb) == len(_ncols) else _nnb
             _filtered_additions[_rp] = (_new_tpf, _new_tvals, _new_ncols, _new_nnb, _msgs)
         prospective_additions = _filtered_additions
@@ -354,6 +364,16 @@ def materialise_and_finalise_fe_candidates(
                     _cfg = _n2c.get(_ncols[_oi])
                     if _cfg is not None:
                         _new_tpf.add((_cfg, _np))
+                # FE_STEP_B-8 fix (mrmr_audit_2026-07-22): a length-mismatched _nnb used to pass through
+                # UNFILTERED (not narrowed to _keep_idx), silently reintroducing the nbins-vs-cols length
+                # mismatch this filtering exists to prevent. Log so a genuine producer-shape bug is never
+                # indistinguishable from the expected None case.
+                if _nnb is not None and (not hasattr(_nnb, "__len__") or len(_nnb) != len(_ncols)):
+                    logger.warning(
+                        "mrmr: _nnb length mismatch (expected %d columns) while filtering to kept columns; "
+                        "passing it through UNFILTERED -- a downstream nbins/cols length assertion may now fire.",
+                        len(_ncols),
+                    )
                 _new_nnb = [_nnb[i] for i in _keep_idx] if _nnb is not None and hasattr(_nnb, "__len__") and len(_nnb) == len(_ncols) else _nnb
                 _filtered[_rp] = (_new_tpf, _tvals[:, _keep_idx], [_ncols[i] for i in _keep_idx], _new_nnb, _msgs)
             prospective_additions = _filtered
@@ -465,6 +485,16 @@ def materialise_and_finalise_fe_candidates(
                     _cfg = _n2c.get(_ncols[_oi])
                     if _cfg is not None:
                         _new_tpf.add((_cfg, _np))
+                # FE_STEP_B-8 fix (mrmr_audit_2026-07-22): a length-mismatched _nnb used to pass through
+                # UNFILTERED (not narrowed to _keep_idx), silently reintroducing the nbins-vs-cols length
+                # mismatch this filtering exists to prevent. Log so a genuine producer-shape bug is never
+                # indistinguishable from the expected None case.
+                if _nnb is not None and (not hasattr(_nnb, "__len__") or len(_nnb) != len(_ncols)):
+                    logger.warning(
+                        "mrmr: _nnb length mismatch (expected %d columns) while filtering to kept columns; "
+                        "passing it through UNFILTERED -- a downstream nbins/cols length assertion may now fire.",
+                        len(_ncols),
+                    )
                 _new_nnb = [_nnb[i] for i in _keep_idx] if _nnb is not None and hasattr(_nnb, "__len__") and len(_nnb) == len(_ncols) else _nnb
                 _filtered_fsc[_rp] = (_new_tpf, _tvals[:, _keep_idx], [_ncols[i] for i in _keep_idx], _new_nnb, _msgs)
             prospective_additions = _filtered_fsc
@@ -521,7 +551,6 @@ def materialise_and_finalise_fe_candidates(
             if verbose:
                 for mes in messages:
                     logger.info(mes)
-                # logger.info(f"Features {new_cols} are recommended to use as new features!")
             if fe_max_steps >= 1:
                 _n_forms = len(this_pair_features)
                 if self.quantization_method == "quantile":
@@ -859,8 +888,15 @@ def materialise_and_finalise_fe_candidates(
                     if not _is_polars_input and hasattr(X, "columns") and not _x_is_owned:
                         X = X.copy()
                         _x_is_owned = True
-                    _esc_new_codes = np.empty(
-                        shape=(len(X), len(_esc_admitted)), dtype=self.quantization_dtype,
+                    # Pre-widen to _safe_code_dtype, not the raw (possibly too-narrow) quantization_dtype:
+                    # discretize_array widens its OWN return value internally and assigning that widened
+                    # value into a narrow-dtype buffer silently downcasts it back, wrapping codes negative
+                    # for quantization_nbins > 127 under quantization_dtype=int8 (same bug already fixed
+                    # above at the unary/binary materialize block via _safe_code_dtype).
+                    from ..discretization import _safe_code_dtype
+                    _esc_safe_dtype = _safe_code_dtype(self.quantization_nbins, self.quantization_dtype)
+                    _esc_new_codes: np.ndarray = np.empty(
+                        shape=(len(X), len(_esc_admitted)), dtype=_esc_safe_dtype,
                     )
                     for _je, _ec in enumerate(_esc_admitted):
                         _esc_new_codes[:, _je] = discretize_array(
@@ -962,7 +998,12 @@ def materialise_and_finalise_fe_candidates(
                 if not _is_polars_input and hasattr(X, "columns") and not _x_is_owned:
                     X = X.copy()
                     _x_is_owned = True
-                _fz_codes = np.empty(shape=(len(X), len(_fused)), dtype=self.quantization_dtype)
+                # Same narrow-preallocation bug/fix as the escalation-materialize block above:
+                # pre-widen to _safe_code_dtype so discretize_array's internally-widened return value
+                # isn't silently downcast back on assignment.
+                from ..discretization import _safe_code_dtype
+                _fz_safe_dtype = _safe_code_dtype(self.quantization_nbins, self.quantization_dtype)
+                _fz_codes: np.ndarray = np.empty(shape=(len(X), len(_fused)), dtype=_fz_safe_dtype)
                 for _jf, _fc in enumerate(_fused):
                     _fz_codes[:, _jf] = discretize_array(
                         arr=np.asarray(_fc["values"], dtype=np.float64),
