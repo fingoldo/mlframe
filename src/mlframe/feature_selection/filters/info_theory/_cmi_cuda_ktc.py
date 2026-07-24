@@ -20,9 +20,9 @@ from __future__ import annotations
 
 import logging
 
-logger = logging.getLogger(__name__)
-
 import numpy as np
+
+logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Production (n, p) grid the cmi gate must rank. n spans the MRMR fit sizes; p (candidate count per greedy
 # round) spans the small-round (p~16) to wide-screen (p>=256) regimes where the crossover lives. The CUDA
@@ -54,15 +54,17 @@ def cmi_use_cuda(n: int, p: int) -> bool | None:
         # unconditionally, since this was the only other place in the fallback chain that also checks STRICT.
         if fe_gpu_strict_enabled(n=n, p=p):
             return True
-    except Exception as _strict_exc:  # nosec B110 - optional dependency import guard
-        logger.debug("_cmi_fallback_choice: fe_gpu_strict_enabled probe failed (%s); falling through to the KTC lookup.", _strict_exc)
+    except Exception:  # nosec B110 - optional dependency import guard
+        pass
     if _CMI_SPEC is None:
         return None
     p_bucket = min(_CMI_SWEEP_P, key=lambda b: abs(b - int(p)))
     try:
         choice = _CMI_SPEC.choose(n_samples=int(n), p=int(p_bucket))
-    except Exception as _choose_exc:
-        logger.debug("_cmi_fallback_choice: KTC .choose(n_samples=%d, p=%d) failed (%s); no crossover verdict this call.", int(n), int(p_bucket), _choose_exc)
+    except Exception as exc:
+        # INFO_THEORY_A-7 fix: a genuine KTC.choose bug permanently and
+        # silently degraded every fit to the hardcoded bootstrap heuristic with no diagnostic trail.
+        logger.debug("mrmr: CMI KTC .choose() failed; falling back to the hardcoded crossover heuristic: %r", exc, exc_info=True)
         return None
     if choice == "cuda":
         return True
@@ -138,6 +140,8 @@ try:
         salt=_CMI_SALT,
         cli_label="cmi_batched_cpu_cuda_crossover",
     )
-except Exception as _spec_exc:
-    logger.debug("info_theory._cmi_cuda_ktc: kernel_tuner spec construction failed (%s); CMI CPU/CUDA crossover stays on the hardcoded bootstrap fallback.", _spec_exc)
+except Exception as _cmi_spec_exc:
+    # INFO_THEORY_A-7 fix: a genuine registration bug (not just a missing
+    # optional dependency) permanently and silently degrades every fit to the hardcoded heuristic.
+    logger.debug("mrmr: CMI KTC spec registration failed; using the hardcoded crossover heuristic for this process: %r", _cmi_spec_exc, exc_info=True)
     _CMI_SPEC = None

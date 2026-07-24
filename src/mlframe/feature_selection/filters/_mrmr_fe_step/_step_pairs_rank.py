@@ -166,7 +166,7 @@ def _maybe_relax_prevalence_for_tail_concentrated_pool(
         # of the max). GPU is NOT engaged here (measured slower than CPU at every scale on this
         # host, see that module's docstring) -- dispatch_batch_pair_usability_corr's un-forced
         # default is CPU.
-        # FE_STEP_B-9 fix (mrmr_audit_2026-07-22): scan candidates in DESCENDING joint-MI order (a principled
+        # FE_STEP_B-9 fix: scan candidates in DESCENDING joint-MI order (a principled
         # importance proxy for "how likely is this the pool's dominant pair"), not raw cached_MIs insertion
         # order (batch-precompute chunks, then legacy-sweep entries, then any GBM/gradient-seeded additions --
         # an accident of WHEN a pair was computed, not how relevant it is). For a pool wider than
@@ -386,7 +386,7 @@ def _prepass_gate_and_usability_candidates(
     ``ind_elems_mi_sum>0``) so the returned ``_gate_cache`` has an entry for every pair the main loop will
     look up.
 
-    ``sorted_pairs``: FE_STEP_B-4 fix (mrmr_audit_2026-07-22) -- pass the caller's already-computed
+    ``sorted_pairs``: FE_STEP_B-4 fix -- pass the caller's already-computed
     ``sort_dict_by_value(cached_MIs)`` view (an unmutated dict between the two calls in
     ``score_prospective_pairs``) to avoid a second full O(n log n) sort + O(n) dict-copy of the whole
     candidate pool. Falls back to computing it here (the original behaviour) when omitted, so any other
@@ -512,7 +512,7 @@ def score_prospective_pairs(
     # ``permnull_cand_x`` sites. The partner / anchor stays host (it is the conditioning ``z``, uploaded by the
     # primitives). Computed once (fit-constant predicate). Byte-identical: same int codes, same partition.
     _pair_resident = _pair_gate_resident_enabled(n=int(data.shape[0]), p=len(numeric_vars_to_consider))
-    # FE_STEP_B-4/B-9 fix (mrmr_audit_2026-07-22): compute the sorted view ONCE, here (before its first
+    # FE_STEP_B-4/B-9 fix: compute the sorted view ONCE, here (before its first
     # consumer), and reuse it in every downstream consumer in this function -- cached_MIs is not written to
     # anywhere between here and the main loop below, so re-sorting it a second or third time was a pure
     # duplicate O(n log n) sort + O(n) dict-copy of the whole candidate pool (singles + all pairs) for no

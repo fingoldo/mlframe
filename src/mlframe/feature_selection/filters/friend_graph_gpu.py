@@ -93,7 +93,7 @@ except Exception:
 
 def _entropy_resident_enabled() -> bool:
     """Whether the on-device segmented entropy reduction (``_friend_graph_gpu_entropy_resident``,
-    mrmr_audit_2026-07-20 gpu_residency.md #8) engages, collapsing the raw-counts D2H at each of the
+    .md #8) engages, collapsing the raw-counts D2H at each of the
     3 cupy-backend sites (node marginals, relevance joints, pairwise edges) into a single small
     (n_segments,) readback.
 

@@ -1,4 +1,4 @@
-"""Successive-halving / rung-schedule budget for the FE operator search (backlog #16).
+"""Successive-halving / rung-schedule budget for the FE operator search.
 
 Routes the expensive per-pair operator search (``check_prospective_fe_pairs`` --
 all unary x binary transforms, CMA-ES / full discretize / prewarp per pair, ~4-50s
@@ -174,7 +174,7 @@ def apply_rung_schedule(
     min_pairs: int = _MIN_PAIRS_DEFAULT,
     verbose: int = 0,
 ) -> tuple[dict, dict]:
-    """Rung-0 low-fidelity screen over the prospective pairs (backlog #16).
+    """Rung-0 low-fidelity screen over the prospective pairs.
 
     ``prospective_pairs``: the gate-surviving, already-ranked pair dict from
     ``_mrmr_fe_step`` whose keys are ``(raw_vars_pair, pair_mi)`` 2-tuples (``pair_mi``

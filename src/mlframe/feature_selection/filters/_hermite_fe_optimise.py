@@ -415,7 +415,11 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
     while not es.stop() and n_evals < n_trials:
         try:
             solutions = es.ask()
-        except Exception:
+        except Exception as exc:
+            # ORTH_BASIS_A-2 fix: was a bare except with zero logging, silently
+            # truncating the CMA generation loop early on any cma-library fault -- a real cma regression
+            # (e.g. after a package upgrade) would silently degrade hermite pair-FE recall with no trace.
+            logger.warning("_run_cma_search_batch: es.ask() raised (%s: %s); stopping CMA early with the best solution found so far.", type(exc).__name__, exc)
             break
         solutions_arr = np.asarray(solutions, dtype=np.float64)
         # Truncate batch if we'd exceed the budget mid-generation.
@@ -458,7 +462,9 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
                 cma_scores.append(1e6)
         try:
             es.tell(solutions, cma_scores)
-        except Exception:
+        except Exception as exc:
+            # ORTH_BASIS_A-2 fix: see the matching es.ask fix above.
+            logger.warning("_run_cma_search_batch: es.tell() raised (%s: %s); stopping CMA early with the best solution found so far.", type(exc).__name__, exc)
             break
         if early_stop_no_improve_gens and early_stop_no_improve_gens > 0:
             if best_score > _last_gen_best_score:
@@ -496,7 +502,12 @@ def _run_random_batch_search(*, ca_size, cb_size, coef_range, n_trials, seed,
     drop it in via ``optimizer="random_batch"``.
     """
     from .hermite_fe import _l2_normalize_pair
-    rng = np.random.default_rng(seed if seed > 0 else 1)
+    # ORTH_BASIS_A-1 fix: was `seed if seed > 0 else 1`, silently substituting 1
+    # for seed<=0 (including the valid seed=0) -- sibling RNGs in this same call chain
+    # (_hermite_fe_optimise_pair.py's multi-fidelity subsample / noise-floor null) correctly keep seed=0 as
+    # 0. Reachable via the public optimizer="random_batch" kwarg AND via the DEFAULT cupy_kernel path's
+    # no-cupy fallback, so a direct seed=0 caller got a silently different, non-requested RNG stream.
+    rng = np.random.default_rng(seed)
     best_score = -np.inf
     best_raw = 0.0
     best_idx = -1
@@ -710,7 +721,9 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
                 first_gen = False
             else:
                 solutions = es.ask()
-        except Exception:
+        except Exception as exc:
+            # ORTH_BASIS_A-2 fix: see _run_cma_search_batch's matching fix above.
+            logger.warning("_run_cma_search: es.ask() raised (%s: %s); stopping CMA early with the best solution found so far.", type(exc).__name__, exc)
             break
         scores = []
         for sol in solutions:

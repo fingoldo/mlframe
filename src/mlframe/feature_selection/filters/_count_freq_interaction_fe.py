@@ -261,7 +261,7 @@ def cat_num_interaction_fit(
     X : DataFrame
         Must contain both ``cat_col`` and ``num_col``.
     y : ndarray
-        NOT used to derive fold assignment (CAT_INTERACTION_A-7 fix, mrmr_audit_2026-07-22: this docstring
+        NOT used to derive fold assignment (CAT_INTERACTION_A-7 fix: this docstring
         used to claim a stratified-when-binary fold split that the implementation never performs -- fold
         assignment is always a plain ``rng.permutation(n)``, regardless of ``y``'s dtype/cardinality; a
         plain random split is a valid, safe OOF scheme here since the leak target is ``num_col``, not

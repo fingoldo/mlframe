@@ -592,13 +592,13 @@ def screen_predictors(
         else:
             freqs_y_safe = None
 
-        # RESOLVED (2026-07-19, 7-site joblib.Parallel audit -- follow-up to the 2026-07-09 finding #5
+        # RESOLVED (2026-07-19, 7-site joblib.Parallel audit -- follow-up to the 2026-07-09
         # UNRESOLVED note this comment used to carry): the "releases the GIL" claim below was never
         # actually confirmed for THIS call path, and the isolated/warmed/best-of-3+ A/B settles it in the
         # other direction. Measured at ``evaluate_candidates``'s realistic scales: m=10 candidates ->
         # 0.03x (SLOWER than serial), m=320 (wellbore-scale) -> 0.72-0.73x, m=820/n_workers=8 -> 0.81x --
         # this ``Parallel(backend="threading")`` pool NEVER wins over serial at any tested scale, confirming
-        # the pool is GIL-bound at the dispatch boundary exactly as finding #5 suspected (evaluate_candidates
+        # the pool is GIL-bound at the dispatch boundary exactly as suspected (evaluate_candidates
         # eventually calls njit kernels that DO release the GIL, but the per-call joblib dispatch/aggregation
         # overhead dominates at these candidate counts). The pool is therefore never constructed here anymore
         # -- ``evaluate_candidates`` always runs on the serial fast path in ``confirm_one_predictor``/

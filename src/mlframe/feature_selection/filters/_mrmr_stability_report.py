@@ -121,7 +121,7 @@ def selection_stability_report(
     n_cand = int(cand_codes.shape[1])
     n_selected = int(selected_mask.sum())
 
-    # mrmr_audit_2026-07-20 B-4 (P1): this used to fall back only to the deprecated ``random_seed`` alias
+    # (P1): this used to fall back only to the deprecated ``random_seed`` alias
     # (``getattr(self, "random_seed", 0)``), never to the canonical ``random_state``. ``_fit_body`` writes
     # the resolved seed onto ``self.random_seed`` only for the DURATION of fit() and restores the pre-fit
     # value (None, for a caller who used ``random_state=``) in its finally block, so by the time this

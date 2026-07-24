@@ -1,6 +1,6 @@
 """BATCHED, born-on-device GPU path for the wavelet leg-rank MI (replatform step 1, 2026-06-25).
 
-WIRED (ORTH_BASIS_A-5 fix, mrmr_audit_2026-07-22 -- this docstring was stale): ``_wavelet_basis_fe.py``
+WIRED (ORTH_BASIS_A-5 fix, -- this docstring was stale): ``_wavelet_basis_fe.py``
 already imports and calls ``select_wavelet_legs_batched`` from this module whenever
 ``_binnedmi_gpu_enabled()`` is true, and the underlying ``MLFRAME_FE_GPU_DEVICE_BORN_WAVELET`` flag this
 routes through is DEFAULT ON in production. Originally built as a self-contained parallel implementation

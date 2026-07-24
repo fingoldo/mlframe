@@ -194,7 +194,7 @@ def build_lagged_diff_recipe(
     *, name: str, time_col: str, value_col: str, period: int, entity_cols: "tuple[str, ...] | None" = None,
 ) -> EngineeredRecipe:
     """Frozen recipe for ``x_t - x_{t-period}`` after sorting by ``time_col`` (or ``(entity_cols, time_col)``
-    when ``entity_cols`` is given -- CAT_INTERACTION_B-5 fix, mrmr_audit_2026-07-22).
+    when ``entity_cols`` is given -- CAT_INTERACTION_B-5 fix).
     Replay re-sorts the test frame the same way and emits the per-row
     difference; the first ``period`` rows of each (entity-scoped) sorted run get 0."""
     from . import EngineeredRecipe

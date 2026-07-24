@@ -399,7 +399,7 @@ def retain_usable_pure_forms(
         # Only the OLS leg (which fits the candidate-specific target) still runs per candidate.
         _basis_cache: "dict[frozenset, np.ndarray]" = {}
 
-        # min_resid_frac / min_resid_corr are exposed as tunable kwargs (default 0.10 / 0.08). bench-attempt-rejected (qual-23, 2026-06-18): lowering
+        # min_resid_frac / min_resid_corr are exposed as tunable kwargs (default 0.10 / 0.08). bench-attempt-rejected: lowering
         # min_resid_corr 0.08 -> 0.05 to recover weak-but-relevant joint forms is a DEAD KNOB at tractable scale -- on every synthetic tried (weak-joint
         # additive + control + a strongly-nonlinear a**2/b + log(c)*sin(d) target with raw-linear R2=0.10) the MI greedy ALREADY selected the pure pair
         # forms, so the trap pre-check (has_cross_mix OR no-pure-pair) returns [] BEFORE this gate runs and the corr floor never fires (+0 retained at corr in

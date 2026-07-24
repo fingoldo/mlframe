@@ -180,7 +180,7 @@ def compute_mi_from_classes_weighted(
 ) -> float:
     """Weighted mutual information from two pre-computed class arrays + per-row sample weights.
 
-    mrmr_audit_2026-07-20 B-19: cat-FE's downstream confirmation/rerank steps (MM re-rank,
+    cat-FE's downstream confirmation/rerank steps (MM re-rank,
     permutation test, bandit-UCB1, Westfall-Young, bootstrap CI, K-fold stability,
     anti-redundancy rerank, k-way greedy expansion) previously recomputed every statistic
     UNWEIGHTED even when the search-phase point estimate used sample weights -- a weighted

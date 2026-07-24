@@ -95,7 +95,7 @@ def scan_integer_lattice_pairs(
     elig = [j for j in range(p) if _is_integer_col(X[:, j])]
     raw_mi = {j: _mi(X[:, j], yi, nbins=nbins) for j in elig}
     hits: list[dict] = []
-    # ORTH_BASIS_A-8 fix (mrmr_audit_2026-07-22): build ONE Generator here instead of re-seeding
+    # ORTH_BASIS_A-8 fix: build ONE Generator here instead of re-seeding
     # np.random.default_rng(rng_seed) fresh inside the innermost loop -- the fresh-reseed-per-candidate
     # pattern tested every candidate against the IDENTICAL n_perm shuffles of y (same draws every time,
     # since the generator restarts at the same seed each call), wasteful and reduces the effective

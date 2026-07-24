@@ -193,7 +193,7 @@ def detect_hinge_breakpoints_gpu(
         # (default 250k, 0=full-n). The finite/std guards above already ran on the full column.
         _hmax = _hinge_max_rows()
         if _hmax > 0 and n > _hmax:
-            # GPU_INFRA_D-11 fix (mrmr_audit_2026-07-22): floor division (`n // _hmax`) gave stride==1 (no
+            # GPU_INFRA_D-11 fix: floor division (`n // _hmax`) gave stride==1 (no
             # thinning at all) for any n strictly between _hmax and 2*_hmax, so the documented "caps at
             # <=_hmax rows" claim was only true once n reached ~2*_hmax. Ceiling division actually caps at n.
             _st = -(-n // _hmax)

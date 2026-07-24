@@ -72,7 +72,7 @@ void bin_codes_TYPENAME(const TYPE* __restrict__ cand, const double* __restrict_
 # binning kernel instead of int32-then-astype. The resident chunk path discretized to int32 (this kernel)
 # then immediately cast int32->int8 per VRAM chunk (a separate launch + a full (n,K) int32 intermediate,
 # ~12-24x/fit). Instantiating the kernel's OUTPUT type directly (OUTTYPE) drops that cast launch + the int32
-# buffer. nbins<=128 -> int8 cannot overflow (GPU_INFRA_B-4 fix, mrmr_audit_2026-07-22: codes are in
+# buffer. nbins<=128 -> int8 cannot overflow (GPU_INFRA_B-4 fix: codes are in
 # [0, nbins-1] and _BIN_CODES_OUTTYPE's "int8" is C signed char, range -128..127, not 0..255); the on-device
 # write is the same upper_bound value, only narrower -- BIT-IDENTICAL to int32-then-astype. The default out_dtype stays int32
 # so every other caller (basis/hermite) is byte-for-byte unchanged.

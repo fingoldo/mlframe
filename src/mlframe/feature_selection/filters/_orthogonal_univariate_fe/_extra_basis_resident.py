@@ -2,7 +2,7 @@
 
 ``score_features_by_mi_uplift`` scores each engineered column by MI uplift vs its raw source. For the
 EXTRA-BASIS families (spline / Fourier / chirp / wavelet) the host-materialised ``engineered_X`` matrix was
-uploaded whole at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (ORTH_BASIS_B-5 fix, mrmr_audit_2026-07-22: dropped the exact line number, which had already gone stale)`` (the poly-leg twin ``_uplift_univariate_resident`` handled only
+uploaded whole at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (ORTH_BASIS_B-5 fix: dropped the exact line number, which had already gone stale)`` (the poly-leg twin ``_uplift_univariate_resident`` handled only
 He/T/L/LL). This module rebuilds the WHOLE extra-basis engineered matrix ON the device from the small resident
 raw operand columns + the per-column fit ``meta`` (the exact frequencies / knots / lo/span the host baked in),
 and scores it through the SAME percentile-edge resident plug-in MI -- so nothing crosses H2D and the uplift

@@ -235,7 +235,7 @@ def _count_nfailed_joint_indep_weighted_serial(
     base_seed: int,
     dtype,
 ) -> int:
-    """Weighted counterpart of ``_count_nfailed_joint_indep_prange`` (mrmr_audit_2026-07-20 B-19).
+    """Weighted counterpart of ``_count_nfailed_joint_indep_prange``.
 
     Same joint-independence null (shuffle Y, recompute all three MIs), but every joint/marginal
     count is accumulated as ``weights[k]`` instead of ``1`` -- so a weighted search-phase ``II_obs``
@@ -416,7 +416,7 @@ def _perm_kernel_dispatch_use_gpu(
         with the old ``_GPU_PERM_KERNEL_THRESHOLD_N`` as the measurement-backed
         fallback. GPU only when chosen AND cupy is importable.
 
-    CAT_INTERACTION_A-2 fix (mrmr_audit_2026-07-22): this used to gate purely on cupy importability, never
+    CAT_INTERACTION_A-2 fix: this used to gate purely on cupy importability, never
     consulting the project's canonical ``gpu_globally_disabled()`` (``MLFRAME_DISABLE_GPU=1`` /
     ``CUDA_VISIBLE_DEVICES=""``) -- a user forcing CPU-only via that env convention still got GPU dispatch
     for ``backend="auto"``/``"gpu"`` cat-FE fits whenever cupy was importable. The global off-switch now
@@ -645,7 +645,7 @@ def _bulk_shuffle_and_compute_three_mis(
     return out_i_pair, out_i_x1, out_i_x2
 
 
-# X_EFFICIENCY_ARCHITECTURE-1 fix (mrmr_audit_2026-07-22): _compute_westfall_young_corrected_p and
+# X_EFFICIENCY_ARCHITECTURE-1 fix: _compute_westfall_young_corrected_p and
 # _apply_fwer_correction were carved out into _cat_confirm_fwer.py to clear the repo's enforced hard
 # 1000-LOC CI gate (this file was 1106 lines and absent from the gate's exempt list). Re-exported here
 # so every existing caller/import of this module keeps working unchanged.
@@ -670,7 +670,7 @@ def _confirm_pairs_via_permutation(
 ) -> tuple:
     """Run permutation confirmation on top-K survivors. Returns ``(selected_idx_kept, confidence_per_pair_dict)``.
 
-    ``weights`` (mrmr_audit_2026-07-20 B-19), when given, route the DEFAULT joint-independence null
+    ``weights``, when given, route the DEFAULT joint-independence null
     (``cfg.permutation_null != "conditional"``, no GPU dispatch) through a weighted CPU kernel so a
     weighted search-phase ``II_obs`` is tested against a weighted null. The conditional-null branch
     and the cupy GPU branch still fall back to the unweighted path with a one-time warning -- weighting
@@ -773,7 +773,7 @@ def _confirm_pairs_via_permutation(
     if use_weights_conf and use_conditional and verbose:
         logger.warning(
             "cat-FE: sample weights ignored on the conditional permutation null "
-            "(mrmr_audit_2026-07-20 B-19: weighting the IPF/within-strata shuffler "
+            ": weighting the IPF/within-strata shuffler "
             "is a separate follow-up); falling back to unweighted."
         )
 
@@ -886,7 +886,7 @@ def _confirm_pairs_via_permutation(
             # dominates short permutation budgets. See ``_perm_kernel_dispatch_use_gpu`` for the policy.
             _kernel_n = int(_k_cls_pair.size) if _ss_idx is not None else n_samples
             if _k_weights is not None:
-                # mrmr_audit_2026-07-20 B-19: weighted null is CPU-only (mirrors the pair-search phase's
+                # weighted null is CPU-only (mirrors the pair-search phase's
                 # established "sample weights ignored on GPU, fall back to CPU weighted kernel" convention).
                 n_failed = _count_nfailed_joint_indep_weighted_serial(
                     _k_cls_pair, _k_fq_pair, _k_cls_x1, _k_fq_x1,

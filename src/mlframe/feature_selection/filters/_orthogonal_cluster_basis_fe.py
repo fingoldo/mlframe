@@ -232,7 +232,7 @@ def detect_clusters_by_correlation(
                     dense_names[idx],
                 ))
             mean_corr.sort()
-            # ORTH_SCORING_B-5 fix (mrmr_audit_2026-07-22): `dense_names[dense_names.index(name)]` was a
+            # ORTH_SCORING_B-5 fix: `dense_names[dense_names.index(name)]` was a
             # no-op O(p) linear-scan re-lookup that just produces `name` back -- `mean_corr` already holds
             # the actual name strings, so use them directly.
             members = sorted(name for (_, name) in mean_corr[: int(max_cluster_size)])

@@ -640,7 +640,7 @@ def hybrid_conditional_residual_fe(
 # a linear-model lift test, never an MI-gain test.
 #
 # bench-rejected (2026-06-10): an ISOTONIC (monotone-constrained, free-shape)
-# Family-D sibling to RankGauss was proposed (backlog #14) and benchmarked. The
+# Family-D sibling to RankGauss was proposed and benchmarked. The
 # decisive held-out Ridge R^2 subsumption test (y=sigmoid(3x)+noise, the monotone
 # link, 24 seeds, feature set [x, T(x)]) shows isotonic LOSES to the SHIPPED
 # 5-inner-knot (8-basis) quantile cubic B-spline in ALL 6 (n,noise) cells

@@ -334,7 +334,7 @@ def _pinned_view(n_bytes: int, shape, dtype, slot: int = 0):
 # resolve to the SAME live object). Bounded FIFO so distinct operand tables across a long fit don't grow it.
 _OPERAND_TABLE_CACHE: "OrderedDict[int, tuple]" = OrderedDict()  # id(host) -> (weakref(host), gpu)
 _OPERAND_TABLE_CACHE_MAX = 8
-# FE_PAIRS_CORE-1 fix (mrmr_audit_2026-07-22): the 2026-07-02 chunk-pipeline feature runs chunk k+1's
+# FE_PAIRS_CORE-1 fix: the 2026-07-02 chunk-pipeline feature runs chunk k+1's
 # production (in a ThreadPoolExecutor(max_workers=1)) concurrently with the main thread consuming chunk k,
 # and both threads can reach into this cache (and _PREBUILT_OPERAND_TABLE below) for the SAME
 # transformed_vars object with no lock -- under the GIL this cannot corrupt memory, but a cupy call that
@@ -682,7 +682,7 @@ def gpu_materialise_discretize_codes_host(
     continuous read is needed). Inputs are finite by construction (the kernel scrubs NaN/inf inline)."""
     import cupy as cp
 
-    # GPU_INFRA_B-1 fix (mrmr_audit_2026-07-22): this used to call clear_resident_codes_handoff() with NO
+    # GPU_INFRA_B-1 fix: this used to call clear_resident_codes_handoff with NO
     # argument -- the blanket, whole-dict-clear form -- which silently dropped another concurrent thread's
     # still-pending deferred-fill entry under joblib threading (each chunk's dispatch should already have
     # consumed/cleared its OWN entry; this was meant only as a dead-man's-switch, not a normal-path event).
@@ -690,7 +690,7 @@ def gpu_materialise_discretize_codes_host(
     from ._gpu_resident_discretize import _gpu_resident_discretize_codes  # carve sibling (lazy: avoid cycle)
     _dt = np.dtype(dtype)
     if np.issubdtype(_dt, np.integer) and np.iinfo(_dt).max < nbins - 1:
-        # GPU_INFRA_B-4 fix (mrmr_audit_2026-07-22): a future direct caller passing a dtype too narrow for
+        # GPU_INFRA_B-4 fix: a future direct caller passing a dtype too narrow for
         # nbins would otherwise silently wrap around instead of raising.
         raise ValueError(f"dtype {_dt} cannot represent codes up to nbins-1={nbins - 1} (max={np.iinfo(_dt).max})")
     tv = np.ascontiguousarray(transformed_vars, dtype=np.float32)
@@ -800,7 +800,7 @@ def gpu_materialise_discretize_codes_host(
         # kernel writes the narrow code dtype itself (OUTTYPE-templated), so the separate int32->narrow astype
         # launch + the int32 (n,K) intermediate are gone (was: discretize int32 then astype). nbins<=128 -> the
         # codes are in [0, nbins-1] -> int8 (signed, -128..127) cannot overflow (GPU_INFRA_B-4 fix,
-        # mrmr_audit_2026-07-22); BIT-IDENTICAL to int32-then-astype. The D2H still
+        # ); BIT-IDENTICAL to int32-then-astype. The D2H still
         # moves 1/4 (int8) the bytes of int32 codes. (Prior bench GTX 1050 Ti n=100k K=384: int32-D2H+host-cast
         # 170ms -> gpu-narrow+D2H 25ms = 6.7x; this fusion additionally removes the astype launch + int32 buffer.)
         _cd = np.dtype(dtype)
@@ -852,13 +852,13 @@ def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype: Any = np.i
     from ._gpu_resident_discretize import _gpu_resident_discretize_codes  # carve sibling (lazy: avoid cycle)
     _dt = np.dtype(dtype)
     if np.issubdtype(_dt, np.integer) and np.iinfo(_dt).max < nbins - 1:
-        # GPU_INFRA_B-4 fix (mrmr_audit_2026-07-22): a future direct caller passing a dtype too narrow for
+        # GPU_INFRA_B-4 fix: a future direct caller passing a dtype too narrow for
         # nbins would otherwise silently wrap around instead of raising.
         raise ValueError(f"dtype {_dt} cannot represent codes up to nbins-1={nbins - 1} (max={np.iinfo(_dt).max})")
     cand = np.ascontiguousarray(cand)  # keep native dtype (float32 FE buffer) -- no f64 up-cast
     n, K = cand.shape
     out = np.empty((n, K), dtype=dtype)
-    # GPU_INFRA_B-1 fix (mrmr_audit_2026-07-22): removed the unconditional clear_resident_codes_handoff()
+    # GPU_INFRA_B-1 fix: removed the unconditional clear_resident_codes_handoff
     # blanket call here -- see the matching note in gpu_materialise_discretize_codes_host above.
     # RESIDENT-CODES HANDOFF (gated, default ON when CUDA present): this is the SECOND codes leg -- the
     # binning-only path the canonical FE chunk takes when the candidate buffer is materialised on the CPU

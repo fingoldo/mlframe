@@ -120,7 +120,7 @@ def _content_key(values: np.ndarray):
     (numeric/object-safe, handles non-contiguous input) when xxhash is unavailable
     or the fast path errors for any reason.
 
-    USABILITY_B (found while adding mrmr_audit_2026-07-22 test coverage): two bit-identical columns
+    USABILITY_B (found while adding coverage): two bit-identical columns
     could previously get DIFFERENT-TYPED keys (xxhash int vs pandas hash_array bytes) whenever their
     underlying memory layout differed (e.g. ``df['b'] = df['a']`` can leave one C-contiguous and the
     other not, depending on pandas' block-manager consolidation) -- an int key and a bytes key never
@@ -185,7 +185,7 @@ def audit_degenerate_columns(X, max_collinearity_cols: int = _COLLINEARITY_PASS_
     column). Duplicate / collinear are reported relative to the FIRST (earliest)
     matching column.
 
-    ``max_collinearity_cols`` (USABILITY_B-1 fix, mrmr_audit_2026-07-22): the O(p) all_nan/constant/
+    ``max_collinearity_cols`` (USABILITY_B-1 fix): the O(p) all_nan/constant/
     duplicate checks above always run regardless of width, but the collinearity pass below allocates a
     dense ``(p, n)`` Gram-matrix input -- unbounded on a genuinely wide raw frame (tens of thousands of
     columns), a multi-GB-to-tens-of-GB allocation purely for a PURELY DIAGNOSTIC scan that never

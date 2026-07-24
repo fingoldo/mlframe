@@ -97,6 +97,7 @@ pure (no live framework state captured), so a fitted MRMR remains picklable.
 from __future__ import annotations
 
 import logging
+import threading
 import zlib
 from typing import Optional
 
@@ -183,6 +184,13 @@ import os as _os
 _DEFAULT_MAX_CANDIDATES = 64
 
 _Y_DENSE_MEMO: dict = {}
+# FE_REDUNDANCY_SYNERGY-3 fix: the read-check-evict-write sequence below used to
+# run with no lock -- two MRMR.fit() calls running concurrently on DIFFERENT instances in different threads
+# of the same process (joblib.Parallel(prefer="threads") / GridSearchCV(backend="threading") wrapping
+# MRMR -- a topology the per-instance _fit_reentrancy_lock does NOT protect against) could race on this
+# dict: next(iter(_Y_DENSE_MEMO)) can raise `RuntimeError: dictionary changed size during iteration` if
+# another thread's insert/pop lands between the iterator's creation and its first next().
+_Y_DENSE_MEMO_LOCK = threading.Lock()
 
 
 def apply_cmi_redundancy_gate(
@@ -290,7 +298,8 @@ def apply_cmi_redundancy_gate(
     _yk = None
     try:
         _yk = (y_arr.shape, str(y_arr.dtype), hash(y_arr.tobytes()))
-        _yhit = _Y_DENSE_MEMO.get(_yk)
+        with _Y_DENSE_MEMO_LOCK:
+            _yhit = _Y_DENSE_MEMO.get(_yk)
     except Exception:
         _yhit = None
     if _yhit is not None:
@@ -299,9 +308,10 @@ def apply_cmi_redundancy_gate(
         _, y_dense = np.unique(y_arr, return_inverse=True)
         y_dense = y_dense.astype(np.int64)
         if _yk is not None:
-            if len(_Y_DENSE_MEMO) > 8:
-                _Y_DENSE_MEMO.pop(next(iter(_Y_DENSE_MEMO)))
-            _Y_DENSE_MEMO[_yk] = y_dense.copy()
+            with _Y_DENSE_MEMO_LOCK:
+                if len(_Y_DENSE_MEMO) > 8:
+                    _Y_DENSE_MEMO.pop(next(iter(_Y_DENSE_MEMO)))
+                _Y_DENSE_MEMO[_yk] = y_dense.copy()
     n_rows = int(y_dense.size)
 
     # Degenerate: nothing to condition on, or too few rows for a reliable

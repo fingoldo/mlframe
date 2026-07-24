@@ -620,12 +620,26 @@ def optimise_hermite_pair(
                     # use via _eval_coef_pair_batch -- fixing this would duplicate random_batch's already-
                     # faster BLAS path inside njit for no measured benefit, so numba_kernel is NOT
                     # recommended for single-pair search and stays available only as an explicit opt-in.
+                    # GPU_INFRA_D-1 fix: this dispatch used to route to cupy any
+                    # time a bare `import cupy` succeeded, never checking gpu_globally_disabled() -- a plain
+                    # MRMR() on a cupy-capable host launched real CUDA kernels for every hermite/orth
+                    # pair-FE search even under MLFRAME_DISABLE_GPU=1/CUDA_VISIBLE_DEVICES="", contradicting
+                    # the documented opt-out convention already honored by _fe_pure_form_retention_gpu_
+                    # resident.py and the STRICT-resident dispatch chain in the same cluster. (The estimator's
+                    # own use_gpu=False constructor default is not yet threaded through eval_kwargs to this
+                    # call site -- that requires plumbing run_polynom_pair_fe's signature too and is tracked
+                    # as a separate follow-up; the env-var opt-out below is the safety-critical, universally-
+                    # applicable half of this fix and closes the actual reported bug.)
+                    from ._gpu_policy import gpu_globally_disabled
+
                     try:
+                        if gpu_globally_disabled():
+                            raise RuntimeError("GPU disabled (MLFRAME_DISABLE_GPU/CUDA_VISIBLE_DEVICES)")
                         import cupy  # noqa: F401
                         from ._cupy_polynom_optimizer import run_cupy_kernel_search
                         _kernel_search = run_cupy_kernel_search
                     except Exception:
-                        logger.debug("cupy unavailable; cupy_kernel default falls back to random_batch")
+                        logger.debug("cupy unavailable or GPU disabled; cupy_kernel default falls back to random_batch")
                         from ._hermite_fe_optimise import _run_random_batch_search
                         _kernel_search = lambda **kw: _run_random_batch_search(**kw)  # noqa: E731
                     cma_result = _kernel_search(

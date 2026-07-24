@@ -50,7 +50,7 @@ _TWO_PI = 2.0 * np.pi
 # is byte-identical to a fresh recompute. Bounded: keyed by scalar shape, a handful of entries per process.
 _SPLIT_MASK_CACHE: dict = {}
 _SUBSAMPLE_IDX_CACHE: dict = {}
-# ORTH_BASIS_B-3 fix (mrmr_audit_2026-07-22): both caches performed an unlocked read-then-write
+# ORTH_BASIS_B-3 fix: both caches performed an unlocked read-then-write
 # (.get() then [key]=), the same hand-rolled unlocked module-level cache pattern the cross-cutting audit
 # reproduced a crash for elsewhere ("dictionary changed size during iteration"/KeyError under concurrent
 # access). Low-reachability today (gated behind default-OFF MLFRAME_FE_GPU_STRICT_RESIDENT; joblib workers

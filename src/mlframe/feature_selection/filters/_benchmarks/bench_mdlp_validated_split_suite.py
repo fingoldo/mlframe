@@ -852,7 +852,7 @@ def print_hparam_report(results: list) -> None:
         )
 
 
-# X_EFFICIENCY_ARCHITECTURE-1 fix (mrmr_audit_2026-07-22): the duplicate-row/outlier robustness sweep
+# X_EFFICIENCY_ARCHITECTURE-1 fix: the duplicate-row/outlier robustness sweep
 # was carved out into bench_mdlp_robustness.py to clear the repo's enforced hard 1000-LOC CI gate (this
 # file was 1006 lines). Re-exported here so the __main__ block below keeps working unchanged.
 from .bench_mdlp_robustness import (  # noqa: E402,F401

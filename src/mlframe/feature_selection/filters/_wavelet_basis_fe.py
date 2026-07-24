@@ -1,4 +1,4 @@
-"""Haar wavelet / localized multiresolution basis FE (backlog #13, 2026-06-09).
+"""Haar wavelet / localized multiresolution basis FE.
 
 A NEW univariate operator for a signal shape the catalog cannot capture: a
 **localized bump / multiscale piecewise structure** -- ``y`` jumps only inside a

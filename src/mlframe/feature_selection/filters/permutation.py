@@ -429,7 +429,7 @@ def parallel_mi_prange_with_null(
 ) -> tuple:
     """Null-mean-accumulating twin of :func:`parallel_mi_prange`.
 
-    ``use_mm``/``use_cs`` (critique N-F1, extended to Chao-Shen at finding #7): the permutation null
+    ``use_mm``/``use_cs`` (critique N-F1, extended to Chao-Shen at ): the permutation null
     MUST use the SAME estimator as the observed relevance it is tested against. The observed MI is
     computed with Miller-Madow or Chao-Shen when the corresponding ``mi_correction`` is active, so each
     shuffle's MI is computed with the same correction too -- otherwise the exceedance test compares
@@ -647,7 +647,7 @@ def mi_direct(
             analytic_mi_null, analytic_null_enabled, analytic_null_min_n, analytic_null_applicable,
         )
 
-        # SCREEN_CONFIRM_B-2 fix (mrmr_audit_2026-07-22): the analytic-null fast path returned RAW plug-in
+        # SCREEN_CONFIRM_B-2 fix: the analytic-null fast path returned RAW plug-in
         # MI unconditionally (compute_relevance_score(False, ...), no use_mm/use_cs) while the sub-threshold
         # permutation path below always applies the active mi_correction -- a silent formula discontinuity
         # in the reported relevance value exactly at the analytic_null_min_n() threshold whenever
@@ -730,7 +730,7 @@ def mi_direct(
     # surface the empirical null, and the screen's relevance-baseline budget (``npermutations<32``) never reaches the GPU branch anyway, so routing-to-CPU here costs nothing
     # in practice; it only guards the unusual case of a caller asking for the null mean with a large budget on a CUDA host.
     if prefer_gpu and npermutations >= 32 and parallelism in ("outer", "none") and not return_null_mean and not _MI_DIRECT_GPU_FAILED:
-        # SCREEN_CONFIRM_B-4 fix (mrmr_audit_2026-07-22): this internal fastpath gate never consulted
+        # SCREEN_CONFIRM_B-4 fix: this internal fastpath gate never consulted
         # gpu_globally_disabled()/MLFRAME_DISABLE_GPU -- only is_cuda_available() (honors
         # CUDA_VISIBLE_DEVICES but not the mlframe-specific opt-out). A caller that decided NOT to use
         # GPU (e.g. confirm_candidate's _confirm_use_gpu=False fallback, which calls plain mi_direct()
@@ -743,7 +743,7 @@ def mi_direct(
         except Exception:
             _gpu_ok = False
         if _gpu_ok:
-            # Proactive VRAM headroom check (07_memory_scalability.md finding #4): before this,
+            # Proactive VRAM headroom check: before this,
             # ``mi_direct``'s GPU fastpath had no upfront capacity guard -- unlike the CMI path
             # (``_cmi_cuda._should_use_cuda``), which already probes ``memGetInfo`` + calls this SAME
             # ``fe_gpu_has_vram_cushion`` helper before launching. The dominant device buffer here is the

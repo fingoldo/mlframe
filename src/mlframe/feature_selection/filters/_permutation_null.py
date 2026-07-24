@@ -311,7 +311,7 @@ def pooled_permutation_null_gain_floor(
     y_counts = np.bincount(y_codes, minlength=nbins_y).astype(np.float64)
     py = y_counts[y_counts > 0] * inv_n
     h_y = float(-(py * np.log(py)).sum())
-    # Idea-#9 (backlog #4): Miller-Madow bias uses the EFFECTIVE OCCUPIED bin
+    # Idea-#9: Miller-Madow bias uses the EFFECTIVE OCCUPIED bin
     # count, not the nominal cardinality. Heavy-tailed engineered columns
     # (e.g. a**2/b) bin to ~8 occupied cells out of nbins=16; the MM term
     # ``(k_x-1)(k_y-1)/2n`` with nominal k OVER-corrects (it charges bias for
@@ -370,7 +370,9 @@ def pooled_permutation_null_gain_floor(
     try:
         from ._permutation_null_resident_ktc import permnull_use_resident
         from ._gpu_policy import gpu_globally_disabled
-        _resident_ok = bool(permnull_use_resident(n, n_cand, nperm)) and not gpu_globally_disabled()
+        from ._permutation_null_resident import order1_maxt_gpu_circuit_breaker_tripped
+
+        _resident_ok = bool(permnull_use_resident(n, n_cand, nperm)) and not gpu_globally_disabled() and not order1_maxt_gpu_circuit_breaker_tripped()
     except Exception:
         _resident_ok = False
     y_perms = None
@@ -382,6 +384,19 @@ def pooled_permutation_null_gain_floor(
                 from ._permutation_null_resident import gen_target_shuffles_cupy
                 y_perms_dev = gen_target_shuffles_cupy(y_codes, nperm, _fdr_dt, random_seed)
         except Exception:
+            # SCREEN_CONFIRM_B-5 fix: this fault path had zero logging and no circuit breaker, unlike
+            # the order-2 sibling. WARN once and trip so later calls this process skip the (likely
+            # poisoned) GPU context immediately instead of re-faulting silently on every call.
+            logger.warning(
+                "MRMR FE: resident-GPU order-1 maxT permutation-null shuffle-gen faulted; tripping the "
+                "GPU circuit breaker and falling back to the CPU shuffle-gen for the rest of this process.",
+                exc_info=True,
+            )
+            try:
+                from ._permutation_null_resident import trip_order1_maxt_gpu_circuit_breaker
+                trip_order1_maxt_gpu_circuit_breaker()
+            except Exception as _trip_exc:
+                logger.debug("mrmr: tripping the order-1 maxT GPU circuit breaker itself failed: %r", _trip_exc, exc_info=True)
             y_perms_dev = None
     if y_perms_dev is None:
         y_perms = _generate_target_shuffles(y_codes, nperm, _fdr_dt, rng, random_seed=random_seed)
@@ -409,6 +424,17 @@ def pooled_permutation_null_gain_floor(
                 (y_perms_dev if y_perms_dev is not None else y_perms), float(inv_n),
             )
         except Exception:
+            # SCREEN_CONFIRM_B-5 fix: same zero-logging/no-circuit-breaker gap as the shuffle-gen site above.
+            logger.warning(
+                "MRMR FE: resident-GPU order-1 maxT permutation-null pooled-gain-floor faulted; tripping "
+                "the GPU circuit breaker and falling back to the CPU njit floor for the rest of this process.",
+                exc_info=True,
+            )
+            try:
+                from ._permutation_null_resident import trip_order1_maxt_gpu_circuit_breaker
+                trip_order1_maxt_gpu_circuit_breaker()
+            except Exception as _trip_exc:
+                logger.debug("mrmr: tripping the order-1 maxT GPU circuit breaker itself failed: %r", _trip_exc, exc_info=True)
             maxes = None  # fall through to the exact njit kernel
     if maxes is None:
         # njit fallback needs the HOST matrix; generate it now if the device path skipped the host gen.
@@ -449,7 +475,7 @@ def _pairwise_occupied_joint_k(
     factors_data: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, nbins: np.ndarray,
 ) -> np.ndarray:
     """Per-pair OCCUPIED joint-bin count of ``(x_a, x_b)`` -- the cardinality the
-    plug-in joint MI :func:`batch_pair_mi_prange` actually sees (backlog #4).
+    plug-in joint MI:func:`batch_pair_mi_prange` actually sees.
 
     Permutation-INVARIANT (depends only on the X-columns, never on y), so it is
     precomputed ONCE and reused across all shuffles. Returns an ``int64`` array of
@@ -512,7 +538,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
     fewer than two candidate pairs, single-class target, or no permutations
     requested), so callers can unconditionally compare ``pair_mi >= floor``.
 
-    MM-DEBIAS (2026-06-09, backlog #1 IRON RULE). When ``mm_debias`` the FE
+    MM-DEBIAS (2026-06-09, IRON RULE). When ``mm_debias`` the FE
     joint-prevalence RATIO gate downstream subtracts the Miller-Madow joint-MI
     bias from its ``pair_mi`` denominator, which LOWERS the bar and admits more
     pairs. To keep this floor (the outer best-of-pool guard) on the SAME scale --
@@ -604,7 +630,7 @@ def pooled_triple_permutation_null_joint_mi_floor(
 ) -> float:
     """Return the ORDER-3 maxT permutation-null floor for a candidate-TRIPLE pool.
 
-    The mandatory safety rail (backlog #7) for any 3-way interaction proposer (the
+    The mandatory safety rail for any 3-way interaction proposer (the
     surrogate-GBM split-co-occurrence seeder #6, the CMI-lattice #10, ...): the
     triplet / quadruplet FE modules historically seed by univariate top-N and lack
     an order-MATCHED permutation floor, so OPENING 3-way generation WILL surface

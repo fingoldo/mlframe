@@ -1,6 +1,6 @@
 """Batched born-on-device MI / CMI for the FE candidate pool (replatform step 3, 2026-06-25).
 
-WIRED (MI_GREEDY_RECIPES-6 fix, mrmr_audit_2026-07-22 -- this docstring was stale): ``batched_cmi_gpu`` /
+WIRED (MI_GREEDY_RECIPES-6 fix, -- this docstring was stale): ``batched_cmi_gpu`` /
 ``batched_quantile_bin_gpu`` / ``cmi_device_argmax`` ARE imported and called from
 ``_mi_greedy_cmi_fe.py``'s ``greedy_cmi_fe_construct``, production-reachable via
 ``MRMR.fit(fe_mi_greedy_cmi_enable=True)`` whenever ``_cmi_gpu_enabled()`` is true

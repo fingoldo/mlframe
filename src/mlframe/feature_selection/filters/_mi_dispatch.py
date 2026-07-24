@@ -143,7 +143,7 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
         return float(fastmi(x, y_arr.astype(np.float64), **estimator_kwargs))
     if estimator == "renyi_alpha":
         from ._renyi_alpha import renyi_alpha_mi
-        # mrmr_audit_2026-07-20 B-9: renyi_alpha_mi returns bits (its own module's documented, internally
+        # renyi_alpha_mi returns bits (its own module's documented, internally
         # self-consistent convention, log2-based); this dispatcher's contract is nats for every estimator
         # (see the docstring above) -- convert at this boundary rather than changing the module's own units.
         _mi_bits = float(renyi_alpha_mi(x, y_arr.astype(np.float64), **estimator_kwargs))

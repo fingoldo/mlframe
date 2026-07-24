@@ -466,7 +466,7 @@ def hybrid_orth_mi_triplet_fe(
             order = np.argsort(-raw_mi_arr)
             seed_sources = [raw_cols_all[i] for i in order[: int(top_triplet_seed_k)]]
 
-    # EXPLICIT TRIPLETS (backlog #6 GBM seeder): when the caller passes an order-3
+    # EXPLICIT TRIPLETS (GBM seeder): when the caller passes an order-3
     # proposer's surviving triples (each already order-3-maxT-floored), enumerate EXACTLY
     # those triples instead of the C(seed_k, 3) over the univariate-MI seed pool -- the whole
     # point of the surrogate seeder is to reach the zero-marginal 3-way needle whose operands
@@ -568,7 +568,7 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
     """Same as :func:`hybrid_orth_mi_triplet_fe` but additionally returns
     a flat list of recipes (univariate + triplet, in append order) so
     that ``MRMR.transform`` can replay each engineered column from X
-    alone (no y). ``explicit_triplets`` (backlog #6 GBM seeder) forces the
+    alone (no y). ``explicit_triplets`` (GBM seeder) forces the
     triplet stage to enumerate EXACTLY the given column-name triples (the
     order-3-floored proposer survivors) instead of the C(seed_k, 3) over the
     univariate-MI seed pool.

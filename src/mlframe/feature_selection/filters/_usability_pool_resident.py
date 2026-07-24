@@ -29,7 +29,7 @@ GATE: engages ONLY where a per-host KTC crossover (sibling ``_usability_pool_res
 On a no-cupy / CPU host the gate returns ``None`` and the caller takes the exact njit per-pair path --
 byte-for-byte unchanged.
 
-WIRED (2026-06-27, GPU_INFRA_C-5 fix mrmr_audit_2026-07-22 -- this docstring was stale since 2026-06-23):
+WIRED (2026-06-27, GPU_INFRA_C-5 fix -- this docstring was stale since 2026-06-23):
 ``score_pair_combos_table_resident`` IS fed into ``_usability_aware_selection.py``'s retention loop under
 the resident GPU-strict flag (``_seleq``) only. It was originally NOT wired for two reasons measured
 2026-06-23 on the dev GTX 1050 Ti:

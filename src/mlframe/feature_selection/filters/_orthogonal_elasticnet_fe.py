@@ -342,7 +342,7 @@ def hybrid_orth_mi_elasticnet_fe_with_recipes(
                 name,
             )
             continue
-        # mrmr_audit_2026-07-20 B-17: freeze the fit-time basis-preprocess params (mirrors the
+        # freeze the fit-time basis-preprocess params (mirrors the
         # canonical Layer-21 hybrid_orth_mi_fe_with_recipes fix); recomputing on the FULL fit-time
         # source column is safe/exact -- it reproduces, not refits, the fit-time params.
         _pp = None

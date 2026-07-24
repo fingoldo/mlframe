@@ -216,7 +216,7 @@ def generate_grouped_agg_features(
                     agg_series = grouped.agg(_agg_func_for_stat(stat))
                 lookup = {canonical_group_token(k): (float(v) if np.isfinite(v) else 0.0) for k, v in agg_series.items()}
                 if stat == "nunique":
-                    # CAT_INTERACTION_B-2 fix (mrmr_audit_2026-07-22): the whole-population
+                    # CAT_INTERACTION_B-2 fix: the whole-population
                     # np.unique(finite).size fallback used to emit a WILDLY out-of-distribution value for
                     # an unseen group (confirmed by direct execution: real per-group nunique 241-283 vs a
                     # global fallback of 4882, ~18x, at n=5000/20 groups) -- every OTHER stat's fallback

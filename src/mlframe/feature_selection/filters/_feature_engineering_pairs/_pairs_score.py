@@ -836,7 +836,7 @@ def _score_one_pair(
     # Standard acceptance: the best engineered MI clears the configured
     # fraction of the 2-D pair-joint MI.
     #
-    # MILLER-MADOW DEBIAS (2026-06-09, backlog #1 + #4). The RAW ratio
+    # MILLER-MADOW DEBIAS (2026-06-09, + #4). The RAW ratio
     # ``best_mi / pair_mi`` compares a 1-D engineered MI (over ~``quantization_nbins``
     # bins) against a 2-D joint MI (over ~``nbins^2`` bins). Both are plug-in MIs whose
     # positive bias is ``(k_x-1)(k_y-1)/2n``; the JOINT denominator's term is ~``nbins``x
@@ -851,7 +851,7 @@ def _score_one_pair(
     # maxT floor (the outer guard) is MM-debiased CONSISTENTLY upstream (the IRON RULE),
     # so admitting more pairs here does NOT weaken the best-of-pool noise floor.
     #
-    # bench-attempt-rejected (2026-06-09, FS backlog #5 "permutation-null-calibrated
+    # bench-attempt-rejected (2026-06-09, FS "permutation-null-calibrated
     # prevalence bar"). The idea: REPLACE the hardcoded ``fe_min_engineered_mi_prevalence``
     # (0.90) with a SELF-CALIBRATING per-pool null ratio -- in the SAME K y-shuffles the
     # order-2 maxT floor runs, ALSO mirror the max-over-transforms search (discretise the

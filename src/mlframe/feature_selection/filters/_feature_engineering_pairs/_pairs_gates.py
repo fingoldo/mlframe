@@ -95,7 +95,7 @@ _FE_REJECTION_RESULT_KEY = ("__fe_rejection_records__", -1, -1)
 def _occupied_k(codes: np.ndarray) -> int:
     """Number of OCCUPIED (non-empty) ordinal bins in a 1-D code array -- the same
     ``k = #{bins with count>0}`` :func:`entropy_miller_madow` counts internally
-    (backlog #4). Heavy-tailed engineered columns collapse to a few occupied bins,
+    Heavy-tailed engineered columns collapse to a few occupied bins,
     so the nominal ``nbins`` over-states the cardinality and over-corrects the MM
     bias term; the occupied count is the cardinality the plug-in MI actually sees."""
     arr = np.asarray(codes)
@@ -113,8 +113,7 @@ def mm_debiased_prevalence_ratio(
     k_y: int,
     n: int,
 ) -> float:
-    """Miller-Madow-debiased ``best_mi / pair_mi`` for the FE joint-prevalence gate
-    (backlog #1 + #4).
+    """Miller-Madow-debiased ``best_mi / pair_mi`` for the FE joint-prevalence gate.
 
     The numerator ``best_mi`` is the 1-D engineered MI over ``k_eng`` occupied bins;
     the denominator ``pair_mi`` is the 2-D joint MI over ``k_joint`` occupied bins
@@ -122,7 +121,7 @@ def mm_debiased_prevalence_ratio(
     ``(k_x-1)(k_y-1)/2n``, but the JOINT denominator's term is ~``nbins``x larger, so
     the raw ratio is structurally depressed below 1.0 even when the 1-D feature
     captures all the joint information (worst at small/moderate ``n``). We subtract
-    the Miller-Madow MI bias term from EACH side (occupied-K per backlog #4) and take
+    the Miller-Madow MI bias term from EACH side (occupied-K per ) and take
     the corrected ratio.
 
     DENOMINATOR-POSITIVITY GUARD (the #1 stability risk): the joint bias term can

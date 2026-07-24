@@ -331,7 +331,7 @@ def generate_composite_group_agg_features(
                     agg_series = grouped.agg(_agg_func_for_stat(stat))
                 lookup = {str(k): (float(v) if np.isfinite(v) else 0.0) for k, v in agg_series.items()}
                 if stat in ("count", "nunique"):
-                    # CAT_INTERACTION_B-2 fix (mrmr_audit_2026-07-22): the whole-population fallback
+                    # CAT_INTERACTION_B-2 fix: the whole-population fallback
                     # (finite.size / np.unique(finite).size) used to emit a WILDLY out-of-distribution
                     # value for an unseen composite key -- confirmed by direct execution: real per-cell
                     # count values were 14-25 (n=2000) vs a global fallback of 2000 (the entire training
@@ -524,7 +524,7 @@ def composite_group_agg_with_recipes(
 
 def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 6) -> list[str]:
     """Reuse the Layer 87 / composite_auto_detect int-as-cat detector."""
-    # CAT_INTERACTION_B-6 fix (mrmr_audit_2026-07-22): this used to try a two-dot
+    # CAT_INTERACTION_B-6 fix: this used to try a two-dot
     # `from .._grouped_agg_fe import ...` FIRST (wrong depth -- `_grouped_agg_fe.py` is a SIBLING, one dot,
     # not a parent-package member) inside a bare `except Exception`, which always failed and silently fell
     # through to the correct single-dot import below -- functionally masked, but dead/misleading code.

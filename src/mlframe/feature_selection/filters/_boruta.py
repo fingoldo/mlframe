@@ -80,7 +80,7 @@ def boruta_select(
 
     import pandas as pd
 
-    # USABILITY_A-2 fix (mrmr_audit_2026-07-22): n_iterations<1 left the loop never running, producing a
+    # USABILITY_A-2 fix: n_iterations<1 left the loop never running, producing a
     # 0/0 NaN win_rate followed by an unhelpful `binomtest(count, 0, ...)` ValueError from scipy internals.
     if n_iterations < 1:
         raise ValueError(f"boruta_select: n_iterations must be >= 1; got {n_iterations}")
@@ -140,7 +140,7 @@ def boruta_select(
                         if result.pvalue < corrected_alpha:
                             resolved[j] = "confirmed" if hit_counts[j] / rounds_run > 0.5 else "rejected"
                 elif correction == "bh":
-                    # USABILITY_A-13 fix (mrmr_audit_2026-07-22): the BH step-up alone only controls the FDR
+                    # USABILITY_A-13 fix: the BH step-up alone only controls the FDR
                     # across the SIMULTANEOUS per-feature tests within a single round; run every round at the
                     # nominal alpha and the repeated-testing-across-rounds inflation the "bonferroni" branch
                     # above explicitly guards against (dividing by rounds_run) goes uncorrected here. Scale the

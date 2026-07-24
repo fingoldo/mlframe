@@ -443,7 +443,7 @@ def _greedy_score_and_select(
             "baseline_mi", "engineered_mi", "uplift",
         ]), []
 
-    # MI_GREEDY_RECIPES-2 fix (mrmr_audit_2026-07-22): was a truncating `.astype(np.int64)` for non-integer
+    # MI_GREEDY_RECIPES-2 fix: was a truncating `.astype(np.int64)` for non-integer
     # y -- for a continuous y confined to one integer bucket (e.g. a [0,1) probability), truncation
     # collapses every distinct value to the SAME integer, destroying the signal (the B-18 bug class,
     # already fixed in 7 sibling orth-scoring files via _coerce_y_int64, but never applied here). Densify
@@ -576,7 +576,7 @@ def greedy_mi_fe_construct(
             "engineered_col", "transform", "source_cols",
             "baseline_mi", "engineered_mi", "uplift",
         ])
-    # MI_GREEDY_RECIPES-2 fix (mrmr_audit_2026-07-22): see _greedy_score_and_select's matching fix above --
+    # MI_GREEDY_RECIPES-2 fix: see _greedy_score_and_select's matching fix above --
     # densify via np.unique instead of a truncating `.astype(np.int64)`.
     _y_raw = np.asarray(y)
     _, y_arr = np.unique(_y_raw, return_inverse=True)

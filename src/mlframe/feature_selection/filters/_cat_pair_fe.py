@@ -387,7 +387,7 @@ def _kfold_target_encode_codes(
     applied to the cross cell codes). Returns ``(oof_values, lookup, global_mean)``
     where ``lookup`` maps each cell code to its full-data smoothed mean-of-y.
     """
-    # CAT_INTERACTION_A-8 fix (mrmr_audit_2026-07-22): mirrors the near-sibling kfold_target_encode_fit's
+    # CAT_INTERACTION_A-8 fix: mirrors the near-sibling kfold_target_encode_fit's
     # (_target_encoding_fe.py) explicit n_folds>=2 guard. Pre-fix: n_folds=0 raised a raw, unhelpful
     # ZeroDivisionError from `np.arange(n) % int(n_folds)`; n_folds=1 didn't crash but silently emitted an
     # entirely-uninformative TE column (every row = global_mean, since train_mask=(fold_ids != 0) is

@@ -156,7 +156,7 @@ def mi_miller_madow_correct(mi_plugin: float, k_x: int, k_y: int, n_samples: int
 
     ``k_x`` / ``k_y`` are the OCCUPIED (non-empty) bin counts of X and Y -- the SAME
     ``k = #{bins with count>0}`` that :func:`entropy_miller_madow` uses internally
-    (backlog #4: nominal ``nbins`` over-corrects heavy-tailed columns that collapse
+    nominal ``nbins`` over-corrects heavy-tailed columns that collapse
     to few occupied bins). The bias term is zero when either variable is degenerate
     (``k <= 1``), so the plug-in value passes through unchanged there.
 
@@ -264,7 +264,7 @@ def entropy_chao_shen(freqs: np.ndarray, n: int) -> float:
     (``freqs[i] = count_i / n``, as returned by ``merge_vars``) and the sample size ``n``. Recovers
     integer per-bin counts via ``round(freqs * n)`` (exact for the ``count/n`` divisions ``merge_vars``
     produces) and re-estimates entropy with the coverage correction ``C_hat = 1 - f1/n`` (``f1`` = number
-    of singleton bins) instead of the plug-in estimator's implicit ``C_hat=1``. See finding #7,
+    of singleton bins) instead of the plug-in estimator's implicit ``C_hat=1``. See,
     05_concurrency_and_statistics.md."""
     occ = freqs[freqs > 0]
     counts = np.rint(occ * n).astype(np.int64)

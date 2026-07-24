@@ -27,7 +27,7 @@ from .info_theory import entropy, entropy_miller_madow, merge_vars, weighted_cla
 def _freqs_for_weights(freqs: np.ndarray, classes: np.ndarray, weights: Optional[np.ndarray]) -> np.ndarray:
     """Re-weight ``merge_vars``'s dense pruned ``freqs`` by per-row ``weights`` when given, else pass through unchanged.
 
-    mrmr_audit_2026-07-20 B-19: binning (``merge_vars``) is weight-independent, so any already-computed
+    binning (``merge_vars``) is weight-independent, so any already-computed
     ``classes`` array can be re-weighted post-hoc without re-running the merge -- the single primitive
     threaded through every cat-FE downstream confirmation/rerank step below.
     """

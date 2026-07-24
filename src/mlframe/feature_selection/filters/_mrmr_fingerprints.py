@@ -554,7 +554,7 @@ def _replay_fitted_state(target: MRMR, source: MRMR) -> int:
     _WRITEABLE_PUBLIC_INDEX_ARRAYS = ("support_", "ranking_")
     _IMMUTABLE_SCALAR_TYPES = (bool, int, float, complex, str, bytes, type(None), frozenset)
     # Per-instance transient runtime state that must NEVER be copied from ``source`` onto ``target``:
-    # each instance's OWN lazily-created re-entrancy lock (finding #5, 05_concurrency_and_statistics.md)
+    # each instance's OWN lazily-created re-entrancy lock
     # guards ITS OWN concurrent-fit() detection. Replaying the cached source's lock object here would
     # alias the target's ``fit()`` wrapper (which already acquired the target's own, different, lock) to
     # release a lock it never acquired -- "release unlocked lock" RuntimeError on every cache-hit replay.

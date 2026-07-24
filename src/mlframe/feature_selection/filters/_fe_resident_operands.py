@@ -42,7 +42,7 @@ import numpy as _np
 
 logger = logging.getLogger(__name__)
 
-# X_EDGE_CASES_BEST_PRACTICES-1 fix (mrmr_audit_2026-07-22): _FE_RESIDENT_OPERANDS used to be read/evicted
+# X_EDGE_CASES_BEST_PRACTICES-1 fix: _FE_RESIDENT_OPERANDS used to be read/evicted
 # with no lock while multi_gpu_fe_batch_mi's ThreadPoolExecutor calls into it concurrently from every
 # device thread -- the same unlocked-cache class flagged repeatedly elsewhere this audit wave.
 _FE_RESIDENT_OPERANDS_LOCK = threading.Lock()
@@ -105,7 +105,7 @@ def _content_hash(host: Any) -> int:
     return hash(host.tobytes())
 
 
-# HASH MEMO (mrmr_audit_2026-07-20 gpu_residency.md #6, 2026-07-21): the docstring below used to
+# HASH MEMO (.md #6, 2026-07-21): the docstring below used to
 # document this as unaddressed -- "the fit-constant y/z are re-hashed on every role's call". A full
 # caller-side handle-threading rewrite (upload y/z ONCE at the FE-step entry and hand every one of
 # the ~9 documented roles the same resident cupy array by reference) would touch every call site in
@@ -175,7 +175,7 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
     fixedyz_z) shares ONE resident device buffer instead of one upload per role -- the 65%-of-operand-H2D
     cross-role re-upload leak (see module docstring). The content hash is copy-free (``xxh3_64`` over the array
     buffer, tobytes fallback for non-contiguous / no-xxhash), in the same 64-bit collision domain as before.
-    NOTE (2026-07-21, mrmr_audit_2026-07-20 gpu_residency.md #6): the O(n) HASH of the fit-constant
+    NOTE (2026-07-21,.md #6): the O(n) HASH of the fit-constant
     ``y`` / ``z`` is now memoized on the host array's ``id()`` (``_content_hash_memoized``, weakref
     + shape/dtype recycled-id guard) -- when the SAME object is handed to this function across every
     role each round (the common case), the hash is computed ONCE per fit instead of once per
@@ -203,7 +203,7 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
     if _disabled():
         return cp.asarray(host)
 
-    # X_EDGE_CASES_BEST_PRACTICES-1 fix (mrmr_audit_2026-07-22): the cache key used to be PURELY
+    # X_EDGE_CASES_BEST_PRACTICES-1 fix: the cache key used to be PURELY
     # content-based (shape + dtype + content hash), with no device component at all. multi_gpu_fe_batch_mi
     # (the heterogeneous multi-GPU FE-batcher) spins up one ThreadPoolExecutor worker per physical CUDA
     # device, each calling resident_operand with the SAME y_codes content but a DIFFERENT active

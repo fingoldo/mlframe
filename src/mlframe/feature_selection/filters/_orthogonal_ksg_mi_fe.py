@@ -113,7 +113,7 @@ def _ksg_mi_batch(
     y_arr = np.asarray(y).ravel()
     if _is_discrete_target(y_arr):
         if not np.issubdtype(y_arr.dtype, np.integer):
-            # mrmr_audit_2026-07-20 B-18: densify via np.unique(return_inverse=...) rather than
+            # densify via np.unique(return_inverse=...) rather than
             # truncating .astype(int64) -- non-integer labels (e.g. 0.1/0.2/...) would otherwise
             # all collapse to class 0.
             _, y_arr = np.unique(y_arr, return_inverse=True)
@@ -208,7 +208,7 @@ def score_features_by_ksg_mi_uplift(
         # Near-zero baseline makes the uplift ratio explode past the gate even
         # on a no-signal source; suppress the ratio there and let the absolute
         # MI floor decide (mirrors the JMIM guard).
-        # ORTH_SCORING_A-5 fix (mrmr_audit_2026-07-22): this used to hard-set uplift=0.0 (always failing
+        # ORTH_SCORING_A-5 fix: this used to hard-set uplift=0.0 (always failing
         # gate 1, uplift>=min_uplift) whenever emi was below the FIXED _ABS_MI_FLOOR=1e-3 -- but the real
         # absolute-MI gate (gate 2, `engineered_mi >= abs_floor`) uses a DYNAMIC MAD-based abs_floor that
         # can sit BELOW 1e-3, so a candidate with 1e-4 <= emi < 1e-3 could get hard-rejected here even
@@ -368,7 +368,7 @@ def hybrid_orth_mi_ksg_fe_with_recipes(
                 name,
             )
             continue
-        # mrmr_audit_2026-07-20 B-17: freeze the fit-time basis-preprocess params into the recipe so
+        # freeze the fit-time basis-preprocess params into the recipe so
         # transform() replays byte-exactly (mirrors the BUG2 FIX already applied to the canonical
         # Layer-21 hybrid_orth_mi_fe_with_recipes -- see that function's identical block for the full
         # rationale). Recomputing on the FULL fit-time column (X[src]) is safe/exact: it reproduces the
@@ -378,7 +378,7 @@ def hybrid_orth_mi_ksg_fe_with_recipes(
             _col_full = np.asarray(X[src].values, dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
-            # ORTH_SCORING_A-3 fix (mrmr_audit_2026-07-22): was a bare except with zero logging,
+            # ORTH_SCORING_A-3 fix: was a bare except with zero logging,
             # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
             # exception (including a genuine programming bug), with no diagnostic trace.
             logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)

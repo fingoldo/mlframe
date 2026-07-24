@@ -1,6 +1,6 @@
 """FWER/multiple-testing correction for ``_cat_confirm_permutation``'s pair-confirmation phase.
 
-Split out of ``_cat_confirm_permutation.py`` (X_EFFICIENCY_ARCHITECTURE-1 fix, mrmr_audit_2026-07-22)
+Split out of ``_cat_confirm_permutation.py`` (X_EFFICIENCY_ARCHITECTURE-1 fix)
 to clear the repo's enforced hard 1000-LOC CI gate (``tests/test_meta/test_no_file_over_1k_loc.py``) --
 that file was 1106 lines and absent from the gate's exempt list. Behaviour preserved bit-for-bit; the
 parent re-exports both functions so ``_confirm_pairs_via_permutation`` continues to call them unchanged.
@@ -46,7 +46,7 @@ def _compute_westfall_young_corrected_p(
     """Full Westfall-Young: per shuffle, compute II_perm for ALL search-phase pairs, take the MAX, and accumulate the max-II distribution. Each survivor's p-value is
     ``(1 + #{b: max_II_perm[b] >= II_obs}) / (B + 1)``.
 
-    ``weights`` (mrmr_audit_2026-07-20 B-19), when given, route every per-shuffle MI through the
+    ``weights``, when given, route every per-shuffle MI through the
     weighted kernel so the max-II null distribution matches the weighted search-phase ``ii_obs_arr``.
 
     The proper WY procedure (Westfall & Young 1993) naturally accounts for inter-pair correlation: pairs that share a column have correlated permutation distributions and

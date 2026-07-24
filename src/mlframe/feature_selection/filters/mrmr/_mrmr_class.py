@@ -869,7 +869,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # joint-prevalence floor no longer has to carry that load and can return to the value
         # that admits genuine 1-D summaries of real 2-D interactions.
         fe_min_engineered_mi_prevalence: float = 0.90,  # mi of transformed pair must be at least that higher than the mi of the entire pair
-        # MILLER-MADOW DEBIAS of the joint-prevalence ratio gate (2026-06-09, backlog #1 + #4).
+        # MILLER-MADOW DEBIAS of the joint-prevalence ratio gate (2026-06-09, + #4).
         # The gate ``best_mi / pair_mi > fe_min_engineered_mi_prevalence`` compares a 1-D
         # engineered MI (over ~``quantization_nbins`` bins) against a 2-D joint MI (over
         # ~``nbins^2`` bins). Both are RAW plug-in MIs whose positive finite-sample bias is

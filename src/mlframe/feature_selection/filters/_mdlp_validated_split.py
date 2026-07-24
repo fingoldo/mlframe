@@ -385,7 +385,7 @@ def mdlp_bin_edges_validated(
             _y_arr = np.searchsorted(_y_edges, _y_arr, side="right")
     if len(x) != len(_y_arr):
         raise ValueError(f"len(x)={len(x)} != len(y)={len(_y_arr)}")
-    # mrmr_audit_2026-07-20 B-13: mirrors mdlp_bin_edges' fix -- fold y's finiteness into the mask
+    # mirrors mdlp_bin_edges' fix -- fold y's finiteness into the mask
     # (only meaningful while _y_arr is still float) BEFORE the int64 cast, so a NaN in a continuous y
     # with too few distinct finite values to trigger the quantile-rebucketing branch above is dropped
     # instead of becoming a platform-defined garbage class label.
@@ -488,10 +488,15 @@ def _mdlp_recurse_oos_validated(
     if n < 2 * min_split_size or depth >= max_depth:
         return
     _val_min_split_size = min_split_size if val_min_split_size is None else val_min_split_size
+    # DISCRETIZATION-12 fix: the recursive call sites always pass both
+    # present_parent and counts_parent together, or neither -- the dropped `present_parent if
+    # counts_parent is None else ...` branch handled a (present_parent is not None, counts_parent is
+    # None) combination that never actually occurs, so it was dead and mildly confusing.
     if present_parent is None:
         present = np.unique(y_train)
     else:
-        present = present_parent if counts_parent is None else np.flatnonzero(counts_parent)
+        assert counts_parent is not None  # call sites always pass both together, or neither
+        present = np.flatnonzero(counts_parent)
     n_classes_full = present.size
     if n_classes_full <= 1:
         return
@@ -600,7 +605,7 @@ def mdlp_bin_edges_oos_validated(
             _y_arr = np.searchsorted(_y_edges, _y_arr, side="right")
     if len(x) != len(_y_arr):
         raise ValueError(f"len(x)={len(x)} != len(y)={len(_y_arr)}")
-    # mrmr_audit_2026-07-20 B-13: mirrors mdlp_bin_edges' fix -- fold y's finiteness into the mask
+    # mirrors mdlp_bin_edges' fix -- fold y's finiteness into the mask
     # (only meaningful while _y_arr is still float) BEFORE the int64 cast, so a NaN in a continuous y
     # with too few distinct finite values to trigger the quantile-rebucketing branch above is dropped
     # instead of becoming a platform-defined garbage class label.
@@ -613,6 +618,18 @@ def mdlp_bin_edges_oos_validated(
     y_i = _y_arr.astype(np.int64)
     if x.size == 0:
         return np.array([-np.inf, np.inf], dtype=np.float64)
+
+    # DISCRETIZATION-3 fix: confirmed by direct reproduction (the exact
+    # duplicate-row fixture from test_duplicate_rows_do_not_over_split_pure_noise) that this function DID
+    # over-split on exact-duplicate rows (pure noise at dup_rate 0/10/50/90% gave 1/4/6/12 bins pre-fix).
+    # Deduping only the TRAIN fold after the split was NOT sufficient: an original row and its exact
+    # duplicate can land on OPPOSITE sides of the random train/holdout partition, so the identical (x, y)
+    # pair leaks across the split -- the "held-out" gain then genuinely (not spuriously) reproduces the
+    # train gain for that duplicated point, defeating the whole OOS-generalization check. The correct fix
+    # is to dedupe the FULL (x, y) array ONCE, before the train/holdout split even happens (mirroring
+    # mdlp_bin_edges_validated's dedupe-before-any-partitioning discipline), so no duplicate can ever
+    # straddle the train/holdout boundary in the first place.
+    x, y_i = _dedupe_xy(x, y_i)
 
     rng = np.random.default_rng(seed)
     n = x.size

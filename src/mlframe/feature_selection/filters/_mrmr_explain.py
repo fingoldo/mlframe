@@ -229,7 +229,7 @@ def explain_selection(mrmr_self: Any) -> str:
     domain user can read to answer "why these features / what did FE build /
     what would I turn" WITHOUT reading source.
     """
-    # USABILITY_B-8 fix (mrmr_audit_2026-07-22): each section's except-Exception used to embed the
+    # USABILITY_B-8 fix: each section's except-Exception used to embed the
     # exception's type name into the returned narrative but never called `logger` at all -- unlike every
     # other file in this cluster, a production failure here (e.g. a corrupted fe_provenance_ DataFrame)
     # was invisible to log-based monitoring; only a human reading the returned string would ever see it.

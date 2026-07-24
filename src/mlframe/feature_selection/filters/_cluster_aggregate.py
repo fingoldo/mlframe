@@ -188,8 +188,7 @@ def _svd_flip_pc1(Z: np.ndarray, svd_cache: dict | None = None) -> np.ndarray:
     sklearn ``svd_flip`` convention (largest-abs loading positive) for cross-BLAS determinism."""
     _Zc, vt = _svd_compute(Z, svd_cache)
     v = vt[0]
-    _lead = v[np.argmax(np.abs(v))]
-    v = v * np.sign(_lead if _lead != 0.0 else 1.0)
+    v = v * np.sign(v[np.argmax(np.abs(v))] or 1.0)
     return np.asarray(v)
 
 
@@ -206,8 +205,7 @@ def _svd_flip_pcN(Z: np.ndarray, idx: int, svd_cache: dict | None = None) -> np.
     if idx >= vt.shape[0]:
         idx = 0
     v = vt[idx]
-    _lead = v[np.argmax(np.abs(v))]
-    v = v * np.sign(_lead if _lead != 0.0 else 1.0)
+    v = v * np.sign(v[np.argmax(np.abs(v))] or 1.0)
     return np.asarray(v)
 
 
@@ -230,8 +228,7 @@ def _pc1_communalities(Z: np.ndarray, svd_cache: dict | None = None) -> np.ndarr
     if svd_cache is not None and "comm" in svd_cache:
         return np.asarray(svd_cache["comm"])
     v = vt[0]
-    _lead = v[np.argmax(np.abs(v))]
-    v = v * np.sign(_lead if _lead != 0.0 else 1.0)
+    v = v * np.sign(v[np.argmax(np.abs(v))] or 1.0)
     score = Zc @ v
     score_c = score - score.mean()
     score_norm_sq = float(score_c @ score_c)
@@ -398,8 +395,7 @@ def _discover_clusters(
             continue
         members.sort(key=lambda i: (-rel[i], i))  # representative = highest-relevance member
         rep = members[0]
-        # FCBF-style (Yu & Liu 2004) ordered-relevance pruning (docs backlog: "FCBF ordered pruning
-        # for cluster aggregation", finding #06_docs_backlog_drift.md). Plain single-linkage connected
+        # FCBF-style (Yu & Liu 2004) ordered-relevance pruning. Plain single-linkage connected
         # components (above) can chain A-B-C into one cluster via a bridge member B even when A and C
         # don't directly correlate -- a genuine multi-latent-factor group gets merged with a spurious
         # reflection group. Processing members in DESCENDING relevance order and keeping only those that
@@ -587,8 +583,11 @@ def run_cluster_aggregate_step(
             if best is None or agg_mi > best[0]:
                 best = (agg_mi, recipe, binned, method)
 
-        if best is None:
-            raise ValueError("_cluster_aggregate: methods must be a non-empty sequence")
+        # CLUSTERING_STABILITY-4 fix: unreachable in practice -- `methods` is
+        # coerced to `("mean_z",)` when empty before this loop, so the loop always runs >=1 iteration and
+        # always sets `best`. Kept as an assert (not silently removed) so a future change to that coercion
+        # still fails loudly instead of a confusing downstream unpack error.
+        assert best is not None, "_cluster_aggregate: methods must be a non-empty sequence (unreachable given the earlier coercion)"
         agg_mi, recipe, binned, method = best
         # Gate: the denoised aggregate must STRICTLY out-score the best single member (denoising claim).
         # 2026-06-03 (audit cluster-aggregate-9): reject on a TIE (``<=``), not

@@ -1,4 +1,4 @@
-"""Hinge / piecewise-linear change-point basis FE (backlog #11, 2026-06-09).
+"""Hinge / piecewise-linear change-point basis FE.
 
 A NEW univariate operator for a signal shape the catalog cannot capture: a
 **slope change at a data-dependent threshold** ``y = a*x + b*max(x - tau, 0)``
@@ -667,7 +667,7 @@ def _heldout_incremental_r2(
     This is the CORRECT admission statistic for the hinge: a single relu leg is
     MONOTONE in x (max(x-tau,0) is non-decreasing), so it is MI-INVARIANT by the
     data-processing inequality -- an MI-uplift gate would DROP it exactly as it
-    drops the isotonic / RankGauss monotone reshapes (backlog #14 caveat, and the
+    drops the isotonic / RankGauss monotone reshapes (caveat, and the
     project's MI-vs-linear-usability rule). The hinge's value is the SECOND SLOPE
     it hands a downstream linear / shallow model: ``[1, x, relu(x-tau)]`` fits a
     two-slope kink that ``[1, x]`` cannot. So we admit a leg on its held-out
@@ -699,7 +699,7 @@ def hybrid_hinge_fe_with_recipes(
     a single relu leg ``max(x - tau, 0)`` is MONOTONE in x, hence MI-INVARIANT by
     the data-processing inequality -- an MI-uplift gate DROPS it, exactly as it
     drops the isotonic / RankGauss monotone reshapes (this is the project's
-    MI-vs-linear-usability principle, and backlog #14's explicit caveat). The
+    MI-vs-linear-usability principle, and 's explicit caveat). The
     hinge's value is the SECOND SLOPE it hands a downstream linear / shallow
     model: ``[1, x, relu(x-tau)]`` fits a two-slope kink ``[1, x]`` cannot.
 

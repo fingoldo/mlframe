@@ -189,7 +189,7 @@ def mdlp_bin_edges(
     # inputs - docstring promises identical semantics. Filter NaN out
     # of both inputs once at the entry point (single-source-of-truth).
     #
-    # mrmr_audit_2026-07-20 B-13: this mask used to check ONLY ``x``. When ``y`` is a continuous
+    # this mask used to check ONLY ``x``. When ``y`` is a continuous
     # target with too FEW distinct finite values to trigger the quantile-rebucketing branch above
     # (so ``_y_arr`` still holds raw floats here), a NaN in ``y`` survived this filter and then
     # ``.astype(np.int64)`` below turned it into a platform-defined garbage class label (typically

@@ -895,7 +895,7 @@ def _detect_fourier_freq_for_col(
 # generate/recipe entry points carved to _orth_extra_basis_fe_generate.py (1k-LOC ceiling), re-exported
 # here for backward-compat callers importing them from this module.
 #
-# ORTH_BASIS_B-4 fix (mrmr_audit_2026-07-22): this used to be a plain top-level `from
+# ORTH_BASIS_B-4 fix: this used to be a plain top-level `from
 # ._orth_extra_basis_fe_generate import ...`, but that sibling module ITSELF imports 9 names back from
 # THIS module at ITS OWN top level -- a genuine circular top-level import that only resolved because every
 # current caller happens to trigger it via this module first (so by the time this line executes, this

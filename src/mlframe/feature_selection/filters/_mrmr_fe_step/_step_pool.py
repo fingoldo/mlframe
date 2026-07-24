@@ -35,7 +35,7 @@ def build_fe_operand_pool(
 ):
     """Construct the FE operand pool ``numeric_vars_to_consider`` and the synergy-added index set."""
 
-    # bench-attempt-rejected (2026-06-11, FS backlog #6 surrogate-GBM split-co-occurrence 3-way seeder + #7 order-3 maxT floor):
+    # bench-attempt-rejected (2026-06-11, FS surrogate-GBM split-co-occurrence 3-way seeder + #7 order-3 maxT floor):
     # Hypothesis was that a shallow GBM's gain-weighted root->leaf path co-occurrence could propose pure zero-marginal
     # 3-way synergy triples directly into this FE pool, bypassing the blind univariate top-N seed below. Decisive Stage-1
     # measurement (n=4000, p=200 iid, y=sign(x7*x42*x113)+0.3*noise; ALL univariate |corr| <= 0.026 and all
@@ -109,7 +109,7 @@ def build_fe_operand_pool(
                     len(_gate_raw_idx), sorted(cols[i] for i in _gate_raw_idx),
                 )
 
-    # SURROGATE-GBM SPLIT-CO-OCCURRENCE SEEDER (2026-06-09, backlog #6) + its mandatory
+    # SURROGATE-GBM SPLIT-CO-OCCURRENCE SEEDER (2026-06-09) + its mandatory
     # order-3 maxT rail (#7). Fits one shallow LightGBM on the discretised matrix, walks
     # root-to-leaf paths, and tallies depth-discounted split-gain co-occurrence to propose
     # interaction PAIRS + TRIPLES whose operands have ~0 univariate MI -- the zero-marginal
@@ -135,7 +135,7 @@ def build_fe_operand_pool(
         verbose=verbose,
     )
 
-    # GRADIENT-INTERACTION (MIXED SECOND PARTIALS) SEEDER (2026-06-10, backlog #21). Fits one
+    # GRADIENT-INTERACTION (MIXED SECOND PARTIALS) SEEDER (2026-06-10). Fits one
     # smooth differentiable RFF+ridge surrogate on a row sample, estimates E[(d2f/dxa dxb)^2] per
     # pair (a large mixed partial is the calculus definition of a non-additive interaction), and
     # proposes the operands of high-energy pairs into the SAME pool as #6 so their joint MI is
@@ -166,7 +166,7 @@ def build_fe_operand_pool(
         verbose=verbose,
     )
 
-    # bench-rejected (2026-06-09) -- backlog #9 "RFF / random-projection interaction pre-screen
+    # bench-rejected (2026-06-09) -- "RFF / random-projection interaction pre-screen
     # (detect-without-enumerate)": a sibling proposer to the GBM seeder above that would draw R
     # random SPARSE (support 2-4 cols) hyperplane projections phi_r(x)=cos(w_r^T x_std + b_r), score
     # each phi_r's MI vs y, and promote supports whose best-of-trials MI uplift over the additive
@@ -211,7 +211,7 @@ def build_fe_operand_pool(
     # never recovers a SPECIFIC needle, so it is not implemented. Do NOT re-attempt as a default or opt-in
     # proposer without a fundamentally different (non-random-support) coverage scheme.
 
-    # bench-rejected (2026-06-09) -- backlog #10 "Conditional-MI complementarity growth (Apriori lattice)":
+    # bench-rejected (2026-06-09) -- "Conditional-MI complementarity growth (Apriori lattice)":
     # grow triples from the order-2 SURVIVOR frontier (the prospective pairs below) by testing only third
     # columns c maximising the conditional-MI uplift I((a,b,c);y) - I((a,b);y) (reusing batch_triple_mi_prange
     # for scale-consistency with the #7 order-3 maxT floor), keeping triples above that floor; meant to catch a

@@ -315,7 +315,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_univariate_fourier_chirp_min_val_corr": 0.15,
     "_adaptive_fourier_features_": [],
     # MILLER-MADOW DEBIAS of the joint-prevalence ratio gate (2026-06-09,
-    # backlog #1 + #4). bench-rejected as default (admits cross-mix noise on
+    # + #4). bench-rejected as default (admits cross-mix noise on
     # weak F2); kept OPT-IN. Pre-MM pickles default to OFF for re-fits.
     "fe_mm_debias_prevalence": False,
     # SURROGATE-GBM SPLIT-CO-OCCURRENCE SEEDER (#6) + ORDER-3 maxT floor (#7),

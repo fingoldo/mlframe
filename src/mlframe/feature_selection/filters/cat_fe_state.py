@@ -241,6 +241,21 @@ class CatFEConfig:
                 f"shortlist_npermutations ({self.shortlist_npermutations}) must be <= full_npermutations ({self.full_npermutations}). "
                 "Search-phase should be CHEAPER than confirmation."
             )
+        # CAT_INTERACTION_A-9 fix: these 5 fields had no range validation at all.
+        # Concrete failure mode this closes: CatFEConfig(bootstrap_ci_alpha=1.2) used to pass construction
+        # silently, then _bootstrap_ii_cis computed lower_q=0.6 > upper_q=0.4 (inverted CI bounds, each
+        # individually a valid np.quantile probability so no error surfaced there either) -- the caller's
+        # `if lower >= floor_ci` gate then silently applied the WRONG (upper-as-lower) bound.
+        if not 0.0 < self.bootstrap_ci_alpha < 1.0:
+            raise ValueError(f"bootstrap_ci_alpha must be in (0, 1); got {self.bootstrap_ci_alpha}")
+        if not 0.0 < self.bootstrap_sample_frac <= 1.0:
+            raise ValueError(f"bootstrap_sample_frac must be in (0, 1]; got {self.bootstrap_sample_frac}")
+        if self.streaming_cache_kl_threshold <= 0:
+            raise ValueError(f"streaming_cache_kl_threshold must be > 0; got {self.streaming_cache_kl_threshold}")
+        if self.target_encoding_smoothing < 0:
+            raise ValueError(f"target_encoding_smoothing must be >= 0; got {self.target_encoding_smoothing}")
+        if self.numeric_nbins < 2:
+            raise ValueError(f"numeric_nbins must be >= 2; got {self.numeric_nbins}")
 
 
 @dataclass

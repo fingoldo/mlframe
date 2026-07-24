@@ -61,7 +61,7 @@ def compose_pair_fe(
         feature_names = [f"x{i}" for i in range(p_orig)]
     else:
         feature_names = list(feature_names)
-        # USABILITY_A-4 fix (mrmr_audit_2026-07-22): single_mi_cache below is keyed only by column NAME; a
+        # USABILITY_A-4 fix: single_mi_cache below is keyed only by column NAME; a
         # duplicate name (a realistic pandas artefact after certain joins/concats) would silently alias the
         # second column's MI to the first one's cached value with no error or warning.
         if len(set(feature_names)) != len(feature_names):
@@ -130,7 +130,7 @@ def compose_pair_fe(
                     optimizer=optimizer,
                 )
             except Exception as e:
-                # USABILITY_A-11 fix (mrmr_audit_2026-07-22): was `if verbose: logger.debug(...)`, so a
+                # USABILITY_A-11 fix: was `if verbose: logger.debug(...)`, so a
                 # genuinely-broken pair silently vanished with zero trace under the default (non-verbose)
                 # config. Always log at warning level (not opt-in), with the traceback only under verbose.
                 logger.warning("compose_pair_fe: pair (%d,%d) FE failed: %s", i, j, e, exc_info=verbose)
@@ -230,7 +230,7 @@ def validate_pair_fe_cv(
                 seed=seed + fold_idx,
             )
         except Exception as _fold_exc:
-            # USABILITY_A-10 fix (mrmr_audit_2026-07-22): was a bare `except Exception: res = None` with
+            # USABILITY_A-10 fix: was a bare `except Exception: res = None` with
             # zero logging, silently corrupting the honest OOS-uplift statistic whenever a fold genuinely
             # broke (vs. the expected non-convergence `res is None` return) -- indistinguishable from a
             # clean "no signal in this fold" result. Always log so a systematically-failing fold is visible.

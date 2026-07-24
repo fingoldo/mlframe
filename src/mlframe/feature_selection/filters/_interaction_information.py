@@ -263,7 +263,7 @@ def route_prospective_pairs(
     for key, sort_val in prospective_pairs.items():
         raw_vars_pair, pair_mi = key
         va, vb = raw_vars_pair
-        # INFO_THEORY_B-10 fix (mrmr_audit_2026-07-22): a missing marginal-MI cache entry silently
+        # INFO_THEORY_B-10 fix: a missing marginal-MI cache entry silently
         # substituted 0.0, which INFLATES the interaction-information score (pair_mi - 0 - mi_b) and can
         # mis-route a pair to "synergy" instead of surfacing a real upstream caching defect. Log so the
         # two cases (genuinely-zero marginal vs. missing cache entry) are distinguishable.

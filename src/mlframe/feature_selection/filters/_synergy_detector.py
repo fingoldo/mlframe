@@ -171,7 +171,7 @@ def detect_synergy(
         from pyutilz.system import kernel_tuning_cache  # noqa: F401
         null_mult = float(_lookup_null_mult())
     except Exception as exc:  # nosec B110 - optional dependency import guard
-        # INFO_THEORY_B-4 fix (mrmr_audit_2026-07-22): a genuine kernel_tuning_cache registry bug would
+        # INFO_THEORY_B-4 fix: a genuine kernel_tuning_cache registry bug would
         # otherwise silently and permanently pin the synergy threshold to the hardcoded default forever.
         logger.debug("mrmr: kernel_tuning_cache lookup failed for the synergy-detector null multiple; using the hardcoded default: %r", exc, exc_info=True)
     # floor the null scale so a perfectly-clean permuted null (excess==0) still needs a non-trivial real excess.

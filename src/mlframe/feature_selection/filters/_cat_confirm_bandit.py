@@ -60,7 +60,7 @@ def _confirm_pairs_bandit_ucb1(
     Returns ``(selected_idx_kept, confidence_dict)``.
 
     ``weights`` is accepted for interface parity with the fixed-budget permutation path
-    (mrmr_audit_2026-07-20 B-19) but the bulk shuffle kernels this bandit allocator calls
+     but the bulk shuffle kernels this bandit allocator calls
     (``_shuffle_and_compute_three_mis`` / ``_bulk_shuffle_and_compute_three_mis``) have no weighted
     variant yet -- a non-None ``weights`` logs a one-time warning and the allocation proceeds
     UNWEIGHTED. Weighting the bandit's bulk kernels is a separate, larger follow-up.
@@ -70,9 +70,7 @@ def _confirm_pairs_bandit_ucb1(
         return selected_idx, {}
     if weights is not None and verbose:
         logger.warning(
-            "cat-FE: sample weights ignored by the bandit-UCB1 permutation "
-            "allocator (mrmr_audit_2026-07-20 B-19: no weighted bulk-shuffle "
-            "kernel yet); falling back to unweighted."
+            "cat-FE: sample weights ignored by the bandit-UCB1 permutation " "allocator: no weighted bulk-shuffle " "kernel yet); falling back to unweighted."
         )
 
     min_perms = max(10, n_perms_total // 4)

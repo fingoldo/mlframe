@@ -166,7 +166,7 @@ def _gpu_binary(cp, name: str, a, b):
     if name == "heaviside":
         return cp.heaviside(a, b)
     if name == "greater":
-        # MI_GREEDY_RECIPES-4 fix (mrmr_audit_2026-07-22): was `.astype(a.dtype)` (float32/float64),
+        # MI_GREEDY_RECIPES-4 fix: was `.astype(a.dtype)` (float32/float64),
         # diverging from the CPU registry's `.astype(int)` (feature_engineering.py) for identical 0/1
         # values -- only the returned ndarray dtype differed by backend. Match the CPU int dtype.
         return cp.greater(a, b).astype(cp.int64)

@@ -66,7 +66,7 @@ __all__ = [
 
 
 _COERCE_Y_MEMO: dict = {}
-# FE_ORCH_BUDGET-2 fix (mrmr_audit_2026-07-22): this and _RAW_MI_FLOOR_MEMO below used the unlocked
+# FE_ORCH_BUDGET-2 fix: this and _RAW_MI_FLOOR_MEMO below used the unlocked
 # `if len(cache) > N: cache.pop(next(iter(cache)))` eviction idiom -- the exact race class the codebase
 # already fixed elsewhere (_MRMR_FIT_CACHE_LOCK in _fit_impl_core.py, _fe_family_timing.py's _LOCK) for
 # concurrent MRMR.fit() calls (multi-target discovery, service workers), a documented supported pattern.
@@ -140,7 +140,7 @@ def _coerce_y_classes_impl(y_arr: np.ndarray) -> np.ndarray:
     return y_bin.astype(np.int64)
 
 
-# bench-attempt-rejected (2026-06-11, backlog #2 / frontier-idea-3 "leave-candidate-out
+# bench-attempt-rejected (2026-06-11, / frontier-idea-3 "leave-candidate-out
 # noise floor"): the hypothesis was that ``median(pool) + 3.5*1.4826*MAD(pool)`` self-gates
 # a LONE strong signal (signal pooled into med/MAD lifts the floor above itself), fixable by
 # computing med/MAD leave-candidate-out or upper-trimmed. FALSIFIED by 300k-draw Monte Carlo:

@@ -34,7 +34,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# 07_memory_scalability.md finding #1: the pre-clustering correlation step doesn't need per-feature
+# the pre-clustering correlation step doesn't need per-feature
 # precision beyond the |corr|>=corr_threshold decision (a wide-margin threshold, typically 0.8), so it
 # follows the same MLFRAME_CRIT_DTYPE_RELAXED convention _fe_usability_signal.py's usability-|corr| pass
 # already uses for precision-non-critical thresholded correlations -- float32 by default (~halves the
@@ -48,7 +48,7 @@ def _stability_corr_dtype() -> type:
 
 # Analogous to the main fit path's ``sis_screen_threshold`` (``_mrmr_class.py``), which protects the
 # O(p) screen step from unbounded wide-p input -- ``cluster_stability_selection`` had no equivalent cap
-# on its O(p^2) correlation-clustering step (finding #1). Above this column count, a cheap O(p*n)
+# on its O(p^2) correlation-clustering step. Above this column count, a cheap O(p*n)
 # marginal-|corr(x,y)| pre-rank keeps only the top-K columns before the O(p^2) pass; columns dropped by
 # the pre-rank never enter clustering (a weak/irrelevant column is unlikely to be the sole representative
 # of a real cluster) but ARE still visible to the bootstrap ``selector_fn`` on the ORIGINAL X, so they can
@@ -145,7 +145,7 @@ def cluster_stability_selection(
                 _num_ok[_c] = False
             else:
                 Xn[:, _c] = _cast
-    # ---- p-cap (finding #1, 07_memory_scalability.md): the O(p^2) correlation-clustering step below
+    # ---- p-cap: the O(p^2) correlation-clustering step below
     # has no analogue of the main fit path's sis_screen_threshold. Above ``_CLUSTER_MAX_FEATURES``,
     # cluster only the top-K numeric columns by cheap O(p*n) marginal |corr(x,y)| -- the dropped columns
     # stay individually selectable via ``selector_fn`` on the full-p ORIGINAL X (only clustering, not
@@ -222,7 +222,7 @@ def cluster_stability_selection(
         try:
             sel = selector_fn(X.iloc[idx] if _is_df else X[idx], y[idx])
         except Exception as exc:
-            # CLUSTERING_STABILITY-9 fix (mrmr_audit_2026-07-22): log at debug so a systematically-broken
+            # CLUSTERING_STABILITY-9 fix: log at debug so a systematically-broken
             # selector_fn is diagnosable from logs (with debug logging enabled) instead of needing a debugger.
             logger.debug("cluster_stability_selection: bootstrap %d's selector_fn raised: %r", _b, exc)
             n_failed += 1
@@ -234,7 +234,7 @@ def cluster_stability_selection(
         selected_clusters = np.unique(cluster_id[sel])
         cluster_sel_freq[selected_clusters] += 1
     if n_success == 0:
-        # CLUSTERING_STABILITY-1 fix (mrmr_audit_2026-07-22): mirrors StabilityMRMR.fit's post-B-14
+        # CLUSTERING_STABILITY-1 fix: mirrors StabilityMRMR.fit's post-B-14
         # contract -- every bootstrap failing means the input is fundamentally too small/degenerate for
         # selector_fn at this sample size, not "some unlucky draws". Raise loudly instead of silently
         # returning an empty/"nothing is stable" result a caller could easily mistake for a real answer.
@@ -324,7 +324,7 @@ def complementary_pairs_stability(
             sel_b = np.asarray(selector_fn(X.iloc[idx_b] if _is_df else X[idx_b], y[idx_b]), dtype=np.int64).ravel()
             sel_bc = np.asarray(selector_fn(X.iloc[idx_bc] if _is_df else X[idx_bc], y[idx_bc]), dtype=np.int64).ravel()
         except Exception as exc:
-            # CLUSTERING_STABILITY-9 fix (mrmr_audit_2026-07-22): log at debug so a systematically-broken
+            # CLUSTERING_STABILITY-9 fix: log at debug so a systematically-broken
             # selector_fn is diagnosable from logs (with debug logging enabled) instead of needing a debugger.
             logger.debug("complementary_pairs_stability: pair %d's selector_fn raised: %r", _b, exc)
             n_failed += 1
@@ -342,7 +342,7 @@ def complementary_pairs_stability(
         for f in union:
             union_freq[f] += 1
     if n_success == 0:
-        # CLUSTERING_STABILITY-1 fix (mrmr_audit_2026-07-22): mirrors StabilityMRMR.fit's post-B-14
+        # CLUSTERING_STABILITY-1 fix: mirrors StabilityMRMR.fit's post-B-14
         # contract -- see cluster_stability_selection's matching fix for the full rationale.
         raise RuntimeError(
             f"complementary_pairs_stability: all {int(n_pairs)} pairs failed (selector_fn raised every "

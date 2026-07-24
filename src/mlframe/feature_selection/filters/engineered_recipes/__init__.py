@@ -101,7 +101,7 @@ from .._periodic_fe import build_modular_recipe
 from .._group_distance_fe import build_group_distance_recipe
 
 # Hinge / piecewise-linear change-point basis recipe builder + replay (sibling
-# FE module, backlog #11). Apply path dispatched lazily in the dispatcher;
+# FE module). Apply path dispatched lazily in the dispatcher;
 # re-exported so external importers resolve the builder from this module.
 from .._hinge_basis_fe import (
     build_hinge_basis_recipe,

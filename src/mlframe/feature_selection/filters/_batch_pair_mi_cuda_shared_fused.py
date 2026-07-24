@@ -42,7 +42,7 @@ from typing import Any
 
 import numpy as np
 
-# GPU_INFRA_D-2 fix (mrmr_audit_2026-07-22): guards the max_dynamic_shared_size_bytes property-set +
+# GPU_INFRA_D-2 fix: guards the max_dynamic_shared_size_bytes property-set +
 # launch pair below so a concurrent call with a different shared_bytes requirement cannot race and
 # under-provision another thread's launch (same pattern/fix as _gpu_pairs.py's _SHARED_MEM_SET_LOCK).
 _SHARED_MEM_SET_LOCK = threading.Lock()
@@ -194,7 +194,7 @@ def batch_pair_mi_cuda_shared_fused(
     n_features = int(factors_data.shape[1])
     n_classes_y = int(freqs_y.shape[0])
     if n_samples == 0:
-        # GPU_INFRA_A-2 fix (mrmr_audit_2026-07-22): mirrors batch_pair_mi_cupy's explicit
+        # GPU_INFRA_A-2 fix: mirrors batch_pair_mi_cupy's explicit
         # `if n_samples == 0: return zeros` guard -- without it, `inv_n = 1.0 / float(n_samples)` below
         # raises ZeroDivisionError for an empty input.
         return np.zeros(n_pairs, dtype=np.float64)
@@ -222,7 +222,7 @@ def batch_pair_mi_cuda_shared_fused(
     d_mi_out = _cp.zeros(n_pairs, dtype=_cp.float64)
 
     inv_n = 1.0 / float(n_samples)
-    # GPU_INFRA_D-2 fix (mrmr_audit_2026-07-22): the property set + launch must be atomic together, or a
+    # GPU_INFRA_D-2 fix: the property set + launch must be atomic together, or a
     # concurrent call with a different shared_bytes requirement could race and under-provision this launch
     # (same shared singleton-kernel-attribute pattern as _gpu_pairs.py's identical fix; see its module note).
     with _SHARED_MEM_SET_LOCK:

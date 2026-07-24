@@ -152,7 +152,7 @@ def generate_rolling_window_agg_features(
         "generate_rolling_window_agg_features",
     )
     windows = [str(w) for w in (windows or [])]
-    # CAT_INTERACTION_B-1 fix (mrmr_audit_2026-07-22): this used to accept "median" into `stats` here, but
+    # CAT_INTERACTION_B-1 fix: this used to accept "median" into `stats` here, but
     # _EXPANDING_STAT_CODE / _rolling_stat_past_only(_njit) never map "median" to a code -- calling this
     # documented-valid public function with stats=["median"] raised a bare `KeyError: 'median'` instead of
     # computing anything or raising an actionable error. The two-pointer O(1)-per-row accumulator this

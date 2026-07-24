@@ -46,7 +46,7 @@ def _should_serialize_fe_pair_check(n_prospective_pairs: int, gpu_fe_active: boo
     threading fan-out. True when the GPU-discretize path is active (N threads would otherwise all
     contend for the single device -- see the GPU-FE SERIALIZE comment at this module's main call site) OR
     when there are too few prospective pairs to fill the worker pool. Extracted as a pure, directly
-    testable predicate (2026-07-09, MRMR audit finding #27 regression coverage); behavior is unchanged.
+    testable predicate (2026-07-09, MRMR audit regression coverage); behavior is unchanged.
     """
     return bool(gpu_fe_active) or int(n_prospective_pairs) < int(serial_min_pairs_per_worker)
 
@@ -102,7 +102,7 @@ def _run_fe_step(self, **kwargs):
     corr_threshold) pair the memo is a single miss-then-store per key, i.e. free within measurement noise."""
     from .._orthogonal_univariate_fe._orth_dedup import dedup_collinear_memo_scope
     with dedup_collinear_memo_scope():
-        # FE_STEP_A-1 fix (mrmr_audit_2026-07-22): _free_gpu_fe_mempool() teardown used to be a bare
+        # FE_STEP_A-1 fix: _free_gpu_fe_mempool teardown used to be a bare
         # trailing statement inside _run_fe_step_impl -- any exception raised anywhere in that ~900-line
         # body after the GPU-STRICT path engaged skipped VRAM-pool cleanup entirely, silently
         # reintroducing the cross-fit VRAM-bloat degradation (11.2s -> 31.8s -> 32.3s, see the teardown's
@@ -169,7 +169,7 @@ def _run_fe_step_impl(
         logger.debug("mrmr: ensure_fe_gpu_pool_limit() (VRAM pool cap at FE-step entry) failed (best-effort): %s", e, exc_info=True)
     # SEPARATE KTC-free GPU-RESIDENT FE step (MLFRAME_FE_GPU_STRICT + MLFRAME_FE_GPU_STRICT_RESIDENT). Per
     # ``fe_gpu_strict_resident_enabled()``'s own docstring this is now DEFAULT-ON whenever MLFRAME_FE_GPU_STRICT
-    # itself is on (FE_STEP_A-4 fix, mrmr_audit_2026-07-22 -- this comment previously said "default OFF", which
+    # itself is on (FE_STEP_A-4 fix, -- this comment previously said "default OFF", which
     # was stale and had led a prior audit to independently mis-conclude this call site had zero production
     # callers). When the resident path is enabled it takes over the WHOLE FE step (operands uploaded once per
     # device, all compute on GPU kernels, no bulk D2H). Phase 0: the entry is a stub that raises
@@ -455,7 +455,7 @@ def _run_fe_step_impl(
     # Also need to sort them by their members usage frequency+members ids sum. this way, their splitting will benefit more from caching.
     prospective_pairs = sort_dict_by_value(prospective_pairs, reverse=True)
 
-    # SUCCESSIVE-HALVING / RUNG-SCHEDULE FE-search budget (2026-06-10, backlog #16).
+    # SUCCESSIVE-HALVING / RUNG-SCHEDULE FE-search budget (2026-06-10).
     # ON by default. Before the EXPENSIVE per-pair operator search below
     # (``check_prospective_fe_pairs`` -- all unary x binary transforms / CMA-ES / full
     # discretize / prewarp, ~4-50s per pair), run a CHEAP rung-0 SCREEN: rank the
@@ -813,7 +813,7 @@ def _run_fe_step_impl(
             # rather than the lossy bin codes.
             allow_engineered_operands=(_eng_cap != 0),
             engineered_operand_values=getattr(self, "_engineered_continuous_", None),
-            # MM-DEBIAS (2026-06-09, backlog #1 + #4): debias the joint-prevalence
+            # MM-DEBIAS (2026-06-09, + #4): debias the joint-prevalence
             # ratio gate (see check_prospective_fe_pairs). Co-updated with the maxT
             # floor below (IRON RULE). Default-on; ``fe_mm_debias_prevalence=False``
             # byte-reproduces pre-2026-06-09 fits.
@@ -895,7 +895,7 @@ def _run_fe_step_impl(
                     # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): see the serial branch above.
                     allow_engineered_operands=(_eng_cap != 0),
                     engineered_operand_values=getattr(self, "_engineered_continuous_", None),
-                    # MM-DEBIAS (2026-06-09, backlog #1 + #4): see the serial branch above.
+                    # MM-DEBIAS (2026-06-09, + #4): see the serial branch above.
                     fe_mm_debias_prevalence=bool(getattr(self, "fe_mm_debias_prevalence", False)),
                     # LARGE-N PEAK-MEMORY FIX (2026-06-08): joblib ``backend="threading"``
                     # runs up to ``n_jobs`` of these CONCURRENTLY in the shared address space,

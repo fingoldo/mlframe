@@ -239,7 +239,7 @@ def _parse_engineered_name(name: str):
     ``"{src}__digit_2"`` -> ('digit_extract', src, 2). Returns None on a name
     that doesn't match either convention.
 
-    CAT_INTERACTION_B-4 fix (mrmr_audit_2026-07-22): this used to split on the FIRST "__", which breaks for
+    CAT_INTERACTION_B-4 fix: this used to split on the FIRST "__", which breaks for
     any raw source column whose own name contains "__" (e.g. flattened-JSON keys like "user__id", or even
     this codebase's own orth-basis engineered-column convention "{col}__{basis_code}{degree}"): for source
     "a__b", the emitted name "a__b__digit_1" split to src="a", suffix="b__digit_1", matching neither prefix

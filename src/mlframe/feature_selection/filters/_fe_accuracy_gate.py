@@ -42,7 +42,7 @@ _FE_UPLIFT_MIN: float = 0.015
 # ``_INFER_CLS_MEMO`` above.
 _BASELINE_CV_MEMO: dict = {}
 _BASELINE_CV_MEMO_MAXSIZE = 64
-# FE_ORCH_BUDGET-2 fix (mrmr_audit_2026-07-22): this and _INFER_CLS_MEMO below used the unlocked
+# FE_ORCH_BUDGET-2 fix: this and _INFER_CLS_MEMO below used the unlocked
 # `if len(cache) > N: cache.pop(next(iter(cache)))` eviction idiom -- see _unified_fe_gate.py's
 # _FE_GATE_MEMO_LOCK note for the full rationale (same race class, same fix).
 _FE_GATE_MEMO_LOCK = threading.Lock()

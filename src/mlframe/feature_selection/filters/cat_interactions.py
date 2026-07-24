@@ -252,7 +252,7 @@ def _marginal_screen_weighted(
     """Weighted twin of :func:`_marginal_screen_njit`: compute ``I(X_i ; Y)`` for every ``i`` in
     ``candidate_idxs`` under per-row sample weights, via :func:`compute_mi_from_classes_weighted`.
 
-    CAT_INTERACTION_A-1 fix (mrmr_audit_2026-07-22): the marginal-MI term subtracted in every Interaction
+    CAT_INTERACTION_A-1 fix: the marginal-MI term subtracted in every Interaction
     Information computation (``II = I(Xi,Xj;Y) - I(Xi;Y) - I(Xj;Y)``) was ALWAYS built via the unweighted
     ``_marginal_screen_njit``, even when ``cfg.sample_weight_col`` made the search-phase joint-MI kernel
     (``_pair_search_kernel_weighted_njit``) weighted -- mixing a correctly-weighted joint term with an

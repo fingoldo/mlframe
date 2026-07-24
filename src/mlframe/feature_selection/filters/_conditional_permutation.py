@@ -18,7 +18,7 @@ Algorithm (discrete X, Z case):
 
 For continuous X (we discretise via MRMR's binning), the within-stratum
 permutation degenerates when strata have <= 1 element. SCREEN_CONFIRM_B-3 fix
-(mrmr_audit_2026-07-22): this docstring previously (and incorrectly) claimed the
+this docstring previously (and incorrectly) claimed the
 implementation "falls back to nearest-stratum borrowing" in that case -- the
 actual code simply EXCLUDES singleton-Z-stratum rows from every permutation
 replicate (``x_perm`` keeps the real observed value at those rows in ALL draws;

@@ -335,7 +335,7 @@ _XLOGX_EK = None
 # cache does not move the wall here. Mechanism verified (5 same-y/z dispatch calls -> exactly 2 cache entries
 # = y,z uploaded ONCE not per call). KEPT: it is selection-equivalent and can only help (never hurt) at the
 # many-round shapes where the H2D churn IS the safe_cuda_api/.get() overhead; the value is shape-dependent.
-# LRU FIX (mrmr_audit_2026-07-20 gpu_residency.md #1, 2026-07-21): was a plain dict cleared WHOLESALE past 16
+# LRU FIX (.md #1, 2026-07-21): was a plain dict cleared WHOLESALE past 16
 # entries, undoing FIX3's own re-upload-avoidance on any greedy round touching >16 distinct y/z roles.
 # OrderedDict mirrors ``_fe_resident_operands.py``'s ``_FE_RESIDENT_OPERANDS`` exactly: move-to-end on hit,
 # evict only the single coldest entry on overflow.
@@ -343,7 +343,7 @@ from collections import OrderedDict as _CmiResidentOrderedDict
 
 _CMI_RESIDENT_CACHE: "_CmiResidentOrderedDict" = _CmiResidentOrderedDict()
 _CMI_RESIDENT_CACHE_MAX_ENTRIES = 16
-# INFO_THEORY_A-9 fix (mrmr_audit_2026-07-22): this cache had no lock at all, unlike its two siblings in
+# INFO_THEORY_A-9 fix: this cache had no lock at all, unlike its two siblings in
 # this same file (_FORDER_LOCK, _FACTORS_DEVICE_LOCK). Content-hash-guarded (see _resident_upload's own
 # `sig` fingerprint), so an unlocked race here only cost a redundant upload (self-healing) rather than
 # silent corruption -- but the 2-of-3-locked inconsistency was a design smell worth closing.

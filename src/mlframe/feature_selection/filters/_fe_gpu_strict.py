@@ -78,7 +78,7 @@ _CUDA_USABLE_CACHE: bool | None = None
 # "0", the exact CPU path runs. ``_AUTO_FIT_N``/``_AUTO_FIT_P`` are the current fit's row/column counts, set by the
 # MRMR entry around fit() (None => AUTO stays off, so any non-MRMR caller is unchanged). Threshold is
 # env-overridable per host.
-# GPU_INFRA_C-1 fix (mrmr_audit_2026-07-22): these used to be bare module globals, shared across every
+# GPU_INFRA_C-1 fix: these used to be bare module globals, shared across every
 # thread in the process. StabilityMRMR's bootstrap loop (stability.py) runs Parallel(backend="threading")
 # over per-bootstrap MRMR clones -- i.e. this codebase already fits multiple MRMR instances concurrently on
 # different threads sharing one process -- so two overlapping .fit() calls would read/write each other's

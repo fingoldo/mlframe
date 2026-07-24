@@ -57,7 +57,7 @@ def _score_plug_in(x: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> float:
         return 0.0
     y_arr = np.asarray(y).ravel()
     if not np.issubdtype(y_arr.dtype, np.integer):
-        # ORTH_SCORING_B-1 fix (mrmr_audit_2026-07-22): was a bare `y_arr.astype(np.int64)` -- TRUNCATES,
+        # ORTH_SCORING_B-1 fix: was a bare `y_arr.astype(np.int64)` -- TRUNCATES,
         # does not densify -- the exact B-18 bug class, reintroduced because this function was carved into
         # this sibling file (2026-06-06) BEFORE the 2026-07-20 B-18 fix pass, which patched the parent
         # module but never followed the split here. A fractional low-cardinality y (e.g. [0.1, 0.2, ...])
@@ -613,7 +613,7 @@ def hybrid_orth_mi_auto_scorer_fe_with_recipes(
                 name,
             )
             continue
-        # ORTH_SCORING_B-2 fix (mrmr_audit_2026-07-22): freeze the fit-time basis-preprocess params
+        # ORTH_SCORING_B-2 fix: freeze the fit-time basis-preprocess params
         # (the B-17 fix, applied to the parent module's ensemble builder but never followed into this
         # carved-out sibling) so MRMR.transform() on a row-sliced/distribution-shifted test frame replays
         # the fit-time z-score/min-max axis instead of silently refitting it.

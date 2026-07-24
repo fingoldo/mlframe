@@ -37,7 +37,7 @@ from numba import njit
 
 logger = logging.getLogger(__name__)
 
-# mrmr_audit_2026-07-20 B-10: process-level circuit breaker for ksg_mi_dispatch's GPU path, mirroring
+# process-level circuit breaker for ksg_mi_dispatch's GPU path, mirroring
 # info_theory/_cmi_cuda.py's pattern. Pre-fix, the only guard was ``except ImportError: pass`` -- a real
 # runtime/driver fault (CUDA OOM, context corruption) raised something OTHER than ImportError and
 # propagated straight out of ksg_mi_dispatch instead of falling back to CPU, and (unlike every other GPU

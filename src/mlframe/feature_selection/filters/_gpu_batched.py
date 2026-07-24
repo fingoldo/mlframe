@@ -418,7 +418,7 @@ def mi_direct_gpu_batched_streamed(
     # whose curandState advance is NOT safe under concurrent stream access.
     # One Generator per stream avoids the race; each generator's Philox
     # state advance stays serial within its own stream.
-    # mrmr_audit_2026-07-20 B-7: seed each stream's Generator off ``base_seed`` (offset per stream so they
+    # seed each stream's Generator off ``base_seed`` (offset per stream so they
     # don't all draw the identical permutation batch) when given; None preserves the legacy unseeded behaviour.
     rngs = [cp.random.default_rng(None if base_seed is None else int(base_seed) + _i) for _i in range(len(streams))]
     batch_failures = []

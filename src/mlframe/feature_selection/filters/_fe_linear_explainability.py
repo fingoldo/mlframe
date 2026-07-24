@@ -81,7 +81,25 @@ def raws_linearly_explain_y(
             from sklearn.preprocessing import StandardScaler
             from sklearn.pipeline import make_pipeline
 
-            r2 = float(make_pipeline(StandardScaler(), LinearRegression()).fit(Xn, yy).score(Xn, yy))
+            # FE_ORCH_BUDGET-1 fix: an IN-SAMPLE R^2 has no columns-vs-rows guard --
+            # empirically confirmed on pure noise (n=2000, matching this function's own max_rows default)
+            # that in-sample R^2 crosses the default 0.92 threshold purely from overfitting once p numeric
+            # raw columns exceeds ~95% of n (p=1900,n=2000 -> R^2=0.936 with ZERO real linear signal). MRMR
+            # is a wide-p feature-selection tool, so this shape is plausible, not exotic, and a false-
+            # positive here silently disables the discrete-structural operators for the WHOLE fit. Use
+            # held-out (K-fold CV) R^2 instead: pure noise gives a near-zero-or-negative CV R^2 regardless
+            # of p (each fold overfits its own train split but generalizes poorly to the held-out fold), so
+            # only a GENUINE linear relationship clears the threshold. Bounded cost: still O(0.1s)-class
+            # (few folds x one LinearRegression fit each on the same subsampled Xn/yy).
+            n_splits = min(5, max(2, Xn.shape[0] // 50))
+            if n_splits < 2 or Xn.shape[0] < 2 * n_splits:
+                return False  # too few rows to CV meaningfully -- keep the passes (correctness over speed)
+            from sklearn.model_selection import KFold, cross_val_score
+
+            kf = KFold(n_splits=n_splits, shuffle=True, random_state=int(seed))
+            pipe = make_pipeline(StandardScaler(), LinearRegression())
+            cv_r2 = cross_val_score(pipe, Xn, yy, cv=kf, scoring="r2")
+            r2 = float(np.mean(cv_r2))
             return r2 >= thresh
     except Exception:
         return False

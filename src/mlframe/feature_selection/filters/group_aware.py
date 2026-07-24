@@ -384,7 +384,7 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         Skips the medoid bypass entirely when clustering reduces the feature count by less than ``min_reduction``,
         so the wrapper degrades to a plain pass-through of the inner selector rather than wasting a clustering pass.
         """
-        # X_SECURITY_API_PACKAGING-3 fix (mrmr_audit_2026-07-22): corr_threshold/min_reduction were never
+        # X_SECURITY_API_PACKAGING-3 fix: corr_threshold/min_reduction were never
         # validated, unlike StabilityMRMR's analogous continuous knobs in the same module -- a
         # corr_threshold outside (0, 1] or a min_reduction outside [0, 1) silently produced a
         # degenerate-but-non-crashing clustering (everything one cluster, or every feature its own

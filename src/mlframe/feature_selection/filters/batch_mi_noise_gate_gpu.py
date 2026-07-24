@@ -353,7 +353,7 @@ _CUDA_HIST_KERNEL_BATCHED: "object | None" = None
 # target array can never false-hit. Bounded FIFO so distinct targets across a long fit don't grow it.
 _DY_DEVICE_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()  # key -> (weakref(classes_y), d_y)
 _DY_DEVICE_CACHE_MAX = 8
-# GPU_INFRA_A-12 fix (mrmr_audit_2026-07-22): the get -> move_to_end -> popitem LRU sequence below is
+# GPU_INFRA_A-12 fix: the get -> move_to_end -> popitem LRU sequence below is
 # NOT atomic under the GIL's per-bytecode-op granularity; two MRMR.fit() calls racing in different
 # threads of the same process (not itself forbidden anywhere in this module) could violate the
 # _DY_DEVICE_CACHE_MAX eviction discipline. The returned device array itself was always race-safe
@@ -826,7 +826,7 @@ def dispatch_batch_mi_with_noise_gate_gpu(
     from ._gpu_policy import gpu_globally_disabled
 
     if gpu_globally_disabled():
-        # GPU_INFRA_A-3 fix (mrmr_audit_2026-07-22): this dispatcher never had its own
+        # GPU_INFRA_A-3 fix: this dispatcher never had its own
         # MLFRAME_DISABLE_GPU/CUDA_VISIBLE_DEVICES self-check, unlike its dispatch_batch_pair_mi and
         # dispatch_friend_graph_stats siblings -- it relied entirely on its caller checking first.
         return None
@@ -877,7 +877,7 @@ def dispatch_batch_mi_with_noise_gate_gpu(
                 npermutations, base_seed, min_nonzero_confidence, use_su, dtype,
             ), "cuda"
         except Exception as e:
-            # GPU_INFRA_A-1 fix (mrmr_audit_2026-07-22): numba's CudaAPIError/CudaDriverError derive
+            # GPU_INFRA_A-1 fix: numba's CudaAPIError/CudaDriverError derive
             # directly from Exception, not RuntimeError -- broaden to match the already-fixed
             # dispatch_batch_pair_mi sibling so a genuine CUDA driver fault can't escape uncaught.
             logging.getLogger(__name__).debug("batch_mi_noise_gate cuda backend failed (%s); falling back to CPU", e)

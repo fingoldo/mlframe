@@ -235,7 +235,7 @@ def materialise_and_finalise_fe_candidates(
                     _new_tpf.add((_cfg, _new_pos))
             _new_tvals = _tvals[:, _keep_idx]
             _new_ncols = [_ncols[i] for i in _keep_idx]
-            # FE_STEP_B-8 fix (mrmr_audit_2026-07-22): a length-mismatched _nnb used to pass through
+            # FE_STEP_B-8 fix: a length-mismatched _nnb used to pass through
             # UNFILTERED (not narrowed to _keep_idx), silently reintroducing the nbins-vs-cols length
             # mismatch this filtering exists to prevent. Log so a genuine producer-shape bug is never
             # indistinguishable from the expected None case.
@@ -364,7 +364,7 @@ def materialise_and_finalise_fe_candidates(
                     _cfg = _n2c.get(_ncols[_oi])
                     if _cfg is not None:
                         _new_tpf.add((_cfg, _np))
-                # FE_STEP_B-8 fix (mrmr_audit_2026-07-22): a length-mismatched _nnb used to pass through
+                # FE_STEP_B-8 fix: a length-mismatched _nnb used to pass through
                 # UNFILTERED (not narrowed to _keep_idx), silently reintroducing the nbins-vs-cols length
                 # mismatch this filtering exists to prevent. Log so a genuine producer-shape bug is never
                 # indistinguishable from the expected None case.
@@ -485,7 +485,7 @@ def materialise_and_finalise_fe_candidates(
                     _cfg = _n2c.get(_ncols[_oi])
                     if _cfg is not None:
                         _new_tpf.add((_cfg, _np))
-                # FE_STEP_B-8 fix (mrmr_audit_2026-07-22): a length-mismatched _nnb used to pass through
+                # FE_STEP_B-8 fix: a length-mismatched _nnb used to pass through
                 # UNFILTERED (not narrowed to _keep_idx), silently reintroducing the nbins-vs-cols length
                 # mismatch this filtering exists to prevent. Log so a genuine producer-shape bug is never
                 # indistinguishable from the expected None case.
@@ -1093,7 +1093,7 @@ def materialise_and_finalise_fe_candidates(
                 exc_info=True,
             )
 
-    # CROSS-FOLD RECIPE STABILITY VOTING (2026-06-10, backlog #15). A near-free
+    # CROSS-FOLD RECIPE STABILITY VOTING (2026-06-10). A near-free
     # consensus layer OVER the existing FE gates. The expensive search above ran
     # ONCE on the full data; here we add a cheap K-fold CONFIRMATION -- each
     # surviving unary_binary recipe is REPLAYED (leak-safe: the recipe is frozen,

@@ -18,7 +18,7 @@ from __future__ import annotations
 import sys
 import threading
 
-# GPU_INFRA_C-2 fix (mrmr_audit_2026-07-22): install_cuda_teardown_guard's idempotency check used to be a
+# GPU_INFRA_C-2 fix: install_cuda_teardown_guard's idempotency check used to be a
 # bare unlocked `if _installed: return` -- two threads racing through it before either set _installed=True
 # could let the second thread's `_prev_unraisablehook = getattr(sys, "unraisablehook", None)` capture the
 # FIRST thread's own `_unraisablehook` wrapper (not the true original), causing infinite self-recursion the

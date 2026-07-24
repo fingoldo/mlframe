@@ -211,7 +211,7 @@ def _fit_prewarp_and_gate_med(
                 _gmed = float(np.nanmedian(_gf)) if _gf.size else 0.0
                 if not np.isfinite(_gmed):
                     continue
-                # FE_PAIRS_CORE-3 fix (mrmr_audit_2026-07-22): the comment claimed "Reject no-variance
+                # FE_PAIRS_CORE-3 fix: the comment claimed "Reject no-variance
                 # operands (a constant gate is dead)" but the ONLY guard was the isfinite check above,
                 # which does not reject a literal constant, non-finite-safe operand (a degenerate/dummy
                 # column with a well-defined finite median) -- it registered under gate_med and

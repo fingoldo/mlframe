@@ -136,8 +136,7 @@ def _mi(col: np.ndarray, y: np.ndarray, nbins: int = 12) -> float:
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         _rb = fe_gpu_strict_resident_enabled()
-    except Exception as _flag_exc:
-        logger.debug("pairwise-modular GPU-strict-resident flag probe failed (%s); resident path disabled.", _flag_exc)
+    except Exception:
         _rb = False
     if _is_cupy_ndarray(col):
         arr = col  # resident (n,) or (n,1) cupy -> _mi_classif_batch reshapes 1-D to a column itself
@@ -220,8 +219,7 @@ def _residue_mi(c: np.ndarray, y: np.ndarray, k: int, nbins: int) -> float:
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         _rb = fe_gpu_strict_resident_enabled()
-    except Exception as _flag_exc:
-        logger.debug("pairwise-modular GPU-strict-resident flag probe failed (%s); resident path disabled.", _flag_exc)
+    except Exception:
         _rb = False
     from ._pairwise_modular_resident import combiner_mi_resident
 
@@ -243,7 +241,7 @@ class ModularHit:
     baseline_mi: float  # raw-combiner MI = the best a smooth basis could recover
     null_hi: float  # permutation-null upper band on residue MI
     # Optional: the exact combiner column cheap_modular_scan already built for this hit, so
-    # escalate_modulus can reuse it instead of rebuilding via _combine (finding 4). compare=False /
+    # escalate_modulus can reuse it instead of rebuilding via _combine. compare=False /
     # excluded from repr so a bare ndarray payload never breaks equality/hash on the scored fields.
     c_arr: "np.ndarray | None" = field(default=None, repr=False, compare=False)
 
@@ -283,8 +281,7 @@ def _perm_null_hi(c: np.ndarray, y: np.ndarray, k: int, nbins: int, n_perm: int 
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         _rb = fe_gpu_strict_resident_enabled()
-    except Exception as _flag_exc:
-        logger.debug("pairwise-modular GPU-strict-resident flag probe failed (%s); resident path disabled.", _flag_exc)
+    except Exception:
         _rb = False
     from ._pairwise_modular_resident import perm_null_residue_mis_resident
 
@@ -326,7 +323,7 @@ def cheap_modular_scan(
     elif not _cols_prefiltered:
         cols = [c for c in cols if _is_integer_col(np.asarray(X[c]))]
     # else: caller (e.g. hybrid_pairwise_modular_fe_with_recipes) already ran this exact filter to
-    # build ``cols`` -- re-scanning it here was pure duplicate work (finding 4).
+    # build ``cols`` -- re-scanning it here was pure duplicate work.
     # Canonicalize eligible-column order so the budgeted pair/triple enumeration scans the same combinations regardless of caller column order (reversed-column invariance).
     cols = sorted(cols, key=lambda c: str(c))
     yi = np.asarray(y).astype(np.int64)
@@ -338,8 +335,7 @@ def cheap_modular_scan(
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         _scan_rb = fe_gpu_strict_resident_enabled()
-    except Exception as _flag_exc:
-        logger.debug("pairwise-modular scan GPU-strict-resident flag probe failed (%s); resident scan disabled.", _flag_exc)
+    except Exception:
         _scan_rb = False
     from ._pairwise_modular_resident import combiner_mi_resident
 

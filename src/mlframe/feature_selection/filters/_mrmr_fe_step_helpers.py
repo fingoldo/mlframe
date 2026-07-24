@@ -195,7 +195,7 @@ def apply_surrogate_gbm_seeder(
     non_numeric_idx: set,
     verbose: int,
 ) -> tuple[set, list]:
-    """Surrogate-GBM split-co-occurrence interaction seeder (backlog #6) + its order-3 maxT rail (#7).
+    """Surrogate-GBM split-co-occurrence interaction seeder + its order-3 maxT rail (#7).
 
     Fits one shallow LightGBM on the discretised matrix, walks root-to-leaf paths, and tallies
     depth-discounted split-gain co-occurrence to propose interaction PAIRS + TRIPLES whose operands
@@ -390,7 +390,7 @@ def compute_pair_maxt_floor(
     ``fe_pair_maxt_min_pairs`` candidate pairs the floor is 0.0 (no-op => byte-identical narrow pools). ``fe_pair_maxt_null_permutations=0`` disables.
     """
     _pair_maxt_floor: float | None = 0.0
-    # MM-DEBIAS (2026-06-09, backlog #1 IRON RULE): per-pair Miller-Madow joint-MI bias
+    # MM-DEBIAS (2026-06-09, IRON RULE): per-pair Miller-Madow joint-MI bias
     # (sorted-index tuple -> bias). Subtracted from BOTH the floor's per-shuffle joint MIs
     # (inside the null kernel) AND the observed ``pair_mi`` at the gate-floor comparison,
     # so debiasing the prevalence ratio does NOT weaken this outer best-of-pool guard.

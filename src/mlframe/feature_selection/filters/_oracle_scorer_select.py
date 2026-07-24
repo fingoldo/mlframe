@@ -81,13 +81,13 @@ ORACLE_FN_NAME = "orth_scorer_select"
 
 # Module-level (file-path, mtime) -> rows cache for ``_learned_scorer``'s ``store.read_rows()`` call.
 # The store is append-only parquet re-read+re-parsed from disk on EVERY ``recommend_scorer`` call
-# (finding 6, Wave 13) even though it only changes when the oracle appends a new observation (rare
+# even though it only changes when the oracle appends a new observation (rare
 # relative to recommend-calls). Keying on mtime means a write invalidates the cache for free (no
 # explicit invalidation needed) while a read-only burst of calls between writes hits the cache. Small
 # LRU-ish cap so a long-lived process cycling through many distinct store paths does not grow unbounded.
 _ROWS_CACHE: "dict[tuple[str, float], list[dict]]" = {}
 _ROWS_CACHE_MAX = 8
-# ORTH_SCORING_B-3 fix (mrmr_audit_2026-07-22): the get-check-evict-write sequence below used to run with
+# ORTH_SCORING_B-3 fix: the get-check-evict-write sequence below used to run with
 # no lock -- empirically reproduced 225 crashes/32-thread stress test (`dictionary changed size during
 # iteration` when two threads both call next(iter(_ROWS_CACHE)) while a third mutates it; KeyError when
 # .pop(key) races another thread's eviction of the same key). Needs real contention to trigger (a joblib-
@@ -135,7 +135,7 @@ def _quality_objective(output: Any, elapsed_s: float, rss_delta_mb):
     try:
         _scorer, q = output
     except Exception as exc:
-        # ORTH_SCORING_B-7 fix (mrmr_audit_2026-07-22): was unlogged and broader than this module's own
+        # ORTH_SCORING_B-7 fix: was unlogged and broader than this module's own
         # numeric-error conventions elsewhere -- a malformed bake-off output (e.g. a future refactor
         # changing the closure's return shape) silently persisted quality=NaN into the on-disk Param-Oracle
         # store with zero diagnostic trace.

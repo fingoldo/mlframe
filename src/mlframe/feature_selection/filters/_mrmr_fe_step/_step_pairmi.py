@@ -195,7 +195,7 @@ def compute_pair_mis_and_floor(
             # Skip pairs already in cached_confident_MIs (those had a confident permutation outcome).
             _n_pairs_batch = int(_pair_a_arr.shape[0])
             for _i in range(_n_pairs_batch):
-                # FE_STEP_B-3 fix (mrmr_audit_2026-07-22): canonicalize to a sorted tuple. numeric_vars_to_consider
+                # FE_STEP_B-3 fix: canonicalize to a sorted tuple. numeric_vars_to_consider
                 # is rebuilt as a fresh set every FE step and iterated to build the candidate-pair pool; set
                 # iteration order is not guaranteed ascending once it mixes small and large ints (e.g. raw indices
                 # plus later-appended engineered indices), so under fe_max_steps>1 the SAME logical pair could
@@ -496,7 +496,7 @@ def compute_pair_mis_and_floor(
     if _prevalence_debias_auto and not _pair_mm_bias:
         try:
             from .._permutation_null import pairwise_mm_joint_bias
-            # FE_STEP_B-2 fix (mrmr_audit_2026-07-22): RAM-bounded chunking, not a full unchunked
+            # FE_STEP_B-2 fix: RAM-bounded chunking, not a full unchunked
             # list(combinations(...)) materialization -- this module's own design (see the primary
             # pair-MI sweep a few screens up, and the "NO POOL-SIZE CAP" rationale) explicitly avoids
             # exactly that O(k^2) tuple/array blowup (~300 MB at k=5000) at a wide production pool.

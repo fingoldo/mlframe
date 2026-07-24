@@ -223,10 +223,12 @@ def conditional_perm_null_gpu(
     # atomic path (faster at small joints) is otherwise unchanged. Opt-out MLFRAME_FE_CMI_PERM_NULL_SPARSE=0.
     if _perm_null_sparse_enabled():
         try:
-            dyd = y_h.astype(cp.int64, copy=False).ravel() if isinstance(y_h, cp.ndarray) else None
-            if dyd is None:
-                from ._fe_resident_operands import resident_operand
-                dyd = resident_operand(np.ascontiguousarray(y_h, dtype=np.int64).ravel(), "cmi_y", dtype=np.int64)
+            # GPU_INFRA_D-12 fix: `isinstance(y_h, cp.ndarray)` can never be True --
+            # y_h is unconditionally built via np.ascontiguousarray at this function's call site, always a
+            # host numpy array. Removed the dead resident-y branch it guarded (misleading: implied a
+            # resident-y fast path that does not exist).
+            from ._fe_resident_operands import resident_operand
+            dyd = resident_operand(np.ascontiguousarray(y_h, dtype=np.int64).ravel(), "cmi_y", dtype=np.int64)
             Kx = int(dx.max()) + 1
             Ky = int(dyd.max()) + 1
             _Kz_est = _nrank  # occupied stratum count (dense rank max + 1)
@@ -321,10 +323,9 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z):
     # is bit-identical; only the redundant recomputation is gone.
     from ._fe_batched_mi import joint_entropy_gpu
     from ._fe_resident_operands import resident_operand
-    if isinstance(y_h, cp.ndarray):
-        _dy = y_h.astype(cp.int64, copy=False).ravel()
-    else:
-        _dy = resident_operand(np.ascontiguousarray(y_h, dtype=np.int64).ravel(), "cmi_y", dtype=np.int64)
+    # GPU_INFRA_D-12 fix: `isinstance(y_h, cp.ndarray)` can never be True -- y_h is
+    # unconditionally a host numpy array at every production call site. Removed the dead resident-y branch.
+    _dy = resident_operand(np.ascontiguousarray(y_h, dtype=np.int64).ravel(), "cmi_y", dtype=np.int64)
     if isinstance(z, cp.ndarray):
         _dz = z.astype(cp.int64, copy=False).ravel()
     else:

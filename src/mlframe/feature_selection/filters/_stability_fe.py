@@ -152,7 +152,7 @@ def _run_bootstraps(
         try:
             m.fit(Xb, yb)
         except Exception as exc:
-            # mrmr_audit_2026-07-20 B-15: one degenerate bootstrap subsample used to crash the whole
+            # one degenerate bootstrap subsample used to crash the whole
             # sweep -- mirrors the fix applied to the sibling StabilityMRMR (stability.py) and
             # _stability_cluster.py. Excluded bootstraps are simply absent from ``per_boot``, so
             # ``_aggregate_frequencies``'s ``n_boot = len(per_boot)`` denominator already becomes the
@@ -162,7 +162,7 @@ def _run_bootstraps(
             continue
         per_boot.append(_engineered_union(m))
     if not per_boot:
-        # CLUSTERING_STABILITY-1 fix (mrmr_audit_2026-07-22): mirrors StabilityMRMR.fit's post-B-14
+        # CLUSTERING_STABILITY-1 fix: mirrors StabilityMRMR.fit's post-B-14
         # contract -- every bootstrap failing means the input is fundamentally too small/degenerate for
         # MRMR at this sample size, not "some unlucky draws". Raise loudly instead of silently returning
         # an empty per-bootstrap list a caller could easily mistake for "no stable engineered features".
@@ -373,7 +373,7 @@ class StabilityFESelector(BaseEstimator, TransformerMixin):
 
     def get_feature_names_out(self, input_features=None):
         """Selected feature names (sklearn transformer contract). X_SECURITY_API_PACKAGING-1 fix
-        (mrmr_audit_2026-07-22): was missing entirely, unlike ``MRMR``/``GroupAwareMRMR``/``StabilityMRMR``
+        was missing entirely, unlike ``MRMR``/``GroupAwareMRMR``/``StabilityMRMR``
         in the same module -- a ``Pipeline([("sel", StabilityFESelector(...)), ...]).get_feature_names_out()``
         raised ``AttributeError`` even though ``transform()`` already returns a well-defined column subset.
         Recomputes the SAME stable-AND-reproducible column set ``transform()`` builds (raw columns the

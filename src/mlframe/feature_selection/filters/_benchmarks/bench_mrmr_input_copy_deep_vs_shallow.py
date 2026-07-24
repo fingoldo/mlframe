@@ -1,4 +1,4 @@
-"""A/B bench for MRMR's fit()-entry pandas input-isolation copy (perf audit finding #2, 2026-07-17).
+"""A/B bench for MRMR's fit-entry pandas input-isolation copy (perf audit, 2026-07-17).
 
 RESOLVED: ``X.copy(deep=False)`` unconditionally (regardless of pandas' Copy-on-Write setting) is
 correctness-equivalent to the prior CoW-gated ``deep=True`` fallback -- verified both by code audit (every

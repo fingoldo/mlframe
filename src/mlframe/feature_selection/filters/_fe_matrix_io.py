@@ -77,7 +77,7 @@ class FeatureMatrix:
 
     def numeric_column(self, name: str) -> np.ndarray:
         """The numeric plane column for ``name`` (KeyError-equivalent ValueError if not numeric)."""
-        # FE_ORCH_BUDGET-3 fix (mrmr_audit_2026-07-22): columns.index(name) returns only the FIRST index
+        # FE_ORCH_BUDGET-3 fix: columns.index(name) returns only the FIRST index
         # for a duplicate column name; pandas explicitly permits duplicate labels, so a frame with a
         # repeated name would silently resolve to the wrong column with no error. Raise clearly instead
         # (this module is currently gated off/unwired, so this cannot regress any live caller today).
@@ -226,7 +226,7 @@ def to_feature_matrix(X, *, dtype: Any = np.float32) -> FeatureMatrix:
 def from_feature_matrix(fm: FeatureMatrix):
     """Reconstruct the source-framework object from a :class:`FeatureMatrix`, restoring categorical
     labels and original missingness. Routes back to the framework that produced ``fm``."""
-    # FE_ORCH_BUDGET-3 fix (mrmr_audit_2026-07-22): the per-name dicts (col_objs/data) built below are
+    # FE_ORCH_BUDGET-3 fix: the per-name dicts (col_objs/data) built below are
     # keyed by column NAME, so a duplicate name silently overwrites one of the two columns' data in the
     # round-trip output with no error/warning -- pandas explicitly permits duplicate column labels. Raise
     # clearly instead (this module is currently gated off/unwired, so this cannot regress any live caller).

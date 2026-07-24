@@ -428,8 +428,12 @@ def propose_gradient_interaction_pairs(
         X = Xfull[:, pool]
         y = np.asarray(data)[:, t0]  # discretised ordinal target
     except Exception as exc:  # not array-coercible -> skip silently (proposer is best-effort)
-        if verbose:
-            logger.info("MRMR FE gradient-interaction seeder: X not array-coercible (%s); skipping.", exc)
+        # CAT_INTERACTION_B-3 fix: was gated behind `if verbose`, so with the
+        # library's default verbose=0 ANY exception here was silently swallowed with zero log trace --
+        # inconsistent with the sibling GBM proposer (apply_surrogate_gbm_seeder), whose analogous
+        # try/except logs unconditionally. Log unconditionally now; the proposer stays best-effort
+        # (still returns gracefully rather than raising), only the diagnostic visibility changes.
+        logger.debug("MRMR FE gradient-interaction seeder: X not array-coercible (%s); skipping.", exc, exc_info=True)
         return numeric_vars_to_consider, gradient_added_idx
 
     topk = int(_resolve_grad_threshold("topk", _GRAD_DEFAULT_TOPK))
@@ -439,8 +443,11 @@ def propose_gradient_interaction_pairs(
             row_cap=row_cap, kernel=kernel, seed=0,
         )
     except Exception as exc:
-        if verbose:
-            logger.warning("MRMR FE gradient-interaction seeder failed (%s: %s); skipping.", type(exc).__name__, exc)
+        # CAT_INTERACTION_B-3 fix: see the matching fix above -- this specific
+        # exception (confirmed by direct execution: sklearn KFold(n_splits=3) on n_samples=2, since
+        # _route_gradient_seeder gates only on pool size, never on row count) was silently swallowed at
+        # verbose=0. Log unconditionally, matching the sibling GBM seeder's unconditional logging.
+        logger.warning("MRMR FE gradient-interaction seeder failed (%s: %s); skipping.", type(exc).__name__, exc, exc_info=True)
         return numeric_vars_to_consider, gradient_added_idx
 
     if not diag.get("learned", False):

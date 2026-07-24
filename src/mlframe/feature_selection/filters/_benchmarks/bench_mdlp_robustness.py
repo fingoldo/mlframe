@@ -1,5 +1,5 @@
 """Duplicate-row and outlier/heavy-tail robustness sweep, carved out of
-``bench_mdlp_validated_split_suite.py`` (X_EFFICIENCY_ARCHITECTURE-1 fix, mrmr_audit_2026-07-22) to
+``bench_mdlp_validated_split_suite.py`` (X_EFFICIENCY_ARCHITECTURE-1 fix) to
 clear the repo's enforced hard 1000-LOC CI gate (that file was 1006 lines). Behaviour preserved
 bit-for-bit; the parent re-exports every name so its own ``__main__`` block keeps working unchanged.
 

@@ -118,7 +118,12 @@ def _candidate_values(x_a: np.ndarray, spec_a: dict, x_b: np.ndarray, spec_b: di
     try:
         wa = apply_operand_prewarp(np.asarray(x_a, dtype=np.float64), spec_a)
         wb = apply_operand_prewarp(np.asarray(x_b, dtype=np.float64), spec_b)
-    except Exception:
+    except Exception as exc:
+        # FE_ORCH_BUDGET-4 fix: was unlogged, unlike every other except-block in
+        # this file (which all log via logger.debug); low blast radius (degrades to skipping this
+        # escalation candidate, per the file's own "never raises" design), but a real regression in
+        # apply_operand_prewarp would be invisible in logs otherwise.
+        logger.debug("_candidate_values: apply_operand_prewarp failed; skipping candidate: %r", exc)
         return None
     out = np.multiply(wa, wb)
     out = np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
@@ -289,7 +294,9 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float, pairness_m
         return None
     try:
         sa, sb = fit_pair_prewarp_als(xa, xb, y_f, basis=best_basis, max_degree=degree)
-    except Exception:
+    except Exception as exc:
+        # FE_ORCH_BUDGET-4 fix: see _candidate_values's matching fix above.
+        logger.debug("_propose_poly: fit_pair_prewarp_als failed; skipping candidate: %r", exc)
         return None
     if sa is None or sb is None:
         return None
@@ -399,7 +406,9 @@ def _resolve_operand(X, name: str, engineered_continuous: dict | None) -> np.nda
             col = X[name]
             vals = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
             return np.asarray(vals, dtype=np.float64)
-    except Exception:
+    except Exception as exc:
+        # FE_ORCH_BUDGET-4 fix: see _candidate_values's matching fix above.
+        logger.debug("_resolve_operand: column extraction failed for %r; skipping: %r", name, exc)
         return None
     return None
 

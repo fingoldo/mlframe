@@ -46,10 +46,13 @@ Default ``off`` (the bench-rejection above). Override via
 """
 from __future__ import annotations
 
+import logging
 import math
 import os
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:
     from numba import njit, prange
@@ -139,6 +142,22 @@ def compute_class_weights(y: np.ndarray) -> np.ndarray | None:
         return None
     n_classes = int(y_arr.max()) + 1
     if n_classes < 2:
+        return None
+    # X_EDGE_CASES_BEST_PRACTICES-3 fix: no upper bound existed on n_classes before
+    # allocating `counts` -- a caller-controlled integer y whose max value is large (a row-id/timestamp
+    # column mistakenly typed/passed as a classification target, or genuinely tens of millions of sparse
+    # integer "classes") allocates a np.bincount array of that size. This module is opt-in
+    # (MLFRAME_FE_IMBALANCE_MI) but the allocation-size gap is the same class INFO_THEORY_A-2/B-7 flagged
+    # for sibling dense-histogram builders. A real classification target essentially never exceeds a few
+    # thousand distinct classes; reject clearly rather than silently allocating gigabytes.
+    _MAX_CLASSES = 100_000
+    if n_classes > _MAX_CLASSES:
+        logger.warning(
+            "compute_class_weights: y has %d distinct integer values (max=%d) -- treating as NOT a "
+            "classification target (likely a mistyped continuous/id column) and skipping reweighting. "
+            "If this is genuinely a %d-class problem, this opt-in module is not intended for that scale.",
+            n_classes, int(y_arr.max()), n_classes,
+        )
         return None
 
     counts = np.bincount(y_arr, minlength=n_classes).astype(np.float64)

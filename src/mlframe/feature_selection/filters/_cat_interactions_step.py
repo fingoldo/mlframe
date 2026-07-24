@@ -322,7 +322,7 @@ def run_cat_interaction_step(
     # - "gpu": always GPU dispatch (raises if CuPy missing)
     # - "auto": GPU only at large-N regime (N>=200 cols AND n>=500k rows)
     use_gpu = False
-    # CAT_INTERACTION_A-2 fix (mrmr_audit_2026-07-22): the pair-search GPU gate used to consult only cupy
+    # CAT_INTERACTION_A-2 fix: the pair-search GPU gate used to consult only cupy
     # importability + is_gpu_available()'s own probe, never the project's canonical gpu_globally_disabled()
     # (MLFRAME_DISABLE_GPU=1 / CUDA_VISIBLE_DEVICES="") -- a user forcing CPU-only via that env convention
     # still got GPU dispatch for backend="auto"/"gpu" cat-FE fits whenever cupy was importable. The global
@@ -364,7 +364,7 @@ def run_cat_interaction_step(
         if weights.size > 0 and not np.allclose(weights, weights[0]):
             use_weights = True
     if use_weights:
-        # CAT_INTERACTION_A-1 fix (mrmr_audit_2026-07-22): marginal_mi_full above was built entirely via
+        # CAT_INTERACTION_A-1 fix: marginal_mi_full above was built entirely via
         # the UNWEIGHTED _marginal_screen_njit -- recompute it weighted now that use_weights is known True,
         # so the joint-vs-marginal difference (II) is consistent regardless of which kernel/backend
         # computes the joint term below. See _marginal_screen_weighted's docstring for the full rationale.
@@ -517,7 +517,7 @@ def run_cat_interaction_step(
     # Memory budget: full WY pre-merges m * n int32 cells; if that exceeds e.g. 500 MB we fall back to Bonferroni-on-survivors via the _apply_fwer_correction path.
     use_full_wy = cfg.fwer_correction == "westfall_young" and cfg.full_npermutations > 0 and len(pairs_a) * n_samples * 4 < 500 * 1024 * 1024
 
-    # CAT_INTERACTION_A-3 fix (mrmr_audit_2026-07-22): perm_budget_strategy defaults to "bandit_ucb1" (not
+    # CAT_INTERACTION_A-3 fix: perm_budget_strategy defaults to "bandit_ucb1" (not
     # "fixed"), and the bandit allocator's bulk-shuffle kernels have no weighted variant -- so the DEFAULT
     # confirmation path for any weighted cat-FE fit silently tested a weighted II_obs against an unweighted
     # permutation null (the one warning that existed was gated behind `verbose`, invisible at the library's

@@ -130,7 +130,7 @@ def _measure_exhaustive_cpu_throughput(dims: dict) -> float:
     """Time ``batch_pair_mi_njit_prange`` (the CPU backend the exhaustive sweep actually runs when no CUDA
     device is present) on a synthetic (n_samples, n_pairs) cell and return the achieved pairs/second. Used
     as the CPU tuner body for :func:`measured_cpu_pairs_per_second` (FE_REDUNDANCY_SYNERGY-1 fix,
-    mrmr_audit_2026-07-22); mirrors :func:`_measure_exhaustive_throughput`'s CUDA twin exactly."""
+    ); mirrors:func:`_measure_exhaustive_throughput`'s CUDA twin exactly."""
     from .batch_pair_mi_gpu import batch_pair_mi_njit_prange
 
     n_samples = int(dims["n_samples"])
@@ -159,7 +159,7 @@ def measured_cpu_pairs_per_second(n_samples: int, n_pairs: int) -> tuple[float, 
     """Per-host measured CPU (njit-prange) pair-MI throughput (pairs/s), looked up from the
     kernel_tuning_cache (measured on first miss) -- the CPU twin of :func:`measured_pairs_per_second`.
 
-    FE_REDUNDANCY_SYNERGY-1 fix (mrmr_audit_2026-07-22): the CPU-only branch of ``decide_exhaustive_sweep``
+    FE_REDUNDANCY_SYNERGY-1 fix: the CPU-only branch of ``decide_exhaustive_sweep``
     used to hardcode ``_EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC=2000`` with no KTC lookup at all, unlike the
     CUDA branch a few lines above it and contrary to this module's own docstring claim ("NEVER hardcoded
     ... measured-and-cached per host"). A fast many-core CPU host runs far faster than 2000 pairs/s, so
@@ -386,7 +386,7 @@ def decide_exhaustive_sweep(
         # gating its EXISTENCE on GPU presence makes a feature appear on a CUDA host and vanish on a CPU one.
         # Decide on the CPU cost instead -> the decision is hardware-independent (affordable-or-not), not
         # device-gated; the sweep then runs on the CPU backend (see _step_core force_backend selection).
-        # FE_REDUNDANCY_SYNERGY-1 fix (mrmr_audit_2026-07-22): this used to hardcode
+        # FE_REDUNDANCY_SYNERGY-1 fix: this used to hardcode
         # _EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC with NO kernel_tuning_cache lookup at all, unlike the CUDA
         # branch above and contrary to this module's own docstring claim. Warm + consult the per-host
         # measured CPU throughput cache instead; _EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC remains only the

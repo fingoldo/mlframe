@@ -14,7 +14,7 @@ below -- each DEFAULT ON, each gating a REAL per-family device-born rebuild via 
 ``assemble_resident_matrix`` (content-hash-keyed, incrementally adopted file-by-file) instead of this class's
 upfront bulk-upload design. That alternate mechanism is live, tested (``test_device_born_cross_basis_parity.py``
 et al.), and has been the actual residency delivery vehicle since 2026-06-30 -- ``ResidentFEState`` itself has
-zero production callers. GPU_INFRA_C-6 fix (mrmr_audit_2026-07-22): ``run_fe_step_gpu_strict`` (the function,
+zero production callers. GPU_INFRA_C-6 fix: ``run_fe_step_gpu_strict`` (the function,
 not the ``ResidentFEState`` class) DOES have one live call site -- ``_mrmr_fe_step/_step_core.py`` calls it on
 every FE step whenever ``fe_gpu_strict_resident_enabled()`` is true (DEFAULT ON under
 ``MLFRAME_FE_GPU_STRICT``); the call is functionally inert only because it always raises

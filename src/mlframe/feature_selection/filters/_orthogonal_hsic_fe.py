@@ -494,8 +494,11 @@ def score_features_by_hsic_uplift(
         # Near-zero baseline makes the uplift ratio explode past the gate even
         # on a no-signal source; suppress the ratio there and let the absolute
         # MI floor decide (mirrors the JMIM guard).
+        # ORTH_SCORING_A-5 fix: see _orthogonal_ksg_mi_fe.py's matching fix for the
+        # full rationale -- the fixed _ABS_MI_FLOOR=1e-3 pre-filter could hard-reject a candidate the real
+        # dynamic MAD-based abs_floor (gate 2) would have accepted. Always defer to gate 2 here.
         if baseline < _BASELINE_EPS:
-            uplift = 0.0 if emi < _ABS_MI_FLOOR else float("inf")
+            uplift = float("inf")
         else:
             uplift = emi / baseline
         rows.append({
@@ -550,7 +553,7 @@ def hybrid_orth_mi_hsic_fe(
         X, cols=cols, degrees=degrees, basis=basis,
     )
     if engineered.empty:
-        return X.copy(), pd.DataFrame(columns=[
+        return X, pd.DataFrame(columns=[
             "engineered_col", "source_col", "baseline_mi",
             "engineered_mi", "uplift",
         ])
@@ -564,7 +567,7 @@ def hybrid_orth_mi_hsic_fe(
         random_state=int(random_state), estimator=estimator,
     )
     if scores.empty:
-        return X.copy(), scores
+        return X, scores
     # Two-gate selection identical to Layers 65 / 66 / 67 for cross-layer parity.
     raw_baselines = scores["baseline_mi"].to_numpy()
     max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
@@ -649,14 +652,18 @@ def hybrid_orth_mi_hsic_fe_with_recipes(
                 name,
             )
             continue
-        # mrmr_audit_2026-07-20 B-17: freeze the fit-time basis-preprocess params (mirrors the
+        # freeze the fit-time basis-preprocess params (mirrors the
         # canonical Layer-21 hybrid_orth_mi_fe_with_recipes fix); recomputing on the FULL fit-time
         # source column is safe/exact -- it reproduces, not refits, the fit-time params.
         _pp = None
         try:
             _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
-        except Exception:
+        except Exception as exc:
+            # ORTH_SCORING_A-3 fix: was a bare except with zero logging,
+            # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
+            # exception (including a genuine programming bug), with no diagnostic trace.
+            logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
             _pp = None
         recipes.append(build_orth_univariate_recipe(
             name=name, src_name=src,

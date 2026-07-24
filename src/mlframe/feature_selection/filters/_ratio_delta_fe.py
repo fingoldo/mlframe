@@ -415,7 +415,7 @@ def lagged_diff_features(
     sort + lag from X alone (no fit-time state needed -- the operation is
     a pure function of the test frame).
 
-    ``entity_cols`` (CAT_INTERACTION_B-5 fix, mrmr_audit_2026-07-22): optional per-entity scoping,
+    ``entity_cols`` (CAT_INTERACTION_B-5 fix): optional per-entity scoping,
     mirroring ``_temporal_agg_fe.generate_lag_features``'s entity-scoped design. Without it (the default,
     unchanged behaviour), the diff is computed on the GLOBAL time-sorted order -- on a panel/multi-entity
     dataset this can silently compute a cross-entity diff wherever the global time-sort places one entity's
@@ -479,7 +479,7 @@ def lagged_diff_features(
 
 def apply_lagged_diff(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Replay a fitted lagged-diff recipe on new data: resort ``X_test`` by ``time_col`` (or ``(entity_cols,
-    time_col)`` when the recipe carries ``entity_cols`` -- CAT_INTERACTION_B-5 fix, mrmr_audit_2026-07-22),
+    time_col)`` when the recipe carries ``entity_cols`` -- CAT_INTERACTION_B-5 fix),
     compute the ``period``-step diff (zeroed across an entity boundary when entity-scoped), then unsort
     back to input row order (pure function of X_test alone, no fit-time state needed)."""
     if not isinstance(X_test, pd.DataFrame):
@@ -677,7 +677,7 @@ def lagged_diff_with_recipes(
     ``mi_gate=True`` (with ``y``) applies the Tier-1 local MI floor (Layer 91)
     over the |value_cols| * |periods| lag pool.
 
-    ``entity_cols`` (CAT_INTERACTION_B-5 fix, mrmr_audit_2026-07-22): optional per-entity scoping -- see
+    ``entity_cols`` (CAT_INTERACTION_B-5 fix): optional per-entity scoping -- see
     :func:`lagged_diff_features`'s docstring. ``None`` (the default) preserves the exact prior global-sort
     behaviour.
     """

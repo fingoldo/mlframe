@@ -182,7 +182,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
                 est.fit(X_sub, y_sub)
                 return _support_to_indices(est.support_, n_features)
             except Exception as exc:
-                # mrmr_audit_2026-07-20 B-14: one degenerate bootstrap subsample (e.g. a class dropped
+                # one degenerate bootstrap subsample (e.g. a class dropped
                 # despite stratification at extreme sample_fraction, or a subsample too small for the
                 # inner estimator's own floors) used to crash the WHOLE .fit() call -- mirrors the fix
                 # already applied to the sibling _stability_cluster.py implementations (exclude the
@@ -203,7 +203,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
             # eliminates the OOM risk and removes loky process-spawn cost.
             supports = Parallel(n_jobs=self.n_jobs, backend="threading")(delayed(_one_bootstrap)(s) for s in seeds)
 
-        # mrmr_audit_2026-07-20 B-14: filter out failed bootstraps (see _one_bootstrap's except clause)
+        # filter out failed bootstraps (see _one_bootstrap's except clause)
         # before accumulating -- frequencies are computed over the effective (successful) B, mirroring
         # _stability_cluster.py's n_failed/n_success pattern, not over the nominal n_bootstraps.
         n_failed_bootstraps = sum(1 for sup in supports if sup is None)
@@ -283,7 +283,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
 
     def get_feature_names_out(self, input_features=None):
         """Selected feature names (sklearn transformer contract). X_SECURITY_API_PACKAGING-1 fix
-        (mrmr_audit_2026-07-22): was missing entirely, unlike ``MRMR``/``GroupAwareMRMR`` in the same
+        was missing entirely, unlike ``MRMR``/``GroupAwareMRMR`` in the same
         module -- a ``Pipeline([("sel", StabilityMRMR(...)), ...]).get_feature_names_out()`` raised
         ``AttributeError`` even though ``transform()`` already returns a well-defined column subset.
         Mirrors ``GroupAwareMRMR.get_feature_names_out``'s contract exactly: ``support_`` is an integer

@@ -292,7 +292,7 @@ def score_pair_cross_basis_by_mi_uplift(
         ])
     # DEVICE-BORN (STRICT-resident): rebuild the pair-cross product matrix on the GPU from the small raw operand
     # columns and score BOTH it and the raw baseline through the SAME resident plug-in MI -- collapsing the host
-    # product-matrix upload at _orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (ORTH_BASIS_B-5 fix, mrmr_audit_2026-07-22: dropped the exact line number, which had already gone stale). Returns None (-> exact host path below) on no-cupy /
+    # product-matrix upload at _orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (ORTH_BASIS_B-5 fix: dropped the exact line number, which had already gone stale). Returns None (-> exact host path below) on no-cupy /
     # non-strict / any cupy failure / unsupported basis. Selection-equivalent (device Clenshaw vs host forward
     # recurrence ~1e-12, same estimator for numerator + baseline so the uplift ratio cannot flip).
     raw_mi_map = eng_mi = None

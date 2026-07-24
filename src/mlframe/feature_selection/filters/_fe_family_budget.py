@@ -229,6 +229,19 @@ def dataset_fingerprint(n_features: int, column_names: Any) -> str:
     return digest
 
 
+def _sanitize_budget_file_key(file_key: str) -> str:
+    """Defensive allowlist for the on-disk cache filename component (FE_ORCH_BUDGET-8 fix,
+    ): ``cache_key``/``fingerprint`` are concatenated directly into a filename with
+    no sanitisation -- every current call site passes only a literal default ``cache_key`` and a sha256
+    hex-digest ``fingerprint`` (not exploitable today), but the public function signature accepts an
+    arbitrary string, so a future caller passing a user- or column-derived string would have a path-
+    traversal write primitive into the cache directory. Strip to a safe filename-component charset."""
+    import re
+
+    safe = re.sub(r"[^A-Za-z0-9_.\-]", "_", file_key)
+    return os.path.basename(safe) or "_"
+
+
 def persist_budgets(budgets: dict[str, float], *, cache_key: str = "mlframe.fe_family_budget", fingerprint: Optional[str] = None) -> None:
     """Persist ``budgets`` to a local JSON cache file keyed by ``cache_key`` + ``fingerprint``.
 
@@ -242,7 +255,7 @@ def persist_budgets(budgets: dict[str, float], *, cache_key: str = "mlframe.fe_f
     -- this module does not repeat that mistake.
     """
     _BUDGET_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    file_key = f"{cache_key}.{fingerprint}" if fingerprint else cache_key
+    file_key = _sanitize_budget_file_key(f"{cache_key}.{fingerprint}" if fingerprint else cache_key)
     path = _BUDGET_CACHE_DIR / f"{file_key}.json"
     try:
         path.write_text(json.dumps(budgets, sort_keys=True), encoding="utf-8")
@@ -252,7 +265,7 @@ def persist_budgets(budgets: dict[str, float], *, cache_key: str = "mlframe.fe_f
 
 def load_budgets(*, cache_key: str = "mlframe.fe_family_budget", fingerprint: Optional[str] = None) -> Optional[dict[str, float]]:
     """Load previously-persisted budgets for ``cache_key`` + ``fingerprint``, or ``None`` if absent/unreadable/corrupt."""
-    file_key = f"{cache_key}.{fingerprint}" if fingerprint else cache_key
+    file_key = _sanitize_budget_file_key(f"{cache_key}.{fingerprint}" if fingerprint else cache_key)
     path = _BUDGET_CACHE_DIR / f"{file_key}.json"
     if not path.exists():
         return None

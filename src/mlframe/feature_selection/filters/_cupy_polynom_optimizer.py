@@ -177,8 +177,14 @@ def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_t
                            direction_only: bool, warm_start_seeds: Optional[Sequence[np.ndarray]],
                            eval_kwargs: dict, batch_size: int = 100, elitism_k: int = 10,
                            perturb_sigma_frac: float = 0.1) -> Optional[tuple]:
-    """GPU generation-batched random+elitism search; same return contract as ``run_numba_kernel_search``:
-    ``(coef_a_best, coef_b_best, bf_idx_best, raw_mi_best, best_score)`` or ``None``."""
+    """GPU generation-batched random+elitism search.
+    Returns ``(coef_a_best, coef_b_best, bf_idx_best, raw_mi_best, best_score)`` or ``None``.
+
+    GPU_INFRA_D-6 fix: the 5th element is NOT the same contract as
+    ``run_numba_kernel_search``'s 5th element -- this backend returns ``best_score`` (``mi - penalty``),
+    the numba twin returns an evaluation *count* (``int(out_n_evals[0])``). Currently benign because the
+    sole caller (``_hermite_fe_optimise_pair.py``) discards element 5 for every optimizer branch, but do
+    not rely on element 5 meaning the same thing across backends without fixing this divergence first."""
     import cupy as cp
 
     fn_name = getattr(eval_kwargs.get("eval_func"), "__name__", "")
@@ -214,11 +220,6 @@ def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_t
     Ba = _basis_matrix_gpu(cp, xa_d, ca_size - 1, _BASIS_IDS[basis])
     Bb = _basis_matrix_gpu(cp, xb_d, cb_size - 1, _BASIS_IDS[basis])
 
-    # mrmr_audit_2026-07-20 test_coverage.md #13: elitism_k >= batch_size makes n_perturb below negative,
-    # crashing rng.integers(..., size=n_perturb) with a ValueError on the very first generation. Clamp so
-    # the elite pool never consumes the whole (or more than the whole) population.
-    elitism_k = min(elitism_k, max(1, batch_size - 1))
-
     rng = np.random.default_rng(seed)
     lo, hi = float(coef_range[0]), float(coef_range[1])
     dim = ca_size + cb_size
@@ -250,7 +251,7 @@ def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_t
             best_vec = pop[gi].copy()
         order = np.argsort(scores)[::-1]
         elites = pop[order[:elitism_k]]
-        n_perturb = max(0, batch_size - elitism_k - max(1, batch_size // 4))
+        n_perturb = batch_size - elitism_k - max(1, batch_size // 4)
         perturbed = elites[rng.integers(0, elitism_k, size=n_perturb)] + rng.normal(0.0, sigma, size=(n_perturb, dim))
         fresh = rng.uniform(lo, hi, size=(max(1, batch_size // 4), dim))
         pop = np.clip(np.vstack([elites, perturbed, fresh]), lo, hi)[:batch_size]

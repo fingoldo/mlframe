@@ -29,7 +29,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# INFO_THEORY_B-1 fix (mrmr_audit_2026-07-22): genie_mi_panel's default bias-rate fallback used to be the
+# INFO_THEORY_B-1 fix: genie_mi_panel's default bias-rate fallback used to be the
 # SAME constant (1/sqrt(N)) for every estimator name, making the (K+2)x(K+2) constraint matrix genie_weights
 # builds EXACTLY singular by construction (the b^T constraint row becomes a scalar multiple of the 1^T row)
 # -- confirmed empirically (rank 4 of 5, det=0.0, LinAlgError). genie_weights then silently fell back to
@@ -142,7 +142,7 @@ def genie_mi_panel(x: np.ndarray, y: np.ndarray,
     """Run a panel of K estimators on (x, y) then combine via GENIE weights.
 
     If ``bias_rates`` / ``variances`` are not provided, default to (INFO_THEORY_B-1 fix,
-    mrmr_audit_2026-07-22 -- see ``_genie_default_bias_rate``'s module-level note for why a single shared
+     -- see ``_genie_default_bias_rate``'s module-level note for why a single shared
     constant across all estimators made the constraint system exactly singular):
         bias_rate = 5/N for a k-NN-family estimator name (substring "ksg"/"knn"), else 1/N
         variance = 1.0 (uniform)

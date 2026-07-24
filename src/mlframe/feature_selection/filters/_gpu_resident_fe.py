@@ -185,7 +185,7 @@ def _env_gpu_default_on(name: str) -> bool:
         return False
     if _v in ("1", "true", "on", "yes"):
         return True
-    # GPU_INFRA_B-9 fix (mrmr_audit_2026-07-22): delegate the CUDA_VISIBLE_DEVICES=""/MLFRAME_DISABLE_GPU=1
+    # GPU_INFRA_B-9 fix: delegate the CUDA_VISIBLE_DEVICES=""/MLFRAME_DISABLE_GPU=1
     # opt-out check to the shared _gpu_policy module instead of reimplementing it inline, so a future change
     # to the shared policy's semantics reaches this cluster's default-on gates too.
     from ._gpu_policy import gpu_globally_disabled
@@ -216,7 +216,7 @@ def fe_gpu_resident_codes_enabled() -> bool:
 def fe_gpu_resident_basis_mi_enabled() -> bool:
     """Whether the matrix-native RESIDENT orth-FE basis-MI path is active (Piece 3).
 
-    X_EFFICIENCY_ARCHITECTURE-6 fix (mrmr_audit_2026-07-22): this line used to say "DEFAULT OFF", directly
+    X_EFFICIENCY_ARCHITECTURE-6 fix: this line used to say "DEFAULT OFF", directly
     contradicting the "DEFAULT ON when CUDA is present" statement two paragraphs below for the SAME flag --
     the real behavior (confirmed by ``_env_gpu_default_on``) is DEFAULT ON when a usable CUDA device is
     present, DEFAULT OFF otherwise (env-overridable either way).

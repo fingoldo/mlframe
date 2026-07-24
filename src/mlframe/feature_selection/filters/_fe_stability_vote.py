@@ -1,4 +1,4 @@
-"""Cross-fold recipe stability voting (backlog #15, 2026-06-10).
+"""Cross-fold recipe stability voting.
 
 A near-free CONSENSUS layer over the existing FE gates. The expensive MRMR FE
 search runs ONCE on the full data (unchanged); this module adds a cheap K-fold

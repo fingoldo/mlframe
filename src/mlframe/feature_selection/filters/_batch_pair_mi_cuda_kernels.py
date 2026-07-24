@@ -587,7 +587,7 @@ def batch_pair_mi_cuda_row_chunked(
     n_samples = int(factors_data.shape[0])
     n_cols = int(factors_data.shape[1])
     if n_samples == 0:
-        # GPU_INFRA_A-2 fix (mrmr_audit_2026-07-22): mirrors batch_pair_mi_cupy's explicit
+        # GPU_INFRA_A-2 fix: mirrors batch_pair_mi_cupy's explicit
         # `if n_samples == 0: return zeros` guard -- without it, _mi_from_joint_counts_cupy/
         # _mi_from_joint_counts's `inv_n = 1.0 / n_samples` raises ZeroDivisionError for an empty input.
         return np.zeros(n_pairs, dtype=np.float64)

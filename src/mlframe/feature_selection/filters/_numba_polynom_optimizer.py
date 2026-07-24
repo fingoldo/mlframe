@@ -593,6 +593,12 @@ def run_numba_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_
 
     Internally calls the multi-pair kernel with P=1, so the JIT cache
     is shared with the multi-pair path.
+
+    GPU_INFRA_D-6 fix: returns
+    ``(coef_a_best, coef_b_best, bf_idx_best, raw_mi_best, n_evals)`` -- the 5th element is an evaluation
+    *count* (``int(out_n_evals[0])``), NOT the same contract as the cupy twin ``run_cupy_kernel_search``,
+    which returns ``best_score`` (``mi - penalty``) in that position. Currently benign because the sole
+    caller discards element 5 for every optimizer branch.
     """
     # Resolve basis + bf_names from eval_kwargs. The caller passes the
     # same eval_kwargs dict it would pass to _eval_coef_pair.
@@ -631,7 +637,10 @@ def run_numba_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_
     n_iters = max(1, int(np.ceil(n_trials / max(1, batch_size))))
 
     # Pre-generate RNG streams. Per-iter cost: ~3-4 KB per pair -- trivial.
-    rng = np.random.default_rng(seed if seed > 0 else 1)
+    # GPU_INFRA_D-3 fix: was `seed if seed > 0 else 1`, silently substituting
+    # 1 for any seed<=0 (including the valid seed=0), diverging from the cupy twin's plain
+    # np.random.default_rng(seed) and from np.random.default_rng's own native seed=0 support.
+    rng = np.random.default_rng(seed)
     u_per_iter = batch_size * (ca_size + cb_size)
     n_per_iter = elitism_k * (ca_size + cb_size)
     uniform_stream = rng.uniform(coef_lo, coef_hi, size=u_per_iter * n_iters)
@@ -723,7 +732,10 @@ def optimize_all_pairs_numba_kernel(
     sigma_perturb = perturb_sigma_frac * (coef_hi - coef_lo)
     n_iters = max(1, int(np.ceil(n_trials / max(1, batch_size))))
 
-    rng = np.random.default_rng(seed if seed > 0 else 1)
+    # GPU_INFRA_D-3 fix: was `seed if seed > 0 else 1`, silently substituting
+    # 1 for any seed<=0 (including the valid seed=0), diverging from the cupy twin's plain
+    # np.random.default_rng(seed) and from np.random.default_rng's own native seed=0 support.
+    rng = np.random.default_rng(seed)
     u_per_iter = batch_size * (ca_size + cb_size)
     n_per_iter = elitism_k * (ca_size + cb_size)
     uniform_streams = rng.uniform(

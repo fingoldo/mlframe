@@ -207,7 +207,7 @@ def fingerprint_signal(
                 try:
                     r = float(X_num[c].corr(y_series, method="pearson"))
                 except _NUMERIC_ERRORS as exc:
-                    # ORTH_SCORING_B-9 fix (mrmr_audit_2026-07-22): was a bare `except Exception`, broader
+                    # ORTH_SCORING_B-9 fix: was a bare `except Exception`, broader
                     # than this module's own declared _NUMERIC_ERRORS convention (and the module docstring's
                     # explicit invariant that a genuine programming error must propagate); unlogged.
                     logger.debug("meta_scorer pearson corr failed for column %r: %r", c, exc)
@@ -280,7 +280,7 @@ def fingerprint_signal(
                 try:
                     r_sp = float(col_vals.corr(y_sub, method="spearman"))
                 except _NUMERIC_ERRORS as exc:
-                    # ORTH_SCORING_B-9 fix (mrmr_audit_2026-07-22): see the mean_abs_pearson site's matching
+                    # ORTH_SCORING_B-9 fix: see the mean_abs_pearson site's matching
                     # fix above for the full rationale.
                     logger.debug("meta_scorer spearman corr failed for column %r: %r", c, exc)
                     r_sp = float("nan")

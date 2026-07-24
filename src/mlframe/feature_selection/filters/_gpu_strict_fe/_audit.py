@@ -15,7 +15,7 @@ from typing import Iterator
 # n_sub=30k f32 is 120KB, so 8KB cleanly separates scalar decisions from bulk data).
 BULK_BYTES = 8192
 
-# X_EDGE_CASES_BEST_PRACTICES-4 fix (mrmr_audit_2026-07-22): residency_audit() monkeypatches
+# X_EDGE_CASES_BEST_PRACTICES-4 fix: residency_audit monkeypatches
 # process-wide cp.asarray/cp.asnumpy/cp.ndarray.get with no reentrancy guard. Two overlapping
 # residency_audit() regions on different threads would have the second region's "_orig_*" capture be
 # the first region's wrapper (not the true original), and whichever region exits first restores to a

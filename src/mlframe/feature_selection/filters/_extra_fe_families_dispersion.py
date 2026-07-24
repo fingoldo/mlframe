@@ -33,7 +33,7 @@ Why this is MI-gateable (UNLIKE the hinge / isotonic monotone reshapes)
 about its conditional mean), so on a heteroscedastic target it carries MUTUAL
 INFORMATION the raw column and the Family-B mean-residual do NOT -- it clears the
 NORMAL MI-uplift gate (the same gate Families A/B route through). This is the key
-contrast with backlog #11/#14: a single relu leg / isotonic fit is MONOTONE ->
+contrast with /#14: a single relu leg / isotonic fit is MONOTONE ->
 MI-invariant by the data-processing inequality, so they need the
 linear-usability admission path; the dispersion ``|z|`` does NOT, it is a true
 MI gain on the right target.
@@ -620,7 +620,7 @@ def hybrid_conditional_dispersion_fe(
             )
         else:
             winners = winners_gated
-        # DUAL-UPLIFT GATE (backlog #12): a dispersion column earns its keep ONLY
+        # DUAL-UPLIFT GATE: a dispersion column earns its keep ONLY
         # if it carries MI BEYOND both (a) its raw source x_i and (b) its
         # Family-B mean-residual sibling x_i - E[x_i|bin(x_j)]. On homoscedastic
         # data |z| is a scaled |residual| -> no uplift over the sibling -> dropped

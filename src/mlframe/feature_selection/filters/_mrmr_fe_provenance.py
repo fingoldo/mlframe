@@ -278,7 +278,7 @@ def _origin_from_recipe(recipe: Any) -> tuple[str, dict]:
 
 
 def _build_roster_membership_sets(mrmr_self: Any) -> list[tuple[set, str]]:
-    """Build each roster attribute's membership set ONCE (USABILITY_B-6 fix, mrmr_audit_2026-07-22:
+    """Build each roster attribute's membership set ONCE (USABILITY_B-6 fix:
     ``_origin_from_rosters`` used to re-convert every one of the 13 roster attrs to a fresh ``list(...)``
     and do an O(len(roster)) membership test from scratch, PER NAME -- O(n*m) instead of O(n+m) on a
     kitchen-sink wide FE fit with hundreds of produced-but-unmatched engineered names). Call once before

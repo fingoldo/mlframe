@@ -1,5 +1,5 @@
 """``ScreenContext`` dataclass, carved out of ``_confirm_predictor.py`` (X_EFFICIENCY_ARCHITECTURE-1
-fix, mrmr_audit_2026-07-22) to clear the repo's enforced hard 1000-LOC CI gate (that file had crept
+fix) to clear the repo's enforced hard 1000-LOC CI gate (that file had crept
 back to 1007 lines). Behaviour preserved bit-for-bit; the parent re-exports the class so every existing
 ``from ._confirm_predictor import ScreenContext`` (or equivalent) import keeps working unchanged.
 """

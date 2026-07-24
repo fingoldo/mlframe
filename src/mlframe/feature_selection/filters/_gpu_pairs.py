@@ -16,7 +16,7 @@ from ._internals import GPU_MAX_BLOCK_SIZE
 
 logger = logging.getLogger(__name__)
 
-# GPU_INFRA_D-2 fix (mrmr_audit_2026-07-22): the property-set + launch pair below mutates a process-wide,
+# GPU_INFRA_D-2 fix: the property-set + launch pair below mutates a process-wide,
 # module-level compiled-kernel object's CUDA driver attribute (max_dynamic_shared_size_bytes) with no lock.
 # Two threads calling mi_direct_gpu_batched_pairs concurrently with different shared-mem requirements could
 # race: one thread's smaller value could overwrite the other's larger budget before its own launch enqueues,
@@ -207,7 +207,7 @@ def mi_direct_gpu_batched_pairs(
         # _batch_pair_mi_cuda_shared_fused.py) only when the STATIC 48KB-per-block default would not
         # cover this call's actual shared-memory need -- avoids touching the property (which some
         # driver versions reject below the static default) on the common small-shape path.
-        # GPU_INFRA_D-2 fix (mrmr_audit_2026-07-22): the property set + launch must be atomic together --
+        # GPU_INFRA_D-2 fix: the property set + launch must be atomic together --
         # otherwise a concurrent call with a different _needed_shared_bytes could overwrite the budget
         # between this thread's set and its own launch enqueuing (see _SHARED_MEM_SET_LOCK's module note).
         with _SHARED_MEM_SET_LOCK:
@@ -243,7 +243,7 @@ def mi_direct_gpu_batched_pairs(
     # MI = sum over non-zero cells of (jc/n) * log(jc * n / (marg_m * marg_y)), in nats.
     n_total = float(n_rows)
     joint_mi_out = np.zeros(n_pairs, dtype=np.float64)
-    # GPU_INFRA_D-5 fix (mrmr_audit_2026-07-22): the per-pair reduction below used to be a pure-Python
+    # GPU_INFRA_D-5 fix: the per-pair reduction below used to be a pure-Python
     # triple-nested loop (for k / for m / for y), i.e. O(total joint cells) at native Python speed -- up to
     # ~1.07e9 cells (the 4GB guard elsewhere in this module), which would dominate wall-clock and defeat the
     # point of collapsing per-pair kernel launches into one batched launch. Vectorized per-pair with numpy;

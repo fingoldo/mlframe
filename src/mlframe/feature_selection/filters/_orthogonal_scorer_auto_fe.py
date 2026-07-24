@@ -229,7 +229,7 @@ def _compute_per_scorer_rank_table(
                 if not np.issubdtype(y_mi.dtype, np.integer):
                     uniq = np.unique(y_mi[np.isfinite(y_mi)] if y_mi.dtype.kind in "fc" else y_mi)
                     if uniq.size <= 32:
-                        # mrmr_audit_2026-07-20 B-18: densify via np.unique(return_inverse=...) rather
+                        # densify via np.unique(return_inverse=...) rather
                         # than truncating .astype(int64) -- non-integer labels (e.g. 0.1/0.2/...) would
                         # otherwise all collapse to class 0.
                         _, y_mi = np.unique(y_mi, return_inverse=True)

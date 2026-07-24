@@ -862,7 +862,7 @@ def evaluate_candidate(
         except Exception as _pid_exc:
             logger.warning("PID synergy bonus computation failed silently: %r", _pid_exc)
 
-    # concurrency audit finding #6: cmi_perm_stop / cpt_test below previously seeded their permutation null
+    # concurrency audit: cmi_perm_stop / cpt_test below previously seeded their permutation null
     # SOLELY from ``cand_idx`` (identical across every greedy round for the same candidate). ``selected_vars``
     # -- the conditioning set the candidate is actually being tested against -- grows every round, so the SAME
     # candidate re-evaluated against a DIFFERENT (larger) conditioning set drew the IDENTICAL row permutation

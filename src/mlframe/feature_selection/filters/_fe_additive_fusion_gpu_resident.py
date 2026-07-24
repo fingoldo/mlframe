@@ -197,7 +197,7 @@ def propose_additive_fusions_gpu(
     # drift), above MLFRAME_FE_FUSION_MAX_ROWS (default 250k, 0=full-n). ``vals_dev`` stays FULL n so an ADMITTED
     # compound's ``fused_vals`` (materialised downstream) is built at full resolution.
     _fus_max = int(os.environ.get("MLFRAME_FE_FUSION_MAX_ROWS", "250000"))
-    # GPU_INFRA_D-11 fix (mrmr_audit_2026-07-22): floor division gave stride==1 (no thinning) for any
+    # GPU_INFRA_D-11 fix: floor division gave stride==1 (no thinning) for any
     # n_rows strictly between _fus_max and 2*_fus_max, so "caps at <=_fus_max rows" was only true once
     # n_rows reached ~2*_fus_max. Ceiling division actually caps at n_rows (matches _hinge_detect's fix).
     _stride = -(-n_rows // _fus_max) if _fus_max > 0 and n_rows > _fus_max else 1
@@ -311,7 +311,7 @@ def propose_additive_fusions_gpu(
                 _r_b = _multiple_r_gpu(cp, cb[:, None], yc_dev, y_std)
                 _r_fused = _multiple_r_gpu(cp, cp.stack([ca, cb], axis=1), yc_dev, y_std)
                 _r_best_single = max(_r_a, _r_b)
-                # GPU_INFRA_D-4 fix (mrmr_audit_2026-07-22): was `/ max(np.sqrt(float(n_sc)), 1.0)` -- the
+                # GPU_INFRA_D-4 fix: was `/ max(np.sqrt(float(n_sc)), 1.0)` -- the
                 # SCORING-SUBSAMPLE row count -- while the CPU sibling (_fe_additive_fusion.py) computes the
                 # identical margin against the TRUE, full fit row count. Above the subsample threshold this
                 # made the GPU threshold systematically stricter than the CPU one (2/sqrt(250k)=0.004 vs

@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 # threading-pool dispatch used to gate on ``n_workers > 1`` alone. Isolated/warmed/best-of-3+ A/B at this
 # call site's realistic scales found the pool NEVER wins over the serial fallback below: m=10 candidates ->
 # 0.03x, m=320 (wellbore-scale) -> 0.72-0.73x, m=820/n_workers=8 -> 0.81x -- confirming the GIL-bound
-# dispatch-boundary contention the 2026-07-09 finding #5 comment (``_screen_predictors.py``) left
+# dispatch-boundary contention the 2026-07-09 comment (``_screen_predictors.py``) left
 # UNRESOLVED. ``_screen_predictors.py`` no longer ever builds a non-``None`` ``workers_pool`` for this
 # path, so this flag is redundant defense-in-depth, kept ``False`` as a documented historical marker rather
 # than deleting the branch outright. ``n_workers`` itself is still accepted/threaded through (other call
@@ -72,7 +72,7 @@ from ._confirm_predictor_engineered import (
     _prefer_engineered_order,
 )
 
-# X_EFFICIENCY_ARCHITECTURE-1 fix (mrmr_audit_2026-07-22): ScreenContext carved out into
+# X_EFFICIENCY_ARCHITECTURE-1 fix: ScreenContext carved out into
 # _confirm_predictor_context.py to clear the repo's enforced hard 1000-LOC CI gate (this file had crept
 # back to 1007 lines). Re-exported here so every existing import keeps working unchanged.
 from ._confirm_predictor_context import ScreenContext
@@ -428,7 +428,7 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
         if X in cached_confident_MIs:
             bootstrapped_gain, confidence = cached_confident_MIs[X]
         else:
-            # mrmr_audit_2026-07-20 B-5: fold the candidate's own identity into the seed (mirrors the
+            # fold the candidate's own identity into the seed (mirrors the
             # _fleuret_base_seed fix below) so ``random_seed`` actually reaches this marginal-confirmation
             # permutation gate (pre-fix: neither mi_direct nor mi_direct_gpu received any seed here, so the
             # CPU branch always drew the identical base_seed=0 permutation stream for every candidate, and
@@ -461,7 +461,7 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     logger.debug("suppressed in _confirm_predictor.py:528: %s", e)
                     pass
             if _confirm_use_gpu:
-                # SCREEN_CONFIRM_A-2 fix (mrmr_audit_2026-07-22): mirror evaluate_candidate's GPU
+                # SCREEN_CONFIRM_A-2 fix: mirror evaluate_candidate's GPU
                 # try/except (evaluation.py, 2026-07-09 fix) -- this call previously had NO exception
                 # handling, unlike every sibling GPU dispatch point in this codebase. A transient CUDA
                 # fault here (driver hiccup, OOM, a poisoned context from an earlier unrelated GPU call)
@@ -518,7 +518,7 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     workers_pool=workers_pool,
                     parallel_kwargs=parallel_kwargs,
                     base_seed=_marginal_base_seed,
-                    # SCREEN_CONFIRM_B-4 fix (mrmr_audit_2026-07-22): belt-and-braces -- this branch runs
+                    # SCREEN_CONFIRM_B-4 fix: belt-and-braces -- this branch runs
                     # precisely when the caller already decided NOT to use GPU (_confirm_use_gpu=False);
                     # pin prefer_gpu=False explicitly rather than trusting mi_direct's own internal gate
                     # (which is now also fixed to check gpu_globally_disabled(), but a caller that already
@@ -580,13 +580,13 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     # unreliable conditional permutation gate.
                     return bootstrapped_gain, confidence
 
-            # mrmr_audit_2026-07-20 B-6: fold the candidate's own identity (``hash(X)``) into the seed --
+            # fold the candidate's own identity (``hash(X)``) into the seed --
             # pre-fix this only depended on (random_seed, len(selected_vars)), so every distinct candidate
             # confirmed at the same selected_vars depth within one greedy round drew the IDENTICAL
             # permutation stream for the Fleuret conditional recheck.
             _fleuret_base_seed = int(((int(random_seed or 0) * 2654435761) + len(selected_vars) + 1 + hash(X)) & 0xFFFFFFFFFFFFFFFF)
             if n_workers and n_workers > 1 and full_npermutations > NMAX_NONPARALLEL_ITERS:
-                # SCREEN_CONFIRM_A-4 fix (mrmr_audit_2026-07-22): build the Fleuret parallel pool ONCE per
+                # SCREEN_CONFIRM_A-4 fix: build the Fleuret parallel pool ONCE per
                 # screen round and cache it on ``ctx`` -- pre-fix, ``workers_pool`` was always None here
                 # (deliberately, per the RETIRED note above, for the UNRELATED evaluate_candidates path),
                 # so ``get_fleuret_criteria_confidence_parallel`` rebuilt a fresh joblib.Parallel pool on

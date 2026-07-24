@@ -88,7 +88,7 @@ def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int) -> n
             continue
         counts = np.bincount(finite.astype(np.int64), minlength=k)
         # keep the (cap-1) most frequent as 0..cap-2 (freq desc); everything else -> the "other" bucket cap-1.
-        # DISCRETIZATION-13 fix (mrmr_audit_2026-07-22): kind="stable" so two categories tied exactly at
+        # DISCRETIZATION-13 fix: kind="stable" so two categories tied exactly at
         # the cutoff boundary have a deterministic, documented tie-break (first-seen/lowest-index order)
         # rather than relying on the non-guaranteed default sort's tie behaviour across numpy
         # versions/architectures. Sort by NEGATED counts (descending) directly, rather than
@@ -451,7 +451,7 @@ def quantize_dig(arr, bins):
 @njit(cache=True)
 def quantize_search(arr, bins):
     """Bin-code assignment via ``np.searchsorted`` on the interior bin edges -- faster than ``quantize_dig``
-    for sorted, dense inputs. NOT bit-equivalent on-edge (DISCRETIZATION-7 fix, mrmr_audit_2026-07-22):
+    for sorted, dense inputs. NOT bit-equivalent on-edge (DISCRETIZATION-7 fix):
     ``digitize(..., right=True)`` and ``searchsorted(..., side="right")`` disagree at an exact edge value
     (digitize's right=True excludes the left boundary of each bin; searchsorted's side="right" includes it),
     so a value sitting exactly on a bin edge can land in a different bin between the two. This is the
@@ -1024,7 +1024,7 @@ def discretize_2d_array_cuda(
 
     if method == "quantile":
         qs = cp.linspace(0.0, 100.0, n_bins + 1)
-        # mrmr_audit_2026-07-20 B-12: cp.percentile has no nanpercentile twin (unlike numpy), and a plain
+        # cp.percentile has no nanpercentile twin (unlike numpy), and a plain
         # cp.percentile over a NaN-bearing column poisons EVERY edge for that column with NaN -- searchsorted
         # against an all-NaN edges row then silently collapses the WHOLE column's real values (not just the
         # NaN rows) to a single bin, the exact bug the CPU path's edges()/get_binning_edges() were already
@@ -1057,7 +1057,7 @@ def discretize_2d_array_cuda(
         # njit kernel on CPU. Fastest path for Gaussian-ish data where the
         # accuracy hit vs quantile is small (bench at info_theory module
         # docstring quotes H(X)/log(nbins) >= 0.82 for Gaussian).
-        # mrmr_audit_2026-07-20 B-12: plain cp.min/cp.max propagate NaN (a single NaN anywhere in a column
+        # plain cp.min/cp.max propagate NaN (a single NaN anywhere in a column
         # poisons that column's min/max to NaN), unlike the CPU discretize_uniform path's NaN-aware range.
         # cp.nanmin/cp.nanmax exist (unlike cp.nanpercentile above) so this branch stays fully on-device.
         col_min = cp.nanmin(d_arr, axis=0, keepdims=True)
@@ -1080,7 +1080,7 @@ def discretize_2d_array_cuda(
         out_f = (d_arr - col_min) * rev
         out_f = cp.where(_rng > 0, out_f, 0.0)
         out_f = cp.clip(out_f, 0, n_bins - 1)
-        # mrmr_audit_2026-07-20 B-12: an individual NaN VALUE (not just a NaN-poisoned column min/max,
+        # an individual NaN VALUE (not just a NaN-poisoned column min/max,
         # already fixed above) still produces NaN through the affine map; cp.clip is a no-op on NaN (like
         # numpy), so without this it would cast to an undefined/garbage int code. The CPU discretize_uniform
         # kernel routes NaN rows to a dedicated code one past the real range (``nan_code = n_bins``) instead
@@ -1185,7 +1185,7 @@ def discretize_2d_array_cuda_row_chunked(
     if method == "uniform":
         col_min_d: Any = None
         col_max_d: Any = None
-        # DISCRETIZATION-1 fix (mrmr_audit_2026-07-22): mirrors the B-12 fix already landed on the
+        # DISCRETIZATION-1 fix: mirrors the B-12 fix already landed on the
         # non-chunked sibling discretize_2d_array_cuda -- plain cp.min/cp.max propagate NaN (a single NaN
         # anywhere in a column poisons that column's min/max to NaN), so use cp.nanmin/cp.nanmax instead.
         for row_start in range(0, n_rows, row_chunk_rows):
@@ -1205,7 +1205,7 @@ def discretize_2d_array_cuda_row_chunked(
             out_f = (d_chunk - col_min_d) * rev
             out_f = cp.where(_rng > 0, out_f, 0.0)
             out_f = cp.clip(out_f, 0, n_bins - 1)
-            # DISCRETIZATION-1 fix (mrmr_audit_2026-07-22): route individual NaN VALUES to the dedicated
+            # DISCRETIZATION-1 fix: route individual NaN VALUES to the dedicated
             # NaN bin code (n_bins), matching the CPU discretize_uniform kernel and the fixed non-chunked
             # sibling -- without this, cp.clip is a no-op on NaN and it would cast to a garbage int code.
             out_f = cp.where(cp.isnan(d_chunk), float(n_bins), out_f)
@@ -1221,7 +1221,7 @@ def discretize_2d_array_cuda_row_chunked(
             sub_arr = arr
         d_sub = cp.asarray(sub_arr)
         qs = cp.linspace(0.0, 100.0, n_bins + 1)
-        # DISCRETIZATION-1 fix (mrmr_audit_2026-07-22): mirrors the B-12 fix on the non-chunked sibling --
+        # DISCRETIZATION-1 fix: mirrors the B-12 fix on the non-chunked sibling --
         # cp.percentile has no nanpercentile twin, and a plain cp.percentile over a NaN-bearing subsample
         # poisons EVERY edge for that column with NaN, collapsing the whole column to one degenerate bin.
         if bool(cp.isnan(d_sub).any()):

@@ -194,7 +194,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # to a per-call unique token (identity equality) => never matches => conservative full refit.
     #
     # PRE-OVERRIDE snapshot preferred (bug fix, 05_concurrency_and_statistics.md, found while testing
-    # finding #5): ``fit()``'s outer wrapper (``_fit_body`` in ``_mrmr_class.py``) applies several
+    # ): ``fit``'s outer wrapper (``_fit_body`` in ``_mrmr_class.py``) applies several
     # TRANSIENT mid-fit overrides (cluster_aggregate_enable, fast-search profile knobs, default-screen-
     # subsample, ...) to ctor-param-named attributes BEFORE calling into ``_fit_impl`` here, then
     # restores them in its ``finally``. Reading ``self.get_params()`` fresh AT THIS POINT would capture
@@ -254,7 +254,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _cached = None
     _replayed = None
     if _cache_key is not None:
-        # concurrency audit finding #2: the replay READ of ``_cached``'s attributes must stay inside the
+        # concurrency audit: the replay READ of ``_cached``'s attributes must stay inside the
         # SAME locked critical section as the lookup, not run after the ``with`` block exits. If the
         # cached instance is itself concurrently being re-fit() (same object, same cache key -- a shared/
         # reused estimator in a service), an unlocked replay could read a torn mix of attributes: some
@@ -427,7 +427,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # present (empty when hinge off / no kink) so transform / pickle / clone
     # never trip on a missing attribute.
     self._hinge_features_ = []
-    # SUFFICIENT-SUMMARY EARLY-STOP verdict (backlog #22). The fitted-attribute mirror of
+    # SUFFICIENT-SUMMARY EARLY-STOP verdict. The fitted-attribute mirror of
     # the last sufficient-summary check in the greedy FE loop (a SufficientSummaryVerdict,
     # or None when the early-stop never ran / was disabled). Surfaced so callers can inspect
     # WHY the FE search stopped (residual fraction, max raw MI, maxT floor). Always present
@@ -755,7 +755,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     type(_e_exc).__name__,
                     _e_exc,
                 )
-    # 2026-06-09 backlog #11 — HINGE / piecewise-linear change-point basis stage.
+    # 2026-06-09 — HINGE / piecewise-linear change-point basis stage.
     # Independent opt-in via ``fe_hinge_enable`` (does NOT require
     # ``fe_hybrid_orth_enable``): captures a SLOPE CHANGE at a data-dependent
     # threshold ``y = a*x + b*max(x-tau,0)`` (pricing tiers / dose-response /
@@ -2661,7 +2661,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 include_unary=bool(getattr(self, "fe_mi_greedy_include_unary", True)),
                 include_binary=bool(getattr(self, "fe_mi_greedy_include_binary", True)),
                 min_cmi_gain=float(self.fe_mi_greedy_cmi_min_gain),
-                # MI_GREEDY_RECIPES-1 fix (mrmr_audit_2026-07-22): was hardcoded to 0xC011 inside
+                # MI_GREEDY_RECIPES-1 fix: was hardcoded to 0xC011 inside
                 # greedy_cmi_fe_construct regardless of random_state, correlating the CMI noise-floor
                 # permutation across nominally-independent bootstrap/multi-seed replicates.
                 seed=int(getattr(self, "random_seed", 0) or 0),
@@ -4215,7 +4215,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 )
 
     # Layer 104 (2026-06-01): THREE new recipe-based FE families.
-    # Family D (backlog #12, 2026-06-09): conditional dispersion / 2nd-moment.
+    # Family D: conditional dispersion / 2nd-moment.
     self.rare_category_features_ = []
     self.conditional_residual_features_ = []
     self.conditional_dispersion_features_ = []
@@ -4358,7 +4358,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _cr_exc,
                 )
 
-    # FAMILY D -- NUM x NUM conditional DISPERSION / 2nd-moment (backlog #12).
+    # FAMILY D -- NUM x NUM conditional DISPERSION / 2nd-moment.
     # Bin x_j; per bin store conditional STD of x_i; emit |z| / z^2 (conditional
     # dispersion anomaly). DEFAULT-ON: MI-gateable (|z| is a non-monotone fold ->
     # genuine MI on heteroscedastic targets) + SELF-LIMITING (a dual-uplift gate
@@ -4437,7 +4437,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _cd_exc,
                 )
 
-    # CONDITIONAL QUANTILE-RANK (mrmr_audit_2026-07-20 fe_expansion.md): 4th member of the
+    # CONDITIONAL QUANTILE-RANK: 4th member of the
     # conditional-dispersion family. Bin x_j; emit q(row) = empirical_rank(x_i within bin(x_j)) --
     # the row's TRUE within-bin percentile, not a z-score. MI-gated + self-limiting (a near-
     # monotone reparametrization on homoscedastic/non-skewed data clears no uplift over raw x_i, so
@@ -4505,7 +4505,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _cqr_exc,
                 )
 
-    # ORDINAL PATTERN (Bandt-Pompe) K-fold TARGET ENCODING (mrmr_audit_2026-07-20 fe_expansion.md).
+    # ORDINAL PATTERN (Bandt-Pompe) K-fold TARGET ENCODING.
     # For each K-tuple of raw numeric columns, compute the row's rank-permutation id (0..K!-1) and
     # K-fold-TE encode it -- a fused single-hop recipe: the intermediate perm_id categorical is
     # never exposed as its own column, avoiding a 2-deep nested-recipe replay the 1-deep convention
@@ -4576,7 +4576,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 )
 
     # RANDOM FOURIER FEATURES (random kitchen sinks) joint kernel-approximation block
-    # (mrmr_audit_2026-07-20 fe_expansion.md). Unlike every pair/triplet/quadruplet cross-basis
+    # . Unlike every pair/triplet/quadruplet cross-basis
     # family, this draws m random features that are jointly a smooth function of MANY (5+) raw
     # columns simultaneously without combinatorial blow-up, approximating an RBF kernel over the
     # bounded column pool. Routing piggybacks on hybrid_orth_features_; recipe carries the frozen
@@ -4644,7 +4644,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _rff_exc,
                 )
 
-    # SLICED INVERSE REGRESSION (SIR) oblique-direction projection (mrmr_audit_2026-07-20
+    # SLICED INVERSE REGRESSION (SIR) oblique-direction projection (
     # fe_expansion.md). Recovers a genuinely OBLIQUE (rotated) linear combination spread thinly
     # across several correlated columns -- where every individual weight is too small for that
     # column's own marginal MI to clear the screening floor, and no pairwise/triplet/quadruplet
@@ -4713,7 +4713,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _sir_exc,
                 )
 
-    # LOCAL OUTLIER FACTOR / k-NN local density-ratio (mrmr_audit_2026-07-20 fe_expansion.md).
+    # LOCAL OUTLIER FACTOR / k-NN local density-ratio.
     # LOCAL and non-parametric (unlike a global Mahalanobis ellipsoid), catching a row anomalous
     # for sitting in a locally-sparse gap between well-separated clusters even when its GLOBAL
     # distance to the overall mean is unremarkable. Routing piggybacks on hybrid_orth_features_;
@@ -4781,7 +4781,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _lof_exc,
                 )
 
-    # MULTIVARIATE MAHALANOBIS / GAUSSIAN-COPULA JOINT DENSITY anomaly score (mrmr_audit_2026-07-20
+    # MULTIVARIATE MAHALANOBIS / GAUSSIAN-COPULA JOINT DENSITY anomaly score (
     # fe_expansion.md). Catches y depending on whether a row sits inside/outside an ELLIPSOIDAL
     # level-set of a p=15-30-way joint distribution where no single column, pair, triplet, or even
     # quadruplet cross-basis is individually extreme -- the p-way generalization of the existing
@@ -4850,7 +4850,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _mahal_exc,
                 )
 
-    # HAAR WAVELET / localized multiresolution basis (backlog #13, 2026-06-09).
+    # HAAR WAVELET / localized multiresolution basis.
     # A NEW operator for LOCALIZED bump / multiscale piecewise structure: y jumps
     # only inside a narrow sub-window of x (Fourier Gibbs-rings it, spline's fixed
     # quantile knots smooth it away). Emits a small held-out-scale-selected dyadic
@@ -6597,7 +6597,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     logger.info("MRMR.fit: runtime budget %.1f min exceeded at FE step %d; stopping.", self.max_runtime_mins, num_fs_steps)
                 break
 
-        # SUFFICIENT-SUMMARY EARLY-STOP (backlog #22, DEFAULT-ON). The user's
+        # SUFFICIENT-SUMMARY EARLY-STOP. The user's
         # "compare-to-theoretical-max" idea via a DPI residual test. Once the
         # current selection already captures all the information the observables
         # carry about y -- i.e. the residual r = y - E_hat[y|selected] is pure
@@ -7430,7 +7430,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             n = leg.shape[0]
             if n != _y_for_hinge_gate.shape[0] or not np.all(np.isfinite(leg)):
                 return 0.0
-            # FIT_IMPL_B-3 fix (mrmr_audit_2026-07-22): seeded shuffle-then-stride, not a raw
+            # FIT_IMPL_B-3 fix: seeded shuffle-then-stride, not a raw
             # positional (idx % 3) == 0 split -- the latter is not an honest i.i.d. holdout on
             # time/group/label-sorted input (this module explicitly supports sorted input elsewhere
             # via ``groups`` / the ``temporal_agg`` FE family), which can bias the held-out R^2
@@ -9762,7 +9762,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         from ._finalise import _finalise_empty_support_fallback
         _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, target_indices)
 
-    # FIT_IMPL_B-2 fix (mrmr_audit_2026-07-22): the p>=n FP-control cap above is enforced exactly once,
+    # FIT_IMPL_B-2 fix: the p>=n FP-control cap above is enforced exactly once,
     # but the post-selection reconciliation passes below it (emit-both operand re-attach, usability-aware
     # raw retention, raw-signal-retention augmentation) can each append more raw columns afterward with no
     # re-check against the cap -- letting the final raw (and n_features_) count silently exceed the
@@ -9828,7 +9828,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # this fitted state instead of re-running cat-FE + permutation. Bound the LRU by ``fit_cache_max``;
     # the default (4) covers a typical model suite without thrashing and long-lived workers no longer leak.
     # ``_skip_fit_cache`` (private, non-BaseEstimator attr set by the stability-selection outer loop on
-    # its throwaway bootstrap-replicate sub-fits, 07_memory_scalability.md finding #2): each replicate
+    # its throwaway bootstrap-replicate sub-fits): each replicate
     # fits a DIFFERENT row-subsample every call, so its cache key never repeats and is a guaranteed
     # future miss -- storing it only serves to evict a legitimately-reusable entry from an unrelated
     # concurrent caller sharing the same process-wide 4-entry LRU. Unlike ``fit_cache_max=0`` (which
@@ -9839,7 +9839,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # own ``__setitem__``/``popitem``/``move_to_end`` (KeyError, wrong-entry eviction) or iterate ``.values()``
         # via ``_mrmr_cache_bytes_total`` while another thread mutates the dict.
         with _MRMR_FIT_CACHE_LOCK:
-            # concurrency audit finding #3 (TOCTOU): between this thread's earlier locked miss-check and this
+            # concurrency audit (TOCTOU): between this thread's earlier locked miss-check and this
             # locked store, another thread with the IDENTICAL cache key may have run its own full fit and
             # already stored its result here. Both instances are independently correct (same X/y/params), but
             # picking a FIRST-WRITER-WINS policy (``setdefault`` instead of unconditional overwrite) makes the

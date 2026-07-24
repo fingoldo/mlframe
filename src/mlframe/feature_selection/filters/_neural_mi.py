@@ -254,7 +254,7 @@ def _get_infonet_model(device: str = "auto"):
             raise RuntimeError(f"InfoNet vendored config missing at {config_path}. " f"Run the vendor copy step from the InfoNet setup script.")
         # Use the vendored infer module via sys.path injection (it has relative-style imports
         # inside the model directory).
-        # USABILITY_B-10 fix (mrmr_audit_2026-07-22): infer.py's own top-level imports (`from model.decoder
+        # USABILITY_B-10 fix: infer.py's own top-level imports (`from model.decoder
         # import Decoder`, etc.) only resolve via this sys.path injection, but leaving it permanently
         # inserted made the generic top-level names `model`/`util`/`query`/`decoder`/`encoder`/`attention`
         # importable process-wide at sys.path[0] (highest priority) for the rest of the interpreter's
@@ -368,7 +368,7 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
                 _INFONET_Y_PREP_CACHE.pop(next(iter(_INFONET_Y_PREP_CACHE)))
             _INFONET_Y_PREP_CACHE[_y_key] = yr
 
-    # USABILITY_B-10 fix (mrmr_audit_2026-07-22): see the matching fix in _get_infonet_model above --
+    # USABILITY_B-10 fix: see the matching fix in _get_infonet_model above --
     # scope the sys.path injection to just this import (already cached in sys.modules after the first
     # call, so this is cheap on every subsequent call too).
     pkg_root = Path(__file__).resolve().parent

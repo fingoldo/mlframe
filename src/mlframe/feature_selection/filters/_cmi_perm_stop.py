@@ -100,7 +100,7 @@ def cmi_permutation_stop(x_cand: np.ndarray, y: np.ndarray,
             z_comp = z_comp * K_j + col_j.astype(np.int64)
             K_z = K_z * K_j
             if K_z > _MAX_K_Z:
-                # SCREEN_CONFIRM_A-3 fix (mrmr_audit_2026-07-22): this cap used to be 1_000_000 --
+                # SCREEN_CONFIRM_A-3 fix: this cap used to be 1_000_000 --
                 # _cmi_plugin_njit allocates a DENSE (K_x, K_y, K_z) float64 histogram, so even a modest
                 # K_x=K_y=10 at the old cap was 10*10*1_000_000*8 bytes = ~800 MB, rebuilt from scratch for
                 # the observed call AND every one of n_permutations (default 100) null draws -- a

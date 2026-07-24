@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 _BIG_STACK_BYTES = 8 * 1024 * 1024
 _NEEDS_BIG_STACK = sys.platform.startswith("win")
 
-# USABILITY_A-5 fix (mrmr_audit_2026-07-22): threading.stack_size() is a process-global setting, so
+# USABILITY_A-5 fix: threading.stack_size is a process-global setting, so
 # concurrent run_in_big_stack_thread() callers racing on the save/set/restore sequence could have the
 # loser's `finally` restore a stale value. Serialize the whole sequence process-wide.
 _STACK_SIZE_LOCK = threading.Lock()
@@ -224,7 +224,7 @@ _FIT_MEMMAP_CACHE: dict = {}
 def _fit_constant_key(arr) -> tuple:
     """Content key: shape + dtype + blake2 of the FULL buffer.
 
-    mrmr_audit_2026-07-20 B-21: a bounded first/last-64KB + coarse-stride sample let two
+    a bounded first/last-64KB + coarse-stride sample let two
     genuinely different-content arrays of the same shape/dtype collide (agree at every
     sampled point, differ elsewhere) and silently return the WRONG cached memmap -- a
     correctness bug, not a perf one. Hashing the full buffer via a memoryview (no

@@ -34,7 +34,7 @@ Why this lives outside of polynom_pair_fe:
   back into MRMR's standard relevance/redundancy gates as ordinary numeric
   columns.
 
-X_EFFICIENCY_ARCHITECTURE-4 fix (mrmr_audit_2026-07-22): this docstring used to claim "NOT wired into
+X_EFFICIENCY_ARCHITECTURE-4 fix: this docstring used to claim "NOT wired into
 MRMR.fit by default -- explicit opt-in via direct call" -- FALSE for ``hybrid_orth_mi_fe_with_recipes``,
 which IS the default-on production entry point (``fe_univariate_basis_enable`` defaults to ``True``;
 see ``_mrmr_fit_impl/_fit_impl_core.py``'s "UNIVARIATE-BASIS FE -- DEFAULT ON" call site). This stale
@@ -599,7 +599,7 @@ def hybrid_orth_mi_fe(
         from .._gpu_resident_fe import fe_gpu_resident_basis_mi_enabled, _cuda_present
         from .._fe_gpu_strict import fe_gpu_strict_enabled
         _p_cols = len(cols) if cols else int(X.shape[1])
-        # X_EFFICIENCY_ARCHITECTURE-3 fix (mrmr_audit_2026-07-22): the GPU-resident twin
+        # X_EFFICIENCY_ARCHITECTURE-3 fix: the GPU-resident twin
         # (_gpu_build_and_score_univariate) never consults get_unlabeled_pool(), unlike the host builder
         # (generate_univariate_basis_features) a few lines below, which fits each column's basis-preprocess
         # params on the labeled+unlabeled POOL whenever fe_semi_supervised_enable=True. Silently using the
@@ -660,7 +660,7 @@ def hybrid_orth_mi_fe(
         5.0,
         float(np.sqrt(2.0 * np.log(max(2.0, 2.0 * n_cands))) + 1.5),
     )
-    # X_EDGE_CASES_BEST_PRACTICES-2 fix (mrmr_audit_2026-07-22): this used to hard-gate on
+    # X_EDGE_CASES_BEST_PRACTICES-2 fix: this used to hard-gate on
     # raw_baselines.size >= 4 (below that, noise_floor silently defaulted to 0.0 -- a full no-op).
     # raw_baselines has one entry per SCORED ENGINEERED COLUMN (~len(degrees) * len(surviving raw
     # cols)), not per raw source column, so with the default 2 degrees the guard was bypassed whenever
@@ -680,7 +680,7 @@ def hybrid_orth_mi_fe(
     # median by pure tail sampling. Bound engineered_mi above the engineered
     # median+sigma*MAD too -- legitimate signals are statistical outliers in
     # the engineered distribution AS WELL.
-    # X_EDGE_CASES_BEST_PRACTICES-2 fix (mrmr_audit_2026-07-22): matching fix to the raw-baseline floor
+    # X_EDGE_CASES_BEST_PRACTICES-2 fix: matching fix to the raw-baseline floor
     # above -- see that comment for the rationale (no size>=4 hard gate; median/MAD are well-defined at
     # any n>=1).
     eng_mis = scores["engineered_mi"].to_numpy()

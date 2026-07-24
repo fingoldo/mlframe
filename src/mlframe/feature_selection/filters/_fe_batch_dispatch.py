@@ -16,7 +16,10 @@ shape (force-env override + KTC + CPU-default fallback), not a default-off opt-i
 """
 from __future__ import annotations
 
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 
@@ -88,7 +91,15 @@ def fe_batch_mi(
             from ._fe_gpu_batch._devices import fe_gpu_f32_enabled
             _dt = _np.float32 if fe_gpu_f32_enabled() else _np.float64  # f32 opt-in: 2.2x, selection-equiv
             return multi_gpu_fe_batch_mi(X, y_codes, nbins, dtype=_dt)  # spreads across GPUs; single-GPU = 1 device
-        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
-            pass  # fall through to the selection-identical CPU path
+        except Exception as exc:
+            # X_EDGE_CASES_BEST_PRACTICES-1 fix: was a bare `except Exception: pass`
+            # with zero logging -- on a genuine multi-GPU host, a cross-device resident-cache error (or any
+            # other GPU failure) silently defeated the whole multi-GPU speedup with no diagnostic trace,
+            # on the exact feature this subpackage exists to provide. The fallback itself stays
+            # selection-identical (CPU path below); only the visibility changes.
+            logger.warning(
+                "fe_batch_mi: multi_gpu_fe_batch_mi raised %s: %s; falling back to the CPU path (selection-identical).",
+                type(exc).__name__, exc, exc_info=True,
+            )
     from ._fe_cpu_batch import cpu_fe_batch_mi
     return cpu_fe_batch_mi(X, y_codes, nbins, n_workers=n_workers)

@@ -559,7 +559,7 @@ def run_polynom_pair_fe(
                 method=quantization_method,
                 dtype=quantization_dtype,
             ).reshape(-1, 1)
-            # ORTH_BASIS_A-7 fix (mrmr_audit_2026-07-22): the list appends below used to run BEFORE this X
+            # ORTH_BASIS_A-7 fix: the list appends below used to run BEFORE this X
             # assignment; the outer except only logs and continues, it does not undo an earlier append. If
             # the X assignment itself raised, the unconditional np.concatenate at the loop's end would still
             # bake that column into data/cols/nbins with no matching X column and no recipe. Do the

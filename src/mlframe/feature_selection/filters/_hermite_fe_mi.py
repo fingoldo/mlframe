@@ -400,10 +400,12 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
 def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
     """Single-column plug-in MI for continuous x and discrete y.
 
-    Routes to :func:`_plugin_mi_classif_njit` (CPU) or
-    :func:`_plugin_mi_classif_cuda` (GPU) via the kernel tuning cache
-    (per-host measurement-backed). Override via ``MLFRAME_MI_BACKEND``
-    env var (``njit`` | ``cuda``) to force a specific backend.
+    ORTH_BASIS_A-6 fix: this docstring used to claim the dispatch routes "via the
+    kernel tuning cache (per-host measurement-backed)" -- it does not; every code path below falls through
+    to a GROUND-TRUTH OVERRIDE that always returns the njit backend (justified inline by real end-to-end
+    measurements showing even a concurrency-aware tuner under-counts this path). A KTC-driven auto-tune
+    does happen for a DIFFERENT kernel (``polyeval``'s CPU/CUDA crossover, in ``_hermite_oracle.py``) --
+    not here. Override via ``MLFRAME_MI_BACKEND`` env var (``njit`` | ``cuda``) to force a specific backend.
     """
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
@@ -430,9 +432,10 @@ def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -
 def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
     """Batch plug-in MI per column of ``X_cols`` against discrete ``y``.
 
-    Routes to :func:`_plugin_mi_classif_batch_njit` (prange CPU) or
-    :func:`_plugin_mi_classif_batch_cuda` (GPU) via the kernel tuning
-    cache. Override via ``MLFRAME_MI_BACKEND`` env var.
+    ORTH_BASIS_A-6 fix: see:func:`plugin_mi_classif_dispatch`'s matching
+    docstring note -- this does NOT route via the kernel tuning cache; it always falls through to a
+    GROUND-TRUTH OVERRIDE returning the njit (prange CPU) backend, per real end-to-end measurements.
+    Override via ``MLFRAME_MI_BACKEND`` env var.
     """
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe

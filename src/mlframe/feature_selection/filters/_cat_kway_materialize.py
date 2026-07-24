@@ -185,7 +185,7 @@ def _greedy_expand_one_seed(
 
     Stops early when: no candidate var clears ``min_inc_ii`` (greedy local max reached); adding any candidate would violate the cardinality budget; or order reaches ``max_kway_order``.
 
-    ``weights`` (mrmr_audit_2026-07-20 B-19), when given, route every joint MI through the weighted
+    ``weights``, when given, route every joint MI through the weighted
     kernel so the k-way greedy expansion grows the SAME weighted seed the search phase found, instead
     of re-scoring extensions against an unweighted joint MI.
     """

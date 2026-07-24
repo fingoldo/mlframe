@@ -16,6 +16,12 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def _single_int(y) -> int:
+    """Defensive fallback for a caller passing a bare int despite the Sequence[int] signature
+    (SCREEN_CONFIRM_A-15 fix: factors out 3 verbatim-repeated inline copies)."""
+    return int(y[0]) if hasattr(y, "__len__") else int(y)
+
+
 def build_dcd_state(
     dcd_config: dict | None,
     factors_data: np.ndarray,
@@ -65,15 +71,16 @@ def build_dcd_state(
             existing_state=existing_dcd_state,
         )
     except Exception as _dcd_init_exc:
-        logger.debug(
-            "DCD init failed; falling back to legacy path: %r",
-            _dcd_init_exc,
-        )
+        # SCREEN_CONFIRM_A-8 fix: always log at debug level (was silent at the
+        # library's own verbose=0 default), promoting to warning only when verbose -- a DCD-init failure
+        # should never be completely invisible.
         if verbose:
             logger.warning(
                 "DCD init failed silently; falling back to legacy path: %r",
                 _dcd_init_exc,
             )
+        else:
+            logger.debug("DCD init failed; falling back to legacy path: %r", _dcd_init_exc, exc_info=True)
         return None
 
 
@@ -116,7 +123,7 @@ def compute_selection_gate(
     # implicitly bounded; explicit MM correction on joints is double-counting.
     if cardinality_bias_correction and best_candidate is not None and interactions_order == 1:
         _n_samples_for_mm = int(factors_data.shape[0])
-        _y_idx = int(y[0]) if hasattr(y, "__len__") else int(y)  # type: ignore[call-overload,index]  # defensive fallback for a caller passing a bare int despite the Sequence[int] signature
+        _y_idx = _single_int(y)
         _nbins_y = int(factors_nbins[_y_idx])
         _nbins_x_eff = 1
         try:
@@ -142,7 +149,7 @@ def compute_selection_gate(
     if min_relevance_gain_relative_to_first and selected_vars and predictors:
         _max_corrected_gain = 0.0
         _n_samples_for_mm = int(factors_data.shape[0]) if cardinality_bias_correction else 0
-        _y_idx_for_mm = int(y[0]) if hasattr(y, "__len__") else int(y)  # type: ignore[call-overload,index]  # defensive fallback for a caller passing a bare int despite the Sequence[int] signature
+        _y_idx_for_mm = _single_int(y)
         _nbins_y_for_mm = int(factors_nbins[_y_idx_for_mm]) if cardinality_bias_correction else 0
         for _pred in predictors:
             _g_raw = float(_pred.get("gain", 0.0))
@@ -182,7 +189,7 @@ def compute_selection_gate(
             _cand_marg_corr = float(_cand_marg_raw)
             if cardinality_bias_correction:
                 _nb_x_fdr = int(factors_nbins[int(best_candidate[0])])
-                _y_idx_fdr2 = int(y[0]) if hasattr(y, "__len__") else int(y)  # type: ignore[call-overload,index]  # defensive fallback for a caller passing a bare int despite the Sequence[int] signature
+                _y_idx_fdr2 = _single_int(y)
                 _nb_y_fdr = int(factors_nbins[_y_idx_fdr2])
                 _cand_marg_corr -= (_nb_x_fdr - 1) * (_nb_y_fdr - 1) / (2.0 * int(factors_data.shape[0]))
             _fdr_pass = _cand_marg_corr >= _fdr_floor_eff

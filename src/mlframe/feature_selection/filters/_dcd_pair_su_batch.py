@@ -98,6 +98,20 @@ try:
     _HAVE_NUMBA = True
 except Exception:  # pragma: no cover - numba always present in prod
     _HAVE_NUMBA = False
+
+
+def _validate_batch_joint_entropy_pairs_inputs(a_arr: np.ndarray, b_arr: np.ndarray, nb_arr: np.ndarray) -> None:
+    """Host-side pre-launch guard for :func:`_batch_joint_entropy_pairs` (GPU_INFRA_A-11 fix,
+    ). The njit kernel indexes ``hist[fd[r, ia] + fd[r, ib]*nb_a]`` with
+    ``boundscheck=False`` and no validation of its own -- a non-positive nbins for a referenced
+    column silently corrupts memory instead of raising, unlike every CUDA kernel in this cluster
+    (which pre-validate exactly this class of input before launch). Deliberately O(k) (k = number
+    of pairs), not a per-row code-range scan -- the latter would cost O(n*k) and defeat the point
+    of this batched kernel; not reachable via the normal ``categorize_dataset`` contract, but this
+    function's signature lets a caller supply its own ``nb_arr`` override, so at least the cheap
+    nbins>=1 precondition should fail loudly here instead of corrupting memory silently."""
+    if int(nb_arr[a_arr].min(initial=1)) < 1 or int(nb_arr[b_arr].min(initial=1)) < 1:
+        raise ValueError("_batch_joint_entropy_pairs: nbins must be >= 1 for every referenced column")
     _batch_joint_entropy_pairs = None
 
 
@@ -239,6 +253,7 @@ def pair_su_batch(
                     state._fn_arr_cached = fn_arr
                 a_arr = np.asarray(keys_a, dtype=np.int64)
                 b_arr = np.asarray(keys_b, dtype=np.int64)
+                _validate_batch_joint_entropy_pairs_inputs(a_arr, b_arr, fn_arr)
                 h_ab_vals = _batch_joint_entropy_pairs(fd, a_arr, b_arr, fn_arr)
                 _joint_cache = {(int(a_arr[i]), int(b_arr[i])): float(h_ab_vals[i]) for i in range(a_arr.shape[0])}
                 state._joint_entropy_batch_cache = _joint_cache

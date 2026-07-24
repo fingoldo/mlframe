@@ -369,6 +369,14 @@ def _binarize_aggregate(values: np.ndarray, *, method: str, n_bins: int, dtype) 
     finite = values[np.isfinite(values)]
     if finite.size == 0:
         return np.zeros(values.shape, dtype=dtype)
+    # CLUSTERING_STABILITY-6 fix: NaN/Inf rows were excluded only from the EDGE
+    # computation above -- the `values` array passed to searchsorted/the uniform-binning arithmetic below
+    # still included them, so a non-finite row got silently routed into a REAL bin (searchsorted places
+    # NaN past every finite edge -> the last bin in quantile mode; NaN.astype(int64) -> garbage, clamped to
+    # 0 by np.clip in uniform mode) instead of a dedicated out-of-band code, unlike the discretization
+    # module's own convention elsewhere in this codebase. Not currently live (every call site pre-sanitizes
+    # with nan_to_num), but this is the defense-in-depth fix regardless.
+    nonfinite_mask = ~np.isfinite(values)
     if method == "quantile":
         try:
             edges = np.quantile(finite, np.linspace(0, 1, n_bins + 1))
@@ -385,5 +393,11 @@ def _binarize_aggregate(values: np.ndarray, *, method: str, n_bins: int, dtype) 
         mn, mx = float(finite.min()), float(finite.max())
         if mx <= mn:
             return np.zeros(values.shape, dtype=dtype)
-        binned = np.clip(((values - mn) / (mx - mn) * n_bins).astype(np.int64), 0, n_bins - 1)
+        # Route non-finite values to 0.0 BEFORE the float->int cast (avoids a NaN->int64 "invalid value
+        # encountered in cast" RuntimeWarning); the real code gets overwritten by the NaN mask below anyway.
+        safe_values = np.where(nonfinite_mask, mn, values)
+        binned = np.clip(((safe_values - mn) / (mx - mn) * n_bins).astype(np.int64), 0, n_bins - 1)
+    if nonfinite_mask.any():
+        binned = binned.astype(np.int64)
+        binned[nonfinite_mask] = n_bins  # dedicated out-of-band NaN/Inf code, one past every real bin
     return binned.astype(dtype)

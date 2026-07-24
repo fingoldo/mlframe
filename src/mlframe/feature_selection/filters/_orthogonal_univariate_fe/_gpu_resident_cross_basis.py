@@ -4,7 +4,7 @@ The orthogonal cross-basis FE families (pair / triplet / quadruplet / adaptive-a
 engineered candidate matrix ENTIRELY ON THE HOST -- ``h_a * h_b [* h_c [* h_d]]`` products of per-leg
 orthogonal-polynomial basis columns ``h = T_deg(z)`` -- and then score the matrix by ``MI(col; y)`` via
 ``mi_classif_batch_chunked``. Under ``MLFRAME_FE_GPU_STRICT`` that MI routes through the resident plug-in,
-so the WHOLE host product matrix is ``cp.asarray``-uploaded at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (ORTH_BASIS_B-5 fix, mrmr_audit_2026-07-22: dropped the exact line number, which had already gone stale)`` (H2D
+so the WHOLE host product matrix is ``cp.asarray``-uploaded at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (ORTH_BASIS_B-5 fix: dropped the exact line number, which had already gone stale)`` (H2D
 instrumentation of a 300k STRICT F2 fit: the cross-basis families are the dominant remaining Group-1
 single-site H2D -- pair-cross ~112 MB, triplet ~32 MB, quadruplet ~20 MB, attributed to the
 ``score_*_cross_basis_by_mi_uplift`` callers + the adaptive internal MI batch).
@@ -221,7 +221,7 @@ def raw_and_product_mi_resident(
     MI (``_mi_classif_batch(raw_X)``) and the ENGINEERED product-matrix MI (``mi_classif_batch_chunked``).
 
     Rebuilds the engineered product matrix ON the device from the small resident operand columns (collapsing the
-    host product-matrix upload at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (ORTH_BASIS_B-5 fix, mrmr_audit_2026-07-22: dropped the exact line number, which had already gone stale)``) and scores BOTH raw and engineered through the
+    host product-matrix upload at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (ORTH_BASIS_B-5 fix: dropped the exact line number, which had already gone stale)``) and scores BOTH raw and engineered through the
     SAME percentile-edge resident plug-in MI -- so the uplift RATIO is internally consistent (no estimator
     switch / no host-vs-device mismatch that could flip selection). Returns ``(raw_mi_map, eng_mi)`` where
     ``raw_mi_map`` is ``{raw_col: mi}`` and ``eng_mi`` is the (K,) host float64 array in ``engineered_X.columns``

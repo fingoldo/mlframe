@@ -121,7 +121,7 @@ def _bootstrap_ii_cis(
 ) -> dict:
     """For each pair in ``selected_idx``, compute bootstrap CI on II. Returns ``{(i, j): (lower, median, upper)}`` per ``cfg.bootstrap_ci_alpha``.
 
-    ``weights``, when given (mrmr_audit_2026-07-20 B-19), are sliced alongside each bootstrap
+    ``weights``, when given, are sliced alongside each bootstrap
     subsample and every MI term is computed via the weighted kernel -- otherwise a weighted
     search-phase ``II_obs`` would be checked for stability against an UNWEIGHTED bootstrap null.
 
@@ -226,7 +226,7 @@ def _anti_redundancy_rerank(
 
     When ``cfg.anti_redundancy_beta == 0`` or ``selected_so_far`` is empty, this is a no-op. Returns ``(scored_arr, selected_idx_reordered)``.
 
-    ``weights`` (mrmr_audit_2026-07-20 B-19), when given, route the redundancy MI(merged; Z) through
+    ``weights``, when given, route the redundancy MI(merged; Z) through
     the weighted kernel so the anti-redundancy correction matches the weighted search-phase II.
     """
     if cfg.anti_redundancy_beta <= 0 or not selected_so_far or len(selected_idx) == 0:
@@ -313,7 +313,7 @@ def _kfold_stability_filter(
     """For each top-K survivor, recompute II on K disjoint folds; keep pairs whose II clears the floor on >= ``min_fold_prevalence * K`` folds. Returns
     ``(kept_selected_idx, per_fold_ii_dict)``. No-op (returns inputs unchanged) when ``cfg.n_folds_stability <= 0``.
 
-    ``weights`` (mrmr_audit_2026-07-20 B-19), when given, are sliced per fold and every per-fold MI
+    ``weights``, when given, are sliced per fold and every per-fold MI
     term uses the weighted kernel -- otherwise a weighted search-phase II would be stability-checked
     against UNWEIGHTED per-fold statistics.
 
@@ -437,7 +437,7 @@ def _refine_kway_coordinate_ascent(
 ) -> list:
     """For each k-way result, run ``n_passes`` of coordinate-ascent: try swapping each member with each non-member; keep if joint MI improves. Returns refined kway_results.
 
-    ``weights`` (mrmr_audit_2026-07-20 B-19), when given, route every swap-candidate MI through the
+    ``weights``, when given, route every swap-candidate MI through the
     weighted kernel so refinement doesn't drift the weighted seed away from what the weighted search
     phase actually found."""
     if n_passes <= 0 or not kway_results:

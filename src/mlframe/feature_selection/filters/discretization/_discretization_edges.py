@@ -365,7 +365,7 @@ def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform"
         else:
             arr_finite = arr[_mask]
         if arr_finite.size == 0:
-            # mrmr_audit_2026-07-20 B-11 (P0): an all-NaN column has zero finite values, so
+            # (P0): an all-NaN column has zero finite values, so
             # ``np.percentile`` on the empty ``arr_finite`` raised ValueError -- correctly
             # when this function is called in isolation, but that exception is silently
             # swallowed when this runs inside ``_discretize_2d_array_njit``'s ``prange`` loop

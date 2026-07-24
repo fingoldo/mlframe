@@ -99,7 +99,7 @@ def warn_accuracy_suboptimal_params(estimator: Any) -> None:
     """Emit ONE consolidated UserWarning listing every accuracy-degrading parameter value set on
     ``estimator``. Silent on a default config. Never raises -- a missing attribute is simply skipped.
 
-    USABILITY_A-14 fix (mrmr_audit_2026-07-22): the guard used to be a plain one-shot latch
+    USABILITY_A-14 fix: the guard used to be a plain one-shot latch
     (``_accuracy_caveats_warned_``), so a ``set_params()`` call that degraded a param AFTER the first
     fit (e.g. flipping ``dcd_enable`` from True to False between two ``fit()`` calls on the same
     instance) never re-fired the warning. Now the latch stores WHICH attrs last triggered, and re-warns

@@ -225,7 +225,7 @@ def _validate_inputs(self, X, y):
     # Numeric-column extraction for NaN / Inf validation. Object-dtype frames (numeric + cat/string mixed) used to slip through because the whole frame was
     # converted to object-dtype where dtype.kind != "f"; scan numeric columns explicitly instead.
     #
-    # USABILITY_B-2 fix (mrmr_audit_2026-07-22): this used to materialize a FULL COPY of every numeric
+    # USABILITY_B-2 fix: this used to materialize a FULL COPY of every numeric
     # column via a single `.select_dtypes(include=["number"]).to_numpy()` / `.select(_num_cols).to_numpy()`
     # call -- upcasting a mixed int/float frame to one common float64 block, unconditionally, on every fit,
     # even though an all-integer numeric block can never hold inf (the dtype check that would have skipped

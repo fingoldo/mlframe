@@ -81,7 +81,7 @@ def set_mi_miller_madow(active: bool) -> None:
     _MM_STATE.active = bool(active)
 
 
-# Chao-Shen (2003) coverage-adjusted relevance-MI correction toggle (finding #7, 05_concurrency_and_statistics.md).
+# Chao-Shen (2003) coverage-adjusted relevance-MI correction toggle.
 # Mutually exclusive with Miller-Madow and SU at the dispatch site below (``mi_correction`` is a single string knob);
 # kept as its own thread-local rather than folded into ``_MM_STATE`` so the two corrections stay independently
 # toggleable if a future caller wants to A/B them without touching ``_mi_corr`` string-parsing in MRMR.fit.

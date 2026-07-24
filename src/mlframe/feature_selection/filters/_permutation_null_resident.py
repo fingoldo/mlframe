@@ -30,7 +30,7 @@ import numpy as np
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
-# SCREEN_CONFIRM_B-5 fix (mrmr_audit_2026-07-22): process-level circuit breaker, mirroring
+# SCREEN_CONFIRM_B-5 fix: process-level circuit breaker, mirroring
 # _permutation_null_pair_resident.py's order-2 _PAIR_MAXT_GPU_FAILED exactly. A WDDM-TDR
 # cudaErrorLaunchFailure on a small/weak card POISONS the CUDA context, so every subsequent order-1
 # resident-floor attempt this process re-faults; without this (and without ANY logging -- this file had

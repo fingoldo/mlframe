@@ -364,7 +364,7 @@ def edges_optimal_joint(
     x = np.asarray(x, dtype=np.float64).ravel()
     y = np.asarray(y).ravel()
     mask = np.isfinite(x)
-    # DISCRETIZATION-6 fix (mrmr_audit_2026-07-22): the mask used to check only x's finiteness -- a
+    # DISCRETIZATION-6 fix: the mask used to check only x's finiteness -- a
     # NaN-y row with finite x survived and could propagate NaN into that fold's quantile edges via
     # _bin_y_for_mi's np.quantile call. Fold y's finiteness into the mask too (only meaningful when y is
     # float-dtype; an int/bool y is never NaN-capable).

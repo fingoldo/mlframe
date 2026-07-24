@@ -120,7 +120,7 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
-# FE_PAIRS_CORE-2 fix (mrmr_audit_2026-07-22): _fe_gpu_discretize_enabled/_fe_gpu_binning_enabled are
+# FE_PAIRS_CORE-2 fix: _fe_gpu_discretize_enabled/_fe_gpu_binning_enabled are
 # called up to 3x per pair, once per chunk, and once per ext-val tied-leader-set (unlike their sibling
 # resolve_fe_dispatch_env_gate(), which IS hoisted once per check_prospective_fe_pairs call via
 # _fe_env_gate) -- each call re-reads env vars, imports+calls is_cuda_available(), and (on the default
@@ -420,7 +420,7 @@ def check_prospective_fe_pairs(
     # SIZE the candidate buffers (chunk width + shared-buffer fit check) -- never changes which
     # candidates are produced or their MI, so selection stays byte-identical.
     concurrent_workers: int = 1,
-    # MILLER-MADOW DEBIAS of the joint-prevalence RATIO gate (2026-06-09, backlog #1 + #4).
+    # MILLER-MADOW DEBIAS of the joint-prevalence RATIO gate (2026-06-09, + #4).
     # The gate ``best_mi / pair_mi > fe_min_engineered_mi_prevalence`` compares a 1-D
     # engineered MI (over ~``quantization_nbins`` bins) against a 2-D joint MI (over
     # ~``nbins^2`` bins). Both are RAW plug-in MIs whose positive finite-sample bias is
@@ -548,7 +548,7 @@ def check_prospective_fe_pairs(
         # subsample needs the same shape. bincount gives counts -> divide by
         # total to get proportions matching the caller's expectation.
         if classes_y.size > 0 and classes_y.dtype.kind in ("i", "u"):
-            # FE_PAIRS_CORE-4 fix (mrmr_audit_2026-07-22): without minlength=, a subsample that happens to
+            # FE_PAIRS_CORE-4 fix: without minlength=, a subsample that happens to
             # drop every row of the numerically-highest class label silently under-counts freqs_y.shape[0]
             # (k_y) by the number of missing trailing labels, skewing the MM-debias/tie-band width
             # (fe_mm_debias_prevalence, default OFF) -- use the PRE-subsample freqs_y width so k_y never
@@ -974,7 +974,7 @@ def check_prospective_fe_pairs(
         _operand_marginal_mi_cache[_var] = _mi_val
         return _mi_val
 
-    # MM-DEBIAS (2026-06-09, backlog #1 + #4): per-operand DISCRETISED codes for the
+    # MM-DEBIAS (2026-06-09, + #4): per-operand DISCRETISED codes for the
     # occupied-joint-K of a raw pair. Memoised + bit-identical to the discretise the
     # gate's ``pair_mi`` was computed over (same ``quantization_nbins`` / method /
     # ``transformed_vars`` identity column ``_operand_marginal_mi`` uses). Returns the

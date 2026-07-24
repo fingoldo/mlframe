@@ -1320,7 +1320,7 @@ def score_candidates_by_cmi(
     """
     if X_cand.empty:
         return pd.Series(dtype=np.float64)
-    # MI_GREEDY_RECIPES-2 fix (mrmr_audit_2026-07-22): this used to `.astype(np.int64)` (TRUNCATE) any
+    # MI_GREEDY_RECIPES-2 fix: this used to `.astype(np.int64)` (TRUNCATE) any
     # non-integer y BEFORE the np.unique densify below -- for a continuous y confined to one integer
     # bucket (e.g. a [0,1) probability), truncation collapses every distinct value to the SAME integer
     # first, so the subsequent np.unique can no longer recover the distinctness (the exact B-18 bug class
@@ -1394,7 +1394,7 @@ def greedy_cmi_fe_construct(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """End-to-end CMI-greedy feature constructor.
 
-    ``seed`` (MI_GREEDY_RECIPES-1 fix, mrmr_audit_2026-07-22): seeds the noise-floor permutation RNG
+    ``seed`` (MI_GREEDY_RECIPES-1 fix): seeds the noise-floor permutation RNG
     (previously hardcoded to ``0xC011`` with no way to vary it). Defaults to the historical constant so
     existing pinned tests/behaviour stay byte-identical when the caller does not override it; pass
     ``self.random_seed`` (or any other seed) to decorrelate the FE admission gate across nominally-
@@ -1448,7 +1448,7 @@ def greedy_cmi_fe_construct(
     if not candidates_pool:
         return X, empty_scores
 
-    # MI_GREEDY_RECIPES-2 fix (mrmr_audit_2026-07-22): this used to `.astype(np.int64)` (TRUNCATE) any
+    # MI_GREEDY_RECIPES-2 fix: this used to `.astype(np.int64)` (TRUNCATE) any
     # non-integer y here, BEFORE both the raw_mi scoring below AND the np.unique densify further down --
     # for a continuous y confined to one integer bucket, truncation collapses every distinct value to the
     # SAME integer first, so densification downstream can no longer recover the distinctness (the B-18 bug

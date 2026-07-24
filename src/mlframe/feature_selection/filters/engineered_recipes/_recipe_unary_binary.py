@@ -307,7 +307,7 @@ def build_unary_binary_recipe(
         extra[f"prewarp_{_side}_degree"] = int(_spec["degree"])
         extra[f"prewarp_{_side}_coef"] = np.asarray(_spec["coef"], dtype=np.float64).copy()
         extra[f"prewarp_{_side}_preprocess"] = _orjson_pp(_spec["preprocess"])
-        # ROBUST WARP FIT (backlog #17): when the warp was fit with the Huber-IRLS
+        # ROBUST WARP FIT: when the warp was fit with the Huber-IRLS
         # heavy-tail path, persist the robust flag + the MAD-anchored winsor bounds
         # used at fit time. Replay is closed-form on ``coef`` (no y, leak-safe) so
         # these are provenance / auditability, not required for byte-identical

@@ -136,7 +136,7 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
 
     Returns ``(None, None)`` if the target has no variance or ``lstsq`` fails.
 
-    ROBUST WARP FIT (backlog #17, 2026-06-10): ``x_a`` / ``x_b`` (the raw operand
+    ROBUST WARP FIT: ``x_a`` / ``x_b`` (the raw operand
     columns) are accepted so a heavy-tail-gated robust (Huber-IRLS) ALS sweep COULD
     be substituted here -- but it is intentionally NOT, because robustifying the
     rank-1 ALS does not ship safely. The robust fit DID ship for the convex 1-D
@@ -316,7 +316,7 @@ def fit_operand_prewarp(
     try:
         B = build_basis_matrix(basis, z, deg)
         yc = yf - yf.mean()
-        # ROBUST WARP FIT (backlog #17): route through the heavy-tail dispatcher.
+        # ROBUST WARP FIT: route through the heavy-tail dispatcher.
         # On a clean operand the gate is off and this is the byte-identical OLS
         # solve; on a heavy-tailed / outlier operand it uses Huber-IRLS so the
         # warp tracks the bulk instead of chasing the outlier rows.
@@ -446,8 +446,15 @@ def apply_operand_prewarp(x: np.ndarray, spec: dict) -> np.ndarray:
     return np.asarray(out, dtype=np.float64).reshape(-1)
 
 
-def _ksg_mi_1d(x: np.ndarray, y: np.ndarray, *, discrete_target: bool, n_neighbors: int = 3) -> float:
-    """KSG MI of 1-D x with target -- used as the optimisation objective."""
+def _ksg_mi_1d(x: np.ndarray, y: np.ndarray, *, discrete_target: bool, n_neighbors: int = 3, random_state: int = 42) -> float:
+    """KSG MI of 1-D x with target -- used as the optimisation objective.
+
+    ``random_state`` (X_EDGE_CASES_BEST_PRACTICES-5 fix): was hardcoded to 42
+    regardless of the estimator's own random_state/random_seed -- the same hardcoded-seed bug class
+    fixed elsewhere this audit wave (MI_GREEDY_RECIPES-1, ORTH_BASIS_A-1, GPU_INFRA_D-3). This function
+    is currently dead code (re-exported but never called from src/ or tests/), so the hardcoded default
+    is harmless today; the parameter now exists so a future caller wiring this in as a real "ksg"
+    mi_estimator option threads its own seed instead of silently reintroducing the bug."""
     if discrete_target:
-        return float(mutual_info_classif(x.reshape(-1, 1), y, n_neighbors=n_neighbors, random_state=42, discrete_features=False)[0])
-    return float(mutual_info_regression(x.reshape(-1, 1), y, n_neighbors=n_neighbors, random_state=42, discrete_features=False)[0])
+        return float(mutual_info_classif(x.reshape(-1, 1), y, n_neighbors=n_neighbors, random_state=random_state, discrete_features=False)[0])
+    return float(mutual_info_regression(x.reshape(-1, 1), y, n_neighbors=n_neighbors, random_state=random_state, discrete_features=False)[0])

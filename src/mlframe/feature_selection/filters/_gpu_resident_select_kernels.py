@@ -278,7 +278,7 @@ _RADIX_SELECT_MAXR = 64  # must match MAXR in the kernel sources
 # (2 x MAXR x 4B i32) + W (4B i32) + osv_sh (MAXR x 8B f64) = 2048+512+4+512 = 3076B at MAXR=64. Gating on
 # this keeps every kernel the path may launch within budget in practice, at the current MAXR=64 cap: v3
 # (candidate-compaction, tried first) declares 4 extra shared scalars (scount/cand_ok/have_cand/overflowed,
-# 20B) v2 doesn't have (GPU_INFRA_B-3 fix, mrmr_audit_2026-07-22 -- confirmed v3's real static-shared use is
+# 20B) v2 doesn't have (GPU_INFRA_B-3 fix, -- confirmed v3's real static-shared use is
 # 3096B, not 3076B), but v3's own try/except falls back to v2 on any launch failure, so a future MAXR bump
 # that made the 20B gap decisive would degrade to a slower kernel, never a wrong answer or crash. Bit-identical:
 # gating only changes WHEN the radix path returns None (then the caller takes the cp.percentile fallback,

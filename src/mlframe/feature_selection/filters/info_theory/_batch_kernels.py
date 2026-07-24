@@ -6,10 +6,10 @@ import math
 import os
 from typing import Callable, cast
 
-logger = logging.getLogger(__name__)
-
 import numpy as np
 from numba import njit, prange
+
+logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Cardinality cap for the per-pair / per-triple joint histogram. ``nbins`` derives from ``data.max(axis=0)+1`` and can be huge for high-cardinality
 # categoricals (hash IDs, zip codes), so an ungated ``nb_a*nb_b`` (pair) or ``nb_a*nb_b*nb_c`` (triple) product silently OOMs the per-iteration buffer
@@ -879,8 +879,10 @@ def select_batch_mi_kernel(n_rows: int, n_cols: int) -> Callable:
             choice = res
         elif res:
             choice = str(res.get("kernel_choice", "v2"))
-    except Exception as _kt_exc:
-        logger.debug("select_batch_mi_kernel: kernel_tuning_cache lookup failed (%s); defaulting to kernel v2.", _kt_exc)
+    except Exception as exc:
+        # INFO_THEORY_A-8 fix: a genuine kernel-selection bug silently degrades
+        # every fit to the hardcoded v2 default with no diagnostic trail.
+        logger.debug("mrmr: batch-MI kernel selection failed; defaulting to v2: %r", exc, exc_info=True)
         choice = "v2"
     return cast(Callable, batch_mi_with_noise_gate if choice == "v1" else batch_mi_with_noise_gate_v2)
 
@@ -892,8 +894,10 @@ def _run_batch_mi_kernel_sweep():
     try:
         from pyutilz.dev.benchmarking import sweep_backend_grid
         from ..discretization import discretize_2d_quantile_batch
-    except Exception as _import_exc:
-        logger.debug("_run_batch_mi_kernel_sweep: benchmarking helper unavailable (%s); sweep skipped, fallback stays v2.", _import_exc)
+    except Exception as exc:
+        # INFO_THEORY_A-8 fix: distinguish "benchmarking helper genuinely
+        # unavailable" from a real import bug -- both silently fell back to v2 with zero trace before.
+        logger.debug("mrmr: batch-MI kernel sweep unavailable (falling back to v2 default): %r", exc, exc_info=True)
         return []
 
     def _make_inputs(dims):

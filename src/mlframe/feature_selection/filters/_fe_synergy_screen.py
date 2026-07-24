@@ -23,7 +23,7 @@ signal pair hidden among 189 noise pairs (P=20 features, 190 pairs), the signal 
 
 So a JOINT screen recovers the synergy the marginal screen drops, at equal (near-zero) noise admission.
 
-WIRED (FE_REDUNDANCY_SYNERGY-8 fix, mrmr_audit_2026-07-22 -- this docstring was stale): not via
+WIRED (FE_REDUNDANCY_SYNERGY-8 fix, -- this docstring was stale): not via
 ``check_prospective_fe_pairs`` directly, but ``_mrmr_fit_impl/_fit_impl_core.py`` calls
 ``detect_synergy_combos`` for "n-way synergy seeding" (re-adding raw operands of a detected synergy combo
 to ``selected_vars``), gated on ``interactions_max_order>=2``. This is the screen's validated core + its
