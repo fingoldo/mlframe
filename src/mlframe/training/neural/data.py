@@ -44,8 +44,8 @@ def _estimate_bytes(obj) -> int:
             return int(obj.estimated_size())
         if isinstance(obj, pd.DataFrame):
             return int(obj.memory_usage(deep=True).sum())
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("neural.data: byte-size estimation failed for %r, reporting 0: %s", type(obj).__name__, exc)
     return 0
 
 
@@ -347,7 +347,8 @@ class TorchDataModule(LightningDataModule):
                 return int(features.shape[1])
             if hasattr(features, "columns"):
                 return len(features.columns)
-        except Exception:
+        except Exception as exc:
+            logger.debug("neural.data: feature-width introspection failed: %s", exc)
             return None
         return None
 
@@ -452,7 +453,8 @@ class TorchDataModule(LightningDataModule):
             return type(self.trainer.accelerator).__name__ == "CUDAAccelerator"
         # AttributeError is already a subclass of Exception; the prior (AttributeError, Exception) tuple
         # was dead/pointless.
-        except Exception:
+        except Exception as exc:
+            logger.debug("neural.data: CUDAAccelerator detection failed, treating as non-CUDA: %s", exc)
             return False
 
     def _get_device(self) -> Optional[str]:

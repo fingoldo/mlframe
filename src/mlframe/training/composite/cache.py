@@ -199,7 +199,8 @@ def _row_order_fingerprint(df: Any, n_edge: int = 8) -> str:
             return hashlib.blake2b(payload, digest_size=8).hexdigest()
         else:
             return ""
-    except Exception:
+    except Exception as exc:
+        logger.debug("cache: head/tail row-hash signature failed, returning empty signature: %s", exc)
         return ""
 
 
@@ -285,7 +286,8 @@ def data_signature(
             try:
                 # ``null=0`` instead of an ``nuniq`` full ``np.unique`` sort: numpy int/bool dtypes hold no NaN so the null count is structurally zero (mirrors the polars int digest; drops the per-int-column O(n log n) sort -- one-time on-disk cache invalidation).
                 return (f"intmin={int(np.min(arr))};" f"intmax={int(np.max(arr))};" f"null=0").encode()
-            except Exception:
+            except Exception as exc:
+                logger.debug("cache: int/bool column min/max digest failed, using opaque marker: %s", exc)
                 return b"int_opaque"
         if kind == "f":
             # Numba kernel wins from n=~50k upward (bench: bench_arch_d.bench_col_stats_numba
@@ -318,7 +320,8 @@ def data_signature(
         try:
             u = np.unique(arr.astype(str, copy=False))
             return (f"uniq={int(u.size)};first={u[0] if u.size else ''};" f"last={u[-1] if u.size else ''}").encode()
-        except Exception:
+        except Exception as exc:
+            logger.debug("cache: object/string column distinct-value digest failed, using opaque marker: %s", exc)
             return b"opaque"
 
     # Hash 2: per-column dtype + whole-column stats + per-column sampled values.

@@ -286,7 +286,8 @@ def _unwrap_selector(pre_pipeline) -> Any:
         return None
     try:
         _steps = getattr(pre_pipeline, "steps", None)
-    except Exception:
+    except Exception as exc:
+        logger.debug("_final_pipeline_step: getattr(pre_pipeline, 'steps') raised, returning pre_pipeline as-is: %s", exc)
         return pre_pipeline
     if isinstance(_steps, list) and _steps:
         _last = _steps[-1]
@@ -309,7 +310,8 @@ def _selector_kind(selector) -> str | None:
     # matching because it survives subclassing and doesn't conflate with the weight-aware marker.
     try:
         _kind_marker = getattr(selector, "_mlframe_selector_kind_", None)
-    except Exception:
+    except Exception as exc:
+        logger.debug("_selector_kind: getattr(selector, '_mlframe_selector_kind_') raised, falling back to class-name matching: %s", exc)
         _kind_marker = None
     if isinstance(_kind_marker, str) and _kind_marker in (
         "MRMR", "RFECV", "BorutaShap", "ShapProxiedFS", "ACE",
@@ -318,7 +320,8 @@ def _selector_kind(selector) -> str | None:
         return _kind_marker
     try:
         _cls_name = type(selector).__name__
-    except Exception:
+    except Exception as exc:
+        logger.debug("_selector_kind: type(selector).__name__ raised, cannot classify selector: %s", exc)
         return None
     if _cls_name == "MRMR":
         return "MRMR"
@@ -342,7 +345,8 @@ def _selector_kind(selector) -> str | None:
     # BorutaShap; if the marker exists, classify via attribute shape (support_ -> selector-like).
     try:
         _has_marker = hasattr(selector, "_mlframe_use_sample_weights_in_fs_") and hasattr(selector, "support_")
-    except Exception:
+    except Exception as exc:
+        logger.debug("_selector_kind: attribute-shape defence check raised, cannot classify selector: %s", exc)
         return None
     if _has_marker:
         if hasattr(selector, "cv_results_"):
@@ -371,7 +375,8 @@ def _selector_params_hash(selector) -> str | None:
         # ~2^32 to ~2^64, harmless cost on a per-suite hash; protects against accidental dedup at
         # suite scale (targets x weights x models can produce thousands of param dicts).
         return hashlib.blake2b(_digest_src.encode("utf-8", errors="replace"), digest_size=16).hexdigest()
-    except Exception:
+    except Exception as exc:
+        logger.debug("_selector_params_hash: params introspection/hash failed, report key omits selector-param invalidation: %s", exc)
         return None
 
 

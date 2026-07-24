@@ -199,7 +199,8 @@ def _as_2d_numeric(obj: Any):
         else:
             try:
                 arr = np.asarray(obj)
-            except Exception:
+            except Exception as exc:
+                logger.debug("_param_oracle: np.asarray(obj) failed, cannot compute stats for %r: %s", type(obj).__name__, exc)
                 return None
     if arr.dtype == object:
         # object arrays: treat as categorical-ish, don't try numeric stats.
@@ -367,7 +368,8 @@ def _rss_mb() -> Optional[float]:
     try:
         import psutil
         return float(psutil.Process().memory_info().rss / (1024.0 * 1024.0))
-    except Exception:
+    except Exception as exc:
+        logger.debug("_rss_mb: RSS probe unavailable: %s", exc)
         return None
 
 
@@ -854,7 +856,8 @@ def _loads(s: Optional[str]) -> dict:
         return {}
     try:
         return dict(orjson.loads(s))
-    except Exception:
+    except Exception as exc:
+        logger.debug("_loads: lenient JSON-object load failed, returning {}: %s", exc)
         return {}
 
 

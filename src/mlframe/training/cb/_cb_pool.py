@@ -248,7 +248,8 @@ def _polars_nullable_categorical_cols(df: Any, cat_features: list[str] | None = 
         # in one scan. Previous per-column loop was N separate queries.
         counts_row = df.select(candidate).null_count().row(0)
         return [c for c, n in zip(candidate, counts_row) if n > 0]
-    except Exception:
+    except Exception as exc:
+        logger.debug("_polars_nullable_categorical_cols: nullable-categorical scan failed, treating as no nullable cat columns: %s", exc)
         return []
 
 
@@ -304,7 +305,8 @@ def _polars_fill_null_in_categorical(
                 # Enum already allowed the sentinel -- plain fill_null works.
             fill_exprs.append(_pl.col(c).fill_null(sentinel))
         return df.with_columns(fill_exprs)
-    except Exception:
+    except Exception as exc:
+        logger.debug("_polars_fill_null_in_categorical: fill_null pass failed, returning df unchanged: %s", exc)
         return df
 
 
@@ -334,7 +336,8 @@ def _recover_cb_feature_names(model: Any) -> tuple[list[str], list[str]]:
         cat_feat = [feat_names[i] for i in cat_idx if 0 <= i < len(feat_names)]
         text_feat = [feat_names[i] for i in text_idx if 0 <= i < len(feat_names)]
         return cat_feat, text_feat
-    except Exception:
+    except Exception as exc:
+        logger.debug("_recover_cb_feature_names: feature-name recovery failed, treating as no cat/text features: %s", exc)
         return [], []
 
 
