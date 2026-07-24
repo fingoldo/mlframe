@@ -21,7 +21,7 @@ from ._recurrent_config import RecurrentConfig
 from ._recurrent_torch_model import RecurrentTorchModel
 from .recurrent_dataset_helpers import _DEFAULT_SEQ_INPUT_SIZE, _RecurrentWrapperBase
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("mlframe.training.neural.recurrent_dataset_helpers")  # matches the pre-carve logger name; preserves log-filter/caplog compatibility for existing callers/tests
 
 
 # ----------------------------------------------------------------------------------------------------------------------------

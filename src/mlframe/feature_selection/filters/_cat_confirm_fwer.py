@@ -20,7 +20,7 @@ import numpy as np
 from .cat_fe_state import CatFEConfig
 from .info_theory import compute_mi_from_classes, compute_mi_from_classes_weighted, merge_vars
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("mlframe.feature_selection.filters._cat_confirm_permutation")  # matches the pre-carve logger name; preserves log-filter/caplog compatibility for existing callers/tests
 
 # Stable base seed for the Westfall-Young shuffle -- mirrors _cat_confirm_permutation._CAT_CONFIRM_BASE_SEED
 # (kept as a separate module-level constant so this file has no import-time dependency on the parent).
