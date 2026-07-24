@@ -103,3 +103,47 @@ def test_low_card_object_column_stays_categorical():
 
     assert "cat_low" in cat_features
     assert pd.api.types.is_categorical_dtype(train_out["cat_low"]), f"cat_low should be cast to Categorical; got {train_out['cat_low'].dtype}"
+
+
+def test_text_object_column_excluded_on_small_frame():
+    """Regression: the absolute >300-unique threshold can NEVER fire on a frame with <= 300 rows -- n_unique is
+    capped by len(sample) -- so a genuinely free-text column (near-100% row-unique) on a SMALL frame (e.g. the
+    fuzz suite's rows_target=200) was silently ordinal-encoded to int here, only for the downstream
+    ``_phase_auto_detect_feature_types`` (which runs AFTER this pipeline-fit phase) to still list the now-int
+    column in ``text_features`` -- CatBoost's Pool build then rejects it: "text_features must have string type"
+    (caught live via a fuzz combo: models=('cb',...) with a 200-row frame and a text column). A relative
+    (>50% of sampled rows distinct) floor must also route it out of cat_features regardless of frame size."""
+    rng = np.random.default_rng(0)
+    n = 200  # matches the fuzz suite's rows_target=200 -- n_unique can never exceed 200, so the >300 absolute
+    # threshold structurally can't fire; only the relative-fraction check can catch this case.
+    _vocab = np.array("alpha beta gamma delta epsilon zeta eta theta iota kappa".split(), dtype=object)
+    _idx = rng.integers(0, len(_vocab), (n, 3))
+    df = pd.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "cat_low": np.array(["A", "B", "C"], dtype=object)[rng.integers(0, 3, n)],
+            "text_0": np.array([" ".join(_vocab[r]) for r in _idx], dtype=object),
+        }
+    )
+
+    config = PreprocessingBackendConfig(
+        categorical_encoding="ordinal",
+        skip_categorical_encoding=True,
+    )
+
+    train_out, _, _, _, cat_features = fit_and_transform_pipeline(
+        train_df=df.copy(),
+        val_df=None,
+        test_df=None,
+        config=config,
+        ensure_float32=False,
+        verbose=False,
+        text_features=[],
+        embedding_features=[],
+    )
+
+    assert "text_0" not in cat_features, f"text_0 (small-frame free text) should not be in cat_features; got {cat_features}"
+    _dtype_name = str(train_out["text_0"].dtype)
+    assert (
+        _dtype_name not in ("category", "categorical") and "category" not in _dtype_name.lower()
+    ), f"text_0 must remain a string-like dtype (not category) even on a small frame; got {_dtype_name}"
