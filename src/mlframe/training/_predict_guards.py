@@ -124,7 +124,8 @@ def _cb_val_pool_cache_lookup(X: Any, method: str) -> Any | None:
     """
     try:
         _cols = tuple(X.columns) if hasattr(X, "columns") else None
-    except Exception:
+    except Exception as exc:
+        logger.debug("val-pool cache lookup: column read failed, skipping cache reuse: %s", exc)
         return None
     try:
         _shape = X.shape
@@ -185,7 +186,8 @@ def _recover_cb_feature_names(model: Any) -> tuple[list[str], list[str]]:
         cat_feat = [feat_names[i] for i in cat_idx if 0 <= i < len(feat_names)]
         text_feat = [feat_names[i] for i in text_idx if 0 <= i < len(feat_names)]
         return cat_feat, text_feat
-    except Exception:
+    except Exception as exc:
+        logger.debug("_recover_cb_feature_names: model introspection failed, no feature names recovered: %s", exc)
         return [], []
 
 

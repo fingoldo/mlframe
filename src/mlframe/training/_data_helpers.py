@@ -485,11 +485,13 @@ def _normalize_multilabel_target(target):
         return target
     try:
         return np.asarray(target.tolist())
-    except Exception:
+    except Exception as exc:
         # Fallback for ragged rows / mixed dtypes np.asarray rejects.
+        logger.debug("_normalize_multilabel_target: np.asarray(tolist()) failed, trying per-row stack: %s", exc)
         try:
             return np.stack([np.asarray(c) for c in target], axis=0)
-        except Exception:
+        except Exception as exc2:
+            logger.debug("_normalize_multilabel_target: per-row stack failed too, leaving target unnormalized: %s", exc2)
             return target
 
 
@@ -767,7 +769,8 @@ def _detect_budget_param(model_category: str, model_obj: Any) -> str | None:
         return None
     try:
         params = model_obj.get_params() if hasattr(model_obj, "get_params") else {}
-    except Exception:
+    except Exception as exc:
+        logger.debug("budget param probe: get_params() failed, no usable budget knob detected: %s", exc)
         return None
     for cand in ("max_iter", "n_estimators", "max_trials"):
         if cand in params and isinstance(params.get(cand), int):

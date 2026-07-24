@@ -111,7 +111,8 @@ def _subset_rows(frame: Any, idx: np.ndarray) -> Any:
         return frame.iloc[idx]
     try:
         return frame[idx]
-    except Exception:
+    except Exception as exc:
+        logger.debug("diagnostics_dispatch: fancy-index row subset failed, falling back to np.asarray: %s", exc)
         return np.asarray(frame)[idx]
 
 
@@ -126,7 +127,8 @@ def _select_feature_columns(frame: Any, feature_names: Optional[Sequence[str]], 
     if hasattr(frame, "loc") and not isinstance(frame, np.ndarray):
         try:
             return frame[keep], keep
-        except Exception:
+        except Exception as exc:
+            logger.debug("diagnostics_dispatch: feature-column cap subset failed, keeping full frame: %s", exc)
             return frame, names
     return frame, names
 

@@ -13,7 +13,10 @@ Usage at a module top::
 from __future__ import annotations
 
 import inspect
+import logging
 from typing import Any, Callable, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 _GPU_BOUND_TOKENS = ("torch", "cupy", "cuda", "numba.cuda", "tensorflow", "jax")
 
@@ -29,7 +32,8 @@ def try_import_cupy() -> Tuple[Any, bool]:
         import cupy as cp
 
         return cp, True
-    except Exception:
+    except Exception as exc:
+        logger.debug("try_import_cupy: cupy unavailable (%s: %s); falling back to CPU.", type(exc).__name__, exc)
         return None, False
 
 
@@ -61,5 +65,6 @@ def callable_looks_gpu_bound(fn: Optional[Callable]) -> bool:
         except TypeError:
             pass
         return any(any(token in name for token in _GPU_BOUND_TOKENS) for name in names)
-    except Exception:
+    except Exception as exc:
+        logger.debug("callable_looks_gpu_bound: introspection failed, assuming CPU-safe: %s", exc)
         return False
