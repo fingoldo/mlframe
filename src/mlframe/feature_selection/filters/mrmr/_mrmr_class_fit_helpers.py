@@ -68,7 +68,7 @@ class _MRMRFitHelpersMixin:
 
     def _enter_active_fit_scope(self) -> None:
         """Increment the process-wide in-flight-fit counter and re-arm the GPU circuit breakers ONLY on
-        the 0->1 transition (concurrency audit finding #1). Pairs with ``_exit_active_fit_scope()`` in
+        the 0->1 transition. Pairs with ``_exit_active_fit_scope()`` in
         the outer ``fit()`` wrapper's ``finally``. See ``_rearm_gpu_circuit_breakers`` for the rationale;
         the fix here is that unconditionally re-arming at EVERY fit() entry (the pre-fix behavior) races
         against a concurrently in-flight fit that legitimately tripped a breaker on a poisoned CUDA
@@ -90,8 +90,8 @@ class _MRMRFitHelpersMixin:
 
     def _rearm_gpu_circuit_breakers(self) -> None:
         """Re-arm the process-global CMI / mi_direct / pair-maxT GPU circuit breakers. Only called by
-        ``_enter_active_fit_scope()`` on the 0->1 in-flight-fit transition (concurrency audit finding #1;
-        originally called unconditionally at every fit() entry, 2026-07-09 fix, MRMR audit finding #31).
+        ``_enter_active_fit_scope()`` on the 0->1 in-flight-fit transition
+        (originally called unconditionally at every fit() entry).
         These breakers are process-global and, once tripped by one launch fault, permanently disable GPU
         for the rest of the process -- silently degrading every LATER fit in a long-lived worker
         (notebook, service), not just the one that hit the transient fault. Re-arming here bounds the
@@ -112,11 +112,10 @@ class _MRMRFitHelpersMixin:
             logger.debug("mrmr: pair-maxt-gpu circuit-breaker re-arm skipped: %r", exc)
 
     def _check_groups_contract(self, groups) -> None:
-        """Enforce MRMR's groups-not-consumed contract (finding #2 decomposition; verbatim move from
+        """Enforce MRMR's groups-not-consumed contract (verbatim move from
         ``fit()``). Sets ``self.groups_ignored_``; raises ``NotImplementedError`` under
         ``strict_groups=True`` when ``groups`` is supplied but ``group_aware_mi=False``, else warns and
-        stamps ``groups_ignored_=True`` for the legacy group-naive fallback (see finding #20 for the
-        ``strict_groups`` default flip)."""
+        stamps ``groups_ignored_=True`` for the legacy group-naive fallback."""
         self.groups_ignored_ = False
         if groups is not None and not getattr(self, "group_aware_mi", False):
             if getattr(self, "strict_groups", False):
@@ -139,7 +138,7 @@ class _MRMRFitHelpersMixin:
 
     def _validate_and_bridge_polars_input(self, X, y):
         """Validate a polars ``X`` input and bridge it to a zero-copy pandas view when FE will run
-        (finding #2 decomposition; verbatim move from ``fit()``). Returns the possibly-rebound ``(X, y)``.
+        (verbatim move from ``fit()``). Returns the possibly-rebound ``(X, y)``.
 
         Independent of whether FE runs: a polars LazyFrame is auto-collected (with a warning, since that
         materialises the frame the user kept lazy), and a polars Struct column is rejected up front (it
@@ -222,8 +221,8 @@ class _MRMRFitHelpersMixin:
         X_df = X if hasattr(X, "iloc") else pd.DataFrame(np.asarray(X))
         y_arr = (y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)).ravel()
         feature_names = list(X_df.columns)
-        # Computed ONCE outside the bootstrap/complementary-pairs loop (perf audit finding #9,
-        # 2026-07-17): every replicate previously re-ran ``self.get_params()`` (a full ~300-key
+        # Computed ONCE outside the bootstrap/complementary-pairs loop: every replicate previously
+        # re-ran ``self.get_params()`` (a full ~300-key
         # dict) plus a fresh filter comprehension, even though the filtered base params are
         # identical across all ``stability_n_bootstrap`` (default 50) replicates -- only the
         # subsampled (X_sub, y_sub) differ per replicate, not the params.
@@ -250,7 +249,7 @@ class _MRMRFitHelpersMixin:
             # Use a fresh sibling instance with classic method to avoid
             # recursion AND drop bootstrap-incompatible settings.
             sub = type(self)(**_sub_base_params)
-            # 07_memory_scalability.md finding #2: this replicate fits a DIFFERENT row-subsample every
+            # This replicate fits a DIFFERENT row-subsample every
             # call, so its cache key is a guaranteed future miss -- skip storing it in the shared
             # process-wide _FIT_CACHE so stability_n_bootstrap (default 50) replicates don't thrash out
             # a legitimately-reusable entry belonging to an unrelated concurrent caller.
@@ -519,7 +518,7 @@ class _MRMRFitHelpersMixin:
         per_column_selected: dict[str, list] = {}
         _n_targets = y.shape[1] if hasattr(y, "shape") and len(getattr(y, "shape", ())) > 1 else None
         for _target_pos, (label, y_col) in enumerate(_mrmr_y_columns(y)):
-            # 07_memory_scalability.md finding #3 (confirmed not a bug -- different targets can be
+            # Confirmed not a bug -- different targets can be
             # impacted by totally different factors, so a sequential per-target sub-fit is the correct
             # design): log which target is currently running so a long multioutput fit's progress is
             # legible from the outside, mirroring the format other MRMR stages already log with.

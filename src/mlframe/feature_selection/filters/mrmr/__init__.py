@@ -208,7 +208,7 @@ MRMR.selection_stability_report = _selection_stability_report_func
 from .._mrmr_explain import explain_selection as _explain_selection_func
 MRMR.explain_selection = _explain_selection_func
 
-# CORE_CLASS-3 fix (mrmr_audit_2026-07-22): ``set_params`` override bound directly onto the class -- not
+# ``set_params`` override bound directly onto the class -- not
 # defined on a mixin -- because ``BaseEstimator`` (which already defines ``set_params``) sits BEFORE the
 # config mixins in ``MRMR``'s MRO, so a mixin-level override would never be reached. See
 # ``_mrmr_config_dataclasses.mrmr_set_params`` for the config-invalidation mechanism.

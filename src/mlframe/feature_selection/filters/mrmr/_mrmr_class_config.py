@@ -271,7 +271,7 @@ class _MRMRConfigMixin:
 
     def _effective_parallel_kwargs(self) -> dict:
         """Resolve ``parallel_kwargs`` (sentinel ``None`` -> the threading-backend default) at the point
-        of use, not at construction time (08_sklearn_joblib_compat.md finding #1, same reasoning as
+        of use, not at construction time (same reasoning as
         ``_effective_n_jobs``). ``backend="threading"``: joblib uses a ThreadPoolExecutor in the same
         process instead of the default loky ProcessPoolExecutor. Data arrays are shared in memory (zero
         copy, no memmap_folder, no paging-file pressure); numba kernels in mi_direct / parallel_mi_prange
@@ -388,11 +388,10 @@ class _MRMRConfigMixin:
         """Cached snapshot of a freshly-constructed instance's ``__dict__``, used by
         ``__setstate__`` to source ctor params whose ``__init__`` BODY resolves to a concrete
         value rather than leaving them at the raw signature default, so a legacy pickle missing
-        that key matches what a real fresh instance actually carries. As of
-        08_sklearn_joblib_compat.md finding #1, ``n_jobs``/``parallel_kwargs`` are NO LONGER
-        resolved at construction time (they're stored raw like every other ctor param and
+        that key matches what a real fresh instance actually carries. ``n_jobs``/``parallel_kwargs``
+        are NO LONGER resolved at construction time (they're stored raw like every other ctor param and
         resolved lazily via ``_effective_n_jobs()``/``_effective_parallel_kwargs()``) -- this
-        also closes finding #3's adjacent hazard, where a worker-process unpickle used to bake
+        also closes an adjacent hazard, where a worker-process unpickle used to bake
         the WORKER's own ``psutil.cpu_count()`` into ``self.n_jobs`` for any legacy pickle
         missing that key, diverging from the value on the driver process that pickled the
         original instance. This cache remains for any FUTURE ctor param that does genuinely

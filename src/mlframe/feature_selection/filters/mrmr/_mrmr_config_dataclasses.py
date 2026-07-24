@@ -1,7 +1,7 @@
-"""Nested config dataclasses for :class:`MRMR`'s constructor (audits/mrmr_audit_2026-07-16/10_config_dataclass_proposal.md).
+"""Nested config dataclasses for :class:`MRMR`'s constructor.
 
 ``MRMR.__init__`` has ~250 flat parameters, grown organically by feature area. This module packages
-the six cohesive knob-clusters the audit identified into ``pydantic.BaseModel`` config objects,
+the six cohesive knob-clusters into ``pydantic.BaseModel`` config objects,
 mirroring the ``CatFEConfig`` precedent (``cat_fe_state.py``) and ``mlframe.training.feature_handling``'s
 pydantic-config pattern -- construction-time validation (a typo'd enum value raises immediately, not
 minutes into a fit()) instead of MRMR's ad hoc ``_validate_string_params`` late-validation pass.

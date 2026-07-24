@@ -82,7 +82,7 @@ from mlframe.utils.misc import hygienic_fit
 from ..feature_engineering import UNIFIED_FE_SUBSAMPLE_N
 from ..screen import _preserve_global_numpy_rng_state
 
-# Hoisted from scattered ``fit()``-body local imports (perf audit finding #6, 2026-07-17):
+# Hoisted from scattered ``fit()``-body local imports:
 # each of these previously re-ran its ``from ... import ...`` statement on every single
 # ``fit()`` call. The per-call cost of a cached ``sys.modules`` lookup is sub-microsecond,
 # but with 15+ such sites executing every fit it adds up to real, pointlessly-repeated work,
@@ -229,7 +229,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
 
     Caching
     -------
-    USABILITY_B-5 (mrmr_audit_2026-07-22): a previously-fitted ``MRMR`` instance's internal ndarray
+    A previously-fitted ``MRMR`` instance's internal ndarray
     fitted attributes may become READ-ONLY as a side effect of a LATER, unrelated ``.fit()`` call
     elsewhere in the process. This happens when that later call hits the process-wide ``_FIT_CACHE``
     (identical params + content as this instance's own fit) and replays from this instance: the replay
@@ -448,7 +448,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # wide-frame nbins edges -- each self-gated separately; the pair-search FE stage forces serial
         # under GPU-strict regardless of either knob). No sklearn-familiar ``-1``-style auto-resolve
         # (unlike ``n_jobs``): default 1 = SERIAL. See ``n_jobs``'s own docstring for the split
-        # rationale (2026-07-09 doc fix, MRMR audit finding #2).
+        # rationale.
         n_workers: int = 1,
         # confidence
         min_occupancy: int | None = None,
@@ -1147,7 +1147,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         cv: int | BaseCrossValidator | Iterable | None = 3,
         cv_shuffle: bool = False,
         # service
-        # Canonical seed parameter (sklearn's name, finding #17). See ``random_seed`` above for the
+        # Canonical seed parameter (sklearn's name). See ``random_seed`` above for the
         # deprecated alias and ``_effective_random_seed`` for the resolution order.
         random_state: int | None = None,
         # sklearn-familiar auto-resolving parallelism knob (``-1`` -> physical cpu_count, see
@@ -1155,7 +1155,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # wide-frame nbins edge computation, the FE pair-search joblib fan-out in _run_fe_step) -- it
         # does NOT parallelize screen_predictors' candidate-MI evaluation loop, which is gated
         # separately by ``n_workers`` above (default 1 = serial). Easy to misread ``n_jobs=-1`` as
-        # "the whole fit runs on all cores"; it does not (2026-07-09 doc fix, MRMR audit finding #2).
+        # "the whole fit runs on all cores"; it does not.
         n_jobs: int = -1,
         # Skip the full re-fit when a process-cache hit replays a prior fit on the SAME content. The cache invalidates on
         # (a) X content change, (b) y / TARGET content change, AND (c) ANY selector-parameter change (set_params or direct
@@ -1239,7 +1239,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # correlation floor that admits composite/residual targets (highly correlated with raw y) while refusing
         # an unrelated target on the same X. The threshold is benched in _benchmarks/bench_identity_cache_ycorr.py.
         mrmr_identity_cache_ycorr_threshold: float = 0.5,
-        # When True (the default, finding #20), ``fit(groups=...)`` raises ``NotImplementedError`` instead of emitting the warn-only "MRMR does not consume groups" UserWarning -- matching
+        # When True (the default), ``fit(groups=...)`` raises ``NotImplementedError`` instead of emitting the warn-only "MRMR does not consume groups" UserWarning -- matching
         # ``sample_weight``, which is ALWAYS consumed rather than silently dropped; passing ``groups=`` without ``group_aware_mi=True`` is equally a correctness gap (cross-group leakage in MI
         # estimation on panel / user-session / sliding-window data) and should not silently degrade. Set ``strict_groups=False`` to opt back into the legacy warn-only group-naive fallback for
         # ad-hoc callers who already know the limitation and want MI computed per-row anyway.
@@ -2274,11 +2274,10 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # equal to Layer 21 so recipes reuse the ``orth_univariate`` kind
         # and replay is shared infrastructure. Default OFF preserves
         # pickle byte-equivalence.
-        # mrmr_audit_2026-07-16 finding #11 (per-column LCB ratio-to-own-raw-baseline exploding on
-        # weak discrete marginals, letting HSIC always win) was fixed in 1bf0a21db (additive
-        # headroom normalization: (lcb - raw_max) / scale, not a ratio) -- default=False is no
-        # longer gated on a correctness bug. A quick 5-seed AUC benchmark (mixed linear + non-
-        # monotone-cos + high-frequency-sin synthetic, 2026-07-20) came back NEUTRAL: identical
+        # The per-column LCB ratio-to-own-raw-baseline exploding on weak discrete marginals (letting HSIC
+        # always win) was fixed via additive headroom normalization: (lcb - raw_max) / scale, not a ratio --
+        # default=False is no longer gated on a correctness bug. A quick 5-seed AUC benchmark (mixed linear +
+        # non-monotone-cos + high-frequency-sin synthetic) came back NEUTRAL: identical
         # selection and holdout AUC on vs off, because the default plug-in-MI scorer over the
         # existing Chebyshev degree-2/3 basis already fully captured that signal, leaving no
         # headroom for the auto-scorer pool to demonstrate an edge. Not evidence either way; a real
@@ -2798,7 +2797,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         fe_conditional_dispersion_n_bins: int = 10,
         fe_conditional_dispersion_top_k: int = 10,
         fe_conditional_dispersion_max_pair_cols: int = 6,
-        # CONDITIONAL QUANTILE-RANK (mrmr_audit_2026-07-20 fe_expansion.md): 4th member of the
+        # CONDITIONAL QUANTILE-RANK: 4th member of the
         # conditional-dispersion family (grouped_agg mean/std -> composite_group_agg ->
         # conditional-dispersion z-score/|z| -> conditional quantile-rank). Bin x_j; emit
         # q(row) = empirical_rank(x_i within bin(x_j)) -- the row's TRUE within-bin percentile,
@@ -2820,7 +2819,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         fe_conditional_quantile_rank_n_bins: int = 10,
         fe_conditional_quantile_rank_top_k: int = 10,
         fe_conditional_quantile_rank_max_pair_cols: int = 6,
-        # mrmr_audit_2026-07-20 fe_expansion.md: Bandt-Pompe ordinal-pattern K-fold target
+        # Bandt-Pompe ordinal-pattern K-fold target
         # encoding. Default OFF for the same reason as its sibling above -- brand-new, not yet
         # validated against the existing fuzz-combo/regression suite. Leak-safe replay (kind
         # ``ordinal_pattern_te``) recomputes the perm_id fresh from the raw K source columns and
@@ -2832,7 +2831,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         fe_ordinal_pattern_n_folds: int = 5,
         fe_ordinal_pattern_smoothing: float = 10.0,
         fe_ordinal_pattern_top_k: int = 5,
-        # mrmr_audit_2026-07-20 fe_expansion.md: Random Fourier Features (random kitchen sinks)
+        # Random Fourier Features (random kitchen sinks)
         # joint kernel-approximation block. Default OFF -- brand-new, not yet validated against
         # the existing fuzz-combo/regression suite. Leak-safe replay (kind ``random_fourier``)
         # stores the frozen W-column/phase/bandwidth; no y reference is captured in the recipe.
@@ -2842,7 +2841,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         fe_random_fourier_bandwidth: Optional[float] = None,
         fe_random_fourier_max_cols_for_block: int = 8,
         fe_random_fourier_top_k: int = 8,
-        # mrmr_audit_2026-07-20 fe_expansion.md: Sliced Inverse Regression (SIR) oblique-direction
+        # Sliced Inverse Regression (SIR) oblique-direction
         # projection feature. Default OFF -- brand-new, not yet validated against the existing
         # fuzz-combo/regression suite. Leak-safe replay (kind ``sir_direction``) stores the frozen
         # centering x_mean + direction vector; y's effect is already baked into the frozen
@@ -2853,7 +2852,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         fe_sir_direction_n_directions: int = 2,
         fe_sir_direction_max_cols_for_block: int = 8,
         fe_sir_direction_top_k: int = 2,
-        # mrmr_audit_2026-07-20 fe_expansion.md: Local Outlier Factor / k-NN local density-ratio
+        # Local Outlier Factor / k-NN local density-ratio
         # feature. Default OFF -- brand-new, not yet validated against the existing fuzz-combo/
         # regression suite. Leak-safe replay (kind ``lof_score``) stores a BOUNDED reference
         # sample (``fe_lof_max_ref`` rows, never the whole fit frame -- RAM discipline) + its
@@ -2864,7 +2863,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         fe_lof_max_ref: int = 2000,
         fe_lof_max_cols_for_block: int = 8,
         fe_lof_top_k: int = 1,
-        # mrmr_audit_2026-07-20 fe_expansion.md: multivariate Mahalanobis / Gaussian-copula joint
+        # Multivariate Mahalanobis / Gaussian-copula joint
         # density anomaly score. Default OFF -- brand-new, not yet validated against the existing
         # fuzz-combo/regression suite. Leak-safe replay (kind ``mahalanobis_density``) stores the
         # frozen Ledoit-Wolf mu/Sigma_inv; no y reference is captured in the recipe.
@@ -3024,8 +3023,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # 'union' (default): fit one single-target selector per output column (the 1D path, which is correct) and UNION the selected raw columns.
         # 'intersect': keep only columns selected for EVERY output column. None / 'joint': legacy merged-target behaviour (byte-identical to pre-2026-06-20).
         multioutput_strategy: Optional[str] = "union",
-        # Nested config-dataclass alternative to the individual flat kwargs above (finding #1,
-        # 10_config_dataclass_proposal.md). Purely ADDITIVE: every flat kwarg above keeps working
+        # Nested config-dataclass alternative to the individual flat kwargs above. Purely ADDITIVE: every flat kwarg above keeps working
         # unchanged forever (this migration's blast radius -- ~50+ existing call sites -- rules out a
         # breaking rename). When a config IS passed, its fields override that cluster's flat defaults;
         # mirrors the existing ``cat_fe_config`` precedent (``cat_fe_state.CatFEConfig``). See
@@ -3060,7 +3058,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # ``random_state`` (sklearn's name) is canonical; ``random_seed`` is a deprecated alias kept
         # for backward compatibility -- see ``_effective_random_seed``.
         if random_state is not None and random_seed is not None and random_seed != random_state:
-            # 09_error_messages_ux.md finding: this is a conflicting-VALUES notice (which of two
+            # This is a conflicting-VALUES notice (which of two
             # explicitly-passed args wins), not a pure API-deprecation notice -- DeprecationWarning is
             # filtered by default in many contexts (plain ``python script.py``, non-``__main__`` code),
             # so a genuinely actionable "you set two conflicting values" warning could go unseen. UserWarning
@@ -3086,7 +3084,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # store_params_in_object(postfix="_param_") default -- must be passed explicitly, not inherited.
         store_params_in_object(obj=self, params=get_parent_func_args(), postfix="")
         self.signature: tuple | str | None = None
-        # Nested config-dataclass overrides (finding #1, 10_config_dataclass_proposal.md): apply
+        # Nested config-dataclass overrides: apply
         # AFTER store_params_in_object so a passed config wins over its cluster's individual flat
         # kwargs, which are already set on self by this point. self.fast_search_config etc. (the raw
         # config objects, possibly None) are themselves stored by store_params_in_object above like
@@ -3105,10 +3103,10 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
     def __repr__(self, N_CHAR_MAX: int = 700) -> str:
         # ``n_workers`` (candidate-MI evaluation parallelism; default 1 = SERIAL, the fast path) is hidden by sklearn's
         # repr because it equals its default, while ``n_jobs`` (still shown as its raw stored value, e.g. ``-1`` --
-        # resolved lazily via ``_effective_n_jobs()``, not at construction; finding #1) is easily misread as
+        # resolved lazily via ``_effective_n_jobs()``, not at construction) is easily misread as
         # "MI runs on n_jobs threads". n_jobs only drives CPU sub-helpers (permutation-null MI, wide-frame nbins edges),
         # each self-gated (pair-search forces serial under GPU-strict). Surface n_workers so the parallelism is unambiguous.
-        # 08_sklearn_joblib_compat.md finding #4: this textually patches BaseEstimator.__repr__'s output
+        # This textually patches BaseEstimator.__repr__'s output
         # on an untested assumption about its trailing format (a literal ")"-ending string) rather than a
         # documented public contract. Wrapped defensively so a future sklearn internals change that
         # breaks that assumption degrades to the PLAIN super().__repr__() (still correct, just missing
@@ -3172,7 +3170,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
     @property
     def _fit_reentrancy_lock(self) -> threading.Lock:
         """Per-instance, lazily-created lock guarding against concurrent ``fit()`` calls on the SAME
-        object (concurrency audit finding #5). Not a real constructor param / fitted attribute -- stored
+        object. Not a real constructor param / fitted attribute -- stored
         under a private ``__dict__`` key and excluded from pickling via ``__getstate__`` below (a
         ``threading.Lock`` is not picklable); a fresh lock is lazily recreated after unpickle on first use."""
         lock = self.__dict__.get("_fit_reentrancy_lock_")
@@ -3248,7 +3246,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # Source the value from a FRESHLY-CONSTRUCTED instance, not the raw signature default, so any param
         # ``__init__`` DOES still resolve at construction time matches a fresh MRMR exactly -- a resurrected
         # legacy pickle then behaves identically to a new one (no ctor-vs-legacy drift). ``n_jobs``/
-        # ``parallel_kwargs`` are no longer resolved at construction time (finding #1: they are stored raw,
+        # ``parallel_kwargs`` are no longer resolved at construction time (they are stored raw,
         # like every other ctor param, and resolved lazily via ``_effective_n_jobs()``/
         # ``_effective_parallel_kwargs()``), so for those two this now trivially matches the raw signature
         # default too -- the fresh-instance source stays authoritative for any FUTURE param with real
@@ -3272,7 +3270,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         sample_weight: np.ndarray | pd.Series | None = None,
         **fit_params,
     ):
-        """Thin outer wrapper around ``_fit_body`` (concurrency audit finding #1, #5): tracks the
+        """Thin outer wrapper around ``_fit_body``: tracks the
         process-wide in-flight-fit count (gates the GPU circuit-breaker re-arm to the 0->1 transition
         so a concurrently-running fit's tripped breaker is never clobbered by another fit starting)
         and enforces the documented "no concurrent fit() on the SAME instance" contract via a
@@ -3323,14 +3321,13 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         Wrapper / _fit_impl forwarding asymmetry: ``sample_weight`` is CONSUMED at this wrapper level (via ``_maybe_resample_for_sample_weight`` before the ``_fit_impl`` call); ``groups`` is FORWARDED into ``_fit_impl`` which then silently drops them. A future refactor moving ``groups`` consumption into ``_fit_impl`` must also remove or downgrade the wrapper-level warning, otherwise the two ends would emit duplicate / contradictory messages.
 
         Cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``."""
-        # finding #2 decomposition: groups contract check and polars validate+bridge each moved
+        # groups contract check and polars validate+bridge each moved
         # verbatim to a named helper on _MRMRFitHelpersMixin (see their docstrings for the original
         # rationale) -- zero behavior change, pure extraction. The GPU-breaker re-arm now happens in the
-        # outer ``fit()`` wrapper's ``_enter_active_fit_scope()`` (concurrency audit finding #1), gated to
+        # outer ``fit()`` wrapper's ``_enter_active_fit_scope()``, gated to
         # the 0->1 in-flight-fit transition instead of running unconditionally on every call here.
         #
-        # Pre-override ctor-params snapshot (bug found while testing finding #5's re-entrancy guard,
-        # 05_concurrency_and_statistics.md): the in-object "identical refit -> skip" signature
+        # Pre-override ctor-params snapshot (bug found while testing the re-entrancy guard): the in-object "identical refit -> skip" signature
         # (``_fit_impl_core.py``'s ``_self_params_sig``) used to be computed from ``self.get_params()``
         # READ INSIDE ``_fit_impl`` -- i.e. AFTER this method's OWN below-here overrides (cluster_
         # aggregate_enable, fast-search profile, default-screen-subsample, etc.) had already flipped
@@ -3584,7 +3581,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # only pandas needs isolating.
         #
         # ALWAYS a SHALLOW copy (deep=False), regardless of pandas' Copy-on-Write setting
-        # (perf audit finding #2, 2026-07-17): a deep copy is a real O(n*p) alloc+memcpy of the
+        # a deep copy is a real O(n*p) alloc+memcpy of the
         # whole (possibly SIS-reduced) frame, on EVERY fit, and pandas < 3.0's default IS
         # CoW-off -- so this was not a rare edge case, it was the common path for most installed
         # pandas versions. The deep-copy branch existed only as a defensive fallback for "a
@@ -3689,7 +3686,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             The validation checks below can fire AFTER some of these thread-locals have already been
             activated but BEFORE the protective try/finally further down starts -- without this, a raised
             ValueError here would leave the corrupted thread-local state active for every subsequent,
-            unrelated fit on this thread (mrmr_audit_2026-07-20 B-3).
+            unrelated fit on this thread.
             """
             _su0e, _jmim0e, _bur0e, _mm0e, _relax0e, _pid0e, _cmi0e, _cpt0e, _cs0e = _toggles_snapshot
             _safe_restore(lambda: set_su_normalization(_su0e), "SU normalization thread-local (activation-block exception)")
@@ -3701,7 +3698,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             # activated further below, strictly after both call sites of this helper) -- restored anyway
             # so a future reordering that moves those activations earlier, or a new raise point added
             # between them and the protective try/finally, cannot silently reintroduce the same
-            # thread-local-leak bug class this helper exists to prevent (mrmr_audit_2026-07-22 CORE_CLASS-4).
+            # thread-local-leak bug class this helper exists to prevent.
             _safe_restore(lambda: set_relaxmrmr_alpha(_relax0e), "RelaxMRMR alpha thread-local (activation-block exception)")
             _safe_restore(lambda: set_pid_synergy_bonus(_pid0e), "PID synergy-bonus thread-local (activation-block exception)")
             _safe_restore(lambda: set_cmi_perm_stop(_cmi0e[0], _cmi0e[1], _cmi0e[2]), "CMI-perm-stop thread-local (activation-block exception)")
@@ -3754,7 +3751,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # Miller-Madow / Chao-Shen relevance-MI bias correction. Both subtract/re-estimate away the plug-in
         # estimator's finite-sample bias from the OBSERVED relevance so high-cardinality noise no longer
         # out-ranks low-cardinality true signal at small n. Default 'none' keeps the legacy plug-in
-        # estimator bit-exact. Reset in the finally. Chao-Shen (finding #7, 05_concurrency_and_statistics.md)
+        # estimator bit-exact. Reset in the finally. Chao-Shen
         # was previously an accepted-but-silently-ignored value (degraded to plug-in with a warning); it is
         # now fully wired into both the observed-relevance and permutation-null paths, mirroring
         # Miller-Madow's wiring exactly (see compute_relevance_score / mi_or_su_from_classes).
@@ -3858,7 +3855,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             _orig_random_seed = getattr(self, "random_seed", None)
             self.random_seed = _eff_seed
         # PICKLE-ONLY migration (NOT a ctor alias -- the ctor no longer accepts
-        # ``skip_retraining_on_same_shape`` at all, see finding #15): an already-pickled MRMR predating
+        # ``skip_retraining_on_same_shape`` at all): an already-pickled MRMR predating
         # the content/shape rename can still carry the old attribute verbatim in its ``__dict__``
         # (``__setstate__`` never removes it), so a genuinely-legacy saved model's explicit
         # True/False choice is still honoured here rather than silently reset to the current default.
@@ -3870,7 +3867,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             if _eff_skip != getattr(self, "skip_retraining_on_same_content", True):
                 _orig_skip_content = getattr(self, "skip_retraining_on_same_content", True)
                 self.skip_retraining_on_same_content = _eff_skip
-        # FIT_IMPL_A-1 fix (mrmr_audit_2026-07-22): _fit_impl's large-n regression adaptive-quantization
+        # _fit_impl's large-n regression adaptive-quantization
         # gate (adaptive_nbins_large_n_reg) permanently overwrote self.nbins_strategy/self.quantization_nbins
         # in place with no restore anywhere -- breaking the sklearn clone()/get_params() round-trip contract
         # and permanently freezing a config the gate's own campaign data says LOSES at smaller n on any
@@ -3909,7 +3906,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             try:
                 _n_rows = int(X.shape[0]) if hasattr(X, "shape") else None
                 # ``_effective_random_seed`` resolves both the canonical ``random_state`` and the
-                # deprecated ``random_seed`` alias, whichever is set (see finding #17).
+                # deprecated ``random_seed`` alias, whichever is set.
                 _seed_resolved = self._effective_random_seed()
                 _seed_for_provenance = int(_seed_resolved) if _seed_resolved is not None else None
                 _record_provenance(
@@ -4135,8 +4132,8 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
 
             def _refresh_signature_params_post_restore() -> None:
                 """Re-stamp ``self.signature``'s params component from a LIVE ``get_params()`` read taken
-                AFTER every restore above has completed (bug found while testing finding #5's re-entrancy
-                guard, 05_concurrency_and_statistics.md). ``_fit_impl`` (``_fit_impl_core.py``) already
+                AFTER every restore above has completed (bug found while testing the re-entrancy
+                guard). ``_fit_impl`` (``_fit_impl_core.py``) already
                 does an analogous "refresh with post-fit values before storing" step so a param genuinely
                 normalised IN PLACE during the fit (e.g. RFECV's ``scoring`` resolution) still matches the
                 NEXT fit's freshly-read params -- but that refresh runs BEFORE this method's OWN transient
