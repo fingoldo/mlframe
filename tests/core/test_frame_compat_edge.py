@@ -86,3 +86,26 @@ def test_to_pandas_raises_falls_back_to_asarray():
     out = to_pandas_or_array(RaisingDF())
     assert isinstance(out, np.ndarray)
     assert out.tolist() == [1, 2, 3]
+
+
+def test_to_pandas_raises_logs_the_fallback(caplog):
+    """A to_pandas() failure must be logged (not a silent except-and-fallback) so an operator can
+    tell the DataFrame path was actually taken vs. the ndarray fallback."""
+    import logging
+
+    class RaisingDF:
+        """Groups tests covering RaisingDF."""
+
+        __module__ = "polars.x"
+
+        def to_pandas(self):
+            """Always raises ``RuntimeError('boom')``."""
+            raise RuntimeError("boom")
+
+        def __array__(self, dtype=None):
+            return np.array([1, 2, 3])
+
+    RaisingDF.__name__ = "DataFrame"
+    with caplog.at_level(logging.DEBUG, logger="mlframe.core.frame_compat"):
+        to_pandas_or_array(RaisingDF())
+    assert any("falling back to np.asarray" in rec.message for rec in caplog.records)

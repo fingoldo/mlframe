@@ -36,12 +36,15 @@ follow-up at ``_target_distribution_analyzer.py:_normalise_X``).
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Union
 
 import numpy as np
 import pandas as pd
 
 __all__ = ("to_pandas_or_array",)
+
+logger = logging.getLogger(__name__)
 
 
 def _is_polars_module(obj: Any) -> bool:
@@ -84,7 +87,8 @@ def to_pandas_or_array(
             # Materialise then to_pandas. LazyFrame has no direct to_pandas method.
             try:
                 return X.collect().to_pandas()
-            except Exception:
+            except Exception as exc:
+                logger.debug("to_pandas_or_array: polars LazyFrame collect()/to_pandas() failed, falling back to np.asarray: %s", exc)
                 return np.asarray(X)
         if typename == "Series":
             # Polars Series -> pandas Series. Caller can wrap to DataFrame if
@@ -92,14 +96,16 @@ def to_pandas_or_array(
             # callers (e.g. quantile / metric helpers) prefer the Series form.
             try:
                 return X.to_pandas()
-            except Exception:
+            except Exception as exc:
+                logger.debug("to_pandas_or_array: polars Series.to_pandas() failed, falling back to np.asarray: %s", exc)
                 return np.asarray(X)
         # DataFrame (or any future polars frame-like).
         to_pandas = getattr(X, "to_pandas", None)
         if callable(to_pandas):
             try:
                 return to_pandas()
-            except Exception:
+            except Exception as exc:
+                logger.debug("to_pandas_or_array: polars DataFrame.to_pandas() failed, falling back to np.asarray: %s", exc)
                 return np.asarray(X)
     # Fallback for everything else: ndarray-ify.
     return np.asarray(X)
