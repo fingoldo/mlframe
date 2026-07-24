@@ -3068,7 +3068,10 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             )
 
         # save params
-        store_params_in_object(obj=self, params=get_parent_func_args())
+        # postfix="" is required here: every attribute read in this class (hundreds of getattr(self, "x", default)
+        # call sites, plus sklearn's get_params/set_params/clone) expects plain self.x, not pyutilz's own
+        # store_params_in_object(postfix="_param_") default -- must be passed explicitly, not inherited.
+        store_params_in_object(obj=self, params=get_parent_func_args(), postfix="")
         self.signature: tuple | str | None = None
         # Nested config-dataclass overrides (finding #1, 10_config_dataclass_proposal.md): apply
         # AFTER store_params_in_object so a passed config wins over its cluster's individual flat
