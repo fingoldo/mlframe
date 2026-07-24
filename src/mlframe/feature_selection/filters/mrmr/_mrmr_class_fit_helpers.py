@@ -30,7 +30,7 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 if TYPE_CHECKING:
     from ._mrmr_class import MRMR
 
-# Process-wide count of in-flight MRMR.fit() calls (05_concurrency_and_statistics.md finding #1).
+# Process-wide count of in-flight MRMR.fit() calls.
 # Guards the GPU circuit-breaker re-arm: unconditionally clearing the breaker at every fit() entry
 # clobbers a breaker another concurrently-running fit() legitimately tripped (poisoned CUDA context),
 # reintroducing the retry-storm the breaker exists to prevent. Re-arming only on the 0->1 transition
@@ -530,9 +530,9 @@ class _MRMRFitHelpersMixin:
                 )
             sub = clone(self)
             sub.multioutput_strategy = None  # the per-column sub-fit is single-target; force the legacy path so it does not recurse.
-            # Same guaranteed-cache-miss reasoning as the stability-selection bootstrap replicates
-            # (07_memory_scalability.md finding #2): each target's y_col differs, so this sub-fit's
-            # cache key never repeats -- skip storing it to avoid thrashing the shared _FIT_CACHE.
+            # Same guaranteed-cache-miss reasoning as the stability-selection bootstrap replicates:
+            # each target's y_col differs, so this sub-fit's cache key never repeats -- skip storing
+            # it to avoid thrashing the shared _FIT_CACHE.
             sub._skip_fit_cache = True
             sub.fit(X, y_col, groups=groups, sample_weight=sample_weight, **(fit_params or {}))
             sub_names = [str(feature_names[i]) for i in np.asarray(sub.support_, dtype=np.intp)]

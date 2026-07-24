@@ -286,56 +286,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_conditional_dispersion_n_bins": 10,
     "fe_conditional_dispersion_top_k": 10,
     "fe_conditional_dispersion_max_pair_cols": 6,
-    # Conditional quantile-rank (mrmr_audit_2026-07-20 fe_expansion.md). Default OFF in both
-    # legacy pickles and the live ctor -- not yet validated against the existing regression/
-    # biz_value/fuzz-combo suite the way the sibling conditional_dispersion family was before its
-    # own default flipped to ON.
-    "fe_conditional_quantile_rank_enable": False,
-    "fe_conditional_quantile_rank_cols": (),
-    "fe_conditional_quantile_rank_n_bins": 10,
-    "fe_conditional_quantile_rank_top_k": 10,
-    "fe_conditional_quantile_rank_max_pair_cols": 6,
-    # Bandt-Pompe ordinal-pattern K-fold TE (mrmr_audit_2026-07-20). Default OFF in both legacy
-    # pickles and the live ctor -- brand-new, not yet validated against the existing suite.
-    "fe_ordinal_pattern_enable": False,
-    "fe_ordinal_pattern_cols": (),
-    "fe_ordinal_pattern_k": 3,
-    "fe_ordinal_pattern_max_cols_for_tuples": 5,
-    "fe_ordinal_pattern_n_folds": 5,
-    "fe_ordinal_pattern_smoothing": 10.0,
-    "fe_ordinal_pattern_top_k": 5,
-    # Random Fourier Features joint kernel-approximation block (mrmr_audit_2026-07-20). Default
-    # OFF in both legacy pickles and the live ctor -- brand-new, not yet validated.
-    "fe_random_fourier_enable": False,
-    "fe_random_fourier_cols": (),
-    "fe_random_fourier_m": 64,
-    "fe_random_fourier_bandwidth": None,
-    "fe_random_fourier_max_cols_for_block": 8,
-    "fe_random_fourier_top_k": 8,
-    # Sliced Inverse Regression oblique-direction projection (mrmr_audit_2026-07-20). Default OFF
-    # in both legacy pickles and the live ctor -- brand-new, not yet validated.
-    "fe_sir_direction_enable": False,
-    "fe_sir_direction_cols": (),
-    "fe_sir_direction_n_slices": 10,
-    "fe_sir_direction_n_directions": 2,
-    "fe_sir_direction_max_cols_for_block": 8,
-    "fe_sir_direction_top_k": 2,
-    # Local Outlier Factor / k-NN local density-ratio (mrmr_audit_2026-07-20). Default OFF in both
-    # legacy pickles and the live ctor -- brand-new, not yet validated.
-    "fe_lof_enable": False,
-    "fe_lof_cols": (),
-    "fe_lof_k": 20,
-    "fe_lof_max_ref": 2000,
-    "fe_lof_max_cols_for_block": 8,
-    "fe_lof_top_k": 1,
-    # Multivariate Mahalanobis / Gaussian-copula joint density anomaly score
-    # (mrmr_audit_2026-07-20). Default OFF in both legacy pickles and the live ctor -- brand-new,
-    # not yet validated.
-    "fe_mahalanobis_density_enable": False,
-    "fe_mahalanobis_density_cols": (),
-    "fe_mahalanobis_density_max_cols_for_block": 20,
-    "fe_mahalanobis_density_top_k": 1,
-    # Haar wavelet basis (backlog #13). Pre-#13 pickles default OFF so the
+    # Haar wavelet basis. Pre-#13 pickles default OFF so the
     # legacy reload path is byte-identical (the live default is ON for new
     # fits via __init__); the fitted-attr list defaults empty.
     "fe_wavelet_enable": False,
@@ -370,12 +321,12 @@ _SETSTATE_LEGACY_DEFAULTS = {
     # SURROGATE-GBM SPLIT-CO-OCCURRENCE SEEDER (#6) + ORDER-3 maxT floor (#7),
     # 2026-06-09. Seeder is OPT-IN; the order-3 floor mirrors the order-2 knobs.
     # Pre-seeder pickles default to the same safe values for re-fits.
-    # PREVALENCE-FAILED SYNERGY RESCUE (2026-06-12). Live default ON; pre-fix
+    # PREVALENCE-FAILED SYNERGY RESCUE. Live default ON; pre-fix
     # pickles default ON too (the rescue only adds a leak-safe second-chance path
     # behind the full admission gates -- it never changes an already-admitted
     # column's values, so replay of a pre-fix recipe is unaffected).
     "fe_synergy_prevalence_rescue_enable": True,
-    # TAIL-CONCENTRATED USABILITY ADMISSION (2026-07-02). Live default ON; pre-fix pickles default ON too
+    # TAIL-CONCENTRATED USABILITY ADMISSION. Live default ON; pre-fix pickles default ON too
     # (it only credits a raw-operand |corr(continuous y)| signal for rank-MI-under-ranked/rejected pairs behind
     # the full downstream FE gates -- it never changes an already-admitted column's values, so replay of a
     # pre-fix recipe is unaffected).
@@ -385,7 +336,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_pair_usability_admission_rank_frac": 0.7,
     "fe_raw_tail_subsume_min_corr": 0.85,
     "fe_pair_usability_prescan_max_pairs": 256,
-    # ESCALATION FEATURES TERMINAL in feed-forward (2026-06-12). Pre-fix pickles
+    # ESCALATION FEATURES TERMINAL in feed-forward. Pre-fix pickles
     # default OFF too (matches the live default; escalation features were rare and
     # this only restricts NEW composite seeding, never replay of an existing recipe).
     "fe_escalation_feedforward_enable": False,
@@ -404,7 +355,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_triple_maxt_null_permutations": 25,
     "fe_triple_maxt_null_quantile": 0.95,
     "fe_triple_maxt_min_triples": 4,
-    # SUFFICIENT-SUMMARY EARLY-STOP (backlog #22, 2026-06-10). DEFAULT-ON; pre-feature
+    # SUFFICIENT-SUMMARY EARLY-STOP. DEFAULT-ON; pre-feature
     # pickles default to the same on/0.25 contract for re-fits (the early-stop never
     # changes the final selection, so an old pickle's behaviour is unchanged either way).
     "fe_sufficient_summary_early_stop": True,
@@ -412,12 +363,12 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_sufficient_summary_maxt_permutations": 25,
     "fe_sufficient_summary_maxt_quantile": 0.95,
     "fe_sufficient_summary_ridge_alpha": 1e-3,
-    # CMI-redundancy gate cost guard (2026-06-11). Old pickles default to the
+    # CMI-redundancy gate cost guard. Old pickles default to the
     # same 64-candidate cap; it only fires on pools WIDER than the cap (deep-tail
     # low-marginal-MI redundant remaps), so a re-fit of any pickle whose pool was
     # already <= 64 candidates is byte-identical.
     "fe_engineered_cmi_max_candidates": 64,
-    # CMI-redundancy gate strong-significance escape (2026-06-11). Old pickles
+    # CMI-redundancy gate strong-significance escape. Old pickles
     # default to the same 3.0 margin (the gate's _step_core read already falls
     # back to 3.0 via getattr; pinned here for an explicit, pickle-stable default).
     # The escape only LOOSENS leg 2 for a candidate that already clears its floor

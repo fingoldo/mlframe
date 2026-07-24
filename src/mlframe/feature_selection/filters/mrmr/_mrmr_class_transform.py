@@ -60,8 +60,7 @@ class _MRMRTransformMixin:
         if input_features is not None:
             in_names = np.asarray(input_features, dtype=object)
             saved = np.asarray(self.feature_names_in_, dtype=object)
-            # 1 fix (loop iter 27): use the
-            # ``_feature_names_in_synthesized_`` sentinel set at fit
+            # Use the ``_feature_names_in_synthesized_`` sentinel set at fit
             # time instead of the brittle ``startswith("feature_")``
             # heuristic. The heuristic misclassified legitimate
             # DataFrame columns the user happened to name
@@ -120,7 +119,7 @@ class _MRMRTransformMixin:
         else:
             base_names = [fni[i] for i in support]
         names = list(base_names) + engineered_names
-        # USABILITY UNION (2026-06-13): when the usability-aware pass ran, transform() ALSO materialises
+        # USABILITY UNION: when the usability-aware pass ran, transform() ALSO materialises
         # the linear + universal lists' features (deduped against the pure-MI output), so the advertised
         # names must include them or the sklearn-Pipeline width check would reject the wider transform.
         if getattr(self, "usability_aware_lists", False):
@@ -156,8 +155,7 @@ class _MRMRTransformMixin:
                     extra.append(cand)
         return extra
 
-    # 1 fix (loop iter 43): explicit
-    # ``__sklearn_is_fitted__`` and ``get_support`` so sklearn's
+    # Explicit ``__sklearn_is_fitted__`` and ``get_support`` so sklearn's
     # ``check_is_fitted`` / ``SelectorMixin`` consumers behave
     # correctly.
     # Pre-fix the class declared only ``BaseEstimator, TransformerMixin``
@@ -186,7 +184,7 @@ class _MRMRTransformMixin:
         return np.where(mask)[0] if indices else mask
 
     def _get_support_mask(self) -> np.ndarray:
-        """Required by ``sklearn.feature_selection.SelectorMixin`` (finding #19) -- delegates to
+        """Required by ``sklearn.feature_selection.SelectorMixin`` -- delegates to
         ``get_support()``, the mixin's own boolean-mask logic. MRMR's ``transform``/``get_feature_names_out``
         still win over ``SelectorMixin``'s versions via MRO (see the class-body comment on ``MRMR``'s bases);
         this only makes ``isinstance(mrmr, SelectorMixin)`` true and enables SelectorMixin's other

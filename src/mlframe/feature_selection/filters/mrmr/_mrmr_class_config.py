@@ -134,7 +134,7 @@ class _MRMRConfigMixin:
         """Set ``self.<attr> = new_value`` and stash the pre-fit value into ``saved[attr]`` for a later
         ``finally``-block restore, UNLESS the caller already customized ``attr`` away from its package
         default (``defaults[attr]``) -- an explicit user value always wins over a profile override.
-        Shared by ``_apply_default_screen_subsample`` and ``_apply_fast_search_profile`` (finding #21):
+        Shared by ``_apply_default_screen_subsample`` and ``_apply_fast_search_profile``:
         both used to duplicate this exact "read ctor default, only override if unchanged, save old value"
         pattern inline."""
         cur = getattr(self, attr, None)
@@ -198,7 +198,7 @@ class _MRMRConfigMixin:
             if _ss_cur is None or _fast_ss < int(_ss_cur):
                 saved["fe_check_pairs_subsample_n"] = _ss_cur
                 self.fe_check_pairs_subsample_n = _fast_ss
-        # UNIFIED detection subsample (2026-06-17): tie the per-family DETECTION caps that read env
+        # UNIFIED detection subsample: tie the per-family DETECTION caps that read env
         # (currently the Fourier frequency detection) to the same fast-search subsample, so EVERY
         # family's detection runs on the small sample while values/recipes still replay full-n. Saved
         # under an ``__env__`` sentinel key; the fit's restore loop resets os.environ. Only SHRINK
@@ -226,7 +226,7 @@ class _MRMRConfigMixin:
         last on every redundant fixture. Callers that do not know which
         scorer to pick should default to the return value of this method.
 
-        Layer 86 (2026-06-01) accelerated JMIM (~2.3x) and TC (~5.0x)
+        Layer 86 accelerated JMIM (~2.3x) and TC (~5.0x)
         via batched quantile binning + invariant support-side joint
         precompute; the perf improvement does NOT change the L83 AUC
         leaderboard (CMIM still wins 5/7) because the scorer math is
@@ -257,7 +257,7 @@ class _MRMRConfigMixin:
 
     def _effective_n_jobs(self) -> int:
         """Resolve ``n_jobs`` (sentinel ``-1`` -> physical core count) at the point of use, not at
-        construction time (08_sklearn_joblib_compat.md finding #1). ``self.n_jobs`` is stored UNMODIFIED
+        construction time. ``self.n_jobs`` is stored UNMODIFIED
         by ``__init__`` per the sklearn contract (mirrors ``_effective_random_seed``'s ``random_state``/
         ``random_seed`` reconciliation), so a pickled/cloned estimator re-resolves ``-1`` against
         WHICHEVER machine actually runs the fit instead of carrying the constructing machine's core
