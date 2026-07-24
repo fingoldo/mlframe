@@ -343,6 +343,11 @@ from collections import OrderedDict as _CmiResidentOrderedDict
 
 _CMI_RESIDENT_CACHE: "_CmiResidentOrderedDict" = _CmiResidentOrderedDict()
 _CMI_RESIDENT_CACHE_MAX_ENTRIES = 16
+# INFO_THEORY_A-9 fix (mrmr_audit_2026-07-22): this cache had no lock at all, unlike its two siblings in
+# this same file (_FORDER_LOCK, _FACTORS_DEVICE_LOCK). Content-hash-guarded (see _resident_upload's own
+# `sig` fingerprint), so an unlocked race here only cost a redundant upload (self-healing) rather than
+# silent corruption -- but the 2-of-3-locked inconsistency was a design smell worth closing.
+_CMI_RESIDENT_CACHE_LOCK = threading.Lock()
 
 
 def _resident_upload(arr, key):
@@ -369,22 +374,24 @@ def _resident_upload(arr, key):
     # pure CPU and far cheaper than the H2D it guards; on a real greedy loop the same y/z hash identically ->
     # the cache still hits every candidate batch.
     sig = (arr.shape, arr.dtype.str, hash(arr.tobytes()))
-    cached = _CMI_RESIDENT_CACHE.get(key)
-    if cached is not None:
-        g, csig = cached
-        if csig == sig:
-            _CMI_RESIDENT_CACHE.move_to_end(key)  # LRU: this content is hot
-            return g
-    g = cp.asarray(arr)
-    _CMI_RESIDENT_CACHE[key] = (g, sig)
-    if len(_CMI_RESIDENT_CACHE) > _CMI_RESIDENT_CACHE_MAX_ENTRIES:
-        _CMI_RESIDENT_CACHE.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
-    return g
+    with _CMI_RESIDENT_CACHE_LOCK:
+        cached = _CMI_RESIDENT_CACHE.get(key)
+        if cached is not None:
+            g, csig = cached
+            if csig == sig:
+                _CMI_RESIDENT_CACHE.move_to_end(key)  # LRU: this content is hot
+                return g
+        g = cp.asarray(arr)
+        _CMI_RESIDENT_CACHE[key] = (g, sig)
+        if len(_CMI_RESIDENT_CACHE) > _CMI_RESIDENT_CACHE_MAX_ENTRIES:
+            _CMI_RESIDENT_CACHE.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
+        return g
 
 
 def clear_cmi_resident_cache() -> None:
     """Drop the resident y/z device cache (call at FE-step teardown; mirrors the mempool teardown)."""
-    _CMI_RESIDENT_CACHE.clear()
+    with _CMI_RESIDENT_CACHE_LOCK:
+        _CMI_RESIDENT_CACHE.clear()
 
 
 # --------------------------------------------------------------------------------------------------------------------

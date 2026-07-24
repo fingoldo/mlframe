@@ -34,6 +34,7 @@ from numba import njit, prange
 from .cat_fe_state import CatFEConfig, CatFEState
 from .info_theory import (
     compute_mi_from_classes,
+    compute_mi_from_classes_weighted,
     merge_vars,
 )
 
@@ -124,7 +125,7 @@ def resolve_max_combined_nbins(cfg: CatFEConfig, n_samples: int, hard_cap: int =
     Always clamped to ``hard_cap`` (10**7) regardless of user value -- prevents OOM via misconfig like ``max_combined_nbins=10**9`` (4 GB freqs allocation).
     """
     if cfg.max_combined_nbins is None:
-        # Paninski bias ~ (k-1)/(2n) per entropy term. For 0.05 nat tolerance across 3 entropies: 3*(k-1)/(2n) < 0.05 -> k < n*0.05/1.5 + 1 Р Р†РІР‚В°РІвЂљВ¬ n/30 + 1.
+        # Paninski bias ~ (k-1)/(2n) per entropy term. For 0.05 nat tolerance across 3 entropies: 3*(k-1)/(2n) < 0.05 -> k < n*0.05/1.5 + 1 ~= n/30 + 1.
         # Default tolerance 0.05 is folklore, not analytical.
         resolved = max(4, int(n_samples * 0.05 / 3) + 1)
     else:
@@ -235,6 +236,48 @@ def _marginal_screen_njit(
             freqs_x=freqs_x,
             classes_y=classes_y,
             freqs_y=freqs_y,
+            dtype=dtype,
+        )
+    return out
+
+
+def _marginal_screen_weighted(
+    factors_data: np.ndarray,
+    candidate_idxs: np.ndarray,
+    nbins: np.ndarray,
+    classes_y: np.ndarray,
+    weights: np.ndarray,
+    dtype,
+) -> np.ndarray:
+    """Weighted twin of :func:`_marginal_screen_njit`: compute ``I(X_i ; Y)`` for every ``i`` in
+    ``candidate_idxs`` under per-row sample weights, via :func:`compute_mi_from_classes_weighted`.
+
+    CAT_INTERACTION_A-1 fix (mrmr_audit_2026-07-22): the marginal-MI term subtracted in every Interaction
+    Information computation (``II = I(Xi,Xj;Y) - I(Xi;Y) - I(Xj;Y)``) was ALWAYS built via the unweighted
+    ``_marginal_screen_njit``, even when ``cfg.sample_weight_col`` made the search-phase joint-MI kernel
+    (``_pair_search_kernel_weighted_njit``) weighted -- mixing a correctly-weighted joint term with an
+    UNWEIGHTED marginal term produced an internally-inconsistent II for every downstream consumer
+    (top-K selection, permutation confirmation's ``ii_obs`` statistic, k-way greedy expansion's baseline,
+    the diagnostics fields). Not njit'd (plain Python loop over the already-small post-screen candidate
+    set): correctness over the search-phase screen's raw speed, since this only runs once ``use_weights``
+    is known True, on the SAME candidate set the unweighted screen already narrowed.
+    """
+    n_candidates = len(candidate_idxs)
+    out = np.zeros(n_candidates, dtype=np.float64)
+    for k in range(n_candidates):
+        idx = int(candidate_idxs[k])
+        vi = np.array([idx], dtype=np.int64)
+        classes_x, _freqs_x, _ = merge_vars(
+            factors_data=factors_data,
+            vars_indices=vi,
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=dtype,
+        )
+        out[k] = compute_mi_from_classes_weighted(
+            classes_x=classes_x,
+            classes_y=classes_y,
+            weights=weights,
             dtype=dtype,
         )
     return out

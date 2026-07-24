@@ -29,26 +29,29 @@ GATE: engages ONLY where a per-host KTC crossover (sibling ``_usability_pool_res
 On a no-cupy / CPU host the gate returns ``None`` and the caller takes the exact njit per-pair path --
 byte-for-byte unchanged.
 
-NOT WIRED INTO ``build_usability_candidate_pool`` (bench-noted there) for TWO independent reasons measured
+WIRED (2026-06-27, GPU_INFRA_C-5 fix mrmr_audit_2026-07-22 -- this docstring was stale since 2026-06-23):
+``score_pair_combos_table_resident`` IS fed into ``_usability_aware_selection.py``'s retention loop under
+the resident GPU-strict flag (``_seleq``) only. It was originally NOT wired for two reasons measured
 2026-06-23 on the dev GTX 1050 Ti:
 
-  (1) NOT SELECTION-EQUIVALENT (the blocking reason). The table is bit-FAITHFUL to ~6e-15, but the downstream
-      STABLE MI-sort + greedy ``_abscorr`` diversity filter in the pool builder is ULP-SENSITIVE at MI ties:
-      a 6e-15 reassociation in ``_gpu_marginal_mi`` vs the njit reduction flips the tie ORDER, changing which
-      of two near-equal-MI combos is retained. Verified: a 125-form structured pool had ~6 retained forms
-      DIFFER (e.g. ``mul(invsquared(a),neg(b))`` -> ``mul(invsquared(a),identity(b))``). The pool path must
-      stay byte-identical, so the resident MI cannot feed it without a BIT-EXACT (njit-reduction-order) MI.
+  (1) NOT SELECTION-EQUIVALENT at the time: the table was bit-FAITHFUL to ~6e-15, but the downstream STABLE
+      MI-sort + greedy ``_abscorr`` diversity filter in the pool builder is ULP-SENSITIVE at MI ties -- a
+      6e-15 reassociation in ``_gpu_marginal_mi`` vs the njit reduction flips the tie ORDER, changing which of
+      two near-equal-MI combos is retained. This blocker was fixed in 71e31818 (the resident binner now
+      matches the njit distinct-edge dedup on low-cardinality columns) plus the ``_mi_key`` grid-snap that
+      absorbs the remaining ULP-tie sensitivity under ``_seleq`` -- the resident table is now
+      SELECTION-EQUIVALENT to the njit per-pair ``score_pair_combos``, pinned by
+      ``tests/feature_selection/gpu/test_usability_pool_resident_parity.py``.
 
-  (2) IT LOSES ON THIS CARD anyway: n=100k npairs=4 nc=1734/pair CUDA-event interleaved-min A/B = 29.6s
-      resident vs 14.7s CPU njit -> 0.50x. The separation + launch-amortisation IS achieved (operand H2D +
-      unary transforms ONCE per pair; batched scoring) so this is NOT the per-pair-launch trap of iter13/16;
-      the new bottleneck is the bit-faithful bin+MI itself -- ``_gpu_quantile_bin_codes``/``_gpu_marginal_mi``
-      run a per-row device->host scalar sync (~14k tiny syncs) the 6-SM card cannot hide (HW-bound regime).
+  (2) IT LOSES ON THIS CARD wall-clock-wise: n=100k npairs=4 nc=1734/pair CUDA-event interleaved-min A/B =
+      29.6s resident vs 14.7s CPU njit -> 0.50x (the bit-faithful ``_gpu_quantile_bin_codes``/``_gpu_marginal_mi``
+      run a per-row device->host scalar sync the 6-SM card cannot hide). This is why it engages only under the
+      explicit ``_seleq`` flag rather than by default KTC-measured crossover -- it is a residency win (the MI
+      runs on-device under the flag), not necessarily a wall win at the FE-subsample n on every card.
 
-NEEDS-X to ship: a BIT-EXACT GPU MI matching the njit reduction order (to make selection byte-identical) AND
-a row-vectorised sync-free bin+MI kernel AND a card where it wins. The KTC gate (``_usability_pool_resident_ktc``)
-+ this kernel are kept (feedback_keep_all_kernel_versions) so the work is ready to re-bench / re-wire once a
-bit-exact vectorised MI exists; they are intentionally NOT called from the selection path today.
+The DEFAULT (flag-off) path remains BYTE-IDENTICAL -- it never computes the resident table and uses the
+per-pair njit ``score_pair_combos`` exactly as before. If the resident table errors (no cupy / device fault)
+it returns ``None`` and the caller falls back per-pair.
 """
 from __future__ import annotations
 

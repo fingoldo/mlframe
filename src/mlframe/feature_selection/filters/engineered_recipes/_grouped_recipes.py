@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .._internals import canonical_group_token
+
 if TYPE_CHECKING:
     from . import EngineeredRecipe
 
@@ -26,8 +28,8 @@ def build_grouped_delta_recipe(
     from . import EngineeredRecipe
     if op not in ("minus_mean", "div_std"):
         raise ValueError(f"grouped_delta op must be 'minus_mean' or 'div_std'; got {op!r}")
-    lookup_mean_clean = {str(k): float(v) for k, v in lookup_mean.items()}
-    lookup_std_clean = {str(k): float(v) for k, v in lookup_std.items()}
+    lookup_mean_clean = {canonical_group_token(k): float(v) for k, v in lookup_mean.items()}
+    lookup_std_clean = {canonical_group_token(k): float(v) for k, v in lookup_std.items()}
     return EngineeredRecipe(
         name=name,
         kind="grouped_delta",
@@ -59,9 +61,9 @@ def build_grouped_agg_recipe(
     from . import EngineeredRecipe
     if op not in ("broadcast", "z_within", "ratio"):
         raise ValueError(f"grouped_agg op must be 'broadcast', 'z_within', or 'ratio'; " f"got {op!r}")
-    lookup_clean = {str(k): float(v) for k, v in group_lookup_dict.items()}
-    lookup_mean_clean = {str(k): float(v) for k, v in lookup_mean.items()}
-    lookup_std_clean = {str(k): float(v) for k, v in lookup_std.items()}
+    lookup_clean = {canonical_group_token(k): float(v) for k, v in group_lookup_dict.items()}
+    lookup_mean_clean = {canonical_group_token(k): float(v) for k, v in lookup_mean.items()}
+    lookup_std_clean = {canonical_group_token(k): float(v) for k, v in lookup_std.items()}
     return EngineeredRecipe(
         name=name,
         kind="grouped_agg",
@@ -101,9 +103,9 @@ def build_composite_group_agg_recipe(
     group_cols = tuple(str(c) for c in group_cols)
     if len(group_cols) < 2:
         raise ValueError(f"composite_group_agg recipe '{name}' requires >= 2 group_cols; " f"got {group_cols!r}")
-    lookup_clean = {str(k): float(v) for k, v in group_lookup_dict.items()}
-    lookup_mean_clean = {str(k): float(v) for k, v in lookup_mean.items()}
-    lookup_std_clean = {str(k): float(v) for k, v in lookup_std.items()}
+    lookup_clean = {canonical_group_token(k): float(v) for k, v in group_lookup_dict.items()}
+    lookup_mean_clean = {canonical_group_token(k): float(v) for k, v in lookup_mean.items()}
+    lookup_std_clean = {canonical_group_token(k): float(v) for k, v in lookup_std.items()}
     return EngineeredRecipe(
         name=name,
         kind="composite_group_agg",
@@ -139,7 +141,7 @@ def build_grouped_quantile_recipe(
     from . import EngineeredRecipe
     if op not in ("pct_rank", "iqr", "p90p10"):
         raise ValueError(f"grouped_quantile op must be 'pct_rank', 'iqr', or 'p90p10'; " f"got {op!r}")
-    group_sorted_clean = {str(k): [float(v) for v in vals] for k, vals in group_sorted.items()}
+    group_sorted_clean = {canonical_group_token(k): [float(v) for v in vals] for k, vals in group_sorted.items()}
     return EngineeredRecipe(
         name=name,
         kind="grouped_quantile",
@@ -150,8 +152,8 @@ def build_grouped_quantile_recipe(
             "op": str(op),
             "group_sorted": group_sorted_clean,
             "global_sorted": [float(v) for v in global_sorted],
-            "iqr_lookup": {str(k): float(v) for k, v in iqr_lookup.items()},
-            "p90p10_lookup": {str(k): float(v) for k, v in p90p10_lookup.items()},
+            "iqr_lookup": {canonical_group_token(k): float(v) for k, v in iqr_lookup.items()},
+            "p90p10_lookup": {canonical_group_token(k): float(v) for k, v in p90p10_lookup.items()},
             "global_iqr": float(global_iqr),
             "global_p90p10": float(global_p90p10),
             "quantiles": [float(q) for q in quantiles],
@@ -173,7 +175,7 @@ def build_target_aware_group_bin_recipe(
     persisted, so transform() carries no y reference."""
     from . import EngineeredRecipe
 
-    group_edges_clean = {str(k): [float(v) for v in edges] for k, edges in group_edges.items()}
+    group_edges_clean = {canonical_group_token(k): [float(v) for v in edges] for k, edges in group_edges.items()}
     return EngineeredRecipe(
         name=name,
         kind="target_aware_group_bin",
@@ -189,21 +191,23 @@ def build_target_aware_group_bin_recipe(
 
 
 def build_lagged_diff_recipe(
-    *, name: str, time_col: str, value_col: str, period: int,
+    *, name: str, time_col: str, value_col: str, period: int, entity_cols: "tuple[str, ...] | None" = None,
 ) -> EngineeredRecipe:
-    """Frozen recipe for ``x_t - x_{t-period}`` after sorting by ``time_col``.
-    Replay re-sorts the test frame by ``time_col`` and emits the per-row
-    difference; the first ``period`` rows of the sorted order get 0."""
+    """Frozen recipe for ``x_t - x_{t-period}`` after sorting by ``time_col`` (or ``(entity_cols, time_col)``
+    when ``entity_cols`` is given -- CAT_INTERACTION_B-5 fix, mrmr_audit_2026-07-22).
+    Replay re-sorts the test frame the same way and emits the per-row
+    difference; the first ``period`` rows of each (entity-scoped) sorted run get 0."""
     from . import EngineeredRecipe
     if int(period) < 1:
         raise ValueError(f"lagged_diff period must be >= 1; got {period}")
     return EngineeredRecipe(
         name=name,
         kind="lagged_diff",
-        src_names=(time_col, value_col),
+        src_names=(time_col, value_col) + (tuple(entity_cols) if entity_cols else ()),
         extra={
             "time_col": str(time_col),
             "value_col": str(value_col),
             "period": int(period),
+            "entity_cols": tuple(str(c) for c in entity_cols) if entity_cols else None,
         },
     )

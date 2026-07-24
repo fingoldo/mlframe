@@ -126,6 +126,12 @@ def _apply_rolling_window(
     if n <= window:
         return X_buf, y_buf, batch_sizes
     drop = n - window
+    # USABILITY_B-4 fix (mrmr_audit_2026-07-22): this single loop already correctly builds the
+    # post-truncation batch-size registry -- once drop_remaining hits 0, every subsequent iteration's
+    # `drop_remaining >= size` check is False, so it falls through to `new_sizes.append(size - drop_remaining)`
+    # with drop_remaining==0, i.e. appends the batch's FULL size unchanged. A second, essentially-identical
+    # loop used to rebuild the same list from scratch (discarding this one), justified by a comment
+    # ("walk again to pick up everything past the consumed prefix") that wasn't actually necessary.
     new_sizes: list[int] = []
     drop_remaining = drop
     for size in batch_sizes:
@@ -133,27 +139,12 @@ def _apply_rolling_window(
             drop_remaining -= size
             # whole batch dropped
             continue
-        # partial drop on this batch
+        # partial drop on this batch (or, once drop_remaining==0, the batch's unchanged full size)
         new_sizes.append(size - drop_remaining)
         drop_remaining = 0
-    # any remaining batches (drop_remaining hit 0) keep their full sizes:
-    # walk again to pick up everything past the consumed prefix.
-    rebuilt: list[int] = []
-    drop_remaining = drop
-    consumed = False
-    for size in batch_sizes:
-        if not consumed:
-            if drop_remaining >= size:
-                drop_remaining -= size
-                continue
-            rebuilt.append(size - drop_remaining)
-            drop_remaining = 0
-            consumed = True
-        else:
-            rebuilt.append(size)
     X_trimmed = X_buf.iloc[drop:].reset_index(drop=True)
     y_trimmed = y_buf.iloc[drop:].reset_index(drop=True)
-    return X_trimmed, y_trimmed, rebuilt
+    return X_trimmed, y_trimmed, new_sizes
 
 
 def partial_fit(
@@ -267,10 +258,20 @@ def partial_fit(
 
     if sample_weight is not None:
         sw_new = np.asarray(sample_weight, dtype=np.float64).ravel()
+        kept_new = batch_sizes[-1]
+        # USABILITY_B-3 fix (mrmr_audit_2026-07-22): the trailing-slice recovery below is only a legitimate
+        # recovery when the CURRENT batch was actually truncated by the rolling window (kept_new < len(X_df)
+        # -- fewer rows survived than the caller's sample_weight covers). When no truncation occurred
+        # (kept_new == len(X_df), the common case with the default partial_fit_window=None), a length
+        # mismatch is a genuine caller error: a too-LONG sample_weight used to be silently sliced
+        # (`sw_new[-kept_new:]`) and misattributed to the wrong rows with zero warning, instead of raising
+        # the same actionable error the too-short branch already gives.
+        _window_truncated = kept_new < len(X_df)
         if sw_new.shape[0] != len(X_df) and is_first is False:
+            if not _window_truncated:
+                raise ValueError(f"MRMR.partial_fit: sample_weight length {sw_new.shape[0]} " f"does not align with the new batch length {len(X_df)}.")
             # New batch may have been partially truncated by the rolling
             # window. Trim sw_new to the surviving suffix of the new batch.
-            kept_new = batch_sizes[-1]
             if sw_new.shape[0] >= kept_new:
                 sw_new = sw_new[-kept_new:]
             else:

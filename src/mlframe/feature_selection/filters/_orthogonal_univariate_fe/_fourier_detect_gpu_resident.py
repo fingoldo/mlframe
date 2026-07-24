@@ -33,6 +33,7 @@ Any cupy / device error falls back to the CPU njit detector, so the default
 """
 from __future__ import annotations
 
+import threading
 from typing import Sequence
 
 import numpy as np
@@ -49,18 +50,27 @@ _TWO_PI = 2.0 * np.pi
 # is byte-identical to a fresh recompute. Bounded: keyed by scalar shape, a handful of entries per process.
 _SPLIT_MASK_CACHE: dict = {}
 _SUBSAMPLE_IDX_CACHE: dict = {}
+# ORTH_BASIS_B-3 fix (mrmr_audit_2026-07-22): both caches performed an unlocked read-then-write
+# (.get() then [key]=), the same hand-rolled unlocked module-level cache pattern the cross-cutting audit
+# reproduced a crash for elsewhere ("dictionary changed size during iteration"/KeyError under concurrent
+# access). Low-reachability today (gated behind default-OFF MLFRAME_FE_GPU_STRICT_RESIDENT; joblib workers
+# each get their own dict), but any future in-process thread-parallel FE fan-out over this resident path
+# would hit the same race. Values are read-only after insertion, so this lock only needs to guard the
+# get-or-insert sequence, not any later read.
+_CACHE_LOCK = threading.Lock()
 
 
 def _seeded_split_masks(n: int):
     """(train_mask, val_mask) for the seed-0 permutation held-out split -- memoised by ``n``. Byte-identical to
     recomputing ``default_rng(0).permutation(n)`` each call (deterministic), read-only for the caller."""
-    cached = _SPLIT_MASK_CACHE.get(n)
-    if cached is None:
-        val_mask = np.zeros(n, dtype=bool)
-        val_mask[np.random.default_rng(0).permutation(n)[: n // 3]] = True
-        cached = (~val_mask, val_mask)
-        _SPLIT_MASK_CACHE[n] = cached
-    return cached
+    with _CACHE_LOCK:
+        cached = _SPLIT_MASK_CACHE.get(n)
+        if cached is None:
+            val_mask = np.zeros(n, dtype=bool)
+            val_mask[np.random.default_rng(0).permutation(n)[: n // 3]] = True
+            cached = (~val_mask, val_mask)
+            _SPLIT_MASK_CACHE[n] = cached
+        return cached
 
 
 def _seeded_subsample_idx(tr_size: int, cap: int, va_size: int, va_cap: int):
@@ -71,14 +81,15 @@ def _seeded_subsample_idx(tr_size: int, cap: int, va_size: int, va_cap: int):
     (which would give a different ``sub_va``). ``sub_va`` is None when the val slice is not subsampled. Byte-identical
     to recomputing per call, read-only gather indices for the caller."""
     key = (tr_size, cap, va_size, va_cap)
-    cached = _SUBSAMPLE_IDX_CACHE.get(key)
-    if cached is None:
-        _rng = np.random.default_rng(0xF0F0_1234)
-        sub_tr = _rng.choice(tr_size, size=cap, replace=False)
-        sub_va = _rng.choice(va_size, size=va_cap, replace=False) if va_size > va_cap else None
-        cached = (sub_tr, sub_va)
-        _SUBSAMPLE_IDX_CACHE[key] = cached
-    return cached
+    with _CACHE_LOCK:
+        cached = _SUBSAMPLE_IDX_CACHE.get(key)
+        if cached is None:
+            _rng = np.random.default_rng(0xF0F0_1234)
+            sub_tr = _rng.choice(tr_size, size=cap, replace=False)
+            sub_va = _rng.choice(va_size, size=va_cap, replace=False) if va_size > va_cap else None
+            cached = (sub_tr, sub_va)
+            _SUBSAMPLE_IDX_CACHE[key] = cached
+        return cached
 
 
 def _corr_sq_centered_gpu(cp, v, yc, y_ss: float) -> float:

@@ -17,10 +17,21 @@ Algorithm (discrete X, Z case):
   4. Repeat B times to build the conditional permutation null.
 
 For continuous X (we discretise via MRMR's binning), the within-stratum
-permutation degenerates when strata have <= 1 element. The implementation
-falls back to nearest-stratum borrowing in that case (a simplification of
-Berrett's full MCMC algorithm; the original handles continuous X via a
-biased local-permutation walk).
+permutation degenerates when strata have <= 1 element. SCREEN_CONFIRM_B-3 fix
+(mrmr_audit_2026-07-22): this docstring previously (and incorrectly) claimed the
+implementation "falls back to nearest-stratum borrowing" in that case -- the
+actual code simply EXCLUDES singleton-Z-stratum rows from every permutation
+replicate (``x_perm`` keeps the real observed value at those rows in ALL draws;
+see ``stratum_arrs``'s ``len(idx_list) > 1`` filter below). No nearest-stratum
+borrowing is implemented. This matters because the D10 caller
+(``evaluation.py``'s conditional permutation test) composes ``z_comp`` from
+EVERY currently-selected feature, so the conditioning cardinality -- and the
+singleton-stratum fraction -- grows every round of a single fit: later rounds
+permute a progressively smaller fraction of ``x``, understating the true null
+variance and biasing the test toward under-powered ("no signal") verdicts as
+more features are selected. True nearest-stratum borrowing (Berrett et al.'s
+actual local-permutation walk) is NOT yet implemented; treat this test's power
+as degrading, not constant, across a fit with a growing conditioning set.
 
 Reference: Berrett, T.B., Wang, Y., Barber, R.F., Samworth, R.J. (2020),
 "The Conditional Permutation Test for Independence While Controlling for
@@ -28,8 +39,11 @@ Confounders", *J. R. Statist. Soc. B* 82(1):175-197.
 """
 from __future__ import annotations
 
+import logging
 
 import numpy as np
+
+logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
 def conditional_permutation_test(
@@ -77,6 +91,20 @@ def conditional_permutation_test(
     # sees the SAME int64 arrays in the SAME dict-iteration order, so the RNG draw
     # sequence and the resulting permutations are unchanged.
     stratum_arrs = [np.asarray(idx_list, dtype=np.int64) for idx_list in strata.values() if len(idx_list) > 1]
+    # SCREEN_CONFIRM_B-3 fix: surface the excluded (singleton-stratum) row fraction so a progressively
+    # degenerate test (see the module docstring) is visible/monitorable instead of silently understating
+    # power as the conditioning set grows.
+    _n_permutable = sum(arr.shape[0] for arr in stratum_arrs)
+    _n_total = int(z.shape[0]) if hasattr(z, "shape") else len(z)
+    if _n_total > 0:
+        _excluded_frac = 1.0 - (_n_permutable / _n_total)
+        if _excluded_frac > 0.5:
+            logger.warning(
+                "mrmr: conditional_permutation_test excluded %.0f%% of rows from every permutation "
+                "replicate (singleton Z-strata, %d distinct strata over %d rows) -- the conditional "
+                "permutation null is degenerate for most of the sample; treat the p-value as under-powered.",
+                100.0 * _excluded_frac, len(strata), _n_total,
+            )
     null_dist = np.empty(int(n_permutations), dtype=np.float64)
     for p in range(int(n_permutations)):
         x_perm = x.copy()

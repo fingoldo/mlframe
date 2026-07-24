@@ -29,6 +29,27 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# INFO_THEORY_B-1 fix (mrmr_audit_2026-07-22): genie_mi_panel's default bias-rate fallback used to be the
+# SAME constant (1/sqrt(N)) for every estimator name, making the (K+2)x(K+2) constraint matrix genie_weights
+# builds EXACTLY singular by construction (the b^T constraint row becomes a scalar multiple of the 1^T row)
+# -- confirmed empirically (rank 4 of 5, det=0.0, LinAlgError). genie_weights then silently fell back to
+# plain uniform averaging on every production call, so estimator='genie' never actually ran GENIE's
+# bias-cancelling weighting -- it was an expensive (~23x plug_in wall-time) way to compute a plain
+# unweighted mean. Differentiate the fallback by estimator FAMILY (order of magnitude, not an exact
+# asymptotic formula) so the constraint rows are no longer proportional: histogram/plug-in estimators
+# (Miller-Madow-corrected FD/QS bins) have bias ~ O(1/N); k-NN estimators (Mixed-KSG, k=5 in this repo's
+# panel) have bias ~ O(k/N), asymptotically smaller for fixed k as N grows. Matched by SUBSTRING so any
+# future estimator name containing "ksg"/"knn" still gets the k-NN-family rate without an exact-name list.
+_GENIE_KNN_NAME_MARKERS = ("ksg", "knn")
+
+
+def _genie_default_bias_rate(name: str, n: int) -> float:
+    """Family-differentiated default bias-rate fallback for ``genie_mi_panel`` (see module-level note)."""
+    _n = max(int(n), 1)
+    if any(marker in name.lower() for marker in _GENIE_KNN_NAME_MARKERS):
+        return 5.0 / _n
+    return 1.0 / _n
+
 
 # =============================================================================
 # Median aggregator (zero-cost robust default)
@@ -120,11 +141,15 @@ def genie_mi_panel(x: np.ndarray, y: np.ndarray,
                     floor_at_zero: bool = True) -> float:
     """Run a panel of K estimators on (x, y) then combine via GENIE weights.
 
-    If ``bias_rates`` / ``variances`` are not provided, default to:
-        bias_rate = 1 / sqrt(N)    (matches MINE / KSG asymptotic)
-        variance = 1.0            (uniform)
-    Producing a uniformly-weighted GENIE solution -- pragmatic fallback when
-    analytical bias rates are not available per estimator.
+    If ``bias_rates`` / ``variances`` are not provided, default to (INFO_THEORY_B-1 fix,
+    mrmr_audit_2026-07-22 -- see ``_genie_default_bias_rate``'s module-level note for why a single shared
+    constant across all estimators made the constraint system exactly singular):
+        bias_rate = 5/N for a k-NN-family estimator name (substring "ksg"/"knn"), else 1/N
+        variance = 1.0 (uniform)
+    An approximation of each family's real asymptotic bias ORDER, not an exact per-estimator formula --
+    good enough to break the degenerate proportionality that silently collapsed GENIE to a plain
+    unweighted mean on every call. Pass explicit ``bias_rates``/``variances`` for the real analytical
+    values when known.
     """
     estimates = []
     bias = []
@@ -137,7 +162,7 @@ def genie_mi_panel(x: np.ndarray, y: np.ndarray,
             logger.warning("genie_mi_panel: %r failed: %r", name, exc)
             continue
         estimates.append(mi)
-        bias.append((bias_rates or {}).get(name, 1.0 / max(np.sqrt(n), 1.0)))
+        bias.append((bias_rates or {}).get(name, _genie_default_bias_rate(name, n)))
         var.append((variances or {}).get(name, 1.0))
     if not estimates:
         return 0.0

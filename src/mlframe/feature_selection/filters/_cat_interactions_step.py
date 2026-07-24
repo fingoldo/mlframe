@@ -322,7 +322,18 @@ def run_cat_interaction_step(
     # - "gpu": always GPU dispatch (raises if CuPy missing)
     # - "auto": GPU only at large-N regime (N>=200 cols AND n>=500k rows)
     use_gpu = False
+    # CAT_INTERACTION_A-2 fix (mrmr_audit_2026-07-22): the pair-search GPU gate used to consult only cupy
+    # importability + is_gpu_available()'s own probe, never the project's canonical gpu_globally_disabled()
+    # (MLFRAME_DISABLE_GPU=1 / CUDA_VISIBLE_DEVICES="") -- a user forcing CPU-only via that env convention
+    # still got GPU dispatch for backend="auto"/"gpu" cat-FE fits whenever cupy was importable. The global
+    # off-switch now wins even over an explicit backend="gpu" request (raises a clear error instead of
+    # silently using GPU), matching the pattern already used elsewhere in this package (_fe_gpu_strict.py,
+    # _usability_gpu.py, batch_pair_mi_gpu.py/friend_graph_gpu.py).
+    from ._gpu_policy import gpu_globally_disabled
+    _gpu_disabled = gpu_globally_disabled()
     if cfg.backend == "gpu":
+        if _gpu_disabled:
+            raise RuntimeError("cat-FE: backend='gpu' requested but GPU is globally disabled " "(MLFRAME_DISABLE_GPU=1 / CUDA_VISIBLE_DEVICES=''). Set backend='cpu' or clear the opt-out.")
         # Bare `import cupy` succeeds on broken CUDA installs (cupy-cuda12x
         # against a CUDA-11 driver, renamed cublas/nvrtc DLLs, ...). Probe
         # via is_gpu_available() which compiles a kernel and catches the
@@ -332,7 +343,7 @@ def run_cat_interaction_step(
         if not is_gpu_available():
             raise RuntimeError("cat-FE: backend='gpu' requested but cupy/CUDA is not usable. " "Install cupy matching your CUDA toolkit, or set backend='cpu'.")
         use_gpu = True
-    elif cfg.backend == "auto":
+    elif cfg.backend == "auto" and not _gpu_disabled:
         n_cols_eff = len(candidate_idxs_arr)
         if _cat_fe_auto_wants_gpu(n_samples, n_cols_eff):
             from mlframe.feature_engineering.transformer import is_gpu_available
@@ -352,6 +363,23 @@ def run_cat_interaction_step(
         weights = np.asarray(weights, dtype=np.float64)
         if weights.size > 0 and not np.allclose(weights, weights[0]):
             use_weights = True
+    if use_weights:
+        # CAT_INTERACTION_A-1 fix (mrmr_audit_2026-07-22): marginal_mi_full above was built entirely via
+        # the UNWEIGHTED _marginal_screen_njit -- recompute it weighted now that use_weights is known True,
+        # so the joint-vs-marginal difference (II) is consistent regardless of which kernel/backend
+        # computes the joint term below. See _marginal_screen_weighted's docstring for the full rationale.
+        assert weights is not None  # use_weights=True only when weights was matched to n_samples above
+        from .cat_interactions import _marginal_screen_weighted
+        candidate_mi = _marginal_screen_weighted(
+            factors_data=data,
+            candidate_idxs=candidate_idxs_arr,
+            nbins=nbins,
+            classes_y=classes_y,
+            weights=weights,
+            dtype=dtype,
+        )
+        for _k, _idx in enumerate(candidate_idxs_arr):
+            marginal_mi_full[int(_idx)] = candidate_mi[_k]
     if use_gpu:
         from .gpu import mi_direct_gpu_batched_pairs
         if use_weights:
@@ -489,8 +517,20 @@ def run_cat_interaction_step(
     # Memory budget: full WY pre-merges m * n int32 cells; if that exceeds e.g. 500 MB we fall back to Bonferroni-on-survivors via the _apply_fwer_correction path.
     use_full_wy = cfg.fwer_correction == "westfall_young" and cfg.full_npermutations > 0 and len(pairs_a) * n_samples * 4 < 500 * 1024 * 1024
 
+    # CAT_INTERACTION_A-3 fix (mrmr_audit_2026-07-22): perm_budget_strategy defaults to "bandit_ucb1" (not
+    # "fixed"), and the bandit allocator's bulk-shuffle kernels have no weighted variant -- so the DEFAULT
+    # confirmation path for any weighted cat-FE fit silently tested a weighted II_obs against an unweighted
+    # permutation null (the one warning that existed was gated behind `verbose`, invisible at the library's
+    # normal verbose=0). Auto-fall-back to the fixed path (which IS correctly weighted) whenever weighting
+    # is active, rather than silently dropping the weighting.
+    if use_weights and getattr(cfg, "perm_budget_strategy", "fixed") == "bandit_ucb1":
+        logger.warning(
+            "cat-FE: perm_budget_strategy='bandit_ucb1' has no weighted bulk-shuffle kernel yet; "
+            "falling back to the fixed-budget permutation path (which IS correctly weighted) for this "
+            "weighted fit. Set perm_budget_strategy='fixed' explicitly to silence this message."
+        )
     # Bandit UCB1 budget allocation overrides the fixed path when cfg.perm_budget_strategy='bandit_ucb1' (and full_npermutations>0 AND not using full WY which has its own coordination).
-    if getattr(cfg, "perm_budget_strategy", "fixed") == "bandit_ucb1" and cfg.full_npermutations > 0 and not use_full_wy:
+    if getattr(cfg, "perm_budget_strategy", "fixed") == "bandit_ucb1" and cfg.full_npermutations > 0 and not use_full_wy and not use_weights:
         selected_idx, confidence_dict = _confirm_pairs_bandit_ucb1(
             factors_data=data, pairs_a=pairs_a, pairs_b=pairs_b,
             selected_idx=selected_idx, ii_arr=ii_arr,
