@@ -128,7 +128,7 @@ def _render_training_curves(
             # pickle-safe) when the caller wants to re-render or post-tweak the panel later.
             if getattr(reporting_config, "keep_figure_handles", False):
                 metrics.setdefault("figure_specs", {})["training_curve"] = spec
-    except Exception:
+    except Exception:  # best-effort: appended to the charts["failed"] collection below
         logger.exception("training-curve render failed; continuing.")
         if isinstance(metrics, dict):
             _charts = metrics.setdefault("charts", {"saved": [], "failed": []})
@@ -206,7 +206,7 @@ def _build_learning_curve(model, df, targets, columns, target_type, lc_cfg, metr
             metrics.setdefault(metadata_target_name, {})
             metrics[metadata_target_name] = asdict(result) if is_dataclass(result) else result
         return learning_curve_panel(result)
-    except Exception:
+    except Exception:  # best-effort: the learning-curve diagnostic is optional, degrades to None
         logger.exception("learning_curve diagnostic failed; continuing.")
         return None
 
@@ -453,7 +453,7 @@ def _render_post_fit_diagnostics(
                 _c = metrics.setdefault("charts", {"saved": [], "failed": []})
                 _c.setdefault("saved", []).append("learning_curve")
                 _c.setdefault("paths", []).append(base)
-        except Exception:
+        except Exception:  # best-effort: the learning-curve chart is optional diagnostic output
             logger.exception("learning_curve render failed; continuing.")
 
     # Combined single-page HTML index stitching every chart artifact recorded for this (model, split).

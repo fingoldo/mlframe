@@ -702,7 +702,7 @@ def plot_pr_curve(
         try:
             fraction_of_positives, mean_predicted_value = calibration_curve(y, preds, n_bins=50)
             ax.plot(mean_predicted_value, fraction_of_positives, "--g")
-        except Exception as exc:
+        except Exception as exc:  # best-effort: a calibration overlay is optional cosmetic decoration, never worth failing the chart over
             logger.warning("calibration overlay failed: %s", exc)
 
     if save_as:
@@ -710,7 +710,7 @@ def plot_pr_curve(
 
     try:
         logger.info("classification report at thresh=%s:\n%s", thresh, format_classification_report(y, (preds > thresh).astype(np.int64), nclasses=2))
-    except Exception as exc:
+    except Exception as exc:  # best-effort: the classification-report log line is optional diagnostic output
         logger.warning("classification_report failed: %s", exc)
 
     return fig
@@ -757,7 +757,7 @@ def plot_roc_curve(
         try:
             fraction_of_positives, mean_predicted_value = calibration_curve(y, preds, n_bins=50)
             ax.plot(mean_predicted_value, fraction_of_positives)
-        except Exception as exc:
+        except Exception as exc:  # best-effort: a calibration overlay is optional cosmetic decoration, never worth failing the chart over
             logger.warning("calibration overlay failed: %s", exc)
 
     if save_as:

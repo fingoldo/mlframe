@@ -248,7 +248,7 @@ def run_dummy_baselines(
                         report_title="TEST (DUMMY) ",
                         **_common_test,
                     )
-            except Exception as _plot_err:
+            except Exception as _plot_err:  # best-effort: the dummy report path is non-critical; training continues regardless
                 # Include input types in the warning so the "truth value of a Index is
                 # ambiguous"-style pandas booleanness errors can be triaged without
                 # repro. The dummy report path is non-critical; training continues
@@ -338,14 +338,14 @@ def run_dummy_baselines(
                         _matching_spec["transform_name"],
                         " | ".join(_ys_log_parts),
                     )
-            except Exception as _yscale_err:
+            except Exception as _yscale_err:  # best-effort: T-scale metrics remain in metadata regardless
                 logger.warning(
                     "[DUMMY_BASELINES] failed to compute y-scale dummy for composite '%s': %s. " "T-scale metrics remain in metadata.",
                     cur_target_name,
                     _yscale_err,
                 )
 
-    except Exception as _db_err:
+    except Exception as _db_err:  # best-effort: training continues without a baseline floor for this target
         logger.warning(
             "[DUMMY_BASELINES] FAILED target='%s' (%s): %s. "
             "Training continues without baseline floor.",

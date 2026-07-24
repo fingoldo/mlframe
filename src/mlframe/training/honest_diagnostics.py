@@ -270,7 +270,7 @@ def _drift_block(ctx: Any) -> dict[str, Any]:
             "moderate_threshold": psi.get("moderate_threshold"),
             "high_threshold": psi.get("high_threshold"),
         }
-    except Exception as exc:
+    except Exception as exc:  # best-effort: escalated via the returned status="skipped"/reason contract below
         logger.warning("honest_diagnostics: categorical PSI drift failed: %s", exc)
         return {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
 
@@ -340,7 +340,7 @@ def _calibration_block(model_entry: Any, target_name: str, out_dir: Optional[str
             "alternatives": out["alternatives"],
             "probs_posthoc_calibrated": _posthoc,
         }
-    except Exception as exc:
+    except Exception as exc:  # best-effort: escalated via the returned status="skipped"/reason contract below
         logger.warning("honest_diagnostics: calibration block failed for %s: %s", target_name, exc)
         return {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
 
@@ -352,7 +352,7 @@ def _provenance_block(metadata: Mapping[str, Any]) -> dict[str, Any]:
         trail = get_provenance(metadata)
         table = format_provenance_table(metadata)
         return {"status": "ok", "n_steps": len(trail), "table": table, "raw": trail}
-    except Exception as exc:
+    except Exception as exc:  # best-effort: escalated via the returned status="skipped"/reason contract below
         logger.warning("honest_diagnostics: provenance block failed: %s", exc)
         return {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
 

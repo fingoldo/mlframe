@@ -218,7 +218,7 @@ def _apply_pysr_fe(
             pysr_params_override=merged_params,
             random_state=pysr_random_state,
         )
-    except Exception:
+    except Exception:  # best-effort: symbolic feature engineering is an optional enhancement
         if verbose:
             logger.warning(
                 "PySR fit failed; skipping symbolic feature engineering.",
@@ -672,7 +672,7 @@ def apply_preprocessing_extensions(
                 _val_rw = _rw_apply(_summary_stats_for, val)
                 _test_rw = _rw_apply(_summary_stats_for, test)
                 train, val, test = _train_rw, _val_rw, _test_rw
-            except Exception:
+            except Exception:  # best-effort: row-wise summary stats are an optional enhancement
                 logger.warning("apply_preprocessing_extensions: row_wise_summary_stats step failed; skipping.", exc_info=True)
             if verbose:
                 logger.info("    apply_preprocessing_extensions.row_wise_summary_stats done in %s", _elapsed_str(t0_row_wise_summary))
@@ -715,7 +715,7 @@ def apply_preprocessing_extensions(
                 _val_rw = _rw_apply(_extreme_scores_only, val)
                 _test_rw = _rw_apply(_extreme_scores_only, test)
                 train, val, test = _train_rw, _val_rw, _test_rw
-            except Exception:
+            except Exception:  # best-effort: row-wise extreme-columns are an optional enhancement
                 logger.warning("apply_preprocessing_extensions: row_wise_top_k_extreme_columns step failed; skipping.", exc_info=True)
             if verbose:
                 logger.info("    apply_preprocessing_extensions.row_wise_extreme_columns done in %s", _elapsed_str(t0_row_wise_extreme))

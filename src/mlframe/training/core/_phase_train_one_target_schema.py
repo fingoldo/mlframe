@@ -146,7 +146,7 @@ def _maybe_render_friend_graph(ctx, pre_pipeline, _unwrap_selector, cur_target_n
         )
         if rendered is not None:
             rendered.add(latch_key)
-    except Exception:
+    except Exception:  # best-effort: the friend-graph chart is optional diagnostic output
         logger.warning("friend-graph render skipped for %s/%s", cur_target_name, pre_pipeline_name, exc_info=True)
 
 
@@ -203,7 +203,7 @@ def _build_and_record_model_schema(
         else:
             _record["n_classes"] = None
             _record["multilabel_strategy"] = None
-    except Exception as _intro_err:
+    except Exception as _intro_err:  # best-effort: never fail the metadata write because of an introspection error on optional fields
         # Never fail the metadata write because of an introspection error on optional fields.
         # Surface as warning since load_mlframe_suite dispatches on n_classes/multilabel_strategy.
         logger.warning("n_classes/multilabel_strategy introspection failed for %s: %s", mlframe_model_name, _intro_err)
@@ -229,7 +229,7 @@ def _build_and_record_model_schema(
             )
             ctx._fs_report_cache[_fsr_key] = _fsr_cached
         _record["feature_selection_report"] = _fsr_cached
-    except Exception as _fsr_err:
+    except Exception as _fsr_err:  # best-effort: falls back to the all-None report shape below
         logger.warning("feature_selection_report build failed for %s: %s", mlframe_model_name, _fsr_err)
         _record["feature_selection_report"] = {
             "selector_name": None,

@@ -115,7 +115,7 @@ def _permutation_feature_importances(
         return _fail()
     try:
         from sklearn.inspection import permutation_importance
-    except Exception:
+    except Exception:  # best-effort: feature importance is optional diagnostic output, degrades to None
         logger.warning("permutation_importance unavailable; skipping FI for non-native estimator.")
         return _fail()
     try:
@@ -211,7 +211,7 @@ def _permutation_feature_importances(
                 n_repeats=n_repeats, random_state=random_state, n_jobs=-1,
                 sample_weight=sw_sub,
             )
-    except Exception as exc:
+    except Exception as exc:  # best-effort: feature importance is optional diagnostic output, degrades to None
         logger.warning("permutation_importance failed (%s); skipping FI.", exc)
         return _fail()
     mean = np.asarray(result.importances_mean, dtype=np.float64)
@@ -471,7 +471,7 @@ def _captum_integrated_gradients_importance(
         X_t = torch.as_tensor(np.asarray(X_sub), dtype=torch.float32)
         baseline = torch.zeros_like(X_t)
         attrs = ig.attribute(X_t, baselines=baseline, n_steps=n_steps)
-    except Exception as exc:
+    except Exception as exc:  # best-effort: feature importance is optional diagnostic output, degrades to None
         logger.warning("captum IntegratedGradients failed (%s); skipping.", exc)
         return None
     return np.asarray(attrs.detach().abs().mean(axis=0).cpu().numpy().astype(np.float64))

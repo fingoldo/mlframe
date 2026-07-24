@@ -495,7 +495,7 @@ def run_composite_target_discovery(
                                 "[CompositeTargetDiscovery] cache replay re-registered %d auto-chain transform(s): %s",
                                 len(_rereg), sorted(_rereg),
                             )
-                    except Exception as _rereg_err:
+                    except Exception as _rereg_err:  # best-effort: a cache-replay re-registration miss just means the transform re-registers itself lazily on next use
                         logger.warning(
                             "[CompositeTargetDiscovery] cache replay auto-chain re-registration failed: %s", _rereg_err,
                         )
@@ -620,7 +620,7 @@ def run_composite_target_discovery(
                                         _time_ordering = _disc_df.get_column(_tcol).to_numpy()
                                     else:  # pandas
                                         _time_ordering = _disc_df[_tcol].to_numpy()
-                            except Exception as _tc_err:
+                            except Exception as _tc_err:  # best-effort: falls back to base-monotonicity time detection below
                                 logger.warning(
                                     "[CompositeTargetDiscovery] time_column='%s' "
                                     "could not be extracted (%s); discovery falls "
@@ -652,7 +652,7 @@ def run_composite_target_discovery(
                             val_df=_disc_val_df,
                             val_y=_disc_val_y,
                         )
-                except Exception as _disc_err:
+                except Exception as _disc_err:  # best-effort: training continues without composite expansion for this target
                     logger.warning(
                         "[CompositeTargetDiscovery] fit failed for target='%s': %s. " "Per-target training continues without composite expansion.",
                         _tname_disc,
