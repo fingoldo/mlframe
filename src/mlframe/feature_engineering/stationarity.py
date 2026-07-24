@@ -315,9 +315,10 @@ def local_linear_detrend(
     Implementation uses prefix-sum (Σx, Σx², Σxy, Σy) so per-row cost
     is O(1) after a single O(n) prefix pass per group. K must be >= 2.
 
-    NaN/inf values in ``values`` are zero-filled before the rolling OLS fit (same convention as this module's
-    ``ewma_residual``), biasing the fitted slope/residual toward the imputed zero for any window containing
-    one -- not propagated as NaN and not excluded from the window's regression.
+    NaN/inf values in ``values`` are excluded from each window's OLS fit (mask-weighted covariance sums,
+    per-window ``t`` mean/variance over only the finite rows) rather than zero-filled -- a window needs at
+    least 2 finite rows to fit a line, and the residual at the window's last row is NaN whenever that row
+    itself is non-finite (there is nothing to compute a residual against).
     """
     if window_K < 2:
         raise ValueError(f"window_K must be >= 2, got {window_K}")
@@ -327,30 +328,37 @@ def local_linear_detrend(
     out_slope = np.full(n, fill_value, dtype=np.float64)
 
     def _fit_segment(seg: np.ndarray) -> tuple:
-        """Rolling-OLS residual + slope for one contiguous segment via a vectorized sliding-window covariance formula (no explicit per-row solve): returns ``(residual, slope)`` arrays, NaN-filled for the first ``window_K - 1`` rows and any segment shorter than ``window_K``. NaN/inf in ``seg`` are zero-filled before the fit, biasing the fitted slope/residual toward the imputed zero for any window containing one."""
-        # For each row r >= K-1: fit on rows [r-K+1, r].
-        seg_f = np.where(np.isfinite(seg), seg, 0.0)
+        """Rolling-OLS residual + slope for one contiguous segment via a vectorized, mask-weighted sliding-window covariance formula (no explicit per-row solve): returns ``(residual, slope)`` arrays, NaN-filled for the first ``window_K - 1`` rows, any segment shorter than ``window_K``, any window with fewer than 2 finite rows, and any window whose last row is non-finite. NaN/inf in ``seg`` are excluded from the fit (zero-weighted) rather than zero-filled into it."""
+        # For each row r >= K-1: fit on rows [r-K+1, r], weighting out non-finite rows.
+        finite = np.isfinite(seg)
+        seg_f = np.where(finite, seg, 0.0)
         m = seg.size
         if m < window_K:
             return np.full(m, np.nan), np.full(m, np.nan)
         t = np.arange(window_K, dtype=np.float64)
-        t_mean = t.mean()
-        t_var = ((t - t_mean) ** 2).sum() + 1e-12  # scalar
         from numpy.lib.stride_tricks import sliding_window_view
         wins = sliding_window_view(seg_f, window_K)
-        y_mean = wins.mean(axis=1)
-        # b = Σ(t - t_mean)(y - y_mean) / Σ(t - t_mean)^2
-        t_dev = t - t_mean
-        cov = ((wins - y_mean[:, None]) * t_dev[None, :]).sum(axis=1)
+        mask = sliding_window_view(finite, window_K).astype(np.float64)
+        n_valid = mask.sum(axis=1)
+        n_valid_safe = np.where(n_valid >= 2, n_valid, 1.0)
+        t_mean = (mask * t[None, :]).sum(axis=1) / n_valid_safe
+        y_mean = (mask * wins).sum(axis=1) / n_valid_safe
+        # b = Σ mask*(t - t_mean)(y - y_mean) / Σ mask*(t - t_mean)^2, per-window t_mean/t_var over finite rows only.
+        t_dev = t[None, :] - t_mean[:, None]
+        y_dev = wins - y_mean[:, None]
+        cov = (mask * t_dev * y_dev).sum(axis=1)
+        t_var = (mask * t_dev**2).sum(axis=1) + 1e-12
         b = cov / t_var
         a = y_mean - b * t_mean
         # Predicted y at the LAST position of each window (t = K - 1).
         y_pred_last = a + b * (window_K - 1)
         y_actual_last = wins[:, -1]
+        last_finite = finite[window_K - 1 :]
         resid_out = np.full(m, np.nan, dtype=np.float64)
         slope_out = np.full(m, np.nan, dtype=np.float64)
-        resid_out[window_K - 1 :] = y_actual_last - y_pred_last
-        slope_out[window_K - 1 :] = b
+        fittable = (n_valid >= 2) & last_finite
+        resid_out[window_K - 1 :] = np.where(fittable, y_actual_last - y_pred_last, np.nan)
+        slope_out[window_K - 1 :] = np.where(n_valid >= 2, b, np.nan)
         return resid_out, slope_out
 
     if group_ids is None:

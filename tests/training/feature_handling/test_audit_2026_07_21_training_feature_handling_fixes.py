@@ -1,9 +1,10 @@
 """Regression tests for the training_feature_handling.md audit fix wave (2026-07-21).
 
-One test per finding (F1-F17) plus the proposals implemented alongside the findings
-(PR1 already covered by ``tests/training/test_biz_val_leakage_safe_encoder_woe_smoothing.py``,
-PR2 the LOC carve, PR3 Generator reproducibility, PR4 the WoE imbalanced-fold regression,
-PR6 the presets resolution test). See ``audits/full_audit_2026-07-21/training_feature_handling.md``.
+One test per finding (F1-F17, including F6/F8/F9 which were fixed in an earlier pass but not yet pinned
+here) plus the proposals implemented alongside the findings (PR1 already covered by
+``tests/training/test_biz_val_leakage_safe_encoder_woe_smoothing.py``, PR2 the LOC carve, PR3 Generator
+reproducibility, PR4 the WoE imbalanced-fold regression, PR6 the presets resolution test). See
+``audits/full_audit_2026-07-21/training_feature_handling.md``.
 """
 
 from __future__ import annotations
@@ -284,6 +285,109 @@ def test_f7_cb_native_only_text_also_native_for_cb():
     cb_text_specs = cfg._effective_text_specs("cb")
     assert len(cb_text_specs) == 1
     assert cb_text_specs[0].method == "native"
+
+
+# =====================================================================
+# F6 -- polars_capability.py's docstring now honestly documents the hasattr-only probe
+# =====================================================================
+
+
+def test_f6_polars_capability_docstring_documents_hasattr_not_try_invoke():
+    """F6: the module must explicitly document that capability detection is a ``hasattr`` presence
+    check, not a try-invoke probe on a synthetic frame -- pre-fix the docstring implied the stronger
+    guarantee. Callers must still handle a runtime failure even when ``has(op)`` is True."""
+    import inspect
+
+    import mlframe.training.feature_handling.polars_capability as mod
+
+    src = inspect.getsource(mod)
+    assert "hasattr" in src
+    assert "try-invoke" in src
+
+
+def test_f6_detect_polars_ds_capabilities_still_returns_frozenset():
+    """The detection function's actual behaviour is unaffected by the F6 docstring fix."""
+    from mlframe.training.feature_handling.polars_capability import detect_polars_ds_capabilities
+
+    caps = detect_polars_ds_capabilities()
+    assert isinstance(caps, frozenset)
+
+
+# =====================================================================
+# F8 -- bench_woe_laplace_alpha.py now sweeps the parameter WoE actually reads
+# =====================================================================
+
+
+def test_f8_woe_bench_sweeps_woe_smoothing_not_dead_smoothing_kwarg():
+    """F8: pre-fix the bench swept ``smoothing=alpha`` on ``LeakageSafeEncoder(method="woe", ...)``, a
+    kwarg the WoE code path never reads (only ``woe_smoothing`` controls WoE's Laplace cushion) -- every
+    swept alpha produced bit-identical output and the bench measured no real signal."""
+    import inspect
+
+    import mlframe.training.feature_handling._benchmarks.bench_woe_laplace_alpha as mod
+
+    src = inspect.getsource(mod)
+    assert "woe_smoothing=alpha" in src
+    assert 'method="woe", smoothing=alpha' not in src
+
+
+def test_f8_woe_smoothing_kwarg_actually_changes_transform_output():
+    """Sweeping the real ``woe_smoothing`` kwarg (unlike the dead ``smoothing`` kwarg it replaced) must
+    produce different transform output across alpha values -- confirms the bench's fixed parameter now
+    has a real, measurable effect."""
+    rng = np.random.default_rng(0)
+    n = 200
+    df = pd.DataFrame({"cat": rng.choice(["a", "b", "c", "d"], size=n)})
+    y = (rng.random(n) < 0.15).astype(int)  # imbalanced, so the Laplace cushion actually matters
+
+    outputs = []
+    for alpha in (0.5, 20.0):
+        enc = LeakageSafeEncoder(method="woe", woe_smoothing=alpha, random_state=0)
+        outputs.append(enc.fit(df["cat"], y).transform(df["cat"]))
+    assert not np.allclose(outputs[0], outputs[1]), "woe_smoothing=0.5 vs 20.0 produced identical output"
+
+
+# =====================================================================
+# F9 -- LocalDiskBackend/CacheBackend documented as an intentionally-unwired future seam
+# =====================================================================
+
+
+def test_f9_feature_cache_does_not_import_cache_backend():
+    """F9: FeatureCache's disk tier is still the hand-rolled implementation, not routed through
+    CacheBackend/LocalDiskBackend -- confirmed not silently half-wired since the earlier audit pass."""
+    import inspect
+
+    import mlframe.training.feature_handling.cache as cache_mod
+
+    src = inspect.getsource(cache_mod)
+    assert "CacheBackend" not in src
+    assert "LocalDiskBackend" not in src
+
+
+def test_f9_cache_backend_module_documents_why_it_is_not_wired_in():
+    """F9: the non-use must be an explicit, reasoned disposition (bytes-oriented Protocol vs.
+    FeatureCache's mmap-based large-array reads), not a silent unexplained dead seam."""
+    import mlframe.training.feature_handling.cache_backend as mod
+
+    assert mod.__doc__ is not None
+    assert "mmap_mode" in mod.__doc__
+    assert "Not yet wired into" in mod.__doc__
+
+
+def test_f9_local_disk_backend_still_functions_standalone(tmp_path):
+    """The LocalDiskBackend implementation itself (atomic writes, LRU eviction) stays correct and
+    tested even while unused by FeatureCache -- it's a ready seam, not bit-rotted dead code."""
+    from mlframe.training.feature_handling.cache_backend import LocalDiskBackend
+
+    backend = LocalDiskBackend(str(tmp_path / "cache_root"), max_entries=2)
+    backend.write("k1", b"v1")
+    backend.write("k2", b"v2")
+    assert backend.read("k1") == b"v1"
+    assert backend.exists("k2")
+    backend.write("k3", b"v3")  # exceeds max_entries=2, should evict the LRU entry
+    remaining = set(backend.list_keys())
+    assert len(remaining) == 2
+    assert "k3" in remaining
 
 
 # =====================================================================

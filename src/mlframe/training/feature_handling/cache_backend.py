@@ -13,6 +13,18 @@ which does the tempfile then ``os.replace`` dance and cleans up on
 exception.
 
 Per-key locking goes through :class:`mlframe.training.feature_handling.locking.PIDAwareFileLock`.
+
+Not yet wired into :class:`mlframe.training.feature_handling.cache.FeatureCache`: this Protocol is
+bytes-oriented (``read``/``write`` move opaque ``bytes``), while ``FeatureCache``'s own disk tier reads
+large cached arrays via ``np.load(path, mmap_mode="r")`` -- a real file path, not an in-memory bytes
+blob -- to avoid materialising the whole array in RAM (see CLAUDE.md's memory-discipline convention).
+Routing through a bytes-only backend would force a full in-RAM copy on every disk-tier hit, which is a
+regression for the large-feature workload this cache targets. Closing this gap needs either a
+path-returning variant of the Protocol (a local backend hands back its own path for mmap; a remote
+backend stages to a local tempfile first) or accepting the RAM cost for non-local backends -- a real
+design decision, not a mechanical rewire, so ``FeatureCache`` keeps its hand-rolled disk tier until one
+of those is chosen. ``LocalDiskBackend``'s eviction/locking machinery stays here, tested standalone,
+ready for whichever variant lands.
 """
 
 from __future__ import annotations

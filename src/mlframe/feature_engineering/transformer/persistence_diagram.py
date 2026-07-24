@@ -97,8 +97,8 @@ def compute_persistence_diagram_features(
                 out[q, 2] = total_pers
                 out[q, 3] = mean_birth
                 out[q, 4] = mean_death
-            except Exception:  # nosec B110 - optional/best-effort path, rationale documented
-                pass  # leave zeros
+            except Exception as exc:
+                logger.info("persistence_diagram: gudhi computation failed on row %d (%s); leaving zeros.", int(q), exc)
         return out
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:

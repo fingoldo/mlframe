@@ -144,6 +144,32 @@ def test_f9_relational_dfs_compute_relational_features_empty_specs_returns_copy(
     assert list(parent_df["id"]) == [1, 2, 3]  # mutating the result must not affect parent_df
 
 
+def test_f10_no_wave_process_markers_remain_in_touched_files():
+    """F10: CLAUDE.md bans process/audit metadata (phase/wave markers, date stamps) in code comments --
+    timeseries.py and _numerical_counts.py had 6 "Wave NN (date)" markers between them."""
+    import inspect
+
+    from mlframe.feature_engineering import _numerical_counts, timeseries
+
+    for mod in (timeseries, _numerical_counts):
+        src = inspect.getsource(mod)
+        assert "Wave " not in src, f"{mod.__name__} still has a 'Wave NN' process marker"
+
+
+def test_f11_create_and_process_windows_forward_and_backward_branches_differ():
+    """F11: the forward_direction if/else branch in create_and_process_windows must not be a no-op --
+    forward and backward window construction must genuinely differ (pre-fix both arms assigned the
+    identical two statements)."""
+    import inspect
+
+    from mlframe.feature_engineering.timeseries import create_and_process_windows
+
+    src = inspect.getsource(create_and_process_windows)
+    # The forward/backward arms of the window_var=="" branch must reference opposite window edges.
+    assert "windows_r = min(windows_l + window_size" in src
+    assert "windows_l = max(windows_r - window_size" in src
+
+
 def test_f12_per_group_nadaraya_watson_smooth_sample_weight_changes_output():
     """F12: per_group_nadaraya_watson_smooth must accept sample_weight and have it actually
     change the smoothed output (previously silently ignored -- always unweighted)."""

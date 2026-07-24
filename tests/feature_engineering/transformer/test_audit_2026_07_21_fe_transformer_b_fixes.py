@@ -244,6 +244,30 @@ def test_f14_multi_baseline_hard_row_logs_on_logreg_failure(monkeypatch, caplog)
     assert any("LogisticRegression fit failed" in r.getMessage() for r in caplog.records)
 
 
+def test_f12_persistence_diagram_logs_on_gudhi_row_failure(monkeypatch, caplog):
+    """F12: a per-row gudhi failure must be logged (row left zero-filled but visibly so), not silently
+    swallowed by a bare ``except Exception: pass``."""
+    gudhi = pytest.importorskip("gudhi")
+    import mlframe.feature_engineering.transformer.persistence_diagram as mod
+
+    rng = np.random.default_rng(0)
+    n, d = 20, 3
+    X = rng.normal(size=(n, d)).astype(np.float32)
+    y = rng.normal(size=n).astype(np.float32)
+
+    def _raising_rips_complex(*a, **kw):
+        """Raise, simulating a gudhi RipsComplex construction failure on every row."""
+        raise RuntimeError("simulated gudhi failure")
+
+    monkeypatch.setattr(gudhi, "RipsComplex", _raising_rips_complex)
+    with caplog.at_level(logging.INFO, logger=mod.__name__):
+        out = mod.compute_persistence_diagram_features(X, y, X_query=X[:5], splitter=None, seed=0)
+    assert any("gudhi computation failed" in r.getMessage() for r in caplog.records)
+    # Rows still come back zero-filled (not raised through to the caller).
+    assert out.shape[0] == 5
+    assert np.allclose(out.to_numpy(), 0.0)
+
+
 # ---------------------------------------------------------------------------
 # F15/F17: mdl_binning_pairwise honours the caller's explicit `task` param
 # ---------------------------------------------------------------------------
@@ -329,6 +353,48 @@ def test_f22_ib_baseline_codes_empty_cell_uses_global_fallback():
 
     src = inspect.getsource(mod.compute_ib_baseline_codes_features)
     assert "code_y_mean = np.full(n_codes" in src
+
+
+def test_f20_fisher_weighted_residual_empty_band_uses_global_fallback():
+    """F20: an empty Fisher-weighted-residual band (tied values collapsing a quantile boundary) must
+    fall back to the global target mean, not a misleading ``0.0`` that reads as "genuinely low"."""
+    import inspect
+
+    from mlframe.feature_engineering.transformer import fisher_weighted_residual as mod
+
+    src = inspect.getsource(mod.compute_fisher_weighted_residual_features)
+    assert "band_y_mean = np.full(n_bands, float(y_t.mean())" in src
+
+
+def test_f20_fisher_weighted_residual_runs_clean_on_tied_residuals():
+    """A dataset with many tied weighted-residual values (likely to collapse a quantile boundary and
+    produce at least one empty band) must still return finite output using the global-mean fallback."""
+    from mlframe.feature_engineering.transformer.fisher_weighted_residual import compute_fisher_weighted_residual_features
+
+    rng = np.random.default_rng(0)
+    n, d = 200, 3
+    X = rng.normal(size=(n, d)).astype(np.float32)
+    y = np.where(rng.random(n) < 0.9, 0.0, 1.0).astype(np.float32)  # heavily tied -> empty-band-prone
+    out = compute_fisher_weighted_residual_features(X, y, X_query=X[:20], splitter=None, seed=0, task="binary")
+    assert np.isfinite(out.to_numpy()).all()
+
+
+# ---------------------------------------------------------------------------
+# F29: trust_score_oof's empty-subset sentinel is already documented in the docstring -- lower-severity
+# by the report's own verdict, pinned here so the disposition is tracked, not merely implied.
+# ---------------------------------------------------------------------------
+
+
+def test_f29_nn_dist_empty_subset_sentinel_is_documented():
+    """F29: the ``nearest=0.0``-for-empty-subset sentinel must stay explicitly documented in
+    ``_nn_dist``'s own docstring (the report's basis for treating this as a documented tradeoff, not a
+    silent one, unlike F3-F8's undocumented zero-sentinels)."""
+    import inspect
+
+    from mlframe.feature_engineering.transformer import trust_score_oof as mod
+
+    src = inspect.getsource(mod)
+    assert "sentinel fill values" in src
 
 
 # ---------------------------------------------------------------------------

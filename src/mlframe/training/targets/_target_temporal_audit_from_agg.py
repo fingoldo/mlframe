@@ -1,8 +1,7 @@
 """``_audit_from_agg`` -- temporal audit on a pre-aggregated frame.
 
-Wave 106c (2026-05-21): split out from ``training/target_temporal_audit.py``
-to keep that file below the 1k-line monolith threshold. Behaviour preserved
-bit-for-bit; the helper is re-exported from ``target_temporal_audit``.
+Split out from ``training/target_temporal_audit.py`` to keep that file below the 1k-line monolith
+threshold. Behaviour preserved bit-for-bit; the helper is re-exported from ``target_temporal_audit``.
 """
 from __future__ import annotations
 
@@ -17,11 +16,9 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# Wave 106c (2026-05-21): the dataclasses + label helper live in the parent
-# module; the change-point detectors live in the wave-106 sibling. Both
-# parents/siblings finish their top-level loading BEFORE this module is
-# pulled in via the parent's bottom-of-file re-export, so the partial-load
-# imports below resolve cleanly. Single source of truth.
+# The dataclasses + label helper live in the parent module; the change-point detectors live in a
+# sibling. Both parent/sibling finish their top-level loading BEFORE this module is pulled in via the
+# parent's bottom-of-file re-export, so the partial-load imports below resolve cleanly.
 from .target_temporal_audit import (
     TemporalAuditResult,
     TimeBin,

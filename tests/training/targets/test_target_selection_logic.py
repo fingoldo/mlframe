@@ -13,7 +13,6 @@ import pandas as pd
 import polars as pl
 import pytest
 
-import mlframe.training.train_eval as te
 from mlframe.training.train_eval import select_target
 from mlframe.training.configs import TargetTypes
 
@@ -40,12 +39,11 @@ def mock_configure(monkeypatch):
             object(),  # gpu_configs
         )
 
-    monkeypatch.setattr(te, "configure_training_params", _stub)
-    # Carve note (2026-05-25): ``select_target`` moved to a sibling
-    # ``_train_eval_select_target`` and does a LAZY ``from .trainer import
-    # configure_training_params`` per call -- patching only ``te`` no longer
-    # intercepts the call. Patch the upstream module + sibling so the lazy
-    # import resolves to the stub regardless of call order.
+    # ``select_target`` moved to a sibling ``_train_eval_select_target`` and does a LAZY
+    # ``from .trainer import configure_training_params`` per call -- ``te`` (train_eval.py) no
+    # longer imports/re-exports this name at all, so patching it there raises AttributeError.
+    # Patch the real source module (trainer.py) + the sibling (in case it caches a reference)
+    # so the lazy import resolves to the stub regardless of call order.
     import mlframe.training.trainer as _trainer
     import mlframe.training.targets._train_eval_select_target as _select_target_mod
 
