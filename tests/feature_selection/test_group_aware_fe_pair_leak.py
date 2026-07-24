@@ -28,6 +28,7 @@ import warnings
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -53,9 +54,10 @@ def _fit(X, y, groups, **kw):
     monkeypatch differing between calls -- the process-wide ``_FIT_CACHE`` keys on content+params (it
     cannot see an unrelated monkeypatch), so without disabling it the second fit would silently replay
     the first call's cached result instead of actually re-running with the patch active."""
+    kw.setdefault("fe_max_steps", 1)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        m = MRMR(max_runtime_mins=2, fe_max_steps=1, verbose=0, fit_cache_max=0, **kw)
+        m = MRMR(max_runtime_mins=2, verbose=0, fit_cache_max=0, **kw)
         m.fit(X, y, groups=groups)
     return m
 
@@ -130,3 +132,41 @@ def test_group_aware_off_raw_redundancy_revert_restores_the_leak_baseline():
     m = _fit(X, y, groups, group_aware_mi=False, strict_groups=False)
     sel = list(m.get_feature_names_out())
     assert "x_leak" in sel, f"group-naive baseline should still resurrect the leak via the no-harm revert; got {sel}"
+
+
+# Broad stress sweep (item 1 of the group_aware_mi follow-up): the fix lands as a UNIVERSAL final
+# choke-point over ``self._engineered_recipes_``/``self._engineered_features_`` in ``_fit_impl_core.py``,
+# not per-FE-family wiring -- so it should hold regardless of WHICH producer(s) built the surviving
+# composite. Exercise a wide set of independent-opt-in FE families together (each individually gated
+# behind its own ``fe_hybrid_orth_*_enable`` flag, none requiring the others) across several seeds.
+_STRESS_FE_KW = dict(
+    fe_max_steps=2,
+    fe_hybrid_orth_enable=True,
+    fe_hybrid_orth_adaptive_arity_enable=True,
+    fe_hybrid_orth_lasso_enable=True,
+    fe_hybrid_orth_elasticnet_enable=True,
+    fe_hybrid_orth_bootstrap_enable=True,
+    fe_hybrid_orth_three_gate_enable=True,
+    fe_hybrid_orth_ksg_enable=True,
+    fe_hybrid_orth_copula_enable=True,
+    fe_hybrid_orth_dcor_enable=True,
+    fe_hybrid_orth_hsic_enable=True,
+    fe_hybrid_orth_jmim_enable=True,
+    fe_hybrid_orth_tc_enable=True,
+    fe_hybrid_orth_cmim_enable=True,
+)
+
+
+@pytest.mark.parametrize("seed", [1, 7, 42])
+def test_group_aware_leak_excluded_across_a_broad_fe_family_sweep(seed):
+    """Stress sweep: with a wide set of independent-opt-in hybrid-orth FE families all enabled together
+    (adaptive-arity, lasso, elasticnet, bootstrap, three-gate, KSG, copula, dCor, HSIC, JMIM, TC, CMIM --
+    each its own producer/scorer, none requiring the others), the between-group-level leak must never
+    reach the final selection AS A RAW COLUMN, regardless of which family's composite would otherwise
+    have carried it through. A composite MIXING the leak with the genuine ``x_within`` signal (e.g.
+    ``x_within*x_leak__He*``) legitimately retains real within-group information from ``x_within`` and
+    is correctly NOT demoted -- only ``x_leak`` alone (no real signal contributed) is asserted excluded."""
+    X, y, groups = _leak_with_real_signal_panel(seed)
+    m = _fit(X, y, groups, group_aware_mi=True, **_STRESS_FE_KW)
+    sel = list(m.get_feature_names_out())
+    assert "x_leak" not in sel, f"[seed={seed}] the raw leak resurfaced under the broad FE-family sweep; got {sel}"
