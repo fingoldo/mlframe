@@ -513,7 +513,7 @@ def drop_redundant_raw_operands(
                             rname, excess, [cols[e] for e in consumers],
                         )
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _fe_raw_redundancy_drop.py:857: %s", e)
+                logger.debug("raw-redundancy: linear-usability-leg probe failed: %s", e)
                 pass
         # TAIL-CONCENTRATION CONTINUOUS-SUBSUMPTION DROP (2026-07-03). The binned-CMI keep legs above KEEP a
         # raw whose conditional excess given its engineered children does NOT collapse -- but under heavy
@@ -566,7 +566,7 @@ def drop_redundant_raw_operands(
                                 rname, _r_rank, _r_lin, _s_lin, [cols[e] for e in consumers],
                             )
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _fe_raw_redundancy_drop.py:909: %s", e)
+                logger.debug("raw-redundancy: tail-concentration continuous-subsumption probe failed: %s", e)
                 pass
         if keep:
             if verbose:
@@ -614,6 +614,54 @@ def drop_redundant_raw_operands(
     # so the kept set matches raw-only and the drop stands; only a genuinely lossy child drops the kept set below
     # raw-only and reverts. Regression-only (needs continuous y); best-effort. ``_RAW_DROP_NO_HARM_EPS`` is the
     # held-out-R^2 shortfall below raw-only tolerated before reverting (well inside the contract's 0.05 bar).
+    # GROUP-AWARE LEAK EXEMPTION. Under ``group_aware_mi=True`` a raw operand can be a pure
+    # between-group-level "leak" (high global MI, ~0 within-group signal) that this linear no-harm
+    # guard would otherwise happily REVERT-restore: a leak correlates strongly with y GLOBALLY (that is
+    # exactly what makes it a leak), so it inflates both the raw-only Ridge baseline and the revert
+    # trigger below -- defeating the entire point of group-aware relevance (a feature judged
+    # non-generalising per-group must not be let back in because it looks good on a naive linear fit).
+    # Identify leak names among this batch's drop candidates via the SAME group-blocked MI check the FE
+    # producers use, and NEVER revert-restore them regardless of the Ridge outcome -- they stay dropped;
+    # only genuinely-lossy NON-leak raws remain eligible for the no-harm revert below. No-op (empty set)
+    # when group_aware_mi is off / no groups were supplied this fit (``get_group_mi()`` returns ``None``).
+    _group_leak_names: set = set()
+    try:
+        from .info_theory._state_and_dispatch import get_group_mi
+
+        _gmi_payload = get_group_mi()
+    except Exception:
+        _gmi_payload = None
+    if _gmi_payload is not None and drop_names:
+        try:
+            from .info_theory._group_mi import group_blocked_mi
+
+            _gsi, _goff, _gmr, _gsw = _gmi_payload
+            _yb_arr = np.asarray(y_binned)
+            _g_n_bins_y = int(_yb_arr.max()) + 1
+            _name_to_idx = {cols[i]: i for i in range(len(cols))}
+            for _dname in drop_names:
+                _didx = _name_to_idx.get(_dname)
+                if _didx is None:
+                    continue
+                _codes = np.asarray(data[:, _didx])
+                _n_bins_x = int(_codes.max()) + 1
+                if _n_bins_x <= 0:
+                    continue
+                _grp_mi = group_blocked_mi(
+                    _codes, _yb_arr, _gsi, _goff, _n_bins_x, _g_n_bins_y,
+                    min_rows=_gmr, size_weighted=_gsw, use_mm=True,
+                )
+                if _grp_mi == _grp_mi and _grp_mi <= 0.0:  # not nan and exactly zero within-group signal
+                    _group_leak_names.add(_dname)
+            if _group_leak_names and verbose:
+                logger.info(
+                    "raw-redundancy: %s flagged as between-group-only leak(s) under group_aware_mi -- "
+                    "exempt from the no-harm Ridge revert below (stay dropped regardless of linear outcome).",
+                    sorted(_group_leak_names),
+                )
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("raw-redundancy: group-aware leak check failed: %s", e)
+
     _yv = np.asarray(y_continuous, dtype=np.float64).ravel() if y_continuous is not None else None
     _guard_on = (
         _yv is not None
@@ -636,22 +684,34 @@ def drop_redundant_raw_operands(
                 return np.asarray(data[:, i], dtype=np.float64).ravel()
 
             _kept_idx = [i for i in sel if i not in drop_idx_set]
-            _raw_names = [c for c in raw_X.columns if c in raw_name_set] if (raw_X is not None and hasattr(raw_X, "columns")) else []
+            # The raw-only baseline EXCLUDES group-aware leak names: a leak's inflated global correlation
+            # would otherwise make even a genuinely-lossy NON-leak drop look artificially fine by
+            # comparison (or vice versa), and it must never be the reference that revert-restores it.
+            _raw_names = (
+                [c for c in raw_X.columns if c in raw_name_set and c not in _group_leak_names] if (raw_X is not None and hasattr(raw_X, "columns")) else []
+            )
             if _kept_idx and _raw_names and _yv.shape[0] == n_rows:
                 _X_kept = np.column_stack([_cont_of(i) for i in _kept_idx])
                 _X_rawonly = np.column_stack([np.asarray(raw_X[c], dtype=np.float64).ravel() for c in _raw_names])
                 _r_kept = _heldout_ridge_r2(_X_kept, _yv)
                 _r_rawonly = _heldout_ridge_r2(_X_rawonly, _yv)
                 if _r_kept is not None and _r_rawonly is not None and _r_kept < _r_rawonly - _RAW_DROP_NO_HARM_EPS:
+                    # Partial revert: restore every dropped raw EXCEPT the group-aware leaks, which stay
+                    # dropped regardless of the linear outcome (see the leak-exemption comment above).
+                    _final_drop_names = [n for n in drop_names if n in _group_leak_names]
                     if verbose:
                         logger.info(
                             "raw-redundancy: REVERT drop of %s -- kept-set held-out Ridge R2 %.4f is below raw-only "
-                            "%.4f by %.4f > %.4f eps (the engineered child is linearly lossy); keep the raws.",
-                            drop_names, _r_kept, _r_rawonly, _r_rawonly - _r_kept, _RAW_DROP_NO_HARM_EPS,
+                            "%.4f by %.4f > %.4f eps (the engineered child is linearly lossy); keep the raws%s.",
+                            [n for n in drop_names if n not in _group_leak_names],
+                            _r_kept, _r_rawonly, _r_rawonly - _r_kept, _RAW_DROP_NO_HARM_EPS,
+                            f" (except the group-aware leak(s) {_final_drop_names}, which stay dropped)" if _final_drop_names else "",
                         )
-                    return sel, []
+                    _name_to_idx2 = {cols[i]: i for i in range(len(cols))}
+                    _final_drop_idx = {_name_to_idx2[n] for n in _final_drop_names if n in _name_to_idx2}
+                    return [i for i in sel if i not in _final_drop_idx], _final_drop_names
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _fe_raw_redundancy_drop.py:989: %s", e)
+            logger.debug("raw-redundancy: held-out Ridge R2 no-harm re-check failed: %s", e)
             pass
 
     kept = [i for i in sel if i not in drop_idx_set]

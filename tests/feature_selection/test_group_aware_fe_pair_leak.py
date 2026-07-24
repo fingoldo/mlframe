@@ -89,3 +89,44 @@ def test_group_aware_off_demotion_pass_is_a_noop():
     X, y, groups = _nonlinear_panel(2)
     m = _fit(X, y, groups, group_aware_mi=False, strict_groups=False)
     assert list(m._engineered_recipes_ or []), "the naive (group-unaware) fit should keep its engineered features"
+
+
+def _leak_with_real_signal_panel(seed: int, G: int = 150, per: int = 40):
+    """``x_leak`` is a pure between-group LEVEL (high global MI, ~0 within-group); ``x_within`` is a
+    genuine within-group predictor. The FE hybrid-orth Hermite basis naturally builds
+    ``x_within*x_leak__He*`` composites from these two, and MRMR's raw-redundancy sweep drops BOTH raws
+    as subsumed by them -- then the linear no-harm guard (held-out Ridge R2 on the composites alone is
+    far below the raw-only baseline) REVERT-restores both raws, including ``x_leak``, purely because it
+    looks good on a naive linear fit. This is the exact scenario the leak-exemption fix targets."""
+    rng = np.random.default_rng(seed)
+    groups = np.repeat(np.arange(G), per)
+    n = groups.size
+    gmean = rng.normal(size=G)[groups]
+    x_within = rng.normal(size=n)
+    x_noise = rng.normal(size=n)
+    y = gmean + 0.9 * x_within + 0.05 * rng.normal(size=n)
+    X = pd.DataFrame({"x_leak": gmean.copy(), "x_within": x_within.copy(), "x_noise": x_noise.copy()})
+    return X, y, groups
+
+
+def test_group_aware_raw_redundancy_revert_does_not_restore_the_leak():
+    """Regression: the raw-redundancy no-harm Ridge REVERT (``_fe_raw_redundancy_drop.py``) must not
+    restore a group-aware-demoted leak raw just because dropping it hurts a naive linear fit -- that is
+    exactly the leakage the group-aware gate exists to catch. The genuine within-group signal
+    (``x_within``) and its real engineered composites must still be retained."""
+    X, y, groups = _leak_with_real_signal_panel(1)
+    m = _fit(X, y, groups, group_aware_mi=True)
+    sel = list(m.get_feature_names_out())
+    assert "x_leak" not in sel, f"the raw-redundancy REVERT must not resurrect the group-aware-demoted leak; got {sel}"
+    assert "x_within" in sel or any("x_within" in str(nm) for nm in sel), f"genuine within-group signal must be retained; got {sel}"
+
+
+def test_group_aware_off_raw_redundancy_revert_restores_the_leak_baseline():
+    """Baseline confirming the fixture reproduces a real revert-restored leak at all: without
+    ``group_aware_mi`` the no-harm guard has no leak-exemption to apply and restores ``x_leak`` exactly
+    as ``test_group_naive_selects_the_leak_feature_baseline`` (test_group_aware_mi_mrmr.py) shows for the
+    plain raw-only case."""
+    X, y, groups = _leak_with_real_signal_panel(1)
+    m = _fit(X, y, groups, group_aware_mi=False, strict_groups=False)
+    sel = list(m.get_feature_names_out())
+    assert "x_leak" in sel, f"group-naive baseline should still resurrect the leak via the no-harm revert; got {sel}"
