@@ -274,3 +274,18 @@ def test_multiclass_split_summary_handles_missing_class():
     out = _ms = __import__("mlframe.training.drift_report", fromlist=["_multiclass_split_summary"])._multiclass_split_summary(arr, [0, 1, 2])
     assert out["counts"] == {0: 2, 1: 3, 2: 0}
     assert out["rates"][2] == 0.0
+
+
+def test_object_of_arrays_probe_logs_on_failure():
+    """The nested `_is_object_of_arrays` probe (used to detect a polars pl.List -> object-cell
+    roundtrip for multilabel routing) must log a failure instead of silently treating it as False
+    -- pinned via source presence since forcing a real exception through the full
+    `_to_numpy_or_none` coercion pipeline (which safely handles any real ndarray) isn't feasible
+    without an artificial duck-typed object numpy itself would refuse to accept unmodified."""
+    import inspect
+
+    from mlframe.training.drift_report import compute_label_distribution_drift
+
+    src = inspect.getsource(compute_label_distribution_drift)
+    assert "object-of-arrays probe failed" in src
+    assert "logger.debug" in src

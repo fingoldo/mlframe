@@ -222,7 +222,8 @@ def compute_label_distribution_drift(
                 return False
             _first = _a[0]
             return hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
-        except Exception:
+        except Exception as exc:
+            logger.debug("drift: object-of-arrays probe failed, treating as not object-of-arrays: %s", exc)
             return False
 
     is_multilabel = target_type == "multilabel_classification" or (hasattr(train, "ndim") and train.ndim == 2) or _is_object_of_arrays(train)

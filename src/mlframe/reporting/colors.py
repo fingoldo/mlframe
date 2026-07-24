@@ -18,7 +18,10 @@ Conventions:
 
 from __future__ import annotations
 
+import logging
 from typing import Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 CALIBRATION = "RdYlBu"
 CONFUSION = "RdBu_r"
@@ -128,7 +131,8 @@ def auto_text_color(value: float, colormap: str, vmin: float = 0.0, vmax: float 
         # Rec. 601 perceived luminance.
         luminance = 0.299 * r + 0.587 * g + 0.114 * b
         return "black" if luminance > 0.5 else "white"
-    except Exception:
+    except Exception as exc:
+        logger.debug("auto_text_color: colormap lookup for %r failed, falling back to 'black': %s", colormap, exc)
         return "black"
 
 

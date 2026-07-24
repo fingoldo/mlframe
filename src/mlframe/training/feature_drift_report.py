@@ -406,13 +406,15 @@ def _numeric_columns(df: Any) -> List[str]:
     if hasattr(df, "select_dtypes"):
         try:
             return list(df.select_dtypes(include="number").columns)
-        except Exception:
+        except Exception as exc:
+            logger.debug("drift: pandas select_dtypes(include='number') failed, treating as no numeric columns: %s", exc)
             return []
     # polars path -- duck-type the schema walk
     if hasattr(df, "schema") and hasattr(df, "columns"):
         try:
             return [name for name, dt in df.schema.items() if dt.is_numeric()]
-        except Exception:
+        except Exception as exc:
+            logger.debug("drift: polars schema walk for numeric columns failed, treating as no numeric columns: %s", exc)
             return []
     return []
 
@@ -444,7 +446,8 @@ def _is_unhashable_object_column(df: Any, col: str) -> bool:
         if cell0 is None:
             return False
         return isinstance(cell0, (np.ndarray, list, dict, set, tuple))
-    except Exception:
+    except Exception as exc:
+        logger.debug("drift: unhashable-object probe on column %r failed, treating as hashable: %s", col, exc)
         return False
 
 
@@ -466,7 +469,8 @@ def _categorical_columns(df: Any) -> List[str]:
                     continue
                 out.append(c)
             return out
-        except Exception:
+        except Exception as exc:
+            logger.debug("drift: pandas select_dtypes for categorical columns failed, treating as no categorical columns: %s", exc)
             return []
     if hasattr(df, "schema") and hasattr(df, "columns"):
         try:
@@ -477,7 +481,8 @@ def _categorical_columns(df: Any) -> List[str]:
                 if dt == pl.Categorical or dt in _string_types or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum)):
                     out.append(name)
             return out
-        except Exception:
+        except Exception as exc:
+            logger.debug("drift: polars schema walk for categorical columns failed, treating as no categorical columns: %s", exc)
             return []
     return []
 
