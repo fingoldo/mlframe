@@ -279,6 +279,33 @@ def test_multirmse_catboost_is_skipped_not_crashed():
     assert res.figures == []
 
 
+def test_catboost_with_embedding_features_is_skipped_not_crashed():
+    """shap's own CatBoost path (shap/explainers/_tree.py TreeExplainer.shap_values) rebuilds a fresh
+    catboost.Pool(X, cat_features=self.model.cat_feature_indices) -- it forwards ONLY cat_features, never
+    embedding_features. A model fit with embedding_features then gets its embedding column fed back to CatBoost
+    as a plain numeric feature, which crashes (clean CatBoostError in isolation, a native access violation under
+    some data/threading conditions -- caught live via a fuzz combo: models=('cb','hgb','linear','xgb')
+    target=binary_classification with an emb_0 embedding column present)."""
+    catboost = pytest.importorskip("catboost")
+    import pandas as pd
+
+    rng = np.random.default_rng(0)
+    n = 200
+    X = pd.DataFrame({
+        "num_0": rng.normal(size=n),
+        "emb_0": [list(rng.normal(size=4)) for _ in range(n)],
+    })
+    y = rng.integers(0, 2, size=n)
+    m = catboost.CatBoostClassifier(iterations=5, verbose=0, embedding_features=["emb_0"])
+    m.fit(X, y)
+    assert sp._model_has_catboost_embedding_features(m) is True
+
+    res = sp.shap_summary_and_dependence(m, X, feature_names=list(X.columns))
+    assert res.skipped is not None
+    assert "embedding" in res.skipped.lower()
+    assert res.figures == []
+
+
 def test_binary_catboost_not_flagged_as_multi_output():
     """A plain binary CatBoost model (single scalar leaf value) must NOT be caught by the multi-output guard."""
     catboost = pytest.importorskip("catboost")

@@ -146,6 +146,23 @@ def _is_multi_output_catboost(model: Any) -> bool:
     return loss.startswith(_CATBOOST_MULTI_OUTPUT_LOSS_PREFIXES)
 
 
+def _model_has_catboost_embedding_features(model: Any) -> bool:
+    """True iff ``model`` is a fitted CatBoost estimator with one or more ``embedding_features``.
+
+    See the caller for why shap's own CatBoost Pool-rebuild path (which forwards only ``cat_features``) can't
+    carry these through safely. Any lookup failure (non-CatBoost model, unfitted, API drift) is treated as "not
+    the risky case", matching ``_is_multi_output_catboost``'s own fail-open convention.
+    """
+    get_indices = getattr(model, "get_embedding_feature_indices", None)
+    if not callable(get_indices):
+        return False
+    try:
+        return bool(get_indices())
+    except Exception as e:
+        logger.debug("get_embedding_feature_indices() probe failed (%s: %s) -- treating as not the risky case", type(e).__name__, e)
+        return False
+
+
 def _coerce_float_2d(vals: np.ndarray) -> np.ndarray:
     """Best-effort 2-D float64 view of a (possibly mixed / string / categorical) value matrix.
 
@@ -545,6 +562,22 @@ def shap_summary_and_dependence(
             skipped="CatBoost multi-output (MultiLogloss/MultiCrossEntropy/MultiClass/MultiClassOneVsAll/"
             "MultiQuantile/MultiRMSE) leaf values are not supported by shap's TreeExplainer CatBoost parser -- "
             "constructing it risks a native crash (see shap_panels.py comment)",
+        )
+    if tree and _model_has_catboost_embedding_features(model):
+        # shap's own CatBoost path (shap/explainers/_tree.py TreeExplainer.shap_values) rebuilds a fresh
+        # ``catboost.Pool(X, cat_features=self.model.cat_feature_indices)`` -- it forwards ONLY cat_features,
+        # never embedding_features. A model fit with embedding_features then gets its embedding column fed back
+        # to CatBoost as a plain NUMERIC feature, which cannot convert a Python list to float: a clean
+        # CatBoostError in isolation, but a native access violation under some data/threading conditions (caught
+        # live via a fuzz combo: models=('cb','hgb','linear','xgb') target=binary_classification, an emb_0
+        # embedding column present, crash inside shap's TreeExplainer -> CatBoost Pool._init). Must be caught
+        # BEFORE shap.TreeExplainer(model) is ever called with the embedding column present. Skip rather than
+        # risk the crash -- shap has no supported way to carry embedding_features through its own Pool rebuild.
+        return ShapPanelsResult(
+            [], [], [], np.empty(0), "none",
+            skipped="CatBoost model has embedding_features -- shap's TreeExplainer CatBoost parser rebuilds its "
+            "own Pool without forwarding embedding_features, so the embedding column reaches CatBoost as a "
+            "plain numeric feature and can crash the process (see shap_panels.py comment)",
         )
 
     cap = max_rows if tree else min(max_rows, kernel_max_rows)
