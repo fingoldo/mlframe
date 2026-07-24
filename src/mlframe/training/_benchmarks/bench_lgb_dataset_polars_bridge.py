@@ -28,12 +28,15 @@ from __future__ import annotations
 
 import gc
 import json
+import logging
 import time
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import polars as pl
+
+logger = logging.getLogger(__name__)
 
 RESULTS_DIR = Path(__file__).parent / "_results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -43,7 +46,8 @@ def _rss_mb() -> float:
     try:
         import psutil
         return psutil.Process().memory_info().rss / (1024 * 1024)
-    except Exception:
+    except Exception as exc:
+        logger.debug("_rss_mb: psutil probe failed: %s", exc)
         return float("nan")
 
 

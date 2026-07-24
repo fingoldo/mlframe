@@ -40,8 +40,8 @@ if os.environ.get("WELLBORE_DUMP_AUDIT", "0") == "1":
                 frames = [f for f in traceback.extract_stack(limit=25) if "mlframe" in f.filename]
                 hint = f"{frames[-1].filename.split('mlframe')[-1]}:{frames[-1].lineno}" if frames else "?"
                 print(f"[dump-audit] shape={a.shape} dtype={a.dtype} {a.nbytes/1e6:.0f}MB from {hint}", flush=True)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[dump-audit] audit hook failed: {exc!r}", flush=True)
         return _orig_reduce(self, a)
     _jmr.ArrayMemmapForwardReducer.__call__ = _audited
 

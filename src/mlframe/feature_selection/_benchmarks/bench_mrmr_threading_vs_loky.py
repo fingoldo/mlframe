@@ -24,12 +24,15 @@ from __future__ import annotations
 
 import argparse
 import gc
+import logging
 import os
 import time
 import tracemalloc
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def _build_frame(n_rows: int, seed: int) -> tuple[pd.DataFrame, pd.Series]:
@@ -51,7 +54,8 @@ def _peak_rss_mb() -> float:
     try:
         import psutil
         return psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
-    except Exception:
+    except Exception as exc:
+        logger.debug("_peak_rss_mb: psutil probe failed: %s", exc)
         return float("nan")
 
 

@@ -20,10 +20,13 @@ without OOM.
 from __future__ import annotations
 
 import gc
+import logging
 import time
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _free_ram_bytes() -> int:
@@ -31,7 +34,8 @@ def _free_ram_bytes() -> int:
     try:
         import psutil  # type: ignore[import-untyped]
         return int(psutil.virtual_memory().available)
-    except Exception:
+    except Exception as exc:
+        logger.debug("_free_ram_bytes: psutil probe failed, using 12 GB fallback: %s", exc)
         return 12 * 1024 * 1024 * 1024
 
 

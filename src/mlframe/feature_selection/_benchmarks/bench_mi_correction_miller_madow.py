@@ -26,10 +26,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _scenarios(seed: int, n: int):
@@ -104,7 +107,8 @@ def _downstream(Xtr_s, Xte_s, ytr, yte, task):
         m = LogisticRegression(max_iter=1000).fit(Xtr_s, ytr)
         try:
             return float(roc_auc_score(yte, m.predict_proba(Xte_s)[:, 1]))
-        except Exception:
+        except Exception as exc:
+            logger.debug("_downstream: AUC scoring failed: %s", exc)
             return float("nan")
     from sklearn.linear_model import Ridge
     from sklearn.metrics import r2_score

@@ -27,10 +27,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _scenarios(rng_seed: int):
@@ -88,7 +91,8 @@ def _honest_metric(X, y, lever_kwargs, seed: int) -> float:
         sel.fit(Xtr, ytr)
         Xtr_s = sel.transform(Xtr)
         Xte_s = sel.transform(Xte)
-    except Exception:  # harness must not die on one config
+    except Exception as exc:  # harness must not die on one config
+        logger.debug("bench_fs_levers_dflip: config failed, scoring as nan: %s", exc)
         return float("nan")
     model = Ridge().fit(np.asarray(Xtr_s), ytr)
     return float(r2_score(yte, model.predict(np.asarray(Xte_s))))

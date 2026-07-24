@@ -874,7 +874,7 @@ check_untyped_defs = true
 # Ratchet added 2026-07-08 after the mypy sweep closed the error backlog to ~0: flags now-dead
 # `# type: ignore` comments (zero true-positive burden today; guards against future drift).
 warn_unused_ignores = true
-exclude = "(legacy|benchmarks|profiling)/"
+exclude = "(legacy|_?benchmarks|profiling)/"
 
 [[tool.mypy.overrides]]
 module = "tests.*"

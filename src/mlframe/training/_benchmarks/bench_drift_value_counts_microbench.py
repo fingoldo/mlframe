@@ -15,8 +15,11 @@ cost from attribution noise.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 
@@ -57,7 +60,8 @@ def _time_call_slow(fn, *a):
 def _is_object_array_col(df, c) -> bool:
     try:
         return str(df[c].dtype) == "object" and isinstance(df[c].iloc[0], np.ndarray)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("_is_object_array_col: probe failed for column %r: %s", c, exc)
         return False
 
 

@@ -15,7 +15,7 @@ Baseline = the shipped tree-member hybrid (binary cluster vote=1). PASS for any 
 >= +0.005 on a bed without regressing the others > 0.005. Reported with ALL numbers (no top-N filtering).
 """
 from __future__ import annotations
-import os, sys, time
+import logging, os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
 import numpy as np, pandas as pd
@@ -23,6 +23,8 @@ from collections import defaultdict
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
+
+logger = logging.getLogger(__name__)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from round3_realdata_bench import load_real, downstream
 from synth import make_dataset
@@ -115,7 +117,8 @@ class SynergyHybrid(HybridSelector):
         from sklearn.model_selection import train_test_split as _tts
         try:
             Xtr, Xva, ytr, yva = _tts(Xa, yv, test_size=0.3, random_state=self.random_state, stratify=yv)
-        except Exception:
+        except Exception as exc:
+            logger.debug("combine_referee: held-out split failed, keeping all voted: %s", exc)
             return self._emit(consensus + contested, cols)  # fallback: keep all voted
         def auc_of(feats):
             feats = [c for c in feats if c in Xa.columns]

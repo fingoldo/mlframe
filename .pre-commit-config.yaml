@@ -622,6 +622,13 @@ repos:
     hooks:
       - id: mypy-full-manual
         pass_filenames: true
+        # [tool.mypy]'s own `exclude` regex only applies to mypy's own directory-recursive
+        # discovery, never to files passed explicitly on the command line (mypy's documented
+        # behavior) -- and this hook's `pass_filenames: true` always passes explicit paths. So
+        # the [tool.mypy] exclude alone can never keep _benchmarks/benchmarks/profiling/legacy
+        # files out of this hook; it has to be excluded here too, mirroring every other
+        # pre-commit hook's own exclude (see e.g. black-filtered/ruff below).
+        exclude: '(^|/)(legacy|_?benchmarks|profiling)/'
         # The shared hook definition itself hardcodes stages: [manual] (it's a generic hook
         # meant for repos where mypy-full is advisory, e.g. pyutilz) -- this repo-local override
         # is what actually makes it run on every commit, since mlframe's mypy-full.yml IS

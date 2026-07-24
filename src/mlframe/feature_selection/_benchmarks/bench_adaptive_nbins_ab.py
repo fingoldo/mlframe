@@ -24,6 +24,7 @@ Output: per-(method, treatment) leaderboard with deltas vs baseline.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
@@ -42,6 +43,8 @@ from mlframe.feature_selection._benchmarks.bench_adaptive_nbins import (
     _legacy_quantile_edges,
     _bin_with_edges,
 )
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Treatment definitions
@@ -179,7 +182,8 @@ def _run_fold_ab(
         try:
             edges_list = per_feature_edges(X_train, y_train, method=method, **method_kwargs)
             edges = edges_list[0]
-        except Exception:
+        except Exception as exc:
+            logger.debug("bench_adaptive_nbins_ab: edge computation failed for method=%r: %s", method, exc)
             return None
     t_ms = (time.perf_counter() - t0) * 1000.0
     val_binned = _bin_with_edges(x_val, edges)

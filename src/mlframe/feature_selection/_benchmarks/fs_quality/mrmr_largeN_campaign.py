@@ -67,6 +67,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 import time
@@ -74,6 +75,8 @@ from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 RESULTS_DIR = Path(__file__).resolve().parent / "_results"
 FULL_JSONL = RESULTS_DIR / "mrmr_largeN_campaign.jsonl"
@@ -182,7 +185,10 @@ def _downstream_score(X_tr, y_tr, X_ho, y_ho, sel_idx, scenario: str) -> float |
                 return None
             return float(roc_auc_score(y_ho, model.predict_proba(X_ho[:, cols])[:, 1]))
     except Exception as exc:  # noqa: BLE001 -- record the failure rather than abort the whole campaign on one cell
-        return None if not os.environ.get("MRMR_CAMPAIGN_RAISE") else (_ for _ in ()).throw(exc)
+        if os.environ.get("MRMR_CAMPAIGN_RAISE"):
+            raise
+        logger.debug("campaign cell failed, scoring as None: %s", exc)
+        return None
 
 
 def _run_cell(variant: str, scenario: str, n: int, p: int, seed: int) -> dict:

@@ -58,7 +58,8 @@ def _qbin(col, nbins=10):
         if len(edges) <= 2:
             return np.zeros(len(col), dtype=np.int64)
         return np.clip(np.digitize(col, edges[1:-1]), 0, len(edges) - 2).astype(np.int64)
-    except Exception:
+    except Exception as exc:
+        ck(f"_qbin: quantile binning failed, returning zeros: {exc!r}")
         return np.zeros(len(col), dtype=np.int64)
 
 def _entropy(labels):

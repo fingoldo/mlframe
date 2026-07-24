@@ -16,6 +16,7 @@ Run (host env):
 from __future__ import annotations
 
 import json
+import logging
 import time
 import warnings
 from pathlib import Path
@@ -29,6 +30,8 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 
 warnings.filterwarnings("ignore")
+
+logger = logging.getLogger(__name__)
 
 # (name, n, p, n_informative): two clean/large-n, three noisy/small-n-per-feature.
 BEDS = [
@@ -59,7 +62,8 @@ def _honest_holdout_auc(X, y, selected, seed):
         clf.fit(Xtr, ytr)
         proba = clf.predict_proba(Xte)[:, 1]
         return float(roc_auc_score(yte, proba))
-    except Exception:
+    except Exception as exc:
+        logger.debug("_honest_holdout_auc: refit/score failed, using chance-level 0.5: %s", exc)
         return 0.5
 
 

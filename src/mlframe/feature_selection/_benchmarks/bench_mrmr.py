@@ -54,7 +54,8 @@ def _git_sha() -> str:
             text=True,
         ).strip()
         return out or "nogit"
-    except Exception:
+    except Exception as exc:
+        logger.debug("_git_sha: git rev-parse failed: %s", exc)
         return "nogit"
 
 
@@ -68,7 +69,8 @@ def _gpu_model() -> str:
         dev = cp.cuda.Device(0)
         attrs = cp.cuda.runtime.getDeviceProperties(dev.id)
         return attrs["name"].decode() if isinstance(attrs.get("name"), bytes) else str(attrs.get("name", "unknown"))
-    except Exception:
+    except Exception as exc:
+        logger.debug("_gpu_model: cupy device probe failed: %s", exc)
         return "no-gpu"
 
 
