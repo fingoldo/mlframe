@@ -742,13 +742,13 @@ def hybrid_grouped_quantile_fe(
     else:
         group_cols = [c for c in group_cols if c in X.columns]
     if not group_cols:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
     if num_cols is None or len(num_cols) == 0:
         num_cols = _auto_detect_num_cols(X, group_cols)
     else:
         num_cols = [c for c in num_cols if c in X.columns]
     if not num_cols:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     enc_df, raw_recipes = generate_grouped_quantile_features(
         X, group_cols, num_cols, quantiles=quantiles,
@@ -762,7 +762,7 @@ def hybrid_grouped_quantile_fe(
             enc_df = pd.concat([enc_df, tab_df], axis=1)
             raw_recipes.update(tab_recipes)
     if enc_df.empty:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     eng_to_source = {name: raw_recipes[name]["num_col"] for name in enc_df.columns}
     scores = score_grouped_quantile_by_mi_uplift(
@@ -771,7 +771,7 @@ def hybrid_grouped_quantile_fe(
     keep = scores[(scores["mi"] >= float(min_mi)) & (scores["uplift"] >= float(min_uplift))]
     winners = list(keep["engineered_col"].head(int(top_k)))
     if not winners:
-        return X.copy(), [], [], scores
+        return X, [], [], scores
 
     from .engineered_recipes import (
         build_grouped_quantile_recipe,
