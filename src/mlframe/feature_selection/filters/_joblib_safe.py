@@ -39,6 +39,11 @@ logger = logging.getLogger(__name__)
 _BIG_STACK_BYTES = 8 * 1024 * 1024
 _NEEDS_BIG_STACK = sys.platform.startswith("win")
 
+# USABILITY_A-5 fix (mrmr_audit_2026-07-22): threading.stack_size() is a process-global setting, so
+# concurrent run_in_big_stack_thread() callers racing on the save/set/restore sequence could have the
+# loser's `finally` restore a stale value. Serialize the whole sequence process-wide.
+_STACK_SIZE_LOCK = threading.Lock()
+
 
 def disable_cuda_in_worker() -> None:  # pragma: no cover - runs in a loky child process
     """loky worker initializer: force the worker process CPU-ONLY.
@@ -185,14 +190,15 @@ def run_in_big_stack_thread(
             # propagate to the thread's own teardown.
             exc_holder[0] = e
 
-    old_size = threading.stack_size()
-    threading.stack_size(stack_bytes)
-    try:
-        t = threading.Thread(target=_target, daemon=True)
-        t.start()
-        t.join()
-    finally:
-        threading.stack_size(old_size)
+    with _STACK_SIZE_LOCK:
+        old_size = threading.stack_size()
+        threading.stack_size(stack_bytes)
+        try:
+            t = threading.Thread(target=_target, daemon=True)
+            t.start()
+            t.join()
+        finally:
+            threading.stack_size(old_size)
 
     if exc_holder[0] is not None:
         raise exc_holder[0]

@@ -34,10 +34,13 @@ from __future__ import annotations
 
 import os
 import logging
+import threading
 from collections import OrderedDict
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # CPU reference kernel (the required win + always-correct fallback).
 from .info_theory import batch_mi_with_noise_gate as _cpu_batch_mi_with_noise_gate
@@ -261,8 +264,7 @@ def batch_mi_with_noise_gate_cupy(
     if rows_per_tile > P1:
         rows_per_tile = P1
     if rows_per_tile < P1:
-        import logging
-        logging.getLogger(__name__).info(
+        logger.info(
             "batch_mi_noise_gate cupy: tiling %d y-vectors into tiles of %d (free=%dMB, n=%d, total_size=%d)",
             P1, rows_per_tile, free_b // (1024 * 1024), n, total_size,
         )
@@ -351,6 +353,13 @@ _CUDA_HIST_KERNEL_BATCHED: "object | None" = None
 # target array can never false-hit. Bounded FIFO so distinct targets across a long fit don't grow it.
 _DY_DEVICE_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()  # key -> (weakref(classes_y), d_y)
 _DY_DEVICE_CACHE_MAX = 8
+# GPU_INFRA_A-12 fix (mrmr_audit_2026-07-22): the get -> move_to_end -> popitem LRU sequence below is
+# NOT atomic under the GIL's per-bytecode-op granularity; two MRMR.fit() calls racing in different
+# threads of the same process (not itself forbidden anywhere in this module) could violate the
+# _DY_DEVICE_CACHE_MAX eviction discipline. The returned device array itself was always race-safe
+# (every hit re-validates ref() is classes_y before use), so this is a memory-growth guard, not a
+# correctness fix.
+_DY_DEVICE_CACHE_LOCK = threading.Lock()
 
 
 def _histgate_upload(host_arr: np.ndarray, role: str, dtype: Any) -> Any:
@@ -374,25 +383,27 @@ def _resident_y_all_device(classes_y, classes_y_safe, base_seed, nperm, n, P):
     import weakref
     c = _DY_DEVICE_CACHE
     key = (id(classes_y), int(base_seed), int(nperm), int(n), int(P))
-    hit = c.get(key)
-    if hit is not None:
-        ref, d_y = hit
-        if ref() is classes_y and d_y is not None:
-            c.move_to_end(key)
-            return d_y
-        c.pop(key, None)  # weakref dead (id recycled onto a different target) -> drop the stale entry
+    with _DY_DEVICE_CACHE_LOCK:
+        hit = c.get(key)
+        if hit is not None:
+            ref, d_y = hit
+            if ref() is classes_y and d_y is not None:
+                c.move_to_end(key)
+                return d_y
+            c.pop(key, None)  # weakref dead (id recycled onto a different target) -> drop the stale entry
     y_all = np.empty((P, n), dtype=np.int32)
     y_all[0, :] = np.asarray(classes_y, dtype=np.int32)
     if nperm > 0:
         y_all[1:, :] = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(base_seed), nperm).astype(np.int32)
     d_y = _nb_cuda.to_device(np.ascontiguousarray(y_all))
-    try:
-        c[key] = (weakref.ref(classes_y), d_y)
-        c.move_to_end(key)
-        while len(c) > _DY_DEVICE_CACHE_MAX:
-            c.popitem(last=False)
-    except TypeError:
-        c.pop(key, None)
+    with _DY_DEVICE_CACHE_LOCK:
+        try:
+            c[key] = (weakref.ref(classes_y), d_y)
+            c.move_to_end(key)
+            while len(c) > _DY_DEVICE_CACHE_MAX:
+                c.popitem(last=False)
+        except TypeError:
+            c.pop(key, None)
     return d_y
 
 
@@ -401,6 +412,7 @@ def _resident_y_all_device(classes_y, classes_y_safe, base_seed, nperm, n, P):
 # built via ``cp.asarray`` instead of ``_nb_cuda.to_device``.
 _DY_DEVICE_CACHE_CUPY: "OrderedDict[tuple, tuple]" = OrderedDict()  # key -> (weakref(classes_y), d_y)
 _DY_DEVICE_CACHE_CUPY_MAX = 8
+_DY_DEVICE_CACHE_CUPY_LOCK = threading.Lock()  # GPU_INFRA_A-12 fix -- see _DY_DEVICE_CACHE_LOCK's note
 
 
 def _resident_y_all_device_cupy(classes_y, classes_y_safe, base_seed, nperm, n, P):
@@ -410,25 +422,27 @@ def _resident_y_all_device_cupy(classes_y, classes_y_safe, base_seed, nperm, n, 
     cp = _cp
     c = _DY_DEVICE_CACHE_CUPY
     key = (id(classes_y), int(base_seed), int(nperm), int(n), int(P))
-    hit = c.get(key)
-    if hit is not None:
-        ref, d_y = hit
-        if ref() is classes_y and d_y is not None:
-            c.move_to_end(key)
-            return d_y
-        c.pop(key, None)  # weakref dead (id recycled onto a different target) -> drop the stale entry
+    with _DY_DEVICE_CACHE_CUPY_LOCK:
+        hit = c.get(key)
+        if hit is not None:
+            ref, d_y = hit
+            if ref() is classes_y and d_y is not None:
+                c.move_to_end(key)
+                return d_y
+            c.pop(key, None)  # weakref dead (id recycled onto a different target) -> drop the stale entry
     y_all = np.empty((P, n), dtype=np.int32)
     y_all[0, :] = np.asarray(classes_y, dtype=np.int32)
     if nperm > 0:
         y_all[1:, :] = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(base_seed), nperm).astype(np.int32)
     d_y = cp.asarray(np.ascontiguousarray(y_all))
-    try:
-        c[key] = (weakref.ref(classes_y), d_y)
-        c.move_to_end(key)
-        while len(c) > _DY_DEVICE_CACHE_CUPY_MAX:
-            c.popitem(last=False)
-    except TypeError:
-        c.pop(key, None)
+    with _DY_DEVICE_CACHE_CUPY_LOCK:
+        try:
+            c[key] = (weakref.ref(classes_y), d_y)
+            c.move_to_end(key)
+            while len(c) > _DY_DEVICE_CACHE_CUPY_MAX:
+                c.popitem(last=False)
+        except TypeError:
+            c.pop(key, None)
     return d_y
 
 
@@ -809,6 +823,14 @@ def dispatch_batch_mi_with_noise_gate_gpu(
     kernel). Mirrors ``dispatch_batch_pair_mi``'s force_backend + availability
     guards. The CPU kernel is NOT run here -- the caller owns the CPU path.
     """
+    from ._gpu_policy import gpu_globally_disabled
+
+    if gpu_globally_disabled():
+        # GPU_INFRA_A-3 fix (mrmr_audit_2026-07-22): this dispatcher never had its own
+        # MLFRAME_DISABLE_GPU/CUDA_VISIBLE_DEVICES self-check, unlike its dispatch_batch_pair_mi and
+        # dispatch_friend_graph_stats siblings -- it relied entirely on its caller checking first.
+        return None
+
     n = int(disc_2d.shape[0])
     K = int(disc_2d.shape[1])
 
@@ -846,7 +868,7 @@ def dispatch_batch_mi_with_noise_gate_gpu(
                 npermutations, base_seed, min_nonzero_confidence, use_su, dtype,
             ), "cupy"
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logging.getLogger(__name__).debug("suppressed in batch_mi_noise_gate_gpu.py:935: %s", e)
+            logger.debug("suppressed in batch_mi_noise_gate_gpu.py:935: %s", e)
             pass
     if choice == "cuda" and _CUDA_AVAIL:
         try:
@@ -854,7 +876,11 @@ def dispatch_batch_mi_with_noise_gate_gpu(
                 disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y,
                 npermutations, base_seed, min_nonzero_confidence, use_su, dtype,
             ), "cuda"
-        except (ValueError, RuntimeError):
+        except Exception as e:
+            # GPU_INFRA_A-1 fix (mrmr_audit_2026-07-22): numba's CudaAPIError/CudaDriverError derive
+            # directly from Exception, not RuntimeError -- broaden to match the already-fixed
+            # dispatch_batch_pair_mi sibling so a genuine CUDA driver fault can't escape uncaught.
+            logging.getLogger(__name__).debug("batch_mi_noise_gate cuda backend failed (%s); falling back to CPU", e)
             pass
 
     return None  # CPU region (or GPU failed) -> caller runs the CPU kernel

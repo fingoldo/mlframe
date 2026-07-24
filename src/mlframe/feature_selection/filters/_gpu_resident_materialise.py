@@ -27,7 +27,6 @@ from ._gpu_resident_fe import (
     _stash_deferred_host_fill,
     _stash_resident_codes,
     _unary_apply,
-    clear_resident_codes_handoff,
     fe_gpu_defer_host_codes_enabled,
     fe_gpu_resident_codes_enabled,
 )
@@ -335,6 +334,14 @@ def _pinned_view(n_bytes: int, shape, dtype, slot: int = 0):
 # resolve to the SAME live object). Bounded FIFO so distinct operand tables across a long fit don't grow it.
 _OPERAND_TABLE_CACHE: "OrderedDict[int, tuple]" = OrderedDict()  # id(host) -> (weakref(host), gpu)
 _OPERAND_TABLE_CACHE_MAX = 8
+# FE_PAIRS_CORE-1 fix (mrmr_audit_2026-07-22): the 2026-07-02 chunk-pipeline feature runs chunk k+1's
+# production (in a ThreadPoolExecutor(max_workers=1)) concurrently with the main thread consuming chunk k,
+# and both threads can reach into this cache (and _PREBUILT_OPERAND_TABLE below) for the SAME
+# transformed_vars object with no lock -- under the GIL this cannot corrupt memory, but a cupy call that
+# releases the GIL mid-lookup (H2D transfer) lets both threads race the same cache-miss branch (duplicate
+# uploads) or interleave an eviction with a concurrent move_to_end. Narrow blast radius today (gated behind
+# default-OFF fe_gpu_strict_enabled()), but this lock closes the race regardless.
+_OPERAND_TABLE_CACHE_LOCK = threading.Lock()
 
 
 # GPU-RESIDENT OPERAND TABLE (2026-06-21, phase 1 of the 100%-GPU-resident MRMR FE rewrite, gated).
@@ -356,6 +363,7 @@ _OPERAND_TABLE_CACHE_MAX = 8
 # can't return a stale/wrong-table mirror; bounded FIFO. ``device_table=None`` clears the entry for that host.
 _PREBUILT_OPERAND_TABLE: "OrderedDict[int, tuple]" = OrderedDict()  # id(host) -> (weakref(host), gpu)
 _PREBUILT_OPERAND_TABLE_MAX = 8
+_PREBUILT_OPERAND_TABLE_LOCK = threading.Lock()  # FE_PAIRS_CORE-1 fix -- see _OPERAND_TABLE_CACHE_LOCK's note
 
 
 def fe_gpu_resident_operands_enabled() -> bool:
@@ -376,16 +384,17 @@ def register_prebuilt_operand_table(transformed_vars: np.ndarray, device_table: 
     import weakref
     c = _PREBUILT_OPERAND_TABLE
     key = id(transformed_vars)
-    if device_table is None:
-        c.pop(key, None)
-        return
-    try:
-        c[key] = (weakref.ref(transformed_vars), device_table)
-        c.move_to_end(key)
-        while len(c) > _PREBUILT_OPERAND_TABLE_MAX:
-            c.popitem(last=False)
-    except TypeError:
-        c.pop(key, None)
+    with _PREBUILT_OPERAND_TABLE_LOCK:
+        if device_table is None:
+            c.pop(key, None)
+            return
+        try:
+            c[key] = (weakref.ref(transformed_vars), device_table)
+            c.move_to_end(key)
+            while len(c) > _PREBUILT_OPERAND_TABLE_MAX:
+                c.popitem(last=False)
+        except TypeError:
+            c.pop(key, None)
 
 
 def _prebuilt_operand_table(transformed_vars):
@@ -393,10 +402,11 @@ def _prebuilt_operand_table(transformed_vars):
     weakref identity AND shape (n, n_operands); else None. Shape guard so a stale/mismatched mirror can
     never feed the materialise kernel a wrong-width table (out-of-bounds operand-column reads)."""
     c = _PREBUILT_OPERAND_TABLE
-    hit = c.get(id(transformed_vars))
-    if hit is None:
-        return None
-    ref, g = hit
+    with _PREBUILT_OPERAND_TABLE_LOCK:
+        hit = c.get(id(transformed_vars))
+        if hit is None:
+            return None
+        ref, g = hit
     if g is None or ref() is not transformed_vars:
         return None
     if tuple(g.shape) != tuple(transformed_vars.shape):
@@ -416,21 +426,26 @@ def _resident_operand_table(cp, transformed_vars):
         return pre
     c = _OPERAND_TABLE_CACHE
     key = id(transformed_vars)
-    hit = c.get(key)
-    if hit is not None:
-        ref, g = hit
-        if ref() is transformed_vars and g is not None:
-            c.move_to_end(key)
-            return g
-        c.pop(key, None)  # weakref dead (id recycled onto a different object) -> drop the stale entry
+    with _OPERAND_TABLE_CACHE_LOCK:
+        hit = c.get(key)
+        if hit is not None:
+            ref, g = hit
+            if ref() is transformed_vars and g is not None:
+                c.move_to_end(key)
+                return g
+            c.pop(key, None)  # weakref dead (id recycled onto a different object) -> drop the stale entry
+    # cp.asarray (H2D, may release the GIL) runs OUTSIDE the lock so a concurrent cache lookup for a
+    # DIFFERENT object is never blocked on this upload; a duplicate concurrent upload for the SAME object
+    # is a harmless (if wasteful) recompute, never a correctness issue -- the final cache write below wins.
     g = cp.asarray(np.ascontiguousarray(transformed_vars, dtype=np.float32))
-    try:
-        c[key] = (weakref.ref(transformed_vars), g)
-        c.move_to_end(key)
-        while len(c) > _OPERAND_TABLE_CACHE_MAX:
-            c.popitem(last=False)
-    except TypeError:
-        c.pop(key, None)
+    with _OPERAND_TABLE_CACHE_LOCK:
+        try:
+            c[key] = (weakref.ref(transformed_vars), g)
+            c.move_to_end(key)
+            while len(c) > _OPERAND_TABLE_CACHE_MAX:
+                c.popitem(last=False)
+        except TypeError:
+            c.pop(key, None)
     return g
 
 
@@ -667,10 +682,17 @@ def gpu_materialise_discretize_codes_host(
     continuous read is needed). Inputs are finite by construction (the kernel scrubs NaN/inf inline)."""
     import cupy as cp
 
-    # Drop any stale handoff/deferred-fill from a PRIOR chunk before producing this one (releases that
-    # chunk's pinned device codes; each chunk's dispatch should already have consumed/cleared its own).
+    # GPU_INFRA_B-1 fix (mrmr_audit_2026-07-22): this used to call clear_resident_codes_handoff() with NO
+    # argument -- the blanket, whole-dict-clear form -- which silently dropped another concurrent thread's
+    # still-pending deferred-fill entry under joblib threading (each chunk's dispatch should already have
+    # consumed/cleared its OWN entry; this was meant only as a dead-man's-switch, not a normal-path event).
+    # Rely on the bounded-FIFO eviction (_DEFERRED_HOST_FILL_MAX) to age out any truly-abandoned entry instead.
     from ._gpu_resident_discretize import _gpu_resident_discretize_codes  # carve sibling (lazy: avoid cycle)
-    clear_resident_codes_handoff()
+    _dt = np.dtype(dtype)
+    if np.issubdtype(_dt, np.integer) and np.iinfo(_dt).max < nbins - 1:
+        # GPU_INFRA_B-4 fix (mrmr_audit_2026-07-22): a future direct caller passing a dtype too narrow for
+        # nbins would otherwise silently wrap around instead of raising.
+        raise ValueError(f"dtype {_dt} cannot represent codes up to nbins-1={nbins - 1} (max={np.iinfo(_dt).max})")
     tv = np.ascontiguousarray(transformed_vars, dtype=np.float32)
     a_cols = np.ascontiguousarray(a_cols, dtype=np.int64)
     b_cols = np.ascontiguousarray(b_cols, dtype=np.int64)
@@ -776,8 +798,9 @@ def gpu_materialise_discretize_codes_host(
         # =float64). _gpu_resident_discretize_codes applies the working dtype internally.
         # LAUNCH-FUSION (2026-06-27): bin DIRECTLY into the target narrow ``dtype`` (int8/int16) -- the binning
         # kernel writes the narrow code dtype itself (OUTTYPE-templated), so the separate int32->narrow astype
-        # launch + the int32 (n,K) intermediate are gone (was: discretize int32 then astype). nbins<=255 -> the
-        # codes are in [0, nbins-1] -> int8 cannot overflow; BIT-IDENTICAL to int32-then-astype. The D2H still
+        # launch + the int32 (n,K) intermediate are gone (was: discretize int32 then astype). nbins<=128 -> the
+        # codes are in [0, nbins-1] -> int8 (signed, -128..127) cannot overflow (GPU_INFRA_B-4 fix,
+        # mrmr_audit_2026-07-22); BIT-IDENTICAL to int32-then-astype. The D2H still
         # moves 1/4 (int8) the bytes of int32 codes. (Prior bench GTX 1050 Ti n=100k K=384: int32-D2H+host-cast
         # 170ms -> gpu-narrow+D2H 25ms = 6.7x; this fusion additionally removes the astype launch + int32 buffer.)
         _cd = np.dtype(dtype)
@@ -827,10 +850,16 @@ def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype: Any = np.i
     import cupy as cp
 
     from ._gpu_resident_discretize import _gpu_resident_discretize_codes  # carve sibling (lazy: avoid cycle)
+    _dt = np.dtype(dtype)
+    if np.issubdtype(_dt, np.integer) and np.iinfo(_dt).max < nbins - 1:
+        # GPU_INFRA_B-4 fix (mrmr_audit_2026-07-22): a future direct caller passing a dtype too narrow for
+        # nbins would otherwise silently wrap around instead of raising.
+        raise ValueError(f"dtype {_dt} cannot represent codes up to nbins-1={nbins - 1} (max={np.iinfo(_dt).max})")
     cand = np.ascontiguousarray(cand)  # keep native dtype (float32 FE buffer) -- no f64 up-cast
     n, K = cand.shape
     out = np.empty((n, K), dtype=dtype)
-    clear_resident_codes_handoff()  # drop any stale prior-chunk handoff before producing this one
+    # GPU_INFRA_B-1 fix (mrmr_audit_2026-07-22): removed the unconditional clear_resident_codes_handoff()
+    # blanket call here -- see the matching note in gpu_materialise_discretize_codes_host above.
     # RESIDENT-CODES HANDOFF (gated, default ON when CUDA present): this is the SECOND codes leg -- the
     # binning-only path the canonical FE chunk takes when the candidate buffer is materialised on the CPU
     # (the default minimal preset's numpy-fallback materialise) then binned on the GPU. It produces the

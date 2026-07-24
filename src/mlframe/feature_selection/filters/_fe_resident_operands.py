@@ -34,12 +34,18 @@ Pickle-safe: this cache is module-level and NEVER stored on an MRMR instance (mi
 
 import logging
 import os as _os
+import threading
 from collections import OrderedDict
 from typing import Any, Callable, Optional
 
 import numpy as _np
 
 logger = logging.getLogger(__name__)
+
+# X_EDGE_CASES_BEST_PRACTICES-1 fix (mrmr_audit_2026-07-22): _FE_RESIDENT_OPERANDS used to be read/evicted
+# with no lock while multi_gpu_fe_batch_mi's ThreadPoolExecutor calls into it concurrently from every
+# device thread -- the same unlocked-cache class flagged repeatedly elsewhere this audit wave.
+_FE_RESIDENT_OPERANDS_LOCK = threading.Lock()
 
 try:
     from numba import njit as _njit
@@ -197,20 +203,33 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
     if _disabled():
         return cp.asarray(host)
 
+    # X_EDGE_CASES_BEST_PRACTICES-1 fix (mrmr_audit_2026-07-22): the cache key used to be PURELY
+    # content-based (shape + dtype + content hash), with no device component at all. multi_gpu_fe_batch_mi
+    # (the heterogeneous multi-GPU FE-batcher) spins up one ThreadPoolExecutor worker per physical CUDA
+    # device, each calling resident_operand with the SAME y_codes content but a DIFFERENT active
+    # cp.cuda.Device context. The first device's cache entry (a cupy array physically resident on THAT
+    # device) would be handed back verbatim to every other device's thread on a content-hash hit --
+    # passing a device-N array into a kernel while device-M (N != M) is the active context is a cupy
+    # ValueError for the overwhelming majority of ops (no peer access enabled anywhere in this codebase).
+    # Folding the active device id into the key makes each physical device keep its OWN resident copy of
+    # the same content, closing the cross-device aliasing gap while leaving the single-GPU case
+    # (the overwhelming majority of fits) byte-identical (device id is a constant 0 there).
+    device_id = int(cp.cuda.Device().id)
     # Content signature is the WHOLE key: shape + dtype distinguish dtype/length variants; the content hash
     # deduplicates identical operands across roles and guards against a different-values alias.
     # _content_hash_memoized skips the O(n) recompute when the SAME array object (e.g. a fit-constant
     # y/z passed unchanged across every role) was already hashed this fit -- see its own docstring.
-    sig = (host.shape, host.dtype.str, _content_hash_memoized(host))
-    g = _FE_RESIDENT_OPERANDS.get(sig)
-    if g is not None:
-        _FE_RESIDENT_OPERANDS.move_to_end(sig)  # LRU: this content is hot
+    sig = (device_id, host.shape, host.dtype.str, _content_hash_memoized(host))
+    with _FE_RESIDENT_OPERANDS_LOCK:
+        g = _FE_RESIDENT_OPERANDS.get(sig)
+        if g is not None:
+            _FE_RESIDENT_OPERANDS.move_to_end(sig)  # LRU: this content is hot
+            return g
+        g = cp.asarray(host)
+        _FE_RESIDENT_OPERANDS[sig] = g
+        if len(_FE_RESIDENT_OPERANDS) > _MAX_ENTRIES:
+            _FE_RESIDENT_OPERANDS.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
         return g
-    g = cp.asarray(host)
-    _FE_RESIDENT_OPERANDS[sig] = g
-    if len(_FE_RESIDENT_OPERANDS) > _MAX_ENTRIES:
-        _FE_RESIDENT_OPERANDS.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
-    return g
 
 
 def assemble_resident_matrix(host, names, fallback_key, *, dtype=None):
@@ -315,25 +334,28 @@ def resident_qbin_codes(a: Any, nbins: int, dtype: Any, compute_fn: Any) -> Any:
         return compute_fn(cp, xd, int(nbins))
 
     sig = (host.shape, host.dtype.str, _content_hash_memoized(host), int(nbins), str(dtype))
-    dev = _FE_RESIDENT_QBIN_CODES.get(sig)
-    if dev is not None:
-        _FE_RESIDENT_QBIN_CODES.move_to_end(sig)  # LRU: this content is hot
-        return dev.astype(cp.int64)  # widen the narrow store to the int64 the kernels index
+    with _FE_RESIDENT_OPERANDS_LOCK:
+        dev = _FE_RESIDENT_QBIN_CODES.get(sig)
+        if dev is not None:
+            _FE_RESIDENT_QBIN_CODES.move_to_end(sig)  # LRU: this content is hot
+            return dev.astype(cp.int64)  # widen the narrow store to the int64 the kernels index
     xd = resident_operand(host, "qbin_x", dtype=dtype)
     codes = compute_fn(cp, xd, int(nbins))  # sync-free binner, resident int64 codes
     # Store narrow: codes are 0..nbins-1 (a few dozen bins), int16 holds them exactly (int64 escape only if some
     # binner ever emits a value outside int16, keeping the store bit-identical either way).
     narrow = codes.astype(cp.int16) if (int(nbins) <= 32767) else codes
-    _FE_RESIDENT_QBIN_CODES[sig] = narrow
-    if len(_FE_RESIDENT_QBIN_CODES) > _MAX_QBIN_CODE_ENTRIES:
-        _FE_RESIDENT_QBIN_CODES.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
+    with _FE_RESIDENT_OPERANDS_LOCK:
+        _FE_RESIDENT_QBIN_CODES[sig] = narrow
+        if len(_FE_RESIDENT_QBIN_CODES) > _MAX_QBIN_CODE_ENTRIES:
+            _FE_RESIDENT_QBIN_CODES.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
     return codes
 
 
 def clear_fe_resident_operands() -> None:
     """Drop the fit-constant FE operand + qbin-code device caches (call at FE-step teardown; mirrors mempool free)."""
-    _FE_RESIDENT_OPERANDS.clear()
-    _FE_RESIDENT_QBIN_CODES.clear()
+    with _FE_RESIDENT_OPERANDS_LOCK:
+        _FE_RESIDENT_OPERANDS.clear()
+        _FE_RESIDENT_QBIN_CODES.clear()
     clear_hash_memo()
 
 

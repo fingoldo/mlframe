@@ -664,7 +664,13 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
             from ._fe_usability_signal import _crit_np_dtype
             x = X[col].to_numpy(dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
             return basis_route_by_moments(x)
-        except Exception:
+        except Exception as exc:
+            # ORTH_SCORING_A-4 fix (mrmr_audit_2026-07-22): this fallback used to be unlogged -- a genuine
+            # failure to read X[col] or route the basis silently mislabels the frozen basis_i/j/k/l in the
+            # recipe as "hermite" instead of surfacing, unlike the already-documented :412 GPU-resident
+            # fallback (which is correctness-preserving via an exact host fallback; this one can change
+            # WHICH basis gets frozen into the recipe with no trace).
+            logger.debug("_route_basis: failed to route column %r (falling back to 'hermite'): %r", col, exc)
             return "hermite"
 
     recipes = []
@@ -689,7 +695,9 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
             try:
                 _col_full = np.asarray(X[legs[0]].to_numpy(), dtype=np.float64)
                 _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
-            except Exception:
+            except Exception as exc:
+                # ORTH_SCORING_A-3 fix (mrmr_audit_2026-07-22): was a bare except with zero logging.
+                logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
                 _pp = None
             recipes.append(build_orth_univariate_recipe(
                 name=name, src_name=legs[0],

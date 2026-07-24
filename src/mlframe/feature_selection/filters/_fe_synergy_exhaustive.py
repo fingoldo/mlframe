@@ -126,6 +126,111 @@ def measured_pairs_per_second(n_samples: int, n_pairs: int) -> tuple[float, str]
     return float(_EXHAUSTIVE_FALLBACK_PAIRS_PER_SEC), "fallback"
 
 
+def _measure_exhaustive_cpu_throughput(dims: dict) -> float:
+    """Time ``batch_pair_mi_njit_prange`` (the CPU backend the exhaustive sweep actually runs when no CUDA
+    device is present) on a synthetic (n_samples, n_pairs) cell and return the achieved pairs/second. Used
+    as the CPU tuner body for :func:`measured_cpu_pairs_per_second` (FE_REDUNDANCY_SYNERGY-1 fix,
+    mrmr_audit_2026-07-22); mirrors :func:`_measure_exhaustive_throughput`'s CUDA twin exactly."""
+    from .batch_pair_mi_gpu import batch_pair_mi_njit_prange
+
+    n_samples = int(dims["n_samples"])
+    n_pairs = int(dims["n_pairs"])
+    rng = np.random.default_rng(0)
+    nbins_val = 8
+    n_features = 64
+    factors_data = rng.integers(0, nbins_val, size=(n_samples, n_features)).astype(np.int32)
+    nbins = np.full(n_features, nbins_val, dtype=np.int32)
+    pair_a = rng.integers(0, n_features, size=n_pairs).astype(np.int64)
+    pair_b = (pair_a + 1 + rng.integers(0, n_features - 1, size=n_pairs)) % n_features
+    pair_b = pair_b.astype(np.int64)
+    classes_y = rng.integers(0, 4, size=n_samples).astype(np.int32)
+    freqs_y = np.bincount(classes_y, minlength=4).astype(np.float64) / max(1, n_samples)
+
+    batch_pair_mi_njit_prange(factors_data, pair_a[:64], pair_b[:64], nbins, classes_y, freqs_y)  # warm-up (JIT)
+    t0 = time.perf_counter()
+    batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
+    dt = time.perf_counter() - t0
+    if dt <= 0.0:
+        return float(_EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC)
+    return float(n_pairs / dt)
+
+
+def measured_cpu_pairs_per_second(n_samples: int, n_pairs: int) -> tuple[float, str]:
+    """Per-host measured CPU (njit-prange) pair-MI throughput (pairs/s), looked up from the
+    kernel_tuning_cache (measured on first miss) -- the CPU twin of :func:`measured_pairs_per_second`.
+
+    FE_REDUNDANCY_SYNERGY-1 fix (mrmr_audit_2026-07-22): the CPU-only branch of ``decide_exhaustive_sweep``
+    used to hardcode ``_EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC=2000`` with no KTC lookup at all, unlike the
+    CUDA branch a few lines above it and contrary to this module's own docstring claim ("NEVER hardcoded
+    ... measured-and-cached per host"). A fast many-core CPU host runs far faster than 2000 pairs/s, so
+    'auto' mode silently declined the exhaustive sweep (and the balanced L=0 interactions it recovers) on
+    hosts where it would in fact be affordable."""
+    try:
+        from ._kernel_tuning import get_kernel_tuning_cache
+
+        cache = get_kernel_tuning_cache()
+        if cache is not None:
+            region = cache.lookup("batch_pair_mi_exhaustive_cpu_throughput", n_samples=int(n_samples), n_pairs=int(n_pairs))
+            if region is not None:
+                val = region.get("value", region.get("choice"))
+                if val is not None:
+                    try:
+                        pps = float(val)
+                        if pps > 0:
+                            return pps, "cache"
+                    except (TypeError, ValueError):
+                        pass
+    except Exception as exc:  # cache miss / pyutilz unavailable -> fallback
+        logger.debug("exhaustive-CPU-throughput cache lookup failed (%s: %s); using fallback", type(exc).__name__, exc)
+    return float(_EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC), "fallback"
+
+
+def warm_exhaustive_cpu_throughput_cache() -> None:
+    """Populate the per-host CPU throughput cache via ``get_or_tune`` (one-time, async-safe) -- the CPU
+    twin of :func:`warm_exhaustive_throughput_cache`. Best effort: callers may skip this and rely on
+    :func:`measured_cpu_pairs_per_second`'s fallback."""
+    try:
+        from ._kernel_tuning import get_kernel_tuning_cache
+
+        cache = get_kernel_tuning_cache()
+        if cache is None:
+            return
+
+        def _tuner() -> list:
+            """Sweep the (n_samples, n_pairs) grid, measuring CPU throughput at each cell for the KTC warm."""
+            regions = []
+            for n in _EXH_TPUT_SWEEP_N_SAMPLES:
+                for npairs in _EXH_TPUT_SWEEP_N_PAIRS:
+                    try:
+                        pps = _measure_exhaustive_cpu_throughput({"n_samples": n, "n_pairs": npairs})
+                    except Exception:
+                        pps = float(_EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC)
+                    regions.append({"n_samples": n, "n_pairs": npairs, "value": pps})
+            return regions
+
+        cache.get_or_tune(
+            "batch_pair_mi_exhaustive_cpu_throughput",
+            dims={"n_samples": _EXH_TPUT_SWEEP_N_SAMPLES[0], "n_pairs": _EXH_TPUT_SWEEP_N_PAIRS[0]},
+            tuner=_tuner,
+            axes=["n_samples", "n_pairs"],
+            fallback=lambda n_samples, n_pairs: _EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC,
+            salt=_EXH_TPUT_SALT,
+            once_per_process=True,
+        )
+    except Exception as exc:
+        logger.debug("exhaustive-CPU-throughput cache warm failed (%s: %s)", type(exc).__name__, exc)
+
+
+def predict_exhaustive_cpu_seconds(n_samples: int, n_raw: int) -> tuple[float, float, str]:
+    """Predicted wall-time (seconds) for the full exhaustive C(n_raw, 2) joint-MI sweep on the CPU
+    njit-prange backend -- the CPU twin of :func:`predict_exhaustive_seconds`."""
+    n_pairs = (int(n_raw) * (int(n_raw) - 1)) // 2
+    pps, source = measured_cpu_pairs_per_second(n_samples, n_pairs)
+    if pps <= 0:
+        pps = float(_EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC)
+    return float(n_pairs) / pps, pps, source
+
+
 def warm_exhaustive_throughput_cache() -> None:
     """Populate the per-host throughput cache via ``get_or_tune`` (one-time, async-safe). Best
     effort: callers may skip this and rely on ``measured_pairs_per_second``'s fallback."""
@@ -281,9 +386,13 @@ def decide_exhaustive_sweep(
         # gating its EXISTENCE on GPU presence makes a feature appear on a CUDA host and vanish on a CPU one.
         # Decide on the CPU cost instead -> the decision is hardware-independent (affordable-or-not), not
         # device-gated; the sweep then runs on the CPU backend (see _step_core force_backend selection).
-        pps = float(_EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC)
-        predicted = float(n_pairs) / pps
-        source = "cpu-njit-prange-fallback"
+        # FE_REDUNDANCY_SYNERGY-1 fix (mrmr_audit_2026-07-22): this used to hardcode
+        # _EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC with NO kernel_tuning_cache lookup at all, unlike the CUDA
+        # branch above and contrary to this module's own docstring claim. Warm + consult the per-host
+        # measured CPU throughput cache instead; _EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC remains only the
+        # cold-cache fallback (mirrors the CUDA branch's own fallback discipline).
+        warm_exhaustive_cpu_throughput_cache()
+        predicted, pps, source = predict_exhaustive_cpu_seconds(n_samples, n_raw)
         backend = "CPU"
     if mode == "force":
         return True, (
