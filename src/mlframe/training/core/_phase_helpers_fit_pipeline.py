@@ -341,12 +341,20 @@ def _phase_fit_pipeline(
                 raise ValueError(
                     f"train_df has {len(_dupes)} duplicate column name(s) " f"({_dupes[:5]}); deduplicate before fit() to keep schema-hash honest."
                 )
+            # A pandas 'category' dtype's categories can hold ANY value type (bool/int/float), unlike polars
+            # Categorical/Enum which are always string-backed. Flag columns whose categories aren't strings so
+            # the consumer (_auto_detect_feature_types) never text-auto-promotes them -- CatBoost rejects a
+            # non-string category value with "text_features must have string type" (fuzz-caught).
+            _non_string_category_cols = [
+                c for c in _cols_list if isinstance(train_df[c].dtype, pd.CategoricalDtype) and train_df[c].dtype.categories.dtype.kind not in "OU"
+            ]
             train_df_pandas_pre_meta = {
                 "columns": _cols_list,
                 "dtypes": {c: str(train_df[c].dtype) for c in _cols_list},
                 "n_unique": _n_unique,
                 "non_null": _non_null,
                 "embedding_object_cols": _embedding_object_cols,
+                "non_string_category_cols": _non_string_category_cols,
                 "shape": tuple(train_df.shape),
             }
         except Exception:

@@ -196,3 +196,30 @@ class TestEnumNeverPromotedToText:
         cfg = FeatureTypesConfig(auto_detect_feature_types=True, cat_text_cardinality_threshold=50)
         text, _emb, _dropped = _auto_detect_feature_types(df, cfg, cat_features=["str_col"])
         assert "str_col" in text
+
+
+class TestNonStringCategoryNeverPromotedToText:
+    """A pandas 'category' dtype's categories can hold ANY value type (bool/int/float), unlike polars
+    Categorical/Enum which are always string-backed. Promoting a non-string-categories column to
+    text_features leaks its raw category value (e.g. a literal ``1``) into CatBoost's text-feature Pool
+    construction, which then rejects it: "text_features must have string type". Caught live via a fuzz
+    combo with a non-string-categories 'category' column (input=pandas).
+    """
+
+    def test_high_cardinality_int_category_column_not_promoted(self):
+        """A high-cardinality pandas Categorical with INT categories must stay out of text_features."""
+        n_unique = 200
+        vals = pd.Categorical([i % n_unique for i in range(1000)])
+        df = pd.DataFrame({"cat_int": vals})
+        cfg = FeatureTypesConfig(auto_detect_feature_types=True, cat_text_cardinality_threshold=50)
+        text, _emb, _dropped = _auto_detect_feature_types(df, cfg, cat_features=["cat_int"])
+        assert "cat_int" not in text, "non-string-categories 'category' column must never be text-auto-promoted"
+
+    def test_high_cardinality_str_category_column_still_promoted(self):
+        """Control: a plain string-categories 'category' column is unaffected by the non-string exclusion."""
+        n_unique = 200
+        vals = pd.Categorical([f"cat_{i % n_unique:04d}" for i in range(1000)])
+        df = pd.DataFrame({"cat_str": vals})
+        cfg = FeatureTypesConfig(auto_detect_feature_types=True, cat_text_cardinality_threshold=50)
+        text, _emb, _dropped = _auto_detect_feature_types(df, cfg, cat_features=["cat_str"])
+        assert "cat_str" in text

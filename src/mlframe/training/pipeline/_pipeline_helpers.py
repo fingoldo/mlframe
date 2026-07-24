@@ -40,6 +40,8 @@ from ._pipeline_cache import (  # noqa: F401
     _PRE_PIPELINE_CACHE,
     _PRE_PIPELINE_CACHE_LOCK,
     _PRE_PIPELINE_CACHE_MAX,
+    _PRE_PIPELINE_CACHE_MAX_BYTES,
+    _approx_entry_bytes,
     _content_fingerprint_for_cache,
     _fresh_uncachable,
     _pipeline_signature_for_cache,

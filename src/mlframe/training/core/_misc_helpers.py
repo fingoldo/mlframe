@@ -686,6 +686,11 @@ def _auto_detect_feature_types(
         # subsumes the old "string"/"stringdtype" tokens; "object" and
         # "category" stay explicit (they don't start with "str").
         _string_like_dtype_tokens = ("object", "str", "category")
+        if use_meta:
+            assert pandas_meta is not None  # guaranteed by the ``use_meta`` construction above
+            _meta_non_string_cat = set(pandas_meta.get("non_string_category_cols", []))
+        else:
+            _meta_non_string_cat = None
         for col in _columns:
             if col in user_assigned:
                 continue
@@ -695,6 +700,21 @@ def _auto_detect_feature_types(
                 continue
             _dtype_lc = dtype_name.lower().lstrip("<")
             _is_string_like = any(_dtype_lc.startswith(tok) for tok in _string_like_dtype_tokens) or "stringdtype" in _dtype_lc
+            # A pandas 'category' dtype's categories can be ANY value type (bool/int/float), not just strings --
+            # unlike polars Categorical/Enum, which are always string-backed. A non-string-categories column
+            # promoted to text_features leaks its raw category value (e.g. a literal ``True``/``1``) into
+            # CatBoost's text-feature Pool construction, which rejects it: "text_features must have string type"
+            # (caught live via a fuzz combo with a non-string-categories 'category' column). Treat it like an
+            # honored user dtype: never text-auto-promoted, regardless of cardinality.
+            if _is_string_like and dtype_name.startswith("category"):
+                if _meta_non_string_cat is not None:
+                    _is_non_string_cat = col in _meta_non_string_cat
+                else:
+                    _cats_dtype = getattr(df[col].dtype, "categories", None)
+                    _is_non_string_cat = _cats_dtype is not None and _cats_dtype.dtype.kind not in "OU"
+                if _is_non_string_cat:
+                    honored_user_dtype_cols.append(col)
+                    continue
             if _is_string_like:
                 # Skip object columns whose cells are ndarray / list (embedding vectors). nunique() hashes
                 # the cells via PyObjectHashTable which raises ``TypeError: unhashable type: 'numpy.ndarray'``.

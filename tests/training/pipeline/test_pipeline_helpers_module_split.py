@@ -24,6 +24,8 @@ def test_cache_symbols_still_importable_from_facade() -> None:
         _pre_pipeline_cache_set,
         _pre_pipeline_cache_clear,
         _PRE_PIPELINE_CACHE_MAX,
+        _PRE_PIPELINE_CACHE_MAX_BYTES,
+        _approx_entry_bytes,
     )
 
     assert callable(_fresh_uncachable)
@@ -34,6 +36,20 @@ def test_cache_symbols_still_importable_from_facade() -> None:
     assert callable(_pre_pipeline_cache_set)
     assert callable(_pre_pipeline_cache_clear)
     assert isinstance(_PRE_PIPELINE_CACHE_MAX, int)
+    assert isinstance(_PRE_PIPELINE_CACHE_MAX_BYTES, int)
+    assert callable(_approx_entry_bytes)
+
+
+def test_pipeline_helpers_apply_import_does_not_raise() -> None:
+    """Regression: ``_pipeline_helpers.py``'s re-export of ``_pipeline_cache.py`` silently dropped
+    ``_PRE_PIPELINE_CACHE_MAX_BYTES`` / ``_approx_entry_bytes`` after that cache-byte-cap feature was added --
+    ``_pipeline_helpers_apply.py`` imports them back FROM ``_pipeline_helpers`` (the facade), so the missing
+    names broke the whole ``mlframe.training.core`` import chain with "cannot import name ... (most likely due
+    to a circular import)" -- a genuinely confusing error for a plain missing re-export. Importing the module
+    at all is the regression guard; the module-split rule is: every symbol the sibling needs back from the
+    facade must be re-exported here, not just the ones present when the split first happened.
+    """
+    import mlframe.training.pipeline._pipeline_helpers_apply  # noqa: F401
 
 
 def test_pipeline_ops_symbols_still_importable_from_facade() -> None:
