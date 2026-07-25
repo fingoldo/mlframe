@@ -15,8 +15,11 @@ decision untouched (canonical fixtures never loosened on error).
 """
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Hashable, Literal, Mapping, Optional, TypeVar, Union, overload
+
+logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 _ConfigKeyT = TypeVar("_ConfigKeyT", bound=Hashable)
 
@@ -121,7 +124,8 @@ def usability_operand_continuous(self: Any, X: Any, cols: Any, var_idx: Any) -> 
         if _nm in _names:
             return np.asarray(X[:, _names.index(_nm)], dtype=_crit_np_dtype()).ravel()
         return None
-    except Exception:
+    except Exception as e:
+        logger.debug("usability_operand_continuous: raw operand resolution failed for var_idx=%r, no usability credit claimed: %s", var_idx, e)
         return None
 
 
@@ -345,7 +349,8 @@ def pair_is_tail_concentrated(y: np.ndarray, x0: np.ndarray, x1: np.ndarray, *, 
     try:
         _cp, _cs = usability_form_corrs(y, x0, x1)
         return bool(_cp >= float(min_corr) and _cp >= float(pairness_margin) * float(_cs))
-    except Exception:
+    except Exception as e:
+        logger.debug("pair_is_tail_concentrated: usability_form_corrs failed, strict rank-MI decision stands: %s", e)
         return False
 
 
@@ -404,7 +409,8 @@ def pair_is_tail_concentrated_rankaware(
             return False
         _rank_corr = abs_pearson(_rank_transform(_y[_m]), _rank_transform(np.asarray(_best_form)[_m]))
         return bool(_rank_corr <= float(max_rank_frac) * _best_lin)
-    except Exception:
+    except Exception as e:
+        logger.debug("rank-aware tail-concentration predicate failed, pre-scan will not relax the prevalence bar: %s", e)
         return False
 
 
@@ -443,5 +449,6 @@ def tail_concentration_form_override(
         if _corr_val < float(pairness_margin) * float(best_single_corr):
             return None
         return _corr_leader
-    except Exception:
+    except Exception as e:
+        logger.debug("tail_concentration_form_override: override decision failed, leaving the rank-MI winner untouched: %s", e)
         return None
