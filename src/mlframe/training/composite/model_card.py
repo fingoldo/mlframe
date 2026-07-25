@@ -177,7 +177,7 @@ def _attribution(estimator: Any, X: Any) -> Optional[dict[str, Any]]:
         return {"available": False, "reason": "base-free unary transform"}
     try:
         summary = attribution_summary(estimator, X)
-    except Exception as exc:  # pragma: no cover - surfaced, not swallowed
+    except Exception as exc:  # pragma: no cover - best-effort: escalated via the returned "reason" field
         return {"available": False, "reason": f"attribution failed: {exc}"}
     summary["available"] = True
     return summary
@@ -199,7 +199,7 @@ def _leakage_check(estimator: Any, X: Any, y: Any, base_cols: tuple[str, ...]) -
 
     try:
         base_arr = estimator._extract_base_for_transform(X, base_cols)
-    except Exception as exc:  # pragma: no cover - X may lack the base column
+    except Exception as exc:  # pragma: no cover - best-effort: escalated via the returned "reason" field (X may lack the base column)
         return {"available": False, "reason": f"base column unavailable in X: {exc}"}
     base_arr = np.asarray(base_arr, dtype=np.float64)
     if base_arr.ndim > 1:

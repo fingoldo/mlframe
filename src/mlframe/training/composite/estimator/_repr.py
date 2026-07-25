@@ -67,7 +67,7 @@ def _repr_html_(self: Any) -> str:
     """
     try:
         return _build_repr_html(self)
-    except Exception as exc:  # pragma: no cover - a repr must never raise
+    except Exception as exc:  # pragma: no cover - best-effort: a repr must never raise, error escalated via the returned HTML div
         return "<div style='font-family:monospace;color:#a00;'>" f"CompositeTargetEstimator (repr failed: {html.escape(str(exc))})" "</div>"
 
 

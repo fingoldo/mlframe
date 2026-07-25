@@ -175,7 +175,7 @@ def _polars_schema_diagnostic(
                 "filled; reported for visibility only."
             )
         return header + "\n" + "\n".join(lines)
-    except Exception as _diag_err:
+    except Exception as _diag_err:  # best-effort: escalated via the returned diagnostic string itself
         return f"  (schema diagnostic failed: {_diag_err!r})"
 
 
