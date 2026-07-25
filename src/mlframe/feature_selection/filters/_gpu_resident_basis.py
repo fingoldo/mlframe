@@ -983,7 +983,9 @@ def _run_fe_gpu_pairs_mi_sweep() -> list:
         from pyutilz.core.pythonlib import is_cuda_available
         if not is_cuda_available():
             return []
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("_run_fe_gpu_pairs_mi_sweep: is_cuda_available() check failed, skipping the sweep: %s", e)
         return []
     from pyutilz.dev.benchmarking import sweep_backend_grid
     from .discretization import discretize_2d_quantile_batch
@@ -1016,7 +1018,9 @@ def _fe_gpu_pairs_mi_code_version():
         from ._gpu_resident_select import _gpu_resident_discretize_codes, gpu_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals(); lazy: cross-sibling
         from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
         return compute_code_version(gpu_pairs_fe_mi, gpu_discretize_codes_host, _gpu_resident_discretize_codes)
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("_fe_gpu_pairs_mi_code_version failed, kernel-tuning cache will treat this as unversioned: %s", e)
         return None
 
 
@@ -1061,7 +1065,9 @@ def ensure_fe_gpu_pairs_mi_tuning(force: bool = False):
         if regions:
             cache.update("fe_gpu_pairs_mi", axes=["n_rows"], regions=regions, code_version=_fe_gpu_pairs_mi_code_version())
         return regions
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("ensure_fe_gpu_pairs_mi_tuning: forced sweep/persist failed: %s", e)
         return None
 
 
@@ -1115,7 +1121,9 @@ def _run_fe_gpu_binning_sweep() -> list:
         from pyutilz.core.pythonlib import is_cuda_available
         if not is_cuda_available():
             return []
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("_run_fe_gpu_binning_sweep: is_cuda_available() check failed, skipping the sweep: %s", e)
         return []
     from pyutilz.dev.benchmarking import sweep_backend_grid
     from .discretization import discretize_2d_quantile_batch
@@ -1143,7 +1151,9 @@ def _fe_gpu_binning_code_version():
         from ._gpu_resident_select import _gpu_resident_discretize_codes, gpu_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals(); lazy: cross-sibling
         from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
         return compute_code_version(gpu_discretize_codes_host, _gpu_resident_discretize_codes)
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("_fe_gpu_binning_code_version failed, kernel-tuning cache will treat this as unversioned: %s", e)
         return None
 
 
@@ -1184,7 +1194,9 @@ def ensure_fe_gpu_binning_tuning(force: bool = False) -> list | None:
         if regions:
             cache.update("fe_gpu_binning", axes=["n_rows"], regions=regions, code_version=_fe_gpu_binning_code_version())
         return regions
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("ensure_fe_gpu_binning_tuning: forced sweep/persist failed: %s", e)
         return None
 
 
