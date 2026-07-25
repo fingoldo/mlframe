@@ -160,7 +160,7 @@ def compute_unsupervised_drops(
                     _np_dt = col.dtype
                     if _np_dt == np.float64 or _np_dt == np.float32:
                         null_count = int(np.isnan(col.to_numpy()).sum())
-                    elif _np_dt == np.int64 or _np_dt == np.int32 or _np_dt == np.int16 or _np_dt == np.int8 or _np_dt == bool:  # noqa: E721 -- numpy dtype `==` comparison is intended
+                    elif _np_dt == np.int64 or _np_dt == np.int32 or _np_dt == np.int16 or _np_dt == np.int8 or _np_dt == bool:  # noqa: E721 - numpy dtype `==` comparison is intended
                         null_count = 0
                     else:
                         null_count = int(col.isna().sum())
@@ -180,7 +180,7 @@ def compute_unsupervised_drops(
                 continue
             try:
                 # Sparse columns: variance computed over just the stored (non-fill) values ignores the
-                # fill-value mass entirely -- a sparse column with 999 fill cells and one stored value 5.0
+                # fill-value mass entirely - a sparse column with 999 fill cells and one stored value 5.0
                 # has a true population variance of ~0.025 (genuinely informative), but variance-of-stored
                 # alone reports 0.0 (a single stored value has zero variance by definition) and drops it.
                 # Worse, ANY number of identically-valued stored entries (e.g. a rare binary flag stored as

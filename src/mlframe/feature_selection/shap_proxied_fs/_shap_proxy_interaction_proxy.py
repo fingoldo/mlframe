@@ -3,7 +3,7 @@
 The default subset proxy (``proxy_mode="additive"``) scores a subset ``S`` as the purely ADDITIVE SHAP
 coalition value ``base + sum_{j in S} phi_j``. That folds every pairwise interaction into the two
 operands' MAIN effects, so it UNDER-scores a subset whose value comes from a non-additive PAIR (XOR /
-multiplicative -- each operand's main effect is ~0) and OVER-scores redundant additive features.
+multiplicative - each operand's main effect is ~0) and OVER-scores redundant additive features.
 
 This module adds the interaction-aware proxy: score ``S`` as
 
@@ -53,7 +53,7 @@ def build_pair_table(Phi: np.ndarray, phi: np.ndarray, interaction_top_k: int):
     The interaction term MUST stay PER-ROW: for an XOR pair the row mean of ``Phi_ij`` is ~0 (the sign
     of the interaction flips with the operand quadrant), so collapsing to a scalar would erase exactly
     the signal this proxy exists to capture. Memory is O(k^2 * n) (k=interaction_top_k, not P), the
-    whole point of the gate -- a full (P, P, n) tensor would be prohibitive on wide proxies.
+    whole point of the gate - a full (P, P, n) tensor would be prohibitive on wide proxies.
     """
     n, P, _ = Phi.shape
     imp = np.abs(phi).mean(axis=0)

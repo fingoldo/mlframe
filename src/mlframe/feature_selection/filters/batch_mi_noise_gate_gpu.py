@@ -6,7 +6,7 @@ numba.cuda), a per-host backend chooser via ``get_or_tune``, a measurement-backe
 fallback heuristic, a real CPU-vs-GPU sweep tuner, an availability-guarded
 dispatcher, and a ``@kernel_tuner`` registration.
 
-BIT-IDENTITY (non-negotiable -- FE recovery is pinned)
+BIT-IDENTITY (non-negotiable - FE recovery is pinned)
 ------------------------------------------------------
 The noise-gate rejection is a float comparison (``mi_perm >= original_mi``), so a
 GPU MI that drifts by a single ULP would flip borderline rejections and change
@@ -14,7 +14,7 @@ which engineered features MRMR keeps. To stay bit-identical we split the work:
 
   1. The ``npermutations`` y-shuffles run on the CPU with the IDENTICAL LCG /
      Fisher-Yates stream the CPU kernel uses (``base_seed*2654435761 + (i+1)``
-     then the PCG step). Only 3 small shuffles by default -- cheap.
+     then the PCG step). Only 3 small shuffles by default - cheap.
   2. The GPU computes the INTEGER joint histograms (deterministic counting, hence
      bit-exact) for all ``K`` candidate columns against the original ``y`` AND
      against each shuffled ``y``.
@@ -90,13 +90,13 @@ def batch_mi_with_noise_gate_cupy_v1(
 ) -> np.ndarray:
     """CuPy GPU twin of ``batch_mi_with_noise_gate``. BIT-IDENTICAL.
 
-    PRIOR (v1) kernel -- kept per the keep-all-kernel-versions rule so it can be
+    PRIOR (v1) kernel - kept per the keep-all-kernel-versions rule so it can be
     re-benched on bigger GPUs. SUPERSEDED on small/consumer cards by
     ``batch_mi_with_noise_gate_cupy`` (GPU-resident, O(1) transfers per batch).
 
     bench-note (GTX 1050 Ti, 4GB Pascal cc6.1, n=2407 K=2000 nperm=3): this v1
     does 1 H2D + 1 D2H PER permutation (cp.asarray(shuffled) + cp.asnumpy(flat)),
-    so a self-profile of MRMR.fit spent 82.7% wall-time here at ~18% GPU-util --
+    so a self-profile of MRMR.fit spent 82.7% wall-time here at ~18% GPU-util -
     transfer/sync-bound. The resident rewrite collapses that to O(1) transfers.
 
     GPU work: for the original y and each CPU-shuffled y, compute the joint
@@ -128,7 +128,7 @@ def batch_mi_with_noise_gate_cupy_v1(
     offsets[1:] = np.cumsum(per_col_size)
     total_size = int(offsets[K])
     # PER-CELL INDEX dtype (2026-06-20, parallel to the resident kernel): v1 scores ONE y at a time, so
-    # d_base / d_idx are bounded by ``total_size - 1`` -- int32 HALVES these (n, K) buffers vs int64 when
+    # d_base / d_idx are bounded by ``total_size - 1`` - int32 HALVES these (n, K) buffers vs int64 when
     # that fits (gated -> bit-identical, the bincount indices are the same values). Kept for re-bench
     # parity with the resident kernel.
     idx_dtype = cp.int32 if total_size <= 2_147_483_647 else cp.int64
@@ -160,7 +160,7 @@ def batch_mi_with_noise_gate_cupy_v1(
         return _gate_from_mi(original_mi, [], 0, min_nonzero_confidence)
 
     cy_safe = np.asarray(classes_y_safe)
-    # bench-attempt-rejected (2026-06-07): perm-reduction early-exit (see cupy-v2 path) --
+    # bench-attempt-rejected (2026-06-07): perm-reduction early-exit (see cupy-v2 path) -
     # BYTE-IDENTICAL but no scene wall win; keep full reduction + _gate_from_mi.
     perm_mis = []
     for i in range(npermutations):
@@ -188,7 +188,7 @@ def batch_mi_with_noise_gate_cupy(
 
     Collapses the v1 kernel's O(npermutations) tiny H2D/D2H round-trips to O(1)
     transfers per batch (the win on small consumer GPUs + modest PCIe, where v1
-    was transfer/sync-bound -- ~83% wall-time at ~18% GPU-util on a GTX 1050 Ti):
+    was transfer/sync-bound - ~83% wall-time at ~18% GPU-util on a GTX 1050 Ti):
 
       1. ONE H2D up front: ``disc_2d`` (as ``d_base``), the original target codes,
          and the FULL ``(npermutations, n)`` shuffle matrix built on the host with
@@ -197,7 +197,7 @@ def batch_mi_with_noise_gate_cupy(
          the permutation axis to fit a queried free-memory budget (so the 1050 Ti's
          4GB never OOMs). Each tile bincounts ``(rows_in_tile)`` flattened indices.
       3. ONE D2H per batch: the stacked integer count matrix
-         ``(npermutations+1, total_size)`` int64 -- a single length-``(P+1)*total``
+         ``(npermutations+1, total_size)`` int64 - a single length-``(P+1)*total``
          copy, NOT a per-permutation count matrix.
 
     The MI / SU is then reduced from those INTEGER counts on the bit-exact CPU path
@@ -221,11 +221,11 @@ def batch_mi_with_noise_gate_cupy(
     offsets[1:] = np.cumsum(per_col_size)
     total_size = int(offsets[K])
 
-    # PER-CELL INDEX dtype (2026-06-20): d_base / d_idx values are bounded by ``total_size - 1`` (= the
+    # PER-CELL INDEX dtype: d_base / d_idx values are bounded by ``total_size - 1`` (= the
     # sum of ``nbins_k * K_y``), which for any realistic FE batch is << 2^31, so int32 HALVES these
-    # (n, K) / (rows, n*K) device buffers vs the old int64 -- the (100k, 4096) base is 1.5 GiB int32 vs
+    # (n, K) / (rows, n*K) device buffers vs the old int64 - the (100k, 4096) base is 1.5 GiB int32 vs
     # the 3 GiB int64 that OOM'd the 4GB GPU. GATED: int64 is retained when ``total_size`` could exceed
-    # int32 (pathological nbins*K_y), so this is BIT-IDENTICAL -- the bincount indices are the same
+    # int32 (pathological nbins*K_y), so this is BIT-IDENTICAL - the bincount indices are the same
     # integer values, only the store width narrows. (Distinct from the rejected COUNTS-D2H narrowing
     # below: that narrows the OUTPUT counts; this narrows the INDEX buffers.)
     _INT32_MAX = 2_147_483_647
@@ -239,13 +239,13 @@ def batch_mi_with_noise_gate_cupy(
     nperm = int(npermutations) if npermutations and npermutations > 0 else 0
     P1 = nperm + 1  # number of y-vectors = nperm + 1
 
-    # RESIDENT shuffle matrix (2026-07-13): row 0 = original y, rows 1.. = the nperm shuffles -- built +
+    # RESIDENT shuffle matrix: row 0 = original y, rows 1.. = the nperm shuffles - built +
     # uploaded ONCE per (target, seed, nperm) and reused across a fit's cupy dispatches, mirroring the
     # numba.cuda resident gate's ``_resident_y_all_device`` cache (this path previously had NO cache analog
     # and rebuilt + re-H2D'd this (P1, n) matrix on every one of a fit's ~30 dispatches). See
     # ``_resident_y_all_device_for_cupy``.
     d_y_all_resident = _resident_y_all_device_for_cupy(classes_y, classes_y_safe, base_seed, nperm, n, P1)
-    d_y_all = d_y_all_resident.astype(idx_dtype)  # (P1, n) -- y codes < K_y, fit idx_dtype (always a fresh cast, never aliases the cached int32 buffer)
+    d_y_all = d_y_all_resident.astype(idx_dtype)  # (P1, n) - y codes < K_y, fit idx_dtype (always a fresh cast, never aliases the cached int32 buffer)
 
     # ---- 4GB tiling over the permutation axis. Each tile of ``rows`` y-vectors
     # materialises a (rows, n) int64 index array + a (rows, total_size) int64 count
@@ -299,7 +299,7 @@ def batch_mi_with_noise_gate_cupy(
         # Net LOSS: the on-device ``astype(int32)`` kernel launch + sync costs MORE than the saved
         # bytes on the scene tile shapes (0.42-0.99x; only the largest 1200col x 4perm tile wins
         # 1.43x). Crucially the ~16% "asnumpy" the scene sampler attributes here is NOT the
-        # transfer -- it is the main thread BLOCKED in asnumpy's implicit sync waiting on the
+        # transfer - it is the main thread BLOCKED in asnumpy's implicit sync waiting on the
         # preceding async index-build + bincount GPU kernels (the real, irreducible cost on the
         # PCIe-bound 1050 Ti). Narrowing the transfer cannot shrink GPU compute, and the cast
         # adds more of it. (proto profiling/bench_cupy_d2h_narrow.py)
@@ -342,8 +342,8 @@ _CUDA_HIST_KERNEL_BATCHED_SHARED: "object | None" = None
 _CUDA_HIST_KERNEL_BATCHED_SHARED_CM: "object | None" = None
 _CUDA_HIST_KERNEL_BATCHED: "object | None" = None
 
-# Device shuffled-y matrix cache (2026-06-21): y_all = [classes_y; nperm Fisher-Yates shuffles] is
-# DETERMINISTIC from (classes_y, classes_y_safe, base_seed, nperm) -- and the target is identical across
+# Device shuffled-y matrix cache: y_all = [classes_y; nperm Fisher-Yates shuffles] is
+# DETERMINISTIC from (classes_y, classes_y_safe, base_seed, nperm) - and the target is identical across
 # ALL ~30 noise-gate dispatches of a fit, so this (P, n) int32 matrix was rebuilt (njit) AND re-uploaded
 # (H2D, ~14MB total) every dispatch. Cache the device matrix by WEAKREF IDENTITY of classes_y + the
 # scalar key: built+uploaded once per fit, reused thereafter. Bit-identical (same shuffle stream).
@@ -353,7 +353,7 @@ _CUDA_HIST_KERNEL_BATCHED: "object | None" = None
 # target array can never false-hit. Bounded FIFO so distinct targets across a long fit don't grow it.
 _DY_DEVICE_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()  # key -> (weakref(classes_y), d_y)
 _DY_DEVICE_CACHE_MAX = 8
-# GPU_INFRA_A-12 fix: the get -> move_to_end -> popitem LRU sequence below is
+# The get -> move_to_end -> popitem LRU sequence below is
 # NOT atomic under the GIL's per-bytecode-op granularity; two MRMR.fit() calls racing in different
 # threads of the same process (not itself forbidden anywhere in this module) could violate the
 # _DY_DEVICE_CACHE_MAX eviction discipline. The returned device array itself was always race-safe
@@ -364,7 +364,7 @@ _DY_DEVICE_CACHE_LOCK = threading.Lock()
 
 def _histgate_upload(host_arr: np.ndarray, role: str, dtype: Any) -> Any:
     """Upload a host operand for the numba.cuda histgate kernels, content-cached via
-    ``resident_operand`` when cupy is installed alongside numba.cuda -- a numba.cuda kernel accepts a
+    ``resident_operand`` when cupy is installed alongside numba.cuda - a numba.cuda kernel accepts a
     cupy device array directly (CUDA Array Interface; confirmed no host round-trip), so this is a
     drop-in for ``_nb_cuda.to_device`` that additionally dedups fit-constant operands (``freqs_y`` /
     the per-column ``offsets`` / ``nbins``) re-uploaded under a different role elsewhere (the cupy
@@ -407,12 +407,12 @@ def _resident_y_all_device(classes_y, classes_y_safe, base_seed, nperm, n, P):
     return d_y
 
 
-# CUPY-NATIVE twin of ``_DY_DEVICE_CACHE`` (2026-07-13), used only when numba.cuda is unavailable on this
+# CUPY-NATIVE twin of ``_DY_DEVICE_CACHE``, used only when numba.cuda is unavailable on this
 # host (cupy-only): mirrors the SAME (id+weakref(classes_y), base_seed, nperm, n, P) key + LRU discipline,
 # built via ``cp.asarray`` instead of ``_nb_cuda.to_device``.
 _DY_DEVICE_CACHE_CUPY: "OrderedDict[tuple, tuple]" = OrderedDict()  # key -> (weakref(classes_y), d_y)
 _DY_DEVICE_CACHE_CUPY_MAX = 8
-_DY_DEVICE_CACHE_CUPY_LOCK = threading.Lock()  # GPU_INFRA_A-12 fix -- see _DY_DEVICE_CACHE_LOCK's note
+_DY_DEVICE_CACHE_CUPY_LOCK = threading.Lock()  # - see _DY_DEVICE_CACHE_LOCK's note
 
 
 def _resident_y_all_device_cupy(classes_y, classes_y_safe, base_seed, nperm, n, P):
@@ -451,9 +451,9 @@ def _resident_y_all_device_for_cupy(classes_y, classes_y_safe, base_seed, nperm,
 
     When numba.cuda is ALSO available, this reuses ``_resident_y_all_device``'s cache via a ZERO-COPY
     ``cp.asarray`` view (confirmed: cupy wraps a foreign CUDA-Array-Interface buffer by device pointer, no
-    copy -- ``cp_view.data.ptr == numba_device_array.__cuda_array_interface__['data'][0]``) instead of a
+    copy - ``cp_view.data.ptr == numba_device_array.__cuda_array_interface__['data'][0]``) instead of a
     second independent upload, so a cuda dispatch followed by a cupy dispatch on the SAME target (or
-    vice versa) shares the identical device buffer -- true cross-backend dedup, not just a same-backend
+    vice versa) shares the identical device buffer - true cross-backend dedup, not just a same-backend
     cache. Falls back to the cupy-native ``_resident_y_all_device_cupy`` when numba.cuda is unavailable
     (a cupy-only host), so that combination still gets the per-fit reuse win."""
     if _CUDA_AVAIL:
@@ -481,8 +481,8 @@ def batch_mi_with_noise_gate_cuda_resident(
     ``batch_mi_with_noise_gate_cuda`` (same perm gate; GPU MI reproduces the CPU reduction order to fp
     round-off). ``use_su`` has no GPU entropy form here -> delegates to the CPU-entropy cuda path.
 
-    RESIDENT-CODES HANDOFF (2026-06-21, gated): ``d_disc_resident`` -- when the FE chunk binned the codes
-    ON the GPU and kept them resident -- is the (n, K) DEVICE codes array (cupy or numba-cuda; consumed via
+    RESIDENT-CODES HANDOFF (2026-06-21, gated): ``d_disc_resident`` - when the FE chunk binned the codes
+    ON the GPU and kept them resident - is the (n, K) DEVICE codes array (cupy or numba-cuda; consumed via
     the CUDA Array Interface). Passing it lets the histogram kernel read the codes IN PLACE, skipping the
     H2D re-upload of ``disc_2d`` (the codes were produced on the GPU, so re-uploading them is a pointless
     round-trip). It MUST hold the SAME integer codes as ``disc_2d`` (the producer keeps the exact bytes it
@@ -490,13 +490,13 @@ def batch_mi_with_noise_gate_cuda_resident(
     default, and any narrow-dtype mismatch) keeps the H2D-from-host path unchanged."""
     if use_su:
         # SU (Symmetric Uncertainty) has no on-device entropy form, so this delegates to the CPU-entropy
-        # ``batch_mi_with_noise_gate_cuda`` twin -- but that twin's per-permutation loop used to rebuild
+        # ``batch_mi_with_noise_gate_cuda`` twin - but that twin's per-permutation loop used to rebuild
         # (CPU Fisher-Yates) AND re-upload (H2D) the shuffled-y codes from scratch on every one of the
         # ~30 noise-gate dispatches of a fit, even though the target/seed/nperm are fit-constant and the
         # SAME (P, n) shuffle matrix is exactly what ``_resident_y_all_device`` already builds+caches for
         # the non-SU resident path. Build/fetch that cached device matrix here and hand it through
         # (``d_y_all_resident``) so the SU delegate slices its rows directly instead of re-shuffling +
-        # re-uploading -- BIT-IDENTICAL (same LCG stream; a device-array row slice returns the exact bytes
+        # re-uploading - BIT-IDENTICAL (same LCG stream; a device-array row slice returns the exact bytes
         # ``_fisher_yates_shuffle`` + ``to_device`` produced, confirmed no host round-trip).
         _n_su = int(disc_2d.shape[0])
         _nperm_su = int(npermutations) if npermutations and npermutations > 0 else 0
@@ -533,7 +533,7 @@ def batch_mi_with_noise_gate_cuda_resident(
         return fe_mi
 
     # OOB SCREEN (FIX2, 2026-06-28): the batched-hist kernels use raw codes DIRECTLY as a flat shared-mem
-    # / counts offset (``cx * K_y + cy`` -- _batch_mi_noise_gate_kernels.py:428/482) sized from
+    # / counts offset (``cx * K_y + cy`` - _batch_mi_noise_gate_kernels.py:428/482) sized from
     # nbins_col[k] and K_y. A -1 sentinel or a code >= its cardinality indexes outside the histogram ->
     # cudaErrorIllegalAddress (a hard GPU crash). Screen the HOST codes here (cheap min/max) so an
     # upstream OOB surfaces as a clear ValueError. Skipped when the codes are resident (binner-produced,
@@ -554,7 +554,7 @@ def batch_mi_with_noise_gate_cuda_resident(
                 raise ValueError(
                     "batch_mi_with_noise_gate_cuda_resident classes_y out of range " "(min=%d, max=%d) for K_y=%d (illegal address)." % (_cy_min, _cy_max, _ky)
                 )
-    # Lever C (2026-06-23): HW-aware + KTC-tuned threads/block for the batched-hist launch (default 128 left
+    # Lever C: HW-aware + KTC-tuned threads/block for the batched-hist launch (default 128 left
     # the SM ~1/16 occupied; the row-loop parallelises across threads). When the caller did not pin a count
     # (threads_per_block is None) look the per-host tuned count up from the kernel_tuning_cache (candidate set
     # derived from device occupancy); falls back to 128 on any failure. Block size NEVER changes the integer
@@ -574,15 +574,15 @@ def batch_mi_with_noise_gate_cuda_resident(
     nperm = int(npermutations) if npermutations and npermutations > 0 else 0
     P = nperm + 1
 
-    # d_y (P, n) device shuffle matrix -- cached once per fit (target constant across dispatches).
+    # d_y (P, n) device shuffle matrix - cached once per fit (target constant across dispatches).
     d_y = _resident_y_all_device(classes_y, classes_y_safe, base_seed, nperm, n, P)
 
-    # H2D the codes in their NATIVE narrow dtype (int8/int16 -- the bins are < 256/65536) instead of
+    # H2D the codes in their NATIVE narrow dtype (int8/int16 - the bins are < 256/65536) instead of
     # up-casting to int32: nvprof showed the resident gate's wall is dominated by this (n, K) codes H2D,
     # not the (microsecond) kernels, so a 4x-smaller int8 transfer is the real lever. The hist kernel
     # reads disc_2d[r, k] as an index either way (numba compiles a per-dtype variant); counts unchanged.
     # RESIDENT-CODES HANDOFF (gated): when the producer kept the codes on-device, consume that array IN
-    # PLACE (CUDA Array Interface) instead of re-uploading -- skips the (n, K) codes H2D entirely. Requires
+    # PLACE (CUDA Array Interface) instead of re-uploading - skips the (n, K) codes H2D entirely. Requires
     # a matching shape + a narrow (itemsize<=2) dtype so the hist kernel reads it as an index exactly like
     # the host path; any mismatch (or None) falls back to the H2D so it can never change the counts.
     _disc_dt = disc_2d.dtype if disc_2d.dtype.itemsize <= 2 else np.int32
@@ -596,13 +596,13 @@ def batch_mi_with_noise_gate_cuda_resident(
         except Exception:
             d_disc = None
     if d_disc is None:
-        # disc_2d is the discretized FE-CANDIDATE matrix -- a different chunk of engineered columns on
+        # disc_2d is the discretized FE-CANDIDATE matrix - a different chunk of engineered columns on
         # (almost) every dispatch, so it is NOT fit-constant like y/freqs_y; content-hashing it here would
         # pay an O(n*K) hash on every call for a near-guaranteed miss. Left as a plain per-call upload
         # (the resident-codes handoff above is the real lever for this operand).
         d_disc = _nb_cuda.to_device(np.ascontiguousarray(disc_2d, dtype=_disc_dt))
     # offsets/nbins/freqs_y ARE fit-constant (the target's class table + the per-column bin-count layout
-    # recur across a fit's dispatches) -- route through the content-keyed resident cache instead of a
+    # recur across a fit's dispatches) - route through the content-keyed resident cache instead of a
     # fresh to_device every call (see _histgate_upload).
     d_off = _histgate_upload(offsets[:K], "histgate_off", np.int64)
     d_nb = _histgate_upload(nbins_arr, "histgate_nb", np.int32)
@@ -619,7 +619,7 @@ def batch_mi_with_noise_gate_cuda_resident(
     _sh_budget = _cuda_shared_mem_per_block()
     _use_shared = _CUDA_HIST_KERNEL_BATCHED_SHARED is not None and _sh_budget > 0 and 0 < _sh_bytes <= int(_sh_budget * 0.75)
 
-    # COLUMN-MAJOR coalesced disc (2026-06-23): the shared-mem hist kernel is LOAD-bound (CUDA-event
+    # COLUMN-MAJOR coalesced disc: the shared-mem hist kernel is LOAD-bound (CUDA-event
     # decomposition: per-row shared atomics ~3% of the kernel, ~12 GB/s << ~96 GB/s read peak), throttled
     # by the stride-K ``disc_2d[r, k]`` read (~1/8 coalesced). Reading the SAME values from a (K, n) C-order
     # buffer is fully coalesced -> 12.55x kernel-only (147 GB/s), 5.59x NET with a fresh transpose folded in
@@ -633,8 +633,8 @@ def batch_mi_with_noise_gate_cuda_resident(
         try:
             import cupy as _cp_cm
             from ._gpu_resident_select import transpose_codes_to_cm as _transpose_codes_to_cm
-            # COALESCED tiled int-codes transpose (2026-06-24): cp.ascontiguousarray(disc.T) was an
-            # uncoalesced strided copy -- nsys charged it cupy_copy__int8_int8 46 calls / 1776ms / 29.5% of
+            # COALESCED tiled int-codes transpose: cp.ascontiguousarray(disc.T) was an
+            # uncoalesced strided copy - nsys charged it cupy_copy__int8_int8 46 calls / 1776ms / 29.5% of
             # GPU-kernel time @F2 100k. The tiled kernel reads (n,K) + writes (K,n) coalesced, BIT-IDENTICAL
             # (same values, same (K,n) C-order layout -> counts unchanged); falls back to ascontiguousarray.
             _d_disc_cm = _transpose_codes_to_cm(_cp_cm.asarray(d_disc))  # (K, n) C-order, coalesced disc load
@@ -669,7 +669,7 @@ def batch_mi_with_noise_gate_cuda_resident(
         _CUDA_MI_KERNEL[_blocks, threads_per_block](  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax, not real indexing
             d_counts, d_off, d_nb, d_freq, n, K_y, d_ref, total_size, P, d_out,
         )
-    out_mi = d_out.copy_to_host()  # (P, K) -- the only sizeable D2H
+    out_mi = d_out.copy_to_host()  # (P, K) - the only sizeable D2H
     original_mi = out_mi[0]
     if nperm <= 0:
         return _gate_from_mi(original_mi, [], 0, min_nonzero_confidence)
@@ -698,10 +698,10 @@ def batch_mi_with_noise_gate_cuda(
     the CPU via ``_mi_from_counts_cpu`` (bit-exact). Raises ``RuntimeError`` if
     numba.cuda is unavailable.
 
-    ``d_y_all_resident`` -- an optional cached (P, n) int32 device matrix (row 0 = original ``classes_y``,
+    ``d_y_all_resident`` - an optional cached (P, n) int32 device matrix (row 0 = original ``classes_y``,
     rows 1.. = the ``nperm`` Fisher-Yates shuffles), typically ``_resident_y_all_device``'s return value.
     When given, each per-target pass slices the matching row directly (a device view, no host round-trip)
-    INSTEAD OF rebuilding the shuffle on the CPU and re-uploading it -- the SU delegate in
+    INSTEAD OF rebuilding the shuffle on the CPU and re-uploading it - the SU delegate in
     ``batch_mi_with_noise_gate_cuda_resident`` passes this so the fit-constant shuffle stream is uploaded
     ONCE per fit instead of once per dispatch. Row slicing returns the exact bytes the CPU
     shuffle+``to_device`` path would have produced (same LCG stream), so this is bit-identical; ``None``
@@ -728,7 +728,7 @@ def batch_mi_with_noise_gate_cuda(
     offsets[1:] = np.cumsum(per_col_size)
     total_size = int(offsets[K])
 
-    # disc_2d is the FE-candidate matrix -- varies per dispatch (a different candidate-column chunk each
+    # disc_2d is the FE-candidate matrix - varies per dispatch (a different candidate-column chunk each
     # time), so it is NOT fit-constant and is left as a plain per-call upload (see the twin resident
     # function's identical reasoning for its own d_disc fallback).
     d_disc = _nb_cuda.to_device(np.ascontiguousarray(disc_2d, dtype=np.int32))
@@ -736,7 +736,7 @@ def batch_mi_with_noise_gate_cuda(
     d_off = _histgate_upload(offsets[:K], "histgate_off", np.int64)
     d_nb = _histgate_upload(nbins_arr, "histgate_nb", np.int32)
 
-    # One block per column; for tiny K the grid is small (low-occupancy) -- the
+    # One block per column; for tiny K the grid is small (low-occupancy) - the
     # cupy backend is preferred at the realistic large-batch sizes where GPU wins,
     # so silence the cosmetic NumbaPerformanceWarning here.
     import warnings as _warnings
@@ -772,10 +772,10 @@ def batch_mi_with_noise_gate_cuda(
         return _gate_from_mi(original_mi, [], 0, min_nonzero_confidence)
 
     cy_safe = np.asarray(classes_y_safe)
-    # bench-attempt-rejected (2026-06-07): perm-reduction early-exit (see cupy-v2 path) --
+    # bench-attempt-rejected (2026-06-07): perm-reduction early-exit (see cupy-v2 path) -
     # BYTE-IDENTICAL but no scene wall win; keep full reduction + _gate_from_mi.
     # The per-column MI reduction is batched into one njit call per permutation
-    # (_mi_columns_from_counts_cpu) -- skips columns where original_mi<=0 exactly as the
+    # (_mi_columns_from_counts_cpu) - skips columns where original_mi<=0 exactly as the
     # old inner loop did; bit-identical, kills the 224k per-call dispatch overhead.
     perm_mis = []
     for i in range(npermutations):
@@ -821,23 +821,23 @@ def dispatch_batch_mi_with_noise_gate_gpu(
     """Run the chosen GPU backend, returning ``(fe_mi, backend_name)`` or ``None``
     when GPU is unavailable / not chosen (so the caller falls back to the CPU
     kernel). Mirrors ``dispatch_batch_pair_mi``'s force_backend + availability
-    guards. The CPU kernel is NOT run here -- the caller owns the CPU path.
+    guards. The CPU kernel is NOT run here - the caller owns the CPU path.
     """
     from ._gpu_policy import gpu_globally_disabled
 
     if gpu_globally_disabled():
-        # GPU_INFRA_A-3 fix: this dispatcher never had its own
+        # This dispatcher never had its own
         # MLFRAME_DISABLE_GPU/CUDA_VISIBLE_DEVICES self-check, unlike its dispatch_batch_pair_mi and
-        # dispatch_friend_graph_stats siblings -- it relied entirely on its caller checking first.
+        # dispatch_friend_graph_stats siblings - it relied entirely on its caller checking first.
         return None
 
     n = int(disc_2d.shape[0])
     K = int(disc_2d.shape[1])
 
-    # ABSOLUTE cushion guard (2026-07-05): on a near-full / SHARED card return None so the caller runs the CPU
+    # ABSOLUTE cushion guard: on a near-full / SHARED card return None so the caller runs the CPU
     # kernel, BEFORE the per-tile relative ``free_b * 0.35`` budget below (computed only after the pool may have
     # already eaten the device). The dominant device buffer is the (rows, n*K) int index array; estimate one
-    # y-row's worth as the cushion's bytes_needed. Pure ADD -- tightens, never loosens; permissive without cupy.
+    # y-row's worth as the cushion's bytes_needed. Pure ADD - tightens, never loosens; permissive without cupy.
     try:
         from ._fe_gpu_vram import fe_gpu_has_vram_cushion
         if not fe_gpu_has_vram_cushion(n * max(K, 1) * 8):
@@ -868,7 +868,7 @@ def dispatch_batch_mi_with_noise_gate_gpu(
                 npermutations, base_seed, min_nonzero_confidence, use_su, dtype,
             ), "cupy"
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in batch_mi_noise_gate_gpu.py:935: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
     if choice == "cuda" and _CUDA_AVAIL:
         try:
@@ -877,8 +877,8 @@ def dispatch_batch_mi_with_noise_gate_gpu(
                 npermutations, base_seed, min_nonzero_confidence, use_su, dtype,
             ), "cuda"
         except Exception as e:
-            # GPU_INFRA_A-1 fix: numba's CudaAPIError/CudaDriverError derive
-            # directly from Exception, not RuntimeError -- broaden to match the already-fixed
+            # numba's CudaAPIError/CudaDriverError derive
+            # directly from Exception, not RuntimeError - broaden to match the already-fixed
             # dispatch_batch_pair_mi sibling so a genuine CUDA driver fault can't escape uncaught.
             logging.getLogger(__name__).debug("batch_mi_noise_gate cuda backend failed (%s); falling back to CPU", e)
             pass
@@ -902,7 +902,7 @@ try:
         cli_label="batch_mi_noise_gate",
     )
 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-    logging.getLogger(__name__).debug("suppressed in batch_mi_noise_gate_gpu.py:964: %s", e)
+    logging.getLogger(__name__).debug("suppressed: %s", e)
     pass
 
 

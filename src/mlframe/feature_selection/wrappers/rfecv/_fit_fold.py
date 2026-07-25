@@ -1,6 +1,6 @@
 """Per-fold CV evaluator carved out of ``RFECV.fit``.
 
-Holds ``_eval_fold_body`` -- the function previously defined as a nested closure inside ``fit``. Closure-captured outer locals are now explicit kwargs; the four mutable containers (``scores``, ``feature_importances``, ``fitted_estimators``, ``dummy_scores``) are passed by reference so the parent's outer-loop state observes the worker-thread appends exactly as it did with the closure (GIL-atomic ``list.append`` / dict assignment).
+Holds ``_eval_fold_body`` - the function previously defined as a nested closure inside ``fit``. Closure-captured outer locals are now explicit kwargs; the four mutable containers (``scores``, ``feature_importances``, ``fitted_estimators``, ``dummy_scores``) are passed by reference so the parent's outer-loop state observes the worker-thread appends exactly as it did with the closure (GIL-atomic ``list.append`` / dict assignment).
 
 Behavioural equivalence: the body is the verbatim pre-carve body. The signature is the union of every name the original closure resolved: 4 mutable containers + 25 readonly locals.
 """
@@ -206,7 +206,7 @@ def _eval_fold_body(
     if self._fit_sample_weight_ is not None:
         _full_train_sw = self._fit_sample_weight_[train_index]
         # When val_cv re-split X_train down to true_train_index above, the train
-        # weights MUST follow the same re-slice -- otherwise sample_weight is
+        # weights MUST follow the same re-slice - otherwise sample_weight is
         # longer than the (narrowed) X_train and estimator.fit() raises a
         # length-mismatch. true_train_index is None when no early-stopping val
         # re-split ran (both indices are positional; _fit_sample_weight_ is an
@@ -287,7 +287,7 @@ def _eval_fold_body(
                         try:
                             _fitted.set_params(text_processing=_tp)
                         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                            logger.debug("suppressed in _fit_fold.py:289: %s", e)
+                            logger.debug("suppressed: %s", e)
                             pass
 
         _model_type_name = type(_fitted).__name__
@@ -314,7 +314,7 @@ def _eval_fold_body(
         _est_scores.append(_score)
 
         # FI is computed on the actual fit_features.
-        # F4/F5/F10/F11 (Wave 3, 2026-05-28): pass through the rescale-source
+        # F4/F5/F10/F11: pass through the rescale-source
         # and aggregation knobs so coef_ uses train-side stds (not test) and
         # multiclass collapses via max (not sum); CPI uses min_samples_leaf
         # instead of a fixed depth cap.
@@ -331,7 +331,7 @@ def _eval_fold_body(
             n_repeats=int(getattr(self, "_effective_n_repeats", None) or getattr(self, "n_repeats", 5) or 5),
             # W3: get_feature_importances' own default (random_state=0) was never overridden here, so
             # every permutation/CPI FI computation across every fold of every outer iteration drew
-            # from the identical RNG seed -- the fold-voting ensemble's cross-fold permutation-noise
+            # from the identical RNG seed - the fold-voting ensemble's cross-fold permutation-noise
             # component was less independent than it appeared. fold_seed is already deterministic
             # (derived from self._rng per fold) and distinct per fold, matching the pattern the
             # frac-subsampling local_rng above already uses.
@@ -345,7 +345,7 @@ def _eval_fold_body(
 
         _est_suffix = f"_e{_est_idx}" if len(estimators_list) > 1 else ""
         _key = f"{len(current_features)}_{nfold}{_est_suffix}"
-        # F14 (Wave 3, 2026-05-28): if THIS estimator's score on THIS fold was NaN, drop its FI from the voting pool. A failed/degenerate
+        # F14: if THIS estimator's score on THIS fold was NaN, drop its FI from the voting pool. A failed/degenerate
         # estimator-fold pair should not contribute to the next-subset rank vote. Keep the score in _est_scores so the across-estimator
         # aggregation (min) still sees it (and propagates NaN to the score curve, which is the diagnostic signal). Opt-out via
         # drop_nan_score_fi=False.

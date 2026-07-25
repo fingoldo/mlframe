@@ -4,23 +4,23 @@ The prospective-pair gate in :mod:`_mrmr_fe_step` admits an engineered pair ``(a
 ``ind_elems_mi_sum * prevalence`` (and the order-2 maxT floor). That ratio gate conflates two very different
 situations under one "the joint beats the marginal sum" test:
 
-  * **genuine synergy** -- ``(a, b)`` JOINTLY carry information about ``y`` that neither marginal does
+  * **genuine synergy** - ``(a, b)`` JOINTLY carry information about ``y`` that neither marginal does
     (``y = a**2 / b``, ``y = log(c) * sin(d)``, XOR / sign products). Knowing one operand does not let you
     decode ``y`` from the other; the joint is strictly more than the parts.
-  * **additive completion** -- ``a`` feeds one independent additive term of ``y`` and ``b`` a DIFFERENT one
+  * **additive completion** - ``a`` feeds one independent additive term of ``y`` and ``b`` a DIFFERENT one
     (the user's weak-F2 CROSS-MIX: ``a`` from ``a**2/b`` term + ``c`` from the ``log*sin`` term). The two do
     not interact in ``y`` (``II ~= 0``); the pair's joint MI is high only because it pools two unrelated signals,
     and the per-pair search then fabricates a SPURIOUS cross-mix surrogate (``add(invqubed(a), invsqrt(c))``).
 
 The signed **interaction information** ``II(a;b;y) = I((a,b);y) - I(a;y) - I(b;y)`` is exactly the quantity that
 separates them: ``> 0`` genuine synergy, ``~= 0`` additive (no interaction), ``< 0`` redundancy (``a`` and ``b``
-carry the SAME signal). Every term is ALREADY computed by the gate -- ``cached_MIs[(a,)]`` / ``cached_MIs[(b,)]``
-are the marginals, ``pair_mi`` is the joint -- so II is a near-free signed re-read.
+carry the SAME signal). Every term is ALREADY computed by the gate - ``cached_MIs[(a,)]`` / ``cached_MIs[(b,)]``
+are the marginals, ``pair_mi`` is the joint - so II is a near-free signed re-read.
 
 Two iron rules from the backlog (preserved here):
 
   (a) **Miller-Madow correct all THREE terms before differencing.** Plug-in MI bias ~ ``(Kx-1)(Ky-1)/2n`` grows
-      with cardinality, and the JOINT term has ``Kx = nbins_a * nbins_b`` bins -- ~``nbins``x the marginal bias.
+      with cardinality, and the JOINT term has ``Kx = nbins_a * nbins_b`` bins - ~``nbins``x the marginal bias.
       Differencing two un-corrected scales would manufacture a positive II out of pure finite-sample inflation.
       So each term is corrected as ``mi_mm = mi_plugin - (Kx - 1)(Ky - 1) / (2n)`` (the SAME formula the order-1
       maxT floor uses, see :func:`_permutation_null.pooled_permutation_null_gain_floor`), THEN II is the signed
@@ -79,12 +79,12 @@ def pair_interaction_information(
     All three MIs are the already-computed plug-in values (``mi_a`` / ``mi_b`` = ``cached_MIs[(a,)]`` /
     ``cached_MIs[(b,)]``, ``pair_mi`` = the joint). When ``miller_madow`` (default) each term is MM-corrected
     on its OWN cardinality before the difference. The MM bias term must be computed on the OCCUPIED (non-empty)
-    bin counts, NOT the design cardinality -- this is the same ``k = #{bins with count>0}`` convention
+    bin counts, NOT the design cardinality - this is the same ``k = #{bins with count>0}`` convention
     :func:`info_theory._entropy_kernels.mi_miller_madow_correct` / :func:`entropy_miller_madow` use. The joint
     term is the trap: its DESIGN cardinality is ``nbins_a * nbins_b``, but on a heavy-tailed / sparse column the
     actually-occupied joint cells are far fewer. Subtracting ``(nbins_a*nbins_b - 1)(nbins_y - 1)/(2n)`` then
-    OVER-corrects the joint by exactly the empty-cell count, pushing ``pair_mi`` down too far and -- because the
-    joint term enters II with a ``+`` sign -- manufacturing a deterministic UPWARD synergy offset on independent
+    OVER-corrects the joint by exactly the empty-cell count, pushing ``pair_mi`` down too far and - because the
+    joint term enters II with a ``+`` sign - manufacturing a deterministic UPWARD synergy offset on independent
     heavy-tailed pairs (false synergy). Callers with access to the code arrays should pass the occupied counts
     (``k_*_occupied``); when omitted the design cardinality is used as a fallback (correct only for dense joints).
     ``> 0`` synergy, ``~= 0`` additive, ``< 0`` redundancy.
@@ -128,7 +128,7 @@ def pooled_pair_ii_null_floor(
     those K maxes is the floor a genuine multiplicative synergy clears and additive completion does not.
 
     ``marginal_mi_a`` / ``marginal_mi_b`` are unused under the null (recomputed under each shuffle) but kept in
-    the signature so the caller passes the same arrays it gates with -- documents the parallel to the observed
+    the signature so the caller passes the same arrays it gates with - documents the parallel to the observed
     path. Returns ``0.0`` (no-op floor) on a degenerate pool (n too small, < 2 pairs, single-class target, or no
     permutations requested), so the caller can unconditionally compare ``ii > floor``.
 
@@ -136,7 +136,7 @@ def pooled_pair_ii_null_floor(
     Python-level per-(shuffle, pair) :func:`_marginal_mi_codes` re-score (1.0 s of 1.9 s). Acceptable for the
     OPT-IN router (this whole path is default-off, see ``mrmr.py`` ``fe_ii_routing_enable``); were it ever made
     default-on it should move to a numba ``prange`` kernel mirroring :func:`batch_pair_mi_prange` (which the
-    order-2 joint-MI floor already uses) -- left un-numba'd deliberately while opt-in to keep it readable.
+    order-2 joint-MI floor already uses) - left un-numba'd deliberately while opt-in to keep it readable.
     """
     n = int(factors_data.shape[0])
     n_pairs = int(np.asarray(pair_a).shape[0])
@@ -199,7 +199,7 @@ def _marginal_mi_codes(x_codes: np.ndarray, y_codes: np.ndarray, k_x: int, k_y: 
 
     Mirrors the joint-MI accumulation in :func:`batch_pair_mi_prange` (``jf * log(jf / (px * py))``), so the
     null floor's marginal/joint terms are on the exact same plug-in scale as the gated values. The second return
-    value is ``#{X-bins with count>0}`` -- the occupied cardinality the Miller-Madow bias must be computed on (the
+    value is ``#{X-bins with count>0}`` - the occupied cardinality the Miller-Madow bias must be computed on (the
     design ``k_x`` over-corrects sparse / heavy-tailed columns, see :func:`pair_interaction_information`).
     """
     joint = x_codes.astype(np.int64) * k_y + y_codes.astype(np.int64)
@@ -238,11 +238,11 @@ def route_prospective_pairs(
     read the already-cached marginals + joint, compute MM-corrected signed II, and assign a route:
 
       * ``II > ii_floor``           -> ``synergy``   (genuine joint signal; kept, eligible for product/cross-basis)
-      * ``ii_floor >= II >= -eps``  -> ``additive``  (no interaction; DEMOTED -- removed from the returned dict so
+      * ``ii_floor >= II >= -eps``  -> ``additive``  (no interaction; DEMOTED - removed from the returned dict so
                                                       the per-pair FE search never builds a cross-mix surrogate)
       * ``II < -eps``               -> ``redundant`` (a,b carry the same signal; kept + tagged for cluster-aggregate)
 
-    Only SYNERGY-ADDED (speculative bootstrap) additive pairs are demoted -- a selected-selected additive pair is
+    Only SYNERGY-ADDED (speculative bootstrap) additive pairs are demoted - a selected-selected additive pair is
     a legitimately strong pair the user already wants, so it is kept (tagged ``additive``) to preserve the
     create/keep/drop contract; the demotion targets the cross-mix the synergy bootstrap manufactures.
 
@@ -263,7 +263,7 @@ def route_prospective_pairs(
     for key, sort_val in prospective_pairs.items():
         raw_vars_pair, pair_mi = key
         va, vb = raw_vars_pair
-        # INFO_THEORY_B-10 fix: a missing marginal-MI cache entry silently
+        # a missing marginal-MI cache entry silently
         # substituted 0.0, which INFLATES the interaction-information score (pair_mi - 0 - mi_b) and can
         # mis-route a pair to "synergy" instead of surfacing a real upstream caching defect. Log so the
         # two cases (genuinely-zero marginal vs. missing cache entry) are distinguishable.

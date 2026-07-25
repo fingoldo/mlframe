@@ -65,7 +65,7 @@ def _quantize(col: np.ndarray, nbins: int, rng: np.random.Generator) -> np.ndarr
     finite = col[np.isfinite(col)]
     uniq = np.unique(finite)
     if uniq.size <= nbins:
-        # direct factorisation -- preserves discrete bits exactly
+        # direct factorisation - preserves discrete bits exactly
         lut = {v: i for i, v in enumerate(uniq.tolist())}
         out = np.array([lut.get(v, 0) for v in col], dtype=np.int64)
         return out
@@ -80,7 +80,7 @@ def _excess_for_pairs(codes: list[np.ndarray], marg: list[float], yc: np.ndarray
     information NEITHER marginal explains (XOR / sign-product), and NEGATIVE/zero for redundant pairs
     (two noisy views of the same driver, the additive-regime decoy trap), whose joint merely re-recovers
     a shared signal already counted in both marginals. Using ``joint - max(marg)`` instead would
-    false-positive on redundancy (two views of one driver jointly beat either single view) -- measured,
+    false-positive on redundancy (two views of one driver jointly beat either single view) - measured,
     rejected. Returns the max over pairs (can be <=0 when no pair is synergistic)."""
     best = -np.inf
     for i, j in pairs:
@@ -112,7 +112,7 @@ def detect_synergy(
     ``None`` = plain Fleuret, so a default fit never runs it):
       * The interaction-information excess ``I({X,Z};Y) - I(X;Y) - I(Z;Y)`` is built from Miller-Madow-corrected plug-in joint MIs, which still carry a residual UPWARD bias of
         order ``(kx-1)(ky-1)(kt-1)/(2n)`` at small n / high cardinality. Both the real and permuted-null excess inherit the same bias, so taking ``real_excess`` over a multiple of
-        the null scale cancels most of it -- but a very high-cardinality pair at small n can still read a small spurious positive excess.
+        the null scale cancels most of it - but a very high-cardinality pair at small n can still read a small spurious positive excess.
       * The null uses only ``n_null`` (default 3) label permutations and takes the MAX excess over those runs, so the null scale is a HIGH-VARIANCE max-over-3 estimate. The
         threshold is deliberately a multiple of it (``null_mult``, from kernel_tuning_cache) with an ``eps`` floor to stay conservative. Raising ``n_null`` shrinks that variance
         but is NOT default-bumped: a larger budget RAISES the max-over-runs null scale (and so the threshold), which is selection-altering for the gate decision, plus it costs
@@ -171,7 +171,7 @@ def detect_synergy(
         from pyutilz.system import kernel_tuning_cache  # noqa: F401
         null_mult = float(_lookup_null_mult())
     except Exception as exc:  # nosec B110 - optional dependency import guard
-        # INFO_THEORY_B-4 fix: a genuine kernel_tuning_cache registry bug would
+        # A genuine kernel_tuning_cache registry bug would
         # otherwise silently and permanently pin the synergy threshold to the hardcoded default forever.
         logger.debug("mrmr: kernel_tuning_cache lookup failed for the synergy-detector null multiple; using the hardcoded default: %r", exc, exc_info=True)
     # floor the null scale so a perfectly-clean permuted null (excess==0) still needs a non-trivial real excess.

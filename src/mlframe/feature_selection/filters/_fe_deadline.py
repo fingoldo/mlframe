@@ -2,18 +2,18 @@
 pair-cross FE). MRMR.fit honours ``max_runtime_mins`` at the FE-loop level (between steps) and now also gates each
 enrichment stage before it starts, but a SINGLE enrichment stage on a wide frame can itself run far past a tiny budget
 (measured: the orthogonal extra-basis + pair-cross pass alone is tens of seconds at p>=120). Those stages run BEFORE the
-budget is spent, so a before-start gate cannot stop them -- they need an INTERNAL per-column / per-pair deadline check.
+budget is spent, so a before-start gate cannot stop them - they need an INTERNAL per-column / per-pair deadline check.
 
 This module carries that deadline as a thread-local so the generators (in sibling modules) can consult it without
 threading a parameter through every call site. The deadline is advisory and scoped to the ENRICHMENT generators only:
 the core screen / greedy-selection MI is never gated here, so an aborted enrichment pass still leaves screen free to
 produce a usable partial selection (the budget contract: abort early AND expose a non-empty ``support_``).
 
-A thread-local is sufficient because all three ``fe_deadline_passed()`` consumers -- the orthogonal univariate / pair-cross /
-extra-basis generators -- run INLINE on the MAIN thread inside ``_mrmr_fit_impl._fit_impl_core`` (the same thread that calls
+A thread-local is sufficient because all three ``fe_deadline_passed()`` consumers - the orthogonal univariate / pair-cross /
+extra-basis generators - run INLINE on the MAIN thread inside ``_mrmr_fit_impl._fit_impl_core`` (the same thread that calls
 ``set_fe_deadline``), not inside a joblib worker. The joblib ``backend="threading"`` blocks in the FE path (the
-``check_prospective_fe_pairs`` pair-search and the ``_confirm_predictor`` greedy step) do NOT consult this deadline -- they
-carry their own budget -- so the thread-local never needs to cross a worker boundary. If a future change moves an enrichment
+``check_prospective_fe_pairs`` pair-search and the ``_confirm_predictor`` greedy step) do NOT consult this deadline - they
+carry their own budget - so the thread-local never needs to cross a worker boundary. If a future change moves an enrichment
 generator into a joblib worker, the deadline MUST be forwarded as an explicit kwarg and re-published in the worker (mirror
 the ``use_su`` / ``use_jmim`` thread-local re-publish in ``_evaluation_driver._confirm_predictor``), because ``threading.local``
 does not propagate to worker threads.
@@ -30,7 +30,7 @@ _state = threading.local()
 
 
 def set_fe_deadline(deadline: float | None) -> None:
-    """Set (or clear with ``None``) the thread-local absolute deadline -- a ``timer()`` value past which the optional
+    """Set (or clear with ``None``) the thread-local absolute deadline - a ``timer()`` value past which the optional
     enrichment FE generators should stop and return their partial output."""
     _state.deadline = deadline
 

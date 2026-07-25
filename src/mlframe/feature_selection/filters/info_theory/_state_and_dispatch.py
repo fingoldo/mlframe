@@ -19,7 +19,7 @@ from ._entropy_kernels import (
     symmetric_uncertainty,
 )
 
-# 2026-05-28: thread-local SU toggle. Set by MRMR.fit when mi_normalization='su',
+# thread-local SU toggle. Set by MRMR.fit when mi_normalization='su',
 # read by evaluation.py / fleuret.py at the scoring sites. Pure functions ``mi``
 # and ``conditional_mi`` stay legacy bit-for-bit so cached entropy numbers
 # across the rest of the project don't shift.
@@ -174,7 +174,7 @@ def set_cpt_test(active: bool, n_permutations: int = 200) -> None:
     """Configure the calling thread's D10 conditional permutation test: ``active`` toggles it; ``n_permutations`` is the
     within-stratum permutation-null sample count. Unlike ``cmi_perm_stop`` (which permutes the candidate's UNCONDITIONAL
     marginal), CPT permutes the candidate WITHIN each already-selected-feature stratum, giving valid p-values under
-    arbitrary confounding by the selected set -- the principled fix for Besag-Clifford-style early-stops inflating
+    arbitrary confounding by the selected set - the principled fix for Besag-Clifford-style early-stops inflating
     Type-I error when the candidate is correlated with already-selected features."""
     _CPT_STATE.active = bool(active)
     _CPT_STATE.n_permutations = int(n_permutations)

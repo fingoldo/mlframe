@@ -4,14 +4,14 @@ Before claiming a polynomial-engineered feature is useful, quantify what TRIVIAL
 The polynomial may add ~0% over those.
 
 Public API:
-* ``trivial_pair_features(x_a, x_b)`` -- dict of named trivial pair features (numpy arrays, same length as x_a).
-* ``score_trivial_baselines(x_a, x_b, y, discrete_target)`` -- runs each trivial feature through the configured MI estimator and returns
+* ``trivial_pair_features(x_a, x_b)`` - dict of named trivial pair features (numpy arrays, same length as x_a).
+* ``score_trivial_baselines(x_a, x_b, y, discrete_target)`` - runs each trivial feature through the configured MI estimator and returns
   ``{name: mi_value}`` sorted descending.
-* ``best_trivial_pair(x_a, x_b, y, discrete_target)`` -- single best ``(name, feature_array, mi_value)`` to use as a comparison baseline
+* ``best_trivial_pair(x_a, x_b, y, discrete_target)`` - single best ``(name, feature_array, mi_value)`` to use as a comparison baseline
   for ``optimise_hermite_pair``.
 
 Use as the FE baseline instead of (or in addition to) the ``MI(x_a, x_b)`` joint MI. If your polynomial-engineered MI doesn't clear
-``best_trivial * 1.05``, the polynomial is not worth it -- emit the trivial feature instead.
+``best_trivial * 1.05``, the polynomial is not worth it - emit the trivial feature instead.
 """
 from __future__ import annotations
 
@@ -36,14 +36,14 @@ def trivial_pair_features(x_a: np.ndarray, x_b: np.ndarray) -> dict:
     # Ratio with stable epsilon: eps in denominator avoids div-by-zero and is small relative to z-score / minmax preprocessed scales.
     feats["ratio_ab"] = x_a / (x_b + np.sign(x_b) * eps + eps)
     feats["ratio_ba"] = x_b / (x_a + np.sign(x_a) * eps + eps)
-    # Distance / max / min -- common in gradient-boosting FE libraries.
+    # Distance / max / min - common in gradient-boosting FE libraries.
     feats["sq_dist"] = (x_a - x_b) ** 2
     feats["sum_sq"] = x_a**2 + x_b**2
     feats["maxab"] = np.maximum(x_a, x_b)
     feats["minab"] = np.minimum(x_a, x_b)
-    # Log-magnitude with sign retained -- captures multiplicative structure (log(|a*b|) = log|a| + log|b|).
+    # Log-magnitude with sign retained - captures multiplicative structure (log(|a*b|) = log|a| + log|b|).
     feats["log_abs_mul"] = (np.log(np.abs(x_a) + eps) + np.log(np.abs(x_b) + eps)) * np.sign(x_a * x_b + eps)
-    # Atan2 -- captures angular interactions on 2D inputs.
+    # Atan2 - captures angular interactions on 2D inputs.
     feats["atan2"] = np.arctan2(x_a, x_b)
     # Geometric mean (sign-aware).
     feats["geo_mean"] = np.sign(x_a * x_b) * np.sqrt(np.abs(x_a * x_b) + eps)
@@ -134,7 +134,7 @@ def score_trivial_baselines(
                 mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins,
                 n_neighbors=n_neighbors,
             )
-    # Wave 58 (2026-05-20): secondary key on name; tied MIs no longer make
+    # Secondary key on name; tied MIs no longer make
     # next(iter(...)) winner depend on dict insertion order.
     return dict(sorted(scores.items(), key=lambda kv: (-kv[1], kv[0])))
 
@@ -170,7 +170,7 @@ def auto_unary_transforms(x: np.ndarray, y: np.ndarray, *,
     for name, arr in transforms.items():
         if not np.all(np.isfinite(arr)):
             continue
-        # "identity" is the literal same input already scored as ``base`` above -- reuse it
+        # "identity" is the literal same input already scored as ``base`` above - reuse it
         # instead of recomputing an identical _mi_1d call.
         mi = base if name == "identity" else _mi_1d(arr, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins, n_neighbors=n_neighbors)
         if name == "identity" or mi >= base * min_uplift:
@@ -216,7 +216,7 @@ def score_triplet_baselines(
         if not np.all(np.isfinite(f)):
             continue
         scores[name] = _mi_1d(f, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins, n_neighbors=n_neighbors)
-    # Wave 58 (2026-05-20): secondary key on name; tied MIs no longer make
+    # Secondary key on name; tied MIs no longer make
     # next(iter(...)) winner depend on dict insertion order.
     return dict(sorted(scores.items(), key=lambda kv: (-kv[1], kv[0])))
 
@@ -263,7 +263,7 @@ def best_trivial_pair(
         # baseline" + bogus float(mi_arr[best_idx]) feeds downstream MI gate.
         _finite_mask = np.isfinite(mi_arr)
         if not _finite_mask.any():
-            # All-NaN: no valid baseline -- caller treats None as
+            # All-NaN: no valid baseline - caller treats None as
             # "no baseline beat the gate" which is the correct semantic.
             return None, None, float("nan")
         if not _finite_mask.all():

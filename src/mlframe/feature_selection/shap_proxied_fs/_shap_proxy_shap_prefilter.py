@@ -8,7 +8,7 @@ This module resolves the SHAP-aware cap ``shap_prefilter_top`` from the search b
 cushion: ``max(brute_force_max_features * safety_factor, shap_prefilter_min_features)``. The selector
 then passes ``min(prefilter_top, shap_prefilter_top)`` to ``prefilter_columns`` so the EXISTING
 prefilter booster (two_stage's stage B / model / fast_model / gpu_model) already produces the tighter
-output -- no second booster fit is paid.
+output - no second booster fit is paid.
 
 A separate post-clustering booster pass was bench-attempt-rejected 2026-05-28: at width=1000,
 n_rows=5000 the extra fit cost ~1.2s while OOF-SHAP savings were also ~1.3s, for a +0.1s wash at
@@ -44,7 +44,7 @@ def resolve_shap_aware_stage1_keep(
 
     When ``effective_prefilter_top`` is much smaller than the legacy default (``min(2000,
     0.2*n_features)``), the stage-B booster's column-budget is dictated by ``effective_prefilter_top``
-    anyway (stage B narrows ``stage1_keep -> effective_prefilter_top`` by importance) -- so keeping
+    anyway (stage B narrows ``stage1_keep -> effective_prefilter_top`` by importance) - so keeping
     stage A at 2000 just makes the stage-B booster fit on 2000 columns when 88 * cushion would
     suffice. Iter33 measurement at C2 (width=10000, n_rows=5000) attributed 57.6% of fit-wall to the
     prefilter stage and cProfile pinned 14.8s of that to the stage-B XGBoost ``update`` on a

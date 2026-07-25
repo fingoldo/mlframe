@@ -1,4 +1,4 @@
-"""``ShapProxiedFitMixin`` -- the search + fit machinery for :class:`ShapProxiedFS`.
+"""``ShapProxiedFitMixin`` - the search + fit machinery for :class:`ShapProxiedFS`.
 
 Carved out of ``shap_proxied_fs.py`` to keep both files under the 1k LOC ceiling. The mixin holds
 the optimizer dispatch (``_run_search``) and the full ``fit`` pipeline; ``ShapProxiedFS`` inherits
@@ -17,23 +17,10 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import (
-    _resolve_adaptive_prescreen_width, _resolve_adaptive_n_anchors, _resolve_knee_prescreen_cap)
+    _apply_min_selected_ratio, _resolve_adaptive_prescreen_width, _resolve_adaptive_n_anchors, _resolve_knee_prescreen_cap)
 from mlframe.utils.misc import rng_hygienic_fit
 
 logger = logging.getLogger(__name__)
-
-
-def _apply_min_selected_ratio(candidates, n_proxy_cols: int, min_selected_ratio: float):
-    """Drop candidate subsets below ``min_selected_ratio`` of proxy-column width; never return empty.
-
-    Guards ``n_proxy_cols == 0`` (no proxy columns survived prescreening) so the ``len(c)/n_proxy_cols``
-    ratio cannot raise ZeroDivisionError -- in that degenerate case there is no width to ratio against
-    so the candidates pass through unfiltered.
-    """
-    if min_selected_ratio > 0 and n_proxy_cols > 0:
-        filtered = [(lo, c) for lo, c in candidates if len(c) / n_proxy_cols >= min_selected_ratio]
-        return filtered or candidates
-    return candidates
 
 
 class ShapProxiedFitMixin:
@@ -226,7 +213,7 @@ class ShapProxiedFitMixin:
 
         # Control/safety budget (parity with MRMR / RFECV). The OOF-SHAP + proxy-search core always
         # runs (it produces the candidate subsets), but the OPTIONAL expensive refinement phases
-        # below -- honest revalidation, importance ablation, within-cluster refine -- are each gated
+        # below - honest revalidation, importance ablation, within-cluster refine - are each gated
         # on this budget. When the wall-clock budget is exceeded OR ``stop_file`` exists, they are
         # skipped and fit() finalises with the proxy-best subset (a valid selection). ``getattr``
         # keeps old pickled instances (without the new attrs) working.
@@ -293,7 +280,7 @@ class ShapProxiedFitMixin:
         # `X.iloc[idx_search].reset_index(drop=True)` + `X.iloc[idx_hold].reset_index(drop=True)`
         # held all three simultaneously plus reset_index transient buffers and OOM'd on a
         # 17 GB / 6.4 GB-free host (iter46). The prefilter only needs `X_search`; once it returns
-        # `working_cols` (typically <=704 entries -- effective_prefilter_top is bounded by the
+        # `working_cols` (typically <=704 entries - effective_prefilter_top is bounded by the
         # SHAP-prefilter cap), the holdout can be built directly at that narrow column count
         # (~5 MiB instead of 381 MiB). Keep `X_vals_full` alive (a view into the original block,
         # zero extra alloc on a single-dtype input) so the deferred holdout materialisation has a
@@ -344,7 +331,7 @@ class ShapProxiedFitMixin:
         # for the final selector output. ``prefilter_method`` trades speed against interaction-awareness
         # (model / univariate / fast_model / gpu_model / two_stage); "auto" stays quality-safe for
         # moderate widths and routes very wide data (n_features >= 8000) to the cheap-funnel +
-        # capped-booster two_stage path -- see ``_shap_proxy_prefilter``.
+        # capped-booster two_stage path - see ``_shap_proxy_prefilter``.
         #
         # SHAP-pre-prefilter (iter31): when enabled (default), tighten the effective ``prefilter_top``
         # to ``shap_prefilter_top = max(brute_force_max_features * safety_factor,
@@ -366,7 +353,7 @@ class ShapProxiedFitMixin:
                           brute_force_max_features=self.brute_force_max_features,
                           safety_factor=self.shap_prefilter_safety_factor,
                           min_features=self.shap_prefilter_min_features))
-            # Tighten only -- never expand the user's prefilter budget.
+            # Tighten only - never expand the user's prefilter budget.
             effective_prefilter_top = min(int(self.prefilter_top), int(sp_top))
             report["shap_prefilter"] = dict(
                 requested_top=int(sp_top), effective_prefilter_top=int(effective_prefilter_top), user_prefilter_top=int(self.prefilter_top)
@@ -424,7 +411,7 @@ class ShapProxiedFitMixin:
                         univariate_batch_size=self.prefilter_univariate_batch_size)
                 # su_seeded_interactions RESCUE (#5b, OPT-IN): the native-importance / F-statistic
                 # prefilter ranks by MARGINAL signal, so a PURE-interaction operand pair (op_a, op_b
-                # with ~0 marginal -- the exact regime the additive proxy is blind to) sits in the
+                # with ~0 marginal - the exact regime the additive proxy is blind to) sits in the
                 # tail the prefilter drops, and the downstream search can never pair them. Run the
                 # CHEAP pairwise-SU synergy screen on the FULL pre-prefilter X_search HERE (operands
                 # still present), SNR-gate it, and RESCUE the surviving operand columns into
@@ -513,7 +500,7 @@ class ShapProxiedFitMixin:
         # Two-phase residual attribution (gt_09, OPT-IN via residual_passes=0 default): a second SHAP
         # pass on pass-1's residual re-credits weak features the additive coalition proxy under-weighs
         # when strong features absorb most of the shared credit. Runs on the PRE-prescreen phi/X_proxy
-        # -- rescue only helps if it can save a column the prescreen would otherwise cut, so it must
+        # - rescue only helps if it can save a column the prescreen would otherwise cut, so it must
         # happen BEFORE the knee/prescreen block below, never after.
         from mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit_residual import run_residual_pass
 
@@ -546,7 +533,7 @@ class ShapProxiedFitMixin:
             )
             report["adaptive_prescreen"] = adaptive_info
 
-        # su_seeded_interactions screen (#5b, OPT-IN) -- resolve the synergistic operand pairs in
+        # su_seeded_interactions screen (#5b, OPT-IN) - resolve the synergistic operand pairs in
         # PROXY-column space BEFORE the importance pre-screen, so their operand proxy-columns can be
         # RESCUED past the prescreen (pure-interaction operands have ~0 mean|phi|, the regime the
         # additive proxy is blind to, so they sit in the tail the prescreen drops). The prefilter
@@ -573,7 +560,7 @@ class ShapProxiedFitMixin:
                 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import noise_floor_rescue_keep_set
 
                 # residual_merge="blend" ranks by phi1+lambda*phi2 (aligned; excluded columns get 0
-                # contribution) so residual-boosted weak features sort higher into top_keep -- the
+                # contribution) so residual-boosted weak features sort higher into top_keep - the
                 # proxy loss consumed by the search below always stays raw phi1, never this vector.
                 prescreen_ranking = str(getattr(self, "prescreen_ranking", "mean_abs_phi") or "mean_abs_phi").lower()
                 banzhaf_stderr_max: Optional[float] = None
@@ -595,18 +582,18 @@ class ShapProxiedFitMixin:
                 top_keep = np.argsort(-importance)[:prescreen_top]
                 # Noise-floor rescue (bug fix, iter-2026-07-14): a flat top-K cut by mean|phi| alone
                 # silently drops any real weak-signal column ranked below K whenever the frame has
-                # more than K non-noise proxy columns -- confirmed on a real wide/clustered fit
+                # more than K non-noise proxy columns - confirmed on a real wide/clustered fit
                 # (112 post-clustering units, cap=28): weak/interaction-operand recall collapsed to
                 # 0.0 while strong-signal recall stayed 1.0. The rescue widens the keep set to also
                 # cover any column clearing a noise floor derived from the FULL importance vector's
                 # tail, mirroring the same fix already shipped for the knee-ladder cap (see
-                # ``noise_floor_rescue_keep_set`` -- shared primitive, not duplicated logic).
+                # ``noise_floor_rescue_keep_set`` - shared primitive, not duplicated logic).
                 top_keep_set = set(int(i) for i in top_keep)
                 rescued_set = noise_floor_rescue_keep_set(importance, top_keep) - top_keep_set
                 keep_set = top_keep_set | rescued_set
                 # Rescue su_seeded synergistic operands the marginal-|phi| ranking would discard.
                 keep_set |= {int(i) for i in _su_rescue_proxy_idx if 0 <= int(i) < n_proxy}
-                # Fourth union member: residual_merge="rescue" columns (top-k by mean|phi2|) -- the
+                # Fourth union member: residual_merge="rescue" columns (top-k by mean|phi2|) - the
                 # phi2-attributed regime the pass-1 additive proxy under-credits.
                 keep_set |= {int(i) for i in residual_rescue_proxy_idx if 0 <= int(i) < n_proxy}
                 keep = np.sort(np.fromiter(keep_set, dtype=np.int64))
@@ -652,7 +639,7 @@ class ShapProxiedFitMixin:
         # refine: within this fit the train/holdout split + model + metric are fixed, so a retrain's
         # loss is determined by the (column subset, seed). seed=None fits (trust anchors, ablation,
         # refine) frequently repeat the SAME large subset (e.g. the chosen winner is retrained in BOTH
-        # the ablation and as refine's starting base) -- the cache returns those identical floats
+        # the ablation and as refine's starting base) - the cache returns those identical floats
         # without a duplicate fit. Random-seeded re-validation fits get distinct seeds, never wrongly
         # merged. Numerically identical to the uncached path (deterministic model on fixed data).
         from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import HonestLossCache
@@ -871,7 +858,7 @@ class ShapProxiedFitMixin:
                 # contributes one group of member columns.
                 member_groups = [[int(c) for c in unit_to_members[int(u)]] for u in best_idx]
                 # Residual-rescued columns (residual_merge="rescue") survived the prescreen cut; the
-                # empirical trace showed prescreen survival is NOT sufficient -- this greedy
+                # empirical trace showed prescreen survival is NOT sufficient - this greedy
                 # parsimony_tol pruner re-drops them unless explicitly protected (gt_09 sec 3.4).
                 _residual_protected = residual_protected_working_cols & set(member_cols) or None
 
@@ -927,13 +914,13 @@ class ShapProxiedFitMixin:
                     _tol_threshold = base_honest_loss + self.parsimony_tol * abs(base_honest_loss)
 
                     # core_refine's LP allocates credit across UNITS (proxy columns), never sub-members
-                    # within a unit's own cluster -- intra-cluster member redundancy (e.g. exact-duplicate
+                    # within a unit's own cluster - intra-cluster member redundancy (e.g. exact-duplicate
                     # columns the clustering step didn't merge into one unit) needs the SAME per-cluster
                     # collapse legacy stage 1 performs, so it stays "exactly as today" per gt_02 sec 3.
                     # Best-effort / independently-accepted (no cumulative re-verify): core_refine's own
                     # honest gate below re-checks the WHOLE final proposal and falls back to full legacy
                     # on any failure, so an over-eager collapse here can never surface as a silent
-                    # regression -- it is caught by the same safety net protecting the unit-level drop.
+                    # regression - it is caught by the same safety net protecting the unit-level drop.
                     core_member_cols = list(member_cols)
                     core_unit_to_members = unit_to_members
                     multi_groups = [[int(c) for c in g if int(c) in set(member_cols)] for g in member_groups]
@@ -992,7 +979,7 @@ class ShapProxiedFitMixin:
                     refine_info["fallback"] = core_info["fallback"]
                 if refined:
                     # iter81: the full-template re-eval of the refined subset frequently hits the
-                    # disk cache too -- the same (cols, template, cap=None) tuple was retrained as
+                    # disk cache too - the same (cols, template, cap=None) tuple was retrained as
                     # the revalidation winner upstream, so a warm-cache lookup avoids an extra fit.
                     refine_info["honest_loss_full"] = float(_honest_loss(
                         model_template, X_search, y_search, X_hold, y_hold, list(refined),

@@ -40,8 +40,8 @@ except ImportError:  # pragma: no cover
 # the prologue FUSED: no x.copy() (P_1 == x is read-only here) and the out[i]=c[0] + out[i]+=c[1]*x[i]
 # passes collapsed into one. Bit-identical, 1.13-1.39x over the prior form across n=500..50k.
 # bench-attempt-rejected: the register single-pass form used by the *_parallel variants (scalar
-# p_prev/p_curr, serial k-recurrence per element) is SLOWER single-thread (0.52-0.65x) -- it blocks
-# vectorization -- and not bit-identical (fma reassociation). It only wins once prange spreads it
+# p_prev/p_curr, serial k-recurrence per element) is SLOWER single-thread (0.52-0.65x) - it blocks
+# vectorization - and not bit-identical (fma reassociation). It only wins once prange spreads it
 # across cores (the existing _parallel path). Do not re-try the register rewrite for n<50k.
 
 

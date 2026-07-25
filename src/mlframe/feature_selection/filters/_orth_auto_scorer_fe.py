@@ -33,7 +33,7 @@ __all__ = [
 
 # Canonical scorer identifiers used in the auto-selection table. HSIC joined
 # the pool as kernel-based dependence with the same iff-independence guarantee
-# dCor offers but at a bandwidth-tuned length scale -- complementary to dCor on
+# dCor offers but at a bandwidth-tuned length scale - complementary to dCor on
 # sharp local non-linearities and high-frequency oscillation. Adding HSIC is
 # back-compat: callers that pinned the legacy 4-tuple via
 # ``fe_hybrid_orth_ensemble_scorers`` keep the old behaviour; the auto pool
@@ -42,7 +42,7 @@ SCORER_NAMES = ("plug_in", "ksg", "copula", "dcor", "hsic", "xi", "tail_dep")
 
 
 def _score_plug_in(x: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> float:
-    """Plug-in quantile-binned MI(x; y) -- the Layer 21 scorer.
+    """Plug-in quantile-binned MI(x; y) - the Layer 21 scorer.
 
     Routes through ``_mi_classif_batch`` on a single column. Returns 0.0
     on degenerate inputs (constant column / empty y); this is the same
@@ -57,9 +57,9 @@ def _score_plug_in(x: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> float:
         return 0.0
     y_arr = np.asarray(y).ravel()
     if not np.issubdtype(y_arr.dtype, np.integer):
-        # ORTH_SCORING_B-1 fix: was a bare `y_arr.astype(np.int64)` -- TRUNCATES,
-        # does not densify -- the exact B-18 bug class, reintroduced because this function was carved into
-        # this sibling file (2026-06-06) BEFORE the 2026-07-20 B-18 fix pass, which patched the parent
+        # Was a bare `y_arr.astype(np.int64)` - TRUNCATES,
+        # does not densify - the exact B-18 bug class, reintroduced because this function was carved into
+        # this sibling file BEFORE the later fix pass for that class, which patched the parent
         # module but never followed the split here. A fractional low-cardinality y (e.g. [0.1, 0.2, ...])
         # perfectly separated by x truncates to all-0.0 -> MI=0.0 instead of the correct densified MI.
         # _mi_classif_batch's sklearn fallback handles float y via class binning; the numba dispatch needs
@@ -76,7 +76,7 @@ def _score_plug_in(x: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> float:
 
 
 def _score_ksg(x: np.ndarray, y: np.ndarray, *, n_neighbors: int = 3, random_state: int = 0) -> float:
-    """KSG / k-NN MI(x; y) -- Layer 65's Kraskov estimator.
+    """KSG / k-NN MI(x; y) - Layer 65's Kraskov estimator.
 
     Delegates to the ``_ksg_mi_batch`` helper in the Layer 65 module so
     the discrete-vs-continuous y routing stays consistent.
@@ -94,7 +94,7 @@ def _score_ksg(x: np.ndarray, y: np.ndarray, *, n_neighbors: int = 3, random_sta
 
 
 def _score_copula(x: np.ndarray, y: np.ndarray, *, n_bins: int = 20) -> float:
-    """Copula MI(rank(x); rank(y)) -- Layer 66 rank-uniform MI."""
+    """Copula MI(rank(x); rank(y)) - Layer 66 rank-uniform MI."""
     from ._orthogonal_copula_mi_fe import copula_mi
 
     return float(copula_mi(
@@ -103,7 +103,7 @@ def _score_copula(x: np.ndarray, y: np.ndarray, *, n_bins: int = 20) -> float:
 
 
 def _score_dcor(x: np.ndarray, y: np.ndarray, *, n_sample: int = 500, random_state: int = 0) -> float:
-    """Szekely-Rizzo distance correlation -- Layer 67's non-MI dependence."""
+    """Szekely-Rizzo distance correlation - Layer 67's non-MI dependence."""
     from ._orthogonal_dcor_fe import distance_correlation
 
     return float(distance_correlation(
@@ -113,7 +113,7 @@ def _score_dcor(x: np.ndarray, y: np.ndarray, *, n_sample: int = 500, random_sta
 
 
 def _score_hsic(x: np.ndarray, y: np.ndarray, *, n_sample: int = 500, random_state: int = 0) -> float:
-    """HSIC -- Layer 71's kernel-based non-MI dependence (RBF, median heuristic)."""
+    """HSIC - Layer 71's kernel-based non-MI dependence (RBF, median heuristic)."""
     from ._orthogonal_hsic_fe import hsic
 
     return float(hsic(
@@ -124,7 +124,7 @@ def _score_hsic(x: np.ndarray, y: np.ndarray, *, n_sample: int = 500, random_sta
 
 
 def _score_xi(x: np.ndarray, y: np.ndarray, *, random_state: int = 0) -> float:
-    """Chatterjee's Xi rank correlation -- Layer 72's sort-then-walk dependence measure, distinct
+    """Chatterjee's Xi rank correlation - Layer 72's sort-then-walk dependence measure, distinct
     from every distance/kernel/binning scorer above (catches high-frequency oscillatory signal a
     fixed-scale scorer averages away)."""
     from ._orthogonal_xi_fe import xi_correlation
@@ -135,7 +135,7 @@ def _score_xi(x: np.ndarray, y: np.ndarray, *, random_state: int = 0) -> float:
 
 
 def _score_tail_dep(x: np.ndarray, y: np.ndarray, *, q: float = 0.95, n_perm: int = 50, random_state: int = 0) -> float:
-    """Tail-dependence coefficient -- Layer 73's co-exceedance-rate scorer, distinct from every
+    """Tail-dependence coefficient - Layer 73's co-exceedance-rate scorer, distinct from every
     scorer above (catches a column co-dependent with y ONLY in their joint extreme tail, diluted
     to a middling value by the full-distribution copula-MI average). Takes the max of the upper
     and lower tail-dependence coefficients since the extreme co-movement's sign is not known a
@@ -154,7 +154,7 @@ def _compute_lcb(values: np.ndarray) -> float:
 
     Returns the mean alone when only one sample is available (std is
     undefined). Floored at 0.0 because every backing scorer is a
-    non-negative dependence measure -- a negative LCB only means the
+    non-negative dependence measure - a negative LCB only means the
     bootstrap variance dominates the mean, in which case 0 is the
     right "no detectable signal" reading.
     """
@@ -176,7 +176,7 @@ def _bootstrap_subsample_indices(
     """Build ``n_boot`` deterministic row-index sets for the bootstrap.
 
     Each set is a uniform random subsample WITHOUT replacement of size
-    ``max(50, n // 2)`` -- subsampling-without-replacement is the
+    ``max(50, n // 2)`` - subsampling-without-replacement is the
     "m-out-of-n bootstrap" (Politis & Romano 1994) and is the standard
     choice for variance estimation when the underlying scorer is itself
     biased on small samples (KSG / dCor both are).
@@ -189,7 +189,7 @@ def _bootstrap_subsample_indices(
     sub_n = max(50, n // 2)
     if sub_n >= n:
         # Tiny-fixture fallback: the bootstrap collapses to ``n_boot``
-        # identical full-population draws -- LCB equals the mean, which
+        # identical full-population draws - LCB equals the mean, which
         # is still a valid (if conservative) ordering criterion.
         return [np.arange(n, dtype=np.int64) for _ in range(int(n_boot))]
     out = []
@@ -222,7 +222,7 @@ def select_best_scorer_per_column(
     * Best scorer for ``E`` = ``argmax_s LCB(s, E)``.
     * Best LCB for ``E`` = the chosen scorer's LCB.
     * Uplift for ``E`` = ``LCB(E) / LCB(source(E))`` under the SAME
-      best-scorer choice (so the uplift is comparable across scorers --
+      best-scorer choice (so the uplift is comparable across scorers -
       see Layer 62 for the bootstrap-LCB justification).
 
     Parameters
@@ -235,7 +235,7 @@ def select_best_scorer_per_column(
         names must carry the ``"{source}__{basis_code}{degree}"`` suffix
         so the baseline can be looked up by source.
     y : array-like (n,)
-        Target. Discrete or continuous -- each scorer handles its own
+        Target. Discrete or continuous - each scorer handles its own
         routing.
     n_boot : int
         Number of bootstrap (m-out-of-n) subsamples per scorer per
@@ -310,7 +310,7 @@ def select_best_scorer_per_column(
         raise ValueError(f"unknown scorer name: {name!r}")
 
     # Per-source baseline: { source_col: { scorer: lcb } }. Computed
-    # ONCE per source -- many engineered columns share the same source.
+    # ONCE per source - many engineered columns share the same source.
     source_lcb = {}
     for src in raw_cols:
         x_full = raw_X[src].to_numpy(dtype=np.float64)
@@ -332,7 +332,7 @@ def select_best_scorer_per_column(
     # whichever scorer has the larger natural support (dCor's [0, 1]
     # dominates plug-in MI capped near H(Y)). We normalise each scorer's
     # LCB by the MAX LCB it achieves on the raw_X source columns under
-    # the same bootstrap -- this is the per-scorer "headroom" against
+    # the same bootstrap - this is the per-scorer "headroom" against
     # the strongest raw signal available, which is the right ratio to
     # compare cross-scorer. Equivalent to asking "how close did this
     # scorer get to the strongest raw-signal LCB it could possibly hit"
@@ -369,7 +369,7 @@ def select_best_scorer_per_column(
             per_scorer[s] = _compute_lcb(vals)
         # Normalised score = per-scorer HEADROOM over its own raw baseline, on its own scale: ``(engineered_lcb - raw_max) / scale``. This is
         # dimensionless and self-calibrating, so the winner is the scorer that demonstrates the most REAL additional signal beyond the strongest
-        # raw signal IT could detect -- not the scorer with the largest natural scale, nor a scorer whose tiny raw ceiling would let any engineered
+        # raw signal IT could detect - not the scorer with the largest natural scale, nor a scorer whose tiny raw ceiling would let any engineered
         # value inflate into a degenerate ratio. A scorer whose engineered LCB merely matches its own noise floor scores ~0 and cannot win a column;
         # a scorer that genuinely lifts above its own raw baseline (HSIC on a non-monotone signal) scores high and can win where it is strongest.
         per_scorer_norm = {s: (per_scorer[s] - per_scorer_max[s]) / per_scorer_scale[s] for s in SCORER_NAMES}
@@ -524,7 +524,7 @@ def hybrid_orth_mi_auto_scorer_fe(
     # Two-gate selection identical to Layers 65 / 66 / 67 for cross-layer
     # parity. Baseline LCB scales DIFFER across scorers (KSG MI is in
     # nats, dCor in [0, 1]) but every row in ``scores`` uses ITS column's
-    # chosen scorer for BOTH the engineered and baseline LCB -- the
+    # chosen scorer for BOTH the engineered and baseline LCB - the
     # ratio is dimensionless and the MAD floor is computed on the
     # heterogeneous baseline column with no additional normalisation.
     raw_baselines = scores["baseline_mi"].to_numpy()
@@ -569,12 +569,12 @@ def hybrid_orth_mi_auto_scorer_fe_with_recipes(
     dcor_n_sample: int = 500,
 ):
     """Same as :func:`hybrid_orth_mi_auto_scorer_fe` plus a list of
-    ``orth_univariate`` recipes -- one per appended column -- so
+    ``orth_univariate`` recipes - one per appended column - so
     ``MRMR.transform`` can recompute each engineered column on test data
     without re-running the auto-scorer selection.
 
     Recipes are byte-identical to Layer 21 because the engineered VALUES
-    are byte-identical -- only the SCORING (and therefore the selection)
+    are byte-identical - only the SCORING (and therefore the selection)
     differs.
     """
     from .engineered_recipes import build_orth_univariate_recipe
@@ -613,7 +613,7 @@ def hybrid_orth_mi_auto_scorer_fe_with_recipes(
                 name,
             )
             continue
-        # ORTH_SCORING_B-2 fix: freeze the fit-time basis-preprocess params
+        # Freeze the fit-time basis-preprocess params
         # (the B-17 fix, applied to the parent module's ensemble builder but never followed into this
         # carved-out sibling) so MRMR.transform() on a row-sliced/distribution-shifted test frame replays
         # the fit-time z-score/min-max axis instead of silently refitting it.

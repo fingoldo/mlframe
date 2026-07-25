@@ -2,7 +2,7 @@
 
 Pure move from ``_mrmr_class`` into a mixin. ``MRMR`` inherits ``_MRMRConfigMixin`` (with ``BaseEstimator`` /
 ``TransformerMixin`` kept first in the MRO), so every ``self`` / ``cls`` reference resolves against the concrete
-``MRMR`` instance -- the class attributes that stay on ``MRMR`` (``_FIT_CACHE`` / ``_FAST_SEARCH_OVERRIDES`` /
+``MRMR`` instance - the class attributes that stay on ``MRMR`` (``_FIT_CACHE`` / ``_FAST_SEARCH_OVERRIDES`` /
 ``_DEFAULT_SCREEN_SUBSAMPLE_N`` / ``__init__``) resolve via the MRO.
 """
 
@@ -20,7 +20,7 @@ from sklearn.model_selection import BaseCrossValidator
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Process-lifetime caches keyed by class object (perf audit findings #4/#7/#8, 2026-07-17).
-# All three values below are HOST/CLASS-constant -- the ctor signature never changes at
+# All three values below are HOST/CLASS-constant - the ctor signature never changes at
 # runtime, and a fresh instance's resolved defaults (n_jobs=-1 -> cpu_count, etc.) and the
 # kernel_tuning_cache lookups only depend on the installed package + host hardware, not on
 # any particular fit's data. Recomputing them on every fit()/__setstate__ call was pure
@@ -58,7 +58,7 @@ class _MRMRConfigMixin:
         suites (model retraining boundary, JupyterHub kernel reuse, web-service request boundary) when
         long-lived workers must release fitted-MRMR memory. Without this, the cache holds up to
         ``fit_cache_max`` (default 4) full MRMR instances per process for as long as the process lives."""
-        # Must take the SAME canonical lock every _FIT_CACHE read/write site in _fit_impl_core.py uses --
+        # Must take the SAME canonical lock every _FIT_CACHE read/write site in _fit_impl_core.py uses -
         # otherwise this can interleave between another thread's lock-protected membership check and its
         # immediately-following subscript read, raising KeyError in that concurrently-fitting thread.
         # Lazy import (mirrors the lazy mrmr<->_mrmr_fit_impl import pattern elsewhere in this cluster):
@@ -83,7 +83,7 @@ class _MRMRConfigMixin:
 
         The KTC lookup result is host/class-constant (it depends only on the installed
         kernel_tuning_cache entry for this machine, never on a particular fit's data), so it is
-        resolved once per class per process and cached -- every subsequent fit reuses the cached
+        resolved once per class per process and cached - every subsequent fit reuses the cached
         int instead of round-tripping through ``get_kernel_tuning_cache().lookup(...)`` again."""
         if cls in _FAST_SEARCH_SUBSAMPLE_N_CACHE:
             return _FAST_SEARCH_SUBSAMPLE_N_CACHE[cls]
@@ -133,7 +133,7 @@ class _MRMRConfigMixin:
     def _override_if_at_default(self, attr: str, new_value, defaults: dict, saved: dict) -> None:
         """Set ``self.<attr> = new_value`` and stash the pre-fit value into ``saved[attr]`` for a later
         ``finally``-block restore, UNLESS the caller already customized ``attr`` away from its package
-        default (``defaults[attr]``) -- an explicit user value always wins over a profile override.
+        default (``defaults[attr]``) - an explicit user value always wins over a profile override.
         Shared by ``_apply_default_screen_subsample`` and ``_apply_fast_search_profile``:
         both used to duplicate this exact "read ctor default, only override if unchanged, save old value"
         pattern inline."""
@@ -148,7 +148,7 @@ class _MRMRConfigMixin:
         {attr: pre_fit_value} to restore in ``finally``. Applies UNCONDITIONALLY (not gated on
         ``fe_fast_search``) so the default ``MRMR()`` fit subsamples the SCREEN at large n. Honours user
         intent: a knob is only touched when it is still at its package default, and only SHRUNK (never
-        raised). No-op when ``n_rows`` is below the resolved screen size (small-n behaviour is unchanged --
+        raised). No-op when ``n_rows`` is below the resolved screen size (small-n behaviour is unchanged -
         the subsamplers treat subsample_n>=n as full-n). The selected columns are replayed at full n."""
         saved: dict = {}
         try:
@@ -157,7 +157,7 @@ class _MRMRConfigMixin:
             logger.debug("mrmr: ctor-default introspection failed in _apply_default_screen_subsample; leaving knobs unchanged: %r", exc, exc_info=True)
             return saved
         _screen_n = self._default_screen_subsample_n()
-        # Below the screen size there is nothing to subsample -- leave the knobs at their (full-n) default
+        # Below the screen size there is nothing to subsample - leave the knobs at their (full-n) default
         # so small-n fits are byte-identical to legacy.
         if not (isinstance(n_rows, int) and n_rows > _screen_n):
             return saved
@@ -165,7 +165,7 @@ class _MRMRConfigMixin:
             if _attr not in _defaults:
                 continue
             _cur = getattr(self, _attr, None)
-            # Only when the user left it at the package default (explicit user value always wins) --
+            # Only when the user left it at the package default (explicit user value always wins) -
             # checked here (pre-override) too since the SHRINK-only decision below needs the raw current
             # value regardless of whether an override ultimately happens.
             if _cur != _defaults[_attr]:
@@ -203,7 +203,7 @@ class _MRMRConfigMixin:
         # family's detection runs on the small sample while values/recipes still replay full-n. Saved
         # under an ``__env__`` sentinel key; the fit's restore loop resets os.environ. Only SHRINK
         # (never raise a user-set smaller cap). At large n this caps the Fourier z_tr (else ~200k) to
-        # the fast-search subsample -- bit-safe (detection-only; the recipe replays sin(2*pi*f*x) full-n).
+        # the fast-search subsample - bit-safe (detection-only; the recipe replays sin(2*pi*f*x) full-n).
         _fast_ss2 = getattr(self, "fe_check_pairs_subsample_n", None)
         if _fast_ss2:
             from .._fourier_detect_cap import get_fourier_detect_max_n, peek_fourier_detect_cap, set_fourier_detect_cap
@@ -231,14 +231,14 @@ class _MRMRConfigMixin:
         precompute; the perf improvement does NOT change the L83 AUC
         leaderboard (CMIM still wins 5/7) because the scorer math is
         bit-equivalent to the pre-opt path (rtol=1e-9). The recommended
-        default therefore stays ``"cmim"`` -- L86 just makes the runner-
+        default therefore stays ``"cmim"`` - L86 just makes the runner-
         up scorers cheap enough to evaluate inside an outer
         cross-validation without budget pain.
 
         Returns
         -------
         str
-            ``"cmim"`` -- the Layer 83 leaderboard winner.
+            ``"cmim"`` - the Layer 83 leaderboard winner.
         """
         return "cmim"
 
@@ -326,7 +326,7 @@ class _MRMRConfigMixin:
                 logger.info("Converted targets from int64 to int16.")
             return vals.astype(np.int16)
         # 09_error_messages_ux.md: this warning reports a real behavioral notice (the memory-saving
-        # downcast was skipped) -- gating it behind ``self.verbose`` was a one-off pattern not used
+        # downcast was skipped) - gating it behind ``self.verbose`` was a one-off pattern not used
         # elsewhere in the module (most warnings fire unconditionally) and meant a default (verbose=0)
         # caller got no notice at all, compounding logger.warning's own default invisibility. Ungated;
         # the message itself is cheap and already actionable (shows both ranges).
@@ -352,13 +352,13 @@ class _MRMRConfigMixin:
 
         Read straight off ``__init__``'s signature so a ctor default can never
         silently diverge from a hand-written copy elsewhere (the D5 drift hazard:
-        ``__setstate__`` injected a literal default that drifted from the ctor --
+        ``__setstate__`` injected a literal default that drifted from the ctor -
         e.g. ``cluster_aggregate_mode``). ``__setstate__`` overlays these onto its
         legacy-injection dict for every ctor-param key EXCEPT the documented
         legacy-pickle overrides below.
 
         The ~300-parameter ``__init__`` signature never changes at runtime, so this is
-        resolved via ``inspect.signature`` once per class per process and cached -- every
+        resolved via ``inspect.signature`` once per class per process and cached - every
         other call site that used to independently re-run the same reflection
         (``_apply_default_screen_subsample``, ``_apply_fast_search_profile``, ``__setstate__``'s
         legacy-pickle path) now shares this one cached dict instead of re-deriving it.
@@ -390,7 +390,7 @@ class _MRMRConfigMixin:
         value rather than leaving them at the raw signature default, so a legacy pickle missing
         that key matches what a real fresh instance actually carries. ``n_jobs``/``parallel_kwargs``
         are NO LONGER resolved at construction time (they're stored raw like every other ctor param and
-        resolved lazily via ``_effective_n_jobs()``/``_effective_parallel_kwargs()``) -- this
+        resolved lazily via ``_effective_n_jobs()``/``_effective_parallel_kwargs()``) - this
         also closes an adjacent hazard, where a worker-process unpickle used to bake
         the WORKER's own ``psutil.cpu_count()`` into ``self.n_jobs`` for any legacy pickle
         missing that key, diverging from the value on the driver process that pickled the
@@ -398,9 +398,9 @@ class _MRMRConfigMixin:
         resolve at construction time.
 
         These resolved values are host-constant (same install, same machine) for the
-        lifetime of the process, so constructing a throwaway ``MRMR()`` -- which pays the
+        lifetime of the process, so constructing a throwaway ``MRMR()`` - which pays the
         FULL ~300-parameter constructor cost, including ``store_params_in_object``'s
-        frame-reflection -- happened on EVERY legacy-pickle unpickle before this cache;
+        frame-reflection - happened on EVERY legacy-pickle unpickle before this cache;
         now it happens at most once per class per process. Returns ``None`` when
         construction fails (e.g. a legacy pickle in a version whose ctor now requires
         something unavailable), matching the pre-cache fallback behaviour.

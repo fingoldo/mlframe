@@ -5,10 +5,10 @@ inner search (``polynom_pair_fe``) and the pure-form-retention pool/CV builder
 (``_fe_pure_form_retention``) all lower the row count before the (expensive) screen via a PLAIN
 uniform ``rng.choice(n, size, replace=False)``. Uniform draws ignore the target distribution:
 
-  * CLASSIFICATION with a rare class -- at a small ``size`` a uniform draw can omit ALL rows of a
+  * CLASSIFICATION with a rare class - at a small ``size`` a uniform draw can omit ALL rows of a
     1%-frequency class, so the MI / linear-usability screen never sees the class the engineered
     feature is meant to separate.
-  * REGRESSION with a heavy-tailed / skewed target -- uniform under-represents the tails, exactly
+  * REGRESSION with a heavy-tailed / skewed target - uniform under-represents the tails, exactly
     the region a nonlinear pair form is most likely to be usable for.
 
 ``stratified_subsample_idx`` is a drop-in replacement that returns SORTED row indices (mirroring
@@ -51,7 +51,7 @@ _FE_STRATIFY_REG_BINS: int = 10
 # NUMBA KERNELS (R2, 2026-06-18). Deterministic per-call inline-LCG RNG (thread-safe: no process-global
 # np.random state, so concurrent joblib-threading callers cannot clobber each other's stream). Exact
 # bit-match to the numpy version is NOT required (the
-# default flips to ON anyway) -- the kernels only guarantee DETERMINISM (same seed+inputs -> same
+# default flips to ON anyway) - the kernels only guarantee DETERMINISM (same seed+inputs -> same
 # indices across runs/processes) and the SAME stratification GUARANTEES: per-class proportional with
 # >=min(2,count)/class (classification), proportional across y-quantile bins preserving the tails
 # (regression). Repo policy keeps the pure-numpy version below as a FALLBACK (non-numeric clf labels
@@ -119,7 +119,7 @@ def _strat_clf_kernel(codes, n_classes, size, n, seed):
     for c in range(n_classes):
         mem = packed[offsets[c] : offsets[c + 1]]
         # per-stratum LCG seed mixes the caller seed with the class index (golden-ratio constant) so
-        # strata are independent yet fully determined by ``seed`` -- no process-global RNG involved.
+        # strata are independent yet fully determined by ``seed`` - no process-global RNG involved.
         drawn = _partial_fisher_yates(mem, alloc[c], np.uint64(seed) + np.uint64(c) * np.uint64(11400714819323198485))
         for j in range(drawn.shape[0]):
             out[pos] = drawn[j]
@@ -245,7 +245,7 @@ def stratified_subsample_idx(rng, y, size: int, *, is_clf: bool) -> np.ndarray:
                 return _uniform()
             # HIGH-CARDINALITY GUARD: the per-class ``min(2, count)`` floor guarantees a rare class is
             # never wholly dropped, but when the label is (near-)continuous / very high cardinality the
-            # floors alone SUM TO ~n -- the "subsample" then returns ~n rows and silently DEFEATS the
+            # floors alone SUM TO ~n - the "subsample" then returns ~n rows and silently DEFEATS the
             # screen subsample (a 998327-row "30k" draw returned 998327 rows in the wellbore-shape repro).
             # When the floored minimum cannot fit the budget, stratification is meaningless: fall back to a
             # plain uniform draw of exactly ``size`` rows (a target with more distinct labels than the row
@@ -334,11 +334,11 @@ def resolve_shared_fe_subsample_idx(y: np.ndarray, n_rows: int, size: int, *, is
 
     The FE screen / pair-search / polynom / permutation-null floors all bound their cost by row
     subsampling, and were historically drawing the subsample INDEPENDENTLY (different seeds / per-pair
-    draws) -- wasteful re-sampling and inconsistent (stages saw different rows). This produces ONE draw
+    draws) - wasteful re-sampling and inconsistent (stages saw different rows). This produces ONE draw
     per fit, reproducible from ``random_seed``, so every consumer SLICES the SAME rows instead of
     re-drawing. The permutation-null floors then ride the SAME ``size`` as the candidates they gate, so
     the floor (a chance-max MI threshold whose scale is ~1/n) is the matched estimator for the screened
-    candidates -- not the historically full-n floor that was both the large-n cost / OOM source and a
+    candidates - not the historically full-n floor that was both the large-n cost / OOM source and a
     looser threshold than the subsampled candidates it gated.
 
     Returns ``None`` when ``n_rows <= size`` (nothing to subsample -> consumers use full n, byte-identical
@@ -356,7 +356,7 @@ def resolve_shared_fe_subsample_idx(y: np.ndarray, n_rows: int, size: int, *, is
             return stratified_subsample_idx(rng, np.asarray(y), size, is_clf=is_clf)
         return np.sort(rng.choice(n, size=size, replace=False)).astype(np.int64, copy=False)
     except Exception as exc:
-        # A silent None here makes every downstream FE/MI consumer run at FULL n -- a ~33x cost blow-up at
+        # A silent None here makes every downstream FE/MI consumer run at FULL n - a ~33x cost blow-up at
         # n~1M that is invisible in a profile (it just looks slow). Log at WARNING so a failure in the
         # (group-aware / stratified) resolve is diagnosable instead of a mystery full-n screen. Still fall
         # back (best-effort optimisation), but never silently.
@@ -369,7 +369,7 @@ def _resolve_fe_subsample_stratify(stratify_knob, y, *, is_clf: bool) -> bool:
 
     ``True`` / ``False`` are returned verbatim (explicit user intent). ``None`` (the DEFAULT)
     triggers the auto-ON heuristic: stratify only when a uniform subsample would plausibly LOSE
-    target structure -- a small minimum-class fraction (classification) or a heavy-tailed / skewed
+    target structure - a small minimum-class fraction (classification) or a heavy-tailed / skewed
     target (regression). Otherwise OFF, so the common dense-class / well-behaved-target path stays
     byte-identical to the legacy uniform draw. Any error in the heuristic -> OFF (legacy)."""
     if stratify_knob is True:

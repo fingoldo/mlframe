@@ -155,7 +155,7 @@ def aggregate_tree(feature_importances: dict, k_cv: float = 1.0, eps: float = 1e
     -fold features (1 run) get cv=0 -> raw mean (no information to penalise).
 
     ``run_weights`` (W2): optional ``dict[run_key -> weight]`` (e.g. ``fi_decay_rate``'s exponential
-    recency weights) -- when given, the mean/std become weighted (per-row, over that row's finite
+    recency weights) - when given, the mean/std become weighted (per-row, over that row's finite
     columns only, so a feature missing from some runs still normalises correctly). ``None`` (the
     default) is bit-identical to the pre-W2 unweighted form.
     """
@@ -193,7 +193,7 @@ def aggregate_linear(signed_importances: dict, eps: float = 1e-12, run_weights: 
     signed mean near 0 -> demoted hard vs a consistently-positive feature
     (agreement 1.0, full magnitude).
 
-    ``run_weights`` (W2): optional ``dict[run_key -> weight]`` -- both the signed mean and the
+    ``run_weights`` (W2): optional ``dict[run_key -> weight]`` - both the signed mean and the
     sign-agreement fraction become weighted (by count of contributing runs). ``None`` (the default)
     is bit-identical to the pre-W2 unweighted form.
     """

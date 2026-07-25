@@ -13,14 +13,14 @@ noise; downstream the basis transform `He_n(z)` / `T_n(z)` / `L_n(z)` /
 This module ships two pieces:
 
 1.  ``set_unlabeled_pool`` / ``get_unlabeled_pool`` / ``unlabeled_pool_active``
-    -- a thread-local registry mapping column name -> 1D unlabeled value
+    - a thread-local registry mapping column name -> 1D unlabeled value
     array. ``generate_univariate_basis_features`` (and the auto-routing branch
     inside it) consults the registry per column to decide whether to fit
     the basis preprocess on the LABELED-ONLY array or on the concatenated
     LABELED + UNLABELED pool.
 
 2.  ``fit_with_unlabeled(mrmr, X_labeled, y_labeled, X_unlabeled, **fit_params)``
-    -- thin wrapper around ``MRMR.fit`` that:
+    - thin wrapper around ``MRMR.fit`` that:
 
     *   verifies ``mrmr.fe_semi_supervised_enable`` is True (else falls
         back to vanilla ``fit`` and emits a UserWarning),
@@ -36,7 +36,7 @@ strictly preprocess-level (mean / std / lo / hi).
 
 Default-disabled (``fe_semi_supervised_enable=False``) preserves byte-equal
 behaviour: when the flag is off, the wrapper helper still works but acts as
-a no-op delegator to ``mrmr.fit(X_labeled, y_labeled)`` -- X_unlabeled is
+a no-op delegator to ``mrmr.fit(X_labeled, y_labeled)`` - X_unlabeled is
 ignored. When the flag is on but no X_unlabeled is supplied, the legacy
 fit-on-labeled-only path runs (the thread-local pool stays empty).
 """
@@ -69,7 +69,7 @@ def get_unlabeled_pool() -> Optional[Dict[str, np.ndarray]]:
 
     Called by ``generate_univariate_basis_features`` (and any other basis-fit
     consumer) per column to decide whether to augment the preprocess pool.
-    Returns ``None`` -- the legacy bit-exact path -- when no pool is
+    Returns ``None`` - the legacy bit-exact path - when no pool is
     installed in the current thread.
     """
     return getattr(_LOCAL, "pool", None)
@@ -191,7 +191,7 @@ def fit_with_unlabeled(
             )
         return mrmr.fit(X_labeled, y_labeled, **fit_params)
     if X_unlabeled is None or (hasattr(X_unlabeled, "shape") and X_unlabeled.shape[0] == 0):
-        # Master switch ON but caller passed no unlabeled rows -- run the
+        # Master switch ON but caller passed no unlabeled rows - run the
         # legacy fit. We do NOT install an empty pool because installing it
         # would still flip the moment-router auto-routing on/off branch.
         return mrmr.fit(X_labeled, y_labeled, **fit_params)

@@ -2,7 +2,7 @@
 
 The pair-FE / nested-composite namer (``feature_engineering.get_new_feature_name``)
 emits literal op-trees like ``add(abs(div(sqr(a),neg(b))),mul(log(c),sin(d)))``. Such
-names often carry algebraically DEAD operators -- e.g. the ``neg(b)`` inside
+names often carry algebraically DEAD operators - e.g. the ``neg(b)`` inside
 ``abs(div(sqr(a),neg(b)))`` is annihilated by the enclosing ``abs`` (|p/(-q)| == |p/q|),
 so the cleaner, IDENTICAL-VALUE name is ``abs(div(sqr(a),b))``.
 
@@ -11,13 +11,13 @@ identities, so ``transform()`` replay (which reads the recipe's stored op struct
 the display name) is unaffected and the user-facing column label is simpler. It also makes
 two recipes that differ only by a dead operator canonicalise to the SAME name (a dedup aid).
 
-Correctness rule -- SIGN IRRELEVANCE. A ``neg`` is droppable iff every operator on the path
+Correctness rule - SIGN IRRELEVANCE. A ``neg`` is droppable iff every operator on the path
 up to a SIGN-KILLER (``abs`` / even power ``sqr``) is SIGN-HOMOGENEOUS (``mul`` / ``div`` /
 ``neg`` itself); ``add`` / ``sub`` (and any non-sign-homogeneous unary) RESET sign-relevance,
 because there ``neg`` changes the value. We thread a ``sign_irrelevant`` flag downward.
 
 Identities applied (all numerically verified against the REAL guarded FE ops in
-test_recipe_name_simplify -- abs, neg, sqr, sqrt, _safe_div, signed, abs_diff, hypot, ...):
+test_recipe_name_simplify - abs, neg, sqr, sqrt, _safe_div, signed, abs_diff, hypot, ...):
   * under a sign-irrelevant context:  neg(x) -> x
   * abs(neg(x)) -> abs(x)   (via the flag)        * sqr(neg(x)) -> sqr(x)
   * sqrt(neg(x)) -> sqrt(x) (sqrt == sqrt(|x|))
@@ -31,11 +31,11 @@ test_recipe_name_simplify -- abs, neg, sqr, sqrt, _safe_div, signed, abs_diff, h
         so it propagates an enclosing sign-irrelevant context to BOTH children.
 
 REJECTED candidates (numerically *would* hold in ideal math but were NOT adopted):
-  * exp(log(x)) -> x  -- BROKEN: ``smart_log`` adds a data-dependent shift
+  * exp(log(x)) -> x  - BROKEN: ``smart_log`` adds a data-dependent shift
                                (1e-5 - x_min), so exp(smart_log(x)) != x (fails on any
                                column with a negative minimum, e.g. standard-normal input).
   * sqr(sqrt(x)) -> abs(x), sqrt(sqr(x)) -> abs(x), reciproc(reciproc(x)) -> x
-                            -- these DO hold to ~1e-16 on tested data, but each is a
+                            - these DO hold to ~1e-16 on tested data, but each is a
                                cross-op float round-trip whose error is magnitude-dependent
                                and not bit-exact; rejected to keep every adopted rule a
                                purely structural / bit-identical rewrite (a wrong
@@ -146,7 +146,7 @@ def simplified_recipe_names(recipes: Sequence[object]) -> list[str]:
     """Order-preserving simplified DISPLAY names for a recipe list.
 
     Applies :func:`simplify_fe_name` to each ``recipe.name``, but ONLY adopts the simplified
-    set if it stays exactly as UNIQUE as the originals -- otherwise returns the original names
+    set if it stays exactly as UNIQUE as the originals - otherwise returns the original names
     unchanged. This all-or-nothing guard prevents a (rare) canonicalisation COLLISION (two
     recipes differing only by a dead ``neg``/``abs``) from shrinking the column set, which would
     desync ``transform``'s output width from ``get_feature_names_out``. Both callers run the same
@@ -163,7 +163,7 @@ def simplify_fe_name(name: str) -> str:
     """Return the value-preserving canonical form of an engineered op-NAME.
 
     Idempotent and safe on plain column names / unparseable strings (returns them unchanged).
-    Never raises -- any parse hiccup falls back to the original name.
+    Never raises - any parse hiccup falls back to the original name.
     """
     if not name or ("(" not in name):
         return name

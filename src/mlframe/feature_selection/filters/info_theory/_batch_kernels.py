@@ -14,11 +14,27 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 # Cardinality cap for the per-pair / per-triple joint histogram. ``nbins`` derives from ``data.max(axis=0)+1`` and can be huge for high-cardinality
 # categoricals (hash IDs, zip codes), so an ungated ``nb_a*nb_b`` (pair) or ``nb_a*nb_b*nb_c`` (triple) product silently OOMs the per-iteration buffer
 # and can overflow the index product. A joint with more cells than there are rows is degenerate (most cells empty, MI dominated by sampling noise), so a
-# pair/triple whose RAW cardinality exceeds this cap is skipped and scored MI=0.0 -- the no-information sentinel the FE noise-gate already treats as
+# pair/triple whose RAW cardinality exceeds this cap is skipped and scored MI=0.0 - the no-information sentinel the FE noise-gate already treats as
 # uninformative. 64M int64 cells == 512 MiB per worker thread is the default ceiling; override via ``MLFRAME_BATCH_JOINT_CARD_CAP`` (read by the Python
 # callers and threaded down) for hosts that want a different RAM budget. The triple kernel dense-renumbers occupied cells so its WORKING histogram is
-# bounded by ``n``, but the ``remap`` table it must allocate is sized by the raw product -- the same OOM hazard, gated identically.
+# bounded by ``n``, but the ``remap`` table it must allocate is sized by the raw product - the same OOM hazard, gated identically.
 MAX_JOINT_CARDINALITY = 64_000_000
+
+
+def check_joint_cardinality(*cards: int, cap: int = MAX_JOINT_CARDINALITY, what: str = "joint") -> None:
+    """Raise ValueError if the dense joint product of ``cards`` exceeds ``cap`` (default 64M cells / 512 MiB int64).
+
+    Shared guard for the pure-Python estimator entry points (PID / BUR / JMIM / RelaxMRMR) that dense-allocate a
+    ``prod(cards)`` histogram with no per-kernel cap of their own. Staged multiply-with-division so a billion-scale
+    product cannot wrap int64 and silently pass the check (the same overflow trap the njit kernels guard against).
+    """
+    prod = 1
+    for c in cards:
+        c = int(c)
+        if c <= 0 or prod > cap // c:
+            joined = "*".join(str(int(k)) for k in cards)
+            raise ValueError(f"{what}: dense joint cardinality {joined} exceeds cap {cap}; rebin to reduce cardinality.")
+        prod *= c
 
 
 @njit(parallel=True, nogil=True, cache=True)
@@ -51,12 +67,12 @@ def batch_pair_mi_prange(
     Notes:
       * No permutation testing is run here. Callers that need a confidence gate
         should fall back to per-pair ``mi_direct`` afterwards for the surviving
-        candidates -- the bench harness shows that's a small fraction of pairs.
+        candidates - the bench harness shows that's a small fraction of pairs.
       * ``factors_data`` MUST be pre-binned (categorical / ordinal int dtype);
         ``categorize_dataset`` produces this format. Passing a float matrix
         gives undefined results.
       * The joint encoding uses ``a * nbins[b] + b`` which is monotone in
-        ``(a, b)`` -- the same convention :func:`merge_vars` uses, so this
+        ``(a, b)`` - the same convention :func:`merge_vars` uses, so this
         kernel and the legacy path produce numerically identical MIs on the
         same inputs (verified by ``test_batch_pair_mi_prange_matches_merge_vars``).
     """
@@ -65,7 +81,7 @@ def batch_pair_mi_prange(
     out = np.empty(n_pairs, dtype=np.float64)
     n_classes_y = freqs_y.shape[0]
 
-    # Wave 47 (2026-05-20): empty factors_data divides by zero in `1/n_samples`
+    # Empty factors_data divides by zero in `1/n_samples`
     # inside the per-pair MI inner loop; return zeros (no-information baseline).
     if n_samples == 0:
         out[:] = 0.0
@@ -82,7 +98,9 @@ def batch_pair_mi_prange(
         # Test the cap via division BEFORE multiplying: nb_a*nb_b is int64 and would wrap silently on billion-scale
         # cardinalities, producing a small/negative joint_card that passes the cap and then either mis-sizes the
         # histogram (silent corruption) or asks np.zeros for a negative dimension (hard error).
-        if nb_a <= 0 or nb_b <= 0 or nb_a > MAX_JOINT_CARDINALITY // nb_b:
+        # The real allocation is (joint_card, n_classes_y), so the cap must bound nb_a*nb_b*n_classes_y, not
+        # just joint_card - a high n_classes_y otherwise multiplies the histogram past the 512 MiB budget.
+        if nb_a <= 0 or nb_b <= 0 or n_classes_y <= 0 or nb_b > MAX_JOINT_CARDINALITY // n_classes_y or nb_a > MAX_JOINT_CARDINALITY // (nb_b * n_classes_y):
             out[p] = 0.0
             continue
         joint_card = nb_a * nb_b
@@ -152,12 +170,13 @@ def batch_pair_mi_perm_batched(
         b = pair_b[p]
         nb_a = int(nbins[a])
         nb_b = int(nbins[b])
-        if nb_a <= 0 or nb_b <= 0 or nb_a > MAX_JOINT_CARDINALITY // nb_b:
+        # Cap the true (joint_card, n_classes_y) allocation, not just joint_card (see the non-perm twin).
+        if nb_a <= 0 or nb_b <= 0 or n_classes_y <= 0 or nb_b > MAX_JOINT_CARDINALITY // n_classes_y or nb_a > MAX_JOINT_CARDINALITY // (nb_b * n_classes_y):
             for k in range(K):
                 out[k, p] = 0.0
             continue
         joint_card = nb_a * nb_b
-        cls_x = np.empty(n, dtype=np.int64)  # invariant pair-joint code per row -- built once, reused across shuffles
+        cls_x = np.empty(n, dtype=np.int64)  # invariant pair-joint code per row - built once, reused across shuffles
         freqs_x_int = np.zeros(joint_card, dtype=np.int64)
         for i in range(n):
             c = int(factors_data[i, a]) * nb_b + int(factors_data[i, b])
@@ -165,7 +184,7 @@ def batch_pair_mi_perm_batched(
             freqs_x_int[c] += 1
         # Hoist the (joint_card x k_y) histogram alloc out of the K-loop: allocate ONCE per pair and
         # zero-and-reuse across the K shuffles (was K*n_pairs allocs -> n_pairs). ~1.03x, bit-identical
-        # (max|d|=0). The scatter itself stays memory-bandwidth-bound -- see bench_pair_maxt_kernel_hoist.py.
+        # (max|d|=0). The scatter itself stays memory-bandwidth-bound - see bench_pair_maxt_kernel_hoist.py.
         joint_counts = np.empty((joint_card, n_classes_y), dtype=np.int64)
         for k in range(K):
             joint_counts[:, :] = 0
@@ -201,7 +220,7 @@ def batch_triple_mi_prange(
 ) -> np.ndarray:
     """Vectorised batch JOINT MI ``I((x_a, x_b, x_c); y)`` over an array of (a, b, c) variable-index triples.
 
-    The order-3 twin of :func:`batch_pair_mi_prange` -- the per-shuffle kernel the
+    The order-3 twin of :func:`batch_pair_mi_prange` - the per-shuffle kernel the
     order-3 Westfall-Young maxT permutation-null floor
     (:func:`pooled_triple_permutation_null_joint_mi_floor`) runs to bound the best-of-pool
     chance-max 3-way joint MI, and the same plug-in estimator a 3-way candidate's observed
@@ -314,7 +333,7 @@ def batch_triple_mi_perm_batched(
     under a y-permutation (they depend only on the fixed (X_a, X_b, X_c) columns), so the raw-code build + dense
     remap run ONCE per triple and are reused across all K shuffles; only the ``(dense_x, y_perm)`` contingency +
     MI sum re-run per shuffle. Bit-identical to calling :func:`batch_triple_mi_prange` once per shuffle (max|d|=0)
-    -- same dense-renumber, same ``jf*log(jf/(px*py))`` reduction order."""
+    - same dense-renumber, same ``jf*log(jf/(px*py))`` reduction order."""
     n = factors_data.shape[0]
     n_triples = triple_a.shape[0]
     K = y_perms.shape[0]
@@ -337,7 +356,7 @@ def batch_triple_mi_perm_batched(
             continue
         raw_card = nb_a * nb_b * nb_c
 
-        dense_x = np.empty(n, dtype=np.int64)  # invariant dense triple-joint code per row -- built once, reused across shuffles
+        dense_x = np.empty(n, dtype=np.int64)  # invariant dense triple-joint code per row - built once, reused across shuffles
         remap = np.full(raw_card, -1, dtype=np.int64)
         n_dense = 0
         for i in range(n):
@@ -387,8 +406,8 @@ def _perm_failcount_col(
 ) -> int:
     """Permutation fail-count for ONE densified column ``k`` against all ``npermutations`` pre-shuffled
     ``locals_mat[i]`` y-vectors. BIT-IDENTICAL to looping ``_relevance_from_dense(..., locals_mat[i], ...)``
-    and counting ``mi_perm >= original_mi_k`` -- same joint-count increments, same ``jf*log(jf/(px*py))``
-    accumulation order -- but (F1/F2, 2026-06-22, cProfile-driven): the column's dense codes are copied to a
+    and counting ``mi_perm >= original_mi_k`` - same joint-count increments, same ``jf*log(jf/(px*py))``
+    accumulation order - but (F1/F2, 2026-06-22, cProfile-driven): the column's dense codes are copied to a
     CONTIGUOUS buffer ONCE (unit-stride vs the strided classes_dense[r,k] gather re-read per perm) and ONE
     ``joint`` histogram is reused across perms (re-zeroed) instead of a fresh np.zeros per (perm,col). Called
     from a prange over k, so each thread owns its column -> no cross-thread races (nfk is returned, not shared).
@@ -457,15 +476,15 @@ def batch_mi_with_noise_gate(
     which routes to ``parallel_mi_prange``, ``base_seed=0``).
 
     For each candidate column ``k`` of ``disc_2d[:, k]`` (ordinal-encoded into
-    ``factors_nbins[k]`` bins) this returns ``fe_mi[k]`` -- the plug-in (or SU) MI of the
+    ``factors_nbins[k]`` bins) this returns ``fe_mi[k]`` - the plug-in (or SU) MI of the
     densified column against ``y``, ZEROED when the permutation noise-gate rejects it.
 
     The bit-identity hinges on the per-permutation shuffle in ``parallel_mi_prange`` being
-    seeded ONLY by ``(base_seed, i)`` -- never by the candidate's ``classes_x``. So every
+    seeded ONLY by ``(base_seed, i)`` - never by the candidate's ``classes_x``. So every
     candidate is tested against the SAME ``npermutations`` shuffles of ``y``. This kernel
     exploits that: for each permutation ``i`` it shuffles ``classes_y_safe`` ONCE with the
     identical LCG/Fisher-Yates, then scores ALL ``K`` columns against that single shuffled
-    ``y`` -- amortising both the shuffle and the per-permutation MI across the batch.
+    ``y`` - amortising both the shuffle and the per-permutation MI across the batch.
 
     Rejection contract (matches ``mi_direct`` non-null path exactly):
       * ``max_failed = max(int(npermutations * (1 - min_nonzero_confidence)), 1)`` when
@@ -496,18 +515,24 @@ def batch_mi_with_noise_gate(
         nb_k = int(factors_nbins[k])
         if nb_k > max_nbins:
             max_nbins = nb_k
+    # Dense codes live in [0, max_nbins); if classes_dtype cannot represent max_nbins-1 the store WRAPS
+    # silently into a negative bucket -> wrong MI / wrong noise-gate verdict. The dispatch layer widens the
+    # dtype for its own call sites, but direct and GPU-resident callers pass classes_dtype themselves, so
+    # fail loudly here rather than returning a plausible-but-wrong number.
+    if max_nbins > 1 and classes_dtype(max_nbins - 1) != max_nbins - 1:
+        raise ValueError("batch_mi_with_noise_gate: factors_nbins exceeds classes_dtype capacity; widen classes_dtype (int32).")
 
     # Per-column densified codes + dense marginals, replicating ``merge_vars`` for a single
     # variable: histogram, prune empty bins, renumber to a dense 0..Kx-1 range.
-    # OPT-B (2026-06-07): ``classes_dense`` holds DENSE codes in ``[0, n_dense) <= n_bins``, so it
+    # OPT-B: ``classes_dense`` holds DENSE codes in ``[0, n_dense) <= n_bins``, so it
     # is sized by the narrow ``classes_dtype`` (int8 on the FE path where n_bins ~10) instead of
-    # the int32 ``dtype``. This is the SAME (n, K) shape as ``disc_2d`` -- on the scene 2407x64152
+    # the int32 ``dtype``. This is the SAME (n, K) shape as ``disc_2d`` - on the scene 2407x64152
     # chunk that is 147 MiB int8 vs 589 MiB int32 (the allocation that OOM'd RAM-tight hosts), and
     # it halves/quarters the bandwidth of the strided ``classes_dense[r, k]`` gathers re-read once
     # per permutation in ``_relevance_from_dense``. BIT-IDENTICAL: the codes are non-negative
     # ordinals only ever READ as histogram indices (``joint_counts[classes_dense[r,k], ...]``), so
     # the narrower storage width does not change a single count; ``joint_counts`` itself stays at
-    # the wide ``dtype`` (the actual counter). Default ``classes_dtype=int16`` (2026-06-20): the dense
+    # The wide ``dtype`` (the actual counter). Default ``classes_dtype=int16``: the dense
     # codes are in ``[0, n_dense) <= n_bins``, so int16 holds any realistic nbins (<32768) and HALVES
     # this (n, K) buffer vs the old int32 default for EVERY caller (not just those that opted into int8),
     # value-identical. Callers with a known-narrower disc dtype (int8) still pass it and win further.
@@ -560,7 +585,7 @@ def batch_mi_with_noise_gate(
 
     # F1 (2026-06-22, cProfile-driven): precompute ALL npermutations shuffled y-vectors ONCE (serial; the
     # EXACT same (base_seed, i)-seeded Fisher-Yates as parallel_mi_prange, just hoisted out of the scoring
-    # loop), then prange over COLUMNS with a serial perm-inner loop -- instead of a serial perm-outer loop
+    # loop), then prange over COLUMNS with a serial perm-inner loop - instead of a serial perm-outer loop
     # re-entering an inner prange npermutations times. This removes npermutations-1 fork/join barriers and
     # keeps all cores saturated regardless of K. Bit-identical: the shuffle arithmetic/order is unchanged;
     # nfailed[k] is an integer count of mi_perm>=original_mi[k], so reordering the (i,k) iteration leaves
@@ -610,7 +635,7 @@ def batch_mi_with_noise_gate_v2(
     classes_dtype: type = np.int16,
 ) -> np.ndarray:
     """FUSED-OBSERVED-MI twin of :func:`batch_mi_with_noise_gate` (F2, 2026-06-22). BIT-IDENTICAL output
-    (same dense codes, same observed MI, same permutation noise-gate, same shuffle stream) -- the ONLY
+    (same dense codes, same observed MI, same permutation noise-gate, same shuffle stream) - the ONLY
     change is that the per-column observed-MI pass writes the dense codes AND accumulates the joint with y
     in ONE n-row loop (``_densify_and_relevance_fused``) instead of writing the dense codes then re-reading
     them in a SECOND strided pass (the legacy ``classes_dense[r,k]=...`` loop + ``_relevance_from_dense``).
@@ -631,6 +656,12 @@ def batch_mi_with_noise_gate_v2(
         nb_k = int(factors_nbins[k])
         if nb_k > max_nbins:
             max_nbins = nb_k
+    # Dense codes live in [0, max_nbins); if classes_dtype cannot represent max_nbins-1 the store WRAPS
+    # silently into a negative bucket -> wrong MI / wrong noise-gate verdict. The dispatch layer widens the
+    # dtype for its own call sites, but direct and GPU-resident callers pass classes_dtype themselves, so
+    # fail loudly here rather than returning a plausible-but-wrong number.
+    if max_nbins > 1 and classes_dtype(max_nbins - 1) != max_nbins - 1:
+        raise ValueError("batch_mi_with_noise_gate: factors_nbins exceeds classes_dtype capacity; widen classes_dtype (int32).")
 
     classes_dense: np.ndarray = np.zeros((n, K), dtype=classes_dtype)
     freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)
@@ -721,7 +752,7 @@ def _densify_and_relevance_fused(
     ``classes_dense[r,k] = lookup[col[r]]`` and a SECOND inside ``_relevance_from_dense`` to re-read
     ``classes_dense[r,k]`` + ``classes_y[r]`` into the joint histogram. At the canonical 30k-subsample
     K~3888 chunk that observed-MI sweep is the dominant CPU FE cost (~5.8s/chunk even with npermutations=0,
-    i.e. the permutation shuffles are NOT the cost -- this densify/relevance double-pass is). Fusing them
+    i.e. the permutation shuffles are NOT the cost - this densify/relevance double-pass is). Fusing them
     accumulates the (dense_x, y) joint WHILE writing the dense code, so the n-row column is touched once
     here instead of twice. BIT-IDENTICAL to ``classes_dense[r,k]=lookup[col[r]]`` followed by
     ``_relevance_from_dense(...)``: the dense codes written are the same values, the joint counts are the
@@ -780,7 +811,7 @@ def _relevance_from_dense(
     freqs_y: np.ndarray,
     dtype,
 ) -> float:
-    """MI (or SU) of densified column ``k`` against ``y`` -- inlined twin of
+    """MI (or SU) of densified column ``k`` against ``y`` - inlined twin of
     ``compute_relevance_score`` reading the column from the padded ``classes_dense`` /
     ``freqs_dense`` buffers. Numerically identical to calling
     ``compute_relevance_score(use_su, classes_dense[:, k], freqs_dense[k, :K_x], ...)``:
@@ -855,7 +886,7 @@ def _batch_mi_kernel_fallback_choice(n_rows: int, n_cols: int) -> str:
 def select_batch_mi_kernel(n_rows: int, n_cols: int) -> Callable:
     """Return the batched FE-candidate MI kernel (``batch_mi_with_noise_gate`` v1 or the fused v2) for this
     (n_rows, n_cols) on this host. Routed through ``pyutilz.system.kernel_tuning_cache`` (per-host cache,
-    code-version checked, async background sweep, measurement-backed fallback) -- NOT a hardcoded threshold.
+    code-version checked, async background sweep, measurement-backed fallback) - NOT a hardcoded threshold.
     ``MLFRAME_BATCH_MI_KERNEL`` env (``v1``/``v2``) force-overrides for A/B + safety. Defaults to v2 (the
     fused, measured-faster, bit-identical kernel) on any miss/failure so an un-tuned host gets the win."""
     _env = os.environ.get("MLFRAME_BATCH_MI_KERNEL", "").strip().lower()
@@ -880,7 +911,7 @@ def select_batch_mi_kernel(n_rows: int, n_cols: int) -> Callable:
         elif res:
             choice = str(res.get("kernel_choice", "v2"))
     except Exception as exc:
-        # INFO_THEORY_A-8 fix: a genuine kernel-selection bug silently degrades
+        # a genuine kernel-selection bug silently degrades
         # every fit to the hardcoded v2 default with no diagnostic trail.
         logger.debug("mrmr: batch-MI kernel selection failed; defaulting to v2: %r", exc, exc_info=True)
         choice = "v2"
@@ -895,8 +926,8 @@ def _run_batch_mi_kernel_sweep():
         from pyutilz.dev.benchmarking import sweep_backend_grid
         from ..discretization import discretize_2d_quantile_batch
     except Exception as exc:
-        # INFO_THEORY_A-8 fix: distinguish "benchmarking helper genuinely
-        # unavailable" from a real import bug -- both silently fell back to v2 with zero trace before.
+        # Distinguish "benchmarking helper genuinely
+        # unavailable" from a real import bug - both silently fell back to v2 with zero trace before.
         logger.debug("mrmr: batch-MI kernel sweep unavailable (falling back to v2 default): %r", exc, exc_info=True)
         return []
 

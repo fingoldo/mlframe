@@ -1,4 +1,4 @@
-"""Layer 66 (2026-06-01): Copula-based MI ranking for hybrid orth-poly FE.
+"""Layer 66: Copula-based MI ranking for hybrid orth-poly FE.
 
 Why this layer
 --------------
@@ -12,7 +12,7 @@ edge, hiding genuine dependence. Layer 65 (KSG) helps on smooth signals
 but is still distance-based and therefore scale-dependent.
 
 This module ranks engineered columns by COPULA MI: each variable is rank-
-transformed to a uniform on [0, 1] (Sklar's theorem -- the copula carries
+transformed to a uniform on [0, 1] (Sklar's theorem - the copula carries
 the entire dependence structure independently of the marginals), then MI
 is computed on the rank-uniformised pair. The estimate is INVARIANT under
 any strictly-monotone transform of either variable (``MI(rank(x), rank(y))
@@ -31,18 +31,18 @@ Layer 66 vs Layer 65
   heavy-tailed / skewed signals where binning the raw values pools
   discriminating structure into a single tail bin.
 
-The two are COMPLEMENTARY -- one user can opt into both, picking the
+The two are COMPLEMENTARY - one user can opt into both, picking the
 intersection of winners as a robust shortlist. Each runs independently;
 neither requires the other.
 
 Recipe replay
 -------------
 
-Each emitted column is backed by an ``orth_univariate`` recipe -- the
-SAME kind Layer 21 uses -- because the engineered VALUES are bit-equal to
+Each emitted column is backed by an ``orth_univariate`` recipe - the
+SAME kind Layer 21 uses - because the engineered VALUES are bit-equal to
 Layer 21; only the SCORING (and therefore the selection) changes.
 
-NOT wired into ``MRMR.fit`` by default -- opt-in via
+NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_hybrid_orth_copula_enable=True``.
 """
 from __future__ import annotations
@@ -71,7 +71,7 @@ def _rank_to_uniform(x: np.ndarray) -> np.ndarray:
 
     Uses ``scipy.stats.rankdata`` with the "average" tie-breaking rule
     (canonical for empirical copulas); normalises by ``n + 1`` so the
-    output lies strictly inside ``(0, 1)`` -- no edge collapse on the
+    output lies strictly inside ``(0, 1)`` - no edge collapse on the
     ``[0, 1]`` boundary that downstream binning would round to bin 0 / n-1.
     The output is invariant under any strictly-monotone transform of ``x``
     (that's the whole point of the rank transform), so this is the engine
@@ -93,7 +93,7 @@ def _bin_mi_uniform_pair(
 
     Because both inputs are already uniform on ``(0, 1)`` (rank-
     transformed), equal-width bins are also equal-FREQUENCY bins by
-    construction -- no qcut required, no degenerate-bin failure mode on
+    construction - no qcut required, no degenerate-bin failure mode on
     skewed marginals (the marginal skew was rank-flattened away).
 
     Returns MI in nats. Uses the plug-in (Miller-Madow-corrected) estimator
@@ -160,14 +160,14 @@ def copula_mi(
     x, y : array-like (n,)
         Any numeric arrays. Discrete y is handled correctly because the
         rank transform on a discrete target collapses each class to its
-        average rank -- the resulting copula MI is the dependence between
+        average rank - the resulting copula MI is the dependence between
         the class label and the rank of ``x``, which is the canonical
         rank-correlation interpretation (Kendall's tau / Spearman's rho
         are special cases).
     n_bins : int
         Number of equal-width bins per axis on the unit square. Defaults to
         20; with ``n_bins=20`` and the recommended ``n >= 200`` samples,
-        each cell averages 0.5 samples on a random pair -- enough for the
+        each cell averages 0.5 samples on a random pair - enough for the
         plug-in + Miller-Madow estimator to converge while keeping
         sensitivity to local structure inside the unit square.
     """
@@ -175,7 +175,7 @@ def copula_mi(
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     # Mask non-finite BEFORE ranking. rankdata assigns NaN the largest rank,
     # so a NaN would map to a valid high uniform bin and masquerade as real
-    # high-value signal -- corrupting the copula MI. Drop non-finite pairwise.
+    # high-value signal - corrupting the copula MI. Drop non-finite pairwise.
     finite = np.isfinite(x_arr) & np.isfinite(y_arr)
     if not finite.all():
         x_arr = x_arr[finite]
@@ -196,8 +196,8 @@ def _copula_mi_batch(
     (the rank transform is O(n log n) and constant across features) to
     amortise the cost across the batch.
 
-    ``y_side`` (2026-07-12): an optional precomputed ``_rank_to_uniform(y_arr)`` (valid only when ``y`` is
-    fully finite) -- threaded in by ``score_features_by_copula_mi_uplift`` so the raw-baseline and
+    ``y_side``: an optional precomputed ``_rank_to_uniform(y_arr)`` (valid only when ``y`` is
+    fully finite) - threaded in by ``score_features_by_copula_mi_uplift`` so the raw-baseline and
     engineered-matrix batch calls (identical ``y``) share ONE rank-to-uniform transform instead of each
     recomputing it. Ignored (recomputed) whenever this call's own ``y`` is not fully finite, so a
     mismatched/stale ``y_side`` can never silently apply to the wrong y.
@@ -210,7 +210,7 @@ def _copula_mi_batch(
     y_all_finite = bool(y_finite.all())
     # Hoist the constant y rank transform out of the per-column loop. When a
     # column has no extra NaNs (the common case), the masked y subset equals the
-    # full y, so its uniformisation is identical across all such columns -- the
+    # full y, so its uniformisation is identical across all such columns - the
     # docstring's "uniformise y once" promise the loop previously broke by
     # re-ranking O(n log n) per column. Columns whose own NaNs force a different
     # mask still re-rank the subset (unavoidable, mask-dependent).
@@ -257,7 +257,7 @@ def score_features_by_copula_mi_uplift(
         must carry the ``"{source}__{basis_code}{degree}"`` suffix so the
         baseline can be looked up by source.
     y : array-like (n,)
-        Target. Discrete or continuous -- copula MI handles both via the
+        Target. Discrete or continuous - copula MI handles both via the
         rank transform (a discrete target is rank-collapsed to its average
         per-class rank).
     n_bins : int
@@ -294,8 +294,8 @@ def score_features_by_copula_mi_uplift(
             "engineered_col", "source_col", "baseline_mi",
             "engineered_mi", "uplift",
         ])
-    # f64 kept: distance/kernel-Gram stability (f32 sums lose precision here) -- NOT routed through _crit_np_dtype.
-    # y-side dependence primitive (rank-to-uniform transform) depends only on y -- IDENTICAL for the
+    # f64 kept: distance/kernel-Gram stability (f32 sums lose precision here) - NOT routed through _crit_np_dtype.
+    # y-side dependence primitive (rank-to-uniform transform) depends only on y - IDENTICAL for the
     # raw-baseline batch below and the engineered-matrix batch right after it. Build it ONCE (when y is
     # fully finite; None otherwise, matching _copula_mi_batch's own fallback) and thread it into both.
     _y_side = _rank_to_uniform(y_arr) if bool(np.isfinite(y_arr).all()) else None
@@ -415,12 +415,12 @@ def hybrid_orth_mi_copula_fe_with_recipes(
     n_bins: int = 20,
 ):
     """Same as :func:`hybrid_orth_mi_copula_fe` plus a list of
-    ``orth_univariate`` recipes -- one per appended column -- so that
+    ``orth_univariate`` recipes - one per appended column - so that
     ``MRMR.transform`` can recompute each engineered column on test data
     without re-running the copula MI ranking.
 
     Recipes are byte-identical to Layer 21 because the engineered VALUES
-    are byte-identical -- only the SCORING (and therefore the selection)
+    are byte-identical - only the SCORING (and therefore the selection)
     differs.
     """
     from .engineered_recipes import build_orth_univariate_recipe
@@ -459,13 +459,13 @@ def hybrid_orth_mi_copula_fe_with_recipes(
             continue
         # freeze the fit-time basis-preprocess params (mirrors the
         # canonical Layer-21 hybrid_orth_mi_fe_with_recipes fix); recomputing on the FULL fit-time
-        # source column is safe/exact -- it reproduces, not refits, the fit-time params.
+        # source column is safe/exact - it reproduces, not refits, the fit-time params.
         _pp = None
         try:
             _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
-            # ORTH_SCORING_A-3 fix: was a bare except with zero logging,
+            # Was a bare except with zero logging,
             # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
             # exception (including a genuine programming bug), with no diagnostic trace.
             logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)

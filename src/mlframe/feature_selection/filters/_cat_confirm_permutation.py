@@ -43,7 +43,7 @@ _CAT_CONFIRM_BASE_SEED = 1_000_003
 # 2. Confirmation phase: for each top-K survivor, run a permutation test of II_observed against the null distribution. SAME shuffled Y feeds all three MI computations
 #    (I(merged;Y), I(X1;Y), I(X2;Y)), so II_perm = those three differences.
 #
-# Naming honesty: the test rejects "(X1, X2) jointly independent of Y" -- NOT "no synergy beyond marginals". Surfaced as ``joint_dependence_confidence`` not ``confidence``.
+# Naming honesty: the test rejects "(X1, X2) jointly independent of Y" - NOT "no synergy beyond marginals". Surfaced as ``joint_dependence_confidence`` not ``confidence``.
 # ============================================================================
 
 
@@ -57,7 +57,7 @@ def _full_conditional_shuffle_ipf(
     base_seed: int,
 ) -> None:
     """Full conditional permutation via IPF-style double-stratification. Shuffle X2 within strata of (X1, Y) so that P(X2 | X1, Y) is preserved on average across
-    permutations -- the strictest synergy null that holds both marginals fixed while breaking X1-X2 conditional dependence.
+    permutations - the strictest synergy null that holds both marginals fixed while breaking X1-X2 conditional dependence.
 
     Reference: Patefield 1981 (R x C contingency tables with fixed marginals); Anderson & ter Braak 2003 (multi-factorial permutation).
 
@@ -101,7 +101,7 @@ def _conditional_shuffle_within_strata(
     Implementation: for each Y-stratum, collect the indices where ``classes_y[i] == c``, Fisher-Yates shuffle the corresponding slice of ``classes_x2_safe`` in place.
     Per Anderson & ter Braak 2003 ("Permutation tests for multi-factorial analysis of variance").
 
-    Preserves ``P(X2 | Y)`` -- so each marginal ``I(X2; Y)`` is
+    Preserves ``P(X2 | Y)`` - so each marginal ``I(X2; Y)`` is
     unchanged under the shuffle, but the conditional ``I(X1; X2 | Y)``
     is broken. The orchestrator combines this with three-MI calls
     above to compute II_perm under the conditional null.
@@ -164,7 +164,7 @@ def _count_nfailed_joint_indep_prange(
     for tid in prange(n_perms):
         # Per-thread copy of Y so each prange iteration shuffles independently.
         cy_local = classes_y.copy()
-        # Per-iteration LCG (PCG-style step) for the Fisher-Yates RNG -- ~2.7x faster than numpy's RandomState.seed + randint inside numba prange.
+        # Per-iteration LCG (PCG-style step) for the Fisher-Yates RNG - ~2.7x faster than numpy's RandomState.seed + randint inside numba prange.
         # The LCG produces a different perm sequence than np.random, so absolute nfailed is not bit-equivalent to the legacy path; statistical behaviour
         # (mean nfailed / total perms) is unchanged because the LCG is also uniform on the shuffle space.
         state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(tid + 1)
@@ -238,7 +238,7 @@ def _count_nfailed_joint_indep_weighted_serial(
     """Weighted counterpart of ``_count_nfailed_joint_indep_prange``.
 
     Same joint-independence null (shuffle Y, recompute all three MIs), but every joint/marginal
-    count is accumulated as ``weights[k]`` instead of ``1`` -- so a weighted search-phase ``II_obs``
+    count is accumulated as ``weights[k]`` instead of ``1`` - so a weighted search-phase ``II_obs``
     is tested against a WEIGHTED null instead of an unweighted one. Serial only (this path is opt-in
     and less hot than the default unweighted prange kernel); CPU-only, matching the established
     cat-FE convention of falling back to CPU when sample weights are active on the GPU path.
@@ -333,7 +333,7 @@ def _count_nfailed_joint_indep_cupy(
     from ._fe_resident_operands import resident_operand
 
     # Per-survivor-pair operands genuinely vary every call (a different pair (X1, X2) each iteration of
-    # the caller's survivor loop) -- plain per-call upload.
+    # the caller's survivor loop) - plain per-call upload.
     classes_pair_g = cp.asarray(classes_pair, dtype=cp.int64)
     classes_x1_g = cp.asarray(classes_x1, dtype=cp.int64)
     classes_x2_g = cp.asarray(classes_x2, dtype=cp.int64)
@@ -341,7 +341,7 @@ def _count_nfailed_joint_indep_cupy(
     freqs_x1_g = cp.asarray(freqs_x1, dtype=cp.float64)
     freqs_x2_g = cp.asarray(freqs_x2, dtype=cp.float64)
     # classes_y / freqs_y are the SAME target passed to EVERY survivor of the caller's confirmation loop
-    # (~10-100 iterations/fit) -- content-keyed resident upload instead of a fresh re-upload per pair.
+    # (~10-100 iterations/fit) - content-keyed resident upload instead of a fresh re-upload per pair.
     classes_y_g = resident_operand(classes_y, "cat_confirm_y", dtype=np.int64)
     freqs_y_g = resident_operand(freqs_y, "cat_confirm_freqs_y", dtype=np.float64)
 
@@ -359,7 +359,7 @@ def _count_nfailed_joint_indep_cupy(
     denom_x2 = freqs_x2_g[:, None] * freqs_y_g[None, :]
 
     nfailed_total = 0
-    # Wave 49 (2026-05-20): use a local cupy RandomState per permutation rather
+    # Use a local cupy RandomState per permutation rather
     # than mutating cp.random's global state. Reproducibility is preserved (same
     # base_seed -> same per-iter local RNG); caller's cupy global stream is no
     # longer clobbered.
@@ -416,9 +416,9 @@ def _perm_kernel_dispatch_use_gpu(
         with the old ``_GPU_PERM_KERNEL_THRESHOLD_N`` as the measurement-backed
         fallback. GPU only when chosen AND cupy is importable.
 
-    CAT_INTERACTION_A-2 fix: this used to gate purely on cupy importability, never
+    This used to gate purely on cupy importability, never
     consulting the project's canonical ``gpu_globally_disabled()`` (``MLFRAME_DISABLE_GPU=1`` /
-    ``CUDA_VISIBLE_DEVICES=""``) -- a user forcing CPU-only via that env convention still got GPU dispatch
+    ``CUDA_VISIBLE_DEVICES=""``) - a user forcing CPU-only via that env convention still got GPU dispatch
     for ``backend="auto"``/``"gpu"`` cat-FE fits whenever cupy was importable. The global off-switch now
     wins over even an explicit ``backend="gpu"`` request, matching every other GPU dispatcher in this repo.
     """
@@ -457,7 +457,7 @@ def _shuffle_and_compute_three_mis(
     """Shuffle classes_y_safe in place (Fisher-Yates) and compute three MIs against the shuffled Y in a SINGLE pass over N rows.
 
     One pass increments all three joint-count matrices simultaneously, then closed-form MI summation on each (only depends on the small (K_x, K_y) matrices). Bit-exact
-    equivalent of the three-separate-call form -- joint counts are integer increments, log/exp rounding identical.
+    equivalent of the three-separate-call form - joint counts are integer increments, log/exp rounding identical.
 
     Profiled 2026-05-20 (iter3 of /loop fuzz-combo cycle): a ``parallel=True``
     variant with per-thread joint accumulators + final reduction was tried at
@@ -470,7 +470,7 @@ def _shuffle_and_compute_three_mis(
     the accumulator win. Documented "no actionable speedup" so the next
     profile pass doesn't re-flag it - the seq form below is the winner."""
     n = len(classes_y_safe)
-    # Fisher-Yates shuffle in place. Seeded inline LCG (same PCG-style step as the bulk/prange kernels) -- reproducible at a fixed ``base_seed`` and isolated from numpy's
+    # Fisher-Yates shuffle in place. Seeded inline LCG (same PCG-style step as the bulk/prange kernels) - reproducible at a fixed ``base_seed`` and isolated from numpy's
     # process-global RNG (the prior ``np.random.randint`` was unseeded AND mutated numba's global stream for every downstream caller).
     state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(1)
     for i in range(n - 1, 0, -1):
@@ -498,7 +498,7 @@ def _shuffle_and_compute_three_mis(
 
     inv_n = 1.0 / n
 
-    # MI from joint counts. Inner loop is O(K_x * K_y) -- typically
+    # MI from joint counts. Inner loop is O(K_x * K_y) - typically
     # K_x, K_y in {2..100} so this dominates by orders of magnitude
     # less than the N-pass above on N=1M.
     i_pair = 0.0
@@ -645,7 +645,7 @@ def _bulk_shuffle_and_compute_three_mis(
     return out_i_pair, out_i_x1, out_i_x2
 
 
-# X_EFFICIENCY_ARCHITECTURE-1 fix: _compute_westfall_young_corrected_p and
+# _compute_westfall_young_corrected_p and
 # _apply_fwer_correction were carved out into _cat_confirm_fwer.py to clear the repo's enforced hard
 # 1000-LOC CI gate (this file was 1106 lines and absent from the gate's exempt list). Re-exported here
 # so every existing caller/import of this module keeps working unchanged.
@@ -673,16 +673,16 @@ def _confirm_pairs_via_permutation(
     ``weights``, when given, route the DEFAULT joint-independence null
     (``cfg.permutation_null != "conditional"``, no GPU dispatch) through a weighted CPU kernel so a
     weighted search-phase ``II_obs`` is tested against a weighted null. The conditional-null branch
-    and the cupy GPU branch still fall back to the unweighted path with a one-time warning -- weighting
+    and the cupy GPU branch still fall back to the unweighted path with a one-time warning - weighting
     the IPF/within-strata conditional shuffler and the cupy kernel is a larger, separately-scoped
     follow-up (mirrors the pair-search phase's existing "sample weights ignored on GPU" convention).
 
     For each survivor, sample ``cfg.full_npermutations`` Fisher-Yates shuffles of Y, compute II_perm via same-shuffle three-MI, and count how often ``II_perm >= II_obs``.
     Confidence = 1 - failures / npermutations. Pairs with confidence < min_nonzero_confidence are dropped from selected_idx.
 
-    Confidence is the "joint dependence confidence" -- it tests the null that (X1, X2) is jointly independent of Y, NOT the null that II = 0.
+    Confidence is the "joint dependence confidence" - it tests the null that (X1, X2) is jointly independent of Y, NOT the null that II = 0.
 
-    ``single_merge_cache``, when given, seeds (and is further populated by) the single-column ``merge_vars`` cache below -- e.g. a dict already carrying
+    ``single_merge_cache``, when given, seeds (and is further populated by) the single-column ``merge_vars`` cache below - e.g. a dict already carrying
     ``{col_idx: (cls, freqs)}`` entries from ``_cat_mm_correction._maybe_rerank_with_mm``'s MM re-rank pass over the SAME survivor set, run moments earlier
     by the orchestrator on the same ``factors_data``/``nbins``/``dtype``. Not currently wired up by any caller (that requires threading a shared dict through
     ``_cat_interactions_step.py``); passing ``None`` (the default) preserves the prior fresh-cache-per-call behaviour.
@@ -711,7 +711,7 @@ def _confirm_pairs_via_permutation(
     _perm_subsample = getattr(cfg, "permutation_subsample", None)
     if _perm_subsample is not None and _perm_subsample > 0 and n_samples > _perm_subsample:
         # Seed from the orchestrator's stable base seed (not ``subsample_size ^ n_samples`` which is
-        # independent of the configured seed -- it changed only when the data shape changed). Mixing the
+        # independent of the configured seed - it changed only when the data shape changed). Mixing the
         # subsample size in keeps distinct subsample configs decorrelated while staying reproducible.
         _ss_rng = np.random.default_rng(_CAT_CONFIRM_BASE_SEED + int(_perm_subsample))
         _ss_idx = _ss_rng.choice(n_samples, size=int(_perm_subsample), replace=False)
@@ -730,13 +730,13 @@ def _confirm_pairs_via_permutation(
         _ss_classes_y = classes_y
         _ss_freqs_y = freqs_y
 
-    # Pre-merge classes for each survivor pair (and its marginals). Memory: O(top_k * 3 * n) -- at top_k=64, n=1M, dtype=int32: ~768 MB worst case; OK for top_k of order 100; user controls.
+    # Pre-merge classes for each survivor pair (and its marginals). Memory: O(top_k * 3 * n) - at top_k=64, n=1M, dtype=int32: ~768 MB worst case; OK for top_k of order 100; user controls.
     confidence_dict: dict = {}
     kept_mask = np.ones(len(selected_idx), dtype=bool)
 
     # The single-variable merge of feature ``idx`` depends only on ``factors_data[:, idx]`` + ``nbins[idx]`` (default
     # current_nclasses=1, fresh final_classes), so it is identical for every survivor pair that contains ``idx``.
-    # Features recur across survivor pairs, so memoising by feature index removes the redundant recomputation --
+    # Features recur across survivor pairs, so memoising by feature index removes the redundant recomputation -
     # mirrors ``_cat_confirm_bandit._confirm_pairs_bandit_ucb1``'s ``_single_merge_cache`` (same bug class, same fix).
     # A caller-supplied ``single_merge_cache`` is used directly (not copied) so hits/misses accumulate into the
     # SAME dict the caller holds, letting it be reused for a subsequent call against the same survivor set.
@@ -765,7 +765,7 @@ def _confirm_pairs_via_permutation(
     # "bandit_ucb1" the caller takes the bandit branch and this fixed-budget function is not entered. By the time control reaches here, fixed budget is in effect.
 
     # Conditional permutation null requires per-pair freshly-merged X2 column to shuffle within strata of Y. The joint MI I(X1, X2; Y) after shuffling X2 within strata
-    # of Y requires RE-merging X1 with the shuffled X2 -- the joint table can't be reused from cls_pair. So this null is materially more expensive than the joint-
+    # of Y requires RE-merging X1 with the shuffled X2 - the joint table can't be reused from cls_pair. So this null is materially more expensive than the joint-
     # independence null. Caller opts in via cfg.
     use_conditional = cfg.permutation_null == "conditional"
     n_y_classes = int(classes_y.max()) + 1
@@ -793,7 +793,7 @@ def _confirm_pairs_via_permutation(
         n_failed = 0
         if use_conditional:
             # Shuffle X2 within strata of Y. The null preserves P(X1, Y) AND P(X2, Y); only I(X1; X2 | Y) is broken.
-            # If cfg.enable_full_conditional_perm is True, use the stricter (X1, Y) double-stratification which also preserves P(X1, X2) marginally -- the IPF-style synergy null.
+            # If cfg.enable_full_conditional_perm is True, use the stricter (X1, Y) double-stratification which also preserves P(X1, X2) marginally - the IPF-style synergy null.
             classes_x2_safe = cls_x2.astype(np.int64, copy=True)
             classes_x1_arr = cls_x1.astype(np.int64, copy=False)
             n_samples_local = factors_data.shape[0]
@@ -801,7 +801,7 @@ def _confirm_pairs_via_permutation(
             n_x1_classes = int(cls_x1.max()) + 1 if cls_x1.size else 1
             # n_x2_classes is ALSO loop-invariant: both shuffle kernels below are pure Fisher-Yates SWAPS
             # (element exchanges) restricted to strata, never resampling/overwriting with new values, so
-            # classes_x2_safe's value multiset -- hence its max -- is identical before and after every shuffle.
+            # classes_x2_safe's value multiset - hence its max - is identical before and after every shuffle.
             n_x2_classes = int(cls_x2.max()) + 1 if cls_x2.size else 1
             # I(X1; Y) is loop-INVARIANT under the conditional null: only X2 is
             # shuffled inside the loop; cls_x1 / fq_x1 / classes_y / freqs_y are
@@ -844,10 +844,10 @@ def _confirm_pairs_via_permutation(
                     classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
                 )
                 # I(X1; Y) marginal is PRESERVED by the conditional shuffle (X1 is
-                # never touched) -- ``i_x1_p`` was hoisted above the loop as it is
+                # never touched) - ``i_x1_p`` was hoisted above the loop as it is
                 # bit-identical across permutations. (We still subtract the same
                 # marginal as the observed II.)
-                # I(X2_shuffled; Y) -- per the conditional-null property, this equals I(X2; Y) up to floating-point noise; we recompute for safety.
+                # I(X2_shuffled; Y) - per the conditional-null property, this equals I(X2; Y) up to floating-point noise; we recompute for safety.
                 fq_x2_perm = np.bincount(classes_x2_safe.astype(np.int64), minlength=n_x2_classes).astype(np.float64) / n_samples_local
                 i_x2_p = compute_mi_from_classes(
                     classes_x=classes_x2_safe.astype(dtype, copy=False),
@@ -882,7 +882,7 @@ def _confirm_pairs_via_permutation(
             else:
                 _k_fq_pair, _k_fq_x1, _k_fq_x2 = fq_pair, fq_x1, fq_x2
                 _k_fq_y = _ss_freqs_y
-            # Dispatch the permutation kernel to GPU when (N * n_perms) is above the crossover threshold. Below, CPU numba prange wins -- GPU launch + transfer cost
+            # Dispatch the permutation kernel to GPU when (N * n_perms) is above the crossover threshold. Below, CPU numba prange wins - GPU launch + transfer cost
             # dominates short permutation budgets. See ``_perm_kernel_dispatch_use_gpu`` for the policy.
             _kernel_n = int(_k_cls_pair.size) if _ss_idx is not None else n_samples
             if _k_weights is not None:

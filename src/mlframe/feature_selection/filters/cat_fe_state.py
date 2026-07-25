@@ -10,12 +10,12 @@ Why two dataclasses, not many parallel ``MRMR.__init__`` kwargs:
 
 Default-selection rationale:
 
-- ``include_numeric=False``  -- discretized noisy floats produce spurious aliasing; opt-in when domain knowledge supports mixing.
-- ``full_npermutations=50``  -- zero is an anti-statistical trap (no FWER guarantee). 50 is a cheap default; bump to 500-1000 with bh_fdr / westfall_young for strict FWER control.
-- ``permutation_null="joint_independence"`` -- matches what shuffle-Y actually tests; the misnamed "synergy null" stays a documented limitation, addressable later via conditional permutation.
-- ``select_on="synergy"``  -- canonical use case; redundancy / absolute are explicit alternatives.
-- ``min_interaction_information=None`` -- resolved at fit time to ``-3 / sqrt(n_samples)`` (small-negative absorbs finite-sample noise around the synergy boundary).
-- ``backend="auto"``  -- GPU when N>=200 AND n>=500k AND CuPy available, else CPU prange.
+- ``include_numeric=False``  - discretized noisy floats produce spurious aliasing; opt-in when domain knowledge supports mixing.
+- ``full_npermutations=50``  - zero is an anti-statistical trap (no FWER guarantee). 50 is a cheap default; bump to 500-1000 with bh_fdr / westfall_young for strict FWER control.
+- ``permutation_null="joint_independence"`` - matches what shuffle-Y actually tests; the misnamed "synergy null" stays a documented limitation, addressable later via conditional permutation.
+- ``select_on="synergy"``  - canonical use case; redundancy / absolute are explicit alternatives.
+- ``min_interaction_information=None`` - resolved at fit time to ``-3 / sqrt(n_samples)`` (small-negative absorbs finite-sample noise around the synergy boundary).
+- ``backend="auto"``  - GPU when N>=200 AND n>=500k AND CuPy available, else CPU prange.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ class CatFEConfig:
 
     max_kway_order: int = 2
     """Max k for k-way greedy expansion. ``2`` = pairs only; ``3..interactions_max_order`` = greedy triplet / quartet expansion from the top pairs. NOT
-    capped by ``MRMR.interactions_max_order`` -- engineered cols are 1-way features to screening."""
+    capped by ``MRMR.interactions_max_order`` - engineered cols are 1-way features to screening."""
 
     min_interaction_information: float | None = None
     """Floor for accepting a pair / k-way tuple. ``None`` resolves at fit time to ``-3 / sqrt(n_samples)`` (finite-sample noise margin). The value is
@@ -60,7 +60,7 @@ class CatFEConfig:
     include_numeric: bool = False
     """Mix numeric columns into the cat pool. Default ``False`` because noisy floats produce spurious aliasing interactions; opt-in only when domain knowledge supports it.
     When ``True``, eligible NaN-free numeric columns are quantile-binned (``numeric_nbins`` bins, edges fitted on train and STORED in the recipe for leak-safe transform
-    replay) and become cat-FE candidates -- their pair/k-way crosses capture axis-aligned AND non-product (e.g. diagonal / rotated) interactions that the numeric unary/binary
+    replay) and become cat-FE candidates - their pair/k-way crosses capture axis-aligned AND non-product (e.g. diagonal / rotated) interactions that the numeric unary/binary
     FE cannot express (measured: +0.42 OOS AUC on a rotated quadrant target where ``mul(a,b)`` gives +0.00; +0.013 on an axis-aligned one, LogisticRegression downstream).
     NaN-bearing numeric columns are skipped in v1 (the quantile-edge replay path does not yet encode a NaN bin); pre-impute or one-hot the missingness to include them."""
 
@@ -109,7 +109,7 @@ class CatFEConfig:
     # ----- ranking coupling -----
     anti_redundancy_beta: float = 0.0
     """mRMR-coupled scoring. ``0`` = pure II ranking. ``> 0`` = ``score = II - beta * max_z I(merged; Z)`` over already-selected features. Heuristic, NOT a
-    derived mRMR criterion -- use the two-stage decoupled path (II gate then mRMR rank) for formally principled coupling."""
+    derived mRMR criterion - use the two-stage decoupled path (II gate then mRMR rank) for formally principled coupling."""
 
     # ----- diagnostics -----
     emit_diagnostics: bool = True
@@ -126,7 +126,7 @@ class CatFEConfig:
 
     # ----- pathological-input gates -----
     min_n_samples: int = 200
-    """Hard floor on n -- below this II is dominated by sample-size bias and permutation tests have insufficient unique reorderings (n=2 has only 2 distinct shuffles)."""
+    """Hard floor on n - below this II is dominated by sample-size bias and permutation tests have insufficient unique reorderings (n=2 has only 2 distinct shuffles)."""
 
     min_class_count: int = 50
     """Minimum samples per class of Y. Below this, marginal MI estimates on cat columns are dominated by which rows happen to be the minority (5 positives in
@@ -134,7 +134,7 @@ class CatFEConfig:
 
     on_high_cardinality: Literal["skip", "raise"] = "skip"
     """How a categorical column whose nbins exceeds the ``sqrt(n)*2`` ceiling is handled. ``skip`` (default): drop it from the cat-FE candidate pool, warn once, and
-    let it flow through the rest of MRMR as an ordinary (high-cardinality) column the relevance screen can still drop -- raw frames with id/hash/free-text columns no
+    let it flow through the rest of MRMR as an ordinary (high-cardinality) column the relevance screen can still drop - raw frames with id/hash/free-text columns no
     longer crash MRMR.fit. ``raise``: legacy hard ValueError (kept for callers who want a strict "this column shouldn't be categorical" signal)."""
 
     discretization_audit: bool = False
@@ -156,7 +156,7 @@ class CatFEConfig:
     Statistical / runtime trade-off:
 
     * The permutation null distribution shifts toward higher variance when computed on fewer samples (each shuffled MI is noisier). For the confidence-against-
-      null gate this is mostly conservative -- noisier null -> wider tail -> fewer pairs pass. False-negative rate goes up slightly; false-positive rate stays bounded.
+      null gate this is mostly conservative - noisier null -> wider tail -> fewer pairs pass. False-negative rate goes up slightly; false-positive rate stays bounded.
     * Cost cuts roughly linearly with subsample / N. On a 1M-row regression + MRMR profile, full-N permutation took ~25 s; subsampled to 100k it drops to ~2.5 s.
 
     Recommended: set to ~100_000 when ``n_rows >= 5e5`` and runtime matters more than the last decimal of confidence precision. Leave at ``None`` for batch-
@@ -167,7 +167,7 @@ class CatFEConfig:
     """Bootstrap subsample fraction. 0.632 is the canonical out-of-bag fraction (expected fraction of unique rows in a bootstrap-with-replacement sample of size n)."""
 
     sample_weight_col: str = ""
-    """Name of a column in the input X holding per-row sample weights. Empty string (default) disables -- equivalent to uniform weights. When set, the column
+    """Name of a column in the input X holding per-row sample weights. Empty string (default) disables - equivalent to uniform weights. When set, the column
     is consumed by cat-FE and NOT included in the candidate pool."""
 
     emit_target_encoding: bool = False
@@ -196,7 +196,7 @@ class CatFEConfig:
     k-way set with each non-member and keeps the swap if II improves. Catches cases where the greedy seed missed a better neighbor."""
 
     groups_col: str = ""
-    """Name of a column in the input X holding group IDs (e.g. session IDs, user IDs). When set, permutation tests respect group boundaries -- shuffle Y
+    """Name of a column in the input X holding group IDs (e.g. session IDs, user IDs). When set, permutation tests respect group boundaries - shuffle Y
     values only across groups, not within. Prevents inflated significance from within-group autocorrelation. Reference: Anderson & ter Braak 2003."""
 
     enable_streaming_cache: bool = False
@@ -209,7 +209,7 @@ class CatFEConfig:
 
     enable_full_conditional_perm: bool = False
     """When True AND ``permutation_null='conditional'``, use full iterative-proportional-fitting (IPF / Deming-Stephan) to generate permutations that preserve
-    BOTH marginals (P(X1, Y) and P(X2, Y)) -- the strictest synergy null. Materially more expensive than within-strata shuffle (~5-10x); enable only for high-stakes significance claims."""
+    BOTH marginals (P(X1, Y) and P(X2, Y)) - the strictest synergy null. Materially more expensive than within-strata shuffle (~5-10x); enable only for high-stakes significance claims."""
 
     def __post_init__(self):
         """Validate ranges and types at construction time so misconfig fails fast (not deep in ``fit()``)."""
@@ -235,16 +235,16 @@ class CatFEConfig:
             raise ValueError(f"min_n_samples must be >= 2 (MI estimation degenerates below); got {self.min_n_samples}")
         if self.min_class_count < 1:
             raise ValueError(f"min_class_count must be >= 1; got {self.min_class_count}")
-        # Cross-field sanity: shortlist_npermutations should not exceed full_npermutations -- the shortlist is supposed to be cheaper.
+        # Cross-field sanity: shortlist_npermutations should not exceed full_npermutations - the shortlist is supposed to be cheaper.
         if self.shortlist_npermutations > 0 and self.full_npermutations > 0 and self.shortlist_npermutations > self.full_npermutations:
             raise ValueError(
                 f"shortlist_npermutations ({self.shortlist_npermutations}) must be <= full_npermutations ({self.full_npermutations}). "
                 "Search-phase should be CHEAPER than confirmation."
             )
-        # CAT_INTERACTION_A-9 fix: these 5 fields had no range validation at all.
+        # These 5 fields had no range validation at all.
         # Concrete failure mode this closes: CatFEConfig(bootstrap_ci_alpha=1.2) used to pass construction
         # silently, then _bootstrap_ii_cis computed lower_q=0.6 > upper_q=0.4 (inverted CI bounds, each
-        # individually a valid np.quantile probability so no error surfaced there either) -- the caller's
+        # individually a valid np.quantile probability so no error surfaced there either) - the caller's
         # `if lower >= floor_ci` gate then silently applied the WRONG (upper-as-lower) bound.
         if not 0.0 < self.bootstrap_ci_alpha < 1.0:
             raise ValueError(f"bootstrap_ci_alpha must be in (0, 1); got {self.bootstrap_ci_alpha}")
@@ -263,12 +263,12 @@ class CatFEState:
     """Persistence container for all cat-FE artefacts produced during fit.
 
     Attached as ``self._cat_fe_state_`` on the fitted MRMR. ``None`` until ``cat_fe_config.enable=True`` and the cat-FE step has run. ``__setstate__`` injects
-    ``None`` as the BC default for legacy pickles. All fields are picklable / clonable -- no closures, no fitted estimators, no captured numpy views into ``data``.
+    ``None`` as the BC default for legacy pickles. All fields are picklable / clonable - no closures, no fitted estimators, no captured numpy views into ``data``.
     """
 
     recipes: list = field(default_factory=list)
     """List of ``EngineeredRecipe`` objects (kind=``"factorize"`` for cat-FE) that ``MRMR.transform`` replays on test data. Same container as the existing
-    ``self._engineered_recipes_`` for numeric FE -- cat-FE recipes simply land alongside them at fit time."""
+    ``self._engineered_recipes_`` for numeric FE - cat-FE recipes simply land alongside them at fit time."""
 
     diagnostics: dict = field(default_factory=dict)
     """``{engineered_name: dict}`` per-engineered-feature audit trail. Keys: ``II, II_holdout_unbiased, II_oof_std, marginal_X1_MI, marginal_X2_MI, joint_MI,

@@ -1,16 +1,16 @@
-"""Layer 67 (2026-06-01): Distance correlation (dCor) ranking for hybrid
+"""Layer 67: Distance correlation (dCor) ranking for hybrid
 orth-poly FE.
 
 Why this layer
 --------------
 
 Layer 21's plug-in MI estimator, Layer 65 (KSG k-NN), and Layer 66 (copula
-MI) all share one weakness: they are MI estimators -- they all attempt to
+MI) all share one weakness: they are MI estimators - they all attempt to
 estimate the same quantity (continuous mutual information), differ only in
 HOW they estimate it. Distance correlation (Szekely-Rizzo 2007) is a
 genuinely DIFFERENT dependence measure: it is constructed from the U-
 centred distance matrices of ``x`` and ``y`` and equals zero if and only
-if the two variables are INDEPENDENT -- the universal independence
+if the two variables are INDEPENDENT - the universal independence
 guarantee that Pearson lacks (Pearson can be zero on non-monotone signals
 like ``y = x ^ 2``).
 
@@ -30,7 +30,7 @@ dCor is constructed from the FULL ``n x n`` distance matrices. Naive
 implementation is ``O(n^2)`` time and memory; ``n = 500`` fits in 2 MB
 per matrix and runs in under 50 ms on a modern laptop. Beyond ``n = 500``
 the per-feature cost starts to dominate; this module caps the working
-sample at ``n_sample = 500`` via deterministic random subsampling -- the
+sample at ``n_sample = 500`` via deterministic random subsampling - the
 dCor estimator is asymptotically consistent and 500 samples are enough
 for the dependence test to discriminate signal from noise at the typical
 SNR seen by Layer 21's downstream gates.
@@ -46,17 +46,17 @@ Layer 67 vs Layers 65 / 66
   on non-monotone, non-functional, oscillatory dependencies where MI
   estimators converge slowly (sample-complexity gap).
 
-The three are COMPLEMENTARY -- a user can opt into all three and take
+The three are COMPLEMENTARY - a user can opt into all three and take
 the union of winners as a robust shortlist.
 
 Recipe replay
 -------------
 
-Each emitted column is backed by an ``orth_univariate`` recipe -- the
-SAME kind Layer 21 uses -- because the engineered VALUES are bit-equal to
+Each emitted column is backed by an ``orth_univariate`` recipe - the
+SAME kind Layer 21 uses - because the engineered VALUES are bit-equal to
 Layer 21; only the SCORING (and therefore the selection) changes.
 
-NOT wired into ``MRMR.fit`` by default -- opt-in via
+NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_hybrid_orth_dcor_enable=True``.
 """
 from __future__ import annotations
@@ -90,7 +90,7 @@ def _u_centered_distance_matrix(z: np.ndarray) -> np.ndarray:
     ``mean(A * B) = 0``.
     """
     arr = np.asarray(z, dtype=np.float64).ravel()
-    # Pairwise absolute differences -- the 1-D Euclidean distance.
+    # Pairwise absolute differences - the 1-D Euclidean distance.
     a = np.abs(arr[:, None] - arr[None, :])
     row_mean = a.mean(axis=1, keepdims=True)
     col_mean = a.mean(axis=0, keepdims=True)
@@ -129,7 +129,7 @@ def distance_correlation(
     Key properties (Szekely-Rizzo 2007):
 
     * ``dCor(X, Y) == 0`` iff ``X`` and ``Y`` are INDEPENDENT (this is the
-      headline property -- Pearson lacks this iff guarantee).
+      headline property - Pearson lacks this iff guarantee).
     * ``0 <= dCor(X, Y) <= 1``.
     * Symmetric: ``dCor(X, Y) == dCor(Y, X)``.
     * Detects ANY relationship (monotone, non-monotone, non-functional),
@@ -176,7 +176,7 @@ def distance_correlation(
     denom = dvar2_x * dvar2_y
     # A non-finite denom (all-NaN/inf column -> NaN distance matrix) makes `denom <= 0` False, so a NaN dCor would otherwise escape into the ranking. Guard explicitly.
     if not np.isfinite(denom) or denom <= 0.0:
-        # Constant / degenerate column -- no dispersion -> by convention dCor = 0.
+        # Constant / degenerate column - no dispersion -> by convention dCor = 0.
         return 0.0
     if not np.isfinite(dcov2):
         return 0.0
@@ -215,8 +215,8 @@ def _dcor_batch(
     features (independent subsamples would inject variance from the
     sampling itself into the cross-column ranking).
 
-    ``y_side`` (2026-07-12): an optional precomputed ``(idx, B, dvar2_y)`` tuple from
-    :func:`_dcor_y_side_prep` -- pass it to skip rebuilding the y-side U-centered distance matrix when the
+    ``y_side``: an optional precomputed ``(idx, B, dvar2_y)`` tuple from
+    :func:`_dcor_y_side_prep` - pass it to skip rebuilding the y-side U-centered distance matrix when the
     caller already built it for an identical ``(y, n_sample, random_state)``. ``None`` (default) preserves
     the exact self-contained behavior.
     """
@@ -265,7 +265,7 @@ def score_features_by_dcor_uplift(
         must carry the ``"{source}__{basis_code}{degree}"`` suffix so the
         baseline can be looked up by source.
     y : array-like (n,)
-        Target. dCor handles continuous and discrete y uniformly -- the
+        Target. dCor handles continuous and discrete y uniformly - the
         distance matrix on a discrete y collapses to the class-indicator
         block structure (``|y_i - y_j| == 0`` within a class, ``> 0``
         across classes), which is the correct dependence-test
@@ -300,9 +300,9 @@ def score_features_by_dcor_uplift(
             "engineered_col", "source_col", "baseline_mi",
             "engineered_mi", "uplift",
         ])
-    # f64 kept: distance/kernel-Gram stability (f32 sums lose precision here) -- NOT routed through _crit_np_dtype.
+    # f64 kept: distance/kernel-Gram stability (f32 sums lose precision here) - NOT routed through _crit_np_dtype.
     # y-side dependence primitive (U-centered distance matrix + its variance) depends only on
-    # (y, n_sample, random_state) -- IDENTICAL for the raw-baseline batch below and the engineered-matrix
+    # (y, n_sample, random_state) - IDENTICAL for the raw-baseline batch below and the engineered-matrix
     # batch right after it. Build it ONCE and thread it into both _dcor_batch calls.
     _y_side = _dcor_y_side_prep(y_arr, len(raw_X), n_sample=int(n_sample), random_state=int(random_state))
     raw_mi = _dcor_batch(
@@ -422,12 +422,12 @@ def hybrid_orth_mi_dcor_fe_with_recipes(
     random_state: int = 0,
 ):
     """Same as :func:`hybrid_orth_mi_dcor_fe` plus a list of
-    ``orth_univariate`` recipes -- one per appended column -- so that
+    ``orth_univariate`` recipes - one per appended column - so that
     ``MRMR.transform`` can recompute each engineered column on test data
     without re-running the dCor ranking.
 
     Recipes are byte-identical to Layer 21 because the engineered VALUES
-    are byte-identical -- only the SCORING (and therefore the selection)
+    are byte-identical - only the SCORING (and therefore the selection)
     differs.
     """
     from .engineered_recipes import build_orth_univariate_recipe
@@ -466,13 +466,13 @@ def hybrid_orth_mi_dcor_fe_with_recipes(
             continue
         # freeze the fit-time basis-preprocess params (mirrors the
         # canonical Layer-21 hybrid_orth_mi_fe_with_recipes fix); recomputing on the FULL fit-time
-        # source column is safe/exact -- it reproduces, not refits, the fit-time params.
+        # source column is safe/exact - it reproduces, not refits, the fit-time params.
         _pp = None
         try:
             _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
-            # ORTH_SCORING_A-3 fix: was a bare except with zero logging,
+            # Was a bare except with zero logging,
             # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
             # exception (including a genuine programming bug), with no diagnostic trace.
             logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)

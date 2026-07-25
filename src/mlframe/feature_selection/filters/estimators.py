@@ -3,15 +3,15 @@
 The default discretized plug-in estimator (``compute_mi_from_classes`` in ``info_theory.py``) is fast but biased on small samples and
 high-cardinality conditioning sets. This module exposes alternatives that trade some speed for accuracy:
 
-* ``ksg_mi`` -- k-Nearest-Neighbor estimator (Kraskov 2004), wraps ``sklearn.feature_selection.mutual_info_classif/regression``. Operates
+* ``ksg_mi`` - k-Nearest-Neighbor estimator (Kraskov 2004), wraps ``sklearn.feature_selection.mutual_info_classif/regression``. Operates
   on continuous data without discretisation, asymptotically unbiased. ~2-5x slower than discretized plug-in on n=10k.
-* ``miller_madow_mi`` -- discretized plug-in with Miller-Madow bias correction applied to all entropy terms in the MI decomposition.
+* ``miller_madow_mi`` - discretized plug-in with Miller-Madow bias correction applied to all entropy terms in the MI decomposition.
   Negligible speed cost.
-* ``nsb_mi`` (placeholder) -- Bayesian (Nemenman-Shafee-Bialek) estimator. Best for small N. Implemented via optional dependency on
+* ``nsb_mi`` (placeholder) - Bayesian (Nemenman-Shafee-Bialek) estimator. Best for small N. Implemented via optional dependency on
   ``ndd`` package; raises ``ImportError`` if not installed.
 
 USABILITY_A-8 / c8_usability_wrappers.md (/ 2026-07-22): ``MRMR`` has no ``estimator=``
-constructor kwarg -- ``ksg_mi_with_target``/``ksg_mi_pair``/``ksg_mi_with_significance``/``nsb_mi`` are
+constructor kwarg - ``ksg_mi_with_target``/``ksg_mi_pair``/``ksg_mi_with_significance``/``nsb_mi`` are
 confirmed dead from ``MRMR.fit``'s production path; call them directly from this module if needed.
 """
 from __future__ import annotations
@@ -36,7 +36,7 @@ def ksg_mi_with_target(
     """Kraskov-Stoegbauer-Grassberger MI estimate of each feature with target.
 
     Uses ``sklearn.feature_selection.mutual_info_classif/regression``, which implements the KSG estimator on continuous numeric data
-    (k-NN-based, no discretisation). Returns shape ``(len(feature_indices),)`` -- MI of feature_i with target in nats (sklearn convention).
+    (k-NN-based, no discretisation). Returns shape ``(len(feature_indices),)`` - MI of feature_i with target in nats (sklearn convention).
 
     Parameters
     ----------
@@ -109,15 +109,15 @@ def ksg_mi_with_significance(
 
     1. Compute KSG MI of every requested column with target.
     2. For each column, run ``n_permutations`` shuffles of ``y`` and compute KSG MI on the shuffle.
-       ``p_value = (1 + #(perm_mi >= observed_mi)) / (1 + n_permutations)`` -- the standard conservative permutation-test p-value.
+       ``p_value = (1 + #(perm_mi >= observed_mi)) / (1 + n_permutations)`` - the standard conservative permutation-test p-value.
     3. Reject features with ``p_value > alpha``.
 
     Returns
     -------
     (mi_arr, p_arr, support) : tuple
-        ``mi_arr[i]`` -- KSG MI of feature_i with target.
-        ``p_arr[i]`` -- permutation-test p-value.
-        ``support`` -- ndarray of feature indices that passed ``p_value <= alpha``, sorted by MI descending.
+        ``mi_arr[i]`` - KSG MI of feature_i with target.
+        ``p_arr[i]`` - permutation-test p-value.
+        ``support`` - ndarray of feature indices that passed ``p_value <= alpha``, sorted by MI descending.
 
     Notes
     -----
@@ -158,7 +158,7 @@ def ksg_mi_with_significance(
     else:
         # backend="threading": mirrors MRMR.__init__ default flip
         # (commit 0da27e0). The per-permutation worker reads ``X`` /
-        # ``y`` from the enclosing closure -- with loky each worker
+        # ``y`` from the enclosing closure - with loky each worker
         # process would deep-copy the entire frame, repeating the
         # iter-371 OOM cascade. Threading shares the arrays zero-copy
         # and the inner mi kernel releases the GIL.
@@ -171,7 +171,7 @@ def ksg_mi_with_significance(
 
     significant = np.where(p_values <= alpha)[0]
     # Sort the surviving indices by their MI descending.
-    # Wave 58 (2026-05-20): lexsort with significant-index tiebreaker for
+    # Lexsort with significant-index tiebreaker for
     # deterministic order across runs when MIs tie.
     _obs_sig = observed[significant]
     order = significant[np.lexsort((significant, -_obs_sig))]

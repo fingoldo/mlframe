@@ -1,4 +1,4 @@
-"""Grouped pydantic configs for ``RFECV`` (2026-05-28).
+"""Grouped pydantic configs for ``RFECV``.
 
 The ``RFECV.__init__`` accumulated ~50 flat parameters after the Wave 1-5
 audit (correctness fixes, search-strategy knobs, FI semantics, robustness
@@ -92,7 +92,7 @@ if _PYDANTIC_AVAILABLE:
         # W4: default must match RFECV.__init__'s flat default (VotesAggregation.Borda) per this
         # module's own stated invariant, or auto_tune's override-detection
         # (getattr(self, k) == getattr(SearchConfig(), k)) silently treats every un-overridden user
-        # as having explicitly overridden this field. "Borda" (not None) -- VotesAggregation is a
+        # as having explicitly overridden this field. "Borda" (not None) - VotesAggregation is a
         # str Enum, so VotesAggregation.Borda == "Borda" holds without importing the enum here.
         votes_aggregation_method: Any = "Borda"  # VotesAggregation enum; left untyped to avoid circular import
         use_all_fi_runs: bool = True
@@ -110,7 +110,7 @@ if _PYDANTIC_AVAILABLE:
         cpi_min_samples_leaf: int = 10
         n_repeats: int = 5  # repeats for 'permutation'/'conditional_permutation' importance (surfaced for tuning)
 
-        # Wide-data perm-FI cost guard (2026-06-04). Permutation / conditional-permutation importance rescore the model
+        # Wide-data perm-FI cost guard. Permutation / conditional-permutation importance rescore the model
         # O(p * n_repeats) times PER FOLD, so on wide frames a single RFECV iteration can exceed the whole runtime budget
         # (measured: madelon p=500, n_repeats=5 -> ~208s/iter > the 180s budget -> only 2-3 iters complete -> a 3-point CV
         # curve -> one_se_min lands at the over-selection N). When ``wide_data_fi_fallback`` is True (NEW default) and the

@@ -69,7 +69,7 @@ def _maybe_auto_drop_after_feature_analyzer(
                 _corr_raw = entry.get("corr") if isinstance(entry, dict) else entry[2]
                 _c = float(_corr_raw) if _corr_raw is not None else 0.0
             except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _main_train_suite_target_distribution.py:70: %s", e)
+                logger.debug("suppressed: %s", e)
                 continue
             if abs(_c) >= _dup_threshold:
                 # Greedy chain collapse: drop the alphabetically-larger of a fresh pair; once either
@@ -246,7 +246,7 @@ def _run_target_distribution_analyzer(
                                 if np.all(_diffs >= 0) or np.all(_diffs <= 0):
                                     _verified_hits.append(_orig_col)
                         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                            logger.debug("suppressed in _main_train_suite_target_distribution.py:232: %s", e)
+                            logger.debug("suppressed: %s", e)
                             pass
                     if _verified_hits:
                         _has_time = True
@@ -263,7 +263,7 @@ def _run_target_distribution_analyzer(
                             sorted(_hit_lower),
                         )
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in _main_train_suite_target_distribution.py:249: %s", e)
+                    logger.debug("suppressed: %s", e)
                     pass
             _td_report = analyze_target_distribution(
                 _y_train,
@@ -299,7 +299,7 @@ def _run_target_distribution_analyzer(
                     extra={"target_type": _td_report.target_type, "n_pathologies": len(_td_report.pathologies)},
                 )
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _main_train_suite_target_distribution.py:284: %s", e)
+                logger.debug("suppressed: %s", e)
                 pass
             # Maintain a per-knob "hyperparams_used" provenance dict so downstream consumers (model factories, audit
             # reports) can distinguish analyzer-injected knobs from caller-supplied defaults. User overrides take
@@ -323,7 +323,7 @@ def _run_target_distribution_analyzer(
                         else:
                             _slot_store[_knob_name] = dict(_stamp)
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _main_train_suite_target_distribution.py:306: %s", e)
+                logger.debug("suppressed: %s", e)
                 pass
             # Gap-fill merge into hyperparams_config. The config can be a
             # pydantic ModelHyperparamsConfig (dump+rebuild) or a dict (merge
@@ -351,7 +351,7 @@ def _run_target_distribution_analyzer(
                                 try:
                                     hyperparams_config = hyperparams_config.model_copy(update={_slot: _hp_merged.get(_slot)})
                                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                                    logger.debug("suppressed in _main_train_suite_target_distribution.py:333: %s", e)
+                                    logger.debug("suppressed: %s", e)
                                     pass
                 # Reflect any mutation back onto ctx so downstream phases see
                 # the merged config instead of the caller's original.
@@ -417,7 +417,7 @@ def _run_target_distribution_analyzer(
                                     try:
                                         setattr(ctx, _slot, locals()[_slot])
                                     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                                        logger.debug("suppressed in _main_train_suite_target_distribution.py:398: %s", e)
+                                        logger.debug("suppressed: %s", e)
                                         pass
                     except Exception as _drop_err:  # best-effort: falls back to the full column set
                         logger.warning(

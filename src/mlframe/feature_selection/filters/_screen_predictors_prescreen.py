@@ -1,7 +1,7 @@
 """Self-contained pre-screen helpers for ``screen_predictors``.
 
 Two pure passes lifted out of the screening spine so the parent stays under the
-1k-LOC ceiling. Neither snapshots / restores the global RNG -- that stays on the
+1k-LOC ceiling. Neither snapshots / restores the global RNG - that stays on the
 ``screen_predictors`` try/finally spine; ``compute_fdr_gain_floor`` only forwards
 the already-seeded ``random_seed`` into the permutation-null kernel.
 """
@@ -78,12 +78,12 @@ def compute_fdr_gain_floor(
     # 2026-07-09 fix: optional cross-round cache, keyed on the candidate-pool identity + all inputs
     # that affect the result. ``pooled_permutation_null_gain_floor`` recomputes a full (n_permutations
     # x n_candidates x n_rows) histogram+MI pass on EVERY call; when the SAME raw-column pool recurs
-    # across screen_predictors rounds (the common case -- data only grows via appended engineered
+    # across screen_predictors rounds (the common case - data only grows via appended engineered
     # columns, existing column content never changes), the earlier round's floor is mathematically
     # identical, not approximate, so a hit skips that whole pass. Threaded the same way as
     # screen_predictors' ``seed_caches``: the CALLER owns the dict's lifetime (must be scoped to one
     # fit, never shared across separate ``.fit()`` calls or concurrent fits). ``None`` (default)
-    # disables caching entirely -- legacy behaviour, always recompute.
+    # disables caching entirely - legacy behaviour, always recompute.
     maxt_floor_cache: "dict | None" = None,
 ):
     """Westfall-Young maxT permutation-null gain floor over the finalised order-1 pool.

@@ -59,13 +59,13 @@ def _finalize_fit_results(
     """Run the SFFS swap pass + write the public RFECV result slots."""
     # SFFS swap pass: greedy 1-in / 1-out tweak around the current best.
     # ``_sffs_swap_pass`` does NOT honour fit_params / val_cv / early stopping.
-    # E2 (Wave 1, 2026-05-28): when val_cv is set AND the estimator actually
+    # E2: when val_cv is set AND the estimator actually
     # uses early stopping (CB / LGB / XGB), the bare cross_val_score used in
     # _sffs_swap_pass trains to convergence with no ES, so any accepted swap
     # may be an artifact of letting the swap-in feature overfit relative to
     # the ES-bounded best subset. Skip swap on those configurations.
     # Estimators like LR don't use val_cv even when early_stopping_val_nsplits
-    # is set -- the gate must check BOTH the knob AND the estimator type.
+    # is set - the gate must check BOTH the knob AND the estimator type.
     # Opt-out via self.swap_top_k_allow_no_es=True for benchmarking.
     _val_cv_knob_set = bool(getattr(self, "early_stopping_val_nsplits", None))
     try:
@@ -173,7 +173,7 @@ def _finalize_fit_results(
             self.support_ = support_mask
             self.n_features_ = int(np.sum(self.support_))
         else:
-            # Integer indices OR an EMPTY support_ (the optimiser selected nothing -- e.g. must_include covers
+            # Integer indices OR an EMPTY support_ (the optimiser selected nothing - e.g. must_include covers
             # the whole search universe, or only nfeatures==0 was evaluable). The pinned features are ALWAYS
             # in the final selection, so seed support_ with their indices. Previously an empty support_ was
             # skipped by a ``len(support_)>0`` gate, silently DROPPING the pins and leaving n_features_=0 with

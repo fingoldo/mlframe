@@ -3,7 +3,7 @@
 Sibling to :mod:`_mi_greedy_fe` (Layer 26). Where Layer 26 ranks the same
 candidate transform pool by MARGINAL ``MI(candidate; y)`` and de-duplicates
 selected winners post-hoc via Spearman, THIS module ranks by CONDITIONAL
-``MI(candidate; y | current_support)`` -- i.e. each step directly measures
+``MI(candidate; y | current_support)`` - i.e. each step directly measures
 the NEW information the candidate adds on top of the already-selected
 columns.
 
@@ -13,7 +13,7 @@ Why CMI ranking matters
 Marginal MI ranks ``log_abs(x)``, ``square(x)``, ``abs(x)`` all near the top
 when ``y = sign(x^2 - 1)`` because each is monotone in ``|x|`` and so
 captures the same signal. The marginal-MI greedy path then picks all three
-and the downstream Spearman dedup drops two of them post-hoc -- waste.
+and the downstream Spearman dedup drops two of them post-hoc - waste.
 CMI ranking sees that once ``square(x)`` is in the support, ``CMI(abs(x); y |
 square(x))`` is near zero, so ``abs(x)`` is never picked.
 
@@ -34,7 +34,7 @@ Algorithm
    transform-time replay is shared infrastructure.
 
 The conditional joint Z is the per-row class id of the cross-product of
-the currently-selected binned columns -- collapsed via the densely-renumbered
+the currently-selected binned columns - collapsed via the densely-renumbered
 contingency table so the joint stays computable even at d=8+ support cols
 (memory dominated by ``n``, not by the cartesian bin space).
 """
@@ -75,7 +75,7 @@ logger = logging.getLogger(__name__)
 # GPU quantile-bin crossover (2026-06-28, synchronized micro-bench of _quantile_bin_gpu incl. code D2H, GTX
 # 1050 Ti, nbins=10): a single host column round-tripped to the device for equi-frequency binning (H2D +
 # cp.percentile sort + cp.searchsorted + code D2H) only beats the host introselect-partition np.quantile path
-# well above the launch/transfer floor -- n=20k CPU 0.92ms vs GPU 1.67ms; n=35k near-tie 1.53 vs 1.71ms; n=100k
+# well above the launch/transfer floor - n=20k CPU 0.92ms vs GPU 1.67ms; n=35k near-tie 1.53 vs 1.71ms; n=100k
 # GPU 2.10 vs CPU 4.12ms = 2x; n=300k GPU 3.06 vs CPU 14.1ms = 4.6x. The gate is set at 50k (clear of the 35k
 # near-tie) so every routed call is a decisive win; the small (3k/20k) gate-redundancy columns stay on the
 # host, where the fixed ~1.7ms device round-trip overhead loses to numpy.
@@ -84,7 +84,7 @@ _GPU_QBIN_MIN_ROWS = 50_000
 
 def _qbin_float_dtype():
     """Float dtype for the ``qbin_x`` candidate-column upload the device quantile binners do. Under
-    ``MLFRAME_FE_VRAM_F32`` (the FE-generation dtype discipline) bin in FLOAT32 -- the candidate float upload is
+    ``MLFRAME_FE_VRAM_F32`` (the FE-generation dtype discipline) bin in FLOAT32 - the candidate float upload is
     HALF the bytes and the equi-frequency partition is selection-equivalent to float64 (f32 percentile edges
     agree with f64 at all but ~1e-5 of near-edge rows, below the bin resolution the redundancy gate keys on;
     this is the SAME f32/f64 discipline the FE materialise + the GPU discretiser already use). Falls back to
@@ -106,27 +106,27 @@ def _sync_free_qbin_codes(cp, xd, nbins: int):
     partition- AND cardinality-equivalent to the host ``np.unique(np.quantile(a,qs))[1:-1]`` binning for EVERY
     column shape (verified across continuous / low-card / mass-point / binary / two-value / constant columns).
 
-    numpy takes ``unique(edges)[1:-1]`` -- i.e. it drops duplicate edges, the global-min edge, and the
+    numpy takes ``unique(edges)[1:-1]`` - i.e. it drops duplicate edges, the global-min edge, and the
     global-max edge, EXCEPT the degenerate 2-distinct-value case keeps one interior split (2 bins). The
     device twin marks for exclusion (-> +inf, pushed past the data by the sort so ``searchsorted`` ignores it):
     every entry equal to the min value, every adjacent duplicate, and every entry equal to the max value ONLY
-    when an interior distinct value exists (``has_interior``) -- so a 2-distinct column keeps its single split
+    when an interior distinct value exists (``has_interior``) - so a 2-distinct column keeps its single split
     while a 3+-distinct column merges its top two bins exactly as ``unique[1:-1]`` does. All ops are elementwise
     / reductions returning device scalars, so nothing crosses the bus; the caller returns the codes resident or
     does the one bulk (n,) result copy.
     """
     # Percentile edges via an explicit sort + linear interpolation (numpy's default 'linear' method) rather
-    # than cp.percentile, which does an internal host read (int index) that syncs. Sort is O(n log n) -- the
-    # same order cp.percentile pays internally -- but stays fully device-side. n is a host shape read (no sync).
+    # than cp.percentile, which does an internal host read (int index) that syncs. Sort is O(n log n) - the
+    # same order cp.percentile pays internally - but stays fully device-side. n is a host shape read (no sync).
     #
     # bench-attempt-rejected (2026-07-03): replacing this full cp.sort with cp.partition(xd, kth) at only the
-    # nbins+1 quantile ranks -- kth = floor/ceil of qs*(n-1), buildable ENTIRELY host-side from n + the fixed qs
+    # nbins+1 quantile ranks - kth = floor/ceil of qs*(n-1), buildable ENTIRELY host-side from n + the fixed qs
     # linspace, so partition needs NO device read and STAYS sync-free (unlike a prior attempt that read
     # cp.asnumpy(ranks)). Rejected because it is not a meaningful win: cupy's partition is a bitonic partial sort
     # whose cost is governed by the LARGEST kth, and the top interior quantile edge sits at rank ~0.9*(n-1), so
     # partition does near-full-sort work anyway (a prior micro-bench measured cp.partition only MARGINALLY faster
     # than cp.sort). The content-keyed code cache below (resident_qbin_codes) removes the sort ENTIRELY on the
-    # ~half of calls that re-bin an already-seen column -- a strictly larger, sync-free, bit-identical win than
+    # ~half of calls that re-bin an already-seen column - a strictly larger, sync-free, bit-identical win than
     # shaving a partial-sort constant off every call. Keep the simple full sort here.
     n = int(xd.size)
     qs = cp.linspace(0.0, 100.0, int(nbins) + 1)
@@ -141,7 +141,7 @@ def _sync_free_qbin_codes(cp, xd, nbins: int):
     dup[1:] = e[1:] == e[:-1]
     emin = e[0]
     emax = e[-1]
-    has_interior = cp.any((e > emin) & (e < emax))  # 0-dim device bool -- no sync
+    has_interior = cp.any((e > emin) & (e < emax))  # 0-dim device bool - no sync
     excl = (e == emin) | dup | (has_interior & (e == emax))
     e2 = cp.sort(cp.where(excl, cp.inf, e))  # excluded edges -> +inf, sorted to the tail
     return cp.searchsorted(e2, xd, side="right").astype(cp.int64)
@@ -152,15 +152,15 @@ def _quantile_bin_gpu(a: np.ndarray, nbins: int):
     to the numpy ``_quantile_bin`` fast path.
     Returns ``None`` on any failure so the caller transparently keeps the numpy path. NEVER frees the cupy
     memory pool. Codes can 1-off the numpy codes at <~1e-5 of rows where cp.percentile and np.quantile round a
-    boundary differently -- below the bin resolution, MI/cardinality selection-equivalent (the acceptance bar).
+    boundary differently - below the bin resolution, MI/cardinality selection-equivalent (the acceptance bar).
 
-    Device 1-D twin of the numpy fast path: ``cp.percentile`` (on the RAVELLED array -- cp.percentile(X,axis=0)
+    Device 1-D twin of the numpy fast path: ``cp.percentile`` (on the RAVELLED array - cp.percentile(X,axis=0)
     returns WRONG edges for an (n,1) column, the known cupy single-column bug guarded in
     ``_gpu_resident_discretize_codes``) + ``cp.unique`` edge-dedup + ``cp.searchsorted`` on the deduped interior
     edges. The unique-dedup is load-bearing on low-cardinality / mass-point columns: skipping it (or hitting the
     (n,1) percentile bug) splits a tied bin and breaks the occupied-bin partition the redundancy gate keys on.
     This mirrors the numpy ``np.unique(np.quantile(a,qs))`` + ``searchsorted(edges[1:-1], a, 'right')`` exactly
-    (cp.percentile uses [0,100] vs np.quantile's [0,1] -- same linear-interpolation edges)."""
+    (cp.percentile uses [0,100] vs np.quantile's [0,1] - same linear-interpolation edges)."""
     try:
         import cupy as cp
 
@@ -223,13 +223,13 @@ def _quantile_bin(col: np.ndarray, nbins: int) -> np.ndarray:
 
     By design, a low-cardinality column can collapse to a single (or two) bin even when it is informative: ``np.unique(np.quantile(...))`` dedupes the
     equi-frequency edges, so a column with few distinct values yields ``edges.size <= 2`` and reads MI ~= 0 here. This is the price of monotone-invariance
-    (the binning depends only on rank order, not raw spacing) and is intentional, NOT a bug -- the marginal-MI path (Layer 26) sees such columns through its
+    (the binning depends only on rank order, not raw spacing) and is intentional, NOT a bug - the marginal-MI path (Layer 26) sees such columns through its
     own binning, and the CMI-greedy step is meant to score CONDITIONAL gain on top of that. Do not "fix" this by switching to value-width bins; that would
     break the rank-invariance the CMI numbers rely on (see the bench-attempt-rejected note below for why rank-based rebinning was rejected too).
     """
     # bench-attempt-rejected (2026-06-01): replacing np.quantile value-edge
     # binning with a numba argsort rank-based equi-frequency binner was BOTH
-    # slower (0.60x: 1222ms vs 730ms / 411 calls -- numpy np.quantile uses
+    # slower (0.60x: 1222ms vs 730ms / 411 calls - numpy np.quantile uses
     # introselect partition, not a full sort, and beats numba argsort) AND
     # NOT MI-equivalent here: on tied/discrete columns rank-binning splits ties
     # across bins, shifting MI(X;y) ~2x (disc: 5.8e-5 -> 1.1e-4) and thus the
@@ -246,7 +246,7 @@ def _quantile_bin(col: np.ndarray, nbins: int) -> np.ndarray:
         # GPU path (STRICT-resident): the n-sized equi-frequency binning of the gate-redundancy /
         # subsumption / additive-fusion continuous columns is 6x on-device at n=300k (synchronized bench).
         # NO size gate under STRICT (2026-07-02, user contract): strict mode is 100% GPU residency of data
-        # and kernels -- a size crossover is exactly the KTC-style host dispatch strict forbids, so EVERY
+        # and kernels - a size crossover is exactly the KTC-style host dispatch strict forbids, so EVERY
         # finite column bins on the device (the small-column device round-trip overhead is the accepted
         # residency price; the _GPU_QBIN_MIN_ROWS crossover note below documents its wall cost). The no-CUDA
         # / non-strict default keeps the byte-identical numpy path.
@@ -303,12 +303,12 @@ def _factorize_dense_njit(joint: np.ndarray) -> tuple:
     Replaces ``np.unique(joint, return_inverse=True)``'s O(n log n) sort. The
     per-fold joint is bounded (``old_dense(0..mult-1) + c*mult``), so when the
     max id keeps the ``seen`` buffer small we use a direct-array counting pass
-    (array indexing, no hashing -- ~10x over the typed.Dict form, ~17x over
+    (array indexing, no hashing - ~10x over the typed.Dict form, ~17x over
     np.unique on the common low-cardinality group/cat joints). A typed.Dict
     fallback guards the rare cartesian-blow-up (high-card col x large running
     class count) so the lookup buffer never explodes.
 
-    Ids are assigned FIRST-SEEN, not sorted -- semantically equivalent for every
+    Ids are assigned FIRST-SEEN, not sorted - semantically equivalent for every
     consumer: the joint feeds only plug-in entropy (count-based, label-
     permutation-invariant) and further renumbering, and the next
     ``joint + c*mult`` step is a bijection regardless of the 0..k-1 permutation.
@@ -355,7 +355,7 @@ def _factorize_dense_njit(joint: np.ndarray) -> tuple:
 # factorize WALK is irreducibly sequential (each id depends on the running ``seen``/``nc`` state), but its
 # ``np.full(kmax+1, -1)`` initialisation is an independent fill that prange-splits across threads. The fill
 # is only worth the thread spin-up once it is large: synchronized micro-bench (2026-06-29, 4 threads, GTX
-# box, n=1M) put the crossover near kmax~500k -- below it parallel loses (kmax~40k 0.99x, ~200k 0.92x),
+# box, n=1M) put the crossover near kmax~500k - below it parallel loses (kmax~40k 0.99x, ~200k 0.92x),
 # above it wins and scales (500k 1.08x, 1M 1.06x, 2M 1.09x, 4M 1.12x, 16M 1.24x). At the cap (16M int64 =
 # 128 MB) the fill alone is ~28ms of the ~55ms call, so parallelising it is the single largest safe win on
 # this sequential kernel. Below the gate the fill stays serial -> bit-identical, zero regression.
@@ -406,18 +406,18 @@ def _combine_factorize_njit(joint: np.ndarray, c: np.ndarray, mult: int) -> tupl
     """Fused ``factorize(joint + c*mult)`` in ONE pass, no temporaries.
 
     Equivalent to ``_factorize_dense_njit(joint + c*mult)`` but folds the
-    multiply-add into the factorize walk -- avoids the two numpy temp arrays
+    multiply-add into the factorize walk - avoids the two numpy temp arrays
     (``c*mult`` and the sum) the `_renumber_joint` per-column step allocated, and
     walks the data once instead of three times. First-seen dense ids, so the
     induced partition + nclasses match the numpy form exactly (bit-identical).
 
-    The first-seen WALK stays serial (data-dependent on the running ``seen``/``nc`` state -- see the
+    The first-seen WALK stays serial (data-dependent on the running ``seen``/``nc`` state - see the
     iter16 GPU bench-note below). The only parallel part is the large dense ``seen`` initialisation, prange-
     filled when ``kmax+1 >= _FAC_PAR_MEMSET_MIN`` (gate keeps small buffers serial -> bit-identical, no spin-
     up tax). Result is bit-identical to :func:`_combine_factorize_serial_njit` for every input (parity-tested).
 
     bench-note (iter16, 2026-06-23, resident-GPU /loop): NOT routed to GPU. The dense renumber is a
-    first-seen sequential scan -- each output id depends on the running ``seen`` table + ``nc`` counter, a
+    first-seen sequential scan - each output id depends on the running ``seen`` table + ``nc`` counter, a
     data-dependent sequential dependency with no parallel form that preserves the FIRST-SEEN id assignment
     ORDER. A GPU sort+unique+searchsorted twin would assign ids in VALUE order, not first-seen order, changing
     the dense codes (the partition is equivalent but the integer labels differ) -> downstream joint-MI bin
@@ -475,7 +475,7 @@ def _renumber_two_dense_njit(a: np.ndarray, b: np.ndarray) -> tuple:
     separate ``factorize(a)`` pass the generic per-column path runs first.
 
     When ``(max_a+1)*(max_b+1)`` keeps a flat ``seen`` buffer under the array cap, index it by
-    ``a[i]*(max_b+1)+b[i]`` -- the same fast array-counting trick as ``_factorize_dense_njit``,
+    ``a[i]*(max_b+1)+b[i]`` - the same fast array-counting trick as ``_factorize_dense_njit``,
     applied directly to the pair so the pair is densified in a single data walk (~1.7-2.5x over
     factorize-then-combine at the FE call volume). First-seen dense ids: the induced partition +
     nclasses are identical to the two-step path (verified), so every consumer (plug-in entropy,
@@ -516,19 +516,19 @@ def _renumber_joint(*cols: np.ndarray) -> tuple[np.ndarray, int]:
     """Collapse multiple integer class arrays into a single dense class id.
 
     Returns ``(joint_classes, nclasses)``. Empty bins are pruned so the
-    resulting ids are densely numbered 0..nclasses-1 -- this is what makes
+    resulting ids are densely numbered 0..nclasses-1 - this is what makes
     multivariate Z trackable: even with d=8 support cols * 10 bins each
     (10**8 cartesian space) the actual occupied bins are <= n_samples, so
     we never allocate the cartesian space.
 
     Per-fold renumbering uses the njit hash-factorize (first-seen dense ids)
-    instead of ``np.unique`` -- see :func:`_factorize_dense_njit`.
+    instead of ``np.unique`` - see :func:`_factorize_dense_njit`.
 
     # bench-attempt-rejected (2026-07-18): per-call GPU dispatch of THIS host entry point (upload cols,
     # call :func:`_renumber_joint_gpu`, D2H the scalar cardinality) was A/B'd against the njit path at the
-    # actual call shapes (n=100k, k=2..8 conditioning columns -- see the wellbore-100k cProfile that flagged
+    # actual call shapes (n=100k, k=2..8 conditioning columns - see the wellbore-100k cProfile that flagged
     # 51.9s/6766 calls here). ``bench_renumber_joint_gpu_dispatch.py``: host 0.28-1.42ms (k=2..4) vs GPU
-    # 3.4-5.8ms even with columns ALREADY resident (no H2D) -- GPU is 4-16x SLOWER at the k<=4 shapes that
+    # 3.4-5.8ms even with columns ALREADY resident (no H2D) - GPU is 4-16x SLOWER at the k<=4 shapes that
     # dominate the call sites (pairwise xy/xz/yz/xyz joins, one-sibling-at-a-time budget loops with an
     # early-exit that makes cross-candidate batching change the amount of work done, not just its shape).
     # GPU only wins (1.4x) at k=8+ columns, wider than any call site actually builds. The already-shipped
@@ -581,7 +581,7 @@ def _dense_renumber_device(cp, keys):
     cp.unique syncs to size its unique-value output, whereas this keeps the cardinality as a DEVICE 0-dim scalar:
     argsort the keys, mark run boundaries (a value is new iff it differs from its sorted predecessor), cumsum the
     boundary flags to dense ids in sorted order, then scatter those back to the original positions. Returns
-    ``(inv, k)`` -- ``inv`` the resident densified codes, ``k`` the occupied cardinality as a device 0-dim int
+    ``(inv, k)`` - ``inv`` the resident densified codes, ``k`` the occupied cardinality as a device 0-dim int
     (so the caller can broadcast it into ``joint + c*k`` with no host read; read it once at the very end)."""
     if keys.size == 0:
         return keys.astype(cp.int64, copy=False), cp.asarray(1, dtype=cp.int64)
@@ -598,15 +598,15 @@ def _dense_renumber_device(cp, keys):
 
 def _renumber_joint_gpu(*cols):
     """Device twin of :func:`_renumber_joint`: collapse ALREADY-RESIDENT integer class arrays into a single
-    dense class id ON the device, returning ``(joint_dev, nclasses)`` -- ``joint_dev`` a resident int64 cupy
+    dense class id ON the device, returning ``(joint_dev, nclasses)`` - ``joint_dev`` a resident int64 cupy
     array densely numbered 0..nclasses-1.
 
     Used by the CMI-redundancy gate to build the round conditioning support Z as a device-born join of the
     resident candidate codes, so Z never crosses H2D (the ``cmi_z`` upload). The dense-id ASSIGNMENT differs
     from the host njit first-seen numbering (``cupy.unique`` numbers in sorted-value order), but the PARTITION
-    -- which rows share a class -- is IDENTICAL to :func:`_renumber_joint`, and every downstream consumer (the
+    - which rows share a class - is IDENTICAL to :func:`_renumber_joint`, and every downstream consumer (the
     entropy / joint-count histograms in ``batched_cmi_gpu`` / ``_cmi_from_binned_cupy`` / the perm-null) depends
-    ONLY on the partition, so the CMI -- and the gate's admit/reject decision -- is selection-identical. Each
+    ONLY on the partition, so the CMI - and the gate's admit/reject decision - is selection-identical. Each
     fold refactorises so ``mult`` stays bounded by the occupied cardinality (<= n), so the combine key
     ``joint + c*mult`` (c <= nbins-1) cannot overflow int64. Any cupy fault raises to the caller (host fallback)."""
     import cupy as cp
@@ -614,7 +614,7 @@ def _renumber_joint_gpu(*cols):
     if not cols:
         return cp.zeros(0, dtype=cp.int64), 1
     joint = cp.ascontiguousarray(cols[0].astype(cp.int64, copy=False).ravel())
-    # Device-driven dense renumber (2026-07-02): replaces cp.unique(return_inverse), which SYNCS to size its
+    # Device-driven dense renumber: replaces cp.unique(return_inverse), which SYNCS to size its
     # output, with a manual argsort -> boundary-mark -> cumsum renumber that is bit-identical (value-order dense
     # ids == cp.unique inverse) but keeps the fold multiplier ``mult`` as a DEVICE 0-dim scalar. ``joint + c*mult``
     # broadcasts the device scalar with no host read, so the whole multi-column densify runs sync-free; only the
@@ -662,14 +662,14 @@ def _joint_entropy_two_dense_njit(a: np.ndarray, b: np.ndarray) -> tuple:
     """Fused densify+entropy of the JOINT of two non-negative int class arrays in ONE walk.
 
     The CMI callers renumber a joint (``xz`` / ``xyz`` / ``xy``) ONLY to hand the dense-id array to
-    :func:`_entropy_from_classes`, then discard the labels -- the classic "caller uses only part of the
+    :func:`_entropy_from_classes`, then discard the labels - the classic "caller uses only part of the
     kernel output" waste (see CLAUDE.md). This fuses the two: index a flat ``seen`` buffer by
     ``a[i]*stride+b[i]`` (the ``_renumber_two_dense_njit`` array-counting trick) but, instead of writing a
     length-n relabel array + a second ``bincount`` pass, it accumulates the per-class COUNT inline and
-    reduces the plug-in entropy over the occupied cells at the end -- O(n + k), no length-n ``inv`` array,
+    reduces the plug-in entropy over the occupied cells at the end - O(n + k), no length-n ``inv`` array,
     no second data pass, no separate entropy call.
 
-    Returns ``(H, k)`` -- plug-in entropy (natural log) + occupied-cell count, bit-identical to
+    Returns ``(H, k)`` - plug-in entropy (natural log) + occupied-cell count, bit-identical to
     ``_entropy_from_classes(_renumber_joint(a, b)[0])`` (both are functions of the joint COUNT multiset,
     which is label-permutation-invariant; only the fp summation ORDER can differ ~1e-15). ``k == -1``
     signals an unsupported case (negative ids or a cartesian span over the cap) -> caller falls back to the
@@ -731,13 +731,13 @@ def _entropy_from_classes(classes: np.ndarray) -> tuple[float, int]:
     """``H = -sum p_i log p_i`` from an integer class array (natural log).
 
     Returns ``(H_plugin, n_nonempty_cells)``. The cell count is used by
-    Miller-Madow bias correction in :func:`_cmi_from_binned` -- plug-in
+    Miller-Madow bias correction in :func:`_cmi_from_binned` - plug-in
     MLE entropy has positive bias O((K-1)/(2n)); subtracting the same
     quantity from CMI cancels at first order.
 
     Delegates to the njit kernel after ensuring a contiguous int64 array (the
     kernel indexes a ``counts`` buffer by class id, so non-negative dense ids
-    are required -- guaranteed by the binned / ``_renumber_joint`` callers).
+    are required - guaranteed by the binned / ``_renumber_joint`` callers).
     """
     if classes.size == 0:
         return 0.0, 0
@@ -767,15 +767,15 @@ def _cmi_from_binned(
     already computed here, so a same-(x,y,z) analytic CMI null can reuse them (``precomp_cards``) instead of
     recomputing the four joints. Returns ``(cmi, cards)``; ``cards`` is ``None`` on the marginal path.
     """
-    # GPU route (2026-06-25): same partition-entropy-via-cp.unique offload as cmi_from_binned_fixed_yz,
+    # GPU route: same partition-entropy-via-cp.unique offload as cmi_from_binned_fixed_yz,
     # covering the general CMI callers (conditional-perm null, candidate scoring). value-order densify ->
     # same partition -> same CMI; selection-identical. Gated (STRICT / MLFRAME_CMI_GPU), default CPU.
     #
     # ``x`` may ALREADY be device-resident (e.g. _step_score.py's DEVICE-BORN marginal-MI path binning a
-    # candidate via _quantile_bin_gpu_resident before ever calling here) -- the shape-based gate below only
+    # candidate via _quantile_bin_gpu_resident before ever calling here) - the shape-based gate below only
     # decides whether it's worth PROACTIVELY uploading, it has no way to know the array is already on-device.
     # An already-device x MUST take the cupy path regardless of that heuristic (np.ascontiguousarray on a
-    # cupy array raises TypeError -- cupy forbids the implicit host conversion __array__ would trigger), and
+    # cupy array raises TypeError - cupy forbids the implicit host conversion __array__ would trigger), and
     # a cupy failure there must explicitly pull x/y/z_joint to host before falling back (the swallow-and-
     # retry-on-CPU pattern below assumes host arrays).
     _x_device = hasattr(x, "__cuda_array_interface__")
@@ -783,7 +783,7 @@ def _cmi_from_binned(
         try:
             return _cmi_from_binned_cupy(x, y, z_joint, return_cards=return_cards, kx=kx, kz=kz)
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _mi_greedy_cmi_fe.py:761: %s", e)
+            logger.debug("suppressed: %s", e)
             if _x_device:
                 import cupy as cp
                 x = cp.asnumpy(x)
@@ -826,7 +826,7 @@ def _cmi_from_binned(
     #   = -((k_xz-1) + (k_yz-1) - (k_z-1) - (k_xyz-1))/(2n)
     #   = (k_xyz + k_z - k_xz - k_yz)/(2n).
     # On noise frames k_xyz - k_xz dominates (XYZ has many empty cells
-    # filled by noise) so plug-in CMI is biased UP -- subtract the
+    # filled by noise) so plug-in CMI is biased UP - subtract the
     # bias to denoise.
     cmi_bias = (k_xyz + k_z - k_xz - k_yz) / (2.0 * n)
     cmi = max(0.0, cmi_plugin - cmi_bias)
@@ -877,7 +877,7 @@ def precompute_cmi_yz_terms(
     so ``H(Y,Z)``, ``H(Z)`` and their occupied-cell counts ``k_yz`` / ``k_z`` are
     invariant. Recomputing them per permutation (the plain ``_cmi_from_binned``
     path) re-renumbers ``yz`` and re-bins ``z`` every iteration and discards the
-    result -- pure wasted work. This returns the invariant block once; pair with
+    result - pure wasted work. This returns the invariant block once; pair with
     :func:`cmi_from_binned_fixed_yz` for the per-permutation evaluation.
 
     Returns ``(y_i, z_i, h_yz, h_z, k_yz, k_z, n)`` where ``y_i`` / ``z_i`` are
@@ -912,19 +912,19 @@ def cmi_from_binned_fixed_yz(
 
     ``yz_i`` (optional): the round-fixed DENSE ``(y,z)`` joint codes from
     :func:`precompute_cmi_yz_terms` (its ``yz_dense`` return). When supplied, the
-    x-dependent ``H(X,Y,Z)`` is taken as the joint entropy of ``(x, yz_i)`` -- a
+    x-dependent ``H(X,Y,Z)`` is taken as the joint entropy of ``(x, yz_i)`` - a
     TWO-array densify (partition of ``x`` with the fixed ``(y,z)`` partition ==
     partition of ``(x,y,z)``, identical counts -> identical entropy) instead of the
     3-column ``renumber(x,y,z)`` factorize (1 factorize + 2 combine walks -> 1 fused
     walk). ``None`` (external callers) keeps the exact 3-column path."""
-    # GPU route (2026-06-25): the xz / xyz joint ENTROPIES are partition statistics -- cp.unique(flat_key,
+    # GPU route: the xz / xyz joint ENTROPIES are partition statistics - cp.unique(flat_key,
     # return_counts) densifies on the device (sort+unique, value-order labels) and the counts give the SAME
     # partition -> the SAME entropy -> the SAME CMI (only fp reduction order differs ~1e-15; selection
     # identical). Routes the dominant mi_greedy CMI compute (combine_factorize + entropy) onto the GPU under
     # MLFRAME_FE_GPU_STRICT / the KTC gate, instead of the host njit renumber+entropy. Falls back to CPU on
     # any cupy error.
     #
-    # ``x`` may already be device-resident (see _cmi_from_binned's identical note) -- the shape gate cannot
+    # ``x`` may already be device-resident (see _cmi_from_binned's identical note) - the shape gate cannot
     # see that, so an already-device x forces the cupy path regardless, and a cupy failure there pulls x/y_i/
     # z_i to host explicitly before falling through (np.ascontiguousarray cannot accept a cupy array).
     _x_device = hasattr(x, "__cuda_array_interface__")
@@ -932,7 +932,7 @@ def cmi_from_binned_fixed_yz(
         try:
             return _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n)
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _mi_greedy_cmi_fe.py:896: %s", e)
+            logger.debug("suppressed: %s", e)
             if _x_device:
                 import cupy as cp
                 x = cp.asnumpy(x)
@@ -984,11 +984,11 @@ _ENT_RK = None
 _NNZ_RK = None
 
 # FUSED entropy + occupied-cell in ONE RawKernel (launch-reduction, 2026-06-25). _ent_from_counts ran TWO
-# cupy ReductionKernels (ENT_RK for sum xlog x, NNZ_RK for occupied cells) -- two cuLaunchKernel per call,
+# cupy ReductionKernels (ENT_RK for sum xlog x, NNZ_RK for occupied cells) - two cuLaunchKernel per call,
 # and after the per-candidate CMI scoring it was the measured #1 launch source (477). One grid-stride kernel
 # now reduces both: each thread accumulates (sum xlogx, nnz) over its strided cells, a block reduction in
 # shared memory folds the block, and one atomicAdd per block adds into a 2-slot output (out[0]=sum xlogx,
-# out[1]=nnz). out is cp.zeros(2) -- a cudaMemsetAsync, NOT a cuLaunchKernel -- so the call is ONE launch.
+# out[1]=nnz). out is cp.zeros(2) - a cudaMemsetAsync, NOT a cuLaunchKernel - so the call is ONE launch.
 # Same float64 plug-in entropy / same occupied-cell definition -> selection-equivalent (bit-identical sum
 # up to float reduction order, which the plug-in MI is already order-tolerant to).
 _ENT_NNZ_SRC = r"""
@@ -1078,7 +1078,7 @@ _CARD_MAX_CACHE: dict = {}
 
 
 def _cached_card(host_arr, dev_codes) -> int:
-    """Return ``max(dev_codes)+1``, memoized by a content-hash of ``host_arr`` (never the operand's ``id()`` -- an id can be reused after GC and silently return a too-small cardinality, corrupting the device joint-histogram kernels' shared-tile sizing)."""
+    """Return ``max(dev_codes)+1``, memoized by a content-hash of ``host_arr`` (never the operand's ``id()`` - an id can be reused after GC and silently return a too-small cardinality, corrupting the device joint-histogram kernels' shared-tile sizing)."""
     if dev_codes.size == 0:
         return 1
     ha = np.ascontiguousarray(np.asarray(host_arr).ravel())
@@ -1093,7 +1093,7 @@ def _cached_card(host_arr, dev_codes) -> int:
 
 # bench-attempt-rejected (2026-06-26): caching the y/z device codes (a _cached_dev resident-operand cache) to
 # skip re-uploading the fit-constant y / round-constant z H2D per candidate saved only ~61 MB / ~10 ms on the
-# F2 300k STRICT wall (below the 0.5% ship bar) -- nsys shows the redundancy gate is overhead/orchestration-
+# F2 300k STRICT wall (below the 0.5% ship bar) - nsys shows the redundancy gate is overhead/orchestration-
 # bound (GPU idle ~90%), NOT operand-H2D-bound (only ~118 operand uploads; the 1790 cudaMemcpyAsync are
 # per-kernel scalar D2H, not operand re-uploads). Not worth a DATA cache's stale id()-reuse collision risk for
 # ~10 ms. The real redundancy is the DOUBLE card computation, eliminated by the precomp_cards reuse below.
@@ -1176,7 +1176,7 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False, kx: int = 0
         dz = resident_operand(z_joint, "cmi_z", dtype=np.int64)  # z_support round-constant -> cached
         _kz_local = _cached_card(z_joint, dz)  # z_support is round-constant -> cardinality cached
     kz = _kz_local
-    # FOUR joint entropies (z, xz, yz, xyz) in ONE launch when the (x,y,z) joint fits shared -- the #1
+    # FOUR joint entropies (z, xz, yz, xyz) in ONE launch when the (x,y,z) joint fits shared - the #1
     # cuLaunchKernel source on the STRICT redundancy gate. Bit-identical; falls back to the per-joint path.
     from ._fe_batched_mi import cmi_joint_entropies_gpu
     _four = cmi_joint_entropies_gpu(dx, dy, dz, Kx, ky, kz, inv_n)
@@ -1228,7 +1228,7 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
 
     # CROSS-CALL CACHE of the (y,z)-only cardinalities (launch-reduction). In the analytic-null df the gate
     # scores MANY candidates against the SAME (y target, z support) within a greedy round, so k_z / k_yz
-    # (and ky / kz) are INVARIANT across those per-candidate calls -- only k_xz / k_xyz depend on the
+    # (and ky / kz) are INVARIANT across those per-candidate calls - only k_xz / k_xyz depend on the
     # candidate x. Recomputing k_z + k_yz per candidate was 2 of the 4 occupied-cell histograms each call.
     # Memoize them keyed by a CONTENT FINGERPRINT of (y, z) (stable within a round, distinct across rounds).
     # CORRECTNESS: ky / kz returned here are consumed as device joint-histogram WIDTHS (``_nc([dx, dz], [Kx,
@@ -1320,12 +1320,12 @@ def score_candidates_by_cmi(
     """
     if X_cand.empty:
         return pd.Series(dtype=np.float64)
-    # MI_GREEDY_RECIPES-2 fix: this used to `.astype(np.int64)` (TRUNCATE) any
-    # non-integer y BEFORE the np.unique densify below -- for a continuous y confined to one integer
+    # This used to `.astype(np.int64)` (TRUNCATE) any
+    # non-integer y BEFORE the np.unique densify below - for a continuous y confined to one integer
     # bucket (e.g. a [0,1) probability), truncation collapses every distinct value to the SAME integer
     # first, so the subsequent np.unique can no longer recover the distinctness (the exact B-18 bug class
     # already fixed in 7 sibling orth-scoring files via _coerce_y_int64, but never applied here). Densify
-    # directly via np.unique on the RAW y instead -- safe for an already-integer y too (same result).
+    # directly via np.unique on the RAW y instead - safe for an already-integer y too (same result).
     y_arr = np.asarray(y)
     # Bin y by unique-value remap (renumbers to dense 0..K-1; the caller's y may already be class-typed,
     # in which case this is a no-op renumber, or a raw continuous target, in which case this is what
@@ -1394,7 +1394,7 @@ def greedy_cmi_fe_construct(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """End-to-end CMI-greedy feature constructor.
 
-    ``seed`` (MI_GREEDY_RECIPES-1 fix): seeds the noise-floor permutation RNG
+    ``seed``: seeds the noise-floor permutation RNG
     (previously hardcoded to ``0xC011`` with no way to vary it). Defaults to the historical constant so
     existing pinned tests/behaviour stay byte-identical when the caller does not override it; pass
     ``self.random_seed`` (or any other seed) to decorrelate the FE admission gate across nominally-
@@ -1405,7 +1405,7 @@ def greedy_cmi_fe_construct(
     1. Enumerate UNARY candidates over the FULL numeric column pool (NOT a
        top-N seed pool). The whole point of CMI ranking is that columns
        with near-zero marginal ``MI(x; y)`` can still emit transforms that
-       carry the signal -- on ``y = sign(x^2 - 1)``, ``MI(x; y) ~= 0``
+       carry the signal - on ``y = sign(x^2 - 1)``, ``MI(x; y) ~= 0``
        because ``x`` is symmetric, yet ``square(x)`` is perfectly
        informative. Restricting unary enumeration to the top-N raw-MI
        cols would discard exactly the signal Layer 60 is designed to
@@ -1448,11 +1448,11 @@ def greedy_cmi_fe_construct(
     if not candidates_pool:
         return X, empty_scores
 
-    # MI_GREEDY_RECIPES-2 fix: this used to `.astype(np.int64)` (TRUNCATE) any
-    # non-integer y here, BEFORE both the raw_mi scoring below AND the np.unique densify further down --
+    # This used to `.astype(np.int64)` (TRUNCATE) any
+    # non-integer y here, BEFORE both the raw_mi scoring below AND the np.unique densify further down -
     # for a continuous y confined to one integer bucket, truncation collapses every distinct value to the
     # SAME integer first, so densification downstream can no longer recover the distinctness (the B-18 bug
-    # class). Densify via np.unique ONCE, up front, and reuse the dense y_bin everywhere below -- safe for
+    # class). Densify via np.unique ONCE, up front, and reuse the dense y_bin everywhere below - safe for
     # an already-integer/already-dense y too (pure renumber, no-op if already 0..K-1).
     y_arr = np.asarray(y)
     _, y_bin = np.unique(y_arr, return_inverse=True)
@@ -1486,10 +1486,10 @@ def greedy_cmi_fe_construct(
     if engineered.empty:
         return X, empty_scores
 
-    # 3. y_bin was already densified up front (MI_GREEDY_RECIPES-2 fix reuses it here, no re-densify
+    # 3. y_bin was already densified up front (reuses it here, no re-densify
     #    needed). Start Z EMPTY. Z grows step-by-step from greedy picks (under the fragmentation cap
     #    below). Starting with several raw cols in Z up front pushes joint Z cardinality past the
-    #    chi-squared contingency budget and collapses every candidate's CMI toward noise -- defeats the
+    #    chi-squared contingency budget and collapses every candidate's CMI toward noise - defeats the
     #    purpose of CMI ranking.
     n_samples = int(y_bin.size)
     frag_cap = max(2, n_samples // 5)
@@ -1513,7 +1513,7 @@ def greedy_cmi_fe_construct(
     # 4. Bin every engineered candidate up front. Compute a sortable
     #    bin fingerprint (tuple of the sorted unique bin counts) used
     #    below for monotone-equivalence dedup against already-picked
-    #    winners -- when Z hits the fragmentation cap (frozen Z),
+    #    winners - when Z hits the fragmentation cap (frozen Z),
     #    monotone-equivalent candidates would otherwise tie at the same
     #    plug-in CMI and all get picked.
     cand_names = list(engineered.columns)
@@ -1523,14 +1523,14 @@ def greedy_cmi_fe_construct(
         """Hashable fingerprint of a binned candidate array; monotone-equivalent candidates (identical bin assignment under equi-frequency quantization) collapse to the same fingerprint for dedup against already-picked winners."""
         return b.tobytes()
 
-    # RESIDENT candidate codes (2026-07-17): when GPU-strict-resident is on, bin every candidate ONCE on-device
+    # RESIDENT candidate codes: when GPU-strict-resident is on, bin every candidate ONCE on-device
     # (``cand_bins_dev``) and fingerprint via a device-side reduction instead of the host ``_quantile_bin`` +
     # ``.tobytes()`` pair below. This closes the confirmed residency gap (``_fe_gpu_strict.py`` docstring, "KNOWN
     # NON-PRODUCTION RESIDENCY GAP"): the host path forces one bulk (n,) D2H PER CANDIDATE just to hash its
-    # bytes. ``cand_bins`` (host) stays LAZY here -- populated on demand only for the small subset of names the
+    # bytes. ``cand_bins`` (host) stays LAZY here - populated on demand only for the small subset of names the
     # Z-fold step actually touches (at most ``top_k`` winners, via ``_host_bins`` below), not eagerly for every
     # candidate. Falls back to the fully-eager host path (unchanged, byte-identical) on any cupy failure or when
-    # GPU-strict-resident is off -- selection-identical either way (fingerprint is a dedup key, not a scored
+    # GPU-strict-resident is off - selection-identical either way (fingerprint is a dedup key, not a scored
     # quantity; a 64-bit reduction hash is the same collision-domain acceptance the resident cache
     # (``_content_hash``) already uses elsewhere in this codebase).
     cand_bins: dict[str, np.ndarray] = {}
@@ -1549,7 +1549,7 @@ def greedy_cmi_fe_construct(
                     break
                 cand_bins_dev[_name] = _codes_dev
             if cand_bins_dev:
-                # cupy (this version) has no ``bitwise_xor.reduce`` -- a weighted-sum reduction is an
+                # cupy (this version) has no ``bitwise_xor.reduce`` - a weighted-sum reduction is an
                 # equally-cheap, equally-accepted (see module docstring) content hash: same n for every
                 # candidate this fit, so the odd-prime weight vector is built once and reused.
                 _fp_n = next(iter(cand_bins_dev.values())).size
@@ -1569,7 +1569,7 @@ def greedy_cmi_fe_construct(
 
     def _host_bins(name: str) -> np.ndarray:
         """Host projection of a candidate's binned codes, materialized LAZILY (only when the host-only Z-fold
-        step below needs it) instead of eagerly for the whole candidate pool -- the one remaining, deliberate
+        step below needs it) instead of eagerly for the whole candidate pool - the one remaining, deliberate
         per-winner D2H (bounded by ``top_k``, not by candidate count)."""
         b = cand_bins.get(name)
         if b is None:
@@ -1591,7 +1591,7 @@ def greedy_cmi_fe_construct(
     # floor scales with the conditioning's fragmentation.
     # Salt the caller's seed against the historical constant via SeedSequence rather than
     # handing small user-chosen integers (e.g. random_state=0) straight to the permutation
-    # RNG: raw small seeds can land on unlucky permutation draws (MI_GREEDY_RECIPES-1 follow-up).
+    # RNG: raw small seeds can land on unlucky permutation draws.
     rng_floor = np.random.default_rng(np.random.SeedSequence([0xC011, seed & 0xFFFFFFFF]))
 
     def _noise_floor_for_current_z() -> float:
@@ -1614,7 +1614,7 @@ def greedy_cmi_fe_construct(
                 _zc = z_joint_dev if z_joint_dev is not None else (z_joint if (z_joint is not None and z_joint.size > 0) else None)
                 if cand_bins_dev:
                     # RESIDENT: assemble the sampled columns from the already-device-resident candidate codes
-                    # (no per-round H2D of X) and keep the (K,) CMI vector resident too -- only the FINAL scalar
+                    # (no per-round H2D of X) and keep the (K,) CMI vector resident too - only the FINAL scalar
                     # 0.95-quantile crosses back, not the bulk (K,) vector the non-resident branch below D2Hs.
                     import cupy as _cp
 
@@ -1629,12 +1629,12 @@ def greedy_cmi_fe_construct(
                 _cmis = np.asarray(batched_cmi_gpu(_Xs, y_shuf, _zc), dtype=np.float64)
                 return float(np.quantile(_cmis, 0.95))
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _mi_greedy_cmi_fe.py:1497: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
         # Hoist the y/z-invariant CMI block out of the sampled-candidate scan: y_shuf and z_joint are FIXED
         # across the 24 samples, so the plain per-sample ``_cmi_from_binned`` recomputed-and-discarded
         # ``renumber(y_shuf, z)`` + ``H(Z)`` + ``H(Y,Z)`` (or ``H(Y)`` on the marginal path) 24 times per step
-        # -- pure wasted _renumber_joint / _entropy_from_classes work. Precompute the invariant block once and
+        # - pure wasted _renumber_joint / _entropy_from_classes work. Precompute the invariant block once and
         # score each sample via the x-only fixed helper. Bit-identical to the plain path (same MM plug-in CMI;
         # only fp reduction order can differ ~1e-15), and the floor is the order-independent 0.95 quantile.
         if z_joint is not None and z_joint.size > 0:
@@ -1694,7 +1694,7 @@ def greedy_cmi_fe_construct(
 
                 if cand_bins_dev:
                     # RESIDENT: the candidate codes are already device-resident (binned once up front via
-                    # ``_quantile_bin_gpu_resident``) -- stack them directly instead of rebuilding + re-uploading
+                    # ``_quantile_bin_gpu_resident``) - stack them directly instead of rebuilding + re-uploading
                     # a host (n, K) matrix every round.
                     import cupy as _cp
 
@@ -1704,8 +1704,8 @@ def greedy_cmi_fe_construct(
                     _Xc = np.empty((int(y_bin.shape[0]), len(_scan)), dtype=np.int64)
                     for _j, _nm in enumerate(_scan):
                         _Xc[:, _j] = _host_bins(_nm)
-                # RESIDENT Z (2026-07-17): prefer the resident conditioning support -- folded fully on-device by
-                # ``_renumber_joint_gpu`` at the winner-fold step below -- over the host mirror. batched_cmi_gpu
+                # RESIDENT Z: prefer the resident conditioning support - folded fully on-device by
+                # ``_renumber_joint_gpu`` at the winner-fold step below - over the host mirror. batched_cmi_gpu
                 # accepts a resident z as-is (no H2D), closing the round-constant ``cmi_z`` re-upload this loop
                 # otherwise pays every round Z changes.
                 _zc = z_joint_dev if z_joint_dev is not None else (z_joint if _have_z else None)
@@ -1727,7 +1727,7 @@ def greedy_cmi_fe_construct(
         else:
             # FALLBACK ONLY (GPU-off / batched call faulted): the y/z-invariant CMI block
             # (H(Y,Z)/H(Z) + their renumberings) is only needed by this per-candidate loop, not the batched
-            # path above -- computed here, lazily, instead of eagerly every round (2026-07-17: it used to run
+            # path above - computed here, lazily, instead of eagerly every round (2026-07-17: it used to run
             # unconditionally even when the batched path succeeded and its output went unused, and it forced
             # ``z_joint`` to be a HOST array every round). ``_host_z()`` materializes the host mirror of
             # ``z_joint_dev`` on first use in this fallback only.
@@ -1775,12 +1775,12 @@ def greedy_cmi_fe_construct(
         # selected, but later CMI continues against the previous Z so
         # downstream candidates are still measurable).
         if cand_bins_dev:
-            # RESIDENT fold (2026-07-17): the winner's codes are already device-resident
-            # (``cand_bins_dev[best_name]``) -- fold them into Z entirely on-device via
+            # RESIDENT fold: the winner's codes are already device-resident
+            # (``cand_bins_dev[best_name]``) - fold them into Z entirely on-device via
             # ``_renumber_joint_gpu`` instead of materializing the winner's (n,) codes host-side just to
             # call the host ``_renumber_joint``. ``z_joint`` (host) is left ``None`` and only backfilled
             # lazily (``_host_z`` in the fallback branch above) if a later round's batched CMI call faults
-            # and needs a host mirror -- the common, all-batched-rounds-succeed path never materializes it.
+            # and needs a host mirror - the common, all-batched-rounds-succeed path never materializes it.
             import cupy as _cp
 
             new_support_dev = cand_bins_dev[best_name]
@@ -1841,7 +1841,7 @@ def greedy_cmi_fe_construct_with_recipes(
     Recipes reuse kind ``"mi_greedy_transform"`` (same as Layer 26) so the
     replay code path is shared infrastructure.
 
-    ``seed``: see :func:`greedy_cmi_fe_construct`'s matching parameter (MI_GREEDY_RECIPES-1 fix).
+    ``seed``: see :func:`greedy_cmi_fe_construct`'s matching parameter.
     """
     from ._mi_greedy_fe import _parse_binary_name, _parse_unary_name
     from .engineered_recipes import build_mi_greedy_transform_recipe

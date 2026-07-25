@@ -2,7 +2,7 @@
 
 Layer 87 ships whole-fold grouped aggregations: ``group_mean(value | entity)``
 computed over EVERY train row. For time-series / transaction data this peeks at
-the future -- the per-entity mean used to score an early row already contains
+the future - the per-entity mean used to score an early row already contains
 that entity's LATER rows. The model trains on a statistic it can never compute
 at inference time (you don't know a user's future spend when scoring today),
 so the train-CV score is inflated and the forward holdout collapses. Every
@@ -11,13 +11,13 @@ keyed on a time column, which by construction only see the past.
 
 This module provides three leak-safe temporal FE families:
 
-* ``generate_expanding_agg_features`` -- sort by ``time_col`` within entity,
+* ``generate_expanding_agg_features`` - sort by ``time_col`` within entity,
   compute the EXPANDING stat over rows strictly BEFORE the current one
   (``expanding(mean/std/count/min/max).shift(1)``). Row 0 of each entity has no
   history and falls back to the global prior.
-* ``generate_rolling_window_agg_features`` -- rolling TIME-window stat (pandas
+* ``generate_rolling_window_agg_features`` - rolling TIME-window stat (pandas
   rolling on a datetime index), shifted by one row to exclude the current.
-* ``generate_lag_features`` -- the entity's value at ``t - lag`` (autoregressive
+* ``generate_lag_features`` - the entity's value at ``t - lag`` (autoregressive
   signal); unseen / out-of-history positions fall back to the global prior.
 
 Recipe-based replay (CRITICAL leak-safety contract)
@@ -37,7 +37,7 @@ The ``y`` array is consumed ONLY by the MI gate in :func:`hybrid_temporal_agg_fe
 to rank candidates; the recipes carry no ``y`` reference.
 
 MEMORY: this family is OPT-IN (``fe_temporal_agg_enable=False`` by default) precisely because the leak-safety contract
-requires each recipe to persist the FULL per-entity train history (timestamps + values) -- O(n_train) per value column,
+requires each recipe to persist the FULL per-entity train history (timestamps + values) - O(n_train) per value column,
 carried on the recipe and therefore in any pickled fitted state. There is no cheaper representation: replaying a test row's
 expanding / rolling / lag statistic against "the train past" needs the actual past values. Enable it only for genuine
 time-series targets, and prefer rolling windows / a bounded lag set over unbounded expanding history on very large frames.
@@ -78,8 +78,8 @@ from ._temporal_agg_fe_rolling import (
     build_temporal_rolling_recipe,
     engineered_name_rolling,
     generate_rolling_window_agg_features,
-    _numeric_window,  # noqa: F401 -- re-exported for tests exercising the rolling njit kernel by its historical module path
-    _rolling_stat_past_only,  # noqa: F401 -- re-exported for tests exercising the rolling njit kernel by its historical module path
+    _numeric_window,  # noqa: F401 - re-exported for tests exercising the rolling njit kernel by its historical module path
+    _rolling_stat_past_only,  # noqa: F401 - re-exported for tests exercising the rolling njit kernel by its historical module path
 )
 
 EXPANDING_STATS = ("mean", "std", "count", "min", "max")
@@ -107,7 +107,7 @@ def _entity_key_series(X: pd.DataFrame, entity_cols: Sequence[str]) -> pd.Series
     # Route each entity column through the canonical group token (int<->float drift safe): a bare ``.astype(str)``
     # makes fit-int ``1`` -> "1" and predict-float ``1.0`` -> "1.0" DIFFERENT keys, so an entity id that arrives as
     # int64 at fit and float64 at inference (a NaN elsewhere promoting the column, a Parquet round-trip) misses every
-    # ``history`` entry and silently routes every test row to the global prior -- the temporal feature becomes a dead
+    # ``history`` entry and silently routes every test row to the global prior - the temporal feature becomes a dead
     # constant at serving. group_key_strings collapses integral int/float to the same token (per-unique, still fast).
     from ._internals import group_key_strings
 
@@ -192,7 +192,7 @@ _EXPANDING_STAT_CODE = {"count": 0, "mean": 1, "std": 2, "min": 3, "max": 4}
 @numba.njit(cache=True)
 def _expanding_stat_past_only_njit(sorted_vals, group_codes, stat_code, n_groups):
     """Sequential per-entity expanding stat over the strict past. Dense int-code accumulator ARRAYS (indexed by the
-    per-entity code) replace the Python dicts of the reference loop -- same running arithmetic, bit-identical incl NaN.
+    per-entity code) replace the Python dicts of the reference loop - same running arithmetic, bit-identical incl NaN.
     ``stat_code``: 0=count 1=mean 2=std 3=min 4=max. Not prange (running accumulator is order-dependent)."""
     n = sorted_vals.size
     out = np.full(n, np.nan, dtype=np.float64)
@@ -530,7 +530,7 @@ def _replay_keys_times(X_test, entity_cols, time_col):
 def apply_temporal_expanding(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarray:
     """Replay an expanding stat for each test row against the stored TRAIN
     history (all earlier-timestamped train rows of the same entity) PLUS
-    earlier rows of the same entity within the test frame -- never the row's
+    earlier rows of the same entity within the test frame - never the row's
     own future."""
     entity_cols = list(recipe_extra["entity_cols"])
     value_col = recipe_extra["value_col"]
@@ -552,7 +552,7 @@ def apply_temporal_expanding(X_test: pd.DataFrame, recipe_extra: dict) -> np.nda
     # Running per-entity accumulators (count / sum / Welford-M2 / min / max). Train history is MERGED into the
     # time-ordered stream via a per-entity pointer: before scoring a test row at time t, only train rows STRICTLY
     # EARLIER than t are folded in. The previous implementation seeded the accumulator with the entity's ENTIRE train
-    # history up front, so a test row whose timestamp fell inside the train time range saw FUTURE train values -- a
+    # history up front, so a test row whose timestamp fell inside the train time range saw FUTURE train values - a
     # look-ahead leak / train-serve skew (fit never lets an expanding row see same-entity rows at a later time). This
     # matches apply_temporal_rolling's strict ``all_t < t`` contract. Each row stays O(1): O(N) total. mean uses
     # sum/count, std uses Welford-M2 (reduction-order delta ~1e-9, never selection-altering).
@@ -668,7 +668,7 @@ def apply_temporal_lag(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarray:
     # Per-entity time-sorted train history + a merge pointer, so a test row's positional lag counts ONLY train rows
     # STRICTLY EARLIER in time (plus earlier within-test rows). The previous implementation pre-seeded the buffer with
     # the entity's ENTIRE train history regardless of the test row's timestamp, so a test row inside the train time
-    # range saw FUTURE train values in its positional history -- a look-ahead leak / train-serve skew. Train values
+    # range saw FUTURE train values in its positional history - a look-ahead leak / train-serve skew. Train values
     # (finite or not) are appended in time order to preserve the positional-lag semantics of the fit side.
     h_sorted: dict[str, tuple] = {}
     h_pos: dict[str, int] = {}
@@ -787,7 +787,7 @@ def hybrid_temporal_agg_fe(
             try:
                 y_arr = pd.qcut(y_arr, q=10, labels=False, duplicates="drop").to_numpy()
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _temporal_agg_fe.py:967: %s", e)
+                logger.debug("suppressed: %s", e)
                 pass
         _, y_arr = np.unique(y_arr, return_inverse=True)
     y_bin = y_arr.astype(np.int64)

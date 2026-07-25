@@ -10,7 +10,7 @@ import threading
 _module_logger = logging.getLogger("mlframe.feature_selection.filters._feature_engineering_pairs")
 
 
-# Wave 27 P1 (2026-05-20): ``check_prospective_fe_pairs`` is dispatched via
+# Wave 27 P1: ``check_prospective_fe_pairs`` is dispatched via
 # ``parallel_run`` from mrmr.py with backend='threading'. The function
 # accumulates per-binary-transform timings into a shared ``times_spent``
 # defaultdict via ``+=``. Python's ``+=`` on a float is load-add-store and

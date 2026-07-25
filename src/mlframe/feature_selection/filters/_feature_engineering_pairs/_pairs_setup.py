@@ -1,13 +1,13 @@
 """Pre-loop operand setup for ``check_prospective_fe_pairs`` (carved 2026-06-22,
-Tier E -- third sibling).
+Tier E - third sibling).
 
 Two verbatim setup blocks lifted out of ``_pairs_core.check_prospective_fe_pairs``
 so the parent orchestration drops under the 1k-LOC ceiling:
 
-  * ``_fit_prewarp_and_gate_med`` -- the per-operand learned pre-warp (rank-1 ALS,
+  * ``_fit_prewarp_and_gate_med`` - the per-operand learned pre-warp (rank-1 ALS,
     out-of-sample validation) + the per-operand median-gate fit. Returns the four
     fitted-state objects the rest of the pair search consumes.
-  * ``_build_operand_table`` -- the unary-materialise loop that fills
+  * ``_build_operand_table`` - the unary-materialise loop that fills
     ``transformed_vars`` (in place) + the ``{(var, unary): col}`` index, plus the
     gated GPU-resident operand-table mirror. Returns ``vars_transformations``.
 
@@ -45,11 +45,11 @@ def _fit_prewarp_and_gate_med(
     _gate_med_median_by_var)``.
 
     CAVEAT: when ``_use_subsample`` is set, both the prewarp ALS coefficients and the gate-med medians are estimated on the
-    pair-search SUBSAMPLE (``_sample_idx``), not on full n -- deliberately, so they align with the subsampled operand values
+    pair-search SUBSAMPLE (``_sample_idx``), not on full n - deliberately, so they align with the subsampled operand values
     the pair search scores against. They are therefore subsample estimates and may differ slightly from a full-n fit. This is
     safe by construction: the FROZEN constant is stored on the survivor recipe and replayed closed-form (leak-free), so the
     transform-time column is an exact function of the stored constant regardless of how that constant was estimated."""
-    # PER-OPERAND PRE-WARP setup (2026-06-02). When enabled, fit ONE learned
+    # PER-OPERAND PRE-WARP setup. When enabled, fit ONE learned
     # 1-D pre-warp per raw operand against the (subsample-aligned) target, and
     # expose it as an extra pseudo-unary named ``_PREWARP_UNARY`` so the existing
     # unary x unary x binary search naturally considers ``binary(prewarp(a),
@@ -78,20 +78,20 @@ def _fit_prewarp_and_gate_med(
         # for a var shared across pairs (pairs are processed most-prospective-
         # first, so a shared var binds to its strongest interaction). None specs
         # leave the pseudo-unary unregistered for that var.
-        # Q8 (2026-06-07): route the prewarp operand extraction through the SHARED
+        # Q8: route the prewarp operand extraction through the SHARED
         # ``_extval_raw_col`` memo (the single {var: raw-ndarray} cache) instead of a
         # second un-memoised ``X.iloc[...].values`` per call. The prewarp loop reads each
         # pair's two operands, and a var shared across many prospective pairs was previously
         # re-extracted once PER pair; the shared memo extracts each distinct var ONCE.
         # Bit-identical: ``_extval_raw_col`` performs the IDENTICAL ``.values`` / ``.to_numpy()``
-        # extract (same None-on-missing guard) -- only the redundant re-reads are removed.
+        # extract (same None-on-missing guard) - only the redundant re-reads are removed.
         _operand_vals = _extval_raw_col
 
-        # OUT-OF-SAMPLE PREWARP VALIDATION (2026-06-03). The ALS prewarp is a
+        # OUT-OF-SAMPLE PREWARP VALIDATION. The ALS prewarp is a
         # SUPERVISED per-operand fit; at small n it overfits noise operands (the
         # in-sample uplift is inflated by the fit AND by the multiple operand/pair
         # comparisons), so a noise-paired warp clears the in-sample uplift gate,
-        # gets engineered, and ABSORBS a genuine feature -- the raw column then
+        # gets engineered, and ABSORBS a genuine feature - the raw column then
         # reads as redundant and is dropped, leaving a noise-diluted feature
         # (measured: a genuine X5 dropped at n=500). Guard: fit the warp on a TRAIN
         # slice and keep it only if its rank-1 reconstruction f(a)*g(b) still tracks
@@ -148,16 +148,16 @@ def _fit_prewarp_and_gate_med(
         # (1) A per-pair MEMO / cross-chunk shared cache to drop "wasted" refits was a NO-OP:
         # instrumentation showed every distinct (var_a, var_b) index pair is already fit EXACTLY
         # ONCE per FE step (memo never hit a duplicate). The apparent "32 full fits / 8 distinct
-        # pairs" signal was a measurement artifact -- distinct var-index pairs collided under a
+        # pairs" signal was a measurement artifact - distinct var-index pairs collided under a
         # first-2-operand-values signature; there is no redundant fitting to eliminate, so the
         # batched/shared-factorisation lever (B) has no target.
-        # (2) A PRE-SCREEN (A) -- skip the fit when the prewarp cannot clear the +5% demotion bar
-        # -- needs the clean-form's continuous-y |corr|, but that is the best NON-prewarp ENGINEERED
+        # (2) A PRE-SCREEN (A) - skip the fit when the prewarp cannot clear the +5% demotion bar
+        # - needs the clean-form's continuous-y |corr|, but that is the best NON-prewarp ENGINEERED
         # config (unary x unary x binary), i.e. the very search being timed; it is not cheaply
         # computable before the fit. The cheap proxy max(best_single_unary|corr(a)|,|corr(b)|) does
         # NOT separate cleanly: measured prewarp_recon/best_single_unary ratio on the canonical
         # demoted pairs ranged 1.00-1.12 while the genuinely-non-monotone RETAINED case
-        # (y=(a**3-2a)*(b**2-b)) ranged 1.05-1.47 -- overlapping bands, so any skip threshold safe
+        # (y=(a**3-2a)*(b**2-b)) ranged 1.05-1.47 - overlapping bands, so any skip threshold safe
         # for the prewarp_retained pin (>=1.36) would leave most demoted pairs unskipped, and a
         # tighter one would risk pruning the retained case. The whole lstsq/ALS stage is only ~2.8s
         # of a ~128s canonical n=100k fit (~2.2%), and only a fraction is safely skippable, so the
@@ -184,11 +184,11 @@ def _fit_prewarp_and_gate_med(
             if _vb not in _prewarp_spec_by_var:
                 _prewarp_spec_by_var[_vb] = _sb
 
-    # PER-OPERAND MEDIAN GATE setup (2026-06-04). When enabled, fit ONE TRAIN
+    # PER-OPERAND MEDIAN GATE setup. When enabled, fit ONE TRAIN
     # median per raw operand (on the subsample-aligned slice, exactly like the
     # operand values the unary search consumes) and expose it as an extra
     # pseudo-unary named ``_GATE_MED_UNARY``. The fit is a single ``np.median``
-    # per operand -- no supervision, no held-out validation (a median does not
+    # per operand - no supervision, no held-out validation (a median does not
     # overfit). The fitted float per var is kept in ``_gate_med_median_by_var``
     # for survivor recipe construction; the gated 0/1 column is written into
     # ``transformed_vars`` like any other unary. Operands missing from
@@ -211,10 +211,10 @@ def _fit_prewarp_and_gate_med(
                 _gmed = float(np.nanmedian(_gf)) if _gf.size else 0.0
                 if not np.isfinite(_gmed):
                     continue
-                # FE_PAIRS_CORE-3 fix: the comment claimed "Reject no-variance
+                # The comment claimed "Reject no-variance
                 # operands (a constant gate is dead)" but the ONLY guard was the isfinite check above,
                 # which does not reject a literal constant, non-finite-safe operand (a degenerate/dummy
-                # column with a well-defined finite median) -- it registered under gate_med and
+                # column with a well-defined finite median) - it registered under gate_med and
                 # materialised an all-zero dead column ((x > median) == False everywhere when x is
                 # constant), wasting unary+binary+MI-sweep work for every constant column whenever
                 # fe_gate_med_enable=True. Add the variance guard the comment already promised.
@@ -249,13 +249,13 @@ def _build_operand_table(
     # GPU-RESIDENT OPERAND TABLE (phase 1, gated). Record each successfully-built operand column's
     # (col_idx, raw_vals, unary_name) so a GPU-resident mirror of ``transformed_vars`` can be produced ON
     # the device (the bulk plain-unary columns rebuilt via _unary_apply; prewarp/gate_med/poly copied from
-    # the host) -- removing the materialise H2D. Populated only when the gate is on (else stays empty/cheap).
+    # the host) - removing the materialise H2D. Populated only when the gate is on (else stays empty/cheap).
     from .._gpu_resident_fe import _cuda_present
     # fe_gpu_resident_operands_enabled's HOME module is _gpu_resident_materialise (carved there 2026-06-23);
     # _gpu_resident_select only RE-EXPORTS it via a bottom-of-module rebind loop. That re-export is NOT present
     # under a partial-init import cycle: when _gpu_resident_materialise is imported first, _gpu_resident_select's
     # rebind loop runs while _gpu_resident_materialise is mid-top-import (the name not yet defined), so the
-    # re-export is silently skipped and importing it from _gpu_resident_select raises ImportError -- which the
+    # re-export is silently skipped and importing it from _gpu_resident_select raises ImportError - which the
     # try/except below then swallows, DISABLING the GPU-resident operand build (a silent residency regression).
     # Import from the HOME module so the name is always present regardless of sibling import order.
     from .._gpu_resident_materialise import fe_gpu_resident_operands_enabled
@@ -268,13 +268,13 @@ def _build_operand_table(
     i = 0
     for raw_vars_pair, _pair_mi in prospective_pairs.keys():
         for var in raw_vars_pair:
-            # Q8 (2026-06-07): SHARED {var: raw-ndarray} memo. This main unary-materialise
+            # Q8: SHARED {var: raw-ndarray} memo. This main unary-materialise
             # loop iterates over (pair, var); a var shared across prospective pairs was
             # previously re-extracted via ``X.iloc[...].values`` once per occurrence. Reading
             # the shared ``_extval_raw_col`` memo (same Polars/pandas extract: ``X[:, idx].to_numpy()``
             # / ``X.iloc[:, idx].values``) extracts each distinct var ONCE. Bit-identical raw values.
             #
-            # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): ``_extval_raw_col`` now also
+            # ENGINEERED-OPERAND FEED-FORWARD: ``_extval_raw_col`` now also
             # resolves engineered operands (var not in ``original_cols``) by NAME from the
             # augmented frame, so a step-k>1 ``(eng_i, eng_j)`` pair materialises a real
             # composite candidate. It returns ``None`` only when the var resolves to neither
@@ -357,7 +357,7 @@ def _build_operand_table(
                                     transformed_vars[:, i] = tr_func(vals)
                     except Exception as e:
                         # ``np.isnan`` / ``np.isinf`` / ``np.nanmin`` only work on float dtypes. When ``vals`` is object/string (e.g. a polars Utf8 cat column not encoded
-                        # before reaching FE), calling them inside the error-log formatter itself raises -- masking the real transformation error and aborting MRMR
+                        # before reaching FE), calling them inside the error-log formatter itself raises - masking the real transformation error and aborting MRMR
                         # entirely. Compute numeric-only diagnostics conditionally.
                         if np.issubdtype(vals.dtype, np.floating):
                             _diag = f", isnan={np.isnan(vals).sum()}, " f"isinf={np.isinf(vals).sum()}, nanmin={np.nanmin(vals)}"

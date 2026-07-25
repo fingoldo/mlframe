@@ -1,4 +1,4 @@
-"""Layer 74 (2026-06-01): CMIM (Conditional Mutual Information Maximisation,
+"""Layer 74: CMIM (Conditional Mutual Information Maximisation,
 Fleuret 2004) redundancy-aware ranking for hybrid orth-poly FE.
 
 Why this layer
@@ -36,12 +36,12 @@ refinement of Bennasar 2015.
 CMIM vs JMIM (Layer 72)
 -----------------------
 
-* JMIM scores ``min_j I((X_k, X_j); Y)`` -- a pairwise JOINT MI taken
+* JMIM scores ``min_j I((X_k, X_j); Y)`` - a pairwise JOINT MI taken
   together with each support member. The joint construction means the
   candidate gets credit for INTERACTION with the support: a candidate
   that is marginally uninformative but jointly informative with ``X_j``
   posts a HIGH JMIM contribution at that ``j``.
-* CMIM scores ``min_j I(X_k; Y | X_j)`` -- a pairwise CONDITIONAL MI
+* CMIM scores ``min_j I(X_k; Y | X_j)`` - a pairwise CONDITIONAL MI
   given each support member. The conditional construction REMOVES
   ``X_j``'s contribution: a candidate that is redundant with ``X_j``
   (i.e. carries the SAME info ``X_j`` already carries about ``Y``) gets
@@ -50,7 +50,7 @@ CMIM vs JMIM (Layer 72)
 The practical difference: JMIM rewards complementarity, CMIM penalises
 redundancy. On a fixture where ``X_k`` and ``X_j`` are near-copies but
 both correlated with ``Y``, JMIM scores ``I((X_k, X_j); Y) ~ I(X_j; Y)``
-(no penalty -- the joint is as informative as the existing support),
+(no penalty - the joint is as informative as the existing support),
 whereas CMIM scores ``I(X_k; Y | X_j) ~ 0`` (full redundancy penalty).
 Giving users a choice between the two is the empirical recommendation
 of Brown 2012 (Sec. 6): JMIM wins on heavily-INTERACTING feature
@@ -87,17 +87,17 @@ For ``p`` candidates and ``|S|`` support columns, CMIM runs ``p * |S|``
 ``CMI(X; Y | X_j)`` evaluations. Each CMI is ``O(n)`` after
 ``_renumber_joint`` (dense-renumber trick from Layer 60 keeps memory at
 ``O(n)`` regardless of the cartesian space). Calibration: ``n = 2000``,
-``p = 50``, ``|S| = 5`` -- ~ 250 CMI evaluations, sub-second on a modern
+``p = 50``, ``|S| = 5`` - ~ 250 CMI evaluations, sub-second on a modern
 laptop.
 
 Recipe replay
 -------------
 
-Each emitted column is backed by an ``orth_univariate`` recipe -- the
-SAME kind Layer 21 uses -- because the engineered VALUES are bit-equal
+Each emitted column is backed by an ``orth_univariate`` recipe - the
+SAME kind Layer 21 uses - because the engineered VALUES are bit-equal
 to Layer 21; only the SCORING (and therefore the selection) changes.
 
-NOT wired into ``MRMR.fit`` by default -- opt-in via
+NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_hybrid_orth_cmim_enable=True``.
 """
 from __future__ import annotations
@@ -133,7 +133,7 @@ __all__ = [
 def _coerce_y_int64(y) -> np.ndarray:
     """Dense int64 class labels. Non-integer y is densified via
     ``np.unique(return_inverse=...)`` rather than truncated with
-    ``.astype(int64)`` -- plain truncation merges distinct labels and destroys
+    ``.astype(int64)`` - plain truncation merges distinct labels and destroys
     continuous-y signal (everything in [0, 1) collapses to class 0)."""
     arr = np.asarray(y).ravel()
     if np.issubdtype(arr.dtype, np.integer):
@@ -151,7 +151,7 @@ def _factorize_pack(*cols: np.ndarray) -> tuple[np.ndarray, int]:
     at n=2500).
 
     The output class ids may differ from :func:`_renumber_joint`'s
-    SORTED ids, but the resulting class-count MULTISET is identical --
+    SORTED ids, but the resulting class-count MULTISET is identical -
     and the downstream consumer (:func:`_entropy_from_classes` via
     ``np.bincount``) is invariant under class-id permutation, so the
     final CMI value is bit-equal.
@@ -197,11 +197,11 @@ def _build_cmi_yz_cache(
     selected_bins: Sequence[np.ndarray],
 ) -> list[tuple[np.ndarray, np.ndarray, float, float, int, int]]:
     """Pre-compute the ``(yz, z, h_z, h_yz, k_z, k_yz)`` tuple for every
-    support member -- these depend ONLY on ``y_bin`` and the support
+    support member - these depend ONLY on ``y_bin`` and the support
     member's bin codes and so are invariant across candidates. Reusing
     them across the ``p`` candidate columns turns the inner CMI computation
     from 3 joint-renumbers + 4 entropies per (cand, support) pair to
-    2 joint-renumbers + 2 entropies per pair -- matching the analytic
+    2 joint-renumbers + 2 entropies per pair - matching the analytic
     structure of CMIM where (yz, z) terms are shared.
 
     Returns a list of ``(yz_joint, z_int64, h_z, h_yz, k_z, k_yz)`` tuples
@@ -238,7 +238,7 @@ def _cmi_from_binned_with_cached_z(
     correction ``(k_xyz + k_z - k_xz - k_yz) / (2n)``.
     """
     x_i = np.ascontiguousarray(x_bin, dtype=np.int64)
-    # xyz is built from x and the pre-renumbered yz -- numerically
+    # xyz is built from x and the pre-renumbered yz - numerically
     # equivalent to renumber(x, y, z) because the packed factorisation
     # is associative on the COUNT MULTISET (entropy is invariant under
     # class-id permutation).
@@ -257,7 +257,7 @@ def _cmim_score_cached(
     cache: list,
     n: float,
 ) -> float:
-    """Cached-z fast path for :func:`cmim_score` -- bit-equivalent."""
+    """Cached-z fast path for :func:`cmim_score` - bit-equivalent."""
     if not cache:
         # Empty support -> marginal MI fallback via the public helper so
         # the bias correction path remains a single source of truth.
@@ -355,7 +355,7 @@ def score_features_by_cmim(
     current_support : Optional[DataFrame]
         Extra reference columns added to ``S`` for the redundancy min.
         When None or empty, ``S`` defaults to ``raw_X`` (the natural
-        choice when no MRMR support has been picked yet -- ranking
+        choice when no MRMR support has been picked yet - ranking
         candidates against the raw inputs is the "first-round" CMIM).
     n_bins : int
         Equi-frequency bin count per column. Same default as the
@@ -383,7 +383,7 @@ def score_features_by_cmim(
     if engineered_X.empty:
         return pd.DataFrame(columns=empty_cols)
 
-    # Per-source baseline marginal MI -- used to populate the ``uplift``
+    # Per-source baseline marginal MI - used to populate the ``uplift``
     # column so the CMIM ranking is comparable across columns with very
     # different source-marginal magnitudes.
     y_int = _coerce_y_int64(y)
@@ -423,16 +423,16 @@ def score_features_by_cmim(
     # Layer 84 optimization: pre-compute the (yz, z, h_z, h_yz, k_z, k_yz)
     # tuple for every support member once. These depend only on
     # ``y_bin`` + the support member's bin codes and are invariant across
-    # the ``p_eng`` candidate columns -- caching saves ``p_eng-1``
+    # the ``p_eng`` candidate columns - caching saves ``p_eng-1``
     # ``np.unique`` calls per support member (~6x speedup on a typical
     # n=2500, p=20 fixture). Bit-equivalent to the per-call path.
     support_col_names = list(use_support.columns)
     n_rows = float(max(1, y_bin.size))
     full_cache = _build_cmi_yz_cache(y_bin, sel_bins)
 
-    # Precompute the (support member != source) filtered cache list ONCE PER UNIQUE SOURCE (2026-07-12):
+    # Precompute the (support member != source) filtered cache list ONCE PER UNIQUE SOURCE:
     # cache_filtered depends only on ``source``, which repeats across every degree/basis variant of the
-    # same raw column (x1__He2, x1__He3, x1__T2, ...) -- rebuilding it per ENGINEERED column was a pure
+    # same raw column (x1__He2, x1__He3, x1__T2, ...) - rebuilding it per ENGINEERED column was a pure
     # O(p_eng * p_support) list-comprehension redo of a value identical for every column sharing a source.
     _sources_seen: list[str] = []
     for eng_name in engineered_X.columns:
@@ -453,7 +453,7 @@ def score_features_by_cmim(
             nbins=int(n_bins),
         )
         # Fleuret 2004 CMIM: min over support of CMI(cand; y | X_j).
-        # CRITICAL: skip the candidate's own raw source when scoring --
+        # CRITICAL: skip the candidate's own raw source when scoring -
         # CMI(He_2(x_dup_a); y | x_dup_a) collapses to ~0 trivially
         # (the engineered column is a deterministic function of its
         # source). We want the redundancy filter to penalise OVERLAP
@@ -475,7 +475,7 @@ def score_features_by_cmim(
     df = pd.DataFrame(rows)
     if not df.empty:
         # Sort by the RAW CMIM score (``engineered_mi``). The per-source
-        # baseline uplift ratio would explode on near-zero-MI sources --
+        # baseline uplift ratio would explode on near-zero-MI sources -
         # the same pathology Layer 72 / 73 document for JMIM / TC. The
         # Fleuret 2004 paper ranks by the CMIM value itself; we follow.
         df = df.sort_values(
@@ -500,7 +500,7 @@ def hybrid_orth_mi_cmim_fe(
     """CMIM (Fleuret 2004) variant of :func:`hybrid_orth_mi_fe`.
 
     Replaces the plug-in marginal MI estimator with the Fleuret 2004
-    Conditional MI Maximisation criterion -- each engineered column is
+    Conditional MI Maximisation criterion - each engineered column is
     scored by the WORST-CASE conditional MI against each already-
     selected support member individually (defaulting to ``raw_X`` when
     ``current_support`` is empty), and the absolute floor selection
@@ -573,12 +573,12 @@ def hybrid_orth_mi_cmim_fe_with_recipes(
     n_bins: int = 10,
 ):
     """Same as :func:`hybrid_orth_mi_cmim_fe` plus a list of
-    ``orth_univariate`` recipes -- one per appended column -- so
+    ``orth_univariate`` recipes - one per appended column - so
     ``MRMR.transform`` can recompute each engineered column on test
     data without re-running the CMIM ranking.
 
     Recipes are byte-identical to Layer 21 because the engineered
-    VALUES are byte-identical -- only the SCORING (and therefore the
+    VALUES are byte-identical - only the SCORING (and therefore the
     selection) differs.
     """
     from .engineered_recipes import build_orth_univariate_recipe
@@ -618,13 +618,13 @@ def hybrid_orth_mi_cmim_fe_with_recipes(
             continue
         # freeze the fit-time basis-preprocess params (mirrors the
         # canonical Layer-21 hybrid_orth_mi_fe_with_recipes fix); recomputing on the FULL fit-time
-        # source column is safe/exact -- it reproduces, not refits, the fit-time params.
+        # source column is safe/exact - it reproduces, not refits, the fit-time params.
         _pp = None
         try:
             _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
-            # ORTH_SCORING_A-3 fix: was a bare except with zero logging,
+            # Was a bare except with zero logging,
             # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
             # exception (including a genuine programming bug), with no diagnostic trace.
             logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)

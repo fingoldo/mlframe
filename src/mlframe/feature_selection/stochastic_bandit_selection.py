@@ -1,6 +1,6 @@
 """``stochastic_bandit_selection``: adaptive-weighted random-subset feature selection.
 
-Source: 2nd_mercedes-benz-greener-manufacturing.md -- iterative process: randomly sample small feature
+Source: 2nd_mercedes-benz-greener-manufacturing.md - iterative process: randomly sample small feature
 subsets weighted by an adaptive probability vector; if CV score beats a moving average, increase weight of
 those features (and vice versa); promote features whose weight crosses a threshold into a permanent
 "top_feats" pool; repeat for many epochs; final feature set = epoch achieving best CV. A multi-armed-bandit-
@@ -43,12 +43,12 @@ def _stochastic_bandit_selection_core(
     moving_average_window: int,
     random_state: int,
 ) -> Tuple[List[str], List[str]]:
-    """Shared search loop. Returns ``(best_subset, locked_in_feats)`` -- the single-seed public API only
+    """Shared search loop. Returns ``(best_subset, locked_in_feats)`` - the single-seed public API only
     exposes ``best_subset``; the multi-seed ensemble mode (``stochastic_bandit_selection_ensemble``) also
     needs each run's permanently locked-in "top_feats" pool to compute cross-seed stability.
     """
     if cv is None:
-        # Seed from the caller's own random_state (was a literal 0, ignoring it entirely) -- otherwise
+        # Seed from the caller's own random_state (was a literal 0, ignoring it entirely) - otherwise
         # every epoch's candidate subset is scored against the EXACT SAME 3 folds regardless of
         # random_state, so two "independent" seeds (including every per-seed run inside
         # stochastic_bandit_selection_ensemble) only ever vary in their subset draws, silently
@@ -117,7 +117,7 @@ def stochastic_bandit_selection(
     ----------
     estimator
         Unfitted sklearn-compatible estimator (a cheap/low-complexity one is recommended, per the source's
-        own convention -- this is a per-epoch quick-fit search, not a single expensive final fit).
+        own convention - this is a per-epoch quick-fit search, not a single expensive final fit).
     X, y
         Feature frame and target.
     scoring

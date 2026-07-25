@@ -42,7 +42,7 @@ def _maybe_set_pysr_thread_env() -> None:
             _ncpu = os.cpu_count() or 4
             os.environ["JULIA_NUM_THREADS"] = str(max(2, _ncpu // 2))
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in __init__.py:44: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------

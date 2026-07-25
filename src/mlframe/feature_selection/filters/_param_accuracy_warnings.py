@@ -1,6 +1,6 @@
 """Fit-time warnings for parameter values we KNOW degrade selection accuracy.
 
-Many MRMR knobs accept VALID values that nonetheless make the selection measurably worse -- usually a
+Many MRMR knobs accept VALID values that nonetheless make the selection measurably worse - usually a
 ``*_enable=False`` that opts OUT of an on-by-default accuracy mechanism "for byte-identical legacy /
 replay", or a numeric knob pinned to a documented-bad setting. Those are legitimate (replay parity,
 ablation, speed) but a user who set one WITHOUT that intent gets silently worse features.
@@ -97,13 +97,13 @@ ACCURACY_SUBOPTIMAL: list[_Caveat] = [
 
 def warn_accuracy_suboptimal_params(estimator: Any) -> None:
     """Emit ONE consolidated UserWarning listing every accuracy-degrading parameter value set on
-    ``estimator``. Silent on a default config. Never raises -- a missing attribute is simply skipped.
+    ``estimator``. Silent on a default config. Never raises - a missing attribute is simply skipped.
 
-    USABILITY_A-14 fix: the guard used to be a plain one-shot latch
+    The guard used to be a plain one-shot latch
     (``_accuracy_caveats_warned_``), so a ``set_params()`` call that degraded a param AFTER the first
     fit (e.g. flipping ``dcd_enable`` from True to False between two ``fit()`` calls on the same
     instance) never re-fired the warning. Now the latch stores WHICH attrs last triggered, and re-warns
-    whenever the current triggered set differs from that -- including growing, shrinking, or changing."""
+    whenever the current triggered set differs from that - including growing, shrinking, or changing."""
     triggered = []
     for c in ACCURACY_SUBOPTIMAL:
         try:

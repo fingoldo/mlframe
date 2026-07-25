@@ -6,12 +6,12 @@ candidate matrices are built from) on EVERY call. An H2D instrumentation of a 25
 of ``cupy.asarray``/``cupy.array`` logging shape/dtype/caller) showed the leak concretely: the fit-constant
 operands are uploaded dozens of times per fit (e.g. ``_resident_candidate_mi.py:153`` base operand columns
 80x / 140 MB, ``_orth_mi_backends.py:315`` y 54x / 86 MB, the ``_mi_greedy_cmi_fe`` y/z sites ~120x). The
-candidate matrices themselves are generated ON device (no host source) and are transient -- they MUST NOT be
+candidate matrices themselves are generated ON device (no host source) and are transient - they MUST NOT be
 cached. Only the fit-constant base operands / y / z are uploaded once and reused.
 
 The cache is keyed PURELY on a content fingerprint (shape + dtype + a cheap copy-free O(n) content hash), NOT on
 the caller's role discriminator. An H2D audit of a 1M strict-resident fit (monkeypatch of ``resident_operand``
-counting misses by content signature) showed 615 MB / 90 ops -- 65% of the operand H2D -- were CROSS-ROLE
+counting misses by content signature) showed 615 MB / 90 ops - 65% of the operand H2D - were CROSS-ROLE
 re-uploads of IDENTICAL content: the label ``y`` is uploaded by ~6 roles (``cmi_y`` / ``card_y`` /
 ``fixedyz_y`` / ``y_mi_classif`` / ``orth_uni_y`` / ``cmi_greedy_y_fixed``) and the conditioning support ``z``
 by 3 (``cmi_z`` / ``card_z`` / ``fixedyz_z``), each a separate upload under the old ``(role, shape, dtype)``
@@ -19,13 +19,13 @@ key. Keying on the content signature collapses every same-content upload to ONE 
 across all roles. The content hash is exactly what already guarded against id recycling (a recycled ``id()``
 with different VALUES aliasing a stale buffer), so keying on it directly is strictly safer than the old key.
 Operands are fit-constant INPUTS consumed READ-ONLY by the MI / CMI / entropy / ``.max()`` kernels (FE
-generation writes to fresh output buffers, never the operands -- verified: no in-place mutation of any
+generation writes to fresh output buffers, never the operands - verified: no in-place mutation of any
 ``resident_operand`` result), so one shared buffer per content is correct and selection-IDENTICAL.
 
 This mirrors the proven y/z resident cache in ``info_theory/_cmi_cuda.py`` (``_resident_upload`` /
 ``_CMI_RESIDENT_CACHE``). On a hit the cached device array is returned; on a miss the operand is uploaded in the
 FINAL kernel dtype (so repeated ``astype`` collapse) and cached. Bounded by an LRU (the single COLDEST entry is
-evicted on overflow, NOT the whole table -- a clear-all forces a re-upload storm of the still-hot operands);
+evicted on overflow, NOT the whole table - a clear-all forces a re-upload storm of the still-hot operands);
 NEVER ``free_all_blocks`` (that is the mempool teardown's job). Cleared at FE-step teardown alongside the
 mempool free + the cmi resident cache.
 
@@ -42,9 +42,9 @@ import numpy as _np
 
 logger = logging.getLogger(__name__)
 
-# X_EDGE_CASES_BEST_PRACTICES-1 fix: _FE_RESIDENT_OPERANDS used to be read/evicted
+# _FE_RESIDENT_OPERANDS used to be read/evicted
 # with no lock while multi_gpu_fe_batch_mi's ThreadPoolExecutor calls into it concurrently from every
-# device thread -- the same unlocked-cache class flagged repeatedly elsewhere this audit wave.
+# device thread - the same unlocked-cache class flagged repeatedly elsewhere this audit wave.
 _FE_RESIDENT_OPERANDS_LOCK = threading.Lock()
 
 try:
@@ -77,8 +77,8 @@ except Exception as e:  # numba optional: fall through to the tobytes hash below
 # Copy-free content hash. The signature must O(n)-hash the WHOLE operand buffer to guard against a
 # same-shape/dtype operand with different VALUES aliasing a stale device buffer (see resident_operand). The old
 # ``hash(host.tobytes())`` walked the buffer AND allocated a full host copy first (an ~8 MB tobytes churn for a
-# 1M-row f64 operand). ``xxh3_64`` walks the array buffer directly via the buffer protocol -- no intermediate
-# bytes copy -- at ~8x the throughput, and stays in the SAME 64-bit collision domain as the old key (shape +
+# 1M-row f64 operand). ``xxh3_64`` walks the array buffer directly via the buffer protocol - no intermediate
+# bytes copy - at ~8x the throughput, and stays in the SAME 64-bit collision domain as the old key (shape +
 # dtype-str still split the space; a 64-bit content hash collides no more than Python's siphash-based
 # ``hash(bytes)`` did), so keying on it is exactly as safe against a stale-buffer alias. If xxhash is absent, or
 # the array is not C-contiguous (buffer protocol would reject it), fall back to the original tobytes hash.
@@ -106,7 +106,7 @@ def _content_hash(host: Any) -> int:
 
 
 # HASH MEMO (.md #6, 2026-07-21): the docstring below used to
-# document this as unaddressed -- "the fit-constant y/z are re-hashed on every role's call". A full
+# document this as unaddressed - "the fit-constant y/z are re-hashed on every role's call". A full
 # caller-side handle-threading rewrite (upload y/z ONCE at the FE-step entry and hand every one of
 # the ~9 documented roles the same resident cupy array by reference) would touch every call site in
 # this file AND _cmi_cuda.py; instead, memoize the O(n) HASH itself keyed on the host array's id(),
@@ -117,7 +117,7 @@ def _content_hash(host: Any) -> int:
 # ``ascontiguousarray`` all return the identical object, not a fresh copy), the hash is computed
 # ONCE per fit instead of once per role-call. A recycled id (the original array GC'd, a new one
 # allocated at the same address) fails the ``ref() is host`` check and falls back to a full
-# recompute -- never a stale hash for different content.
+# recompute - never a stale hash for different content.
 import weakref as _weakref
 
 _HASH_MEMO: "OrderedDict" = OrderedDict()  # id(host) -> (weakref, shape, dtype_str, hash)
@@ -161,7 +161,7 @@ _MAX_ENTRIES = 192
 def _disabled() -> bool:
     """Whether the resident-operand cache is disabled via ``MLFRAME_FE_RESIDENT_OPERANDS`` (diagnostic A/B switch, default on)."""
     # Diagnostic A/B switch only (default ON): MLFRAME_FE_RESIDENT_OPERANDS=0 forces a fresh upload every call
-    # to reproduce the pre-cache H2D churn for the wall/util A/B. NOT a perf gate -- always on in prod.
+    # to reproduce the pre-cache H2D churn for the wall/util A/B. NOT a perf gate - always on in prod.
     return _os.environ.get("MLFRAME_FE_RESIDENT_OPERANDS", "1").strip().lower() in ("0", "false", "off", "no")
 
 
@@ -172,12 +172,12 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
     and A/B tracing: it is NOT part of the cache key. The key is the content signature
     (shape + dtype + a copy-free content hash), so the SAME fit-constant content uploaded under different roles
     (the label ``y`` by cmi_y / card_y / fixedyz_y / y_mi_classif / ...; the support ``z`` by cmi_z / card_z /
-    fixedyz_z) shares ONE resident device buffer instead of one upload per role -- the 65%-of-operand-H2D
+    fixedyz_z) shares ONE resident device buffer instead of one upload per role - the 65%-of-operand-H2D
     cross-role re-upload leak (see module docstring). The content hash is copy-free (``xxh3_64`` over the array
     buffer, tobytes fallback for non-contiguous / no-xxhash), in the same 64-bit collision domain as before.
     NOTE (2026-07-21,.md #6): the O(n) HASH of the fit-constant
     ``y`` / ``z`` is now memoized on the host array's ``id()`` (``_content_hash_memoized``, weakref
-    + shape/dtype recycled-id guard) -- when the SAME object is handed to this function across every
+    + shape/dtype recycled-id guard) - when the SAME object is handed to this function across every
     role each round (the common case), the hash is computed ONCE per fit instead of once per
     role-call. A full caller-side upload-dedup (upload y/z ONCE at the FE-step entry and pass the
     resident handle directly, skipping ``resident_operand`` entirely for them) would still remove
@@ -203,12 +203,12 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
     if _disabled():
         return cp.asarray(host)
 
-    # X_EDGE_CASES_BEST_PRACTICES-1 fix: the cache key used to be PURELY
+    # The cache key used to be PURELY
     # content-based (shape + dtype + content hash), with no device component at all. multi_gpu_fe_batch_mi
     # (the heterogeneous multi-GPU FE-batcher) spins up one ThreadPoolExecutor worker per physical CUDA
     # device, each calling resident_operand with the SAME y_codes content but a DIFFERENT active
     # cp.cuda.Device context. The first device's cache entry (a cupy array physically resident on THAT
-    # device) would be handed back verbatim to every other device's thread on a content-hash hit --
+    # device) would be handed back verbatim to every other device's thread on a content-hash hit -
     # passing a device-N array into a kernel while device-M (N != M) is the active context is a cupy
     # ValueError for the overwhelming majority of ops (no peer access enabled anywhere in this codebase).
     # Folding the active device id into the key makes each physical device keep its OWN resident copy of
@@ -218,7 +218,7 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
     # Content signature is the WHOLE key: shape + dtype distinguish dtype/length variants; the content hash
     # deduplicates identical operands across roles and guards against a different-values alias.
     # _content_hash_memoized skips the O(n) recompute when the SAME array object (e.g. a fit-constant
-    # y/z passed unchanged across every role) was already hashed this fit -- see its own docstring.
+    # y/z passed unchanged across every role) was already hashed this fit - see its own docstring.
     sig = (device_id, host.shape, host.dtype.str, _content_hash_memoized(host))
     with _FE_RESIDENT_OPERANDS_LOCK:
         g = _FE_RESIDENT_OPERANDS.get(sig)
@@ -236,7 +236,7 @@ def assemble_resident_matrix(host, names, fallback_key, *, dtype=None):
     """Return a resident ``(n, k)`` device matrix DEVICE-ASSEMBLED from its per-column resident operands.
 
     Several FE scorers upload a fit-constant raw baseline matrix WHOLE via a single ``resident_operand`` keyed
-    on the ``(n, k)`` blob's content -- but that blob is a distinct fingerprint that never dedups, even though
+    on the ``(n, k)`` blob's content - but that blob is a distinct fingerprint that never dedups, even though
     every one of its columns is the SAME raw source column already uploaded ONCE elsewhere (the basis /
     cross-basis device builders upload each source column column-by-column). Stacking the resident PER-COLUMN
     operands on device instead lets each column content-hit the operand cache, so the whole matrix never
@@ -273,7 +273,7 @@ def resident_code_operand(codes, role):
     return them cast to int64 on the device for the joint-histogram kernels.
 
     Candidate codes are equi-frequency bin indices in ``0..nbins-1`` (nbins a few dozen), so int16 (2 B) holds
-    them with a wide safety margin (up to 32767 bins) -- uploading them as int64 (8 B) was 4x the bytes at every
+    them with a wide safety margin (up to 32767 bins) - uploading them as int64 (8 B) was 4x the bytes at every
     ``cmi_cand_x`` / ``card_cand_x`` / ``permnull_cand_x`` (and the fit-constant y-code) re-upload site. int16 is
     chosen over int8 deliberately: int8 would save another 2x but only holds 0..127, so a higher-resolution
     binning (or a code array that is not a plain per-column bin index) would need a per-array range check to stay
@@ -281,8 +281,8 @@ def resident_code_operand(codes, role):
     fit int16 (e.g. a densified high-cardinality JOINT accidentally routed here) falls back to int64. Upload the
     narrow codes (content-keyed, so identical content still dedups) and return the int64 cast the CMI / entropy
     kernels index histograms with. BIT-IDENTICAL: int16 holds ``0..nbins-1`` exactly and the widening cast
-    restores the same int64 values the kernels saw before, so the partition -- and every downstream MI /
-    cardinality -- is unchanged, not merely selection-equivalent. The narrow array is cached + reused across
+    restores the same int64 values the kernels saw before, so the partition - and every downstream MI /
+    cardinality - is unchanged, not merely selection-equivalent. The narrow array is cached + reused across
     calls; only the transient int64 view is rebuilt per call (a cheap device widen), so the H2D shrinks 4x with
     no re-upload."""
     import cupy as cp
@@ -306,7 +306,7 @@ def resident_code_operand(codes, role):
 # dtype -> same sorted order -> same edges -> BIT-IDENTICAL codes (not merely selection-equivalent), with NO
 # device->host sync (the key is a pure host content hash, the same one the operand cache computes). Stored as
 # int16 (codes are ``0..nbins-1``, a few dozen bins; the widening cast on retrieval restores the exact int64 the
-# kernels index -- the same narrow-store/widen discipline as ``resident_code_operand``), so the whole 20-content
+# kernels index - the same narrow-store/widen discipline as ``resident_code_operand``), so the whole 20-content
 # working set is a few MB of VRAM, not the 160 MB an int64 store would cost. Same LRU + teardown as the operand
 # cache below.
 _FE_RESIDENT_QBIN_CODES: "OrderedDict" = OrderedDict()
@@ -320,11 +320,11 @@ def resident_qbin_codes(a: Any, nbins: int, dtype: Any, compute_fn: Any) -> Any:
     cache MISS, on the content-deduped resident float column ``xd`` (uploaded via ``resident_operand`` in the
     ``dtype`` the binner needs). On a HIT the previously computed codes are returned WITHOUT re-uploading the
     float or re-running the sort. The cache key is the host content signature (shape + dtype + copy-free content
-    hash) plus ``nbins`` and the bin dtype, so only genuinely identical bin requests share a result -- a
+    hash) plus ``nbins`` and the bin dtype, so only genuinely identical bin requests share a result - a
     different column, a different nbins, or a different bin dtype gets a fresh compute. Codes are stored int16 and
     widened to int64 on return (values are ``0..nbins-1`` -> bit-identical), mirroring ``resident_code_operand``.
     Fully sync-free: the key is a host hash, ``compute_fn`` is the sync-free binner, and the widen is a device
-    op -- nothing scalar crosses the bus."""
+    op - nothing scalar crosses the bus."""
     import cupy as cp
     import numpy as np
 

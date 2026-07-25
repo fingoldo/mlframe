@@ -49,7 +49,7 @@ def screen_dcd_discover_and_swap(
             commit_swap as _dcd_commit_swap,
         )
         # candidate_pool = surviving non-pruned non-selected indices. ``selected_vars`` stays a list at the
-        # caller (order matters there), but membership here only needs set semantics -- a single ``set(...)``
+        # caller (order matters there), but membership here only needs set semantics - a single ``set(...)``
         # build turns the O(pool_size) comprehension's per-column ``in selected_vars`` from an O(k) linear
         # scan into O(1), for O(p+k) total instead of O(p*k). Can't be cached ACROSS calls: the true mutation
         # sites (``_screen_predictors.py``'s select-loop append, ``_dcd_swap.commit_swap``'s in-place
@@ -106,7 +106,7 @@ def screen_dcd_discover_and_swap(
                 # Re-alias data_copy to the (post-swap, extended) factors_data for the next confirm cycle; the Fleuret permutation njit
                 # saves+restores the columns it shuffles, so no whole-matrix copy is needed here either.
                 data_copy = factors_data
-                # 2026-05-30 Wave 9.1 fix (loop iter 2):
+                #
                 # confirm_one_predictor reads ctx.factors_data
                 # and ctx.data_copy at the top of every call;
                 # without these writes, subsequent confirmations
@@ -124,7 +124,7 @@ def screen_dcd_discover_and_swap(
                         var, _new_idx, len(_cluster_members),
                     )
     except (IndexError, AttributeError, KeyError, TypeError) as _dcd_exc:
-        # 2026-05-30 Wave 9.1 fix (loop iter 2):
+        #
         # programming errors MUST surface. Silently
         # swallowing IndexError under verbose=0 is
         # how the matrix-propagation gap slipped
@@ -136,7 +136,7 @@ def screen_dcd_discover_and_swap(
             f"DCD discover/swap raised a programming " f"error -- this indicates an mlframe bug, " f"not a data issue: {_dcd_exc!r}"
         ) from _dcd_exc
     except Exception as _dcd_exc:
-        # Genuinely best-effort -- numeric / fitting
+        # Genuinely best-effort - numeric / fitting
         # failures inside DCD (e.g. all-constant
         # cluster, degenerate PC1) should not break
         # the screen. These ARE expected on pathologic

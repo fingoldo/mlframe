@@ -1,4 +1,4 @@
-"""Layer 61 (2026-05-31): PER-CLUSTER SHARED-BASIS FE.
+"""Layer 61: PER-CLUSTER SHARED-BASIS FE.
 
 Why this layer
 --------------
@@ -6,7 +6,7 @@ Why this layer
 Layer 21 emits ``basis_n(x)`` per individual source column. When several
 source columns are noisy reflections of one shared latent (the standard
 cluster scenario: ``s_i = z + epsilon_i`` for i in cluster), the per-
-member ``He_n(x_i)`` carries the SAME signal n times -- each diluted by
+member ``He_n(x_i)`` carries the SAME signal n times - each diluted by
 epsilon_i. Layer 27 (collinear-dedup) avoids the literal duplicate
 inflation, and Layer 7's ``cluster_aggregate`` swaps the cluster down to
 its PC1 / mean_z aggregate as a NEW raw feature; but neither path runs an
@@ -26,33 +26,33 @@ aggregate is 1/3 of the per-member noise variance under iid noise).
 What this layer adds
 --------------------
 
-* :func:`detect_clusters_by_correlation` -- lightweight cluster discovery
+* :func:`detect_clusters_by_correlation` - lightweight cluster discovery
   from the X DataFrame: bulk Pearson corrcoef + connected-components on
   the |corr| >= threshold edge set. Mirrors L59's pair detection but
   groups members into transitive components instead of pairs.
 
-* :func:`compute_cluster_aggregate` -- single-column per-cluster
+* :func:`compute_cluster_aggregate` - single-column per-cluster
   reduction. ``mean_z`` (default) z-standardises every member then
   averages; ``median_z`` does median over z-scores (robust against
   outlier members); ``pc1`` returns the leading SVD direction in z-space
   (the unidimensional latent under the iid-noise reflection model).
 
-* :func:`generate_cluster_basis_features` -- per cluster, evaluate
+* :func:`generate_cluster_basis_features` - per cluster, evaluate
   ``basis_d(preprocess(aggregate))`` for each requested degree, run the
   MI-uplift + noise-aware-MAD floor two-gate selection, and keep top-K.
   Per-aggregate baseline is ``max(MI(member; y) for member in cluster)``
-  -- the aggregate basis only wins when it beats the BEST individual
+  - the aggregate basis only wins when it beats the BEST individual
   member's marginal MI.
 
 * :func:`hybrid_orth_mi_cluster_basis_fe`,
-  :func:`hybrid_orth_mi_cluster_basis_fe_with_recipes` -- the standard
+  :func:`hybrid_orth_mi_cluster_basis_fe_with_recipes` - the standard
   pair-of-entry-points pattern shared with Layer 21 / 25 / 59. The
   ``_with_recipes`` variant returns ``orth_cluster_basis`` recipes whose
   ``src_names`` is the full member tuple; replay at transform time
   re-computes the aggregate from the SAME members and evaluates the same
   basis_degree.
 
-NOT wired into ``MRMR.fit`` by default -- explicit opt-in via
+NOT wired into ``MRMR.fit`` by default - explicit opt-in via
 ``fe_hybrid_orth_cluster_basis_enable=True``. The wiring lives in
 ``_mrmr_fit_impl.py`` (alongside the Layer 59 diff-basis block).
 
@@ -98,7 +98,7 @@ _VALID_AGGREGATORS = ("mean_z", "median_z", "pc1")
 def _coerce_y_int64(y) -> np.ndarray:
     """Dense int64 class labels. Non-integer y is densified via
     ``np.unique(return_inverse=...)`` rather than truncated with
-    ``.astype(int64)`` -- plain truncation merges distinct labels and destroys
+    ``.astype(int64)`` - plain truncation merges distinct labels and destroys
     continuous-y signal (everything in [0, 1) collapses to class 0)."""
     arr = np.asarray(y).ravel()
     if np.issubdtype(arr.dtype, np.integer):
@@ -121,7 +121,7 @@ def _cluster_col_name(anchor: str, aggregator: str, basis: str, degree: int) -> 
 def _connected_components(n: int, edges: list[tuple[int, int]]) -> list[list[int]]:
     """Union-find connected components over n nodes given an edge list.
 
-    Returns components of length >= 2 (singletons -- nodes with no edges --
+    Returns components of length >= 2 (singletons - nodes with no edges -
     are silently dropped because we only want true clusters).
     """
     parent = list(range(n))
@@ -156,7 +156,7 @@ def detect_clusters_by_correlation(
     """Lightweight cluster discovery: connected components of the |corr|
     >= threshold graph over the dense numeric columns of X.
 
-    Bulk ``np.corrcoef`` once, then a Python-level union-find pass --
+    Bulk ``np.corrcoef`` once, then a Python-level union-find pass -
     O(p^2) edges in the worst case but only one C call for the correlation
     matrix. At p=200 this is ~50 ms.
 
@@ -209,7 +209,7 @@ def detect_clusters_by_correlation(
             c_ij = float(abs_corr[i, j])
             if not np.isfinite(c_ij):
                 continue
-            # Guard against literal duplicates -- their aggregate equals
+            # Guard against literal duplicates - their aggregate equals
             # any member, so He_n(aggregate) collides with He_n(member)
             # already emitted by Layer 21 (when enabled).
             if c_ij >= corr_threshold and c_ij < 1.0 - 1e-12:
@@ -232,8 +232,8 @@ def detect_clusters_by_correlation(
                     dense_names[idx],
                 ))
             mean_corr.sort()
-            # ORTH_SCORING_B-5 fix: `dense_names[dense_names.index(name)]` was a
-            # no-op O(p) linear-scan re-lookup that just produces `name` back -- `mean_corr` already holds
+            # `dense_names[dense_names.index(name)]` was a
+            # no-op O(p) linear-scan re-lookup that just produces `name` back - `mean_corr` already holds
             # the actual name strings, so use them directly.
             members = sorted(name for (_, name) in mean_corr[: int(max_cluster_size)])
         anchor = members[0]
@@ -300,7 +300,7 @@ def compute_cluster_aggregate(
     if stats is not None:
         # 2026-06-03 (audit cluster-aggregate-6/7): REPLAY. Standardize the test
         # members with the STORED fit-time per-member mean/std/signs (fill NaNs
-        # with the stored mean -- which equals the fit-time fill), then apply the
+        # with the stored mean - which equals the fit-time fill), then apply the
         # STORED combiner weights (or the stateless non-linear row-reducer). No
         # refit on the (possibly drifted) test distribution -> a given input row
         # maps to the same aggregate value as at fit.
@@ -547,7 +547,7 @@ def generate_cluster_basis_features(
         if emi < abs_floor:
             # W6 abs-MAD floor instrumentation (pure-record; no decision
             # change): this candidate cleared the uplift gate but missed the
-            # absolute med+k*MAD noise floor -- the ``marginal_uplift_floor``
+            # absolute med+k*MAD noise floor - the ``marginal_uplift_floor``
             # gate kill. Selection is byte-identical with or without the sink.
             if reject_sink is not None:
                 try:
@@ -561,7 +561,7 @@ def generate_cluster_basis_features(
                         reason="cluster-basis abs-MAD floor: engineered_mi below med+k*MAD noise floor",
                     )
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in _orthogonal_cluster_basis_fe.py:556: %s", e)
+                    logger.debug("suppressed: %s", e)
                     pass
             continue
         survivors.append({

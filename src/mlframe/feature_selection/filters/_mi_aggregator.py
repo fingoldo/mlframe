@@ -1,4 +1,4 @@
-"""Multi-estimator MI aggregators for MRMR (2026-05-29).
+"""Multi-estimator MI aggregators for MRMR.
 
 Three aggregation strategies over a panel of base MI estimators
 (FD, QS, MDLP, Mixed-KSG, MINE, ...):
@@ -29,12 +29,12 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# INFO_THEORY_B-1 fix: genie_mi_panel's default bias-rate fallback used to be the
+# genie_mi_panel's default bias-rate fallback used to be the
 # SAME constant (1/sqrt(N)) for every estimator name, making the (K+2)x(K+2) constraint matrix genie_weights
 # builds EXACTLY singular by construction (the b^T constraint row becomes a scalar multiple of the 1^T row)
-# -- confirmed empirically (rank 4 of 5, det=0.0, LinAlgError). genie_weights then silently fell back to
+# - confirmed empirically (rank 4 of 5, det=0.0, LinAlgError). genie_weights then silently fell back to
 # plain uniform averaging on every production call, so estimator='genie' never actually ran GENIE's
-# bias-cancelling weighting -- it was an expensive (~23x plug_in wall-time) way to compute a plain
+# bias-cancelling weighting - it was an expensive (~23x plug_in wall-time) way to compute a plain
 # unweighted mean. Differentiate the fallback by estimator FAMILY (order of magnitude, not an exact
 # asymptotic formula) so the constraint rows are no longer proportional: histogram/plug-in estimators
 # (Miller-Madow-corrected FD/QS bins) have bias ~ O(1/N); k-NN estimators (Mixed-KSG, k=5 in this repo's
@@ -70,7 +70,7 @@ def median_mi_panel(x: np.ndarray, y: np.ndarray, estimators: Dict[str, Callable
     for name, est in estimators.items():
         try:
             scores.append(float(est(x, y)))
-        except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+        except Exception as exc:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
             logger.warning("median_mi_panel: estimator %r failed: %r", name, exc)
     return median_mi(scores)
 
@@ -141,12 +141,12 @@ def genie_mi_panel(x: np.ndarray, y: np.ndarray,
                     floor_at_zero: bool = True) -> float:
     """Run a panel of K estimators on (x, y) then combine via GENIE weights.
 
-    If ``bias_rates`` / ``variances`` are not provided, default to (INFO_THEORY_B-1 fix,
-     -- see ``_genie_default_bias_rate``'s module-level note for why a single shared
+    If ``bias_rates`` / ``variances`` are not provided, default to (
+     - see ``_genie_default_bias_rate``'s module-level note for why a single shared
     constant across all estimators made the constraint system exactly singular):
         bias_rate = 5/N for a k-NN-family estimator name (substring "ksg"/"knn"), else 1/N
         variance = 1.0 (uniform)
-    An approximation of each family's real asymptotic bias ORDER, not an exact per-estimator formula --
+    An approximation of each family's real asymptotic bias ORDER, not an exact per-estimator formula -
     good enough to break the degenerate proportionality that silently collapsed GENIE to a plain
     unweighted mean on every call. Pass explicit ``bias_rates``/``variances`` for the real analytical
     values when known.

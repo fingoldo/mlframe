@@ -3,14 +3,14 @@
 The retention path of :func:`build_usability_candidate_pool` (``rank_pairs_by_joint_mi=True``)
 enumerates, for each of the top joint-MI pairs, ``|unary|^2 * |binary|`` forms, computing for each
 ``MI(binary(unary_a(x1), unary_b(x2)); y)``. The original loop Python-dispatches numpy for every
-combo's value + quantile-bin + plug-in MI -- ~3.5s/pair at n=10000, ~62s of a structured fit.
+combo's value + quantile-bin + plug-in MI - ~3.5s/pair at n=10000, ~62s of a structured fit.
 
 This module fuses that triple into ONE njit kernel: for each ``(ua_code, ub_code, bn_code)`` combo,
 compute the value in nopython (float32 semantics, matching the numpy bin_funcs bit-for-bit), skip if
 ``std<=1e-9`` (sentinel ``-1.0``), else quantile-bin (MATCHING ``_quantile_bin``'s numpy edges +
 searchsorted) and compute the marginal Miller-Madow MI vs ``y_codes`` (MATCHING
 ``marginal_mi_binned_fixed_y``). The Python caller then ranks by MI, applies the unchanged diversity
-filter, and rebuilds recipes only for the kept few -- so what is RECOVERED is identical to the
+filter, and rebuilds recipes only for the kept few - so what is RECOVERED is identical to the
 Python loop (verified: per-combo MI matches to ~6e-15, value to 0.0).
 
 CORRECTNESS (the pool replay-VERIFIES every kept recipe with ``np.allclose atol=1e-4`` against the
@@ -20,17 +20,17 @@ max,min) reproduce the numpy path to 0.0 abs diff in float32 (measured over norm
 heavy-tail/integer-tie operands). ``smart_log``'s data-dependent additive shift is matched exactly by
 passing each operand's ``nanmin`` into the kernel (the shift is ``1e-5 - x_min`` when ``x_min<=0``).
 If a future preset adds a unary/binary that is NOT in the code tables, the caller falls back to the
-Python loop for the WHOLE pool (``njit_op_codes_or_none`` returns None) -- correctness first.
+Python loop for the WHOLE pool (``njit_op_codes_or_none`` returns None) - correctness first.
 
 THREE kernel versions are kept (``feedback_keep_all_kernel_versions``): a SERIAL njit, a
 ``parallel=True`` (prange over combos) njit twin, and a cupy GPU twin (``_pair_combo_mi_cupy``, which
 vectorises the value+bin+MI across a chunk of combos on device). They are dispatched per-host by
-(n_rows, n_combos) via the canonical ``kernel_tuning_cache`` (NO hardcoded threshold --
+(n_rows, n_combos) via the canonical ``kernel_tuning_cache`` (NO hardcoded threshold -
 ``feedback_use_kernel_tuning_cache_for_gpu``). CPU njit is the DEFAULT and the FALLBACK: any missing
 cupy / global-GPU-off / device error routes back to CPU and the fit is never broken. Force a backend
 for testing via ``MLFRAME_USABILITY_POOL_BACKEND=njit|njit_parallel|gpu`` (mirrors ``MLFRAME_MI_BACKEND``).
-The GPU per-combo MI is bit-faithful to the CPU kernels to fp64 round-off (~1e-15) -- same lerp
-quantile edges, same Miller-Madow plug-in MI -- so the recovered forms are unchanged.
+The GPU per-combo MI is bit-faithful to the CPU kernels to fp64 round-off (~1e-15) - same lerp
+quantile edges, same Miller-Madow plug-in MI - so the recovered forms are unchanged.
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ from numba import njit, prange
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 # Optional GPU dep. The dispatcher gracefully falls back to the CPU njit kernels when cupy is
-# missing / the device errors -- the fit is NEVER broken by a GPU problem (correctness first).
+# missing / the device errors - the fit is NEVER broken by a GPU problem (correctness first).
 try:
     import cupy as _cp
     _CUPY_AVAIL = True
@@ -51,7 +51,7 @@ except Exception:
     _CUPY_AVAIL = False
 
 
-# Unary op-code table for the ``medium`` preset (registry order is irrelevant -- the caller maps each
+# Unary op-code table for the ``medium`` preset (registry order is irrelevant - the caller maps each
 # preset name to its code and falls back to Python if any name is absent). Every entry below is
 # bit-exact (float32) to ``create_unary_transformations(preset='medium')[name]``; see ``_apply_unary``.
 _NJIT_UNARY_OP_CODES: dict = {
@@ -61,7 +61,7 @@ _NJIT_UNARY_OP_CODES: dict = {
 }
 
 # Binary op-code table for the ``minimal`` preset (the pool's default binary set). Bit-exact to
-# ``create_binary_transformations(preset='minimal')`` -- see ``_apply_binary``; ``div`` mirrors
+# ``create_binary_transformations(preset='minimal')`` - see ``_apply_binary``; ``div`` mirrors
 # ``_safe_div`` (exact x/y for y!=0, 1e-9 floor only on an exact-zero denominator).
 _NJIT_USABILITY_BINARY_OP_CODES: dict = {
     "mul": 0, "add": 1, "sub": 2, "div": 3, "max": 4, "min": 5,
@@ -70,7 +70,7 @@ _NJIT_USABILITY_BINARY_OP_CODES: dict = {
 
 def njit_unary_codes_or_none(unary_names) -> "np.ndarray | None":
     """Map each unary name (preset iteration order) to its op-code, or None if ANY name is not
-    njit-coded (the caller then uses the per-candidate numpy path -- correctness first)."""
+    njit-coded (the caller then uses the per-candidate numpy path - correctness first)."""
     codes = []
     for name in unary_names:
         c = _NJIT_UNARY_OP_CODES.get(name)
@@ -94,7 +94,7 @@ def njit_binary_codes_or_none(binary_names) -> "np.ndarray | None":
 @njit(cache=True, inline="always")
 def _apply_unary(v, code, xmin):
     """One element of the medium-preset unary, in float64 (the Python path applies the numpy unary to
-    the float64 operand). ``xmin`` is the operand column's ``nanmin`` -- only ``log`` (smart_log) uses
+    the float64 operand). ``xmin`` is the operand column's ``nanmin`` - only ``log`` (smart_log) uses
     it (additive shift ``1e-5 - xmin`` when ``xmin<=0``, exact ``log`` when ``xmin>0``)."""
     if code == 0:  # identity
         return v
@@ -115,11 +115,11 @@ def _apply_unary(v, code, xmin):
     elif code == 7:  # sin
         return np.sin(v)
     elif code == 8:  # sign = np.sign
-        # GPU_INFRA_C-8 fix: NaN input used to fall through to the else branch
+        # NaN input used to fall through to the else branch
         # (IEEE comparisons with NaN are always False) and get coerced to -1.0, disagreeing with both
         # np.sign(nan)==nan and this module's own cupy twin cp.sign(nan)==nan. Unreachable today via the
         # only wired caller (_usability_aware_selection.py's _scrub replaces NaN/Inf with 0.0 first), but
-        # this is an exported, reusable function -- fixed for any future direct caller.
+        # this is an exported, reusable function - fixed for any future direct caller.
         if np.isnan(v):
             return v
         return 0.0 if v == 0.0 else (1.0 if v > 0.0 else -1.0)
@@ -202,7 +202,7 @@ def _qbin_into(val, nbins, qs, codes_out):
         lo = los[k]
         hi = lo + 1 if lo < n - 1 else lo
         q[k] = part[lo] + (part[hi] - part[lo]) * fracs[k]
-    # np.unique(q) -- q is ascending, so dedup adjacent equals in one pass.
+    # np.unique(q) - q is ascending, so dedup adjacent equals in one pass.
     edges = np.empty(nq, dtype=np.float64)
     m = 0
     for k in range(nq):
@@ -239,7 +239,7 @@ def _qbin_into(val, nbins, qs, codes_out):
 @njit(cache=True, inline="always")
 def _marginal_mi_njit(xb, kx, y_codes, h_y, k_y, n):
     """Plug-in Miller-Madow ``MI(X;Y) = H(X)+H(Y)-H(X,Y)`` minus ``(k_x+k_y-k_xy-1)/(2n)``, clamped
-    to >=0 -- bit-faithful to ``marginal_mi_binned_fixed_y`` (same plug-in entropies, same bias, same
+    to >=0 - bit-faithful to ``marginal_mi_binned_fixed_y`` (same plug-in entropies, same bias, same
     natural log). ``xb`` are dense 0..kx-1 bin codes, ``y_codes`` dense 0..k_y-1; the joint id is
     ``xb*k_y + y`` (a bijection onto the occupied cells)."""
     invn = 1.0 / n
@@ -305,7 +305,7 @@ def _pair_combo_mi_njit(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, x
 
 @njit(parallel=True, cache=True)
 def _pair_combo_mi_njit_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b):
-    """``parallel=True`` (prange over COMBOS) twin of :func:`_pair_combo_mi_njit` -- BYTE-IDENTICAL
+    """``parallel=True`` (prange over COMBOS) twin of :func:`_pair_combo_mi_njit` - BYTE-IDENTICAL
     output (each combo ``j`` reads only ``x1``/``x2`` and writes only ``out[j]``; zero cross-combo
     dependence -> result independent of thread count). Kept separate per ``feedback_keep_all_kernel_versions``."""
     nc = ua_arr.shape[0]
@@ -338,8 +338,8 @@ def _pair_combo_mi_njit_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, 
 
 
 # UNARY-TABLE kernels (2026-06-21, ``feedback_keep_all_kernel_versions``). The per-combo loop above
-# recomputes ``_apply_unary(x1[i], ua)`` and ``_apply_unary(x2[i], ub)`` for EVERY combo -- so each
-# distinct unary (sin/exp/log/cbrt/... -- the transcendental ones are NOT free) is re-evaluated once per
+# recomputes ``_apply_unary(x1[i], ua)`` and ``_apply_unary(x2[i], ub)`` for EVERY combo - so each
+# distinct unary (sin/exp/log/cbrt/... - the transcendental ones are NOT free) is re-evaluated once per
 # binary that pairs with it (|binary| times, 6x in the minimal preset). Precomputing the ``nu_tab``
 # distinct unary transforms of x1 and x2 ONCE into a ``(nu_tab, n)`` table, then indexing it in the combo
 # loop, drops the value step to a single binary op + two table reads per element. The qbin (sort) + MI
@@ -348,7 +348,7 @@ def _pair_combo_mi_njit_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, 
 # table is indexed directly by the op-code stored in ``ua_arr``/``ub_arr`` (the kernel reads U1[ua_arr[j]]).
 @njit(cache=True)
 def _pair_combo_mi_njit_table(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b, nu_tab):
-    """SERIAL unary-table twin of :func:`_pair_combo_mi_njit` -- BIT-IDENTICAL output, precomputes the
+    """SERIAL unary-table twin of :func:`_pair_combo_mi_njit` - BIT-IDENTICAL output, precomputes the
     ``nu_tab`` distinct unary transforms of each operand once into a (nu_tab, n) table."""
     nc = ua_arr.shape[0]
     n = x1.shape[0]
@@ -385,7 +385,7 @@ def _pair_combo_mi_njit_table(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_
 
 @njit(parallel=True, cache=True)
 def _pair_combo_mi_njit_table_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b, nu_tab):
-    """``parallel=True`` unary-table twin -- BIT-IDENTICAL to :func:`_pair_combo_mi_njit_table` (the table
+    """``parallel=True`` unary-table twin - BIT-IDENTICAL to :func:`_pair_combo_mi_njit_table` (the table
     precompute is parallel over the ``nu_tab`` unaries, then prange over combos; each combo writes only
     ``out[j]``, zero cross-combo dependence). The DEFAULT CPU path on the retention enumeration."""
     nc = ua_arr.shape[0]
@@ -422,7 +422,7 @@ def _pair_combo_mi_njit_table_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub
 
 
 # ----------------------------------------------------------------------------------------------
-# GPU (cupy) fused kernel -- BIT-FAITHFUL to the CPU njit twins.
+# GPU (cupy) fused kernel - BIT-FAITHFUL to the CPU njit twins.
 # ----------------------------------------------------------------------------------------------
 # The combo loop is embarrassingly parallel (nc combos x n rows). The cupy path vectorises the
 # value computation, the std-sentinel, the quantile-bin and the Miller-Madow marginal MI across a
@@ -439,8 +439,8 @@ def _pair_combo_mi_njit_table_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub
 #     ``(kx_occ + k_y - kxy - 1)/(2n)`` and the same clamp-to-0. Joint id = ``xb*k_y + y`` via bincount.
 #
 # Because every per-combo MI is computed from the identical formula on the identical edges, the
-# returned MI array matches the CPU kernel to fp64 round-off (~1e-15), so the RANKING -- and hence
-# the recovered forms -- are unchanged. cupy is NEVER put on ``self`` (the pool is transient); only
+# returned MI array matches the CPU kernel to fp64 round-off (~1e-15), so the RANKING - and hence
+# the recovered forms - are unchanged. cupy is NEVER put on ``self`` (the pool is transient); only
 # module-level singletons (the tuner spec) persist.
 
 # Per-chunk combo budget so the (chunk x n) float64 working set + sort/bincount temporaries stay well
@@ -491,8 +491,8 @@ def _gpu_apply_unary(x, code, xmin):
 
 
 def _gpu_apply_binary(a, b, bn):
-    """cupy float64 vectorised twin of :func:`_apply_binary` -- including the ``np.float32`` scrub +
-    nan/inf->0 at float32 precision -- returning a float64 device array of the scrubbed values."""
+    """cupy float64 vectorised twin of :func:`_apply_binary` - including the ``np.float32`` scrub +
+    nan/inf->0 at float32 precision - returning a float64 device array of the scrubbed values."""
     cp = _cp
     if bn == 0:  # mul
         v = a * b
@@ -514,12 +514,12 @@ def _gpu_apply_binary(a, b, bn):
 
 
 def _gpu_quantile_bin_codes(V, qs):
-    """Equi-frequency quantile-bin each ROW of ``V`` (shape ``(m, n)``, finite float64) -- BIT-IDENTICAL
+    """Equi-frequency quantile-bin each ROW of ``V`` (shape ``(m, n)``, finite float64) - BIT-IDENTICAL
     to :func:`_qbin_into` per row. Returns ``(codes (m,n) int64, kx (m,) int64)``. Vectorised over the
     ``m`` combos in the chunk; the searchsorted is done per row (each row has its own edge vector)."""
     cp = _cp
     m, n = V.shape
-    srt = cp.sort(V, axis=1)  # (m, n) ascending -- matches np.sort
+    srt = cp.sort(V, axis=1)  # (m, n) ascending - matches np.sort
     pos = qs * (n - 1)  # virtual indices, (nq,)
     lo = cp.floor(pos).astype(cp.int64)  # (nq,)
     hi = cp.where(lo < n - 1, lo + 1, lo)
@@ -580,7 +580,7 @@ def _gpu_marginal_mi(codes, kx, y_codes, h_y, k_y, n):
 
 
 def _pair_combo_mi_cupy(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b):
-    """cupy GPU twin of :func:`_pair_combo_mi_njit` -- per-combo MI (or -1.0 std-sentinel), BIT-FAITHFUL
+    """cupy GPU twin of :func:`_pair_combo_mi_njit` - per-combo MI (or -1.0 std-sentinel), BIT-FAITHFUL
     to the CPU kernels (see the section docstring). Precomputes the ``nu`` distinct unary transforms of
     each operand ONCE on device, then processes combos in chunks. Raises on any cupy/device error so the
     dispatcher can fall back to CPU (the fit is never broken by a GPU problem)."""
@@ -629,14 +629,14 @@ def _pair_combo_mi_cupy(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, x
 
 # ----------------------------------------------------------------------------------------------
 # Per-host backend crossover (serial njit / parallel njit / GPU cupy), resolved via the canonical
-# kernel_tuning_cache -- NO hardcoded threshold (feedback_use_kernel_tuning_cache_for_gpu /
+# kernel_tuning_cache - NO hardcoded threshold (feedback_use_kernel_tuning_cache_for_gpu /
 # feedback_fastest_default_with_dispatch). All three kernels are bit-faithful so the sweep just
 # picks the FASTEST EQUIVALENT per (n_rows, n_combos) cell. CPU njit is the DEFAULT + FALLBACK: any
 # cupy import / device error routes back to CPU, the fit is never broken.
 #
 # On a GTX 1050 Ti (cc 6.1, the dev box) prior fused MI kernels were HW-BOUND (no win vs CPU); the
 # tuner is expected to keep this kernel on CPU here. The GPU path is the deliverable that wins on
-# large-n / stronger cards -- the tuner measures and routes, we hardcode nothing.
+# large-n / stronger cards - the tuner measures and routes, we hardcode nothing.
 # ----------------------------------------------------------------------------------------------
 _USABILITY_SWEEP_COMBOS = [64, 289, 578, 1156, 1734]  # ~ |unary|^2*|binary| neighbourhood (17^2*{...})
 _USABILITY_SWEEP_ROWS = [2_000, 10_000, 50_000]  # n_rows axis: GPU H2D/launch overhead amortises with n
@@ -690,7 +690,7 @@ def _run_usability_sweep() -> list:
 def _usability_fallback_choice(n_rows: int, n_combos: int) -> str:
     """Pre-sweep heuristic (the spec's dynamic fallback callable): parallel njit above a conservative
     combo count where the prange fork-join overhead is amortised by the per-combo work. NEVER defaults
-    to GPU -- the GPU path only fires once the per-host tuner has MEASURED it faster (on the dev GTX
+    to GPU - the GPU path only fires once the per-host tuner has MEASURED it faster (on the dev GTX
     1050 Ti it is HW-bound, so the measured choice stays CPU)."""
     return "parallel" if int(n_combos) >= 64 else "serial"
 
@@ -756,21 +756,21 @@ def score_pair_combos(x1, x2, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_co
     args = (x1, x2, y_codes, float(h_y), int(k_y), qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b)
 
     # bench-attempt-rejected (2026-06-23, GTX 1050 Ti, F2 100k MRMR wall /loop): forcing this pair-combo
-    # MI table to the GPU twin (MLFRAME_USABILITY_POOL_BACKEND=gpu) is a 3x LOSS end-to-end -- F2 100k wall
+    # MI table to the GPU twin (MLFRAME_USABILITY_POOL_BACKEND=gpu) is a 3x LOSS end-to-end - F2 100k wall
     # 34.8s -> 102.5s (selection byte-identical, recipe hash 962a4c7b). The per-PAIR invocation enumerates a
     # small ua x ub x bn combo grid, so the GPU sees many tiny launches + per-pair H2D that swamp the
     # _pair_combo_mi_njit_table_parallel CPU kernel (cProfile tottime 0.97s, 10 calls). KTC correctly routes
     # this shape to "parallel" (CPU); the GPU path only pays off at large n_combos batched across pairs.
-    # iter16 (2026-06-23) re-confirmed: the genuine resident fix is to batch EVERY pair's candidate columns
+    # iter16 re-confirmed: the genuine resident fix is to batch EVERY pair's candidate columns
     # into ONE resident (n, K) matrix scored by the resident plug-in MI (the iter15 best_existing_op_mi_resident
     # pattern), NOT per-pair. That requires restructuring the per-pair retention loop + its lazy-recompute
-    # diversity filter (_usability_aware_selection.py:230) which is tightly coupled to per-pair iteration -- a
+    # diversity filter (_usability_aware_selection.py:230) which is tightly coupled to per-pair iteration - a
     # large refactor whose payoff is sub-crossover on this card (small per-pair k). Deferred to a quiet machine
     # / capable GPU; the resident-GPU win this iter went to the maxT permutation-null floor (a single batched
-    # workload, no caller refactor) -- see _permutation_null_resident.py (1.17-1.64x, bit-identical floor).
+    # workload, no caller refactor) - see _permutation_null_resident.py (1.17-1.64x, bit-identical floor).
     choice = _usability_backend_choice(n_rows, nc)
     if choice == "gpu":
-        # GPU path -- gated on live cupy + the global GPU off-switch (MLFRAME_DISABLE_GPU /
+        # GPU path - gated on live cupy + the global GPU off-switch (MLFRAME_DISABLE_GPU /
         # CUDA_VISIBLE_DEVICES=""). Any cupy/device error falls back to the CPU kernel: the fit is
         # NEVER broken by a GPU problem (correctness first).
         from ._gpu_policy import gpu_globally_disabled
@@ -783,7 +783,7 @@ def score_pair_combos(x1, x2, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_co
         choice = _usability_fallback_choice(n_rows, nc)
 
     # CPU path: use the UNARY-TABLE kernels (precompute each operand's distinct unary transforms once;
-    # bit-identical to the recompute-per-combo twins, ~1.4x faster -- 2026-06-21). ``nu_tab`` = highest
+    # bit-identical to the recompute-per-combo twins, ~1.4x faster - 2026-06-21). ``nu_tab`` = highest
     # op-code present + 1 so the table is indexed directly by the op-codes in ua_arr/ub_arr. The
     # recompute-per-combo originals (_pair_combo_mi_njit[_parallel]) are kept as the tuner's measured
     # CPU bodies + an instant rollback (feedback_keep_all_kernel_versions).

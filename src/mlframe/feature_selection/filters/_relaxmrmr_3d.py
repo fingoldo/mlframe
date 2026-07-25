@@ -17,7 +17,7 @@ with each co-information expanded into pairwise / joint MIs:
 
 II > 0 = SYNERGY (the pair (Z_1, Z_2) carries more about X once Y is fixed than it does unconditionally);
 II < 0 = REDUNDANCY (the pair already explains X without help from Y). The conditional co-information alone is
-NOT a synergy/redundancy signal -- subtracting the unconditional co-information is what gives II its sign.
+NOT a synergy/redundancy signal - subtracting the unconditional co-information is what gives II its sign.
 
 RelaxMRMR score:
 
@@ -151,15 +151,27 @@ def relax_mrmr_score(
     y_int = y.astype(np.int64)
     K_x = int(nbins_x)
     K_y = int(nbins_y)
+    n_S = len(selected_cols)
+    K_sel = [int(k) for k in nbins_selected]
+    # Guard BEFORE the first dense allocation (including the relevance term's own (K_x, K_y) joint and the
+    # n_S == 0 early return, both of which would otherwise allocate un-capped). The 3-D I(X;Y|Z) joint is
+    # (K_x, K_y, K_z) and the interaction term's composite pair joint is (K_x, K_z_i, K_z_j); guard the
+    # largest of each so a high-cardinality selected set cannot OOM the dense alloc.
+    from .info_theory._batch_kernels import check_joint_cardinality
+
+    check_joint_cardinality(K_x, K_y, what="relax_mrmr_score")
+    for _K_z in K_sel:
+        check_joint_cardinality(K_x, K_y, _K_z, what="relax_mrmr_score")
+    if n_S > 1:
+        _k_sel_max = max(K_sel)
+        check_joint_cardinality(K_x, _k_sel_max, _k_sel_max, what="relax_mrmr_score")
     # Relevance I(X; Y).
     relevance = _mi_pair_njit(x_int, y_int, K_x, K_y)
-    n_S = len(selected_cols)
     if n_S == 0:
         return float(relevance)
     # Pairwise redundancy (1/|S|) sum_j I(X; X_j): marginal MI between the candidate and each already-selected feature.
     # A candidate that duplicates a selected feature gets a large penalty; an independent one gets ~0.
     sel_int = [col.astype(np.int64) for col in selected_cols]
-    K_sel = [int(k) for k in nbins_selected]
     pair_red = 0.0
     marg_mi = np.empty(n_S, dtype=np.float64)  # I(X; X_j)
     cmi_given_y = np.empty(n_S, dtype=np.float64)  # I(X; X_j | Y)

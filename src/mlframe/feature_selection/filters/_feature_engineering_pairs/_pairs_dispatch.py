@@ -9,9 +9,21 @@ import numpy as np
 from ._pairs_common import _module_logger
 
 
+def _fe_classes_dtype(disc_dtype: np.dtype, factors_nbins: np.ndarray) -> type:
+    """Narrowest int class-code dtype that still represents every dense code (< nbins).
+
+    A <=2-byte disc dtype is already self-limiting (its own codes fit), so keep it. Wider disc must be checked
+    against the max bin count: forcing int32 disc to int16 (the old ``else np.int16``) silently wraps any
+    ``nbins > 32767`` dense code to a negative bucket -> wrong MI / noise-gate decision.
+    """
+    if disc_dtype.itemsize <= 2:
+        return disc_dtype.type
+    return np.int16 if int(factors_nbins.max()) < 32768 else np.int32
+
+
 class _FeDispatchEnvGate(NamedTuple):
     """The env-var gates this dispatcher (+ its GPU twin) reads, resolved once. Both are constant for the
-    lifetime of a process (or at least for one ``check_prospective_fe_pairs`` call) -- ``check_prospective_
+    lifetime of a process (or at least for one ``check_prospective_fe_pairs`` call) - ``check_prospective_
     fe_pairs`` resolves this ONCE via ``resolve_fe_dispatch_env_gate`` and threads it through every dispatch
     call site instead of each one re-reading ``os.environ.get`` per pair/chunk."""
 
@@ -23,7 +35,7 @@ def resolve_fe_dispatch_env_gate() -> _FeDispatchEnvGate:
     """Resolve the CUDA opt-out (``CUDA_VISIBLE_DEVICES=""`` / ``MLFRAME_DISABLE_GPU=1``) and the
     GPU-resident-gate (``MLFRAME_FE_GPU_RESIDENT_GATE``) env vars once. Callers without a pre-resolved
     gate (e.g. a direct unit-test call) get the identical values by leaving ``env_gate=None``, which
-    falls back to calling this function inline -- so this hoist changes call FREQUENCY, never behavior."""
+    falls back to calling this function inline - so this hoist changes call FREQUENCY, never behavior."""
     from .._gpu_policy import gpu_globally_disabled
 
     _gpu_opted_out = gpu_globally_disabled()
@@ -70,7 +82,7 @@ def _dispatch_batch_mi_with_noise_gate(
     ``check_prospective_fe_pairs`` sweep (this dispatcher runs once per pair/chunk); ``None`` (a direct
     or test call) resolves it inline, unchanged from the pre-hoist behavior.
 
-    Returns ``fe_mi[K]`` -- the per-column observed MI, zeroed where the permutation gate
+    Returns ``fe_mi[K]`` - the per-column observed MI, zeroed where the permutation gate
     rejects. Bit-identical to a per-candidate ``mi_direct`` loop on the default FE path.
     """
     if env_gate is None:
@@ -79,8 +91,8 @@ def _dispatch_batch_mi_with_noise_gate(
     K = disc_2d.shape[1]
     factors_nbins = np.full(K, int(quantization_nbins), dtype=np.int64)
 
-    # F2 (2026-06-22): route the CPU njit observed-MI kernel to the fused v2 (one n-row pass per column
-    # instead of two -- bit-identical, measured 1.18-1.21x at the canonical 30k chunk) via the per-host
+    # F2: route the CPU njit observed-MI kernel to the fused v2 (one n-row pass per column
+    # instead of two - bit-identical, measured 1.18-1.21x at the canonical 30k chunk) via the per-host
     # kernel_tuning_cache. The caller passes the v1 kernel as ``batch_mi_kernel``; the selector swaps it
     # for v2 when the KTC (or the v2-default fallback) picks it. Every CPU njit call below (analytic
     # npermutations=0 observed-MI, GPU-opt-out, the always-correct fallback) uses ``_cpu_kernel``. The
@@ -114,20 +126,20 @@ def _dispatch_batch_mi_with_noise_gate(
     def _need_host_codes():
         """Materialise the host codes into ``disc_2d`` before any host-codes read (analytic gate / CPU
         njit / non-resident GPU path). No-op unless the producer DEFERRED the codes D2H (resident handoff
-        on AND no host consumer has read yet) -- in which case it D2Hs the resident device codes into
+        on AND no host consumer has read yet) - in which case it D2Hs the resident device codes into
         ``disc_2d`` now (the EXACT bytes the eager fill produced -> selection unchanged). NOT swallowed: a
-        fill failure must NOT let a host consumer read the unfilled (garbage) ``disc_2d`` -- it propagates
+        fill failure must NOT let a host consumer read the unfilled (garbage) ``disc_2d`` - it propagates
         so the GPU branch's try/except routes to the always-correct CPU kernel (which re-calls this; if the
         D2H is genuinely broken the whole GPU stack is, and a loud error beats silent wrong selection)."""
         if _ensure_host is not None:
             _ensure_host(disc_2d)
 
-    # ---- Analytic large-n noise gate (2026-06-16) -------------------------------------------------
-    # The per-candidate permutation null -- CPU prange shuffles AND the GPU cupy-argsort twin below --
+    # ---- Analytic large-n noise gate -------------------------------------------------
+    # The per-candidate permutation null - CPU prange shuffles AND the GPU cupy-argsort twin below -
     # is the dominant large-n FE-scan cost. At large n the gate's permutation p-value is the analytic
     # G-test tail (2N*MI ~ chi2), so the shuffles are unnecessary: compute the ungated observed MI once
     # (the CPU kernel with npermutations=0) and apply the keep/reject decision analytically. Only when
-    # MI is raw (not SU-normalised -- the chi2 identity requires it) and n >= threshold; below it the
+    # MI is raw (not SU-normalised - the chi2 identity requires it) and n >= threshold; below it the
     # permutation path (CPU/GPU) runs byte-for-byte unchanged. Bypasses the GPU branch entirely.
     if int(npermutations) > 0 and not use_su:
         try:
@@ -136,14 +148,14 @@ def _dispatch_batch_mi_with_noise_gate(
             )
             # Candidates are quantised to ``quantization_nbins`` (low, fixed cardinality); each column's
             # OCCUPIED bins are <= that, so checking applicability with the declared count + occupied y
-            # bins is conservative (worst-case sparsest table) -- if it passes here it passes per column.
+            # bins is conservative (worst-case sparsest table) - if it passes here it passes per column.
             # NOTE (P1-6): this APPLICABILITY check uses the DECLARED nbins (worst-case densest df ->
             # smallest n/cells -> hardest to pass, i.e. safe direction), while ``analytic_batch_noise_gate``
             # later uses each column's OCCUPIED bx for the actual chi2 df. The two intentionally differ:
             # the gate-on check is the conservative bound, the per-column df is the exact one.
             # freqs_y is the y-class frequency vector (bincount(classes_y)/total; zero for
             # absent labels), so its nonzero count IS the occupied-class count == np.unique(
-            # classes_y).size -- O(nbins) instead of an O(n log n) np.unique over all n rows,
+            # classes_y).size - O(nbins) instead of an O(n log n) np.unique over all n rows,
             # recomputed on every per-pair-batch analytic-gate dispatch (~1000x cheaper/call).
             _by_occ = int(np.count_nonzero(freqs_y))
             _an_ok = analytic_null_enabled() and analytic_null_applicable(
@@ -159,7 +171,7 @@ def _dispatch_batch_mi_with_noise_gate(
                     classes_y_safe=classes_y_safe, freqs_y=freqs_y, npermutations=0,
                     base_seed=np.uint64(0), min_nonzero_confidence=float(min_nonzero_confidence),
                     use_su=False, dtype=np.int32,
-                    classes_dtype=disc_2d.dtype if disc_2d.dtype.itemsize <= 2 else np.int16,
+                    classes_dtype=_fe_classes_dtype(disc_2d.dtype, factors_nbins),
                 )
                 return analytic_batch_noise_gate(
                     disc_2d, _observed, classes_y, int(n), float(min_nonzero_confidence), by=_by_occ,
@@ -177,7 +189,7 @@ def _dispatch_batch_mi_with_noise_gate(
     # bit-exact path), so the tuner runs a real CPU-vs-GPU sweep and the cache routes
     # large (n_rows x n_cols) batches to GPU where it measurably wins on this host.
     backend = "cpu"
-    # Explicit GPU OPT-OUT honoured BEFORE the KTC lookup. ``CUDA_VISIBLE_DEVICES=""`` (empty string -- the documented mlframe
+    # Explicit GPU OPT-OUT honoured BEFORE the KTC lookup. ``CUDA_VISIBLE_DEVICES=""`` (empty string - the documented mlframe
     # convention for "no GPU on this run") must force CPU here: cupy ignores that env for device enumeration on some builds, so a
     # cached GPU ``backend_choice`` would route to the cupy path whose device->host copy then HANGS indefinitely (not an exception,
     # so the GPU try/except below never catches it). Skip the GPU route entirely when the user asked for no CUDA device.
@@ -194,7 +206,7 @@ def _dispatch_batch_mi_with_noise_gate(
             min_nonzero_confidence=float(min_nonzero_confidence),
             use_su=bool(use_su),
             dtype=np.int32,
-            classes_dtype=disc_2d.dtype if disc_2d.dtype.itemsize <= 2 else np.int16,
+            classes_dtype=_fe_classes_dtype(disc_2d.dtype, factors_nbins),
         ))
     # Under an explicit max_runtime_mins budget, skip the CPU-vs-GPU crossover sweep (blocking on first use, tens of
     # seconds at large n) and use the measurement-backed fallback; the sweep still runs on a normal no-budget fit so
@@ -292,11 +304,11 @@ def _dispatch_batch_mi_with_noise_gate(
         min_nonzero_confidence=float(min_nonzero_confidence),
         use_su=bool(use_su),
         dtype=np.int32,
-        # OPT-B: size the (n, K) densified-code buffer to disc_2d's (now narrow) width -- the
+        # OPT-B: size the (n, K) densified-code buffer to disc_2d's (now narrow) width - the
         # dense codes live in the SAME [0, n_bins) range, so int8/int16 is value-identical and
         # cuts both the alloc (the 589MiB->147MiB classes_dense that OOM'd RAM-tight hosts) and
         # the per-permutation strided gather bandwidth. joint_counts (the real counter) stays int32.
-        classes_dtype=disc_2d.dtype if disc_2d.dtype.itemsize <= 2 else np.int16,
+        classes_dtype=_fe_classes_dtype(disc_2d.dtype, factors_nbins),
     ))
 
 
@@ -321,29 +333,29 @@ def _batch_mi_with_noise_gate_gpu(
     which runs the cupy / numba.cuda joint-histogram counting on the GPU and the
     entropy reduction on the bit-exact CPU path (the y-shuffles use the IDENTICAL
     CPU LCG/Fisher-Yates stream, ``base_seed*2654435761 + (i+1)`` then the PCG
-    step). ``base_seed`` is 0 on the default FE path -- matching the CPU kernel call
-    below -- so the GPU and CPU shuffle streams (and thus the noise-gate rejection)
+    step). ``base_seed`` is 0 on the default FE path - matching the CPU kernel call
+    below - so the GPU and CPU shuffle streams (and thus the noise-gate rejection)
     are identical to the bit. ``env_gate`` mirrors the dispatcher's own hoist (``None``
     resolves it inline, unchanged from a direct/test call's pre-hoist behavior).
     """
     if env_gate is None:
         env_gate = resolve_fe_dispatch_env_gate()
-    # FULL-GPU-RESIDENT gate (2026-06-21): once the cache has chosen GPU for this size, run the WHOLE
-    # noise gate on-device (batched histogram + GPU entropy, only the (P,K) MI matrix D2H) -- bit-
+    # FULL-GPU-RESIDENT gate: once the cache has chosen GPU for this size, run the WHOLE
+    # noise gate on-device (batched histogram + GPU entropy, only the (P,K) MI matrix D2H) - bit-
     # identical to the GPU-hist+CPU-entropy path (verified maxdiff ~1e-18, FE pins green) and ~1.14x
     # faster at the canonical K. SU has no GPU-entropy form -> use the standard path. Any failure falls
     # through. Opt-out: MLFRAME_FE_GPU_RESIDENT_GATE=0.
     if not bool(use_su) and env_gate.resident_gate_on:
         try:
             from ..batch_mi_noise_gate_gpu import batch_mi_with_noise_gate_cuda_resident, _CUDA_AVAIL as _CA
-            # Use the resident CUDA gate whenever GPU is chosen -- INCLUDING when the cache/fallback said
+            # Use the resident CUDA gate whenever GPU is chosen - INCLUDING when the cache/fallback said
             # "cupy": the cupy noise gate OOMs on a 4 GB consumer GPU (its (rows, n*K) tiled buffer), which
             # silently falls back to the CPU njit gate (~3x slower); the resident CUDA path is bit-
             # identical, never builds that buffer, and doesn't OOM. The cache's backend pick is GPU-vs-CPU;
             # the GPU SUB-backend is ours to choose, and resident-cuda dominates cupy here.
             if _CA:
                 # RESIDENT-CODES HANDOFF (gated): feed the on-device codes (when the producer kept them
-                # resident) straight to the histogram kernel -- skips the codes' H2D re-upload, bit-
+                # resident) straight to the histogram kernel - skips the codes' H2D re-upload, bit-
                 # identical (same int codes). ``device_codes=None`` keeps the H2D-from-host path.
                 # When the device codes are consumed in place, host ``disc_2d`` is never read -> the
                 # producer's DEFERRED host-codes D2H is skipped entirely (the canonical win). If

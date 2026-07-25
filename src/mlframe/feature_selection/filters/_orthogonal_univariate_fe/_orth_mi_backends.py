@@ -1,8 +1,8 @@
 """Batch MI(X_j; y) backends for the orthogonal-basis FE selectors.
 
-Two interchangeable implementations -- the sklearn ``mutual_info_score``
+Two interchangeable implementations - the sklearn ``mutual_info_score``
 reference loop and the numba/cupy batch dispatcher routed through
-``hermite_fe.plugin_mi_classif_batch_dispatch`` -- plus the import-time
+``hermite_fe.plugin_mi_classif_batch_dispatch`` - plus the import-time
 backend chooser (`_select_mi_backend` / `_MI_BACKEND`) and the public
 ``_mi_classif_batch`` entry point the orth-FE family and many sibling
 modules import.
@@ -49,7 +49,7 @@ def _orth_mi_gpu_enabled(*, n: int | None = None, p: int | None = None) -> bool:
     """STRICT-GPU full-coverage mode: route the orth-FE batch MI through the resident-GPU plugin-MI so the
     whole FE path runs on the device (MLFRAME_FE_GPU_STRICT / MLFRAME_CMI_GPU). Default OFF -> njit
     dispatcher. STRICT is a diagnostic FULL-GPU mode (every gateable kernel on the device for nsys GPU-load
-    profiling), not a wall-optimised default -- the per-call H2D of host-built candidates is paid here; the
+    profiling), not a wall-optimised default - the per-call H2D of host-built candidates is paid here; the
     wall win needs born-on-device candidates.
 
     ``n``/``p`` (optional): the calling batch's own (rows, cols) shape, forwarded to ``fe_gpu_strict_enabled``
@@ -80,12 +80,12 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
     prange kernel (CPU, argsort equi-frequency RANK binning) or cupy batch kernel (GPU) via the kernel
     tuning cache. Bench at p=200 n=2000: ~6ms vs ~317ms for the per-column sklearn loop (~53x speedup).
 
-    BINNING CHOICE (2026-06-26): the CPU default stays RANK binning. The GPU STRICT-residency twin
+    BINNING CHOICE: the CPU default stays RANK binning. The GPU STRICT-residency twin
     ``_plugin_mi_classif_batch_cuda_resident`` uses PERCENTILE-EDGE binning, and its bit-faithful CPU twin
     ``_fe_edge_mi.plugin_mi_classif_batch_edge_njit`` is proven equal to it to ~1e-9 on continuous AND tied
     columns (``test_fe_edge_mi_parity``). Edge and rank agree bit-for-bit ONLY on tie-free data; on tied
     columns they diverge (rank splits equal values across a bin boundary, edge keeps them together). It is
-    TEMPTING to switch this default to edge so the CPU and GPU FE paths bin identically -- but doing so
+    TEMPTING to switch this default to edge so the CPU and GPU FE paths bin identically - but doing so
     regresses the canonical OVER-DROP pin (``test_private_raw_a_kept_alongside_engineered_multi_seed``,
     seeds 1-4): on that fixture the ~1e-12 rank-vs-edge MI perturbation, even on continuous data, is enough
     to push a SPURIOUS cross-signal form ``mul(qubed(a),cbrt(c))`` over the redundancy admission gate, which
@@ -99,18 +99,18 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
     matching ``_mi_classif_batch_sklearn`` semantics. An all-NaN column or a
     column where every value collapses to a single bin returns 0.0.
 
-    ``rank_binning`` (2026-07-16, correctness fix): when the caller explicitly requested RANK binning (the
-    STRICT/rank-resident GPU path in ``_mi_classif_batch`` was requested but not taken -- e.g. its own
+    ``rank_binning``: when the caller explicitly requested RANK binning (the
+    STRICT/rank-resident GPU path in ``_mi_classif_batch`` was requested but not taken - e.g. its own
     ``fe_gpu_strict_enabled(n, p)`` shape floor blocked it), this function must NOT silently substitute the
     ``_orth_mi_gpu_enabled`` EDGE-binned GPU path below: that gate returns True unconditionally whenever
     ``MLFRAME_CMI_GPU=1`` (a diagnostic full-GPU-coverage env flag, NOT shape-gated), so a caller requesting
-    rank binning at a shape below the STRICT floor (e.g. n=50000, p=1 -- common for the pairwise-modular
+    rank binning at a shape below the STRICT floor (e.g. n=50000, p=1 - common for the pairwise-modular
     combiner's per-column MI) silently got edge-binned MI instead, diverging from the CPU/GPU rank-resident
     paths by as much as ~6%% on tie-heavy integer columns (found via
     test_sf2_combiner_baseline_and_residue_mi_byte_identical). When ``rank_binning=True`` this skips the
     edge-binned GPU branch and routes straight to the RANK-binned CPU dispatcher
     (``plugin_mi_classif_batch_dispatch`` -> ``_quantile_bin_njit``, itself fixed the same day to use a
-    stable sort so its tie order matches ``cp.argsort``'s -- see that function's docstring), so
+    stable sort so its tie order matches ``cp.argsort``'s - see that function's docstring), so
     ``rank_binning=True`` is now an HONORED contract end-to-end instead of being silently dropped once past
     the outer STRICT gate.
     """
@@ -132,7 +132,7 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
     if dense_cols.size:
         # When EVERY column is finite (the production nan-filled path), the
         # ``X[:, dense_cols]`` fancy-index is a full (n, p) gather COPY that
-        # reproduces X verbatim -- skip it and hand the (already-contiguous)
+        # reproduces X verbatim - skip it and hand the (already-contiguous)
         # frame straight to the batch kernel. On a 40k x 200 all-finite frame
         # this setup dropped 3109ms -> 212ms (~14.6x) across 23 calls; the
         # gather copy was the entire self-time. Partial-NaN columns still take
@@ -229,13 +229,13 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
     FE-candidate path leaves this False -> the edge path is untouched. Falls back to the CPU njit rank path on
     any GPU failure; default flag-off is byte-for-byte unchanged regardless of this flag.
 
-    Layer 31 (2026-05-31): routes to the numba prange batch dispatcher
+    Layer 31: routes to the numba prange batch dispatcher
     (``_mi_classif_batch_numba``) when available — ~53x speedup at
     p=200 n=2000 over the per-column sklearn loop, bit-equivalent to within
     machine epsilon (< 2e-15 across 40 seeds). Set ``MLFRAME_NUMBA_MI=0``
     to force the sklearn reference if a downstream regression demands it.
 
-    Idea #18 (2026-06-10) -- bench-rejected, default OFF: an inverse-prior
+    Idea #18 (2026-06-10) - bench-rejected, default OFF: an inverse-prior
     class-balanced MI was added to test whether plain plug-in MI under-RANKS
     rare-class-discriminative features under imbalance. It does NOT: balancing is
     a near-uniform multiplicative rescale (Kendall tau 0.989 vs plain), so it
@@ -247,7 +247,7 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
     test ``tests/feature_selection/test_imbalance_mi.py``.
     """
     # A resident caller (row-argmax / conditional-gate scorer) may hand a genuinely 1-D candidate column (numpy
-    # or cupy) on the assumption this function reshapes it to a single-column batch -- true INSIDE the
+    # or cupy) on the assumption this function reshapes it to a single-column batch - true INSIDE the
     # GPU-STRICT branch below (``if Xd.ndim == 1: Xd = Xd[:, None]``), but GPU-STRICT is off by default, in
     # which case the array fell through unreshaped to ``_mi_classif_batch_numba``'s ``_n, p = X.shape``, which
     # assumes 2-D and raised "not enough values to unpack (expected 2, got 1)" on a 1-D shape. Normalise once,
@@ -269,16 +269,16 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
     # best_existing_op_mi / _gate_grid_mi ~2.1s + _pairwise_modular_fe._mi 0.35s + _unified_fe_gate, each
     # building a FRESH host candidate matrix one-shot) to its GPU twin _plugin_mi_classif_batch_cuda.
     # ISOLATED A/B (fresh-host-array, WITH H2D) at n=100k showed GPU ~2-3x FASTER (k=14 45.8->20.1ms,
-    # k=5 28.5->8.1ms, k=30 106->39ms) -- but END-TO-END is a LOSS: MLFRAME_MI_BACKEND=cuda (forces every
+    # k=5 28.5->8.1ms, k=30 106->39ms) - but END-TO-END is a LOSS: MLFRAME_MI_BACKEND=cuda (forces every
     # batch dispatch to GPU) measured 34.8s -> 36.0s wall. The per-call H2D of each freshly-built host
     # matrix + GPU contention with the already-resident pair kernels eats the isolated speedup (the classic
     # "isolated-kernel microbench lies" trap; see plugin_mi_classif_batch_dispatch ground-truth note).
     # Selection WAS byte-identical under the force (F2 100k recipe hash 962a4c7b / produced e92339f7 both
-    # match njit -- the percentile-edge GPU binning is selection-equivalent here despite ~1e-4 ULP MI drift),
+    # match njit - the percentile-edge GPU binning is selection-equivalent here despite ~1e-4 ULP MI drift),
     # so the ONLY blocker is the wall regression. A real win needs the candidate matrices GPU-RESIDENT
-    # (eliminating the per-call H2D the microbench omits) -- the matrix-native FE replatform, tracked
+    # (eliminating the per-call H2D the microbench omits) - the matrix-native FE replatform, tracked
     # separately; a dispatch flag alone cannot win.
-    # residency-blocker quantified (2026-06-23, MRMR FE wall /loop iter14 -- "complete end-to-end GPU
+    # residency-blocker quantified (2026-06-23, MRMR FE wall /loop iter14 - "complete end-to-end GPU
     # residency for the dominant CPU MI"): the FE-PAIR path is ALREADY fully resident (verified: 47/47
     # _dispatch_batch_mi_with_noise_gate calls hit take_resident_codes -> batch_mi_with_noise_gate_cuda_-
     # resident with device codes in place, 0 H2D), so the pair-MI is NOT the remaining CPU cost. The #1 CPU
@@ -287,14 +287,14 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
     #   (1) NO DEVICE CODES TO HAND OFF. Every one of the 157 candidate matrices is built on the HOST with
     #       numpy (best_existing_op_mi: u*v / u-v / u/(|v|+eps) / u+v / stack.max|min|sum via np.column_stack;
     #       _gate_grid_mi / cheap_conditional_gate_scan likewise). The candidates were NEVER on the GPU, so
-    #       there is no resident handoff to extend -- "residency" presupposes device data this path doesn't
+    #       there is no resident handoff to extend - "residency" presupposes device data this path doesn't
     #       have. Making it resident = porting the host numpy candidate GENERATION to cupy, a far larger change
     #       than the pair path's (which already binned on-device).
     #   (2) CALL SHAPE IS BELOW THE GPU CROSSOVER even at ZERO transfer cost. Measured k-distribution of the
     #       157 calls (warm F2 100k seed-7): k=1 x96 (0.33s, the partial-NaN per-column fallback), k<=18 x53
     #       (1.15s, 21.7ms/call), k<=40 x4 (0.29s), k>40 x4 (1.17s: k=306 x1, k=527 x2, k=80 x1). The resident
     #       GPU MI crossover on this HW is k>=100 @ n=100k (see _gpu_resident_fe BENCH). So 153/157 calls
-    #       (1.77s of the 2.94s) are sub-crossover -- a per-call GPU launch+sync would LOSE on them regardless
+    #       (1.77s of the 2.94s) are sub-crossover - a per-call GPU launch+sync would LOSE on them regardless
     #       of H2D. Only the 4 large-k calls (1.17s, 40%) are GPU-favorable, and those are exactly the
     #       host-built orth-univariate candidates of (1) AND the shapes the flag-route A/B above already
     #       benched to a 34.8->36.0s end-to-end LOSS (per-call H2D + same-GPU contention with the resident pair
@@ -338,7 +338,7 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
             from ..hermite_fe import _plugin_mi_classif_batch_cuda_resident
 
             # RESIDENT-INPUT fast path: a device-born caller may hand an ALREADY-RESIDENT cupy candidate matrix
-            # (built on device from the resident raw operands) -- use it as-is so it never re-crosses H2D at this
+            # (built on device from the resident raw operands) - use it as-is so it never re-crosses H2D at this
             # :311 site. (It also fixes a latent crash: np.asarray on a cupy array raises, so the host path below
             # must NOT run for a device input.) Host ndarray inputs take the exact prior upload path.
             if isinstance(X, cp.ndarray):
@@ -394,7 +394,7 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
             return np.asarray(_plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins), y_min=_ymin, n_classes=_ncls), dtype=np.float64)
     except (ImportError, *_DEV_ERRS):  # type: ignore[misc]  # _DEV_ERRS is runtime-filtered to actual BaseException subclasses just above
         pass  # cupy/strict-module absent OR a genuine device fault -> exact CPU njit below.
-        # NOTE (FIX1): ValueError / IndexError are intentionally NOT caught here -- a -1 / out-of-range
+        # NOTE (FIX1): ValueError / IndexError are intentionally NOT caught here - a -1 / out-of-range
         # code raised by _assert_codes_in_range (illegal-address guard) must surface, not degrade to CPU.
     # A RESIDENT-INPUT caller (device-born matrix or the gate / row-argmax scorer that threads a resident cupy
     # candidate) may reach this CPU fallback on a genuine device fault -> bring the operands back to host so the
@@ -406,7 +406,7 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
         if isinstance(y, _cp_fb.ndarray):
             y = _cp_fb.asnumpy(y)
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _orth_mi_backends.py:381: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
     if _MI_BACKEND == "numba":
         return _mi_classif_batch_numba(X, y, nbins=nbins, rank_binning=rank_binning)
@@ -429,27 +429,27 @@ def _mi_chunk_cols_for(n_rows: int) -> int:
 
 
 def mi_classif_batch_chunked(X, y, *, nbins: int = 10, chunk_cols: int | None = None) -> np.ndarray:
-    """Column-CHUNKED ``_mi_classif_batch`` for WIDE engineered matrices (2026-06-19).
+    """Column-CHUNKED ``_mi_classif_batch`` for WIDE engineered matrices.
 
     The FE MI-uplift scorers (univariate / pair-cross / triplet / quadruplet / adaptive-arity / mi-greedy)
-    each materialised the FULL engineered matrix as one float64 array to batch-score MI -- O(n * n_engineered)
+    each materialised the FULL engineered matrix as one float64 array to batch-score MI - O(n * n_engineered)
     peak RAM that OOMs at scale (measured (16000, 20000) float64 = 2.38 GiB), worst for the combinatorial
     triplet/quadruplet cross-basis families. MI is PER-COLUMN, so scoring in column blocks is BIT-IDENTICAL to
     the all-at-once call FOR ANY chunk size while bounding peak extra RAM. ``chunk_cols`` defaults to a RAM-aware
-    width (see ``_mi_chunk_cols_for`` -- bounds the BLOCK BYTES, so it is safe at large n too, not just wide p);
+    width (see ``_mi_chunk_cols_for`` - bounds the BLOCK BYTES, so it is safe at large n too, not just wide p);
     pass an explicit value to override. Accepts a pandas DataFrame (sliced via ``iloc``, so only the block is
     materialised) or a 2-D ndarray. Returns the (p,) per-column MI array."""
     # The block loop below stays SEQUENTIAL by design: ``_mi_classif_batch`` already parallelises across the
     # block's columns via the numba prange batch kernel, so each per-block call saturates all cores. Threading
-    # the block loop on top would OVERSUBSCRIBE the prange pool (no speedup, likely slower) -- bench-rejected
-    # (2026-06-19); the chunking is a MEMORY bound, not a missing parallelism lever.
+    # the block loop on top would OVERSUBSCRIBE the prange pool (no speedup, likely slower) - bench-rejected
+    # ; the chunking is a MEMORY bound, not a missing parallelism lever.
     is_df = hasattr(X, "iloc")
     n = int(X.shape[0])
     p = int(X.shape[1])
     if chunk_cols is None:
         chunk_cols = _mi_chunk_cols_for(n)
     from .._fe_usability_signal import _crit_np_dtype
-    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default) -- MI binning is scale-robust; f64 in strict mode
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default) - MI binning is scale-robust; f64 in strict mode
     if p <= chunk_cols:
         arr = X.to_numpy(dtype=_dt) if is_df else np.asarray(X, dtype=_dt)
         return _mi_classif_batch(arr, y, nbins=nbins)

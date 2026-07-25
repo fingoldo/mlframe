@@ -26,7 +26,7 @@ def _inject_operand_pairs(merged: dict, usable_pairs, name_to_phi_idx: dict, *, 
     A pair that already carries a measured proxy loss (surfaced by the augmented search / expansion
     upstream) keeps it. A pair with NO prior entry gets its REAL additive proxy loss computed honestly
     on its operand phi-columns via ``subset_loss``. The pre-fix bug instead stamped such pairs with
-    ``candidates[0][0]`` -- the BEST candidate's loss -- a fabricated optimistic stand-in that could
+    ``candidates[0][0]`` - the BEST candidate's loss - a fabricated optimistic stand-in that could
     sort to the front of the winner list and win selection on a number it never earned.
 
     Returns the count of pairs newly injected (those that had no prior entry).
@@ -166,7 +166,7 @@ def augment_candidates_with_interactions(
     # multiplicative) earns credit the additive proxy denies it. The pairwise term is GATED to the
     # top-k features by mean |phi| so the cost is O(k^2) not O(P^2). Default stays "additive"
     # (bench_shap_interaction_proxy: interaction wins the competing-XOR bed by ~+0.24 AUC replicated
-    # 3/3 seeds, but is only 1/6 beds and slightly regresses one additive-redundant seed -- not the
+    # 3/3 seeds, but is only 1/6 beds and slightly regresses one additive-redundant seed - not the
     # majority+no-regression win a default flip requires; kept opt-in). Tree models only (needs the
     # TreeSHAP interaction tensor); non-tree falls back to additive cleanly (compute_interaction_
     # tensor returns None-equivalent and the block no-ops).
@@ -202,7 +202,7 @@ def augment_candidates_with_interactions(
     # su_seeded_interactions merge (#5b, OPT-IN): the CHEAP sparse alternative to
     # ``interaction_aware``'s O(P^2) tensor. The synergy screen + SNR gate ran above (operands
     # already rescued past the prescreen, so they are present in ``phi``). Here the interaction
-    # objective runs on ONLY the surviving K pairs -- a sparse product-column augmentation, never
+    # objective runs on ONLY the surviving K pairs - a sparse product-column augmentation, never
     # the dense P x P tensor. Each surviving product candidate is expanded into its two OPERAND
     # proxy-columns so the merged coalition lives in plain phi-column space (selecting the product
     # == recovering both operands); honest re-validation downstream still retrains only on real
@@ -271,7 +271,7 @@ def augment_candidates_with_interactions(
                 n_pairs=int(_su_screen_info.get("n_pairs", 0)))
 
     # proxy_mode="faith_interaction" (gt_01, OPT-IN): order-2 Faith-Shap surrogate ranking over the
-    # SAME additive proxy game, candidate-pair-restricted (never the full O(P^2) design -- see
+    # SAME additive proxy game, candidate-pair-restricted (never the full O(P^2) design - see
     # _shap_proxy_faith_interactions.py's module docstring for why that's rejected as underdetermined
     # at typical post-prescreen widths). Reuses the su_synergy_screen candidate pairs resolved above
     # (``_su_screen_enabled()`` fires for this mode too, so the screen runs at most once per fit).

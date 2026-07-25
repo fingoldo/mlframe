@@ -1,9 +1,9 @@
 """Read-only diagnostic comparison of feature selectors.
 
 ``compare_selectors(X, y, selectors=...)`` is a single-call convenience report
-that fits (or accepts pre-fitted) feature selectors -- MRMR, RFECV, BorutaShap,
+that fits (or accepts pre-fitted) feature selectors - MRMR, RFECV, BorutaShap,
 ShapProxiedFS, HybridSelector, or any sklearn-style selector exposing a support
-accessor -- aligns each one's selected support on a common feature index, and
+accessor - aligns each one's selected support on a common feature index, and
 emits three orthogonal views:
 
 * an ``agreement`` matrix (features x selectors, boolean kept/not),
@@ -14,7 +14,7 @@ This is PURELY a display over already-computed selector decisions. It changes
 no selection logic and mutates no selector. ``HybridSelector`` already COMBINES
 its members into one decision and stashes the per-member name-lists at
 ``member_selections_`` but never surfaces them; this report is the orthogonal,
-read-only consumer of exactly that data -- it DISPLAYS per-member disagreement,
+read-only consumer of exactly that data - it DISPLAYS per-member disagreement,
 it does NOT use it to change any decision.
 
 Selectors that are unavailable (not installed / failed to fit) are skipped with
@@ -167,7 +167,7 @@ def compare_selectors(
     fit: bool | None = None,
     fit_kwargs: Mapping[str, Any] | None = None,
 ) -> SelectorComparison:
-    """Compare what each feature selector keeps -- read-only diagnostics.
+    """Compare what each feature selector keeps - read-only diagnostics.
 
     Args:
         X: feature frame; its columns define the common feature index for alignment.
@@ -226,7 +226,7 @@ def compare_selectors(
             except Exception as exc:
                 # Broad by design: this is a best-effort cross-selector comparison harness, so any selector that cannot fit (missing optional dep, GPU-only path on a
                 # CPU host, an input it rejects) must not abort the whole comparison. The failure is RECORDED in ``skipped`` with its type+message and surfaced to the
-                # caller -- it is visible, not swallowed -- so the broad catch is the correct policy for an exploratory comparison rather than a masked error.
+                # caller - it is visible, not swallowed - so the broad catch is the correct policy for an exploratory comparison rather than a masked error.
                 skipped[name] = f"fit failed: {type(exc).__name__}: {exc}"
                 continue
         elif not already:

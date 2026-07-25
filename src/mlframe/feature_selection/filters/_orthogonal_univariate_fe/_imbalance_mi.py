@@ -1,7 +1,7 @@
 """Confidence-weighted / class-balanced MI for FE relevance under class imbalance (backlog idea #18).
 
-bench-rejected (2026-06-10): default OFF. The premise -- that plain plug-in
-``MI(candidate; y)`` under-RANKS a feature that separates the rare class -- does
+bench-rejected (2026-06-10): default OFF. The premise - that plain plug-in
+``MI(candidate; y)`` under-RANKS a feature that separates the rare class - does
 NOT hold for the estimator as implemented. Inverse-prior class balancing applies
 a near-uniform MULTIPLICATIVE rescale to every feature's MI (Kendall tau 0.989 vs
 plain across 40 imbalanced frames; min 0.956), so it almost never changes a
@@ -17,7 +17,7 @@ Mechanistically: a high-precision rare detector ALWAYS carries higher plain MI
 than a broad/weak majority-correlated decoy (verified analytically for binary
 features), so plain MI compresses the rare signal's MAGNITUDE (a 0.78-AUC rare
 separator -> plain MI ~0.004 vs balanced ~0.13, ~30x) but preserves its RANK and
-the eng/raw uplift SIGN -- and rank/ratio gates are invariant to the uniform
+the eng/raw uplift SIGN - and rank/ratio gates are invariant to the uniform
 rescale. Kept here (keep-all-kernels rule) as an opt-in scorer for ad-hoc
 imbalance experiments, reachable via ``MLFRAME_FE_IMBALANCE_MI=on``. Numbers:
 ``D:/Temp/imbalmi_results.md``; regression coverage:
@@ -28,7 +28,7 @@ when the positive prior is far below 0.5, a feature that separates the RARE clas
 contributes little to the marginal MI (the rare class carries little probability
 mass). When the minority prior is below a threshold AND there are enough rare-
 class samples to estimate the rebalanced histogram reliably (gate on ``n_rare``,
-NOT just the prior -- too few rare rows = an unreliable rebalanced estimate, fall
+NOT just the prior - too few rare rows = an unreliable rebalanced estimate, fall
 back to plain MI), compute a **class-balanced MI**: inverse-prior reweight the
 joint histogram so every class contributes equal total probability mass to the MI
 sum.
@@ -91,12 +91,12 @@ _N_RARE_FLOOR = int(os.environ.get("MLFRAME_FE_IMBALANCE_N_RARE", "150"))
 
 
 def _imbalance_mode() -> str:
-    """``off`` (DEFAULT -- bench-rejected) | ``on`` / ``auto`` (opt-in: force the gate).
+    """``off`` (DEFAULT - bench-rejected) | ``on`` / ``auto`` (opt-in: force the gate).
 
     Default is ``off`` so ``_mi_classif_batch`` is byte-for-byte the plain-MI path
     unless a user explicitly opts in (``MLFRAME_FE_IMBALANCE_MI=on``). ``auto`` is
     kept as an alias for ``on`` (the gate still self-disables on balanced data and
-    below the n_rare floor) but is NOT the unset default -- see the module
+    below the n_rare floor) but is NOT the unset default - see the module
     docstring for the rejection numbers.
     """
     flag = os.environ.get("MLFRAME_FE_IMBALANCE_MI", "").strip().lower()
@@ -112,11 +112,11 @@ def compute_class_weights(y: np.ndarray) -> np.ndarray | None:
     """Decide whether to class-balance MI for this ``y``; return per-class weights or ``None``.
 
     Returns ``None`` (=> caller uses plain MI, byte-identical) when:
-      * the override is ``off`` (the DEFAULT -- bench-rejected; the common path);
+      * the override is ``off`` (the DEFAULT - bench-rejected; the common path);
       * y is not a discrete classification target with >=2 populated classes;
-      * the minority prior is above ``_PRIOR_THRESHOLD`` -- not imbalanced
+      * the minority prior is above ``_PRIOR_THRESHOLD`` - not imbalanced
         enough to bother (the no-regression / balanced-data case);
-      * the rare-class count is below ``_N_RARE_FLOOR`` -- too few rare rows
+      * the rare-class count is below ``_N_RARE_FLOOR`` - too few rare rows
         to estimate a reliable rebalanced histogram (the GATE-control case).
 
     When it DOES correct (only under the opt-in ``on``/``auto`` mode), returns
@@ -143,11 +143,11 @@ def compute_class_weights(y: np.ndarray) -> np.ndarray | None:
     n_classes = int(y_arr.max()) + 1
     if n_classes < 2:
         return None
-    # X_EDGE_CASES_BEST_PRACTICES-3 fix: no upper bound existed on n_classes before
-    # allocating `counts` -- a caller-controlled integer y whose max value is large (a row-id/timestamp
+    # no upper bound existed on n_classes before
+    # allocating `counts` - a caller-controlled integer y whose max value is large (a row-id/timestamp
     # column mistakenly typed/passed as a classification target, or genuinely tens of millions of sparse
     # integer "classes") allocates a np.bincount array of that size. This module is opt-in
-    # (MLFRAME_FE_IMBALANCE_MI) but the allocation-size gap is the same class INFO_THEORY_A-2/B-7 flagged
+    # (MLFRAME_FE_IMBALANCE_MI) but the allocation-size gap is the same class already flagged
     # for sibling dense-histogram builders. A real classification target essentially never exceeds a few
     # thousand distinct classes; reject clearly rather than silently allocating gigabytes.
     _MAX_CLASSES = 100_000

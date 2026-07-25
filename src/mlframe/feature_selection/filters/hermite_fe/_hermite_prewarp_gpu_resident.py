@@ -6,7 +6,7 @@ RESIDENCY CONTRACT (not a wall win). Gated on the resident flag
 On this GTX 1050 Ti the ALS operand is small and the sweep is STRICTLY SEQUENTIAL
 (1 init + iters*2 dependent normal-equation solves on a tiny ``(degree+1)`` system;
 g depends on cb, f on ca, next cb on f), so the GPU twin is EXPECTED to be slower
-than the CPU normal-eq path -- and that is a PASS by the residency contract. The
+than the CPU normal-eq path - and that is a PASS by the residency contract. The
 CPU bench-note in ``warm_start_als_seed`` documents why it stays CPU for the WALL;
 this twin exists for RESIDENCY COMPLETENESS so that, under the resident flag, the
 design columns (``B_a``/``B_b``) and the target stay resident on the device and the
@@ -19,7 +19,7 @@ over the per-operand-pair sweeps, the host->device upload of the prebuilt matric
 (``cp.asarray(B_a)`` / ``cp.asarray(B_b)``) was ~374MB aggregate. Those matrices are
 a DETERMINISTIC closed-form function of the small standardised column ``z`` and the
 basis recurrence, so they are now BUILT ON DEVICE from ``z`` via
-:func:`_build_basis_matrix_gpu` -- the cupy mirror of the host
+:func:`_build_basis_matrix_gpu` - the cupy mirror of the host
 ``_build_basis_*``/``build_basis_matrix`` recurrences. The caller uploads ONLY the
 tiny standardised columns ``z_a``/``z_b`` (n,) and the centred target ``yc`` (n,);
 the (n x degree+1) designs never touch the H2D path. (n,) << (n x degree+1) so the
@@ -28,7 +28,7 @@ bulk transfer collapses by the design-matrix width factor (~degree+1).
 What is resident vs host control-flow (allowed by the contract):
   * RESIDENT: ``B_a``/``B_b`` (n x degree+1, BUILT ON DEVICE from resident
     ``z_a``/``z_b``), ``yc`` (n,), the alternating factors ``f``/``g`` (n,), every
-    ``AtA``/``Atb`` normal-equation system and its solution coefficient vector --
+    ``AtA``/``Atb`` normal-equation system and its solution coefficient vector -
     one bulk H2D of the two standardised columns + target at entry, then no
     n-scaled transfer until the two small coefficient vectors return.
   * HOST scalar D2H (bounded, O(iters)): the ``std(yc)``/``std(f)``/``std(g)``
@@ -54,7 +54,7 @@ import numpy as np
 
 
 def _build_basis_matrix_gpu(cp, basis: str, z_gpu, max_degree: int):
-    """Build ``B[i, k] = T_k(z[i])`` for k=0..max_degree DIRECTLY ON DEVICE -- the
+    """Build ``B[i, k] = T_k(z[i])`` for k=0..max_degree DIRECTLY ON DEVICE - the
     cupy mirror of the host ``_build_basis_*`` njit recurrences (hermite_fe
     ``_build_basis_hermite``/``_legendre``/``_chebyshev``/``_laguerre``) and the
     public ``build_basis_matrix`` dispatcher.
@@ -66,11 +66,11 @@ def _build_basis_matrix_gpu(cp, basis: str, z_gpu, max_degree: int):
     FP reduction order of the cupy vector ops differs from the scalar njit loop).
 
     Raises ``KeyError`` on an unsupported basis (matching ``build_basis_matrix``)."""
-    # The recurrence runs in FLOAT64 regardless of the input dtype -- NOT a lazy hardcode: the fast-growing
+    # The recurrence runs in FLOAT64 regardless of the input dtype - NOT a lazy hardcode: the fast-growing
     # Laguerre/Hermite polynomials (and high-degree Chebyshev) build L_k / He_k from large-magnitude alternating
     # terms, so evaluating the recurrence in float32 suffers catastrophic cancellation (verified: ~10% relative
     # error in the deg-4 Laguerre coefficients vs f64). The design is device-BUILT (not H2D), so its dtype does
-    # not affect the H2D residency win -- only the recurrence stability -- so it stays f64. (The relaxed prewarp
+    # not affect the H2D residency win - only the recurrence stability - so it stays f64. (The relaxed prewarp
     # path still halves the H2D by uploading the standardised COLUMN za/zb as f32; only this on-device recurrence
     # keeps f64.) A f32 input column is widened here.
     x = cp.ascontiguousarray(cp.asarray(z_gpu, dtype=cp.float64)).reshape(-1)
@@ -113,8 +113,8 @@ def _build_basis_matrix_gpu(cp, basis: str, z_gpu, max_degree: int):
 
 def _als_solve_gpu(cp, A, b):
     """Resident normal-equations solve ``solve(AtA, At b)`` with an exact ``lstsq``
-    fallback on a singular ``AtA`` -- GPU twin of the CPU inner ``_als_solve``.
-    ``A`` (n x d) and ``b`` (n,) are resident (f64 -- the design recurrence keeps f64 for stability); the
+    fallback on a singular ``AtA`` - GPU twin of the CPU inner ``_als_solve``.
+    ``A`` (n x d) and ``b`` (n,) are resident (f64 - the design recurrence keeps f64 for stability); the
     returned coefficient (d,) stays resident. Mirrors the CPU least-norm / normal-eq equivalence for a
     full-column-rank system (the orthogonal-poly basis scaled by g_norm/f_norm stays well-conditioned), falling
     back to SVD lstsq bit-for-bit as the CPU path does."""
@@ -135,7 +135,7 @@ def _als_sweep_gpu(cp, Ba, Bb, yc, iters) -> tuple:
     ca = None
     for _ in range(max(1, int(iters))):
         # cp.std(...) kept as a device 0-dim scalar (no float()): it is only a broadcast divisor, so the host
-        # roundtrip was pure waste -- the divide stays fully resident and the result is bit-identical.
+        # roundtrip was pure waste - the divide stays fully resident and the result is bit-identical.
         g_norm = g / (cp.std(g) + 1e-12)
         ca = _als_solve_gpu(cp, Ba * g_norm[:, None], yc)
         f = Ba @ ca
@@ -198,7 +198,7 @@ def warm_start_als_seed_gpu_from_z(z_a: np.ndarray, z_b: np.ndarray, y: np.ndarr
 
     The device basis matrix mirrors the host ``build_basis_matrix`` recurrence
     EXACTLY (same recurrence + column order), so the design agrees to ~1e-13 and the
-    coefficients to ~1e-12 -- selection-equivalent. Raises on any cupy/device error
+    coefficients to ~1e-12 - selection-equivalent. Raises on any cupy/device error
     so the caller falls back to the CPU normal-eq path."""
     import cupy as cp
 
@@ -214,9 +214,9 @@ def warm_start_als_seed_gpu_from_z(z_a: np.ndarray, z_b: np.ndarray, y: np.ndarr
     # (only _als_solve reads it, never reassigns/mutates) -> selection-equivalent.
     from .._fe_resident_operands import resident_operand
     # Under MLFRAME_CRIT_DTYPE_RELAXED (default ON) the two standardised columns + the centred target UPLOAD as
-    # float32 (half the H2D -- the residency win). The on-device basis recurrence + the least-squares sweep then
+    # float32 (half the H2D - the residency win). The on-device basis recurrence + the least-squares sweep then
     # keep FLOAT64 (see _build_basis_matrix_gpu): the fast-growing Laguerre/Hermite polynomials cancel
-    # catastrophically in f32, so the design must be f64 -- and since it is device-BUILT, its dtype does not
+    # catastrophically in f32, so the design must be f64 - and since it is device-BUILT, its dtype does not
     # touch the H2D. So only the za/zb/yc VALUES are f32-rounded (~1e-6); the coefficients shift within the
     # f32-input condition bound, a smooth non-tie-sensitive CMA-ES seed, so the FE selection is unchanged
     # (validated on F2 across distributions + the hermite biz/e2e suites). MLFRAME_CRIT_DTYPE_RELAXED=0 restores

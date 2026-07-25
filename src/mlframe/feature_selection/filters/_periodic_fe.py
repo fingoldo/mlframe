@@ -1,7 +1,7 @@
-"""Layer 95 PART A (2026-06-01): PERIODIC / MODULAR decomposition FE.
+"""Layer 95 PART A: PERIODIC / MODULAR decomposition FE.
 
 Extends Layer 90 (``_numeric_decompose_fe``: rounding + digit extraction) with
-the missing ``x mod period`` transform for CYCLIC signals -- hour-of-day,
+the missing ``x mod period`` transform for CYCLIC signals - hour-of-day,
 day-of-week, day-of-month, calendar / sensor cycles. Layer 32 (Fourier)
 captures the *spectrum* of a column; this layer captures periodicity that lives
 in the RESIDUE: a target that is a function of ``x mod 24`` (e.g. "load peaks
@@ -11,16 +11,16 @@ partially captured by a finite Fourier truncation.
 
 Three transforms per ``(col, period)``:
 
-* ``mod``  -- ``x mod period`` -- the raw residue. Recovers a target that is
+* ``mod``  - ``x mod period`` - the raw residue. Recovers a target that is
   piecewise-constant in the residue (bucketed cycle).
-* ``modsin``  -- ``sin(2*pi*(x mod period)/period)`` -- phase, sine component.
-* ``modcos``  -- ``cos(2*pi*(x mod period)/period)`` -- phase, cosine component.
+* ``modsin``  - ``sin(2*pi*(x mod period)/period)`` - phase, sine component.
+* ``modcos``  - ``cos(2*pi*(x mod period)/period)`` - phase, cosine component.
 
 The sin/cos pair gives CYCLIC CONTINUITY: the raw residue has a discontinuity
 at the period boundary (``period - eps`` and ``0`` are maximally far apart in
 value but adjacent in phase), which a linear / smooth model mis-reads as a huge
 jump. The sin/cos encoding maps the residue onto the unit circle so phase 0 and
-phase ``period - eps`` are neighbours -- a smoothly-cyclic target (one whose
+phase ``period - eps`` are neighbours - a smoothly-cyclic target (one whose
 mean varies sinusoidally with phase) is then a LINEAR function of the (sin, cos)
 pair, which raw ``mod`` cannot represent.
 
@@ -31,7 +31,7 @@ verbatim (``score_decompose_by_bootstrap_mi``). Candidate columns whose MI lower
 confidence bound does not clear the raw column's noise band are dropped, so a
 non-periodic column (or a wrong period) emits nothing. ``generate_modular_features``
 tries a ladder of common periods; the gate keeps only those with a genuine MI
-uplift -- this IS the auto-period detection (the correct period's residue
+uplift - this IS the auto-period detection (the correct period's residue
 carries the signal; wrong periods scramble it into noise and fall below the
 gate).
 
@@ -39,9 +39,9 @@ Recipe replay
 -------------
 One recipe kind ``modular`` with ``extra = {period: float, op: str}`` where
 ``op in {"mod", "sin", "cos"}``. Replay is pure arithmetic on the single source
-column -- no y reference, leakage-free by construction, train/test exact.
+column - no y reference, leakage-free by construction, train/test exact.
 
-NOT wired into ``MRMR.fit`` by default -- opt-in via ``fe_modular_enable=True``.
+NOT wired into ``MRMR.fit`` by default - opt-in via ``fe_modular_enable=True``.
 """
 from __future__ import annotations
 
@@ -205,7 +205,7 @@ def generate_modular_features(
 
     Returns a DataFrame (same row index as ``X``) of the engineered columns
     only; column names follow :func:`engineered_name_modular`. Pure function of
-    ``X`` -- no y reference, so the generator is leakage-free.
+    ``X`` - no y reference, so the generator is leakage-free.
     """
     cols = _numeric_cols(X, num_cols)
     periods = tuple(float(p) for p in periods if float(p) > 0.0)
@@ -234,7 +234,7 @@ def score_modular_by_bootstrap_mi(
     """Gate each modular feature by Layer 62 bootstrap-stable MI.
 
     Thin wrapper over
-    :func:`_orthogonal_bootstrap_mi_fe.score_features_by_bootstrap_mi` -- the
+    :func:`_orthogonal_bootstrap_mi_fe.score_features_by_bootstrap_mi` - the
     SAME lower-CB ranking primitive Layer 90 uses, applied to the modular
     candidate family. Each engineered column ``"{src}__mod*_{period}"`` maps
     back to its source via the ``__`` prefix (the L62 scorer's contract), so the
@@ -297,7 +297,7 @@ def hybrid_modular_fe(
     signal and survives the gate; wrong periods scramble it into noise and fall
     below the floor. A non-periodic column emits nothing.
 
-    Returns ``(X_augmented, scores)`` -- the gate logic mirrors Layer 90's
+    Returns ``(X_augmented, scores)`` - the gate logic mirrors Layer 90's
     ``hybrid_numeric_decompose_fe`` (uplift_mean relevance + absolute
     engineered_mi_lcb stability, which sidesteps the degenerate uplift-ratio
     variance when the raw source MI sits near zero).
@@ -353,7 +353,7 @@ def hybrid_modular_fe_with_recipes(
     min_uplift_lcb: float = 1.0,
 ):
     """Same as :func:`hybrid_modular_fe` but additionally returns a list of
-    recipes -- one per appended column -- so ``MRMR.transform`` can recompute
+    recipes - one per appended column - so ``MRMR.transform`` can recompute
     each modular feature on test data without re-running the bootstrap MI gate.
     Each recipe is pure arithmetic on X (no y), so replay is leakage-free.
 
@@ -384,7 +384,7 @@ def hybrid_modular_fe_with_recipes(
 
 def build_modular_recipe(*, name: str, src_name: str, period: float, op: str):
     """Frozen recipe for one modular transform of ``X[src_name]``. Replay is
-    pure arithmetic on the source column -- no y reference, no fitted state, so
+    pure arithmetic on the source column - no y reference, no fitted state, so
     transform() is leakage-free and train/test exact."""
     from .engineered_recipes import EngineeredRecipe
 

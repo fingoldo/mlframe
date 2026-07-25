@@ -56,7 +56,7 @@ def _select_swap_method_auto(
     by ``member_names`` for cheap re-evaluation.
     """
     from .._cluster_aggregate import _derive_weights
-    # Cache lookup -- same cluster, same bake-off result.
+    # Cache lookup - same cluster, same bake-off result.
     cache = getattr(state, "_auto_method_cache", None)
     if cache is None:
         cache = {}
@@ -65,7 +65,7 @@ def _select_swap_method_auto(
     cached = cache.get(cache_key)
     if cached is not None:
         return tuple(cached)
-    # Resolve target -- prefer state's target index column.
+    # Resolve target - prefer state's target index column.
     y_arr = None
     if state.target_indices is not None and state.target_indices.size > 0 and state.factors_data is not None:
         try:
@@ -90,10 +90,10 @@ def _select_swap_method_auto(
     fold_sizes[: n_samples % n_folds_eff] += 1
     fold_bounds = np.concatenate([[0], np.cumsum(fold_sizes)])
 
-    # Layer 50 (2026-05-31): loop folds-outer / methods-inner with a per-fold
+    # Layer 50: loop folds-outer / methods-inner with a per-fold
     # SVD cache. Pre-fix the loop was methods-outer; 4 of the 7 candidates
     # (``mean_inv_var``, ``pca_pc1``, ``pca_pc2``, ``factor_score``) each
-    # re-SVD'd the SAME Z_train independently -- 4x redundant SVD work per
+    # re-SVD'd the SAME Z_train independently - 4x redundant SVD work per
     # fold per cluster. Profile on p=200/n=5000/10 latents attributed
     # 0.444s tottime / 150 calls to ``np.linalg.svd`` alone; with the cache
     # the 4 SVDs collapse to 1 (~4x reduction on the SVD line item, ~2x
@@ -135,7 +135,7 @@ def _select_swap_method_auto(
                     rep_test = Z_test @ np.asarray(w, dtype=np.float64)
                 rep_test = np.nan_to_num(rep_test, nan=0.0, posinf=0.0, neginf=0.0)
                 # Bin rep_test with the recipe's quantization (uses test-fold
-                # edges -- cheap, fold-local).
+                # edges - cheap, fold-local).
                 rep_binned = _binarize_aggregate(
                     rep_test, method=state.quantization_method,
                     n_bins=state.quantization_nbins, dtype=state.quantization_dtype,
@@ -156,12 +156,12 @@ def _select_swap_method_auto(
                 ))
                 scores[method].append(_mi_val)
             except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _dcd_swap.py:158: %s", e)
+                logger.debug("suppressed: %s", e)
                 continue
 
     # Reduce per-method per-fold lists to mean OOF MI; tie-break by candidate
     # order (mean_z first). Bit-equivalent to the pre-Layer-50 flow: same
-    # MI values, same averaging, same tie-break -- the only change was the
+    # MI values, same averaging, same tie-break - the only change was the
     # loop nesting order to enable per-fold SVD caching.
     mean_scores = {m: (float(np.mean(v)) if v else 0.0) for m, v in scores.items()}
     winner = max(_AUTO_METHOD_CANDIDATES, key=lambda m: (mean_scores.get(m, 0.0), -_AUTO_METHOD_CANDIDATES.index(m)))
@@ -192,7 +192,7 @@ def evaluate_swap_candidate(
         conditional relevance ``I(. ; y | Selected − anchor)`` exceeds
         anchor's conditional relevance × ``(1 + swap_gain_threshold)``
 
-    Layer 45 (2026-05-31): three exclusive branches are evaluated:
+    Layer 45: three exclusive branches are evaluated:
 
       A. No swap — anchor's CMI already dominates the cluster; ``branch="none"``.
       B. Member swap — a cluster member's CMI dominates the anchor's AND
@@ -257,7 +257,7 @@ def evaluate_swap_candidate(
             M = arr[:, members].astype(np.float64, copy=True)
         # Drop columns containing NaN / Inf to keep PC1 stable. ``members``/``member_names`` are kept in
         # lockstep with M's surviving columns (they used to stay at their PRE-filter length while mean/
-        # std/signs below were built from the post-filter M -- a length mismatch that corrupted
+        # std/signs below were built from the post-filter M - a length mismatch that corrupted
         # recipe_obj["members"] for replay/naming whenever a member was actually dropped here).
         finite_mask = np.isfinite(M).all(axis=0)
         if finite_mask.sum() < 2:
@@ -364,7 +364,7 @@ def evaluate_swap_candidate(
     # MI(member; y | Selected − anchor) used for the anchor. Pick the
     # best member; if it dominates the anchor by the swap gain, it's a
     # viable swap target on its own. The final branch is whichever of
-    # ``aggregate`` / ``best_member`` has the higher CMI -- both have to
+    # ``aggregate`` / ``best_member`` has the higher CMI - both have to
     # individually beat the anchor by ``swap_gain_threshold``.
     from ..info_theory import mi as _mi_func, conditional_mi as _cmi_func
     member_relevances: dict = {}
@@ -372,8 +372,8 @@ def evaluate_swap_candidate(
     best_member_rel = float("-inf")
     target_arr = np.asarray(target, dtype=np.int64)
     _sorted_cluster = sorted(cluster)
-    # BATCHED (2026-07-13): one parallel call scoring every cluster member (bounded by max_cluster_size,
-    # default 12) against the SAME (y, Selected-anchor) instead of a per-member Python loop -- see
+    # BATCHED: one parallel call scoring every cluster member (bounded by max_cluster_size,
+    # default 12) against the SAME (y, Selected-anchor) instead of a per-member Python loop - see
     # ``_dcd_member_rank_batch.py`` for why the public ``conditional_mi_batched_dispatch``/``_cpu_cmi_loop``
     # dispatchers are NOT safe here (their default hoisted fast path silently mis-handles a multi-column Z)
     # and why the one real call site's ``entropy_cache`` was never actually live to lose. Any failure
@@ -422,8 +422,8 @@ def evaluate_swap_candidate(
                 best_member_idx = int(m_idx)
     gain_factor = 1.0 + float(state.swap_gain_threshold)
     # Cheap pre-filter ahead of the (potentially expensive) permutation null below. When a null
-    # will actually run (``full_npermutations > 0``), soften this to plain dominance -- the
-    # candidate merely needs to beat the anchor's point estimate -- and let the null's p-value be
+    # will actually run (``full_npermutations > 0``), soften this to plain dominance - the
+    # candidate merely needs to beat the anchor's point estimate - and let the null's p-value be
     # the SOLE significance arbiter: the fixed ``swap_gain_threshold`` margin was rejecting real,
     # null-eligible swaps whose point-estimate gain fell just under the bar (measured case:
     # aggregate beat anchor by 3.3%, short of the 5% default margin, despite the underlying
@@ -451,7 +451,7 @@ def evaluate_swap_candidate(
     prefer_aggregate = aggregate_gate and (not member_gate or rep_relevance >= best_member_rel)
     # 2026-06-03 (audit dcd-core-1 / dcd-swap-null-1/2): resolve the effective
     # permutation-null draw count. ``full_npermutations`` (the screening
-    # confidence, default 3) acts ONLY as the on/off switch -- 0 means the
+    # confidence, default 3) acts ONLY as the on/off switch - 0 means the
     # caller opted out of every null. When a null is requested we source the
     # actual count from ``state.swap_npermutations`` and auto-raise it to
     # ceil(1/swap_alpha) so 1/(B+1) < swap_alpha holds; otherwise the gate is
@@ -470,13 +470,13 @@ def evaluate_swap_candidate(
                 B_eff = _min_B
     # When the caller requested a permutation null (``full_npermutations > 0``), apply the SAME null to the member
     # candidate too. The point-CMI gate is upward-biased on small/noisy data; if the swap is firing on pure noise
-    # the null catches it for the aggregate path -- the member branch must not be a side door that bypasses it.
+    # the null catches it for the aggregate path - the member branch must not be a side door that bypasses it.
     def _run_member_null(member_idx: int, member_rel: float, B_: int) -> float:
         """Delegate to ``_dcd_swap_null.run_member_null`` for a p-value on the member candidate's relevance, closing over ``state``/``anchor``/``target``/``S_minus_anchor``/``logger`` so both call sites below need only pass the member-specific args."""
         # The B-permutation null is parallelized across cores in ``_dcd_swap_null.run_member_null``:
         # it pre-generates all B shuffles of ONLY the member column (SAME rng sequence -> bit-identical
         # permutation multiset / p-value), then ``prange``s the per-draw conditional MI over a thread-local
-        # shuffled column against the precomputed (Z)/(Y,Z) class labelings -- NO frame copy, NO mutate-restore
+        # shuffled column against the precomputed (Z)/(Y,Z) class labelings - NO frame copy, NO mutate-restore
         # on the parallel path (Z and Y are read read-only from state.factors_data, the shuffled X is passed
         # directly). Tiny B falls back to the exact serial mutate-and-restore path. H(Z)/H(Y,Z) are hoisted once
         # (permutation-invariant); see _dcd_swap_null docstring.
@@ -487,7 +487,7 @@ def evaluate_swap_candidate(
         )
     if not prefer_aggregate:
         # Branch B: member swap. Apply permutation null when requested
-        # (B>0) -- otherwise this branch silently bypasses the check the
+        # (B>0) - otherwise this branch silently bypasses the check the
         # caller asked for on the swap as a whole.
         member_p = _run_member_null(int(best_member_idx), float(best_member_rel), B_eff)
         if B_eff > 0 and member_p >= float(state.swap_alpha):
@@ -514,9 +514,9 @@ def evaluate_swap_candidate(
             member_col_idx=int(best_member_idx),
             member_relevance=float(best_member_rel),
         )
-    # Branch C continues -- aggregate must still pass the permutation null.
+    # Branch C continues - aggregate must still pass the permutation null.
     deterministic_gate = aggregate_gate
-    # 2026-05-30 Wave 9.1 fix (loop iter 3): permutation null on rep.
+    # Permutation null on rep.
     # The deterministic point-MI gate is upward-biased on small / noisy data
     # because rep (a continuous PC1 projection re-binned with quantization_nbins
     # bins, often > anchor's bin count) gets more degrees of freedom than the
@@ -538,7 +538,7 @@ def evaluate_swap_candidate(
             # Hoist permutation-invariant H(Z) + H(Y,Z) (only the appended rep
             # column is shuffled, so y/z are fixed across draws). Bit-identical
             # by construction; see _run_member_null + bench_dcd_swap_null_entropy_hoist.py.
-            # Also keeps the dense Z/YZ (or Y) CLASS LABEL arrays -- not just their entropies -- the
+            # Also keeps the dense Z/YZ (or Y) CLASS LABEL arrays - not just their entropies - the
             # batched-prange path below needs (previously discarded via ``_, _fz_a, _ = ...``).
             _h_z_a = -1.0
             _h_yz_a = -1.0
@@ -562,7 +562,7 @@ def evaluate_swap_candidate(
                 _y_classes_a, _fy_a, _y_nclasses_a = _merge_a(data_with_rep, np.sort(target_arr), None, np.asarray(nbins_with_rep, dtype=np.int64))
                 _h_y_a = float(_entropy_a(_fy_a))
 
-            # BATCHED (2026-07-13): the MEMBER branch's null (``_run_member_null`` ->
+            # BATCHED: the MEMBER branch's null (``_run_member_null`` ->
             # ``_dcd_swap_null.run_member_null``) was already parallelised via ``prange`` over B
             # pre-generated shuffles against precomputed Z/YZ class labelings; this AGGREGATE branch
             # ran the equivalent B-loop serially, one ``conditional_mi``/``mi`` call per draw, because it
@@ -572,7 +572,7 @@ def evaluate_swap_candidate(
             from ._dcd_swap_null import _PARALLEL_MIN_B, _member_null_cmi_prange, _member_null_mi_prange
             if B >= _PARALLEL_MIN_B:
                 # Pre-generate all B shuffles of the rep column SERIALLY with the SAME rng sequence the
-                # (still-present, tiny-B) serial path below uses -- bit-identical permutation multiset --
+                # (still-present, tiny-B) serial path below uses - bit-identical permutation multiset -
                 # then ``prange`` the per-draw (C)MI over a thread-local shuffled column. No frame copy: Y/Z
                 # are read read-only from ``data_with_rep`` (already built once above), only the shuffled
                 # rep column is passed directly into the kernel.
@@ -632,7 +632,7 @@ def evaluate_swap_candidate(
     if not accept:
         # Layer 45: aggregate failed its permutation null. If the
         # best-member gate also held (member_gate True), fall through to
-        # the member-swap branch -- but apply the SAME permutation null
+        # the member-swap branch - but apply the SAME permutation null
         # the caller requested via ``full_npermutations``. Wave 9.1 iter-3
         # follow-up: the prior bypass made the member branch a side door
         # past the null on pure-noise candidates.
@@ -729,10 +729,10 @@ def commit_swap(
     # simply unprune the chosen member (discover_cluster_members had
     # pruned every member when it grew the cluster), replace the anchor
     # index in selected_vars, and reseat the cluster bookkeeping under
-    # the member as the new anchor. The rest of the pipeline -- bin counts,
-    # transform replay, support_ resolution -- already trusts the column.
-    # CLUSTERING_STABILITY-10 fix: SwapDecision.branch always exists (default
-    # "none"), never absent -- the getattr default was unreachable defensive code.
+    # the member as the new anchor. The rest of the pipeline - bin counts,
+    # transform replay, support_ resolution - already trusts the column.
+    # SwapDecision.branch always exists (default
+    # "none"), never absent - the getattr default was unreachable defensive code.
     is_member_swap = decision.branch == "member" and not decision.aggregate_name and decision.binned_rep is None
     if is_member_swap:
         member_idx = new_idx
@@ -864,7 +864,7 @@ def commit_swap(
                     try:
                         if decision.rep_continuous is not None:
                             # evaluate_swap_candidate already built the standardized + sign-aligned
-                            # aggregate (Z / rep_continuous) that these edges must match -- reuse it
+                            # aggregate (Z / rep_continuous) that these edges must match - reuse it
                             # directly instead of re-deriving M/Z from X_raw + the recipe's stored
                             # mean/std/signs (own comment below).
                             _cont = np.nan_to_num(
@@ -902,7 +902,7 @@ def commit_swap(
                             _edges = np.nanpercentile(_cont, _q_arr)
                             _quant["edges"] = _edges.tolist()
                     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                        logger.debug("suppressed in _dcd_swap.py:785: %s", e)
+                        logger.debug("suppressed: %s", e)
                         pass
                 engineered_recipe = build_cluster_aggregate_recipe(
                     name=str(decision.aggregate_name),

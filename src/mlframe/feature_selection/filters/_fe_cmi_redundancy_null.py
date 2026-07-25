@@ -68,9 +68,9 @@ def _conditional_perm_null(
 
     Returns ``(floor, null_mean)``:
 
-      * ``floor``  -- the ``quantile`` of the null distribution; the
+      * ``floor``  - the ``quantile`` of the null distribution; the
                          data-derived SIGNIFICANCE bar (leg 1).
-      * ``null_mean`` -- the MEAN of the null distribution; an estimate of the
+      * ``null_mean`` - the MEAN of the null distribution; an estimate of the
                          candidate's finite-sample CMI BIAS at this n. Subtracted
                          from the observed CMI to form the n-invariant DEBIASED
                          EXCESS that the relative-gap leg (leg 2) compares (the
@@ -85,7 +85,7 @@ def _conditional_perm_null(
     anchor on the SAME footing as the conditional candidates, so every admitted
     feature's relative-bar anchor is a debiased excess.
     """
-    # Sparse, renumber-based plug-in CMI/MI -- the SAME estimator used for the
+    # Sparse, renumber-based plug-in CMI/MI - the SAME estimator used for the
     # observed value (``_cmi_from_binned``), so the floor / null mean and the
     # point estimate are directly comparable, and the memory stays bounded by n
     # (no dense (K_x, K_y, K_z) contingency allocation when the frozen support's
@@ -121,17 +121,17 @@ def _conditional_perm_null(
 
     y = np.ascontiguousarray(y_bin, dtype=np.int64).ravel()
 
-    # ANALYTIC CMI NULL (2026-06-20). The 25 within-stratum permutations exist only to estimate
+    # ANALYTIC CMI NULL. The 25 within-stratum permutations exist only to estimate
     # the null distribution of the plug-in CMI under conditional independence X _||_ Y | Z. That
     # null has a known asymptotic form: the likelihood-ratio (G) statistic ``2N * CMI`` is
     # chi-square with df = ``sum_z (Bx_z - 1)(By_z - 1)``, summed over the conditioning strata.
-    # Using OCCUPIED-cell counts this df equals exactly ``k_xyz + k_z - k_xz - k_yz`` -- the SAME
+    # Using OCCUPIED-cell counts this df equals exactly ``k_xyz + k_z - k_xz - k_yz`` - the SAME
     # quantity the Miller-Madow bias term in ``_cmi_from_binned`` already computes (the plug-in CMI
     # bias is ``-df/(2N)``). So the null is distributed as ``chi2(df)/(2N)``:
-    #   * null_mean = E[chi2(df)/(2N)] = df/(2N)  -- IDENTICAL to what the permutation mean estimates
+    #   * null_mean = E[chi2(df)/(2N)] = df/(2N)  - IDENTICAL to what the permutation mean estimates
     #     (the candidate's finite-sample bias), so the debiased excess ``cmi - null_mean`` (leg 2) is
     #     selection-EQUIVALENT to the permutation path by construction (matched bias estimator).
-    #   * floor    = chi2.ppf(quantile, df)/(2N)  -- the analytic ``quantile`` of the same null, the
+    #   * floor    = chi2.ppf(quantile, df)/(2N)  - the analytic ``quantile`` of the same null, the
     #     significance bar (leg 1), replacing the empirical 95th percentile of 25 draws.
     # Bias-consistent with the observed CMI's Miller-Madow correction and free of the 25-permutation
     # cost (the single largest steady-state redundancy-gate hotspot at large n). Gated on the same
@@ -158,7 +158,7 @@ def _conditional_perm_null(
                 # only if a host consumer is actually reached (the no-precomp-cards renumber fallback below);
                 # the precomp_cards + resident joint_cardinalities paths need no host z (no D2H).
                 _z = np.ascontiguousarray(z_support, dtype=np.int64).ravel() if z_support is not None else None
-                # GPU route (2026-06-25): the analytic-null df needs only the OCCUPIED-cell counts
+                # GPU route: the analytic-null df needs only the OCCUPIED-cell counts
                 # (k_z/k_xz/k_yz/k_xyz) -> device cp.unique(...).size replaces the host renumber+entropy.
                 # Label-invariant -> same df. Gated (STRICT / MLFRAME_CMI_GPU), falls back to CPU on error.
                 _ks = None
@@ -177,7 +177,7 @@ def _conditional_perm_null(
                     k_z, k_xz, k_yz, k_xyz = _ks
                 else:
                     # Host renumber fallback (no precomp_cards + no resident cards): materialise the support on
-                    # host from the device-born copy (rare -- a single D2H only when both device card paths miss).
+                    # host from the device-born copy (rare - a single D2H only when both device card paths miss).
                     if _z is None and z_support_dev is not None:
                         import cupy as _cp
                         _z = np.ascontiguousarray(_cp.asnumpy(z_support_dev), dtype=np.int64).ravel()
@@ -273,10 +273,10 @@ def _conditional_perm_null(
                 nulls_dev = batched_cmi_gpu(Xp, y, None, return_device=True)
                 return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _fe_cmi_redundancy_null.py:276: %s", e)
+                logger.debug("suppressed: %s", e)
                 pass
         # y is FIXED across all marginal shuffles, so H(Y) and its occupied-cell count k_y are
-        # invariant -- hoist the y-only block ONCE (precompute_marginal_y_terms) and reuse it per
+        # invariant - hoist the y-only block ONCE (precompute_marginal_y_terms) and reuse it per
         # perm via marginal_mi_binned_fixed_y, instead of re-binning y + recomputing H(Y) inside
         # every _cmi_from_binned(x_perm, y, None) call. Bit-identical (same plug-in entropies +
         # Miller-Madow bias, only the redundant per-perm H(Y) recompute + y int64 cast removed).
@@ -291,7 +291,7 @@ def _conditional_perm_null(
     # or _cmi_gpu_enabled(...) is False, the ``z_support_dev is not None and ... n_permutations>1``
     # GPU-path block above (which is the only place that materializes ``z_support`` from a
     # device-only ``z_support_dev``) is skipped entirely, and the marginal-null branch right above
-    # this line only fires when ``z_support_dev is None`` too -- so a caller passing
+    # this line only fires when ``z_support_dev is None`` too - so a caller passing
     # ``z_support=None, z_support_dev=<resident array>`` with those conditions fell through to the
     # unconditional ``ascontiguousarray(None, ...)`` below with a real TypeError, not a clean
     # fallback. Materialize here as the final safety net, regardless of which branch above ran.
@@ -300,7 +300,7 @@ def _conditional_perm_null(
         z_support = np.ascontiguousarray(_cp.asnumpy(z_support_dev), dtype=np.int64).ravel()
     z = np.ascontiguousarray(z_support, dtype=np.int64).ravel()
     # Group row indices by support stratum once; permute the CANDIDATE column
-    # within each stratum (preserves the ``cand | support`` distribution -- the
+    # within each stratum (preserves the ``cand | support`` distribution - the
     # conditional permutation null of Berrett et al. 2020).
     order = np.argsort(z, kind="stable")
     sorted_z = z[order]
@@ -309,18 +309,18 @@ def _conditional_perm_null(
     if not groups:
         return 0.0, 0.0
     # y and z are fixed across permutations (only x is reshuffled within strata),
-    # so the H(Y,Z) / H(Z) block of the conditional CMI is invariant -- hoist it
+    # so the H(Y,Z) / H(Z) block of the conditional CMI is invariant - hoist it
     # out of the loop and recompute only the x-dependent xz / xyz terms per perm.
     y_i, z_i, h_yz, h_z, k_yz, k_z, n_f = precompute_cmi_yz_terms(y, z)
     # VECTORISED within-stratum permutation (perf, 2026-06-19). The previous per-stratum Python loop
     # ``for g in groups: x_perm[g] = x[g[rng.permutation(g.size)]]`` issued ONE rng.permutation PER
     # stratum PER perm; at n=100k with a high-cardinality conditioning support that is hundreds of
-    # thousands of calls -- measured 697k calls / 14.4s, the single largest steady-state FE hotspot.
+    # thousands of calls - measured 697k calls / 14.4s, the single largest steady-state FE hotspot.
     # A uniform within-group shuffle is a single lexsort: draw one random key per row and sort by
     # (stratum, key); since ``sorted_z`` is already sorted, each contiguous stratum block is reordered
     # by its keys alone -> an independent uniform permutation within every stratum in one vectorised
     # pass (size-1 strata are fixed points, exactly as the old ``g.size > 1`` guard left them). This is
-    # the SAME conditional permutation null (Berrett et al. 2020) -- only the RNG draw sequence changes,
+    # the SAME conditional permutation null (Berrett et al. 2020) - only the RNG draw sequence changes,
     # so the floor/mean are unchanged in expectation (verified: identical feature selection on the
     # canonical recovery fit). ``order``/``sorted_z`` were computed once above.
     # ``x_sorted`` (x reordered into contiguous stratum blocks) is only consumed by the HOST fallbacks below
@@ -329,25 +329,25 @@ def _conditional_perm_null(
     # candidate just to build a host reorder it will not use.
     # SINGLE-KEY argsort within-stratum shuffle (perf, 2026-06-21). The per-perm
     # ``np.lexsort((keys, sorted_z))`` runs TWO stable radix passes (one per key) over all n
-    # rows every permutation -- and at a high-cardinality conditioning support (thousands of
+    # rows every permutation - and at a high-cardinality conditioning support (thousands of
     # strata) it was the DOMINANT cost of the conditional null, above the CMI eval itself
     # (measured: 25-perm loop 224ms -> 75ms, 3.0x, at n=30k / 1500 strata). Since ``sorted_z``
     # is already grouped, replace it with a DENSE STRATUM RANK (0,1,2,... over the sorted
     # blocks) and a SINGLE ``argsort(z_rank + keys)``: ``keys`` lie in [0,1) and ``z_rank`` is
     # integer, so ``z_rank + keys`` stays in the half-open band ``[rank, rank+1)`` per stratum
-    # -- blocks never overlap, so the argsort orders strictly by stratum then by key within
+    # - blocks never overlap, so the argsort orders strictly by stratum then by key within
     # each block. This is the SAME within-stratum uniform permutation lexsort produced: for an
     # identical ``keys`` draw the resulting order is bit-identical (verified: ``sorted_z`` after
     # both reorderings is equal element-for-element), so the RNG draw sequence and every null
-    # value are unchanged -- selection is bit-identical, not merely equivalent.
+    # value are unchanged - selection is bit-identical, not merely equivalent.
     z_rank = np.zeros(n_size, dtype=np.float64)
     if n_size > 1:
         z_rank[1:] = np.cumsum(sorted_z[1:] != sorted_z[:-1])
     _nperm = int(n_permutations)
     # GPU-RESIDENT conditional null (DEFAULT ON under the RESIDENT path -> opt-out MLFRAME_FE_CMI_PERM_NULL_GPU=0).
     # Holds the candidate / target / support codes resident on device, draws the within-stratum shuffle KEYS on
-    # device (cupy RandomState -- no per-perm key H2D), builds all _nperm shuffled columns and scores CMI on the
-    # device (VRAM-chunked over perms so the dense (chunk, Kx*Kyz) joint always fits a small card -- at the full-n
+    # device (cupy RandomState - no per-perm key H2D), builds all _nperm shuffled columns and scores CMI on the
+    # device (VRAM-chunked over perms so the dense (chunk, Kx*Kyz) joint always fits a small card - at the full-n
     # gate calls the support is near-continuous, Kz ~ 1e5, so the whole-batch joint is multi-GB), reducing the
     # floor/mean on device; only the two scalars return. Selection-EQUIVALENT (the device RNG stream differs from
     # numpy's, but the same (seed,salt) makes it reproducible and the quantile / mean over the draws agree within
@@ -356,7 +356,7 @@ def _conditional_perm_null(
     # module bench note). H2D audit of a 1M strict-resident fit: enabling this for ALL gate calls (the VRAM-chunk
     # removed the OOM that used to force the fallback) dropped total bulk H2D from 3528 to 1832 MB by killing the
     # 800 MB host-key keys + the per-perm candidate re-uploads. Falls back to the host-key batched path, then the
-    # exact per-perm CPU loop, only on a genuine cupy error. Plain STRICT (RESIDENT off) is byte-identical -- this
+    # exact per-perm CPU loop, only on a genuine cupy error. Plain STRICT (RESIDENT off) is byte-identical - this
     # branch is skipped entirely.
     try:
         from ._fe_cmi_perm_null_gpu import perm_null_gpu_resident_enabled
@@ -383,7 +383,7 @@ def _conditional_perm_null(
         try:
             from ._fe_batched_mi import batched_cmi_gpu
             import cupy as cp
-            # DEVICE within-stratum shuffle (2026-06-25). The host built the _nperm shuffled candidate
+            # DEVICE within-stratum shuffle. The host built the _nperm shuffled candidate
             # columns with a per-perm np.argsort (the dominant steady-state host cost on sparse conditional
             # joints, where the analytic null falls back to permutations). Move only the ARGSORT + gather +
             # CMI to the GPU while keeping the RNG KEY DRAW on the host (np ``rng.random``, cheap) so the
@@ -413,23 +413,23 @@ def _conditional_perm_null(
     # bench-attempt-rejected (2026-07-05): dropping the per-perm ``np.empty_like`` + scatter
     # ``x_perm[order] = x_sorted[within]`` by pre-permuting ``y_i``/``z_i`` by ``order`` once and
     # passing ``x_sorted[within]`` directly (histogram is row-order invariant) measured only
-    # 1.01-1.07x (bench_perm_null_row_order_hoist.py) AND was NOT bit-identical -- reordering the
+    # 1.01-1.07x (bench_perm_null_row_order_hoist.py) AND was NOT bit-identical - reordering the
     # rows changes _renumber_joint's first-appearance cell labelling, so the entropy sum reduces in
     # a different order (~1e-13 drift). Not worth trading bit-identity for a win that vanishes to
     # 1.01x at n=30k (the njit CMI + argsort dominate, not the alloc/scatter).
     # bench-attempt-rejected (2026-07-21): batching this loop's per-perm ``np.argsort(z_rank + keys,
     # kind="stable")`` into ONE ``np.argsort(z_rank[:, None] + keys_all, axis=0, kind="stable")`` call,
-    # mirroring the GPU branches' ``axis=0`` batching above -- motivated by cProfile on a wellbore-50k
+    # mirroring the GPU branches' ``axis=0`` batching above - motivated by cProfile on a wellbore-50k
     # STRICT-CPU MRMR.fit showing np.ndarray.argsort at 1279s tottime / 6695s wall (19%), nearly all of
-    # it here. Verified bit-identical (RNG draw order unchanged) but measured 0.63-0.75x -- SLOWER, not
+    # it here. Verified bit-identical (RNG draw order unchanged) but measured 0.63-0.75x - SLOWER, not
     # faster: an isolated microbench showed the argsort work itself costs the same either way (numpy's
     # axis=0 sort iterates columns internally, no real vectorisation win for argsort specifically), while
     # building the (n, n_perm) key matrix adds real allocation/broadcast overhead the streaming per-perm
     # version doesn't pay. Confirms this exact function's OWN 2026-07-05 note: the argsort/CMI eval is
-    # genuine O(n log n) work, not alloc/dispatch overhead -- there is no batching shortcut available on
+    # genuine O(n log n) work, not alloc/dispatch overhead - there is no batching shortcut available on
     # the CPU path (unlike GPU, where the batching win comes from eliminating N kernel-launch overheads,
     # not from vectorising the sort itself). CAVEAT: the microbench ran on a machine under heavy
-    # concurrent load (multiple other fits/sweeps running in parallel) -- re-measure on an idle machine
+    # concurrent load (multiple other fits/sweeps running in parallel) - re-measure on an idle machine
     # before trusting this verdict as final; a genuine allocator/cache-contention artifact from the load
     # could plausibly have inflated the batched variant's cost. Left as the simple per-perm loop.
     nulls = np.empty(_nperm, dtype=np.float64)

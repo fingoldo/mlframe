@@ -1,4 +1,4 @@
-"""Layer 51 (2026-05-31): batched pairwise-SU sibling for ``_dynamic_cluster_discovery``.
+"""Layer 51: batched pairwise-SU sibling for ``_dynamic_cluster_discovery``.
 
 Carved out of ``_dynamic_cluster_discovery.py`` (already > 1k LOC, per
 memory rule) so the batched-entry path stays a focused module.
@@ -26,7 +26,7 @@ H(X_a, X_b) is precomputed in one prange-over-pairs kernel and read back
 through ``pair_su``; that joint is SELECTION-EQUIVALENT and agrees to
 ~1 ULP with the serial kernel (a single-pair batch is bit-identical;
 a multi-pair batch may reorder the reduction by one ULP under numba's
-parallel codegen -- see the kernel docstring below).
+parallel codegen - see the kernel docstring below).
 
 Net win: the unique-column sweep avoids the merge_vars + entropy
 per-column cost being paid multiple times when a column appears in
@@ -63,7 +63,7 @@ try:
         """H(X_a, X_b) for every (a_arr[i], b_arr[i]) pair, prange over the
         OUTER pair index. Each iteration runs the same single-thread
         joint-histogram + ascending-class-id entropy reduction that
-        ``info_theory._class_encoding.joint_entropy_2var`` runs -- only the
+        ``info_theory._class_encoding.joint_entropy_2var`` runs - only the
         pair loop is parallel (independent outputs). Results are
         SELECTION-EQUIVALENT to calling that kernel per pair and agree to
         ~1 ULP: a single-pair batch is bit-identical, but under a real
@@ -101,12 +101,12 @@ except Exception:  # pragma: no cover - numba always present in prod
 
 
 def _validate_batch_joint_entropy_pairs_inputs(a_arr: np.ndarray, b_arr: np.ndarray, nb_arr: np.ndarray) -> None:
-    """Host-side pre-launch guard for :func:`_batch_joint_entropy_pairs` (GPU_INFRA_A-11 fix,
+    """Host-side pre-launch guard for :func:`_batch_joint_entropy_pairs` (
     ). The njit kernel indexes ``hist[fd[r, ia] + fd[r, ib]*nb_a]`` with
-    ``boundscheck=False`` and no validation of its own -- a non-positive nbins for a referenced
+    ``boundscheck=False`` and no validation of its own - a non-positive nbins for a referenced
     column silently corrupts memory instead of raising, unlike every CUDA kernel in this cluster
     (which pre-validate exactly this class of input before launch). Deliberately O(k) (k = number
-    of pairs), not a per-row code-range scan -- the latter would cost O(n*k) and defeat the point
+    of pairs), not a per-row code-range scan - the latter would cost O(n*k) and defeat the point
     of this batched kernel; not reachable via the normal ``categorize_dataset`` contract, but this
     function's signature lets a caller supply its own ``nb_arr`` override, so at least the cheap
     nbins>=1 precondition should fail loudly here instead of corrupting memory silently."""
@@ -139,7 +139,7 @@ def pair_su_batch(
     factors_data, factors_nbins, dtype
         Optional overrides for the state-owned data / bin counts /
         per-sample class-id dtype. Default to ``state.factors_data`` /
-        ``state.factors_nbins`` / ``np.int32`` -- mirrors ``pair_su``.
+        ``state.factors_nbins`` / ``np.int32`` - mirrors ``pair_su``.
     entropy_cache
         Forwarded to the single-pair ``pair_su`` dispatch (unused by
         the SU/VI branches that consume the per-column cache on state,

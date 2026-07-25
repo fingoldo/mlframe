@@ -2,7 +2,7 @@
 
 The order-1 maxT floor (``_permutation_null.pooled_permutation_null_gain_floor``) pre-generates ``nperm``
 full-length target shuffles before its histogram+MI kernel runs. Profiling the F2 fit on a GTX 1050 Ti box
-showed this GENERATION -- not the GPU/njit kernel -- is the dominant LARGE-N cost: the sequential numpy
+showed this GENERATION - not the GPU/njit kernel - is the dominant LARGE-N cost: the sequential numpy
 ``rng.shuffle`` loop scales O(nperm * n) and measured ~2.2s at n=600k / nperm=200 versus only ~0.29s for the
 njit histogram kernel it feeds (~88% of the floor wall, the single biggest large-n-specific reducible cost).
 
@@ -10,15 +10,15 @@ The K shuffles are mutually independent, so ``_permutation_null._gen_target_shuf
 the Fisher-Yates across permutations (per-row seed -> thread-count-independent, reproducible). Bench (8
 threads): 2.69s -> 1.00s at n=600k (2.7x), beating even the best GPU argsort-keys gen (1.4s chunked) with no
 GPU contention / OOM on a small card. The numba stream is a DIFFERENT (but valid uniform) draw sequence than
-numpy's, so the resulting floor is statistically equivalent but NOT byte-identical -- per
+numpy's, so the resulting floor is statistically equivalent but NOT byte-identical - per
 ``feedback_use_kernel_tuning_cache_for_gpu`` / ``feedback_fastest_default_with_dispatch`` the engage/skip
 decision is NOT a hardcoded threshold: a ``kernel_tuner`` sweeps both backends over an (n, nperm) grid and
 records, per region, which is faster. The numba path engages ONLY where MEASURED faster (large n); otherwise
-the floor stays on the exact sequential numpy stream -- which keeps the small-n canonical/F2 suite (N<=100k)
+the floor stays on the exact sequential numpy stream - which keeps the small-n canonical/F2 suite (N<=100k)
 byte-stable in selection (the crossover sits well above those sizes, so they never take the numba branch).
 
 Equivalence: the two backends produce DIFFERENT permutations but each row is a true permutation of the same
-target, so the column-wise value multiset (``np.sort`` of every row) is IDENTICAL between backends -- the
+target, so the column-wise value multiset (``np.sort`` of every row) is IDENTICAL between backends - the
 sweep ranks the two by WALL with equivalence checked on that permutation-invariant signature (loose tol).
 
 CPU/no-numba host or sweep failure: ``.choose()`` returns "numpy" and the caller takes the exact legacy path.

@@ -1,11 +1,11 @@
 """Legacy-pickle default-injection roster for ``MRMR.__setstate__`` (carved verbatim from ``_mrmr_class.py``).
 
-``__setstate__`` builds a fresh ``defaults`` dict on every call (so its mutable values --
-empty lists / dicts -- are never shared across unpickled instances) by deep-copying this
+``__setstate__`` builds a fresh ``defaults`` dict on every call (so its mutable values -
+empty lists / dicts - are never shared across unpickled instances) by deep-copying this
 template. The values are byte-identical to the former method-local literal; the D5 no-drift
 overlay (re-sourcing every shared ctor-param key from ``_ctor_defaults()`` except the
 documented ``_SETSTATE_LEGACY_OVERRIDES``) still runs in ``__setstate__`` against the copy.
-This module holds only literal data -- no class refs -- so it is a safe top-level import.
+This module holds only literal data - no class refs - so it is a safe top-level import.
 """
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     # (cluster_aggregate_enable=True); legacy pickles refit with these
     # defaults so an attribute-less pickle behaves like a fresh MRMR.
     # Mode was "augment" here but the constructor default is "replace"
-    # (the deliberate fix for the duplicate-vote effect) -- legacy
+    # (the deliberate fix for the duplicate-vote effect) - legacy
     # pickles must refit to the corrected behaviour, not the
     # superseded one.
     "cluster_aggregate_enable": True,
@@ -248,7 +248,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "_partial_fit_n_since_refit_": 0,
     # Per-batch row counts backing the decay-weight schedule. Sibling buffers above are in the roster but
     # this one was omitted, so a pickled-then-resumed partial_fit instance fell back to a single fictional
-    # batch (getattr default) -- collapsing multi-batch history and zeroing recency decay. Empty = no history.
+    # batch (getattr default) - collapsing multi-batch history and zeroing recency decay. Empty = no history.
     "_partial_fit_batch_sizes_": [],
     # FE provenance tracking.
     # Legacy pickles default to ``None`` and the empty predictor log;
@@ -323,12 +323,12 @@ _SETSTATE_LEGACY_DEFAULTS = {
     # Pre-seeder pickles default to the same safe values for re-fits.
     # PREVALENCE-FAILED SYNERGY RESCUE. Live default ON; pre-fix
     # pickles default ON too (the rescue only adds a leak-safe second-chance path
-    # behind the full admission gates -- it never changes an already-admitted
+    # behind the full admission gates - it never changes an already-admitted
     # column's values, so replay of a pre-fix recipe is unaffected).
     "fe_synergy_prevalence_rescue_enable": True,
     # TAIL-CONCENTRATED USABILITY ADMISSION. Live default ON; pre-fix pickles default ON too
     # (it only credits a raw-operand |corr(continuous y)| signal for rank-MI-under-ranked/rejected pairs behind
-    # the full downstream FE gates -- it never changes an already-admitted column's values, so replay of a
+    # the full downstream FE gates - it never changes an already-admitted column's values, so replay of a
     # pre-fix recipe is unaffected).
     "fe_pair_usability_admission_enable": True,
     "fe_pair_usability_admission_min_corr": 0.6,

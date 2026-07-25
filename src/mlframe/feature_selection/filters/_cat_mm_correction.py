@@ -28,7 +28,7 @@ def _freqs_for_weights(freqs: np.ndarray, classes: np.ndarray, weights: Optional
     """Re-weight ``merge_vars``'s dense pruned ``freqs`` by per-row ``weights`` when given, else pass through unchanged.
 
     binning (``merge_vars``) is weight-independent, so any already-computed
-    ``classes`` array can be re-weighted post-hoc without re-running the merge -- the single primitive
+    ``classes`` array can be re-weighted post-hoc without re-running the merge - the single primitive
     threaded through every cat-FE downstream confirmation/rerank step below.
     """
     if weights is None:
@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 #                       (last term cancels across pairs since H(Y) is fit-wide)
 #
 # Plug-in entropy is biased downward by ``(k-1)/(2n)`` per entropy term, where k is the number of NON-EMPTY bins. Under the independence null, the SIGNED sum
-# of these biases reduces to ``-(a-1)(b-1)(c-1)/(2n)`` -- i.e. plug-in II is biased UPWARD; Miller-Madow correction pulls it back down.
+# of these biases reduces to ``-(a-1)(b-1)(c-1)/(2n)`` - i.e. plug-in II is biased UPWARD; Miller-Madow correction pulls it back down.
 #
 # Cost: 5+ ``merge_vars`` calls per pair (X1, X2, X1Y, X2Y, X1X2Y) vs the plug-in path's 1 call. To stay fast on the search loop, we apply MM ONLY to the top-K
 # survivors as a re-rank step. This catches the high-cardinality false positives where bias dominates without paying the cost on every pair.
@@ -104,7 +104,7 @@ def _compute_pair_ii_mm(
 ) -> float:
     """Compute Jakulin II for a single pair with optional Miller-Madow correction applied uniformly to all six entropies.
 
-    Returns the II value. Cost: 5 ``merge_vars`` calls (X1, X2, X1+Y, X2+Y, X1+X2+Y) per call -- much heavier than the search-loop's plug-in MI, so callers MUST gate by top-K.
+    Returns the II value. Cost: 5 ``merge_vars`` calls (X1, X2, X1+Y, X2+Y, X1+X2+Y) per call - much heavier than the search-loop's plug-in MI, so callers MUST gate by top-K.
     """
     n_samples = factors_data.shape[0]
 
@@ -215,10 +215,10 @@ def _maybe_rerank_with_mm(
     weights: Optional[np.ndarray] = None,
 ) -> tuple:
     """If MM is enabled (cfg flag True or auto-gate fires for at least one survivor), recompute II for selected pairs with MM correction applied to all six entropies.
-    Returns ``(ii_mm_arr, selected_idx_resorted)``. Hoists constant / per-column entropies (H(Y), H(X_i), H(X_i, Y)) out of the per-pair loop -- cached entropies cut MM
+    Returns ``(ii_mm_arr, selected_idx_resorted)``. Hoists constant / per-column entropies (H(Y), H(X_i), H(X_i, Y)) out of the per-pair loop - cached entropies cut MM
     cost from 5 merge_vars + 6 entropy per pair down to 2 merge_vars + 2 entropy per pair (joint terms only).
 
-    ``single_merge_cache_out``, when given, is populated with ``{col_idx: (cls, freqs)}`` for every single-column ``merge_vars`` this call performs -- the
+    ``single_merge_cache_out``, when given, is populated with ``{col_idx: (cls, freqs)}`` for every single-column ``merge_vars`` this call performs - the
     SAME single-column merge ``_cat_confirm_permutation._confirm_pairs_via_permutation`` independently re-derives for the SAME survivor set right after this
     MM re-rank runs (both scan the same top-K pairs on the same factors_data/nbins/dtype). Exposed here as a caller-supplied side-channel; the two functions
     aren't wired together yet (that requires threading a shared dict through ``_cat_interactions_step.py``'s orchestrator, out of this module's scope).
@@ -248,12 +248,13 @@ def _maybe_rerank_with_mm(
     if auto_gate and not per_pair_mm.any():
         return ii_arr, selected_idx
 
-    # KT smoothing alternative to MM (set via cfg.use_kt_smoothing). KT smooths each entropy independently (a
-    # different bias model), so under KT the per-term path is used as-is; under MM the six terms are computed
-    # PLUG-IN and a single telescoped occupied-k bias is subtracted per pair (see _compute_pair_ii_mm).
+    # KT smoothing alternative to MM (set via cfg.use_kt_smoothing). Under KT every entropy is KT-smoothed and
+    # NO telescoped bias is subtracted; under MM every entropy is computed PLUG-IN (use_mm=False) and a SINGLE
+    # telescoped occupied-k bias is subtracted per pair - exactly matching the sibling _compute_pair_ii_mm.
+    # (Previously the MM branch used MM entropies AND the telescoped subtraction, double-correcting the bias.)
     use_kt = bool(getattr(cfg, "use_kt_smoothing", False))
     freqs_y_w = _freqs_for_weights(freqs_y, classes_y, weights)
-    h_y_mm = _entropy_for_mode(freqs_y_w, n_samples, use_mm=not use_kt, use_kt=use_kt)
+    h_y_mm = _entropy_for_mode(freqs_y_w, n_samples, use_mm=False, use_kt=use_kt)
     k_y_occ = len(freqs_y_w[freqs_y_w > 0])
 
     # Hoist H(X_i) and H(X_i, Y) caches outside the loop. Only the columns touched by surviving pairs need to be computed.
@@ -276,7 +277,7 @@ def _maybe_rerank_with_mm(
             single_merge_cache_out[col_idx] = (_cls_x, freqs_x)
         freqs_x_w = _freqs_for_weights(freqs_x, _cls_x, weights)
         h_marginal_cache[col_idx] = _entropy_for_mode(
-            freqs_x_w, n_samples, use_mm=not use_kt, use_kt=use_kt,
+            freqs_x_w, n_samples, use_mm=False, use_kt=use_kt,
         )
         k_marginal_cache[col_idx] = len(freqs_x_w[freqs_x_w > 0])
         vi_xy = np.concatenate(([col_idx], target_indices)).astype(np.int64)
@@ -287,7 +288,7 @@ def _maybe_rerank_with_mm(
         )
         freqs_xy_w = _freqs_for_weights(freqs_xy, _cls_xy, weights)
         h_marginal_y_cache[col_idx] = _entropy_for_mode(
-            freqs_xy_w, n_samples, use_mm=not use_kt, use_kt=use_kt,
+            freqs_xy_w, n_samples, use_mm=False, use_kt=use_kt,
         )
 
     if verbose:
@@ -311,7 +312,7 @@ def _maybe_rerank_with_mm(
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
         )
         freqs_pair_w = _freqs_for_weights(freqs_pair, _cls_pair, weights)
-        h_x1x2 = _entropy_for_mode(freqs_pair_w, n_samples, use_mm=not use_kt, use_kt=use_kt)
+        h_x1x2 = _entropy_for_mode(freqs_pair_w, n_samples, use_mm=False, use_kt=use_kt)
         vi_pair_y = np.concatenate(([idx_a, idx_b], target_indices)).astype(np.int64)
         _cls_pair_y, freqs_pair_y, _ = merge_vars(
             factors_data=factors_data,
@@ -319,13 +320,13 @@ def _maybe_rerank_with_mm(
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
         )
         freqs_pair_y_w = _freqs_for_weights(freqs_pair_y, _cls_pair_y, weights)
-        h_x1x2y = _entropy_for_mode(freqs_pair_y_w, n_samples, use_mm=not use_kt, use_kt=use_kt)
+        h_x1x2y = _entropy_for_mode(freqs_pair_y_w, n_samples, use_mm=False, use_kt=use_kt)
         # II = H(X1,X2) + H(X1,Y) + H(X2,Y) - H(X1,X2,Y) - H(X1) - H(X2) - H(Y)
         ii_mm = h_x1x2 + h_marginal_y_cache[idx_a] + h_marginal_y_cache[idx_b] - h_x1x2y - h_marginal_cache[idx_a] - h_marginal_cache[idx_b] - h_y_mm
         if not use_kt:
-            # Single telescoped MM II bias on occupied marginal cardinalities (the six terms above are now all
-            # plug-in under MM mode, so subtract the closed-form bias once instead of per-entropy -- the per-term
-            # occupied-k corrections did NOT telescope and could flip the sign of a small II).
+            # Single telescoped MM II bias on occupied marginal cardinalities. The six entropy terms above are
+            # PLUG-IN (use_mm=False), so this closed-form bias is the ONLY correction - per-term occupied-k
+            # corrections did NOT telescope and could flip the sign of a small II.
             k_a = k_marginal_cache[idx_a]
             k_b = k_marginal_cache[idx_b]
             if k_a > 1 and k_b > 1 and k_y_occ > 1:
@@ -333,7 +334,7 @@ def _maybe_rerank_with_mm(
         ii_mm_arr[k] = ii_mm
 
     # Re-sort selected_idx by the corrected scores. Same select_on logic
-    # as _select_top_k_pairs -- we just re-rank, not re-filter.
+    # as _select_top_k_pairs - we just re-rank, not re-filter.
     if cfg.select_on == "synergy":
         score = ii_mm_arr[selected_idx]
     elif cfg.select_on == "redundancy":

@@ -2,11 +2,11 @@
 
 A greedy feature-selection step (RFECV's drop-worst-feature, or any forward/backward elimination loop) that
 accepts a change purely on AGGREGATE (mean) CV delta can be fooled by a feature that happens to help one
-lucky fold a lot while hurting the rest -- the mean looks positive, but the decision doesn't generalize. A
+lucky fold a lot while hurting the rest - the mean looks positive, but the decision doesn't generalize. A
 Home-Credit-3rd-place refinement: only accept a change if it improves the score in a MAJORITY of individual
 folds, not just on average. This module provides that acceptance criterion (plus optional multi-seed
 averaging per fold to fight decision noise, per a Porto-Seguro-3rd-place companion trick) as a standalone,
-reusable primitive -- usable inside any greedy elimination loop, including as a custom acceptance callback
+reusable primitive - usable inside any greedy elimination loop, including as a custom acceptance callback
 for mlframe's existing RFECV.
 """
 from __future__ import annotations
@@ -20,7 +20,7 @@ from scipy import stats as _scipy_stats
 def _wilson_lower_bound(fraction_improved: float, n_folds: int, confidence: float) -> float:
     """Wilson score interval lower bound on a binomial proportion.
 
-    Unlike the raw ``fraction_folds_improved``, this discounts the estimate by sample size -- the same 3/5
+    Unlike the raw ``fraction_folds_improved``, this discounts the estimate by sample size - the same 3/5
     fraction is treated as much less trustworthy than 5/5, and both are treated as less trustworthy than the
     identical fraction observed over more folds. Used as a continuous "agreement score" so callers can pick
     their own strictness instead of only getting the hard-coded ``min_fraction`` majority-vote verdict.
@@ -51,7 +51,7 @@ def per_fold_majority_accept(
         ``True`` when higher is better.
     min_fraction
         The candidate is accepted when the fraction of folds it improves reaches this threshold (default
-        ``0.6`` -- a genuine majority with margin, not a bare 50%+1 tie).
+        ``0.6`` - a genuine majority with margin, not a bare 50%+1 tie).
     compute_agreement_score
         Opt-in. When ``True``, also returns a continuous ``agreement_score`` (Wilson score interval lower
         bound on ``fraction_folds_improved``) so callers can tune their own strictness threshold instead of

@@ -1,12 +1,12 @@
-"""DEVICE-BORN orthogonal CROSS-BASIS FE candidate builder + resident MI uplift scorer (2026-06-30).
+"""DEVICE-BORN orthogonal CROSS-BASIS FE candidate builder + resident MI uplift scorer.
 
 The orthogonal cross-basis FE families (pair / triplet / quadruplet / adaptive-arity) each build their
-engineered candidate matrix ENTIRELY ON THE HOST -- ``h_a * h_b [* h_c [* h_d]]`` products of per-leg
-orthogonal-polynomial basis columns ``h = T_deg(z)`` -- and then score the matrix by ``MI(col; y)`` via
+engineered candidate matrix ENTIRELY ON THE HOST - ``h_a * h_b [* h_c [* h_d]]`` products of per-leg
+orthogonal-polynomial basis columns ``h = T_deg(z)`` - and then score the matrix by ``MI(col; y)`` via
 ``mi_classif_batch_chunked``. Under ``MLFRAME_FE_GPU_STRICT`` that MI routes through the resident plug-in,
-so the WHOLE host product matrix is ``cp.asarray``-uploaded at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (ORTH_BASIS_B-5 fix: dropped the exact line number, which had already gone stale)`` (H2D
+so the WHOLE host product matrix is ``cp.asarray``-uploaded at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (dropped the exact line number, which had already gone stale)`` (H2D
 instrumentation of a 300k STRICT F2 fit: the cross-basis families are the dominant remaining Group-1
-single-site H2D -- pair-cross ~112 MB, triplet ~32 MB, quadruplet ~20 MB, attributed to the
+single-site H2D - pair-cross ~112 MB, triplet ~32 MB, quadruplet ~20 MB, attributed to the
 ``score_*_cross_basis_by_mi_uplift`` callers + the adaptive internal MI batch).
 
 This module rebuilds the product matrix ON the device from the SMALL raw operand columns (uploaded once per
@@ -21,7 +21,7 @@ DEVICE BASIS LEGS (reuse the shipped kernels)
 Each leg ``h = basis(x)_deg`` is evaluated on the device by the EXISTING batched basis evaluator
 ``_gpu_resident_basis._gpu_evaluate_basis_matrix`` (the fused Clenshaw RawKernel + the per-basis preprocess),
 fed the resident raw operand column. The products are plain cupy elementwise (``h_a * h_b``), the leg-1 / lower
--arity baselines and the raw operands route through the SAME resident plug-in MI -- so the uplift RATIO
+-arity baselines and the raw operands route through the SAME resident plug-in MI - so the uplift RATIO
 ``engineered_mi / baseline_mi`` is internally consistent (both numerator and baseline on the SAME estimator;
 no EDGE/RANK switch, no host/device estimator mismatch that could flip selection).
 
@@ -30,7 +30,7 @@ PARITY (selection-equivalence hard gate)
 The host evaluates cheb/leg/herme by a FORWARD recurrence (``polyeval_dispatch`` -> njit) while the device
 uses BACKWARD Clenshaw; the two agree to ~1e-12 at the default low degrees (laguerre is forward on both ->
 bit-consistent). That ~1e-12 leg drift propagates through the products to ~1e-12 (relative) in the candidate
-columns -- far below any selection threshold. The per-family parity test asserts BOTH legs of the contract:
+columns - far below any selection threshold. The per-family parity test asserts BOTH legs of the contract:
 the device product matrix == the host product matrix within ~1e-12 AND the resident-scored selection (top
 winner / ranking) == the host selection. Per the residency mandate a wall-loss on this card is ACCEPTED.
 
@@ -58,7 +58,7 @@ __all__ = [
 
 def _parse_code_deg(token: str):
     """Parse a ``"{code}{degree}"`` leg token (e.g. ``"He2"``) -> ``degree`` (int) or ``None``. The basis code is
-    IGNORED for the device leg spec -- the device builder re-routes each leg via ``basis_route_by_moments`` EXACTLY
+    IGNORED for the device leg spec - the device builder re-routes each leg via ``basis_route_by_moments`` EXACTLY
     as the host generator did (the name carries only leg-1's code, the same convention the recipe builders unwind)."""
     for code in ("LL", "He", "T", "L"):
         if token.startswith(code):
@@ -82,7 +82,7 @@ def _operand_filled(X: pd.DataFrame, col: str) -> np.ndarray:
     a row). ``np.array(copy=True)`` to never alias / mutate the caller's frame (the host path's no-mutation note)."""
     from .._fe_usability_signal import _crit_np_dtype
     x = np.array(X[col].to_numpy(), dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default);
-    # matches the host's _orth_pair_cross_fe.py operand dtype -- see build_leg_product_matrix_gpu's docstring
+    # matches the host's _orth_pair_cross_fe.py operand dtype - see build_leg_product_matrix_gpu's docstring
     # for why the leg cache below must upload at this SAME dtype rather than upcasting to float64.
     finite_mask = np.isfinite(x)
     if not finite_mask.all():
@@ -96,21 +96,21 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
     order. Reproduces the host generators' per-cell body (``prod_i basis(x_i)_deg_i``) on device from resident
     operand columns.
 
-    ``col_specs`` is a list of per-output dicts ``{"legs": [(col, degree), ...]}`` -- the legs of each emitted
+    ``col_specs`` is a list of per-output dicts ``{"legs": [(col, degree), ...]}`` - the legs of each emitted
     product column, in name order. The per-leg basis is routed EXACTLY as the host (``basis_route_by_moments``
     under ``auto``) on the SAME mean-filled operand. A leg may instead be a 3-tuple ``(col, degree, basis)`` to
-    pin an EXPLICIT basis name (e.g. ``"laguerre"``) -- used when the engineered column NAME already carries the
+    pin an EXPLICIT basis name (e.g. ``"laguerre"``) - used when the engineered column NAME already carries the
     exact basis code the host generator chose (the univariate uplift scorer), so the device must reproduce THAT
     basis rather than re-deriving it from moments (which can route differently). Returns an (n, K) cupy float64
     matrix whose columns are the device reconstructions.
 
-    The per-leg operand and its polynomial recurrence run at ``_crit_np_dtype()`` -- f32 under the default
+    The per-leg operand and its polynomial recurrence run at ``_crit_np_dtype()`` - f32 under the default
     ``MLFRAME_CRIT_DTYPE_RELAXED=1``, matching the host generators (_orth_pair_cross_fe.py /
-    _orthogonal_{triplet,quadruplet}_fe.py use the SAME dtype for their operand) -- only the returned matrix's
+    _orthogonal_{triplet,quadruplet}_fe.py use the SAME dtype for their operand) - only the returned matrix's
     CONTAINER is float64; no extra precision is recovered by that final cast. Under relaxed mode this makes the
     device/host match within ~5e-6 (measured worst case across families/bases/degrees: 2.52e-6, quadruplet
-    degree 2 -- see test_device_born_cross_basis_parity.py), not the ~1e-12 that pure float64 arithmetic on
-    both sides would give (device backward-Clenshaw vs host forward recurrence delta) -- set
+    degree 2 - see test_device_born_cross_basis_parity.py), not the ~1e-12 that pure float64 arithmetic on
+    both sides would give (device backward-Clenshaw vs host forward recurrence delta) - set
     MLFRAME_CRIT_DTYPE_RELAXED=0 to recover that tighter bound at the cost of the memory/bandwidth win relaxed
     mode gives the wide candidate-generation loop on the host side.
 
@@ -221,8 +221,8 @@ def raw_and_product_mi_resident(
     MI (``_mi_classif_batch(raw_X)``) and the ENGINEERED product-matrix MI (``mi_classif_batch_chunked``).
 
     Rebuilds the engineered product matrix ON the device from the small resident operand columns (collapsing the
-    host product-matrix upload at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (ORTH_BASIS_B-5 fix: dropped the exact line number, which had already gone stale)``) and scores BOTH raw and engineered through the
-    SAME percentile-edge resident plug-in MI -- so the uplift RATIO is internally consistent (no estimator
+    Host product-matrix upload at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (dropped the exact line number, which had already gone stale)``) and scores BOTH raw and engineered through the
+    SAME percentile-edge resident plug-in MI - so the uplift RATIO is internally consistent (no estimator
     switch / no host-vs-device mismatch that could flip selection). Returns ``(raw_mi_map, eng_mi)`` where
     ``raw_mi_map`` is ``{raw_col: mi}`` and ``eng_mi`` is the (K,) host float64 array in ``engineered_X.columns``
     order, OR ``None`` on any cupy failure / no-cupy / unsupported basis so the caller falls back to the EXACT
@@ -244,8 +244,8 @@ def raw_and_product_mi_resident(
             return None
         eng_mi = _resident_mi(cp, mat_gpu, y, nbins)
         # RAW baseline through the SAME resident plug-in (uploaded once via the operand cache). The host scorer's
-        # _mi_classif_batch(raw_X) under STRICT already routes here; reproducing it keeps the baseline -- and thus
-        # the uplift ratio + the abs-MI floor -- selection-equivalent.
+        # _mi_classif_batch(raw_X) under STRICT already routes here; reproducing it keeps the baseline - and thus
+        # the uplift ratio + the abs-MI floor - selection-equivalent.
         from .._fe_resident_operands import assemble_resident_matrix
         raw_cols = list(raw_X.columns)
         from .._fe_usability_signal import _crit_np_dtype

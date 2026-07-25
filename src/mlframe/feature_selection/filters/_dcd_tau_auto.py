@@ -1,4 +1,4 @@
-"""Layer 47 (2026-05-31): auto-tau calibration sibling for ``_dynamic_cluster_discovery``.
+"""Layer 47: auto-tau calibration sibling for ``_dynamic_cluster_discovery``.
 
 Carved out of ``_dynamic_cluster_discovery.py`` to keep the parent below
 the 1k-LOC monolith threshold while still letting the parent's
@@ -33,7 +33,7 @@ import numpy as np
 # Sentinel used for the legacy 0.7 default. The kernel_tuning_cache route
 # only fires when the caller's constructor value is the dev-machine default.
 _DCD_DEFAULT_TAU = 0.7
-# Default sample size for the auto-tau calibration sweep -- enough for a
+# Default sample size for the auto-tau calibration sweep - enough for a
 # stable histogram / KDE without dominating fit time on huge feature sets.
 _DCD_AUTO_TAU_DEFAULT_N_PAIRS = 100
 # Fallback tau when the SU distribution is unimodal (no clear clusters).
@@ -80,7 +80,7 @@ def _detect_valley_between_modes(scores: np.ndarray) -> Optional[float]:
     )
     if counts.sum() < 10:
         return None
-    # Local maxima -- count must dominate BOTH neighbours, but we tolerate
+    # Local maxima - count must dominate BOTH neighbours, but we tolerate
     # one-sided ties (plateau peaks) so adjacent equal-height bins still
     # surface a single peak rather than dropping out completely. A bin is a
     # peak iff its count is >= both neighbours AND strictly greater than at
@@ -94,7 +94,7 @@ def _detect_valley_between_modes(scores: np.ndarray) -> Optional[float]:
             continue
         if c >= left and c >= right and (c > left or c > right):
             peaks.append((i, int(c)))
-    # Collapse adjacent equal-height plateau peaks -- they're a single mode,
+    # Collapse adjacent equal-height plateau peaks - they're a single mode,
     # pick the leftmost. Otherwise the bimodality check counts a flat-topped
     # mode twice and the "modes >= 3 bins apart" rule rejects it.
     if peaks:
@@ -111,7 +111,7 @@ def _detect_valley_between_modes(scores: np.ndarray) -> Optional[float]:
     # bulk sits at LOW SU and the genuine near-duplicate / redundant-cluster
     # mode sits at HIGH SU. Picking the two TALLEST peaks (the legacy rule)
     # systematically misses the redundancy mode whenever it is a SMALL tail
-    # peak relative to the broad low-SU bulk -- both tall peaks then fall
+    # peak relative to the broad low-SU bulk - both tall peaks then fall
     # INSIDE the bulk and the shallow valley between them fails the depth gate,
     # so a real high-SU cluster mode is reported as unimodal (scenario-A sensor
     # mesh: bulk peak at SU~0.05, cluster tail at SU~0.55-0.75 of only ~5 pairs,
@@ -176,12 +176,12 @@ def _calibrate_tau_auto(
 
     The sweep computes pair SU via the same ``pair_su`` codepath the rest
     of DCD uses, so the calibration consumes the same metric the cluster-
-    membership rule consumes -- no metric drift.
+    membership rule consumes - no metric drift.
     """
     # Lazy-import the parent's DCDState + pair_su to break the circular
     # dependency (parent re-exports these helpers in its own ``__all__``).
     from ._dynamic_cluster_discovery import DCDState, pair_su
-    # Layer 51 (2026-05-31): batched pairwise-SU dispatch. Lets the
+    # Layer 51: batched pairwise-SU dispatch. Lets the
     # ~100-pair sweep below pre-warm the per-column entropy cache in a
     # single sibling-column pass instead of paying the marginal-entropy
     # cost per pair. Bit-equivalent to looped pair_su.
@@ -219,7 +219,7 @@ def _calibrate_tau_auto(
     if not pair_set:
         return float(fallback), diagnostics
     pairs = list(pair_set)
-    # Lightweight DCDState clone for the calibration sweep -- we deliberately
+    # Lightweight DCDState clone for the calibration sweep - we deliberately
     # use a transient state with the requested ``distance`` so the sweep
     # consumes the same metric as the live cluster-membership rule. Caches
     # (entropy, pair-SU) are owned by this transient state and discarded
@@ -247,8 +247,8 @@ def _calibrate_tau_auto(
                 continue
             if np.isfinite(s):
                 su_scores.append(float(s))
-    # CLUSTERING_STABILITY-5 fix: populate n_pairs_sampled/n_pairs_finite BEFORE
-    # the len(su_scores)<10 fallback check, not after -- previously these stayed at their 0 init value
+    # Populate n_pairs_sampled/n_pairs_finite BEFORE
+    # the len(su_scores)<10 fallback check, not after - previously these stayed at their 0 init value
     # whenever this fallback fired, making the surfaced tau_calibration diagnostic under-report how many
     # pairs were actually sampled/scored (misleading about why calibration didn't run).
     diagnostics["n_pairs_sampled"] = len(pairs)

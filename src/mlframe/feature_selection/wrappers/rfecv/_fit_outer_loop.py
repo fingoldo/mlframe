@@ -127,7 +127,7 @@ def run_outer_loop_iteration(
     if self.special_feature_indices is not None and len(self.special_feature_indices) > 0:
         current_features = self.special_feature_indices
     else:
-        # F6 (Wave 3): coerce votes_aggregation to Borda when multi-estimator + AM/GM and not allow_unsafe.
+        # F6: coerce votes_aggregation to Borda when multi-estimator + AM/GM and not allow_unsafe.
         _vam = votes_aggregation_method
         # fi_run_order is consumed by get_next_features_subset only under fi_decay_rate>0 (age-weighted voting); materialising list(...keys()) every outer iter on the growing feature_importances dict is O(steps^2) over the run, so skip it when decay is off.
         _fi_decay_rate = float(getattr(self, "fi_decay_rate", 0.0))
@@ -185,11 +185,11 @@ def run_outer_loop_iteration(
         _fold_seed = int(self._rng.integers(0, 2**31 - 1))
         _fold_args.append((_nfold, _tr_idx, _te_idx, _fold_seed))
 
-    # F9 (Wave 1, 2026-05-28): snapshot FI keys BEFORE the fold loop so we
+    # F9: snapshot FI keys BEFORE the fold loop so we
     # can roll the just-added runs back if store_averaged_cv_scores rejects
     # the new subset at this N as worse than the previously-stored one.
     # Without rollback, the loser-subset's FI runs remain in
-    # ``state.feature_importances`` forever and contaminate voting -- a
+    # ``state.feature_importances`` forever and contaminate voting - a
     # contemporary RFECV vote sums a mix of winning-subset and
     # losing-subset importances at the same N, biasing the next subset pick.
     # Opt-out via self.keep_loser_subset_fi (default False = new behaviour).
@@ -241,7 +241,7 @@ def run_outer_loop_iteration(
 
     if n_jobs_effective > 1 and len(_fold_args) > 1:
         from joblib import Parallel, delayed
-        # prefer="threads": sklearn / CB / LGB / XGB all release GIL during fit, so threads give true parallelism without the serialisation cost of multiprocessing. require="sharedmem" HARDENS the design -- under loky the closure-state mutations would happen in worker process copies and the main-process state silently stays empty -> ``final_score = nan`` with no exception; require= makes joblib RAISE if it can't satisfy threading, surfacing the misconfiguration loud.
+        # prefer="threads": sklearn / CB / LGB / XGB all release GIL during fit, so threads give true parallelism without the serialisation cost of multiprocessing. require="sharedmem" HARDENS the design - under loky the closure-state mutations would happen in worker process copies and the main-process state silently stays empty -> ``final_score = nan`` with no exception; require= makes joblib RAISE if it can't satisfy threading, surfacing the misconfiguration loud.
         Parallel(n_jobs=n_jobs_effective, prefer="threads", require="sharedmem")(delayed(_fold_runner)(*a) for a in _fold_args)
     else:
         if verbose:
@@ -262,7 +262,7 @@ def run_outer_loop_iteration(
                 "Baseline with 0 features, score=%s +/- %s ~ %s",
                 f"{scores_mean:.{ndigits}f}", f"{scores_std:.{ndigits}f}", f"{final_score:.{ndigits}f}",
             )
-        # C2 (Wave 1, 2026-05-28): NEW default does NOT submit the N=0 dummy
+        # C2: NEW default does NOT submit the N=0 dummy
         # to the MBH surrogate. On imbalanced accuracy/F1 the prior-strategy
         # DummyClassifier scores close to the model and the surrogate's
         # score-vs-N curve gets anchored at the steep (0, dummy) point,
@@ -293,7 +293,7 @@ def run_outer_loop_iteration(
                 state.feature_importances.pop(_k, None)
 
     if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
-        # S8 (Wave 2, 2026-05-28): align optimizer target with the 1-SE
+        # S8: align optimizer target with the 1-SE
         # rule semantics in select_optimal_nfeatures_, which threshold on
         # RAW cv_mean_perf. The optimizer used to maximise
         # final_score = mean*w_mean - std*w_std - feature_cost*N
@@ -385,7 +385,7 @@ def run_outer_loop_iteration(
         state.best_nfeatures = len(current_features)
         state.n_noimproving_iters = 0
     else:
-        # C8 (Wave 4, 2026-05-28): only increment the no-improve counter when
+        # C8: only increment the no-improve counter when
         # the OPTIMIZER actually proposed something it hadn't seen before
         # (was_stored=True or new N). MBH revisits of the same N with a worse
         # subset (was_stored=False) used to spike the counter and trip
@@ -404,7 +404,7 @@ def run_outer_loop_iteration(
             logger.info("Max # of noimproved iters reached: %s", state.n_noimproving_iters)
         return IterationOutcome.BREAK
 
-    # S7 (Wave 2, 2026-05-28): tolerance-based convergence. ``n_noimproving_iters``
+    # S7: tolerance-based convergence. ``n_noimproving_iters``
     # resets on ANY new-best even when the improvement is CV noise (e.g. 1e-6
     # bump). On noisy scoring the counter rarely hits max_noimproving_iters
     # and budget is spent grinding the plateau. tol+tol_window break-condition:

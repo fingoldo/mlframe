@@ -145,7 +145,7 @@ def plot_feature_importance(
     n : int, default 10
         Number of bars to plot. Top-N positive AND bottom-N negative
         (when ``positive_fi_only=False`` and the minimum FI is < 0).
-        Default reduced from 25 to 10 (2026-05-12) so plots/logs stay
+        Default reduced from 25 to 10 so plots/logs stay
         scannable; raise via the ``reporting_config.fi_top_n`` knob in
         ``train_mlframe_models_suite``.
     log_top_n : int, default 10
@@ -172,7 +172,7 @@ def plot_feature_importance(
     if positive_fi_only:
         df = df[df.fi > 0.0]
 
-    # 2026-05-11: text-log of top-N FI (default ON). Emitted via
+    # text-log of top-N FI (default ON). Emitted via
     # ``logger.info`` BEFORE the rendering branch so the log line
     # appears even when no plot is produced (e.g. headless / CI runs
     # where the figure short-circuit fires). Suppress with
@@ -188,7 +188,7 @@ def plot_feature_importance(
                 kind, _log_err,
             )
 
-    # 2026-05-09: short-circuit when nothing consumes the plot. Same
+    # short-circuit when nothing consumes the plot. Same
     # rule as ``mlframe.metrics.core.show_calibration_plot``: in a script /
     # CI / fuzz run the ``show_plots=True`` default renders a figure
     # for nobody (``plt.show()`` is a no-op on Agg, no ``plot_file``
@@ -219,7 +219,7 @@ def plot_feature_importance(
         ax = plt.gca()  # visible=True
         # Rank by |FI| descending. Use original signed values for the bar so
         # negative coefficients show as left-bars.
-        # Wave 57 (2026-05-20): lexsort with feature-position tiebreaker so tied
+        # Lexsort with feature-position tiebreaker so tied
         # zero-importance features (common after model pruning) pick the same
         # set across runs and the displayed bar chart stays reproducible.
         _abs_fi = np.abs(feature_importances)
@@ -252,7 +252,7 @@ def plot_feature_importance(
             _std_arr = np.asarray(importances_std, dtype=np.float64)
             if _std_arr.shape == feature_importances.shape:
                 _picked_std = np.clip(np.nan_to_num(_std_arr[_abs_order], nan=0.0), 0.0, None)
-        # 2026-05-13 (user request): match the perf-chart aesthetic --
+        # 2026-05-13 (user request): match the perf-chart aesthetic -
         # translucent matplotlib-default blue bars + light-alpha grid +
         # explicit zero reference line. Pre-fix the FI plot used solid
         # opaque bars with no grid, visually clashing with the perf-chart
@@ -277,7 +277,7 @@ def plot_feature_importance(
             fig_top.savefig(plot_file, bbox_inches="tight", pad_inches=0.15)
 
         if show_plots:
-            # 2026-05-11: prefer explicit ``IPython.display.display(fig)``
+            # Prefer explicit ``IPython.display.display(fig)``
             # when running inside a Jupyter / IPython kernel. This is
             # robust to the matplotlib backend being Agg (the global
             # mlframe pipeline may have set it for the on-disk rendering
@@ -323,15 +323,15 @@ def plot_feature_importance(
                 for _fig in figs:
                     try:
                         plt.close(_fig)
-                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                        logger.debug("suppressed in importance.py:324: %s", e)
+                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+                        logger.debug("suppressed: %s", e)
                         pass
         # Close ALL figs (top + bottom) unless inside an IPython /
         # Jupyter kernel where the inline display has ALREADY captured
         # the rendered figure to the display channel. Previously only
         # the last-assigned fig was closed in the ``not show_plots``
         # branch (top-FI leaked whenever the bottom branch also fired)
-        # AND the ``show_plots=True`` path never closed anything --
+        # AND the ``show_plots=True`` path never closed anything -
         # the explicit ``plt.close`` above now covers the Jupyter
         # branch, so this helper is the safety net for the no-show
         # path. 2026-05-09 leak fix; helper unifies the detection

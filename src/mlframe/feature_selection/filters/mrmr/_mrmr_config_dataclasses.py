@@ -3,7 +3,7 @@
 ``MRMR.__init__`` has ~250 flat parameters, grown organically by feature area. This module packages
 the six cohesive knob-clusters into ``pydantic.BaseModel`` config objects,
 mirroring the ``CatFEConfig`` precedent (``cat_fe_state.py``) and ``mlframe.training.feature_handling``'s
-pydantic-config pattern -- construction-time validation (a typo'd enum value raises immediately, not
+pydantic-config pattern - construction-time validation (a typo'd enum value raises immediately, not
 minutes into a fit()) instead of MRMR's ad hoc ``_validate_string_params`` late-validation pass.
 
 **Purely additive, not a breaking migration** (per the proposal's own sequencing note: the flat-kwarg
@@ -12,7 +12,7 @@ OPTIONAL new constructor kwarg (``MRMR(dcd_config=DCDConfig(enable=False))``); w
 default, matching every existing caller), ``self.<flat_attr>`` keeps its value exactly as resolved by
 the individual flat kwargs, unchanged. When a config IS passed, its fields are copied onto ``self``
 AFTER the flat kwargs are stored, so the config wins over the individual flat defaults for that
-cluster -- passing both a config AND overriding one of its own flat kwargs is a caller error this
+cluster - passing both a config AND overriding one of its own flat kwargs is a caller error this
 module does not attempt to reconcile (last-applied-wins: config after flats).
 """
 from __future__ import annotations
@@ -32,7 +32,7 @@ class _MRMRSubConfig(BaseModel):
 class FastSearchConfig(_MRMRSubConfig):
     """The ``fe_fast_search``-gated sub-knob overrides (``MRMR._FAST_SEARCH_OVERRIDES``).
 
-    Mirrors the class-level override table ``_apply_fast_search_profile`` reads verbatim -- keep this
+    Mirrors the class-level override table ``_apply_fast_search_profile`` reads verbatim - keep this
     dataclass's fields in sync with that table if it grows.
     """
 
@@ -97,7 +97,7 @@ class DCDConfig(_MRMRSubConfig):
 
 
 class HybridOrthScorersConfig(_MRMRSubConfig):
-    """Per-scorer enable/param pairs for the hybrid-orth FE family's synergy scorers -- split out of
+    """Per-scorer enable/param pairs for the hybrid-orth FE family's synergy scorers - split out of
     ``HybridOrthConfig`` (proposal's own recommendation) since this sub-cluster alone is ~20 fields."""
 
     ksg_enable: bool = False
@@ -121,7 +121,7 @@ class HybridOrthScorersConfig(_MRMRSubConfig):
     auto_scorer_n_boot: int = Field(default=5, ge=1)
     ensemble_enable: bool = False
     ensemble_aggregator: str = "mean_rank"
-    ensemble_scorers: tuple = ()
+    ensemble_scorers: tuple = ("plug_in", "ksg", "copula", "dcor", "hsic")
     meta_enable: bool = False
     meta_force_scorer: Optional[str] = None
     default_scorer: str = "plug_in"
@@ -221,7 +221,7 @@ def apply_mrmr_config_objects(
     """Copy each PASSED (non-``None``) nested config's fields onto ``self``'s matching flat attrs.
 
     Called at the END of ``MRMR.__init__``, after ``store_params_in_object`` has already set every
-    flat attr from its own kwarg -- so a config, when given, is the authoritative source for its
+    flat attr from its own kwarg - so a config, when given, is the authoritative source for its
     cluster's flat attrs (overriding whatever the individual flat kwargs resolved to), matching
     ``CatFEConfig``'s existing precedent of "the nested config IS the state, once provided".
     """
@@ -244,7 +244,7 @@ def apply_mrmr_config_objects(
 
 
 # (config_attr_name, field_map) pairs used by both apply_mrmr_config_objects (via __init__) and
-# invalidate_stale_mrmr_configs (via set_params) -- kept in one place so the two stay in sync.
+# invalidate_stale_mrmr_configs (via set_params) - kept in one place so the two stay in sync.
 _CONFIG_ATTR_FIELD_MAPS = (
     ("fast_search_config", _FAST_SEARCH_FIELD_MAP),
     ("stability_config", _STABILITY_FIELD_MAP),
@@ -261,13 +261,13 @@ def invalidate_stale_mrmr_configs(self) -> None:
     Without this, ``set_params(fe_fast_search=False)`` on an ``MRMR(fast_search_config=FastSearchConfig(
     fe_fast_search=True))`` instance leaves the flat attr and the stale config object disagreeing;
     ``get_params()`` then reports BOTH (self-inconsistent) to a caller, and ``clone()`` reconstructs via
-    ``MRMR(**get_params())`` -- ``apply_mrmr_config_objects`` re-applies the stale config AFTER the flat
+    ``MRMR(**get_params())`` - ``apply_mrmr_config_objects`` re-applies the stale config AFTER the flat
     kwargs are stored, silently reverting ``fe_fast_search`` back to ``True`` and making sklearn's
     ``clone()`` post-construction sanity check raise ``RuntimeError`` (the constructor "modifies" a
     parameter). Nulling the disagreeing config out keeps ``get_params()`` self-consistent: the flat attrs
     (already correct) become the sole source of truth for that cluster from this point on, exactly as if
     the config had never been passed. The raw config objects are read ONLY by ``apply_mrmr_config_objects``
-    at ``__init__`` time -- nothing else in this codebase consumes them -- so this is safe.
+    at ``__init__`` time - nothing else in this codebase consumes them - so this is safe.
     """
     for config_attr, field_map in _CONFIG_ATTR_FIELD_MAPS:
         config = getattr(self, config_attr, None)
@@ -286,16 +286,30 @@ def invalidate_stale_mrmr_configs(self) -> None:
 
 
 def mrmr_set_params(self, **params):
-    """``MRMR.set_params`` override (CORE_CLASS-3 fix): bound directly onto the class in ``mrmr/__init__.py``
-    (not defined on a mixin) because ``BaseEstimator`` -- which already defines ``set_params`` -- sits
+    """``MRMR.set_params`` override: bound directly onto the class in ``mrmr/__init__.py``
+    (not defined on a mixin) because ``BaseEstimator`` - which already defines ``set_params`` - sits
     BEFORE the config mixins in ``MRMR``'s MRO, so a mixin-level override would never be reached. Calling
     ``BaseEstimator.set_params`` directly (not via ``super()``, since this is a free function, not a class
     body method) then invalidating any now-stale nested config object keeps ``get_params()`` self-consistent
-    for every subsequent ``clone()`` -- see ``invalidate_stale_mrmr_configs``.
+    for every subsequent ``clone()`` - see ``invalidate_stale_mrmr_configs``.
     """
     from sklearn.base import BaseEstimator
 
     BaseEstimator.set_params(self, **params)
+    # A nested config passed THROUGH set_params must take effect on the flat attrs, exactly as at __init__
+    # (else GridSearchCV over a config param silently no-ops every candidate). Precedence matches __init__
+    # exactly: the expansion runs AFTER the flat kwargs are stored, so when one call passes BOTH a config and
+    # a conflicting flat kwarg the CONFIG wins ("the nested config IS the state, once provided"). Invalidation
+    # then runs last and is a no-op here, since the flats now agree with the config.
+    apply_mrmr_config_objects(
+        self,
+        fast_search_config=params.get("fast_search_config"),
+        stability_config=params.get("stability_config"),
+        synergy_config=params.get("synergy_config"),
+        group_aware_config=params.get("group_aware_config"),
+        dcd_config=params.get("dcd_config"),
+        hybrid_orth_config=params.get("hybrid_orth_config"),
+    )
     invalidate_stale_mrmr_configs(self)
     return self
 

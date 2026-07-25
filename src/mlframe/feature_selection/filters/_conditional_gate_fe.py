@@ -1,14 +1,14 @@
-"""ROW-ARGMAX + CONDITIONAL-GATE relationship detection FE (wired into MRMR; argmax default ON, gate default OFF / opt-in -- the gate's select sweep is an n-driven wide-frame cost blow-up the column-count budget cannot bound, so it ships validated but off-by-default).
+"""ROW-ARGMAX + CONDITIONAL-GATE relationship detection FE (wired into MRMR; argmax default ON, gate default OFF / opt-in - the gate's select sweep is an n-driven wide-frame cost blow-up the column-count budget cannot bound, so it ships validated but off-by-default).
 
 Two multi-column operators the rich catalog cannot express for the MI / linear-downstream selector (frontier discovery pass 2,
 confirmed by ``_benchmarks/bench_frontier_candidates`` + ``bench_conditional_gate_detection``):
 
-* ROW-ARGMAX -- ``argmax_row(a, b, c)`` = which column is the row maximum (an ordinal / comparison pattern). A tree gets the
+* ROW-ARGMAX - ``argmax_row(a, b, c)`` = which column is the row maximum (an ordinal / comparison pattern). A tree gets the
   pairwise comparisons for free, but the MI / linear path sees only marginal columns + pairwise diffs; no single shipped column
   equals the 3-way argmax code (+0.55 single-column MI lift over the best shipped op). ZERO free params, detector-clean (negative
-  lift on smooth / noise / ordinary-interaction controls). Triples only -- a 2-col argmax == sign of the diff, already shipped.
+  lift on smooth / noise / ordinary-interaction controls). Triples only - a 2-col argmax == sign of the diff, already shipped.
 
-* CONDITIONAL-GATE -- a REGIME SWITCH ``c > tau ? a : b`` (select) and a MASKED interaction ``1[c > tau] * a`` (mask): two raw
+* CONDITIONAL-GATE - a REGIME SWITCH ``c > tau ? a : b`` (select) and a MASKED interaction ``1[c > tau] * a`` (mask): two raw
   features routed / masked by a THIRD feature's data-dependent threshold. The shipped ``conditional_residual`` is ``a - E[a|bin(c)]``
   (a residual, not a value-selecting switch); the hinge basis is univariate; a raw product ``a*c`` is a smooth bilinear surface,
   not a hard switch. On a true regime target the gate MI (+0.55 select / +0.31 mask over the best shipped op) dwarfs every existing op.
@@ -17,32 +17,32 @@ GATE HARDENING (the discovery caveat): the prototype gate detector gated only vs
 on ``smooth`` / ``ordinary_mul`` controls (a hard threshold can partly reconstruct an XOR-sign regime; bench measured FP lift
 +0.17 smooth / +0.32 ordinary_mul). The production detector gates the engineered MI vs the BEST-EXISTING-OP MI on the SAME operands
 -- the max MI over the cheap arithmetic ops a selector already has (product, ratio, diff, min, max) AND the ADDITIVE/linear
-combinations (pairwise sums + the full sum of the involved columns), mirroring the ``bench_frontier_candidates`` baseline -- NOT the
+combinations (pairwise sums + the full sum of the involved columns), mirroring the ``bench_frontier_candidates`` baseline - NOT the
 raw single-operand MI. The additive terms close a specificity hole on the COMMON additive-linear target shape: a piecewise
 ``c>tau ? a : b`` partially reconstructs a purely additive ``y = a+b+c``, so without ``a+b`` / ``a+c`` / ``b+c`` / ``a+b+c`` in the
 floor the gate fired a spurious feature on a multi-driver additive (binned-regression / 4-driver) target. With this floor the gate
 clears 0 false-positives on smooth / noise / ordinary_mul / multi-driver-additive at p=30 over 3 seeds
 (``bench_conditional_gate_wideframe``), while the true regime targets (no additive combo reconstructs the switch) still respond.
 
-Design mirrors ``_pairwise_modular_fe`` / ``_integer_lattice_fe``: CHEAP-FIRST scan + a dual ``_responded`` gate -- the engineered
+Design mirrors ``_pairwise_modular_fe`` / ``_integer_lattice_fe``: CHEAP-FIRST scan + a dual ``_responded`` gate - the engineered
 column's MI must beat the operand baseline by ``_MIN_MARGIN`` AND a 12-permutation null upper band (so a non-structured frame
 injects nothing). For the gate the threshold ``tau`` is found by a ~17-point quantile scan over the gating column and FROZEN in the
 recipe; for argmax there is no parameter (one column per integer-eligible / continuous triple). Replay is a pure function of X
-(argmax = ``np.argmax(stack, axis=1)``; gate = ``np.where(c>tau, a, b)`` / ``(c>tau)*a`` with the frozen tau) -- no y, no fitted
+(argmax = ``np.argmax(stack, axis=1)``; gate = ``np.where(c>tau, a, b)`` / ``(c>tau)*a`` with the frozen tau) - no y, no fitted
 state beyond tau, so transform() is leak-free + deterministic + train/test bit-identical.
 
 Cost: ~99% of each scan is the shipped binned-MI kernel (``_mi`` -> ``_mi_classif_batch``). The per-tau gate residue MIs batch into
-ONE ``_mi_classif_batch`` call per (mode, a, b, gate) over the tau grid (bit-identical to per-tau -- the kernel bins each column
+ONE ``_mi_classif_batch`` call per (mode, a, b, gate) over the tau grid (bit-identical to per-tau - the kernel bins each column
 independently, only the per-call dispatch overhead is amortised). The 12-perm null is EARLY-REJECTED: computed only for a candidate
 that already clears the baseline margin (``_responded`` needs BOTH, so a margin-failing candidate can never respond -> its null is
-skipped, stored +inf -- bit-identical by short-circuit). RELEVANCE-PRUNED candidate set (``_rank_and_prune``): the gate select sweep
-was O(p^3) (C(p,2) operand pairs x p gate cols x ~17 tau), which forced the gate OFF; it is now O(k_operand^2 * k_gate) FLAT in p --
+skipped, stored +inf - bit-identical by short-circuit). RELEVANCE-PRUNED candidate set (``_rank_and_prune``): the gate select sweep
+was O(p^3) (C(p,2) operand pairs x p gate cols x ~17 tau), which forced the gate OFF; it is now O(k_operand^2 * k_gate) FLAT in p -
 operands ranked by raw MI vs y, the gate column by a conditional-divergence rank (a regime switch's gate column can be marginally
 y-independent, so raw MI ranks it last). With k_operand=10 / k_gate=8 the added cost is comparable to modular/lattice/argmax and the
 gate now defaults ON. ``max_cols`` (default 200) stays a defense-in-depth outer cap that skips the whole sweep on an absurdly wide frame.
 
 cProfile (n=2000, p=15, enabled path, measured): the batched plug-in MI dispatch is the top hotspot (argmax ~99%, gate ~97% of the
-scan wall); the argmax stack + ``np.argmax`` and the gate ``np.where`` / quantile arithmetic are <3% combined -- the per-candidate
+scan wall); the argmax stack + ``np.argmax`` and the gate ``np.where`` / quantile arithmetic are <3% combined - the per-candidate
 build is dwarfed by the (already-tuned, batched) MI kernel. No further actionable caller-side speedup beyond the per-candidate tau
 batching + early-reject already applied. See ``_benchmarks/bench_conditional_gate_wideframe``.
 """
@@ -154,7 +154,7 @@ def apply_row_argmax(X, cols: Sequence[str]) -> np.ndarray:
     stk = np.stack([np.asarray(X[c], dtype=np.float64) for c in cols], axis=1)
     out = np.argmax(stk, axis=1).astype(np.float64)
     # Serve-time NaN policy: eligible source columns are all-finite at FIT (see _is_argmax_eligible), but a row can
-    # carry a NaN at SERVE. np.argmax would return the first-NaN index -- a spurious in-distribution code the model
+    # carry a NaN at SERVE. np.argmax would return the first-NaN index - a spurious in-distribution code the model
     # never learned. Propagate NaN instead so the downstream model treats the row as missing (LGBM/CatBoost native).
     nan_rows = ~np.isfinite(stk).all(axis=1)
     if nan_rows.any():
@@ -165,12 +165,12 @@ def apply_row_argmax(X, cols: Sequence[str]) -> np.ndarray:
 def apply_conditional_gate(X, mode: str, cols: Sequence[str], tau: float) -> np.ndarray:
     """Replay one conditional-gate column with the FROZEN threshold ``tau``.
 
-    ``select`` (cols = (a, b, c)): ``c > tau ? a : b`` -- a regime switch routing a / b by the gating column c.
-    ``mask`` (cols = (a, c)): ``1[c > tau] * a`` -- a active only where c > tau.
+    ``select`` (cols = (a, b, c)): ``c > tau ? a : b`` - a regime switch routing a / b by the gating column c.
+    ``mask`` (cols = (a, c)): ``1[c > tau] * a`` - a active only where c > tau.
 
-    Pure function of (source columns, tau) -- no y, no fitted state beyond the recipe-frozen tau -> leak-free + train/test exact."""
+    Pure function of (source columns, tau) - no y, no fitted state beyond the recipe-frozen tau -> leak-free + train/test exact."""
     # Serve-time NaN policy on the GATING column c: ``c > tau`` is False for NaN, which would silently route a
-    # missing-gate row to b (select) or 0 (mask) -- a defined-but-arbitrary code the model did not learn. Propagate
+    # missing-gate row to b (select) or 0 (mask) - a defined-but-arbitrary code the model did not learn. Propagate
     # NaN where c is non-finite so a missing gate reads as missing downstream (a / b NaN already propagate naturally).
     if mode == "select":
         if len(cols) != 3:
@@ -190,24 +190,24 @@ def apply_conditional_gate(X, mode: str, cols: Sequence[str], tau: float) -> np.
 def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins: int) -> float:
     """Max binned-MI over the cheap operators a selector already has on the given operands: raw columns + pairwise
     product / ratio / diff + row-max / row-min + ADDITIVE/linear combinations (pairwise sums + the full sum of all involved
-    columns). This is the HARDENED baseline both detectors must beat -- the prototype gated only vs the raw single-operand MI,
+    columns). This is the HARDENED baseline both detectors must beat - the prototype gated only vs the raw single-operand MI,
     which let a hard threshold reconstruct an XOR-sign regime on smooth / ordinary_mul controls AND let a spurious row-argmax clear
     the floor on an ordinary-multiplicative target (false positives, measured in ``bench_conditional_gate_wideframe``).
 
     The ADDITIVE terms close the gate's additive-target specificity hole: a piecewise ``c>tau ? a : b`` partially reconstructs a
     purely additive signal (e.g. ``y = a + b + c``), so on a multi-driver additive target the gate's MI cleared a floor that knew
-    only the pairwise arithmetic ops -- not the additive combinations ``a+b`` / ``a+c`` / ``b+c`` / ``a+b+c`` that a linear selector
+    only the pairwise arithmetic ops - not the additive combinations ``a+b`` / ``a+c`` / ``b+c`` / ``a+b+c`` that a linear selector
     trivially captures. Including those sums makes a purely-additive target FAIL the floor (the additive baseline captures it) while
     a TRUE regime switch (where no additive combo reconstructs the data-dependent branch) still clears it. Mirrors the
     ``bench_frontier_candidates`` 'best existing op' reference.
 
-    All candidate columns stack into ONE batched ``_mi_classif_batch`` call (bit-identical to per-candidate -- the kernel bins
+    All candidate columns stack into ONE batched ``_mi_classif_batch`` call (bit-identical to per-candidate - the kernel bins
     each column independently, only the per-call dispatch overhead is amortised); cProfile showed the per-``_mi`` dispatch was the
     dominant mlframe-side cost of the hardened floor, so batching is the actionable caller-side lever."""
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
     names = list(names)
-    # MANDATE-2 (2026-06-23): resident-GPU candidate-gen + MI route. The candidate columns are built on the
+    # resident-GPU candidate-gen + MI route. The candidate columns are built on the
     # device + scored by the resident plug-in MI (NO host round-trip), engaged ONLY where the per-host KTC
     # crossover (_resident_candidate_mi_ktc) measured it faster than the host njit batch-MI below. On the dev
     # GTX 1050 Ti the gate's k is small (k = m + 4*C(m,2) + 2|3; m=3 -> k=14, sub-crossover) so this stays
@@ -232,7 +232,7 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
             if _r is not None:
                 return _r
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _conditional_gate_fe.py:234: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
     cols_arr = [np.asarray(arrs[c], dtype=np.float64) for c in names]
     cands = list(cols_arr)
@@ -242,12 +242,12 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
             cands.append(u * v)
             cands.append(u - v)
             cands.append(u / (np.abs(v) + 1e-6))
-            cands.append(u + v)  # pairwise additive baseline a+b / a+c / b+c -- a linear selector captures it for free
+            cands.append(u + v)  # pairwise additive baseline a+b / a+c / b+c - a linear selector captures it for free
     stk = np.stack(cols_arr, axis=1)
     cands.append(stk.max(axis=1))
     cands.append(stk.min(axis=1))
     if len(cols_arr) >= 3:
-        cands.append(stk.sum(axis=1))  # full additive sum a+b+c -- the multi-driver additive signal the gate must not reconstruct
+        cands.append(stk.sum(axis=1))  # full additive sum a+b+c - the multi-driver additive signal the gate must not reconstruct
     mat = np.column_stack(cands).astype(np.float64, copy=False)
     mis = _mi_classif_batch(np.ascontiguousarray(mat), yi.astype(np.int64), nbins=nbins, rank_binning=_gate_rank)
     return float(np.max(mis))
@@ -255,14 +255,14 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
 
 def _responded(feat_mi: float, baseline: float, null_hi: float, min_margin: float = _MIN_MARGIN, null_margin: float = _MIN_NULL_MARGIN) -> bool:
     """Gate: the engineered column's MI must clear BOTH the operand baseline (by ``min_margin``) AND the permutation-null upper band by an
-    absolute ``null_margin`` (not just ``> null_hi`` -- guards the cardinality-inflation false positive on a few-class y; see ``_MIN_NULL_MARGIN``).
+    absolute ``null_margin`` (not just ``> null_hi`` - guards the cardinality-inflation false positive on a few-class y; see ``_MIN_NULL_MARGIN``).
     Mirrors ``_pairwise_modular_fe._responded`` (``baseline`` plays the smooth-basis floor role)."""
     return (feat_mi - baseline) >= min_margin and feat_mi > (null_hi + null_margin)
 
 
 def _gate_cands_resident() -> bool:
     """Whether the SCORED gate / row-argmax candidate float is uploaded ONCE and its resident cupy handle threaded
-    through the marginal MI + the 12-perm null -- so the candidate never re-crosses H2D at the ``_mi_classif_batch``
+    through the marginal MI + the 12-perm null - so the candidate never re-crosses H2D at the ``_mi_classif_batch``
     :318 upload site (measured: 80 MB/x10 from ``cheap_row_argmax_scan``, 3 MB/x12 from ``_perm_null_hi`` on a 1M
     STRICT-resident F2 fit). Default ON under ``fe_gpu_strict_resident_enabled`` + ``_cmi_gpu_enabled`` (the same
     predicate pair the CMI-gate / raw-redundancy candidate residency uses); opt-out ``MLFRAME_FE_GATE_RESIDENT_CANDS=0``.
@@ -303,7 +303,7 @@ def _argmax_resident(arrs, tri):
     the resident float64 index column, or ``None`` when residency is off / any operand is non-finite / cupy faults
     (the caller then takes the host ``np.argmax`` + one-shot resident upload).
 
-    ``cp.argmax`` returns the FIRST occurrence of the max along the axis -- identical to ``np.argmax`` -- and the
+    ``cp.argmax`` returns the FIRST occurrence of the max along the axis - identical to ``np.argmax`` - and the
     operand floats are byte-identical to the host columns, so the argmax INDEX codes are selection-identical. The
     win: the DISTINCT argmax candidate is BORN on device from the raw operands (each uploaded once, shared via the
     content-keyed cache) and never crosses H2D, instead of a host ``np.argmax`` whose float column re-uploads."""
@@ -326,7 +326,7 @@ def _argmax_resident(arrs, tri):
 
 
 def _perm_null_hi(feat, y: np.ndarray, nbins: int, n_perm: int = 12, seed: int = 0, z: float = 3.0) -> float:
-    """Upper band (mean + z*std) of the fixed feature's MI under y permutation -- the noise reference the feature MI must clear.
+    """Upper band (mean + z*std) of the fixed feature's MI under y permutation - the noise reference the feature MI must clear.
     The feature is fixed; only y is shuffled (cheap, n_perm small).
 
     ``feat`` may be a host ndarray OR an ALREADY-RESIDENT cupy handle (the gate / row-argmax scorer uploads the scored
@@ -342,13 +342,13 @@ def _perm_null_hi(feat, y: np.ndarray, nbins: int, n_perm: int = 12, seed: int =
 
 
 def _gate_rank_binning() -> bool:
-    """Whether the conditional-gate MI uses the RANK resident binner -- opt-in BYTE-MATCH only.
+    """Whether the conditional-gate MI uses the RANK resident binner - opt-in BYTE-MATCH only.
 
     Default OFF, AND off under the plain resident flag: the resident gate MI uses the FAST percentile-edge
     binner, which is selection-equivalent to CPU on F2 (the gate edge-vs-rank difference shifts the gate lift
     MAGNITUDE on heavily-tied operator outputs but does not flip the F2 selection). Only when the dedicated
     ``MLFRAME_FE_GPU_STRICT_BYTEMATCH`` opt-in is set (which also requires the resident path) does the gate MI
-    bin by argsort equi-frequency RANK to byte-match the CPU njit rank MI -- paying an irreducible per-gate
+    bin by argsort equi-frequency RANK to byte-match the CPU njit rank MI - paying an irreducible per-gate
     argsort (~1s/fit on the GTX 1050 Ti). Fast-by-default, byte-match-on-request."""
     try:
         from ._gpu_strict_fe import fe_gpu_strict_bytematch_enabled
@@ -359,7 +359,7 @@ def _gate_rank_binning() -> bool:
 
 
 def _gate_grid_mi(feats: np.ndarray, yi: np.ndarray, nbins: int) -> np.ndarray:
-    """MI of every column of the (n, k) tau-grid feature matrix vs y, in one batched kernel call (bit-identical to per-column --
+    """MI of every column of the (n, k) tau-grid feature matrix vs y, in one batched kernel call (bit-identical to per-column -
     ``_mi_classif_batch`` bins each column independently, only the per-call dispatch overhead is amortised)."""
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
@@ -367,7 +367,7 @@ def _gate_grid_mi(feats: np.ndarray, yi: np.ndarray, nbins: int) -> np.ndarray:
 
 
 def _is_argmax_eligible(x: np.ndarray) -> bool:
-    """True iff the column is finite numeric (int or float) -- argmax / gate need an order, not an integer lattice."""
+    """True iff the column is finite numeric (int or float) - argmax / gate need an order, not an integer lattice."""
     a = np.asarray(x)
     if not np.issubdtype(a.dtype, np.number):
         return False
@@ -382,7 +382,7 @@ class ArgmaxHit:
     """One row-argmax candidate: a column triple, its argmax-code MI, the HARDENED best-existing-op floor on the triple, the
     null band. The floor is the best-existing-op MI (raw / product / ratio / diff / min / max), NOT the raw single-operand MI:
     on an ordinary-multiplicative target (``(a*b)>0``) some triple's argmax code clears the raw floor by ~0.02 (a false positive
-    at scale, measured in ``bench_conditional_gate_wideframe``), but the product ``a*b`` itself dwarfs it -- so gating vs the
+    at scale, measured in ``bench_conditional_gate_wideframe``), but the product ``a*b`` itself dwarfs it - so gating vs the
     best-existing-op floor keeps argmax detector-clean (0 FP at p=30 over 3 seeds incl. the ordinary_mul control)."""
 
     cols: tuple[str, ...]
@@ -397,7 +397,7 @@ class ArgmaxHit:
 
     @property
     def responded(self) -> bool:
-        """Whether this argmax feature's MI clears both the operand floor and the null band -- i.e. it is a genuine signal, not noise."""
+        """Whether this argmax feature's MI clears both the operand floor and the null band - i.e. it is a genuine signal, not noise."""
         return _responded(self.feat_mi, self.operand_floor, self.null_hi)
 
 
@@ -420,7 +420,7 @@ class GateHit:
 
     @property
     def responded(self) -> bool:
-        """Whether this gate's MI clears both the operand baseline and the null band -- i.e. it is a genuine signal, not noise."""
+        """Whether this gate's MI clears both the operand baseline and the null band - i.e. it is a genuine signal, not noise."""
         return _responded(self.feat_mi, self.baseline_mi, self.null_hi)
 
 
@@ -467,14 +467,14 @@ def cheap_row_argmax_scan(
     # (column-order-invariance contract break). Enumerating over the NAME-sorted
     # column order makes the budgeted triple set identical under any input column
     # permutation. ``hits`` is re-sorted by margin below, so per-hit output order is
-    # unaffected -- only WHICH triples survive the budget is made deterministic.
+    # unaffected - only WHICH triples survive the budget is made deterministic.
     # (``cols`` was already name-sorted above; no re-sort needed here.)
     # bench-attempt-rejected (2026-06-26): batching the per-triple operand floor (one resident MI for the whole
     # gate sweep instead of one per triple) is NOT suite-safe, in BOTH variants tried:
-    #   * HOST-built batch via _mi_classif_batch -- routes on STRICT only, so under use_gpu-without-STRICT it
+    #   * HOST-built batch via _mi_classif_batch - routes on STRICT only, so under use_gpu-without-STRICT it
     #     switched the gate binning estimator (resident EDGE -> CPU RANK) vs the per-triple rescand_use_resident
     #     (KTC) routing, shifting the selected set (broke test_gpu_cpu_..._selection_identical[reg_mixed]).
-    #   * RESIDENT device-built batch (best_existing_op_mi_resident_batched) -- per-column BIT-IDENTICAL to the
+    #   * RESIDENT device-built batch (best_existing_op_mi_resident_batched) - per-column BIT-IDENTICAL to the
     #     per-triple resident floor (reg_two_pairs PASSES in isolation), but concatenating ~20 triples' device
     #     matrices changes the cupy-pool / KTC-cache state pattern enough to expose the SUITE's pre-existing
     #     order-dependent routing flakiness (reg_two_pairs FAILED only in-suite). A change that makes the GPU
@@ -514,12 +514,12 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
 
     TWO DIFFERENT relevance signals, because operands and the gate column play different roles in ``c > tau ? a : b``:
 
-    * OPERANDS a, b -- the VALUE the switch routes, so a useful operand carries marginal relevance to y. Ranked by raw binned-MI vs y
+    * OPERANDS a, b - the VALUE the switch routes, so a useful operand carries marginal relevance to y. Ranked by raw binned-MI vs y
       (one batched ``_mi_classif_batch`` call) -> top-``k_operand``. Gating two pure-noise columns yields noise, so the noise tail drops.
 
-    * GATE column c -- only decides WHICH operand, so on a pure regime switch c can be marginally INDEPENDENT of y (raw MI ~ 0): raw-MI
+    * GATE column c - only decides WHICH operand, so on a pure regime switch c can be marginally INDEPENDENT of y (raw MI ~ 0): raw-MI
       ranking puts the true gate column LAST and a tight raw-MI top-k would miss it (measured: seed 7 of the gate synthetic, c ranks 28/28).
-      So c is ranked by a CONDITIONAL-DIVERGENCE signal instead -- how much splitting on ``c > median(c)`` changes the operand->y MI:
+      So c is ranked by a CONDITIONAL-DIVERGENCE signal instead - how much splitting on ``c > median(c)`` changes the operand->y MI:
       ``|MI(a*, y | c>med) - MI(a*, y | c<=med)|`` summed over the top operands a*. A column that genuinely switches the regime shows a
       large conditional divergence even at zero marginal MI; pure noise does not. One batched MI call per side ranks the whole gate pool.
 
@@ -533,8 +533,8 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
         return [], []
     arrs = [np.asarray(X[c], dtype=np.float64) for c in cols]
     mat = np.ascontiguousarray(np.column_stack(arrs))
-    # Class-B :311 collapse (2026-06-30): this ``mat`` is the FIT-CONSTANT raw column_stack of the (sorted)
-    # candidate columns -- a pure relevance baseline re-scored across the fit. Under STRICT-residency it already
+    # Class-B :311 collapse: this ``mat`` is the FIT-CONSTANT raw column_stack of the (sorted)
+    # candidate columns - a pure relevance baseline re-scored across the fit. Under STRICT-residency it already
     # routes through the resident plug-in but re-uploads fresh at _orth_mi_backends:311; ride the resident-operand
     # cache so it uploads ONCE. Same (rank|edge) resident estimator the host STRICT path uses -> byte-identical
     # per-column MI -> identical ``argsort(mis)`` ranking (cols are pre-sorted at :393 so ties resolve
@@ -557,7 +557,7 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
     # DEVICE-BORN GATE RANK-PRUNE (Phase-1 residency, 2026-07-01). Each gate candidate splits the probe operand
     # matrix by ``cv > median(cv)`` and scores each side's MI. Without residency the probe SLICE (measured ~24 MB,
     # the _mi_classif_batch upload) AND the per-split y SUBSET (~38 MB, the 14+10 distinct hi/lo subsamples of the
-    # y_mi_classif role) re-upload every iteration -- the two biggest remaining candidate-code uploads. Keep the
+    # y_mi_classif role) re-upload every iteration - the two biggest remaining candidate-code uploads. Keep the
     # operand matrix + the label y RESIDENT and do the median split + boolean slice ON device, so both sides stay
     # on the GPU (mat_dev content-HITS the ("gate_prune_raw", cols) upload already made at ~:485 -> no extra H2D;
     # float64 -> the device median split is byte-identical to the host np.median split -> selection-identical).
@@ -619,15 +619,15 @@ def cheap_conditional_gate_scan(
     RELEVANCE-PRUNED candidate set (the cost lever): a regime switch ``c > tau ? a : b`` is only useful when the gate column c
     carries SOME relevance to y (an irrelevant split is meaningless) and the operands a, b are among the more relevant columns
     (gating two pure-noise columns yields noise). So we rank every eligible column ONCE by raw binned-MI vs y (one batched
-    ``_mi_classif_batch`` call -- the cheap primitive) and restrict the GATE columns c to the top-``k_gate`` and the OPERAND
+    ``_mi_classif_batch`` call - the cheap primitive) and restrict the GATE columns c to the top-``k_gate`` and the OPERAND
     columns a, b to the top-``k_operand`` by that relevance. The sweep becomes C(k_operand, 2) x k_gate x tau-scan =
-    O(k_operand^2 * k_gate), INDEPENDENT of p -- with k=8/10 it is a small constant whether p=30 or p=300, replacing the prior
+    O(k_operand^2 * k_gate), INDEPENDENT of p - with k=8/10 it is a small constant whether p=30 or p=300, replacing the prior
     positional ``cols[:5]`` slice (cheap but blind: the true operands routinely fell outside the first 5 columns of a wide frame).
 
     For each candidate the best tau is found by a ~17-point quantile scan over c (per-tau residue MIs batch into one kernel call),
     then the best-tau column is gated vs the HARDENED best-existing-op baseline (max MI over raw / product / ratio / diff / min /
     max on the candidate's operands) by ``_MIN_MARGIN`` AND a 12-perm null band. The null is early-rejected (computed only for a
-    candidate already clearing the hardened baseline). The tau-scan + hardened gate are unchanged -- only the candidate SET shrinks.
+    candidate already clearing the hardened baseline). The tau-scan + hardened gate are unchanged - only the candidate SET shrinks.
 
     ``_cols_prefiltered`` is internal-only: set by callers that already built ``cols`` via ``_is_argmax_eligible`` themselves
     (e.g. ``hybrid_conditional_gate_fe_with_recipes``), to skip the redundant re-check below. External callers must leave it False."""
@@ -642,10 +642,10 @@ def cheap_conditional_gate_scan(
     cols = list(cols)
     yi = np.asarray(y).astype(np.int64)
 
-    # FAST-SEARCH SUBSAMPLE (2026-06-14). The gate DETECTION -- raw-relevance ranking, the ~17-point
-    # quantile tau-scan, and the per-tau residue-MI band -- is RANK-stable under row subsampling (the
+    # FAST-SEARCH SUBSAMPLE. The gate DETECTION - raw-relevance ranking, the ~17-point
+    # quantile tau-scan, and the per-tau residue-MI band - is RANK-stable under row subsampling (the
     # tau is a quantile of the gate column; the MI ranking is monotone-preserving on a representative
-    # subset). NOTE (P1-7): rank-stable is NOT threshold-stable -- the absolute accept thresholds
+    # subset). NOTE (P1-7): rank-stable is NOT threshold-stable - the absolute accept thresholds
     # (_MIN_NULL_MARGIN / _MIN_MARGIN and the permutation null) are computed on the subsample, where MI
     # has larger O(1/n) bias+variance, so a candidate sitting right at a margin can flip accept/reject
     # vs the full-n scan. This only moves BORDERLINE gate candidates and the path ships default-OFF;
@@ -671,7 +671,7 @@ def cheap_conditional_gate_scan(
     _baseline_cache: dict[tuple[str, ...], float] = {}
 
     def _baseline(operands: tuple[str, ...]) -> float:
-        """Memoised hardened best-existing-op MI floor for a given operand set -- computed once per distinct operand combo since it is tau/mode-independent."""
+        """Memoised hardened best-existing-op MI floor for a given operand set - computed once per distinct operand combo since it is tau/mode-independent."""
         key = tuple(sorted(operands))
         if key not in _baseline_cache:
             _baseline_cache[key] = best_existing_op_mi(arrs, key, yi, nbins)
@@ -693,7 +693,7 @@ def cheap_conditional_gate_scan(
     _pending_cols = 0
 
     def _build_feats(mode, operands, taus):
-        """Host tau-grid block for one combo -- the exact host candidate columns (used by the host fallback MI
+        """Host tau-grid block for one combo - the exact host candidate columns (used by the host fallback MI
         and by ``_perm_null_hi`` for the best column)."""
         cv = operands[0]
         n = cv.shape[0]
@@ -716,8 +716,8 @@ def cheap_conditional_gate_scan(
                 feats[:, j] = np.where(cv > tau, av, bv)
         return feats
 
-    # DEVICE-BORN gate-grid (2026-06-29): under STRICT residency, build the tau-grid candidates on the device
-    # from resident operand columns + score per-column MI via the resident plug-in -- the host gate-grid matrix
+    # DEVICE-BORN gate-grid: under STRICT residency, build the tau-grid candidates on the device
+    # from resident operand columns + score per-column MI via the resident plug-in - the host gate-grid matrix
     # is never materialised + uploaded (collapses the dominant :311 H2D). Threads the SAME rank_binning the host
     # path uses so the binning estimator never switches. Per-column bit-identical; on any cupy failure / non-strict
     # default the host ``_gate_grid_mi`` of the materialised blocks runs (byte-identical).
@@ -754,7 +754,7 @@ def cheap_conditional_gate_scan(
             grid = all_mi[off:off + k]; off += k
             # SELECTION OPTIMISM (mrmr_critique EX-3, DOC): tau is chosen to MAXIMISE in-sample MI over the grid, and
             # the permutation null downstream is then computed on this already-argmax-selected best-tau column, so the
-            # null understates the selection-inflated MI -- a borderline candidate on data with no genuine regime
+            # null understates the selection-inflated MI - a borderline candidate on data with no genuine regime
             # structure can clear the margin/null band by chance. This is in-sample OPTIMISM (inflates apparent value),
             # NOT a serving skew: tau is frozen and replays deterministically. Consistent with the framework's other
             # in-sample-MI FE gates; a nested/held-out tau selection would be strictly more honest (FUTURE).
@@ -765,7 +765,7 @@ def cheap_conditional_gate_scan(
                 # Recompute just the best column on host for the cheap permutation null (one column, not the grid).
                 # bench-attempt-rejected (2026-07-05): slicing the best column out of the already-built ``big``
                 # (`np.ascontiguousarray(big[:, bstart+best_j])`) measured 0.3x (SLOWER, 0.692ms vs 0.214ms/spec @100k)
-                # -- ``big`` is row-major so a single column is strided and copies cache-unfriendly, while the fused
+                # - ``big`` is row-major so a single column is strided and copies cache-unfriendly, while the fused
                 # njit single-tau rebuild is contiguous + parallel. The rebuild is cheaper than the slice; kept.
                 best_col = _build_feats(mode, operands, np.asarray([taus[best_j]], dtype=np.float64))[:, 0]
                 # The best-tau column is fit-constant across the 12-perm null: upload it ONCE and thread the
@@ -813,7 +813,7 @@ def detect_row_argmax(
     top_k: int = 4, nbins: int = 12, seed: int = 0,
 ):
     """Cheap-first scan; returns the list of responded row-argmax hits (each a dict with the source triple, MI + margin), capped
-    at ``top_k``. Empty when nothing responds -- a non-argmax frame detects nothing."""
+    at ``top_k``. Empty when nothing responds - a non-argmax frame detects nothing."""
     hits = cheap_row_argmax_scan(X, y, cols, nbins=nbins, seed=seed)
     out = []
     for h in hits:
@@ -830,7 +830,7 @@ def detect_conditional_gate(
     top_k: int = 4, nbins: int = 12, seed: int = 0,
 ):
     """Cheap-first scan; returns the list of responded conditional-gate hits (each a dict with mode, source columns, frozen tau,
-    MI + margin), capped at ``top_k``. Empty when nothing responds -- the hardened baseline keeps smooth / ordinary_mul silent."""
+    MI + margin), capped at ``top_k``. Empty when nothing responds - the hardened baseline keeps smooth / ordinary_mul silent."""
     hits = cheap_conditional_gate_scan(X, y, cols, nbins=nbins, seed=seed)
     out = []
     for h in hits:
@@ -844,7 +844,7 @@ def detect_conditional_gate(
 
 # Recipe plumbing: emit frozen EngineeredRecipe objects so the MRMR selector materialises, scores, selects, and replays the
 # argmax / gate column at predict time identically. Replay is a pure function of X (argmax index; gate np.where / mask with the
-# FROZEN tau) -- no y reference, so it is leak-free + deterministic + train/test bit-identical.
+# FROZEN tau) - no y reference, so it is leak-free + deterministic + train/test bit-identical.
 
 
 def engineered_name_row_argmax(cols: Sequence[str]) -> str:
@@ -865,7 +865,7 @@ def engineered_name_conditional_gate(mode: str, cols: Sequence[str], tau: float)
 
 
 def build_row_argmax_recipe(*, name: str, cols: Sequence[str]):
-    """Frozen recipe for one row-argmax column. Replay is ``np.argmax`` over the stacked source columns -- no parameters."""
+    """Frozen recipe for one row-argmax column. Replay is ``np.argmax`` over the stacked source columns - no parameters."""
     from .engineered_recipes import EngineeredRecipe
 
     if len(cols) < 2:
@@ -899,7 +899,7 @@ def hybrid_row_argmax_fe_with_recipes(
     ``_benchmarks/bench_conditional_gate_wideframe``): when the number of eligible columns exceeds ``max_cols`` the whole sweep is
     SKIPPED (logged, never silent).
 
-    Returns ``(appended_names, recipes)`` -- the materialised columns are NOT concatenated here (the MRMR caller appends them under
+    Returns ``(appended_names, recipes)`` - the materialised columns are NOT concatenated here (the MRMR caller appends them under
     its own RAM-safe path); each recipe replays the exact argmax column from X alone, leak-free."""
     if cols is None:
         elig = [c for c in X.columns if _is_argmax_eligible(np.asarray(X[c]))]
@@ -942,14 +942,14 @@ def hybrid_conditional_gate_fe_with_recipes(
 ):
     """Detect responded conditional-gate structure and emit it as frozen, replayable ``EngineeredRecipe`` objects (tau frozen).
 
-    RELEVANCE-PRUNED candidate set: the sweep cost is O(k_operand^2 * k_gate * tau-scan), FLAT in p -- the gate column c is drawn
+    RELEVANCE-PRUNED candidate set: the sweep cost is O(k_operand^2 * k_gate * tau-scan), FLAT in p - the gate column c is drawn
     from the top-``k_gate`` columns by raw MI vs y and the operands a, b from the top-``k_operand`` (see ``cheap_conditional_gate_scan``).
     With k=8/10 the added cost is a small constant whether p=30 or p=300, so the prior O(p^3) blow-up that forced this OFF is gone.
     The column-count BUDGET GUARD (``max_cols``, default 200) is kept as a defense-in-depth outer cap: an absurdly wide frame still
     skips the whole sweep (logged, never silent). The detector gates vs the HARDENED best-existing-op baseline so smooth / ordinary_mul
     controls stay silent (0 FP at p=30 over 3 seeds).
 
-    Returns ``(appended_names, recipes)`` -- the materialised columns are NOT concatenated here (the MRMR caller appends them under
+    Returns ``(appended_names, recipes)`` - the materialised columns are NOT concatenated here (the MRMR caller appends them under
     its own RAM-safe path); each recipe replays the exact gate column from X + the frozen tau alone, leak-free."""
     if cols is None:
         elig = [c for c in X.columns if _is_argmax_eligible(np.asarray(X[c]))]

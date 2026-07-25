@@ -41,7 +41,7 @@ class _Evaluator:
         self.phi = phi
         # iter107/iter109: contiguous transpose for every margin read. phi is row-major
         # (n_samples, n_units); a column read ``phi[:, j]`` / multi-column gather ``phi[:, idx]`` is
-        # then strided -- one element per (n_units * 8)-byte step, a fresh cache line per row,
+        # then strided - one element per (n_units * 8)-byte step, a fresh cache line per row,
         # ~505us per single-column op at n=50000. ``phi_T[j]`` is a contiguous n_samples read (~45us,
         # 11x); ``phi_T[idx].sum(0)`` is the contiguous multi-column gather (~4x). Both the single-
         # column incremental updates (loss_from_parent / _drop / swap, the beam/greedy hot loop,
@@ -75,7 +75,7 @@ class _Evaluator:
 
         iter106: every margin this evaluator scores has the SAME row count (``y.shape[0]``), so the
         serial-vs-prange ``score_margin`` route is resolved ONCE here (via ``score_margin_auto``'s
-        crossover) and baked into the closure -- zero per-call dispatch in the beam/greedy hot loop.
+        crossover) and baked into the closure - zero per-call dispatch in the beam/greedy hot loop.
         At tall regimes (n_rows >= ~10000) the prange kernel is ~2x on the dominant brier/log-loss
         reductions (profiled width=500 / n_rows=50000: score_margin 1.5s of a 32s fit)."""
         if metric == "auc":
@@ -295,7 +295,7 @@ def beam_search(phi, base, y, *, classification, metric=None, beam_width=8, min_
     rank) was prototyped to fix a suspected wide-frame recall gap. Root-caused as a FALSE POSITIVE:
     the stress fixture that motivated it capped ``max_card`` at exactly the strong-feature count, so
     an all-strong subset was genuinely loss-optimal (confirmed: 8-strong subset loss 0.0086 beats
-    every 7-strong+1-weak substitution at 0.0150) -- beam was pruning correctly, not seed-blind. A
+    every 7-strong+1-weak substitution at 0.0150) - beam was pruning correctly, not seed-blind. A
     follow-up A/B with headroom (``max_card`` wide enough for both groups) recovered 100% of both
     strong and weak informatives with or without the rescue. See
     ``_benchmarks/PLAN_wide_dataframe_improvements.md`` for the full investigation notes.
@@ -321,7 +321,7 @@ def beam_search(phi, base, y, *, classification, metric=None, beam_width=8, min_
                 if j in parent_set:
                     continue
                 loss, child_key, child_margin = ev.loss_from_parent(parent_key, parent_margin, j)
-                # Sibling parents may reach the same child via different add-orders -- keep the
+                # Sibling parents may reach the same child via different add-orders - keep the
                 # already-computed value (deterministic, since the loss is a pure function of key).
                 if child_key not in expanded:
                     expanded[child_key] = (loss, child_margin)
@@ -400,7 +400,7 @@ def _local_search(ev, start: tuple[int, ...], f: int, max_card: int) -> tuple[in
     while improved:
         improved = False
         cur_set = set(current)
-        # First-improvement order: adds, then drops, then swaps -- matches the prior
+        # First-improvement order: adds, then drops, then swaps - matches the prior
         # ``moves`` traversal so the chosen move (and hence final subset) is unchanged.
         if len(current) < max_card:
             for j in range(f):
@@ -492,7 +492,7 @@ def simulated_annealing(phi, base, y, *, classification, metric=None, n_iter=200
     """Metropolis bit-flips with geometric cooling.
 
     Maintains ``(cur_key, cur_margin)``; each bit-flip is either an add (+phi[:, j]) or a
-    drop (-phi[:, j]) via ``loss_from_parent[_drop]`` -- one O(n) vector op per trial instead
+    drop (-phi[:, j]) via ``loss_from_parent[_drop]`` - one O(n) vector op per trial instead
     of a full reduce. Math is bit-identical: the same Metropolis decision is taken on the
     same proxy_loss values.
     """

@@ -1,4 +1,4 @@
-"""Heterogeneous GPU device profiling for the FE batcher's multi-GPU packer (2026-06-26).
+"""Heterogeneous GPU device profiling for the FE batcher's multi-GPU packer.
 
 Enumerates the usable CUDA devices and captures, per device, the attributes the packer needs to schedule
 candidate-column blocks across HETEROGENEOUS GPUs (different VRAM, SM count, shared-mem, clock -> different
@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-# CUDA cores per SM by compute capability -- a coarse but monotone FLOP proxy for the speed weight.
+# CUDA cores per SM by compute capability - a coarse but monotone FLOP proxy for the speed weight.
 _CORES_PER_SM = {
     (3, 0): 192, (3, 5): 192, (3, 7): 192,
     (5, 0): 128, (5, 2): 128, (5, 3): 128,
@@ -38,7 +38,7 @@ def fe_gpu_f32_enabled() -> bool:
     """Whether the GPU FE-batch path scores in float32 (``MLFRAME_FE_VRAM_F32`` truthy). Default OFF -> f64,
     which keeps the GPU MI bit-~ (1e-9) to the CPU njit. f32 is ~2.2x faster (half H2D + f32 radix-select)
     and SELECTION-EQUIVALENT (Spearman rank 1.0, identical top-K; values drift ~5e-6 only), but NOT 1e-9
-    bit-identical -- so it is opt-in, validated by the f32 selection-equivalence test."""
+    bit-identical - so it is opt-in, validated by the f32 selection-equivalence test."""
     return os.environ.get("MLFRAME_FE_VRAM_F32", "").strip().lower() in ("1", "true", "on", "yes")
 
 
@@ -48,10 +48,10 @@ def crit_dtype_relaxed() -> bool:
 
     The numerically-heavier FE stages that still upload / compute in float64 (the ALS prewarp seed's
     standardised columns, the fourier detrend/periodogram column splits, the quantile discretiser input matrix)
-    are relaxed to float32 when this is on -- half the H2D and faster device math. It is a SEPARATE knob from
+    are relaxed to float32 when this is on - half the H2D and faster device math. It is a SEPARATE knob from
     ``MLFRAME_FE_VRAM_F32`` (which governs the FE-batch MI scoring dtype): this one governs the residual f64
     hotspots. It is applied ONLY where the FE candidate selection is unchanged by the f32 rounding (the f32
-    drift is far below every FE decision margin -- validated per-stage on F2 across all distributions + the
+    drift is far below every FE decision margin - validated per-stage on F2 across all distributions + the
     stage's biz suites). Set ``MLFRAME_CRIT_DTYPE_RELAXED=0`` to force the strict float64 path everywhere."""
     return os.environ.get("MLFRAME_CRIT_DTYPE_RELAXED", "1").strip().lower() not in ("0", "false", "off", "no")
 
@@ -95,7 +95,7 @@ def _visible_device_ids() -> list[int]:
     """CUDA device indices the FE batcher may use: getDeviceCount() filtered by the global GPU off-switches
     and an optional ``MLFRAME_FE_VRAM_DEVICES=0,1`` subset. cupy already remaps CUDA_VISIBLE_DEVICES to a
     dense 0..n-1 range, so indices here are cupy-local."""
-    # GPU_INFRA_C-9 fix: delegate the MLFRAME_DISABLE_GPU/CUDA_VISIBLE_DEVICES=""
+    # Delegate the MLFRAME_DISABLE_GPU/CUDA_VISIBLE_DEVICES=""
     # opt-out check to the shared _gpu_policy module instead of a THIRD inline reimplementation of it.
     from .._gpu_policy import gpu_globally_disabled
 
@@ -150,6 +150,6 @@ def enumerate_device_profiles() -> list[DeviceProfile]:
     for i in _visible_device_ids():
         try:
             out.append(_profile_device(i))
-        except Exception:  # nosec B112 - best-effort path  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+        except Exception:  # nosec B112 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
             continue
     return out

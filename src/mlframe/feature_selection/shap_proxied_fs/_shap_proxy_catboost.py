@@ -8,7 +8,7 @@ selector:
    library's TreeExplainer also wraps this path but adds Python marshalling overhead and a hard
    dependency on ``shap``. Calling the native API skips both. The custom numba TreeSHAP in
    ``_shap_proxy_treeshap`` covers xgboost + lightgbm only (their flat-tree dumps map onto shared
-   kernels) -- catboost's oblivious-tree representation does NOT map and re-implementing it as numba
+   kernels) - catboost's oblivious-tree representation does NOT map and re-implementing it as numba
    is strictly worse than just calling the C++ kernel via ``Pool``.
 
 2. **Native categorical handling via** ``cat_features``. Production catboost users pin
@@ -61,7 +61,7 @@ def is_catboost_estimator(est) -> bool:
     """True for a CatBoostClassifier / CatBoostRegressor / CatBoost instance (fitted or unfitted).
 
     Class-name probe (not isinstance) so we don't pay the catboost import cost when the user is on
-    the xgboost / lightgbm path -- the SHAP-proxied FS is shared infra and every fit takes the type
+    the xgboost / lightgbm path - the SHAP-proxied FS is shared infra and every fit takes the type
     check on the hot path of ``_shap_phi_and_base``."""
     name = type(est).__name__
     return name in ("CatBoostClassifier", "CatBoostRegressor", "CatBoost")
@@ -81,7 +81,7 @@ def make_catboost_estimator(
 
     ``cat_features`` is forwarded to the CatBoost constructor as-is (catboost accepts a sequence of
     integer column positions OR feature names). Passing names is preferable because the SHAP-proxied
-    FS slices columns via ``.iloc[:, cols]`` between stages -- name-based ``cat_features`` survives
+    FS slices columns via ``.iloc[:, cols]`` between stages - name-based ``cat_features`` survives
     the slice unchanged, integer positions need remapping per stage.
 
     ``n_jobs=-1`` -> ``thread_count=-1`` (catboost's own all-cores knob). ``verbose=False`` /
@@ -111,7 +111,7 @@ def _build_pool(X, cat_features: Optional[Sequence] = None):
     """Wrap ``X`` in a catboost :class:`Pool`. ``cat_features`` is forwarded as-is.
 
     Catboost requires a Pool (not a raw DataFrame / ndarray) for SHAP extraction when categorical
-    features are in play -- without one it can't tell which columns are categorical."""
+    features are in play - without one it can't tell which columns are categorical."""
     from catboost import Pool
 
     return Pool(data=X, cat_features=list(cat_features) if cat_features is not None else None)
@@ -121,7 +121,7 @@ def catboost_shap(model, X, *, cat_features: Optional[Sequence] = None):
     """Extract a single-output ``(phi, base)`` pair from a fitted catboost model via its native SHAP.
 
     Returns ``(phi, base)`` where ``phi`` is shape ``(n_samples, n_features)`` and ``base`` is a
-    scalar (the model's intercept in margin space) -- the exact contract callers of
+    scalar (the model's intercept in margin space) - the exact contract callers of
     ``_shap_phi_and_base`` rely on.
 
     Catboost's ShapValues format: a single fit returns ``(n_samples, n_features + 1)`` with the
@@ -130,19 +130,19 @@ def catboost_shap(model, X, *, cat_features: Optional[Sequence] = None):
 
       * regression: shape ``(n, f+1)``, slice off the bias column;
       * binary classification: catboost ALSO returns ``(n, f+1)`` (not 3-D), the SHAP values are in
-        margin / log-odds space exactly like xgboost's binary output -- so we treat it the same way;
+        margin / log-odds space exactly like xgboost's binary output - so we treat it the same way;
       * multiclass: explicitly NOT supported (raise) to mirror the xgboost / lightgbm gates in
         ``_shap_proxy_explain``.
 
     The base value catboost reports per row is identical across rows for one model (TreeSHAP
     invariant: the bias is the global expected value), so we collapse to a scalar via ``[0]`` rather
-    than averaging -- the latter would silently mask any per-row drift.
+    than averaging - the latter would silently mask any per-row drift.
     """
     pool = _build_pool(X, cat_features=cat_features)
     raw = model.get_feature_importance(type="ShapValues", data=pool)
     arr = np.asarray(raw, dtype=np.float64)
     if arr.ndim == 3:
-        # (n, n_classes, n_features+1) -- multiclass. Out of scope for v1 (selector consumes a
+        # (n, n_classes, n_features+1) - multiclass. Out of scope for v1 (selector consumes a
         # single-output margin per row); explicit raise mirrors _shap_phi_and_base.
         raise ValueError(
             f"ShapProxiedFS catboost backend supports binary classification / single-target "

@@ -1,7 +1,7 @@
 """Source-side collinear-column dedup for the orthogonal-univariate FE stage.
 
 Carved out of ``_orthogonal_univariate_fe/__init__.py`` (2026-06-22, monolith-split: the package facade
-re-exports ``_dedup_collinear_source_cols`` from its bottom). Self-contained -- depends only on numpy/pandas.
+re-exports ``_dedup_collinear_source_cols`` from its bottom). Self-contained - depends only on numpy/pandas.
 """
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 # The dedup is a DECISION (drop near-duplicate source columns), not a final statistic, so the correlations do not need
 # every row: a Pearson |r| estimate from a large row sample has standard error ~ (1-r^2)/sqrt(m), far under the slack of
-# a 0.999 threshold at m=100k. Capping the rows keeps the pass O(P^2 * cap) instead of O(P^2 * N) and -- critical on
-# mlframe's 100+ GB frames -- bounds the transient (P, cap) work matrices regardless of N. Only engages when N > cap, so
+# a 0.999 threshold at m=100k. Capping the rows keeps the pass O(P^2 * cap) instead of O(P^2 * N) and - critical on
+# mlframe's 100+ GB frames - bounds the transient (P, cap) work matrices regardless of N. Only engages when N > cap, so
 # every small-n path (all tests) is byte-for-byte unchanged. Override via MLFRAME_FE_DEDUP_MAX_CORR_ROWS.
 import os as _os
 
@@ -29,7 +29,7 @@ _MAX_CORR_ROWS = int(_os.environ.get("MLFRAME_FE_DEDUP_MAX_CORR_ROWS", "100000")
 def _dedup_sample_idx(n_rows: int) -> Optional[np.ndarray]:
     """Deterministic row-sample index for the correlation pass (see ``_MAX_CORR_ROWS``), factored out so the
     fit-scoped memo's cache-key hash (:func:`_dedup_cache_key`) samples the EXACT same rows the correlation
-    pass itself would -- same seed, same ``n_rows`` -> same draw both times."""
+    pass itself would - same seed, same ``n_rows`` -> same draw both times."""
     if n_rows > _MAX_CORR_ROWS:
         return np.sort(np.random.default_rng(0).choice(n_rows, size=_MAX_CORR_ROWS, replace=False))
     return None
@@ -101,15 +101,15 @@ def _pc_corr_numpy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
         vary = Syy - Sy * Sy / n
         corr = np.abs(cov / np.sqrt(varx * vary))
     # nan -> 'not a duplicate' for the caller. Mirror the legacy per-pair skips: <8 common rows, or either side
-    # near-constant on the common rows (std <= 1e-12 => var <= 1e-24) -- otherwise a 0/~0 ratio could read as inf >= thr.
+    # near-constant on the common rows (std <= 1e-12 => var <= 1e-24) - otherwise a 0/~0 ratio could read as inf >= thr.
     corr[(n < 8) | (varx <= 1e-24) | (vary <= 1e-24)] = np.nan
     return np.asarray(corr)
 
 
 @njit(parallel=True, cache=True)  # NO fastmath: the kernel relies on isfinite() for the NaN mask; nnan/ninf would elide it.
 def _pc_corr_njit(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
-    """njit(parallel) backend: one fused pass per pair, no temporaries. MEASURED SLOWER than numpy (0.23-0.80x) -- a
-    naive triple-loop cannot beat BLAS -- so it is never auto-selected; kept as a force-selectable option per
+    """njit(parallel) backend: one fused pass per pair, no temporaries. MEASURED SLOWER than numpy (0.23-0.80x) - a
+    naive triple-loop cannot beat BLAS - so it is never auto-selected; kept as a force-selectable option per
     REJECTED != DELETED. See ``_benchmarks/bench_pairwise_complete_corr.py``."""
     q = Q.shape[0]
     r = R.shape[0]
@@ -146,20 +146,20 @@ def _pc_corr_njit(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
 
 def _pc_corr_cupy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     """cupy(CUDA) backend: the same 6 masked matmuls on the GPU. Solo-benched 2.0-2.7x over numpy in a moderate band but
-    LOSES at large P*n (GPU memory pressure) -- and, like the plug-in MI dispatcher, a solo win is eroded under joblib-
+    LOSES at large P*n (GPU memory pressure) - and, like the plug-in MI dispatcher, a solo win is eroded under joblib-
     worker GPU contention, so it is not the auto-default. OOM / no-cupy -> the dispatcher falls back to numpy."""
     import cupy as cp
 
     # Q/R (the partial-NaN candidate block and its dense/partial comparison block) can recur with IDENTICAL
-    # content across the <=6 _dedup_collinear_source_cols calls/fit (independent FE families -- orth/
-    # extra-basis/gpu-resident/wavelet/hinge -- each deduping their own candidate columns against the SAME
+    # content across the <=6 _dedup_collinear_source_cols calls/fit (independent FE families - orth/
+    # extra-basis/gpu-resident/wavelet/hinge - each deduping their own candidate columns against the SAME
     # underlying source frame): resident-cache the upload so a repeat-content call hits instead of re-
     # uploading. When Q/R genuinely differ per call (the common case, since each family's candidate set
-    # differs), this is a plain cache miss -> a fresh upload, identical cost to the old raw cp.asarray -- so
+    # differs), this is a plain cache miss -> a fresh upload, identical cost to the old raw cp.asarray - so
     # the fix is correctness-neutral either way, only a possible win when content does recur. No ``dtype=``
     # override: Q/R keep their CALLER dtype (f32 under MLFRAME_CRIT_DTYPE_RELAXED), matching the original
     # ``cp.asarray(Q)``'s native-dtype passthrough exactly (unlike the njit backend, which explicitly
-    # upcasts to f64) -- forcing float64 here would change the matmul precision, not just cache it.
+    # upcasts to f64) - forcing float64 here would change the matmul precision, not just cache it.
     from .._fe_resident_operands import resident_operand
     Qd = resident_operand(Q, "orth_dedup_Q")
     Rd = resident_operand(R, "orth_dedup_R")
@@ -212,7 +212,7 @@ def _resolve_pc_backend(q: int, r: int, n: int) -> str:
         return "cupy"
     # STRICT GPU mode: prefer the cupy backend (solo-benched 2.0-2.7x over numpy in the moderate band;
     # 12 numpy calls cost 335s on the wellbore-100k GPU-strict cProfile). The numpy default exists because
-    # cupy's solo win erodes under joblib-worker GPU contention -- but STRICT mode's explicit contract is
+    # cupy's solo win erodes under joblib-worker GPU contention - but STRICT mode's explicit contract is
     # "carry the FE compute on the device", and the per-call work floor inside fe_gpu_strict_enabled already
     # keeps trivially small dedups (p < 64 or n*p < 1M) on the CPU. Non-strict hosts keep the measured
     # default via the KTC lookup below, unchanged.
@@ -221,7 +221,7 @@ def _resolve_pc_backend(q: int, r: int, n: int) -> str:
 
         if fe_gpu_strict_enabled(n=n, p=max(q, r)):
             return "cupy"
-    except Exception:  # nosec B110 -- strict-gate probe failure must never break the dedup itself
+    except Exception:  # nosec B110 - strict-gate probe failure must never break the dedup itself
         pass
     try:
         from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import lookup_pairwise_corr_backend
@@ -236,7 +236,7 @@ def _dedup_collinear_source_cols(
 ) -> list[str]:
     """Drop near-duplicate source columns BEFORE basis enumeration.
 
-    Layer 27 incident (2026-05-31): on 10 collinear sources (x2..x10 = x1 +
+    Layer 27 incident: on 10 collinear sources (x2..x10 = x1 +
     1% jitter), the constructor emitted 10 He_2 columns and every one
     survived MRMR's redundancy gate because their CMI-residuals under
     quantile binning differed by tiny amounts above the relevance floor.
@@ -253,7 +253,7 @@ def _dedup_collinear_source_cols(
     deduped, not dropped) so downstream basis evaluation handles them as
     before.
 
-    Layer 30 perf (2026-05-31): the original implementation called
+    Layer 30 perf: the original implementation called
     ``np.corrcoef`` per (candidate, kept) pair which is O(p^2) numpy calls
     plus Python overhead. At p=200 cProfile attributed 5.0s out of 4.8s
     wall (cumulative) to this dedup pass — the dominant hotspot. The new
@@ -276,7 +276,7 @@ def _dedup_collinear_source_cols(
     (100x).
 
     2026-07-12 FIT-SCOPED MEMO: wrap the call site in ``dedup_collinear_memo_scope()`` to memoize repeated
-    calls with the SAME (cols content, corr_threshold) within one MRMR.fit() call -- five independent opt-in
+    calls with the SAME (cols content, corr_threshold) within one MRMR.fit() call - five independent opt-in
     FE-family builders (orth / extra-basis / gpu-resident / wavelet / hinge) each call this dedup on their own
     candidate columns, and a "kitchen sink" config with several families on would otherwise repeat the
     identical O(P^2) corrcoef pass 2-5x. The memo is OFF by default (cache is None) so every call outside an
@@ -366,7 +366,7 @@ def _dedup_collinear_source_cols(
 
     # Precompute the partial-NaN comparison blocks ONCE via the vectorized pairwise-complete kernel, replacing the
     # legacy O(P^2) per-pair ``np.corrcoef`` loop (the hot path on frames with many NaN-bearing columns, e.g. well logs
-    # with missing measurements -- the case the legacy "typically 0 partial columns" assumption failed on). ``partial_mat``
+    # with missing measurements - the case the legacy "typically 0 partial columns" assumption failed on). ``partial_mat``
     # rows are indexed by ``partial_pos`` in candidate order; ``pc_pd`` = |corr| vs each dense row, ``pc_pp`` = vs each
     # other partial row. Empty when there are no partial columns (the common all-dense case is untouched -> bit-identical).
     partial_order = [i for i in range(len(cols)) if classes[i] == "partial_nan"]

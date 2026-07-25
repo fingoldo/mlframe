@@ -8,7 +8,7 @@ when the neighborhood itself is not globally extreme.
 
 Why this catches a shape the catalog misses: distinct from a global elliptical/Gaussian anomaly
 score (Mahalanobis distance, which assumes a single global covariance shape), LOF is LOCAL and
-non-parametric -- it catches anomalies in a MULTI-MODAL joint distribution (e.g. several
+non-parametric - it catches anomalies in a MULTI-MODAL joint distribution (e.g. several
 well-separated Gaussian clusters of normal behavior, where a row is anomalous for sitting in a
 locally-sparse gap BETWEEN clusters even though its raw distance to the GLOBAL mean/covariance is
 unremarkable, since the global Mahalanobis ellipsoid straddles all clusters and a between-cluster
@@ -63,7 +63,7 @@ def lof_scores(X: np.ndarray, *, k: int = 20) -> np.ndarray:
     neighborhood (a local outlier). Degenerate input (n < 3, non-finite X) returns an all-NaN
     ``(n,)`` array rather than raising.
 
-    Cost: brute-force O(n^2) pairwise distances (the matmul trick) -- fine for moderate n; very
+    Cost: brute-force O(n^2) pairwise distances (the matmul trick) - fine for moderate n; very
     large n (>~200k) would need chunking or an approximate k-NN library, per the audit's own note.
     """
     X = np.asarray(X, dtype=np.float64)
@@ -117,7 +117,7 @@ def _lof_transform(X_new: np.ndarray, X_ref: np.ndarray, lrd_ref: np.ndarray, k_
     """Score new rows' LOF against a FROZEN reference set (disjoint from ``X_new``, so no
     self-exclusion is needed): find each new row's k-NN within the reference, form reach-dist
     against the reference points' own frozen ``k_distance_ref``, and compare the new row's local
-    reachability density to its neighbors' frozen ``lrd_ref`` -- an out-of-sample LOF
+    reachability density to its neighbors' frozen ``lrd_ref`` - an out-of-sample LOF
     approximation (the reference set stands in for "all training rows" so a large fit only pays
     the reference's bounded cost, not O(n_train^2), at transform time)."""
     sq_new = np.sum(X_new * X_new, axis=1)
@@ -140,7 +140,7 @@ def engineered_name_lof(cols: Sequence[str]) -> str:
 
 def generate_lof_features(X: "pd.DataFrame", cols: Sequence[str], *, k: int = 20, max_ref: int = 2000, random_state: int = 0) -> "tuple[pd.DataFrame, dict]":
     """Fit one joint LOF score over ``cols``: subsample up to ``max_ref`` rows as the frozen
-    reference set (RAM discipline -- a bounded reference, never the whole fit frame), compute the
+    reference set (RAM discipline - a bounded reference, never the whole fit frame), compute the
     LOF score of every fit row against that reference, and freeze the reference internals for
     leak-safe replay. Returns ``(enc_df, payload)``."""
     cols = [c for c in cols if c in X.columns]
@@ -170,7 +170,7 @@ def generate_lof_features(X: "pd.DataFrame", cols: Sequence[str], *, k: int = 20
 
 
 def apply_lof_block(X_test: "pd.DataFrame", payload: dict) -> "pd.DataFrame":
-    """Replay a fitted LOF score on new rows: score against the frozen reference set only --
+    """Replay a fitted LOF score on new rows: score against the frozen reference set only -
     reads the raw source columns, no ``y``."""
     cols = list(payload["cols"])
     missing = [c for c in cols if c not in X_test.columns]

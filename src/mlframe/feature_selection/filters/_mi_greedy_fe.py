@@ -5,7 +5,7 @@ polynomial constructor enumerates basis_n(z) terms over a small library of
 classical polynomials, THIS module enumerates a broad library of generic
 unary / binary transforms (``log_abs(x)``, ``sqrt_abs(x)``, ``x_i / x_j``,
 ``|x_i - x_j|``, etc.) and ranks the candidates by MI uplift over their
-source baseline -- the same two-gate selection the orthogonal pipeline uses.
+source baseline - the same two-gate selection the orthogonal pipeline uses.
 
 The two constructors complement each other:
 
@@ -57,23 +57,23 @@ __all__ = [
 
 
 def _log_abs(x: np.ndarray) -> np.ndarray:
-    """``log1p(|x|)`` -- sign-agnostic log compression, good for heavy-tailed / power-law columns."""
+    """``log1p(|x|)`` - sign-agnostic log compression, good for heavy-tailed / power-law columns."""
     return np.asarray(np.log1p(np.abs(np.asarray(x, dtype=np.float64))))
 
 
 def _sqrt_abs(x: np.ndarray) -> np.ndarray:
-    """``sqrt(|x|)`` -- sign-agnostic square-root compression, milder than ``log_abs`` on the tail."""
+    """``sqrt(|x|)`` - sign-agnostic square-root compression, milder than ``log_abs`` on the tail."""
     return np.asarray(np.sqrt(np.abs(np.asarray(x, dtype=np.float64))))
 
 
 def _square(x: np.ndarray) -> np.ndarray:
-    """``x**2`` -- exposes magnitude / symmetric-around-zero relationships (e.g. ``y = sign(x**2 - c)``)."""
+    """``x**2`` - exposes magnitude / symmetric-around-zero relationships (e.g. ``y = sign(x**2 - c)``)."""
     a = np.asarray(x, dtype=np.float64)
     return a * a
 
 
 def _cube(x: np.ndarray) -> np.ndarray:
-    """``x**3`` -- odd power, preserves sign while amplifying the tail (unlike ``square``)."""
+    """``x**3`` - odd power, preserves sign while amplifying the tail (unlike ``square``)."""
     a = np.asarray(x, dtype=np.float64)
     return a * a * a
 
@@ -91,7 +91,7 @@ def _reciprocal_safe(x: np.ndarray) -> np.ndarray:
 
 
 def _tanh(x: np.ndarray) -> np.ndarray:
-    """``tanh(x)`` -- smooth saturating squash, captures threshold / diminishing-returns non-linearities."""
+    """``tanh(x)`` - smooth saturating squash, captures threshold / diminishing-returns non-linearities."""
     return np.tanh(np.asarray(x, dtype=np.float64))
 
 
@@ -104,17 +104,17 @@ def _expm1_clip(x: np.ndarray) -> np.ndarray:
 
 
 def _abs(x: np.ndarray) -> np.ndarray:
-    """``|x|`` -- folds sign, exposing magnitude-only relationships (e.g. ``y = sign(|x| - c)``)."""
+    """``|x|`` - folds sign, exposing magnitude-only relationships (e.g. ``y = sign(|x| - c)``)."""
     return np.abs(np.asarray(x, dtype=np.float64))
 
 
 def _sin(x: np.ndarray) -> np.ndarray:
-    """``sin(x)`` -- periodic transform; only enumerated on columns ``_is_bounded_column`` flags as bounded, since sin of an unbounded/heavy-tailed column is uninformative."""
+    """``sin(x)`` - periodic transform; only enumerated on columns ``_is_bounded_column`` flags as bounded, since sin of an unbounded/heavy-tailed column is uninformative."""
     return np.sin(np.asarray(x, dtype=np.float64))
 
 
 def _cos(x: np.ndarray) -> np.ndarray:
-    """``cos(x)`` -- periodic transform, ``sin``'s phase-shifted sibling; same bounded-column gating applies."""
+    """``cos(x)`` - periodic transform, ``sin``'s phase-shifted sibling; same bounded-column gating applies."""
     return np.cos(np.asarray(x, dtype=np.float64))
 
 
@@ -139,22 +139,22 @@ TRIG_BOUNDED_TRANSFORMS: dict[str, Callable[[np.ndarray], np.ndarray]] = {
 
 
 def _bin_add(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """``a + b`` -- linear combination; catches additive interactions two raw columns don't expose alone."""
+    """``a + b`` - linear combination; catches additive interactions two raw columns don't expose alone."""
     return np.asarray(a, dtype=np.float64) + np.asarray(b, dtype=np.float64)
 
 
 def _bin_sub(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """``a - b`` -- signed difference; useful when the target depends on the gap/spread between two columns."""
+    """``a - b`` - signed difference; useful when the target depends on the gap/spread between two columns."""
     return np.asarray(a, dtype=np.float64) - np.asarray(b, dtype=np.float64)
 
 
 def _bin_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """``a * b`` -- product interaction; catches multiplicative/AND-like relationships between two columns."""
+    """``a * b`` - product interaction; catches multiplicative/AND-like relationships between two columns."""
     return np.asarray(a, dtype=np.float64) * np.asarray(b, dtype=np.float64)
 
 
 def _bin_div_safe(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """``a / (b + eps_with_sign)`` -- mirrors ``_reciprocal_safe`` to keep
+    """``a / (b + eps_with_sign)`` - mirrors ``_reciprocal_safe`` to keep
     sign monotonicity on small denominators."""
     av = np.asarray(a, dtype=np.float64)
     bv = np.asarray(b, dtype=np.float64)
@@ -164,22 +164,22 @@ def _bin_div_safe(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 
 
 def _bin_max(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """``max(a, b)`` -- elementwise maximum; catches "worst/best of two" or OR-like decision boundaries (e.g. ``y = sign(max(x_i, x_j) > c)``)."""
+    """``max(a, b)`` - elementwise maximum; catches "worst/best of two" or OR-like decision boundaries (e.g. ``y = sign(max(x_i, x_j) > c)``)."""
     return np.maximum(np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64))
 
 
 def _bin_min(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """``min(a, b)`` -- elementwise minimum, the AND-like counterpart to ``_bin_max``."""
+    """``min(a, b)`` - elementwise minimum, the AND-like counterpart to ``_bin_max``."""
     return np.minimum(np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64))
 
 
 def _bin_abs_diff(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """``|a - b|`` -- unsigned gap between two columns; catches "how far apart" relationships regardless of which column is larger."""
+    """``|a - b|`` - unsigned gap between two columns; catches "how far apart" relationships regardless of which column is larger."""
     return np.abs(np.asarray(a, dtype=np.float64) - np.asarray(b, dtype=np.float64))
 
 
 def _bin_ratio_log(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """``log1p(|a|) - log1p(|b|)`` -- scale-stable ratio surrogate that
+    """``log1p(|a|) - log1p(|b|)`` - scale-stable ratio surrogate that
     never overflows and gives the same sign as ``log(|a/b|)`` for finite
     inputs. Often outperforms raw ``a / b`` on heavy-tailed positive cols
     because MI binning of the bare ratio is dominated by the tail."""
@@ -404,7 +404,7 @@ def generate_mi_greedy_features(
         arr = _materialise_candidate(X, src_cols, tname)
         if arr is None:
             continue
-        # Drop constant or near-constant columns -- they carry zero MI and
+        # Drop constant or near-constant columns - they carry zero MI and
         # clutter the score table.
         if float(arr.std()) <= 1e-12:
             continue
@@ -431,7 +431,7 @@ def _greedy_score_and_select(
     the full scores DataFrame, and the parsed list aligned with the winners.
 
     ``reject_sink`` (optional) is a callable invoked once per candidate the
-    abs-MAD floor (``marginal_uplift_floor`` gate) kills -- i.e. a candidate
+    abs-MAD floor (``marginal_uplift_floor`` gate) kills - i.e. a candidate
     that passed the uplift gate but missed ``abs_floor``. Pure instrumentation:
     it only RECORDS the already-computed ``engineered_mi`` vs ``abs_floor``; it
     changes NO selection decision. See the FE rejection ledger (W6).
@@ -443,11 +443,11 @@ def _greedy_score_and_select(
             "baseline_mi", "engineered_mi", "uplift",
         ]), []
 
-    # MI_GREEDY_RECIPES-2 fix: was a truncating `.astype(np.int64)` for non-integer
-    # y -- for a continuous y confined to one integer bucket (e.g. a [0,1) probability), truncation
+    # Was a truncating `.astype(np.int64)` for non-integer
+    # y - for a continuous y confined to one integer bucket (e.g. a [0,1) probability), truncation
     # collapses every distinct value to the SAME integer, destroying the signal (the B-18 bug class,
     # already fixed in 7 sibling orth-scoring files via _coerce_y_int64, but never applied here). Densify
-    # via np.unique instead -- a no-op renumber for an already-integer/already-dense y.
+    # via np.unique instead - a no-op renumber for an already-integer/already-dense y.
     _y_raw = np.asarray(y)
     _, y_arr = np.unique(_y_raw, return_inverse=True)
     y_arr = y_arr.astype(np.int64)
@@ -483,9 +483,9 @@ def _greedy_score_and_select(
     max_raw = float(scores["baseline_mi"].max()) if not scores.empty else 0.0
     max_eng = float(scores["engineered_mi"].max()) if not scores.empty else 0.0
     legacy_floor = float(min_abs_mi_frac) * max(max_raw, max_eng)
-    # Layer 27 (2026-05-31) noise-aware floor: when ALL raw + engineered
+    # Layer 27 noise-aware floor: when ALL raw + engineered
     # baselines sit in the noise band (typical all-noise frame), the
-    # legacy ``frac * max(...)`` reference is itself noise -- any FP
+    # legacy ``frac * max(...)`` reference is itself noise - any FP
     # candidate clears it. The mean+3*std reference is statistical:
     # columns drawn from the same noise distribution exceed it only on
     # the extreme tail, knocking the per-slot FP rate below 5%. On
@@ -501,7 +501,7 @@ def _greedy_score_and_select(
         # 1.4826 * MAD ~= std for a normal distribution; median-based
         # stats are robust to a few legitimate-signal outliers dragging
         # the mean up (which would lift the noise floor above true
-        # signals -- false-negative regression observed at Layer 25
+        # signals - false-negative regression observed at Layer 25
         # seed=13 when mean+3*std was used).
         noise_floor = med + 3.5 * 1.4826 * mad
     else:
@@ -510,7 +510,7 @@ def _greedy_score_and_select(
     qualified = scores[(scores["uplift"] >= float(min_uplift)) & (scores["engineered_mi"] >= abs_floor)]
     # W6 abs-MAD floor instrumentation (pure-record; no decision change):
     # record every candidate that CLEARED the uplift gate but missed the
-    # absolute floor -- the ``marginal_uplift_floor`` gate kill the session
+    # absolute floor - the ``marginal_uplift_floor`` gate kill the session
     # previously had to diagnose by hand. Selection is byte-identical with or
     # without the sink.
     if reject_sink is not None and not scores.empty:
@@ -526,8 +526,8 @@ def _greedy_score_and_select(
                     threshold=float(abs_floor),
                     reason="mi_greedy abs-MAD floor: engineered_mi below med+k*MAD noise floor",
                 )
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                logger.debug("suppressed in _mi_greedy_fe.py:506: %s", e)
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+                logger.debug("suppressed: %s", e)
                 pass
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
@@ -576,7 +576,7 @@ def greedy_mi_fe_construct(
             "engineered_col", "transform", "source_cols",
             "baseline_mi", "engineered_mi", "uplift",
         ])
-    # MI_GREEDY_RECIPES-2 fix: see _greedy_score_and_select's matching fix above --
+    # See _greedy_score_and_select's matching fix above -
     # densify via np.unique instead of a truncating `.astype(np.int64)`.
     _y_raw = np.asarray(y)
     _, y_arr = np.unique(_y_raw, return_inverse=True)
@@ -684,7 +684,7 @@ def greedy_mi_fe_construct_with_recipes(
 
 
 # ---------------------------------------------------------------------------
-# Recipe replay helper -- imported by engineered_recipes._apply_mi_greedy_transform.
+# Recipe replay helper - imported by engineered_recipes._apply_mi_greedy_transform.
 # Defined here so the transform registry lookup lives next to the registry
 # itself (single source of truth) instead of being duplicated inside the
 # recipes module.

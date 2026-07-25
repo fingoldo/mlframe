@@ -1,10 +1,10 @@
-"""KTC crossover for the batched conditional-MI CPU<->CUDA dispatch (2026-06-23).
+"""KTC crossover for the batched conditional-MI CPU<->CUDA dispatch.
 
 MANDATE-1 (repo rule ``feedback_use_kernel_tuning_cache_for_gpu``: never hardcode CUDA thresholds): the
 ``_cmi_cuda._should_use_cuda`` gate previously fell back, on every cache miss, to a HARDCODED magic crossover
 ``(n*p) >= 1_000_000 and p >= 64``. That constant is a dev-box guess: it is wrong on any other card (a
 stronger GPU wins at a smaller (n,p); a weaker one needs a larger one). This module replaces the magic number
-with a per-host MEASURED crossover -- a ``kernel_tuner`` spec that sweeps the REAL conditional-MI shapes
+with a per-host MEASURED crossover - a ``kernel_tuner`` spec that sweeps the REAL conditional-MI shapes
 (CPU ``_cpu_cmi_loop`` vs CUDA ``conditional_mi_batched_cuda``) across an n x p grid and records, per
 (n_samples, p) region, which backend is faster. ``_should_use_cuda`` consults the cache first; the hardcoded
 heuristic survives ONLY as the un-tuned (pre-sweep / no-cupy / lookup-failure) default, exactly per the rule.
@@ -14,7 +14,7 @@ to ~1e-9; see ``_cmi_cuda`` header + ``test_cmi_cuda_kernel.py``), so the sweep'
 it ranks the two purely by WALL. The winning variant name (``"cuda"`` / ``"cpu"``) per region IS the gate.
 
 GPU-only: on a CPU-only / no-cupy host the sweep never runs and ``.choose()`` returns ``"cpu"``, so the
-dispatch stays on the exact CPU loop -- byte-for-byte the legacy no-GPU behavior.
+dispatch stays on the exact CPU loop - byte-for-byte the legacy no-GPU behavior.
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def cmi_use_cuda(n: int, p: int) -> bool | None:
     backends are numerically equivalent (~1e-9), so this is selection-equivalent."""
     try:
         from mlframe.feature_selection.filters._fe_gpu_strict import fe_gpu_strict_enabled
-        # Pass THIS call's own (n, p) -- 2026-07-11 fix. Calling with no args made the per-call work floor a
+        # Pass THIS call's own (n, p) - 2026-07-11 fix. Calling with no args made the per-call work floor a
         # no-op here (fe_gpu_strict_enabled's floor is a no-op whenever n/p are omitted), silently defeating
         # the caller's own p<64 decline at _cmi_cuda.py's _should_use_cuda: a small-p late-round call that
         # correctly declined STRICT there still fell through to THIS function and got re-approved for CUDA
@@ -62,7 +62,7 @@ def cmi_use_cuda(n: int, p: int) -> bool | None:
     try:
         choice = _CMI_SPEC.choose(n_samples=int(n), p=int(p_bucket))
     except Exception as exc:
-        # INFO_THEORY_A-7 fix: a genuine KTC.choose bug permanently and
+        # a genuine KTC.choose bug permanently and
         # silently degraded every fit to the hardcoded bootstrap heuristic with no diagnostic trail.
         logger.debug("mrmr: CMI KTC .choose() failed; falling back to the hardcoded crossover heuristic: %r", exc, exc_info=True)
         return None
@@ -94,7 +94,7 @@ def _make_cmi_inputs(dims: dict):
 
 
 def _cmi_variant(factors, cand_indices, y_index, z_index, factors_nbins, *, backend: str):
-    """Run the batched conditional MI through an EXPLICIT backend ('cuda'/'cpu') -- the per-variant probe the
+    """Run the batched conditional MI through an EXPLICIT backend ('cuda'/'cpu') - the per-variant probe the
     sweep times. Both produce ~equal MI (the CUDA kernel reproduces the CPU reduction to ~1e-9), so the sweep's
     equivalence check passes and ranks by WALL only."""
     from ._cmi_cuda import conditional_mi_batched_dispatch
@@ -141,7 +141,7 @@ try:
         cli_label="cmi_batched_cpu_cuda_crossover",
     )
 except Exception as _cmi_spec_exc:
-    # INFO_THEORY_A-7 fix: a genuine registration bug (not just a missing
+    # a genuine registration bug (not just a missing
     # optional dependency) permanently and silently degrades every fit to the hardcoded heuristic.
     logger.debug("mrmr: CMI KTC spec registration failed; using the hardcoded crossover heuristic for this process: %r", _cmi_spec_exc, exc_info=True)
     _CMI_SPEC = None

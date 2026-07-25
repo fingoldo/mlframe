@@ -3,7 +3,7 @@
 Yu, Giraldo, Jenssen, Príncipe 2020 (IEEE TPAMI, "Multivariate Extension of
 Matrix-based Rényi's alpha-order Entropy Functional",
 https://arxiv.org/abs/1808.07912). Estimates joint/conditional entropy from
-the eigen-spectrum of a normalized RBF Gram matrix -- no histogram, no
+the eigen-spectrum of a normalized RBF Gram matrix - no histogram, no
 plug-in discretization bias, and it generalizes to multivariate conditioning
 sets by simple elementwise (Hadamard) products of per-variable Gram
 matrices, which is what makes the conditional-MI form below tractable.
@@ -16,7 +16,7 @@ alpha-order Rényi entropy is::
     S_alpha(A) = 1/(1-alpha) * log2(sum_i lambda_i(A)^alpha)
 
 Joint entropy of ``(X, Z)`` uses the Hadamard product ``K_x ⊙ K_z``
-(re-normalized to trace 1) as its Gram matrix -- this is the multivariate
+(re-normalized to trace 1) as its Gram matrix - this is the multivariate
 extension the paper derives, and it is why conditioning on several already-
 selected variables is just multiplying in more per-variable Gram matrices
 rather than growing a higher-dimensional joint density estimate.
@@ -34,12 +34,12 @@ without the numerical singularity at exactly alpha=1.
 Cost: O(n^2) Gram matrices + O(n^3) eigendecomposition. The paper's own
 motivating case is small-n (n < 500) where plug-in MI's discretization bias
 is worst; ``max_n`` subsamples (uniformly, without replacement) above that
-so a caller accidentally passing a large column doesn't hang -- this mirrors
+so a caller accidentally passing a large column doesn't hang - this mirrors
 ``_ksg.py``'s GPU-threshold gate, a compute-cost guard, not a numerical
 requirement (the estimator itself has no upper bound on n).
 
 Opt-in via ``estimator='renyi_alpha'`` in ``_mi_dispatch.py``'s
-``score_pair_mi`` -- same maturity tier as ``mine``/``infonet``/``fastmi``:
+``score_pair_mi`` - same maturity tier as ``mine``/``infonet``/``fastmi``:
 available for benchmarking and ad-hoc scoring, not (yet) looped into MRMR's
 per-candidate greedy scan.
 """
@@ -86,7 +86,7 @@ def _rbf_gram(x: np.ndarray, sigma: Optional[float] = None) -> np.ndarray:
 
 
 def _hadamard_gram(*grams: np.ndarray) -> np.ndarray:
-    """Elementwise product of several Gram matrices -- the multivariate joint Gram matrix (Yu et al. 2020, Def. 3)."""
+    """Elementwise product of several Gram matrices - the multivariate joint Gram matrix (Yu et al. 2020, Def. 3)."""
     out = grams[0].copy()
     for g in grams[1:]:
         out *= g
@@ -97,7 +97,7 @@ def _renyi_entropy_from_gram(K: np.ndarray, alpha: float = _DEFAULT_ALPHA) -> fl
     """Alpha-order matrix-based Rényi entropy (in bits) of a Gram matrix ``K`` (trace-normalized internally)."""
     if alpha == 1.0:
         # alpha=1 is the module's own documented mathematical singularity
-        # (division by 1-alpha below) -- every public entry point defaults to alpha=1.01 specifically to
+        # (division by 1-alpha below) - every public entry point defaults to alpha=1.01 specifically to
         # avoid it, but nothing stopped a caller from passing alpha=1.0 explicitly (estimator_kwargs=
         # {'alpha': 1.0} through score_pair_mi), which would have raised ZeroDivisionError deep inside a
         # dispatcher call with no caller-facing explanation. Fail loudly and specifically instead.
@@ -163,9 +163,14 @@ def renyi_alpha_cmi(
 ) -> float:
     """Matrix-based Rényi alpha-order conditional MI ``I_alpha(X; Y | Z)`` in bits, clamped to >= 0.
 
-    ``z`` may be multivariate (n, k) -- the conditioning set is folded into one Gram matrix via the
+    ``z`` may be multivariate (n, k) - the conditioning set is folded into one Gram matrix via the
     Hadamard-product extension, so conditioning on several already-selected MRMR variables at once
     is a single extra elementwise product, not a growing joint-density estimate.
+
+    UNITS: returns BITS (log2-based), exactly like ``renyi_alpha_mi``. MRMR's estimator contract is NATS, so
+    any dispatcher wiring this into a nats CMI path MUST convert at the boundary (``value * math.log(2.0)``),
+    the same conversion ``_mi_dispatch`` already applies to ``renyi_alpha_mi``. Do NOT feed this raw into a
+    nats path - it would inflate the CMI by ``1/ln(2)``.
     """
     x2, y2, z2 = _maybe_subsample([_as_2d(x), _as_2d(y), _as_2d(z)], max_n, random_state)
     Kx = _rbf_gram(x2, sigma_x)

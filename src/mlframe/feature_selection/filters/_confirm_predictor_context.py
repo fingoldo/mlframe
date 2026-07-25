@@ -1,4 +1,4 @@
-"""``ScreenContext`` dataclass, carved out of ``_confirm_predictor.py`` (X_EFFICIENCY_ARCHITECTURE-1
+"""``ScreenContext`` dataclass, carved out of ``_confirm_predictor.py`` (
 fix) to clear the repo's enforced hard 1000-LOC CI gate (that file had crept
 back to 1007 lines). Behaviour preserved bit-for-bit; the parent re-exports the class so every existing
 ``from ._confirm_predictor import ScreenContext`` (or equivalent) import keeps working unchanged.
@@ -6,7 +6,7 @@ back to 1007 lines). Behaviour preserved bit-for-bit; the parent re-exports the 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Sequence
+from typing import Optional, Sequence
 
 import numpy as np
 
@@ -64,7 +64,7 @@ class ScreenContext:
     cached_MIs: dict
     cached_confident_MIs: dict
     cached_cond_MIs: object
-    # 2026-06-19: JMIM joint-MI cache (numba typed dict) + 1-elem int64 hit-counter
+    # JMIM joint-MI cache (numba typed dict) + 1-elem int64 hit-counter
     # array, mirroring ``cached_cond_MIs``. Lazily built in ``score_candidates`` on
     # first use so they persist across greedy rounds (cross-round reuse of the
     # ``{X} u Z`` multiset key). ``None`` default keeps direct ScreenContext callers
@@ -73,15 +73,15 @@ class ScreenContext:
     cached_jmim_MIs: object = None
     jmim_hit_counter: object = None
     entropy_cache: object = None
-    # 2026-07-13 (Wave 13 finding 1): (candidates, cand_names, name_rank) tuple cached across the
-    # ~100-150 confirm_one_predictor calls per interactions_order -- the pool (``ctx.candidates``,
+    # (candidates, cand_names, name_rank) tuple cached across the
+    # ~100-150 confirm_one_predictor calls per interactions_order - the pool (``ctx.candidates``,
     # thousands of entries) is reassigned only once per order, so the identity check below is exact.
     _name_rank_cache: object = None
-    # 2026-07-13 (Wave 13 finding 2): (candidates, {parent_name: [idx, ...]}) index cached the same
+    # (candidates, {parent_name: [idx, ...]}) index cached the same
     # way, for ``_confirmable_engineered_child``'s per-winner parent-name rescan (prefer_engineered_rel_eps path).
     _engineered_parent_index_cache: object = None
     # 2026-07-16 (wellbore-100k profiling): (z_key, z_classes, z_nclasses) cache for
-    # ``_conditioning_rows_per_cell``'s Z=selected_vars encoding -- see that function's docstring.
+    # ``_conditioning_rows_per_cell``'s Z=selected_vars encoding - see that function's docstring.
     _z_merge_cache: object = None
     # 2026-07-19 (MRMR wellbore-4.1M diagnosability): cumulative ``score_candidates`` call count
     # and wall time across the WHOLE ``screen_predictors`` call (all interactions_orders), so a
@@ -90,20 +90,20 @@ class ScreenContext:
     sc_calls: int = 0
     sc_wall: float = 0.0
     # --- per-interactions-order / per-node mutable state ---
-    # These five are ALWAYS populated by the orchestrator before use (never read as None at
-    # runtime); ``None`` is only a dataclass placeholder default (a required-after-defaulted-
-    # field constraint), so they stay typed as their concrete container rather than Optional
-    # -- which would force null-checks onto every one of their many non-nullable call sites.
-    candidates: list = None  # type: ignore[assignment]
-    # 2026-05-30 Wave 9 — DCD state forwarded into ``should_skip_candidate``
-    # for pool_pruned_mask check. ``None`` preserves legacy bit-stable.
-    dcd_state: object = None
+    # These are ALWAYS populated by the orchestrator before use (never read as None at runtime). They
+    # default to an EMPTY CONTAINER rather than None so they stay typed as their concrete container -
+    # Optional would force null-checks onto every one of their many non-nullable call sites, and a None
+    # placeholder needed a type: ignore at each field. No caller distinguishes empty from unset.
+    candidates: list = field(default_factory=list)
+    # DCD state forwarded into ``should_skip_candidate`` for the pool_pruned_mask check.
+    # ``None`` (DCD off) preserves the legacy bit-stable path.
+    dcd_state: Optional[object] = None
     interactions_order: int = 1
-    selected_vars: list = None  # type: ignore[assignment]
-    selected_interactions_vars: list = None  # type: ignore[assignment]
-    partial_gains: dict = None  # type: ignore[assignment]
-    added_candidates: set = field(default=None)  # type: ignore[arg-type]
-    failed_candidates: set = field(default=None)  # type: ignore[arg-type]
+    selected_vars: list = field(default_factory=list)
+    selected_interactions_vars: list = field(default_factory=list)
+    partial_gains: dict = field(default_factory=dict)
+    added_candidates: set = field(default_factory=set)
+    failed_candidates: set = field(default_factory=set)
     # 2026-06-02 — directed-FE tie-break. ``raw_feature_names`` is the set of
     # ORIGINAL (pre-FE) column names; any ``factors_names[idx]`` not in it is an
     # engineered transform of its raw parent(s). On a near-tie in selection gain

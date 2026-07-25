@@ -2,36 +2,36 @@
 
 Motivation (2026-07-16, wellbore-100k profiling, quiet machine): the production shape (n_classes_y=20,
 max_joint up to 441 for a 21x21 numeric-numeric pair) exceeds ``MAX_JOINT_BINS_CUDA=256`` /
-``MAX_Y_BINS_CUDA=16`` -- compile-time caps on :func:`batch_pair_mi_cuda`'s STATIC (``cuda.shared.array``
+``MAX_Y_BINS_CUDA=16`` - compile-time caps on :func:`batch_pair_mi_cuda`'s STATIC (``cuda.shared.array``
 with a fixed shape) shared-memory histogram, sized to fit the conservative 48KB-per-block budget every
 CUDA device guarantees without opt-in. Raising those two constants was already tried and rejected
 (2026-07-14, see ``_batch_pair_mi_cuda_kernels.py``'s ``MAX_Y_BINS_CUDA`` docstring): even the max value
 that still fits 48KB static shared memory (joint<=256) is smaller than this shape's ``max_joint=441``, so
 the full kernel stays rejected regardless of the Y-bins cap. Every rejection falls through to
 :func:`batch_pair_mi_cuda_row_chunked`, whose fragmentation-driven per-launch overhead measured 78-92s of
-a ~500-585s wellbore-100k fit wall (cProfile, clean/uncontended machine) -- the single largest reproducible
+a ~500-585s wellbore-100k fit wall (cProfile, clean/uncontended machine) - the single largest reproducible
 CPU-orchestration-adjacent hotspot in that profile.
 
 The row-chunked kernel's OWN inner histogram kernel is already efficient (shared-memory-staged, see
-``_cuda_hist_kernel_shared_factory``) -- the actual cost is the OUTER row/pair-chunking loop, which exists
+``_cuda_hist_kernel_shared_factory``) - the actual cost is the OUTER row/pair-chunking loop, which exists
 solely because that kernel accumulates into a device-PERSISTENT GLOBAL buffer across multiple launches (a
 requirement of processing ``factors_data`` in row-chunks). At the wellbore-100k scale ``factors_data`` is
-~206MB (99401 rows x 518 cols x int32) -- it fits a 4GB card's VRAM whole, so row-chunking is unnecessary
+~206MB (99401 rows x 518 cols x int32) - it fits a 4GB card's VRAM whole, so row-chunking is unnecessary
 architecturally; only the STATIC 48KB shared-memory cap forced the chunked fallback.
 
 This module removes BOTH constraints in one step: a RawKernel (not ``numba.cuda.jit``, whose shared memory
 is always a Python-level, compile-time-constant-shaped ``cuda.shared.array`` and offers no supported way to
-opt into >48KB dynamic shared memory in this numba version -- checked directly, no public API found) using
+opt into >48KB dynamic shared memory in this numba version - checked directly, no public API found) using
 ``extern __shared__`` DYNAMIC shared memory, sized at RUNTIME to the actual ``(max_joint, n_classes_y)``
 of the call, with the kernel's ``max_dynamic_shared_size_bytes`` property (CuPy-native, verified working)
 set to opt into the device's EXTENDED per-block budget wherever the driver allows it (cc>=7.0: 96KB+;
 verified live on this host's RTX 500 Ada Laptop GPU, cc 8.9: 48KB static vs 99KB opt-in). One kernel
 launch (grid=n_pairs blocks) walks the FULL ``n_samples`` in one pass per pair, accumulates the joint
-histogram in shared memory, and reduces straight to the final ``(n_pairs,)`` MI vector -- no global
+histogram in shared memory, and reduces straight to the final ``(n_pairs,)`` MI vector - no global
 accumulator, no row-chunking, no pair-subchunking.
 
 Falls back cleanly (returns ``None`` from the gate function) whenever the shape doesn't fit even the
-opt-in budget, or CUDA/CuPy/the opt-in probe are unavailable -- the existing ``batch_pair_mi_cuda`` /
+opt-in budget, or CUDA/CuPy/the opt-in probe are unavailable - the existing ``batch_pair_mi_cuda`` /
 ``batch_pair_mi_cuda_row_chunked`` / CPU njit chain is untouched and remains the fallback of last resort.
 """
 from __future__ import annotations
@@ -42,7 +42,7 @@ from typing import Any
 
 import numpy as np
 
-# GPU_INFRA_D-2 fix: guards the max_dynamic_shared_size_bytes property-set +
+# Guards the max_dynamic_shared_size_bytes property-set +
 # launch pair below so a concurrent call with a different shared_bytes requirement cannot race and
 # under-provision another thread's launch (same pattern/fix as _gpu_pairs.py's _SHARED_MEM_SET_LOCK).
 _SHARED_MEM_SET_LOCK = threading.Lock()
@@ -78,7 +78,7 @@ void pair_mi_shared_fused(
     double* __restrict__ mi_out             // (n_pairs,)
 ) {
     // Dynamic shared int32 histogram: [0:max_joint*n_classes_y) joint counts, then [.. +max_joint)
-    // marginal (fx) counts -- same flat layout as the row-chunked kernel's shared-staged variant.
+    // marginal (fx) counts - same flat layout as the row-chunked kernel's shared-staged variant.
     extern __shared__ int sh[];
     __shared__ double mi_accum;
     int n_joint_cells = max_joint * n_classes_y;
@@ -104,10 +104,10 @@ void pair_mi_shared_fused(
     __syncthreads();
 
     // PARALLEL reduction across all max_joint*n_classes_y joint cells (was a single-thread serial loop
-    // over up to ~8800+ cells including a log() call per occupied cell -- the single largest cost in an
+    // over up to ~8800+ cells including a log() call per occupied cell - the single largest cost in an
     // earlier version of this kernel, measured ~6x slower end-to-end than doing the histogram-accumulate
     // phase alone would suggest; see bench_batch_pair_mi_shared_fused.py). Every thread strides over a
-    // disjoint subset of cells and atomically accumulates its partial sum into a shared double -- cells
+    // disjoint subset of cells and atomically accumulates its partial sum into a shared double - cells
     // are typically sparse (few threads hit a nonzero cell), so contention on ``mi_accum`` stays low.
     for (int idx = tid; idx < n_joint_cells; idx += nt) {
         int jc = sh[idx];
@@ -147,7 +147,7 @@ def _opt_in_shared_mem_budget() -> int:
 def shared_fused_kernel_fits_budget(max_joint: int, n_classes_y: int) -> int:
     """Bytes needed for :data:`_PAIR_MI_SHARED_FUSED_SRC`'s dynamic shared buffer, or 0 if it would
     exceed the device's per-block shared-memory budget INCLUDING the opt-in extension (caller falls
-    back to the row-chunked kernel in that case -- gating the fast path on its safe condition rather
+    back to the row-chunked kernel in that case - gating the fast path on its safe condition rather
     than risking a launch failure)."""
     needed = (max_joint * n_classes_y + max_joint) * 4  # int32
     budget = _opt_in_shared_mem_budget()
@@ -173,14 +173,14 @@ def batch_pair_mi_cuda_shared_fused(
 ) -> np.ndarray:
     """Single full-pass CUDA pair-MI kernel: one launch, one block per pair, dynamic (opt-in-extended)
     shared-memory histogram, no row/pair chunking. Requires the FULL ``factors_data`` to fit VRAM (the
-    same precondition :func:`batch_pair_mi_cuda` uses) -- callers must check
+    same precondition :func:`batch_pair_mi_cuda` uses) - callers must check
     :func:`shared_fused_kernel_fits_budget` themselves before calling (this function does not re-probe
     VRAM fit; that's the caller's ``_gpu_upload_fits`` responsibility, matching the sibling backends'
     contract).
 
     Bit-identical to :func:`batch_pair_mi_cuda_row_chunked`/:func:`batch_pair_mi_njit_prange` (same
     ``sum jf*log(jf/(px*py))`` reduction over occupied cells, same iteration order i-then-j) up to ~1e-15
-    ULP floating-point reduction-order noise from the atomic-add accumulation order across threads --
+    ULP floating-point reduction-order noise from the atomic-add accumulation order across threads -
     verified in ``tests/feature_selection/gpu/test_batch_pair_mi_shared_fused.py``.
     """
     if not _CUPY_AVAIL:
@@ -194,8 +194,8 @@ def batch_pair_mi_cuda_shared_fused(
     n_features = int(factors_data.shape[1])
     n_classes_y = int(freqs_y.shape[0])
     if n_samples == 0:
-        # GPU_INFRA_A-2 fix: mirrors batch_pair_mi_cupy's explicit
-        # `if n_samples == 0: return zeros` guard -- without it, `inv_n = 1.0 / float(n_samples)` below
+        # Mirrors batch_pair_mi_cupy's explicit
+        # `if n_samples == 0: return zeros` guard - without it, `inv_n = 1.0 / float(n_samples)` below
         # raises ZeroDivisionError for an empty input.
         return np.zeros(n_pairs, dtype=np.float64)
 
@@ -222,12 +222,12 @@ def batch_pair_mi_cuda_shared_fused(
     d_mi_out = _cp.zeros(n_pairs, dtype=_cp.float64)
 
     inv_n = 1.0 / float(n_samples)
-    # GPU_INFRA_D-2 fix: the property set + launch must be atomic together, or a
+    # The property set + launch must be atomic together, or a
     # concurrent call with a different shared_bytes requirement could race and under-provision this launch
     # (same shared singleton-kernel-attribute pattern as _gpu_pairs.py's identical fix; see its module note).
     with _SHARED_MEM_SET_LOCK:
         if shared_bytes > static_budget:
-            # Only touch the opt-in property when actually needed -- CuPy raises if this is set below the
+            # Only touch the opt-in property when actually needed - CuPy raises if this is set below the
             # device's static default on some driver versions, so avoid the call on the common (small-shape)
             # path where the static budget already suffices.
             kernel.max_dynamic_shared_size_bytes = shared_bytes

@@ -66,14 +66,14 @@ def _apply_factorize(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.
     vals_b_i = _coerce_to_int_with_nan_handling(vals_b, nbins_b, recipe.name, name_b, recipe.unknown_strategy, _cat_maps.get(name_b), _edges.get(name_b))
 
     # Clip out-of-range to nbins-1. Without this, a test value of ``nbins_a + 1`` would index past the lookup buffer end. Per ``unknown_strategy="clip"``
-    # semantics (default), unseen values map to the highest seen class -- already encoded in the lookup; here we just guard the buffer.
+    # semantics (default), unseen values map to the highest seen class - already encoded in the lookup; here we just guard the buffer.
     vals_a_i = np.clip(vals_a_i, 0, nbins_a - 1)
     vals_b_i = np.clip(vals_b_i, 0, nbins_b - 1)
 
     pre_prune_codes = vals_a_i + vals_b_i * nbins_a
     out = lookup[pre_prune_codes]
 
-    # ``raise`` strategy left -1 sentinels in the lookup -- anything negative here is a test combo never seen in training.
+    # ``raise`` strategy left -1 sentinels in the lookup - anything negative here is a test combo never seen in training.
     if recipe.unknown_strategy == "raise" and (out < 0).any():
         n_unseen = int((out < 0).sum())
         raise ValueError(
@@ -122,7 +122,7 @@ def _apply_factorize_kway(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str
     pre_prune = vals_0 + vals_1 * int(nbins_tuple[0])
     running = chain_lookups[0][pre_prune]
     running_nuniq = chain_nuniqs[0]
-    # 2026-05-30 Wave 9.1 fix (loop iter 13): under unknown_strategy='raise'
+    # Under unknown_strategy='raise'
     # we MUST raise BEFORE the next chain step uses ``running`` as an index.
     # If we don't, ``pre_prune = running + vals_next * running_nuniq`` with
     # ``running[i] == -1`` (unseen prefix) computes a negative-or-small

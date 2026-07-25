@@ -29,7 +29,7 @@ def _extract_column(X: Any, name: str, col_cache: "dict[str, np.ndarray] | None"
 
     ``col_cache``: optional dict shared across every recipe replayed in ONE ``transform()``/``predict()`` call.
     When supplied, a column already pulled for an earlier recipe in the same call is returned BY REFERENCE
-    instead of re-extracted -- the win is real for polars (``.to_numpy()`` always copies) and pandas
+    instead of re-extracted - the win is real for polars (``.to_numpy()`` always copies) and pandas
     categorical/object columns (also copy); plain numeric pandas is already near-zero-copy via ``.to_numpy()``
     so the cache there mainly just skips the repeat call. ``None`` (default) preserves the always-extract
     behaviour of every caller not yet threading a shared cache through (backward compatible)."""
@@ -82,7 +82,7 @@ def build_category_code_map(values: Any, block_has_nan: bool | None = None) -> d
     ``new_vals = new_vals + 1``). So a NaN-FREE categorical paired with a
     NaN-bearing categorical ALSO gets its codes shifted ``+1`` at fit time. A
     per-column ``has_nan`` would say "NaN-free -> unshifted" and produce
-    off-by-one codes at transform -- a silent train/serve skew for the
+    off-by-one codes at transform - a silent train/serve skew for the
     ``factorize(cat_nanfree__cat_withnan)`` recipe. Pass ``block_has_nan=True``
     (computed once over the full categorical block at the stamping site) to apply
     the shift even for a NaN-free column: its real categories become ``base + 1``,
@@ -132,8 +132,8 @@ def _coerce_to_int_with_nan_handling(
     when supplied, else ``astype(int64)``.
 
     ``bin_edges``: when supplied (``include_numeric`` quantile-binned numeric source), raw values are binned via
-    ``np.searchsorted(bin_edges, value, side="right")`` -- the EXACT fit-time convention (``_quantile_bin_with_edges``)
-    -- reproducing identical codes with no train/serve skew. Takes precedence over the int-cast / ``cat_code_map``
+    ``np.searchsorted(bin_edges, value, side="right")`` - the EXACT fit-time convention (``_quantile_bin_with_edges``)
+    - reproducing identical codes with no train/serve skew. Takes precedence over the int-cast / ``cat_code_map``
     paths. Non-finite values resolve via ``unknown_strategy`` (``raise`` -> error; else clip to the top bin).
 
     ``cat_code_map``: the fit-time ``str(value) -> code`` table built by
@@ -166,7 +166,7 @@ def _coerce_to_int_with_nan_handling(
         # training column had any NaN); absent that key (training column was NaN-free) a transform-time
         # NaN is genuinely unseen and resolves via ``unknown_strategy``.
         # bench-attempt-rejected (2026-07-05): a pandas ``.map``-vectorised replacement of this loop measured only
-        # 1.11x @300k (bit-identical, 1200-case A/B) -- str(_v) + dict.get on OBJECT arrays stays Python-per-element
+        # 1.11x @300k (bit-identical, 1200-case A/B) - str(_v) + dict.get on OBJECT arrays stays Python-per-element
         # even through pandas, so vectorising it buys almost nothing while complicating this correctness-critical
         # (serving-time recipe replay) path. Kept as the clear loop.
         _nan_code = cat_code_map.get(_NAN_CODE_KEY)
@@ -206,12 +206,12 @@ def _coerce_to_int_with_nan_handling(
             vals = vals.copy()
             vals[nan_mask] = n_bins - 1
         # Round to nearest before the int cast: a raw-integer ordinal source can arrive as float at replay (int->float
-        # round-trip -- a NaN elsewhere promoted the column, a Parquet reload), and a bare astype(int64) truncates
+        # round-trip - a NaN elsewhere promoted the column, a Parquet reload), and a bare astype(int64) truncates
         # toward zero (a fit-time code 3 that round-trips to 2.9999 would become 2), mismatching the fit assignment.
         return np.asarray(np.rint(vals).astype(np.int64, copy=False))
     if np.issubdtype(vals.dtype, np.integer):
         return vals.astype(np.int64, copy=False)
-    # Object / categorical / string -- try int conversion
+    # Object / categorical / string - try int conversion
     try:
         return vals.astype(np.int64, copy=False)
     except (ValueError, TypeError) as e:

@@ -1,4 +1,4 @@
-"""Layer 65 (2026-05-31): KSG / k-NN MI ranking for hybrid orth-poly FE.
+"""Layer 65: KSG / k-NN MI ranking for hybrid orth-poly FE.
 
 Why this layer
 --------------
@@ -7,7 +7,7 @@ Layer 21's ``score_features_by_mi_uplift`` ranks engineered columns via the
 plug-in quantile-binned MI estimator (``_mi_classif_batch``): each feature
 is digitised into ``nbins`` quantile bins, then the joint frequency table
 gives the plug-in MI. The binning is fast (numba-jit, batched across
-columns) and accurate enough for coarse signal -- but it has a known weak
+columns) and accurate enough for coarse signal - but it has a known weak
 spot: SMOOTH continuous structure that lives BELOW the bin resolution gets
 averaged out. A subtle He_3-style cubic ripple inside a bin contributes 0
 to the binned MI even though k-NN distance-based estimators see it
@@ -35,12 +35,12 @@ Layer 65 vs Layer 62 / Layer 63
 Recipe replay
 -------------
 
-Each emitted column is backed by an ``orth_univariate`` recipe -- the
-SAME kind Layer 21 uses -- because the engineered VALUES are bit-equal to
+Each emitted column is backed by an ``orth_univariate`` recipe - the
+SAME kind Layer 21 uses - because the engineered VALUES are bit-equal to
 Layer 21; only the SCORING (and therefore the selection) changes. Replay
 reuses the existing ``_apply_orth_univariate`` path.
 
-NOT wired into ``MRMR.fit`` by default -- opt-in via
+NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_hybrid_orth_ksg_enable=True``.
 """
 from __future__ import annotations
@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 # Below this baseline a source is treated as no-signal: the uplift ratio is
 # suppressed (it would otherwise explode) and an absolute MI floor is required
-# instead -- the same guard JMIM applies (Layer 21/65+).
+# instead - the same guard JMIM applies (Layer 21/65+).
 _BASELINE_EPS = 1e-6
 _ABS_MI_FLOOR = 1e-3
 
@@ -96,7 +96,7 @@ def _ksg_mi_batch(
     Dispatches to ``mutual_info_classif`` (Ross 2014 mixed-KSG variant)
     for discrete y, ``mutual_info_regression`` (classical Kraskov 2004
     KSG) for continuous y. Both are k-NN distance-based and
-    asymptotically unbiased on continuous features -- the headline
+    asymptotically unbiased on continuous features - the headline
     accuracy claim over the plug-in quantile-binned MI estimator.
 
     Returns shape ``(n_features,)`` in nats. We pass
@@ -114,7 +114,7 @@ def _ksg_mi_batch(
     if _is_discrete_target(y_arr):
         if not np.issubdtype(y_arr.dtype, np.integer):
             # densify via np.unique(return_inverse=...) rather than
-            # truncating .astype(int64) -- non-integer labels (e.g. 0.1/0.2/...) would otherwise
+            # truncating .astype(int64) - non-integer labels (e.g. 0.1/0.2/...) would otherwise
             # all collapse to class 0.
             _, y_arr = np.unique(y_arr, return_inverse=True)
             y_arr = y_arr.astype(np.int64, copy=False)
@@ -190,7 +190,7 @@ def score_features_by_ksg_mi_uplift(
             "engineered_col", "source_col", "baseline_mi",
             "engineered_mi", "uplift",
         ])
-    # f64 kept: distance/kernel-Gram stability (f32 sums lose precision here) -- NOT routed through _crit_np_dtype.
+    # f64 kept: distance/kernel-Gram stability (f32 sums lose precision here) - NOT routed through _crit_np_dtype.
     raw_mi = _ksg_mi_batch(
         raw_X.to_numpy(dtype=np.float64), y_arr,
         n_neighbors=int(n_neighbors), random_state=int(random_state),
@@ -208,12 +208,12 @@ def score_features_by_ksg_mi_uplift(
         # Near-zero baseline makes the uplift ratio explode past the gate even
         # on a no-signal source; suppress the ratio there and let the absolute
         # MI floor decide (mirrors the JMIM guard).
-        # ORTH_SCORING_A-5 fix: this used to hard-set uplift=0.0 (always failing
-        # gate 1, uplift>=min_uplift) whenever emi was below the FIXED _ABS_MI_FLOOR=1e-3 -- but the real
+        # This used to hard-set uplift=0.0 (always failing
+        # gate 1, uplift>=min_uplift) whenever emi was below the FIXED _ABS_MI_FLOOR=1e-3 - but the real
         # absolute-MI gate (gate 2, `engineered_mi >= abs_floor`) uses a DYNAMIC MAD-based abs_floor that
         # can sit BELOW 1e-3, so a candidate with 1e-4 <= emi < 1e-3 could get hard-rejected here even
         # though it would have cleared the intended dynamic gate 2. Always let gate 2 decide for a
-        # near-zero-baseline candidate (uplift=inf never fails gate 1) -- this only ever WIDENS acceptance
+        # near-zero-baseline candidate (uplift=inf never fails gate 1) - this only ever WIDENS acceptance
         # relative to the pre-fix behaviour, never narrows it, so it cannot admit a candidate the intended
         # dynamic floor itself would reject.
         if baseline < _BASELINE_EPS:
@@ -291,7 +291,7 @@ def hybrid_orth_mi_ksg_fe(
     raw_baselines = scores["baseline_mi"].to_numpy()
     max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
     legacy_floor = float(min_abs_mi_frac) * max(0.0, max_raw_baseline)
-    # MAD-based noise floor on baseline distribution -- legitimate signal
+    # MAD-based noise floor on baseline distribution - legitimate signal
     # is an extreme outlier above the noise band's median+sigma*MAD.
     if raw_baselines.size >= 4:
         med = float(np.median(raw_baselines))
@@ -328,12 +328,12 @@ def hybrid_orth_mi_ksg_fe_with_recipes(
     random_state: int = 0,
 ):
     """Same as :func:`hybrid_orth_mi_ksg_fe` plus a list of
-    ``orth_univariate`` recipes -- one per appended column -- so that
+    ``orth_univariate`` recipes - one per appended column - so that
     ``MRMR.transform`` can recompute each engineered column on test data
     without re-running the KSG MI ranking.
 
     Recipes are byte-identical to Layer 21 because the engineered VALUES
-    are byte-identical -- only the SCORING (and therefore the selection)
+    are byte-identical - only the SCORING (and therefore the selection)
     differs. The recipe parser logic is reused unchanged.
     """
     from .engineered_recipes import build_orth_univariate_recipe
@@ -370,7 +370,7 @@ def hybrid_orth_mi_ksg_fe_with_recipes(
             continue
         # freeze the fit-time basis-preprocess params into the recipe so
         # transform() replays byte-exactly (mirrors the BUG2 FIX already applied to the canonical
-        # Layer-21 hybrid_orth_mi_fe_with_recipes -- see that function's identical block for the full
+        # Layer-21 hybrid_orth_mi_fe_with_recipes - see that function's identical block for the full
         # rationale). Recomputing on the FULL fit-time column (X[src]) is safe/exact: it reproduces the
         # same preprocess params the fit path used, it does not refit on any transform-time slice.
         _pp = None
@@ -378,7 +378,7 @@ def hybrid_orth_mi_ksg_fe_with_recipes(
             _col_full = np.asarray(X[src].values, dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
-            # ORTH_SCORING_A-3 fix: was a bare except with zero logging,
+            # Was a bare except with zero logging,
             # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
             # exception (including a genuine programming bug), with no diagnostic trace.
             logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)

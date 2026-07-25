@@ -167,7 +167,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
             try:
                 model.cpu()
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in recurrent_dataset_helpers.py:160: %s", e)
+                logger.debug("suppressed: %s", e)
                 pass
         return state
 

@@ -86,9 +86,9 @@ def run_polynom_pair_fe(
     # dispatch
     n_jobs: int,
     verbose: int,
-    # 2026-05-18: subsample inside the CMA-ES / Optuna search to bound
+    # Subsample inside the CMA-ES / Optuna search to bound
     # per-pair MI compute. On production n=4M data each trial evaluates
-    # MI on the full y -- ``_plugin_mi_classif_njit`` then takes ~100ms
+    # MI on the full y - ``_plugin_mi_classif_njit`` then takes ~100ms
     # per call x ~250 trials per restart x N_restarts x N_pairs blows
     # past acceptable wall time. With subsample_n=50_000 the inner
     # optimisation operates on a representative slice; the final
@@ -103,7 +103,7 @@ def run_polynom_pair_fe(
     # byte-identical legacy uniform draw. The caller resolves the MRMR ``fe_subsample_stratify``
     # tri-state knob (None=auto) to a concrete bool via ``_resolve_fe_subsample_stratify``.
     fe_subsample_stratify: bool = False,
-    # ONE shared FE subsample (2026-06-25). When the caller passes the fit's single shared row-index
+    # ONE shared FE subsample. When the caller passes the fit's single shared row-index
     # draw, the inner-search subsample REUSES it verbatim instead of drawing its own per-pair slice, so
     # the polynom path scores the SAME rows as the pair-search / sufficiency floor (one draw per fit).
     # ``None`` keeps the legacy per-pair uniform/stratified draw below.
@@ -115,7 +115,7 @@ def run_polynom_pair_fe(
     # baseline already captures >= this fraction of the pair's joint-MI ceiling
     # (``pair_mi``, the SAME quantity the prevalence gate uses), a 1-D poly
     # feature cannot materially beat it (no function of (a,b) exceeds the joint
-    # MI), so the optimiser is SKIPPED for that pair -- the trivial feature is
+    # MI), so the optimiser is SKIPPED for that pair - the trivial feature is
     # materialised by the always-on unary/binary path. Monotone-easy pairs skip;
     # non-monotone-hard pairs (F-POLY) fall through and optimise. Set to 1.0 to
     # disable (always optimise every prospective pair = legacy behaviour).
@@ -123,7 +123,7 @@ def run_polynom_pair_fe(
     # LINEAR-USABILITY GUARD on the cheap-first skip. MI saturation alone is NOT
     # sufficient to skip: a trivial feature can capture the pair's joint MI while
     # being almost LINEARLY USELESS (e.g. ``atan2(a,b)`` reaches MI 0.37 on a
-    # binarised bilinear target yet |corr| to y is ~0.10 -- it encodes the signal
+    # binarised bilinear target yet |corr| to y is ~0.10 - it encodes the signal
     # as an angle). The orthogonal-poly optimiser then produces a far more
     # linearly-usable feature (|corr| ~0.80) that the MI-only skip would discard.
     # Skip therefore requires the trivial feature to ALSO be linearly useful:
@@ -132,7 +132,7 @@ def run_polynom_pair_fe(
     # optimise. Set 0.0 to restore the MI-only skip.
     #
     # 0.90 (not 0.5): the orthogonal-poly optimiser reshapes a trivial feature for
-    # LINEAR usability even when MI is saturated -- measured the "easy" monotone
+    # LINEAR usability even when MI is saturated - measured the "easy" monotone
     # pair exp(a)*log(b) lifts from trivial-``mul`` |corr| 0.71 to polynom |corr|
     # 0.92, and the bilinear xor pair from 0.59 to 0.80. So the skip is only truly
     # lossless when the trivial is ALREADY near-perfectly linear (|corr| >= 0.90);
@@ -161,7 +161,7 @@ def run_polynom_pair_fe(
     _pair_keys = [k[0] for k in prospective_pairs.keys()]
     # Last-line numeric guard: the Hermite / polynomial basis (np.isfinite, z-score,
     # minmax) raises ``ufunc 'isfinite' not supported`` / ``unsupported operand`` on a
-    # string column. Drop any pair whose operand column is non-numeric in X -- a string
+    # string column. Drop any pair whose operand column is non-numeric in X - a string
     # categorical operand can slip through the upstream pool filter via a cached pair or
     # a synergy-kept operand. Indices are positional into X (``X_ndarr[:, idx]`` below).
     _numeric_pos = None
@@ -188,7 +188,7 @@ def run_polynom_pair_fe(
     for _k in prospective_pairs.keys():
         try:
             _pair_mi_ceiling[_k[0]] = float(_k[1])
-        except (TypeError, ValueError, IndexError):  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+        except (TypeError, ValueError, IndexError):  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
             pass
 
     _polynom_n_jobs = int(n_jobs) if n_jobs and n_jobs > 0 else 1
@@ -213,7 +213,7 @@ def run_polynom_pair_fe(
     else:
         X_ndarr = X.values if hasattr(X, "values") else np.asarray(X)
     # A frame with ANY non-numeric column makes the WHOLE .values array object-dtype (the per-pair worker's
-    # own docstring documents this trap) -- and an object ndarray can neither be memmapped by joblib NOR
+    # own docstring documents this trap) - and an object ndarray can neither be memmapped by joblib NOR
     # content-hashed by fit_constant_memmap, so it was CLOUDPICKLED WHOLESALE into the pool on every call:
     # dump-audit on the wellbore-100k fit caught 16 dumps of a (99401, 620) object array at 493MB each
     # (~7.9GB of pure pickling). Pre-coerce per column to float64 ONCE here; columns that fail coercion
@@ -226,15 +226,15 @@ def run_polynom_pair_fe(
         for _j in range(X_ndarr.shape[1]):
             try:
                 _Xf[:, _j] = np.asarray(X_ndarr[:, _j], dtype=np.float64)
-            except (ValueError, TypeError):  # noqa: PERF203 -- per-column coercion needs its own try; runs once per FE round, not hot
+            except (ValueError, TypeError):  # noqa: PERF203 - per-column coercion needs its own try; runs once per FE round, not hot
                 _Xf[:, _j] = np.nan
                 _uncoercible[_j] = True
         X_ndarr = _Xf
     # run_polynom_pair_fe is called once per FE round (up to fe_max_steps times per fit) with the SAME
-    # X content each time -- a fresh Parallel(...) call below re-triggers joblib's memmapping reducer's
+    # X content each time - a fresh Parallel(...) call below re-triggers joblib's memmapping reducer's
     # OWN dump of X_ndarr per call (it only dedups WITHIN one Parallel() invocation's tasks, not ACROSS
     # separate calls). fit_constant_memmap (shared with _step_pairmi.py's identical fix) dumps content
-    # ONCE per process and hands back the read-only memmap on every subsequent round -- joblib passes an
+    # ONCE per process and hands back the read-only memmap on every subsequent round - joblib passes an
     # existing np.memmap to loky workers by filename with no re-dump at all.
     X_ndarr = fit_constant_memmap(X_ndarr)
 
@@ -247,8 +247,8 @@ def run_polynom_pair_fe(
         linear-usability guard), and otherwise runs ``optimise_hermite_pair`` for ``fe_smart_polynom_iters`` restarts,
         keeping the best-MI result. Returns ``(raw_vars_pair, best_res_or_sentinel, vals_a_full, vals_b_full)`` on the
         FULL (non-subsampled) columns so the injection step transforms every row."""
-        # X_arr arrives float64 (object-dtype frames are pre-coerced ONCE before the pool -- see the
-        # _uncoercible block above -- so workers never receive an unpicklable-as-memmap object array).
+        # X_arr arrives float64 (object-dtype frames are pre-coerced ONCE before the pool - see the
+        # _uncoercible block above - so workers never receive an unpicklable-as-memmap object array).
         # A pair touching a column that failed that coercion is skipped here, exactly matching the set the
         # old per-worker ValueError/TypeError coercion path skipped.
         if _uncoercible is not None and (_uncoercible[raw_vars_pair[0]] or _uncoercible[raw_vars_pair[1]]):
@@ -326,7 +326,7 @@ def run_polynom_pair_fe(
         # cheap trivial baseline already captures >= ``poly_cheap_skip_ratio`` of
         # this pair's joint-MI ceiling. A 1-D engineered feature cannot exceed
         # the pair's joint MI, so once the trivial feature is that close to the
-        # ceiling the optimiser has no headroom -- the trivial feature (which the
+        # ceiling the optimiser has no headroom - the trivial feature (which the
         # always-on unary/binary path materialises) is as good as it gets. Hard
         # pairs whose non-monotone inner the trivial set cannot express (trivial
         # MI << ceiling) fall through and DO optimise, so recovery on the cases
@@ -352,7 +352,7 @@ def run_polynom_pair_fe(
                 if poly_cheap_skip_min_corr <= 0.0 or _trivial_corr >= poly_cheap_skip_min_corr:
                     return (raw_vars_pair, _POLY_CHEAP_SKIP, vals_a_full, vals_b_full)
 
-        # Precompute the basis fit (z_a/preprocess_a/z_b/preprocess_b) + the identity baseline ONCE per pair --
+        # Precompute the basis fit (z_a/preprocess_a/z_b/preprocess_b) + the identity baseline ONCE per pair -
         # the SAME bug class as the trivial-baseline hoist above (_trivial_baseline), just for the basis fit +
         # _baseline_mi_pair that optimise_hermite_pair would otherwise redo byte-for-byte on every one of the
         # fe_smart_polynom_iters restarts (only ``seed`` differs; vals_a_sub/vals_b_sub/classes_y_sub are identical).
@@ -405,7 +405,7 @@ def run_polynom_pair_fe(
 
     def _eval_one_pair(raw_vars_pair, X_arr, y_arr):
         """Worker entry point: runs :func:`_eval_one_pair_impl` on a big-stack sub-thread to dodge the Windows loky 1MB-stack numba crash."""
-        # Windows loky workers have a 1MB main-thread stack -- numba's
+        # Windows loky workers have a 1MB main-thread stack - numba's
         # JIT cache load runs an llvmlite finalize chain that needs
         # ~2-3MB and crashes the worker. Running the impl in a sub-thread
         # with 8MB stack avoids the overflow; pass-through no-op on Linux.
@@ -420,7 +420,7 @@ def run_polynom_pair_fe(
     #
     # 2026-05-22 backend FIX: prior ``backend="threading"`` left only one
     # CPU core busy in prod because the per-pair work spends most time
-    # inside Optuna's TPE/RandomSampler decision loop -- pure-Python,
+    # inside Optuna's TPE/RandomSampler decision loop - pure-Python,
     # holds GIL. 16 threading workers serialised behind the GIL gave
     # the user-visible "16 workers but only 1 core busy" pathology
     # (231s wall-clock for 54 pairs that should have been ~15s).
@@ -436,22 +436,22 @@ def run_polynom_pair_fe(
         # Numba thread pool so 16 worker processes don't each spawn N numba
         # threads and oversubscribe the CPU. The inner polyeval_dispatch
         # kernel (njit_par at n >= 50_000) was sized to saturate cores via
-        # ONE worker -- here we explicitly trade kernel-side parallelism for
+        # ONE worker - here we explicitly trade kernel-side parallelism for
         # sampler-side parallelism because Optuna's TPE/Random sampler
         # between trials is the actual bottleneck (~50% of per-trial time
         # in prod, holds GIL, can only be split across processes).
         #
         # ``initializer=disable_cuda_in_worker`` forces every loky worker CPU-ONLY
         # (CUDA_VISIBLE_DEVICES="") so it does NOT grab its own ~250 MB cupy CUDA
-        # context -- 16 worker contexts filled a 4 GB card and stalled the search
+        # context - 16 worker contexts filled a 4 GB card and stalled the search
         # ~2h (see the shared helper's docstring, 2026-07-05). We build a
         # ``LokyBackend`` instance instead of passing ``backend="loky"`` + kwargs to
         # ``Parallel`` because in joblib 1.5.x the ``initializer`` (and even
         # ``inner_max_num_threads``) are ONLY honoured when set on the backend
         # object; passed straight to ``Parallel(...)`` they are silently dropped.
-        # SHARED initializer, not a local duplicate (2026-07-10 fix): this used to
+        # SHARED initializer, not a local duplicate: this used to
         # be a separate ``_poly_worker_disable_cuda`` function with an identical
-        # body -- loky's ``get_reusable_executor`` keys pool reuse on the
+        # body - loky's ``get_reusable_executor`` keys pool reuse on the
         # initializer FUNCTION REFERENCE, so two behaviourally-identical-but-
         # distinct callables meant this pool could never reuse the warm CPU-only
         # pool ``_step_pairmi.py``'s pair-MI sweep already spun up moments earlier
@@ -464,7 +464,7 @@ def run_polynom_pair_fe(
             inner_max_num_threads=1,
             initializer=disable_cuda_in_worker,
             # Must match maybe_prewarm_polynom_loky_pool's idle_worker_timeout for get_reusable_executor's
-            # reuse-key to hit the pre-warmed pool (2026-07-11) -- see that function's docstring for the
+            # reuse-key to hit the pre-warmed pool - see that function's docstring for the
             # measured gap this timeout needs to survive and the production A/B history behind its value.
             idle_worker_timeout=POLYNOM_LOKY_IDLE_WORKER_TIMEOUT,
         )
@@ -473,7 +473,7 @@ def run_polynom_pair_fe(
             # live at n=3M production scale on a small-VRAM card). A GPU OOM earlier in the SAME fit
             # can leave the main process's CUDA context in a poisoned state; cloudpickle serializing
             # the task closure then fails with ``_pickle.PicklingError`` (CUDADriverError as its
-            # ``__cause__``) even though this pool's WORKERS are CPU-only -- the failure is in the
+            # ``__cause__``) even though this pool's WORKERS are CPU-only - the failure is in the
             # PARENT process's pickling step, before any task reaches a worker. Pre-fix this exception
             # propagated all the way up and crashed the whole training run. The per-pair work here is
             # independent of which backend runs it (same ``_eval_one_pair`` call either way), so
@@ -513,7 +513,7 @@ def run_polynom_pair_fe(
     # np.append (= np.concatenate) per survivor: np.append reallocates + copies the ENTIRE existing `data`
     # matrix on every iteration, O(N x F x K) traffic for K survivors instead of O(N x F). `_existing_col_names`
     # substitutes for the incremental `cols` growth the dedup check used to read (nothing else in this loop
-    # reads back from `data`/`cols`/`nbins` before they're rebuilt below -- `_src_a`/`_src_b` index into the
+    # reads back from `data`/`cols`/`nbins` before they're rebuilt below - `_src_a`/`_src_b` index into the
     # ORIGINAL `cols` by position, unaffected either way).
     _existing_col_names = set(cols)
     _new_data_cols: List[np.ndarray] = []
@@ -526,7 +526,7 @@ def run_polynom_pair_fe(
         # Cheap-first dispatch skipped the optimiser for this pair (the trivial
         # baseline already saturated the joint-MI ceiling). Count it for the
         # summary log; the always-on unary/binary path materialises the trivial
-        # feature, so nothing is lost -- only the expensive search was spared.
+        # feature, so nothing is lost - only the expensive search was spared.
         if best_res is _POLY_CHEAP_SKIP or (isinstance(best_res, str) and best_res == _POLY_CHEAP_SKIP):
             _n_cheap_skipped += 1
             continue
@@ -559,11 +559,11 @@ def run_polynom_pair_fe(
                 method=quantization_method,
                 dtype=quantization_dtype,
             ).reshape(-1, 1)
-            # ORTH_BASIS_A-7 fix: the list appends below used to run BEFORE this X
+            # The list appends below used to run BEFORE this X
             # assignment; the outer except only logs and continues, it does not undo an earlier append. If
             # the X assignment itself raised, the unconditional np.concatenate at the loop's end would still
             # bake that column into data/cols/nbins with no matching X column and no recipe. Do the
-            # assignment FIRST -- if it raises, nothing has been committed to the survivor lists yet.
+            # assignment FIRST - if it raises, nothing has been committed to the survivor lists yet.
             if is_polars_input:
                 X = X.with_columns(pl.Series(_new_col_name, _t_vals))
             else:

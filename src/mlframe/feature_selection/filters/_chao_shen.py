@@ -1,4 +1,4 @@
-"""Chao-Shen entropy correction (2026-05-30 Wave 8).
+"""Chao-Shen entropy correction.
 
 Better small-sample / sparse-contingency entropy estimator than Miller-Madow.
 Per the Pawluszek-Filipiak 2025 *Information* 16(9):724 empirical study,
@@ -38,7 +38,7 @@ def chao_shen_entropy_from_counts(counts: np.ndarray, coverage: float = -1.0) ->
         counts: int64 array of category counts. Sum > 0; len = K categories.
         coverage: if ``>= 0``, use this externally-supplied Good-Turing coverage ``C_hat`` instead of estimating
             it from ``counts``. Required by :func:`_joint_chao_shen_mi_njit` so the marginal and joint entropies
-            share ONE coverage basis -- a per-table coverage makes the three terms incommensurable and turns the
+            share ONE coverage basis - a per-table coverage makes the three terms incommensurable and turns the
             ``H_x+H_y-H_xy`` subtraction into a non-valid coverage-corrected MI. Default ``-1`` = estimate locally.
 
     Returns:
@@ -129,7 +129,7 @@ def _joint_chao_shen_mi_njit(joint: np.ndarray) -> float:
     # Shared coverage basis: estimate ONE Good-Turing coverage from the joint table (the finest partition, whose
     # singleton structure dominates the sparse-contingency bias the CS correction targets) and apply it to all
     # three entropy terms. A per-term coverage (the pre-fix path) gave H_x/H_y/H_xy three different rescalings, so
-    # ``H_x+H_y-H_xy`` was not a coverage-consistent MI -- the mismatched bases left a deterministic residual that
+    # ``H_x+H_y-H_xy`` was not a coverage-consistent MI - the mismatched bases left a deterministic residual that
     # inflated MI on sparse joints. With a single C_hat the rescalings are commensurable and largely cancel.
     N = 0
     f_1 = 0

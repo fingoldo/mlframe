@@ -316,7 +316,7 @@ def _is_fitted(estimator):
                     return False
             return True
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _pipeline_helpers.py:305: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
     return _step_is_fitted(estimator)
 
@@ -339,7 +339,7 @@ def _step_is_fitted(step) -> bool:
         except NotFittedError:
             return False
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _pipeline_helpers.py:327: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
     try:
         fitted_attrs = [a for a in vars(step) if a.endswith("_") and not a.startswith("__") and not a.startswith("_mlframe_")]

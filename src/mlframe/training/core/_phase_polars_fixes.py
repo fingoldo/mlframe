@@ -296,7 +296,7 @@ def apply_polars_categorical_fixes(
                                 c, _post - _pre,
                             )
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in _phase_polars_fixes.py:298: %s", e)
+                    logger.debug("suppressed: %s", e)
                     pass
         if verbose and aligned_cols:
             aligned_summary = ", ".join(f"{c}:{n}" for c, n in aligned_cols)

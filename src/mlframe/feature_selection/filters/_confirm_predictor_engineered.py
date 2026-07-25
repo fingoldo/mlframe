@@ -44,8 +44,8 @@ def _conditioning_rows_per_cell(ctx, X: tuple) -> float:
     Z=SELECTED_VARS CACHE (2026-07-16, wellbore-100k profiling: 10s tottime / 144 calls, the single
     hottest confirm-path function). ``selected_vars`` is round-constant across the ~100-150
     ``confirm_one_predictor`` calls per interactions_order (same pattern already exploited by
-    ``ctx._name_rank_cache``), yet the pre-fix code re-encoded the FULL (X, Y, Z) joint -- INCLUDING
-    the whole selected-features set Z -- on every single call, even though only the small (X, Y)
+    ``ctx._name_rank_cache``), yet the pre-fix code re-encoded the FULL (X, Y, Z) joint - INCLUDING
+    the whole selected-features set Z - on every single call, even though only the small (X, Y)
     part actually changes between candidates. The occupied-cell COUNT of a joint distribution does
     not depend on the order its dimensions are folded in (it's the size of the set of distinct
     observed tuples, not a property of any particular encoding), so folding Z once (cached, keyed on
@@ -111,7 +111,7 @@ def _candidate_is_engineered(X, factors_names, raw_feature_names) -> bool:
 
     When ``raw_feature_names`` (a set of the original pre-FE column names) is
     provided, a component is engineered iff its ``factors_names`` entry is not in
-    that set -- the authoritative test. When it is ``None`` (direct callers that
+    that set - the authoritative test. When it is ``None`` (direct callers that
     don't thread the raw-name set), fall back to the syntactic convention that
     engineered names contain ``(`` (functional forms like ``add(x0,x2)``,
     ``div(sqr(a),b)``) or ``__`` (basis transforms like ``x1__He2``); raw column
@@ -139,7 +139,7 @@ def _prefer_engineered_order(order, expected_gains, ctx) -> np.ndarray:
     Gated and minimal: only the candidates tied (within rel-eps) with the current
     front-runner are eligible to move, and the relative order INSIDE the
     engineered group and inside the raw group is preserved (stable), so a clear
-    winner -- one with no engineered peer within eps -- is never displaced. The
+    winner - one with no engineered peer within eps - is never displaced. The
     promotion is deterministic and independent of the scoring backend because it
     reads only the (backend-identical) ``expected_gains`` array and the static
     raw-name set. Returns the (possibly) reordered index array.
@@ -204,7 +204,7 @@ def _extract_single_raw_parent(cand, factors_names, raw_names):
     is EXACT (``x1`` never matches inside ``x10``); the ``__``-prefix strip only
     fires when the whole token is not itself a raw name, so a raw column that
     legitimately contains ``__`` is preserved. Returns the parent only when the
-    candidate references a single distinct raw column -- the unambiguous
+    candidate references a single distinct raw column - the unambiguous
     "transform of one parent" case the substitution is allowed to act on.
     """
     parents = set()
@@ -247,7 +247,7 @@ def _confirmable_engineered_child(ctx, X, winner_idx, winner_gain, expected_gain
     binning), so an MI/CMIM criterion ALWAYS scores the raw parent at or above
     its transform and the parent wins every near-tie. Yet ``E`` is strictly
     richer for a shallow downstream model (a linear model can exploit ``b**2-1``
-    but not raw ``b`` for a quadratic signal) -- the whole point of the
+    but not raw ``b`` for a quadratic signal) - the whole point of the
     engineered feature. ``_prefer_engineered_order`` already encodes this
     preference, but only within the GLOBAL leader band; a secondary-signal pair
     (``b`` vs ``b__He2`` while some unrelated feature leads) never enters that
@@ -262,7 +262,7 @@ def _confirmable_engineered_child(ctx, X, winner_idx, winner_gain, expected_gain
     floor. The transform's effective gain is recovered from ``partial_gains``
     when CMIM pruning zeroed its ``expected_gains`` slot. No-op (returns ``None``)
     when prefer-engineered is disabled, no raw-name set is threaded, or no such
-    transform exists -- legacy bit-stable.
+    transform exists - legacy bit-stable.
     """
     raw_names = getattr(ctx, "raw_feature_names", None)
     rel_eps = float(getattr(ctx, "prefer_engineered_rel_eps", 0.0) or 0.0)

@@ -6,16 +6,16 @@ relaxed to the codebase's standard ~1e-9 tolerance").
 edge joints) all follow the SAME pattern: a batched ``cupy.bincount`` produces a device-resident
 integer histogram, which is immediately ``cp.asnumpy``'d to host so the bit-exact CPU
 ``_entropy_from_counts`` (-> the project's njit ``entropy()``) can reduce each per-entity SEGMENT of
-that histogram to a scalar. The D2H is paid specifically to run that CPU reduction -- exactly the
+that histogram to a scalar. The D2H is paid specifically to run that CPU reduction - exactly the
 self-imposed stricter-than-everywhere-else bar the module's own docstring names ("entropy is computed
 by the CPU njit specifically so results are bit-identical to the CPU build").
 
 This module computes the SAME per-segment entropy reduction entirely ON the device, from the
 still-resident bincount result, via ONE ``cupy.bincount``-weighted segment-sum (no Python loop, no
-per-segment host round-trip) -- then pulls back only the small ``(n_segments,)`` result vector, not
+per-segment host round-trip) - then pulls back only the small ``(n_segments,)`` result vector, not
 the (potentially much larger) raw counts array. Validated against the CPU path at rtol=1e-9 (the
 codebase's own standard GPU/CPU parity bar; the module's own docstring already documents the domain
-this collapses -- node-marginal / relevance / pairwise-edge entropy -- as PURE-COUNT arithmetic, so a
+this collapses - node-marginal / relevance / pairwise-edge entropy - as PURE-COUNT arithmetic, so a
 float64 device reduction agrees with the CPU njit reduction to FP-reorder noise, not a formula
 difference).
 """
@@ -40,7 +40,7 @@ def entropy_segments_gpu(cp: Any, counts_dev: Any, n: int, offsets: np.ndarray) 
     counts_dev : cupy.ndarray, shape (total,)
         A device-resident concatenation of ``n_segments`` per-entity integer histograms (e.g. the
         raw ``cupy.bincount`` output for node marginals / relevance joints / pairwise joints in
-        ``friend_graph_gpu.py`` -- BEFORE any ``cp.asnumpy``).
+        ``friend_graph_gpu.py`` - BEFORE any ``cp.asnumpy``).
     n : int
         The row count each segment's counts are normalized by (``freqs = counts / n``), matching
         ``_entropy_from_counts``'s own int/int division exactly.
@@ -62,7 +62,7 @@ def entropy_segments_gpu(cp: Any, counts_dev: Any, n: int, offsets: np.ndarray) 
     if counts_dev.shape[0] != total:
         raise ValueError(f"entropy_segments_gpu: counts_dev length {counts_dev.shape[0]} != offsets[-1] {total}")
 
-    # Segment-id per element: built ONCE on host (offsets is tiny -- n_segments+1 ints) via repeat,
+    # Segment-id per element: built ONCE on host (offsets is tiny - n_segments+1 ints) via repeat,
     # uploaded once. Mirrors the same "small host array, one upload" discipline the rest of this
     # package's resident builders use for per-column/per-pair metadata.
     seg_lens = np.diff(offsets).astype(np.int64)
@@ -77,7 +77,7 @@ def entropy_segments_gpu(cp: Any, counts_dev: Any, n: int, offsets: np.ndarray) 
     safe_freqs = cp.where(mask, freqs, 1.0)  # 1.0 is a placeholder that logs to 0, never NaN/-inf
     contrib = cp.where(mask, -(cp.log(safe_freqs) * freqs), 0.0)
 
-    # ONE segment-sum via a weighted bincount -- the same "batch every segment into a single device
+    # ONE segment-sum via a weighted bincount - the same "batch every segment into a single device
     # workload" discipline _wavelet_basis_fe_batched.py's batched_binned_mi_gpu already established
     # for this exact class of "many small per-entity reductions" problem.
     h_dev = cp.bincount(seg_id, weights=contrib, minlength=n_segments)[:n_segments]

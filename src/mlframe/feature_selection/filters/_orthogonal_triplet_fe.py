@@ -1,4 +1,4 @@
-"""Layer 56 (2026-05-31): TRI-PRODUCT cross-basis FE.
+"""Layer 56: TRI-PRODUCT cross-basis FE.
 
 Extends the Layer 22 pair-cross-basis path to triplets:
 ``basis_a(x_i) * basis_b(x_j) * basis_c(x_k)``.
@@ -69,7 +69,7 @@ __all__ = [
 def _coerce_y_int64(y) -> np.ndarray:
     """Dense int64 class labels. Non-integer y is densified via
     ``np.unique(return_inverse=...)`` rather than truncated with
-    ``.astype(int64)`` -- plain truncation merges distinct labels and destroys
+    ``.astype(int64)`` - plain truncation merges distinct labels and destroys
     continuous-y signal (everything in [0, 1) collapses to class 0)."""
     arr = np.asarray(y).ravel()
     if np.issubdtype(arr.dtype, np.integer):
@@ -122,7 +122,7 @@ def generate_triplet_cross_basis_features(
     basis : {'auto', 'hermite', 'legendre', 'chebyshev', 'laguerre'}
         Routed per-column via ``basis_route_by_moments`` when ``'auto'``.
     min_degree : int
-        Minimum degree per leg. Default 1 -- degree 0 produces a leg
+        Minimum degree per leg. Default 1 - degree 0 produces a leg
         equal to the constant, collapsing the triplet to a pair which
         is already covered by Layer 22.
 
@@ -154,10 +154,10 @@ def generate_triplet_cross_basis_features(
         from ._fe_usability_signal import _crit_np_dtype
         _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); matches the GPU device
         # builder's operand dtype (_gpu_resident_cross_basis.py) so host and device run the polynomial
-        # recurrence at the SAME precision -- see build_leg_product_matrix_gpu's docstring.
-        # np.array (copy=True): X[col].to_numpy() can alias the DataFrame's backing block -- e.g. a
+        # recurrence at the SAME precision - see build_leg_product_matrix_gpu's docstring.
+        # np.array (copy=True): X[col].to_numpy() can alias the DataFrame's backing block - e.g. a
         # zero-copy Arrow-backed view or a frozen MRMR-fit-cache array reused via fe_append_columns from
-        # an earlier stage -- and the np.copyto NaN-fill below would then either mutate the CALLER's X or
+        # an earlier stage - and the np.copyto NaN-fill below would then either mutate the CALLER's X or
         # raise "assignment destination is read-only" on a genuinely read-only block. A fresh copy (matching
         # the sibling pair-cross / GPU-resident generators' established pattern) keeps the fill local and safe.
         x_i = np.array(X[col_i].to_numpy(), dtype=_dt)
@@ -267,7 +267,7 @@ def score_triplet_cross_basis_by_mi_uplift(
     three raw source columns.
 
     Mirrors ``score_pair_cross_basis_by_mi_uplift`` with a third leg. The
-    baseline is ``max(MI(x_i; y), MI(x_j; y), MI(x_k; y))`` -- the triplet
+    baseline is ``max(MI(x_i; y), MI(x_j; y), MI(x_k; y))`` - the triplet
     must beat the BEST individual source, not just the worst, to count as
     genuine 3-way interaction signal (a triplet that only beats the
     weakest leg is more likely picking up the strongest leg's marginal).
@@ -283,7 +283,7 @@ def score_triplet_cross_basis_by_mi_uplift(
     if engineered_X.empty:
         return pd.DataFrame(columns=_TRIPLET_SCORE_EMPTY_COLS)
     # DEVICE-BORN (STRICT-resident): rebuild the triplet product matrix on the GPU + score both it and the raw
-    # baseline through the SAME resident plug-in MI -- collapsing the host product-matrix upload at
+    # baseline through the SAME resident plug-in MI - collapsing the host product-matrix upload at
     # _orth_mi_backends.py:311. None (-> exact host path) on no-cupy / non-strict / cupy failure / unsupported.
     raw_mi_map = eng_mi = None
     _specs = _triplet_device_col_specs(engineered_X.columns, raw_cols)
@@ -307,7 +307,7 @@ def score_triplet_cross_basis_by_mi_uplift(
         head = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
         legs = head.split("*")
         if len(legs) != 3:
-            # Not a triplet column -- skip (pair/univariate output mistakenly
+            # Not a triplet column - skip (pair/univariate output mistakenly
             # routed through this scorer would land here).
             continue
         col_i, col_j, col_k = legs
@@ -376,7 +376,7 @@ def hybrid_orth_mi_triplet_fe(
     Cost: enumerating triplets over the full input would be O(p^3); the
     seed_k cap turns it into O(seed_k^3) regardless of input width.
     Default ``top_triplet_seed_k=4`` -> 4 triplets * 1 cell (deg 1) = 4
-    candidates -- bounded.
+    candidates - bounded.
 
     Parameters
     ----------
@@ -416,7 +416,7 @@ def hybrid_orth_mi_triplet_fe(
 
     # Build the triplet seed pool. Critical bug class on 3-way XOR:
     # MI(x_i; y) is statistically indistinguishable from MI(noise; y)
-    # when y = sign(x_1 * x_2 * x_3) -- every signal leg looks marginally
+    # when y = sign(x_1 * x_2 * x_3) - every signal leg looks marginally
     # balanced, so a raw-MI top-k cut would silently drop one of the
     # three signal legs and the triplet path never gets to enumerate
     # the right cell.
@@ -447,7 +447,7 @@ def hybrid_orth_mi_triplet_fe(
             # seed_k=4 the caller should pass cols=[<candidates>].
             # Stage 1 (hybrid_orth_mi_fe, just above) already ran a full raw-column MI batch
             # internally and surfaced it per-source in uni_scores["baseline_mi"] (same y coercion,
-            # same raw-column universe when cols=None) -- reuse it instead of a second full
+            # same raw-column universe when cols=None) - reuse it instead of a second full
             # _mi_classif_batch pass; only recompute for a raw column uni_scores doesn't cover
             # (skipped source: all-NaN / int-as-cat / dedup'd), so the ranking stays exactly
             # selection-equivalent to the old always-recompute path.
@@ -468,7 +468,7 @@ def hybrid_orth_mi_triplet_fe(
 
     # EXPLICIT TRIPLETS (GBM seeder): when the caller passes an order-3
     # proposer's surviving triples (each already order-3-maxT-floored), enumerate EXACTLY
-    # those triples instead of the C(seed_k, 3) over the univariate-MI seed pool -- the whole
+    # those triples instead of the C(seed_k, 3) over the univariate-MI seed pool - the whole
     # point of the surrogate seeder is to reach the zero-marginal 3-way needle whose operands
     # the univariate seed_k never ranks. The proposer GENERATES; the per-triplet uplift / abs-MI
     # gates below still GATE, so a spurious explicit triple cannot survive. Only triples whose
@@ -644,9 +644,9 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
                     basis_b = basis_route_by_moments(x_j)
                     basis_c = basis_route_by_moments(x_k)
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in _orthogonal_triplet_fe.py:613: %s", e)
+                    logger.debug("suppressed: %s", e)
                     pass
-            # REPLAY-FIDELITY FIX (2026-06-13): freeze each leg's fit-time basis-preprocess params
+            # REPLAY-FIDELITY FIX: freeze each leg's fit-time basis-preprocess params
             # (z-score mean/std, min-max lo/hi, ...) so ``transform()`` replays the basis axis
             # byte-exactly instead of refitting it from the apply-time rows (slice-replay corruption).
             # Guarded -> on any failure params stay None (legacy refit path), never crashing the emit.
@@ -656,7 +656,7 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
                 _, _pp_b = _evaluate_basis_column(x_j, basis_b, deg_b, return_params=True)
                 _, _pp_c = _evaluate_basis_column(x_k, basis_c, deg_c, return_params=True)
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _orthogonal_triplet_fe.py:624: %s", e)
+                logger.debug("suppressed: %s", e)
                 pass
             recipes.append(build_orth_triplet_cross_recipe(
                 name=name,
@@ -676,7 +676,7 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
                     name,
                 )
                 continue
-            # REPLAY-FIDELITY FIX (2026-06-13): freeze the fit-time basis-preprocess params (mirrors
+            # REPLAY-FIDELITY FIX: freeze the fit-time basis-preprocess params (mirrors
             # the orth_univariate BUG2 fix); without them replay refits the axis from apply-time rows.
             _pp_u = None
             try:

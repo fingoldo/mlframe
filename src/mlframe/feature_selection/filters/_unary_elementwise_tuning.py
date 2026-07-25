@@ -8,14 +8,14 @@ Carved into a sibling module (the pairs file is already >1k LOC) and consumed vi
 ``KernelTuningCache.get_or_tune``; the old fixed 500_000-cell breakeven is the
 measurement-backed fallback.
 
-Why residency is a real axis here (measured, not assumed -- GTX 1050 Ti,
+Why residency is a real axis here (measured, not assumed - GTX 1050 Ti,
 2026-06-05): the H2D transfer is what made cupy lose on DRAM-resident input, so
-the optimal backend FLIPS with where the data lives --
+the optimal backend FLIPS with where the data lives -
   * DRAM-resident: numpy wins up to ~1M cells, cupy only at 10M (transfer amortised);
   * VRAM-resident: cupy wins at EVERY size (no transfer to pay).
 So the sweep measures both residencies and the dispatch picks by the live input's
 memory. The benchmarked op is a single-arg elementwise ufunc (``cos``) on a 1-D
-float array -- representative of the production set (``sin``/``exp``/``sqrt``/...):
+float array - representative of the production set (``sin``/``exp``/``sqrt``/...):
 all are bandwidth-bound maps with the same breakeven.
 """
 from __future__ import annotations
@@ -59,7 +59,7 @@ def _unary_cupy(vals):
     """cupy elementwise unary (``cos``). Pays H2D if given a host array (no-op if
     already VRAM-resident) AND the output D2H back to host. The production call
     site (_feature_engineering_pairs) consumes a HOST array, so the swept cost
-    MUST include the round trip -- returning a device array here would time cupy
+    MUST include the round trip - returning a device array here would time cupy
     too favourably and bias the crossover toward GPU. Returns host numpy."""
     import cupy as cp
 
@@ -67,7 +67,7 @@ def _unary_cupy(vals):
 
 
 def _make_unary_inputs(dims: dict):
-    """A 1-D float32 host array of length ``n_samples`` -- the operand a unary ufunc takes."""
+    """A 1-D float32 host array of length ``n_samples`` - the operand a unary ufunc takes."""
     rng = np.random.default_rng(0)
     return (rng.standard_normal(int(dims["n_samples"])).astype(np.float32),)
 

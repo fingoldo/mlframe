@@ -6,10 +6,10 @@ WHY THIS MODULE EXISTS
 The two usability passes (``build_usability_candidate_pool`` /
 ``_usability_aware_selection._abscorr``-driven diversity+shortlist, and ``_fe_pure_form_retention``'s
 residual-after-additive-basis gate) score candidates on the CPU with numpy ``corrcoef`` and an sklearn
-``LinearRegression`` residual. Those primitives -- |corr(candidate, continuous y)|, |corr(candidate,
-residual)|, and the additive-basis residual itself -- are array-elementwise/GEMV work that is GPU-able
+``LinearRegression`` residual. Those primitives - |corr(candidate, continuous y)|, |corr(candidate,
+residual)|, and the additive-basis residual itself - are array-elementwise/GEMV work that is GPU-able
 with cupy / cupyx. This module hosts the cupy twins so the two files import ONE home (no duplication;
-the per-candidate MI is already GPU-routed via ``_usability_njit_pool._pair_combo_mi_cupy`` -- reused,
+the per-candidate MI is already GPU-routed via ``_usability_njit_pool._pair_combo_mi_cupy`` - reused,
 not re-implemented here).
 
 SELECTION-EQUIVALENCE IS THE BAR (non-negotiable). The clean-form demotion uses |corr| with the
@@ -24,7 +24,7 @@ recovery. Every helper here therefore:
 The gate (``MLFRAME_FE_GPU_USABILITY``) defaults OFF. It is enabled ONLY after a host has VERIFIED the
 GPU path returns the SAME selection as the CPU path (the gate-on pytest must stay 11 passed). On a host
 where cupy corr drifts a pin (the GTX 1050 Ti reassociates the last bits of a reduction), this path is
-NOT selection-safe and stays gated OFF -- the win is real on stronger cards / larger n, but selection
+NOT selection-safe and stays gated OFF - the win is real on stronger cards / larger n, but selection
 can never regress (feedback_gate_optimization_on_safe_condition).
 
 NOTE ON SCALE (dev-box measurement, GTX 1050 Ti): the two passes row-SUBSAMPLE to ~3000 rows
@@ -50,7 +50,7 @@ except Exception:
 
 def fe_gpu_usability_enabled() -> bool:
     """Whether the gated cupy usability-scoring path is active. OFF unless ``MLFRAME_FE_GPU_USABILITY``
-    is truthy AND cupy is importable AND the global GPU off-switch is not set. Default OFF -- the CPU
+    is truthy AND cupy is importable AND the global GPU off-switch is not set. Default OFF - the CPU
     numpy/sklearn path is the proven, selection-exact default."""
     if not _CUPY_AVAIL:
         return False
@@ -91,7 +91,7 @@ def gpu_abscorr(u: np.ndarray, v: np.ndarray) -> float:
 
 def gpu_abscorr_batch(cols: "np.ndarray", v: np.ndarray) -> np.ndarray:
     """Batched ``|corr(cols[:, j], v)|`` for every column ``j`` of ``cols`` (shape ``(n, K)``) against
-    the 1-D target ``v`` -- the shortlist-scoring inner loop, where ``v`` is the held-out residual (or
+    the 1-D target ``v`` - the shortlist-scoring inner loop, where ``v`` is the held-out residual (or
     the mean residual) and each column is a candidate's continuous values. cupy float64; mirrors the
     per-candidate ``_abscorr`` (centered dot / sqrt(ss_col*ss_v), std<1e-12 -> 0). Returns a host (K,)
     float64 array of |corr| values. Raises on any cupy/device error so the caller falls back to CPU."""

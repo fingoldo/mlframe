@@ -10,15 +10,15 @@ SUPERSEDED (investigated 2026-07-13, see ``RESIDENCY_WIRING_PLAN.md`` in this di
 evidence): ``ResidentFEState``/``run_fe_step_gpu_strict`` Phases 1-3 were never implemented because the goal
 they targeted (per-family H2D leaks under STRICT) was solved differently, three days after this scaffold
 landed, by the ten ``fe_gpu_device_born_*_enabled()`` / ``fe_gpu_resident_raw_baseline_enabled`` predicates
-below -- each DEFAULT ON, each gating a REAL per-family device-born rebuild via ``resident_operand`` /
+below - each DEFAULT ON, each gating a REAL per-family device-born rebuild via ``resident_operand`` /
 ``assemble_resident_matrix`` (content-hash-keyed, incrementally adopted file-by-file) instead of this class's
 upfront bulk-upload design. That alternate mechanism is live, tested (``test_device_born_cross_basis_parity.py``
-et al.), and has been the actual residency delivery vehicle since 2026-06-30 -- ``ResidentFEState`` itself has
-zero production callers. GPU_INFRA_C-6 fix: ``run_fe_step_gpu_strict`` (the function,
-not the ``ResidentFEState`` class) DOES have one live call site -- ``_mrmr_fe_step/_step_core.py`` calls it on
+et al.), and has been the actual residency delivery vehicle since 2026-06-30 - ``ResidentFEState`` itself has
+Zero production callers. ``run_fe_step_gpu_strict`` (the function,
+not the ``ResidentFEState`` class) DOES have one live call site - ``_mrmr_fe_step/_step_core.py`` calls it on
 every FE step whenever ``fe_gpu_strict_resident_enabled()`` is true (DEFAULT ON under
 ``MLFRAME_FE_GPU_STRICT``); the call is functionally inert only because it always raises
-``NotImplementedError``, caught by name at that call site, so no behavior bug results -- but "zero production
+``NotImplementedError``, caught by name at that call site, so no behavior bug results - but "zero production
 callers" was imprecise for the function itself. Do not wire this stub up further; see the plan doc before
 investing further here."""
 from __future__ import annotations
@@ -51,7 +51,7 @@ def fe_gpu_strict_bytematch_enabled() -> bool:
 
     DEFAULT OFF. Requires the resident path (``fe_gpu_strict_resident_enabled``) AND the opt-in
     ``MLFRAME_FE_GPU_STRICT_BYTEMATCH=1``. With it OFF the resident gate MI uses the FAST percentile-edge
-    binner (selection-equivalent to CPU on F2 -- the gate's edge-vs-rank difference does not flip the F2
+    binner (selection-equivalent to CPU on F2 - the gate's edge-vs-rank difference does not flip the F2
     selection, only the gate's lift MAGNITUDE on heavily-tied operator outputs). With it ON the gate MI bins by
     argsort equi-frequency RANK so it byte-matches the CPU njit rank MI, at the cost of an irreducible per-gate
     argsort (~1s on a full fit, GTX 1050 Ti). Read live (no frozen cache) so it tracks the env per call."""
@@ -88,7 +88,7 @@ def fe_gpu_device_born_binagg_enabled() -> bool:
     device from only the small operand columns (the two raw columns per pair + the host-generated fold-id vector +
     the stored quantile edges), uploaded once per fit via the operand cache. The OOF fold-id / quantile-code /
     per-fold-gather / global-fallback STRUCTURE is bit-identical to the host (only the per-cell moment values
-    differ at ULP -- the approved selection-equivalent trade), and the MI is scored with the SAME percentile-edge
+    differ at ULP - the approved selection-equivalent trade), and the MI is scored with the SAME percentile-edge
     estimator the host STRICT path uses (no EDGE<->RANK switch). ``MLFRAME_FE_GPU_DEVICE_BORN_BINAGG=0`` is the
     explicit OPT-OUT for diagnosis / rollback. The non-strict DEFAULT path is untouched (the host
     ``local_mi_gate`` runs over the host-built matrix) -> byte-identical."""
@@ -123,16 +123,16 @@ def fe_gpu_device_born_crossbasis_enabled() -> bool:
     """Whether the orthogonal CROSS-BASIS FE families (pair / triplet / quadruplet / adaptive-arity) build their
     engineered ``h_a * h_b [* h_c [* h_d]]`` product matrix DEVICE-BORN (per-leg orthogonal-poly basis columns
     via the resident batched Clenshaw evaluator + cupy elementwise products from resident operand columns) and
-    score it -- plus the raw / lower-arity baseline -- through the resident plug-in MI, instead of
+    score it - plus the raw / lower-arity baseline - through the resident plug-in MI, instead of
     host-materialising the product matrix in ``score_*_cross_basis_by_mi_uplift`` /
     ``generate_adaptive_arity_cross_basis`` and uploading it at ``_orth_mi_backends.py:311``.
 
     DEFAULT ON under STRICT-residency (``fe_gpu_strict_resident_enabled``). Collapses the dominant remaining
-    Group-1 single-site H2D of a 300k GPU-strict F2 fit (the cross-basis product-matrix uploads -- pair-cross
+    Group-1 single-site H2D of a 300k GPU-strict F2 fit (the cross-basis product-matrix uploads - pair-cross
     ~112 MB, triplet ~32 MB, quadruplet ~20 MB) by rebuilding the (n, K) candidate matrix on the device from
     only the small raw operand columns (uploaded once per fit via the operand cache). The host evaluates
     cheb/leg/herme by a FORWARD recurrence while the device uses BACKWARD Clenshaw, so the device products match
-    the host to ~1e-12 at the default low degrees (laguerre is forward on both -> bit-consistent) -- far below
+    the host to ~1e-12 at the default low degrees (laguerre is forward on both -> bit-consistent) - far below
     any selection threshold. BOTH the engineered product matrix AND the raw / lower-arity baseline route through
     the SAME percentile-edge resident estimator the host STRICT path uses, so the uplift RATIO is internally
     consistent (no EDGE<->RANK switch, no host-vs-device estimator mismatch that could flip selection).
@@ -181,7 +181,7 @@ def fe_gpu_device_born_wavelet_enabled() -> bool:
     matrix on the device from the single resident z-column (``z = clip((x-lo)/span, 0, 1)``) and the host leg
     metas, uploaded once per fit via the operand cache. The dyadic-Haar leg is a DETERMINISTIC interval
     indicator (``{-1, 0, +1}`` by the dyadic sub-interval of z), and ``_dense_leg_codes`` maps ``leg -> leg+1``
-    (cardinality 3) -- both are selection-equivalent partition labels (MI is partition-based), so the device
+    (cardinality 3) - both are selection-equivalent partition labels (MI is partition-based), so the device
     twin is bit-identical in PARTITION to the host (pinned by ``test_wavelet_batched_mi_parity``). The leg gate
     is a held-out MI gate (``_WAVELET_MIN_HELDOUT_MI``), NOT an uplift-RATIO, so there is no baseline-mismatch
     flip surface. MI is scored with the SAME plug-in estimator the host batched path uses (no estimator
@@ -200,10 +200,10 @@ def fe_gpu_resident_raw_baseline_enabled() -> bool:
 
     DEFAULT ON under STRICT-residency (``fe_gpu_strict_resident_enabled``). Each of those three matrices is a
     PURE FIT-CONSTANT raw baseline (the raw numeric columns verbatim, re-scored across the fit), so under STRICT
-    it already routes through the resident plug-in MI -- this only removes the redundant re-upload by keying it
+    it already routes through the resident plug-in MI - this only removes the redundant re-upload by keying it
     into the resident-operand cache. The resident plug-in over the SAME matrix + SAME y + SAME (edge|rank)
-    binner is the EXACT estimator the host STRICT path already invokes, so the per-column MI -- and every
-    downstream median/MAD floor / argsort ranking / uplift baseline -- is byte-identical to the host STRICT path.
+    binner is the EXACT estimator the host STRICT path already invokes, so the per-column MI - and every
+    downstream median/MAD floor / argsort ranking / uplift baseline - is byte-identical to the host STRICT path.
     ``MLFRAME_FE_GPU_RESIDENT_RAW_BASELINE=0`` is the explicit OPT-OUT for diagnosis / rollback. The non-strict
     DEFAULT path is untouched (the host ``_mi_classif_batch`` runs over the host-built matrix) -> byte-identical."""
     if os.environ.get("MLFRAME_FE_GPU_RESIDENT_RAW_BASELINE", "1").strip().lower() not in ("1", "true", "on", "yes"):
@@ -214,15 +214,15 @@ def fe_gpu_resident_raw_baseline_enabled() -> bool:
 def fe_gpu_device_born_uplift_univariate_enabled() -> bool:
     """Whether the orth-univariate MI-uplift scorer (``score_features_by_mi_uplift``) builds its ENGINEERED
     poly-basis matrix DEVICE-BORN (per-leg orthogonal-poly columns via the resident batched Clenshaw evaluator
-    from the resident raw operand columns) and scores it -- plus the raw baseline -- through the resident plug-in
+    from the resident raw operand columns) and scores it - plus the raw baseline - through the resident plug-in
     MI, instead of host-materialising the engineered matrix and uploading it at ``_orth_mi_backends.py:311``.
 
     DEFAULT ON under STRICT-residency (``fe_gpu_strict_resident_enabled``). Engages ONLY when EVERY engineered
-    column name parses to a poly basis code (``He`` / ``T`` / ``L`` / ``LL``) -- i.e. the matrix is a product of
+    column name parses to a poly basis code (``He`` / ``T`` / ``L`` / ``LL``) - i.e. the matrix is a product of
     arity-1 orthogonal-poly legs the device evaluator supports. When ANY column is an EXTRA-BASIS emit
     (spline ``__sp`` / Fourier ``__sin`` ``__cos`` / chirp ``__qsin`` ``__qcos`` / wavelet), which the device
     basis evaluator does NOT port, the engineered matrix stays on the host path (irreducible born-fresh
-    transient) -- only the RAW baseline rides the resident cache there. BOTH the engineered matrix AND the raw
+    transient) - only the RAW baseline rides the resident cache there. BOTH the engineered matrix AND the raw
     baseline route through the SAME percentile-edge resident estimator, so the uplift RATIO
     ``engineered_mi / baseline_mi`` is internally consistent (no estimator switch that could flip selection); the
     device backward-Clenshaw matches the host forward recurrence to ~1e-12 at the default low degrees.
@@ -236,8 +236,8 @@ def fe_gpu_device_born_uplift_univariate_enabled() -> bool:
 def fe_gpu_device_born_extra_basis_enabled() -> bool:
     """Whether the EXTRA-BASIS MI-uplift scorer (``score_features_by_mi_uplift`` on spline / Fourier / chirp /
     wavelet columns) builds its ENGINEERED matrix DEVICE-BORN from the resident raw operands + the per-column
-    fit ``meta`` (exact frequencies / knots / lo/span/mean/std the host baked in) and scores it -- plus the raw
-    baseline -- through the resident plug-in MI, instead of host-materialising the whole matrix and uploading it
+    fit ``meta`` (exact frequencies / knots / lo/span/mean/std the host baked in) and scores it - plus the raw
+    baseline - through the resident plug-in MI, instead of host-materialising the whole matrix and uploading it
     at ``_orth_mi_backends.py:311``.
 
     DEFAULT ON under STRICT-residency (``fe_gpu_strict_resident_enabled``). This is the sibling of
@@ -257,17 +257,17 @@ def fe_gpu_device_born_extra_basis_enabled() -> bool:
 
 def fe_gpu_device_born_modular_enabled() -> bool:
     """Whether the pairwise-modular FE scan (``_pairwise_modular_fe``) collapses its per-call single-column
-    residue MI uploads -- the baseline ``_mi``, the residue grid, and the dominant 12-permutation null -- by
+    residue MI uploads - the baseline ``_mi``, the residue grid, and the dominant 12-permutation null - by
     routing them through resident operands instead of ``cp.asarray``-uploading each ``(n, 1)`` host residue at
     ``_orth_mi_backends.py:311``.
 
     DEFAULT ON under STRICT-residency (``fe_gpu_strict_resident_enabled``). The permutation null is the
     dominant repetition (one combiner x ~12 perms): ``MI(r; y[perm_i]) == MI(r[inv_perm_i]; y)`` (joint reindex
     invariance of MI), so the 12 per-perm residue MIs stack into ONE resident-matrix plug-in call against the
-    SAME resident y -- the permutation sequence is the SAME seeded host ``rng.permutation`` (bit-identical perms),
+    SAME resident y - the permutation sequence is the SAME seeded host ``rng.permutation`` (bit-identical perms),
     only the redundant uploads collapse. MI is scored with the SAME (rank, under STRICT) resident estimator the
-    host ``_mi`` already uses, so the residue / baseline / null MIs -- and the ``_responded`` margin + null band
-    they feed -- are byte-identical to the host STRICT path. ``MLFRAME_FE_GPU_DEVICE_BORN_MODULAR=0`` is the
+    host ``_mi`` already uses, so the residue / baseline / null MIs - and the ``_responded`` margin + null band
+    they feed - are byte-identical to the host STRICT path. ``MLFRAME_FE_GPU_DEVICE_BORN_MODULAR=0`` is the
     explicit OPT-OUT. The non-strict DEFAULT path is untouched (host per-column ``_mi``) -> byte-identical."""
     if os.environ.get("MLFRAME_FE_GPU_DEVICE_BORN_MODULAR", "1").strip().lower() not in ("1", "true", "on", "yes"):
         return False

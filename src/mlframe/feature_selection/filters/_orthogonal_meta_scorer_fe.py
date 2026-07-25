@@ -1,4 +1,4 @@
-"""Layer 76 (2026-06-01): META-SCORER auto-selection that LEARNS from cheap
+"""Layer 76: META-SCORER auto-selection that LEARNS from cheap
 signal characteristics ("data fingerprints") and dispatches to the
 predicted-best scorer of the Layer 21 / 65 / 66 / 67 / 71 / 72 / 73 / 74
 family.
@@ -18,7 +18,7 @@ that different scorers win on different signal characters:
 * copula (Layer 66) is the rank-invariant champion on heavy-tailed
   marginals when the signal is non-monotone in raw space.
 
-The L75 matrix is hard-coded knowledge -- useful as documentation but a
+The L75 matrix is hard-coded knowledge - useful as documentation but a
 USER calling MRMR can't reach into it and pick the right scorer for a
 NEW dataset they haven't fingerprinted. Layer 68 (per-column bootstrap
 LCB) and Layer 69 (rank fusion) are the brute-force ways to handle this
@@ -42,24 +42,24 @@ Fingerprint -> rule -> scorer
 ``fingerprint_signal(X, y)`` returns the following statistics (all cheap;
 sub-second on typical mlframe pipelines):
 
-* ``n``  -- row count;
-* ``unique_y_count``  -- ``nunique(y)`` -- classification vs regression;
-* ``x_unique_avg``  -- average ``nunique`` across numeric columns;
-* ``mean_abs_pearson``  -- mean absolute Pearson correlation
+* ``n``  - row count;
+* ``unique_y_count``  - ``nunique(y)`` - classification vs regression;
+* ``x_unique_avg``  - average ``nunique`` across numeric columns;
+* ``mean_abs_pearson``  - mean absolute Pearson correlation
   ``|corr(X[c], y)|`` across numeric columns (when ``y`` is numeric or
   encodable); cheap O(n * d) signal-monotonicity proxy;
-* ``mean_abs_skew``  -- mean absolute skewness across numeric columns
+* ``mean_abs_skew``  - mean absolute skewness across numeric columns
   (heavy-tail / asymmetric marginal proxy);
-* ``mean_kurtosis``  -- mean ``Fisher`` kurtosis (heavy-tail proxy);
-* ``inter_x_max_corr``  -- max absolute Pearson correlation between
+* ``mean_kurtosis``  - mean ``Fisher`` kurtosis (heavy-tail proxy);
+* ``inter_x_max_corr``  - max absolute Pearson correlation between
   numeric column pairs (redundancy proxy);
-* ``dcor_proxy``  -- mean absolute ``rho_spearman`` on a subsample
+* ``dcor_proxy``  - mean absolute ``rho_spearman`` on a subsample
   of up to 500 rows; cheap non-monotone-dependence proxy that DOES NOT
   require the full O(n^2) dCor compute. Equal to mean_abs_pearson on
   monotone signal; LARGER than mean_abs_pearson when the signal is rank-
   monotone but not Pearson-monotone.
 
-``predict_best_scorer(fp_dict)`` is a deterministic rule cascade -- each
+``predict_best_scorer(fp_dict)`` is a deterministic rule cascade - each
 rule is documented in-line with the L75 empirical justification:
 
 1. Redundancy first: ``inter_x_max_corr >= 0.85`` -> ``cmim`` (L75
@@ -75,7 +75,7 @@ rule is documented in-line with the L75 empirical justification:
 5. Default: ``plug_in`` (L21 cheap baseline; L75 linear_monotone winner).
 
 The rule cascade is INTENTIONALLY simple: a five-rule decision tree is
-auditable, debuggable, and -- the most important property -- predictable
+auditable, debuggable, and - the most important property - predictable
 across pickle / clone / replay. A learned meta-classifier (e.g.
 gradient-boost over fingerprints) was considered and REJECTED: meta-
 classifier weights would need to be retrained on every L75-style
@@ -94,11 +94,11 @@ Layer 76 vs Layers 68 / 69
   Right when no single scorer dominates but the consensus rank is
   reliable.
 * Layer 76 (THIS): runs FINGERPRINT once (O(n * d) for Pearson; O(min(n,
-  500)^2) for dCor proxy -- both fast), then ONE scorer end-to-end;
+  500)^2) for dCor proxy - both fast), then ONE scorer end-to-end;
   ~O(1 * n_cols + fingerprint_cost). Right when the dataset has a
   clear signal character that the rule cascade can recognise.
 
-Not wired into ``MRMR.fit`` by default -- opt-in via
+Not wired into ``MRMR.fit`` by default - opt-in via
 ``fe_hybrid_orth_meta_enable=True``. ``force_scorer`` override available
 via ``fe_hybrid_orth_meta_force_scorer=<name>`` for users who want to
 pin a specific scorer regardless of the fingerprint.
@@ -116,7 +116,7 @@ logger = logging.getLogger(__name__)
 # Only numeric / data-shape failures are an acceptable "no signal -> 0.0"
 # outcome for the meta-feature probes. A genuine programming error
 # (AttributeError, KeyError, NameError, ...) must propagate, not be silently
-# coerced to 0.0 -- that would misroute the scorer by faking absence of signal.
+# coerced to 0.0 - that would misroute the scorer by faking absence of signal.
 _NUMERIC_ERRORS = (ValueError, TypeError, ZeroDivisionError, FloatingPointError, ArithmeticError)
 
 __all__ = [
@@ -129,7 +129,7 @@ __all__ = [
 
 
 # Canonical scorer identifiers the meta-predictor can dispatch to.
-# Mirrors the Layer 21 / 65 / 66 / 67 / 71 / 72 / 74 set (no TC -- TC
+# Mirrors the Layer 21 / 65 / 66 / 67 / 71 / 72 / 74 set (no TC - TC
 # is dominated by JMIM / CMIM on every L75 fixture so the meta-cascade
 # routes redundancy cases to CMIM, never TC; user can still force_scorer
 # to "tc" if desired but the meta-cascade never picks it).
@@ -207,7 +207,7 @@ def fingerprint_signal(
                 try:
                     r = float(X_num[c].corr(y_series, method="pearson"))
                 except _NUMERIC_ERRORS as exc:
-                    # ORTH_SCORING_B-9 fix: was a bare `except Exception`, broader
+                    # Was a bare `except Exception`, broader
                     # than this module's own declared _NUMERIC_ERRORS convention (and the module docstring's
                     # explicit invariant that a genuine programming error must propagate); unlogged.
                     logger.debug("meta_scorer pearson corr failed for column %r: %r", c, exc)
@@ -253,10 +253,10 @@ def fingerprint_signal(
     # dcor_proxy: mean MAX(|Spearman|, |Pearson(|x - mean|, y)|) of each
     # column with y, on a subsample of up to ``dcor_proxy_sample`` rows.
     # We combine TWO cheap non-Pearson dependence proxies:
-    #   * Spearman rank correlation -- catches rank-monotone non-linear
+    #   * Spearman rank correlation - catches rank-monotone non-linear
     #     dependence (e.g. y = sigmoid(x), heavy-tailed monotone signal);
-    #   * Pearson(|x - mean(x)|, y) -- catches SYMMETRIC non-monotone
-    #     dependence (e.g. y = x^2 -- |x| is rank-correlated with y even
+    #   * Pearson(|x - mean(x)|, y) - catches SYMMETRIC non-monotone
+    #     dependence (e.g. y = x^2 - |x| is rank-correlated with y even
     #     though x itself is not). This is the cheap non-monotone proxy
     #     that the L75 quadratic-fixture rule needs because pure Pearson
     #     and pure Spearman both drop to 0 on the symmetric quadratic
@@ -280,7 +280,7 @@ def fingerprint_signal(
                 try:
                     r_sp = float(col_vals.corr(y_sub, method="spearman"))
                 except _NUMERIC_ERRORS as exc:
-                    # ORTH_SCORING_B-9 fix: see the mean_abs_pearson site's matching
+                    # See the mean_abs_pearson site's matching
                     # fix above for the full rationale.
                     logger.debug("meta_scorer spearman corr failed for column %r: %r", c, exc)
                     r_sp = float("nan")
@@ -323,7 +323,7 @@ def predict_best_scorer(fp: dict) -> str:
 
     Rule cascade (first match wins). Each rule is justified by the L75
     empirical AUC matrix; numeric thresholds are calibrated to the
-    fixture span -- xor_redundant has inter_x_max_corr >= 0.95 so the
+    fixture span - xor_redundant has inter_x_max_corr >= 0.95 so the
     0.85 floor admits real-world borderline cases without false-firing
     on independent-source frames. ``mean_abs_pearson < 0.20`` for
     quadratic / non-monotone is the L75 quadratic fingerprint signature.
@@ -372,7 +372,7 @@ def predict_best_scorer(fp: dict) -> str:
         return "cmim"
     # Rule 2: heavy-tail marginals -> copula.
     # L66 design claim is about heavy-tailed MARGINALS, regardless of y
-    # type -- copula's rank-uniformisation strips out the tail before
+    # type - copula's rank-uniformisation strips out the tail before
     # the MI compute. Placed BEFORE the HSIC rule because heavy-tail
     # fixtures also trip the dcor_proxy > pearson gap (Spearman is
     # rank-invariant so dwarfs Pearson on Pareto-distributed columns)
@@ -387,7 +387,7 @@ def predict_best_scorer(fp: dict) -> str:
     # established CMIM as the real-data winner on tabular sklearn-style
     # frames (5/7 wins or ties). The signature is:
     #   * ``unique_y_count < 15`` (classification with a small label
-    #     alphabet -- excludes regression which falls through to KSG);
+    #     alphabet - excludes regression which falls through to KSG);
     #   * ``inter_x_max_corr < 0.6`` (mild redundancy, not the extreme
     #     near-copy regime Rule 1 already routes; CMIM still earns its
     #     keep on tabular frames at lower correlations because the
@@ -397,7 +397,7 @@ def predict_best_scorer(fp: dict) -> str:
     #   * ``n_source_cols >= 5`` (enough source columns for the
     #     redundancy filter to have non-trivial conditioning sets;
     #     below 5 the MI estimator noise dominates the per-pair CMI);
-    #   * ``mean_abs_pearson < 0.20`` (no easy linear signal -- a clean
+    #   * ``mean_abs_pearson < 0.20`` (no easy linear signal - a clean
     #     linear-monotone signal where Pearson catches the dependence is
     #     better routed to plug_in, which is the L75 linear_monotone
     #     winner. CMIM's redundancy filter pays off when no single column
@@ -636,8 +636,8 @@ def hybrid_orth_mi_meta_fe_with_recipes(
     random_state: int = 0,
 ):
     """Same as :func:`hybrid_orth_mi_meta_fe` plus a list of
-    ``orth_univariate`` recipes from the dispatched scorer -- one per
-    appended column -- so that ``MRMR.transform`` can recompute each
+    ``orth_univariate`` recipes from the dispatched scorer - one per
+    appended column - so that ``MRMR.transform`` can recompute each
     engineered column on test data without re-running the meta-cascade.
     """
     fp = fingerprint_signal(X, y, cols=cols, random_state=int(random_state))

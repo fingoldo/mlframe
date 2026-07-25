@@ -125,7 +125,7 @@ def _init_fit_state(
                 if _col.is_sorted(descending=False) and _col.null_count() == 0:
                     _polars_time_series_hint = True
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _fit_init.py:126: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
         # ``self_destruct=True`` releases the polars buffers in-place; safe only when RFECV owns the frame. The suite-side _apply_pre_pipeline_transforms passes cloned per-target subsets so the
         # safe path is the historical default, but ad-hoc / notebook callers who pass their own polars frame would silently lose data. Gate on the ``_mlframe_owned_frame_`` marker (set by suite
@@ -146,11 +146,11 @@ def _init_fit_state(
         raise ValueError(f"y must be array-like; got {type(y).__name__}: {exc}") from exc
     if y_arr.size == 0:
         raise ValueError("y is empty; nothing to fit.")
-    # sklearn parity (2026-05-28): accept bare Python list as y. The downstream signature
+    # Sklearn parity: accept bare Python list as y. The downstream signature
     # tuple uses y.shape; lists don't have .shape, so promote to ndarray now.
     if not hasattr(y, "shape"):
         y = y_arr
-    # L6 (Wave 5, 2026-05-28): explicit multi-output guard. Currently RFECV is single-y; users with K targets are best served by
+    # L6: explicit multi-output guard. Currently RFECV is single-y; users with K targets are best served by
     # looping selection per-target and OR-aggregating support_. Document this via a clear error rather than silently flattening y.
     if y_arr.ndim >= 2 and y_arr.shape[-1] > 1:
         raise NotImplementedError(
@@ -189,7 +189,7 @@ def _init_fit_state(
                     f"StratifiedKFold requires at least n_splits samples per "
                     f"class. Reduce cv or oversample the minority class."
                 )
-            # E7 (Wave 4, 2026-05-28): warn when minority just barely meets
+            # E7: warn when minority just barely meets
             # n_splits; ROC AUC / log_loss likely to NaN on the all-train-no-test
             # minority fold split. Hard floor 2*cv_n recommended.
             if min_class < 2 * cv_n and getattr(self, "verbose", False):
@@ -305,7 +305,7 @@ def _init_fit_state(
             ",".join(map(str, np.asarray(y).ravel().tolist())).encode("utf-8"),
             digest_size=16,
         ).hexdigest()
-    # Full-content X hash to disambiguate the skip-retrain signature. Strided / sampled X fingerprints collided on heavily-reshuffled X whose sampled rows incidentally matched (e.g. stratified rebalance preserving boundaries); a full blake2b over X.tobytes() rules this out for ~50ms on a 1M x 100 frame -- well under a single RFECV iter cost. Object-dtype frames fall back to str-cast hashing because tobytes is non-deterministic for object arrays. Symmetric with the X-content hash now folded into the MRMR _FIT_CACHE key.
+    # Full-content X hash to disambiguate the skip-retrain signature. Strided / sampled X fingerprints collided on heavily-reshuffled X whose sampled rows incidentally matched (e.g. stratified rebalance preserving boundaries); a full blake2b over X.tobytes() rules this out for ~50ms on a 1M x 100 frame - well under a single RFECV iter cost. Object-dtype frames fall back to str-cast hashing because tobytes is non-deterministic for object arrays. Symmetric with the X-content hash now folded into the MRMR _FIT_CACHE key.
     try:
         _n = int(X.shape[0])
         if _n > 0:
@@ -344,7 +344,7 @@ def _init_fit_state(
         ).hexdigest()
     # 2026-06-10 fix: fold the selector's OWN parameter signature (incl. the wrapped estimator's params via
     # ``deep=True`` expansion) into the skip signature. Pre-fix the signature was
-    # ``(X.shape, y.shape, columns_key, y_hash, x_hash)`` -- SELECTOR/ESTIMATOR PARAMS were absent: refitting
+    # ``(X.shape, y.shape, columns_key, y_hash, x_hash)`` - SELECTOR/ESTIMATOR PARAMS were absent: refitting
     # the same RFECV instance with changed settings (``set_params`` or direct attribute assignment, e.g. a new
     # ``max_nfeatures`` / ``scoring`` / mutated ``estimator`` hyperparams) on identical data silently replayed
     # the prior fit's ``support_`` computed under the OLD params. Same bug class as MRMR's in-object skip

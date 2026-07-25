@@ -1,4 +1,4 @@
-"""GPU FE-batcher path -- the GPU half of the two separate, independently-optimised FE-scoring backends.
+"""GPU FE-batcher path - the GPU half of the two separate, independently-optimised FE-scoring backends.
 
 Phase 2 ships the single-GPU resident executor (``gpu_fe_batch_mi``): score a candidate matrix by the
 edge-binned plug-in MI ON the device, VRAM-budget column-chunked via ``_gpu_resident_fe._gpu_k_chunk``,

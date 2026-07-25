@@ -30,14 +30,26 @@ except ImportError:
         """No-numba fallback: plain ``range``."""
         return range(n)
 
-# Parent-resident numba kernel referenced by the @njit'd functions below.
-# numba's ``@njit`` doesn't compile ``IMPORT_NAME`` bytecode, so this import
-# MUST live at module top -- which creates a static
-# ``hermite_fe -> _hermite_fe_mi -> hermite_fe`` cycle that is benign at
-# runtime (parent defines ``_quantile_bin_njit`` at line 80, then re-imports
-# this sibling at its bottom; ``_quantile_bin_njit`` is already bound when
-# this line fires). Whitelisted in ``tests/test_meta/test_no_import_cycles.py``.
-from .hermite_fe import _quantile_bin_njit
+# Parent-resident numba kernel the @njit'd functions below reference by bare name (numba's ``@njit`` does
+# not compile ``IMPORT_NAME`` bytecode, so it must be a module global before the first kernel call). The
+# ``hermite_fe -> _hermite_fe_mi -> hermite_fe`` cycle is benign parent-first (the parent binds
+# ``_quantile_bin_njit`` at line 77 before re-importing this sibling at its bottom), but importing THIS
+# sibling first would fault on the partially-initialised parent. Bind defensively/lazily: the parent calls
+# ``_bind_parent_kernels()`` at its module bottom and every public dispatcher calls it before invoking a
+# kernel, so the global is always bound before first use regardless of import order.
+try:
+    from .hermite_fe import _quantile_bin_njit
+except ImportError:
+    _quantile_bin_njit = None  # bound by _bind_parent_kernels() before the first kernel call
+
+
+def _bind_parent_kernels() -> None:
+    """Bind the parent-resident ``_quantile_bin_njit`` global if a sibling-first import deferred it."""
+    global _quantile_bin_njit
+    if _quantile_bin_njit is None:
+        from .hermite_fe import _quantile_bin_njit as _qb
+
+        _quantile_bin_njit = _qb
 
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
 
@@ -230,7 +242,7 @@ def _get_fused_mi_term():
     """Lazy-build the cp.fuse'd per-cell MI-contribution kernel. Inputs are broadcastable f64 arrays:
     ``hxyc`` (k,nb,nc) joint counts, ``logx`` (k,nb,1) = log(safe hist_x), ``logy`` (k,1,nc) = log(safe
     hist_y), plus scalars ``inv_n`` (=1/n) and ``log_n``. Returns the per-cell nat contribution, 0 where
-    the joint count is 0 -- the EXACT expression the unfused chain computed."""
+    the joint count is 0 - the EXACT expression the unfused chain computed."""
     global _FUSED_MI_TERM
     if _FUSED_MI_TERM is None:
         import cupy as cp
@@ -268,7 +280,7 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray, n_bins: int
     X_gpu = cp.asarray(X_cols, dtype=cp.float64)
     # y is the fit-constant target: resident-cache it (same role string as the already-fixed
     # ``_orth_mi_backends.py`` / ``_binned_numeric_agg_fe.py`` sites) so it uploads ONCE per fit instead of
-    # once per call, AND so the SAME device object comes back across calls -- which lets the downstream
+    # once per call, AND so the SAME device object comes back across calls - which lets the downstream
     # ``(id(y_gpu), y_min)`` shift memo in ``_plugin_mi_classif_batch_cuda_resident`` actually hit (it can
     # never hit while y_gpu is rebuilt fresh every call, since id(y_gpu) changes every time).
     from ._fe_resident_operands import resident_operand
@@ -283,11 +295,11 @@ _SHIFTED_Y_CACHE: dict = {}
 
 def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_min=None, n_classes=None,
                                            keep_dtype: bool = False, relax_binning: bool = False):
-    """MATRIX-NATIVE plug-in MI on ALREADY-RESIDENT cupy arrays -- the H2D-FREE core of
+    """MATRIX-NATIVE plug-in MI on ALREADY-RESIDENT cupy arrays - the H2D-FREE core of
     :func:`_plugin_mi_classif_batch_cuda`. ``X_gpu`` is an (n, k) cupy float64 candidate
     matrix, ``y_gpu`` an (n,) cupy integer label vector, BOTH already on the device. This
     is the entry point a matrix-native caller uses when it built/holds its candidate
-    columns on the GPU -- it skips the per-call ``cp.asarray`` H2D that the dispatcher's
+    columns on the GPU - it skips the per-call ``cp.asarray`` H2D that the dispatcher's
     ground-truth note records as the 2x-slowdown cause (measured: forcing the H2D path on
     is 52s -> 105s), so MI runs on the device with NO transfer. Math is identical to the
     host-input variant (same percentile-edge equi-frequency binning + plug-in MI).
@@ -308,7 +320,7 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     # relax_binning (2026-07-02, nvprof-driven): the radix-select quantile discretiser is the #1 GPU kernel on
     # the F2 STRICT profile (radix_select_interp_f64_v2, ~21%); a clean CUDA-event A/B shows the f32 radix reads
     # half the bytes and runs 1.3-1.8x on the real F2 candidate shapes (max|val| ~7.5e5, no f32 overflow) with
-    # 0.29% boundary-row code drift -- SELECTION-EQUIVALENT, the same contract keep_dtype's f32 FE-batch path
+    # 0.29% boundary-row code drift - SELECTION-EQUIVALENT, the same contract keep_dtype's f32 FE-batch path
     # relies on. OPT-IN only: the SELECTION callers (op-candidate / binagg / dispersion gates) pass True; the
     # generic entry stays f64 so the CUDA==njit bit-close contract (test_batch_cuda_matches_njit) is unchanged.
     # Gated on MLFRAME_CRIT_DTYPE_RELAXED (default ON) so =0 restores strict f64 everywhere.
@@ -324,7 +336,7 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     # Class axis spans [y_min, y_max]; labels may be negative / non-dense. Offset by y_min so the bincount
     # index never underflows. y's min/max are a fit-CONSTANT (the same label vector across every pair x
     # chunk), so when the caller passes them (computed ONCE for the whole pair sweep) skip the per-call
-    # cp.min/cp.max + scalar D2H -- nsys (2026-06-22) showed this exact line is the #1 source of the 71k
+    # cp.min/cp.max + scalar D2H - nsys showed this exact line is the #1 source of the 71k
     # cp.max reductions and a huge slice of the 100k tiny D2H in the per-pair x per-chunk MRMR loop.
     # Bit-identical: y is invariant, so the offset + bincount layout are unchanged.
     if y_min is None or n_classes is None:
@@ -345,7 +357,7 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
             _SHIFTED_Y_CACHE[_sk] = _sh
         y_gpu = _sh
 
-    # Per-column quantile binning via cp.percentile EDGES + searchsorted (2026-06-20). Replaced the
+    # Per-column quantile binning via cp.percentile EDGES + searchsorted. Replaced the
     # argsort -> rank -> uncoalesced-scatter path (the dominant ~69%-of-MI cost). Measured 7.84x faster
     # (n=200k K=384: 7781ms -> 993ms) with the SAME feature ranking (Spearman 1.0, argmax match). Per-
     # column edges depend ONLY on that column, so the binning is chunk-INVARIANT (verified on CPU:
@@ -353,13 +365,13 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     # rank-based -> not bit-identical to njit at ties, an approved trade (features unchanged; MRMR
     # selection-equivalence tests still pass). (bench-rejected f32 sort keys: 0.97x, no win.)
     # Sort-free EXACT interior quantile edges via radix-select (GPU-time reduction): cp.percentile bins via a
-    # comparison MERGE-sort over the whole (n, k) matrix -- the single largest DeviceMergeSort source in the
+    # comparison MERGE-sort over the whole (n, k) matrix - the single largest DeviceMergeSort source in the
     # F2 STRICT profile. _radix_select_interior_edges extracts the same order-statistic edges WITHOUT a sort
-    # and is BIT-IDENTICAL in the resulting codes (maxdiff 0, verified) -- so this preserves the existing
+    # and is BIT-IDENTICAL in the resulting codes (maxdiff 0, verified) - so this preserves the existing
     # exact contract, no test re-frame. Falls back to cp.percentile when the radix path is inapplicable
     # (R over cap / shared-mem over limit / k==1 cupy-axis bug) or disabled (MLFRAME_FE_GPU_RADIX_EDGES=0).
     interior = None
-    # k >= 1: radix-select is correct for single-column too (verified maxdiff 0 vs np.percentile) -- unlike
+    # k >= 1: radix-select is correct for single-column too (verified maxdiff 0 vs np.percentile) - unlike
     # cp.percentile(axis=0) which has the k==1 axis bug, so the k==1 fallback below only fires if radix
     # returns None. Routing k==1 here uses the sort-free path on single-column chunks too.
     if k >= 1:
@@ -372,7 +384,7 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     if interior is None:
         qs = cp.linspace(0.0, 100.0, n_bins + 1)
         if k == 1:
-            # CUPY BUG GUARD (2026-06-20): cp.percentile(X, axis=0) returns WRONG edges for a single-column
+            # CUPY BUG GUARD: cp.percentile(X, axis=0) returns WRONG edges for a single-column
             # (n, 1) array; ravel to 1D where cp.percentile is correct, then restore shape.
             edges = cp.percentile(X_gpu.ravel(), qs).reshape(-1, 1)  # (n_bins+1, 1)
         else:
@@ -392,7 +404,7 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     from ._gpu_resident_fe import _searchsorted_codes  # type: ignore[attr-defined]  # dynamically re-exported via globals()
     X_binned = _searchsorted_codes(X_gpu, interior).astype(cp.int64, copy=False)
     # codes_trusted: X_binned is searchsorted-produced (dense 0..n_bins-1) and y_gpu was shifted to dense
-    # 0-based above, so the in-range guard cannot fire -- skip its blocking min/max sync (FIX1), matching the
+    # 0-based above, so the in-range guard cannot fire - skip its blocking min/max sync (FIX1), matching the
     # binned_mi_from_values_gpu call above that already trusts these same codes.
     return binned_mi_from_codes_gpu(X_binned, y_gpu, kx_per_col=[int(n_bins)] * k, ky=int(n_classes), codes_trusted=True)
 
@@ -400,13 +412,14 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
 def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
     """Single-column plug-in MI for continuous x and discrete y.
 
-    ORTH_BASIS_A-6 fix: this docstring used to claim the dispatch routes "via the
-    kernel tuning cache (per-host measurement-backed)" -- it does not; every code path below falls through
+    This docstring used to claim the dispatch routes "via the
+    kernel tuning cache (per-host measurement-backed)" - it does not; every code path below falls through
     to a GROUND-TRUTH OVERRIDE that always returns the njit backend (justified inline by real end-to-end
     measurements showing even a concurrency-aware tuner under-counts this path). A KTC-driven auto-tune
-    does happen for a DIFFERENT kernel (``polyeval``'s CPU/CUDA crossover, in ``_hermite_oracle.py``) --
+    does happen for a DIFFERENT kernel (``polyeval``'s CPU/CUDA crossover, in ``_hermite_oracle.py``) -
     not here. Override via ``MLFRAME_MI_BACKEND`` env var (``njit`` | ``cuda``) to force a specific backend.
     """
+    _bind_parent_kernels()  # ensure the parent-resident njit global is bound (sibling-first import safety)
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
@@ -423,7 +436,7 @@ def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -
     # off-switch is set (cupy ignores MLFRAME_DISABLE_GPU / CUDA_VISIBLE_DEVICES="" on its own).
     if not _CUDA_AVAILABLE or gpu_globally_disabled():
         return float(_plugin_mi_classif_njit(x, y, n_bins))
-    # GROUND-TRUTH OVERRIDE: default njit (see the batch dispatch below for the full rationale -- even the
+    # GROUND-TRUTH OVERRIDE: default njit (see the batch dispatch below for the full rationale - even the
     # concurrency-aware tuner still under-counts this path by ~5x vs the end-to-end fit). MLFRAME_MI_BACKEND
     # =cuda forces GPU.
     return float(_plugin_mi_classif_njit(x, y, n_bins))
@@ -432,21 +445,21 @@ def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -
 def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
     """Batch plug-in MI per column of ``X_cols`` against discrete ``y``.
 
-    ORTH_BASIS_A-6 fix: see:func:`plugin_mi_classif_dispatch`'s matching
-    docstring note -- this does NOT route via the kernel tuning cache; it always falls through to a
+    see:func:`plugin_mi_classif_dispatch`'s matching
+    docstring note - this does NOT route via the kernel tuning cache; it always falls through to a
     GROUND-TRUTH OVERRIDE returning the njit (prange CPU) backend, per real end-to-end measurements.
     Override via ``MLFRAME_MI_BACKEND`` env var.
     """
+    _bind_parent_kernels()  # ensure the parent-resident njit global is bound (sibling-first import safety)
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
     from .hermite_fe import _CUDA_AVAILABLE, _plugin_mi_classif_batch_njit
     from ._gpu_policy import gpu_globally_disabled
     forced = os.environ.get("MLFRAME_MI_BACKEND", "")
-    _n, _k = X_cols.shape
     if forced == "njit":
         return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
-    # Honor the global GPU off-switch (MLFRAME_DISABLE_GPU / CUDA_VISIBLE_DEVICES="") -- cupy's own
+    # Honor the global GPU off-switch (MLFRAME_DISABLE_GPU / CUDA_VISIBLE_DEVICES="") - cupy's own
     # device detection ignores both, so without this a CPU-only / weak-GPU run still routes this HOT
     # batched orth-FE MI to cupy (37% of a 300k fit: cupy argsort + GPU-sync sleep, CPU idle).
     # An explicit MLFRAME_MI_BACKEND=cuda still wins (handled above / below).
@@ -458,7 +471,7 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
         return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
     # GROUND-TRUTH OVERRIDE: this batched FE-MI path defaults to njit regardless of the per-call tuner.
     # The tuner sweep was upgraded to measure BOTH backends under realistic joblib worker-thread CONTENTION
-    # (_run_sweep_mi_classif_dispatch) -- and that DID surface a 5-7x cuda contention penalty (n=100k k=20:
+    # (_run_sweep_mi_classif_dispatch) - and that DID surface a 5-7x cuda contention penalty (n=100k k=20:
     # solo 34ms vs contended 135ms). But even the contended microbench still under-counts this path by ~5x
     # vs the real fit: it (a) reuses a warm GPU buffer while production allocates a FRESH engineered
     # candidate array every call (cudaMalloc churn + fresh H2D/D2H), (b) runs MI in isolation while
@@ -468,10 +481,10 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
     # 1.6 vs 5.0 GB peak, byte-identical selection on the canonical 5-feature/n=100k fit). An isolated MI
     # microbench cannot model the full pipeline, so we trust the end-to-end measurement. The principled way
     # to actually WIN on GPU here is to make FE candidates GPU-RESIDENT (eliminating the per-call H2D/D2H
-    # the microbench omits) -- the larger matrix-native FE replatform, tracked separately.
+    # the microbench omits) - the larger matrix-native FE replatform, tracked separately.
     # MLFRAME_MI_BACKEND=cuda forces GPU (handled above) for a caller whose own end-to-end profile shows it.
     # bench-rejected (2026-07-06): the 1M-wellbore .prof attributes 65.6s tottime to THIS dispatch frame, but
-    # that is cProfile mis-attribution -- numba's compiled C body of _plugin_mi_classif_batch_njit has no python
+    # that is cProfile mis-attribution - numba's compiled C body of _plugin_mi_classif_batch_njit has no python
     # frame, so its compute time rolls into this plain-python caller's tottime. Isolated wrapper routing (the
     # 2 cached imports + 2 env reads + gpu_globally_disabled + shape) = 10.1 us/call -> 0.075% at the real
     # ~157-call F2 count; full-vs-njit A/B aggregate -0.78% (noise). COMPUTE-FLOOR: no wrapper/wasted-work/hoist

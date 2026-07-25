@@ -10,8 +10,8 @@ top ``cap`` when the frame is wider than the cap, so the existing O(p^2) joint-M
 sweep stays bounded. That pre-rank PROVABLY cannot recover a *perfectly balanced* (L=0)
 interaction: a pair ``(a,b)`` whose every univariate higher moment vs y is zero (e.g. a
 balanced XOR / sign product) carries ZERO signal in any O(p) per-column score, so neither
-operand enters the kept cap. Only the EXHAUSTIVE C(p,2) joint-MI sweep -- which the measured
-CUDA kernel ``batch_pair_mi_cuda`` runs at ~5e4 pairs/s, fitting 4 GB at p<=10k -- recovers
+operand enters the kept cap. Only the EXHAUSTIVE C(p,2) joint-MI sweep - which the measured
+CUDA kernel ``batch_pair_mi_cuda`` runs at ~5e4 pairs/s, fitting 4 GB at p<=10k - recovers
 such a pair (it ranks a planted balanced XOR pair #0 of 50M with joint MI = ln2).
 
 This module is the SECOND funnel stage: when correctness outranks wall-time, run the full
@@ -22,7 +22,7 @@ Decision policy (``decide_exhaustive_sweep``)
 * ``fe_synergy_exhaustive == "never"``: always take the pre-rank + capped sweep path; the
   exhaustive path does NOT fire (this is what isolates ``fe_synergy_prerank``).
 * ``fe_synergy_exhaustive == "auto"`` (default): ESCALATE to the full exhaustive C(p,2) sweep
-  whenever it is affordable -- i.e. unless a time budget is set (``max_runtime_mins`` /
+  whenever it is affordable - i.e. unless a time budget is set (``max_runtime_mins`` /
   ``fe_synergy_exhaustive_max_seconds``) AND the PREDICTED wall-time exceeds it; with no budget set,
   auto always sweeps. The prediction uses the available backend (CUDA where present, else the CPU
   njit-prange fallback) so the affordable-or-not verdict is hardware-independent. Falls back to the
@@ -50,19 +50,19 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 # Source-code FALLBACK throughput (pairs/s) for the measured CUDA kernel on the bench GTX
 # 1050 Ti (cc 6.1): RESULTS.md reported ~5e4 pairs/s (p=2000 -> 38 s, p=5000 -> 241 s,
 # p=10000 -> 1004 s). Used ONLY when the kernel_tuning_cache has no entry for the live HW.
-# Per `feedback_use_kernel_tuning_cache_for_gpu` this is NOT the dispatch number -- the live
+# Per `feedback_use_kernel_tuning_cache_for_gpu` this is NOT the dispatch number - the live
 # path measures-and-caches per (n, p) below.
 _EXHAUSTIVE_FALLBACK_PAIRS_PER_SEC = 5.0e4
 
 # CPU (njit-prange) fallback throughput (pairs/s). The exhaustive sweep has a CPU backend
 # (batch_pair_mi_njit_prange); on a GPU-less host the exhaustive decision must be made on the CPU cost so
 # that feature EXISTENCE (recovering a balanced L=0 interaction) does NOT depend on whether a CUDA device
-# is present -- only on whether the sweep is affordable on the available hardware. Conservative: the prange
+# is present - only on whether the sweep is affordable on the available hardware. Conservative: the prange
 # kernel is ~1-2 orders slower than the CUDA one, so default to ~2e3 pairs/s (a GPU-less host then runs
 # exhaustive only at small p / generous budget, and force-mode runs it regardless).
 _EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC = 2.0e3
 
-# Tuner sweep grid for the throughput model. Sparse on purpose -- one cheap CUDA timing per
+# Tuner sweep grid for the throughput model. Sparse on purpose - one cheap CUDA timing per
 # region; the cache interpolates the nearest region for the (n, p) at decision time.
 _EXH_TPUT_SWEEP_N_SAMPLES = [50_000, 200_000, 1_000_000]
 _EXH_TPUT_SWEEP_N_PAIRS = [4096, 32768, 131072]
@@ -129,7 +129,7 @@ def measured_pairs_per_second(n_samples: int, n_pairs: int) -> tuple[float, str]
 def _measure_exhaustive_cpu_throughput(dims: dict) -> float:
     """Time ``batch_pair_mi_njit_prange`` (the CPU backend the exhaustive sweep actually runs when no CUDA
     device is present) on a synthetic (n_samples, n_pairs) cell and return the achieved pairs/second. Used
-    as the CPU tuner body for :func:`measured_cpu_pairs_per_second` (FE_REDUNDANCY_SYNERGY-1 fix,
+    as the CPU tuner body for :func:`measured_cpu_pairs_per_second` (
     ); mirrors:func:`_measure_exhaustive_throughput`'s CUDA twin exactly."""
     from .batch_pair_mi_gpu import batch_pair_mi_njit_prange
 
@@ -157,9 +157,9 @@ def _measure_exhaustive_cpu_throughput(dims: dict) -> float:
 
 def measured_cpu_pairs_per_second(n_samples: int, n_pairs: int) -> tuple[float, str]:
     """Per-host measured CPU (njit-prange) pair-MI throughput (pairs/s), looked up from the
-    kernel_tuning_cache (measured on first miss) -- the CPU twin of :func:`measured_pairs_per_second`.
+    kernel_tuning_cache (measured on first miss) - the CPU twin of :func:`measured_pairs_per_second`.
 
-    FE_REDUNDANCY_SYNERGY-1 fix: the CPU-only branch of ``decide_exhaustive_sweep``
+    The CPU-only branch of ``decide_exhaustive_sweep``
     used to hardcode ``_EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC=2000`` with no KTC lookup at all, unlike the
     CUDA branch a few lines above it and contrary to this module's own docstring claim ("NEVER hardcoded
     ... measured-and-cached per host"). A fast many-core CPU host runs far faster than 2000 pairs/s, so
@@ -186,7 +186,7 @@ def measured_cpu_pairs_per_second(n_samples: int, n_pairs: int) -> tuple[float, 
 
 
 def warm_exhaustive_cpu_throughput_cache() -> None:
-    """Populate the per-host CPU throughput cache via ``get_or_tune`` (one-time, async-safe) -- the CPU
+    """Populate the per-host CPU throughput cache via ``get_or_tune`` (one-time, async-safe) - the CPU
     twin of :func:`warm_exhaustive_throughput_cache`. Best effort: callers may skip this and rely on
     :func:`measured_cpu_pairs_per_second`'s fallback."""
     try:
@@ -223,7 +223,7 @@ def warm_exhaustive_cpu_throughput_cache() -> None:
 
 def predict_exhaustive_cpu_seconds(n_samples: int, n_raw: int) -> tuple[float, float, str]:
     """Predicted wall-time (seconds) for the full exhaustive C(n_raw, 2) joint-MI sweep on the CPU
-    njit-prange backend -- the CPU twin of :func:`predict_exhaustive_seconds`."""
+    njit-prange backend - the CPU twin of :func:`predict_exhaustive_seconds`."""
     n_pairs = (int(n_raw) * (int(n_raw) - 1)) // 2
     pps, source = measured_cpu_pairs_per_second(n_samples, n_pairs)
     if pps <= 0:
@@ -284,11 +284,11 @@ def _normalise_mode(raw) -> str:
     """Map the ``fe_synergy_exhaustive`` knob to {"never", "auto", "force"}.
 
     * False / "never"/"off"/"prerank" -> "never": always the O(p) pre-rank + capped sweep (guaranteed fast,
-      never pays for the GPU sweep -- the legacy behaviour).
+      never pays for the GPU sweep - the legacy behaviour).
     * "auto" (default; also None) -> "auto": run the exhaustive C(p,2) sweep WHEN it is affordable (a CUDA GPU
       is available AND the predicted wall-time <= fe_synergy_exhaustive_max_seconds), else fall back to the
-      pre-rank. So at small / moderate p the default gets the COMPLETE result -- including the balanced (L=0)
-      interactions the O(p) pre-rank provably cannot reach -- essentially for free, and only wide frames where
+      pre-rank. So at small / moderate p the default gets the COMPLETE result - including the balanced (L=0)
+      interactions the O(p) pre-rank provably cannot reach - essentially for free, and only wide frames where
       exhaustive would blow the budget fall back to the pre-rank.
     * True / "force"/"1"/"yes"/"on" -> "force": run the exhaustive sweep whenever a GPU is available, IGNORING
       the time budget (the user explicitly wants completeness and accepts the wall-time)."""
@@ -307,9 +307,9 @@ def _normalise_mode(raw) -> str:
 
 
 # Fallback budget (seconds) applied ONLY when the user set NEITHER ``fe_synergy_exhaustive_max_seconds``
-# NOR ``max_runtime_mins`` (2026-07-09 fix). Before this fix, "nothing set" resolved to ``None`` =
+# NOR ``max_runtime_mins``. Before this fix, "nothing set" resolved to ``None`` =
 # UNLIMITED, which made auto mode ALWAYS escalate to the full C(p,2) GPU sweep regardless of predicted
-# cost -- on a wide production pool this could run for hours with no safety net, and a single oversized
+# cost - on a wide production pool this could run for hours with no safety net, and a single oversized
 # monolithic CUDA kernel call is a plausible contributor to a launch-failure/TDR-style GPU crash. 300s (5
 # minutes) is a generous default for a "nice to have completeness" sweep (it only recovers rare perfectly-
 # balanced L=0 interactions the cheap O(p) pre-rank provably cannot); users who want the old unconditional
@@ -323,7 +323,7 @@ def _resolve_exhaustive_budget_seconds(self):
 
     Priority: an explicit ``fe_synergy_exhaustive_max_seconds`` override (if set) wins; otherwise
     ``max_runtime_mins`` * 60 (MRMR's fit-wide budget); otherwise ``_DEFAULT_EXHAUSTIVE_BUDGET_SECONDS``
-    (NOT unlimited -- see that constant's docstring for why "nothing set" must still be bounded)."""
+    (NOT unlimited - see that constant's docstring for why "nothing set" must still be bounded)."""
     override = getattr(self, "fe_synergy_exhaustive_max_seconds", None)
     if override is not None:
         try:
@@ -386,7 +386,7 @@ def decide_exhaustive_sweep(
         # gating its EXISTENCE on GPU presence makes a feature appear on a CUDA host and vanish on a CPU one.
         # Decide on the CPU cost instead -> the decision is hardware-independent (affordable-or-not), not
         # device-gated; the sweep then runs on the CPU backend (see _step_core force_backend selection).
-        # FE_REDUNDANCY_SYNERGY-1 fix: this used to hardcode
+        # This used to hardcode
         # _EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC with NO kernel_tuning_cache lookup at all, unlike the CUDA
         # branch above and contrary to this module's own docstring claim. Warm + consult the per-host
         # measured CPU throughput cache instead; _EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC remains only the
@@ -401,7 +401,7 @@ def decide_exhaustive_sweep(
             f"budget ignored) -- recovers balanced (L=0) interactions the O(p) pre-rank cannot."
         )
     # AUTO: escalate to exhaustive unless a budget is set AND the predicted sweep would exceed it. With NO
-    # budget set (max_runtime_mins is None and no explicit override) p is NOT limited -- auto always sweeps.
+    # budget set (max_runtime_mins is None and no explicit override) p is NOT limited - auto always sweeps.
     # The prediction uses the AVAILABLE backend's throughput, so the affordability verdict is consistent
     # with what will actually run (CUDA where present, CPU prange otherwise).
     if budget is not None and predicted > budget:

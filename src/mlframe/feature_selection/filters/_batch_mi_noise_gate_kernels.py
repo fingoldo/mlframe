@@ -14,7 +14,7 @@ import math
 import numpy as np
 from numba import njit, prange
 
-# Optional GPU deps -- mirror batch_pair_mi_gpu.py's probe order exactly.
+# Optional GPU deps - mirror batch_pair_mi_gpu.py's probe order exactly.
 try:
     from numba import cuda as _nb_cuda
 except Exception:
@@ -43,14 +43,14 @@ except Exception:
     _cp = None
     _CUPY_AVAIL = False
 
-# OPT-D (2026-06-07): cupy's public ``cupy.bincount`` runs TWO host-blocking
-# synchronizations on EVERY call -- ``(x < 0).any()`` (non-negativity validation)
-# and ``int(cupy.max(x))`` (output sizing) -- before the actual histogram kernel.
+# OPT-D: cupy's public ``cupy.bincount`` runs TWO host-blocking
+# synchronizations on EVERY call - ``(x < 0).any()`` (non-negativity validation)
+# and ``int(cupy.max(x))`` (output sizing) - before the actual histogram kernel.
 # In ``batch_mi_with_noise_gate_cupy`` both are pure overhead: the flat index is
 # constructed non-negative (offsets + non-negative codes) and the output size is
 # already known exactly (``rows*total_size`` = the ``minlength`` we pass). Those two
 # syncs were the dominant cost of the scene MRMR ``bincount`` hotspot (~26% of fit
-# wall in the sampler) -- NOT the count kernel. ``cupy._statistics.histogram._bincount_kernel``
+# wall in the sampler) - NOT the count kernel. ``cupy._statistics.histogram._bincount_kernel``
 # is the SAME ElementwiseKernel ``cupy.bincount`` dispatches into, so calling it
 # directly into a pre-zeroed array of the known size is BYTE-IDENTICAL (verified:
 # profiling/bench_cupy_bincount_sync.py, 3.0-5.4x faster, byte_identical=True on every
@@ -64,7 +64,7 @@ except Exception:
 
 def _cupy_bincount_known_size(d_flat, size):
     """``cupy.bincount(d_flat, minlength=size)[:size]`` for the case where ``size`` is
-    KNOWN exactly and ``d_flat`` is non-negative by construction -- skips cupy.bincount's
+    KNOWN exactly and ``d_flat`` is non-negative by construction - skips cupy.bincount's
     ``(x<0).any()`` + ``cupy.max(x)`` host-sync barriers. BYTE-IDENTICAL output (same
     underlying ElementwiseKernel). Falls back to public ``cupy.bincount`` if the private
     kernel symbol is unavailable on this cupy build."""
@@ -84,7 +84,7 @@ def _cupy_bincount_known_size(d_flat, size):
 
 @njit(nogil=True, cache=True)
 def _mi_from_counts_cpu(
-    joint_counts: np.ndarray,  # (nbins_x, K_y) int64 -- integer joint histogram
+    joint_counts: np.ndarray,  # (nbins_x, K_y) int64 - integer joint histogram
     nbins_x: int,
     freqs_y: np.ndarray,  # (K_y,) float64
     n: int,
@@ -94,7 +94,7 @@ def _mi_from_counts_cpu(
     reproducing ``_relevance_from_dense`` to the bit.
 
     Iterates ``for i in nbins_x: for j in K_y`` in ascending bin-code order,
-    skipping empty (count==0) cells -- exactly the CPU kernel's accumulation
+    skipping empty (count==0) cells - exactly the CPU kernel's accumulation
     order. ``prob_x`` is ``fx/n`` (``fx`` = row sum), matching the CPU kernel's
     ``freqs_dense[k, i] = counts[c] / n`` (an int/int float division, NOT
     ``counts * (1/n)``), so the float result is identical bit-for-bit. Empty
@@ -143,14 +143,14 @@ def _mi_from_counts_cpu(
 
 @njit(nogil=True, cache=True)
 def _mi_columns_from_counts_cpu(
-    counts_flat: np.ndarray,  # (total_size,) int64 -- flat per-column joint histograms
-    col_offsets: np.ndarray,  # (K,) int64 -- start offset of column k
+    counts_flat: np.ndarray,  # (total_size,) int64 - flat per-column joint histograms
+    col_offsets: np.ndarray,  # (K,) int64 - start offset of column k
     nbins_arr: np.ndarray,  # (K,) int64
     K_y: int,
     freqs_y: np.ndarray,  # (K_y,) float64
     n: int,
     use_su: bool,
-    ref_mi: np.ndarray,  # (K,) float64 -- compute column k only when ref_mi[k] > 0
+    ref_mi: np.ndarray,  # (K,) float64 - compute column k only when ref_mi[k] > 0
 ) -> np.ndarray:
     """Reduce MI for ALL K columns in ONE njit call instead of K separate Python->njit
     dispatches. Calls the SAME ``_mi_from_counts_cpu`` body per column (a compiled, not
@@ -190,16 +190,16 @@ def _fisher_yates_shuffle(classes_y_safe: np.ndarray, base_seed: np.uint64, perm
 
 def _cuda_mi_from_counts_kernel_factory():
     """numba.cuda kernel: MI of every (column k, y-vector p) from the integer joint histograms, ON the
-    GPU -- one thread per (k, p). Reproduces ``_mi_from_counts_cpu`` (use_su=False) reduction order
+    GPU - one thread per (k, p). Reproduces ``_mi_from_counts_cpu`` (use_su=False) reduction order
     EXACTLY (prob_x = fx/n int/int division; jf = jc/n; mi += jf*log(jf/(prob_x*prob_y))), so the result
-    matches the CPU entropy to fp round-off (selection-equivalent -- the FE perf bar). This is the last
+    matches the CPU entropy to fp round-off (selection-equivalent - the FE perf bar). This is the last
     CPU step of the noise gate; keeping it on-device lets the whole (orig + perms) gate run from resident
     counts with only the small (P, K) MI matrix coming back. ``ref_mi`` masks perm columns whose original
     MI is <= 0 (exactly the CPU loop's perm-skip).
 
-    coalescing-audit (2026-06-23): NOT A LEVER -- at floor. CUDA-event A/B at the production gate shape
+    coalescing-audit: NOT A LEVER - at floor. CUDA-event A/B at the production gate shape
     (n=100k, K=583, P=26, K_y=20, nbins=10, GTX 1050 Ti): the whole MI reduction = 4.15ms, reading the
-    SMALL resident counts buffer (P*total_size = ~3M int64 = 24.3MB) -- vs the hist kernel ~184ms (post the
+    SMALL resident counts buffer (P*total_size = ~3M int64 = 24.3MB) - vs the hist kernel ~184ms (post the
     5.59x cm fix) and the materialise ~70ms. Even a perfect coalescing of the per-(k,p) ``counts_flat`` read
     would save <4ms of the fit and the buffer is tiny; the per-thread reduction over one column's joint
     histogram (nb_k*K_y contiguous int64) is already the natural layout. The ``y_all[p, r]`` re-reads the
@@ -211,13 +211,13 @@ def _cuda_mi_from_counts_kernel_factory():
 
     @_nb_cuda.jit
     def _kernel(
-        counts_flat,  # (P*total_size,) int64 -- per-(p) per-column joint histograms
+        counts_flat,  # (P*total_size,) int64 - per-(p) per-column joint histograms
         col_offsets,  # (K,) int64
         nbins_col,  # (K,) int32
         freqs_y,  # (K_y,) float64
         n,
         K_y,
-        ref_mi,  # (K,) float64 -- original_mi; perm columns with ref_mi<=0 are skipped (-> 0)
+        ref_mi,  # (K,) float64 - original_mi; perm columns with ref_mi<=0 are skipped (-> 0)
         total_size,
         P,
         out_mi,  # (P, K) float64 output
@@ -293,7 +293,7 @@ def _gate_from_mi(
 
 
 # Bit-identical host LCG used to fill a WHOLE (npermutations, n) shuffle matrix in
-# one njit-prange pass -- the GPU-resident kernel uploads this matrix ONCE instead
+# one njit-prange pass - the GPU-resident kernel uploads this matrix ONCE instead
 # of one cp.asarray(shuffled) per permutation. Each row i reproduces
 # ``_fisher_yates_shuffle(classes_y_safe, base_seed, i)`` EXACTLY.
 # NOTE: ``prange`` MUST be imported from numba (see the module-level import); with
@@ -303,7 +303,7 @@ def _gate_from_mi(
 @njit(nogil=True, cache=True, parallel=True)
 def _build_shuffle_matrix(classes_y_safe: np.ndarray, base_seed: np.uint64, npermutations: int) -> np.ndarray:
     """``out[i, :]`` = ``classes_y_safe`` Fisher-Yates-shuffled with the per-perm LCG
-    seed ``base_seed*2654435761 + (i+1)`` -- bit-identical to the CPU kernel's stream
+    seed ``base_seed*2654435761 + (i+1)`` - bit-identical to the CPU kernel's stream
     for every permutation, materialised as one (npermutations, n) int matrix for a
     single H2D upload."""
     ny = classes_y_safe.shape[0]
@@ -338,10 +338,10 @@ def _cuda_hist_kernel_factory():
     @_nb_cuda.jit
     def _kernel(
         disc_2d,  # (n, K) int32
-        col_offsets,  # (K,) int64 -- start offset of column k in counts_flat
+        col_offsets,  # (K,) int64 - start offset of column k in counts_flat
         nbins_col,  # (K,) int32
-        y_codes,  # (n,) int32 -- the (shuffled) target codes
-        counts_flat,  # (total_size,) int64 -- output, zeroed by host
+        y_codes,  # (n,) int32 - the (shuffled) target codes
+        counts_flat,  # (total_size,) int64 - output, zeroed by host
         n,
         K_y,
     ):
@@ -373,7 +373,7 @@ def _cuda_hist_kernel_batched_factory():
     def _kernel_b(disc_2d, col_offsets, y_all, counts_flat, n, K_y, total_size):
         """numba.cuda kernel: grid (K, P), accumulates the joint histogram of column k against permutation p's y-vector in one launch across all permutations."""
         # bench-attempt-rejected (2026-06-21): column-major (K,n) coalescing of this batched hist was
-        # 0.79-1.05x (LOSS) -- the host transpose-copy cost outweighs any coalescing gain and the kernel
+        # 0.79-1.05x (LOSS) - the host transpose-copy cost outweighs any coalescing gain and the kernel
         # is not actually bandwidth-coalescing-bound here (consistent with the radix/noise-gate coalescing
         # washes). Kept row-major (n, K).
         k = _nb_cuda.blockIdx.x
@@ -401,7 +401,7 @@ def _cuda_hist_kernel_batched_shared_factory():
     per-column histogram (nb_k*K_y int32) fitting the shared budget; else the global-atomic kernel.
 
     bench-attempt-rejected (2026-06-21): column-major (K,n) coalescing of THIS shared kernel is 0.89x
-    (loss) even with the transpose amortised over all P perms -- post-privatization the kernel is
+    (loss) even with the transpose amortised over all P perms - post-privatization the kernel is
     SHARED-ATOMIC-bound (n counts/block), not disc-load-bound (despite gld_efficiency ~13.8%), so fixing
     the load layout doesn't help and the transpose pass only adds work. Kept row-major (n, K)."""
     if not _CUDA_AVAIL:
@@ -443,12 +443,12 @@ def _cuda_hist_kernel_batched_shared_factory():
 def _cuda_hist_kernel_batched_shared_cm_factory():
     """COLUMN-MAJOR (K, n) variant of the shared-mem privatized batched joint-histogram ``_kernel_bs``.
 
-    bench-CORRECTION (2026-06-23): the 2026-06-21 note on ``_kernel_bs`` claimed the shared kernel is
+    bench-CORRECTION: the 2026-06-21 note on ``_kernel_bs`` claimed the shared kernel is
     "shared-atomic-bound (n counts/block), not disc-load-bound" and rejected the column-major layout.
     A CUDA-event component decomposition at the real gate shape (n=100k, K=583, P=26, nbins=K_y=20,
     128 threads) DISPROVES that: the per-row shared atomics are only ~3% of the kernel (34ms of 1031ms;
     a loads-only no-atomic probe ran 997ms), warp-private sub-histogram replication gave ~1.0x, and the
-    kernel runs at ~12 GB/s << the ~96 GB/s read peak -- it is LOAD-bound, throttled by the stride-K
+    kernel runs at ~12 GB/s << the ~96 GB/s read peak - it is LOAD-bound, throttled by the stride-K
     ``disc_2d[r, k]`` read (consecutive threads read rows = K*itemsize apart -> ~1/8 coalesced). Reading
     the SAME values from a (K, n) C-order buffer (``disc_cm[k, r]`` = consecutive threads read consecutive
     memory) is fully coalesced: kernel-only 1036ms -> 82ms = 12.55x at 147 GB/s, and with a fresh

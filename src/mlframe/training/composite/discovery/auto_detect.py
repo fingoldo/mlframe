@@ -203,7 +203,7 @@ def detect_group_column_candidates(
                 try:
                     dtype = df.schema[c]
                 except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                    logging.getLogger(__name__).debug("suppressed in auto_detect.py:204: %s", e)
+                    logging.getLogger(__name__).debug("suppressed: %s", e)
                     continue
                 if dtype in int_dtypes and df.get_column(c).drop_nulls().n_unique() <= max_unique:
                     cand.append(c)
@@ -395,7 +395,7 @@ def detect_cat_columns(
                 try:
                     dtype = df.schema[c]
                 except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                    logging.getLogger(__name__).debug("suppressed in auto_detect.py:388: %s", e)
+                    logging.getLogger(__name__).debug("suppressed: %s", e)
                     continue
                 if dtype in temporal_dtypes:
                     continue

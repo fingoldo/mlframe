@@ -1,4 +1,4 @@
-"""Cross-family candidate collector for the GPU FE batcher (2026-06-26).
+"""Cross-family candidate collector for the GPU FE batcher.
 
 Many FE families each emit a SMALL candidate matrix (tens-hundreds of columns on a low-cardinality target).
 Scoring them one family at a time issues many small-grid GPU launches that under-occupy a weak card and pay
@@ -7,12 +7,12 @@ candidate columns into ONE (n, sum_K) matrix and scores them in ONE batched MI c
 per-call overhead and raising GPU occupancy (the bigger grid fills more SMs).
 
 Measured on a GTX 1050 Ti (F=20 families x 30 cols, batched vs separate), DEFAULT-ACTIVE on both backends:
-  * CPU (the dispatcher's default on this card): ~1.44-1.57x -- batching N small njit prange calls into one
+  * CPU (the dispatcher's default on this card): ~1.44-1.57x - batching N small njit prange calls into one
     amortises per-call dispatch + fills the cores better (the win this card actually realises by default).
-  * GPU f32: ~1.32x -- amortises the per-call H2D + launch overhead (nsys: 20 H2D + 20 launch-sets -> 1).
+  * GPU f32: ~1.32x - amortises the per-call H2D + launch overhead (nsys: 20 H2D + 20 launch-sets -> 1).
 The win grows with the number of small families. (A column-major MI kernel to "coalesce" the big batched read
 was tried and REJECTED: the transpose costs more than it saves, 0.38x.) Per-column MI is independent, so the
-batched result is BIT-IDENTICAL to the per-family results (just reassembled by column offset) -- the collector
+batched result is BIT-IDENTICAL to the per-family results (just reassembled by column offset) - the collector
 never changes selection.
 """
 from __future__ import annotations
@@ -25,7 +25,7 @@ import numpy as np
 def collect_and_score(matrices: Sequence[Any], y_codes: np.ndarray, nbins: int = 10) -> list[np.ndarray]:
     """Score a list of per-family candidate matrices (each (n, k_f), same n) in ONE batched MI call via the
     dispatcher (CPU/GPU by flags+hardware). Returns a list of per-family (k_f,) float64 MI arrays in input
-    order -- bit-identical to scoring each separately (per-column MI is independent), just reassembled by
+    order - bit-identical to scoring each separately (per-column MI is independent), just reassembled by
     column offset. None / empty matrices map to empty results."""
     sizes = []
     valid = []

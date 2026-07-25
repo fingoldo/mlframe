@@ -1,14 +1,14 @@
-"""Layer 100 (2026-06-01): UNIFY scorer-selection under the Param-Oracle.
+"""Layer 100: UNIFY scorer-selection under the Param-Oracle.
 
 Two scorer-selection mechanisms shipped before this layer:
 
 * **Layer 68** (``_orthogonal_scorer_auto_fe``): per-column bootstrap-LCB
   bake-off that runs ALL scorers ({plug_in, KSG, copula, dCor, HSIC}) and
-  picks the winner. Correct but EXPENSIVE -- O(n_scorers * n_boot) MI
+  picks the winner. Correct but EXPENSIVE - O(n_scorers * n_boot) MI
   compute on every column, paid on every fit.
 * **Layer 76** (``_orthogonal_meta_scorer_fe``): cheap fingerprint -> rule
   cascade (``predict_best_scorer``) that runs ONE scorer. Fast but STATIC
-  -- the rules are distilled from the L75 matrix and never improve from
+  - the rules are distilled from the L75 matrix and never improve from
   observed downstream quality.
 
 Layer 98 built the Param-Oracle (``mlframe.utils._param_oracle``): a
@@ -21,7 +21,7 @@ choice, UNIFYING the two prior mechanisms into one adaptive path:
   reimplemented). The static rules are the right prior before any data.
 * **benchmark = L68-as-populator**: the expensive L68-style bake-off runs
   ONCE via :meth:`OracleScorerSelector.benchmark_all_scorers`, recording
-  every scorer's measured quality into the oracle. The cost amortises --
+  every scorer's measured quality into the oracle. The cost amortises -
   run the bake-off once, recommend forever.
 * **learned**: once the oracle has confident history (>= ``min_observations``
   observations) for a fingerprint bucket, the learned-best scorer wins
@@ -34,7 +34,7 @@ backs the oracle (``mlframe.utils._param_oracle.default_fingerprint``).
 
 The store is **stat-only** (Param-Oracle's hard constraint): only scalar
 fingerprint stats, the scorer name, and the recorded quality ever touch
-disk -- never the raw arrays.
+disk - never the raw arrays.
 
 Wiring: opt-in via ``MRMR(fe_hybrid_orth_default_scorer="auto_oracle")``.
 The existing ``"auto"`` (L68) and ``"meta"`` (L76) values keep working
@@ -87,8 +87,8 @@ ORACLE_FN_NAME = "orth_scorer_select"
 # LRU-ish cap so a long-lived process cycling through many distinct store paths does not grow unbounded.
 _ROWS_CACHE: "dict[tuple[str, float], list[dict]]" = {}
 _ROWS_CACHE_MAX = 8
-# ORTH_SCORING_B-3 fix: the get-check-evict-write sequence below used to run with
-# no lock -- empirically reproduced 225 crashes/32-thread stress test (`dictionary changed size during
+# The get-check-evict-write sequence below used to run with
+# no lock - empirically reproduced 225 crashes/32-thread stress test (`dictionary changed size during
 # iteration` when two threads both call next(iter(_ROWS_CACHE)) while a third mutates it; KeyError when
 # .pop(key) races another thread's eviction of the same key). Needs real contention to trigger (a joblib-
 # parallel grid search fitting several MRMR models concurrently against enough distinct store fingerprints
@@ -129,14 +129,14 @@ def _quality_objective(output: Any, elapsed_s: float, rss_delta_mb):
 
     ``output`` is expected to be a ``(scorer_name, quality_float)`` tuple
     emitted by the bake-off closure. The oracle maximises ``quality`` and
-    tie-breaks on ``elapsed_s`` (cheaper wins) -- so two scorers of equal
+    tie-breaks on ``elapsed_s`` (cheaper wins) - so two scorers of equal
     quality resolve to the faster one, exactly the L76 amortisation intent.
     """
     try:
         _scorer, q = output
     except Exception as exc:
-        # ORTH_SCORING_B-7 fix: was unlogged and broader than this module's own
-        # numeric-error conventions elsewhere -- a malformed bake-off output (e.g. a future refactor
+        # Was unlogged and broader than this module's own
+        # numeric-error conventions elsewhere - a malformed bake-off output (e.g. a future refactor
         # changing the closure's return shape) silently persisted quality=NaN into the on-disk Param-Oracle
         # store with zero diagnostic trace.
         logger.debug("_quality_objective: could not unpack (scorer_name, quality) from output=%r: %r", output, exc)
@@ -149,7 +149,7 @@ class OracleScorerSelector:
 
     Keyed on the dataset fingerprint (the SAME
     :func:`mlframe.utils._param_oracle.default_fingerprint` the oracle uses
-    everywhere -- not a duplicate fingerprinter). The param space is the
+    everywhere - not a duplicate fingerprinter). The param space is the
     single ``"scorer"`` axis over :data:`ORACLE_SCORER_NAMES`; the objective
     is the scorer's selection quality (maximised, cheaper-tie-broken).
 
@@ -159,7 +159,7 @@ class OracleScorerSelector:
         Param-Oracle parquet store path. A bare filename resolves under
         :func:`mlframe.utils._param_oracle.default_store_dir`.
     min_observations:
-        Confidence gate -- the learned-best scorer is only trusted once its
+        Confidence gate - the learned-best scorer is only trusted once its
         fingerprint bucket has at least this many observations; otherwise we
         fall back to the L76 cold-start cascade.
     scorer_names:
@@ -203,9 +203,9 @@ class OracleScorerSelector:
         """Recommend a scorer for ``(X, y)``.
 
         Resolution:
-          1. LEARNED -- if the oracle has a confident (>= ``min_observations``)
+          1. LEARNED - if the oracle has a confident (>= ``min_observations``)
              best scorer for this fingerprint bucket, return it.
-          2. COLD-START -- otherwise fall back to L76's
+          2. COLD-START - otherwise fall back to L76's
              :func:`predict_best_scorer` on the SAME ``(X, y)`` (reused, not
              reimplemented). On any failure (e.g. ``y`` is None / non-pandas)
              degrade to the first scorer in the pool.
@@ -222,7 +222,7 @@ class OracleScorerSelector:
 
         We do NOT use ``oracle.recommend`` here because its cold-store /
         k-NN / global-best fallbacks would mask the "no confident history"
-        signal -- we WANT that signal so the caller can route to the L76
+        signal - we WANT that signal so the caller can route to the L76
         cold-start cascade instead of an over-eager global best. So we read
         the exact-bucket rows directly and apply only the confidence gate.
         """
@@ -310,7 +310,7 @@ class OracleScorerSelector:
         columns (the same ``lcb_norm_per_scorer`` headroom metric Layer 68
         computes), which is dimensionless and cross-scorer comparable. The
         scorer that gets closest to its own ceiling on the engineered
-        columns earns the highest recorded quality -- exactly the L68
+        columns earns the highest recorded quality - exactly the L68
         selection criterion, now persisted instead of discarded.
 
         Returns

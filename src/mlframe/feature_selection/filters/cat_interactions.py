@@ -6,7 +6,7 @@ For each pair of categorical (or pre-discretized numeric) columns ``(X_i, X_j)``
 
     II(X_i ; X_j ; Y) = I(X_i, X_j ; Y) - I(X_i ; Y) - I(X_j ; Y)
 
-and keep the top-K pairs whose II indicates *synergy* (positive II: the joint tells the target more than the sum of marginals -- the canonical XOR-style hidden pair).
+and keep the top-K pairs whose II indicates *synergy* (positive II: the joint tells the target more than the sum of marginals - the canonical XOR-style hidden pair).
 Surviving pairs become new ordinal-encoded columns appended to ``data`` / ``cols`` / ``nbins``, and recipes (``EngineeredRecipe(kind="factorize")``) land in
 ``self._cat_fe_state_.recipes`` so ``MRMR.transform`` can replay them on test data.
 
@@ -17,7 +17,7 @@ multi-test correction, greedy k-way expansion to triplets / quartets, K-fold II 
 References
 ----------
 * Jakulin & Bratko 2003, *Quantifying and Visualizing Attribute Interactions*
-* Williams & Beer 2010 (PID -- documented limitation)
+* Williams & Beer 2010 (PID - documented limitation)
 * Paninski 2003 *Estimation of Entropy and Mutual Information* (Miller-Madow, bias formulas, sample-size guidance)
 """
 
@@ -59,7 +59,7 @@ def _column_signature(values: np.ndarray, nbins: int) -> np.ndarray:
 def _target_signature(target_codes: np.ndarray) -> str:
     """Content signature of the (discretized) target column(s) used to gate marginal-MI cache reuse.
 
-    The cached marginal MI is ``MI(X; Y)`` -- it depends on the JOINT (X, Y), not on X's distribution alone.
+    The cached marginal MI is ``MI(X; Y)`` - it depends on the JOINT (X, Y), not on X's distribution alone.
     ``_column_signature`` captures only X's bincount, so two fits with an identical X distribution but a
     different / relabelled / re-aligned Y would otherwise collide and reuse a STALE MI. Hashing the exact
     target codes invalidates the whole cache whenever Y changes, which is the only sound reuse predicate.
@@ -87,7 +87,7 @@ def _restore_cached_marginal_mis(
 ) -> tuple:
     """Decide per candidate column whether the cached marginal MI is reusable; returns ``(reusable_mask, marginal_mi_reused, new_signatures)``.
 
-    The mask is True for columns whose signature KL-divergence vs the cached version is below ``kl_threshold`` -- those rows reuse the cached MI and skip the screen pass.
+    The mask is True for columns whose signature KL-divergence vs the cached version is below ``kl_threshold`` - those rows reuse the cached MI and skip the screen pass.
 
     Reuse additionally REQUIRES the cached target signature to match ``target_sig``: the cached value is ``MI(X; Y)``, so a changed Y must invalidate every column even when X's distribution is unchanged (otherwise a stale MI is reused and columns are mis-pruned).
     """
@@ -122,7 +122,7 @@ def resolve_max_combined_nbins(cfg: CatFEConfig, n_samples: int, hard_cap: int =
     ``None`` -> Paninski-derived data-aware ceiling: ``max(4, int(n * 0.05 / 3) + 1)``. Empirically this keeps per-cell observation count above ~3 at the sample sizes
     where MI estimation stops being noise.
 
-    Always clamped to ``hard_cap`` (10**7) regardless of user value -- prevents OOM via misconfig like ``max_combined_nbins=10**9`` (4 GB freqs allocation).
+    Always clamped to ``hard_cap`` (10**7) regardless of user value - prevents OOM via misconfig like ``max_combined_nbins=10**9`` (4 GB freqs allocation).
     """
     if cfg.max_combined_nbins is None:
         # Paninski bias ~ (k-1)/(2n) per entropy term. For 0.05 nat tolerance across 3 entropies: 3*(k-1)/(2n) < 0.05 -> k < n*0.05/1.5 + 1 ~= n/30 + 1.
@@ -136,7 +136,7 @@ def resolve_max_combined_nbins(cfg: CatFEConfig, n_samples: int, hard_cap: int =
 def resolve_min_interaction_information(cfg: CatFEConfig, n_samples: int) -> float:
     """Resolve ``cfg.min_interaction_information`` to a concrete float.
 
-    ``None`` -> ``-3 / sqrt(n)`` -- small-negative absorbs finite-sample noise around the synergy boundary so that pure k-way XOR (where all 2-way IIs are 0 in
+    ``None`` -> ``-3 / sqrt(n)`` - small-negative absorbs finite-sample noise around the synergy boundary so that pure k-way XOR (where all 2-way IIs are 0 in
     expectation but noisy) can still bubble survivors to the heap.
     """
     if cfg.min_interaction_information is None:
@@ -145,7 +145,7 @@ def resolve_min_interaction_information(cfg: CatFEConfig, n_samples: int) -> flo
 
 
 # ============================================================================
-# Validation gates -- run BEFORE the heavy kernels
+# Validation gates - run BEFORE the heavy kernels
 # ============================================================================
 
 
@@ -212,7 +212,7 @@ def _marginal_screen_njit(
 ) -> np.ndarray:
     """Compute ``I(X_i ; Y)`` for every ``i`` in ``candidate_idxs``.
 
-    Runs ``prange`` over candidates -- each thread merges its column into ``classes_x`` independently, then computes MI. No per-thread state shared.
+    Runs ``prange`` over candidates - each thread merges its column into ``classes_x`` independently, then computes MI. No per-thread state shared.
 
     Returns a 1-D float64 array of length ``len(candidate_idxs)``, aligned with the input order. Cells for unmergeable / zero-MI columns simply produce ``0.0``
     (downstream logic handles those via ``cfg.marginal_floor``).
@@ -252,10 +252,10 @@ def _marginal_screen_weighted(
     """Weighted twin of :func:`_marginal_screen_njit`: compute ``I(X_i ; Y)`` for every ``i`` in
     ``candidate_idxs`` under per-row sample weights, via :func:`compute_mi_from_classes_weighted`.
 
-    CAT_INTERACTION_A-1 fix: the marginal-MI term subtracted in every Interaction
+    The marginal-MI term subtracted in every Interaction
     Information computation (``II = I(Xi,Xj;Y) - I(Xi;Y) - I(Xj;Y)``) was ALWAYS built via the unweighted
     ``_marginal_screen_njit``, even when ``cfg.sample_weight_col`` made the search-phase joint-MI kernel
-    (``_pair_search_kernel_weighted_njit``) weighted -- mixing a correctly-weighted joint term with an
+    (``_pair_search_kernel_weighted_njit``) weighted - mixing a correctly-weighted joint term with an
     UNWEIGHTED marginal term produced an internally-inconsistent II for every downstream consumer
     (top-K selection, permutation confirmation's ``ii_obs`` statistic, k-way greedy expansion's baseline,
     the diagnostics fields). Not njit'd (plain Python loop over the already-small post-screen candidate
@@ -291,9 +291,9 @@ def _marginal_screen_weighted(
 @njit(parallel=True, cache=True)
 def _pair_search_kernel_njit(
     factors_data: np.ndarray,
-    pairs_a: np.ndarray,  # (n_pairs,) int -- left column index
-    pairs_b: np.ndarray,  # (n_pairs,) int -- right column index
-    marginal_mi: np.ndarray,  # (n_cols_in_data,) -- I(X_i; Y) for ALL cols
+    pairs_a: np.ndarray,  # (n_pairs,) int - left column index
+    pairs_b: np.ndarray,  # (n_pairs,) int - right column index
+    marginal_mi: np.ndarray,  # (n_cols_in_data,) - I(X_i; Y) for ALL cols
     nbins: np.ndarray,
     classes_y: np.ndarray,
     freqs_y: np.ndarray,
@@ -301,7 +301,7 @@ def _pair_search_kernel_njit(
 ) -> tuple:
     """For each pair ``(a, b)`` compute joint MI and Jakulin II.
 
-    Returns ``(joint_mi_arr, ii_arr, n_uniq_arr)`` -- three 1-D arrays of length ``len(pairs_a)`` aligned with the input order.
+    Returns ``(joint_mi_arr, ii_arr, n_uniq_arr)`` - three 1-D arrays of length ``len(pairs_a)`` aligned with the input order.
 
     Optimisation: instead of calling ``merge_vars`` per pair (which allocates per-call), we compute the joint code directly as
     ``code = data[row, i] + data[row, j] * nbins[i]``. This works because for plug-in MI estimation, empty cells contribute 0 to entropy and the dense-renumbering

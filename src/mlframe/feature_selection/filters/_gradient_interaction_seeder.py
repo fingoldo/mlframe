@@ -1,4 +1,4 @@
-"""Gradient-interaction (mixed second partials) seeder for MRMR FE -- backlog idea #21.
+"""Gradient-interaction (mixed second partials) seeder for MRMR FE - backlog idea #21.
 
 WHAT
 ----
@@ -32,11 +32,11 @@ SELF-GATE (load-bearing noise control)
 
 KERNELS (keep-all-kernel-versions rule)
 ---------------------------------------
-* ``_rff_analytic_mixed_partial_energy`` -- EXACT closed-form mixed partial for an RFF + ridge
+* ``_rff_analytic_mixed_partial_energy`` - EXACT closed-form mixed partial for an RFF + ridge
   surrogate (``f = sum_r c_r*sqrt(2/D)*cos(w_r.x+b_r)`` ->
   ``d2f/dxa dxb = -sum_r c_r*sqrt(2/D)*w[r,a]*w[r,b]*cos(w_r.x+b_r)``). Cheap (one cos matrix,
   reused across all pairs) and the routed default.
-* ``_finite_diff_mixed_partial_energy`` -- central finite differences on standardized features;
+* ``_finite_diff_mixed_partial_energy`` - central finite differences on standardized features;
   model-agnostic fallback (works for any ``predict`` surrogate), dependency-free.
 
 DISPATCH
@@ -46,12 +46,12 @@ the per-host ``pyutilz`` kernel_tuning_cache (NOT hardcoded; documented measured
 surrogate fit + null are restricted to a ROW SAMPLE (``<= row_cap`` rows) and the proposer is
 gated OFF outside the regime where it pays.
 
-bench-reject note (2026-06-10): on the prescribed cheap-validation fixture
+bench-reject note: on the prescribed cheap-validation fixture
 ``y=sin(x5)*x31+noise`` (n=2000, p=60) the gradient detector ranks the (5,31) saddle pair #1 and
 proposes EXACTLY that pair, BUT the surrogate-GBM split-co-occurrence ranking ALSO ranks (5,31)
-#1 -- modern boosting represents a smooth 2-way product over N(0,1) fine, so the two are equally
+#1 - modern boosting represents a smooth 2-way product over N(0,1) fine, so the two are equally
 good there, NOT complementary, and the GBM does not under-rank it. The full self-gated proposer
-(OOF gate + 12-shuffle null) costs ~8 s at n=2000/p=60 -- too heavy to default-on. Shipped as a
+(OOF gate + 12-shuffle null) costs ~8 s at n=2000/p=60 - too heavy to default-on. Shipped as a
 module routed OFF by default (opt-in ``fe_gradient_interaction_enable``); the single-fit core
 (surrogate + analytic energy, no null) is ~0.4 s and is what the dispatcher would route if a
 cheaper null is found. Noise control HOLDS (pure-noise and additive both -> 0 proposals).
@@ -69,7 +69,7 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Measured-fallback dispatch thresholds (overridden per-host by kernel_tuning_cache / env).
 # Rationale lives in ``_route_gradient_seeder``.
-_GRAD_DEFAULT_ROW_CAP = 2000  # surrogate + null fit on at most this many rows (idea #21 is the heaviest -- keep lean)
+_GRAD_DEFAULT_ROW_CAP = 2000  # surrogate + null fit on at most this many rows (idea #21 is the heaviest - keep lean)
 _GRAD_DEFAULT_MIN_P = 8  # below this p, all-pairs is trivial; the seeder adds no value
 _GRAD_DEFAULT_MAX_P = 200  # above this p, the O(p^2) energy tally + null is the cost wall
 _GRAD_DEFAULT_N_COMPONENTS = 400  # RFF feature count for the surrogate
@@ -78,7 +78,7 @@ _GRAD_DEFAULT_Q = 0.99  # null quantile
 # Multiplicative margin on the q99 permutation-null floor. Calibrated 2026-06-10 so the saddle
 # WIN survives AND additive / pure-noise both emit 0 on BOTH the raw-continuous target (the
 # standalone/unit case) and the DISCRETISED ordinal target the live FE gates score on (the
-# integration case -- a weaker, noisier signal). 1.5 (the value first tuned on the continuous
+# integration case - a weaker, noisier signal). 1.5 (the value first tuned on the continuous
 # target alone) was too strict and killed the win on the discretised target; 1.2 holds both.
 _GRAD_DEFAULT_NULL_MULT = 1.2
 _GRAD_DEFAULT_OOF_MARGIN = 0.02  # OOF R2 must beat permuted-y baseline by this
@@ -158,7 +158,7 @@ def _fit_additive_residual(Xs: np.ndarray, y: np.ndarray, n_per_feat: int, alpha
     """GAM-style additive surrogate (sum of per-feature 1D RFF); return residual r = y - add_pred.
 
     The full interaction surrogate is then fit on ``r`` so its mixed partials carry ONLY
-    interaction curvature -- a purely additive target leaves a residual with ~zero mixed partials
+    interaction curvature - a purely additive target leaves a residual with ~zero mixed partials
     (the calculus property), which is what makes the additive noise-control case emit 0 proposals.
     """
     from sklearn.kernel_approximation import RBFSampler
@@ -213,11 +213,11 @@ def _rff_analytic_mixed_partial_energy_loop(rbf, ridge, Xs: np.ndarray, pairs):
 
 
 def _rff_analytic_mixed_partial_energy(rbf, ridge, Xs: np.ndarray, pairs, chunk: int = 256):
-    """EXACT E[(d2f/dxa dxb)^2] for an RFF + ridge surrogate -- BATCHED over pairs (routed default).
+    """EXACT E[(d2f/dxa dxb)^2] for an RFF + ridge surrogate - BATCHED over pairs (routed default).
 
     Same math as ``_rff_analytic_mixed_partial_energy_loop`` but the per-pair length-n second
     partial is built for a CHUNK of pairs at once via a single (n, D) x (D, chunk) matmul instead
-    of one matmul per pair -- ~5-10x faster at p=60/D=400 (the n=2000/p=60 hotspot in cProfile).
+    of one matmul per pair - ~5-10x faster at p=60/D=400 (the n=2000/p=60 hotspot in cProfile).
     The sign is irrelevant (energy squares it). Pairs are processed in chunks of ``chunk`` to keep
     the (n, chunk) intermediate bounded.
     """
@@ -289,7 +289,7 @@ def rank_gradient_interaction_pairs(
 
     Returns ``(proposed_pairs, energies, diag)`` where ``proposed_pairs`` is the list of
     ``(a, b)`` ORIGINAL-column-index pairs whose energy clears the permutation-null floor (empty
-    if the surrogate did not learn -- the OOF self-gate). ``energies`` maps every pair to its
+    if the surrogate did not learn - the OOF self-gate). ``energies`` maps every pair to its
     mixed-partial energy; ``diag`` carries the gate diagnostics.
 
     Self-gate order: (1) restrict to a row sample, (2) OOF R2 vs permuted-y baseline, (3) fit the
@@ -379,14 +379,14 @@ def propose_gradient_interaction_pairs(
 
     Mirrors ``apply_synergy_bootstrap``'s contract: returns
     ``(numeric_vars_to_consider, gradient_added_idx)``. Opt-in via
-    ``self.fe_gradient_interaction_enable`` (default OFF -- see the module bench-reject note);
+    ``self.fe_gradient_interaction_enable`` (default OFF - see the module bench-reject note);
     routed by ``_route_gradient_seeder`` (thresholds via kernel_tuning_cache). Runs only on the
     FIRST FE step. The seeder carries its OWN permuted-y / additive-residual / permutation-null
     self-gate; it PROPOSES operands, the existing maxT floor + CMI / prevalence gates DECIDE.
 
     ``X_continuous`` is the RAW float frame (indexed by ``cols``); the smooth surrogate is fit on
     it, NOT on the discretised ``data`` (a few-bin step function has ~zero mixed partials). The
-    target is read from ``data`` (the framework's discretised ordinal target -- the same signal
+    target is read from ``data`` (the framework's discretised ordinal target - the same signal
     the FE gates score), which is fine because the surrogate predicts that ordinal from the
     continuous features.
     """
@@ -428,8 +428,8 @@ def propose_gradient_interaction_pairs(
         X = Xfull[:, pool]
         y = np.asarray(data)[:, t0]  # discretised ordinal target
     except Exception as exc:  # not array-coercible -> skip silently (proposer is best-effort)
-        # CAT_INTERACTION_B-3 fix: was gated behind `if verbose`, so with the
-        # library's default verbose=0 ANY exception here was silently swallowed with zero log trace --
+        # Was gated behind `if verbose`, so with the
+        # library's default verbose=0 ANY exception here was silently swallowed with zero log trace -
         # inconsistent with the sibling GBM proposer (apply_surrogate_gbm_seeder), whose analogous
         # try/except logs unconditionally. Log unconditionally now; the proposer stays best-effort
         # (still returns gracefully rather than raising), only the diagnostic visibility changes.
@@ -443,7 +443,7 @@ def propose_gradient_interaction_pairs(
             row_cap=row_cap, kernel=kernel, seed=0,
         )
     except Exception as exc:
-        # CAT_INTERACTION_B-3 fix: see the matching fix above -- this specific
+        # See the matching fix above - this specific
         # exception (confirmed by direct execution: sklearn KFold(n_splits=3) on n_samples=2, since
         # _route_gradient_seeder gates only on pool size, never on row count) was silently swallowed at
         # verbose=0. Log unconditionally, matching the sibling GBM seeder's unconditional logging.

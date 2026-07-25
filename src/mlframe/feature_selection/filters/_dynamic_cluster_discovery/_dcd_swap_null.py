@@ -9,7 +9,7 @@ The B-loop is the bottleneck at production ``B`` (default ``swap_npermutations=1
 This module parallelizes the B-loop across cores WITHOUT copying the frame:
 
   1. **Serial, cheap:** pre-generate all ``B`` shuffles of ONLY the member column into a ``(B, n)`` int64
-     array using the SAME ``rng_m`` sequence the serial path used -- so the permutation multiset (and thus
+     array using the SAME ``rng_m`` sequence the serial path used - so the permutation multiset (and thus
      the p-value) is bit-identical. ``B * n * 8`` bytes (e.g. 199 x 30k x 8 = 47 MB), NOT a frame copy.
   2. **Parallel, expensive:** ``prange`` over the ``B`` shuffles, each iteration computing the per-draw
      conditional MI from a THREAD-LOCAL shuffled column against the precomputed ``(Z)`` and ``(Y,Z)`` class
@@ -18,7 +18,7 @@ This module parallelizes the B-loop across cores WITHOUT copying the frame:
 
 The per-draw CMI is ``H(X,Z) + H(Y,Z) - H(Z) - H(X,Y,Z)``. ``H(Z)`` and ``H(Y,Z)`` are permutation-invariant
 (only X is shuffled) and hoisted once. ``H(X,Y,Z)`` melts the shuffled X onto the precomputed ``(Y,Z)`` class
-labels -- BIT-IDENTICAL to the serial ``_entropy_x_onto_classes`` path. ``H(X,Z)`` melts the shuffled X onto
+labels - BIT-IDENTICAL to the serial ``_entropy_x_onto_classes`` path. ``H(X,Z)`` melts the shuffled X onto
 the precomputed ``Z`` class labels; the serial path instead re-merges the sorted ``X u Z`` union, so the two
 sum the SAME nonzero-frequency multiset in a different order -> a ~1e-15 FP reduction-order delta that cannot
 move the ``null_rel >= member_rel`` count (the p-value is unchanged; validated in the regression test).
@@ -49,7 +49,7 @@ _PARALLEL_MIN_B = 8
 def _entropy_col_onto_classes(x_col, nb_x, base_classes, base_nclasses, n_rows) -> float:
     """H of the joint (X, base) where ``base`` is a dense 0..base_nclasses-1 labeling of the conditioning
     variables. Histograms ``base_classes[row] + x_col[row] * base_nclasses`` once, prunes empty bins, and
-    reduces via the shared ``entropy`` (numpy ``.sum`` reduction) -- BIT-IDENTICAL to the serial
+    reduces via the shared ``entropy`` (numpy ``.sum`` reduction) - BIT-IDENTICAL to the serial
     ``_entropy_x_onto_classes`` when ``base`` is the (Y,Z) labeling."""
     expected = base_nclasses * nb_x
     freqs = np.zeros(expected, dtype=np.int64)
@@ -102,7 +102,7 @@ def mi_col(x_col: np.ndarray, nb_x: int, y_classes: np.ndarray, y_nclasses: int,
 def _member_null_cmi_prange(shuffles, nb_x, z_classes, z_nclasses, yz_classes, yz_nclasses, entropy_z, entropy_yz, member_rel) -> int:
     """prange over the ``B`` pre-generated shuffles: count draws whose conditional MI meets/exceeds the
     observed ``member_rel``. Each iteration reads its own row of ``shuffles`` and allocates its own histogram
-    (thread-local), so there is no shared mutable state -- no frame copy, no mutate-restore."""
+    (thread-local), so there is no shared mutable state - no frame copy, no mutate-restore."""
     B = shuffles.shape[0]
     exceed = np.zeros(B, dtype=np.int64)
     for b in prange(B):
@@ -125,7 +125,7 @@ def _member_null_mi_prange(shuffles, nb_x, y_classes, y_nclasses, entropy_x, ent
 
 
 def _run_member_null_serial(*, state, member_idx, member_rel, B_, rng_m, target_arr_m, S_minus_anchor, entropy_z, entropy_yz, member_col_orig, logger) -> float:
-    """Exact legacy serial mutate-and-restore path -- fallback for tiny ``B`` where prange spawn is not worth
+    """Exact legacy serial mutate-and-restore path - fallback for tiny ``B`` where prange spawn is not worth
     it. Preserves the try/except fail-closed (return 1.0) + finally-restore semantics."""
     try:
         n_exceed_m = 0

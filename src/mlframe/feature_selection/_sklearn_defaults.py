@@ -16,9 +16,9 @@ def is_classification_target(y: np.ndarray, n: int | None = None) -> bool:
     """Low-cardinality heuristic: integer/label/bool/string y with few unique values is classification.
 
     A float-typed y that LOOKS like a low-cardinality classification target (e.g. ``{0.0, 1.0}`` labels,
-    all whole-number values) still routes to regression (the conservative default -- a genuinely
+    all whole-number values) still routes to regression (the conservative default - a genuinely
     continuous-but-coarse score is a real, more common case than an accidentally-float-cast label), but
-    now WARNS about the ambiguity instead of silently defaulting -- unlike the int/label branch, this
+    now WARNS about the ambiguity instead of silently defaulting - unlike the int/label branch, this
     exact ambiguity previously had no signal at all, unlike ``HybridSelector``'s explicit validate/warn on
     the same dtype-vs-value-sniff mismatch.
     """

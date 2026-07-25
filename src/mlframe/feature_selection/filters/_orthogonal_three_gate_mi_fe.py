@@ -1,4 +1,4 @@
-"""Layer 63 (2026-05-31): THREE-GATE + K-fold OOF MI ranking for hybrid orth-poly FE.
+"""Layer 63: THREE-GATE + K-fold OOF MI ranking for hybrid orth-poly FE.
 
 Why this layer
 --------------
@@ -12,14 +12,14 @@ engineered from. Two failure modes follow:
      column (Miller-Madow first-order correction). On rare-imbalance or
      small-fold settings the bias is large enough to push a noise-driven
      candidate past the absolute MAD floor: it's pure inflation, but the
-     floor doesn't know that. K-fold OOF MI -- score on held-out folds and
-     average -- naturally regularises the bias because the held-out rows
+     floor doesn't know that. K-fold OOF MI - score on held-out folds and
+     average - naturally regularises the bias because the held-out rows
      never contributed to the column's bin edges.
 
   2. **Two gates miss "duplicate signal" candidates.** ``y = sign(x^2 -
      1)`` is already covered by ``x__He2``. A second basis column like
      ``x__T2`` or even another quadratic form has near-identical marginal
-     MI (both monotone in ``|x|``) and clears both gates -- but it adds
+     MI (both monotone in ``|x|``) and clears both gates - but it adds
      no new information conditional on the already-selected support.
      The third gate ``CMI(candidate; y | support) >= cmi_min`` kills
      exactly this case: once ``x__He2`` is in the support, ``CMI(x__T2;
@@ -36,7 +36,7 @@ Layer 63 combines both ideas into a single selection criterion:
       Gate 1 (relative): ``uplift_oof >= min_uplift`` (default 1.05).
       Gate 2 (absolute): ``engineered_oof_mi >= max(legacy_floor,
                                                     MAD_noise_floor)``
-                         -- same MAD construction as Layer 21 but on the
+                         - same MAD construction as Layer 21 but on the
                          OOF distribution.
       Gate 3 (conditional): when ``current_support`` is non-empty,
                          ``CMI(candidate; y | support) >= cmi_min``.
@@ -53,9 +53,9 @@ Each emitted column is backed by an ``orth_univariate`` recipe (same kind
 Layer 21 emits): the engineered VALUES are bit-equal to Layer 21 because
 ``generate_univariate_basis_features`` is shared. Only the SELECTION rule
 changes. Replay therefore reuses the existing ``_apply_orth_univariate``
-path -- no new recipe kind required.
+path - no new recipe kind required.
 
-NOT wired into ``MRMR.fit`` by default -- opt-in via
+NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_hybrid_orth_three_gate_enable=True``.
 """
 from __future__ import annotations
@@ -79,7 +79,7 @@ from ._mi_greedy_cmi_fe import (
 
 logger = logging.getLogger(__name__)
 
-# CPX12b (2026-06-23): the batched-across-columns train-edge binner
+# CPX12b: the batched-across-columns train-edge binner
 # (_bin_with_train_edges_batched) shares one np.quantile partition per fold across
 # all columns. Measured (bench_oof_three_gate_train_edge_binning.py): a clean win at
 # small/mid per-fold train sizes (2.23x @ n=2k/p=50, 1.29x @ n=5k/p=100) that fades
@@ -100,7 +100,7 @@ __all__ = [
 def _coerce_y_int64(y) -> np.ndarray:
     """Dense int64 class labels. Non-integer y is densified via
     ``np.unique(return_inverse=...)`` rather than truncated with
-    ``.astype(int64)`` -- plain truncation merges distinct labels and destroys
+    ``.astype(int64)`` - plain truncation merges distinct labels and destroys
     continuous-y signal (everything in [0, 1) collapses to class 0)."""
     arr = np.asarray(y).ravel()
     if np.issubdtype(arr.dtype, np.integer):
@@ -178,7 +178,7 @@ def _bin_with_train_edges_batched(
     ALL columns at once via one ``np.quantile(train_arr, qs, axis=0)`` call,
     then apply those train-fitted edges (per-column ``np.searchsorted``) to both
     the train and test rows of every column. The edges depend ONLY on the train
-    rows -- test rows never influence a cut boundary -- so this is the SAME
+    rows - test rows never influence a cut boundary - so this is the SAME
     leakage-free K-fold OOF binning the scalar per-column path produces, just
     vectorised across columns (one quantile partition for the batch instead of
     ``p`` separate calls).
@@ -229,7 +229,7 @@ def _fold_test_bins(
     Dispatches between the batched-across-columns binner (small/mid folds, a
     measured win) and the scalar per-column path (large folds, where the batched
     quantile loses cache locality). Both paths fit edges on the fold's TRAIN rows
-    only and are bit-identical -- the gate only affects performance, never the
+    only and are bit-identical - the gate only affects performance, never the
     OOF MI values. See :data:`_OOF_BATCH_BINNING_MAX_TRAIN_ROWS`.
     """
     if train_idx.size <= _OOF_BATCH_BINNING_MAX_TRAIN_ROWS:
@@ -253,7 +253,7 @@ def _mi_from_binned_xy(x_bin: np.ndarray, y_bin: np.ndarray, *, clip_zero: bool 
     The raw plug-in MI on a finite sample carries a positive bias from
     the second-order Miller-Madow expansion. On the small held-out folds
     K-fold OOF creates (n_test ~ n / K), that bias dominates a noise
-    column's true MI -- without the correction OOF MI on noise reports
+    column's true MI - without the correction OOF MI on noise reports
     VALUES STRICTLY LARGER than the full-frame plug-in MI, defeating
     the regularisation claim of Gate 2.
 
@@ -263,7 +263,7 @@ def _mi_from_binned_xy(x_bin: np.ndarray, y_bin: np.ndarray, *, clip_zero: bool 
     number of distinct values that COULD appear), not the observed
     sizes. On the small folds the observed K_XY is typically below
     K_X * K_Y due to under-sampling of joint cells, and using observed
-    K_XY undershoots the true bias -- the very phenomenon that makes
+    K_XY undershoots the true bias - the very phenomenon that makes
     naive plug-in MI inflate on small samples. Using the maximum
     support gives the correct asymptotic correction and matches the
     Treves-Panzeri / Paninski analysis for small-n estimators.
@@ -289,7 +289,7 @@ def _mi_from_binned_xy(x_bin: np.ndarray, y_bin: np.ndarray, *, clip_zero: bool 
     h_xy, _ = _h_and_k(xy)
     mi_raw = h_x + h_y - h_xy
     # Use the MAXIMUM joint support (k_x * k_y) rather than the OBSERVED
-    # joint count -- on small folds observed joint count is depressed by
+    # joint count - on small folds observed joint count is depressed by
     # under-sampling, which under-corrects the bias and lets noise MI
     # inflate.
     if n > 0 and k_x > 0 and k_y > 0:
@@ -328,7 +328,7 @@ def score_features_by_kfold_oof_mi(
     Average the K per-fold MI estimates per column. The OOF MI is by
     construction smaller (or at most equal) to the plug-in MI on the
     full frame because the held-out rows did not influence the bin
-    boundaries -- this regularises away the plug-in bias that drives
+    boundaries - this regularises away the plug-in bias that drives
     the Layer 21 false-positive incidents.
 
     Returns
@@ -342,7 +342,7 @@ def score_features_by_kfold_oof_mi(
     -----
     * Joint subsampling at the index level: raw_X / engineered_X / y must
       share positional alignment (Layer 62 pattern). The function raises
-      if row counts disagree -- silent coercion would hide real bugs.
+      if row counts disagree - silent coercion would hide real bugs.
     """
     if len(raw_X) != len(engineered_X):
         raise ValueError(
@@ -384,7 +384,7 @@ def score_features_by_kfold_oof_mi(
         train_idx = np.where(train_mask)[0]
         # Guard against degenerate single-class folds (rare-imbalance
         # frames). Skip the fold contribution to MI when y_test has < 2
-        # classes -- can't compute joint entropy meaningfully.
+        # classes - can't compute joint entropy meaningfully.
         y_test = y_arr[test_idx]
         if np.unique(y_test).size < 2:
             continue
@@ -393,15 +393,15 @@ def score_features_by_kfold_oof_mi(
         _, y_test_bin = np.unique(y_test, return_inverse=True)
         y_test_bin = y_test_bin.astype(np.int64)
 
-        # Raw columns. NOTE: clip_zero=False per fold -- clipping each
+        # Raw columns. NOTE: clip_zero=False per fold - clipping each
         # fold to >=0 before averaging would inject a positive bias
         # whenever the true MI is zero (E[max(0, noisy)] > 0). We clip
         # the K-fold AVERAGE below, which is the correct unbiased OOF
         # estimator.
         #
-        # CPX12b (2026-06-23): bin every column for this fold via a single,
+        # CPX12b: bin every column for this fold via a single,
         # train-row-only quantile partition shared across COLUMNS (gated on
-        # per-fold train size -- see _OOF_BATCH_BINNING_MAX_TRAIN_ROWS). The edges
+        # per-fold train size - see _OOF_BATCH_BINNING_MAX_TRAIN_ROWS). The edges
         # are still fitted on TRAIN rows only (leakage-free K-fold OOF) and the
         # output is bit-identical to the prior per-column _bin_with_train_edges
         # loop; only the quantile partition is shared. Above the threshold the
@@ -470,7 +470,7 @@ def _quantile_bin_batched(mat: np.ndarray, nbins: int) -> np.ndarray:
     same ``<=2``-edge degenerate handling, same ``side='right'`` searchsorted convention.
 
     NOT the same algorithm as :func:`_bin_with_train_edges_batched` (which computes ONLY the inner
-    ``linspace(0, 1, nbins + 1)[1:-1]`` percentiles directly, never the 0th/100th) -- that convention
+    ``linspace(0, 1, nbins + 1)[1:-1]`` percentiles directly, never the 0th/100th) - that convention
     silently diverges from ``_quantile_bin`` whenever a middle percentile collides with the true min/max
     (measured ~40% mismatch rate on tied/skewed synthetic columns), so it is deliberately NOT reused here.
 
@@ -516,7 +516,7 @@ def _cmi_gate_scores(
 
     Notes
     -----
-    * When ``current_support`` is empty, returns ``{}`` -- caller must
+    * When ``current_support`` is empty, returns ``{}`` - caller must
       skip Gate 3 in that case. We deliberately do NOT collapse to
       marginal MI here because the marginal MI is ALREADY the basis of
       Gate 1; calling it again would double-count.
@@ -528,7 +528,7 @@ def _cmi_gate_scores(
         return {}
     if np.unique(y_int).size < 2:
         return {c: 0.0 for c in engineered_X.columns}
-    # Build the support joint key. Batched (2026-07-12) via _quantile_bin_batched -- one np.quantile call
+    # Build the support joint key. Batched via _quantile_bin_batched - one np.quantile call
     # per matrix instead of one per column; bit-identical to the scalar _quantile_bin loop (see that
     # function's docstring for the verified-equivalence note).
     sup_mat = current_support.to_numpy(dtype=np.float64)
@@ -568,7 +568,7 @@ def hybrid_orth_mi_three_gate_fe(
       2. ``engineered_mi_oof >= max(legacy_floor, MAD_noise_floor)``
          (absolute floor on the OOF distribution; mirrors Layer 21).
       3. ``CMI(candidate; y | support) >= cmi_min`` (conditional gate;
-         SKIPPED when ``current_support`` is None or empty -- in that
+         SKIPPED when ``current_support`` is None or empty - in that
          case marginal MI from Gate 1 already covers the case).
 
     Parameters
@@ -664,7 +664,7 @@ def hybrid_orth_mi_three_gate_fe_with_recipes(
     nbins: int = 10,
 ):
     """Same as :func:`hybrid_orth_mi_three_gate_fe` but additionally returns
-    a list of ``orth_univariate`` recipes -- one per appended column -- so
+    a list of ``orth_univariate`` recipes - one per appended column - so
     that ``MRMR.transform`` can recompute each engineered column on test
     data without re-running the OOF MI ranking or the CMI gate.
 
@@ -707,7 +707,7 @@ def hybrid_orth_mi_three_gate_fe_with_recipes(
             _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
-            # ORTH_SCORING_A-3 fix: was a bare except with zero logging,
+            # Was a bare except with zero logging,
             # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
             # exception (including a genuine programming bug), with no diagnostic trace.
             logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)

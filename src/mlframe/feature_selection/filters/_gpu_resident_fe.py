@@ -2,10 +2,10 @@
 
 The terminal phase of the matrix-native FE replatform, and the only part with genuine NEW value: the
 reason the GPU LOST the MI dispatch (see _hermite_fe_mi / the 2026-06-19 perf series) was the per-call
-H2D upload + many tiny kernels -- ~700ms/call of pure overhead the on-device compute (~10-36ms) was
+H2D upload + many tiny kernels - ~700ms/call of pure overhead the on-device compute (~10-36ms) was
 dwarfed by. The fix is to keep the data RESIDENT: upload the raw operands ONCE, generate the whole
 unary x binary candidate grid ON the GPU (cupy elementwise), and score the entire grid in ONE big-k
-batch-MI call. No per-candidate transfer, one large kernel -- exactly the regime the contention-aware
+batch-MI call. No per-candidate transfer, one large kernel - exactly the regime the contention-aware
 sweep showed the GPU winning (n=100k k>=100: cuda < njit).
 
 GATED behind ``MLFRAME_FE_GPU_RESIDENT`` and imported by nothing in the production FE path: this is a
@@ -14,16 +14,16 @@ production recipe-integrated generator. It mirrors the MINIMAL unary/binary pres
 a**2/b and log(c)*sin(d)); the full catalog + recipe replay is the follow-up once the win is locked.
 
 Non-pure op handling: ``smart_log`` shifts by the FULL-column nanmin (computed once on-device here, the
-same anchor the CPU recipe freezes), ``div`` reproduces the exact ``y==0 -> eps`` branch -- so the
+same anchor the CPU recipe freezes), ``div`` reproduces the exact ``y==0 -> eps`` branch - so the
 on-device candidate equals the CPU one to fp round-off.
 
 BENCH (GTX 1050 Ti, K=384 minimal-preset candidates per pair, median of 3, warm; vs numpy-gen + njit
 batch MI). Keeping data resident flips the GPU from the old 3x LOSER (per-call H2D path) to a WINNER
-that SCALES -- and the VRAM-bounded K-chunk (``_gpu_k_chunk``, mirroring the CPU RAM governor on-device)
+that SCALES - and the VRAM-bounded K-chunk (``_gpu_k_chunk``, mirroring the CPU RAM governor on-device)
 removes the large-n cliff entirely, with the on-device MI matching the CPU path to fp round-off (argmax + values):
   * n=20k   : CPU 287ms   / GPU 379ms  -> 0.76x  (small n: GPU launch dominates -> dispatcher routes CPU)
   * n=100k  : CPU 1771ms  / GPU 854ms  -> 2.07x  (k_chunk=141)
-  * n=300k  : CPU 7013ms  / GPU 2046ms -> 3.43x  (k_chunk=47 -- was a 0.12x cliff before chunking)
+  * n=300k  : CPU 7013ms  / GPU 2046ms -> 3.43x  (k_chunk=47 - was a 0.12x cliff before chunking)
   * n=1M    : CPU 29731ms / GPU 6424ms -> 4.63x  (k_chunk=14; the win GROWS with n)
 ``pair_candidate_mi_dispatch`` routes >= _GPU_RESIDENT_MIN_N (50k) to the chunked GPU path, CPU below.
 
@@ -36,22 +36,22 @@ cost and the obvious tuning target. Two sort-free replacements were prototyped +
     bin 0): bin-code agreement 98.6%, but candidate-MI Spearman only 0.88, MI maxdiff ~1.9, argmax flips
     -> REJECTED (would change selection).
   * monotone tail-compressed (``sign(x)*log1p|x|``, rank-preserving so quantiles are invariant) THEN
-    equi-width sub-hist: Spearman 0.9993, MI maxdiff 0.029 -- statistically excellent and still 4.36x
+    equi-width sub-hist: Spearman 0.9993, MI maxdiff 0.029 - statistically excellent and still 4.36x
     faster binning. But the TOP candidate is a near-tie among EQUIVALENT a**2/b spellings, and a 0.03 MI
     perturbation reorders that tie -> argmax flips -> NOT bit-exact -> unsafe as a drop-in for the
     exact-result contract. Good as an opt-in APPROXIMATE fast mode only.
 The exact+fast path (NEXT): prescreen all candidates with the sort-free MI, then re-score only the
-top-K (margin-guarded) with the exact ``cp.argsort`` MI -- exact winner at a fraction of the sort cost.
+top-K (margin-guarded) with the exact ``cp.argsort`` MI - exact winner at a fraction of the sort cost.
 Numbers recorded so this is not re-derived blind; the exact ``cp.argsort`` path stays the default.
 
-bench-attempt-rejected (2026-06-20, re-test under the RELAXED selection-equivalence bar -- user: same
+bench-attempt-rejected (2026-06-20, re-test under the RELAXED selection-equivalence bar - user: same
 features selected is enough, bit-identity not required): the tail-compressed sort-free binning IS faster
 (K=48 heavy-tail: 100k 1.47x, 1M 2.04x; 99.5% code-agree, Spearman 0.99992) BUT FLIPS the END-TO-END FE
-selection at n=100k -- the ~0.5% of codes differing at quantile edges perturb the noise-gate/MI ranking
+selection at n=100k - the ~0.5% of codes differing at quantile edges perturb the noise-gate/MI ranking
 past the compound-recovery threshold, yielding 9 fragmented features instead of the single fused
 ``add(sqr(a)/b, log(c)*sin(d))`` compound (the clean-compound gate goes RED). f32 sort keys preserve the
 selection (100% code-agree) but are NOT faster here (f64->f32 cast overhead: 0.77x@100k, 1.12x@1M). So
-there is NO selection-safe binning speedup on this GPU (GTX 1050 Ti) even with bit-identity waived -- the
+there is NO selection-safe binning speedup on this GPU (GTX 1050 Ti) even with bit-identity waived - the
 exact cp.percentile sort is at the bandwidth floor; beating it needs a rank-EXACT sort-free kernel
 (radix-rank, roadmap #2), not an approximate quantile. cp.percentile stays the default.
 """
@@ -62,12 +62,12 @@ from collections import OrderedDict
 
 import numpy as np
 
-# REVIEW ROADMAP (2026-06-19 multi-agent critique; items dispositioned FUTURE -- captured so they are
+# REVIEW ROADMAP (2026-06-19 multi-agent critique; items dispositioned FUTURE - captured so they are
 # not re-derived). PERF (ranked payoff/effort, all must stay bit-exact -> validate maxdiff 0 + argmax on
 # HEAVY-TAILED a**2/b candidates, not just uniform): (1) f32 sort keys for binning (~1.5-1.8x on the 69%
 # sort; exact only with row-index tie-break, else gate to prescreen); (2) radix-rank RawKernel replacing
 # cp.argsort + the uncoalesced scatter (exact, removes the (n,K) int64 sort_idx); (3 + 5) DONE 2026-06-20:
-# fused SHARED-MEM atomic histogram + grand fusion -- ``fused_gen_bin_hist`` (one block per candidate)
+# fused SHARED-MEM atomic histogram + grand fusion - ``fused_gen_bin_hist`` (one block per candidate)
 # re-generates each candidate value, bins it against the EXACT cp.percentile edges, and accumulates the
 # (P1, nbins, K_y) joint histogram in shared-mem atomics in ONE kernel per chunk, so the (n,K) float
 # matrix, the (n,K) int codes, the (n,K) D2H disc AND the noise-gate's (n,K) d_base / (rows*n*K) flat
@@ -79,12 +79,12 @@ import numpy as np
 #   PROTOTYPE-ONLY (2026-06-20, measured): grand-fusion CANNOT be wired into the PRODUCTION canonical fit.
 #   Production candidate-MI runs through _pairs_chunks._compute_one_fe_chunk -> gpu_materialise_discretize_
 #   codes_host -> _dispatch_batch_mi_with_noise_gate (NOT gpu_pairs_fe_mi, which returns None on the
-#   canonical fixture). That path REQUIRES the (n,K) float candidate matrix on host -- the downstream
+#   canonical fixture). That path REQUIRES the (n,K) float candidate matrix on host - the downstream
 #   survivor / usability-corr / ext-val / multi-emit stages read the CONTINUOUS columns out of the chunk
-#   buffer -- so a recompute-not-store fused kernel that skips materialisation would leave the buffer
+#   buffer - so a recompute-not-store fused kernel that skips materialisation would leave the buffer
 #   uninitialised (garbage survivors). Grand-fusion's whole payoff (never materialise (n,K)) is thus
 #   incompatible with production. AND the production e2e bottleneck is NOT the MI counting the fused kernel
-#   collapses -- profiled n=100k/79s: cp.percentile's SORT in _gpu_resident_discretize_codes = 12.9s
+#   collapses - profiled n=100k/79s: cp.percentile's SORT in _gpu_resident_discretize_codes = 12.9s
 #   (binning), MI counting already on GPU + cheap. So the only production lever is roadmap #2 (rank-EXACT
 #   sort-free edges, e.g. radix-SELECT of the nbins-1 order statistics + cp.percentile's linear interp ->
 #   exact edges without a full O(n log n) sort), which must still EMIT the float out_cand for downstream.
@@ -97,16 +97,16 @@ import numpy as np
 # (reuse fe_tuple->get_new_feature_name->EngineeredRecipe; never re-parse the string); drive the op set from
 # create_*_transformations(preset) + the gpu_compatible_unary_names allowlist with CPU fallback for non-pure
 # ops; collapse MLFRAME_FE_MATRIX_P0 + MLFRAME_FE_GPU_RESIDENT into one selector; add pickle/clone + op-parity
-# (registry vs _unary/_binary_apply vs CUDA switch -- _safe_div is the single spec) meta-tests.
+# (registry vs _unary/_binary_apply vs CUDA switch - _safe_div is the single spec) meta-tests.
 
 # Minimal-preset op NAMES (kept in sync with feature_engineering.create_*_transformations "minimal").
 _MINIMAL_UNARY = ("identity", "neg", "abs", "sqr", "reciproc", "sqrt", "log", "sin")
 _MINIMAL_BINARY = ("mul", "add", "sub", "div", "max", "min")
 
 
-# RESIDENCY REPLATFORM MAP (2026-06-21, measured -- the production chunk path, NOT this prototype).
+# RESIDENCY REPLATFORM MAP (2026-06-21, measured - the production chunk path, NOT this prototype).
 # Goal: kill the FE chunk's bulk float-buffer D2H. ``gpu_materialise_discretize_codes_host`` D2Hs the
-# full (n,K) float candidate buffer via ``out_cand`` -- measured 6.7 GB total across the canonical
+# full (n,K) float candidate buffer via ``out_cand`` - measured 6.7 GB total across the canonical
 # n=100k fit (15 calls), a large slice of the ~10.5s ``cupy.get`` wall. The codes (for MI) are produced
 # RESIDENT and don't need that buffer; only a HANDFUL of host reads do.
 #   * Final survivors ALREADY recompute from raw via ``_rebuild_full_survivor_col`` (subsample path,
@@ -115,16 +115,16 @@ _MINIMAL_BINARY = ("mul", "add", "sub", "div", "max", "min")
 # Proposed win = KEEP the chunk-batch GPU-codes path, pass ``out_cand=None`` (skip the 6.7 GB D2H), route
 # the few intermediate reads through the validated recompute helper (_config_by_i / _rebuild_full_survivor_-
 # col, bit-identical), gated on the GPU-fused path. MEASURED CONSTRAINT: pure recompute (no buffer, no
-# chunk-batch) is 3x SLOWER (217s vs 69s), so chunk-batch is essential. (Turnkey deferral scaffold -- gate
+# chunk-batch) is 3x SLOWER (217s vs 69s), so chunk-batch is essential. (Turnkey deferral scaffold - gate
 # MLFRAME_FE_GPU_DEFER_FLOAT, out_cand=None, _config_by_i recompute at the 3 buffer reads in
-# check_prospective_fe_pairs -- was implemented then bench-rejected below; see git 72d1c364.)
-# BENCH-REJECTED (2026-06-21): the float-D2H deferral was IMPLEMENTED (gated scaffold) and measured --
+# check_prospective_fe_pairs - was implemented then bench-rejected below; see git 72d1c364.)
+# BENCH-REJECTED (2026-06-21): the float-D2H deferral was IMPLEMENTED (gated scaffold) and measured -
 # clean paired A/B (6 cold fits, quiet box) = OFF 160.0s vs ON 162.6s = 0.98x, a WASH. The 6.7 GB float
-# D2H OVERLAPS the GPU/CPU compute (async), so skipping it does not cut wall -- cProfile's cupy.get time
+# D2H OVERLAPS the GPU/CPU compute (async), so skipping it does not cut wall - cProfile's cupy.get time
 # is overlapped WAIT, not serial transfer. This is the THIRD GPU-data-movement wash after radix coalescing
 # (7x kernel, 0x wall) and noise-gate launch-batching (1.00x): the canonical FE fit is COMPUTE-bound, not
 # transfer/residency-bound. So residency/round-trip reduction is a dead lever here; reverted (commit after
-# 72d1c364). Real wall levers are COMPUTE reduction (subsample scale-down -- 64s@30k -> 36s@8k but plateaus
+# 72d1c364). Real wall levers are COMPUTE reduction (subsample scale-down - 64s@30k -> 36s@8k but plateaus
 # at a ~30s FE-component floor; selection holds on the canonical formula) or cutting FE work, NOT transfers.
 
 
@@ -150,7 +150,7 @@ def _cuda_present() -> bool:
 
 def _gpu_min_free_vram_mb() -> int:
     """Minimum FREE device VRAM (MB) for the FE GPU paths to default ON. Below this the (n, K) FE matrices cannot
-    fit and the GPU work stalls/OOM-falls-back while the (parallelized) CPU cores idle -- so default to CPU instead.
+    fit and the GPU work stalls/OOM-falls-back while the (parallelized) CPU cores idle - so default to CPU instead.
     Env-tunable ``MLFRAME_FE_GPU_MIN_FREE_VRAM_MB`` (default 1024). 0 disables the check (legacy: present-only gate)."""
     try:
         return int(os.environ.get("MLFRAME_FE_GPU_MIN_FREE_VRAM_MB", "1024"))
@@ -177,7 +177,7 @@ def _gpu_has_free_vram() -> bool:
 
 def _env_gpu_default_on(name: str) -> bool:
     """Shared GPU opt-out gate: explicit env ``<name>`` = 0/1 (off/on) wins; otherwise default ON when a CUDA device
-    is usable AND has enough FREE VRAM -- False if CUDA_VISIBLE_DEVICES='' or MLFRAME_DISABLE_GPU=1, no CUDA present,
+    is usable AND has enough FREE VRAM - False if CUDA_VISIBLE_DEVICES='' or MLFRAME_DISABLE_GPU=1, no CUDA present,
     or the device is nearly full (a tiny / desktop-shared card). Single source for the fe_gpu_*_enabled default-on
     gates. Explicit ``=1`` still forces GPU past the free-VRAM check (user override / big-GPU host)."""
     _v = os.environ.get(name, "").strip().lower()
@@ -185,7 +185,7 @@ def _env_gpu_default_on(name: str) -> bool:
         return False
     if _v in ("1", "true", "on", "yes"):
         return True
-    # GPU_INFRA_B-9 fix: delegate the CUDA_VISIBLE_DEVICES=""/MLFRAME_DISABLE_GPU=1
+    # Delegate the CUDA_VISIBLE_DEVICES=""/MLFRAME_DISABLE_GPU=1
     # opt-out check to the shared _gpu_policy module instead of reimplementing it inline, so a future change
     # to the shared policy's semantics reaches this cluster's default-on gates too.
     from ._gpu_policy import gpu_globally_disabled
@@ -201,32 +201,32 @@ def fe_gpu_resident_codes_enabled() -> bool:
     When ON, ``gpu_materialise_discretize_codes_host`` keeps the on-device int codes RESIDENT (a single
     (n, K) cupy array in the narrow code dtype) and stashes them in a module-level handoff (keyed on the
     identity of the host codes array it returns). The noise-gate dispatch then feeds those device codes
-    STRAIGHT into ``batch_mi_with_noise_gate_cuda_resident`` -- skipping the H2D re-upload of the codes the
+    STRAIGHT into ``batch_mi_with_noise_gate_cuda_resident`` - skipping the H2D re-upload of the codes the
     resident gate would otherwise pay (the codes were just produced on the GPU, D2H'd, and re-H2D'd: a
     pointless GPU->host->GPU round-trip of the (n, K) int codes). The host codes are STILL produced, so the
     CPU dispatch / analytic gate / GPU-opt-out / SU / any-failure branches are byte-for-byte unchanged and
     the round-trip is skipped ONLY when the resident CUDA gate is the chosen consumer (so this is
-    selection-equivalent -- the device codes are the EXACT bytes the host ``out`` carries). Gate:
+    selection-equivalent - the device codes are the EXACT bytes the host ``out`` carries). Gate:
     ``MLFRAME_FE_GPU_RESIDENT_CODES`` (0/false/off -> off; 1/true/on/yes -> on; UNSET -> on iff CUDA
     present). Honours the CUDA opt-out conventions (``CUDA_VISIBLE_DEVICES=""`` / ``MLFRAME_DISABLE_GPU=1``)
-    by short-circuiting to OFF -- the resident gate is skipped on those runs anyway, so never stash."""
+    by short-circuiting to OFF - the resident gate is skipped on those runs anyway, so never stash."""
     return _env_gpu_default_on("MLFRAME_FE_GPU_RESIDENT_CODES")
 
 
 def fe_gpu_resident_basis_mi_enabled() -> bool:
     """Whether the matrix-native RESIDENT orth-FE basis-MI path is active (Piece 3).
 
-    X_EFFICIENCY_ARCHITECTURE-6 fix: this line used to say "DEFAULT OFF", directly
-    contradicting the "DEFAULT ON when CUDA is present" statement two paragraphs below for the SAME flag --
+    This line used to say "DEFAULT OFF", directly
+    contradicting the "DEFAULT ON when CUDA is present" statement two paragraphs below for the SAME flag -
     the real behavior (confirmed by ``_env_gpu_default_on``) is DEFAULT ON when a usable CUDA device is
     present, DEFAULT OFF otherwise (env-overridable either way).
 
     When ON, ``hybrid_orth_mi_fe`` builds the univariate orth-basis candidate matrix ON the device
     (BATCHED ``_gpu_evaluate_basis_matrix``) and scores its plug-in MI with
-    ``_plugin_mi_classif_batch_cuda_resident`` -- with NO per-call H2D (the dispatcher's 2x trap).
+    ``_plugin_mi_classif_batch_cuda_resident`` - with NO per-call H2D (the dispatcher's 2x trap).
 
-    DEFAULT ON when CUDA is present (2026-06-21). Validated: selection-EQUIVALENT (it swaps the njit RANK
-    binning for the GPU equi-frequency-edge binning in the basis ranking -- the orth-basis recovery pins
+    DEFAULT ON when CUDA is present. Validated: selection-EQUIVALENT (it swaps the njit RANK
+    binning for the GPU equi-frequency-edge binning in the basis ranking - the orth-basis recovery pins
     test_layer21/22, the canonical single_compound, and the full biz-value hybrid_orth suite all pass with
     it on: 385 passed) AND FASTER (clean canonical 100k wall 34.8s -> 30.7s, ~12%; the batched build also
     clears the p200 high-feature perf budget). Opt out with ``MLFRAME_FE_GPU_RESIDENT_BASIS_MI=0``. Any GPU
@@ -238,38 +238,38 @@ def fe_gpu_routing_enabled() -> bool:
     """Whether the orth-FE basis ROUTING (basis_route_by_signal) runs on the device. DEFAULT ON.
 
     When ON, ``_gpu_build_and_score_univariate`` picks each source column's orth-basis on the GPU (batched
-    eval of all candidate bases x degrees on the RESIDENT operand matrix -- reused, no second H2D -- + a
+    eval of all candidate bases x degrees on the RESIDENT operand matrix - reused, no second H2D - + a
     batched |Pearson corr| vs the resident continuous y, argmax per column) instead of the per-column host
     ``basis_route_by_signal``. Opt out with ``MLFRAME_FE_GPU_ROUTING=0``.
 
     Routing is SELECTION-BEARING (the chosen basis is baked into the EngineeredRecipe) and the GPU basis eval
     is parity-<1e-6, NOT bit-identical, so a near-tie between two bases can in principle flip the argmax. Two
-    things make it safe to default on: (1) only the corr VALUES come from the GPU -- the argmax/tie logic is
+    things make it safe to default on: (1) only the corr VALUES come from the GPU - the argmax/tie logic is
     byte-identical to the host router, so a flip needs a genuine sub-epsilon corr tie where the two bases are
     equally usable by construction; (2) a per-column host fallback covers any GPU failure / degenerate column
     (never a correctness regression).
 
-    VALIDATED 2026-06-22 (quiet GTX 1050 Ti): SELECTION-EQUIVALENT -- test_gpu_routing_parity matches the
+    VALIDATED 2026-06-22 (quiet GTX 1050 Ti): SELECTION-EQUIVALENT - test_gpu_routing_parity matches the
     host router on every clear-margin column across 3 seeds (only sub-1e-16 chebyshev/legendre numerical ties
     diverge), and the full selection-bearing suite passes with routing ON (test_mrmr_feature_engineering +
     layer21/22 orth-recovery + canonical single_compound + hybrid_orth biz = 112 passed). WALL: measured on
-    the RESIDENT operand matrix (the real residency scenario -- M is already on-device for the basis-MI
+    the RESIDENT operand matrix (the real residency scenario - M is already on-device for the basis-MI
     build), routing is host 229ms vs GPU 214ms = 1.07x (30k x 24 cols, 24/24 matching); the wiring also
     reuses that single upload, removing a redundant (n, n_cand) H2D the prior per-column path implied. (An
-    earlier A/B wrongly charged the GPU an H2D that residency mode does not pay -- corrected here.)"""
+    earlier A/B wrongly charged the GPU an H2D that residency mode does not pay - corrected here.)"""
     return _env_gpu_default_on("MLFRAME_FE_GPU_ROUTING")
 
 
 def fe_gpu_defer_host_codes_enabled() -> bool:
     """Whether the DEFERRED host-codes D2H is active. DEFAULT ON whenever the resident-codes handoff is on
     (the device codes already exist resident, so skipping the eager host D2H of those SAME codes is free
-    upside -- the canonical fit's single largest D2H, 1691 MB / 160 transfers @100k, paid only on the host
+    upside - the canonical fit's single largest D2H, 1691 MB / 160 transfers @100k, paid only on the host
     paths that actually read it, which is NONE when the resident gate consumes the device copy). Opt-out
     ``MLFRAME_FE_GPU_DEFER_HOST_CODES=0`` forces the eager fill back (host ``out`` filled per block).
 
     SELECTION-EQUIVALENT: when a host consumer (analytic gate / CPU njit / non-resident GPU) reads the
     codes, the dispatch first calls ``ensure_host_codes_filled`` which D2Hs the resident device codes into
-    ``out`` -- the EXACT bytes the eager fill produced -> identical codes -> identical MI/selection. The
+    ``out`` - the EXACT bytes the eager fill produced -> identical codes -> identical MI/selection. The
     only behavioural change is WHEN the D2H happens (lazily, on demand) vs eagerly (always)."""
     _v = os.environ.get("MLFRAME_FE_GPU_DEFER_HOST_CODES", "").strip().lower()
     if _v in ("0", "false", "off", "no"):
@@ -280,7 +280,7 @@ def fe_gpu_defer_host_codes_enabled() -> bool:
 
 
 # RESIDENT-CODES HANDOFF (2026-06-21, gated). The FE chunk path calls ``gpu_materialise_discretize_codes_
-# host`` (producer) and ``_dispatch_batch_mi_with_noise_gate`` (consumer) as SEPARATE steps -- the producer
+# host`` (producer) and ``_dispatch_batch_mi_with_noise_gate`` (consumer) as SEPARATE steps - the producer
 # returns the host int codes (``disc_2d``) which the consumer's resident-CUDA gate re-uploads. To pass the
 # ON-DEVICE codes straight through WITHOUT threading a new argument through the chunk path (which is owned
 # elsewhere), the producer stashes the resident device codes here keyed on ``id()`` of the EXACT host array
@@ -297,16 +297,16 @@ _RESIDENT_CODES_HANDOFF: "OrderedDict[int, tuple]" = OrderedDict()  # id(host) -
 _RESIDENT_CODES_HANDOFF_MAX = 8
 
 
-# DEFERRED HOST-CODES FILL (2026-06-21). When the resident-codes path is on, the (n, K) host int codes are
+# DEFERRED HOST-CODES FILL. When the resident-codes path is on, the (n, K) host int codes are
 # the SINGLE largest D2H of the canonical fit (audit n=100k: _gpu_resident_fe.py codes-fill = 1691 MB / 160
-# transfers, the whole D2H budget) -- yet they are REDUNDANT whenever the resident-CUDA noise gate is the
+# transfers, the whole D2H budget) - yet they are REDUNDANT whenever the resident-CUDA noise gate is the
 # consumer (it reads the device codes IN PLACE; host ``disc_2d`` is only touched for ``.shape``). The
 # producer can therefore DEFER the codes D2H: return an UNFILLED host buffer + keep the device codes, and
 # materialise the host buffer LAZILY only if a host-reading consumer (the analytic gate / CPU njit kernel /
 # non-resident GPU path) actually needs it. The dispatch calls ``ensure_host_codes_filled`` before any
-# host-codes read, and ``take_resident_codes`` before the resident path -- so the 1691 MB D2H is paid ONLY
+# host-codes read, and ``take_resident_codes`` before the resident path - so the 1691 MB D2H is paid ONLY
 # on the host paths that read it (none at the canonical n=100k fit) and SKIPPED when the resident gate
-# consumes the device codes. BIT-IDENTICAL: the host buffer, if ever filled, is ``device_codes.get()`` --
+# consumes the device codes. BIT-IDENTICAL: the host buffer, if ever filled, is ``device_codes.get()`` -
 # the exact bytes the eager D2H produced -> selection unchanged. Keyed on ``id(out)`` like the handoff (same
 # host array flows producer -> dispatch synchronously). Module-level singleton -> never on pickled state.
 # Per-host-array deferred fill (was a single slot; see _RESIDENT_CODES_HANDOFF). Keyed by id(host_codes).
@@ -324,7 +324,7 @@ def _stash_resident_codes(host_codes, device_codes) -> None:
 
 
 def _stash_deferred_host_fill(host_codes, device_codes) -> None:
-    """Register ``host_codes`` (an UNFILLED host buffer) for a lazy D2H fill from ``device_codes`` -- used
+    """Register ``host_codes`` (an UNFILLED host buffer) for a lazy D2H fill from ``device_codes`` - used
     when the producer skips the eager codes D2H because the resident gate will likely consume the device
     copy. ``ensure_host_codes_filled`` performs the fill on demand; ``clear_resident_codes_handoff`` drops
     the record so device memory is not pinned past the dispatch."""
@@ -340,7 +340,7 @@ def ensure_host_codes_filled(host_codes) -> None:
     shape, dtype), D2H the device codes into it NOW (once; idempotent). No-op when there is no deferred fill
     for this array (it was filled eagerly, or is an unrelated array). Called by the dispatch on every
     host-codes-reading path (analytic gate / CPU njit kernel / non-resident GPU path) so the codes D2H is
-    paid exactly when -- and only when -- a host consumer reads them. Bit-identical to the eager fill."""
+    paid exactly when - and only when - a host consumer reads them. Bit-identical to the eager fill."""
     h = _DEFERRED_HOST_FILL.get(id(host_codes))
     if h is None:
         return
@@ -357,8 +357,8 @@ def ensure_host_codes_filled(host_codes) -> None:
 def take_resident_codes(host_codes):
     """Return the resident device codes stashed for ``host_codes`` iff they match it (same id, shape,
     dtype); else None. The resident-CUDA gate consumes the returned device codes IN PLACE (no host read).
-    The handoff is NOT cleared here (so a later host-reading branch in the SAME dispatch -- e.g. the
-    analytic gate that runs after this pop -- can still trigger the deferred host fill from the same device
+    The handoff is NOT cleared here (so a later host-reading branch in the SAME dispatch - e.g. the
+    analytic gate that runs after this pop - can still trigger the deferred host fill from the same device
     codes); the dispatch clears everything via ``clear_resident_codes_handoff`` in its finally."""
     h = _RESIDENT_CODES_HANDOFF.get(id(host_codes))
     if h is None:
@@ -384,12 +384,12 @@ def clear_resident_codes_handoff(host_codes: np.ndarray | None = None) -> None:
     _DEFERRED_HOST_FILL.clear()
 
 
-# GPU-RESIDENT BINNING DTYPE (2026-06-20). The FE candidate buffer is ALREADY float32 (the njit/CUDA
+# GPU-RESIDENT BINNING DTYPE. The FE candidate buffer is ALREADY float32 (the njit/CUDA
 # materialise writes float32; the chunk buffer is float32). The original GPU-resident discretize path
 # UP-CAST it to float64 before cp.percentile + cp.searchsorted, so the bandwidth-bound full sort moved
 # 2x the bytes for NO accuracy gain over the f32 source. Binning NATIVELY in float32 removes the cast
 # AND halves the bytes the sort/percentile + searchsorted scan, and (measured this run) PRESERVES the
-# clean-compound FE SELECTION (the acceptance bar -- same features, not bit-identical edges; f32-vs-f64
+# clean-compound FE SELECTION (the acceptance bar - same features, not bit-identical edges; f32-vs-f64
 # code agreement ~100%). So float32 is the DEFAULT binning dtype; the exact f64 path stays one env flip
 # away (``MLFRAME_FE_GPU_BINNING_DTYPE=float64``) as the bit-identical fallback if a future host/data
 # combination ever destabilises selection. The prior "f32 was SLOWER" result (docstring, 2026-06-20)
@@ -404,7 +404,7 @@ def clear_resident_codes_handoff(host_codes: np.ndarray | None = None) -> None:
 def _xp_special(xp):
     """The scipy.special-compatible module for array module ``xp``: ``scipy.special`` for numpy,
     ``cupyx.scipy.special`` for cupy. Used for the GPU full-catalog special functions (erf / gammaln /
-    beta / binom are present in cupyx; dawsn / agm are NOT -- see _GPU_UNAVAILABLE_* below)."""
+    beta / binom are present in cupyx; dawsn / agm are NOT - see _GPU_UNAVAILABLE_* below)."""
     if xp is np:
         import scipy.special as _s
         return _s
@@ -412,16 +412,16 @@ def _xp_special(xp):
     return _s
 
 
-# GPU-ONLY catalog (2026-06-21): user directive -- EVERYTHING runs on the GPU, NO CPU fallback. The six
+# GPU-ONLY catalog: user directive - EVERYTHING runs on the GPU, NO CPU fallback. The six
 # ops that lack a cupy/cupyx equivalent or need cross-row / data-dependent / emath handling are
 # TEMPORARILY DISABLED in BOTH catalogs (here AND feature_engineering.create_*_transformations) so the
 # GPU grid == the CPU grid exactly:
-#   unary : grad1, grad2 (cross-row np.gradient -- wrong under row-blocked generation), dawsn (no cupyx)
+#   unary : grad1, grad2 (cross-row np.gradient - wrong under row-blocked generation), dawsn (no cupyx)
 #   binary: agm (no cupyx), logn (np.emath complex-base), binom (deferred with the others)
 # TODO(restore): re-enable each behind a real GPU kernel (grad via full-column cp.gradient; dawsn/agm via
 # custom kernels; logn via log/log on the shifted operands) once the GPU residency path is validated.
 # Mirrors feature_engineering's enabled catalog EXACTLY so the GPU candidate == the CPU one to fp
-# round-off (selection-equivalent -- the FE perf bar).
+# round-off (selection-equivalent - the FE perf bar).
 _FULL_UNARY = (
     "identity", "neg", "abs", "sqr", "reciproc", "sqrt", "log", "sin",          # minimal
     "sign", "rint", "qubed", "invsquared", "invqubed", "cbrt", "invcbrt", "invsqrt", "exp",  # medium
@@ -442,7 +442,7 @@ def _unary_apply(xp, name, x):
     """Apply unary ``name`` to ``x`` using array module ``xp`` (numpy or cupy). Semantics mirror
     ``feature_engineering.create_unary_transformations`` EXACTLY (full maximal catalog), incl.
     smart_log's full-column nanmin shift. Raises ValueError for an op with no ``xp`` equivalent (the
-    caller excludes it from the GPU grid -- see _GPU_UNAVAILABLE_UNARY)."""
+    caller excludes it from the GPU grid - see _GPU_UNAVAILABLE_UNARY)."""
     # --- minimal ---
     if name == "identity":
         return x
@@ -595,7 +595,7 @@ def _gpu_apply_prewarp(cp, x, spec):
 
 def _binary_apply(xp, name, x, y):
     """Apply binary ``name`` to ``(x, y)`` mirroring ``feature_engineering.create_binary_transformations``
-    EXACTLY (full catalog minus the temporarily-disabled agm/logn/binom -- see _FULL_BINARY), incl. safe
+    EXACTLY (full catalog minus the temporarily-disabled agm/logn/binom - see _FULL_BINARY), incl. safe
     div's y==0 branch. Raises ValueError for an unknown/disabled op."""
     # --- minimal ---
     if name == "mul":
@@ -616,9 +616,9 @@ def _binary_apply(xp, name, x, y):
         return xp.abs(x - y)
     if name == "hypot":
         return xp.hypot(x, y)
-    if name == "signed":  # sign(x)*|y| -- non-symmetrical
+    if name == "signed":  # sign(x)*|y| - non-symmetrical
         return xp.sign(x) * xp.abs(y)
-    if name == "ratio_abs":  # x/(|y|+1) -- non-symmetrical
+    if name == "ratio_abs":  # x/(|y|+1) - non-symmetrical
         return x / (xp.abs(y) + 1.0)
     # --- maximal ---
     if name == "logaddexp":
@@ -637,7 +637,7 @@ def _binary_apply(xp, name, x, y):
         return _xp_special(xp).beta(x, y)
     # GPU-DISABLED(restore): uncomment these + the matching _FULL_BINARY entries + the
     # feature_engineering.py catalog lines to re-enable. agm needs a cupyx/custom kernel (absent here);
-    # logn is np.emath.logn (complex base) -- a real GPU form is log(y-ymin+0.1)/log(x-xmin+0.1); binom
+    # logn is np.emath.logn (complex base) - a real GPU form is log(y-ymin+0.1)/log(x-xmin+0.1); binom
     # is deferred with the batch.
     # if name == "agm":
     #     return _xp_special(xp).agm(x, y)
@@ -698,7 +698,7 @@ _FUSED_GEN_KERNEL = None  # module-level singleton (lazy-compiled; never on an i
 # value ``v`` for candidate ``c`` at row ``i`` into a (K, n) C-order buffer (``out[c*n + i]``) instead of the
 # (n, K) row-major slot (``out[i*K + c]``). The caller allocates ``out`` as (K, n), so a downstream that
 # previously produced a column-major view of the (n,K) matrix (``_transpose_to_cm`` for the coalesced radix
-# edges, or ``cp.percentile(cand, axis=0)`` sorting the strided axis) reads the (K, n) buffer DIRECTLY -- the
+# edges, or ``cp.percentile(cand, axis=0)`` sorting the strided axis) reads the (K, n) buffer DIRECTLY - the
 # transpose kernel / strided percentile-sort is GONE. Bit-identical values: out_cm[c, i] == out_rm[i, c] == v
 # (same operand gathers, same safe-div, same non-finite scrub); only the STORE address changes. The thread
 # mapping is flipped too (i = tid % n, c = tid / n) so consecutive threads own consecutive rows of one
@@ -755,7 +755,7 @@ def _get_fused_gen_cm_kernel():
 # candidate columns against the original-y AND every shuffled-y, WITHOUT ever materialising the (n,K)
 # float candidate matrix, the (n,K) int codes, the (n,K) ``d_base`` index, or the (rows*n*K) flat index
 # the cupy noise-gate builds. Each thread owns one (row, candidate) cell: it RE-generates the candidate
-# value from the resident post-unary caches (the cheap elementwise gen -- recomputed instead of stored,
+# value from the resident post-unary caches (the cheap elementwise gen - recomputed instead of stored,
 # Option F1), bins it ONCE via an upper-bound binary search over that candidate's PRE-COMPUTED exact
 # ``cp.percentile`` interior edges (so the binning math is IDENTICAL to ``_gpu_resident_discretize_codes``
 # -> selection stays EXACT), then atomic-adds 1 into the joint-histogram slot of EVERY y-vector (original
@@ -763,7 +763,7 @@ def _get_fused_gen_cm_kernel():
 # + the bin code ONCE per cell and reusing it across all P1 y-vectors is the key: the per-cell work is
 # paid once, only the P1 atomic adds scale with the permutation count.
 #
-# Edges layout: ``edges`` is (K, nbins-1) row-major -- the INTERIOR percentile edges ``bin_edges[1:-1]``
+# Edges layout: ``edges`` is (K, nbins-1) row-major - the INTERIOR percentile edges ``bin_edges[1:-1]``
 # for candidate c, exactly what ``cp.searchsorted(edges, val, side='right')`` consumes. The in-kernel
 # search reproduces ``side='right'`` (strictly-greater upper bound) so the code equals the cupy path.
 # y-vectors layout: ``y_all`` is (P1, n) int32 (row 0 = original y, rows 1.. = the Fisher-Yates shuffles
@@ -784,7 +784,7 @@ void fused_gen_bin_hist(const double* __restrict__ ua, const double* __restrict_
     // ONE BLOCK PER CANDIDATE COLUMN (roadmap #3 fused SHARED-MEM atomic histogram). The whole column's
     // (P1, nbins, K_y) joint histogram lives in shared memory as int32 (counts <= n < 2^31). Each thread
     // strides over rows: regenerates the candidate value ONCE, bins it ONCE, then does P1 SHARED-MEM
-    // atomics (orders of magnitude cheaper than the global-mem atomics the naive version paid) -- the
+    // atomics (orders of magnitude cheaper than the global-mem atomics the naive version paid) - the
     // recompute-instead-of-store of Option F1 fused with the shared-atomic histogram of #3. The shared
     // tile is flushed to global counts once at the end. ``hist_size = P1 * nbins * K_y`` int32 elements
     // must fit shared memory; the host launches this path only when it does (else the global-atomic
@@ -858,7 +858,7 @@ _QLEVELS_CACHE: dict = {}  # (nbins, work-dtype) -> cp.linspace(0,100,nbins+1) d
 
 def _quantile_levels_dev(cp, nbins: int, work):
     """Cached cp.linspace(0,100,nbins+1, dtype=work) percentile-level vector (depends only on (nbins, work),
-    rebuilt every chunk otherwise). Read-only -- cp.percentile never mutates it -- so sharing is safe and
+    rebuilt every chunk otherwise). Read-only - cp.percentile never mutates it - so sharing is safe and
     the returned array is byte-identical to the inline linspace (deterministic in its args)."""
     key = (int(nbins), work)
     hit = _QLEVELS_CACHE.get(key)
@@ -875,12 +875,12 @@ def _fused_generate_block(ua_cm, ub_cm, combos_block, *, column_major: bool = Fa
     U = len(_MINIMAL_UNARY) (row u = _UNARY_IDX[name]). This layout lets the kernel address column u
     via ``ua[u*n + i]``; the caller builds them ONCE and reuses across chunks. Returns a row-major
     (n, K) cupy float64 matrix, bit-equal to the cupy elementwise path (same ops, same safe-div, same
-    nan_to_num -- validated maxdiff 0).
+    nan_to_num - validated maxdiff 0).
 
     ``column_major=True`` runs the COLUMN-MAJOR twin kernel instead: same per-cell value, written into a
     (K, n) C-order buffer (``out_cm[c, i] == out_rm[i, c]``). Callers that only need a column-major view of
     the candidate values (e.g. the exact per-candidate percentile edges) take this to SKIP a downstream
-    transpose / strided-axis sort -- BIT-IDENTICAL values, only the layout differs. Consumers that read the
+    transpose / strided-axis sort - BIT-IDENTICAL values, only the layout differs. Consumers that read the
     matrix as (n, K) (the resident MI / discretize kernels) MUST keep the default row-major output."""
     import cupy as cp
 
@@ -934,7 +934,7 @@ def _unary_stack_cm(xp, x):
 # n=300k VRAM cliff (measured: unchunked (300k,384) thrashed the 4GB card to 60s).
 _GPU_MI_WORKING_MULTIPLE = 5
 
-# G3 (2026-06-22): K-chunk width is governed by what FRACTION of free VRAM the working set may occupy.
+# G3: K-chunk width is governed by what FRACTION of free VRAM the working set may occupy.
 # WIDER fraction = fewer/larger chunks = fewer kernel launches+reductions (the nsys launch/sync overhead),
 # bounded by the card not thrashing. 0.25 is the conservative source-code default; per
 # feedback_use_kernel_tuning_cache_for_gpu the live fraction is looked up per-host from the
@@ -963,7 +963,7 @@ def _gpu_k_chunk(n: int, *, free_bytes: int | None = None,
                  bytes_per_elem: int = 8, working_multiple: int | None = None,
                  max_cols: int | None = None, vram_fraction: float | None = None) -> int:
     """Max candidate columns to score in ONE on-device batch so the working set stays within a FRACTION of
-    free VRAM -- bounds peak GPU memory like the CPU RAM governor, removing the large-n cliff.
+    free VRAM - bounds peak GPU memory like the CPU RAM governor, removing the large-n cliff.
 
     ``bytes_per_elem`` / ``working_multiple`` describe the caller's per-column resident footprint; defaults
     (8 x ``_GPU_MI_WORKING_MULTIPLE``) match the f64 MI prototype, the CODES path passes 4 x ~4 for a ~3x
@@ -1022,7 +1022,7 @@ def _build_candidate_matrix(xp, a, b):
 
 def cpu_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, *, nbins: int = 20):
     """Reference CPU path: build the grid in numpy + score with the production njit batch MI. Returns
-    ``(names, mi)`` -- the baseline the GPU-resident path must match (ranking + values to fp round-off)."""
+    ``(names, mi)`` - the baseline the GPU-resident path must match (ranking + values to fp round-off)."""
     from .hermite_fe import _plugin_mi_classif_batch_njit
 
     a = np.ascontiguousarray(a, dtype=np.float64)
@@ -1034,19 +1034,19 @@ def cpu_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, *, 
 
 def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, *, nbins: int = 20):
     """GPU-RESIDENT path: upload ``a``, ``b``, ``y`` ONCE, build the whole candidate grid on the device,
-    and score it in ONE big-k batch-MI call -- the array never round-trips per candidate. Returns
+    and score it in ONE big-k batch-MI call - the array never round-trips per candidate. Returns
     ``(names, mi)`` with ``mi`` brought back to host (the only D2H, a (K,) vector). Raises if cupy is
     unavailable (callers gate on :func:`fe_gpu_resident_enabled` + availability)."""
     import cupy as cp
 
-    from . import hermite_fe as _hf  # noqa: F401 -- full-init the parent first so the direct
+    from . import hermite_fe as _hf  # noqa: F401 - full-init the parent first so the direct
     # ``_hermite_fe_mi`` import below can't trip the _ensure_cuda_kernels back-import cycle.
     from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
 
     # bench-attempt-rejected (2026-06-20, "eliminate ALL f64 in the GPU FE MI path" on the GTX 1050 Ti):
     # generating + scoring this whole chain in float32 (operands/fused-gen/binning/MI all f32) gave only
     # 1.09x @100k / 1.14x @300k AND FLIPPED the winner at n=300k (div(identity(a),sqrt(b)) ->
-    # mul(sqr(a),reciproc(b)) -- both spell a**2/b, a near-tie cluster the f32 round-off reorders), i.e.
+    # mul(sqr(a),reciproc(b)) - both spell a**2/b, a near-tie cluster the f32 round-off reorders), i.e.
     # selection instability for a small win. The f64 1/32 penalty does NOT live in the MI math (math-only
     # f32 = 1.00x; see _hermite_fe_mi._plugin_mi_classif_batch_cuda note) but in the BINNING sort, which is
     # captured separately via MLFRAME_FE_GPU_BINNING_DTYPE. So this path stays f64. (proto
@@ -1056,7 +1056,7 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
     n = int(a_gpu.shape[0])
     y_i64 = np.ascontiguousarray(y_codes, dtype=np.int64)
     # (U, n) unary caches (U=len(_MINIMAL_UNARY)) stay resident + reused across every chunk; the FUSED kernel generates
-    # each candidate CHUNK in ONE launch (vs a Python loop of ~K cupy binary ops + nan_to_num + temps --
+    # each candidate CHUNK in ONE launch (vs a Python loop of ~K cupy binary ops + nan_to_num + temps -
     # bit-equal, ~15x faster generation). Only the chunk matrix is bounded, so peak VRAM is governed.
     ua_cm = _unary_stack_cm(cp, a_gpu)
     ub_cm = _unary_stack_cm(cp, b_gpu)
@@ -1073,7 +1073,7 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
         cand = _fused_generate_block(ua_cm, ub_cm, block)  # one-launch fused generation
         # Both operands are already device-resident (cand from the fused kernel, y_gpu uploaded once), so the
         # H2D-free resident MI scores the chunk with no per-chunk transfer (bit-identical to the host-input
-        # variant -- test_resident_batch_cuda_matches_host_input pins maxdiff 0). y_min/n_classes hoisted.
+        # variant - test_resident_batch_cuda_matches_host_input pins maxdiff 0). y_min/n_classes hoisted.
         mi_parts.append(
             np.asarray(_plugin_mi_classif_batch_cuda_resident(cand, y_gpu, nbins, y_min=_ymin, n_classes=_ncls, relax_binning=True), dtype=np.float64)
         )
@@ -1081,14 +1081,14 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
     return _candidate_names(), np.concatenate(mi_parts) if mi_parts else np.empty(0)
 
 
-# G3 (2026-06-22): the per-fraction PROBE + sweep + kernel_tuner registration live in the
+# G3: the per-fraction PROBE + sweep + kernel_tuner registration live in the
 # ``_gpu_resident_k_chunk_ktc`` sibling (LOC budget), re-exported at the bottom of this module.
 
 def _sortfree_mi_gpu(cand_gpu, y_i64, nbins, *, sub: int = 4096):
     """On-device APPROXIMATE plug-in MI for an (n, k) cupy candidate block, with NO sort: bin via a
     monotone tail-compressed (``sign*log1p``, rank-preserving so equi-frequency quantiles are invariant)
     equi-width sub-histogram -> CDF -> quantile edges, then the same joint-histogram MI. Spearman ~0.999
-    vs the exact argsort MI but ~4.4x faster on the binning step -- used only to PRESCREEN candidates."""
+    vs the exact argsort MI but ~4.4x faster on the binning step - used only to PRESCREEN candidates."""
     import math
 
     import cupy as cp
@@ -1119,14 +1119,14 @@ def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refin
     """APPROXIMATE-with-exact-head GPU pair MI (opt-in, NOT the default): prescreen ALL candidates with
     the sort-free MI (no O(n log n) sort), then re-score only the top ``refine_k`` with the EXACT argsort
     MI. The true winner is EMPIRICALLY preserved (validated 6/6 seeds @100k) because it sits in the
-    high-approx-MI tie cluster of equivalent a**2/b spellings, normally well within top-K -- but this is
+    high-approx-MI tie cluster of equivalent a**2/b spellings, normally well within top-K - but this is
     NOT guaranteed: if the prescreen mis-ranks the true winner below ``refine_k`` the returned argmax is
     wrong. So this is an approximate fast mode; the exact contract uses ``gpu_resident_pair_candidate_mi``
     (the dispatcher's default). Returns ``(names, mi)``: top-K entries carry EXACT MI, the tail carries
     the (Spearman ~0.999) approx MI."""
     import cupy as cp
 
-    from . import hermite_fe as _hf  # noqa: F401 -- full-init parent before the _hermite_fe_mi import
+    from . import hermite_fe as _hf  # noqa: F401 - full-init parent before the _hermite_fe_mi import
     from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda
 
     a_gpu = cp.asarray(a, dtype=cp.float64)
@@ -1162,14 +1162,14 @@ def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refin
     mi[top] = exact_top  # exact MI for the head, approx for the cheap tail
     return _candidate_names(), mi
     # MEASURED (GTX 1050 Ti, K=384, refine_k=48): exact winner preserved 6/6 seeds @ n=100k, but the
-    # end-to-end speedup over the pure-exact GPU path is only ~1.16x @100k / ~1.06x @1M -- NOT the ~2x the
+    # end-to-end speedup over the pure-exact GPU path is only ~1.16x @100k / ~1.06x @1M - NOT the ~2x the
     # MI-only argsort=69% microbench implied. Once candidate GENERATION + the histogram MATH (paid over
     # all 384 in the prescreen) are counted, trimming only the argsort to the top-48 saves less than
     # argsort's in-kernel share. Real + exact, but modest; the bigger lever is cutting generation/math
     # (or a fused sort-free EXACT kernel), not just the sort. Kept as a validated option, not the default.
 
 
-# --- Tier E carve re-exports (2026-06-22): prewarp/orth-basis + grand-fusion block -> _gpu_resident_basis.py,
+# --- Tier E carve re-exports: prewarp/orth-basis + grand-fusion block -> _gpu_resident_basis.py,
 # residency-buffer + radix-select block -> _gpu_resident_select.py (carved VERBATIM under the 1k ceiling).
 # Rebind EVERY moved name (public AND underscore-private) into this namespace so all existing
 # ``from .._gpu_resident_fe import X`` paths still resolve byte-for-byte (production code + tests import

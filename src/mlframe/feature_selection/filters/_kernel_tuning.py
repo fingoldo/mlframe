@@ -111,7 +111,7 @@ def _reset_for_tests() -> None:
 
 # Register the anonymized default-tuning cache once, at import. This module is
 # imported by ``mlframe.feature_selection.filters.__init__`` (the FS package init
-# -- the sensible, single import point), so the defaults are live before any
+# - the sensible, single import point), so the defaults are live before any
 # dispatcher's first lookup. Guarded so a missing file / missing pyutilz is a
 # no-op.
 _register_default_tuning_cache()

@@ -26,7 +26,7 @@ def _quantile_edges_2d_njit(arr2d: np.ndarray, quantiles: np.ndarray, kths: np.n
     ``quantiles[q]``-th percentile (0..100) of column ``j``. Replaces the numpy
     ``np.percentile(axis=0)`` call in ``discretize_2d_quantile_batch`` whose internal
     ``ndarray.partition`` was the FE-sweep's single dominant numpy hotspot (call-site
-    profile on scene 1500x299: 114.5s / 20% of fit in ``partition``, 14208 calls -- the
+    profile on scene 1500x299: 114.5s / 20% of fit in ``partition``, 14208 calls - the
     vectorised C partition re-partitions the FULL (n_rows x n_cols) buffer ONCE PER
     quantile (n_bins+1 of them) per discretise; this kernel sorts each column ONCE in a
     ``nogil`` per-column loop and reads ALL quantiles from the sorted column).
@@ -36,18 +36,18 @@ def _quantile_edges_2d_njit(arr2d: np.ndarray, quantiles: np.ndarray, kths: np.n
       * SORT in the INPUT dtype: ``np.percentile(arr2d, axis=0)`` partitions the array in
         its OWN dtype (verified the 2-D ``axis=0`` float32 call equals the per-column 1-D
         float32 path), so the selected order statistics ``col[lo]`` / ``col[lo+1]`` must be
-        the float32 values -- promoting to float64 BEFORE the sort can reorder float32 ties
+        the float32 values - promoting to float64 BEFORE the sort can reorder float32 ties
         at distinct float64 values and diverge by ~1 ULP.
       * LERP in float64: numpy keeps the interpolation WEIGHT ``t`` in float64 even for a
         float32 array, so ``col[lo]`` is promoted to float64 in the multiply and the
-        interpolation result is float64 -- matched here via ``float(col[lo])`` + a float64
+        interpolation result is float64 - matched here via ``float(col[lo])`` + a float64
         ``t``. (Net: select float32 order statistics, lerp them in float64 = numpy exactly.)
       * Full ``np.sort`` produces the exact ascending order statistics numpy's
         ``introselect`` partition selects at indices ``lo``/``lo+1`` (a sort IS a valid
         partition at every index), so ``col[lo]`` / ``col[lo+1]`` are identical values.
       * Virtual index: ``v = (q/100) * (n-1)``; ``lo = floor(v)``; numpy's exact ``_lerp``
         (``a + (b-a)*t`` for t<0.5, ``b - (b-a)*(1-t)`` for t>=0.5) with the ``lo == n-1``
-        clamp -- the asymmetric form numpy uses to stay monotone + endpoint-exact.
+        clamp - the asymmetric form numpy uses to stay monotone + endpoint-exact.
 
     ``parallel=True`` (prange over columns) + ``nogil``: a SERIAL sort-per-column is actually
     ~0.6x SLOWER than numpy's vectorised C ``partition`` single-threaded (measured), so the win
@@ -61,7 +61,7 @@ def _quantile_edges_2d_njit(arr2d: np.ndarray, quantiles: np.ndarray, kths: np.n
     (each column is reduced independently). bench (scene FE buffer 1500-2407 x 4000-8000 cols):
     serial 0.62-0.67x vs numpy; parallel restores the win on multi-core.
 
-    ``arr2d`` is ``(n_rows, n_cols)`` at its native dtype (float32/float64 -- one numba
+    ``arr2d`` is ``(n_rows, n_cols)`` at its native dtype (float32/float64 - one numba
     specialisation each). ``quantiles`` is float64 in [0, 100]. NaN handling is NOT done
     here (the caller routes NaN-bearing buffers to ``np.nanpercentile``); a NaN in a column
     would sort last and bias the edges, exactly as a raw ``np.percentile`` (non-nan) would,
@@ -79,16 +79,16 @@ def _quantile_edges_2d_njit(arr2d: np.ndarray, quantiles: np.ndarray, kths: np.n
     # columns the parallel sort beats numpy's single-threaded partition by spreading the work.
     for j in prange(n_cols):
         # Sort each column in the INPUT dtype: numpy's ``np.percentile(axis=0)`` partitions the
-        # array IN ITS OWN DTYPE (a float32 buffer is partitioned in float32 -- verified that the
+        # array IN ITS OWN DTYPE (a float32 buffer is partitioned in float32 - verified that the
         # 2-D ``axis=0`` call equals the per-column 1-D float32 path), so the selected order
         # statistics ``col[lo]`` / ``col[lo+1]`` must be the float32 values, not float64-promoted
         # ones (promoting before the sort can reorder float32 ties at distinct float64 values).
         col = np.empty(n_rows, dtype=arr2d.dtype)
         for r in range(n_rows):
             col[r] = arr2d[r, j]
-        # PARTITION not SORT (2026-06-17): the quantile edges only read the order
+        # PARTITION not SORT: the quantile edges only read the order
         # statistics at ``kths`` (the ``lo``/``lo+1`` indices the lerp below touches, plus the
-        # ``n-1`` clamp) -- ``np.partition(col, kths)[k]`` equals ``col.sort()[k]`` EXACTLY at
+        # ``n-1`` clamp) - ``np.partition(col, kths)[k]`` equals ``col.sort()[k]`` EXACTLY at
         # every ``k in kths`` (introselect places each kth at its final sorted position), so the
         # edges stay bit-identical to the full-sort path while dropping the cost from O(n log n)
         # to O(n) per column. Measured ~20% faster at n=100k (447 vs 555 ms), widening with n.
@@ -96,7 +96,7 @@ def _quantile_edges_2d_njit(arr2d: np.ndarray, quantiles: np.ndarray, kths: np.n
         for qi in range(n_q):
             # ``v`` / ``t`` are float64 (the quantile virtual index). numpy keeps the lerp
             # WEIGHT in float64 even for a float32 array, so ``col[lo]`` (float32) is promoted
-            # to float64 in the multiply and the interpolation result is float64 -- matching
+            # to float64 in the multiply and the interpolation result is float64 - matching
             # numpy bit-for-bit. (Sort in float32 order statistics, lerp them in float64.)
             v = (quantiles[qi] / 100.0) * (n_rows - 1)
             lo = math.floor(v)
@@ -107,7 +107,7 @@ def _quantile_edges_2d_njit(arr2d: np.ndarray, quantiles: np.ndarray, kths: np.n
                 b = float(col[lo + 1])
                 t = v - lo
                 # numpy's exact ``_lerp`` (numpy/lib/function_base): ``a + (b-a)*t`` for
-                # t < 0.5 and ``b - (b-a)*(1-t)`` for t >= 0.5 -- the asymmetric form numpy
+                # t < 0.5 and ``b - (b-a)*(1-t)`` for t >= 0.5 - the asymmetric form numpy
                 # uses to keep the result monotone + endpoint-exact. Matching this branch
                 # (in float64) makes the edges bit-identical to ``np.percentile``.
                 diff_b_a = b - a
@@ -119,10 +119,10 @@ def _quantile_edges_2d_njit(arr2d: np.ndarray, quantiles: np.ndarray, kths: np.n
 
 # bench-attempt-rejected (2026-06-07): ``fastmath=True`` on the searchsorted kernels (Q6).
 # UNSAFE: fastmath asserts no-NaN, which silently breaks the load-bearing NaN -> rightmost-bin
-# contract. Verified directly -- on a 5%-NaN buffer the plain kernel assigns NaN code 9 (rightmost,
+# contract. Verified directly - on a 5%-NaN buffer the plain kernel assigns NaN code 9 (rightmost,
 # correct) while the fastmath kernel assigns code 0, which would re-bin NaN columns and DRIFT the
 # selection. The speedup is also negligible (1.802ms -> 1.777ms, ~1%, the loop is integer-compare
-# bound -- no float-reassociation to win). NOT applied. (Integer/count kernels gain nothing from
+# bound - no float-reassociation to win). NOT applied. (Integer/count kernels gain nothing from
 # fastmath since it is a float-only flag; the MI log-sum/div kernels are excluded by the user.)
 @njit(nogil=True, cache=True)
 def _searchsorted_2d_right_njit(edges_inner: np.ndarray, arr2d: np.ndarray, out: np.ndarray) -> None:
@@ -149,7 +149,7 @@ def _searchsorted_2d_right_njit(edges_inner: np.ndarray, arr2d: np.ndarray, out:
     the per-column numpy dispatch overhead.
 
     ``edges_inner`` is ``edges[1:-1]`` (the interior bin edges), shape ``(n_edges, n_cols)``,
-    always float64; ``arr2d`` is ``(n_rows, n_cols)`` at its NATIVE dtype (float32 or float64 --
+    always float64; ``arr2d`` is ``(n_rows, n_cols)`` at its NATIVE dtype (float32 or float64 -
     numba compiles a specialisation per dtype). The per-element ``arr2d[r,j] < edges_inner[mid,j]``
     promotes a float32 value to float64 against the float64 edge, byte-identically to numpy's
     ``searchsorted(float64_edges, float32_col)``; this lets the caller pass the full-width FE
@@ -183,7 +183,7 @@ def _quantile_codes_1d_njit(arr: np.ndarray, quantiles: np.ndarray, kths: np.nda
     golden F2 100k fit: 9754 calls, each doing ``np.nanpercentile`` (whose ``_quantile`` runs
     ``ndarray.partition`` once PER quantile -> ~7.8s ``partition``) plus ``np.searchsorted``
     (~7.7s). This kernel collapses both into a single ``np.partition(buf, kths)`` (O(n), reads
-    exactly the order statistics the lerp touches -- the same one-partition technique already
+    exactly the order statistics the lerp touches - the same one-partition technique already
     shipped in ``_quantile_edges_2d_njit``) followed by an inline binary search per element.
 
     bench-attempt-rejected (2026-06-24): wiring this into the 1-D ``discretize_array`` quantile
@@ -208,7 +208,7 @@ def _quantile_codes_1d_njit(arr: np.ndarray, quantiles: np.ndarray, kths: np.nda
 
     NaN is NOT handled here (caller routes NaN-bearing arrays to the numpy ``nanpercentile`` path);
     a NaN would sort last and bias the edges, exactly as a raw ``np.percentile`` would, so the
-    caller's NaN gate is what preserves correctness -- identical contract to the 2-D kernels.
+    caller's NaN gate is what preserves correctness - identical contract to the 2-D kernels.
 
     SERIAL + ``nogil`` (not ``parallel``): a single 1-D column has no inner parallelism to spread
     (the win is eliminating per-quantile re-partition + numpy dispatch), and the FE pair-search
@@ -254,7 +254,7 @@ def _quantile_codes_1d_njit(arr: np.ndarray, quantiles: np.ndarray, kths: np.nda
 
 @njit(parallel=True, nogil=True, cache=True)
 def _searchsorted_2d_right_njit_parallel(edges_inner: np.ndarray, arr2d: np.ndarray, out: np.ndarray) -> None:
-    """``parallel=True`` (prange over COLUMNS) twin of ``_searchsorted_2d_right_njit`` --
+    """``parallel=True`` (prange over COLUMNS) twin of ``_searchsorted_2d_right_njit`` -
     BYTE-IDENTICAL output, only the outer column loop is a numba ``prange`` so the per-column
     binary searches spread across cores (OPT-A, 2026-06-07).
 

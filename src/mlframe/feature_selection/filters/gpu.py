@@ -90,11 +90,11 @@ class _GpuBufferPool:
 
 _GPU_POOL = _GpuBufferPool()
 
-# Wave 27 P2 fix (2026-05-20): the prior docstring claimed
+# Wave 27 P2 fix: the prior docstring claimed
 # "Cross-process safe ... picks up the host process's mutex on spawn".
 # That is FALSE on Windows ``spawn`` (the joblib loky default): each
 # child process re-imports the module and constructs its own
-# ``Lock()`` -- the parent + children do NOT share the underlying
+# ``Lock()`` - the parent + children do NOT share the underlying
 # ``SemLock`` handle. The lock only mutexes WITHIN one process.
 # This is acceptable HERE because the lock body
 # (``init_kernels``) is idempotent: duplicate CuPy NVRTC compile is
@@ -109,11 +109,11 @@ def init_kernels() -> None:
     """Build the CuPy ``RawKernel`` objects and attach them to this module's namespace. Idempotent under the lock.
 
     Kernels:
-    * ``compute_joint_hist_cuda`` -- single-permutation joint histogram (used by ``mi_direct_gpu``).
-    * ``compute_mi_from_classes_cuda`` -- single-permutation MI from joint histogram.
-    * ``compute_joint_hist_batched_cuda`` -- builds joint histograms for ``batch`` permutations of ``classes_y`` in a single launch. ``perms_y`` has shape
+    * ``compute_joint_hist_cuda`` - single-permutation joint histogram (used by ``mi_direct_gpu``).
+    * ``compute_mi_from_classes_cuda`` - single-permutation MI from joint histogram.
+    * ``compute_joint_hist_batched_cuda`` - builds joint histograms for ``batch`` permutations of ``classes_y`` in a single launch. ``perms_y`` has shape
       ``(batch, n)``; ``joint_counts_batch`` has shape ``(batch, nbins_x * nbins_y)``. Cuts kernel-launch overhead from ``npermutations`` to 1.
-    * ``compute_joint_hist_multi_pair_cuda`` -- builds joint histograms for ``n_pairs`` (a, b) column pairs in a single launch via a 3D grid (rows along X, pairs
+    * ``compute_joint_hist_multi_pair_cuda`` - builds joint histograms for ``n_pairs`` (a, b) column pairs in a single launch via a 3D grid (rows along X, pairs
       along Y).
     """
     import cupy as cp
@@ -188,7 +188,7 @@ def init_kernels() -> None:
     # Each block keeps a local histogram in shared memory (10-100x faster
     # atomic-add than global memory on cc 6.x); after the strided read of
     # n_samples the block reduces its shared hist into the global output once.
-    # Shared-mem usage: joint_size * 4 bytes -- caller passes the size as
+    # Shared-mem usage: joint_size * 4 bytes - caller passes the size as
     # ``shared_mem`` launch arg (see ``mi_direct_gpu_batched`` dispatch).
     # See ``feedback_keep_all_kernel_versions``: ``compute_joint_hist_batched_cuda``
     # (the global-atomic version above) stays available; the dispatcher picks
@@ -238,7 +238,7 @@ def init_kernels() -> None:
     )
     # Multi-pair batched joint histogram kernel. Processes B pairs per launch via 3D grid (blocks along rows, blocks along pairs). Each (pair, row) thread atomically
     # adds into the pair-local joint hist.
-    #   factors_data_T: (n_cols, n) row-major int32 -- transposed for coalesced reads when iterating over rows of a column.
+    #   factors_data_T: (n_cols, n) row-major int32 - transposed for coalesced reads when iterating over rows of a column.
     #   pairs_a, pairs_b: (n_pairs,) column indices into factors_data_T.
     #   nbins_a, nbins_b: (n_pairs,) per-pair cardinalities.
     #   joint_offsets: (n_pairs + 1,) prefix-sum into joint_counts_flat.
@@ -249,7 +249,7 @@ def init_kernels() -> None:
     extern "C" __global__
     void compute_joint_hist_multi_pair_cuda(
         const int *factors_data_T,    // (n_cols, n)
-        const int *classes_y,          // (n,)  -- already merged target
+        const int *classes_y,          // (n,)  - already merged target
         const int *pairs_a,            // (n_pairs,)
         const int *pairs_b,            // (n_pairs,)
         const int *nbins_a,            // (n_pairs,)
@@ -287,7 +287,7 @@ def init_kernels() -> None:
     # Caller passes ``max_joint_size_y`` (= max over all pairs in the launch)
     # as the dynamic-shared-mem size at kernel-launch time. Pairs with
     # smaller joint_size only use the first slice of sm_hist; the rest is
-    # wasted shared-mem -- acceptable when the variance across pairs is
+    # wasted shared-mem - acceptable when the variance across pairs is
     # bounded (mlframe cat-FE typically has uniform nbins).
     module.compute_joint_hist_multi_pair_shared_cuda = cp.RawKernel(  # type: ignore[attr-defined]
         r"""
@@ -356,7 +356,7 @@ def init_kernels() -> None:
             // (nbins_y==2); for any nbins_y!=2 (multi-class y, or quantile-binned
             // regression y with nbins_y up to 10) it read the WRONG cells, yielding
             // garbage permutation-null MIs that systematically over-rejected genuine
-            // candidates -- silently diverging the GPU selection from the CPU path.
+            // candidates - silently diverging the GPU selection from the CPU path.
             // Use double throughout (no float32 narrowing) to match the bit-exact
             // CPU njit compute_mi_from_classes.
             double total = 0.0;
@@ -396,7 +396,7 @@ def _pin_device_if_needed() -> None:
     already on the right device or if the pin is unset. CUDA runtime
     state is thread-local, so this MUST be called from every thread
     that runs an ``mi_direct_gpu*`` entry-point (joblib worker,
-    asyncio task, etc.) -- the ``init_kernels`` pin only affected the
+    asyncio task, etc.) - the ``init_kernels`` pin only affected the
     init thread."""
     if _BEST_DEVICE_ID is None:
         return
@@ -429,7 +429,7 @@ def _ensure_kernels_inited() -> None:
             init_kernels()
 
 
-# Wave 100 (2026-07-11): mi_direct_gpu_batched / mi_direct_gpu_batched_streamed
+# mi_direct_gpu_batched / mi_direct_gpu_batched_streamed
 # (~420 lines together, including their perf-history comments) moved to sibling
 # file _gpu_batched.py to drop this file below the 1k-line monolith threshold.
 # Re-imported below so the rest of this module (mi_direct_gpu delegates to the
@@ -455,7 +455,7 @@ def mi_direct_gpu(
     max_failed: Optional[int] = None,
     min_nonzero_confidence: float = 0.95,
     classes_y: Optional[np.ndarray] = None,
-    classes_y_safe: Optional[np.ndarray] = None,  # CuPy GPU array -- distinguished from the CPU classes_y_safe at the API boundary
+    classes_y_safe: Optional[np.ndarray] = None,  # CuPy GPU array - distinguished from the CPU classes_y_safe at the API boundary
     freqs_y: Optional[np.ndarray] = None,
     freqs_y_safe: Optional[np.ndarray] = None,
     use_gpu: bool = True,
@@ -466,7 +466,7 @@ def mi_direct_gpu(
 
     ``return_null_mean=True`` additionally returns the empirical permutation-null MEAN (the average MI of X
     against the y-shuffles this call already computes) and the add-one permutation p-value, so the caller can
-    apply the SAME significance-gated relevance debiasing as the CPU ``mi_direct`` path -- without it, the GPU
+    apply the SAME significance-gated relevance debiasing as the CPU ``mi_direct`` path - without it, the GPU
     relevance was RAW plug-in MI (high-cardinality-biased, and selection differed from the CPU branch). Returns
     a 4-tuple ``(mi, confidence, null_mean, p_value)`` instead of the 2-tuple.
 
@@ -475,7 +475,7 @@ def mi_direct_gpu(
     freqs_y_safe is None``), this function delegates to
     :func:`mi_direct_gpu_batched`, which runs ``batch_size=64``
     permutations per kernel launch. That cuts kernel-launch overhead
-    from O(npermutations) to O(npermutations / 64) -- material on the
+    from O(npermutations) to O(npermutations / 64) - material on the
     screening hot path where the same single-pair MI evaluation is
     repeated for every candidate.
 
@@ -493,7 +493,7 @@ def mi_direct_gpu(
     on exact-perm-counts know).
 
     ``base_seed``: when given, seeds the CuPy permutation Generator
-    (``cp.random.default_rng(base_seed)``) so the shuffle stream is reproducible across calls/hosts --
+    (``cp.random.default_rng(base_seed)``) so the shuffle stream is reproducible across calls/hosts -
     ``None`` (default) preserves the legacy unseeded-entropy behaviour. Not expected to be bit-identical to
     the CPU ``mi_direct(base_seed=...)`` path (different RNG algorithms, XORWOW vs the CPU LCG scheme); the
     contract is "each path is internally reproducible under a seed", not cross-backend bit-parity.
@@ -546,7 +546,7 @@ def mi_direct_gpu(
     # return_null_mean needs a STABLE null mean AND a usable permutation p-value, so mirror the CPU mi_direct path
     # (permutation.py:642): run a larger fixed null budget (_NULL_MEAN_MIN_PERMS, default 32) rather than the screen's
     # tiny exceedance budget. Without this the GPU ran only ``npermutations`` (as low as 2) shuffles, so the add-one
-    # p-value floored at (1+0)/(2+1)=0.33 >= alpha for EVERY feature -- the null-mean debiasing was then applied even
+    # p-value floored at (1+0)/(2+1)=0.33 >= alpha for EVERY feature - the null-mean debiasing was then applied even
     # to strong genuine signal, and GPU-present hosts selected differently from CPU-only hosts. max_failed is lifted
     # to the full budget so the early-stop cannot truncate the null (unbiased mean + full-resolution p-value).
     if return_null_mean:
@@ -601,7 +601,7 @@ def mi_direct_gpu(
                 if _ktc_entry is not None and "block_size" in _ktc_entry:
                     block_size = int(_ktc_entry["block_size"])
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in gpu.py:998: %s", e)
+                logger.debug("suppressed: %s", e)
                 pass
         grid_size = math.ceil(n / block_size)
 
@@ -616,7 +616,7 @@ def mi_direct_gpu(
         # Modern Generator (XORWOW) rather than legacy cp.random.shuffle: the legacy global cuRAND host
         # generator fails to init (CURAND_STATUS_INITIALIZATION_FAILED) on some driver/lib combos. cupy's
         # Generator has no .shuffle, so shuffle in-place via argsort(random) (a permutation of distinct
-        # floats is a bijection) -- preserving the pooled buffer identity downstream consumers rely on.
+        # floats is a bijection) - preserving the pooled buffer identity downstream consumers rely on.
         _shuf_rng = cp.random.default_rng(base_seed)
         _shuf_n = classes_y_safe.shape[0]
         for _i in range(npermutations):
@@ -660,7 +660,7 @@ def mi_direct_gpu(
 # n >= 500k, where CPU prange is memory-bandwidth bound (~minutes per pair search); GPU drops it to seconds by amortising the H2D copy of classes_y across all pairs.
 
 
-# Wave 99 (2026-05-21): mi_direct_gpu_batched_pairs (~250 lines) moved to
+# mi_direct_gpu_batched_pairs (~250 lines) moved to
 # sibling file _gpu_pairs.py to drop this file below the 1k-line monolith
 # threshold. Re-exported below so existing callers
 # (`from mlframe.feature_selection.filters.gpu import mi_direct_gpu_batched_pairs`)

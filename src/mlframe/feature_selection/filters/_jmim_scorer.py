@@ -87,13 +87,20 @@ def jmim_score(x_cand: np.ndarray, selected_cols: list[np.ndarray], y: np.ndarra
     """
     # Guard against out-of-range / -1-sentinel codes: the njit kernel uses each code DIRECTLY as a flat histogram
     # offset (composite = x*K_z + z), so a negative sentinel wraps to the last bin and an over-range code writes out
-    # of bounds -- silent histogram corruption. PID hardens the same class explicitly; mirror it here.
+    # of bounds - silent histogram corruption. PID hardens the same class explicitly; mirror it here.
     from ._fe_batched_mi import _assert_codes_in_range
 
     _assert_codes_in_range(x_cand, int(nbins_x), "jmim_score x_cand")
     _assert_codes_in_range(y, int(nbins_y), "jmim_score y")
     for _j, _c in enumerate(selected_cols):
         _assert_codes_in_range(_c, int(nbins_selected[_j]), "jmim_score selected_col")
+    from .info_theory._batch_kernels import check_joint_cardinality
+
+    # The empty-S fallback still allocates a (K_x * 1, K_y) dense joint, so cap it too -- guarding only the
+    # per-selected-column joints would leave the first-feature path un-capped.
+    check_joint_cardinality(int(nbins_x), int(nbins_y), what="jmim_score")
+    for _nb_s in nbins_selected:
+        check_joint_cardinality(int(nbins_x), int(_nb_s), int(nbins_y), what="jmim_score")
     if not selected_cols:
         # Fall back to plug-in I(X; Y) for the first feature.
         return float(_joint_mi_3d_njit(

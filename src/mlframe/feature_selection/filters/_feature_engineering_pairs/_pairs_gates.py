@@ -11,7 +11,7 @@ import numpy as np
 # MARGINAL-UPLIFT alternative acceptance for the per-pair engineered winner. The
 # primary joint-prevalence gate (``best_mi / pair_mi > fe_min_engineered_mi_prevalence``)
 # rejects a genuine signal pair whenever the 2-D JOINT MI is finite-sample-inflated
-# ABOVE what any 1-D engineered summary can retain -- and that inflation is severe when
+# ABOVE what any 1-D engineered summary can retain - and that inflation is severe when
 # the target is discretised into many bins (the adaptive ``categorize_dataset`` routinely
 # produces 25-30 target bins) while the engineered column is binned to ``quantization_nbins``
 # (~10). On the canonical ``y = a**2/b + log(c)*sin(d)`` fixture the genuine ``a**2/b`` pair
@@ -22,8 +22,8 @@ import numpy as np
 #
 # The MARGINAL-UPLIFT criterion is scale-robust: a genuine joint pair's engineered column
 # clears the LARGER individual-operand marginal MI by a wide margin (the synergy is real),
-# whereas a cross-pair artefact -- whose engineered form mostly recapitulates one operand's
-# marginal plus noise -- barely beats it. Measured on both fixtures the genuine pairs sit at
+# whereas a cross-pair artefact - whose engineered form mostly recapitulates one operand's
+# marginal plus noise - barely beats it. Measured on both fixtures the genuine pairs sit at
 # uplift 1.36-2.32 while the artefacts sit at 1.03-1.44 BUT only ever with a LOW joint-recovery
 # ratio; pairing the uplift bar with a relaxed joint floor admits the genuine pairs and keeps
 # the artefacts out. This is the SAME notion the prewarp acceptance path and the smart_polynom
@@ -33,26 +33,26 @@ _FE_MARGINAL_UPLIFT_MIN_RATIO: float = 1.30
 # Relaxed joint-recovery floor that pairs with the marginal-uplift bar. A 1-D engineered
 # summary can recover ~0.82+ of even a heavily over-binned joint when the structure is genuine;
 # cross-pair artefacts that DO clear the uplift bar are gated out here (their joint recovery is
-# either much lower or -- when high -- comes with a marginal uplift that fails the bar above).
+# either much lower or - when high - comes with a marginal uplift that fails the bar above).
 _FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO: float = 0.82
-# HW-ROBUST TWO-TIER joint-recovery floor (2026-06-08 regression fix). The single 0.82 floor
+# HW-ROBUST TWO-TIER joint-recovery floor. The single 0.82 floor
 # sat a razor-thin 0.006 above a measured CROSS-SIGNAL artefact (``sub(exp(a),invcbrt(c))`` for
 # ``y=a**2/b+log(c)*sin(d)`` recovers joint_ratio 0.8141), so a ~1e-3 GPU-vs-CPU MI divergence on
 # the user's RTX flipped the gate and admitted a spurious feature the 1050-Ti CPU/GPU paths reject
-# -- a HW-DEPENDENT selection divergence (the genuine pairs sit at 0.829 / 0.849, the artefact at
+# - a HW-DEPENDENT selection divergence (the genuine pairs sit at 0.829 / 0.849, the artefact at
 # 0.814, only a 0.015 gap, and the marginal-UPLIFT axis does NOT separate them: the artefact's
 # uplift 1.441 sits ABOVE one genuine pair's 1.378). The fix needs a DETERMINISTIC margin wider
 # than the cross-HW MI noise. A genuine SAME-SIGNAL pair is one of: (a) high joint recovery
 # (>= STRICT floor) on its own, OR (b) a CLEAR-synergy pair (uplift >= the synergy threshold) that
-# clears the relaxed base floor. The cross-signal artefact clears NEITHER -- its joint recovery is
-# below the strict floor AND its uplift is below the synergy threshold -- so a small MI perturbation
+# clears the relaxed base floor. The cross-signal artefact clears NEITHER - its joint recovery is
+# below the strict floor AND its uplift is below the synergy threshold - so a small MI perturbation
 # on either axis cannot flip it. Measured separations: genuine (0,1) uplift 2.32 (synergy branch,
 # joint 0.829 vs base 0.82 -> +0.009), genuine (2,3) joint 0.849 (strict branch, vs 0.84 -> +0.009),
-# artefact joint 0.814 (< 0.84 by 0.026) AND uplift 1.441 (< 2.0 by 0.56) -- both margins >> 0.006.
+# artefact joint 0.814 (< 0.84 by 0.026) AND uplift 1.441 (< 2.0 by 0.56) - both margins >> 0.006.
 _FE_MARGINAL_UPLIFT_STRICT_JOINT_RATIO: float = 0.84
 _FE_MARGINAL_UPLIFT_SYNERGY_UPLIFT: float = 2.0
 
-# Pseudo-unary name for the per-operand learned pre-warp (2026-06-02). Lives in
+# Pseudo-unary name for the per-operand learned pre-warp. Lives in
 # the same namespace as the real unary names (``identity``, ``sqr``, ...) so it
 # flows through combination generation, naming, and survivor packing untouched;
 # materialisation and recipe construction special-case it via this constant.
@@ -63,18 +63,18 @@ _PREWARP_UNARY = "prewarp"
 # ``raw_vars_pair`` 2-tuples. Lets the caller recover specs across the loky path.
 _PREWARP_SPECS_RESULT_KEY = ("__prewarp_specs__", -1, -1)
 
-# MEDIAN-GATE pseudo-unary (2026-06-04). Mirrors ``_PREWARP_UNARY`` exactly: it
+# MEDIAN-GATE pseudo-unary. Mirrors ``_PREWARP_UNARY`` exactly: it
 # lives in the same namespace as the real unary names (``identity``, ``sqr``, ...)
 # so it flows through combination generation, naming, and survivor packing
 # untouched; materialisation and recipe construction special-case it via this
-# constant. ``gate_med(x) = (x > train_median_x).astype(float)`` -- a STATEFUL
+# constant. ``gate_med(x) = (x > train_median_x).astype(float)`` - a STATEFUL
 # pseudo-unary whose only fitted state is one float (the TRAIN median of the
 # operand). Combined with the existing ``mul`` binary it expresses the
 # median-gated operators ``(a > median_a) * b`` (gated_med) and
 # ``(a > median_a) & (b > median_b)`` -> via ``mul(gate_med(a), gate_med(b))``
 # (thr_and_med). Measured (skew bench) gated_med +0.0355 / thr_and_med +0.0435
 # downstream-AUC d_mean vs raw, beating plain products (+0.022/+0.020) and
-# threshold-0 gates (+0.009/+0.0001) -- the median adapts the split to each
+# threshold-0 gates (+0.009/+0.0001) - the median adapts the split to each
 # operand's distribution. The fit is a single ``np.median`` (no overfit risk,
 # no held-out validation needed), the produced column is a closed-form function
 # of ``x`` + the stored median, so replay is leak-safe; the gate still passes
@@ -93,7 +93,7 @@ _FE_REJECTION_RESULT_KEY = ("__fe_rejection_records__", -1, -1)
 
 
 def _occupied_k(codes: np.ndarray) -> int:
-    """Number of OCCUPIED (non-empty) ordinal bins in a 1-D code array -- the same
+    """Number of OCCUPIED (non-empty) ordinal bins in a 1-D code array - the same
     ``k = #{bins with count>0}`` :func:`entropy_miller_madow` counts internally
     Heavy-tailed engineered columns collapse to a few occupied bins,
     so the nominal ``nbins`` over-states the cardinality and over-corrects the MM
@@ -128,7 +128,7 @@ def mm_debiased_prevalence_ratio(
     exceed the small finite-sample ``pair_mi`` at small ``n`` / high ``k_joint``,
     driving the corrected denominator to <=0 (ratio sign-flips / explodes). When the
     corrected denominator is not safely positive we FALL BACK to the raw plug-in ratio
-    -- never admit on a degenerate correction. ``->`` raw ratio as ``n -> inf`` (the
+    - never admit on a degenerate correction. ``->`` raw ratio as ``n -> inf`` (the
     bias terms vanish), so large-n selection is byte-untouched.
     """
     from ..info_theory import mi_miller_madow_correct
@@ -141,7 +141,7 @@ def mm_debiased_prevalence_ratio(
     num_mm = mi_miller_madow_correct(best_mi, k_eng, k_y, n)
     den_mm = mi_miller_madow_correct(pair_mi, k_joint, k_y, n)
     # Guard: a non-positive (or vanishing) corrected denominator means the joint
-    # bias term swamped the finite-sample joint MI -- the correction is unreliable
+    # bias term swamped the finite-sample joint MI - the correction is unreliable
     # here, so defer to the raw plug-in ratio (the existing gate behaviour).
     if den_mm <= 1e-9 * max(pair_mi, 1.0):
         return raw_ratio
@@ -168,11 +168,11 @@ def mi_tie_band(nbins: int, n_rows: int, k_y: int) -> float:
 
     Binned MI is a finite-sample plug-in estimate whose sampling noise is of this order; two FORMS of
     the same raw pair that are strictly-monotone re-expressions of one algebraic target have MI that is
-    EQUAL up to this scale. The band is ABSOLUTE (in MI units), NOT a fraction of the pool max -- a
+    EQUAL up to this scale. The band is ABSOLUTE (in MI units), NOT a fraction of the pool max - a
     relative-to-max band over-widens on a high-MI pool (where the genuine winner leads by far more than
     binning noise) and would wrongly tie distinct forms. ``k_x`` is taken as ``nbins`` (the engineered
     quantiser width); ``k_y`` is the target's class count. On the FE quantiser (nbins~=10, k_y~=10,
-    n=1e4) this is ~0.004 -- it covers the F2 ``mixed`` 0.0013 noise gap between the exact ratio
+    n=1e4) this is ~0.004 - it covers the F2 ``mixed`` 0.0013 noise gap between the exact ratio
     ``div(sqr(a),b)`` (MI 0.1167) and the additive summary ``add(log(a),invsqrt(b))`` (MI 0.1180) while
     leaving a genuine winner that leads by >> the bias scale (heavy_tailed a/b leads by ~0.29) untouched.
     """
@@ -192,7 +192,7 @@ def _select_single_best(
     """Pick ONE winning ``config`` from a ``{config: mi}`` mapping.
 
     Selection key, in priority order:
-      1. PRIMARY: maximum ``perf[config]`` -- this MUST be the engineered
+      1. PRIMARY: maximum ``perf[config]`` - this MUST be the engineered
          feature's MI WITH THE TARGET, SNAPPED to a chance-fluctuation tie band of
          ABSOLUTE width ``mi_band`` (the Miller-Madow plug-in MI bias scale; see
          ``mi_tie_band``). Binned MI is a noisy plug-in estimate, so two forms whose
@@ -200,16 +200,16 @@ def _select_single_best(
          usability tie-break below; a genuinely higher MI (gap above the band) still
          wins outright. ``mi_band <= 0`` -> exact ``==`` ties only (byte-identical to
          the prior key). (Regression guard: a prior
-         version passed the external-validation score -- MI of the candidate
-         recombined with an unrelated third factor -- as the primary key here, so
+         version passed the external-validation score - MI of the candidate
+         recombined with an unrelated third factor - as the primary key here, so
          the search would discard the true max-target-MI form. e.g. on
          y = log(c)*sin(d) it picked add(log(c),1/d) at MI=0.25 over the true
          mul(log(c),sin(d)) at MI=0.32. Primary MUST be target MI.)
-      2. LINEAR-USABILITY (optional tie-break): maximum ``usability[config]`` --
+      2. LINEAR-USABILITY (optional tie-break): maximum ``usability[config]`` -
          |corr(continuous engineered values, continuous y)|. Decisive among
          leaders whose target MI is EQUAL: MI is a RANK statistic, blind to
          linear usability, so a raw pair's equivalence class can hold forms with
-         IDENTICAL MI but wildly different linear usability -- e.g. on a
+         IDENTICAL MI but wildly different linear usability - e.g. on a
          ``y=1.5*a*b`` bilinear target the forms ``mul(a,b)``, ``log(a)+log(b)``
          and ``1/(a**2*b**2)`` are ALL strictly-monotone functions of ``a*b`` so
          their binned MI is bit-identical (0.4561), yet |corr(y)| is 0.76 / 0.61 /
@@ -217,11 +217,11 @@ def _select_single_best(
          downstream recovers the magnitude; trees are indifferent (rank-equal).
          (This is exactly the case the 2026-06-03 |corr| experiment MISSED: it
          tested ratio variants (``a2/b == sqr(a)/b``) that ARE linearly equivalent
-         within the band, concluding "no gain" -- but DISTINCT monotone warps with
+         within the band, concluding "no gain" - but DISTINCT monotone warps with
          equal MI and different |corr| are common, the bilinear product being the
          canonical one. The tie-break is gated on EQUAL MI, so it never overrides
          a genuinely higher-MI form -> no regression to the MI-primary contract.)
-      3. SECONDARY (optional tie-break): maximum ``secondary[config]`` -- the
+      3. SECONDARY (optional tie-break): maximum ``secondary[config]`` - the
          external-validation MI. Decisive among leaders tied on MI AND usability;
          prefers the representation that also generalises against other factors.
       4. deterministic tie-break by the engineered feature name (ascending).
@@ -233,8 +233,8 @@ def _select_single_best(
 
     ``name_cache``, when passed, memoises ``get_new_feature_name(config)`` by ``config``
     (a caller-owned dict reused across this and every other name lookup for the same
-    admitted pair) so the winning config's name -- already computed here as part of the
-    name tie-break key -- is not recomputed by the caller.
+    admitted pair) so the winning config's name - already computed here as part of the
+    name tie-break key - is not recomputed by the caller.
     """
     if not perf:
         return None
@@ -272,11 +272,11 @@ def _select_single_best(
         return math.floor((_max_mi - float(_mi)) / _band) * -1.0
 
     # Key order: banded MI -> linear usability -> EXACT MI (quantised) -> external-validation -> name. The
-    # EXACT-MI leg (2026-06-24) is decisive ONLY among band-tied forms whose usability ALSO ties -- it
+    # EXACT-MI leg is decisive ONLY among band-tied forms whose usability ALSO ties - it
     # restores the baseline strict-MI winner for that sub-class, so the band can NEVER flip a winner unless
     # usability STRICTLY improves. It is SNAPPED to a hardware-independent grid (``quantize_mi_tiebreak``,
-    # 2026-06-26) so the separate CPU and GPU scoring backends -- whose MI can differ by fp reduction order
-    # (~1e-12) -- resolve this leg IDENTICALLY: sub-grid jitter falls through to the deterministic name key
+    # 2026-06-26) so the separate CPU and GPU scoring backends - whose MI can differ by fp reduction order
+    # (~1e-12) - resolve this leg IDENTICALLY: sub-grid jitter falls through to the deterministic name key
     # below, genuine within-band gaps (>> the grid, e.g. the F2 mixed 1.3e-3) still order correctly. This is
     # critical for sign-variant forms: ``div(x,neg(b))`` and
     # ``div(x,abs(b))`` (b>0) are exact sign flips -> identical binned MI AND identical |corr(y)| (corr is
@@ -286,9 +286,9 @@ def _select_single_best(
     # only intervenes on a GENUINE usability difference (the F2 mixed ratio-vs-additive case: |corr(y)|
     # 0.46 vs 0.25) and is otherwise byte-identical to the strict-MI selection.
     #
-    # TAIL-CONCENTRATION OVERRIDE (2026-07-03): when ``usability_primary`` the caller has DETECTED that this
+    # TAIL-CONCENTRATION OVERRIDE: when ``usability_primary`` the caller has DETECTED that this
     # pair is tail-concentrated (its true signal's rank-MI collapsed in the bulk so the rank-MI leader is a
-    # SPURIOUS high-rank/low-|corr| form -- e.g. the F2 with_outliers a/b half, where min(reciproc(a),sign(b))
+    # SPURIOUS high-rank/low-|corr| form - e.g. the F2 with_outliers a/b half, where min(reciproc(a),sign(b))
     # rank-MI 0.073 out-ranks the true div(sqr(a),b) 0.063 by a REAL 0.010 the tie band cannot bridge, yet
     # |corr(y)| is 0.371 vs 0.986). Rank-MI is provably the wrong arbiter here, so promote LINEAR usability to
     # the PRIMARY key (banded MI becomes the secondary tie-break, then exact MI / external-validation / name).

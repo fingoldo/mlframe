@@ -12,16 +12,16 @@ held-out LGBM+logit AUC + ground-truth recovery; planted XOR/sign-product pairs 
   * The synergy detector (per-pair INTERACTION INFORMATION ``I({X,Z};Y) - I(X;Y) - I(Z;Y)`` vs a label-permuted null, threshold =
     null_mult x null_scale from kernel_tuning_cache) fired on EVERY synergistic cell and on NO additive cell (clean separation:
     real excess ~0.12 vs threshold ~0.05 synergistic; ~0.028 vs ~0.05 additive). Using ``joint - max(marginal)`` was tried and
-    REJECTED -- it false-positives on additive redundancy (two noisy views of one driver jointly beat either view alone).
+    REJECTED - it false-positives on additive redundancy (two noisy views of one driver jointly beat either view alone).
   * ``auto`` reproduced ``jmim`` selection EXACTLY on synergistic data and ``default``/plain-Fleuret EXACTLY on additive data
-    (paired auto-vs-default additive: recall 0/20/0, holdout-AUC 0/20/0 -- bit-for-bit no regression). HARD GATE satisfied.
+    (paired auto-vs-default additive: recall 0/20/0, holdout-AUC 0/20/0 - bit-for-bit no regression). HARD GATE satisfied.
   * Plain Fleuret's synergistic miss + JMIM's recovery is REAL but MODEST on these regimes (jmim-vs-default synergistic recall
-    4W/15T/1L, AUC 3W/14T/3L -- balanced XOR at n<=8000 sits near the noise floor, AUC ~0.5). JMIM's additive cost is the documented
+    4W/15T/1L, AUC 3W/14T/3L - balanced XOR at n<=8000 sits near the noise floor, AUC ~0.5). JMIM's additive cost is the documented
     OVER-SELECTION (precision 0.67->0.33, nsel 3.6-5 -> 9.0; downstream AUC roughly tied). ``auto`` pays NONE of that additive cost.
   * VERDICT: ``auto`` is strictly safe (captures JMIM's synergy gain, avoids JMIM's additive over-selection) and ships as a
     VALIDATED OPT-IN. It is NOT made the default: the synergistic win is too marginal on the tested regimes to override the
     bit-stable Fleuret default + the detector's pre-fit probe cost. Earlier large-n campaigns (mrmr_largeN_campaign*.py) already
-    found JMIM loses F1 9/0/51 on additive/decoy data -- consistent. Next agent: re-run the bench at larger n / stronger synergy
+    found JMIM loses F1 9/0/51 on additive/decoy data - consistent. Next agent: re-run the bench at larger n / stronger synergy
     before reconsidering a default flip.
 """
 from __future__ import annotations
@@ -76,9 +76,9 @@ def get_fleuret_criteria_confidence_parallel(
 
     # Pool construction is deferred to the dispatch branch below (n_workers<=1 skips joblib entirely).
 
-    # 2026-05-28: read SU toggle once here (Python-level) and thread into every joblib worker.
+    # Read SU toggle once here (Python-level) and thread into every joblib worker.
     _use_su = use_su_normalization()
-    # N-F2: same for the Miller-Madow toggle -- when MM relevance is active the redundancy CMI carries the SAME bias
+    # N-F2: same for the Miller-Madow toggle - when MM relevance is active the redundancy CMI carries the SAME bias
     # correction (SU path excluded: it uses conditional_symmetric_uncertainty, not conditional_mi).
     _use_mm = use_mi_miller_madow() and not _use_su
     # S-F2: JMIM candidates are SCORED by joint-MI; the confirmation must use the SAME statistic, not the default CMIM
@@ -121,7 +121,7 @@ def get_fleuret_criteria_confidence_parallel(
         # it still pays its own dispatch/BatchCompletionCallBack/generator bookkeeping per call. This
         # function's only production call site (``_confirm_predictor.py``) already gates on
         # ``n_workers > 1`` before calling it, so this branch is a defensive parity fix for any other
-        # caller (tests, future call sites) that passes n_workers<=1 -- bypass joblib entirely.
+        # caller (tests, future call sites) that passes n_workers<=1 - bypass joblib entirely.
         res = [_c[0](*_c[1], **_c[2]) for _c in _calls]
     else:
         if workers_pool is None:
@@ -139,13 +139,13 @@ def get_fleuret_criteria_confidence_parallel(
         bootstrapped_gain = 0.0
 
     # Permutation p-value for this candidate via the canonical ``_perm_pvalue`` estimator, which applies BOTH:
-    #   1. Add-one (Davison & Hinkley 1997; Phipson & Smyth 2010): ``(1 + nfailed) / (1 + budget)`` -- the observed gain
+    #   1. Add-one (Davison & Hinkley 1997; Phipson & Smyth 2010): ``(1 + nfailed) / (1 + budget)`` - the observed gain
     #      is itself one draw under the null, so the Monte-Carlo p can never be exactly 0; a naive ``nfailed/nchecked``
     #      returns 0 on a null feature that never fails, spuriously reporting p=0 / confidence=1.
     #   2. ``full_budget`` de-biasing of the ``max_failed`` early-stop: the worker loop breaks as soon as ``nfailed``
     #      reaches ``max_failed``, so ``nchecked`` is data-dependent and the stopped ratio overstates the failure rate
     #      (it stops precisely where failures cluster). Passing the full ``npermutations`` budget as the denominator
-    #      makes the reported p independent of WHERE the early break fired -- an honest (conservative) estimate.
+    #      makes the reported p independent of WHERE the early break fired - an honest (conservative) estimate.
     # NOTE (multiple testing): this p-value is computed independently PER CANDIDATE over the whole greedy path with NO
     # family-wise / FDR correction. The reported confidence is therefore an UNCORRECTED per-candidate significance;
     # callers needing a calibrated false-discovery rate should apply a BH/BY correction across the candidate family.
@@ -175,7 +175,7 @@ def parallel_fleuret(
     extra_x_shuffling: bool = True,
     dtype=np.int32,
     base_seed: int = 0,
-    use_su: bool = False,  # 2026-05-28: threaded from get_fleuret_criteria_confidence_parallel.
+    use_su: bool = False,  # Threaded from get_fleuret_criteria_confidence_parallel.
     use_mm: bool = False,  # N-F2: threaded from get_fleuret_criteria_confidence_parallel (MM redundancy consistency).
     use_jmim: bool = False,  # S-F2: threaded from get_fleuret_criteria_confidence_parallel (JMIM confirmation statistic).
 ):
@@ -258,7 +258,7 @@ def get_fleuret_criteria_confidence(
     extra_x_shuffling: bool = True,
     dtype=np.int32,
     base_seed: np.uint64 = _DEFAULT_BASE_SEED,
-    use_su: bool = False,  # 2026-05-28: threaded from Python-level parallel_fleuret.
+    use_su: bool = False,  # Threaded from Python-level parallel_fleuret.
     use_mm: bool = False,  # N-F2: threaded from parallel_fleuret (MM redundancy consistency).
     use_jmim: bool = False,  # S-F2: threaded from parallel_fleuret (JMIM confirmation statistic).
 ) -> tuple:

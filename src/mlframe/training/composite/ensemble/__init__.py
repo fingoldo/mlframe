@@ -143,7 +143,7 @@ def detect_gpu_in_use(mlframe_models: Sequence[str]) -> list[str]:
                     except ImportError:
                         detected.append("xgboost")
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in __init__.py:149: %s", e)
+                logger.debug("suppressed: %s", e)
                 pass
         except ImportError:
             pass

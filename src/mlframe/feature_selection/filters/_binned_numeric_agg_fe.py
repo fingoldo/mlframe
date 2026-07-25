@@ -1,23 +1,23 @@
-"""Grouped aggregation over CELLS of quantile-binned NUMERIC columns (2026-06-13).
+"""Grouped aggregation over CELLS of quantile-binned NUMERIC columns.
 
 The existing ``_grouped_agg_fe`` groups by low-cardinality CATEGORICAL columns. This sibling forms the group
 key by QUANTILE-BINNING a numeric column (unsupervised, equal-frequency cells -> uniform per-cell sample size,
 so higher moments are equally reliable) and aggregates ANOTHER numeric column's per-cell statistics
 (mean / std / skew / kurt). It captures the regime where the WITHIN-CELL SPREAD / SHAPE of a feature carries
-signal the cell mean cannot -- e.g. a heteroscedastic target whose variance, not mean, depends on the cell
+signal the cell mean cannot - e.g. a heteroscedastic target whose variance, not mean, depends on the cell
 (measured +0.9 OOS R2 on a sigma(cell) target where the cell mean is ~constant; bench_multistat_cell_encoding).
 
 Design decisions (all measurement-backed, see ``_benchmarks/bench_cell_binning_for_moments``):
-* UNSUPERVISED quantile binning, NOT MRMR's supervised MI binning -- supervised cell edges built from y would
+* UNSUPERVISED quantile binning, NOT MRMR's supervised MI binning - supervised cell edges built from y would
   leak y into a feature aggregated to predict y, and MDLP gives uneven cells (tiny cells -> garbage moments).
 * bin count = ``min(nbins_base, moment_stability_cap)`` where the cap = ``floor((n / n_min(highest_moment))^(1/k))``
   ties resolution to the highest requested moment (mean ~5, std ~12, skew ~30, kurt ~100 rows/cell). Freedman-
   Diaconis is REJECTED: it over-bins at large n and degrades (it optimises 1-D density, not per-cell occupancy).
 * HIGH-MOMENT AUTO-DROP: when the cap forces fewer bins than ``nbins_base`` (small n / high moment), the
-  high-order moments whose n_min cannot be met are dropped rather than coarsening every column -- an unreliable
+  high-order moments whose n_min cannot be met are dropped rather than coarsening every column - an unreliable
   kurt at 3 bins is worse than no kurt.
 * edges stored per group column for leak-safe transform replay (searchsorted), exactly like ``include_numeric``.
-* vectorised via ``np.bincount`` raw-moment accumulation; returns numpy arrays (not lists -- see bench).
+* vectorised via ``np.bincount`` raw-moment accumulation; returns numpy arrays (not lists - see bench).
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def _per_cell_raw_moments_njit(codes, v, n_cells):
 
     Replaces the per-cell-stats path's FOUR separate ``np.bincount(weights=v**k)`` passes (each a full
     array power + histogram) with a SINGLE O(n) walk. ``s_k = sum(v**k)`` per cell; the powers are built
-    by repeated multiplication (``x2=x*x``; ``s3+=x2*x``; ``s4+=x2*x2``) -- matches ``np.bincount(v*v)``
+    by repeated multiplication (``x2=x*x``; ``s3+=x2*x``; ``s4+=x2*x2``) - matches ``np.bincount(v*v)``
     for s2 exactly; s3/s4 differ from numpy ``v**3``/``v**4`` only at the last ULP, far below the
     quantile-bin resolution the moments feed, so the engineered codes are unchanged."""
     n_cells = int(n_cells)
@@ -103,7 +103,7 @@ def resolve_nbins_and_stats(n: int, stats: Sequence[str], nbins_base: int, k: in
 def _raw_moments(codes: np.ndarray, v: np.ndarray, n_cells: int) -> tuple:
     """One-pass njit raw-moment accumulation ``(cnt, s1, s2, s3, s4)`` of ``v`` per cell of ``codes`` (see
     :func:`_per_cell_raw_moments_njit`). Each is a pure additive per-row partition sum, so
-    ``moments(A) + moments(B) == moments(A union B)`` elementwise for disjoint row sets A/B -- exploited by
+    ``moments(A) + moments(B) == moments(A union B)`` elementwise for disjoint row sets A/B - exploited by
     ``fit_binned_numeric_agg`` to derive a fold's TRAIN-only moments as ``full - test`` instead of rescanning
     the ``(n_folds-1)/n_folds`` of rows that make up that fold's training split."""
     return _per_cell_raw_moments_njit(np.ascontiguousarray(codes).astype(np.int64), np.ascontiguousarray(v).astype(np.float64), int(n_cells))  # type: ignore[no-any-return]  # njit kernel returns the declared (cnt, s1, s2, s3, s4) tuple
@@ -111,7 +111,7 @@ def _raw_moments(codes: np.ndarray, v: np.ndarray, n_cells: int) -> tuple:
 
 def _derive_cell_stats(cnt: np.ndarray, s1: np.ndarray, s2: np.ndarray, s3: np.ndarray, s4: np.ndarray, stats: Sequence[str]) -> dict:
     """Derive per-cell statistics from additive raw moments (see :func:`_raw_moments`). Empty cells get NaN
-    (caller substitutes the global value). Pure function of the moments -- callable on either a direct
+    (caller substitutes the global value). Pure function of the moments - callable on either a direct
     accumulation or a ``full - test`` subtraction result."""
     safe = np.maximum(cnt, 1.0)
     mean = s1 / safe
@@ -141,7 +141,7 @@ def per_cell_stats_bincount(codes: np.ndarray, v: np.ndarray, n_cells: int, stat
     """Vectorised per-cell statistics of ``v`` via raw-moment ``np.bincount`` (O(n), no Python per-row loop).
     Returns ``{stat: np.ndarray(n_cells)}``. Empty cells get NaN (caller substitutes the global value).
     One-pass njit raw-moment accumulation (cnt, s1..s4) replaces up to FOUR np.bincount passes + full-array
-    power ops -- ~30x faster at n=100k (0.59 vs 18 ms). s2 (x*x) matches np.bincount(v*v) exactly; s3/s4
+    power ops - ~30x faster at n=100k (0.59 vs 18 ms). s2 (x*x) matches np.bincount(v*v) exactly; s3/s4
     differ from numpy v**3/v**4 only at the last ULP, far below the bin resolution."""
     cnt, s1, s2, s3, s4 = _raw_moments(codes, v, n_cells)
     return _derive_cell_stats(cnt, s1, s2, s3, s4, stats)
@@ -190,14 +190,14 @@ def fit_binned_numeric_agg(
     feat_cols: dict[str, np.ndarray] = {}
     recipes: dict[str, dict] = {}
     # Per-agg-column caches, shared ACROSS group columns: the agg values / finite mask / GLOBAL stats depend
-    # only on ``acol`` yet were recomputed for every (gcol, acol) pair -- and ``_global_stat``'s scipy
+    # only on ``acol`` yet were recomputed for every (gcol, acol) pair - and ``_global_stat``'s scipy
     # skew/kurtosis do several full-n passes each, so at 16 group columns the same column's globals ran up to
     # 16x (the dominant host cost of the recipe fit at 1M rows). Bit-identical values, just computed once.
     _av_cache: dict[str, tuple] = {}
     _globals_cache: dict[tuple, dict] = {}
     # Fold membership depends ONLY on ``f`` (not on gcol/acol), yet the per-(gcol, acol) OOF loop below
     # recomputed ``fold_ids != f`` (an O(n) bool) and ``np.where(fold_ids == f)`` every pair*fold. Precompute
-    # them ONCE per call (bit-identical -- same masks/indices, just hoisted out of the pair loops).
+    # them ONCE per call (bit-identical - same masks/indices, just hoisted out of the pair loops).
     _fold_ne = None if recipe_only else [fold_ids != f for f in range(int(n_folds))]
     _fold_test = None if recipe_only else [np.where(fold_ids == f)[0] for f in range(int(n_folds))]
     for gcol in group_num_cols:
@@ -210,7 +210,7 @@ def fit_binned_numeric_agg(
             continue
         codes = np.searchsorted(edges, gvals, side="right")
         n_cells = int(codes.max()) + 1
-        # ``codes[test]`` depends on (gcol, f) but NOT acol -- hoist it out of the acol loop.
+        # ``codes[test]`` depends on (gcol, f) but NOT acol - hoist it out of the acol loop.
         _ct_by_fold = None if recipe_only else [codes[_ft] for _ft in _fold_test]  # type: ignore[union-attr]  # _fold_test is non-None exactly when recipe_only is False (same condition as this ternary)
         for acol in agg_num_cols:
             if acol == gcol:
@@ -235,10 +235,10 @@ def fit_binned_numeric_agg(
             # per fold, cutting total row-visits from ~(n_folds-1)*n to ~2*n over the whole OOF loop.
             full_cnt, full_s1, full_s2, full_s3, full_s4 = _raw_moments(codes[finite], av[finite], n_cells)
             if not recipe_only:
-                # RECIPE_ONLY (device-born binagg, 2026-07-02) skips the 5-fold OOF feat-column build -- the
+                # RECIPE_ONLY (device-born binagg, 2026-07-02) skips the 5-fold OOF feat-column build - the
                 # per-fold gather + np.where over the full n rows, the FE scan's single largest GPU-idle host
                 # stage. The device-born path (binned_numeric_agg_with_recipes) fits recipes-only, gates on the
-                # device from those recipes, then builds the OOF for the FEW survivors -- so the OOF of the
+                # device from those recipes, then builds the OOF for the FEW survivors - so the OOF of the
                 # dropped candidates is never computed. The ``full`` per-cell lookup + globals (the recipe
                 # fields) are cheap 1-pass njit and are always built.
                 assert _fold_ne is not None and _fold_test is not None and _ct_by_fold is not None  # populated whenever recipe_only is False
@@ -318,7 +318,7 @@ def _auto_detect_numeric_cols(X: pd.DataFrame) -> list:
 
 
 def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> float:
-    """Cheap MI(qbin(col); y_codes) via a bincount joint histogram -- the relevance proxy for GROUP pre-selection.
+    """Cheap MI(qbin(col); y_codes) via a bincount joint histogram - the relevance proxy for GROUP pre-selection.
     A group column only helps if its quantile cells separate y; this scores exactly that in O(n)."""
     cv = np.asarray(col, dtype=np.float64)
     # min != max on an all-finite column == unique().size >= 2 without the full-n unique SORT.
@@ -352,13 +352,13 @@ def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> f
             xc_d = cp.searchsorted(e_d, cvd, side="right").astype(cp.int64)
             # y_codes is the SAME target re-used by every gcands candidate in this loop (fit-constant) AND
             # by the downstream survivor-stage device gate (_binned_numeric_agg_resident.local_mi_gate_binagg_
-            # resident, role "y_mi_classif") -- route through the content-keyed resident cache under the SAME
+            # resident, role "y_mi_classif") - route through the content-keyed resident cache under the SAME
             # role string so a repeat/cross-call upload of identical y-code bytes shares one device buffer
             # instead of re-uploading. Content-keyed, so this is safe even when the two sites' y-encodings
             # differ (classification: both paths reduce to the same np.unique(..., return_inverse=True) codes
             # and always dedupe; continuous y: this site's quantile_edges+searchsorted vs the resident gate's
             # _quantile_bin can legitimately produce different edge/code bytes on tied/degenerate data, in
-            # which case this is simply a cache miss -- never a correctness issue).
+            # which case this is simply a cache miss - never a correctness issue).
             yc_d = resident_operand(np.ascontiguousarray(y_codes), "y_mi_classif", dtype=np.int64)
             na = int(nbins)
             nb = int(yc_d.max()) + 1
@@ -369,7 +369,7 @@ def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> f
             term = cp.where(pj > 0, pj * cp.log(pj / (pa * pb)), 0.0)
             return float(cp.nansum(term))
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _binned_numeric_agg_fe.py:335: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
     edges = quantile_edges(cv, nbins)
     if edges.size == 0:
@@ -404,12 +404,12 @@ def binned_numeric_agg_with_recipes(
     columns and build replay recipes. Returns ``(X_aug, appended, recipes)`` mirroring ``kfold_target_encode_with_recipes``.
 
     SCALABLE + CHEAP-PROBE selection (replaces the prior arbitrary top-K-by-variance, which did not scale past a
-    handful of columns -- at 10k features the G*A pair space is ~1e8):
-    * GROUP columns ranked by ``MI(qbin(g); y)`` -- a group key only helps if its cells separate y (O(p) cheap MIs);
+    handful of columns - at 10k features the G*A pair space is ~1e8):
+    * GROUP columns ranked by ``MI(qbin(g); y)`` - a group key only helps if its cells separate y (O(p) cheap MIs);
     * AGG columns ranked by variance (a near-constant column has no per-cell shape to aggregate);
     * top ``max_group_cols`` x top ``max_agg_cols`` bounds the computed pair set; ``max_pairs`` caps it further;
     * PROBE-GATE (``mi_gate``, default ON): the emitted columns pass the shipped ``local_mi_gate`` MI floor, so a
-      target with NO cell-conditional structure yields ZERO columns -- the family probes cheaply and exits without
+      target with NO cell-conditional structure yields ZERO columns - the family probes cheaply and exits without
       perturbing selection, which is what makes an ON-by-default flip safe. On a positive response it keeps the
       MI-relevant survivors (escalation is then just the standard MRMR screen over them)."""
     cols = _auto_detect_numeric_cols(X)
@@ -426,14 +426,14 @@ def binned_numeric_agg_with_recipes(
         y_codes = np.searchsorted(quantile_edges(y_arr, 10), y_arr, side="right")
     g_mi = {g: _cheap_mi_with_y(X[g].to_numpy(), y_codes) for g in gcands}
     gsel = sorted([g for g in gcands if g_mi[g] > 0.0], key=lambda g: g_mi[g], reverse=True)[: max(1, int(max_group_cols))]
-    # AGG pre-selection by variance (unsupervised -- the aggregated column needs spread to have per-cell shape).
+    # AGG pre-selection by variance (unsupervised - the aggregated column needs spread to have per-cell shape).
     a_var = {a: float(np.var(np.asarray(X[a].to_numpy(), dtype=np.float64))) for a in acands}
     asel = sorted(acands, key=lambda a: a_var.get(a, 0.0), reverse=True)[: max(1, int(max_agg_cols))]
     if not gsel or not asel:
         return X, [], []
 
     # PRE-CAP (2026-06-17 perf): the OOF fit below previously computed all gsel x asel pairs and only
-    # then capped to top-``max_pairs`` by ``pair_rank`` (group MI, then agg variance) -- both already
+    # then capped to top-``max_pairs`` by ``pair_rank`` (group MI, then agg variance) - both already
     # known here, BEFORE any OOF work. Rank + cap the (group, agg) pairs up front and compute OOF for
     # only those, so per_cell_stats_bincount runs ``max_pairs`` times instead of |gsel|*|asel| (e.g.
     # 64 vs 256). Output is BIT-IDENTICAL: the same top pairs are emitted with the same OOF values; the
@@ -455,11 +455,11 @@ def binned_numeric_agg_with_recipes(
         _tops = sorted(nbp, key=lambda p: pair_rank.get(p, (0.0, 0.0)), reverse=True)[: max(1, int(max_pairs))]
         return [_nm for p in _tops for _nm in nbp[p]]
 
-    # DEVICE-BORN binagg fit (2026-07-02): when the device MI gate is available, fit RECIPES-ONLY (skip the 5-fold
-    # OOF host loop -- the FE scan's largest GPU-idle host stage, ~5s at 1M rows), gate on the device from those
+    # DEVICE-BORN binagg fit: when the device MI gate is available, fit RECIPES-ONLY (skip the 5-fold
+    # OOF host loop - the FE scan's largest GPU-idle host stage, ~5s at 1M rows), gate on the device from those
     # recipes, then build the host OOF for the FEW survivors only. The device gate scores an OOF rebuilt ON-device
-    # from the recipes (it never reads host OOF values), so the survivor set -- and thus the survivor OOF the
-    # redundancy gate + the append consume -- is BYTE-IDENTICAL to fitting every candidate on the host; only the
+    # from the recipes (it never reads host OOF values), so the survivor set - and thus the survivor OOF the
+    # redundancy gate + the append consume - is BYTE-IDENTICAL to fitting every candidate on the host; only the
     # OOF of the DROPPED candidates is never computed. Any device-gate None / failure -> the exact host path below.
     _device_binagg = False
     if mi_gate:
@@ -532,7 +532,7 @@ def binned_numeric_agg_with_recipes(
 
     # REDUNDANCY GATE: a ``binagg_*`` column ``stat(a | qbin(g))`` is a deterministic function of its source
     # columns ``(g, a)``. The Tier-1 MI floor above keeps it whenever MI(col; y) clears the raw noise floor,
-    # but that fires even when the column carries NO information about y beyond ``g``/``a`` themselves -- e.g. on a
+    # but that fires even when the column carries NO information about y beyond ``g``/``a`` themselves - e.g. on a
     # linearly-separable target where the raw source already explains y, the binned aggregate is a redundant
     # re-encoding of raw signal. Keep a column only when ``CMI(col; y | g, a) >= min_cmi_gain``, conditioning on
     # its OWN sources (cheap: at most two raw columns). Collapses spurious appends to zero on data with no
@@ -550,12 +550,12 @@ def binned_numeric_agg_with_recipes(
         # from real signal (the bias grows as n shrinks / the conditioning support fragments, and the OOF per-fold
         # aggregate adds further sampling noise). Calibrate per-candidate: score the SAME candidate against shuffled-y
         # under the same conditioning; the max over a handful of permutations is the candidate's own noise ceiling.
-        # Keep it only when its observed CMI clears BOTH the absolute floor AND that ceiling -- genuine cell-conditional
+        # Keep it only when its observed CMI clears BOTH the absolute floor AND that ceiling - genuine cell-conditional
         # signal sits far above the null, redundant re-encodings sit at it.
         #
         # 2026-06-22 FWER fix: the ceiling was the raw MAX over only 15 permutations. With ~1/(n_perm+1) effective
         # alpha per candidate and many (group, agg, stat) candidates over many fits, a high-variance noise stat
-        # (kurt sits at the top of the moment ladder) eventually clears the noisy max by luck -- measured on the
+        # (kurt sits at the top of the moment ladder) eventually clears the noisy max by luck - measured on the
         # all-noise null frame (seed=6, clf): binagg_kurt(n2|qbin(n4)) cmi=0.02507 vs max-of-15=0.02279 (PASS by
         # luck) yet max-of-60=0.02490 and the candidate sits squarely INSIDE the null. Replace the unstable raw
         # max with a robust one-sided z-ceiling (mean + _NULL_Z * std of the permutation CMIs): a stable estimate
@@ -578,7 +578,7 @@ def binned_numeric_agg_with_recipes(
             srcs = [c for c in (raw[nm].get("group_col"), raw[nm].get("agg_col")) if c in X.columns]
             z_joint = _renumber_joint(*[_src_bins(c) for c in srcs])[0] if srcs else None
             # bench-attempt-rejected (2026-07-02): routing this binning through batched_quantile_bin_gpu (with a
-            # _renumber_joint_gpu joint) FAILED the redundancy suite -- its partition differs from _quantile_bin
+            # _renumber_joint_gpu joint) FAILED the redundancy suite - its partition differs from _quantile_bin
             # (a genuinely redundant binagg column survived). Unnecessary anyway: _quantile_bin itself already
             # routes large columns to its device twin under the STRICT-resident path (size-gated
             # _quantile_bin_gpu), so this gate's binning is device-backed without a partition change.
@@ -588,7 +588,7 @@ def binned_numeric_agg_with_recipes(
             if np.isfinite(cmi) and cmi >= float(min_cmi_gain):
                 # BATCHED null (launch-reduction): cand_bin / z_joint are FIXED across the _n_perm shuffles;
                 # only the permuted y varies. Plug-in CMI is symmetric in X and Y, so CMI(cand; yp | z) ==
-                # CMI(yp; cand | z) -- stack the SAME _rng-drawn permuted-y columns into one (n, nperm) matrix
+                # CMI(yp; cand | z) - stack the SAME _rng-drawn permuted-y columns into one (n, nperm) matrix
                 # and score them all in ONE batched_cmi_gpu workload (cand as the fixed 'y', z as support),
                 # replacing _n_perm per-perm _cmi_from_binned calls. Identical permutations -> the null ceiling
                 # is selection-equivalent; falls back to the per-perm loop on any error / when GPU is off.
@@ -625,7 +625,7 @@ def binned_numeric_agg_with_recipes(
                         reason="binagg CMI about y given its sources does not clear the permutation-null ceiling",
                     )
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in _binned_numeric_agg_fe.py:587: %s", e)
+                    logger.debug("suppressed: %s", e)
                     pass
         feat_df = feat_df[kept_cols]
         if feat_df.shape[1] == 0:

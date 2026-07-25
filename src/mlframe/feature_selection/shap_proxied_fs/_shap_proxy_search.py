@@ -2,7 +2,7 @@
 
 Ports the user's proven incremental-sum kernel (``find_top_n_combinations``) with three corrections:
   1. float64 accumulator (the research had to switch from float32 to avoid running-sum drift over
-     ~1e6+ combos -- notebook cell re-ran with ``float_dtype=np.float64``).
+     ~1e6+ combos - notebook cell re-ran with ``float_dtype=np.float64``).
   2. per-row base value (OOF folds carry distinct base values) instead of a scalar.
   3. a *proper* objective (``score_margin``: Brier/log-loss/RMSE/MAE) applied per combo instead of
      MAE-of-0/1-labels-vs-log-odds-margin.
@@ -111,7 +111,7 @@ def _topn_fixed_r_colmajor(phi_T, base, y, combos, metric_code, top_n):
     """Column-major variant of ``_topn_fixed_r``: ``phi_T`` shape ``(f, n)`` so each feature column is
     a contiguous row, making the inner ``phi_T[fcol]`` access a unit-stride read instead of the
     strided ``phi[:, fcol]`` of the row-major variant. End-to-end speedup on f=18, n=1000, r=6:
-    ~2.5-3x for MAE/MSE (memory-bound), wash for Brier/log-loss (exp-bound) -- selected as default.
+    ~2.5-3x for MAE/MSE (memory-bound), wash for Brier/log-loss (exp-bound) - selected as default.
     """
     C = combos.shape[0]
     r = combos.shape[1]
@@ -241,11 +241,11 @@ _brute_force_n_chunks_cache: int | None = None
 
 
 def _resolve_brute_force_n_chunks() -> int:
-    """Chunk count for the prange brute-force kernels -- HW-aware, not a dev-box constant.
+    """Chunk count for the prange brute-force kernels - HW-aware, not a dev-box constant.
 
     The prior hardcoded ``n_chunks=8`` left every core past the 8th idle on a many-core host: on a
     22-core box the n=540/f=25/max_card=10 (7.1M-subset) brute force ran 1.28x slower at 8 chunks than
-    at ``2 * NUMBA_NUM_THREADS`` (11.7s -> 9.2s, selection bit-identical -- chunking only partitions the
+    at ``2 * NUMBA_NUM_THREADS`` (11.7s -> 9.2s, selection bit-identical - chunking only partitions the
     combo enumeration, every subset's loss and the deterministic ``_merge_topn`` are unchanged). 2x the
     thread count (not 1x) load-balances the uneven per-cardinality tail. Resolved once + memoized; a
     kernel_tuning_cache override (``shap_proxy_brute_force`` -> ``n_chunks``) lets a host pin its own

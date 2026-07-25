@@ -35,7 +35,7 @@ external callers (LRU byte-cap gate, orth-FE scorer dispatch) rely on.
 # module lazily so callers paying for "plug_in" (the default) do not pay
 # the import cost. Every alternate scorer's ``*_with_recipes`` returns the
 # same ``(X_aug, scores_df, recipes_list)`` 3-tuple as Layer 21's plain
-# univariate path -- so the caller plumbing in ``_fit_impl`` is unchanged.
+# univariate path - so the caller plumbing in ``_fit_impl`` is unchanged.
 def _orth_fe_numeric_cols(X, cols):
     """Keep only numeric (incl. bool) scalar columns from ``cols`` for the orthogonal / polynomial hybrid-FE family,
     which converts operands to float. Raw categorical / string columns (e.g. a string-coded cat 'B') would otherwise
@@ -165,7 +165,7 @@ def _mrmr_instance_state_size_bytes(instance: Any) -> int:
     """Best-effort byte estimate for a single fitted MRMR instance's selector + engineered-features state.
 
     Used by the LRU eviction byte gate (``fit_cache_max_mb``). Walks EVERY instance attribute (``vars(instance)``)
-    rather than a hand-maintained allowlist -- the allowlist (``mi_scores_``, ``_selectors_``, ``ranking_``,
+    rather than a hand-maintained allowlist - the allowlist (``mi_scores_``, ``_selectors_``, ``ranking_``,
     ``selected_features_``) named attributes MRMR never actually assigns (verified: grepped the whole
     ``feature_selection/filters`` tree, no ``self.mi_scores_ =`` / ``self._selectors_ =`` / ``self.ranking_ =`` /
     ``self.selected_features_ =`` assignment anywhere in the MRMR class; those are OTHER selectors' attribute
@@ -175,7 +175,7 @@ def _mrmr_instance_state_size_bytes(instance: Any) -> int:
     stale. For each attribute: a direct ndarray counts its ``.nbytes``; a dict counts ``.nbytes`` of any
     ndarray-valued entry (dict-of-ndarray, e.g. ``_engineered_continuous_``); a list/tuple counts ``.nbytes`` of
     any ndarray element (list-of-ndarray). Non-array attributes (scalars, strings, small config, DataFrame/Series
-    references) are skipped -- MRMR does not retain the fit-time X/y as instance attributes, so this stays scoped
+    references) are skipped - MRMR does not retain the fit-time X/y as instance attributes, so this stays scoped
     to the estimator's OWN state, matching the byte gate's intent (bound the cache's aggregate footprint), without
     paying ``pickle.dumps`` cost on every eviction probe.
     """
@@ -212,7 +212,7 @@ def _prune_engineered_continuous_store(instance: Any, cols: Sequence[str], selec
     round's FE operand pool only ever fire on the very FIRST FE step (``num_fs_steps == 0``, before any
     engineered column exists) and only ever add RAW (not engineered) columns. From the second FE step
     onward the operand pool passed to ``check_prospective_fe_pairs`` is exactly ``selected_vars`` (further
-    narrowed by ``fe_ntop_features``/categorical/``factors_to_use``, never widened) -- so any engineered
+    narrowed by ``fe_ntop_features``/categorical/``factors_to_use``, never widened) - so any engineered
     column absent from the FRESH ``selected_vars`` a screen just produced can never again be read as an
     operand for the rest of the fit. Call this right after ``screen_predictors`` finalises ``selected_vars``
     for a round, before the next ``_run_fe_step`` call reads the store.
@@ -252,7 +252,7 @@ def _build_stability_replay_state(
     engineered recipe the frozen engineered + source-operand bin codes so recipe
     survival can be replayed with the #15 held-out uplift-gate statistic. No copy
     of the raw frame, no recipe re-application: bootstrap resampling reads these
-    frozen bins only -- the #15 "replay not refit" contract.
+    frozen bins only - the #15 "replay not refit" contract.
     """
     data = np.asarray(data)
     n_rows = int(data.shape[0])
@@ -330,13 +330,13 @@ def fe_decide_on_subsample(
     """Run an ``*_with_recipes`` FE family on a row-SUBSAMPLE for its DECISION, then
     rebuild the chosen columns at FULL n by replaying the returned recipes.
 
-    CORRECTNESS BOUNDARY -- CLOSED-FORM families ONLY. This wrapper rebuilds the output
+    CORRECTNESS BOUNDARY - CLOSED-FORM families ONLY. This wrapper rebuilds the output
     by REPLAYING each recipe (``apply_recipe`` = the transform-time path). That equals
     the fit-time column ONLY when the engineered column is a PURE FUNCTION of x (the
     orthogonal-polynomial / Fourier / spline basis families: orth univariate / pair /
     triplet / quadruplet / extra-basis / the alternate-scorer variants, whose recipe is
     a closed-form basis eval). Do NOT use it for families whose fit-time output is an
-    OUT-OF-FOLD / data-dependent encoding -- e.g. ``binned_numeric_agg`` (k-fold OOF
+    OUT-OF-FOLD / data-dependent encoding - e.g. ``binned_numeric_agg`` (k-fold OOF
     target-mean/stat encoding): replaying its recipe uses full-train cell stats, which
     is the LEAKY transform-time value, not the OOF fit-time column. Such families must
     subsample only their pair/edge DECISION while keeping the OOF stat computation at
@@ -351,12 +351,12 @@ def fe_decide_on_subsample(
     sweep sees ~subsample_n rows, not n), then replays each returned
     ``EngineeredRecipe`` on the full X via :func:`apply_recipe`. The recipes are
     closed-form, so the appended columns equal a full-data fit GIVEN the same winners
-    -- selection-equivalence is validated by the FE pins.
+    - selection-equivalence is validated by the FE pins.
 
     Output-safety fallbacks (return the FULL-data call, never lose columns):
       * subsample disabled / frame already small (``subsample_n`` <= 0 or >= n);
       * the family returned NO recipes (nothing replayable);
-      * a winner column has no replayable recipe (partial coverage) -- rather than
+      * a winner column has no replayable recipe (partial coverage) - rather than
         silently drop it, fall back to the full-data decision for the whole family.
     Any per-recipe replay error also triggers the full-data fallback.
     """
@@ -384,7 +384,7 @@ def fe_decide_on_subsample(
         )
     from .._fe_frame_ops import fe_subsample_to_pandas
     # Format-agnostic subsample: pandas -> .iloc, polars -> native gather + to_pandas on the SMALL subsample only (the
-    # family decision bodies are pandas-native). Materialises ~len(_idx) rows, never the full frame -- so a 100+ GB polars
+    # family decision bodies are pandas-native). Materialises ~len(_idx) rows, never the full frame - so a 100+ GB polars
     # frame is not duplicated, and every FE family now runs on polars input (previously skipped by isinstance guards).
     _X_sub = fe_subsample_to_pandas(X, _idx)
     _y_sub = np.asarray(y)[_idx]
@@ -403,7 +403,7 @@ def fe_decide_on_subsample(
     X_aug_sub, recipes, _middle = _ret[0], _ret[-1], _ret[1:-1]
     _appended_sub = [c for c in X_aug_sub.columns if c not in _X_sub.columns]
     # EMPTY RESULT is a VALID decision, not a coverage failure: when the subsample DECISION engineered no columns, the
-    # family simply found nothing worth adding for this target -- re-running the whole (expensive) decision on the full n
+    # family simply found nothing worth adding for this target - re-running the whole (expensive) decision on the full n
     # would just re-discover "nothing" at full cost (this was the 3x full-n FE re-run wasting minutes on TVT, where the
     # orth pair/triplet/quadruplet families legitimately find no uplift). Return X unchanged (no columns to replay) with
     # the subsample's middle payload + empty recipes; DO NOT pay the full-n path for an empty set.
@@ -425,7 +425,7 @@ def fe_decide_on_subsample(
     _full_cols: dict = {}
     try:
         # apply_recipe is format-agnostic (per-column _extract_column), so full-n replay reads polars/pandas/ndarray
-        # operands as views -- no whole-matrix copy.
+        # operands as views - no whole-matrix copy.
         for r in recipes:
             _full_cols[r.name] = np.asarray(apply_recipe(r, X))
     except Exception:
@@ -434,7 +434,7 @@ def fe_decide_on_subsample(
             getattr(r, "name", "?"),
         )
         return fit_with_recipes_fn(fe_to_pandas(X), y, **kwargs)
-    # Append the engineered columns in X's OWN framework (polars with_columns / pandas concat) -- only the new columns
+    # Append the engineered columns in X's OWN framework (polars with_columns / pandas concat) - only the new columns
     # are materialised, never a copy of X.
     X_aug = fe_append_columns(X, _full_cols)
     return (X_aug, *_middle, recipes)

@@ -1,24 +1,24 @@
-"""Resident-GPU twin of the ORDER-2 pooled-max joint-MI permutation-null floor (2026-06-30).
+"""Resident-GPU twin of the ORDER-2 pooled-max joint-MI permutation-null floor.
 
 ``_permutation_null.pooled_pair_permutation_null_joint_mi_floor`` is a PURE-CPU njit loop: for each of the K
 target shuffles it rebuilds the WHOLE candidate-pair pool's plug-in joint MI ``I((x_a, x_b); y_perm)`` via
 ``batch_pair_mi_prange`` and records the per-shuffle MAXIMUM over the pool; the host then takes the
 ``quantile``-th quantile of the K maxes (the Westfall-Young maxT floor on the selection statistic). The pool
-operands -- ``factors_data``, ``pair_a/pair_b``, ``nbins``, ``freqs_y`` and (if mm-debias) the per-pair
-Miller-Madow bias -- are FIT-CONSTANT across shuffles; only the target labelling ``y_perm`` changes per shuffle
+operands - ``factors_data``, ``pair_a/pair_b``, ``nbins``, ``freqs_y`` and (if mm-debias) the per-pair
+Miller-Madow bias - are FIT-CONSTANT across shuffles; only the target labelling ``y_perm`` changes per shuffle
 (a relabelling of rows that leaves every X-column marginal AND the class-frequency vector invariant).
 
 This module ports the SAME pooled-MAX construction to the device:
   * The pool operands are uploaded ONCE and held resident. In particular the per-pair joint X-code
     ``cls_x = x_a * nbins_b + x_b`` is PERMUTATION-INVARIANT, so it is built once on the device as a
-    ``(n_pairs, n)`` int64 matrix and reused for every shuffle -- the only per-shuffle device input is the
+    ``(n_pairs, n)`` int64 matrix and reused for every shuffle - the only per-shuffle device input is the
     target permutation.
   * The K target permutations are BORN on the device (argsort of i.i.d. random keys, ``cupy.random.RandomState``
     seeded from ``random_seed``), the same device-RNG shuffle pattern the order-1 resident floor and the CMI
     perm-null use. So the ``(K, n)`` shuffle matrix never leaves the device and only the small ``(n,)`` class
     codes go up once.
   * Per shuffle the all-pair joint MI is the plug-in ``H(x) + H(y) - H(x, y_perm)`` computed from a batched
-    ``cp.bincount`` over the flat joint index ``cls_x * n_classes_y + y_perm`` -- the EXACT same plug-in joint-MI
+    ``cp.bincount`` over the flat joint index ``cls_x * n_classes_y + y_perm`` - the EXACT same plug-in joint-MI
     estimator (and the same joint contingency table) the existing pair-MI GPU backend (``batch_pair_mi_cupy``)
     and the CPU ``batch_pair_mi_prange`` use, so the per-shuffle max is on the same scale as the gated
     ``pair_mi``. The per-pair MM bias (if mm-debias) is subtracted on device (permutation-invariant, uploaded
@@ -34,10 +34,10 @@ permutation null. A device RNG seeded from ``random_seed`` makes the draw reprod
 stream is NOT bit-identical to numpy's ``default_rng`` (same contract as the order-1 resident gen and the CMI
 perm-null). The plug-in joint MI of the SAME integer contingency table differs from the njit kernel only in FP
 reduction order (~1e-15). Over K=25 draws the 0.95-quantile floor agrees with the CPU floor to within the
-gate's razor -- so the gate decision ``pair_mi >= floor`` is IDENTICAL on F2 and selection is unchanged.
+gate's razor - so the gate decision ``pair_mi >= floor`` is IDENTICAL on F2 and selection is unchanged.
 
 Returns ``None`` on ANY cupy error (OOM / device fault) so the caller falls back to the exact CPU njit floor
-(correctness first). NEVER call ``cp.get_default_memory_pool().free_all_blocks()`` here -- it nukes the resident
+(correctness first). NEVER call ``cp.get_default_memory_pool().free_all_blocks()`` here - it nukes the resident
 pool (a +47s regression measured previously on the CMI perm-null port).
 """
 from __future__ import annotations
@@ -192,6 +192,15 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
         maxes = cp.asnumpy(d_maxes)  # ONLY (nperm,) crosses back to host
         return float(np.quantile(maxes, float(quantile)))
     except Exception:
+        # A WDDM-TDR cudaErrorLaunchFailure POISONS the CUDA context; returning None WITHOUT tripping the
+        # breaker made every later FE step re-attempt the poisoned GPU and re-fault (a ~1h CPU floor made
+        # invisible). Trip on the first fault so subsequent calls skip straight to the exact CPU njit floor.
+        import logging
+
+        logging.getLogger("mlframe.feature_selection.filters.mrmr").debug(
+            "resident order-2 pair-maxT floor faulted; tripping GPU circuit breaker", exc_info=True,
+        )
+        trip_pair_maxt_gpu_circuit_breaker()
         return None
 
 
@@ -226,7 +235,7 @@ def pair_maxt_perm_null_gpu_enabled(n: int, n_pairs: int) -> bool:
 
     The device floor is selection-equivalent to the CPU floor (same pooled-MAX construction, same plug-in joint
     MI of the same integer contingency table to FP round-off, host-owned quantile) so engaging it never flips the
-    gate decision ``pair_mi >= floor`` -- verified in ``test_pair_maxt_perm_null_resident.py``. On a small / weak
+    gate decision ``pair_mi >= floor`` - verified in ``test_pair_maxt_perm_null_resident.py``. On a small / weak
     card the resident floor can be a wall LOSS (measured 0.26-0.66x vs the CPU njit floor on a GTX 1050 Ti); that
     is accepted under STRICT (residency is the contract, not the wall on a weak card), and the non-STRICT default
     path is unaffected.
@@ -236,7 +245,7 @@ def pair_maxt_perm_null_gpu_enabled(n: int, n_pairs: int) -> bool:
         return False
     if _PAIR_MAXT_GPU_FAILED:  # context poisoned by a prior launch fault -> never re-attempt the GPU this process.
         return False
-    # ABSOLUTE cushion guard (2026-07-05): even under STRICT, decline the resident GPU floor on a near-full /
+    # ABSOLUTE cushion guard: even under STRICT, decline the resident GPU floor on a near-full /
     # SHARED card so its (n, n_pairs) device buffers do not fault the next launch -> the caller keeps the exact
     # CPU njit floor. Deliberately checked BEFORE the STRICT gate: a cushion violation is REAL OOM risk (unlike a
     # conservative size threshold STRICT may legitimately force past). Permissive without cupy. Pure ADD.

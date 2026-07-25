@@ -37,7 +37,7 @@ def _detect_multithreaded(estimator: object) -> bool:
 def _pin_threads_to_one(estimator: object) -> None:
     """Best-effort: set every known thread-count param to 1 on ``estimator``.
 
-    E14 (Wave 4, 2026-05-28; reverted 2026-05-28): an earlier version also
+    E14: an earlier version also
     SET ``os.environ['OMP_NUM_THREADS']='1'`` here, but that leaked process-
     global single-threading into subsequent tests / fits that DID want
     multi-thread (LightGBM's histogram path changed split selection on
@@ -57,7 +57,7 @@ def _pin_threads_to_one(estimator: object) -> None:
         try:
             estimator.set_params(**pinned)
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _helpers.py:58: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
 
 
@@ -74,7 +74,7 @@ def split_into_train_test(
 ) -> tuple:
     """Split X & y according to indices & dtypes. Handles pd.DataFrame, np.ndarray, and polars.
 
-    perf (2026-06-05): when ``X_estimator`` (a contiguous numpy matrix mirroring the all-numeric DataFrame
+    perf: when ``X_estimator`` (a contiguous numpy matrix mirroring the all-numeric DataFrame
     ``X`` column-for-column) and ``col_pos`` (name -> integer column position) are supplied, the X-side
     train/test slabs are taken from the NUMPY matrix by integer position instead of from the pandas frame.
     This feeds the inner estimator numpy directly so it skips the per-fit/per-predict ``_data_from_pandas``
@@ -303,7 +303,7 @@ def get_next_features_subset(
         use_fi_ranking=use_fi_ranking,
         votes_aggregation_method=votes_aggregation_method,
     )
-    # F8 (Wave 3, 2026-05-28): exponential decay of FI history. With ``fi_decay_rate > 0``, run K is weighted ``(1 - rate)^(age_K)``,
+    # F8: exponential decay of FI history. With ``fi_decay_rate > 0``, run K is weighted ``(1 - rate)^(age_K)``,
     # where ``age_K`` is the number of fresher runs that exist. So a 30-iter-old vote weighs (1-0.05)^30 = 0.21 vs the latest vote = 1.0
     # when rate=0.05. Default 0.0 keeps the legacy equal-weight voting. Recommended 0.02-0.1 for long runs (>=30 iters).
     _run_weights = None
@@ -390,7 +390,7 @@ def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict, n_total: i
     and (adaptive) stride or (legacy) bisect toward the nearest unevaluated neighbour.
 
     When ``epsilon > 0`` and rng samples a Bernoulli(epsilon) success, pick a random unevaluated N OUTSIDE the best's
-    neighbourhood (gap > p/4) -- prevents the two-plateau hill-climb trap. ``rng=None`` uses module ``random``.
+    neighbourhood (gap > p/4) - prevents the two-plateau hill-climb trap. ``rng=None`` uses module ``random``.
     """
     remaining = sorted(remaining)
     if not remaining:
@@ -443,11 +443,11 @@ def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict, n_total: i
 
 
 def _suggest_scipy_local(remaining: list, evaluated_scores_mean: dict, n_total: int, epsilon: float = 0.0, rng: Any = None) -> Union[int, None]:
-    """S5 (Wave 2, 2026-05-28): retained as a thin alias for ExhaustiveDichotomic.
+    """S5: retained as a thin alias for ExhaustiveDichotomic.
 
     The previous implementation built a piecewise-linear interpolant over evaluated points and ran scipy's ``minimize_scalar`` on it.
     The argmax of a piecewise-linear function is ALWAYS one of its breakpoints (= ``xs`` = already-evaluated N's), so the scipy
-    optimiser collapses to "nearest unevaluated N to an already-evaluated one" -- exactly what dichotomic returns, at the cost of a
+    optimiser collapses to "nearest unevaluated N to an already-evaluated one" - exactly what dichotomic returns, at the cost of a
     scipy import + roundtrip. We now delegate to dichotomic with optional epsilon kick; users keep the OptimumSearch.ScipyLocal enum
     value to avoid silent API breakage in pickled configs.
     """
@@ -455,7 +455,7 @@ def _suggest_scipy_local(remaining: list, evaluated_scores_mean: dict, n_total: 
 
 
 def _suggest_scipy_global(remaining: list, evaluated_scores_mean: dict, n_total: int, epsilon: float = 0.0, rng: Any = None) -> Union[int, None]:
-    """S5 (Wave 2, 2026-05-28): retained as a thin alias for ExhaustiveDichotomic.
+    """S5: retained as a thin alias for ExhaustiveDichotomic.
 
     Same reasoning as _suggest_scipy_local: differential_evolution over a piecewise-linear interpolant has no global structure to
     discover beyond the breakpoints. Delegate to dichotomic so the search has a single, well-understood code path.

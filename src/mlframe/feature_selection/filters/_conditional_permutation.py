@@ -6,7 +6,7 @@ independence test ``H_0: X ⊥ Y | Z`` under ARBITRARY confounding.
 
 Why this beats Besag-Clifford for MRMR: Besag-Clifford permutes the
 candidate column unconditionally, which inflates Type-I error when the
-candidate is correlated with already-selected features ``Z`` -- exactly the
+candidate is correlated with already-selected features ``Z`` - exactly the
 regime MRMR's redundancy control is designed for. CPT is the principled
 fix.
 
@@ -17,16 +17,16 @@ Algorithm (discrete X, Z case):
   4. Repeat B times to build the conditional permutation null.
 
 For continuous X (we discretise via MRMR's binning), the within-stratum
-permutation degenerates when strata have <= 1 element. SCREEN_CONFIRM_B-3 fix
+permutation degenerates when strata have <= 1 element.
 this docstring previously (and incorrectly) claimed the
-implementation "falls back to nearest-stratum borrowing" in that case -- the
+implementation "falls back to nearest-stratum borrowing" in that case - the
 actual code simply EXCLUDES singleton-Z-stratum rows from every permutation
 replicate (``x_perm`` keeps the real observed value at those rows in ALL draws;
 see ``stratum_arrs``'s ``len(idx_list) > 1`` filter below). No nearest-stratum
 borrowing is implemented. This matters because the D10 caller
 (``evaluation.py``'s conditional permutation test) composes ``z_comp`` from
-EVERY currently-selected feature, so the conditioning cardinality -- and the
-singleton-stratum fraction -- grows every round of a single fit: later rounds
+EVERY currently-selected feature, so the conditioning cardinality - and the
+singleton-stratum fraction - grows every round of a single fit: later rounds
 permute a progressively smaller fraction of ``x``, understating the true null
 variance and biasing the test toward under-powered ("no signal") verdicts as
 more features are selected. True nearest-stratum borrowing (Berrett et al.'s
@@ -86,12 +86,12 @@ def conditional_permutation_test(
         strata.setdefault(int(zv), []).append(idx)
     # Materialise the per-stratum index arrays ONCE (constant across permutations)
     # and drop singleton strata up front: pre-fix this rebuilt each ``arr`` from a
-    # Python list via ``np.asarray`` on EVERY permutation (B * n_strata calls --
+    # Python list via ``np.asarray`` on EVERY permutation (B * n_strata calls -
     # ~48% of wall at B=200), all redundant work. Bit-identical: ``rng.permutation``
     # sees the SAME int64 arrays in the SAME dict-iteration order, so the RNG draw
     # sequence and the resulting permutations are unchanged.
     stratum_arrs = [np.asarray(idx_list, dtype=np.int64) for idx_list in strata.values() if len(idx_list) > 1]
-    # SCREEN_CONFIRM_B-3 fix: surface the excluded (singleton-stratum) row fraction so a progressively
+    # Surface the excluded (singleton-stratum) row fraction so a progressively
     # degenerate test (see the module docstring) is visible/monitorable instead of silently understating
     # power as the conditioning set grows.
     _n_permutable = sum(arr.shape[0] for arr in stratum_arrs)

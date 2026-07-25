@@ -1,6 +1,6 @@
-"""Significance-gated variant of Fayyad-Irani MDLP splitting (2026-07-19).
+"""Significance-gated variant of Fayyad-Irani MDLP splitting.
 
-PRODUCTION STATUS (2026-07-19, user decision -- accuracy over speed per project convention):
+PRODUCTION STATUS (2026-07-19, user decision - accuracy over speed per project convention):
 ``mdlp_bin_edges`` in ``supervised_binning.py`` now calls into this module's
 ``_mdlp_recurse_validated`` by DEFAULT (``fast_mode=False``). The classic in-sample-MDL +
 depth-cap path documented below stays available as the explicit ``fast_mode=True`` opt-out for
@@ -8,14 +8,14 @@ callers where wall-time matters more than the measured accuracy win (20-80x chea
 See ``mdlp_bin_edges``'s own docstring for the user-facing knob and the accuracy numbers.
 
 METHODOLOGY NOTE (verified against the actual implementation, both branches below): both the
-analytic and the permutation-null accept-test are computed ENTIRELY IN-SAMPLE -- the same node
+analytic and the permutation-null accept-test are computed ENTIRELY IN-SAMPLE - the same node
 rows are used to (a) search for the best cut point and (b) judge whether its gain is
 "unlikely under the null that the split indicator is independent of y," on that SAME sample.
 This is a genuine null-hypothesis significance test (it bounds the node-level false-positive
 rate, including the max-over-candidates selection effect, via the Bonferroni correction below)
 -- which is a real improvement over the raw MDL heuristic bound (not a significance test at
 all). But it is NOT equivalent to true out-of-sample validation (fit the cut on one fold, check
-the gain holds on a DIFFERENT held-out fold) -- a split can pass an in-sample significance test
+the gain holds on a DIFFERENT held-out fold) - a split can pass an in-sample significance test
 and still not generalize if the significance test's own assumptions are violated (e.g. non-
 i.i.d. rows) or if the "null" itself is mis-specified for the true data-generating process. See
 ``mdlp_bin_edges_oos_validated`` below for a genuine cross-validated variant, added specifically
@@ -25,14 +25,14 @@ Original research-prototype framing follows (still accurate for the design ratio
 
 Context: ``mdlp_bin_edges`` (``supervised_binning.py``) accepts/rejects each candidate split via the
 classic Fayyad-Irani 1993 MDL threshold test (``_mdlp_pass_threshold_njit``), computed ENTIRELY
-IN-SAMPLE -- the same rows are used to search for the split and to judge whether it clears the MDL
+IN-SAMPLE - the same rows are used to search for the split and to judge whether it clears the MDL
 bound. That is a heuristic complexity-penalty approximation, not a genuine held-out/generalization
 check. A sibling fix (same date, ``supervised_binning.py`` / ``_adaptive_nbins.py``) found a concrete
 symptom: once a continuous target is quantile-discretized into pseudo-classes (``max_y_classes``, to
 stop the ``3.0**n_classes`` MDL-threshold overflow that used to silently reject every split), an
-UNCAPPED recursion depth accepts many more splits whose apparent gain does not generalize -- measured
+UNCAPPED recursion depth accepts many more splits whose apparent gain does not generalize - measured
 20x feature-count blowup and 22% WORSE held-out RMSE on the real wellbore target vs the pre-fix
-quantile-fallback baseline. The landed fix is a blunt ``max_depth <= ceil(log2(max_y_classes))`` cap --
+quantile-fallback baseline. The landed fix is a blunt ``max_depth <= ceil(log2(max_y_classes))`` cap -
 correct as a guardrail, but it is an arbitrary ratio tied to one dataset's cardinality, and it does not
 touch the root cause: the accept-test itself has no mechanism to detect a split whose gain is only
 noise.
@@ -44,7 +44,7 @@ reusing existing project infrastructure rather than inventing a new one:
   * Each MDLP candidate split partitions a node's rows into a BINARY left/right indicator ``S``. The
     gain the existing scan already computes, ``H(y) - [n_l/n * H(y|S=left) + n_r/n * H(y|S=right)]``,
     IS the mutual information ``I(S; y)`` on that node's rows (2 categories x ``n_classes_full`` in
-    ``y``) -- an ordinary discrete MI, computed in nats via ``math.log`` exactly like the rest of
+    ``y``) - an ordinary discrete MI, computed in nats via ``math.log`` exactly like the rest of
     this module.
   * ``_analytic_mi_null.py`` already establishes (and the codebase already relies on, for the MRMR
     redundancy/relevance permutation gate) that the classic G-test/likelihood-ratio identity
@@ -54,12 +54,12 @@ reusing existing project infrastructure rather than inventing a new one:
     ``df = n_classes_full - 1`` and the existing ``analytic_mi_null(gain, n, 2, n_classes_full)``
     helper is DIRECTLY reusable, unmodified, for every split at every recursion node.
   * When the node is too small / cells too sparse for the analytic approximation (``analytic_null_
-    applicable`` returns False -- always true near ``min_split_size`` at the bottom of the recursion,
+    applicable`` returns False - always true near ``min_split_size`` at the bottom of the recursion,
     where cheap-node-size means a literal permutation loop is affordable anyway), fall back to an
     actual permutation null: shuffle the node's ``y`` ``n_permutations`` times, recompute the SAME
     best-gain statistic via the existing ``_mdlp_best_split_njit`` kernel each time, and accept the
     observed split only if it beats the ``(1 - alpha)`` quantile of the null distribution. This
-    mirrors (in spirit, not machinery -- no GPU residency needed at this data scale) the analytic-vs-
+    mirrors (in spirit, not machinery - no GPU residency needed at this data scale) the analytic-vs-
     permutation dual-path design already used by ``_analytic_mi_null.py`` / ``_fe_cmi_perm_null_gpu.py``
     for the MRMR relevance/redundancy gates.
 
@@ -67,7 +67,7 @@ Literature context (see module docstring in the research report for full citatio
 1993 (MDLP) is an MDL-cost heuristic, NOT a significance test. ChiMerge (Kerber 1992) and its
 extension Chi2 (Liu & Setiono 1995) are the well-established alternative family that DOES gate
 supervised-discretization merges/splits by a chi-square (equivalently G-test) significance test on
-the same kind of binary-partition x class contingency table used here -- so "significance-gated
+the same kind of binary-partition x class contingency table used here - so "significance-gated
 binary-split acceptance" is an established, decades-old idea in the discretization literature. What
 is NOT established (novel-to-this-codebase) is grafting that chi-square/permutation gate onto
 Fayyad-Irani's specific recursive-binary-split SEARCH procedure (candidate scan restricted to class-
@@ -76,10 +76,10 @@ procedure. No published "MDLP + permutation test" hybrid was found to cite direc
 that combination, evaluated empirically below rather than asserted from a citation.
 
 Cost note: naive per-candidate-split permutation testing (shuffle once per candidate cut point, not
-just the winning split) would be far too expensive -- MDLP already restricts candidates to class-
+just the winning split) would be far too expensive - MDLP already restricts candidates to class-
 boundary midpoints (Fayyad-Irani's own theorem) and only tests the WINNING gain per node, so this
 design pays at most one significance test per recursion node (analytic: O(1); permutation-fallback:
-O(n_permutations * node scan cost), and only at small, cheap nodes) -- not one per candidate cut.
+O(n_permutations * node scan cost), and only at small, cheap nodes) - not one per candidate cut.
 """
 from __future__ import annotations
 
@@ -98,18 +98,18 @@ def _dedupe_xy(x: np.ndarray, y_i: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
     BUG FOUND AND FIXED (2026-07-19, duplicate-row robustness probe): exact duplicate rows inflate
     the raw row count both the analytic chi-square null (``df/(2N)`` bias floor, ``2*N*MI`` G-stat)
     and the permutation-fallback null use as ``N``/the shuffle size, WITHOUT adding independent
-    evidence -- but that alone is not the mechanism that broke on pure-noise data at this node
+    evidence - but that alone is not the mechanism that broke on pure-noise data at this node
     scale (n well under the analytic-null floor, so the permutation fallback ran). The real
     mechanism: after sorting by ``x``, a duplicated row sits immediately adjacent to its twin with
     an IDENTICAL ``y`` by construction, which the observed best-gain scan exploits as a genuine
     (if spurious, injection-only) zero-within-cluster-variance boundary. A permutation null built by
     shuffling ``y`` across all rows (duplicates included) breaks that exact adjacency pairing in
     every null draw, so the null never reproduces the artifact the observed statistic benefits from
-    -- the observed gain then clears an otherwise-valid significance test almost every time.
+    - the observed gain then clears an otherwise-valid significance test almost every time.
     Measured on 2000 iid noise rows (x, y independent): 0% duplication -> 1 bin (correct); 10% ->
     6 bins; 50% -> 110 bins; 90% -> 139 bins. Deduplicating ``(x, y)`` pairs once, before the
     recursion starts, removes the artifact at the source (re-verified: 1 bin at every duplication
-    rate above) without touching the significance-test machinery itself -- a genuinely-informative
+    rate above) without touching the significance-test machinery itself - a genuinely-informative
     duplicate observation (real sensor re-reads, resampled rows) collapses to the same single
     unique ``(x, y)`` pair a first-occurrence-only sample would have produced, so this is lossless
     for the recursion's actual inputs, not a tolerance loosening.
@@ -129,7 +129,7 @@ def _dedupe_xy(x: np.ndarray, y_i: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
 @njit(nogil=True, cache=True)
 def _count_candidates_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, min_split_size: int) -> int:
     """Count class-boundary candidate cut points a node's scan actually considers (mirrors the skip
-    conditions inside ``_mdlp_best_split_njit`` exactly, without doing the entropy work) -- needed for
+    conditions inside ``_mdlp_best_split_njit`` exactly, without doing the entropy work) - needed for
     the Bonferroni multiplicity correction on the analytic significance path."""
     n = x_sorted.shape[0]
     count = 0
@@ -153,14 +153,14 @@ def _permutation_null_gain_njit(x_sorted: np.ndarray, y_compact: np.ndarray, n_c
     (only the label assignment is permuted, matching the standard permutation-null construction: the
     marginal distributions of x and y are preserved, only their pairing is randomized). Returns the
     ``(n_permutations,)`` array of null gains (best_gain, possibly -1.0 when no split at all clears
-    ``min_split_size``/candidate constraints -- treated as a zero-strength null draw by the caller).
+    ``min_split_size``/candidate constraints - treated as a zero-strength null draw by the caller).
     """
     np.random.seed(seed)
     n = y_compact.shape[0]
     null_gains = np.empty(n_permutations, dtype=np.float64)
     y_perm = y_compact.copy()
     for p in range(n_permutations):
-        # Fisher-Yates on a scratch copy -- np.random.shuffle is not always njit-supported across numba
+        # Fisher-Yates on a scratch copy - np.random.shuffle is not always njit-supported across numba
         # versions for arbitrary dtypes, so implement it directly (int64 labels only).
         for i in range(n - 1, 0, -1):
             j = int(np.random.randint(0, i + 1))
@@ -174,32 +174,32 @@ def _permutation_null_gain_njit(x_sorted: np.ndarray, y_compact: np.ndarray, n_c
 
 def _permutation_prefilter_reject(gain: float, n: int, n_classes_full: int) -> bool:
     """Cheap O(1) reject-only shortcut for the permutation-fallback branch, to skip the
-    ``n_permutations``-cost shuffle loop (the confirmed cost driver -- 20-80x per column, per the
+    ``n_permutations``-cost shuffle loop (the confirmed cost driver - 20-80x per column, per the
     original prototype report) when the observed gain is so weak it cannot possibly clear the
     permutation null's acceptance quantile.
 
-    Uses ``analytic_mi_null``'s Miller-Madow ``null_mean = df/(2N)`` -- valid as an absolute bias
+    Uses ``analytic_mi_null``'s Miller-Madow ``null_mean = df/(2N)`` - valid as an absolute bias
     floor for a SINGLE fixed comparison regardless of whether the dense-cell chi-square p-value
     approximation itself applies (same reasoning already used for the OOS variant's absolute floor
     above). The permutation branch's actual null is the STRICTER max-over-``n_candidates``
     statistic, whose mean and quantiles are never below the single-comparison null's (a max over
-    >=1 draws from the same distribution stochastically dominates one draw) -- so failing to clear
+    >=1 draws from the same distribution stochastically dominates one draw) - so failing to clear
     even the easier single-comparison floor means the harder max-of-many floor is certainly not
     cleared either. This can only ever turn a permutation-branch REJECT into an early reject
-    (never an accept), so it cannot inflate the false-accept rate -- verified to produce IDENTICAL
+    (never an accept), so it cannot inflate the false-accept rate - verified to produce IDENTICAL
     accept/reject decisions to the unfiltered path across the adversarial + robustness scenario
     suite in ``_benchmarks/bench_mdlp_prefilter_hybrid.py`` (0 mismatches over 36 scenario x seed
     combinations at n in {1500, 20000}).
 
     MEASURED IMPACT (honest, not the hoped-for fix): this is safe but NOT the answer to the 20-80x
     permutation-fallback cost problem. Warm-JIT, median-of-3, interleaved-order A/B (see the bench
-    module) measured only ~1-7% wall-time reduction, not an order of magnitude -- because the
+    module) measured only ~1-7% wall-time reduction, not an order of magnitude - because the
     observed gain reaching this branch is already the MAX over every class-boundary candidate at
     the node, and that max-selection effect alone usually pushes it well above the single-
     comparison bias floor even under pure noise, so the reject-shortcut fires rarely in practice.
     A real fix for the cost driver still needs the GPU-resident batched-permutation treatment
     recommended in the original prototype report (batch all node-level shuffles into one device-
-    resident kernel call, mirroring ``_fe_cmi_perm_null_gpu.py``'s MRMR redundancy-gate design) --
+    resident kernel call, mirroring ``_fe_cmi_perm_null_gpu.py``'s MRMR redundancy-gate design) -
     unimplemented, left as the actual next step. Kept here anyway (never silently reverted) because
     it is unconditionally safe and a genuine, if small, net win.
     """
@@ -222,7 +222,7 @@ def _split_significant(
     n_candidates: int,
     force_permutation: bool,
 ) -> "tuple[bool, float, str]":
-    """Return ``(accept, p_value, path)`` -- ``path`` is ``'analytic'`` or ``'permutation'`` (diagnostic only).
+    """Return ``(accept, p_value, path)`` - ``path`` is ``'analytic'`` or ``'permutation'`` (diagnostic only).
 
     ``df = n_classes_full - 1`` because the split partitions rows into 2 groups (``Bx=2``), so
     ``(Bx-1)*(By-1) == n_classes_full - 1``, exactly what ``analytic_mi_null`` expects as
@@ -230,19 +230,19 @@ def _split_significant(
 
     SELECTIVE-INFERENCE CORRECTION (found empirically during this prototype's own A/B, not assumed):
     the observed ``gain`` is the MAX over every class-boundary candidate scanned at this node, not a
-    single candidate's MI -- ``analytic_mi_null``'s chi-square null is only valid for a SINGLE fixed
+    single candidate's MI - ``analytic_mi_null``'s chi-square null is only valid for a SINGLE fixed
     comparison. Feeding it the max-of-many statistic without correction massively inflates the false-
     accept rate (measured: on pure-noise synthetic data, uncorrected produced MORE accepted splits than
     plain unsupervised quantile binning, i.e. worse than doing nothing). Bonferroni-correcting the
     analytic branch by ``n_candidates`` (the number of class-boundary cut points actually scanned at
-    this node) restores validity cheaply (still O(1), no extra passes) -- the permutation branch does
+    this node) restores validity cheaply (still O(1), no extra passes) - the permutation branch does
     NOT need this since shuffling+re-searching the SAME max-of-candidates statistic each draw already
     builds the correct null of "best split of random data," by construction.
 
     ``n`` here is safe to use directly as the analytic branch's effective sample size: callers
     dedupe exact ``(x, y)`` duplicates once at the entry point (``_dedupe_xy``, called from both
     ``mdlp_bin_edges_validated`` and the production ``mdlp_bin_edges`` default path) before the
-    recursion starts, so no node in the tree ever sees duplicate-row-inflated ``n`` -- see
+    recursion starts, so no node in the tree ever sees duplicate-row-inflated ``n`` - see
     ``_dedupe_xy``'s docstring for the duplicate-row robustness bug this closes at the source.
     """
     if not force_permutation and analytic_null_applicable(n, 2, n_classes_full):
@@ -280,7 +280,7 @@ def _mdlp_recurse_validated(
 
     ``tree_wide_alpha``, when not ``None``, overrides ``bonferroni``'s depth-decay with a single fixed
     alpha shared by every node in the tree (see ``mdlp_bin_edges_validated``'s ``tree_wide_bonferroni``
-    for how it's derived) -- mutually exclusive with the depth-decay mode, never both applied at once.
+    for how it's derived) - mutually exclusive with the depth-decay mode, never both applied at once.
     """
     n = len(x)
     if n < 2 * min_split_size or depth >= max_depth:
@@ -301,10 +301,10 @@ def _mdlp_recurse_validated(
         return
     best_split = 0.5 * (x[best_idx] + x[best_idx + 1])
     # Depth-adjusted alpha (Bonferroni over the exponentially-growing candidate-node count per level) is
-    # OPTIONAL (default off, benched both ways below) -- classic ChiMerge/Chi2 use a single fixed
+    # OPTIONAL (default off, benched both ways below) - classic ChiMerge/Chi2 use a single fixed
     # significance level per decision, not a multiplicity correction across the whole recursion tree.
     # This is SEPARATE from (and stacks with) the mandatory per-node candidate-count Bonferroni inside
-    # ``_split_significant`` -- that one corrects for the max-over-cut-points selection effect within a
+    # ``_split_significant`` - that one corrects for the max-over-cut-points selection effect within a
     # single node and is not optional (see that function's docstring for the empirical justification).
     if tree_wide_alpha is not None:
         _alpha = tree_wide_alpha
@@ -353,7 +353,7 @@ def mdlp_bin_edges_validated(
     ``-inf``/``+inf`` sentinels, same as ``mdlp_bin_edges``.
 
     Args:
-        bonferroni: Depth-decay correction ``alpha / 2**depth`` -- assumes a perfectly balanced
+        bonferroni: Depth-decay correction ``alpha / 2**depth`` - assumes a perfectly balanced
             binary tree (exactly ``2**depth`` nodes at depth ``d``), which the data-dependent
             recursion here rarely produces exactly, so it over- or under-corrects depending on
             actual tree shape. Mutually exclusive with ``tree_wide_bonferroni`` (that one wins if
@@ -362,10 +362,10 @@ def mdlp_bin_edges_validated(
             once by ``max(1, n // min_split_size)``, the maximum possible number of internal nodes
             ANY binary tree over ``n`` rows can have when every leaf needs at least ``min_split_size``
             rows (a tree with ``L`` leaves has exactly ``L - 1`` internal nodes, and ``L <=
-            n // min_split_size``) -- true regardless of how the actual (data-dependent) recursion
+            n // min_split_size``) - true regardless of how the actual (data-dependent) recursion
             shape turns out, so this alpha is valid for every node without a two-pass count of the
             real tree. Strictly more conservative than the true tree-wide FWER bound (uses the size
-            bound rather than the exact node count actually visited), by design -- see
+            bound rather than the exact node count actually visited), by design - see
             ``_benchmarks/bench_mdlp_adversarial_suite.py``'s multi-comparisons-defeat sweep for the
             measured empirical tree-wide false-discovery rate under this mode vs depth-decay vs off.
     """
@@ -385,7 +385,7 @@ def mdlp_bin_edges_validated(
             _y_arr = np.searchsorted(_y_edges, _y_arr, side="right")
     if len(x) != len(_y_arr):
         raise ValueError(f"len(x)={len(x)} != len(y)={len(_y_arr)}")
-    # mirrors mdlp_bin_edges' fix -- fold y's finiteness into the mask
+    # mirrors mdlp_bin_edges' fix - fold y's finiteness into the mask
     # (only meaningful while _y_arr is still float) BEFORE the int64 cast, so a NaN in a continuous y
     # with too few distinct finite values to trigger the quantile-rebucketing branch above is dropped
     # instead of becoming a platform-defined garbage class label.
@@ -414,7 +414,7 @@ def mdlp_bin_edges_validated(
 
 
 # =============================================================================
-# Genuine out-of-sample (held-out fold) validated splitting -- additional variant,
+# Genuine out-of-sample (held-out fold) validated splitting - additional variant,
 # NOT the default (see ``mdlp_bin_edges_oos_validated`` docstring for why).
 # =============================================================================
 
@@ -422,13 +422,13 @@ def mdlp_bin_edges_validated(
 def _holdout_gain(x_holdout: np.ndarray, y_holdout_c: np.ndarray, best_split: float, n_classes_full: int, val_min_split_size: int):
     """Compute the SAME weighted-entropy-reduction statistic as the training scan, but on an
     independent held-out row set, at the FIXED cut point the training portion already chose (no
-    re-search here -- that is what makes this a genuine OOS check rather than another in-sample
+    re-search here - that is what makes this a genuine OOS check rather than another in-sample
     max-over-candidates search). Rows whose label was never seen in the training node (``y_holdout_c
-    == -1``, stamped by the caller) are dropped -- they carry no information about whether train's
+    == -1``, stamped by the caller) are dropped - they carry no information about whether train's
     class-space cut generalizes. Returns ``(gain, n_l, n_r)``; ``gain`` is ``-1.0`` if either side
     is smaller than ``val_min_split_size`` after dropping unseen-label rows (can't confirm
     generalization on too few held-out rows -> caller treats this as a reject, the conservative
-    choice). ``val_min_split_size`` is a SEPARATE floor from the train-side ``min_split_size`` --
+    choice). ``val_min_split_size`` is a SEPARATE floor from the train-side ``min_split_size`` -
     a node with plenty of train rows can still have too few holdout rows to trust (the holdout
     fraction is fixed once at the top level, so it shrinks along with the node as recursion
     deepens, independently of how strict the train-side floor is).
@@ -470,11 +470,11 @@ def _mdlp_recurse_oos_validated(
     """A candidate split is found on ``x_train``/``y_train`` exactly as the in-sample path does
     (single best-gain search via ``_mdlp_best_split_njit``), but is only ACCEPTED if the SAME cut
     point, re-evaluated on the independent ``x_holdout``/``y_holdout`` at that node, still shows a
-    gain that is both positive and at least ``oos_tolerance`` fraction of the training gain -- i.e.
+    gain that is both positive and at least ``oos_tolerance`` fraction of the training gain - i.e.
     the split's apparent value must hold up on data it was not chosen from, not merely look
     significant on the data that produced it. Both train and holdout subsets are partitioned by the
     accepted cut and recursed on independently (holdout rows never influence the NEXT node's search
-    either -- generalization is checked fresh at every node, mirroring nested/repeated-holdout CV
+    either - generalization is checked fresh at every node, mirroring nested/repeated-holdout CV
     rather than a single train/test split re-used for the whole tree).
 
     Deliberately implemented as a single train/holdout split rather than k-fold: MDLP's recursion
@@ -488,8 +488,8 @@ def _mdlp_recurse_oos_validated(
     if n < 2 * min_split_size or depth >= max_depth:
         return
     _val_min_split_size = min_split_size if val_min_split_size is None else val_min_split_size
-    # DISCRETIZATION-12 fix: the recursive call sites always pass both
-    # present_parent and counts_parent together, or neither -- the dropped `present_parent if
+    # The recursive call sites always pass both
+    # present_parent and counts_parent together, or neither - the dropped `present_parent if
     # counts_parent is None else ...` branch handled a (present_parent is not None, counts_parent is
     # None) combination that never actually occurs, so it was dead and mildly confusing.
     if present_parent is None:
@@ -510,7 +510,7 @@ def _mdlp_recurse_oos_validated(
     best_split = 0.5 * (x_train[best_idx] + x_train[best_idx + 1])
 
     # Map holdout labels into the SAME class space as train; labels train never saw are stamped -1
-    # (dropped by ``_holdout_gain`` -- they carry no evidence about whether train's cut generalizes).
+    # (dropped by ``_holdout_gain`` - they carry no evidence about whether train's cut generalizes).
     idx = np.searchsorted(present, y_holdout)
     idx_clipped = np.clip(idx, 0, n_classes_full - 1)
     match = present[idx_clipped] == y_holdout
@@ -519,13 +519,13 @@ def _mdlp_recurse_oos_validated(
     oos_gain, oos_nl, oos_nr = _holdout_gain(x_holdout, y_holdout_c, best_split, int(n_classes_full), int(_val_min_split_size))
     if oos_gain <= 0.0:
         return
-    # BUG FOUND AND FIXED DURING THIS PROTOTYPE'S OWN A/B (2026-07-19): a relative-only bar
+    # BUG FOUND AND FIXED DURING THIS PROTOTYPE'S OWN A/B: a relative-only bar
     # (``oos_gain >= oos_tolerance * best_gain``) has NO absolute floor, so as recursion deepens
     # and ``best_gain`` shrinks towards the noise scale, an arbitrarily tiny (and therefore easy-
-    # to-pass-by-chance) holdout gain clears the bar -- measured to produce MORE splits (~50+) on
+    # to-pass-by-chance) holdout gain clears the bar - measured to produce MORE splits (~50+) on
     # a 2-true-breakpoint synthetic than the in-sample significance-gated default (which correctly
-    # found exactly 2). The analytic Miller-Madow null-mean bias ``(Bx-1)(By-1)/(2*N_holdout)`` --
-    # ``analytic_mi_null``'s first return value -- is a valid absolute noise floor REGARDLESS of
+    # found exactly 2). The analytic Miller-Madow null-mean bias ``(Bx-1)(By-1)/(2*N_holdout)`` -
+    # ``analytic_mi_null``'s first return value - is a valid absolute noise floor REGARDLESS of
     # whether the dense-cell chi-square approximation itself is applicable (the bias term alone
     # does not need the same sparsity/large-n safe condition its p-value does), so requiring
     # BOTH the relative bar and this absolute floor closes the hole without reintroducing a
@@ -568,10 +568,10 @@ def mdlp_bin_edges_oos_validated(
     fold and only accepted if its gain, re-computed on an independent HOLDOUT fold at the SAME cut
     point, is positive and within ``oos_tolerance`` of the training gain. Added specifically to
     check whether true OOS validation catches anything the in-sample significance-gated default
-    (``mdlp_bin_edges``/``_mdlp_recurse_validated``) misses -- see the module docstring's
+    (``mdlp_bin_edges``/``_mdlp_recurse_validated``) misses - see the module docstring's
     methodology note and ``_benchmarks/bench_mdlp_validated_split_suite.py`` for the A/B.
 
-    NOT wired into ``mdlp_bin_edges`` -- this is a research variant, evaluated alongside the
+    NOT wired into ``mdlp_bin_edges`` - this is a research variant, evaluated alongside the
     in-sample significance-gated default rather than replacing it (see the bench suite's findings
     for whether it earns production wiring). Same y-quantization / NaN-handling contract as
     ``mdlp_bin_edges`` (duplicated, not imported, for the same file-ownership reason as
@@ -585,7 +585,7 @@ def mdlp_bin_edges_oos_validated(
         holdout_frac: Fraction of rows set aside as the single held-out fold. ``0.3`` balances
             leaving enough rows in each fold as the recursion narrows to small nodes.
         val_min_split_size: Floor on holdout-side samples per child node, separate from the
-            train-side ``min_split_size`` -- defaults to ``min_split_size`` when not given (a split
+            train-side ``min_split_size`` - defaults to ``min_split_size`` when not given (a split
             confirmed on too few held-out rows on one side is not meaningfully validated even if
             the train side comfortably clears its own floor).
     """
@@ -605,7 +605,7 @@ def mdlp_bin_edges_oos_validated(
             _y_arr = np.searchsorted(_y_edges, _y_arr, side="right")
     if len(x) != len(_y_arr):
         raise ValueError(f"len(x)={len(x)} != len(y)={len(_y_arr)}")
-    # mirrors mdlp_bin_edges' fix -- fold y's finiteness into the mask
+    # mirrors mdlp_bin_edges' fix - fold y's finiteness into the mask
     # (only meaningful while _y_arr is still float) BEFORE the int64 cast, so a NaN in a continuous y
     # with too few distinct finite values to trigger the quantile-rebucketing branch above is dropped
     # instead of becoming a platform-defined garbage class label.
@@ -619,12 +619,12 @@ def mdlp_bin_edges_oos_validated(
     if x.size == 0:
         return np.array([-np.inf, np.inf], dtype=np.float64)
 
-    # DISCRETIZATION-3 fix: confirmed by direct reproduction (the exact
+    # Confirmed by direct reproduction (the exact
     # duplicate-row fixture from test_duplicate_rows_do_not_over_split_pure_noise) that this function DID
     # over-split on exact-duplicate rows (pure noise at dup_rate 0/10/50/90% gave 1/4/6/12 bins pre-fix).
     # Deduping only the TRAIN fold after the split was NOT sufficient: an original row and its exact
     # duplicate can land on OPPOSITE sides of the random train/holdout partition, so the identical (x, y)
-    # pair leaks across the split -- the "held-out" gain then genuinely (not spuriously) reproduces the
+    # pair leaks across the split - the "held-out" gain then genuinely (not spuriously) reproduces the
     # train gain for that duplicated point, defeating the whole OOS-generalization check. The correct fix
     # is to dedupe the FULL (x, y) array ONCE, before the train/holdout split even happens (mirroring
     # mdlp_bin_edges_validated's dedupe-before-any-partitioning discipline), so no duplicate can ever

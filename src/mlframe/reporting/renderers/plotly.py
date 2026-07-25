@@ -269,7 +269,7 @@ class PlotlyRenderer:
         try:
             fig.show()
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in plotly.py:270: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
 
     # ------------------------------------------------------------------

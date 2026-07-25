@@ -1,4 +1,4 @@
-"""Multidimensional Adaptive Histogram (MAH) MI estimator (2026-05-29).
+"""Multidimensional Adaptive Histogram (MAH) MI estimator.
 
 Python port of Marx, Yang, van Leeuwen (2021), "Estimating Conditional Mutual
 Information for Discrete-Continuous Mixtures using Multi-Dimensional Adaptive
@@ -29,7 +29,7 @@ stochastic-complexity-of-histogram bin-merge logic):
          SCI(X; Y) = L_NML(X | flat marginal Y) - L_NML(X | refined joint)
 
      Under H_0 (X indep Y) the expected SCI is 0; large SCI signals real
-     dependence. We return SCI / N -- a regret-normalised proxy for I(X; Y)
+     dependence. We return SCI / N - a regret-normalised proxy for I(X; Y)
      in nats per sample, with the same 0-under-independence property.
 
 Reference: https://arxiv.org/abs/2101.05009
@@ -52,8 +52,8 @@ from collections import OrderedDict
 import numpy as np
 from numba import njit
 
-# Y-BINNING CACHE (Wave 13): ``per_feature_edges``/``mah_mi`` dispatchers call ``mah_bin_edges``/``mah_mi`` ONCE PER
-# COLUMN (up to 500 columns for one fit) with the SAME ``y`` object every time -- yet each call re-derives y's
+# Y-BINNING CACHE: ``per_feature_edges``/``mah_mi`` dispatchers call ``mah_bin_edges``/``mah_mi`` ONCE PER
+# COLUMN (up to 500 columns for one fit) with the SAME ``y`` object every time - yet each call re-derives y's
 # quantile/label binning (``np.unique``/``np.quantile``/``np.searchsorted``) from scratch. y is fixed for the whole
 # dispatch, so cache the binning keyed on ``(id(y), K)`` with a weakref identity guard (mirrors the ``_cmi_cuda``
 # resident-cache pattern): a recycled id (y GC'd, allocator reuses the address) fails the ``ref() is y`` check and
@@ -68,17 +68,17 @@ def _compute_y_binning(y: np.ndarray, K: int) -> tuple[np.ndarray, int]:
     """(yb, K_y): genuinely low-cardinality y (<=K distinct values, any dtype) label-encodes exactly;
     everything else K-quantile-bins, regardless of dtype.
 
-    Bug fix (2026-07-19): the prior condition was ``dtype.kind in "iub" OR unique.size <= K``, which
+    Bug fix: the prior condition was ``dtype.kind in "iub" OR unique.size <= K``, which
     routed EVERY integer-dtype y (bool/int8..int64) through the exact label-encode branch unconditionally
-    -- including a high-cardinality but integer-typed target (e.g. a rounded price/timestamp/count with
+    - including a high-cardinality but integer-typed target (e.g. a rounded price/timestamp/count with
     thousands of distinct values, which is effectively continuous). That set ``K_y`` to the FULL
     cardinality instead of capping at K, and the (K_x, K_y) joint table then fed ``_greedy_merge_bins``'s
     per-step O(rows * cols) candidate-matrix rebuild across O(cols) candidates, repeated as cols shrinks by
-    1 each step -- an O(rows * K_y^3)-ish blowup. Measured: n=3000, K_y~2000 (int64 target) hangs past 40s
+    1 each step - an O(rows * K_y^3)-ish blowup. Measured: n=3000, K_y~2000 (int64 target) hangs past 40s
     (pre-fix code, verified via ``timeout 40 python ...`` -> exit 124); this fix keeps it fast because the
     quantile branch caps ``K_y <= K`` (16 by default) regardless of dtype. Any real MRMR user picking
     ``nbins_strategy='mah'``/``'sci'`` with an integer-coded continuous-like target hit this DoS silently
-    (no error, no warning -- the fit just never returns from this column's edge computation).
+    (no error, no warning - the fit just never returns from this column's edge computation).
     """
     uniq_y = np.unique(y)
     if uniq_y.size <= K:
@@ -108,7 +108,7 @@ def _get_y_binning(y: np.ndarray, K: int) -> tuple[np.ndarray, int]:
         try:
             ref = weakref.ref(y)
         except TypeError:
-            return result  # y doesn't support weakref (unlikely for ndarray) -- skip caching, still correct
+            return result  # y doesn't support weakref (unlikely for ndarray) - skip caching, still correct
         _Y_BINNING_CACHE[key] = (ref, result)
         if len(_Y_BINNING_CACHE) > _Y_BINNING_CACHE_MAX_ENTRIES:
             _Y_BINNING_CACHE.popitem(last=False)
@@ -117,7 +117,10 @@ def _get_y_binning(y: np.ndarray, K: int) -> tuple[np.ndarray, int]:
 
 def clear_mah_y_binning_cache() -> None:
     """Drop the resident y-binning cache (call at FE-step teardown alongside the other resident caches)."""
-    _Y_BINNING_CACHE.clear()
+    # Hold the same lock _get_y_binning takes to mutate/iterate this OrderedDict, else a teardown clear
+    # racing a concurrent _get_y_binning raises "dictionary changed size during iteration".
+    with _Y_BINNING_LOCK:
+        _Y_BINNING_CACHE.clear()
 
 
 @njit(nogil=True, cache=True)
@@ -166,7 +169,7 @@ def _greedy_merge_bins(joint: np.ndarray) -> np.ndarray:
     """Greedy column- and row-merging of a (K_x, K_y) joint table guided by
     the JOINT NML code length (Marx 2021 sec. 3.2): merge when the regret
     reduction outweighs the log-likelihood increase. Operates on the full
-    flat joint matrix, not the marginal -- so merging is data-dependent
+    flat joint matrix, not the marginal - so merging is data-dependent
     (preserves the joint structure even when the marginal would otherwise
     collapse).
     """
@@ -347,7 +350,7 @@ def _apply_merges_to_edges(initial_inner_edges: np.ndarray, row_merges) -> np.nd
     ``initial_inner_edges`` has length ``K - 1`` (one inner edge between each
     pair of adjacent quantile bins). Each merge at current-matrix position ``i``
     removes the edge between the ``i``-th and ``(i+1)``-th currently-remaining
-    bin -- which corresponds to a specific position in the dropping list.
+    bin - which corresponds to a specific position in the dropping list.
     """
     # Track ranges of original-bin indices per current bin.
     K = initial_inner_edges.size + 1
@@ -368,7 +371,7 @@ def _apply_merges_to_edges(initial_inner_edges: np.ndarray, row_merges) -> np.nd
 def mah_bin_edges(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.ndarray:
     """Multidimensional Adaptive Histogram bin edges for X (Marx 2021).
 
-    Wave 7 (2026-05-29): exposed as a Family-1 ``nbins_strategy`` option.
+    Exposed as a Family-1 ``nbins_strategy`` option.
     Returns INNER bin edges suitable for ``np.searchsorted(edges, x, side='right')``.
 
     Pipeline:

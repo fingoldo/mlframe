@@ -1,4 +1,4 @@
-"""Layer 81 (2026-06-01): LASSO (L1) coefficient-based ranking for hybrid
+"""Layer 81: LASSO (L1) coefficient-based ranking for hybrid
 orth-poly FE.
 
 Why this layer
@@ -35,9 +35,9 @@ What Lasso wins / loses against MI
   value because mutual information is invariant under monotone
   transformations of either variable AND captures the |cos(x)| pattern
   through binning. This is the documented LIMITATION of Lasso pre-
-  selection -- the COST of the parametric assumption.
+  selection - the COST of the parametric assumption.
 
-The two pre-selection paths are COMPLEMENTARY -- a user can opt into
+The two pre-selection paths are COMPLEMENTARY - a user can opt into
 both and union the winners. Production tilts toward Lasso when the
 ground-truth signal is known to be linear-additive (price / quantity
 forecasts, additive utility models), MI when the signal is unknown
@@ -49,7 +49,7 @@ Why this is "Lasso PRE-SELECTION", not "Lasso feature engineering"
 The L1 path here REPLACES the MI ranking inside the hybrid orth-poly
 pipeline. The orth-poly basis generator (``He_n``, ``L_n``, ``T_n``,
 ``L^Lag_n``) still emits exactly the same engineered VALUES Layer 21
-ships -- only the SCORING (and therefore the selection) changes. So
+ships - only the SCORING (and therefore the selection) changes. So
 recipe replay uses the existing ``orth_univariate`` kind; no new replay
 infrastructure is needed.
 
@@ -66,11 +66,11 @@ preserves the raw scale for callers who pre-standardised upstream.
 Recipe replay
 -------------
 
-Each emitted column is backed by an ``orth_univariate`` recipe -- the
-SAME kind Layers 21 / 65-74 use -- because the engineered VALUES are
+Each emitted column is backed by an ``orth_univariate`` recipe - the
+SAME kind Layers 21 / 65-74 use - because the engineered VALUES are
 bit-equal; only the SCORING differs.
 
-NOT wired into ``MRMR.fit`` by default -- opt-in via
+NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_hybrid_orth_lasso_enable=True`` on the MRMR ctor.
 """
 from __future__ import annotations
@@ -88,7 +88,7 @@ logger = logging.getLogger(__name__)
 
 # Below this baseline |coef| a source is treated as no-signal: the uplift ratio
 # is suppressed (it would otherwise explode) and an absolute |coef| floor is
-# required instead -- the same guard JMIM applies (Layer 21/65+).
+# required instead - the same guard JMIM applies (Layer 21/65+).
 _BASELINE_EPS = 1e-6
 _ABS_MI_FLOOR = 1e-3
 
@@ -110,7 +110,7 @@ def _fit_lasso_abs_coefs(
     """Fit Lasso(alpha) on the stacked design matrix and return ``|coef|``.
 
     Returns shape ``(n_features,)``. Constant columns receive coefficient
-    zero by construction (the StandardScaler would divide by zero -- we
+    zero by construction (the StandardScaler would divide by zero - we
     short-circuit by replacing constant columns with zeros before scaling).
     Handles binary y by treating it as a regression target on
     ``{0.0, 1.0}``: Lasso of indicator-coded y against the design matrix
@@ -137,8 +137,8 @@ def _fit_lasso_abs_coefs(
     # max |coef| over the one-vs-rest fits so selection is invariant to relabelling.
     uniq = np.unique(y_raw[np.isfinite(y_arr)]) if np.issubdtype(y_arr.dtype, np.floating) else np.unique(y_raw)
     is_discrete = uniq.size <= max(20, int(0.05 * n_rows)) and np.all(y_arr[np.isfinite(y_arr)] == np.round(y_arr[np.isfinite(y_arr)]))
-    # HOISTED (2026-07-12): NaN/inf scrub + standardization depend ONLY on X_arr, never on y / the
-    # per-class indicator -- computing it ONCE here (instead of once per one-vs-rest class inside the
+    # HOISTED: NaN/inf scrub + standardization depend ONLY on X_arr, never on y / the
+    # per-class indicator - computing it ONCE here (instead of once per one-vs-rest class inside the
     # multiclass branch below, which previously re-called this whole function recursively per class)
     # avoids re-scrubbing/re-standardizing the IDENTICAL design matrix up to n_classes times (10-20x
     # redundant O(n*p) passes at 10-20 classes). ``_fit_lasso_abs_coefs_scaled`` only runs ``Lasso.fit``.
@@ -176,7 +176,7 @@ def _fit_lasso_abs_coefs_scaled(
     random_state: int = 0,
 ) -> np.ndarray:
     """Fit ``Lasso(alpha)`` on an ALREADY NaN-scrubbed-and-standardized design matrix and return
-    ``|coef|``. Split out of :func:`_fit_lasso_abs_coefs` (2026-07-12) so its one-vs-rest multiclass loop
+    ``|coef|``. Split out of :func:`_fit_lasso_abs_coefs` so its one-vs-rest multiclass loop
     reuses ONE standardization pass across every class fit instead of repeating it per class.
     ``Lasso``'s default ``copy_X=True`` means every call gets its own internal working copy, so sharing
     ``X_scaled`` across class fits is safe (no cross-class mutation)."""
@@ -184,7 +184,7 @@ def _fit_lasso_abs_coefs_scaled(
 
     with warnings.catch_warnings():
         # ConvergenceWarning at small n with many candidates is expected
-        # and not actionable from the caller's side -- silence at fit-time.
+        # and not actionable from the caller's side - silence at fit-time.
         warnings.simplefilter("ignore")
         model = Lasso(
             alpha=float(alpha),
@@ -257,7 +257,7 @@ def score_features_by_lasso_coef(
     # Single Lasso on the JOINT stack so the |coef| values are comparable
     # across raw and engineered columns. (Two separate Lasso fits would
     # double-count the shared linear signal and bias the uplift ratio.)
-    # f64 kept: covariance/coordinate-descent stability (f32 sums lose precision here) -- NOT routed through _crit_np_dtype.
+    # f64 kept: covariance/coordinate-descent stability (f32 sums lose precision here) - NOT routed through _crit_np_dtype.
     stack_arr = np.column_stack([
         raw_X.to_numpy(dtype=np.float64),
         engineered_X.to_numpy(dtype=np.float64),
@@ -321,11 +321,11 @@ def hybrid_orth_mi_lasso_fe(
     L1-regularised linear-regression coefficients and applies a two-gate
     selection:
 
-    1. relative: ``|coef_eng| / |coef_source_raw| >= min_uplift`` -- the
+    1. relative: ``|coef_eng| / |coef_source_raw| >= min_uplift`` - the
        engineered column must improve on the raw source's own linear
        contribution by at least ``min_uplift``.
     2. absolute: ``|coef_eng| > 0`` AND
-       ``|coef_eng| >= min_abs_mi_frac * max(raw|coef|)`` -- the column
+       ``|coef_eng| >= min_abs_mi_frac * max(raw|coef|)`` - the column
        must survive L1 shrinkage AND clear a fraction of the strongest
        raw-source coefficient. The ``> 0`` floor is the L1 hallmark:
        Lasso drives noise coefficients to EXACTLY zero, so a column with
@@ -392,12 +392,12 @@ def hybrid_orth_mi_lasso_fe_with_recipes(
     random_state: int = 0,
 ):
     """Same as :func:`hybrid_orth_mi_lasso_fe` plus a list of
-    ``orth_univariate`` recipes -- one per appended column -- so that
+    ``orth_univariate`` recipes - one per appended column - so that
     ``MRMR.transform`` can recompute each engineered column on test data
     without re-running the Lasso fit.
 
     Recipes are byte-identical to Layer 21 because the engineered VALUES
-    are byte-identical -- only the SCORING (and therefore the selection)
+    are byte-identical - only the SCORING (and therefore the selection)
     differs.
     """
     from .engineered_recipes import build_orth_univariate_recipe

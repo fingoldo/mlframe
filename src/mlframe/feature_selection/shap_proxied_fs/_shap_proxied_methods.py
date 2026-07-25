@@ -1,4 +1,4 @@
-"""``ShapProxiedMethodsMixin`` -- resolver / coercion / preflight helpers for :class:`ShapProxiedFS`.
+"""``ShapProxiedMethodsMixin`` - resolver / coercion / preflight helpers for :class:`ShapProxiedFS`.
 
 Carved out of ``shap_proxied_fs/__init__`` to keep the package facade under the 1k-LOC ceiling.
 All methods operate on ``self`` (constructor state lives on the concrete class); heavy deps are
@@ -14,14 +14,14 @@ import pandas as pd
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import _resolve_brute_force_n_sub_gate
 
 # gt_08 auto-path-ONLY SNR tightening. The opt-in ``su_seeded_interactions=True`` flag keeps its
-# original defaults (snr_z=3.0 / snr_abs_floor=1e-3, unchanged) -- these only apply when
+# original defaults (snr_z=3.0 / snr_abs_floor=1e-3, unchanged) - these only apply when
 # ``proxy_mode="auto"`` engaged the screen AND the caller left the opt-in knobs at their factory
 # default (an explicit override always wins). Pre-flip 6-bed x 3-seed bench
 # (_benchmarks/bench_shap_interaction_proxy.py) measured one spurious gate fire on the
 # ``additive_redundant`` bed at the factory snr_z=3.0 (best_synergy=0.024489 vs gate=0.022797, a
 # near-miss driven by the redundant near-duplicate columns' correlated marginal SU); snr_z=4.5
 # silenced it (gate rose to 0.025961) while leaving every genuine-synergy bed (xor2, mixed, mult,
-# xor_distract) fully detected across all 3 seeds -- see that bench's committed output.
+# xor_distract) fully detected across all 3 seeds - see that bench's committed output.
 _AUTO_SNR_Z_DEFAULT = 3.0
 _AUTO_SNR_Z_TIGHTENED = 4.5
 _AUTO_SNR_ABS_FLOOR_DEFAULT = 1e-3
@@ -78,10 +78,10 @@ class ShapProxiedMethodsMixin:
         """Resolve whether the su_seeded synergy screen must run for this fit.
 
         True when the caller pinned ``su_seeded_interactions=True`` explicitly, OR when
-        ``proxy_mode="auto"`` -- the auto mode ALWAYS runs the screen (its built-in permutation-null
+        ``proxy_mode="auto"`` - the auto mode ALWAYS runs the screen (its built-in permutation-null
         SNR gate is the safe-condition detector: empty ``kept`` reproduces the additive path
         byte-identically, non-empty ``kept`` enables the same rescue/augmentation ``su_seeded_
-        interactions=True`` already ships) -- OR ``proxy_mode="faith_interaction"`` (gt_01), which
+        interactions=True`` already ships) - OR ``proxy_mode="faith_interaction"`` (gt_01), which
         reuses the SAME screen to pick its candidate-pair design (never the full O(P^2) pairwise
         design; see ``_shap_proxy_faith_interactions.py``'s module docstring). Every call site that
         previously read ``self.su_seeded_interactions`` directly to gate the screen/rescue/
@@ -99,7 +99,7 @@ class ShapProxiedMethodsMixin:
         the explicit flag tightens the default (see ``_AUTO_SNR_Z_TIGHTENED``) to silence the one
         spurious gate fire the pre-flip bench measured on a redundant-column bed; a caller who
         explicitly pins ``su_seeded_snr_z`` still wins even under "auto". ``proxy_mode="faith_interaction"``
-        (gt_01) reuses the SAME tightened threshold for the same reason -- measured a spurious gate
+        (gt_01) reuses the SAME tightened threshold for the same reason - measured a spurious gate
         fire (2 noise columns selected) on a wide pure-additive bed at the untightened default.
         """
         _tightened_modes = ("auto", "faith_interaction")

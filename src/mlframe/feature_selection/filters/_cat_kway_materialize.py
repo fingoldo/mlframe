@@ -38,9 +38,9 @@ def _build_merge_prefix_states(
     """Incremental ``merge_vars`` states after merging ``sorted_members[:i]`` (ascending order), for every ``i`` in ``0..len(sorted_members)``.
 
     ``merge_vars``'s dense renumbering is ORDER-SENSITIVE: merging the same variable set in a different order yields a bijective but numerically DIFFERENT
-    ``final_classes`` encoding (verified empirically -- only the count of distinct classes is order-invariant, not the labels). A candidate variable inserted
+    ``final_classes`` encoding (verified empirically - only the count of distinct classes is order-invariant, not the labels). A candidate variable inserted
     at some position among ``sorted_members`` therefore needs the merge to walk ``sorted_members[:pos] + [cand] + sorted_members[pos:]`` to stay bit-identical
-    to a fresh ``merge_vars`` over the fully re-sorted tuple -- these prefix states let ``_merge_vars_sorted_insert`` splice a candidate in at its correct
+    to a fresh ``merge_vars`` over the fully re-sorted tuple - these prefix states let ``_merge_vars_sorted_insert`` splice a candidate in at its correct
     sorted position without re-scanning the members before it, for every candidate sharing that same insertion point.
 
     ``final_state`` lets the caller hand in an already-computed ``(classes, nclasses)`` for the FULL ``sorted_members`` merge (the parent state carried from
@@ -73,7 +73,7 @@ def _merge_vars_sorted_insert(
 ) -> tuple:
     """``merge_vars`` over ``sorted(sorted_members + [cand_int])``, splicing ``cand_int`` into its correct sorted position via ``prefix_states`` instead of
     re-scanning the members before it. Bit-identical to a fresh full-tuple ``merge_vars`` call (verified end-to-end against the pre-fix algorithm across
-    randomized trials incl. min/mid/max insertion positions and varying arities/cardinalities/row-counts -- see
+    randomized trials incl. min/mid/max insertion positions and varying arities/cardinalities/row-counts - see
     ``_benchmarks/bench_greedy_expand_seed_frozen_prefix.py``)."""
     ins = bisect.bisect_left(sorted_members, cand_int)
     prefix_classes, prefix_nclasses = prefix_states[ins]
@@ -105,7 +105,7 @@ def _scatter_factorize_lookup(
     """Single-pass scatter of post-prune classes into the pre-prune code lookup.
 
     Builds ``lookup[a_val + b_val * nbins_a] = post_prune_class`` for every row,
-    last-write-wins on duplicate codes -- identical to ``lookup[codes] = classes``
+    last-write-wins on duplicate codes - identical to ``lookup[codes] = classes``
     numpy fancy-index assignment (which writes in ascending row order). Avoids the
     three length-n int64 temporaries (``vals_a``, ``vals_b``, ``pre_prune_codes``)
     the numpy form allocated per call. Returns the int64 lookup with -1 sentinel
@@ -128,7 +128,7 @@ def _dense_renumber_codes(codes: np.ndarray, expected_size: int) -> tuple:
     Used by ``_build_kway_chained_lookup``'s chain steps: ``codes`` there is ``pre_prune_codes`` (the growing prefix's running classes combined with the
     next raw column), which already carries everything a full ``merge_vars(idx_tuple[:step+1])`` call would re-derive from scratch. Bit-identical to
     ``merge_vars`` (verified: ``_benchmarks/bench_kway_chained_lookup_unique.py``) and faster (single O(n) pass over the pre-combined codes instead of
-    re-walking every prefix column) -- an ``np.unique(codes, return_inverse=True)`` alternative was tried first and measured 3-4x SLOWER than
+    re-walking every prefix column) - an ``np.unique(codes, return_inverse=True)`` alternative was tried first and measured 3-4x SLOWER than
     ``merge_vars`` itself (sort-based dedup loses to njit's direct bincount at these join cardinalities), so it was rejected in favour of this kernel.
     """
     freqs = np.zeros(expected_size, dtype=np.int64)
@@ -153,7 +153,7 @@ def _dense_renumber_codes(codes: np.ndarray, expected_size: int) -> tuple:
 #
 #   delta_II = I(parent ∪ {k}; Y) - I(parent; Y) - I(X_k; Y)
 #
-# This is the 3-way Jakulin II between (parent_aggregate, X_k, Y) -- it measures whether adding X_k to the merged parent contributes information BEYOND what the parent
+# This is the 3-way Jakulin II between (parent_aggregate, X_k, Y) - it measures whether adding X_k to the merged parent contributes information BEYOND what the parent
 # and X_k separately give. Positive delta means X_k is genuinely synergistic with the parent group; <= 0 means X_k is redundant given parent.
 #
 # Naming: "incremental_interaction_information". NOT identical to higher-order Jakulin II (which is a 15-term inclusion-exclusion sum); closer to JMI (Yang & Moody 1999)
@@ -166,7 +166,7 @@ def _dense_renumber_codes(codes: np.ndarray, expected_size: int) -> tuple:
 
 def _greedy_expand_one_seed(
     factors_data: np.ndarray,
-    seed_indices: tuple,  # (idx_a, idx_b) -- the seed pair
+    seed_indices: tuple,  # (idx_a, idx_b) - the seed pair
     candidate_pool: np.ndarray,  # indices eligible for extension
     nbins: np.ndarray,
     classes_y: np.ndarray,
@@ -210,8 +210,8 @@ def _greedy_expand_one_seed(
         best_nclasses = 0
         best_joint_mi = 0.0
 
-        # ``parent_set``/``parent_classes``/``parent_nclasses`` are fixed for this WHOLE candidate sweep --
-        # only the single best candidate gets accepted, and only AFTER the sweep finishes -- so the prefix
+        # ``parent_set``/``parent_classes``/``parent_nclasses`` are fixed for this WHOLE candidate sweep -
+        # only the single best candidate gets accepted, and only AFTER the sweep finishes - so the prefix
         # states can be built once here and reused for every candidate instead of re-merging the full parent
         # tuple from raw columns each time.
         parent_sorted = sorted(parent_set)
@@ -276,7 +276,7 @@ def _build_kway_chained_lookup(
 ) -> tuple:
     """Build a chain of ``k - 1`` pair lookup tables that together replay the full k-way merge on test data.
 
-    ``merge_vars`` over k cols can be decomposed as ``merge_vars(merge_vars(...merge_vars(c1, c2), c3...), ck)`` -- a chain of pairwise merges with intermediate dense
+    ``merge_vars`` over k cols can be decomposed as ``merge_vars(merge_vars(...merge_vars(c1, c2), c3...), ck)`` - a chain of pairwise merges with intermediate dense
     renumbering. We build the lookup for each step at fit time:
 
     Step 1: lookup_1[c1_val + c2_val * nbins_1] -> intermediate_class_1 (size nbins_1 * nbins_2; intermediate cardinality = n_uniq_step_1)
@@ -327,7 +327,7 @@ def _build_kway_chained_lookup(
         pre_prune_codes = running_classes + nxt_vals * running_nuniq
         expected_size = running_nuniq * nxt_nbins
         # ``pre_prune_codes`` already carries everything the full-prefix merge_vars(idx_tuple[:step+1]) call
-        # would derive from raw columns -- dense-renumber it directly instead of re-scanning every prefix
+        # would derive from raw columns - dense-renumber it directly instead of re-scanning every prefix
         # column from scratch (see ``_dense_renumber_codes``'s docstring for the bit-identity + perf story).
         cls_next, n_uniq_next = _dense_renumber_codes(pre_prune_codes, expected_size)
         lookup_step = np.full(expected_size, -1, dtype=np.int64)
@@ -362,9 +362,9 @@ def _materialize_kway(
     """Materialise greedy k-way survivors. Returns ``(new_data_block, new_names, new_nbins, new_recipes)`` mirroring ``_materialize_pairs``. K-way recipes have
     ``src_names`` of length k and ``factorize_nbins`` of length k.
 
-    K-way recipes ship a CHAINED LOOKUP -- (k-1) pair lookup tables that ``apply_recipe`` walks sequentially on test data. Memory: sum of intermediate nbins products
+    K-way recipes ship a CHAINED LOOKUP - (k-1) pair lookup tables that ``apply_recipe`` walks sequentially on test data. Memory: sum of intermediate nbins products
     (typically O(k * max_combined_nbins)), NOT O(nbins^k). At k=3 with cardinalities (10, 10, 10): 100 + 10*n_uniq_step1 cells (post-prune n_uniq usually < 100), so
-    ~200-1000 int64 cells per recipe -- negligible vs the pair lookup table cost.
+    ~200-1000 int64 cells per recipe - negligible vs the pair lookup table cost.
     """
     if not kway_results:
         return (
@@ -423,7 +423,7 @@ def _select_top_k_pairs(
     cfg: CatFEConfig,
     n_samples: int,
 ) -> np.ndarray:
-    """Pick the top-K pair indices by score. Uses argpartition -- O(N) over heap's O(N log K) -- the flat II array is small.
+    """Pick the top-K pair indices by score. Uses argpartition - O(N) over heap's O(N log K) - the flat II array is small.
 
     The score depends on ``cfg.select_on``:
     - ``"synergy"``: rank by ``ii_arr`` desc; keep where ``ii > floor``.
@@ -457,7 +457,7 @@ def _select_top_k_pairs(
         return idx_eligible[order]
 
     # Otherwise argpartition on score then sort the top.
-    # Wave 58 (2026-05-20): argpartition tie-break is impl-defined; switch to
+    # Argpartition tie-break is impl-defined; switch to
     # full lexsort with pair-index secondary key so tied scores give the same
     # top-K pairs across runs.
     masked_score = np.where(eligible, score, -np.inf)
@@ -481,7 +481,7 @@ def _build_factorize_lookup(
     lookup table indexed by code works for any input that respects the original cardinalities.
 
     Unseen test combinations are resolved per ``unknown_strategy``:
-    - ``"clip"``: cap at the highest seen class (collides unseen with the most frequent training combo's class -- safe, conservative).
+    - ``"clip"``: cap at the highest seen class (collides unseen with the most frequent training combo's class - safe, conservative).
     - ``"sentinel"``: dedicate one new class for "unseen" (inflates ``n_uniq`` by 1; preferable when downstream models can learn a special meaning for that class).
     - ``"raise"``: leave the lookup at -1 sentinel; ``apply_recipe`` raises a clear error on the first unseen value.
 
@@ -492,7 +492,7 @@ def _build_factorize_lookup(
     n_samples = factors_data.shape[0]
     # Single-pass njit scatter (no length-n int64 temporaries). Reads the two
     # columns directly and writes ``lookup[a + b*nbins_a] = post_prune_class`` in
-    # row order -- last-write-wins on duplicate codes, EXACTLY as the prior numpy
+    # row order - last-write-wins on duplicate codes, EXACTLY as the prior numpy
     # fancy-index assignment did. Bit-identical by construction; ~4.5-16x faster
     # at n=10k..200k (this runs ``top_k_pairs`` times per fit). Bench:
     # _benchmarks/bench_factorize_lookup_njit_scatter.py.
@@ -567,7 +567,7 @@ def _materialize_pairs(
             classes_pair_post=classes_pair,
             unknown_strategy=unknown_strategy,
         )
-        # Names follow the cat-FE convention ``kway(c1__c2)``. The ``__`` separator collides with column names containing ``__`` -- the lineage filter uses
+        # Names follow the cat-FE convention ``kway(c1__c2)``. The ``__`` separator collides with column names containing ``__`` - the lineage filter uses
         # ``recipe.src_names`` directly rather than substring-parsing, so we just assert no collision.
         name_a = cols[i]
         name_b = cols[j]

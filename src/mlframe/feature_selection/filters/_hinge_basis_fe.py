@@ -24,10 +24,10 @@ actually changes, unlike the spline's fixed quantile knots).
 
 Leak-safe replay
 ----------------
-The recipe (kind ``"hinge_basis"``) stores only ``{tau, side}`` -- NO y -- so
+The recipe (kind ``"hinge_basis"``) stores only ``{tau, side}`` - NO y - so
 ``transform`` replay is the pure function ``np.maximum(x - tau, 0)`` /
 ``np.maximum(tau - x, 0)`` / ``(x > tau)``. The breakpoint search consumes y at
-FIT time (like every supervised FE here -- spline knot selection, Fourier
+FIT time (like every supervised FE here - spline knot selection, Fourier
 frequency detection) but the emitted COLUMN VALUE does not depend on y, so the
 replayed feature is leakage-free by construction.
 
@@ -39,7 +39,7 @@ over raw x. On top of that the detector runs a HELD-OUT tau-validation on the
 ``%3`` stride split (the same split the adaptive-Fourier detector uses): the
 breakpoint is RANKED on the train rows and the 2-segment fit's held-out R^2
 uplift over a 1-segment (plain linear) fit must clear a floor on the held-out
-rows -- a chance breakpoint that fits a train slice but not the held-out slice is
+rows - a chance breakpoint that fits a train slice but not the held-out slice is
 rejected, so pure noise admits no hinge. On a MONOTONE target a hinge can be
 near-collinear with raw x; the downstream cross-stage Spearman dedup drops it
 (verified, no duplicate columns survive).
@@ -95,7 +95,7 @@ _HINGE_MIN_HELDOUT_R2_UPLIFT: float = 0.02
 # hinge needs far fewer rows than a multi-tone periodogram, so 200 suffices).
 _HINGE_MIN_ROWS: int = 200
 # COST PRE-CHECK (default-on dispatch, 2026-06-09): the full per-column scan is
-# ``_HINGE_N_CANDIDATES`` (=24) lstsq solves -- the stage hotspot (~2.2 ms/col).
+# ``_HINGE_N_CANDIDATES`` (=24) lstsq solves - the stage hotspot (~2.2 ms/col).
 # Default-ON over WIDE data (p=50+) would multiply that across every column even
 # though almost all carry NO slope change. Before the full scan we run a CHEAP
 # 3-cut probe: fit the 2-segment hinge at just the 0.3 / 0.5 / 0.7 quantiles and
@@ -114,7 +114,7 @@ _HINGE_PRECHECK_QS: tuple = (0.30, 0.50, 0.70)
 # below the held-out admission floor's in-sample footprint, so the probe is a
 # CONSERVATIVE pre-filter: it NEVER vetoes a column the full held-out gate would
 # have admitted (it only short-circuits the obviously-flat columns). A smooth
-# curve like x^2 DOES dent the line at a coarse cut and so PASSES the probe --
+# curve like x^2 DOES dent the line at a coarse cut and so PASSES the probe -
 # that is correct: the probe is a cheap "worth scanning?" test, not the admission
 # gate. The held-out tau-validation + the self-limiting support-protection (raw
 # source must survive the screen) are what keep a smooth/quadratic column from
@@ -154,8 +154,8 @@ def _hinge_slope_change_plausible(
     line (the common case on wide data), so default-on does not bloat wide fits.
     A genuine kink trips at least one of the coarse cuts well above the floor.
 
-    ``qr_out``, when passed an empty dict, is populated with ``{"Q", "r_y", "sse_B"}`` -- the round-0 QR
-    factorization of ``B=[1,x]`` this precheck already computes for ``sse_lin`` -- so
+    ``qr_out``, when passed an empty dict, is populated with ``{"Q", "r_y", "sse_B"}`` - the round-0 QR
+    factorization of ``B=[1,x]`` this precheck already computes for ``sse_lin`` - so
     ``_detect_hinge_breakpoints`` can reuse it for round 0 instead of re-factoring the identical design."""
     x = np.asarray(x, dtype=np.float64).ravel()
     y = np.asarray(y, dtype=np.float64).ravel()
@@ -216,7 +216,7 @@ def _heldout_hinge_r2_uplift(
     variance the plain line cannot); a chance kink over-fits the train slice and
     adds ~0 (often slightly negative) OOS, so the uplift sits below the floor.
     The split is the SAME deterministic stride the adaptive-Fourier detector
-    uses -- no RNG, so the validation is reproducible and recipe-free.
+    uses - no RNG, so the validation is reproducible and recipe-free.
     """
     n = x.size
     if n < _HINGE_MIN_ROWS:
@@ -273,7 +273,7 @@ def _detect_hinge_breakpoints(
 
     Perf (cProfile p=20 n=4000): the full scan is the stage hotspot, originally dominated by a per-candidate ``np.linalg.lstsq``. Two stacked optimisations:
     (1) a cheap 3-cut pre-check (:func:`_hinge_slope_change_plausible`) runs FIRST and short-circuits the 24-cut scan for any column without a plausible slope change
-    (the common case on wide data) -- ~8x fewer solves on a no-kink column. (2) On a column that trips the probe, the per-cut SSE is scored by the Frisch-Waugh-Lovell
+    (the common case on wide data) - ~8x fewer solves on a no-kink column. (2) On a column that trips the probe, the per-cut SSE is scored by the Frisch-Waugh-Lovell
     rank-1 update: the fixed design block ``B = [1, x, *extra_legs]`` is QR-factored ONCE per round, and each candidate cut's SSE is ``SSE_B - (r_relu.r_y)^2/(r_relu.r_relu)``
     where the residuals project out B (O(n*k) per cut, no per-cut SVD). Bit-identical to the full-lstsq SSE / tau precision (~1e-12 FP reduction order) and ~2.4x faster
     on the n=4000 / 24-cut scan (bench: profiling/bench_hinge_fwl_rank1.py). bench-attempt-rejected (2026-06-09): a normal-equations 3x3 solve (``A.T@A`` / ``np.linalg.solve``)
@@ -285,7 +285,7 @@ def _detect_hinge_breakpoints(
     if n != y.size or n < _HINGE_MIN_ROWS:
         return []
     # DEVICE-RESIDENT detector (kernel-residency, 2026-07-02): under the STRICT-resident path the whole
-    # detection -- pre-check, the per-round QR + batched FWL cut scan, the held-out tau-validation -- runs on
+    # detection - pre-check, the per-round QR + batched FWL cut scan, the held-out tau-validation - runs on
     # the GPU (see _hinge_detect_gpu_resident); only the found taus return. Identical math + guards; device FP
     # differs ~1e-12, far below the tau-selection scale -> selection-equivalent (F2 + hinge suite verified).
     # ``None`` (non-strict / no cupy / any cupy fault) -> the exact host detector below, byte-identical.
@@ -301,7 +301,7 @@ def _detect_hinge_breakpoints(
             if _dev is not None:
                 return _dev
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _hinge_basis_fe.py:289: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
     finite = np.isfinite(x) & np.isfinite(y)
     if not finite.all():
@@ -321,7 +321,7 @@ def _detect_hinge_breakpoints(
         x, y, min_sse_drop=_HINGE_PRECHECK_MIN_SSE_DROP, qr_out=_qr0,
     ):
         return []
-    # Candidate cuts at inner quantiles -- avoid the tails where a segment is
+    # Candidate cuts at inner quantiles - avoid the tails where a segment is
     # near-empty.
     qs = np.linspace(_HINGE_CAND_Q_LO, _HINGE_CAND_Q_HI, _HINGE_N_CANDIDATES)
     cand = np.unique(np.quantile(x, qs))
@@ -341,7 +341,7 @@ def _detect_hinge_breakpoints(
         # ``SSE_B - (r_relu . r_y)^2 / (r_relu . r_relu)`` where ``r_relu`` / ``r_y`` are the residuals of relu / y after projecting out B (one O(n*k) projection
         # per cut, no per-cut SVD). This is mathematically identical to the full ``lstsq`` SSE (FP reduction order ~1e-12, far below any tau-selection scale) and
         # ~2.4x faster on the n=4000 / 24-cut scan (the lstsq SVD per cut was the stage hotspot). bench: profiling/bench_hinge_fwl_rank1.py.
-        # Round 0's fixed design IS B=[1,x] (extra_legs still empty) -- IDENTICAL to what the precheck above
+        # Round 0's fixed design IS B=[1,x] (extra_legs still empty) - IDENTICAL to what the precheck above
         # just QR-factored for sse_lin, so reuse (Q, r_y, sse_B) from there instead of re-factoring.
         if _round_idx == 0 and _qr0:
             Q = _qr0["Q"]
@@ -387,12 +387,12 @@ def _detect_hinge_breakpoints(
 
 # Batch-vs-per-column crossover for the hinge breakpoint detector (2026-07-16, cProfile-driven; measured
 # A/B in bench_hinge_batch_vs_percolumn.py, wellbore-100k-like shape n=99401): K=1 batch=167.8ms
-# per-col=57.3ms (0.34x, batch LOSES -- fixed setup cost with nothing to amortise), K=2 1.05x,
+# per-col=57.3ms (0.34x, batch LOSES - fixed setup cost with nothing to amortise), K=2 1.05x,
 # K=4 2.88x, K=8 1.76x, K=16 1.63x, K=32 1.57x, K=64 1.64x, K=216 1.87x (all K>=2 batch WINS). Threshold
 # set at the measured crossover; MLFRAME_HINGE_BATCH_MIN_K overrides for re-benching on other hardware.
 def _hinge_batch_min_k() -> int:
     """Minimum surviving-column count at which the batched precheck (``detect_hinge_breakpoints_gpu_batch``)
-    is used instead of the per-column detector loop -- see the crossover measurement above the caller."""
+    is used instead of the per-column detector loop - see the crossover measurement above the caller."""
     raw = os.environ.get("MLFRAME_HINGE_BATCH_MIN_K", "").strip()
     if raw:
         try:
@@ -408,11 +408,11 @@ def _detect_hinge_breakpoints_for_columns(
     cols_x: list, y_arr: np.ndarray, *, max_breakpoints: int, min_heldout_r2_uplift: float,
 ) -> dict:
     """Detect breakpoints for every ``(col_name, x)`` in ``cols_x`` (all already finite, sharing len(y_arr)
-    rows -- the caller's precondition), preferring the batched cross-column precheck
-    (``detect_hinge_breakpoints_gpu_batch``, WINS at K>=2 -- see the crossover comment above) with a
+    rows - the caller's precondition), preferring the batched cross-column precheck
+    (``detect_hinge_breakpoints_gpu_batch``, WINS at K>=2 - see the crossover comment above) with a
     fallback to the per-column detector (``_detect_hinge_breakpoints``, WINS at K=1 and is also the exact
     host/GPU-per-column path used whenever the batch call is unavailable or errors) for every remaining
-    column. Returns ``{col_name: [tau, ...]}`` -- columns whose detector raised or found nothing are simply
+    column. Returns ``{col_name: [tau, ...]}`` - columns whose detector raised or found nothing are simply
     absent/empty, matching the prior per-column loop's ``continue``-on-exception behaviour."""
     out: dict = {}
     remaining = list(cols_x)
@@ -557,7 +557,7 @@ def build_hinge_basis_recipe(
     * ``side="lt"``  -> ``max(tau - X[src_name], 0)`` (slope change for x < tau);
     * ``side="ind"`` -> ``1[X[src_name] > tau]`` (step indicator).
 
-    Replay is closed-form in the source column alone -- no y reference captured,
+    Replay is closed-form in the source column alone - no y reference captured,
     so ``transform`` is leakage-free by construction. Mirrors
     ``build_orth_spline_recipe``."""
     from .engineered_recipes import EngineeredRecipe
@@ -572,7 +572,7 @@ def build_hinge_basis_recipe(
 
 
 def _apply_hinge_basis(recipe, X) -> np.ndarray:
-    """Replay one hinge basis column from the stored ``{tau, side}`` -- a pure
+    """Replay one hinge basis column from the stored ``{tau, side}`` - a pure
     function of the source column (no y). Mirrors ``_apply_orth_spline``."""
     from .engineered_recipes import _extract_column
     if len(recipe.src_names) != 1:
@@ -602,7 +602,7 @@ def _heldout_incremental_r2_prep(x: np.ndarray, y: np.ndarray) -> Optional[dict]
     R^2 of ``[1, x]`` ALONE) do not depend on any particular leg, yet a column emitting several legs had this
     recomputed byte-for-byte once per leg. Compute ONCE per source column (:func:`hybrid_hinge_fe_with_recipes`
     groups legs by source column) and reuse via :func:`_heldout_incremental_r2_from_prep`. Returns ``None`` on
-    the same guards :func:`_heldout_incremental_r2` used to return ``0.0`` for -- the caller then scores every
+    the same guards :func:`_heldout_incremental_r2` used to return ``0.0`` for - the caller then scores every
     leg of this column as ``0.0``."""
     x = np.asarray(x, dtype=np.float64).ravel()
     y = np.asarray(y, dtype=np.float64).ravel()
@@ -638,7 +638,7 @@ def _heldout_incremental_r2_prep(x: np.ndarray, y: np.ndarray) -> Optional[dict]
 
 def _heldout_incremental_r2_from_prep(prep: Optional[dict], leg: np.ndarray) -> float:
     """Leg-dependent completion of :func:`_heldout_incremental_r2` given a source column's cached ``prep``
-    (:func:`_heldout_incremental_r2_prep`) -- only ``r2_full`` (which DOES depend on the leg) is recomputed."""
+    (:func:`_heldout_incremental_r2_prep`) - only ``r2_full`` (which DOES depend on the leg) is recomputed."""
     if prep is None:
         return 0.0
     tr = prep["tr"]
@@ -666,7 +666,7 @@ def _heldout_incremental_r2(
 
     This is the CORRECT admission statistic for the hinge: a single relu leg is
     MONOTONE in x (max(x-tau,0) is non-decreasing), so it is MI-INVARIANT by the
-    data-processing inequality -- an MI-uplift gate would DROP it exactly as it
+    data-processing inequality - an MI-uplift gate would DROP it exactly as it
     drops the isotonic / RankGauss monotone reshapes (caveat, and the
     project's MI-vs-linear-usability rule). The hinge's value is the SECOND SLOPE
     it hands a downstream linear / shallow model: ``[1, x, relu(x-tau)]`` fits a
@@ -697,7 +697,7 @@ def hybrid_hinge_fe_with_recipes(
 
     Why NOT an MI-uplift gate (the gate the spline / Fourier hybrid uses):
     a single relu leg ``max(x - tau, 0)`` is MONOTONE in x, hence MI-INVARIANT by
-    the data-processing inequality -- an MI-uplift gate DROPS it, exactly as it
+    the data-processing inequality - an MI-uplift gate DROPS it, exactly as it
     drops the isotonic / RankGauss monotone reshapes (this is the project's
     MI-vs-linear-usability principle, and 's explicit caveat). The
     hinge's value is the SECOND SLOPE it hands a downstream linear / shallow
@@ -726,7 +726,7 @@ def hybrid_hinge_fe_with_recipes(
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     rows = []
     # r2_base (the held-out R^2 of [1, x] alone) and the extracted/filled x_src don't depend on the LEG, only
-    # on the source column -- cache the prep per src (a column can emit several legs) instead of recomputing
+    # on the source column - cache the prep per src (a column can emit several legs) instead of recomputing
     # it once per emitted leg.
     _prep_cache: dict = {}
     for name in engineered.columns:

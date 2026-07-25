@@ -1,68 +1,68 @@
 """GPU-batched variant of the FE usability |corr| signal (:mod:`_fe_usability_signal`).
 
 ``_fe_usability_signal.abs_pearson``/``usability_form_corrs``/``pair_is_tail_concentrated_rankaware`` are
-CPU-only (numpy-only leaf module, no cupy import by design) -- 2026-07-11 profiling on a 79,237-row x
+CPU-only (numpy-only leaf module, no cupy import by design) - 2026-07-11 profiling on a 79,237-row x
 544-column production wellbore fit showed ~105s cumtime here, ~85,000 calls, with ZERO GPU offload anywhere
 in the module. Unlike the batched pair-MI kernel (:mod:`batch_pair_mi_gpu`), a per-pair GPU dispatch here
-would lose badly (each reduction runs over only ``_ABS_PEARSON_MAX_ROWS`` <= 30_000 subsampled rows -- far
-below the ~400k-row CPU/CUDA crossover the numerical-kernel ladder documents) -- so the design bet was that
+would lose badly (each reduction runs over only ``_ABS_PEARSON_MAX_ROWS`` <= 30_000 subsampled rows - far
+below the ~400k-row CPU/CUDA crossover the numerical-kernel ladder documents) - so the design bet was that
 the win would exist as one launch batching MANY (pair, form) reductions at once (production shape: ~85k
 pairs x up to 9 forms each ~= 765k independent reductions).
 
 MEASURED RESULT (2026-07-11, see ``_benchmarks/bench_batch_pair_usability_corr_gpu.py``): that bet did NOT
 pay off on this dev host (GTX 1050 Ti). The CUDA backend is bit-identical (see below) but SLOWER than the
-CPU ``prange`` backend at every tested scale from 144 to 1.35M total (pair, form) reductions -- 0.05x at
+CPU ``prange`` backend at every tested scale from 144 to 1.35M total (pair, form) reductions - 0.05x at
 the smallest, converging to ~0.53-0.57x (worse, not better) right at and beyond the real ~85k-pair
 production scale.
 
-This was FIRST measured end-to-end (host arrays in, host array out -- includes H2D upload + D2H download
+This was FIRST measured end-to-end (host arrays in, host array out - includes H2D upload + D2H download
 inside the timed call) and initially attributed to poor memory coalescing without isolating transfer cost
-from compute -- a real gap: a kernel that loses end-to-end can still win on pure compute if the caller's
+from compute - a real gap: a kernel that loses end-to-end can still win on pure compute if the caller's
 data is already GPU-resident, and the fix there would be residency, not a backend revert (see
 CLAUDE.md's GPU-profiling-traps rule this shortcut skipped). Re-measured with H2D/kernel/D2H DECOMPOSED:
 uploading the full (500, 30_000) f64 operand matrix (120MB) took 0.020s ONE-TIME (amortizable, negligible
 next to the kernel's own 0.1-48s range across the sweep); D2H of the (n_pairs, n_forms) result was
 0.0004-0.005s (negligible). The kernel's OWN execution time with operands already resident on-device was
-still ~0.53-0.60x vs CPU at every scale -- statistically indistinguishable from the original end-to-end
+still ~0.53-0.60x vs CPU at every scale - statistically indistinguishable from the original end-to-end
 number. Transfer cost was never the story: the reduction genuinely is memory-bandwidth-bound, not
 launch-overhead-bound, confirmed on the resident-input measurement, not asserted from the end-to-end one.
 Each thread does two full sequential passes over its own (pair, form)'s 30_000 rows, and since different
-threads read DIFFERENT operand-matrix rows, the reads are inherently uncoalesced -- more batch volume
+threads read DIFFERENT operand-matrix rows, the reads are inherently uncoalesced - more batch volume
 cannot amortize this the way it amortizes a fixed launch cost. This matches this card's already-documented
 0.26-0.66x underperformance on OTHER resident FE kernels (``_permutation_null_pair_resident.py``).
 
-WARP-COALESCED KERNEL (2026-07-17, RESOLVED): the diagnosis above -- memory-bandwidth-bound on
-uncoalesced reads, thread-per-item forces every lane in a warp to read a DIFFERENT operand-matrix row --
+WARP-COALESCED KERNEL (2026-07-17, RESOLVED): the diagnosis above - memory-bandwidth-bound on
+uncoalesced reads, thread-per-item forces every lane in a warp to read a DIFFERENT operand-matrix row -
 pointed at a fixable KERNEL-DESIGN problem, not a fundamental GPU loss. ``batch_pair_usability_corr_cuda_warp``
 reassigns the work: one WARP (32 threads) per (pair, form) instead of one thread, with the 32 lanes
-strided across the SAME row (lane L reads elements ``L, L+32, L+64, ...``) -- every lane in a warp reads
-the SAME row at ADJACENT columns on every step, the textbook coalesced pattern -- combined via
+strided across the SAME row (lane L reads elements ``L, L+32, L+64, ...``) - every lane in a warp reads
+the SAME row at ADJACENT columns on every step, the textbook coalesced pattern - combined via
 ``cuda.shfl_down_sync`` warp-shuffle reduction (register-only, no shared memory). Re-measured end-to-end
 on the SAME dev host (GTX 1050 Ti) at the SAME production shape: 3.96-4.52x FASTER than CPU at every
 tested scale (18k to 765k total (pair, form) reductions, the real ~85k-pair production volume included),
 vs the thread-per-item kernel's 0.98-1.00x at the same scales (re-confirmed, not just historical) in the
 same run. Bit-identical to the CPU reference to the same ~1e-9 FP-reorder tolerance the thread-per-item
 kernel is held to (strided-partial-then-reduced summation order, not compensated-summation or fastmath
-differences). The dispatcher's un-forced default is now ``cuda_warp`` when CUDA is available -- see
+differences). The dispatcher's un-forced default is now ``cuda_warp`` when CUDA is available - see
 :func:`dispatch_batch_pair_usability_corr`'s docstring for the exact numbers.
 
 Three backends:
 
-* ``batch_pair_usability_corr_njit_parallel`` -- CPU reference (``@njit(parallel=True)``, ``prange`` over
+* ``batch_pair_usability_corr_njit_parallel`` - CPU reference (``@njit(parallel=True)``, ``prange`` over
   (pair, form) flattened index). Numerical baseline; also the fallback when CUDA is unavailable.
-* ``batch_pair_usability_corr_cuda`` -- ``numba.cuda`` JIT kernel. One THREAD per (pair, form) -- mirrors
+* ``batch_pair_usability_corr_cuda`` - ``numba.cuda`` JIT kernel. One THREAD per (pair, form) - mirrors
   ``_batch_mi_noise_gate_kernels._cuda_mi_from_counts_kernel_factory``'s "one thread per independent
   reduction" shape (not a shared-memory block-per-reduction design: each reduction here is a flat
   two-pass moment computation, not a histogram, so there is no shared-memory accumulator to stage). Kept
   (REJECTED != DELETED) as the honest thread-per-item baseline and via ``force_backend="cuda"``.
-* ``batch_pair_usability_corr_cuda_warp`` -- ``numba.cuda`` JIT kernel. One WARP per (pair, form),
+* ``batch_pair_usability_corr_cuda_warp`` - ``numba.cuda`` JIT kernel. One WARP per (pair, form),
   coalesced strided reads + shuffle reduction (see above). The measured-fastest backend and the un-forced
   default when CUDA is available.
 
 All three backends reproduce ``_abs_pearson_njit``'s EXACT algorithm (two-pass mean-then-center, branchless
 isfinite masking, the ``_cv2=1e-16`` coefficient-of-variation degenerate floor) for EVERY one of the 9
 candidate forms (``x0, x1, x0**2, x1**2, x0/x1, x1/x0, x0**2/x1, x1**2/x0, x0*x1``), computed ON-DEVICE
-from two shared raw-operand columns per pair -- the host never materializes a 9-times-wider form matrix.
+from two shared raw-operand columns per pair - the host never materializes a 9-times-wider form matrix.
 A single-pass (mean-and-variance-in-one-sweep) formula was deliberately NOT used: it reproduces the exact
 catastrophic-cancellation bug ``_abs_pearson_njit``'s own docstring documents rejecting (a near-constant
 column returning a spurious nonzero |corr| instead of ~0).
@@ -105,7 +105,7 @@ try:
 except Exception:
     _CUDA_AVAIL = False
 
-# Integer dispatch enum for the 9 forms -- matches usability_form_corrs's _single_forms + _pair_forms order
+# Integer dispatch enum for the 9 forms - matches usability_form_corrs's _single_forms + _pair_forms order
 # EXACTLY (single: x0, x1, x0sq, x1sq; pair: x0/x1f, x1/x0f, x0sq/x1f, x1sq/x0f, x0*x1) so a caller can map
 # its existing form bookkeeping straight onto these integer ids.
 FORM_X0 = 0
@@ -124,7 +124,7 @@ ALL_PAIR_FORM_IDS = np.array(
 )
 ALL_FORM_IDS = np.concatenate([ALL_SINGLE_FORM_IDS, ALL_PAIR_FORM_IDS])
 
-# Matches _fe_usability_signal.py's constants exactly -- see that module for the numerical justification.
+# Matches _fe_usability_signal.py's constants exactly - see that module for the numerical justification.
 _EPS_DENOM_FLOOR = 1e-12
 _CV2_DEGENERATE_FLOOR = 1e-16
 
@@ -133,7 +133,7 @@ _CV2_DEGENERATE_FLOOR = 1e-16
 def _eval_form(form_id, x0, x1, eps):
     """Evaluate ONE of the 9 candidate forms at a single (x0, x1) row pair. Mirrors
     usability_form_corrs's per-row form construction (the eps-floored ratio denominator -> NaN on a
-    near-zero divisor, dropped by the caller's isfinite mask -- no spurious inf)."""
+    near-zero divisor, dropped by the caller's isfinite mask - no spurious inf)."""
     if form_id == FORM_X0:
         return x0
     if form_id == FORM_X1:
@@ -156,10 +156,10 @@ def _eval_form(form_id, x0, x1, eps):
 
 @numba.njit(cache=True, inline="always", fastmath={"reassoc", "contract", "arcp", "afn", "nsz"})
 def _abs_pearson_form_reduction(y, operand_matrix, a_idx, b_idx, form_id, eps, cv2):
-    """The exact ``_abs_pearson_njit`` two-pass reduction, evaluated on-the-fly for ONE (pair, form) --
+    """The exact ``_abs_pearson_njit`` two-pass reduction, evaluated on-the-fly for ONE (pair, form) -
     reproduces that kernel's numerical contract exactly: f64 accumulation, branchless isfinite masking,
     the coefficient-of-variation degenerate-column floor, AND the same fastmath set (``nnan``/``ninf``
-    deliberately excluded, same as ``_abs_pearson_njit``, so the ``math.isfinite`` NaN-drop survives --
+    deliberately excluded, same as ``_abs_pearson_njit``, so the ``math.isfinite`` NaN-drop survives -
     only the accumulation-reordering flags are enabled). Without this, the two kernels agreed only to
     ~1e-9 (a real but selection-safe difference from summation-order alone); with matching fastmath flags
     they agree to the same ~1e-13 ULP level ``_abs_pearson_njit``'s own reassoc-delta test documents.
@@ -219,22 +219,22 @@ def _abs_pearson_form_reduction(y, operand_matrix, a_idx, b_idx, form_id, eps, c
 def batch_pair_usability_corr_njit_parallel(
     y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray
 ) -> np.ndarray:
-    """CPU reference backend. ``prange`` over the flattened (pair, form) index -- each iteration is one
+    """CPU reference backend. ``prange`` over the flattened (pair, form) index - each iteration is one
     independent ``_abs_pearson_form_reduction`` call, matching the numerical baseline every other backend
     is checked against.
 
     Parameters
     ----------
-    y : (n,) float32 or float64 -- shared target, already subsampled + cast to ``_crit_np_dtype()`` by the
-        caller (numba specializes per input dtype; NOT force-upcast here -- see the dispatcher's own note).
-    operand_matrix : (n_operands, n) float32 or float64 -- unique raw operand columns, row-major (one row per
+    y : (n,) float32 or float64 - shared target, already subsampled + cast to ``_crit_np_dtype()`` by the
+        caller (numba specializes per input dtype; NOT force-upcast here - see the dispatcher's own note).
+    operand_matrix : (n_operands, n) float32 or float64 - unique raw operand columns, row-major (one row per
         operand), same dtype as ``y``.
-    pair_a, pair_b : (n_pairs,) int64 -- operand-matrix row indices for each pair's two operands.
-    form_ids : (n_forms,) int64 -- which of the 9 FORM_* ids to evaluate for every pair.
+    pair_a, pair_b : (n_pairs,) int64 - operand-matrix row indices for each pair's two operands.
+    form_ids : (n_forms,) int64 - which of the 9 FORM_* ids to evaluate for every pair.
 
     Returns
     -------
-    (n_pairs, n_forms) float64 -- ``|corr|`` for each (pair, form); the reduction accumulator stays float64
+    (n_pairs, n_forms) float64 - ``|corr|`` for each (pair, form); the reduction accumulator stays float64
         regardless of input dtype (precision, not memory footprint, is what the accumulator affects).
     """
     n_pairs = pair_a.shape[0]
@@ -283,20 +283,20 @@ _WARP_SIZE = 32
 
 
 def _cuda_kernel_warp_factory():
-    """Build (once) the WARP-coalesced CUDA kernel variant (2026-07-17): one WARP (32 threads) per
+    """Build (once) the WARP-coalesced CUDA kernel variant: one WARP (32 threads) per
     (pair, form) instead of one THREAD. The rejected thread-per-item design has each thread do a full
     serial n_rows-length loop over its OWN (pair, form)'s operand rows; since ``pair_a``/``pair_b`` are
     essentially arbitrary indices, adjacent threads in a warp read completely DIFFERENT operand-matrix
-    rows at every step -- the module docstring's own root-cause diagnosis (memory-bandwidth-bound,
+    rows at every step - the module docstring's own root-cause diagnosis (memory-bandwidth-bound,
     inherently uncoalesced, confirmed via a resident-input decomposed remeasurement, NOT the shared-
     memory-histogram-staging idea that section separately (and correctly) ruled out as inapplicable here).
 
     This variant assigns the 32 lanes of ONE warp to a STRIDED partition of the SAME (pair, form)'s
-    n_rows elements (lane L reads indices L, L+32, L+64, ...) -- at any given step every lane reads the
-    SAME row, adjacent columns, the textbook coalesced-access pattern -- then combines each lane's partial
+    n_rows elements (lane L reads indices L, L+32, L+64, ...) - at any given step every lane reads the
+    SAME row, adjacent columns, the textbook coalesced-access pattern - then combines each lane's partial
     (count, sum) / (sum-of-squares, sum-of-cross-products) via ``cuda.shfl_down_sync`` warp reduction
     (register-only, no shared memory needed). Same two-pass mean-then-center algorithm, same fastmath-free
-    accumulation as ``_abs_pearson_form_reduction`` -- only the summation ORDER differs (strided-partial-
+    accumulation as ``_abs_pearson_form_reduction`` - only the summation ORDER differs (strided-partial-
     then-warp-reduced instead of serial), the same class of ~1e-13-ULP FP-reorder divergence this module's
     own docstring already documents between its two EXISTING backends. Lazy so importing this module on a
     CPU-only host never triggers a CUDA driver lookup."""
@@ -426,7 +426,7 @@ def batch_pair_usability_corr_cuda_warp(y: np.ndarray, operand_matrix: np.ndarra
 
 def batch_pair_usability_corr_cuda(y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray) -> np.ndarray:
     """CUDA backend: one thread per (pair, form), device-resident inputs uploaded once. Raises if CUDA is
-    unavailable -- callers should go through :func:`dispatch_batch_pair_usability_corr` for the
+    unavailable - callers should go through :func:`dispatch_batch_pair_usability_corr` for the
     availability-checked + VRAM-guarded + auto-fallback path."""
     global _CUDA_KERNEL
     if _CUDA_KERNEL is None:
@@ -438,7 +438,7 @@ def batch_pair_usability_corr_cuda(y: np.ndarray, operand_matrix: np.ndarray, pa
     # dispatch within one FE round (e.g. batch_pair_tail_concentration_rankaware's two back-to-back
     # dispatcher calls, pair-form then single-form, on the SAME operand_matrix). resident_operand's content-
     # hash cache uploads them ONCE and hands back the cached cupy device array on every repeat call with the
-    # same bytes -- a cupy device array is a valid direct argument to a numba.cuda.jit kernel launch mixed
+    # same bytes - a cupy device array is a valid direct argument to a numba.cuda.jit kernel launch mixed
     # with numba.cuda.to_device-produced arrays (verified on this host), so no new infra is needed here.
     # pair_a/pair_b/form_ids genuinely vary per call and stay raw uploads.
     from ._fe_resident_operands import resident_operand
@@ -465,7 +465,7 @@ def batch_pair_usability_corr_cuda(y: np.ndarray, operand_matrix: np.ndarray, pa
 
 
 def _required_gpu_bytes(operand_matrix: np.ndarray, n_pairs: int, n_forms: int) -> int:
-    """Rough upload + output footprint for the VRAM cushion check -- operands + y (input) + the (n_pairs,
+    """Rough upload + output footprint for the VRAM cushion check - operands + y (input) + the (n_pairs,
     n_forms) output matrix. Deliberately generous (float64 sizing even if inputs are f32) since this is a
     pre-flight guard, not a tight allocator."""
     operand_bytes = operand_matrix.size * 8
@@ -487,9 +487,9 @@ def dispatch_batch_pair_usability_corr(
     :data:`ALL_FORM_IDS` (all 9 forms) when omitted. ``force_backend`` in ``{"cpu", "cuda"}`` bypasses the
     size heuristic (for benchmarking / testing).
 
-    Returns ``(result, backend_name)`` -- mirrors :func:`batch_pair_mi_gpu.dispatch_batch_pair_mi`'s
+    Returns ``(result, backend_name)`` - mirrors :func:`batch_pair_mi_gpu.dispatch_batch_pair_mi`'s
     contract. On ANY CUDA failure (compile, OOM, driver error) falls back to the CPU backend and logs at
-    WARNING -- the per-pair result is otherwise identical (selection-equivalent, see the module docstring),
+    WARNING - the per-pair result is otherwise identical (selection-equivalent, see the module docstring),
     so falling back never changes correctness, only speed.
     """
     if form_ids is None:
@@ -513,17 +513,30 @@ def dispatch_batch_pair_usability_corr(
         # Un-forced default (REVISED 2026-07-17, see the module docstring's "WARP-COALESCED KERNEL" section
         # for the full re-measurement): the thread-per-item ``cuda`` backend genuinely lost to CPU (2026-07-11
         # A/B, ~0.53-0.6x at production scale) because it was memory-bandwidth-bound on UNCOALESCED reads,
-        # not launch-overhead-bound -- so batching more pairs never amortized it the way a launch-bound
+        # not launch-overhead-bound - so batching more pairs never amortized it the way a launch-bound
         # kernel would. That diagnosis pointed at a FIXABLE kernel-design problem (thread-per-item is the
         # wrong data-parallel shape for this reduction), not a fundamental "GPU loses here" verdict. The
         # ``cuda_warp`` variant (one WARP per (pair, form), coalesced strided reads across the warp + shuffle
         # reduction) measured 3.96-4.52x FASTER than CPU at every tested scale from 18k to 765k total
-        # reductions (the real ~85k-pair production volume included) -- now the un-forced default when CUDA
+        # reductions (the real ~85k-pair production volume included) - now the un-forced default when CUDA
         # is available. ``cuda`` (thread-per-item) is kept, fully tested, reachable via
-        # ``force_backend="cuda"`` -- REJECTED != DELETED, and it remains the honest baseline the warp
+        # ``force_backend="cuda"`` - REJECTED != DELETED, and it remains the honest baseline the warp
         # variant is validated against. See ``bench_batch_pair_usability_corr_gpu.py`` for the CPU-vs-cuda
         # numbers and this module's docstring for the cuda-vs-cuda_warp numbers.
         use_cuda_warp = use_cuda
+
+    if use_cuda:
+        # MLFRAME_DISABLE_GPU=1 / CUDA_VISIBLE_DEVICES="" is the project-wide "no GPU on this run" override
+        # (see _gpu_policy.py); it must win even over an explicit force_backend="cuda"/"cuda_warp" request -
+        # that is the whole point of the switch. numba's own is_cuda_available() honors CUDA_VISIBLE_DEVICES=""
+        # at import (so _CUDA_AVAIL is already False there), but MLFRAME_DISABLE_GPU is an mlframe-only
+        # convention numba/cupy don't know, so it was silently defeated here (the sibling batch_pair_mi_gpu
+        # guards the same way).
+        from ._gpu_policy import gpu_globally_disabled
+
+        if gpu_globally_disabled():
+            use_cuda = False
+            use_cuda_warp = False
 
     if use_cuda:
         try:
@@ -551,7 +564,7 @@ def dispatch_batch_pair_usability_corr(
             )
 
     # y/operand_matrix keep the CALLER's dtype (mirrors batch_pair_tail_concentration_rankaware's
-    # "caller already applied _crit_np_dtype()" contract) instead of force-upcasting to float64 --
+    # "caller already applied _crit_np_dtype()" contract) instead of force-upcasting to float64 -
     # forcing float64 here would silently discard a caller's careful _crit_np_dtype() pre-cast (see
     # _step_pairs_rank.py's dominant-pair prescan, which casts to _crit_np_dtype() specifically to
     # match usability_form_corrs's own internal precision) and reintroduce the exact f32-vs-f64
@@ -573,12 +586,12 @@ def dispatch_batch_pair_usability_corr(
 
 def _eval_pair_form_numpy(form_id: int, x0: np.ndarray, x1: np.ndarray) -> np.ndarray:
     """Vectorised (numpy, not numba) evaluation of ONE of the 5 ``ALL_PAIR_FORM_IDS`` forms across a whole
-    array -- mirrors ``_eval_form``'s per-row logic and ``_fe_usability_signal.usability_form_corrs``'s own
+    array - mirrors ``_eval_form``'s per-row logic and ``_fe_usability_signal.usability_form_corrs``'s own
     pair-form construction (the eps-floored ratio denominator -> NaN on a near-zero divisor) EXACTLY, so a
-    caller reconstructing the winning form's VALUES (needed for the rank-correlation leg -- a |corr| alone
+    caller reconstructing the winning form's VALUES (needed for the rank-correlation leg - a |corr| alone
     is not enough) gets bit-identical values to what the serial reference would have used. Only called on
     the small subset of pairs that clear :func:`batch_pair_tail_concentration_rankaware`'s cheap min_corr/
-    pairness gate -- never on the full candidate pool (the whole point of the two-stage split)."""
+    pairness gate - never on the full candidate pool (the whole point of the two-stage split)."""
     _eps = _EPS_DENOM_FLOOR
     if form_id == FORM_X0_DIV_X1:
         x1f = np.where(np.abs(x1) < _eps, np.nan, x1)
@@ -608,23 +621,23 @@ def batch_pair_tail_concentration_rankaware(
     single_corr: np.ndarray | None = None,
 ) -> np.ndarray:
     """Batched equivalent of calling ``_fe_usability_signal.pair_is_tail_concentrated_rankaware`` once per
-    pair in ``(pair_a, pair_b)`` -- returns a bool array, one verdict per pair. ``y``/``operand_matrix`` must
+    pair in ``(pair_a, pair_b)`` - returns a bool array, one verdict per pair. ``y``/``operand_matrix`` must
     already be subsampled + cast to the SAME dtype the serial reference uses internally (``_crit_np_dtype()``)
-    -- this function does not re-subsample; the caller applies ``_corr_stride``/``_crit_np_dtype()`` ONCE for
+    - this function does not re-subsample; the caller applies ``_corr_stride``/``_crit_np_dtype()`` ONCE for
     the whole pool (mirrors the existing dominant-pair prescan's pattern) instead of once per pair.
 
     ``single_corr``: optional array of each OPERAND-MATRIX ROW's own single-form |corr| (from
     ``_fe_usability_signal._single_operand_usability_corr``, aligned to ``operand_matrix`` rows via the
-    caller's own row-index mapping) -- when given, pair i's ``_cs`` is ``max(single_corr[pair_a[i]],
+    caller's own row-index mapping) - when given, pair i's ``_cs`` is ``max(single_corr[pair_a[i]],
     single_corr[pair_b[i]])`` (bit-identical to the serial per-pair ``precomputed_single_corr`` path); when
     omitted, computed via this same batched kernel over the 4 single forms.
 
-    TWO-STAGE, avoiding materializing all 5 pair-forms for every pair (the whole point of batching -- most
+    TWO-STAGE, avoiding materializing all 5 pair-forms for every pair (the whole point of batching - most
     candidate pairs reaching this gate are noise and fail the cheap gate immediately): stage 1 batches ONLY
     the |corr| reduction (streamed on-core, no full form array ever stored) for every pair to get the best
     pair-form's value AND which form won; stage 2 rebuilds the actual winning-form VALUES (a plain numpy
     elementwise op, via :func:`_eval_pair_form_numpy`) only for the SUBSET that clears stage 1's min_corr/
-    pairness gate, to run the rank-correlation leg -- mirrors the serial reference's own control flow
+    pairness gate, to run the rank-correlation leg - mirrors the serial reference's own control flow
     (``_cp >= min_corr and _cp >= margin*_cs`` gates BEFORE the rank transform is ever computed)."""
     from ._fe_usability_signal import _rank_transform, abs_pearson
 

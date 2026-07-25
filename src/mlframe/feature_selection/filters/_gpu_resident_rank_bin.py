@@ -1,13 +1,13 @@
 """GPU-resident RANK (argsort equi-frequency) binner + rank-binned plug-in MI for the CONDITIONAL-GATE MI
-path under STRICT residency (2026-06-28).
+Path under STRICT residency.
 
 WHY THIS EXISTS
 ---------------
 The STRICT-residency MI core ``_hermite_fe_mi._plugin_mi_classif_batch_cuda_resident`` bins by PERCENTILE
-EDGES (the radix-edge fast path -- 71e31818 / 6b7370b4). Edge and the CPU catalog's RANK binning
+EDGES (the radix-edge fast path - 71e31818 / 6b7370b4). Edge and the CPU catalog's RANK binning
 (``hermite_fe._quantile_bin_njit`` argsort equi-frequency) agree bit-for-bit ONLY on tie-free columns; on
 heavily-tied columns they diverge (edge lumps all tied values into one bin; rank splits the ties across bin
-boundaries). The conditional-gate operator ``gate_mask`` emits ``1[c>0]*a`` -- ~50% EXACT zeros -- so under
+boundaries). The conditional-gate operator ``gate_mask`` emits ``1[c>0]*a`` - ~50% EXACT zeros - so under
 STRICT the gate MI was edge-binned and did NOT byte-match the CPU rank MI the gate scoring uses (commit
 89dd47c7 pinned the biz-value test to the rank estimator as a stopgap).
 
@@ -15,7 +15,7 @@ This module provides a cupy ``argsort``-based RANK binner that reproduces ``_qua
 (``base = n // n_bins`` rows per bin, first ``n % n_bins`` bins get one extra), and a rank-binned plug-in MI
 that the GATE opts into so its STRICT MI matches the CPU rank MI.
 
-SCOPE -- GATE MI ONLY
+SCOPE - GATE MI ONLY
 ---------------------
 This is wired ONLY into the gate MI (``_orth_mi_backends._mi_classif_batch(..., rank_binning=True)`` reached
 from ``_conditional_gate_fe`` / ``_pairwise_modular_fe._mi``), gated behind the resident opt-in
@@ -25,7 +25,7 @@ Default flag-off is byte-for-byte unchanged.
 
 BIT-IDENTITY CONTRACT vs ``_quantile_bin_njit``
 -----------------------------------------------
-* TIE-FREE columns: codes are BIT-IDENTICAL (maxdiff 0) -- the sort order is unambiguous, so cupy's stable
+* TIE-FREE columns: codes are BIT-IDENTICAL (maxdiff 0) - the sort order is unambiguous, so cupy's stable
   ``argsort`` and numba's ``argsort`` assign the SAME rank -> bin to every row.
 * TIED columns: numba's ``argsort`` breaks ties with an UNREPRODUCIBLE introsort artifact (it matches neither
   numpy ``kind='stable'`` nor ``kind='quicksort'``), so the per-row CODES cannot be made bit-identical to it
@@ -36,7 +36,7 @@ BIT-IDENTITY CONTRACT vs ``_quantile_bin_njit``
   property the numba reference itself does not pin reproducibly).
 
 CPU FALLBACK / NO-CUPY: every entry point returns ``None`` on any cupy failure so the caller takes the exact
-CPU njit rank path -- byte-for-byte the legacy behavior.
+CPU njit rank path - byte-for-byte the legacy behavior.
 """
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 def _bin_boundaries(n: int, n_bins: int) -> np.ndarray:
     """Cumulative bin-size boundaries matching ``_quantile_bin_njit``: ``base = n // n_bins`` rows per bin,
     the first ``n % n_bins`` bins get one extra row. Returns the (n_bins,) cumulative-count vector; sorted
-    position ``p`` belongs to bin ``searchsorted(bnd, p, side='right')`` -- the exact rank->bin assignment of
+    position ``p`` belongs to bin ``searchsorted(bnd, p, side='right')`` - the exact rank->bin assignment of
     the njit loop (which fills bin 0 with the first ``size`` sorted positions, bin 1 with the next, ...)."""
     base = n // n_bins
     rem = n % n_bins
@@ -63,7 +63,7 @@ def _bin_boundaries(n: int, n_bins: int) -> np.ndarray:
 
 # (n, n_bins) -> cp.asarray(_bin_boundaries(n, n_bins)) device vector; read-only, shared. ``n`` (dataset row
 # count) and ``n_bins`` are fit-constant across a whole FE scan's rank-bin calls, yet the boundary vector was
-# rebuilt (host cumsum) AND re-uploaded (H2D) on EVERY call -- mirrors ``_gpu_resident_fe._QLEVELS_CACHE`` /
+# rebuilt (host cumsum) AND re-uploaded (H2D) on EVERY call - mirrors ``_gpu_resident_fe._QLEVELS_CACHE`` /
 # ``_quantile_levels_dev``. searchsorted never mutates ``bnd``, so sharing the device array across calls is
 # safe; the cached array is byte-identical to the inline ``cp.asarray(_bin_boundaries(...))`` (deterministic
 # in its args).
@@ -115,7 +115,7 @@ def rank_bin_codes_gpu_resident(x_gpu: Any, n_bins: int) -> Any:
 
 
 def rank_bin_codes_batch_gpu_resident(X_gpu: Any, n_bins: int) -> Any:
-    """Batched RANK bin codes for a RESIDENT (n, k) cupy matrix -- per-column argsort equi-frequency. Returns
+    """Batched RANK bin codes for a RESIDENT (n, k) cupy matrix - per-column argsort equi-frequency. Returns
     an (n, k) cupy int32 code matrix, or ``None`` on any cupy failure. Each column is binned INDEPENDENTLY,
     bit-identical (per-column) to :func:`rank_bin_codes_gpu_resident`."""
     try:
@@ -136,7 +136,7 @@ def rank_bin_codes_batch_gpu_resident(X_gpu: Any, n_bins: int) -> Any:
         # RANK code needs every row's GLOBAL sorted position (rank) so the n//nb-row block assignment matches
         # _quantile_bin_njit; that is a total order == a full sort. No partition / edge / quantile-cut shortcut
         # reproduces it: an edge/searchsorted cut (the radix-edge resident path) assigns by VALUE not by RANK and
-        # is NOT bit-identical on tie-free columns -- it is exactly the divergence this rank binner exists to
+        # is NOT bit-identical on tie-free columns - it is exactly the divergence this rank binner exists to
         # avoid (89dd47c7). argpartition gives only the nb-1 cut elements, not each row's bin, so it cannot bin
         # the rest without a further sort. The argsort is ~85% of the rank-MI cost (wall_gate_rank_ab.py: rank
         # 5.2x edge) and stays.
@@ -146,7 +146,7 @@ def rank_bin_codes_batch_gpu_resident(X_gpu: Any, n_bins: int) -> Any:
         # breaks the bit-identity contract. _mi_classif_batch upcasts the operand to f64 before the binner, so the
         # safe-f32 case is not reachable in-scope. Rejected (correctness).
         # bench-attempt-rejected (2026-06-28): flat-index scatter (si*k+coloff) instead of the 2D fancy scatter.
-        # Byte-identical but only ~1% faster (scatter is ~12% of the path; argsort dominates) -- not worth the
+        # Byte-identical but only ~1% faster (scatter is ~12% of the path; argsort dominates) - not worth the
         # less-readable flat indexing. Kept the 2D scatter.
         si = cp.argsort(Xg, axis=0)  # (n, k) stable per-column sort indices
         bnd = _bin_boundaries_dev(cp, n, nb)
@@ -165,7 +165,7 @@ def rank_bin_codes_batch_gpu_resident(X_gpu: Any, n_bins: int) -> Any:
 def plugin_mi_classif_batch_rank_cuda_resident(
     X_gpu: Any, y_gpu: Any, n_bins: int = 20, *, y_min: int | None = None, n_classes: int | None = None,
 ) -> Optional[np.ndarray]:
-    """RANK-binned plug-in MI on ALREADY-RESIDENT cupy arrays -- the rank twin of
+    """RANK-binned plug-in MI on ALREADY-RESIDENT cupy arrays - the rank twin of
     ``_hermite_fe_mi._plugin_mi_classif_batch_cuda_resident`` (which bins by percentile EDGES). Bins each
     column of ``X_gpu`` (n, k) by argsort equi-frequency RANK, then computes plug-in MI vs ``y_gpu`` (n,)
     through the SAME fused MI-from-codes kernel the edge path uses, so the ONLY difference vs the edge path is
@@ -191,7 +191,7 @@ def plugin_mi_classif_batch_rank_cuda_resident(
             yg = yg.astype(cp.int64)
         yg = yg.ravel()
         # y is a fit-constant: derive y_min / n_classes once (cheap) when not supplied, then shift so the
-        # bincount index never underflows on negative / non-dense labels -- mirrors the edge resident core.
+        # bincount index never underflows on negative / non-dense labels - mirrors the edge resident core.
         if y_min is None or n_classes is None:
             _ymm = cp.asnumpy(cp.stack((cp.min(yg), cp.max(yg))))
             y_min = int(_ymm[0])
@@ -204,8 +204,8 @@ def plugin_mi_classif_batch_rank_cuda_resident(
         codes = codes.astype(cp.int64, copy=False)
         from ._fe_batched_mi import binned_mi_from_codes_gpu
         # codes_trusted: rank_bin_codes_batch_gpu_resident emits dense 0..n_bins-1 codes and yg was shifted to
-        # dense 0-based above, so the in-range guard cannot fire -- skip its blocking min/max sync (FIX1).
-        # binned_mi_from_codes_gpu's return type widened to Any when it grew an as_device toggle (2026-07-20);
+        # dense 0-based above, so the in-range guard cannot fire - skip its blocking min/max sync (FIX1).
+        # binned_mi_from_codes_gpu's return type widened to Any when it grew an as_device toggle;
         # this caller always uses the default (host-array) path, so narrow the type back explicitly here.
         mi = binned_mi_from_codes_gpu(codes, yg, kx_per_col=[int(n_bins)] * k, ky=int(n_classes), codes_trusted=True)
         return np.asarray(mi)

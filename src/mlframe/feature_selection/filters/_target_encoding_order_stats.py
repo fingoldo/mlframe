@@ -1,21 +1,21 @@
 """Robust / order-statistic per-category target encodings for the K-fold encoder.
 
 Companion to ``_target_encoding_fe`` (which computes the mean/std/skew/kurt moment stats via raw-moment ``np.bincount``).
-Order statistics -- median, symmetric-trimmed mean, target quantiles (q10/q90), IQR, min, max of y within a category --
+Order statistics - median, symmetric-trimmed mean, target quantiles (q10/q90), IQR, min, max of y within a category -
 are NOT expressible from raw moments, so they need y SORTED within each category. This module provides that vectorised
 grouped path: one ``np.lexsort`` groups rows by category and sorts y inside each group, then a single ``@numba.njit``
-kernel sweeps the contiguous segments and emits every requested order stat -- no per-row / per-category Python loop.
+kernel sweeps the contiguous segments and emits every requested order stat - no per-row / per-category Python loop.
 
 Numerical-kernel note (why a dedicated njit kernel, not the numerical.py aggregate kernels): ``compute_simple_stats_numba``
 cleanly returns per-array (min, max, ...) but also computes argmin/argmax/mean/std that the caller here discards, and it
-is a Python-level call per category (500+ segments) -- both cost we avoid. ``compute_numaggs`` exposes quantiles only at a
+is a Python-level call per category (500+ segments) - both cost we avoid. ``compute_numaggs`` exposes quantiles only at a
 fixed ``default_quantiles`` set / ``median_unbiased`` method and no symmetric-10%-trim mean, so it cannot emit the exact
 q10/q90 (numpy ``linear`` method) + 10%-trimmed-mean this encoder specifies. The dedicated segment kernel computes exactly
 the requested stats in one contiguous sweep, so we use it instead and reuse numpy/scipy for the GLOBAL fallbacks.
 
 Sample-stability floors mirror ``_binned_numeric_agg_fe._N_MIN`` (mean:5 / std:12 / skew:30 / kurt:100): an order stat
 from too few rows is noise (a median from n=1 is the single value), so a category with fewer rows than the stat's floor
-falls back to the GLOBAL stat value -- the same rare-cell shrinkage discipline the smoothed mean uses, expressed as a hard
+falls back to the GLOBAL stat value - the same rare-cell shrinkage discipline the smoothed mean uses, expressed as a hard
 threshold because order stats are not additively blendable the way Micci-Barreca shrinks a mean.
 """
 from __future__ import annotations
@@ -99,7 +99,7 @@ def per_category_order_stats(
     """Per-category order statistics with rare-cell fallback to the global value.
 
     Returns ``{stat: arr}`` of length ``n_cats`` for each requested ORDER stat. A category with fewer rows than the stat's
-    ``ORDER_STAT_N_MIN`` floor (or zero rows) takes the global stat value -- rare cells never emit an unstable order stat.
+    ``ORDER_STAT_N_MIN`` floor (or zero rows) takes the global stat value - rare cells never emit an unstable order stat.
     Vectorised: one ``np.lexsort`` sorts y within category, then the njit segment kernel emits every requested stat.
     ``counts`` lets a caller that already computed ``np.bincount(inverse, minlength=n_cats)`` (e.g. because moment
     stats are also being computed on the same ``inverse``) pass it in and skip the redundant recount."""
@@ -131,7 +131,7 @@ def per_category_order_stats(
 
 
 def global_order_stats(y_arr: np.ndarray, stats: Sequence[str]) -> dict:
-    """Global (all-rows) value of each requested order stat -- the rare-cell / unseen-category fallback.
+    """Global (all-rows) value of each requested order stat - the rare-cell / unseen-category fallback.
 
     Uses numpy (``np.median`` / ``np.quantile`` linear method / ``np.min`` / ``np.max``) and ``scipy.stats.trim_mean`` for
     the symmetric-trimmed mean, matching the per-category kernel's definitions exactly."""

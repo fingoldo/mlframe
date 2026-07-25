@@ -15,23 +15,23 @@ column then flows into MRMR's relevance / redundancy screen, inflating its
 work and (on small n) admitting noise survivors. This module adds two
 independent gates the wrappers / MRMR.fit opt into.
 
-Tier 1 -- LOCAL MI FLOOR (cheap, per-mechanism)
+Tier 1 - LOCAL MI FLOOR (cheap, per-mechanism)
 -----------------------------------------------
 ``local_mi_gate`` scores every freshly-emitted engineered column by plug-in
 ``MI(candidate; y)`` (reusing ``_orthogonal_univariate_fe._mi_classif_batch``)
 and drops any whose MI falls below a noise floor. The floor is anchored on the
 RAW baseline MI distribution (median + ``mad_mult`` * MAD of the raw columns'
-MI), NOT on the engineered columns -- the Layer 90 lesson: an engineered-pool-
+MI), NOT on the engineered columns - the Layer 90 lesson: an engineered-pool-
 relative floor moves with the pool and lets a pool of uniformly-weak columns
 set its own low bar. After flooring, the top-``top_k`` survivors by MI are
 kept (bounding the pool even when many columns clear the floor).
 
-Tier 2 -- UNIFIED SECOND-PASS CMI GATE (cross-mechanism)
+Tier 2 - UNIFIED SECOND-PASS CMI GATE (cross-mechanism)
 --------------------------------------------------------
 ``unified_second_pass_gate`` runs a greedy conditional-MI selection over ALL
 engineered columns (regardless of which mechanism emitted them), conditioning
 on a running support that starts from the raw signal. An engineered column is
-dropped when ``CMI(col; y | already_selected) < threshold`` -- i.e. it adds no
+dropped when ``CMI(col; y | already_selected) < threshold`` - i.e. it adds no
 new information beyond what raw columns + earlier-selected engineered columns
 already carry. This catches CROSS-mechanism redundancy that no single
 mechanism's local gate can see: ``count(cat_a)`` and ``freq(cat_a)`` are an
@@ -66,8 +66,8 @@ __all__ = [
 
 
 _COERCE_Y_MEMO: dict = {}
-# FE_ORCH_BUDGET-2 fix: this and _RAW_MI_FLOOR_MEMO below used the unlocked
-# `if len(cache) > N: cache.pop(next(iter(cache)))` eviction idiom -- the exact race class the codebase
+# This and _RAW_MI_FLOOR_MEMO below used the unlocked
+# `if len(cache) > N: cache.pop(next(iter(cache)))` eviction idiom - the exact race class the codebase
 # already fixed elsewhere (_MRMR_FIT_CACHE_LOCK in _fit_impl_core.py, _fe_family_timing.py's _LOCK) for
 # concurrent MRMR.fit() calls (multi-target discovery, service workers), a documented supported pattern.
 # Two threads racing the same eviction step could both resolve next(iter(cache)) to the same key, one
@@ -130,7 +130,7 @@ def _coerce_y_classes_impl(y_arr: np.ndarray) -> np.ndarray:
     #     produce finite, sane, stable plug-in MI (verified). Existing collapse guards already live at
     #     _adaptive_nbins.py:534 / _discretization_edges.py:259 / info_theory/_entropy_kernels.py:67.
     #   * The proposed cap-to-nbins / merge fix did NOT stabilise the rare-feature rank across 12
-    #     seeds at n=150/1% (mean rank 5.25->5.33, std 1.96->2.36 -- no gain, marginally worse). The
+    #     seeds at n=150/1% (mean rank 5.25->5.33, std 1.96->2.36 - no gain, marginally worse). The
     #     rank instability is intrinsic small-n statistics (rare signal vs noise-MI chance at ~1.5
     #     positives), NOT a binning artefact; it is the cross-project "rare imbalance needs large-n"
     #     fact and no target-binning trick rescues it. Distinct from (and confirms) rejected idea #18
@@ -202,7 +202,7 @@ def raw_mi_noise_floor(
     except Exception:
         _key = None
 
-    # Class-B :311 collapse (2026-06-30): under STRICT-residency ``_mi_classif_batch(arr)`` already routes
+    # Class-B :311 collapse: under STRICT-residency ``_mi_classif_batch(arr)`` already routes
     # through the resident plug-in but re-uploads this FIT-CONSTANT raw matrix fresh at _orth_mi_backends:311.
     # The matrix is the raw numeric columns verbatim (a pure baseline, re-scored across the fit), so route it
     # through the resident-operand cache -> uploaded ONCE. Same percentile-edge resident estimator the host
@@ -251,7 +251,7 @@ def local_mi_gate(
     ``top_k`` is None / <= 0). Column order in the returned list follows
     descending MI.
 
-    Non-numeric engineered columns (should not occur -- every emitter produces
+    Non-numeric engineered columns (should not occur - every emitter produces
     numeric output) are dropped defensively.
     """
     from ._orthogonal_univariate_fe import _mi_classif_batch
@@ -267,7 +267,7 @@ def local_mi_gate(
     arr = enc_df[cand_cols].to_numpy(dtype=np.float64)
     # NOTE (device-born gate, 2026-06-29): unlike the CONDITIONAL gate (whose tau-grid candidates are derived
     # from a few RESIDENT operand columns and so can be built device-born, collapsing the host matrix upload),
-    # ``local_mi_gate``'s candidates ARE the engineered ``enc_df`` block -- arbitrary per-call columns with no
+    # ``local_mi_gate``'s candidates ARE the engineered ``enc_df`` block - arbitrary per-call columns with no
     # cacheable operand basis. Its single ``cp.asarray`` upload under the STRICT resident ``_mi_classif_batch``
     # is therefore irreducible (the matrix must reach the device once). Routing it through a separate resident
     # wrapper only RELOCATES the same one-shot upload without collapsing it, so this path stays on the exact
@@ -292,7 +292,7 @@ def local_mi_gate(
                         reason="unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor",
                     )
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in _unified_fe_gate.py:254: %s", e)
+                    logger.debug("suppressed: %s", e)
                     pass
     scored.sort(key=lambda t: t[1], reverse=True)
     if top_k is not None and int(top_k) > 0:
@@ -322,7 +322,7 @@ def unified_second_pass_gate(
     The running support is seeded with the top-``seed_raw_cols_count`` RAW
     numeric columns by marginal MI (the "raw signal" the engineered pool must
     beat), then grows by each seated engineered winner. A column is dropped
-    when its best CMI over the current support is ``< min_cmi_gain`` -- it adds
+    when its best CMI over the current support is ``< min_cmi_gain`` - it adds
     no new information beyond raw + already-seated engineered columns.
 
     This catches CROSS-mechanism redundancy: ``count(cat_a)`` and ``freq(cat_a)``
@@ -372,7 +372,7 @@ def unified_second_pass_gate(
     y_bin = _coerce_y_classes(y)
 
     # Seed the conditioning support with the top-N raw numeric columns by
-    # marginal MI -- the "raw signal" the engineered pool must add to.
+    # marginal MI - the "raw signal" the engineered pool must add to.
     raw_num = [c for c in raw_cols if c in X_with_all_engineered.columns and pd.api.types.is_numeric_dtype(X_with_all_engineered[c])]
     z_joint: Optional[np.ndarray] = None
     if raw_num and int(seed_raw_cols_count) > 0:
@@ -412,7 +412,7 @@ def unified_second_pass_gate(
         winner_fps.add(cand_fp[best_name])
         remaining.discard(best_name)
         # Fold the winner into Z (under the fragmentation cap) so the next CMI
-        # measures the gain ON TOP OF this column -- this is what drops the
+        # measures the gain ON TOP OF this column - this is what drops the
         # cross-mechanism redundant siblings.
         new_bin = cand_bins[best_name]
         if z_joint is None or z_joint.size == 0:

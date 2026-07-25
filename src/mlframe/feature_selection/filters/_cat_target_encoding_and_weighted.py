@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 @njit(cache=True)
 def _cell_sum_cnt_njit(classes, y, n_uniq):
-    """Per-cell running (sum of y, count) over rows, in row order -- bit-identical to the Python
+    """Per-cell running (sum of y, count) over rows, in row order - bit-identical to the Python
     ``for row: cell_sum[c]+=y[row]; cell_cnt[c]+=1`` accumulator it replaces (~490x @100k). ``classes`` is int."""
     cell_sum = np.zeros(n_uniq, dtype=np.float64)
     cell_cnt = np.zeros(n_uniq, dtype=np.float64)
@@ -59,23 +59,23 @@ def _compute_target_encoding(
     seed: int = 0,
     allow_naive_leak: bool = False,
 ) -> tuple:
-    """Compute target-encoded values per cell of (X[idx_tuple]). Returns (te_values, cell_means_oof_combined) -- a 1-D array of ``n_samples`` floats where each row is
+    """Compute target-encoded values per cell of (X[idx_tuple]). Returns (te_values, cell_means_oof_combined) - a 1-D array of ``n_samples`` floats where each row is
     ``E[Y | merged_class]`` computed out-of-fold (to prevent leakage).
 
     Strategy:
     - Build per-cell mean of Y, with shrinkage: ``te = (n_c * te_raw + alpha * te_global) / (n_c + alpha)`` (Micci-Barreca 2001).
     - For OOF: split rows into K folds; for each fold, compute cell means from the other K-1 folds, apply to this fold's rows.
-    - For naive (n_oof_folds=0): single-pass cell mean across ALL rows. Leaks signal -- only safe when used as a downstream feature in a separate train/val split.
+    - For naive (n_oof_folds=0): single-pass cell mean across ALL rows. Leaks signal - only safe when used as a downstream feature in a separate train/val split.
 
-    Y is treated as numeric (regression). For binary classification, this gives per-cell P(y=1) -- well-behaved.
+    Y is treated as numeric (regression). For binary classification, this gives per-cell P(y=1) - well-behaved.
 
-    Multi-class target encoding strategy (wave 68 closure, 2026-05-20): the helper
+    Multi-class target encoding strategy: the helper
     treats ``classes_y`` as a numeric label (0, 1, 2, ...). For multi-class targets
     the resulting per-cell mean is the EXPECTED CLASS INDEX (not a class probability),
     which is meaningful when the labels are ordinal (e.g. 1-5 star ratings) but
     semantically wrong for nominal multi-class. Callers needing proper per-class
     encoded features (one column per class) should fit the encoder n_classes times
-    on one-vs-rest binary derived columns -- that's the responsibility of the
+    on one-vs-rest binary derived columns - that's the responsibility of the
     caller, not this kernel: per-class expansion would multiply the feature space
     by n_classes for every interaction, which is rarely the right trade-off.
     """
@@ -92,7 +92,7 @@ def _compute_target_encoding(
 
     if n_oof_folds <= 0 and not allow_naive_leak:
         # The naive single-pass per-cell mean includes each row's OWN y, so the emitted te_values (a TRAINING
-        # feature) leaks the target -- inflated in-sample MI, collapses on holdout. The default-safe behaviour is to
+        # feature) leaks the target - inflated in-sample MI, collapses on holdout. The default-safe behaviour is to
         # fall back to a real OOF split; callers who genuinely want the naive path in a SEPARATE train/val scenario
         # must opt in with allow_naive_leak=True.
         logger.warning(

@@ -1,16 +1,16 @@
-"""Layer 59 (2026-05-31): DIFF-BASIS FE for highly-correlated source pairs.
+"""Layer 59: DIFF-BASIS FE for highly-correlated source pairs.
 
 Why this layer
 --------------
 
 For tightly-correlated source pairs (e.g. ``price_today`` and ``price_yesterday``,
 correlation 0.99) the marginal of either column is dominated by the shared
-trend; what survives after subtracting the trend is the *residual* signal --
+trend; what survives after subtracting the trend is the *residual* signal -
 exactly what a basis expansion ``He_n(x_i - x_j)`` can lift out. Layer 21
 (univariate) and Layer 27 (collinear-dedup) both DROP one of the two
 collinear sources before any basis is evaluated, so the residual signal is
 gone before MI ranking sees it. Pair-cross-basis (Layer 25's
-``orth_pair_cross``) covers ``He_a(x_i) * He_b(x_j)`` -- multiplicative
+``orth_pair_cross``) covers ``He_a(x_i) * He_b(x_j)`` - multiplicative
 interaction, NOT the additive residual.
 
 Layer 59 fills that gap with a dedicated diff path: for every pair (i, j)
@@ -39,7 +39,7 @@ ordered tuple ``(col_a, col_b)``; the diff is ALWAYS computed as
 fit time. ``pre_transform`` defaults to ``"raw"`` so legacy code paths stay
 byte-identical.
 
-NOT wired into ``MRMR.fit`` by default -- opt-in via
+NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_hybrid_orth_diff_basis_enable=True``.
 """
 from __future__ import annotations
@@ -73,7 +73,7 @@ __all__ = [
 def _coerce_y_int64(y) -> np.ndarray:
     """Dense int64 class labels. Non-integer y is densified via
     ``np.unique(return_inverse=...)`` rather than truncated with
-    ``.astype(int64)`` -- plain truncation merges distinct labels and destroys
+    ``.astype(int64)`` - plain truncation merges distinct labels and destroys
     continuous-y signal (everything in [0, 1) collapses to class 0)."""
     arr = np.asarray(y).ravel()
     if np.issubdtype(arr.dtype, np.integer):
@@ -107,7 +107,7 @@ def parse_diff_basis_col_name(name: str) -> Optional[tuple[str, str, str, int]]:
     body = body[len("diff_") :]
     # ``body`` is ``"{col_a}_{col_b}"`` but col names may themselves contain
     # underscores. We can't unambiguously split here, so the recipe
-    # ``src_names`` tuple is the canonical source -- this helper is best-
+    # ``src_names`` tuple is the canonical source - this helper is best-
     # effort and used only for diagnostics / lookup keys.
     if "_" not in body:
         return None
@@ -116,7 +116,7 @@ def parse_diff_basis_col_name(name: str) -> Optional[tuple[str, str, str, int]]:
         if suffix.startswith(code):
             deg_str = suffix[len(code) :]
             if deg_str.isdigit():
-                # Split body on the LAST underscore -- if col names contain
+                # Split body on the LAST underscore - if col names contain
                 # underscores the split may be wrong; recipe metadata is the
                 # authoritative source.
                 col_a, col_b = body.rsplit("_", 1)
@@ -234,7 +234,7 @@ def generate_diff_basis_features(
         Restrict the auto-pair scan. Ignored when ``pairs`` is non-None.
     basis : {'hermite', 'legendre', 'chebyshev', 'laguerre'}
         Polynomial family. ``hermite`` (default) is the right choice for
-        residual signals -- ``He_1`` is the diff itself and ``He_2`` /
+        residual signals - ``He_1`` is the diff itself and ``He_2`` /
         ``He_3`` lift quadratic / cubic residuals.
     degrees : sequence of int
         Polynomial degrees per pair. Defaults to ``(1, 2, 3)``; ``He_1``
@@ -267,7 +267,7 @@ def generate_diff_basis_features(
             replay and diagnostics.
     """
     # Value-construction dtype (feeds x_a/x_b -> diff -> the emitted engineered column, not just
-    # an MI score): always float64, matching _apply_orth_diff_basis's hardcoded replay dtype -- a
+    # an MI score): always float64, matching _apply_orth_diff_basis's hardcoded replay dtype - a
     # relaxed f32 cast here reproduces the fit/replay drift bug fixed in
     # _orthogonal_univariate_fe/__init__.py. Hoisted so _dt is bound on every branch.
     _dt = np.float64
@@ -304,7 +304,7 @@ def generate_diff_basis_features(
                 continue
             pairs_norm.append((a, b))
             # Compute correlation for diagnostics; not gating an explicit pair. Reuses the
-            # already-float64 `_dt` hoisted above (do not reassign it here -- it's still in
+            # already-float64 `_dt` hoisted above (do not reassign it here - it's still in
             # scope for the Step 3 candidate-value loop below).
             arr_a = np.asarray(X[a].to_numpy(), dtype=_dt)
             arr_b = np.asarray(X[b].to_numpy(), dtype=_dt)
@@ -359,11 +359,11 @@ def generate_diff_basis_features(
             fill_d = float(np.nanmean(diff[finite_d])) if finite_d.any() else 0.0
             diff = np.where(finite_d, diff, fill_d)
         if float(np.std(diff)) <= 1e-12:
-            # Constant diff (identical sources after fill) -- no signal.
+            # Constant diff (identical sources after fill) - no signal.
             continue
         for d in degrees:
             try:
-                # return_params=True (2026-07-12): capture the fit-time basis-preprocess params here, at
+                # return_params=True: capture the fit-time basis-preprocess params here, at
                 # the ONE place the diff array + basis are both already in hand, so the recipe-build step
                 # below can thread them straight into build_orth_diff_basis_recipe instead of rebuilding
                 # ``x_a - x_b`` and re-evaluating the basis a second time purely to recover them.
@@ -581,11 +581,11 @@ def hybrid_orth_mi_diff_basis_fe_with_recipes(
             continue
         _ca, _cb = str(row["col_a"]), str(row["col_b"])
         _basis_d, _degree_d = str(row["basis"]), int(row["degree"])
-        # REPLAY-FIDELITY FIX (2026-06-13): freeze the diff's fit-time basis-preprocess params so
+        # REPLAY-FIDELITY FIX: freeze the diff's fit-time basis-preprocess params so
         # transform() replays the axis byte-exactly (no slice-vs-full refit drift).
-        # 2026-07-12: generate_diff_basis_features's candidate-enumeration loop now calls
+        # generate_diff_basis_features's candidate-enumeration loop now calls
         # _evaluate_basis_column(..., return_params=True) itself and threads the result through
-        # meta/scores -- reuse it here instead of rebuilding ``x_a - x_b`` and re-evaluating the basis
+        # meta/scores - reuse it here instead of rebuilding ``x_a - x_b`` and re-evaluating the basis
         # a second time. Fall back to the old rebuild-and-refit path only if a row predates that field
         # (defensive; e.g. a legacy caller-supplied ``scores`` frame).
         _pp_d = row.get("basis_params") if hasattr(row, "get") else None
@@ -604,7 +604,7 @@ def hybrid_orth_mi_diff_basis_fe_with_recipes(
                     _vb = np.where(_fb, _vb, float(np.nanmean(_vb[_fb])) if _fb.any() else 0.0)
                 _, _pp_d = _evaluate_basis_column(_va - _vb, _basis_d, _degree_d, return_params=True)
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _orthogonal_diff_basis_fe.py:592: %s", e)
+                logger.debug("suppressed: %s", e)
                 pass
         recipes.append(build_orth_diff_basis_recipe(
             name=name,
@@ -648,7 +648,7 @@ def _apply_orth_diff_basis(recipe, X) -> np.ndarray:
         fill_b = float(np.nanmean(vals_b[finite_b])) if finite_b.any() else 0.0
         vals_b = np.where(finite_b, vals_b, fill_b)
     diff = vals_a - vals_b
-    # REPLAY-FIDELITY FIX (2026-06-13): frozen fit-time basis-preprocess params (mirrors the pair/
+    # REPLAY-FIDELITY FIX: frozen fit-time basis-preprocess params (mirrors the pair/
     # triplet/quad fix); without them _eval_orth_basis_column refits the z-score/min-max of the diff
     # from apply-time rows -> slice-replay corruption. None (legacy pickles) -> refit path, byte-identical.
     pp = recipe.extra.get("preprocess_params")

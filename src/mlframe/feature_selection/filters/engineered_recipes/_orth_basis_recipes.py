@@ -17,12 +17,12 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# Layer 23 (2026-05-31): orthogonal-polynomial univariate / pair-cross recipes
+# Layer 23: orthogonal-polynomial univariate / pair-cross recipes
 # ---------------------------------------------------------------------------
 #
 # These replay the engineered columns produced by ``hybrid_orth_mi_fe`` /
 # ``hybrid_orth_mi_pair_fe`` from ``_orthogonal_univariate_fe.py``. Both
-# routes are CLOSED-FORM functions of the source column(s) alone -- the MI
+# routes are CLOSED-FORM functions of the source column(s) alone - the MI
 # scoring that picked them at fit time consumed y, but the column value
 # itself does not depend on y. Replay therefore reads only X.
 #
@@ -32,14 +32,14 @@ if TYPE_CHECKING:
 
 
 def _apply_orth_pre_transform(x: np.ndarray, pre_transform: str) -> np.ndarray:
-    """Layer 58 (2026-05-31) per-column pre-transform: optionally reshape the
+    """Layer 58 per-column pre-transform: optionally reshape the
     raw column BEFORE the basis-domain preprocess kicks in. Supported values:
 
-    * ``"raw"``  -- identity (no pre-transform; legacy Layer 21/57 path)
-    * ``"log_abs"``  -- ``log(|x| + 1e-12)`` -- captures heavy-tail log-normal
+    * ``"raw"``  - identity (no pre-transform; legacy Layer 21/57 path)
+    * ``"log_abs"``  - ``log(|x| + 1e-12)`` - captures heavy-tail log-normal
                         targets where raw Hermite z-score collapses the signal.
-    * ``"sqrt_abs"`` -- ``sign(x) * sqrt(|x|)`` -- mild non-linear stretch.
-    * ``"tanh"``  -- ``tanh(x / max(std, 1e-12))`` -- bounded mapping; pairs
+    * ``"sqrt_abs"`` - ``sign(x) * sqrt(|x|)`` - mild non-linear stretch.
+    * ``"tanh"``  - ``tanh(x / max(std, 1e-12))`` - bounded mapping; pairs
                         well with Chebyshev/Legendre on otherwise-unbounded
                         inputs.
 
@@ -58,7 +58,7 @@ def _apply_orth_pre_transform(x: np.ndarray, pre_transform: str) -> np.ndarray:
     if pre_transform == "tanh":
         sd = float(np.std(x))
         return np.tanh(x / sd) if sd > 1e-12 else np.tanh(x)
-    # Unknown -- warn and fall back to identity. Avoids raising at replay
+    # Unknown - warn and fall back to identity. Avoids raising at replay
     # time on pickles produced by older clients that introduced bespoke
     # tags; the worst case is one orth column that's the wrong shape, which
     # downstream MRMR will deselect on the next refit.
@@ -86,17 +86,17 @@ def _eval_orth_basis_column(
     transform()-time replay produces the SAME value as fit-time generation.
     Lazy import of ``hermite_fe`` keeps the recipes module dependency-light.
 
-    Layer 58 (2026-05-31): optional ``pre_transform`` applied to the column
+    Layer 58: optional ``pre_transform`` applied to the column
     BEFORE the basis preprocess (log|x| for heavy-tail, tanh for bounded
     mapping, etc.). ``pre_transform='raw'`` (default) keeps Layer 21/57
-    byte-identical -- existing recipes deserialized without the field
+    byte-identical - existing recipes deserialized without the field
     behave unchanged.
 
-    BUG2 FIX (2026-06-12): ``preprocess_params`` carries the FROZEN fit-time
+    BUG2 FIX: ``preprocess_params`` carries the FROZEN fit-time
     basis-preprocess statistics (z-score mean/std, min-max lo/hi, or shift lo,
     plus any robust clip). When present the basis axis is rebuilt with the
     basis ``apply`` function from these frozen params instead of REFITTING the
-    axis from ``x`` -- so a row-slice transform replays BYTE-EXACTLY against the
+    axis from ``x`` - so a row-slice transform replays BYTE-EXACTLY against the
     full-frame transform (a refit-from-slice recomputed mean/std drifting the
     z-score by ~1e-3, which after the downstream quantisation produced a
     |delta|=1 bin drift on a nested ``a__He2`` sub-operand). ``None`` (legacy /
@@ -116,7 +116,7 @@ def _eval_orth_basis_column(
         fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
         x = np.where(finite_mask, x, fill)
     # Layer 58: optional pre-transform before basis preprocess. Identity
-    # when ``pre_transform='raw'`` (default) -- legacy bit-exact path.
+    # when ``pre_transform='raw'`` (default) - legacy bit-exact path.
     x = _apply_orth_pre_transform(x, pre_transform)
     # The pre-transform can produce non-finite values for pathological inputs
     # (e.g. log(0) when caller passed a value at the floor); guard with one
@@ -176,12 +176,12 @@ def _apply_orth_univariate(
     src_name = recipe.src_names[0]
     basis = str(recipe.extra["basis"])
     degree = int(recipe.extra["degree"])
-    # Layer 58 (2026-05-31): optional pre-transform applied to the raw column
+    # Layer 58: optional pre-transform applied to the raw column
     # before the basis preprocess. Default ``"raw"`` (identity) keeps recipes
-    # produced by Layer 21/57 byte-identical -- existing pickles missing the
+    # produced by Layer 21/57 byte-identical - existing pickles missing the
     # ``pre_transform`` key replay unchanged.
     pre_transform = str(recipe.extra.get("pre_transform", "raw"))
-    # BUG2 FIX (2026-06-12): frozen fit-time basis-preprocess params (if the
+    # BUG2 FIX: frozen fit-time basis-preprocess params (if the
     # recipe was built with them) make replay byte-exact on any row-slice.
     preprocess_params = recipe.extra.get("preprocess_params")
     if basis_cache is not None:
@@ -223,7 +223,7 @@ def _apply_orth_pair_cross(
     basis_j = str(recipe.extra["basis_j"])
     deg_a = int(recipe.extra["deg_a"])
     deg_b = int(recipe.extra["deg_b"])
-    # BUG2 FIX (2026-06-12): frozen per-operand fit-time preprocess params.
+    # BUG2 FIX: frozen per-operand fit-time preprocess params.
     pp_i = recipe.extra.get("preprocess_params_i")
     pp_j = recipe.extra.get("preprocess_params_j")
 
@@ -235,7 +235,7 @@ def _apply_orth_pair_cross(
             if _cached is not None:
                 return _cached
         # Cast to _crit_np_dtype() (f32 under the default MLFRAME_CRIT_DTYPE_RELAXED) to match
-        # generate_pair_cross_basis_features's operand dtype at fit time -- _extract_column returns
+        # generate_pair_cross_basis_features's operand dtype at fit time - _extract_column returns
         # the column's native dtype (float64 for a plain numeric frame) with no cast, so without this
         # replay would run the basis recurrence at a different precision than fit even though both
         # read the identical row values, reproducing the fit/replay drift bug documented in
@@ -295,7 +295,7 @@ def build_orth_univariate_recipe(
     # ``__eq__`` walks ``extra`` content).
     if pre_transform and pre_transform != "raw":
         extra["pre_transform"] = str(pre_transform)
-    # BUG2 FIX (2026-06-12): freeze the fit-time basis-preprocess params into the
+    # BUG2 FIX: freeze the fit-time basis-preprocess params into the
     # recipe so transform() replays the axis byte-exactly (no slice-vs-full mean/std
     # refit drift). Omitted when None so legacy recipes stay byte-equal.
     _pp = _freeze_preprocess_params(preprocess_params)
@@ -325,7 +325,7 @@ def build_orth_pair_cross_recipe(
         "deg_a": int(deg_a),
         "deg_b": int(deg_b),
     }
-    # BUG2 FIX (2026-06-12): freeze each operand's fit-time preprocess params.
+    # BUG2 FIX: freeze each operand's fit-time preprocess params.
     _ppi = _freeze_preprocess_params(preprocess_params_i)
     _ppj = _freeze_preprocess_params(preprocess_params_j)
     if _ppi is not None:
@@ -345,7 +345,7 @@ def build_orth_diff_basis_recipe(
     basis: str, degree: int, pre_transform: str = "raw",
     preprocess_params: Optional[dict] = None,
 ) -> EngineeredRecipe:
-    """Layer 59 (2026-05-31): frozen recipe for one diff-basis column
+    """Layer 59: frozen recipe for one diff-basis column
     ``basis_degree(preprocess(pre_transform(X[col_a] - X[col_b])))``.
 
     The diff orientation is FIXED as ``col_a - col_b`` so the recipe replays
@@ -360,7 +360,7 @@ def build_orth_diff_basis_recipe(
     extra = {"basis": str(basis), "degree": int(degree)}
     if pre_transform and pre_transform != "raw":
         extra["pre_transform"] = str(pre_transform)
-    # REPLAY-FIDELITY FIX (2026-06-13): freeze the fit-time basis-preprocess params of the diff so
+    # REPLAY-FIDELITY FIX: freeze the fit-time basis-preprocess params of the diff so
     # replay reproduces the axis byte-exactly (no slice-vs-full refit drift). Omitted when None so
     # legacy diff-basis pickles stay byte-equal.
     _pp = _freeze_preprocess_params(preprocess_params)
@@ -379,12 +379,12 @@ def build_orth_cluster_basis_recipe(
     basis: str, degree: int, aggregator: str = "mean_z",
     agg_stats: dict | None = None, basis_params: dict | None = None,
 ) -> EngineeredRecipe:
-    """Layer 61 (2026-05-31): frozen recipe for one per-cluster shared-
+    """Layer 61: frozen recipe for one per-cluster shared-
     basis column ``basis_degree(preprocess(aggregator(members)))``.
 
     The member tuple is stored in deterministic (sorted) order so the
     aggregate orientation matches fit time exactly. ``aggregator`` is
-    one of ``mean_z`` / ``median_z`` / ``pc1`` -- see
+    one of ``mean_z`` / ``median_z`` / ``pc1`` - see
     :func:`compute_cluster_aggregate` in the cluster-basis FE module.
     Replay is a pure function of X (no y reference).
 
@@ -421,7 +421,7 @@ def _bspline_basis_values(z: np.ndarray, knots: np.ndarray, idx: int, degree: in
 
     Uses the Cox-de Boor recursion, fully vectorised across all points at once (no
     per-point Python loop): this is the CPU/numpy twin of the GPU-resident
-    ``_orthogonal_univariate_fe/_extra_basis_resident.py::_bspline_col_gpu`` -- same
+    ``_orthogonal_univariate_fe/_extra_basis_resident.py::_bspline_col_gpu`` - same
     memoised recursion ``B_{i,0}(z) = 1[knots[i] <= z < knots[i+1]]`` then
     ``B_{i,p} = (z-k_i)/(k_{i+p}-k_i) B_{i,p-1} + (k_{i+p+1}-z)/(k_{i+p+1}-k_{i+1}) B_{i+1,p-1}``
     with the same zero-denominator guard, just with ``np`` in place of ``cp``. ``knots``
@@ -617,20 +617,20 @@ def build_orth_fourier_recipe(
     like ``sin(a**2)``); the recipe is self-contained (raw src -> power -> Fourier),
     1-deep, replayable. ``power`` defaults to 1 (legacy linear-argument Fourier).
 
-    ``arg`` selects the argument WARP applied before the Fourier (2026-06-03):
-    * ``"linear"`` (default) -- ``z = (x**power - lo) / span`` (the legacy axis).
-    * ``"quadratic"`` -- the ADAPTIVE-CHIRP axis ``z = (u - lo) / span`` where
+    ``arg`` selects the argument WARP applied before the Fourier:
+    * ``"linear"`` (default) - ``z = (x**power - lo) / span`` (the legacy axis).
+    * ``"quadratic"`` - the ADAPTIVE-CHIRP axis ``z = (u - lo) / span`` where
       ``u = sign(zs)*zs**2`` and ``zs = (x - mean) / std``. Squaring the
       STANDARDISED, SIGNED z turns a growing-frequency chirp ``sin(2*pi*f*zs**2)``
       into a stationary-frequency sinusoid that the detector can lock; ``mean`` /
       ``std`` (the train-fit standardisation) are stored alongside (lo, span) so
       the warp replays leak-free. ``power`` is ignored for the quadratic arg.
 
-    ``adaptive`` (default False) is a pure TAG stored in ``extra`` -- it marks a
+    ``adaptive`` (default False) is a pure TAG stored in ``extra`` - it marks a
     column emitted at an ADAPTIVELY-DETECTED z-space frequency (held-out
     validated) rather than a fixed-grid one. Replay reads ``arg``/``mean``/``std``
     to rebuild the warp but never reads ``adaptive``; the tag lets MRMR protect
-    these columns past screening (a single sin/cos has low marginal MI -- phase --
+    these columns past screening (a single sin/cos has low marginal MI - phase -
     so the screen would otherwise drop the held-out-validated pair)."""
     from . import EngineeredRecipe
     if kind not in ("sin", "cos"):

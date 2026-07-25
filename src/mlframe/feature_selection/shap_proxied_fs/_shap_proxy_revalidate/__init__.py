@@ -82,7 +82,7 @@ def proxy_trust_guard(
     range to drive the gate. The corr-proportional split (0.629, 0.371) rounds to (0.6, 0.4); the
     rounded value is the registered default. Iter15 still motivates the composite over raw Spearman:
     Zipf at alpha=0.25 dropped spearman 0.969->0.956 but lifted recall@k 0.833->1.0, so the composite
-    went 0.901->0.978 -- a real win the raw-Spearman gate had masked. Iter17's (0.6, 0.4) preserves
+    went 0.901->0.978 - a real win the raw-Spearman gate had masked. Iter17's (0.6, 0.4) preserves
     that win (the composite stays above the floor) while letting Spearman dominate the gate decision
     in the calibration-supported direction.
 
@@ -143,7 +143,7 @@ def proxy_trust_guard(
     if spearman_floor is not _FIDELITY_FLOOR_UNSET:
         import warnings
         if fidelity_floor != 0.5:
-            # Both supplied -- ambiguous; refuse rather than silently picking one.
+            # Both supplied - ambiguous; refuse rather than silently picking one.
             raise ValueError("proxy_trust_guard: pass either `fidelity_floor` (new name) or `spearman_floor` " "(deprecated alias), not both.")
         warnings.warn(
             "`spearman_floor` is deprecated since iter18; use `fidelity_floor` (same semantics). "
@@ -173,12 +173,12 @@ def proxy_trust_guard(
     tid = ("trust_cap", int(n_estimators_cap)) if n_estimators_cap is not None else None
     # Transpose phi once so each anchor's coalition gather is contiguous (phi is row-major
     # (n_samples, n_units); phi[:, idx] is a strided column gather, ~4x slower than phi_T[idx] at
-    # tall n -- same layout win as the _Evaluator seed margins). n_anchors gathers per fit.
+    # tall n - same layout win as the _Evaluator seed margins). n_anchors gathers per fit.
     _phi_T = np.ascontiguousarray(phi.T)
     proxy_losses_list = [proxy_loss(coalition_margin_T(_phi_T, base, idx), y_search, metric) for idx in anchors]
     # iter80: open the cross-process disk cache once (None when disabled). The cache short-circuits
     # the per-anchor xgboost fit whenever (X_search, y_search, X_holdout, y_holdout, expanded cols,
-    # template params, cap) was retrained by a prior fit -- the standard ShapProxiedFS hyperparam
+    # template params, cap) was retrained by a prior fit - the standard ShapProxiedFS hyperparam
     # sweep / ablation pattern. Open here (not per-anchor) so the LRU evictor sees the whole batch.
     disk_cache = _open_disk_cache(disk_cache_dir)
     honest_losses = _parallel_honest_losses(
@@ -230,7 +230,7 @@ def proxy_trust_guard(
                   # ``spearman_floor`` is kept as a deprecated alias in the report so legacy
                   # downstream consumers that inspect the dict by the old name don't break.
                   fidelity_floor=fidelity_floor, spearman_floor=fidelity_floor,
-                  # iter16: composite gate (default) -- raw spearman / recall stay above as diagnostics.
+                  # iter16: composite gate (default) - raw spearman / recall stay above as diagnostics.
                   proxy_fidelity_score=fidelity,
                   fidelity_weights=(w_sp, w_rc),
                   trustworthy_metric=gate_metric_name,

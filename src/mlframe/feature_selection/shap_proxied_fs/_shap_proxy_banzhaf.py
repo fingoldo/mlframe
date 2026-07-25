@@ -1,11 +1,11 @@
 """Maximum-Sample-Reuse Banzhaf semivalue estimate over the additive proxy game (gt_03).
 
-Wang & Jia (AISTATS 2023) prove the Banzhaf semivalue is the most noise-robust of the family --
+Wang & Jia (AISTATS 2023) prove the Banzhaf semivalue is the most noise-robust of the family -
 uniform coalition weighting (unlike Shapley's 1/(P*C(P-1,|S|)) size-dependent weights) makes its
 ranking the least sensitive to per-coalition value noise, exactly the property a top-K prescreen
 RANKING needs when the underlying proxy loss is itself noisy (OOF-SHAP fold variance, booster seed
 jitter, finite-sample loss). Maximum Sample Reuse (MSR) estimates beta for ALL features from ONE
-shared pool of m sampled coalitions: beta_j = mean_{S ni j} v(S) - mean_{S not ni j} v(S) -- every
+shared pool of m sampled coalitions: beta_j = mean_{S ni j} v(S) - mean_{S not ni j} v(S) - every
 sampled coalition informs every feature's estimate, unlike a per-feature sampling scheme.
 """
 
@@ -33,11 +33,11 @@ def banzhaf_msr(
 
     Samples ``n_coalitions`` boolean masks over the ``P`` proxy columns (each feature included
     independently w.p. 0.5), scores every sampled coalition's margin ``base + mask @ phi.T`` against
-    ``y`` with the resolved metric (AUC excluded -- ``score_margin_auto`` only covers the pointwise
+    ``y`` with the resolved metric (AUC excluded - ``score_margin_auto`` only covers the pointwise
     njit metrics; the prescreen ranking is proxy-loss based like the rest of this module), and
     negates the loss into a value ``v(S) = -loss(S)`` (higher value = better coalition, matching the
     semivalue convention). ``beta_j`` is then the mean value gap between coalitions that DID and did
-    NOT include feature ``j`` -- the MSR estimator, reusing every sampled coalition for every feature
+    NOT include feature ``j`` - the MSR estimator, reusing every sampled coalition for every feature
     instead of a fresh sample per feature.
 
     Processes masks in chunks of ``batch`` (not the whole ``(n_coalitions, P)`` matrix -> ``(m, n)``
@@ -74,7 +74,7 @@ def banzhaf_msr(
         chunk = masks[start:end].astype(np.float64)  # (b, P)
         margins_chunk = np.ascontiguousarray(base[None, :] + chunk @ phi_T)  # (b, n_samples)
         # score_margin_batch scores the whole chunk in ONE compiled call instead of one call per
-        # coalition -- njit call-dispatch overhead otherwise dominates at n_coalitions in the
+        # coalition - njit call-dispatch overhead otherwise dominates at n_coalitions in the
         # thousands (measured: ~0.41s of a 0.55s stage wall was per-row dispatch, not compute).
         losses = score_margin_batch(margins_chunk, y, metric_code)
         if is_rmse:

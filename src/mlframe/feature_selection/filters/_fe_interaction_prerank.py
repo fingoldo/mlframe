@@ -1,17 +1,17 @@
 """O(p*n) interaction-propensity pre-rank for the MRMR-FE synergy pool on WIDE frames.
 
 The synergy bootstrap (``_mrmr_fe_step_helpers.apply_synergy_bootstrap``) seeds the all-pairs joint-MI
-sweep with the raw numeric columns so PURE-interaction pairs (a*b, sign products, log(c)*sin(d)) -- whose
-operands carry ~0 MARGINAL MI and so never screen in individually -- get joint-MI screened. That sweep is
+sweep with the raw numeric columns so PURE-interaction pairs (a*b, sign products, log(c)*sin(d)) - whose
+operands carry ~0 MARGINAL MI and so never screen in individually - get joint-MI screened. That sweep is
 O(p^2) and is hard-capped at ``fe_synergy_screen_max_features`` (default 250): historically, above the cap
 the bootstrap simply SKIPPED, so on a wide frame (p >> 250) a zero-marginal interaction was engineered as
-NOTHING. The cap can't be raised blindly -- a full exhaustive sweep at p=10k is ~17 min on a GTX 1050 Ti
-(bench 2026-06-18) -- so we need to choose WHICH ~250 columns enter the sweep.
+NOTHING. The cap can't be raised blindly - a full exhaustive sweep at p=10k is ~17 min on a GTX 1050 Ti
+(bench 2026-06-18) - so we need to choose WHICH ~250 columns enter the sweep.
 
 Marginal MI is the WRONG ranking for this: a pure-interaction operand has ~0 marginal MI by construction
 (that is the whole reason the bootstrap exists), so ranking the pool by marginal MI drops exactly the
 operands we are hunting. The fix is an interaction-propensity score that detects a variable's propensity to
-participate in ANY interaction even when its linear marginal is zero -- the classic interaction-screening
+participate in ANY interaction even when its linear marginal is zero - the classic interaction-screening
 idea (Fan-Kong-Li-Zhao 2015 "innovated interaction screening"; Hao-Zhang 2014): an interaction leaks into
 HIGHER MOMENTS of (x, y) even when the first-moment marginal is flat. The cheap, vectorised proxy here is
 
@@ -19,13 +19,13 @@ HIGHER MOMENTS of (x, y) even when the first-moment marginal is flat. The cheap,
 
 which the H2 benchmark (n=8000, p=2000, 5 seeds, K=6 planted pure pair interactions) showed recovers the
 true operands into the top-250 at recall ~0.88 at realistic leakage L=0.1 (vs marginal-MI 0.68 and the m/p
-random baseline 0.12), at ~5s for p=10000 -- 18x cheaper than the LightGBM split-frequency criterion that
+random baseline 0.12), at ~5s for p=10000 - 18x cheaper than the LightGBM split-frequency criterion that
 scored marginally higher. cond_resp_var (a first-moment bin-mean statistic) gave NO lift over marginal MI;
 distance correlation underperformed (it captures monotone dependence, not interaction leakage).
 
 IRREDUCIBLE FLOOR (do not paper over it): a PERFECTLY balanced zero-higher-moment interaction (exact 50/50
 XOR, operands independent of y in every moment) is information-theoretically invisible to ANY O(p)
-per-variable score -- at L=0.0 every criterion sits at the random baseline. That measure-zero case can only
+per-variable score - at L=0.0 every criterion sits at the random baseline. That measure-zero case can only
 be recovered by the exhaustive O(p^2) sweep itself; the pre-rank does not claim to find it. For realistic
 interactions with any higher-moment leakage (L>=0.1) the pre-rank lets the needle SURVIVE into the sweep
 where the old "skip past the cap" dropped it entirely.
@@ -42,7 +42,7 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 # SOFT default budget (seconds) for the size-gated "auto" criterion when NO MRMR time budget is
 # threaded through (no max_runtime_mins / budget_seconds). The user explicitly rejected "fused
 # always" / unlimited: a WIDE 100k-column frame must NOT pay a full LightGBM fit by default. With
-# the measured ~113 cols/s @ n=8000, a 60s default crosses over near ~6.5k candidate columns -- so
+# the measured ~113 cols/s @ n=8000, a 60s default crosses over near ~6.5k candidate columns - so
 # small/moderate p escalates to the high-recall ``fused``, wide p stays on the cheap second_moment.
 # OVERRIDABLE: pass budget_seconds (the synergy wiring derives it from max_runtime_mins * 60).
 _AUTO_DEFAULT_BUDGET_SECONDS = 60.0
@@ -119,21 +119,21 @@ def second_moment_propensity(values: np.ndarray, y: np.ndarray) -> np.ndarray:
     ``values`` may be raw floats or quantile bin-codes (a monotone transform preserves the even/odd
     higher-moment structure the score exploits). The treatment of ``y`` depends on its cardinality:
 
-    * DISCRETE y (<= ``_NOMINAL_MAX_CLASSES`` distinct values -- the synergy-bootstrap site always passes the
-      DISCRETISED target, so this is the live path): the score is RELABEL-INVARIANT -- one-hot y and sum
+    * DISCRETE y (<= ``_NOMINAL_MAX_CLASSES`` distinct values - the synergy-bootstrap site always passes the
+      DISCRETISED target, so this is the live path): the score is RELABEL-INVARIANT - one-hot y and sum
       ``|corr(x^2, 1[y=c])| + |corr(x, 1[y=c])|`` over classes. Squaring the raw integer class CODES would be
       meaningless for a NOMINAL multiclass target (the kept set would depend on the arbitrary label assigned
-      to each class -- a real bug found 2026-06-19); one-hotting fixes it. For a BINARY target this reduces to
+      to each class - a real bug found 2026-06-19); one-hotting fixes it. For a BINARY target this reduces to
       twice the original ``|corr(x^2,y)|+|corr(x,y^2)|`` (the two class indicators are complementary), so the
-      RANKING -- all that matters for top-k -- is identical to the benched binary contract.
-    * CONTINUOUS y (> ``_NOMINAL_MAX_CLASSES`` distinct values -- a genuine regression target on raw values):
+      RANKING - all that matters for top-k - is identical to the benched binary contract.
+    * CONTINUOUS y (> ``_NOMINAL_MAX_CLASSES`` distinct values - a genuine regression target on raw values):
       the moment form ``|corr(x^2, y)| + |corr(x, y^2)|``.
 
     Works for EVERY target type: binary, nominal/ordinal multiclass, continuous regression, boolean, and
     NON-NUMERIC (string / object / pandas Categorical) class labels.
 
-    NB on the MRMR synergy-bootstrap path the target arrives ALREADY ordinal-encoded -- ``categorize_dataset``
-    (filters/discretization) factorises every column, target included, before the FE step -- so the wiring
+    NB on the MRMR synergy-bootstrap path the target arrives ALREADY ordinal-encoded - ``categorize_dataset``
+    (filters/discretization) factorises every column, target included, before the FE step - so the wiring
     always passes integer codes and the non-numeric branch below is a NO-OP there. The defensive factorise is
     for DIRECT callers that score raw ``y`` before categorisation (e.g. the planned SIS front gate, which must
     rank raw columns before discretising a 100k-wide frame); it is not a re-implementation of categorize.
@@ -155,7 +155,7 @@ def _discrete_score_numpy_loop(V: np.ndarray, V2: np.ndarray, yf: np.ndarray, cl
 
 
 def gbm_split_propensity(values: np.ndarray, y: np.ndarray, num_boost_round: int = 100) -> np.ndarray:
-    """LightGBM split-frequency importance per column -- a COMPLEMENTARY interaction-propensity signal.
+    """LightGBM split-frequency importance per column - a COMPLEMENTARY interaction-propensity signal.
 
     A pure-interaction operand carries ~0 marginal MI but a tree booster still SPLITS on it repeatedly
     once a partner operand has been split (the interaction surfaces in the conditional structure), so its
@@ -163,8 +163,8 @@ def gbm_split_propensity(values: np.ndarray, y: np.ndarray, num_boost_round: int
     found scored highest in isolation (recall ~0.92 at L=0.1) but at ~18x the cost of the 2nd-moment score
     (one full booster fit). Used here only as one ingredient of the rank-fused criterion.
 
-    REUSE-AUDIT RU-3 disposition (2026-06-19): sharing this booster with the surrogate-GBM interaction seeder
-    (_mrmr_fe_step_helpers.apply_surrogate_gbm_seeder) was evaluated and NOT implemented -- the two gbm fits
+    REUSE-AUDIT RU-3 disposition: sharing this booster with the surrogate-GBM interaction seeder
+    (_mrmr_fe_step_helpers.apply_surrogate_gbm_seeder) was evaluated and NOT implemented - the two gbm fits
     almost never co-occur: the seeder is opt-in OFF by default (fe_gbm_seeder_enable=False) and this fused
     booster only fires when the size-gated 'auto' criterion picks 'fused' (small/moderate p; at wide p it
     routes to second_moment and skips the gbm entirely). So a shared fit saves ~0 in the default config and
@@ -200,8 +200,8 @@ def gbm_split_propensity(values: np.ndarray, y: np.ndarray, num_boost_round: int
         booster = lgb.train(params, ds, num_boost_round=num_boost_round)
         return booster.feature_importance(importance_type="split").astype(np.float64)
     except Exception as exc:
-        # FE_REDUNDANCY_SYNERGY-10 fix: was unlogged, unlike the adjacent (and
-        # reasonable) `import lightgbm` probe a few lines above -- a genuine LightGBM bug (bad params, a
+        # Was unlogged, unlike the adjacent (and
+        # reasonable) `import lightgbm` probe a few lines above - a genuine LightGBM bug (bad params, a
         # degenerate label after class-collapse, an internal assertion) silently degraded the
         # fused/gbm_splits interaction-propensity criterion to an all-zero ingredient with zero trace.
         logger.debug("gbm_split_propensity: lgb.train/feature_importance failed; falling back to zeros: %r", exc)
@@ -210,7 +210,7 @@ def gbm_split_propensity(values: np.ndarray, y: np.ndarray, num_boost_round: int
 
 def _rank_desc(scores: np.ndarray) -> np.ndarray:
     """Competition-free dense ranks (0 = best) for descending ``scores``; ties get the same average-free
-    ordinal rank by stable argsort. Lower rank = more interesting -- the common scale for rank fusion."""
+    ordinal rank by stable argsort. Lower rank = more interesting - the common scale for rank fusion."""
     order = np.argsort(-scores, kind="stable")
     ranks = np.empty(scores.shape[0], dtype=np.float64)
     ranks[order] = np.arange(scores.shape[0], dtype=np.float64)
@@ -221,7 +221,7 @@ def fused_propensity(values: np.ndarray, y: np.ndarray, use_gbm: bool = True) ->
     """Rank-fused interaction-propensity: combine the cheap 2nd-moment score with complementary signals so
     operands that EITHER leak in higher moments OR split frequently in a tree get surfaced.
 
-    Fusion is by MIN-RANK (an operand kept high by ANY ingredient survives -- W3's prototype noted this
+    Fusion is by MIN-RANK (an operand kept high by ANY ingredient survives - W3's prototype noted this
     helped over a single criterion): score = -(min over ingredients of the descending rank). Ingredients:
       * 2nd-moment propensity (always; the O(p*n) base),
       * marginal MI proxy via |corr(x, indicator)| summed over classes (cheap main-effect channel),
@@ -263,13 +263,13 @@ def _resolve_auto_criterion(
     fit is PREDICTED affordable for (n_rows, n_candidates), else the cheap ``second_moment``.
 
     The predicted fit wall-time is HW-calibrated (measured-and-cached per host via the kernel_tuning_cache;
-    analytic fallback only on a cold cache) -- NOT a magic constant. The budget is ``budget_seconds`` when
+    analytic fallback only on a cold cache) - NOT a magic constant. The budget is ``budget_seconds`` when
     provided (the synergy wiring threads max_runtime_mins * 60 through), else the SOFT default
     ``_AUTO_DEFAULT_BUDGET_SECONDS`` (keeps wide frames cheap; user rejected "fused always default").
 
     Returns ``(chosen_criterion, reason)``; the reason is logged + recorded for tests/diagnostics."""
     # An EXPLICIT non-positive budget (max_runtime_mins=0) means "no time" -> force the cheap path, never the
-    # expensive gbm fit (2026-06-19, critique Low-4). Only ``None`` falls back to the soft default.
+    # expensive gbm fit. Only ``None`` falls back to the soft default.
     if budget_seconds is not None and float(budget_seconds) <= 0:
         return "second_moment", "auto -> second_moment: explicit zero/negative time budget (no gbm fit)"
     budget = float(budget_seconds) if (budget_seconds is not None and budget_seconds > 0) else _AUTO_DEFAULT_BUDGET_SECONDS
@@ -306,13 +306,13 @@ def top_k_by_interaction_propensity(
     ``values`` is the full (n, n_cols) matrix; only the candidate columns are scored.
 
     ``criterion`` selects the ranking score:
-      * "auto" (DEFAULT): SIZE-GATED -- use the high-recall ``fused`` when one LightGBM fit over the
+      * "auto" (DEFAULT): SIZE-GATED - use the high-recall ``fused`` when one LightGBM fit over the
         candidate columns is PREDICTED affordable for (n_rows, n_candidates) within ``budget_seconds``
         (or the soft default), else fall back to the cheap ``second_moment``. The cost prediction is
         HW-calibrated (measured-and-cached per host); small/moderate p -> fused, wide p -> second_moment.
       * "second_moment": O(p*n), the benched cheap base (recall ~0.88 @ L=0.1).
       * "fused": rank-fusion of 2nd-moment + marginal + gbm split-frequency (recall ~0.92 @ L<=0.1 when
-        LightGBM is available, ~one full booster fit -- forces the high-recall path regardless of size).
+        LightGBM is available, ~one full booster fit - forces the high-recall path regardless of size).
       * "gbm_splits": split-frequency alone.
       * "never": alias for "second_moment" (explicitly never escalate to a gbm fit).
 

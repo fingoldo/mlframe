@@ -121,7 +121,7 @@ def _autoconfigure_cuda_home() -> None:
                 )
                 return
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logging.getLogger(__name__).debug("suppressed in __init__.py:117: %s", e)
+        logging.getLogger(__name__).debug("suppressed: %s", e)
         pass
 
 

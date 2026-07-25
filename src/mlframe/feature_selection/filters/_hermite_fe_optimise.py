@@ -25,7 +25,7 @@ def detect_pair_symmetry(
     1. Marginal MI ratio min(MI(a,y), MI(b,y)) / max(...).
     2. Sub/Add MI ratio MI(|a-b|, y) / MI(a+b, y).
 
-    Score >= 0.95: caller can constrain c_a = c_b to halve search dim. Score <= 0.7: clearly asymmetric -- per-feature basis routing matters more.
+    Score >= 0.95: caller can constrain c_a = c_b to halve search dim. Score <= 0.7: clearly asymmetric - per-feature basis routing matters more.
     """
     from .fe_baselines import _mi_1d
     x_a = np.asarray(x_a, dtype=np.float64)
@@ -92,7 +92,7 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
     #   z, GEMM ``H = B @ C.T`` would amortise the build cost)
     #
     # CALLERS PASSING B_a / B_b MUST pre-truncate them to EXACTLY
-    # (n, coef_a.shape[0]) / (n, coef_b.shape[0]) -- this function no longer
+    # (n, coef_a.shape[0]) / (n, coef_b.shape[0]) - this function no longer
     # re-slices per trial (that re-slice+copy ran on every CMA-ES/random-batch
     # trial, tens of thousands of times per pair; the only caller,
     # ``optimise_hermite_pair``, now truncates once per degree). The
@@ -102,7 +102,7 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
     # in development.
     if B_a is not None and B_b is not None:
         # B_a / B_b arrive PRE-TRUNCATED to (ca_size, cb_size) by the only caller that ever sets them
-        # (optimise_hermite_pair slices once per degree, before the trial loop) -- do not re-slice per trial.
+        # (optimise_hermite_pair slices once per degree, before the trial loop) - do not re-slice per trial.
         _ca = np.ascontiguousarray(coef_a, dtype=np.float64)
         _cb = np.ascontiguousarray(coef_b, dtype=np.float64)
         h_a = B_a @ _ca
@@ -146,7 +146,7 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
             try:
                 combined = bf(h_a, h_b)
             except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _hermite_fe_optimise.py:119: %s", e)
+                logger.debug("suppressed: %s", e)
                 continue
             if np.all(np.isfinite(combined)):
                 cols.append(combined)
@@ -191,19 +191,19 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
     """Batched eval over ``P`` coefficient candidates simultaneously.
 
     Args:
-      coefs_a: ndarray (P, ca_size) -- candidate coefficients for the a-side.
-      coefs_b: ndarray (P, cb_size) -- candidate coefficients for the b-side.
+      coefs_a: ndarray (P, ca_size) - candidate coefficients for the a-side.
+      coefs_b: ndarray (P, cb_size) - candidate coefficients for the b-side.
       All other kwargs match ``_eval_coef_pair``.
 
     Returns:
-      (best_scores, best_raws, best_idxs) each ndarray (P,) -- per-candidate
+      (best_scores, best_raws, best_idxs) each ndarray (P,) - per-candidate
       best regularised score, raw MI, and bf index.
 
     The single-call version dispatches one MI batch call across ALL
     (candidate, bf) column combinations: typical (P=20, K_bf=5) gives a
     100-column batch instead of 20 separate 5-column batches. The plugin
     MI kernel is already numba-batched over columns via prange, so this
-    feeds 100 columns into ONE prange loop -- saturates cores fully and
+    feeds 100 columns into ONE prange loop - saturates cores fully and
     removes 19 of the 20 Python-side GIL acquire/release cycles between
     successive MI calls. Combined with the per-candidate Python loop for
     polyeval (cheap numba calls), this is the bulk of the speedup vs
@@ -225,12 +225,12 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
             coefs_b[p] = cb_n
 
     # Phase 1: compute h_a / h_b per candidate (one numba call each;
-    # Python loop). Skip candidates that produce non-finite h_a/h_b --
+    # Python loop). Skip candidates that produce non-finite h_a/h_b -
     # they get -inf score downstream.
     # bench-attempt-rejected (2026-07-15): one GEMM (B_a @ coefs_a.T).T instead of P per-candidate GEMVs
     # measured 2.7x faster ISOLATED (n=20000, P=20, cs=7: 4.7ms loop vs 1.7ms batched; ~1e-15 abs FP-reorder
     # divergence, within tolerance) but NET FLAT end-to-end (1.49s -> 1.52s over a full cma_batch search,
-    # within run-to-run noise) -- the coefs.T ascontiguousarray + single large-P GEMM's BLAS thread dispatch
+    # within run-to-run noise) - the coefs.T ascontiguousarray + single large-P GEMM's BLAS thread dispatch
     # overhead cancels the win at this P/n scale in-process alongside numba's own thread pool. Kept as the
     # simpler per-candidate loop; the batched form would need re-measuring at a much larger P (e.g. a wider
     # cupy-side generation batch) before it nets positive.
@@ -242,7 +242,7 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
         ca = coefs_a[p]
         cb = coefs_b[p]
         if B_a is not None and B_b is not None:
-            # B_a / B_b are pre-truncated to (ca_size, cb_size) by the caller (once per degree) -- see the
+            # B_a / B_b are pre-truncated to (ca_size, cb_size) by the caller (once per degree) - see the
             # matching note in _eval_coef_pair; no per-candidate re-slice.
             _ca = np.ascontiguousarray(ca, dtype=np.float64)
             _cb = np.ascontiguousarray(cb, dtype=np.float64)
@@ -272,7 +272,7 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
     KBF = len(bf_callables)
     X_batch = np.empty((P * KBF, n_rows), dtype=np.float64)  # ROW-major: contiguous writes + copy-free MI rows kernel
     nc = 0
-    # The all-known-bfs case runs ONE parallel njit fill over every (candidate, bf) row -- bf compute,
+    # The all-known-bfs case runs ONE parallel njit fill over every (candidate, bf) row - bf compute,
     # finiteness scan, and the row store all inside a single prange (no 120x Python->njit crossings, allocs,
     # or isfinite passes). Any unknown bf name falls back to the per-column Python loop below.
     _bf_ids = [_bf_name_to_id.get(nm, -1) for nm in bf_names] if _bf_name_to_id else [-1] * KBF
@@ -300,7 +300,7 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
                         with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
                             combined = bf(h_a, h_b)
                 except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in _hermite_fe_optimise.py:234: %s", e)
+                    logger.debug("suppressed: %s", e)
                     continue
                 if np.all(np.isfinite(combined)):
                     X_batch[nc] = combined
@@ -314,7 +314,7 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
         return best_scores, best_raws, best_idxs
 
     # Phase 3: ONE batched MI call across all (P * K_bf_valid) columns.
-    # _plugin_mi_classif_batch_njit kernel pranges over columns -- with
+    # _plugin_mi_classif_batch_njit kernel pranges over columns - with
     # P=20 candidates and ~5 bf_callables we feed 100 columns into one
     # call, saturating all cores in a single numba launch.
     X_batch = X_batch[:nc]  # (nc, n) row-major view; rows already contiguous
@@ -416,8 +416,8 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
         try:
             solutions = es.ask()
         except Exception as exc:
-            # ORTH_BASIS_A-2 fix: was a bare except with zero logging, silently
-            # truncating the CMA generation loop early on any cma-library fault -- a real cma regression
+            # Was a bare except with zero logging, silently
+            # truncating the CMA generation loop early on any cma-library fault - a real cma regression
             # (e.g. after a package upgrade) would silently degrade hermite pair-FE recall with no trace.
             logger.warning("_run_cma_search_batch: es.ask() raised (%s: %s); stopping CMA early with the best solution found so far.", type(exc).__name__, exc)
             break
@@ -463,7 +463,7 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
         try:
             es.tell(solutions, cma_scores)
         except Exception as exc:
-            # ORTH_BASIS_A-2 fix: see the matching es.ask fix above.
+            # See the matching es.ask fix above.
             logger.warning("_run_cma_search_batch: es.tell() raised (%s: %s); stopping CMA early with the best solution found so far.", type(exc).__name__, exc)
             break
         if early_stop_no_improve_gens and early_stop_no_improve_gens > 0:
@@ -495,15 +495,15 @@ def _run_random_batch_search(*, ca_size, cb_size, coef_range, n_trials, seed,
     ``coef_range``. After iter 0, replace the first ``elitism_k`` slots
     with Gaussian perturbations of the current best (sigma =
     ``perturb_sigma_frac`` * coef_range_width). All candidates evaluated
-    in ONE ``_eval_coef_pair_batch`` call -- pure Python decision
+    in ONE ``_eval_coef_pair_batch`` call - pure Python decision
     overhead per iter is ~5 lines, no GIL-locked sampler loop.
 
     Same return contract as ``_run_cma_search`` so the dispatcher can
     drop it in via ``optimizer="random_batch"``.
     """
     from .hermite_fe import _l2_normalize_pair
-    # ORTH_BASIS_A-1 fix: was `seed if seed > 0 else 1`, silently substituting 1
-    # for seed<=0 (including the valid seed=0) -- sibling RNGs in this same call chain
+    # Was `seed if seed > 0 else 1`, silently substituting 1
+    # for seed<=0 (including the valid seed=0) - sibling RNGs in this same call chain
     # (_hermite_fe_optimise_pair.py's multi-fidelity subsample / noise-floor null) correctly keep seed=0 as
     # 0. Reachable via the public optimizer="random_batch" kwarg AND via the DEFAULT cupy_kernel path's
     # no-cupy fallback, so a direct seed=0 caller got a silently different, non-requested RNG stream.
@@ -590,7 +590,7 @@ def _select_diverse_topm(history: list, top_m: int, min_l2_distance: float = 0.3
     """
     if not history:
         return []
-    # Wave 58 (2026-05-20): secondary key on bf_idx (r[2]) so tied top-MI
+    # Secondary key on bf_idx (r[2]) so tied top-MI
     # Hermite history doesn't shift `kept[0]` across iteration orders.
     sorted_h = sorted(history, key=lambda r: (-r[0], r[2]))
     # Pad lengths to the max coef vector for cross-degree comparison.
@@ -632,7 +632,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
                      early_stop_no_improve_gens: int | None = None):
     """CMA-ES inner loop. Returns (best_coef_a, best_coef_b, best_bf_idx, best_raw_mi, n_evals). When track_history=True, also returns the full evaluation list.
 
-    CMA minimizes; we negate the MI score. Default popsize=max(8, min(20, n_trials // 8)) -- smaller than CMA's default to allow more generations on tight budgets.
+    CMA minimizes; we negate the MI score. Default popsize=max(8, min(20, n_trials // 8)) - smaller than CMA's default to allow more generations on tight budgets.
 
     ``early_stop_no_improve_gens`` (2026-05-20 NEW-D): break out of the
     CMA loop when ``best_score`` has not improved for this many
@@ -682,7 +682,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
                     best_coefs = (coef_a.copy(), coef_b.copy())
         # Use the best canonical seed as CMA's starting point.
         x0 = np.concatenate([best_coefs[0], best_coefs[1]]) if best_coefs is not None else np.zeros(dim, dtype=np.float64)
-        # Tighter sigma when we already have a good seed -- exploit
+        # Tighter sigma when we already have a good seed - exploit
         # rather than explore.
         sigma0 = sigma0 * 0.5
     else:
@@ -701,7 +701,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
             "tolx": 1e-6,
         },
     )
-    # Inject remaining canonical seeds into the first generation -- CMA
+    # Inject remaining canonical seeds into the first generation - CMA
     # 4.x lets us replace ask()'s random samples directly.
     inject_arrays = [np.asarray(s, dtype=np.float64) for s in (warm_start_seeds or [])]
 
@@ -722,7 +722,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
             else:
                 solutions = es.ask()
         except Exception as exc:
-            # ORTH_BASIS_A-2 fix: see _run_cma_search_batch's matching fix above.
+            # See _run_cma_search_batch's matching fix above.
             logger.warning("_run_cma_search: es.ask() raised (%s: %s); stopping CMA early with the best solution found so far.", type(exc).__name__, exc)
             break
         scores = []
@@ -956,7 +956,7 @@ def optimise_pair_multimode(
             preprocess_a=preprocess_a,
             preprocess_b=preprocess_b,
         ))
-    # Wave 58 (2026-05-20): secondary key on (deg_a, deg_b, bf_name) so tied
+    # Secondary key on (deg_a, deg_b, bf_name) so tied
     # mi doesn't make results[0] depend on insertion order.
     results.sort(key=lambda r: (-r.mi, getattr(r, "degree_a", 0), getattr(r, "degree_b", 0), getattr(r, "bf_name", "")))
     return results

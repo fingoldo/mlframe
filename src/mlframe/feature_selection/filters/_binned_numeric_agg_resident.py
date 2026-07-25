@@ -1,33 +1,33 @@
-"""DEVICE-BORN OOF binned-aggregate FE candidate builder + resident MI gate (2026-06-30).
+"""DEVICE-BORN OOF binned-aggregate FE candidate builder + resident MI gate.
 
 The Tier-1 ``local_mi_gate`` of the binned-numeric-aggregate FE family (``_binned_numeric_agg_fe.py:360``)
-scores the OOF ``feat_df`` matrix -- one column per (group, agg, kept_stat) -- by ``MI(col; y)``. Under
+scores the OOF ``feat_df`` matrix - one column per (group, agg, kept_stat) - by ``MI(col; y)``. Under
 ``MLFRAME_FE_GPU_STRICT`` that scoring routes through ``_mi_classif_batch`` -> the resident plug-in MI, but the
 ``feat_df`` matrix is built ENTIRELY ON THE HOST in ``fit_binned_numeric_agg`` and then ``cp.asarray``-uploaded
 (H2D instrumentation: ~192 MB / the #2 single-site H2D of a 300k STRICT F2 fit, attributed to
 ``_binned_numeric_agg_fe.py:360``). Unlike the conditional gate-grid the columns ARE derived from a SMALL,
 CACHEABLE operand basis: per (group, agg) pair the only inputs are TWO raw columns (the group column + the
-aggregated column), the OOF fold-id vector, and the quantile edges -- all small and resident-cacheable. So the
+aggregated column), the OOF fold-id vector, and the quantile edges - all small and resident-cacheable. So the
 WHOLE (n, K) candidate matrix can be built on the device from those operands, collapsing the matrix upload to
 just the operand columns (uploaded once per fit via the resident-operand cache).
 
 This mirrors the committed device-born pattern of ``_resident_candidate_mi.gate_grid_mi_resident`` (build the
 candidate block on the device from resident operands; score with the SAME percentile-edge resident plug-in MI
-``_plugin_mi_classif_batch_cuda_resident`` the host STRICT path already uses -- NO estimator switch).
+``_plugin_mi_classif_batch_cuda_resident`` the host STRICT path already uses - NO estimator switch).
 
 BIT-IDENTICAL OOF STRUCTURE
 ---------------------------
 The device reconstruction reproduces ``fit_binned_numeric_agg``'s OOF construction EXACTLY:
 
 * fold ids: generated on the HOST with the SAME ``np.random.default_rng(random_state).permutation(n)`` (cheap,
-  n ints) and uploaded -- byte-identical fold assignment, no device RNG.
+  n ints) and uploaded - byte-identical fold assignment, no device RNG.
 * quantile codes: the SAME stored ``edges`` (from the recipe) via ``searchsorted(edges, gvals, 'right')`` on
-  device -- integer codes match the host ``np.searchsorted`` bit-for-bit (same f64 edges, same side).
+  device - integer codes match the host ``np.searchsorted`` bit-for-bit (same f64 edges, same side).
 * per-fold gather: per fold f, per-cell raw moments over the TRAIN rows (``fold_ids != f`` AND finite) via
-  ``cp.bincount`` raw-moment accumulation, then ``per[s][codes[test]]`` gathered to the TEST rows -- the SAME
+  ``cp.bincount`` raw-moment accumulation, then ``per[s][codes[test]]`` gathered to the TEST rows - the SAME
   index structure as the host.
 * global fallback: the SAME host-computed per-stat ``global`` (from the recipe) substituted wherever the
-  per-cell stat is non-finite (empty cell) -- byte-identical fallback constant + byte-identical WHERE structure.
+  per-cell stat is non-finite (empty cell) - byte-identical fallback constant + byte-identical WHERE structure.
 
 ULP NOTE: the raw-moment math (mean/std/skew/kurt from ``cp.bincount`` raw moments) differs from numpy only at
 the last ULP (the SAME approved selection-equivalent trade the host njit accumulator already documents vs numpy
@@ -72,14 +72,14 @@ def binagg_fold_ids(n: int, n_folds: int, random_state: int) -> np.ndarray:
 
 
 def _per_cell_raw_moments_gpu(cp, codes_g, v_g, n_cells: int):
-    """Per-cell raw moments ``(cnt, s1, s2, s3, s4)`` on the device via ``cp.bincount`` -- the device twin of
+    """Per-cell raw moments ``(cnt, s1, s2, s3, s4)`` on the device via ``cp.bincount`` - the device twin of
     ``_per_cell_raw_moments_njit``. Each ``s_k = sum(v**k)`` per cell; powers built by repeated multiply
     (``x2 = v*v``; ``s3 = bincount(v*x2)``; ``s4 = bincount(x2*x2)``) so the raw moments match the host njit
     accumulator to the last ULP (the SAME approved trade vs numpy ``v**3``/``v**4``)."""
     nc = int(n_cells)
     x = v_g
     x2 = x * x
-    # resident_bincount: codes_g are joint cell ids in [0, nc) so the bin count is known -- skip cupy.bincount's
+    # resident_bincount: codes_g are joint cell ids in [0, nc) so the bin count is known - skip cupy.bincount's
     # per-call int(cupy.max) D2H sync (these 5 reductions were the largest single scalar-sync cluster in the trace).
     cnt = resident_bincount(cp, codes_g, nc)
     s1 = resident_bincount(cp, codes_g, nc, weights=x)
@@ -92,7 +92,7 @@ def _per_cell_raw_moments_gpu(cp, codes_g, v_g, n_cells: int):
 def _per_cell_raw_moments_masked_gpu(cp, codes_g, v_safe, w, n_cells: int):
     """Per-cell raw moments over ONLY the rows where ``w != 0``, computed WITHOUT materialising a row index.
 
-    The gathered form ``_per_cell_raw_moments_gpu(codes[idx], v[idx])`` needs ``idx = cp.where(mask)`` -- a
+    The gathered form ``_per_cell_raw_moments_gpu(codes[idx], v[idx])`` needs ``idx = cp.where(mask)`` - a
     blocking D2H sync to size the index. Instead scatter-add the FULL arrays with a 0/1 row weight ``w``:
     an excluded row adds exactly ``0.0`` to its cell (floating-point identity), so the moments are ULP-identical
     to the gathered version but no index / gather / sync is needed. ``v_safe`` MUST already be finite everywhere
@@ -111,12 +111,12 @@ def _per_cell_raw_moments_masked_gpu(cp, codes_g, v_safe, w, n_cells: int):
 
 
 # cupy.fuse kernel cache (2026-07-02, cProfile-driven): _stats_from_moments_gpu was the #1 host hotspot
-# (0.588s tottime / 100 calls) -- its cost is HOST issue-time for the ~10-20 small cupy elementwise launches
+# (0.588s tottime / 100 calls) - its cost is HOST issue-time for the ~10-20 small cupy elementwise launches
 # it fired per call (mean, safe/m2/std, the per-stat m3/m4 chains + two cp.where guards each). Each stat's
 # per-cell formula is a pure elementwise chain over the (n_cells,) moment arrays, so cupy.fuse collapses the
 # WHOLE chain of a stat into ONE fused kernel launch. Each fused body is a 1:1 transcription of the exact same
 # arithmetic + the same cp.where(std>1e-9)/cp.where(m2>1e-12) guards + the same cp.where(cnt>0,...,nan) empty-cell
-# NaN as the pre-fusion code -- the fused op order can only re-associate at the last ULP (nvcc FMA), inside the
+# NaN as the pre-fusion code - the fused op order can only re-associate at the last ULP (nvcc FMA), inside the
 # 1e-10 selection band. Built lazily from the passed cp (never imports cupy / never runs at import): the fuse
 # decorator only traces python; the CUDA compile happens on first call with real arrays, on the parent's GPU.
 _FUSED_STATS: Optional[dict] = None
@@ -178,9 +178,9 @@ def _stats_from_moments_gpu(cp, moments, stats: Sequence[str]) -> dict:
     (pair, fold) derives each stat from the cached moments instead of re-running the 5 bincounts per stat
     (the launch-count monster the NVTX trace flagged: binagg was 37k GPU ops at 200k).
 
-    FUSED (2026-07-02): each stat is now derived by a SINGLE cupy.fuse kernel (``_get_fused_stats``) that
+    FUSED: each stat is now derived by a SINGLE cupy.fuse kernel (``_get_fused_stats``) that
     computes its whole per-cell chain (safe/mean/m2/std -> raw -> the cnt>0 NaN guard) in one launch, instead of
-    ~4-8 separate elementwise launches per stat. Same arithmetic FORM / same guards / same NaN placement -- the
+    ~4-8 separate elementwise launches per stat. Same arithmetic FORM / same guards / same NaN placement - the
     per-op mean/safe/m2/std are recomputed inside each fused body (GPU-cheap) rather than shared as host arrays,
     trading a few extra GPU FLOPs for a large drop in HOST launch-issue time (the measured hotspot)."""
     cnt, s1, s2, s3, s4 = moments
@@ -214,7 +214,7 @@ def build_binagg_oof_matrix_gpu(
     the GIVEN order. Reproduces ``fit_binned_numeric_agg``'s OOF loop on device from resident operand columns.
 
     ``col_specs`` is a list of per-output dicts ``{name, group_col, agg_col, stat, edges, global}`` (exactly the
-    recipe fields) -- the columns the host ``feat_df`` carries, in the SAME order. ``fold_ids`` is the
+    recipe fields) - the columns the host ``feat_df`` carries, in the SAME order. ``fold_ids`` is the
     host-generated OOF fold-id vector (uploaded once). Returns an (n, K) cupy float64 matrix whose columns are
     the device OOF reconstructions, structurally bit-identical to the host (same codes, same per-fold gather,
     same global fallback); the per-cell moment VALUES differ only at ULP.
@@ -283,17 +283,17 @@ def build_binagg_oof_matrix_gpu(
         # OOF: init the whole column to the global fallback, then overwrite each fold's TEST rows with the
         # train-fold per-cell stat (global where the cell was empty in train). Structurally identical to host.
         # LAUNCH-BATCHED (2026-07-02, NVTX-driven): the fold caches are keyed so the expensive device work runs
-        # ONCE per reuse unit -- raw MOMENTS *and all of the pair's stats* per (pair, fold), derived in a SINGLE
+        # ONCE per reuse unit - raw MOMENTS *and all of the pair's stats* per (pair, fold), derived in a SINGLE
         # _stats_from_moments_gpu pass shared by ALL of the pair's stat columns (was per (fold, stat): the same 5
         # bincounts re-ran for each of the pair's 4 stat columns = 4x the launches, and each per-stat call
         # re-derived the shared safe/mean + std), test indices/codes per (gcol, fold) shared by every pair of that
         # group column, train indices per (pair, fold). Values ULP-identical (same bincounts, same gathers/stat
-        # arithmetic -- just cached).
+        # arithmetic - just cached).
         # Fully sync-free OOF loop: train moments via masked scatter-add (no row index), test-row overwrite via
-        # a full-length gather + elementwise select (no test index). The whole fold loop stays resident -- no
+        # a full-length gather + elementwise select (no test index). The whole fold loop stays resident - no
         # cp.where, no per-fold D2H. A degenerate fold (no finite train rows) needs no special case: its 0/1
         # weight is all-zero, so every cell count is 0, _stats_from_moments emits NaN, and the isfinite select
-        # below leaves those test rows at the global fallback -- exactly the old degenerate branch.
+        # below leaves those test rows at the global fallback - exactly the old degenerate branch.
         _pstats = pair_stats[(gcol, acol)]
         oof = cp.full(n, glob, dtype=cp.float64)
         for f in range(nf):
@@ -346,14 +346,14 @@ def local_mi_gate_binagg_resident(
     exact host gate (byte-identical default path untouched).
 
     The MI noise FLOOR is computed on the host exactly as ``local_mi_gate`` does (``raw_mi_noise_floor`` over
-    raw_X) -- that path is the small raw matrix already routed through STRICT ``_mi_classif_batch`` and is NOT
+    raw_X) - that path is the small raw matrix already routed through STRICT ``_mi_classif_batch`` and is NOT
     the collapsed upload; reproducing it host-side keeps the floor (and thus the keep/drop decision) identical."""
     try:
         import cupy as cp
     except Exception:
         return None
     # ``cand_cols`` / ``n_rows`` let the DEVICE-BORN caller (binned_numeric_agg_with_recipes' recipes-only path)
-    # gate WITHOUT materialising the host OOF feat_df -- it fits recipes-only, gates from those recipes here, then
+    # gate WITHOUT materialising the host OOF feat_df - it fits recipes-only, gates from those recipes here, then
     # builds the OOF for the FEW survivors. When a ``feat_df`` is supplied (the host callers) both are derived
     # from it exactly as before.
     if feat_df is not None:
@@ -421,7 +421,7 @@ def local_mi_gate_binagg_resident(
                         reason="unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor",
                     )
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in _binned_numeric_agg_resident.py:418: %s", e)
+                    logger.debug("suppressed: %s", e)
                     pass
     scored.sort(key=lambda t: t[1], reverse=True)
     if top_k is not None and int(top_k) > 0:

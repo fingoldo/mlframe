@@ -1,4 +1,4 @@
-"""``mlframe.feature_selection.filters.mrmr`` -- the MRMR estimator package facade.
+"""``mlframe.feature_selection.filters.mrmr`` - the MRMR estimator package facade.
 
 The ``MRMR`` class body moved verbatim into ``._mrmr_class`` (the irreducible single class, LOC-exempt); this
 facade re-exports it and the FULL historical public surface so every ``from mlframe.feature_selection.filters
@@ -11,7 +11,7 @@ resolving unchanged.
 facade (old pickles already reference this path), and the method bindings that used to live at the bottom of the
 monolith (``MRMR._fit_impl`` / ``MRMR._run_fe_step`` / ``MRMR.partial_fit`` / ``MRMR.get_fe_report`` /
 ``MRMR._validate_*`` / ``MRMR._append_engineered``) run here in their original order so ``self.<method>(...)`` call
-sites are untouched. ``_FIT_CACHE`` is a class attribute defined on ``MRMR`` in ``._mrmr_class`` -- the same class
+sites are untouched. ``_FIT_CACHE`` is a class attribute defined on ``MRMR`` in ``._mrmr_class`` - the same class
 object is re-exported here, so the process-wide fit cache, ``isinstance`` checks, and any monkey-patch setters all
 operate on one identity.
 """
@@ -149,8 +149,8 @@ from ._mrmr_class import MRMR
 
 # Pickle resolves a class via ``__module__`` + ``__qualname__``. The class object now lives in ``._mrmr_class``;
 # stamp the package facade path here so the private submodule never leaks into a pickle. ``filters/__init__.py``
-# subsequently rewrites it again to ``mlframe.feature_selection.filters`` -- the historical pickle-BC value, which
-# Python always reaches first since parent packages import before submodules -- so the on-disk contract is
+# subsequently rewrites it again to ``mlframe.feature_selection.filters`` - the historical pickle-BC value, which
+# Python always reaches first since parent packages import before submodules - so the on-disk contract is
 # unchanged by this split (old pickles keep loading against the same re-exported class object).
 MRMR.__module__ = "mlframe.feature_selection.filters.mrmr"
 
@@ -177,7 +177,7 @@ from .._mrmr_validate_transform import (
 MRMR._validate_string_params = _validate_string_params_func
 MRMR._validate_inputs = _validate_inputs_func
 # ``transform`` is defined on the class body (as a thin delegator) so ``_SetOutputMixin.__init_subclass__`` wraps it
-# correctly. Do NOT late-rebind ``MRMR.transform`` here -- that strips the wrapper and silently breaks
+# correctly. Do NOT late-rebind ``MRMR.transform`` here - that strips the wrapper and silently breaks
 # ``set_output(transform='pandas')`` for direct ndarray-input calls.
 MRMR._append_engineered = _append_engineered_func
 
@@ -199,7 +199,7 @@ MRMR.get_fe_rejection_report = _get_fe_rejection_report_func
 
 # One-call SELECTION-STABILITY / CONFIDENCE report (W3): per-feature selection-frequency +
 # per-recipe survival-frequency, computed by REPLAY of the cheap MI screen on K bootstrap
-# resamples of the stored binned screening matrix -- no MRMR refit (the #15 replay-not-refit trick).
+# resamples of the stored binned screening matrix - no MRMR refit (the #15 replay-not-refit trick).
 from .._mrmr_stability_report import selection_stability_report as _selection_stability_report_func
 MRMR.selection_stability_report = _selection_stability_report_func
 
@@ -208,14 +208,14 @@ MRMR.selection_stability_report = _selection_stability_report_func
 from .._mrmr_explain import explain_selection as _explain_selection_func
 MRMR.explain_selection = _explain_selection_func
 
-# ``set_params`` override bound directly onto the class -- not
-# defined on a mixin -- because ``BaseEstimator`` (which already defines ``set_params``) sits BEFORE the
+# ``set_params`` override bound directly onto the class - not
+# defined on a mixin - because ``BaseEstimator`` (which already defines ``set_params``) sits BEFORE the
 # config mixins in ``MRMR``'s MRO, so a mixin-level override would never be reached. See
 # ``_mrmr_config_dataclasses.mrmr_set_params`` for the config-invalidation mechanism.
 from ._mrmr_config_dataclasses import mrmr_set_params as _mrmr_set_params_func
 MRMR.set_params = _mrmr_set_params_func
 
-# Semi-supervised fit helper -- importable from the ``mrmr`` namespace so callers can
+# Semi-supervised fit helper - importable from the ``mrmr`` namespace so callers can
 # ``from mlframe.feature_selection.filters.mrmr import fit_with_unlabeled`` without reaching into the sibling path.
 from .._semi_supervised_fe import fit_with_unlabeled
 

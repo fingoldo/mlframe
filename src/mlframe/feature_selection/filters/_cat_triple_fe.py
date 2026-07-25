@@ -15,10 +15,10 @@ hole:
                       - [I(a, b; y) + I(a, c; y) + I(b, c; y)]
                       + [I(a; y) + I(b; y) + I(c; y)]
 
-``II3 > 0`` = genuine three-way synergy that NO pair or single explains -- the
+``II3 > 0`` = genuine three-way synergy that NO pair or single explains - the
 triple worth materialising. ``II3 ~ 0`` = no third-order structure. (Sign of
 co-information is order-dependent in the general lattice, but for the synergy
-question we ask -- "does the joint triple tell more than every pair predicts" --
+question we ask - "does the joint triple tell more than every pair predicts" -
 a strongly positive II3 with near-zero pairwise II is the unambiguous parity
 signature.)
 
@@ -31,14 +31,14 @@ pairwise II), then extend EACH retained pair by the single best third cat, keep
 a beam of width ``W``. Candidate triples evaluated is bounded by ``W * p`` (one
 sweep of all remaining cats per beam slot) rather than ``C(p, 3)``. For the pure
 three-way XOR the top pairwise II are near-zero AND near-tied, so the beam seeds
-from arbitrary pairs -- but because the THIRD-cat sweep evaluates II3 (not
+from arbitrary pairs - but because the THIRD-cat sweep evaluates II3 (not
 pairwise II), the genuine triple still surfaces: adding the missing parity
 member is the only extension that drives II3 strongly positive.
 
 Cardinality + TE (Layers 29 / 33)
 ---------------------------------
 
-A triple cross can have up to ``card_a * card_b * card_c`` cells -- it explodes
+A triple cross can have up to ``card_a * card_b * card_c`` cells - it explodes
 faster than a pair. The Layer 29 pre-screen still applies: a cross with more
 than ``0.5 * n`` distinct cells is refused as a raw factorize feature (cells
 near-unique -> memorisation) and routed through K-fold OOF target encoding
@@ -50,11 +50,11 @@ Recipe replay
 
 Recipe kind ``cat_triple_cross`` stores the (a, b, c) triple plus the fit-time
 ``(val_a, val_b, val_c) -> code`` mapping (and, for TE, the per-code mean-of-y
-lookup + global mean). Replay reads ONLY X -- each test row's value-triple is
+lookup + global mean). Replay reads ONLY X - each test row's value-triple is
 looked up; unseen triples map to a sentinel code (raw) or the global mean (TE).
 No ``y`` reference is captured, so ``transform()`` is leakage-free.
 
-NOT wired into ``MRMR.fit`` by default -- opt-in via
+NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_cat_triple_enable=True``.
 """
 from __future__ import annotations
@@ -111,7 +111,7 @@ def _join_codes(*code_arrays: np.ndarray) -> np.ndarray:
     """Dense int64 cell code for the joint of several integer code arrays.
 
     Horner-packs the per-column codes into a single key (multiply by per-column
-    ``max+1``) then dense-renumbers via ``np.unique`` -- the cartesian space is
+    ``max+1``) then dense-renumbers via ``np.unique`` - the cartesian space is
     never materialised, only the occupied cells survive.
     """
     if not code_arrays:
@@ -163,7 +163,7 @@ def triple_interaction_information(
 
 
 # ---------------------------------------------------------------------------
-# Triple-cross materialisation -- pure X-only kernel (no y reference)
+# Triple-cross materialisation - pure X-only kernel (no y reference)
 # ---------------------------------------------------------------------------
 
 
@@ -185,8 +185,8 @@ def _encode_triple(
     replay maps via the stored value-triple lookup, so the ordering convention
     does not affect correctness.
 
-    ``precomputed_a``/``_b``/``_c`` let a caller that already holds a column's ``(uniq_strings, dense_codes)`` -- e.g.
-    ``score_cat_triples_by_interaction_information``'s per-column cache -- skip re-deriving them via ``_column_to_str`` + ``np.unique``
+    ``precomputed_a``/``_b``/``_c`` let a caller that already holds a column's ``(uniq_strings, dense_codes)`` - e.g.
+    ``score_cat_triples_by_interaction_information``'s per-column cache - skip re-deriving them via ``_column_to_str`` + ``np.unique``
     here (bit-identical: same ``np.unique`` call the caller already made on the identical column).
     """
     if precomputed_a is not None:
@@ -235,7 +235,7 @@ def generate_cat_triple_crosses(
 
     When ``triples`` is None, ALL unordered triples of ``cat_cols`` are
     generated. Returns ``(enc_df, raw_recipes)`` where ``raw_recipes`` maps each
-    engineered name to ``{"cat_a", "cat_b", "cat_c", "mapping", "n_cells"}`` --
+    engineered name to ``{"cat_a", "cat_b", "cat_c", "mapping", "n_cells"}`` -
     the replay-only payload (no y reference).
     """
     if not isinstance(X, pd.DataFrame):
@@ -304,7 +304,7 @@ def score_cat_triples_by_interaction_information(
     pairwise seeds (step 1) rarely contain two of the three signal cats. But once
     round 1 surfaces a partial triple whose II3 is lifted by containing two
     signal members, re-seeding round 2 from that triple's sub-pairs pulls in the
-    missing third member -- driving II3 strongly positive. Candidate triples
+    missing third member - driving II3 strongly positive. Candidate triples
     evaluated is bounded by ``n_rounds * max(top_k_pairs, beam_width) * (p - 2)``
     (a third-cat sweep per seed pair per round, deduplicated) rather than
     ``C(p, 3)``. The returned frame carries ``n_triples_evaluated`` /
@@ -313,7 +313,7 @@ def score_cat_triples_by_interaction_information(
     Columns: ``[cat_a, cat_b, cat_c, engineered_col, ii3]`` sorted by ``ii3``
     descending.
 
-    ``code_cache_out``, when given, is populated with ``{col: (uniq_strings, dense_codes)}`` for every column this call factorises -- the SAME
+    ``code_cache_out``, when given, is populated with ``{col: (uniq_strings, dense_codes)}`` for every column this call factorises - the SAME
     ``np.unique(_column_to_str(X[col]), return_inverse=True)`` result a downstream materialisation step (e.g. ``hybrid_cat_triple_fe``) would otherwise
     re-derive from scratch via ``_encode_triple``'s ``precomputed_a``/``_b``/``_c`` params.
     """
@@ -463,7 +463,7 @@ def hybrid_cat_triple_fe(
     if len(cat_cols) < 3:
         return X, [], [], pd.DataFrame()
 
-    # ``code_cache`` collects the scorer's per-column ``(uniq_strings, dense_codes)`` -- every survivor's
+    # ``code_cache`` collects the scorer's per-column ``(uniq_strings, dense_codes)`` - every survivor's
     # cat_a/cat_b/cat_c was necessarily scored during the beam search (hence already factorised), so the
     # materialisation loop below reuses them via ``_encode_triple``'s ``precomputed_*`` params instead of
     # re-running ``_column_to_str`` + ``np.unique`` from scratch per survivor.
@@ -553,7 +553,7 @@ def apply_cat_triple_cross(
     * ``encoding='target'``: emit the per-cell mean-of-y from ``te_lookup``;
       unseen triples (and seen codes absent from the lookup) -> ``global_mean``.
 
-    No y reference at replay -- pure function of X.
+    No y reference at replay - pure function of X.
     """
     if not isinstance(X_test, pd.DataFrame):
         raise TypeError(f"apply_cat_triple_cross: X_test must be a DataFrame; got " f"{type(X_test).__name__}")

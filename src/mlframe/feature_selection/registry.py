@@ -11,7 +11,7 @@ and (c) a kind string in ``_selector_kind``. Each registered selector here is re
 lives next to the spec, so the central report builder no longer hard-codes a branch per selector.
 
 FUTURE (data-driven ``_build_pre_pipelines`` over ``registry.available()``): collapse the per-selector
-branches into one loop by extending ``FeatureSelectorSpec`` with declarative wiring metadata --
+branches into one loop by extending ``FeatureSelectorSpec`` with declarative wiring metadata -
 ``config_enable_field`` ("use_mrmr_fs"), ``config_kwargs_field`` ("mrmr_kwargs"), ``selector_kind``, and
 a ``post_instantiate`` hook for the selector-specific stamping (MRMR's seed-default + identity-cache view,
 RFECV's prebuilt-instance override + cluster-medoid wrap, BorutaShap/ShapProxiedFS's classification
@@ -104,13 +104,13 @@ def _instantiate_rfecv(**kwargs):
     # Go through the public re-export so the underscore module remains an implementation detail.
     from mlframe.feature_selection.wrappers import RFECV
     # cluster-medoid pre-reduction is DEFAULT-ON for RFECV instantiated through THIS factory (MRMR / BorutaShap
-    # ranker paths). The training suite does NOT build RFECV through this factory -- it constructs RFECV directly
+    # ranker paths). The training suite does NOT build RFECV through this factory - it constructs RFECV directly
     # in configure_training_params and wraps it in GroupAwareMRMR inside _build_pre_pipelines, driven by the
     # FeatureSelectionConfig.rfecv_cluster_* fields (so the default-ON behaviour holds for the suite RFECV too). Broad validation
     # (bench_cross_selector_diverse: synthetic make_classification with varied
     # redundancy + a signal-in-non-medoid risk case + real breast_cancer / wine /
-    # digits) showed OOS AUC delta in [-0.0004, +0.0081] -- never materially
-    # hurts -- with ~1.4-1.9x wall-clock on genuinely correlated data. The
+    # digits) showed OOS AUC delta in [-0.0004, +0.0081] - never materially
+    # hurts - with ~1.4-1.9x wall-clock on genuinely correlated data. The
     # GroupAwareMRMR guard bypasses the medoid path (running the bare RFECV on
     # full X) whenever the clustering eliminates < cluster_min_reduction of the
     # features, so it is a no-op on near-uncorrelated data. expand=True keeps
@@ -122,7 +122,7 @@ def _instantiate_rfecv(**kwargs):
     min_reduction = float(kwargs.pop("cluster_min_reduction", 0.05))
     # ``cluster_corr_method`` (pearson | spearman | kendall | su). Default "pearson". The SU option captures
     # non-linear redundancy the corr methods miss; benched in _benchmarks/bench_medoid_corr_method.py before
-    # any default flip -- on the broad bench Pearson and SU tied on OOS within noise so the cheaper Pearson
+    # any default flip - on the broad bench Pearson and SU tied on OOS within noise so the cheaper Pearson
     # stays the default; pin "su" for known non-monotone-redundancy data.
     corr_method = str(kwargs.pop("cluster_corr_method", "pearson"))
     base = RFECV(**kwargs)
@@ -140,9 +140,9 @@ def _instantiate_boruta_shap(**kwargs):
     # Lazy import: BorutaShap pulls in shap + matplotlib + seaborn (~2s).
     from mlframe.feature_selection.boruta_shap import BorutaShap
     # 2026-06-03 (audit integration-defaults-3): cluster-medoid pre-reduction
-    # default-ON for BorutaShap too. Validated SAFE -- bench_boruta_shap_medoid
+    # default-ON for BorutaShap too. Validated SAFE - bench_boruta_shap_medoid
     # (synthetic varied-redundancy + real breast_cancer) gives OOS AUC delta in
-    # [+0.0000, +0.0005] (never hurts; the shadow-importance null behaves --
+    # [+0.0000, +0.0005] (never hurts; the shadow-importance null behaves -
     # collapsing redundant copies to one medoid CLEANS the per-feature SHAP test
     # rather than diluting it across near-duplicates). Speedup is modest here but
     # grows with redundancy width; the min_reduction guard makes it a no-op (bare
@@ -164,10 +164,10 @@ def _instantiate_boruta_shap(**kwargs):
 
 
 def _instantiate_shap_proxied_fs(**kwargs):
-    """Registry factory for ShapProxiedFS. NOT wrapped in the cluster-medoid reduction -- the selector already clusters internally."""
+    """Registry factory for ShapProxiedFS. NOT wrapped in the cluster-medoid reduction - the selector already clusters internally."""
     # Lazy import: ShapProxiedFS pulls in shap + a tree booster on first fit.
     # 2026-06-03 (audit integration-defaults-3): ShapProxiedFS is intentionally
-    # NOT wrapped in the cluster-medoid reduction -- it ALREADY clusters
+    # NOT wrapped in the cluster-medoid reduction - it ALREADY clusters
     # internally (cluster_correlated_features_su -> build_unit_matrix collapses
     # each correlated cluster to one denoised "unit" before the SHAP-proxy
     # selection; see shap_proxied_fs.py). Wrapping it would double-cluster.

@@ -40,7 +40,7 @@ def _rolling_stat_past_only_njit(times, vals, group_codes, td, stat_code, n_grou
     linked list (``prev``/``last`` int arrays); for each row we walk back while ``times[j] >= t - td`` (ascending
     per-entity time -> the walk stops at the window edge), accumulating count/sum/sumsq/min/max over the in-window,
     strictly-past, finite values. Replaces the Python per-entity lists + the per-row list-comprehension window filter
-    (O(n*window) with Python objects) -- same reduction, bit-identical incl NaN. ``times``/``td`` are int64 ns for a
+    (O(n*window) with Python objects) - same reduction, bit-identical incl NaN. ``times``/``td`` are int64 ns for a
     datetime column or float for numeric (numba specialises); ``stat_code``: 0=count 1=mean 2=std 3=min 4=max."""
     n = vals.size
     out = np.full(n, np.nan, dtype=np.float64)
@@ -152,12 +152,12 @@ def generate_rolling_window_agg_features(
         "generate_rolling_window_agg_features",
     )
     windows = [str(w) for w in (windows or [])]
-    # CAT_INTERACTION_B-1 fix: this used to accept "median" into `stats` here, but
-    # _EXPANDING_STAT_CODE / _rolling_stat_past_only(_njit) never map "median" to a code -- calling this
+    # This used to accept "median" into `stats` here, but
+    # _EXPANDING_STAT_CODE / _rolling_stat_past_only(_njit) never map "median" to a code - calling this
     # documented-valid public function with stats=["median"] raised a bare `KeyError: 'median'` instead of
     # computing anything or raising an actionable error. The two-pointer O(1)-per-row accumulator this
     # kernel uses cannot support a true rolling median (which needs an order-statistic structure, not a
-    # running moment) without a fundamentally different algorithm -- reject it explicitly and clearly
+    # running moment) without a fundamentally different algorithm - reject it explicitly and clearly
     # instead of silently accepting it into `stats` only to KeyError deep in the call stack.
     if "median" in stats:
         raise ValueError(
@@ -279,7 +279,7 @@ def apply_temporal_rolling(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarr
     # A two-pointer sliding window (monotone left bound, since `t` is
     # non-decreasing within an entity's processing order) would make it O(N) for
     # mean/count/min/max, but train/test time interleaving + window eviction of
-    # min/max needs a monotonic deque -- deferred as the rolling path is opt-in
+    # min/max needs a monotonic deque - deferred as the rolling path is opt-in
     # (windows default empty) and correctness risk is higher than the win here.
     test_hist: dict[str, dict] = {}
     for idx in order:

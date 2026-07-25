@@ -72,7 +72,7 @@ class _MRMRFitHelpersMixin:
         the outer ``fit()`` wrapper's ``finally``. See ``_rearm_gpu_circuit_breakers`` for the rationale;
         the fix here is that unconditionally re-arming at EVERY fit() entry (the pre-fix behavior) races
         against a concurrently in-flight fit that legitimately tripped a breaker on a poisoned CUDA
-        context -- clearing it out from under that fit reintroduces the retry-storm the breaker exists to
+        context - clearing it out from under that fit reintroduces the retry-storm the breaker exists to
         prevent. Re-arming only when no other fit is currently running preserves the single-threaded
         "one extra failed attempt per fit" cost bound while never clobbering a live breaker."""
         global _ACTIVE_FIT_COUNT
@@ -93,7 +93,7 @@ class _MRMRFitHelpersMixin:
         ``_enter_active_fit_scope()`` on the 0->1 in-flight-fit transition
         (originally called unconditionally at every fit() entry).
         These breakers are process-global and, once tripped by one launch fault, permanently disable GPU
-        for the rest of the process -- silently degrading every LATER fit in a long-lived worker
+        for the rest of the process - silently degrading every LATER fit in a long-lived worker
         (notebook, service), not just the one that hit the transient fault. Re-arming here bounds the
         cost of a genuinely-broken GPU to one extra failed attempt per fit (the breaker still protects
         WITHIN a fit from thousands of repeated attempts), while a transient fault (contention, a
@@ -146,10 +146,10 @@ class _MRMRFitHelpersMixin:
 
         When FE will run (``fe_max_steps>=1`` OR any ``fe_*_enable`` flag) the FE families' decision
         bodies are pandas-native, so ``X`` bridges to an Arrow-backed ZERO-COPY pandas VIEW
-        (``get_pandas_view_of_polars_df`` -- numeric/bool/string columns share the Arrow buffers; only
-        categoricals get a small codes rebuild) -- no whole-frame copy at any size. This is already
+        (``get_pandas_view_of_polars_df`` - numeric/bool/string columns share the Arrow buffers; only
+        categoricals get a small codes rebuild) - no whole-frame copy at any size. This is already
         optimal (measured: one contiguous plane beats per-column views 8.65x at equal memory; the Arrow
-        view IS that single materialisation, not an extra copy on top) -- do NOT "optimise away"."""
+        view IS that single materialisation, not an extra copy on top) - do NOT "optimise away"."""
         if str(type(X).__module__).startswith("polars"):
             if type(X).__name__ == "LazyFrame":
                 warnings.warn(
@@ -188,7 +188,7 @@ class _MRMRFitHelpersMixin:
                 except Exception as _pl_exc:  # fall through to the native path on any bridge failure
                     # 09_error_messages_ux.md: the raw internal exception repr (an AttributeError/KeyError
                     # from get_pandas_view_of_polars_df with column-internal attribute names) is meaningless
-                    # to an end user -- keep the user-facing UserWarning high-level and route the repr to
+                    # to an end user - keep the user-facing UserWarning high-level and route the repr to
                     # logger.warning for whoever needs to actually debug it.
                     logger.warning("MRMR.fit: polars->pandas FE bridge failed: %r", _pl_exc, exc_info=True)
                     warnings.warn(
@@ -224,7 +224,7 @@ class _MRMRFitHelpersMixin:
         # Computed ONCE outside the bootstrap/complementary-pairs loop: every replicate previously
         # re-ran ``self.get_params()`` (a full ~300-key
         # dict) plus a fresh filter comprehension, even though the filtered base params are
-        # identical across all ``stability_n_bootstrap`` (default 50) replicates -- only the
+        # identical across all ``stability_n_bootstrap`` (default 50) replicates - only the
         # subsampled (X_sub, y_sub) differ per replicate, not the params.
         _sub_base_params = {
             k: v for k, v in self.get_params().items()
@@ -250,7 +250,7 @@ class _MRMRFitHelpersMixin:
             # recursion AND drop bootstrap-incompatible settings.
             sub = type(self)(**_sub_base_params)
             # This replicate fits a DIFFERENT row-subsample every
-            # call, so its cache key is a guaranteed future miss -- skip storing it in the shared
+            # call, so its cache key is a guaranteed future miss - skip storing it in the shared
             # process-wide _FIT_CACHE so stability_n_bootstrap (default 50) replicates don't thrash out
             # a legitimately-reusable entry belonging to an unrelated concurrent caller.
             sub._skip_fit_cache = True
@@ -349,7 +349,7 @@ class _MRMRFitHelpersMixin:
         are swallowed in any script that never configures the ``logging`` module
         (the common case), while the tqdm progress bars write straight to stderr.
         The net effect was that a user running ``MRMR(verbose=1).fit(...)`` saw a
-        wall of progress bars and NO statement of what was selected / engineered --
+        wall of progress bars and NO statement of what was selected / engineered -
         the run looked like it did nothing even when directed FE recovered the
         signal. This summary is the one guaranteed-visible line of truth.
 
@@ -377,7 +377,7 @@ class _MRMRFitHelpersMixin:
                 else:
                     # No reordering happens on this branch, so disp_cols'
                     # column-list selection is still possibly a pandas view of
-                    # ``prov`` -- copy once here (only branch that needs it)
+                    # ``prov`` - copy once here (only branch that needs it)
                     # before the in-place mrmr_gain formatting below.
                     disp = disp.copy()
                 if "mrmr_gain" in disp.columns:
@@ -398,8 +398,8 @@ class _MRMRFitHelpersMixin:
         Requires the estimator to have been constructed with
         ``retain_artifacts=True`` (off by default to preserve the legacy memory
         footprint) and to have been fitted. The returned dict carries
-        Symmetric Uncertainty + direct MI vectors against y, plus -- when
-        ``retain_bins=True`` -- the per-column binned arrays. Schema is defined
+        Symmetric Uncertainty + direct MI vectors against y, plus - when
+        ``retain_bins=True`` - the per-column binned arrays. Schema is defined
         in ``_mrmr_artifacts._ARTIFACT_SCHEMA``; consumers MUST tolerate missing
         optional keys for forward compat.
 
@@ -427,7 +427,7 @@ class _MRMRFitHelpersMixin:
         artifacts = getattr(self, "_artifacts_", None)
         if not artifacts:
             # retain_artifacts=True was set but the in-fit capture did not
-            # populate the dict -- likely a fit() path that bypassed
+            # populate the dict - likely a fit() path that bypassed
             # _fit_impl (identity shortcut, FIT_CACHE hit on a legacy
             # cached instance, stability-selection outer loop). Surface a
             # clear error so the caller can adjust the pipeline rather than
@@ -443,11 +443,11 @@ class _MRMRFitHelpersMixin:
     def _fit_identity_shortcut(self, X) -> None:
         """Populate the fit-result attributes as if MRMR returned the input X unchanged.
 
-        Used by the cross-target identity cache: when a previous fit on the SAME X returned identity (all input columns selected, zero engineered features), subsequent calls with a different y can skip the entire FE pipeline since the only y-dependent thing -- the selected feature subset -- is forced to "all input columns".
+        Used by the cross-target identity cache: when a previous fit on the SAME X returned identity (all input columns selected, zero engineered features), subsequent calls with a different y can skip the entire FE pipeline since the only y-dependent thing - the selected feature subset - is forced to "all input columns".
         """
         n_cols = X.shape[1] if X.ndim > 1 else 1
         self.support_ = np.arange(n_cols, dtype=np.int64)
-        # 1 fix (loop iter 35): the prior expression
+        # 1 fix: the prior expression
         # ``X.columns.tolist() if hasattr(X.columns, "tolist") else
         # list(X.columns) if hasattr(X, "columns") else [...]`` was a
         # mis-parenthesised ternary. Python parses it as
@@ -481,7 +481,7 @@ class _MRMRFitHelpersMixin:
         # not run) so introspection code paths don't AttributeError.
         self.cluster_members_ = None
         # hierarchical post-hoc cluster map. Empty
-        # dict default (matches "DCD ran but found no super-structure" --
+        # dict default (matches "DCD ran but found no super-structure" -
         # meaningfully different from None, which would mean DCD disabled).
         # Identity shortcut bypasses DCD entirely, so the empty default is
         # the correct attribute-complete marker.
@@ -508,7 +508,7 @@ class _MRMRFitHelpersMixin:
 
         Sets the standard fitted attributes (``support_`` as integer column indices, ``feature_names_in_``, ``n_features_in_``, ``n_features_``)
         plus ``multioutput_supports_`` (per-column selected raw-feature-name lists) and ``multioutput_strategy_``. Engineered features are not
-        unioned -- their per-column recipes differ; this path recovers the RAW genuine features that the merged-target greedy under-selected.
+        unioned - their per-column recipes differ; this path recovers the RAW genuine features that the merged-target greedy under-selected.
         Memory: each sub-fit receives the SAME X (no copy) with a single 1D target column, mirroring RFECV's multioutput union.
         """
         feature_names = list(X.columns) if hasattr(X, "columns") else [f"f{i}" for i in range(X.shape[1])]
@@ -518,7 +518,7 @@ class _MRMRFitHelpersMixin:
         per_column_selected: dict[str, list] = {}
         _n_targets = y.shape[1] if hasattr(y, "shape") and len(getattr(y, "shape", ())) > 1 else None
         for _target_pos, (label, y_col) in enumerate(_mrmr_y_columns(y)):
-            # Confirmed not a bug -- different targets can be
+            # Confirmed not a bug - different targets can be
             # impacted by totally different factors, so a sequential per-target sub-fit is the correct
             # design): log which target is currently running so a long multioutput fit's progress is
             # legible from the outside, mirroring the format other MRMR stages already log with.
@@ -530,7 +530,7 @@ class _MRMRFitHelpersMixin:
             sub = clone(self)
             sub.multioutput_strategy = None  # the per-column sub-fit is single-target; force the legacy path so it does not recurse.
             # Same guaranteed-cache-miss reasoning as the stability-selection bootstrap replicates:
-            # each target's y_col differs, so this sub-fit's cache key never repeats -- skip storing
+            # each target's y_col differs, so this sub-fit's cache key never repeats - skip storing
             # it to avoid thrashing the shared _FIT_CACHE.
             sub._skip_fit_cache = True
             sub.fit(X, y_col, groups=groups, sample_weight=sample_weight, **(fit_params or {}))
@@ -564,7 +564,7 @@ class _MRMRFitHelpersMixin:
         self._fit_sample_weight_ = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)
         # This path returns before the legacy single-fit body runs, so the standard
         # single-target diagnostic surface (degenerate-column audit, provenance_,
-        # fe_provenance_, fe_rejection_ledger_) is otherwise never populated -- these
+        # fe_provenance_, fe_rejection_ledger_) is otherwise never populated - these
         # documented public attributes would simply be absent, raising AttributeError
         # only in multi-output mode.
         try:

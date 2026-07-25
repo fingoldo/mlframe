@@ -96,7 +96,7 @@ def screen_predictors(
     n_workers: int = 1,
     # confidence
     # Statistical defaults aligned with the MRMR constructor (mrmr.py) so a direct ``screen_predictors``
-    # caller -- and any consumer that does not override every knob (e.g. ad-hoc screening) -- gets the same
+    # caller - and any consumer that does not override every knob (e.g. ad-hoc screening) - gets the same
     # behaviour MRMR.fit produces, rather than the far-stricter legacy 1000/100 permutation counts that made
     # standalone screening ~300x slower and over-reject. MRMR.fit still explicitly overrides each of these.
     min_occupancy: int | None = None,
@@ -111,7 +111,7 @@ def screen_predictors(
     fe_confirm_undersample_rows_per_cell: float = 5.0,
     # stopping conditions
     min_relevance_gain: float = 0.0001,
-    # 2026-05-30: diminishing-returns stop. Stops greedy selection when the
+    # diminishing-returns stop. Stops greedy selection when the
     # current candidate's gain falls below this fraction of the FIRST-selected
     # feature's gain. Catches "trailing noise" leakage on imbalanced y where
     # tiny-but-statistically-positive gains squeeze past min_relevance_gain
@@ -120,7 +120,7 @@ def screen_predictors(
     # 0.0 disables; default 0.05 = stop once gain drops below 5% of first
     # gain. Only applies from the second selected feature onward.
     min_relevance_gain_relative_to_first: float = 0.05,
-    # 2026-05-30: Miller-Madow MI bias correction at the selection gate.
+    # Miller-Madow MI bias correction at the selection gate.
     # Plug-in mutual information OVERESTIMATES MI for high-cardinality
     # features (Paninski 2003, Miller 1955). For a binned feature with
     # |X| bins, target with |Y| classes, and n samples the plug-in MI
@@ -152,7 +152,7 @@ def screen_predictors(
     stop_file: str | None = None,
     # Aligned with the MRMR ctor (False): full Fleuret conditional-MI redundancy is the point of MRMR. True is the faster dedup-free path on very wide pools.
     use_simple_mode: bool = False,
-    # ``engineered_lineage`` -- mapping ``{engineered_col_idx: frozenset(parent_indices)}``. When set, k-way candidate enumeration skips combinations of an engineered
+    # ``engineered_lineage`` - mapping ``{engineered_col_idx: frozenset(parent_indices)}``. When set, k-way candidate enumeration skips combinations of an engineered
     # column with one of its own parents (e.g. ``(orig_i, kway(orig_i, orig_j))`` is redundant since the engineered col already contains orig_i's info). Threaded
     # through ``should_skip_candidate``. ``None`` preserves legacy behaviour.
     engineered_lineage: dict | None = None,
@@ -175,7 +175,7 @@ def screen_predictors(
     # any candidate whose ``factors_names`` entry is not in it is engineered.
     # On a near-tie in selection gain (within ``prefer_engineered_rel_eps``
     # relative tolerance) the greedy pick prefers the engineered candidate over a
-    # raw one -- deterministic, and the whole point of directed FE: surface the
+    # raw one - deterministic, and the whole point of directed FE: surface the
     # nonlinear combination, not its raw parent (which a shallow downstream can't
     # use). ``None`` raw-name set falls back to the syntactic ``(``/``__``
     # heuristic; rel-eps ``0.0`` restores the legacy pure-index tie-break.
@@ -184,7 +184,7 @@ def screen_predictors(
     # y=sign(x1^2-1)) the binned-MI of the raw parent x1 edges out its engineered
     # linearizer x1__He2 by more than 1% (estimation noise; in EXACT MI they are
     # equal because He2 is a deterministic function of x1), so a 1% band left the
-    # raw parent winning and the engineered linearizer pruned -- the downstream a
+    # raw parent winning and the engineered linearizer pruned - the downstream a
     # linear model needs (x1^2-1) was lost (AUC ~0.5 vs ~0.99). A 0.15 band lets
     # the engineered linearizer win over its near-tied raw parent. Still gated to
     # the leading band + engineered-only promotion (clear raw winners untouched).
@@ -203,21 +203,21 @@ def screen_predictors(
     # Applied when the pool has >= ``screen_fdr_min_features`` candidates (wide pool: embedding / TF-IDF best-of-p bias) OR when a NARROW pool meets the high-cardinality-target
     # gate (``screen_fdr_target_oversplit_ratio`` / ``screen_fdr_min_rows_per_joint_cell``). The narrow-pool gate catches a distinct finite-sample-bias regime: a heavy-tailed
     # (log-normal) regression target whose quantile binning yields a high-cardinality target (~10 equal-frequency bins, matching feature cardinality), lifting pure-noise columns
-    # past the abs/rel gain floors after the genuine signals are picked. The gate fires ONLY when the target is high-cardinality (nbins_y >= median feature nbins -- a continuous
-    # regression target, not a low-card classification one) AND the (X,y) joint table is dense enough that the floor is itself reliable -- so a dense weak-signal regression pool
+    # past the abs/rel gain floors after the genuine signals are picked. The gate fires ONLY when the target is high-cardinality (nbins_y >= median feature nbins - a continuous
+    # regression target, not a low-card classification one) AND the (X,y) joint table is dense enough that the floor is itself reliable - so a dense weak-signal regression pool
     # like sklearn diabetes (MDLP nbins_y=64 but ~1.0-1.5 rows per joint cell at n=330) keeps the floor OFF and preserves its 10 weak features, while lognormal (7.8 rows per
     # joint cell at n=2500) fires. The original ratio=3 keyed on the MDLP ~30-bin over-split that the 2026-06-10 target-rebin guard now removes. See
     # ``target_oversplit_floor_applies`` in ``_permutation_null.py``. ``screen_fdr_null_permutations=0`` disables. Default 200 (raised from 25): the floor is the 95th
     # percentile of a per-shuffle MAX, an extreme upper-tail order statistic whose K=25 estimate is high-variance (~1.25 draws above the quantile); 200 draws stabilise the
-    # floor several-fold run-to-run (bench ``_benchmarks/bench_maxt_floor_stability.py``) -- a lower-variance noise floor is the correct behavior, the rescore cost stays
+    # floor several-fold run-to-run (bench ``_benchmarks/bench_maxt_floor_stability.py``) - a lower-variance noise floor is the correct behavior, the rescore cost stays
     # sub-second at production widths.
     screen_fdr_null_permutations: int = 200,
     screen_fdr_null_quantile: float = 0.95,
     screen_fdr_min_features: int = 30,
     screen_fdr_target_oversplit_ratio: float = 1.0,
-    # 2026-07-20: 8.0 -> 7.0. MDLP now bins the lognormal biz_val target into 64 bins (not the
+    # 8.0 -> 7.0. MDLP now bins the lognormal biz_val target into 64 bins (not the
     # ~10-30 assumed at this gate's original calibration), which pushed the lognormal fixture's
-    # measured rows/cell to exactly 7.8125 -- just under the old 8.0 bar, silently disabling the
+    # measured rows/cell to exactly 7.8125 - just under the old 8.0 bar, silently disabling the
     # gate it exists to trigger. Diabetes (the no-regression side) measures ~1.0-1.5 rows/cell,
     # so 7.0 keeps its comfortable separation while restoring the lognormal win.
     screen_fdr_min_rows_per_joint_cell: float = 7.0,
@@ -226,12 +226,12 @@ def screen_predictors(
     # discovery accumulates across passes instead of being rebuilt empty each
     # time (which dropped the screen-1 dup cluster from the published summary).
     existing_dcd_state: "DCDState | None" = None,
-    # 2026-07-09 fix: analogous to ``existing_dcd_state`` above -- thread the PRIOR screen round's
+    # 2026-07-09 fix: analogous to ``existing_dcd_state`` above - thread the PRIOR screen round's
     # relevance/redundancy caches back in instead of starting empty every round. A given cache key
     # (a column-index tuple, or an (X,Z) conditional-MI key) is a deterministic function of the data,
     # which does not change across rounds (only grows via appended engineered columns; existing
     # indices' content is stable), so a cached value computed in round N-1 is EXACT, not approximate,
-    # for round N -- the same guarantee this memoization already provides WITHIN one round, just not
+    # for round N - the same guarantee this memoization already provides WITHIN one round, just not
     # previously carried across the 2-3 rounds a typical fit runs. ``seed_caches``, when given, is the
     # 4-tuple ``(entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs)`` returned by a
     # PRIOR ``screen_predictors`` call in the same fit. ``None`` (default) preserves the legacy
@@ -239,13 +239,13 @@ def screen_predictors(
     seed_caches: "tuple | None" = None,
     # 2026-07-09 fix: optional cross-round cache for the maxT permutation-null gain floor (see
     # ``compute_fdr_gain_floor``'s ``maxt_floor_cache`` docstring). A plain dict the caller owns and
-    # threads unchanged into every ``screen_predictors`` call within one fit (mutated in place -- no
+    # threads unchanged into every ``screen_predictors`` call within one fit (mutated in place - no
     # need to read it back from the return tuple). ``None`` (default) disables caching, legacy behaviour.
     seed_maxt_floor_cache: "dict | None" = None,
     # 2026-07-09 fix: thread back a joblib ``Parallel`` pool built by a PRIOR ``screen_predictors``
     # call in the same fit (only meaningful when ``n_workers>1``). Building a fresh pool + eager
     # warmup dispatch on every one of the ~3 screen/re-screen rounds per fit respawns ``n_workers``
-    # threads each time for no benefit -- the pool config (backend/n_jobs) is fixed by the MRMR
+    # threads each time for no benefit - the pool config (backend/n_jobs) is fixed by the MRMR
     # instance for the whole ``fit()`` call, so a warmed pool from round 1 is safe to reuse verbatim
     # in rounds 2-3. ``None`` (default) preserves the legacy fresh-pool-per-call behaviour.
     seed_workers_pool: "Parallel | None" = None,
@@ -288,7 +288,7 @@ def screen_predictors(
     if max_confirmation_cand_nbins is None:
         max_confirmation_cand_nbins = MAX_CONFIRMATION_CAND_NBINS
 
-    # Wave 31 (2026-05-20): converted the "Input checks" block of 7 asserts
+    # Converted the "Input checks" block of 7 asserts
     # to explicit ValueError. Under -O all of these stripped and bad user
     # input slipped into the MRMR loop with cryptic failure modes.
     if mrmr_relevance_algo not in ("fleuret", "pld"):
@@ -315,7 +315,7 @@ def screen_predictors(
     if factors_data.shape[1] != len(factors_nbins):
         raise ValueError(f"factors_data.shape[1]={factors_data.shape[1]} must equal " f"len(factors_nbins)={len(factors_nbins)}.")
 
-    # 2026-05-30 Wave 9.1 fix (loop iter 25): two bugs collapsed into one
+    # Two bugs collapsed into one
     # input-validation block.
     # (a) ``factors_names=None`` (the documented default) crashed at
     #     ``len(None)`` before reaching the auto-name branch.
@@ -359,8 +359,8 @@ def screen_predictors(
                         logger.info("Using only %d predefined factors: %s", len(factors_names_to_use), factors_names_to_use)
         else:
 
-            # Wave 31 (2026-05-20): assert -> RuntimeError. If true, MRMR
-            # would loop on self-target -- silent correctness bug under -O.
+            # Assert -> RuntimeError. If true, MRMR
+            # would loop on self-target - silent correctness bug under -O.
             if set(y).issubset(set(x)):
                 raise RuntimeError(
                     "MRMR invariant violated: target index set is a subset of "
@@ -379,7 +379,7 @@ def screen_predictors(
     # RNG hygiene. numpy: the modern screening / permutation / fleuret kernels
     # each thread ``random_seed`` explicitly (inline-LCG Fisher-Yates, or their
     # own local ``default_rng``), so we no longer seed or snapshot the
-    # process-global MT19937 state here -- the prior ``np.random.seed`` mutated
+    # process-global MT19937 state here - the prior ``np.random.seed`` mutated
     # a process-wide generator (racy under threads/joblib workers and a hidden
     # side effect on the caller's state). Instead we build a LOCAL Generator
     # from ``random_seed`` for any numpy-side draw; the caller's global
@@ -389,7 +389,7 @@ def screen_predictors(
     #
     # numba/cupy: these expose no portable Generator threading for the njit
     # kernels, so their global seeds are still set for the screening duration
-    # and restored in ``finally`` with a fresh-entropy reseed (Wave 49), which
+    # and restored in ``finally`` with a fresh-entropy reseed, which
     # is byte-indistinguishable to any downstream consumer.
     _numba_restore_seed = None
     _cp_restore_seed = None
@@ -404,12 +404,12 @@ def screen_predictors(
         # "restore" a seed that was never set, triggering cupy's Windows
         # DLL-load _diagnose_import_error recursion on hosts where cupy
         # is installed but its CUDA stack is broken (cuTENSOR/cuBLAS
-        # missing) -- that recursion blows the C stack in batch pytest
+        # missing) - that recursion blows the C stack in batch pytest
         # contexts and tears down the test runner.
         if use_gpu:
             _cp_restore_seed = _struct.unpack("<Q", _os.urandom(8))[0]
         set_numba_random_seed(random_seed)
-        # 2026-05-30 Wave 9.1 fix (loop iter 25): the prior
+        # The prior
         # ``try: cp.random.seed(random_seed); except NameError: pass``
         # always swallowed NameError because ``cp`` is only imported
         # inside ``if use_gpu:`` ~80 lines down. So the documented
@@ -442,7 +442,7 @@ def screen_predictors(
         patience_triggered: bool = False
 
         # 2026-07-09 fix: seed from the PRIOR screen round's caches when supplied (see seed_caches'
-        # docstring above) instead of always starting empty -- a cache key's value is a deterministic
+        # docstring above) instead of always starting empty - a cache key's value is a deterministic
         # function of the (stable, append-only) data, so reuse across rounds is exact, not approximate.
         if seed_caches is not None:
             entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs = seed_caches
@@ -451,7 +451,7 @@ def screen_predictors(
             cached_confident_MIs = dict()
             # PERF NOTE (profiled 2026-07): constructing the first numba typed.Dict
             # (unicode->float64) in a process JIT-compiles the whole typed-dict method
-            # suite -- ~5s of LLVM codegen (27% of a cold F2 fit wall), recurring per
+            # suite - ~5s of LLVM codegen (27% of a cold F2 fit wall), recurring per
             # process and NOT numba-disk-cacheable. That machinery is now warmed
             # synchronously at import (warmup_typed_dict, above), moving the ~5s off
             # every fit's critical path (fit 42.9s -> 37.9s; import +5.2s). A background
@@ -460,7 +460,7 @@ def screen_predictors(
             # host-serial pipeline has no concurrent GPU work to overlap it with.
             # The warm-up only SHIFTS the cost (per-process, amortises to zero across
             # fits in a long-running process); ELIMINATING it would need replacing the
-            # unicode-keyed caches below with a 128-bit-hash (UniTuple int64) key -- a
+            # unicode-keyed caches below with a 128-bit-hash (UniTuple int64) key - a
             # ~7-file core rewrite gated on the selection-equivalence contract, deferred
             # as poor ROI (saves ~5s, already zero for multi-fit processes).
             entropy_cache = numba.typed.Dict.empty(
@@ -471,7 +471,7 @@ def screen_predictors(
                 key_type=types.unicode_type,
                 value_type=types.float64,
             )
-        # 2026-06-19: JMIM joint-MI cache, built once per fit alongside cached_cond_MIs so
+        # JMIM joint-MI cache, built once per fit alongside cached_cond_MIs so
         # it persists across greedy rounds (the {X} u Z multiset key recurs as selected_vars
         # grows). Plain int64 array counts cache HITS for observability. Both are forwarded
         # through ScreenContext to evaluate_candidate; never pickled onto the instance.
@@ -512,7 +512,7 @@ def screen_predictors(
         # Mutate-and-restore instead of a whole-matrix copy: ``data_copy`` aliases ``factors_data`` and the Fleuret permutation njit
         # (``get_fleuret_criteria_confidence``) saves+restores ONLY the few columns it shuffles (x u y, ~O(n) each), so peak extra RAM is
         # O((|x|+|y|)*n) not O(p*n). Frames here can be 100+ GB; the per-screen-call full copy doubled peak RAM. The parallel confirm path
-        # already copies per-worker, so it never mutated this buffer -- the serial path now matches that pristine-start semantics.
+        # already copies per-worker, so it never mutated this buffer - the serial path now matches that pristine-start semantics.
         data_copy = factors_data
 
         classes_y, freqs_y, _ = merge_vars(factors_data=factors_data, vars_indices=y, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
@@ -527,7 +527,7 @@ def screen_predictors(
             _cardinality_refused_cols = set()
 
         # 2026-06-03 — Westfall-Young maxT permutation-null gain floor (computed ONCE on the finalised order-1 pool, applied at the selection gate). Fires on a WIDE pool
-        # (>= ``screen_fdr_min_features``, where best-of-p selection bias dominates) OR on a NARROW pool that meets the target-over-split gate -- an MDLP-over-split heavy-tailed
+        # (>= ``screen_fdr_min_features``, where best-of-p selection bias dominates) OR on a NARROW pool that meets the target-over-split gate - an MDLP-over-split heavy-tailed
         # regression target whose plug-in MI bias lifts pure-noise columns past the gain floors after the signals are picked. The narrow-pool gate is itself self-gating: it only
         # engages where the (X,y) joint table is dense enough that the floor is reliable, so a dense weak-signal pool (diabetes) keeps the floor OFF. Below both gates the floor
         # is 0.0 (no-op) so the clean low-cardinality tabular suite is untouched. See ``_permutation_null.py``.
@@ -564,22 +564,22 @@ def screen_predictors(
         # numpy buffer survives for the return; the device buffer only goes to ctx.
         classes_y_safe_host = classes_y_safe  # numpy, returned to the FE step
         if use_gpu:
-            # RESIDENT UPLOAD (2026-07-13): ``screen_predictors`` runs 3-10 rounds per fit with an IDENTICAL
+            # RESIDENT UPLOAD: ``screen_predictors`` runs 3-10 rounds per fit with an IDENTICAL
             # ``classes_y``/``freqs_y`` across rounds (the target never changes mid-fit; ``seed_maxt_floor_cache``
             # / ``seed_workers_pool`` above already thread other round-carried state through this same call, so
-            # the pattern for reusing state across rounds is established) -- resident_operand needs no caller-side
+            # the pattern for reusing state across rounds is established) - resident_operand needs no caller-side
             # plumbing beyond this call site since it self-caches by content, unlike those explicit seed_* kwargs.
             #
             # ``.copy()`` on ``classes_y_safe`` is NOT optional: ``ctx.classes_y_safe`` reaches
             # ``gpu.py:mi_direct_gpu``'s pre-warmed-buffer path, which SHUFFLES it IN PLACE
             # (``classes_y_safe[:] = classes_y_safe[cp.argsort(...)]``) once per permutation, for every
-            # candidate confirmed this round. Pre-fix that was harmless -- ``classes_y_safe`` was a fresh
+            # candidate confirmed this round. Pre-fix that was harmless - ``classes_y_safe`` was a fresh
             # disposable ``cp.asarray`` built new every ``screen_predictors()`` call, never read by anyone
             # else. Handing the RESIDENT (shared, content-keyed, cross-call, cross-file) buffer straight into
             # that mutator would let one candidate's permutation shuffle permanently corrupt the row-order
             # every OTHER resident-cache consumer of the same target content relies on (e.g.
             # ``_gpu_batched.py``'s ``classes_y_gpu``, which assumes its rows stay aligned with
-            # ``classes_x_gpu``) -- a real cross-file aliasing regression this exact copy is NOT theoretical
+            # ``classes_x_gpu``) - a real cross-file aliasing regression this exact copy is NOT theoretical
             # (it was live: 4 GPU/CPU selection-equivalence tests hit it before this ``.copy()`` was added).
             # ``.copy()`` is a cheap device-to-device memcpy (not a host re-upload), so the H2D-avoidance win
             # from ``resident_operand`` is preserved; only the shuffle-safety copy is paid, once per round.
@@ -592,16 +592,16 @@ def screen_predictors(
         else:
             freqs_y_safe = None
 
-        # RESOLVED (2026-07-19, 7-site joblib.Parallel audit -- follow-up to the 2026-07-09
+        # RESOLVED (2026-07-19, 7-site joblib.Parallel audit - follow-up to the 2026-07-09
         # UNRESOLVED note this comment used to carry): the "releases the GIL" claim below was never
         # actually confirmed for THIS call path, and the isolated/warmed/best-of-3+ A/B settles it in the
         # other direction. Measured at ``evaluate_candidates``'s realistic scales: m=10 candidates ->
-        # 0.03x (SLOWER than serial), m=320 (wellbore-scale) -> 0.72-0.73x, m=820/n_workers=8 -> 0.81x --
+        # 0.03x (SLOWER than serial), m=320 (wellbore-scale) -> 0.72-0.73x, m=820/n_workers=8 -> 0.81x -
         # this ``Parallel(backend="threading")`` pool NEVER wins over serial at any tested scale, confirming
         # the pool is GIL-bound at the dispatch boundary exactly as suspected (evaluate_candidates
         # eventually calls njit kernels that DO release the GIL, but the per-call joblib dispatch/aggregation
         # overhead dominates at these candidate counts). The pool is therefore never constructed here anymore
-        # -- ``evaluate_candidates`` always runs on the serial fast path in ``confirm_one_predictor``/
+        # - ``evaluate_candidates`` always runs on the serial fast path in ``confirm_one_predictor``/
         # ``_confirm_predictor.py``. ``n_workers`` is kept as an accepted parameter (other call sites, e.g.
         # the Fleuret conditional-confirmation gate, still branch on it) but no longer causes a pool to be
         # built here; ``seed_workers_pool`` is likewise accepted-but-unused for this purpose.
@@ -711,7 +711,7 @@ def screen_predictors(
 
             # Running leader for the live "Confirmed predictors" postfix (reset per
             # interactions_order). ``_best_confirmed_gain`` starts at -inf so the first
-            # confirmed feature -- even a negative-gain one -- becomes the displayed top.
+            # confirmed feature - even a negative-gain one - becomes the displayed top.
             _best_confirmed_gain = float("-inf")
             _best_confirmed_name = None
             for _n_confirmed_predictors in (predictors_pbar := tqdmu(range(len(candidates)), leave=False, desc="Confirmed predictors", disable=not verbose)):
@@ -809,7 +809,7 @@ def screen_predictors(
 
                     # Live progress: surface the winning feature + its mrmr_gain on the
                     # "Confirmed predictors" bar. ``best_gain`` was just computed by
-                    # confirm_one_predictor -- display-only, zero extra MI work. Track the
+                    # confirm_one_predictor - display-only, zero extra MI work. Track the
                     # strongest-confirmed so the postfix always names the current leader.
                     if verbose:
                         try:
@@ -828,8 +828,8 @@ def screen_predictors(
                         mes = f"Added new predictor {cand_name} to the list with expected gain={best_gain:.{ndigits}f}"
                         if full_npermutations:
                             mes += f" and confidence={confidence:.3f}"
-                        # 2026-07-19: surface the pool_size x |Z| scaling this predictor's confirmation cost right
-                        # alongside the pick itself -- pool shrinks as candidates fail while |Z| only grows, so a
+                        # Surface the pool_size x |Z| scaling this predictor's confirmation cost right
+                        # alongside the pick itself - pool shrinks as candidates fail while |Z| only grows, so a
                         # later predictor with a SMALLER remaining pool can still be slower than an earlier one.
                         mes += f" [pool={len(candidates)} |Z|={len(selected_vars)} " f"cum_score_candidates_wall={ctx.sc_wall:.1f}s calls={ctx.sc_calls}]"
                         logger.info(mes)
@@ -852,8 +852,8 @@ def screen_predictors(
 
         # Termination-reason summary (always emitted). ``patience_triggered`` distinguishes "gave up confirming" (max_consec_unconfirmed hit) from natural exhaustion below
         # ``min_relevance_gain``. If patience keeps tripping, raise ``max_consec_unconfirmed`` or smooth the relevance signals.
-        # 2026-07-19: total wall time inside score_candidates + call count + final |Z| appended to the
-        # SAME existing always-emitted summary line (cheaper than a whole new logging mechanism) --
+        # Total wall time inside score_candidates + call count + final |Z| appended to the
+        # SAME existing always-emitted summary line (cheaper than a whole new logging mechanism) -
         # this is exactly the trio (pool_size x |Z| scaling driver, not the FE-pair-precompute step
         # logged elsewhere) a prior investigation had to reconstruct from code instead of the log.
         _sc_summary = f" [score_candidates: {ctx.sc_wall:.1f}s over {ctx.sc_calls} call(s), final |Z|={len(selected_vars)}]"
@@ -899,16 +899,16 @@ def screen_predictors(
     finally:
         # numpy global state is no longer mutated by this function (a local
         # Generator is used instead), so there is nothing to restore for numpy.
-        # Wave 49 (2026-05-20): still restore numba + cupy (the prior comment block
+        # Still restore numba + cupy (the prior comment block
         # acknowledged the leak; this closes it with a fresh-entropy reseed).
         if _numba_restore_seed is not None:
             try:
                 set_numba_random_seed(int(_numba_restore_seed))
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _screen_predictors.py:955: %s", e)
+                logger.debug("suppressed: %s", e)
                 pass
         if _cp_restore_seed is not None:
-            # 2026-05-30 Wave 9.1 fix (loop iter 25): mirror the
+            # Mirror the
             # entry-block fix. ``cp`` only exists in this scope when
             # use_gpu was True AND CuPy was actually importable; import
             # defensively here so the restore call really fires.

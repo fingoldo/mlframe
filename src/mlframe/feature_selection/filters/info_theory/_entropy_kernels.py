@@ -22,11 +22,11 @@ def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
 
 @njit(cache=True)
 def _merge_vars_freqs(factors_data, vars_indices, factors_nbins, dtype=np.int32) -> np.ndarray:
-    """Normalized NONZERO joint-class frequencies of ``vars_indices`` -- BIT-IDENTICAL to
+    """Normalized NONZERO joint-class frequencies of ``vars_indices`` - BIT-IDENTICAL to
     ``merge_vars(factors_data, vars_indices, None, factors_nbins, dtype)[1]`` but WITHOUT allocating a
     caller-visible ``final_classes`` array and WITHOUT the LAST variable's ``final_classes`` relabel pass.
 
-    ``conditional_mi``'s H(X,Z) melt discards ``merge_vars``'s ``final_classes`` output entirely -- only the
+    ``conditional_mi``'s H(X,Z) melt discards ``merge_vars``'s ``final_classes`` output entirely - only the
     ``freqs`` feed ``entropy``. ``merge_vars`` still writes ``final_classes`` on the final variable and then
     remaps it (a full extra length-``n`` pass) purely to hand back a relabel array the CMI path throws away.
     This kernel keeps the incremental encoding + inter-variable pruning IDENTICAL (so the produced ``freqs``
@@ -94,7 +94,7 @@ def _entropy_x_onto_classes(factors_data, xi, final_classes, current_nclasses, n
     ``entropy(merge_vars(factors_data, [xi], None, factors_nbins, current_nclasses=current_nclasses,
     final_classes=final_classes)[1])`` but WITHOUT mutating ``final_classes`` and WITHOUT the discarded
     relabel/remap passes: it histograms ``final_classes[row] + x[row]*current_nclasses`` once, prunes empty
-    bins (ascending class id -- the same order ``merge_vars`` produces), and reduces to entropy.
+    bins (ascending class id - the same order ``merge_vars`` produces), and reduces to entropy.
 
     ``final_classes`` is read-only here (``merge_vars`` overwrites it in place; the CMI caller discards it
     afterwards, so not mutating it is a strict correctness gain as well as a saved length-n remap pass)."""
@@ -116,7 +116,7 @@ def entropy_miller_madow(freqs: np.ndarray, n_samples: int, min_occupancy: float
 
     Plug-in entropy ``H_plugin = -sum p log p`` is biased downward when the empirical distribution has many bins relative to ``n_samples`` (the joint X-Y-Z space inflates fast). The Miller-Madow correction adds ``(k - 1) / (2 * n_samples)`` where ``k`` is the number of non-empty bins. Cheap, asymptotically unbiased, no extra RAM.
 
-    Why it matters for mRMR: in ``conditional_mi(X, Y, Z)`` the ``H(X, Y, Z)`` term has the most bins and the steepest bias. Without correction, ``I(X;Y|Z)`` is biased *toward zero*, causing false rejection of weakly-conditional features. Opt-in via ``MRMR(use_miller_madow=True)`` -- default off so the legacy plug-in estimator stays bit-exact.
+    Why it matters for mRMR: in ``conditional_mi(X, Y, Z)`` the ``H(X, Y, Z)`` term has the most bins and the steepest bias. Without correction, ``I(X;Y|Z)`` is biased *toward zero*, causing false rejection of weakly-conditional features. Opt-in via ``MRMR(use_miller_madow=True)`` - default off so the legacy plug-in estimator stays bit-exact.
 
     References:
     * Miller (1955) "Note on the bias of information estimates."
@@ -128,7 +128,7 @@ def entropy_miller_madow(freqs: np.ndarray, n_samples: int, min_occupancy: float
         freqs = freqs[freqs > 0]
     h_plugin = -(np.log(freqs) * freqs).sum()
     k = len(freqs)
-    # 2026-05-30 Wave 9.1 fix (loop iter 20): guard against k <= 1.
+    # Guard against k <= 1.
     # When freqs is empty (k=0) or single-bin (k=1) the Miller-Madow
     # correction term ``(k - 1) / (2 * n_samples)`` is either negative
     # (-1/(2n)) or zero. Negative entropy violates the H >= 0
@@ -154,7 +154,7 @@ def mi_miller_madow_correct(mi_plugin: float, k_x: int, k_y: int, n_samples: int
     joint one down to the product term). Subtracting it yields the Miller-Madow MI
     estimate ``I_mm = I_plugin - (k_x-1)(k_y-1)/(2n)``.
 
-    ``k_x`` / ``k_y`` are the OCCUPIED (non-empty) bin counts of X and Y -- the SAME
+    ``k_x`` / ``k_y`` are the OCCUPIED (non-empty) bin counts of X and Y - the SAME
     ``k = #{bins with count>0}`` that :func:`entropy_miller_madow` uses internally
     nominal ``nbins`` over-corrects heavy-tailed columns that collapse
     to few occupied bins). The bias term is zero when either variable is degenerate
@@ -164,7 +164,7 @@ def mi_miller_madow_correct(mi_plugin: float, k_x: int, k_y: int, n_samples: int
     ~``nbins`` bins) and the denominator (2-D joint MI over ~``nbins^2`` bins) carry
     bias terms differing by ~``nbins``x, so the RAW ratio ``best_mi/pair_mi`` is
     structurally depressed below 1.0 even when the 1-D feature captures all the joint
-    information -- worst at small/moderate ``n``. MM-correcting BOTH sides before the
+    information - worst at small/moderate ``n``. MM-correcting BOTH sides before the
     ratio removes that asymmetry. ``->0`` as ``n -> inf``, so large-n selection is
     byte-untouched. References: Miller (1955); Paninski (2003).
     """
@@ -304,7 +304,7 @@ def mi_chao_shen(
     """Chao-Shen (2003) coverage-adjusted mutual information ``I_cs(X;Y) = H_cs(X) + H_cs(Y) -
     H_cs(X,Y)``, floored at 0. Unlike ``mi_miller_madow``'s closed-form additive bias term (a function
     only of occupied-bin COUNTS), Chao-Shen re-estimates each entropy term from its own observed-category
-    coverage -- better tracks bias on sparse high-cardinality joints (many singleton cells) where
+    coverage - better tracks bias on sparse high-cardinality joints (many singleton cells) where
     Miller-Madow's bias term systematically under-corrects."""
     x = np.asarray(x, dtype=np.int64)
     y = np.asarray(y, dtype=np.int64)
@@ -347,7 +347,7 @@ def symmetric_uncertainty(
     so high-cardinality features (zip codes, hash IDs, decile-binned continuous
     columns with many bins) get inflated relevance scores under the bare ``mi``
     estimator. SU divides by the sum of marginal entropies, normalising AWAY the
-    cardinality-driven magnitude inflation. (This rescales for cardinality only --
+    cardinality-driven magnitude inflation. (This rescales for cardinality only -
     it does NOT remove the finite-sample plug-in MI bias in the numerator; for that
     use a Miller-Madow / debiased MI estimator.)
 
@@ -464,8 +464,8 @@ def conditional_symmetric_uncertainty(
         cmi = 0.0
     csu = 2.0 * cmi / denom
     # CSU is bounded by [0, 1] in exact arithmetic (I(X;Y|Z) <= min(H(X|Z), H(Y|Z)) <= denom/2). A value above 1
-    # is a numerical artifact -- a tiny-but-positive denom just above the 1e-12 guard divided into an
-    # MM-correction-inflated numerator -- which would spuriously dominate the redundancy ranking. Clamp it.
+    # is a numerical artifact - a tiny-but-positive denom just above the 1e-12 guard divided into an
+    # MM-correction-inflated numerator - which would spuriously dominate the redundancy ranking. Clamp it.
     return csu if csu <= 1.0 else 1.0
 
 
@@ -511,7 +511,7 @@ def conditional_mi(
     """Conditional mutual information ``I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)``.
 
     ``use_mm`` (critique N-F2 part 1): subtract the analytic Miller-Madow CMI bias so the Fleuret redundancy carries
-    the SAME bias correction as the Miller-Madow relevance. No-op (bit-identical) when False, the default -- the MM
+    the SAME bias correction as the Miller-Madow relevance. No-op (bit-identical) when False, the default - the MM
     path recomputes the four occupied-cell counts (the entropy_cache stores only the entropy scalar, not the counts).
 
     Each cache branch owns its own key local (``key_z`` / ``key_xz`` / ``key_yz`` / ``key_xyz``) to avoid cross-branch aliasing.
@@ -625,7 +625,7 @@ def conditional_mi_redundancy_batched(
     ``conditional_mi`` once per candidate (``Z`` = the just-selected feature, ``Y`` = target), this
     routes the whole candidate sweep through the batched CUDA kernel when ``(n, p)`` is large enough
     to win (size/HW gate via ``kernel_tuning_cache``), and to the exact CPU ``conditional_mi`` loop
-    otherwise / when no GPU. Bit-parity (<1e-9) with the per-candidate CPU path -- see
+    otherwise / when no GPU. Bit-parity (<1e-9) with the per-candidate CPU path - see
     ``tests/feature_selection/test_cmi_cuda_kernel.py``.
 
     NOTE on the integration site: the actual redundancy loop (``filters/evaluation.py``) runs inside

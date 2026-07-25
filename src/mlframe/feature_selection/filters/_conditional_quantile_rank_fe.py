@@ -5,12 +5,12 @@ Extends the existing conditional-dispersion family (z-within-group in ``_grouped
 ``_composite_group_agg_fe.py``, and the z-score / |z| features in
 ``_extra_fe_families_dispersion.py``) from CONDITIONAL MEAN/STD ONLY to the full CONDITIONAL
 QUANTILE: for a numeric column ``x_i`` and a binned conditioning column ``x_j``, compute
-``q(row) = empirical_rank(x_i within bin(x_j))`` -- the row's percentile position WITHIN its
+``q(row) = empirical_rank(x_i within bin(x_j))`` - the row's percentile position WITHIN its
 conditioning bin, not its z-score.
 
 Why this catches a shape the catalog misses: on a heavy-tailed / skewed conditional distribution
 (e.g. ``x_i | bin(x_j)`` is log-normal, common for financial/count data), a z-score
-``(x-mu)/sigma`` badly misrepresents "how extreme" a row is -- the mean/std pair is not a
+``(x-mu)/sigma`` badly misrepresents "how extreme" a row is - the mean/std pair is not a
 sufficient statistic for a skewed shape, so two rows with identical z-scores can sit at very
 different TRUE percentiles. A target that depends on "is this row in the top-5% of its conditional
 peer group" (e.g. fraud/outlier detection conditioned on a merchant category) is exactly the shape
@@ -18,7 +18,7 @@ z-score under-resolves and quantile-rank resolves directly.
 
 The per-bin quantile edges are fit on TRAIN rows only (leak-safe, mirroring the existing K-fold-
 fit-then-apply discipline used elsewhere in this codebase), then applied to ALL rows (train+test)
-via ``searchsorted`` at apply time -- a row whose bin was never seen at fit time gets NaN rather
+via ``searchsorted`` at apply time - a row whose bin was never seen at fit time gets NaN rather
 than a spurious extrapolated rank.
 """
 
@@ -142,7 +142,7 @@ def generate_conditional_quantile_rank_features(
             xi = col_vals[x_i]
             vals = conditional_quantile_rank_fe(xi, codes_j)
             # Skip a degenerate constant emission (every row lands in the same rank, e.g. all-tied
-            # x_i within every bin) -- it carries no information and only burdens the screen.
+            # x_i within every bin) - it carries no information and only burdens the screen.
             finite_vals = vals[np.isfinite(vals)]
             if finite_vals.size == 0 or float(np.std(finite_vals)) <= 1e-12:
                 continue
@@ -247,7 +247,7 @@ def hybrid_conditional_quantile_rank_fe(
     raw-baseline floor, keep top ``top_k``.
 
     On a homoscedastic, non-skewed conditional distribution, quantile-rank is a near-monotone
-    reparametrization of the raw column / z-score and clears no uplift over either -- it is
+    reparametrization of the raw column / z-score and clears no uplift over either - it is
     self-limiting the same way the conditional-dispersion family is. Only a genuinely skewed
     conditional distribution (where quantile-rank resolves "how extreme" more accurately than a
     z-score) survives the MI gate. Returns ``(X_aug, appended, recipes, scores)``. ``y`` is

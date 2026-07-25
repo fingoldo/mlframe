@@ -3,13 +3,13 @@
 NOT wired into prod. Candidate universal-approximation families NOT already in ``bases.py`` (which has Fourier / RBF /
 Sigmoid / Pade) or ``hermite_fe`` (Hermite / Legendre / Chebyshev / Laguerre) or the spline/wavelet extra-basis path.
 
-* Bernstein -- ``B_{k,d}(t) = C(d,k) t^k (1-t)^(d-k)`` on ``t = (x - lo) / span`` in [0, 1]. Partition of unity, all-positive,
+* Bernstein - ``B_{k,d}(t) = C(d,k) t^k (1-t)^(d-k)`` on ``t = (x - lo) / span`` in [0, 1]. Partition of unity, all-positive,
   variation-diminishing: a least-squares Bernstein fit cannot overshoot a bounded monotone/sigmoidal shape the way a global
   Chebyshev fit rings at the endpoints. The natural win is a bounded-domain saturating shape (CDF-like, dose-response plateau).
 
-* Jacobi/Gegenbauer -- ``P_n^{(alpha,beta)}`` generalises Legendre (alpha=beta=0) and Chebyshev (alpha=beta=-1/2). The point of
+* Jacobi/Gegenbauer - ``P_n^{(alpha,beta)}`` generalises Legendre (alpha=beta=0) and Chebyshev (alpha=beta=-1/2). The point of
   the prototype is the HONEST redundancy check: does a tuned alpha/beta recover anything Legendre/Chebyshev cannot? If not, it is
-  REDUNDANT (the catalog already spans the same polynomial space -- different weighting, same span).
+  REDUNDANT (the catalog already spans the same polynomial space - different weighting, same span).
 
 Each family fits via least-squares to y on the train fold (the prototype scores the fitted column's MI vs y, mirroring how the
 existing extra-basis families are evaluated).

@@ -1,4 +1,4 @@
-"""Batched (multi-permutation-per-launch) GPU MI kernels -- ``mi_direct_gpu_batched`` and its CUDA-streams twin.
+"""Batched (multi-permutation-per-launch) GPU MI kernels - ``mi_direct_gpu_batched`` and its CUDA-streams twin.
 
 Split out from ``gpu.py`` to keep that file below the 1k-line monolith threshold (both functions carry
 extensive perf-history comments and together ran to ~420 lines). Behaviour preserved bit-for-bit; both
@@ -25,7 +25,7 @@ def _gpu_batched_bytes_per_perm(n: int) -> int:
     fix; shared by both OOM guards so the formula lives in exactly one place).
 
     Each iteration holds simultaneously: ``rand`` (b,n) float64 = 8 bytes/row, ``perm_idx`` (b,n) int64 =
-    8 bytes/row (``cp.argsort`` output dtype), and ``perms_y`` (b,n) int32 = 4 bytes/row -- 20 bytes/row.
+    8 bytes/row (``cp.argsort`` output dtype), and ``perms_y`` (b,n) int32 = 4 bytes/row - 20 bytes/row.
     The prior formula used ``n * 4`` (only ``perms_y``), a ~5x undercount of actual peak VRAM need for a
     given ``batch_size``."""
     return int(n) * 20
@@ -59,7 +59,7 @@ def mi_direct_gpu_batched(
     Auto-fallback: if ``batch_size * n * 4 bytes`` would exceed half of free GPU memory, ``batch_size`` shrinks to fit. For small datasets the overhead of
     permutation matrix generation can outweigh the saved launches; ``mi_direct_gpu`` remains the right call for ``npermutations < 32``.
 
-    Returns ``(original_mi, confidence)`` -- same contract as ``mi_direct_gpu``.
+    Returns ``(original_mi, confidence)`` - same contract as ``mi_direct_gpu``.
     """
     import cupy as cp
 
@@ -91,14 +91,14 @@ def mi_direct_gpu_batched(
     nbins_x = len(freqs_x)
     nbins_y = len(freqs_y)
 
-    # ABSOLUTE cushion guard (2026-07-05): decline the GPU entirely on a near-full / SHARED card BEFORE the
+    # ABSOLUTE cushion guard: decline the GPU entirely on a near-full / SHARED card BEFORE the
     # relative half-free batch cap below (which is computed only after the cupy pool may have already eaten the
     # device). On a cushion violation route to the exact CPU MI path (selection-equivalent, prefer_gpu=False so
-    # it does not recurse back onto the GPU) instead of launching a kernel that would fault. Pure ADD -- tightens.
+    # it does not recurse back onto the GPU) instead of launching a kernel that would fault. Pure ADD - tightens.
     try:
         from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
         _cushion_ok = fe_gpu_has_vram_cushion(n * 4)
-    except Exception:  # -- cushion module unavailable: leave existing guards in charge
+    except Exception:  # - cushion module unavailable: leave existing guards in charge
         _cushion_ok = True
     if not _cushion_ok:
         from .permutation import mi_direct
@@ -116,10 +116,10 @@ def mi_direct_gpu_batched(
     if batch_size > safe_batch:
         batch_size = safe_batch
 
-    # RESIDENT UPLOAD (2026-07-13): ``classes_y``/``freqs_y`` are the MRMR TARGET -- fit-constant across
+    # RESIDENT UPLOAD: ``classes_y``/``freqs_y`` are the MRMR TARGET - fit-constant across
     # every candidate this function is called for in the greedy screening loop (``mi_direct_gpu`` fans out
     # here once per candidate x). ``classes_x``/``freqs_x`` genuinely vary per call (the candidate column),
-    # so they stay a fresh per-call ``cp.asarray`` -- caching them would either never hit (distinct content
+    # so they stay a fresh per-call ``cp.asarray`` - caching them would either never hit (distinct content
     # every call) or grow the resident cache unboundedly across a wide candidate pool.
     from ._fe_resident_operands import resident_operand
     classes_x_gpu = cp.asarray(classes_x.astype(np.int32))
@@ -136,9 +136,9 @@ def mi_direct_gpu_batched(
     # the cache.
     #
     # Both kernel variants stay alongside per ``feedback_keep_all_kernel_versions``:
-    #   * compute_joint_hist_batched_shared_cuda -- shared-mem atomic;
+    #   * compute_joint_hist_batched_shared_cuda - shared-mem atomic;
     #     wins at most (n_samples, joint_size) combos.
-    #   * compute_joint_hist_batched_cuda -- global-atomic; wins at large
+    #   * compute_joint_hist_batched_cuda - global-atomic; wins at large
     #     joint_size on certain (n_samples, block_size) combos that the
     #     auto-tune sweep discovered (e.g. n=1M, joint=400 on cc 6.1).
     joint_size = nbins_x * nbins_y
@@ -161,7 +161,7 @@ def mi_direct_gpu_batched(
     # CuPy 0-d array in a Python list, then sync ONCE at end-of-loop via
     # ``cp.stack([...]).sum().get()``. The previous per-batch
     # ``int((mi_batch >= original_mi).sum().get())`` pattern triggered a
-    # cross-device sync on every iteration -- profile on 1M x 30,
+    # cross-device sync on every iteration - profile on 1M x 30,
     # fe_npermutations=50 showed ``cupy.ndarray.get`` at 5.2s of 13.2s fit
     # wall (39%) with 42 calls = ~124ms each (Windows WDDM driver fault
     # latency).
@@ -199,7 +199,7 @@ def mi_direct_gpu_batched(
     remaining = npermutations
     # Use the modern cupy Generator (XORWOW) rather than the legacy global cp.random.uniform: the legacy
     # host-API cuRAND generator fails to initialise (CURAND_STATUS_INITIALIZATION_FAILED) on some
-    # driver/lib combos where the Generator API works fine -- and the streamed twin already uses default_rng.
+    # driver/lib combos where the Generator API works fine - and the streamed twin already uses default_rng.
     _rng = cp.random.default_rng(base_seed)
     while remaining > 0:
         b = min(batch_size, remaining)
@@ -235,7 +235,7 @@ def mi_direct_gpu_batched(
         mi_batch = _mi_from_counts_cupy(cp, joint_counts_batch, n, nbins_x, nbins_y, outer_safe)  # (b,)
 
         # Stage on device; defer cross-device sync. Compare against the GPU-reduced observed MI (same FP
-        # order as mi_batch) -- NOT the CPU-njit original_mi -- so an equality near-tie cannot spuriously flip.
+        # order as mi_batch) - NOT the CPU-njit original_mi - so an equality near-tie cannot spuriously flip.
         batch_failures.append((mi_batch >= original_mi_gpu).sum())
         nchecked += b
         remaining -= b
@@ -250,7 +250,7 @@ def mi_direct_gpu_batched(
         nfailed = 0
 
     confidence = (1.0 - nfailed / nchecked) if nchecked > 0 else 0.0
-    # 2026-05-30 Wave 9.1 fix (loop iter 4): respect caller's
+    # Respect caller's
     # min_nonzero_confidence instead of the previous hardcoded 0.05
     # threshold. The hardcode silently diverged CPU and GPU paths when the
     # caller (default MRMR ctor: min_nonzero_confidence=0.99) wanted a
@@ -335,7 +335,7 @@ def mi_direct_gpu_batched_streamed(
     nbins_x = len(freqs_x)
     nbins_y = len(freqs_y)
 
-    # ABSOLUTE cushion guard (2026-07-05): as in mi_direct_gpu_batched, decline the GPU on a near-full / shared
+    # ABSOLUTE cushion guard: as in mi_direct_gpu_batched, decline the GPU on a near-full / shared
     # card BEFORE the relative half-free cap and route to the exact CPU MI path (selection-equivalent). Pure ADD.
     try:
         from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
@@ -358,7 +358,7 @@ def mi_direct_gpu_batched_streamed(
     if batch_size > safe_batch:
         batch_size = safe_batch
 
-    # RESIDENT UPLOAD (2026-07-13): mirrors the non-streamed twin above -- ``classes_y``/``freqs_y`` are
+    # RESIDENT UPLOAD: mirrors the non-streamed twin above - ``classes_y``/``freqs_y`` are
     # the fit-constant MRMR target, ``classes_x``/``freqs_x`` genuinely vary per candidate call.
     from ._fe_resident_operands import resident_operand
     classes_x_gpu = cp.asarray(classes_x.astype(np.int32))
@@ -367,7 +367,7 @@ def mi_direct_gpu_batched_streamed(
     freqs_y_gpu = resident_operand(freqs_y, "mi_batched_freqs_y", dtype=np.float64)
 
     joint_size = nbins_x * nbins_y
-    # Wave 23 #1 fix (2026-05-20): mirror the sibling lookup at L466-475
+    # Wave 23 #1 fix: mirror the sibling lookup at L466-475
     # so this streamed variant adapts to live HW. Pre-fix it open-coded
     # the same hand-tuned defaults from before kernel_tuning_cache landed
     # and silently fell behind on non-dev hardware.
@@ -468,7 +468,7 @@ def mi_direct_gpu_batched_streamed(
         nfailed = 0
 
     confidence = (1.0 - nfailed / nchecked) if nchecked > 0 else 0.0
-    # 2026-05-30 Wave 9.1 fix (loop iter 4): same fix as
+    # Same fix as
     # ``mi_direct_gpu_batched`` above - respect caller's
     # min_nonzero_confidence; clamp to avoid degenerate auto-reject.
     max_failed = int(npermutations * (1.0 - float(min_nonzero_confidence)))

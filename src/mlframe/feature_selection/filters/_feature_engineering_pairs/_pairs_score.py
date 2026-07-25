@@ -3,7 +3,7 @@
 
 This module holds the verbatim per-pair loop body lifted out of
 ``_pairs_core.check_prospective_fe_pairs`` so the parent orchestration function
-drops back under the 1k-LOC monolith ceiling. It is a STRAIGHT carve -- the
+drops back under the 1k-LOC monolith ceiling. It is a STRAIGHT carve - the
 block was moved unchanged except that:
 
   * the loop locals it reads are now EXPLICIT keyword parameters (no closure
@@ -52,8 +52,8 @@ from .._fe_usability_signal import (  # shared leaf detectors (numpy-only, no cy
 
 logger = logging.getLogger(__name__)
 
-# DEGENERATE-PAIR |corr| threshold (2026-06-27). A prospective pair is DEGENERATE when its winning
-# composite is numerically ~= a SINGLE one of its own (warped) operands -- the other operand's transform
+# DEGENERATE-PAIR |corr| threshold. A prospective pair is DEGENERATE when its winning
+# composite is numerically ~= a SINGLE one of its own (warped) operands - the other operand's transform
 # collapsed to ~constant so the binary op is just a re-wrap of one source and adds NO genuine joint
 # information (e.g. ``mul(prewarp(b),prewarp(a__L2))`` where ``prewarp(b)`` is ~constant -> the column is
 # essentially ``prewarp(a__L2)`` ~= a**2). Such a pair keeps |corr|~=1.0 with that one operand, clears the
@@ -173,7 +173,7 @@ def _score_one_pair(
     best_config, best_mi = None, -1.0
     this_pair_features: set = set()
     var_pairs_perf = {}
-    # Pre-warp uplift tracking (2026-06-02): the best engineered MI achievable
+    # Pre-warp uplift tracking: the best engineered MI achievable
     # with ONLY the elementary library unaries (no ``prewarp`` operand) vs the
     # best USING a prewarp operand. A 1-D engineered summary of a 2-D pair
     # cannot retain ``fe_min_engineered_mi_prevalence`` of the 2-D JOINT MI,
@@ -181,7 +181,7 @@ def _score_one_pair(
     # representationally blind) the prewarp winner is rejected by the joint
     # prevalence gate despite being a large, real uplift over the best the
     # library can do. The alternative acceptance path below admits a prewarp
-    # winner when it beats the best non-prewarp engineered MI by a margin --
+    # winner when it beats the best non-prewarp engineered MI by a margin -
     # directed (only fires where the prewarp adds representational power) and
     # noise-safe (on linear/monotone/noise data the prewarp does not beat the
     # elementary library, so the margin is never cleared).
@@ -206,7 +206,7 @@ def _score_one_pair(
         if _my_chunk is not None:
             if _my_chunk != chunk_state["loaded_idx"]:
                 # CHUNK PIPELINE (2026-07-02, max-GPU phase): under the strict-resident gate the driver put a
-                # single-worker executor + a SECOND chunk buffer in ``chunk_state`` -- chunk c+1's whole
+                # single-worker executor + a SECOND chunk buffer in ``chunk_state`` - chunk c+1's whole
                 # produce (materialise+bin+MI, GIL-releasing GPU/njit work) runs on the worker thread into the
                 # alternate buffer WHILE the main thread replays chunk c's pairs, so the GPU no longer idles
                 # through the host consume phase. Depth-1 double buffer: producing c+1 reuses slot (c-1)%2,
@@ -271,7 +271,7 @@ def _score_one_pair(
                     except Exception:
                         logger.debug("chunk prefetch submit failed; falling back to lazy compute", exc_info=True)
             _chunk_entry = chunk_state["mi_cache"].get(raw_vars_pair)
-    # When the chunk DEFERRED its float D2H the buffer is unfilled -- point the reads at None so they
+    # When the chunk DEFERRED its float D2H the buffer is unfilled - point the reads at None so they
     # take the GPU re-materialise branch in ``_resolve_col`` (bit-identical to the buffer value).
     _this_chunk_deferred = (_chunk_entry is not None) and chunk_state["float_deferred"]
     if _chunk_entry is not None:
@@ -284,7 +284,7 @@ def _score_one_pair(
     def _resolve_col(_buf_col):
         """Continuous candidate column ``_buf_col`` for the intermediate (subsample) scoring reads.
         Reads the filled chunk buffer when present; on the DEFERRED-float GPU path the buffer is
-        unfilled, so RE-MATERIALISE the column on the GPU via ``_fe_materialise_block_gpu`` -- the SAME
+        unfilled, so RE-MATERIALISE the column on the GPU via ``_fe_materialise_block_gpu`` - the SAME
         kernel that filled the bulk buffer, so the bytes are BIT-IDENTICAL (no cupy-vs-numpy ULP shift).
         The operand table is uploaded ONCE per chunk and cached; resolved columns are cached per
         buf_col (a column may be read several times). Returns a host float32 (n,) array, nan_to_num'd
@@ -314,21 +314,21 @@ def _score_one_pair(
     # ``times_spent`` under the lock once per pair (see end of pair loop).
     _local_times: dict = {}
 
-    # BATCHED-DISCRETIZE dispatch (2026-06-04): per-candidate ``discretize_array``
+    # BATCHED-DISCRETIZE dispatch: per-candidate ``discretize_array``
     # (np.linspace + np.nanpercentile->partition + searchsorted) is the FE-pair-search
-    # hotspot -- millions of tiny per-column numpy calls -> serial-dispatch-bound,
+    # hotspot - millions of tiny per-column numpy calls -> serial-dispatch-bound,
     # idle CPU. On the HOIST path (shared buffer present) with the quantile method we
     # split this pair's sweep into 3 phases: (1) materialise ALL candidate columns into
     # the buffer + nan_to_num + record (config, idx, uses_pw); (2) batch-discretise the
     # filled buffer slice in ONE ``np.nanpercentile(axis=0)`` (amortises dispatch over K
-    # columns -- bit-identical to per-column, see ``discretize_2d_quantile_batch``);
+    # columns - bit-identical to per-column, see ``discretize_2d_quantile_batch``);
     # (3) replay the EXACT per-candidate mi_direct + best/prewarp/config tracking.
     # MI stays per-candidate (mi_direct's permutation confidence is NOT batched). The
     # recompute-fallback (no buffer) and the uniform method keep the original
-    # per-candidate path verbatim -- only the hoist+quantile case is batched.
+    # per-candidate path verbatim - only the hoist+quantile case is batched.
     # A deferred chunk has final_transformed_vals=None (buffer not filled) but still drives the
     # cross-pair replay path (its MI is precomputed, its columns re-materialise on demand via
-    # _resolve_col) -- so treat a present _chunk_entry as batch-disc-eligible even when deferred.
+    # _resolve_col) - so treat a present _chunk_entry as batch-disc-eligible even when deferred.
     _use_batch_disc = ((final_transformed_vals is not None) or (_chunk_entry is not None and _this_chunk_deferred)) and (quantization_method == "quantile")
 
     if _use_batch_disc:
@@ -354,7 +354,7 @@ def _score_one_pair(
             # per-candidate orchestration overhead". A line_profiler pass (line-by-line, F2 100k warm)
             # disproves that: line 310 (``final_transformed_vals[:, i] = bin_func(param_a, param_b)``)
             # is 72.2% of the body's time, the Phase-1b ``nan_to_num`` 12.1%, GPU binning 7.4%, batch-MI
-            # dispatch 4.6% -- ALL numeric kernels (njit ufuncs / compiled div / GPU), already routed by
+            # dispatch 4.6% - ALL numeric kernels (njit ufuncs / compiled div / GPU), already routed by
             # prior iterations. The Python bookkeeping is negligible: ``_local_times`` dict 0.4%,
             # ``_batch_candidates.append`` 0.2%, the ``binary_transformations.items()`` loop 0.2%, the
             # per-pair-comb ``np.errstate`` 1.0%; the replay loop / ``var_pairs_perf`` dict / recipe-name
@@ -367,16 +367,16 @@ def _score_one_pair(
             # (then downcast on the float32 store here) is a real but UNSAFE lever: a native float32 divide
             # rounds differently from float64-divide-then-cast at ULP and this is selection-critical FE
             # scoring, so it is NOT changed. Verdict: ``_score_one_pair`` is already lean on Python overhead
-            # -- the wall IS candidate-column materialisation COMPUTE. iter11 (2026-06-23) RESOLVES that wall:
+            # - the wall IS candidate-column materialisation COMPUTE. iter11 RESOLVES that wall:
             # the line-310 CPU ``bin_func`` materialise is now routed to the GPU FUSED materialise+bin
             # (the GPU-fused branch directly below), measured F2 100k 83.8s -> 30.0s (2.8x), selection
-            # bit-identical -- so the "no win" tail of the iter10 verdict is SUPERSEDED for this path.
+            # bit-identical - so the "no win" tail of the iter10 verdict is SUPERSEDED for this path.
             # Phase 1: materialise + nan_to_num + record. ``i`` advances exactly as in the
             # per-candidate path so ``config``'s buffer index and ``_config_by_i`` are identical.
             _batch_candidates = []  # (transformations_pair, bin_func_name, i, uses_pw)
             _disc_2d = None  # set by the GPU FUSED materialise+bin path below; None -> CPU Phase 2 bins it
 
-            # GPU FUSED PER-PAIR MATERIALISE+BIN (2026-06-23, MRMR FE wall /loop iter11). The CPU
+            # GPU FUSED PER-PAIR MATERIALISE+BIN. The CPU
             # ``bin_func`` strided materialise (the line ``final_transformed_vals[:, i] = bin_func(param_a,
             # param_b)`` below) is the per-pair FE-scan WALL: on the F2 100k fit it is 71.9% of
             # ``_score_one_pair`` (line_profiler 45.8s of 63.7s). The chunk path already routes its
@@ -384,11 +384,11 @@ def _score_one_pair(
             # njit-mat+CPU-bin / 2.03x vs CPU njit-mat+GPU-bin, GTX 1050 Ti n=100k), but it only fires
             # when a chunk holds >1 pair (``_chunk_buffer`` allocated); at the canonical 100k fit the
             # RAM-budgeted chunk width is barely one pair wide (chunkmax~3561 vs pairwidth 1944), so
-            # ``_chunk_buffer`` stays None and EVERY pair falls to THIS per-pair CPU path -- 100% of
+            # ``_chunk_buffer`` stays None and EVERY pair falls to THIS per-pair CPU path - 100% of
             # candidate materialise (measured: F2 seed-7 = 58320/58320 cols on the CPU line below).
             # So we route the per-pair materialise through the SAME fused GPU kernel here. It builds the
             # (n,K) float candidate matrix on-device from (a_cols, b_cols, op_codes), fills the host buffer
-            # (``out_cand`` -- the downstream survivor/usability/ext-val stages still read the continuous
+            # (``out_cand`` - the downstream survivor/usability/ext-val stages still read the continuous
             # columns) AND bins it RESIDENT, returning ``_disc_2d`` so the separate Phase-2 binning is
             # skipped. BIT-IDENTICAL selection: ``gpu_materialise_discretize_codes_host`` mirrors
             # ``_materialise_chunk_njit`` (maxdiff 0), which is itself bit-identical to the numpy
@@ -399,7 +399,7 @@ def _score_one_pair(
             # the ``MLFRAME_FE_GPU_MATERIALISE`` escape hatch (same knob the chunk path uses). Any GPU
             # failure falls through to the CPU loop below (never a regression).
             # ``_gpu_mat_on``/``_op_code_arr`` are resolved ONCE by the caller (call-invariant), not
-            # recomputed for every pair -- see the per-call hoist comment in ``check_prospective_fe_pairs``.
+            # recomputed for every pair - see the per-call hoist comment in ``check_prospective_fe_pairs``.
             _gpu_fused_done = False
             try:
                 if _op_code_arr is not None:
@@ -452,7 +452,7 @@ def _score_one_pair(
 
             if not _gpu_fused_done:
                 # The GPU-prep candidate loop above advances ``i`` to size the fused launch; if the GPU-binning gate declines (no device / below crossover) we reach here with NO exception,
-                # so the ``except``-path ``i = 0`` reset never ran -- restart the column cursor before the CPU materialise, else it overruns ``final_transformed_vals`` (``_batch_candidates``/``_disc_2d`` keep their pre-try init).
+                # so the ``except``-path ``i = 0`` reset never ran - restart the column cursor before the CPU materialise, else it overruns ``final_transformed_vals`` (``_batch_candidates``/``_disc_2d`` keep their pre-try init).
                 i = 0
                 for transformations_pair in combs:
                     if (transformations_pair[0] not in vars_transformations) or (transformations_pair[1] not in vars_transformations):
@@ -488,12 +488,12 @@ def _score_one_pair(
                 # Phase 1b: ONE vectorised NaN/inf scrub over every materialised column
                 # [:, :i] (replaces the per-column ``nan_to_num`` removed above). Elementwise
                 # -> byte-identical to the per-column scrub; one contiguous-block C pass.
-                # SKIPPED on the GPU fused path (the kernel scrubs NaN/inf inline -- bit-identical).
+                # SKIPPED on the GPU fused path (the kernel scrubs NaN/inf inline - bit-identical).
                 if i > 0:
                     np.nan_to_num(final_transformed_vals[:, :i], copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
             # Phase 2: ONE batch discretisation over the materialised columns [:, :n].
-            # Bit-identical to per-column ``discretize_array(method='quantile')`` -- the
+            # Bit-identical to per-column ``discretize_array(method='quantile')`` - the
             # buffer dtype (float32) is NOT cast; per-column edges/codes match exactly.
             _fe_mi_arr = None
             if _batch_candidates:
@@ -520,9 +520,9 @@ def _score_one_pair(
                         _fe_mi_arr = None
                 if _fe_mi_arr is None:
                     # ``_disc_2d`` may ALREADY be the codes from the GPU FUSED materialise+bin path
-                    # (Phase 1 above) -- in that case skip re-binning (the fused kernel produced the
+                    # (Phase 1 above) - in that case skip re-binning (the fused kernel produced the
                     # SAME codes ``gpu_discretize_codes_host`` would). Only bin here when it is None.
-                    # GPU BINNING (2026-06-23): the per-pair Phase-2 binning gets the SAME dedicated
+                    # GPU BINNING: the per-pair Phase-2 binning gets the SAME dedicated
                     # binning crossover the chunk path now uses. ``gpu_discretize_codes_host`` is
                     # bit-identical to the CPU njit binning (verified maxdiff 0) and 17-24x faster at
                     # n=100k; it was previously reachable here ONLY through the full ``gpu_pairs_fe_mi``
@@ -536,7 +536,7 @@ def _score_one_pair(
                                 # defer_host_fill: the codes flow straight into _dispatch_batch_mi_with_noise_gate,
                                 # whose resident-CUDA gate consumes the DEVICE codes in place (take_resident_codes)
                                 # and only triggers the lazy host fill (ensure_host_codes_filled) on a host-reading
-                                # branch. Skips the (n, K) codes D2H -- the fit's single largest -- whenever the
+                                # branch. Skips the (n, K) codes D2H - the fit's single largest - whenever the
                                 # resident gate is the consumer. Bit-identical (host buffer, if read, == device.get()).
                                 _disc_2d = gpu_discretize_codes_host(
                                     final_transformed_vals[:, :i], int(quantization_nbins), dtype=_code_dtype,
@@ -549,8 +549,8 @@ def _score_one_pair(
                         _disc_2d = discretize_2d_quantile_batch(
                             final_transformed_vals[:, :i], n_bins=quantization_nbins,
                             dtype=_code_dtype,
-                            # OPT-A extension (2026-06-07): same main-thread parallel searchsorted
-                            # gate as the chunk + marginal-uplift discretise -- byte-identical
+                            # OPT-A extension: same main-thread parallel searchsorted
+                            # gate as the chunk + marginal-uplift discretise - byte-identical
                             # column-prange twin when serial_main_thread (no joblib nest).
                             parallel=_fe_use_parallel_kernels(i, serial_main_thread),
                             # The ``np.nan_to_num(..., copy=False)`` directly above scrubbed this exact
@@ -566,7 +566,7 @@ def _score_one_pair(
                 # tested against the SAME npermutations shuffles of y (the shuffle is
                 # seeded by (base_seed, perm_index) ONLY, never by classes_x), so a single
                 # batched kernel can shuffle y once per permutation and score all columns
-                # against it -- amortising both the MI compute and the shuffle across K.
+                # against it - amortising both the MI compute and the shuffle across K.
                 # ``_dispatch_batch_mi_with_noise_gate`` routes CPU-njit vs a GPU batched
                 # path by n*K via the kernel_tuning_cache (no hardcoded threshold).
                 # Skipped when the GPU pair-MI path above already produced ``_fe_mi_arr``.
@@ -714,7 +714,7 @@ def _score_one_pair(
 
     # Merge this pair's per-bin_func timings into the shared accumulator in
     # ONE locked pass (the increment was previously locked per inner
-    # iteration -- a serialization point under the parallel pair dispatch).
+    # iteration - a serialization point under the parallel pair dispatch).
     if _local_times:
         with _TIMES_SPENT_LOCK:
             for _bf, _dt in _local_times.items():
@@ -723,10 +723,10 @@ def _score_one_pair(
     if verbose > 2:
         logger.debug("For pair %s, best config is %s with best mi= %s", raw_vars_pair, best_config, best_mi)
 
-    # CLEAN-FORM DEMOTION over the per-pair MI winner (2026-06-20). The ``prewarp``
+    # CLEAN-FORM DEMOTION over the per-pair MI winner. The ``prewarp``
     # pseudo-unary fits a learned 1-D orthogonal-poly warp per operand; on a target whose
     # inner function is already LIBRARY-expressible up to a MONOTONE distortion (e.g.
-    # ``log(c)*sin(d)`` -- ``mul(log(c),sin(d))`` is the clean form, while the warp learns a
+    # ``log(c)*sin(d)`` - ``mul(log(c),sin(d))`` is the clean form, while the warp learns a
     # monotone re-expression ``mul(prewarp(c),sin(d))``) the prewarp form has IDENTICAL
     # ordering -> bit-equal binned MI, but MI is RANK-only so it cannot prefer the clean leg.
     # The warp then wins ``best_config`` by an MI tie/epsilon and propagates a DISTORTED form
@@ -735,9 +735,9 @@ def _score_one_pair(
     # in a redundant raw operand. Demote: when the global winner USES a prewarp operand but a
     # clean elementary-library (non-prewarp) form scores essentially the SAME target MI, keep
     # the prewarp winner ONLY if it has a real LINEAR-USABILITY uplift (|corr(continuous y)|)
-    # over the best clean form. This preserves prewarp's INTENDED case -- a genuinely
+    # over the best clean form. This preserves prewarp's INTENDED case - a genuinely
     # non-monotone inner (``a**3-2a``) where the warp's reconstruction is MORE linearly usable
-    # than any library form, so the uplift is real and the prewarp form is kept -- while making
+    # than any library form, so the uplift is real and the prewarp form is kept - while making
     # the monotone-equivalent case (no |corr| uplift) fall back to the clean library compound.
     if (
         best_config is not None
@@ -753,7 +753,7 @@ def _score_one_pair(
         )
         # Only act when the winner is a prewarp form AND the clean form is MI-equivalent
         # (within the same 0.85 leaders band already used as the equivalence notion). A
-        # strictly-higher-MI prewarp winner is left untouched -- the prewarp/marginal gates
+        # strictly-higher-MI prewarp winner is left untouched - the prewarp/marginal gates
         # below decide it on its own merits; demotion is for the MI-tie monotone case only.
         if _bc_uses_pw and best_nonprewarp_mi >= best_mi * fe_good_to_best_feature_mi_threshold:
 
@@ -792,7 +792,7 @@ def _score_one_pair(
             if _clean_corr >= 0.0 and _pw_corr < _clean_corr * 1.05:
                 best_config, best_mi = best_nonprewarp_config, best_nonprewarp_mi
                 # The single-best emission path (below) does NOT read ``best_config``
-                # directly -- it rebuilds the leaders band from ``var_pairs_perf`` and
+                # directly - it rebuilds the leaders band from ``var_pairs_perf`` and
                 # re-picks via ``_select_single_best`` whose PRIMARY key is exact target
                 # MI, so a prewarp form that beats the clean form by an MI EPSILON would be
                 # re-selected and the usability tie-break (gated on EQUAL MI) would never
@@ -824,12 +824,12 @@ def _score_one_pair(
     # experiment-rejected (2026-06-03): a held-out-CV firewall here (score
     # per-combo MI on a TRAIN stride slice for honest selection, then keep the
     # winner only if its held-out VAL-slice MI retains >= ratio of train MI) was
-    # implemented and benched END-TO-END on Layer-49 -- NO gain. In an isolated
+    # implemented and benched END-TO-END on Layer-49 - NO gain. In an isolated
     # probe it separated cleanly (genuine synergy val/train 0.90-1.04 vs noise-FE
     # 0.12-0.36), BUT in the real pipeline the tighter prevalence-gate defaults
     # (fe_synergy_min_prevalence 1.5 / fe_min_engineered_mi_prevalence 0.97)
     # already remove the pure noise*noise products, and the RESIDUAL "noise" FE
-    # are signal*noise combos (e.g. max(log(L4_s2),noise_3) -- L4_s2 is a real
+    # are signal*noise combos (e.g. max(log(L4_s2),noise_3) - L4_s2 is a real
     # sensor) that genuinely generalise (val/train > 0.5) and SHOULD be kept; the
     # firewall's train-based selection (half the rows) then merely added selection
     # noise (+1 support). Prevalence gating subsumes the win -> not shipped.
@@ -841,7 +841,7 @@ def _score_one_pair(
     # bins) against a 2-D joint MI (over ~``nbins^2`` bins). Both are plug-in MIs whose
     # positive bias is ``(k_x-1)(k_y-1)/2n``; the JOINT denominator's term is ~``nbins``x
     # larger, so the raw ratio is structurally depressed below 1.0 even when the 1-D
-    # feature captures all the joint information (worst at small/moderate n) -- this is
+    # feature captures all the joint information (worst at small/moderate n) - this is
     # exactly the documented reason the marginal-uplift fallback gate had to be added.
     # When ``fe_mm_debias_prevalence`` we subtract the MM MI-bias term from BOTH sides,
     # using the OCCUPIED bin counts (#4: nominal ``nbins`` over-corrects heavy-tailed
@@ -853,10 +853,10 @@ def _score_one_pair(
     #
     # bench-attempt-rejected (2026-06-09, FS "permutation-null-calibrated
     # prevalence bar"). The idea: REPLACE the hardcoded ``fe_min_engineered_mi_prevalence``
-    # (0.90) with a SELF-CALIBRATING per-pool null ratio -- in the SAME K y-shuffles the
+    # (0.90) with a SELF-CALIBRATING per-pool null ratio - in the SAME K y-shuffles the
     # order-2 maxT floor runs, ALSO mirror the max-over-transforms search (discretise the
-    # elementary binary bank mul/add/sub/div/max/min over the CONTINUOUS operands ONCE --
-    # permutation-invariant -- then per shuffle take max 1-D engineered MI / joint pair MI),
+    # elementary binary bank mul/add/sub/div/max/min over the CONTINUOUS operands ONCE -
+    # permutation-invariant - then per shuffle take max 1-D engineered MI / joint pair MI),
     # and gate ``best_mi/pair_mi`` against the q95 of that null-ratio distribution (the chance
     # ceiling), admitting only ABOVE it. Unlike #1 (a DETERMINISTIC bias subtraction that
     # uniformly relaxes the bar) the null ratio is calibrated to what NOISE actually produces.
@@ -867,16 +867,16 @@ def _score_one_pair(
     #     0.15/0.16/0.17 -> ADMIT, while the hardcoded 0.90 bar REJECTS at every n. In a mixed
     #     He2-signal+8-noise frame the null bar admits the genuine (a,b) pair and 0-1/28 noise
     #     pairs (chance rate). So in ISOLATION #5 is a genuine improvement over #1.
-    # BUT bench-REJECTED on the case that matters -- the user's WEAK F2
+    # BUT bench-REJECTED on the case that matters - the user's WEAK F2
     # (``0.2*a**2/b + log(c*2)*sin(d/3)``, the SAME target that rejected #1/#8/#19): the null
     # ceiling is ~0.167 (calibrated to clean-noise pairs, ratio ~0.13-0.17), but EVERY weak-F2
     # pair sits FAR above it (5 seeds, n=20000): genuine_ab ~0.81, genuine_cd ~0.73, AND all four
     # cross-mix pairs 0.56-0.72 (cross(b,d) ~0.717 >= genuine_cd). So the null bar ADMITS every
-    # cross-mix on every seed -- the IRON-RULE failure mode, identical to #1 (cross-mix 3/10 ->
+    # cross-mix on every seed - the IRON-RULE failure mode, identical to #1 (cross-mix 3/10 ->
     # 9/10). ROOT CAUSE is the documented fundamental detectability limit (see
     # ``test_mrmr_weak_f2_seed_stability.py`` "THREE DIRECT LEVERS EXHAUSTED"): the cross-mix
     # smuggles the dominant MONOTONE predictor ``c`` across the pair boundary, so its 1-D
-    # engineered summary recovers a large fraction of its (real, cross) joint -- a HIGH ratio
+    # engineered summary recovers a large fraction of its (real, cross) joint - a HIGH ratio
     # indistinguishable from genuine synergy by ANY MI threshold. The null bar measures the
     # noise floor, but the weak-F2 problem is NOT noise admission; it is a real-monotone-predictor
     # cross-mix whose ratio is nowhere near the noise floor. AND the existing marginal-uplift /
@@ -916,11 +916,11 @@ def _score_one_pair(
         )
     _passes_joint_gate = _gate_ratio > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025)
 
-    # Alternative pre-warp acceptance (2026-06-02): the joint-prevalence gate
+    # Alternative pre-warp acceptance: the joint-prevalence gate
     # structurally rejects a 1-D summary of a 2-D pair on a non-monotone inner
     # distortion. Admit the prewarp winner when it beats the best NON-prewarp
     # engineered MI by ``prewarp_uplift_threshold`` AND clears the pair-MI
-    # noise floor (its MI must exceed the larger individual operand MI -- the
+    # noise floor (its MI must exceed the larger individual operand MI - the
     # same notion the smart_polynom baseline uplift uses), so it cannot fire
     # on noise (where prewarp does not beat the library) or pure-linear data
     # (where the elementary library already saturates and the prewarp adds no
@@ -958,7 +958,7 @@ def _score_one_pair(
     # for genuine pairs the strict joint bar drops. We score + promote the best NON-PREWARP
     # winner: the prewarp pseudo-unary has its own dedicated acceptance path above
     # (``_prewarp_accept``), and promoting a prewarp form here would require the per-operand
-    # warp spec to round-trip into the recipe -- which is only guaranteed on the prewarp path.
+    # warp spec to round-trip into the recipe - which is only guaranteed on the prewarp path.
     _marginal_uplift_accept = False
     if not _passes_joint_gate and not _prewarp_accept and best_nonprewarp_config is not None and best_nonprewarp_mi > 0.0 and pair_mi > 0.0:
         _max_operand_marginal = max(
@@ -989,20 +989,20 @@ def _score_one_pair(
                     f"admitting the genuine synergy pair."
                 )
 
-    # TAIL-CONCENTRATION USABILITY ADMISSION + WINNER PROMOTION (2026-07-03). Under heavy operand outliers a
+    # TAIL-CONCENTRATION USABILITY ADMISSION + WINNER PROMOTION. Under heavy operand outliers a
     # genuine ratio (a**2/b) is TAIL-CONCENTRATED: in the clean bulk its rank association with y collapses
     # (Spearman ~0), so its rank-MI sits in a tight noise band where a SPURIOUS form out-ranks the true ratio
     # by a REAL margin the tie band cannot bridge (F2 with_outliers: min(reciproc(a),sign(b)) rank-MI 0.073
     # beats the true div(sqr(a),b) 0.063), AND the whole pair's best rank-MI fails the engineered-MI joint /
     # marginal-uplift gates (0.073/0.094 = 0.78 < the 0.90+ bar). Both failures are the SAME rank-MI blind
     # spot: the distinguishing signal is LINEAR (|corr(continuous y)| 0.986 true vs 0.371 spurious, corr
-    # outlier-inflated -- exactly right for a tail signal). Detect tail concentration on the RAW operands vs
-    # the continuous y (``pair_is_tail_concentrated`` -- best bivariate-form |corr| clears the bar AND beats
+    # outlier-inflated - exactly right for a tail signal). Detect tail concentration on the RAW operands vs
+    # the continuous y (``pair_is_tail_concentrated`` - best bivariate-form |corr| clears the bar AND beats
     # the best single-operand form by the pairness margin, so cross-mix / lone-dominant-operand / noise pairs
     # are rejected). When detected, PROMOTE the |corr|-best engineered FORM as the winner: this (a) admits the
     # pair when every rank-MI gate declined (``_usability_accept``) and (b) both widens the emit leader set to
-    # include the true form -- its rank-MI is BELOW ``fe_good_to_best_feature_mi_threshold`` x the spurious
-    # leader, so it would otherwise be excluded -- and flips the winner-selection primary key to |corr|
+    # include the true form - its rank-MI is BELOW ``fe_good_to_best_feature_mi_threshold`` x the spurious
+    # leader, so it would otherwise be excluded - and flips the winner-selection primary key to |corr|
     # (``_usability_primary``) so the true ratio wins. The rank-vs-|corr| DISAGREEMENT gate
     # (``tail_concentration_form_override``) makes it a strict no-op on the 4 passing F2 profiles + canonical
     # fixtures (there the ratio is BOTH the rank-MI and |corr| leader, so nothing is promoted). Best-effort:
@@ -1020,7 +1020,7 @@ def _score_one_pair(
         try:
             _tc_x0 = _extval_raw_col(raw_vars_pair[0])
             _tc_x1 = _extval_raw_col(raw_vars_pair[1])
-            # PART A (cheap raw-operand pre-filter): the pair must be genuinely tail-concentrated -- its best
+            # PART A (cheap raw-operand pre-filter): the pair must be genuinely tail-concentrated - its best
             # RAW bivariate form clears ``min_corr`` AND beats the best single-operand form by the pairness
             # margin. FALSE for noise pairs (best-form |corr| ~0.02-0.2) and lone-dominant-operand pairs, so
             # the per-form materialise in PART B is skipped for the common case.
@@ -1048,17 +1048,17 @@ def _score_one_pair(
                         _cv = _resolve_col(_cfg[2])
                         if _cv is not None:
                             _use_map[_cfg] = _safe_abs_corr(_cv)
-                    except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                        logger.debug("suppressed in _pairs_score.py:1042: %s", e)
+                    except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+                        logger.debug("suppressed: %s", e)
                         continue
                 # Memoised by raw var key: ``_tc_x0``/``_tc_x1`` (fetched via ``_extval_raw_col`` above)
                 # are the SAME raw operands the noise-wrap veto below scores, and either can recur
-                # across every admitted pair sharing that var -- see ``_raw_operand_abs_corr``.
+                # across every admitted pair sharing that var - see ``_raw_operand_abs_corr``.
                 _best_single_corr = max(
                     _raw_operand_abs_corr(raw_vars_pair[0]), _raw_operand_abs_corr(raw_vars_pair[1]),
                 )
                 # ``_mi_band`` is the caller-hoisted, call-invariant tie band (see the per-call hoist
-                # comment in ``check_prospective_fe_pairs``) -- not recomputed per pair.
+                # comment in ``check_prospective_fe_pairs``) - not recomputed per pair.
                 _override_cfg = tail_concentration_form_override(
                     var_pairs_perf, _use_map,
                     min_corr=fe_pair_usability_admission_min_corr,
@@ -1084,10 +1084,10 @@ def _score_one_pair(
             _usability_accept = False
             _usability_primary = False
 
-    # NOISE-WRAP CORR-COLLAPSE VETO (2026-06-15). Whatever path admitted the winner, VETO it when the
+    # NOISE-WRAP CORR-COLLAPSE VETO. Whatever path admitted the winner, VETO it when the
     # winning composite WRAPS a strong, clean operand with a (near-)noise operand: its |corr| with the
     # target collapses to a small fraction of the best single operand's |corr| while that operand is
-    # genuinely strong on its own. This is the ``sub(log(e),invqubed(a__T2))`` failure -- an extreme
+    # genuinely strong on its own. This is the ``sub(log(e),invqubed(a__T2))`` failure - an extreme
     # heavy-tailed transform inflates the binned ``best_mi/pair_mi`` so it clears the joint-prevalence
     # gate, yet the column carries ~0 linear/monotone signal (|corr|~0.02) versus the clean operand's
     # |corr|~0.99, so it would DISPLACE the clean univariate basis from the support and kill recovery.
@@ -1098,7 +1098,7 @@ def _score_one_pair(
             _win_vals = _resolve_col(best_config[2]) if (final_transformed_vals is not None or _this_chunk_deferred) else None
             _win_corr = _safe_abs_corr(_win_vals) if _win_vals is not None else None
             # Compare against the strongest CLEAN per-operand column the winner actually used: each operand
-            # under its CHOSEN unary (``sqr(a)`` for the ``a`` side, not raw ``a`` -- raw ``a`` is ~0 corr
+            # under its CHOSEN unary (``sqr(a)`` for the ``a`` side, not raw ``a`` - raw ``a`` is ~0 corr
             # for an even target like ``exp(-a**2)``), falling back to the raw operand value. This is the
             # genuine single-source signal the wrap is diluting.
             # Memoised by operand key (``_transformed_operand_abs_corr``/``_raw_operand_abs_corr``): the
@@ -1123,15 +1123,15 @@ def _score_one_pair(
                         f"so it cannot displace the clean operand."
                     )
 
-            # DEGENERATE-PAIR (single-operand re-wrap) VETO (2026-06-27). The noise-wrap veto above catches a
+            # DEGENERATE-PAIR (single-operand re-wrap) VETO. The noise-wrap veto above catches a
             # composite whose |corr| with the TARGET collapsed; this catches the dual failure where the
-            # composite numerically EQUALS a single one of its own (warped) operands -- the other operand's
+            # composite numerically EQUALS a single one of its own (warped) operands - the other operand's
             # transform collapsed to ~constant so the binary op carries no genuine joint information. Such a
             # "pair" keeps |corr|~=1.0 with that one operand and full target tracking, so the noise-wrap veto
             # never fires, yet it DISPLACES the clean single-source univariate basis (``a__L2``) it re-wraps
             # (``mul(prewarp(b),prewarp(a__L2))`` ~= ``prewarp(a__L2)`` ~= a**2). Compare the winning column
             # to EACH operand's chosen-unary continuous values: if it is ~= ONE operand (|corr| >= 0.999) the
-            # pair adds nothing a single warped operand does not -- veto so the clean single-source form wins.
+            # pair adds nothing a single warped operand does not - veto so the clean single-source form wins.
             # A genuine 2-var pair (a/b, a*b) sits FAR below 0.999 with EITHER operand and is untouched.
             if (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept or _usability_accept) and _win_vals is not None:
                 from ._pairs_core import _abs_corr_zerofill_njit
@@ -1143,7 +1143,7 @@ def _score_one_pair(
                     if _opk is not None and _opk in vars_transformations:
                         _ov = transformed_vars[:, vars_transformations[_opk]]
                         # One-pass njit correlation (bit-equivalent to the previous
-                        # nan_to_num-then-np.corrcoef -- see _abs_corr_zerofill_njit's docstring)
+                        # nan_to_num-then-np.corrcoef - see _abs_corr_zerofill_njit's docstring)
                         # instead of 2 full-array nan_to_num allocations + a 2x2 corrcoef matrix.
                         _r = _abs_corr_zerofill_njit(_win_vals_f64, np.asarray(_ov, dtype=np.float64))
                         _max_single_op_corr = max(_max_single_op_corr, _r)
@@ -1163,7 +1163,7 @@ def _score_one_pair(
             logger.debug("noise-wrap corr-collapse veto failed; pair not vetoed", exc_info=True)
 
     # REJECTION LEDGER (additive): record a pair the per-pair acceptance gate is about
-    # to DROP -- the joint-prevalence floor declined AND both the prewarp and the
+    # to DROP - the joint-prevalence floor declined AND both the prewarp and the
     # marginal-uplift (abs-MAD / joint-recovery) fallbacks declined. Attribute to whichever
     # floor it primarily missed: the engineered-MI prevalence floor (the 0.97 floor the
     # session hand-diagnoses) is the primary gate; if the ratio DID clear that bar (so the
@@ -1202,7 +1202,7 @@ def _score_one_pair(
             if rejection_ledger_out is not None:
                 rejection_ledger_out.append(_rej_rec)
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _pairs_score.py:1188: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
 
     if _passes_joint_gate or _prewarp_accept or _marginal_uplift_accept or _usability_accept:  # Best transformation is good enough

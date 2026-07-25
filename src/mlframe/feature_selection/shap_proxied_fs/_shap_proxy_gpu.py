@@ -2,7 +2,7 @@
 
 The subset-scan is the *cheapest* stage of the pipeline (the research clocked ~0.005 s for the
 proven case; SHAP compute + honest re-validation dominate). So this backend earns its keep only for
-very large combo counts (>~1e7) on a GPU box -- it is opt-in via ``optimizer="bruteforce_gpu"`` and
+very large combo counts (>~1e7) on a GPU box - it is opt-in via ``optimizer="bruteforce_gpu"`` and
 the facade falls back to the numba path when cupy / a device is unavailable.
 
 One CUDA thread per combination computes its proxy loss by accumulating ``base[i] + sum phi[i, comb]``

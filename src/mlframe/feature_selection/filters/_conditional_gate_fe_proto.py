@@ -2,24 +2,24 @@
 
 Second-pass discovery (after gcd/lcm shipped). Two multi-column operators the rich catalog still cannot express for the
 MI / linear-downstream selector, confirmed by ``_benchmarks/bench_frontier_candidates`` (+0.55 / +0.55 single-column MI lift
-over the best shipped operator, specific -- negative lift on smooth / noise / ordinary-interaction controls):
+over the best shipped operator, specific - negative lift on smooth / noise / ordinary-interaction controls):
 
-* GATE -- a REGIME SWITCH ``c > tau ? a : b`` (select) and a MASKED interaction ``1[c>tau] * a`` (mask): two raw features
+* GATE - a REGIME SWITCH ``c > tau ? a : b`` (select) and a MASKED interaction ``1[c>tau] * a`` (mask): two raw features
   routed / masked by a THIRD feature's data-dependent threshold. The shipped ``conditional_residual`` is ``a - E[a|bin(c)]``
   (a *residual*, not a value-selecting switch); the hinge basis is UNIVARIATE (one column's kink), it cannot route between
   two columns; a raw product ``a*c`` is a smooth bilinear surface, not a hard switch. So on a true regime target the gate MI
   (0.69) dwarfs the best existing op (0.14, the raw product).
 
-* ARGMAX -- ``argmax_row(a, b, c)`` = which column is the row maximum (an ordinal/comparison pattern). A tree gets the pairwise
+* ARGMAX - ``argmax_row(a, b, c)`` = which column is the row maximum (an ordinal/comparison pattern). A tree gets the pairwise
   comparisons for free, but the MI / linear path sees only marginal columns + pairwise diffs; no single shipped column equals
   the 3-way argmax code (cand MI 1.05 vs best existing 0.49 = a single pairwise diff).
 
-REJECTED sibling (kept here as the measured negative -- ``concordance3`` in the bench): the concordance-count #{a>b, b>c, a>c}
-is FULLY captured by an existing pairwise diff (``diff_a_c``) -- +0.000 lift. Not an operator gap; do NOT add a detector.
+REJECTED sibling (kept here as the measured negative - ``concordance3`` in the bench): the concordance-count #{a>b, b>c, a>c}
+is FULLY captured by an existing pairwise diff (``diff_a_c``) - +0.000 lift. Not an operator gap; do NOT add a detector.
 
 Design mirrors ``_pairwise_modular_fe`` (cheap-first scan + dual gate). For the GATE the threshold ``tau`` is found by a coarse
 quantile scan over the gating column; for ARGMAX there is no parameter (one column per integer-eligible/continuous triple).
-Replay is a pure function of X (no y), so transform() is leak-free by construction -- the recipe would store only
+Replay is a pure function of X (no y), so transform() is leak-free by construction - the recipe would store only
 ``{a, b, gate_col, tau, mode}`` (gate) or the source triple (argmax).
 
 Cost: each candidate is one vectorised numpy op + the shipped ``_mi`` kernel; the gate adds a small (~17-point) quantile scan
@@ -54,7 +54,7 @@ _MIN_MARGIN = 0.02
 def apply_conditional_gate(a: np.ndarray, b: np.ndarray, c: np.ndarray, tau: float, mode: str = "select") -> np.ndarray:
     """One gate column. ``select``: ``c>tau ? a : b`` (regime switch). ``mask``: ``1[c>tau]*a`` (a active only where c>tau).
 
-    Pure function of (a, b, c, tau) -- no y, so replay is leak-free. ``b`` is ignored for ``mask`` (pass any array / a)."""
+    Pure function of (a, b, c, tau) - no y, so replay is leak-free. ``b`` is ignored for ``mask`` (pass any array / a)."""
     af = np.asarray(a, dtype=np.float64)
     cf = np.asarray(c, dtype=np.float64)
     hi = cf > tau
@@ -72,7 +72,7 @@ def apply_row_argmax(cols: list[np.ndarray]) -> np.ndarray:
 
 
 def _perm_null_hi(feat: np.ndarray, yi: np.ndarray, nbins: int, n_perm: int, rng, z: float = 3.0) -> float:
-    """Upper band (mean + z*std) of the fixed feature's MI under y permutation -- the noise reference the feature must clear."""
+    """Upper band (mean + z*std) of the fixed feature's MI under y permutation - the noise reference the feature must clear."""
     vals = np.empty(n_perm, dtype=np.float64)
     for i in range(n_perm):
         vals[i] = _mi(feat, yi[rng.permutation(yi.size)], nbins=nbins)
@@ -92,7 +92,7 @@ def scan_conditional_gate(
 ) -> list[dict]:
     """Cheap-first scan for regime-switch / masked-interaction structure. For each ordered (a, b, gate_col=c) triple and each
     mode, scan tau over the quantile grid of c, keep the best-tau gate, and emit a hit when its MI beats the best operand MI by
-    ``min_margin`` AND a permutation-null band -- the same dual gate the modular / lattice detectors use.
+    ``min_margin`` AND a permutation-null band - the same dual gate the modular / lattice detectors use.
 
     ``cols`` are the candidate column names (continuous or integer). The gating column ``c`` ranges over all cols; (a, b) over the
     remaining ordered pairs for ``select`` and over the single masked column for ``mask``. Budgeted by ``max_triples``."""
@@ -126,7 +126,7 @@ def scan_conditional_gate(
             if best[0] <= null_hi:
                 continue
             hits.append(dict(mode="mask", a=a, b=None, gate_col=cgate, tau=best[1], mi=float(best[0]), operand_floor=float(floor), null_hi=float(null_hi)))
-        # select: ordered (a, b) -- a where c>tau else b
+        # select: ordered (a, b) - a where c>tau else b
         for a in others:
             for b in others:
                 if a == b or budget <= 0:

@@ -111,7 +111,7 @@ def heterogeneous_relevance_vote(
         mode by downweighting a member blind to a feature's functional form. MEASURED (round2_hetero_skillweight
         _bench.py, 6 scenarios x 2 seeds): it changed the selection in 0/12 cells (mean AUC identical to equal
         weighting, 0.7418), because on this bed every panel member keeps a BALANCED CV skill (~0.20-0.29) even on
-        monotone / weakmix -- no member is actually near-chance, so there is nothing to downweight. hetero_vote's
+        monotone / weakmix - no member is actually near-chance, so there is nothing to downweight. hetero_vote's
         recall deficit is structural to the cross-model AGREEMENT requirement (a weak feature is not confidently
         above-shadow in a majority of models), not the fault of one blind voter, so skill-weighting cannot close
         it. Kept as an off-by-default option for datasets that DO contain a near-chance member; not a recall fix.
@@ -123,10 +123,10 @@ def heterogeneous_relevance_vote(
     percentile : the shadow-importance quantile a feature's importance must STRICTLY exceed to score a hit (default 100.0 = the single max shadow). This is the
         deliberate high-precision setting: a feature must beat the strongest shadow, which keeps accepted-noise near zero at the cost of recall. Edge note (by design,
         not a bug): when every feature shares the same importance (e.g. a constant / all-equal-importance X) the threshold equals that shared value and the strict ``>``
-        makes every feature silently fail -- there is genuinely no feature that stands out above its own shadow, so an empty accept set is the correct all-relevant verdict.
+        makes every feature silently fail - there is genuinely no feature that stands out above its own shadow, so an empty accept set is the correct all-relevant verdict.
 
     Sample-weight note: the permutation-importance fallback (used only for estimators exposing neither ``feature_importances_`` nor ``coef_``) subsamples to 1000 rows
-        and does NOT thread ``sample_weight`` -- the voting path carries no sample-weight contract at all, so this is consistent across the whole panel, not a silent drop.
+        and does NOT thread ``sample_weight`` - the voting path carries no sample-weight contract at all, so this is consistent across the whole panel, not a silent drop.
     """
     cols = list(X.columns) if isinstance(X, pd.DataFrame) else [f"x{i}" for i in range(np.asarray(X).shape[1])]
     Xv = X.values if isinstance(X, pd.DataFrame) else np.asarray(X, dtype=float)

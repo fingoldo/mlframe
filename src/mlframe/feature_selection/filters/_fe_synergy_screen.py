@@ -1,7 +1,7 @@
 """Joint-synergy pair screen: detect zero-/weak-marginal interaction pairs the MARGINAL screen misses.
 
 The MRMR FE rung-0 pair screen ranks candidate raw pairs by their MARGINAL relevance (each operand's
-MI with ``y``). On a PURE-SYNERGY target -- e.g. ``y = (x1>0) XOR (x2>0)`` -- BOTH operands have
+MI with ``y``). On a PURE-SYNERGY target - e.g. ``y = (x1>0) XOR (x2>0)`` - BOTH operands have
 ~zero marginal MI, so the marginal screen sees the pair as noise and never forms the engineered
 interaction (the documented I4/I5 "zero-marginal synergy === noise at the marginal level" barrier;
 multiway_synergy::test_three_way_xor and friends).
@@ -23,7 +23,7 @@ signal pair hidden among 189 noise pairs (P=20 features, 190 pairs), the signal 
 
 So a JOINT screen recovers the synergy the marginal screen drops, at equal (near-zero) noise admission.
 
-WIRED (FE_REDUNDANCY_SYNERGY-8 fix, -- this docstring was stale): not via
+WIRED (this docstring was stale): not via
 ``check_prospective_fe_pairs`` directly, but ``_mrmr_fit_impl/_fit_impl_core.py`` calls
 ``detect_synergy_combos`` for "n-way synergy seeding" (re-adding raw operands of a detected synergy combo
 to ``selected_vars``), gated on ``interactions_max_order>=2``. This is the screen's validated core + its
@@ -39,7 +39,7 @@ from numba import njit
 @njit(cache=True)
 def _combo_mm_mi_njit(combo_codes, cards, target, kt, n_cells):
     """Miller-Madow-corrected MI (nats, >=0) between the JOINT of ``order`` integer code columns and
-    the target -- the synergy screen's hot per-combo histogram, in nopython.
+    the target - the synergy screen's hot per-combo histogram, in nopython.
 
     ``combo_codes`` is ``(n, order)`` int64 per-feature codes; ``cards`` the ``(order,)`` per-feature
     cardinalities; ``target`` the ``(n,)`` int64 target codes; ``kt`` the target cardinality; ``n_cells``
@@ -93,7 +93,7 @@ def _combo_mm_mi_njit(combo_codes, cards, target, kt, n_cells):
 @njit(cache=True)
 def _combo_mm_mi_cols_njit(c0, c1, c2, order, cards, target, kt, n_cells):
     """Same MM-corrected joint MI as ``_combo_mm_mi_njit`` but reads the ``order`` code columns DIRECTLY
-    (order 2 or 3) instead of a materialised ``(n, order)`` matrix -- the caller's per-combo ``_mat`` build
+    (order 2 or 3) instead of a materialised ``(n, order)`` matrix - the caller's per-combo ``_mat`` build
     (strided column copies into a C-contiguous matrix) was ~70% of the synergy sweep's per-combo cost, so
     skipping it and computing the mixed-radix cell inline from the contiguous cached columns is 1.71x, bit-
     identical (the cell code ``(c0*cards[1]+c1)[*cards[2]+c2]`` is exactly the ``_mat`` path's radix)."""
@@ -148,7 +148,7 @@ def _combo_mm_mi_cols_njit(c0, c1, c2, order, cards, target, kt, n_cells):
 
 @njit(cache=True)
 def _pair_mm_mi_njit(code_x, code_y, target, kx, ky, kt, min_rows_per_cell):
-    """Fused O(n) Miller-Madow-corrected joint MI ``I({X,Y}; T)`` for a CODE PAIR -- the
+    """Fused O(n) Miller-Madow-corrected joint MI ``I({X,Y}; T)`` for a CODE PAIR - the
     nopython equivalent of ``joint_synergy_mi(code_x, code_y, target)``, with NO
     ``np.unique`` densify and NO ``np.add.at`` scatter.
 
@@ -157,11 +157,11 @@ def _pair_mm_mi_njit(code_x, code_y, target, kx, ky, kt, min_rows_per_cell):
     ``cx*ky + cy`` over the DENSE ``kx*ky`` grid; the joint table is ``(kx*ky) x kt``. MI is
     summed over OCCUPIED cells with the SAME estimator as the numpy reference
     (``sum p*log(p/(px*py))``), debited by the MM bias ``(occ_x-1 + occ_y-1 - (occ-1))/(2n)``
-    using OCCUPIED joint / target counts -- the identical bias ``joint_synergy_mi`` applies
+    using OCCUPIED joint / target counts - the identical bias ``joint_synergy_mi`` applies
     on its renumbered occupied grid (densification is order-preserving for occupancy, so the
     occupied counts and the MM debit are unchanged; the MI value matches to FP reduction order).
 
-    OCCUPANCY FLOOR: matches ``joint_synergy_mi`` -- the floor there compares ``n`` against
+    OCCUPANCY FLOOR: matches ``joint_synergy_mi`` - the floor there compares ``n`` against
     ``min_rows_per_cell * (occupied-joint-cardinality) * (target max code + 1)``. We count
     occupied joint cells after the histogram pass and use the FULL target cardinality ``kt``
     (= ``yt.max()+1``), applying the identical gate, returning 0.0 below it.
@@ -215,7 +215,7 @@ def _renumber_joint_codes(code_x: np.ndarray, code_y: np.ndarray) -> tuple[np.nd
 
     Returns ``(joint_codes, n_joint_classes)`` where ``joint_codes[i]`` is a dense 0-based id for the
     ``(code_x[i], code_y[i])`` cell (only OCCUPIED cells get ids, so the count is the realised joint
-    cardinality -- what the Miller-Madow correction debits)."""
+    cardinality - what the Miller-Madow correction debits)."""
     cx = np.asarray(code_x).astype(np.int64).ravel()
     cy = np.asarray(code_y).astype(np.int64).ravel()
     ky = int(cy.max()) + 1 if cy.size else 1
@@ -229,11 +229,11 @@ def joint_synergy_mi(code_x: np.ndarray, code_y: np.ndarray, target_codes: np.nd
 
     The bias correction debits ``(k_joint-1 + k_target-1 - (k_cells-1)) / (2n)`` using the OCCUPIED
     class/cell counts, so a noise pair's positive finite-sample joint MI collapses toward zero while a
-    genuine synergy pair (XOR and friends) retains a large excess -- see the module docstring's
+    genuine synergy pair (XOR and friends) retains a large excess - see the module docstring's
     measured detection-vs-noise separation. Returns ``max(0.0, corrected_mi)``.
 
     OCCUPANCY FLOOR: the MM debit does NOT keep a noise grid's joint MI near zero once rows-per-cell
-    gets small (a 30x30 noise grid over n=3000 -- ~1.6 rows/occupied-cell -- still reports ~0.29 nats).
+    gets small (a 30x30 noise grid over n=3000 - ~1.6 rows/occupied-cell - still reports ~0.29 nats).
     When the realised grid has fewer than ``min_rows_per_cell`` rows per OCCUPIED (joint x target) cell
     the estimate is statistically unreliable, so return 0.0 (cannot claim synergy from too little data).
     Genuine low-cardinality synergies (XOR/parity: a few cells, hundreds of rows each) are unaffected."""
@@ -261,7 +261,7 @@ def joint_synergy_mi(code_x: np.ndarray, code_y: np.ndarray, target_codes: np.nd
 
 
 def _marginal_mm_mi(code_x: np.ndarray, target_codes: np.ndarray) -> float:
-    """MM-corrected marginal MI(code_x; target) in nats (>=0) -- the njit kernel at order 1."""
+    """MM-corrected marginal MI(code_x; target) in nats (>=0) - the njit kernel at order 1."""
     cx = np.ascontiguousarray(np.asarray(code_x).astype(np.int64).ravel())
     yt = np.ascontiguousarray(np.asarray(target_codes).astype(np.int64).ravel())
     n = cx.shape[0]
@@ -279,7 +279,7 @@ def detect_synergy_combos(
     min_rows_per_cell: float = 5.0,
 ):
     """Find feature COMBOS whose JOINT MI with the target greatly exceeds the SUM of their members'
-    marginal MIs -- i.e. genuine SYNERGY the marginal/greedy screen misses (pure XOR: marginals ~0,
+    marginal MIs - i.e. genuine SYNERGY the marginal/greedy screen misses (pure XOR: marginals ~0,
     joint high). Returns ``[(combo_tuple, joint_mi), ...]`` sorted by joint MI desc, for combos with
     ``joint_mi >= min_joint_mi`` AND ``joint_mi >= synergy_ratio * sum(member marginals)``.
 
@@ -306,7 +306,7 @@ def detect_synergy_combos(
         idx = _by[: max_candidates // 2] + _by[-(max_candidates - max_candidates // 2) :]
         idx = sorted(set(idx))
     # Dense joint cardinality cap: the njit histogram allocates ``prod(cards)*kt`` cells; skip a combo
-    # whose mixed-radix cell count blows past this bound (high-card columns) -- such a combo's joint MI
+    # whose mixed-radix cell count blows past this bound (high-card columns) - such a combo's joint MI
     # would be unreliable anyway (too few samples/cell). Bounds memory + keeps the kernel allocation small.
     _MAX_CELLS = 1 << 20
     # OCCUPANCY FLOOR (2026-06-17, adversarial-found). The Miller-Madow occupancy debit does NOT keep a
@@ -316,7 +316,7 @@ def detect_synergy_combos(
     # ``synergy_ratio`` gate (both marginals ~0) and a noise pair is wrongly admitted as synergy. ``_MAX_CELLS``
     # only bounds memory, not this regime. Require at least ``min_rows_per_cell`` samples per joint cell
     # (n / prod(card) >= min_rows_per_cell) so the joint MI estimate is statistically reliable before the
-    # MM-ratio gate is even consulted -- the genuine low-cardinality XOR/parity synergies are unaffected
+    # MM-ratio gate is even consulted - the genuine low-cardinality XOR/parity synergies are unaffected
     # (a 2-3 way binary/low-card grid has hundreds of rows/cell), while a sparse high-card grid is skipped.
     _MIN_ROWS_PER_CELL = float(min_rows_per_cell)
     out = []
@@ -332,7 +332,7 @@ def detect_synergy_combos(
             if _ncells <= 0 or _ncells * _kt > _MAX_CELLS:
                 continue
             # statistical-reliability floor: a grid with too few rows/cell yields an inflated joint MI
-            # the MM debit cannot correct (false synergy on high-card noise) -- skip it.
+            # the MM debit cannot correct (false synergy on high-card noise) - skip it.
             if _MIN_ROWS_PER_CELL > 0.0 and _n < _MIN_ROWS_PER_CELL * float(_ncells):
                 continue
             _cards = np.array([_ccard[_c] for _c in combo], dtype=np.int64)

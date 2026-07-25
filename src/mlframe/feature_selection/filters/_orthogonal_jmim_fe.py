@@ -1,4 +1,4 @@
-"""Layer 72 (2026-06-01): Joint Mutual Information Maximisation (JMIM)
+"""Layer 72: Joint Mutual Information Maximisation (JMIM)
 redundancy-aware ranking for hybrid orth-poly FE.
 
 Why this layer
@@ -16,7 +16,7 @@ WORST-CASE joint MI against the already-selected support::
 
 Intuition: ``I((X_k, X_j); Y)`` is large iff ``X_k`` brings INFORMATION
 TO ``Y`` that ``X_j`` does not already carry; the minimum over ``S``
-picks the WEAKEST link -- a candidate scores well only if it is
+picks the WEAKEST link - a candidate scores well only if it is
 informative jointly with EVERY already-selected feature. The min
 construction is the key property that distinguishes JMIM from the
 related JMI / DISR criteria (Brown 2012 unifies these as special cases
@@ -28,7 +28,7 @@ Bennasar (2015), Section 4: JMIM is the empirical winner on 22 of 22
 benchmark datasets vs marginal MI / mRMR / JMI / DISR / CMIM / CIFE
 under naive Bayes / SVM / k-NN downstream classifiers. The min
 formulation gives JMIM the best worst-case behaviour when the
-incoming candidate pool is heavy with mutually-redundant features --
+incoming candidate pool is heavy with mutually-redundant features -
 exactly the regime FE engineering creates (Hermite_2 / Legendre_2 /
 Chebyshev_2 of the same x are pairwise highly redundant).
 
@@ -77,11 +77,11 @@ Layer 60 already ranks generic MI-greedy transforms by
 Recipe replay
 -------------
 
-Each emitted column is backed by an ``orth_univariate`` recipe -- the
-SAME kind Layer 21 uses -- because the engineered VALUES are bit-equal
+Each emitted column is backed by an ``orth_univariate`` recipe - the
+SAME kind Layer 21 uses - because the engineered VALUES are bit-equal
 to Layer 21; only the SCORING (and therefore the selection) changes.
 
-NOT wired into ``MRMR.fit`` by default -- opt-in via
+NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_hybrid_orth_jmim_enable=True``.
 """
 from __future__ import annotations
@@ -112,7 +112,7 @@ __all__ = [
 def _coerce_y_int64(y) -> np.ndarray:
     """Dense int64 class labels. Non-integer y is densified via
     ``np.unique(return_inverse=...)`` rather than truncated with
-    ``.astype(int64)`` -- plain truncation merges distinct labels and destroys
+    ``.astype(int64)`` - plain truncation merges distinct labels and destroys
     continuous-y signal (everything in [0, 1) collapses to class 0)."""
     arr = np.asarray(y).ravel()
     if np.issubdtype(arr.dtype, np.integer):
@@ -129,13 +129,13 @@ def _bin_columns(
     Each bin array is dense int64 in ``[0, k_j - 1]`` where
     ``k_j = max(bins_j) + 1`` (the dense observed cardinality, which is
     what ``_jmim_scorer._joint_mi_3d_njit`` expects as ``K_x`` / ``K_z``).
-    Constant columns collapse to a single bin (``k_j = 1``) -- the JMIM
+    Constant columns collapse to a single bin (``k_j = 1``) - the JMIM
     scorer then yields zero on that pair, which is the right "no signal"
     reading.
 
     Layer 86 fast path: routes to :func:`_bin_columns_batched` when the
     DataFrame has 2+ all-finite numeric columns (the common case for
-    engineered candidate pools) -- batched ``np.quantile`` over the
+    engineered candidate pools) - batched ``np.quantile`` over the
     stacked 2-D array amortises the ``np.linspace`` / quantile-edge work
     that dominated the per-column ``_quantile_bin`` loop (60% of total
     score_features_by_jmim runtime at p_eng=100, n=1000).
@@ -238,7 +238,7 @@ def score_features_by_jmim(
     current_support : Optional[DataFrame]
         Extra reference columns added to ``S`` for the redundancy min.
         When None or empty, ``S`` defaults to ``raw_X`` (the natural
-        choice when no MRMR support has been picked yet -- ranking
+        choice when no MRMR support has been picked yet - ranking
         candidates against the raw inputs is the "first-round" JMIM).
     n_bins : int
         Equi-frequency bin count per column. Same default as the
@@ -266,7 +266,7 @@ def score_features_by_jmim(
     if engineered_X.empty:
         return pd.DataFrame(columns=empty_cols)
 
-    # Per-source baseline marginal MI -- used to populate the ``uplift``
+    # Per-source baseline marginal MI - used to populate the ``uplift``
     # column so the JMIM ranking is comparable across columns with very
     # different source-marginal magnitudes.
     y_int = _coerce_y_int64(y)
@@ -320,13 +320,13 @@ def score_features_by_jmim(
         source = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
         baseline = float(raw_mi_map.get(source, 0.0))
         # Bennasar 2015 JMIM scores the candidate against EVERY support
-        # member -- the min-construction is the redundancy filter.
+        # member - the min-construction is the redundancy filter.
         # Critically, we include the candidate's own raw source in the
         # support pool (when present): an engineered ``He_2(x_dup_a)``
         # column whose source ``x_dup_a`` is a near-copy of an already-
         # selected ``x1`` collapses ``I((He_2(x_dup_a), x_dup_a); Y)``
         # to roughly ``I(x_dup_a; Y)``, which the min then pins below
-        # ``I((He_2(x2), x1); Y)`` -- the redundancy suppression
+        # ``I((He_2(x2), x1); Y)`` - the redundancy suppression
         # mechanism the paper describes.
         x_c = np.ascontiguousarray(eng_bins[j], dtype=np.int64)
         K_x = int(eng_ks[j])
@@ -346,7 +346,7 @@ def score_features_by_jmim(
                     best = mi
                 if best <= 0.0:
                     # MI floors at zero in the njit kernel; once a zero is
-                    # observed the min cannot drop further -- early exit.
+                    # observed the min cannot drop further - early exit.
                     best = 0.0
                     break
             score = float(best) if best != np.inf else 0.0
@@ -364,7 +364,7 @@ def score_features_by_jmim(
         # uplift ratio. JMIM is a joint-MI score with the universal
         # "higher = more new information given any support member"
         # semantics; the per-source baseline uplift Layer 21 reports is
-        # there for downstream gate calibration only -- a near-zero
+        # there for downstream gate calibration only - a near-zero
         # baseline_mi on a noise source would make uplift explode while
         # the raw JMIM score is moderate, which is precisely the wrong
         # ranking signal for Bennasar's criterion. The Bennasar 2015
@@ -392,7 +392,7 @@ def hybrid_orth_mi_jmim_fe(
     """JMIM variant of :func:`hybrid_orth_mi_fe`.
 
     Replaces the plug-in marginal MI estimator with the Bennasar 2015
-    Joint MI Maximisation criterion -- each engineered column is scored
+    Joint MI Maximisation criterion - each engineered column is scored
     by the WORST-CASE joint MI against the already-selected support
     (defaulting to ``raw_X`` when ``current_support`` is empty), and
     the two-gate selection (relative ``uplift`` + absolute MAD-noise
@@ -442,7 +442,7 @@ def hybrid_orth_mi_jmim_fe(
     # is wrong for JMIM because (a) a noise source with near-zero
     # ``baseline_mi`` would post a huge uplift even though its raw JMIM
     # score is small, and (b) JMIM scores are MIN-constructed so they
-    # collapse below the marginal-MI baseline on redundant candidates --
+    # collapse below the marginal-MI baseline on redundant candidates -
     # the uplift ratio would penalise the very candidates JMIM ranks
     # correctly. We gate exclusively on a fraction-of-best-JMIM-score
     # floor, parameterised by ``min_abs_mi_frac`` (kept under the same
@@ -474,12 +474,12 @@ def hybrid_orth_mi_jmim_fe_with_recipes(
     n_bins: int = 10,
 ):
     """Same as :func:`hybrid_orth_mi_jmim_fe` plus a list of
-    ``orth_univariate`` recipes -- one per appended column -- so
+    ``orth_univariate`` recipes - one per appended column - so
     ``MRMR.transform`` can recompute each engineered column on test
     data without re-running the JMIM ranking.
 
     Recipes are byte-identical to Layer 21 because the engineered
-    VALUES are byte-identical -- only the SCORING (and therefore the
+    VALUES are byte-identical - only the SCORING (and therefore the
     selection) differs.
     """
     from .engineered_recipes import build_orth_univariate_recipe
@@ -522,7 +522,7 @@ def hybrid_orth_mi_jmim_fe_with_recipes(
             _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
-            # ORTH_SCORING_A-3 fix: was a bare except with zero logging,
+            # Was a bare except with zero logging,
             # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
             # exception (including a genuine programming bug), with no diagnostic trace.
             logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)

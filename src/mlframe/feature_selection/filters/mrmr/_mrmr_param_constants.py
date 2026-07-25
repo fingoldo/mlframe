@@ -4,7 +4,7 @@ These are the allow-lists (``_VALID_*``) and the demotion roster (``_DEMOTED_*``
 ``_mrmr_validate_transform._validate_inputs`` reads via ``self.<NAME>``. They were kept as
 class attributes (rather than ``typing.Literal`` aliases) so the runtime check can produce
 a richer error listing the valid options (fix audit row FS-P2-1). They hold only literal
-data -- no class refs -- so they live in this leaf module and are re-bound onto the ``MRMR``
+data - no class refs - so they live in this leaf module and are re-bound onto the ``MRMR``
 class body verbatim (``_VALID_QUANTIZATION_METHODS = _VALID_QUANTIZATION_METHODS`` etc.),
 keeping ``self._VALID_*`` resolution byte-identical.
 """

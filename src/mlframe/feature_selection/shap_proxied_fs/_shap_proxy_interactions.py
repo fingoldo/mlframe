@@ -2,7 +2,7 @@
 
 The plain coalition value ``base + sum_{j in S} phi_j`` folds each pairwise interaction into the two
 features' main effects, so it cannot tell that dropping ONE partner of an interacting pair destroys
-the joint signal -- and for a pure interaction (XOR) each partner's main effect is ~0, so the
+the joint signal - and for a pure interaction (XOR) each partner's main effect is ~0, so the
 informative pair looks like noise. Using SHAP *interaction* values fixes this: by the additivity of
 interaction values ``phi_j = sum_k Phi_jk``, the coalition value restricted to S is
 
@@ -77,7 +77,7 @@ def _broadcast_base(base, n: int) -> np.ndarray:
     """Return the expected-value base as a ``(n,)`` float64 vector for the coalition-margin contract.
 
     IX3: the in-sample single-model TreeSHAP base is a scalar today, and ``np.full(n, float(base))``
-    relied on that -- it would raise (ndim>0) or silently collapse if a future kernel ever returned a
+    relied on that - it would raise (ndim>0) or silently collapse if a future kernel ever returned a
     per-row base. Handle both: a scalar broadcasts to ``(n,)``; an already per-row ``(n,)`` base is
     accepted as-is (cast + length-checked) so per-row attributions are NOT collapsed to base[0]."""
     arr = np.asarray(base, dtype=np.float64)
@@ -201,7 +201,7 @@ def compute_interaction_tensor(model_template, X, y, *, classification, rng=None
 
 
 def interaction_margin(Phi: np.ndarray, base: np.ndarray, idx) -> np.ndarray:
-    """``base + sum_{i,k in S} Phi_ik`` -- coalition value keeping only within-subset interactions."""
+    """``base + sum_{i,k in S} Phi_ik`` - coalition value keeping only within-subset interactions."""
     idx = np.asarray(idx, dtype=np.int64)
     if idx.size == 0:
         return np.asarray(np.asarray(base).copy())
@@ -265,7 +265,7 @@ def interaction_top_n(
 # ===========================================================================================
 # su_seeded_interactions (lever A4-4): a CHEAP pairwise-SU synergy screen that ranks candidate
 # interaction PAIRS at O(P)+O(K) cost, then runs the interaction objective on ONLY the top-K
-# synergistic pairs -- NEVER the O(P^2) TreeSHAP interaction tensor that gates ``interaction_aware``
+# synergistic pairs - NEVER the O(P^2) TreeSHAP interaction tensor that gates ``interaction_aware``
 # to <= max_interaction_features (no-op on wide proxies).
 #
 # WHY this works where the additive coalition proxy is blind: the additive coalition value
@@ -289,7 +289,7 @@ def interaction_top_n(
 # bench-attempt-rejected (2026-06-04): the dense O(P^2) TreeSHAP interaction tensor
 # (``compute_interaction_tensor`` + ``interaction_top_n``) is the prior ``interaction_aware`` path;
 # it is gated to phi<=16 because the (n, P, P) tensor is prohibitive on wide proxies. This screen is
-# the cheap replacement -- do NOT route su_seeded_interactions through the dense tensor.
+# the cheap replacement - do NOT route su_seeded_interactions through the dense tensor.
 # ===========================================================================================
 
 
@@ -515,13 +515,13 @@ def sparse_interaction_candidates(
     top_n=30,
     rng=None,
 ):
-    """Run the interaction objective on ONLY the ``kept_pairs`` -- a SPARSE interaction path.
+    """Run the interaction objective on ONLY the ``kept_pairs`` - a SPARSE interaction path.
 
     Engineers one product column ``a * b`` per surviving synergistic pair, fits ONE in-sample model on
     ``[X_proxy | products]`` and computes its (additive) SHAP matrix, then ranks candidate subsets by
     the additive coalition value over the AUGMENTED column set. Because each product column carries the
     pair's joint signal as a MAIN effect, the additive search now sees the interaction the original
-    main-effect proxy was blind to -- WITHOUT ever materialising the dense O(P^2) interaction tensor
+    main-effect proxy was blind to - WITHOUT ever materialising the dense O(P^2) interaction tensor
     (only ``len(kept_pairs)`` extra columns are added).
 
     Returns ``(candidates, product_to_operands)`` where:

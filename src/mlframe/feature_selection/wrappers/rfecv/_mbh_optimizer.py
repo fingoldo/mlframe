@@ -85,7 +85,7 @@ def _build_mbh_optimizer(self, *, original_features, max_refits, top_predictors_
         # Only fill iterations default when the user picked a CatBoost-family surrogate.
         if _model_name in ("CBQ", "CB") and "iterations" not in _user_model_params:
             _user_model_params["iterations"] = 50 if _max_evals_budget <= 100 else 150
-    # S9+S10 (Wave 2, 2026-05-28): richer init design. The legacy single-seed
+    # S9+S10: richer init design. The legacy single-seed
     # ``seeded_inputs=[min(2, p)]`` left the surrogate flat for the first ~5
     # iters (CB / ETR with 1 anchor predicts a constant). Auto-seed K anchors
     # equidistant across [2, p] so the surrogate sees low+mid+high N quickly.
@@ -102,7 +102,7 @@ def _build_mbh_optimizer(self, *, original_features, max_refits, top_predictors_
         _seeded = [min(2, _p)]
     else:
         # Key the adaptive branch only on the 'auto' sentinel (or any non-int) so an explicit
-        # integer override -- including the literal 5 that happens to equal the large-p auto K --
+        # integer override - including the literal 5 that happens to equal the large-p auto K -
         # falls through to the user-requested _K below instead of being silently re-derived.
         if _init_size_param == "auto" or not isinstance(_init_size_param, int):
             # 'auto': scale by p AND by evaluation budget so init-seed cost
@@ -125,7 +125,7 @@ def _build_mbh_optimizer(self, *, original_features, max_refits, top_predictors_
             _seeded = sorted(set(_seeded))[:_K]
 
     # Thread RFECV's deterministic RNG into the optimizer. Without this the MBHOptimizer constructs its own
-    # ``np.random.default_rng(None)``, reseeding from system entropy on every instance -- so two RFECV fits with the
+    # ``np.random.default_rng(None)``, reseeding from system entropy on every instance - so two RFECV fits with the
     # SAME random_state propose DIFFERENT candidate subsets (the surrogate's exploration sampling diverges), breaking
     # the "same data + same random_state -> same support_" guarantee. Derive a stable child seed from self._rng so the
     # optimizer seed co-varies with random_state but does not collide with the per-fold seeds drawn elsewhere.

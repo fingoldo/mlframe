@@ -1,19 +1,19 @@
 """Group-aware mRMR via correlation-based pre-clustering.
 
 Vanilla mRMR with high-correlation feature sets (one-hot expansion, repeated lags, calibration variants of the same sensor) selects ONE
-representative and discards the rest. Often the operator wants the **group**, not just one member -- either to display them together in
+representative and discards the rest. Often the operator wants the **group**, not just one member - either to display them together in
 a downstream report or to feed them into an ensemble that benefits from the redundancy.
 
 Two-step approach:
 
-1. ``cluster_features_by_correlation(X, threshold=0.9, ...)`` -- greedy clustering: every pair with ``|corr| > threshold`` ends in the
+1. ``cluster_features_by_correlation(X, threshold=0.9, ...)`` - greedy clustering: every pair with ``|corr| > threshold`` ends in the
    same cluster (single-linkage on the correlation graph). Returns a ``cluster_id`` per feature.
-2. ``GroupAwareMRMR(estimator, ...).fit(X, y)`` -- runs mRMR on the per-cluster medoids (the feature with highest mean abs-corr to its
+2. ``GroupAwareMRMR(estimator, ...).fit(X, y)`` - runs mRMR on the per-cluster medoids (the feature with highest mean abs-corr to its
    cluster mates), then expands the support to all members of any selected cluster. ``cluster_assignments_`` and ``selected_clusters_``
    are exposed for inspection.
 
 For users with **explicit** group structure (one-hot expansions where the operator knows ``group_name -> column_list``), prefer
-``RFECV(feature_groups=...)`` -- it has a more thorough all-or-nothing voting protocol. This module is for **discovered** groups via
+``RFECV(feature_groups=...)`` - it has a more thorough all-or-nothing voting protocol. This module is for **discovered** groups via
 correlation when the operator does not know the structure upfront.
 """
 from __future__ import annotations
@@ -94,7 +94,7 @@ def _numeric_codes_frame(X: "pd.DataFrame") -> "pd.DataFrame":
     original column count and order, so cluster indices still map back to the
     caller's feature positions. Numeric columns pass through unchanged.
     """
-    # Iterate POSITIONALLY (``.iloc[:, j]``), not by label: duplicate column names (common after FE expansion -- repeated
+    # Iterate POSITIONALLY (``.iloc[:, j]``), not by label: duplicate column names (common after FE expansion - repeated
     # lags, one-hot level collisions) make ``X[label]`` return a DataFrame, whose ``.dtype`` access raises. Positional
     # access always yields a Series, and we rebuild from a list so duplicate labels are preserved in original order.
     series_list = []
@@ -108,7 +108,7 @@ def _numeric_codes_frame(X: "pd.DataFrame") -> "pd.DataFrame":
             except TypeError:
                 # An object column whose values are themselves unhashable (e.g. an embedding column
                 # storing one ndarray per row) cannot be factor-coded. Emit an all-zero (single-code)
-                # column instead of raising -- it carries no redundancy signal, but preserves the
+                # column instead of raising - it carries no redundancy signal, but preserves the
                 # column-count/order invariant this function promises callers.
                 codes = np.zeros(len(s), dtype=np.intp)
             series_list.append(np.asarray(codes))
@@ -120,8 +120,8 @@ def _numeric_codes_frame(X: "pd.DataFrame") -> "pd.DataFrame":
 def _su_redundancy_matrix(X, nbins: int = 10) -> np.ndarray:
     """Pairwise Symmetric-Uncertainty redundancy matrix in [0, 1] (diagonal 0).
 
-    Unlike Pearson/Spearman (which only see monotone dependence), SU captures arbitrary -- including
-    non-linear / non-monotone -- redundancy between two columns: two features that are deterministic but
+    Unlike Pearson/Spearman (which only see monotone dependence), SU captures arbitrary - including
+    non-linear / non-monotone - redundancy between two columns: two features that are deterministic but
     non-monotone functions of each other score ~1 here but ~0 under Pearson. Each column is quantile-binned
     to ``nbins`` codes (continuous) or used as-is when already low-cardinality, then SU = 2*I/(H_a+H_b) is
     computed per pair from the joint bincount. O(p^2) over the (already cluster-bounded) feature set.
@@ -273,10 +273,10 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
     .fit fits the inner estimator on cluster medoids; .transform / .support_ expand to all cluster members of any selected medoid.
 
     Attributes after fit:
-    * ``cluster_assignments_`` -- per-original-feature cluster id.
-    * ``cluster_medoid_indices_`` -- per-cluster representative index (in original-feature space).
-    * ``selected_clusters_`` -- ids of clusters whose medoid mRMR kept.
-    * ``support_`` -- expanded set of all original-feature indices belonging to any selected cluster.
+    * ``cluster_assignments_`` - per-original-feature cluster id.
+    * ``cluster_medoid_indices_`` - per-cluster representative index (in original-feature space).
+    * ``selected_clusters_`` - ids of clusters whose medoid mRMR kept.
+    * ``support_`` - expanded set of all original-feature indices belonging to any selected cluster.
     """
     def __init__(
         self,
@@ -306,9 +306,9 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
     def _inner_support_indices(inner, columns):
         """Integer column indices the inner selector kept, normalising across
         selector conventions so GroupAwareMRMR wraps any of them:
-          * ``support_`` -- boolean mask OR index array (sklearn RFECV, mRMR);
-          * ``get_support()`` -- sklearn SelectorMixin;
-          * ``accepted`` -- list of kept column NAMES (BorutaShap).
+          * ``support_`` - boolean mask OR index array (sklearn RFECV, mRMR);
+          * ``get_support()`` - sklearn SelectorMixin;
+          * ``accepted`` - list of kept column NAMES (BorutaShap).
         ``columns`` is the ordered column names the inner was fit on (X or the
         medoid subset), used to map ``accepted`` names back to positions.
         """
@@ -321,7 +321,7 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
                 sup = np.asarray(inner.get_support())
                 return np.where(sup)[0] if sup.dtype == bool else sup.astype(np.int64)
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in group_aware.py:313: %s", e)
+                logger.debug("suppressed: %s", e)
                 pass
         accepted = getattr(inner, "accepted", None)  # BorutaShap: kept col names
         if accepted is not None:
@@ -345,7 +345,7 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
             return idx
         # A categorical/string/object column (e.g. raw cat features still un-encoded at this wrapper stage,
         # or a weird-content sentinel like the literal string "null") can't be "a linear combination" of
-        # other columns, so the rank test doesn't apply to it -- restrict to the numeric-dtype subset and
+        # other columns, so the rank test doesn't apply to it - restrict to the numeric-dtype subset and
         # always keep the rest untouched, mirroring the existing non-finite early-exit below.
         numeric_mask = np.asarray([pd.api.types.is_numeric_dtype(t) for t in X.dtypes.iloc[idx]])
         if not numeric_mask.all():
@@ -356,7 +356,7 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         block = X.iloc[:, idx].to_numpy(dtype=float)
         finite = np.all(np.isfinite(block), axis=0)
         if not finite.all():
-            return idx  # NaN/inf columns -- leave selection untouched (rank test undefined).
+            return idx  # NaN/inf columns - leave selection untouched (rank test undefined).
         block = block - block.mean(axis=0)
         sd = block.std(axis=0)
         nz = sd > 1e-12
@@ -384,8 +384,8 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         Skips the medoid bypass entirely when clustering reduces the feature count by less than ``min_reduction``,
         so the wrapper degrades to a plain pass-through of the inner selector rather than wasting a clustering pass.
         """
-        # X_SECURITY_API_PACKAGING-3 fix: corr_threshold/min_reduction were never
-        # validated, unlike StabilityMRMR's analogous continuous knobs in the same module -- a
+        # corr_threshold/min_reduction were never
+        # validated, unlike StabilityMRMR's analogous continuous knobs in the same module - a
         # corr_threshold outside (0, 1] or a min_reduction outside [0, 1) silently produced a
         # degenerate-but-non-crashing clustering (everything one cluster, or every feature its own
         # cluster) with no warning.
@@ -397,17 +397,22 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         # are row-aligned, so they pass straight through to the inner selector
         # whether it fits on the medoid subset or the full X (same rows).
         # A polars frame carries its REAL column names in ``X.columns`` (a list); bridge it to a pandas frame preserving those names so the medoid /
-        # corr pass (positional ``.iloc``) runs unchanged AND ``feature_names_in_`` records the true names -- not the ``f_{i}`` placeholders the
+        # corr pass (positional ``.iloc``) runs unchanged AND ``feature_names_in_`` records the true names - not the ``f_{i}`` placeholders the
         # bare-ndarray branch below synthesizes. Without this a polars fit silently divergeed its selected NAMES from the pandas fit (same positions,
         # wrong names).
         try:
             import polars as pl
             if isinstance(X, pl.DataFrame):
-                X = pd.DataFrame(X.to_numpy(), columns=list(X.columns))
+                # ``.to_pandas()`` preserves each column's real dtype. The prior ``pd.DataFrame(X.to_numpy(), ...)``
+                # collapsed to a single object 2-D array whenever ANY column was non-numeric, which made pandas keep
+                # EVERY column object-dtype - including genuinely numeric ones - so ``_numeric_codes_frame`` then
+                # factorized those numeric columns by appearance order, destroying their ordering and silently
+                # diverging the correlation/SU clustering, medoids, and ``support_`` from the identical pandas fit.
+                X = X.to_pandas()
         except ImportError:
             pass
         is_df = isinstance(X, pd.DataFrame)
-        # GroupAwareMRMR itself tolerates duplicate column names (FE-expansion lag/one-hot collisions -- positional ``.iloc`` throughout the corr / medoid pass), so it does NOT blanket-reject. But when the inner selector itself rejects duplicate names (RFECV's _fit_init guard), the wrapper must surface that rejection at its OWN fit entry: the inner only sees the cluster-MEDOID subset (deduped), so without this propagation a duplicate-named X would silently slip past the inner's guard. Mirrors the inner contract for the wrapped-RFECV path while leaving the graceful MRMR-inner path untouched.
+        # GroupAwareMRMR itself tolerates duplicate column names (FE-expansion lag/one-hot collisions - positional ``.iloc`` throughout the corr / medoid pass), so it does NOT blanket-reject. But when the inner selector itself rejects duplicate names (RFECV's _fit_init guard), the wrapper must surface that rejection at its OWN fit entry: the inner only sees the cluster-MEDOID subset (deduped), so without this propagation a duplicate-named X would silently slip past the inner's guard. Mirrors the inner contract for the wrapped-RFECV path while leaving the graceful MRMR-inner path untouched.
         if is_df and X.columns.has_duplicates and getattr(self.estimator, "rejects_duplicate_feature_names", False):
             dup_names = X.columns[X.columns.duplicated()].unique().tolist()
             raise ValueError(
@@ -417,7 +422,7 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         if not is_df:
             X = pd.DataFrame(X, columns=[f"f_{i}" for i in range(X.shape[1])])
 
-        # Build the p x p redundancy matrix ONCE and reuse it for both the clustering pass and the medoid pick --
+        # Build the p x p redundancy matrix ONCE and reuse it for both the clustering pass and the medoid pick -
         # they are both functions of (X, corr_method) and previously each rebuilt it (a redundant O(p^2) SU/corr pass).
         _corr = _redundancy_matrix(X, self.corr_method)
         self.cluster_assignments_ = cluster_features_by_correlation(
@@ -463,8 +468,8 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         # convention-agnostic helper (support_ index/mask, get_support(), or
         # BorutaShap's ``accepted`` names). 2026-06-03 (audit integration-
         # defaults-3): lets GroupAwareMRMR wrap ANY wrapper selector
-        # (RFECV / BorutaShap) -- a MEASURED ~1.4-3x wall-clock win with no OOS
-        # loss -- by running the wrapper on the cluster medoids instead of every
+        # (RFECV / BorutaShap) - a MEASURED ~1.4-3x wall-clock win with no OOS
+        # loss - by running the wrapper on the cluster medoids instead of every
         # redundant column.
         sel_idx = self._inner_support_indices(inner, list(X_medoids.columns))
         medoid_cluster_ids = self.cluster_assignments_[self.cluster_medoid_indices_]
@@ -511,7 +516,7 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         faithful drop-in inside the training-suite pre-pipeline. ``support_`` is
         an integer index array into ``feature_names_in_``."""
         names = getattr(self, "feature_names_in_", None)
-        # sklearn ``_check_feature_names_in`` contract: a passed input_features MUST match n_features_in_ (column-drift detection) and, when correct-length, OVERRIDES the stored feature_names_in_ -- so a caller can re-inject real names after an ndarray fit (which synthesized f_0..f_N placeholders).
+        # sklearn ``_check_feature_names_in`` contract: a passed input_features MUST match n_features_in_ (column-drift detection) and, when correct-length, OVERRIDES the stored feature_names_in_ - so a caller can re-inject real names after an ndarray fit (which synthesized f_0..f_N placeholders).
         if input_features is not None:
             input_features = list(input_features)
             n_in = int(getattr(self, "n_features_in_", len(input_features)))
@@ -530,8 +535,8 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
     def accepted(self):
         """BorutaShap report contract: the training suite reads ``accepted``
         (kept column NAMES) for BorutaShap diagnostics. Return the EXPANDED
-        selection (cluster members of accepted medoids) -- i.e. the same set
-        ``support_`` / ``transform`` / ``get_feature_names_out`` expose -- so the
+        selection (cluster members of accepted medoids) - i.e. the same set
+        ``support_`` / ``transform`` / ``get_feature_names_out`` expose - so the
         report agrees with what actually feeds training, NOT the inner's
         medoid-only accepted list. Falls through (AttributeError -> __getattr__ ->
         inner) when the wrapper isn't fitted or the inner has no ``accepted``.

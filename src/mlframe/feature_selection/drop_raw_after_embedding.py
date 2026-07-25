@@ -1,15 +1,15 @@
 """``drop_raw_after_embedding``: drop a raw high-cardinality categorical once its derived encodings exist.
 
-Source: 1st_talkingdata-adtracking-fraud-detection.md -- "we removed all raw categorical features except app
+Source: 1st_talkingdata-adtracking-fraud-detection.md - "we removed all raw categorical features except app
 since we supposed embedding features cover information... jumped public LB from 0.9821 to 0.9828". Once a raw
 high-cardinality categorical has been converted into derived features (target/frequency/count encodings,
 entity embeddings, SVD/co-occurrence features), keeping the raw column around mostly adds overfitting
 surface (a tree model can memorize per-category splits the encoding already summarized) rather than genuine
-signal -- this is a small, explicit drop step, not a generic redundancy pruner: it only ever removes the RAW
+signal - this is a small, explicit drop step, not a generic redundancy pruner: it only ever removes the RAW
 column, never a derived one, and only once the derived columns it depends on are actually present.
 
 ``verify_against`` (opt-in): "embedding columns exist" does not imply "embedding columns retain the raw
-column's signal" -- the embedding may have been trained for a different task, may be too low-dimensional, or
+column's signal" - the embedding may have been trained for a different task, may be too low-dimensional, or
 may be stale versus a since-updated raw column. When supplied, each candidate raw column is only actually
 dropped once a cheap signal-strength check confirms its derived columns retain at least a threshold fraction
 of the raw column's own univariate signal against a target; otherwise the raw column is kept and reported.
@@ -36,7 +36,7 @@ def _raw_column_signal(df: pd.DataFrame, raw_col: str, y_arr: np.ndarray) -> flo
     """Signal strength of a raw column: numeric columns are used as-is, categoricals via an in-sample target-mean encoding.
 
     The target-mean encoding is only used to compute a signal-strength SCORE for this safety check (never written
-    back to ``df``) -- an in-sample mean is a fine screening heuristic here since no model is fit on it.
+    back to ``df``) - an in-sample mean is a fine screening heuristic here since no model is fit on it.
     """
     col = df[raw_col]
     if pd.api.types.is_numeric_dtype(col):
@@ -65,12 +65,12 @@ def drop_raw_after_embedding(
         or target-encoding step's output columns).
     min_derived_present
         Minimum number of a raw column's derived columns that must already be present in ``df`` before that
-        raw column is dropped -- guards against dropping a raw column whose encoding step never ran (e.g. was
+        raw column is dropped - guards against dropping a raw column whose encoding step never ran (e.g. was
         skipped due to low cardinality, or failed upstream), which would silently destroy the only signal
         source for that column.
     verify_against
         Opt-in safety check: ``(y, min_retained_fraction)``. ``y`` is a BINARY (0/1) target array, same row
-        order as ``df`` -- same contract as ``drop_near_noise_univariate_auc``; binarize a continuous target
+        order as ``df`` - same contract as ``drop_near_noise_univariate_auc``; binarize a continuous target
         (e.g. a median split or a business-relevant threshold) before calling if needed. For each candidate
         raw column, a raw-column signal strength (univariate AUC-derived, categoricals via
         an in-sample target-mean encoding) is compared against the best signal strength among its present

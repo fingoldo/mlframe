@@ -20,7 +20,7 @@ Critical correctness invariants discovered while validating against xgboost 3.x:
     handful of rows near a split threshold and breaks additivity. We cast X to float32 for routing.
   * Routing is ``x < split_condition -> "yes"/left``; NaN follows the node's ``missing`` child.
   * The path-dependent conditional-expectation weight is the node ``cover`` (hessian-weighted sample
-    count) ratio child/parent -- exactly what ``tree_path_dependent`` uses.
+    count) ratio child/parent - exactly what ``tree_path_dependent`` uses.
 
 Scope: xgboost ``XGBRegressor`` / ``XGBClassifier`` (binary) AND lightgbm ``LGBMRegressor`` /
 ``LGBMClassifier`` (binary), single output, margin space. Both families map onto the same flat node
@@ -74,7 +74,7 @@ def _resolve_split_feature(split, fmap) -> int:
     characters, so a real feature literally named ``"ffx"`` would mis-parse; only the single positional
     ``f<idx>`` prefix should be stripped, matched here as ``^f\\d+$``. (2) when an ``fmap`` (feature-name
     map) is present but a split name is missing from it, falling back to a positional parse silently
-    misattributes SHAP -- we now raise instead so the mismatch surfaces. The positional ``f<idx>`` parse
+    misattributes SHAP - we now raise instead so the mismatch surfaces. The positional ``f<idx>`` parse
     is used only when there is NO fmap (the common numeric-default-feature-name case)."""
     sp = str(split)
     if fmap is not None:
@@ -297,7 +297,7 @@ def _treeshap_one_tree(
     pf_feat, pf_zero, pf_one, pweight,
     st_node, st_level, st_ud, st_zero, st_one, st_feat,
 ):
-    """Iterative (explicit-stack) descent for one tree -- numba recursion miscompiles under
+    """Iterative (explicit-stack) descent for one tree - numba recursion miscompiles under
     parallel=True+cache=True, so we manage the DFS frames ourselves. ``level`` selects each frame's
     path window; the parent window (``level-1``) is copied in so siblings start from the same prefix.
     Hot child (the one x routes to) is pushed last so it is processed first (matches the reference)."""
@@ -453,7 +453,7 @@ def _extract_lightgbm_ensemble(booster, n_features: int) -> TreeEnsemble:
       * The path-dependent cover is the node sample count (``internal_count`` / ``leaf_count``), the
         lightgbm analogue of xgboost's hessian-weighted ``cover``.
     LightGBM folds its ``boost_from_average`` initial score into the first tree's leaves, so the base
-    offset is just the cover-weighted ensemble expectation (no separate intercept term) -- matching
+    offset is just the cover-weighted ensemble expectation (no separate intercept term) - matching
     ``shap``'s ``expected_value`` to machine precision (see the additivity test)."""
     md = booster.dump_model()
     cl: list[int] = []
@@ -505,7 +505,7 @@ def _extract_lightgbm_ensemble(booster, n_features: int) -> TreeEnsemble:
                 thr_le = float(np.nextafter(t, np.float32(np.inf)))
                 thr.append(thr_le)
                 # NaN routing depends on lightgbm's ``missing_type``: only "NaN" honours ``default_left``;
-                # "None"/"Zero" treat a missing value AS 0.0 (and route it by the threshold) -- so we bake
+                # "None"/"Zero" treat a missing value AS 0.0 (and route it by the threshold) - so we bake
                 # that by pointing children_default at whichever child 0.0 routes to (the kernel always
                 # sends NaN to children_default, so this reproduces lightgbm's "NaN as 0" semantics).
                 missing_type = str(node.get("missing_type", "None"))

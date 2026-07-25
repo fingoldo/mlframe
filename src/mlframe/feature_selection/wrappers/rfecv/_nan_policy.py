@@ -65,7 +65,7 @@ def _estimator_tolerates_nan(estimator) -> bool:
         if allow is True:
             return True
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _nan_policy.py:67: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
     return type(estimator).__name__ in _NATIVE_NAN_ESTIMATOR_NAMES
 
@@ -85,7 +85,7 @@ def _any_core_tolerates_nan(self) -> bool:
 def apply_nan_in_X_policy(self, X: Union[pd.DataFrame, np.ndarray]):
     """Resolve ``nan_in_X_policy`` against the (sanitised) working frame ``X``; return the possibly-modified X.
 
-    Only acts when X actually contains NaN -- a NaN-free frame returns unchanged (byte-identical selection).
+    Only acts when X actually contains NaN - a NaN-free frame returns unchanged (byte-identical selection).
     ndarray X is handled too (median-impute in place on the local copy; indicators are pandas-only and skipped
     with a warning for raw ndarray input, since they need column names).
     """

@@ -66,10 +66,10 @@ def fe_is_numeric_col(X: Any, c: str) -> bool:
 def fe_subsample_to_pandas(X: Any, idx: np.ndarray) -> Any:
     """Row-subsample ``X`` at integer positions ``idx`` and return a PANDAS frame (index reset).
 
-    Only the subsample is materialised, so on a 100+ GB frame this copies ~len(idx) rows, never the whole frame -- and it
+    Only the subsample is materialised, so on a 100+ GB frame this copies ~len(idx) rows, never the whole frame - and it
     runs on CPU (host), where the frame lives. polars is gathered natively then bridged to pandas (the family decision
     bodies are pandas-native); pandas uses ``.iloc``. Numeric precision is NOT re-cast here: FE precision is governed by
-    the existing ``MLFRAME_CRIT_DTYPE_RELAXED`` knob (``_crit_np_dtype()`` -- f32-relaxed default), which the family bodies
+    the existing ``MLFRAME_CRIT_DTYPE_RELAXED`` knob (``_crit_np_dtype()`` - f32-relaxed default), which the family bodies
     already consult at their ``.to_numpy`` boundary; a subsample-level cast would only lose precision without saving work
     while those bodies upcast to f64 (see the bench + Open-work-items note on the matrix-native plane).
     """
@@ -83,7 +83,7 @@ def fe_subsample_to_pandas(X: Any, idx: np.ndarray) -> Any:
 
 
 def fe_extract_columns(X: Any, names: Iterable[str]) -> dict[str, np.ndarray]:
-    """Extract the named columns of ``X`` (pandas / polars) as ``{name: 1d numpy array}`` -- per-column views, no
+    """Extract the named columns of ``X`` (pandas / polars) as ``{name: 1d numpy array}`` - per-column views, no
     whole-frame copy. Used to move engineered columns off an augmented frame for a native re-append onto another frame."""
     out: dict[str, np.ndarray] = {}
     for nm in names:

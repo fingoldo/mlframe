@@ -1,4 +1,4 @@
-"""Layer 34 (2026-05-31): COUNT / FREQUENCY encoding + CATEGORICAL x NUMERIC
+"""Layer 34: COUNT / FREQUENCY encoding + CATEGORICAL x NUMERIC
 interaction via OOF target-mean residual.
 
 Sibling to ``_target_encoding_fe`` (Layer 33): same production-grade
@@ -92,7 +92,7 @@ def engineered_name_cat_num_residual(cat_col: str, num_col: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Count / Frequency encoders -- pure X-only kernels (no y reference)
+# Count / Frequency encoders - pure X-only kernels (no y reference)
 # ---------------------------------------------------------------------------
 
 
@@ -185,7 +185,7 @@ def apply_count_encoding(
     if cats.size == 0:
         return np.empty(0, dtype=np.int64)
     # Resolve int(lookup.get(...)) once per DISTINCT category and gather by code.
-    # pd.factorize is an O(n) HASHTABLE pass (no sort) -- measured ~6-8x faster
+    # pd.factorize is an O(n) HASHTABLE pass (no sort) - measured ~6-8x faster
     # than both the per-row dict.get loop and an np.unique(sort)-based map on
     # object/string columns (np.unique sorts Python strings in interpreted code,
     # which is SLOWER than the dict loop). Bit-identical to the per-row loop
@@ -225,18 +225,18 @@ def apply_frequency_encoding(
 #
 # The signal: ``num_col - E[num_col | cat_col]``. A row whose numeric
 # value deviates from its category's typical numeric value carries
-# information that neither raw column has alone -- e.g. a high price
+# information that neither raw column has alone - e.g. a high price
 # in a "luxury" category is normal; the same price in a "budget"
 # category is anomalous and often predictive. This mirrors the
 # Layer 33 OOF mean-of-y discipline but conditions on cat to compute a
 # per-cell mean of num (not of y), then subtracts that mean from the row's
 # own num value.
 #
-# Note re: ``y`` parameter -- y is NOT consumed for the residual
+# Note re: ``y`` parameter - y is NOT consumed for the residual
 # expression; it appears only as the OOF FOLD KEY (each row is assigned
 # a fold from a y-stratified split when available, else random). The
 # recipe stores ONLY the full-data per-category mean of num, so
-# transform() is a pure function of (X[cat], X[num]) -- no y dependency.
+# transform() is a pure function of (X[cat], X[num]) - no y dependency.
 
 
 def cat_num_interaction_fit(
@@ -261,8 +261,8 @@ def cat_num_interaction_fit(
     X : DataFrame
         Must contain both ``cat_col`` and ``num_col``.
     y : ndarray
-        NOT used to derive fold assignment (CAT_INTERACTION_A-7 fix: this docstring
-        used to claim a stratified-when-binary fold split that the implementation never performs -- fold
+        NOT used to derive fold assignment (this docstring
+        used to claim a stratified-when-binary fold split that the implementation never performs - fold
         assignment is always a plain ``rng.permutation(n)``, regardless of ``y``'s dtype/cardinality; a
         plain random split is a valid, safe OOF scheme here since the leak target is ``num_col``, not
         ``y``). Referenced only for a length-equality validation check; not consumed into the residual
@@ -288,7 +288,7 @@ def cat_num_interaction_fit(
     recipe : dict
         ``{lookup: dict[str, float], global_mean: float, smoothing: float,
            num_col: str}``. Replay subtracts ``lookup.get(cat, global_mean)``
-        from the row's num value -- no y at replay.
+        from the row's num value - no y at replay.
 
     Raises
     ------
@@ -406,7 +406,7 @@ def apply_cat_num_residual(
         return np.empty(0, dtype=np.float64)
     finite = np.isfinite(num_vals)
     # Vectorized replay: pd.factorize (O(n) hashtable, no sort) resolves one float(lookup.get(...)) per DISTINCT
-    # category, gathered by code -- bit-identical to the per-row loop (measured 9.36x @10M). Mirrors the count/freq
+    # category, gathered by code - bit-identical to the per-row loop (measured 9.36x @10M). Mirrors the count/freq
     # apply paths above; _column_to_str maps NaN -> "__nan__" so factorize never emits its -1 sentinel here.
     codes, uniques = pd.factorize(cats)
     cell = np.array([float(lookup.get(u, global_mean)) for u in uniques], dtype=np.float64)
@@ -547,7 +547,7 @@ def cat_num_interaction_with_recipes(
     appended: list[str] = []
     recipes: list = []
     new_cols: dict[str, np.ndarray] = {}
-    # fold_ids depends only on (len(X), n_folds, random_state) -- identical for every (cat, num) pair in this
+    # fold_ids depends only on (len(X), n_folds, random_state) - identical for every (cat, num) pair in this
     # Cartesian product; compute once instead of re-permuting inside cat_num_interaction_fit per pair.
     n = len(X)
     rng = np.random.default_rng(int(random_state))

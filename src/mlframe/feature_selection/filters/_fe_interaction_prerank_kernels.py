@@ -9,7 +9,7 @@ where V = column matrix (n, p) and V2 = V*V. The original implementation looped 
 recomputed the per-column means / L2 norms of V and V2 ONCE PER CLASS (K times). Two facts make this
 wasteful:
 
-  * the per-column standardization of V and V2 is class-independent -- hoist it OUT of the class loop
+  * the per-column standardization of V and V2 is class-independent - hoist it OUT of the class loop
     so it is done exactly once;
   * after standardizing the indicator columns too, ``|corr|`` is a single centered dot product, so the
     whole K-class sweep is ONE GEMM: Zc (p, n) @ Yc (n, K) -> (p, K), then sum |.| over K. Same for V2.
@@ -23,7 +23,7 @@ kernel_tuning registry (mirrors random_features.rff_matmul); a source-default he
 fallback when no per-host sweep entry exists.
 
 Bench (this dev box, GTX 1050 Ti; min-of-runs wall time, discrete binary path K=2; 2026-06-19,
-machine under concurrent load -- absolute numbers noisy but the ratio is stable):
+machine under concurrent load - absolute numbers noisy but the ratio is stable):
   p=10000, n=8000 : per-class loop 2.33s -> numpy-gemm 0.96s (2.4x); numba 3.08s.
   p=100000,n=1000 : numpy-gemm 1.16s.
 The win is two parts: (1) reformulating the 2*K |corr| calls as a single (p,n)@(n,K) GEMM per matrix;
@@ -102,7 +102,7 @@ def measured_gbm_cols_per_second(n_samples: int) -> tuple[float, str]:
     from the kernel_tuning_cache (measured on first miss via ``warm_gbm_cost_cache``). Returns
     ``(cols_per_second, source)`` where source is "cache" | "fallback".
 
-    NEVER hardcodes the throughput in the gate decision -- the ~113 cols/s figure is only the
+    NEVER hardcodes the throughput in the gate decision - the ~113 cols/s figure is only the
     cold-cache analytic fallback (mirrors _fe_synergy_exhaustive.measured_pairs_per_second)."""
     try:
         from ._kernel_tuning import get_kernel_tuning_cache
@@ -189,7 +189,7 @@ def _standardize_cols(M: np.ndarray) -> np.ndarray:
     indicator is 0 -> |corr| = 0, matching the reference's zero-for-constant contract.
 
     In-place after the initial center copy: np.where(norm>0, Mc/norm, 0) allocated three
-    (n,p) temporaries per call (the dominant cost at p>=10k -- cProfile 2026-06-19); here we
+    (n,p) temporaries per call (the dominant cost at p>=10k - cProfile 2026-06-19); here we
     reciprocate the per-column norm (length p) once, zero the dead columns' scale, and scale
     the centered matrix in place, so only the one centered copy is held."""
     Mc = M - M.mean(axis=0)  # one (n,p) copy (centered)
@@ -205,7 +205,7 @@ def _standardize_indicators(yf: np.ndarray, classes: np.ndarray) -> np.ndarray:
     """Build the (n, K) standardized one-hot indicator matrix for ``classes``.
 
     Each column is the centered, unit-L2 indicator 1[y==c]. A class present in every row
-    (impossible here -- classes are distinct values) or absent would give a zero column."""
+    (impossible here - classes are distinct values) or absent would give a zero column."""
     n = yf.shape[0]
     Y = np.zeros((n, classes.size), dtype=np.float64)
     for k, c in enumerate(classes):
@@ -380,7 +380,7 @@ def _get_spec():
 def compute_discrete_score(V: np.ndarray, V2: np.ndarray, yf: np.ndarray, classes: np.ndarray, backend: str | None = None) -> np.ndarray:
     """Standardize once + dispatch the K-class GEMM to the fastest backend for the work size.
 
-    ``backend`` forces a specific variant ("numpy"/"numba"/"cupy") -- used by parity tests; when
+    ``backend`` forces a specific variant ("numpy"/"numba"/"cupy") - used by parity tests; when
     None the kernel_tuning spec (or the source-default heuristic) chooses by work = n*p*K."""
     ZV = _standardize_cols(V)
     ZV2 = _standardize_cols(V2)

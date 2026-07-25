@@ -4,14 +4,14 @@ orthogonal-polynomial preprocessors.
 Two independent robustness layers, each its own env gate, both heavy-tail-gated
 so the clean common case is byte-identical to legacy:
 
-1. AXIS NORMALISATION -- a cheap per-column spike-contamination gate
+1. AXIS NORMALISATION - a cheap per-column spike-contamination gate
    (``_detect_heavy_tail``) plus the MAD-anchored robust bounds
    (``_robust_lo_hi`` / ``_robust_scale``) the basis preprocessors use when the
    raw per-column scale is corrupted by injected spikes. GATED on
    ``_robust_axis_enabled`` (default ON; ``MLFRAME_ROBUST_AXIS=0`` replays the
    legacy raw-scale path).
 
-2. WARP-COEFFICIENT FITTING (2026-06-10, backlog idea #17) -- the prewarp / ALS
+2. WARP-COEFFICIENT FITTING (2026-06-10, backlog idea #17) - the prewarp / ALS
    fits that BUILD a warp feature solve an ORDINARY least-squares problem
    (``np.linalg.lstsq``), whose squared-error loss is dominated by a few extreme
    rows: under a heavy-tailed / outlier marginal the basis matrix entry ``x**k``
@@ -27,7 +27,7 @@ so the clean common case is byte-identical to legacy:
    dispatcher can route by the heavy-tail predicate and we can A-B / roll back.
 
 The two gates are deliberately ORTHOGONAL knobs (a user can robustify the axis
-scale without changing the loss, or vice-versa) -- not folded onto one flag.
+scale without changing the loss, or vice-versa) - not folded onto one flag.
 """
 from __future__ import annotations
 
@@ -37,13 +37,13 @@ import numba
 import numpy as np
 
 # Robust bounds = median +/- _ROBUST_AXIS_K * (1.4826*MAD). MAD is contamination-proof up to ~50% of the column, so the
-# derived span ~ 6*sigma stays anchored to the CLEAN core regardless of how many 1000x spikes are injected -- unlike an
+# derived span ~ 6*sigma stays anchored to the CLEAN core regardless of how many 1000x spikes are injected - unlike an
 # inner-quantile trim, which only excludes the tail when the trim fraction exceeds the contamination fraction. k=3 covers
 # ~99.7% of a Gaussian core, matching the legacy intent that the working axis span the bulk of the data.
 _ROBUST_AXIS_K = 3.0
 # Spike-contamination detector parameters. The gate must trip on INJECTED SPIKE contamination (a thin fraction of points
 # orders of magnitude beyond a dense bulk) WITHOUT tripping on a genuinely heavy-tailed-but-clean column (lognormal,
-# Student-t, exponential) -- robustifying those would change engineered byte values on legitimate data. A single
+# Student-t, exponential) - robustifying those would change engineered byte values on legitimate data. A single
 # half-range/scale ratio cannot separate the two (a heavy lognormal and a 1%-spike column have similar max/MAD ratios), so
 # we test for the SEPARATION SIGNATURE instead: contamination leaves a clear multiplicative GAP between the bulk and the
 # spikes, while a smooth heavy tail is continuous. ``_ROBUST_AXIS_OUTER_K`` is the robust-scale multiple defining the
@@ -82,7 +82,7 @@ def _detect_heavy_tail_core_njit(xf: np.ndarray, outer_k: float, gap: float, max
     collapsed -> caller must run the exact ``np.quantile`` IQR fallback). ``xf`` is the pre-filtered finite subset
     (size>=8 guaranteed by the caller). Numerics mirror the numpy body verbatim: a sort-based median (bit-identical to
     ``np.median``, see ``_median_sorted_njit``) for the centre and the MAD, the same ``1.4826*MAD`` robust scale, the same
-    threshold / count / masked-max / masked-min reductions -- so the boolean verdict is bit-identical to the numpy path on
+    threshold / count / masked-max / masked-min reductions - so the boolean verdict is bit-identical to the numpy path on
     every column whose MAD does not collapse to zero."""
     med = _median_sorted_njit(xf)
     mad = _median_sorted_njit(np.abs(xf - med))
@@ -176,7 +176,7 @@ def _detect_heavy_tail(x: np.ndarray) -> bool:
     outliers with empty space between them) from a genuinely heavy-tailed-but-clean column (lognormal / Student-t /
     exponential), whose tail is CONTINUOUS with the bulk (gap ~ 1.0-1.3, measured). Only spike contamination corrupts the
     raw scale; a smooth heavy tail is the legitimate home of the skewed bases and must stay on the byte-identical legacy
-    path. Degenerate columns (<8 finite values, near-constant, all-non-finite) never trip -- there is no scale to corrupt.
+    path. Degenerate columns (<8 finite values, near-constant, all-non-finite) never trip - there is no scale to corrupt.
 
     Below ``_DETECT_HEAVY_TAIL_NJIT_MAX_N`` finite values the fused njit core (``_detect_heavy_tail_njit``) is the faster
     BIT-IDENTICAL path (the per-column FE search calls this thousands of times on small columns); above it the numpy body
@@ -218,7 +218,7 @@ def _detect_heavy_tail_numpy(x: np.ndarray) -> bool:
         # No extreme points, or so many that the tail is genuinely heavy rather than a thin contaminating spike.
         return False
     # Gap test without a full sort: the bulk edge is the largest deviation still inside the bulk, the outer edge the
-    # smallest deviation in the candidate-outlier band -- two masked reductions (O(n)) instead of an O(n log n) sort.
+    # smallest deviation in the candidate-outlier band - two masked reductions (O(n)) instead of an O(n log n) sort.
     bulk_edge = float(dev[~outer_mask].max())
     outer_min = float(dev[outer_mask].min())
     return (outer_min / max(bulk_edge, 1e-12)) >= _ROBUST_AXIS_GAP
@@ -263,7 +263,7 @@ _HUBER_C = 1.345
 # Huber-IRLS converges geometrically). Measured convergence on the clipped Chebyshev
 # warp basis is 4-5 iterations (relative-coef tol 1e-4); cap at 6 with margin so the
 # common contaminated case stops at convergence rather than burning the old 12-iter
-# ceiling -- profiled 11.3ms -> ~6ms per fit at n=4000 with NO change to the fitted
+# ceiling - profiled 11.3ms -> ~6ms per fit at n=4000 with NO change to the fitted
 # coefficients (the extra iters past ~5 only re-confirm the converged solution). This
 # fit runs inside the per-pair FE search loop, so the halved iteration budget matters.
 _IRLS_MAX_ITER = 6
@@ -296,7 +296,7 @@ def _ols_lstsq(B: np.ndarray, y: np.ndarray) -> np.ndarray | None:
 
 def _robust_residual_scale(resid: np.ndarray) -> float:
     """MAD-based residual scale (1.4826*median|r - median(r)|). Contamination-proof up
-    to ~50% outlier rows -- the right scale for the Huber threshold because the very
+    to ~50% outlier rows - the right scale for the Huber threshold because the very
     rows we want to down-weight must NOT inflate the scale that decides who is an
     outlier (an ordinary std would be dragged up by the outliers and weaken the
     down-weighting). Falls back to std then a tiny floor on a degenerate residual."""
@@ -315,13 +315,13 @@ def _huber_irls_lstsq(B: np.ndarray, y: np.ndarray, *, row_weight: np.ndarray | 
 
     Each iteration computes residuals ``r = y - B c``, a robust residual scale ``s``
     (MAD, :func:`_robust_residual_scale`), then Huber weights ``w = 1`` where
-    ``|r| <= _HUBER_C*s`` and ``w = _HUBER_C*s/|r|`` beyond -- a weighted least-squares
+    ``|r| <= _HUBER_C*s`` and ``w = _HUBER_C*s/|r|`` beyond - a weighted least-squares
     re-solve with ``sqrt(w)`` row scaling. Rows in the clean core keep OLS weight; a
     handful of extreme outlier rows are down-weighted ~``1/|r|`` so they can no longer
     dominate the loss and the fitted warp tracks the bulk (the true relationship).
 
     ``row_weight`` (optional) is an EXTRA per-row weight multiplied into the Huber
-    weight before each solve -- used by the rank-1 ALS sweep, which already scales rows
+    weight before each solve - used by the rank-1 ALS sweep, which already scales rows
     by the partner factor ``g``/``f``. Passing it through keeps the ALS geometry while
     adding outlier robustness.
 
@@ -336,7 +336,7 @@ def _huber_irls_lstsq(B: np.ndarray, y: np.ndarray, *, row_weight: np.ndarray | 
         rw = np.ascontiguousarray(row_weight, dtype=np.float64).reshape(-1)
         if rw.shape[0] != y.shape[0]:
             rw = None
-    # Warm start from the OLS solution -- IRLS then only has to re-balance the few
+    # Warm start from the OLS solution - IRLS then only has to re-balance the few
     # outlier rows, converging in a handful of iterations.
     coef = _ols_lstsq(B if rw is None else B * rw[:, None], y if rw is None else y * rw)
     if coef is None:
@@ -379,7 +379,7 @@ def fit_basis_coef_robust(B: np.ndarray, y: np.ndarray, x_operand: np.ndarray, *
 
     Gate rationale: ``_detect_heavy_tail`` is the SAME spike-contamination predicate
     the axis-normalisation path uses, so robust fitting fires exactly where the axis
-    scale was already deemed corrupted -- a clean (lognormal-but-smooth, Gaussian,
+    scale was already deemed corrupted - a clean (lognormal-but-smooth, Gaussian,
     uniform) column does NOT trip it, so its warp is fit by the identical OLS call and
     is byte-identical to legacy."""
     use_robust = _robust_warp_fit_enabled() and _detect_heavy_tail(np.asarray(x_operand))

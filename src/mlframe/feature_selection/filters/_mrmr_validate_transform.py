@@ -53,7 +53,7 @@ def _validate_string_params(self):
     if bool(getattr(self, "dcd_enable", False)):
         _d = getattr(self, "dcd_distance", "su")
         _tau_raw = getattr(self, "dcd_tau_cluster", 0.7)
-        # Layer 47 (2026-05-31): ``dcd_tau_cluster='auto'`` opts into the
+        # Layer 47: ``dcd_tau_cluster='auto'`` opts into the
         # per-fit bimodality-detection calibration sweep in
         # ``make_dcd_state``. The string accepts only the literal lower-case
         # ``"auto"``; any other string is a configuration error.
@@ -64,7 +64,7 @@ def _validate_string_params(self):
             _tau = None
         else:
             _tau = float(_tau_raw)
-            # Layer 46 (2026-05-31): ``"auto"`` (distance) returns max(SU, VI_sim) so the
+            # Layer 46: ``"auto"`` (distance) returns max(SU, VI_sim) so the
             # score lives in [0, 1] just like SU; reuse the SU range check.
             if _d in ("su", "auto") and not (0.0 < _tau <= 1.0):
                 raise ValueError(f"MRMR: dcd_tau_cluster must be in (0, 1] for " f"distance={_d!r}; got {_tau}.")
@@ -91,7 +91,7 @@ def _validate_string_params(self):
                 "process. Consider dcd_postoc_compose=False (the default).",
                 UserWarning, stacklevel=3,
             )
-    # 2026-05-29 Wave 7: AccuracyWarning for demoted nbins_strategy options.
+    # AccuracyWarning for demoted nbins_strategy options.
     _demoted = getattr(self, "_DEMOTED_NBINS_STRATEGIES", ())
     _nbins_strat = getattr(self, "nbins_strategy", None)
     if _nbins_strat in _demoted:
@@ -164,10 +164,10 @@ def _validate_inputs(self, X, y):
         if n_rows == 1:
             raise ValueError("MRMR.fit: cannot fit on a single row")
         if isinstance(n_cols, int):
-            # MRMR's binned-frame working set is roughly ``n_rows * n_cols * 4`` bytes (int32 per cell). The previous absolute 1e9 cell ceiling rejected datasets that comfortably fit in RAM on a modern 128 GB+ host while letting through wide-but-not-as-wide frames on a tiny 16 GB box. Compare to ``psutil.virtual_memory().available * 0.5`` -- half of free RAM is the standard "safe working set" headroom for one stage of the pipeline.
+            # MRMR's binned-frame working set is roughly ``n_rows * n_cols * 4`` bytes (int32 per cell). The previous absolute 1e9 cell ceiling rejected datasets that comfortably fit in RAM on a modern 128 GB+ host while letting through wide-but-not-as-wide frames on a tiny 16 GB box. Compare to ``psutil.virtual_memory().available * 0.5`` - half of free RAM is the standard "safe working set" headroom for one stage of the pipeline.
             _footprint_bytes = n_rows * n_cols * 4
             # psutil is a HARD dependency (unconditional module-top import in mrmr/__init__ and _mrmr_class), so the import
-            # here never fails -- the try/except guards only a RUNTIME ``virtual_memory()`` failure (some sandboxed / container
+            # here never fails - the try/except guards only a RUNTIME ``virtual_memory()`` failure (some sandboxed / container
             # hosts where the syscall errors), in which case ``_available_bytes=0`` disables the headroom check (permissive).
             try:
                 import psutil as _psutil
@@ -195,7 +195,7 @@ def _validate_inputs(self, X, y):
         if isinstance(X, _pl.LazyFrame):
             # MRMR genuinely REQUIRES an eager frame (it makes multiple full passes, injects target
             # columns in place, and bins the whole matrix), so a LazyFrame cannot be kept lazy through
-            # the fit -- collecting is mandatory, not an optimisation we could skip. We collect (rather
+            # the fit - collecting is mandatory, not an optimisation we could skip. We collect (rather
             # than raise) to preserve the established contract, but warn loudly because materialising a
             # frame the caller deliberately kept lazy can be large: pass a collected DataFrame to control
             # WHEN (and whether) that materialisation happens.
@@ -225,13 +225,13 @@ def _validate_inputs(self, X, y):
     # Numeric-column extraction for NaN / Inf validation. Object-dtype frames (numeric + cat/string mixed) used to slip through because the whole frame was
     # converted to object-dtype where dtype.kind != "f"; scan numeric columns explicitly instead.
     #
-    # USABILITY_B-2 fix: this used to materialize a FULL COPY of every numeric
+    # This used to materialize a FULL COPY of every numeric
     # column via a single `.select_dtypes(include=["number"]).to_numpy()` / `.select(_num_cols).to_numpy()`
-    # call -- upcasting a mixed int/float frame to one common float64 block, unconditionally, on every fit,
+    # call - upcasting a mixed int/float frame to one common float64 block, unconditionally, on every fit,
     # even though an all-integer numeric block can never hold inf (the dtype check that would have skipped
     # it only ran AFTER the copy). Now: only FLOAT columns are selected (ints are skipped before any array
     # construction, not after), and each is scanned ONE AT A TIME so at most one column's worth of memory
-    # is ever materialized, with an early exit on the first inf found -- never a `(n, p)` dense copy.
+    # is ever materialized, with an early exit on the first inf found - never a `(n, p)` dense copy.
     try:
         _float_col_arrays: list = []
         try:
@@ -315,7 +315,7 @@ def transform(self, X, y=None):
         from sklearn.exceptions import NotFittedError
 
         raise NotFittedError("This MRMR instance is not fitted yet. Call 'fit' before " "using 'transform'.")
-    # 2026-05-30 Wave 9.1 fix (loop iter 19): sklearn ``n_features_in_``
+    # Sklearn ``n_features_in_``
     # contract. Pre-fix ``transform()`` accepted ndarray (and any non-
     # DataFrame array) with wrong column count and silently sliced
     # ``X[:, support_]`` from whatever positions support_ pointed at,
@@ -416,9 +416,9 @@ def transform(self, X, y=None):
         # Plain ndarray: ``support`` indexes columns positionally (the shape check above guards the width), so it
         # must be an integer (or boolean) array. An EMPTY full-mode selection (all signal folded into engineered
         # recipes) stored via ``np.array([])`` is float64 and would raise ``IndexError: arrays used as indices must
-        # be of integer (or boolean) type`` here -- harmless for fresh fits after the int64 dtype fix in
+        # be of integer (or boolean) type`` here - harmless for fresh fits after the int64 dtype fix in
         # _mrmr_fit_impl, but old pickles can still carry a float empty array, so coerce defensively. Boolean masks
-        # pass through untouched (np.intp cast would corrupt them) -- only non-bool arrays are normalised to int.
+        # pass through untouched (np.intp cast would corrupt them) - only non-bool arrays are normalised to int.
         _support_idx = np.asarray(support)
         if _support_idx.dtype != bool and not np.issubdtype(_support_idx.dtype, np.integer):
             _support_idx = _support_idx.astype(np.intp)
@@ -468,7 +468,7 @@ def _append_engineered(self, base_out, X, recipes):
     CAVEAT (chained recipes): a chained recipe whose engineered intermediate had its PRODUCER pruned at fit time is
     unreconstructable at transform. Because ``get_feature_names_out`` fixes the output WIDTH (the recipe count), such a
     column cannot be physically dropped without a shape mismatch, so it is emitted as a constant-0 (zero-variance) column
-    with only a ``logger.warning`` -- the feature is effectively dropped (no signal) but silently present in the output
+    with only a ``logger.warning`` - the feature is effectively dropped (no signal) but silently present in the output
     layout. A constant 0.0 (not NaN) is used so NaN-rejecting downstream estimators do not hard-crash.
     """
     if not recipes:
@@ -513,7 +513,7 @@ def _append_engineered(self, base_out, X, recipes):
         # (base_out below stays polars-native; only this local variable changes). Without this, a polars
         # frame fell into the single-pass "ndarray / polars path" branch below, which cannot resolve a
         # CHAINED recipe (one whose src_names are another recipe's output, e.g. a fe_max_steps>=2 nested
-        # unary_binary-of-unary_binary) -- it raised RuntimeError on every chained recipe even though the
+        # unary_binary-of-unary_binary) - it raised RuntimeError on every chained recipe even though the
         # recipe is perfectly reconstructable via the multi-pass topological replay a couple lines below.
         # Confirmed live (2026-07): CompositeCrossTargetEnsemble's k-fold OOF refit passes the polars
         # train_df through this path, so EVERY chained recipe MRMR selected made the refit + CompositeMoE
@@ -539,9 +539,9 @@ def _append_engineered(self, base_out, X, recipes):
     # src_names point only at raw input columns.
     engineered_cols = []
     if isinstance(_X_for_recipes, pd.DataFrame):
-        # Take ownership with ONE copy up front (never mutate the caller's own frame -- ``chained``
+        # Take ownership with ONE copy up front (never mutate the caller's own frame - ``chained``
         # would otherwise alias ``_X_for_recipes``/``X`` directly). Every recipe below then does a
-        # cheap in-place column append instead of ``.assign()`` (see below) -- profiling a 100k-row
+        # cheap in-place column append instead of ``.assign()`` (see below) - profiling a 100k-row
         # transform found this loop's repeated ``.assign()`` calls responsible for 36.5s of the wall
         # (16,204 pandas block-manager copies, cProfile `wellbore_profile_99401rows.prof`).
         chained = _X_for_recipes.copy()
@@ -551,7 +551,7 @@ def _append_engineered(self, base_out, X, recipes):
         # (cat_pair_cross consumed by a numeric_decompose / modular recipe) can
         # record the consumer before its producer. Resolve in passes: apply only
         # recipes whose src_names already exist in ``chained``, defer the rest,
-        # loop until no progress -- then apply any genuinely-unresolvable
+        # loop until no progress - then apply any genuinely-unresolvable
         # remainder in recorded order (surfaces a real missing-source KeyError
         # rather than an ordering artefact).
         _results: dict = {}
@@ -560,10 +560,10 @@ def _append_engineered(self, base_out, X, recipes):
 
         def _unresolved_sources(r) -> list:
             """Source names a recipe still needs from ``chained`` that are NOT
-            available. NESTED-ENGINEERED PARENTS (2026-06-08): a ``unary_binary``
+            available. NESTED-ENGINEERED PARENTS: a ``unary_binary``
             recipe whose operand is itself engineered carries that parent's recipe
             in ``extra['nested_parent_a'|'nested_parent_b']`` and recomputes it
-            recursively in ``apply_recipe`` -- so that side is self-resolving and
+            recursively in ``apply_recipe`` - so that side is self-resolving and
             must NOT be treated as a missing column dependency (its engineered
             ``src_name`` is never present in the raw-only transform frame)."""
             _src = tuple(getattr(r, "src_names", ()) or ())
@@ -574,7 +574,7 @@ def _append_engineered(self, base_out, X, recipes):
                 if s in chained.columns:
                     continue
                 if _pos < 2 and _nested_by_pos[_pos] is not None:
-                    # Resolved recursively via the stored parent recipe -- BUT that parent
+                    # Resolved recursively via the stored parent recipe - BUT that parent
                     # may itself reference a SEPARATE engineered column (its own src) that
                     # is not yet in ``chained`` (e.g. a nested binned_numeric_agg whose
                     # group_col is an adaptive Fourier/chirp column produced by another
@@ -595,15 +595,15 @@ def _append_engineered(self, base_out, X, recipes):
                     col = apply_recipe(r, chained)
                     _results[r.name] = col
                     # In-place append, not ``.assign()`` (which ALWAYS returns a full block-manager
-                    # copy -- see the ownership comment above ``chained = ... .copy()``). Safe here:
+                    # copy - see the ownership comment above ``chained = ... .copy()``). Safe here:
                     # ``chained`` was privately copied once before this loop, so no caller-visible
                     # aliasing risk; ``__setitem__`` on a new column name is a cheap block append.
                     # This does trigger pandas' "highly fragmented" PerformanceWarning at wide recipe
-                    # counts (many single-column blocks) -- investigated (2026-07-10): ``chained`` is
+                    # counts (many single-column blocks) - investigated: ``chained`` is
                     # only ever read via single named-column lookups in this loop (never a whole-frame
                     # op like ``.to_numpy()``/arithmetic across all columns) and is discarded once the
                     # loop ends (the return value is built from ``_results``, not ``chained``), so
-                    # fragmentation has no measured downstream cost -- confirmed absent from a fresh
+                    # fragmentation has no measured downstream cost - confirmed absent from a fresh
                     # cProfile top-40 tottime pass on a 100k-row production run after this fix landed.
                     chained[r.name] = col
                     _progress = True
@@ -613,7 +613,7 @@ def _append_engineered(self, base_out, X, recipes):
                 for r in _still:
                     _missing = _unresolved_sources(r)
                     # Raise-vs-NaN is keyed on the recipe kind's data-flow contract. Raw-seed-only kinds (``mi_greedy_transform``) consume
-                    # input columns exclusively -- a missing source is a genuine recipe-vs-X mismatch (corrupted/stale recipe, or wrong X)
+                    # input columns exclusively - a missing source is a genuine recipe-vs-X mismatch (corrupted/stale recipe, or wrong X)
                     # and must fail loudly and name the column. Chained-capable kinds (modular / numeric_decompose / numeric_rounding /
                     # orth_spline / cross families) may reference an engineered intermediate that fit-time pruning dropped its producer for;
                     # that source is unreconstructable at transform, so emit a NaN column rather than crash.
@@ -631,7 +631,7 @@ def _append_engineered(self, base_out, X, recipes):
                     )
                     # The producer of the engineered intermediate was pruned at fit time, so this chained recipe is
                     # unreconstructable. The output width is fixed by ``get_feature_names_out`` (the recipe count), so
-                    # the column cannot be physically removed without a shape mismatch -- emit a zero-variance column
+                    # the column cannot be physically removed without a shape mismatch - emit a zero-variance column
                     # instead. A NaN placeholder (the prior behaviour) propagates into every downstream estimator and
                     # hard-crashes the ones that reject NaN (LogisticRegression et al.); a constant 0.0 carries no
                     # signal (so it is "dropped" in effect) yet is accepted by every estimator.
@@ -644,7 +644,7 @@ def _append_engineered(self, base_out, X, recipes):
     else:
         # ndarray / polars path: best-effort single pass (recipes that reference
         # engineered intermediates aren't expressible without a name-indexed frame).
-        # Validate each recipe's raw source columns against the input BEFORE replay --
+        # Validate each recipe's raw source columns against the input BEFORE replay -
         # mirroring the base-feature guard above (support_/selected_cols missing check).
         # Without this, a recipe referencing a column that upstream dropped between fit
         # and transform (constant-col removal / imputer drop / OD filter narrowing the
@@ -694,7 +694,7 @@ def _append_engineered(self, base_out, X, recipes):
         pass
 
     # ndarray fallback: hstack engineered cols. Names are lost but row order matches get_feature_names_out.
-    # 2026-05-30 Wave 9.1 fix (loop iter 15): promote BOTH sides to the
+    # Promote BOTH sides to the
     # common dtype via np.result_type instead of forcing engineered cols
     # into ``base_out.dtype``. Pre-fix when base_out was an integer
     # ndarray (the common case for selected categorical / binned

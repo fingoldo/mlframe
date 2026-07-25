@@ -1,4 +1,4 @@
-"""G3 (2026-06-22): kernel-tuning-cache integration for the GPU FE K-chunk VRAM fraction.
+"""G3: kernel-tuning-cache integration for the GPU FE K-chunk VRAM fraction.
 
 Carved out of ``_gpu_resident_fe.py`` (LOC budget). Holds the per-host VRAM-fraction RESOLVER, the
 per-fraction timing PROBE, the discrete-fraction SWEEP, and the ``kernel_tuner`` registration. The parent
@@ -9,7 +9,7 @@ WHY a tunable fraction: the K-chunk width that bounds the resident candidate-MI 
 a hardcoded ``0.25 * free_VRAM``. A WIDER fraction = fewer/larger chunks = fewer kernel launches + reductions
 (the nsys-measured launch/sync overhead that dominates the per-pair x per-chunk loop), bounded by the card
 not thrashing. Per ``feedback_use_kernel_tuning_cache_for_gpu`` the live fraction is looked up per-host from
-the kernel_tuning_cache so a high-VRAM card learns a wider fraction instead of leaving it on the table --
+the kernel_tuning_cache so a high-VRAM card learns a wider fraction instead of leaving it on the table -
 never exceeding what that host measured as safe. Chunk width is per-column-INDEPENDENT, so the candidate MI
 is selection-equivalent regardless of the chunk boundary (the sweep ranks fractions by WALL only).
 
@@ -51,12 +51,12 @@ def gpu_k_chunk_vram_fraction(n: int) -> float:
 def gpu_resident_pair_candidate_mi_vram_fraction(
     a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, *, nbins: int = 20, vram_fraction: float,
 ) -> tuple[list[str], np.ndarray]:
-    """Variant of ``gpu_resident_pair_candidate_mi`` whose K-chunk width uses an EXPLICIT VRAM fraction --
+    """Variant of ``gpu_resident_pair_candidate_mi`` whose K-chunk width uses an EXPLICIT VRAM fraction -
     the per-fraction probe the sweep times to learn the fastest safe width. Output is selection-equivalent
     to the default-fraction path (chunk width is per-column-independent), so the sweep ranks by WALL only."""
     import cupy as cp
 
-    from . import hermite_fe as _hf  # noqa: F401 -- full-init parent before the direct sibling import
+    from . import hermite_fe as _hf  # noqa: F401 - full-init parent before the direct sibling import
     from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
     from ._gpu_resident_fe import (
         _COMBOS, _candidate_names, _fused_generate_block, _gpu_k_chunk, _unary_stack_cm,

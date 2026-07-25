@@ -10,7 +10,7 @@ import numba
 from numba import njit
 from numba import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
 
-# Wave 87 (2026-05-21): scoped numba/discretization warnings suppressor.
+# Scoped numba/discretization warnings suppressor.
 # Replaces the prior module-level filter mutation which silently poisoned
 # the process-global filter for every importer.
 from contextlib import contextmanager as _contextmanager
@@ -67,7 +67,7 @@ def numba_cuda_can_compile() -> bool:
         _cuda.synchronize()
         _NUMBA_CUDA_CAN_COMPILE = int(out.copy_to_host()[0]) == 1
     except Exception:
-        # NvvmSupportError, missing toolkit, driver mismatch, OOM at probe -- any failure means
+        # NvvmSupportError, missing toolkit, driver mismatch, OOM at probe - any failure means
         # the numba.cuda path is unusable on this host; route to cupy/CPU.
         _NUMBA_CUDA_CAN_COMPILE = False
     return _NUMBA_CUDA_CAN_COMPILE
@@ -137,7 +137,7 @@ def canonical_group_token(value) -> str:
     A bare ``str`` makes the integer ``1`` (``'1'``) and the float ``1.0``
     (``'1.0'``) DIFFERENT keys, so a fit-on-int / predict-on-float drift misses
     every per-group lookup and silently routes every row to the global fallback
-    -- the engineered column is then computed from the wrong (global) statistic
+    - the engineered column is then computed from the wrong (global) statistic
     with no error. Collapse integral-valued numerics so ``1``, ``1.0``,
     ``np.int64(1)``, ``np.float64(1.0)`` all map to ``'1'``; non-integral floats
     keep their full repr; non-numeric labels pass through ``str`` unchanged.
@@ -160,7 +160,7 @@ def group_key_strings(col) -> np.ndarray:
     """Object array of per-row canonical group keys (int<->float drift safe).
 
     Group columns are low-cardinality, so only the distinct values are
-    canonicalised and gathered back via ``np.unique(return_inverse)`` --
+    canonicalised and gathered back via ``np.unique(return_inverse)`` -
     ``canonical_group_token`` runs per-unique instead of per-row (6-10x on
     typical group keys; identical result to the per-row map). Integral-valued
     int and float labels collapse to the same key (``1`` and ``1.0`` -> ``'1'``)
@@ -190,7 +190,7 @@ def group_key_strings(col) -> np.ndarray:
 # IDENTITY of the original Python callable. ``create_unary_transformations`` /
 # ``create_binary_transformations`` are rebuilt many times per fit (FE step, recipe
 # replay, fingerprinting), and each prior call wrapped every registry entry in a FRESH
-# ``njit(func)`` -- a brand-new dispatcher with an empty compile cache -- so the SAME
+# ``njit(func)`` - a brand-new dispatcher with an empty compile cache - so the SAME
 # signature (e.g. ``_safe_div(ndarray, ndarray)``) was re-LLVM-compiled on every rebuild.
 # On the canonical n=100k fit that redundant recompilation cost ~13s of pure llvmlite time.
 # Keying by ``__code__`` (not ``id(func)``) keeps the cache effective for the registries'

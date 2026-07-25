@@ -83,7 +83,7 @@ def _pooled_gain_floor_perms_njit(scaled_flat, offsets, joint_card, h_x, mm_bias
     code-ascending order; the only divergence from the numpy ``-(p*log(p)).sum()`` reduction is FP reduction-order (~1e-16, far below selection scale).
 
     The K-shuffle loop is ``prange``-parallel: each iteration ``k`` writes only ``maxes[k]`` from read-only shared inputs and owns a private ``counts`` scratch, so the result is
-    BIT-IDENTICAL to the serial scan (per-shuffle entropy reduction order unchanged -- verified max|diff|=0.0, identical 0.95-quantile floor across n=10k/100k x p=50/200) while
+    BIT-IDENTICAL to the serial scan (per-shuffle entropy reduction order unchanged - verified max|diff|=0.0, identical 0.95-quantile floor across n=10k/100k x p=50/200) while
     scaling with cores. ~8x at 22 threads (bench _benchmarks/bench_pooled_gain_floor_perms_prange.py: 6.8s -> 0.78s at n=100k/p=200/K=200)."""
     nperm = y_perms.shape[0]
     n = y_perms.shape[1]
@@ -121,17 +121,17 @@ def _pooled_gain_floor_perms_njit(scaled_flat, offsets, joint_card, h_x, mm_bias
 def _gen_target_shuffles_par_njit(y_codes, nperm, base_seed):
     """Generate ``nperm`` independent uniform target shuffles in a thread-parallel Fisher-Yates pass.
 
-    LARGE-N SHUFFLE-GEN LEVER (2026-06-24). The maxT floor's per-shuffle ``rng.shuffle(y_perm)`` loop is the
+    LARGE-N SHUFFLE-GEN LEVER. The maxT floor's per-shuffle ``rng.shuffle(y_perm)`` loop is the
     DOMINANT large-n cost of the order-1 floor: at n=600k / nperm=200 the sequential numpy Fisher-Yates loop
     (``pooled_permutation_null_gain_floor`` gen block) measured ~2.2s vs only ~0.29s for the njit histogram
     kernel it feeds (~88% of the floor wall, ~4.4s over the two F2 FE-step floors) and it scales O(nperm * n).
     The K shuffles are mutually INDEPENDENT, so this prange-parallelises the generation across permutations:
     row ``k``'s permutation is produced by a Fisher-Yates seeded ONLY by ``base_seed + k`` (NOT by thread id
-    or schedule), so the full ``y_perms`` matrix is BIT-IDENTICAL run-to-run and thread-count-independent --
+    or schedule), so the full ``y_perms`` matrix is BIT-IDENTICAL run-to-run and thread-count-independent -
     the floor (an ``np.quantile`` over the per-shuffle maxes) is deterministic for a fixed ``base_seed``.
 
     This is a DIFFERENT draw sequence from numpy's ``Generator.shuffle`` (numba owns its own RNG), so the
-    floor it yields is statistically equivalent but not byte-identical to the legacy numpy-stream floor -- it
+    floor it yields is statistically equivalent but not byte-identical to the legacy numpy-stream floor - it
     is therefore routed by a per-host KTC crossover (``_permutation_null_shufflegen_ktc.shufflegen_use_numba``)
     that engages ONLY at the large n where it MEASURED faster, keeping the small-n canonical/F2 suite on the
     exact legacy numpy stream (byte-stable selection). Bench (8 threads, n=600k, nperm=200): 2.69s -> 1.00s
@@ -155,7 +155,7 @@ def _gen_target_shuffles_par_njit(y_codes, nperm, base_seed):
 def _generate_target_shuffles(y_codes: np.ndarray, nperm: int, dtype, rng, *, random_seed) -> np.ndarray:
     """Build the ``(nperm, n)`` target-shuffle matrix for the maxT floor, dispatching gen backend by a KTC crossover.
 
-    LEGACY (default / small n): sequential numpy ``rng.shuffle`` -- numpy owns the draw sequence so the floor
+    LEGACY (default / small n): sequential numpy ``rng.shuffle`` - numpy owns the draw sequence so the floor
     stays byte-identical to the historical per-shuffle path. NUMBA-PAR (large n, KTC-measured faster): the
     prange Fisher-Yates above, a different-but-valid uniform stream gated to the large-n regime where its
     2.7x gen speedup matters and where the small-n canonical suite never reaches (so selection stays stable
@@ -201,18 +201,18 @@ def target_oversplit_floor_applies(
     target (~10 equal-frequency bins) while the noise features bin to the same ~10 levels. The plug-in MI bias ``(nbins_x-1)*(nbins_y-1)/(2n)`` then lifts pure-noise columns
     past the abs/rel gain floors AFTER the genuine signals are picked, so a noise column leaks in even though the pool is only ~9 columns wide.
 
-    HISTORY: the original gate (2026-06-04) keyed ``over-split`` on ``nbins_y >= 3 * median(nbins_x)`` because the then-default adaptive ``nbins_strategy="mdlp"`` OVER-SPLIT
+    HISTORY: the original gate keyed ``over-split`` on ``nbins_y >= 3 * median(nbins_x)`` because the then-default adaptive ``nbins_strategy="mdlp"`` OVER-SPLIT
     the heavy-tailed target into ~30 bins (vs feat ~5). The 2026-06-10 TARGET REBIN GUARD (``_mrmr_fit_impl/_fit_impl_core.py``) re-bins the target back to the legacy
-    equal-frequency ``quantization_nbins`` (~10) encoding -- correct, because supervised MDLP on the injected target is self-referential and degrades MI sensitivity -- but
+    equal-frequency ``quantization_nbins`` (~10) encoding - correct, because supervised MDLP on the injected target is self-referential and degrades MI sensitivity - but
     that removed the ~30-bin over-split signature, so the ``ratio>=3`` gate stopped firing in production and the lognormal noise re-leaked. The plug-in-bias mechanism that
     admits noise is unchanged (the maxT floor still cleanly separates signal >> floor > noise at nbins_y=10); only the *gate predicate* was keyed on a binning artifact the
     rebin guard now removes. The discriminator is the TARGET, expressed via two cheap, already-computed bin counts:
 
-    * **high-cardinality target** -- ``nbins_y >= oversplit_ratio * median(nbins_x)`` with ``oversplit_ratio=1.0``: the target carries at least as many levels as the features.
+    * **high-cardinality target** - ``nbins_y >= oversplit_ratio * median(nbins_x)`` with ``oversplit_ratio=1.0``: the target carries at least as many levels as the features.
       A continuous (regression) target quantile-binned to ``quantization_nbins`` (~10, matching feature cardinality) trips this; a low-cardinality CLASSIFICATION target
-      (nbins_y in {2,3} << feat ~5-10) does NOT -- there the plug-in bias ``(nbins_x-1)*(nbins_y-1)/(2n)`` is small and the few target classes carry no over-fit headroom.
+      (nbins_y in {2,3} << feat ~5-10) does NOT - there the plug-in bias ``(nbins_x-1)*(nbins_y-1)/(2n)`` is small and the few target classes carry no over-fit headroom.
 
-    * **reliable** -- ``n / (nbins_y * median(nbins_x)) >= min_rows_per_joint_cell``. The maxT floor is the q-quantile of the per-shuffle MAX corrected plug-in MI; when the
+    * **reliable** - ``n / (nbins_y * median(nbins_x)) >= min_rows_per_joint_cell``. The maxT floor is the q-quantile of the per-shuffle MAX corrected plug-in MI; when the
       (X, y) contingency table averages well under a handful of rows per cell the plug-in MI is itself dominated by finite-sample variance, so the floor explodes and would
       prune genuine weak signal. THIS predicate is the real safety rail separating the lognormal WIN from the diabetes NO-REGRESSION: diabetes (n=330, MDLP nbins_y=64,
       feat median~4-5 -> ~1.0-1.5 rows per joint cell) FAILS it, so the floor stays OFF and its 10 weak features survive; lognormal (n=2500, MDLP nbins_y=64, feat median=5
@@ -220,7 +220,7 @@ def target_oversplit_floor_applies(
       3 signals score 0.025-0.53).
 
     Both predicates must hold. The defaults (``oversplit_ratio=1.0``, ``min_rows_per_joint_cell=7.0``) sit with comfortable margin between the fire / no-fire cases measured
-    at the production MDLP binning (lognormal 7.8 rows/cell vs diabetes ~1.0-1.5 rows/cell -- recalibrated 2026-07-20 after MDLP started splitting the lognormal target into
+    at the production MDLP binning (lognormal 7.8 rows/cell vs diabetes ~1.0-1.5 rows/cell - recalibrated 2026-07-20 after MDLP started splitting the lognormal target into
     64 bins instead of the ~10-30 assumed at the gate's original 2026-06 calibration, which had pushed lognormal's rows/cell to exactly 7.8125, just under the old 8.0 bar).
     Returns ``False`` on a degenerate pool (n too small, single-class target, no scorable feature) so the caller can treat it as "floor off".
     """
@@ -246,7 +246,7 @@ def target_oversplit_floor_applies(
     # High-cardinality target: nbins_y at least matches the feature cardinality (a continuous
     # regression target), distinguishing it from a low-card classification target whose few
     # classes carry negligible plug-in-bias headroom. (Pre-rebin-guard this keyed on a 3x MDLP
-    # over-split; the 2026-06-10 target-rebin guard removed that signature -- see docstring.)
+    # over-split; the 2026-06-10 target-rebin guard removed that signature - see docstring.)
     high_cardinality_target = nbins_y >= float(oversplit_ratio) * median_feat_nbins
     if not high_cardinality_target:
         return False
@@ -267,9 +267,9 @@ def pooled_permutation_null_gain_floor(
 ) -> float:
     """Return the maxT permutation-null gain floor for an order-1 candidate pool.
 
-    REUSE-AUDIT RU-5 disposition (2026-06-19): sharing the permuted-y draws across the order-1/2/3 null floors
+    REUSE-AUDIT RU-5 disposition: sharing the permuted-y draws across the order-1/2/3 null floors
     + the seeder self-gate was evaluated and REJECTED. The only cost sharing would save is generating the K
-    shuffles -- measured 8.76ms for K=25 at n=20000 -- which is negligible against the per-shuffle histogram
+    shuffles - measured 8.76ms for K=25 at n=20000 - which is negligible against the per-shuffle histogram
     RESCORING that dominates each floor, and the floor statistics differ per order so they must each be
     computed anyway. Sharing the same draws across orders would also correlate the per-order null estimates
     (they are intended independent one-sided thresholds). Not worth it.
@@ -286,7 +286,7 @@ def pooled_permutation_null_gain_floor(
     (high quantile-estimator variance); K=200 puts ~10 draws in the tail and the run-to-run std of the
     floor drops several-fold on a fixed null (see _benchmarks/bench_maxt_floor_stability.py). A lower-
     variance null floor is the correct behavior, so the default favors floor stability over the marginally
-    cheaper rescore -- each extra shuffle pays a full pool-rescore, but the floor is computed once per
+    cheaper rescore - each extra shuffle pays a full pool-rescore, but the floor is computed once per
     screen and 200 stays sub-second at production widths. Drop ``n_permutations`` to the legacy 25 only to
     reproduce a pre-2026-06 floor (note the floor MOVES with K, so re-validate downstream selection).
 
@@ -339,7 +339,7 @@ def pooled_permutation_null_gain_floor(
         px = xcounts[xcounts > 0] * inv_n
         kx_eff = int(px.shape[0])  # occupied bins of this candidate (idea-#9)
         # int32 codes (not int64): the joint code ``x_code*nbins_y + y_code`` is < nbins_x*nbins_y,
-        # always within int32 -- so this is BIT-IDENTICAL but halves the (n_cand x n) ``scaled_flat``
+        # always within int32 - so this is BIT-IDENTICAL but halves the (n_cand x n) ``scaled_flat``
         # and (nperm x n) ``y_perms`` pools below, which reach GBs at n=1M and drove an OOM
         # (_permutation_null.py:239, (n_cand*n,) int64). Used only as histogram indices downstream.
         scaled_codes.append((xc * nbins_y).astype(np.int32))
@@ -384,7 +384,7 @@ def pooled_permutation_null_gain_floor(
                 from ._permutation_null_resident import gen_target_shuffles_cupy
                 y_perms_dev = gen_target_shuffles_cupy(y_codes, nperm, _fdr_dt, random_seed)
         except Exception:
-            # SCREEN_CONFIRM_B-5 fix: this fault path had zero logging and no circuit breaker, unlike
+            # This fault path had zero logging and no circuit breaker, unlike
             # the order-2 sibling. WARN once and trip so later calls this process skip the (likely
             # poisoned) GPU context immediately instead of re-faulting silently on every call.
             logger.warning(
@@ -407,11 +407,11 @@ def pooled_permutation_null_gain_floor(
     _mm = np.asarray(mm_bias, dtype=np.float64)
 
     # RESIDENT-GPU CROSSOVER (iter16, 2026-06-23): the per-shuffle MAX corrected MI over the pool is a
-    # (nperm x n_cand x n) histogram+MI loop -- ONE batched workload (no per-pair launches, the iter13 trap).
+    # (nperm x n_cand x n) histogram+MI loop - ONE batched workload (no per-pair launches, the iter13 trap).
     # Route it to the resident cupy twin ONLY where a per-host KTC sweep MEASURED it faster than this njit
     # kernel (wide pools p>=64 and/or large n on a capable card); the narrow tabular floor stays on CPU where
     # the njit is already sub-second. Selection-equivalent (per-cell entropy differs only in FP reduction
-    # order ~1e-15; the host owns the final np.quantile). Any cupy/device error falls back to njit -- the
+    # order ~1e-15; the host owns the final np.quantile). Any cupy/device error falls back to njit - the
     # floor is NEVER broken by a GPU problem (correctness first).
     maxes = None
     if _resident_ok:
@@ -424,7 +424,7 @@ def pooled_permutation_null_gain_floor(
                 (y_perms_dev if y_perms_dev is not None else y_perms), float(inv_n),
             )
         except Exception:
-            # SCREEN_CONFIRM_B-5 fix: same zero-logging/no-circuit-breaker gap as the shuffle-gen site above.
+            # Same zero-logging/no-circuit-breaker gap as the shuffle-gen site above.
             logger.warning(
                 "MRMR FE: resident-GPU order-1 maxT permutation-null pooled-gain-floor faulted; tripping "
                 "the GPU circuit breaker and falling back to the CPU njit floor for the rest of this process.",
@@ -474,7 +474,7 @@ def _pairwise_occupied_joint_k_njit(factors_data, pair_a, pair_b, nbins):
 def _pairwise_occupied_joint_k(
     factors_data: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, nbins: np.ndarray,
 ) -> np.ndarray:
-    """Per-pair OCCUPIED joint-bin count of ``(x_a, x_b)`` -- the cardinality the
+    """Per-pair OCCUPIED joint-bin count of ``(x_a, x_b)`` - the cardinality the
     plug-in joint MI:func:`batch_pair_mi_prange` actually sees.
 
     Permutation-INVARIANT (depends only on the X-columns, never on y), so it is
@@ -486,7 +486,7 @@ def _pairwise_occupied_joint_k(
     Delegates to the njit boolean-seen kernel (bit-identical distinct-count, ~90-240x
     over the prior Python set-per-pair loop). Only the index/bin arrays are normalised
     to int64; ``factors_data`` keeps its native (typically int32) dtype so a wide
-    screening matrix is NOT int64-copied (RAM rule) -- numba indexes it directly."""
+    screening matrix is NOT int64-copied (RAM rule) - numba indexes it directly."""
     pa = np.ascontiguousarray(pair_a, dtype=np.int64)
     pb = np.ascontiguousarray(pair_b, dtype=np.int64)
     nb = np.ascontiguousarray(nbins, dtype=np.int64)
@@ -511,7 +511,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
     The FE step ranks prospective engineered PAIRS by the JOINT MI of
     ``(x_i, x_j; y)`` over an O(p^2) candidate pool. At high p the MAXIMUM joint
     MI over PURE-NOISE pairs is a positive order statistic that grows with the
-    pool size -- the SAME best-of-p selection bias the order-1 floor rejects, now
+    pool size - the SAME best-of-p selection bias the order-1 floor rejects, now
     at order 2. The per-pair prevalence gates (``fe_min_pair_mi_prevalence`` /
     ``fe_synergy_min_prevalence``) are PER-PAIR; they centre each pair's own
     finite-sample bias but do NOT account for the max-over-pool selection, so a
@@ -526,7 +526,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
     screen scores ``pair_mi`` with (:func:`batch_pair_mi_prange`), so the floor
     is on the exact same scale as the values it gates. The ``quantile``-th
     quantile of that K-sample max-distribution is a joint-MI floor a genuine
-    synergy pair (XOR / product / bilinear -- joint MI FAR above chance) clears
+    synergy pair (XOR / product / bilinear - joint MI FAR above chance) clears
     and the best-of-p noise pair does not.
 
     ``classes_y`` is the per-row ordinal target code (the array the FE joint-MI
@@ -541,8 +541,8 @@ def pooled_pair_permutation_null_joint_mi_floor(
     MM-DEBIAS (2026-06-09, IRON RULE). When ``mm_debias`` the FE
     joint-prevalence RATIO gate downstream subtracts the Miller-Madow joint-MI
     bias from its ``pair_mi`` denominator, which LOWERS the bar and admits more
-    pairs. To keep this floor (the outer best-of-pool guard) on the SAME scale --
-    so lowering the ratio bar does NOT weaken the floor -- we subtract the per-pair
+    pairs. To keep this floor (the outer best-of-pool guard) on the SAME scale -
+    so lowering the ratio bar does NOT weaken the floor - we subtract the per-pair
     Miller-Madow MI bias ``(k_joint-1)(k_y-1)/2n`` (occupied joint-K, #4) from EACH
     pair's joint MI BEFORE the per-shuffle max. The per-pair bias is permutation-
     invariant (X-columns + k_y unchanged under y-shuffle), so it is precomputed once
@@ -559,7 +559,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
         return 0.0
 
     # ROW-SUBSAMPLE the floor compute (noise-floor-cap regime, 2026-07-05). The floor is a q=0.95
-    # QUANTILE of the per-shuffle MAX joint-MI over the O(p^2) pool -- a COARSE noise threshold, not a
+    # QUANTILE of the per-shuffle MAX joint-MI over the O(p^2) pool - a COARSE noise threshold, not a
     # precise per-pair statistic. Its dominant term is the finite-sample plug-in MI bias ~ (k_joint-1)
     # (k_y-1)/2n, so subsampling rows raises the floor slightly (more CONSERVATIVE: it rejects the same
     # noise pairs and MORE), while the SURVIVORS' observed pair_mi is still scored at the FULL screen n
@@ -569,7 +569,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
     # the detectable safe condition n>cap; env-tunable MLFRAME_FE_PAIR_MAXT_MAX_ROWS (default 15000, set
     # 0 to disable). Contiguous head-view => zero-copy (the screen matrix is already a random subsample).
     # When mm_debias is on, the caller subtracts the IDENTICAL per-pair MM bias (computed at FULL n) from
-    # the observed pair_mi at the gate, so the floor's internal bias must stay on the full-n scale too --
+    # the observed pair_mi at the gate, so the floor's internal bias must stay on the full-n scale too -
     # skip the cap in that mode to preserve the consistent-debias-on-both-sides contract.
     _max_rows = 0 if mm_debias else _pair_maxt_max_rows()
     if 0 < _max_rows < n:
@@ -580,9 +580,9 @@ def pooled_pair_permutation_null_joint_mi_floor(
         freqs_y = np.bincount(np.asarray(classes_y).astype(np.int64), minlength=k_y).astype(np.float64) / n
 
     # Reuse the exact batched plug-in joint-MI estimator the FE pair screen scores ``pair_mi`` with (CPU njit
-    # prange -- deterministic, GPU-independent), so the per-shuffle max is on the same scale as the gated value.
+    # prange - deterministic, GPU-independent), so the per-shuffle max is on the same scale as the gated value.
     # The permutation-BATCHED variant computes each pair's joint encoding + x-marginal ONCE and reuses them across
-    # all K shuffles (only the (joint, y_perm) contingency re-runs per shuffle) -- ~1.71x, bit-identical.
+    # all K shuffles (only the (joint, y_perm) contingency re-runs per shuffle) - ~1.71x, bit-identical.
     from .info_theory import batch_pair_mi_perm_batched
 
     pa = np.ascontiguousarray(pair_a, dtype=np.int64)
@@ -634,7 +634,7 @@ def pooled_triple_permutation_null_joint_mi_floor(
     surrogate-GBM split-co-occurrence seeder #6, the CMI-lattice #10, ...): the
     triplet / quadruplet FE modules historically seed by univariate top-N and lack
     an order-MATCHED permutation floor, so OPENING 3-way generation WILL surface
-    chance-max noise triples -- a wide noise matrix's MAXIMUM 3-D joint MI over the
+    chance-max noise triples - a wide noise matrix's MAXIMUM 3-D joint MI over the
     proposed triple pool is a positive order statistic that grows with the pool size,
     the SAME best-of-pool selection bias the order-1 / order-2 floors reject, now at
     order 3 (and STRONGER: the 3-way joint cardinality inflates the plug-in joint MI
@@ -648,7 +648,7 @@ def pooled_triple_permutation_null_joint_mi_floor(
     (:func:`batch_triple_mi_prange`, which dense-renumbers the 3-way joint so its
     cardinality stays <= n). The ``quantile``-th quantile of that K-sample
     max-distribution is a joint-MI floor a genuine 3-way needle (XOR / triple product
-    -- joint MI FAR above chance) clears and the best-of-pool noise triple does not.
+    - joint MI FAR above chance) clears and the best-of-pool noise triple does not.
 
     ``classes_y`` is the per-row ordinal target code; ``freqs_y`` its class-probability
     vector, INVARIANT under permutation, so it is reused across shuffles. The floor is
@@ -658,7 +658,7 @@ def pooled_triple_permutation_null_joint_mi_floor(
     two candidate triples, single-class target, or no permutations requested), so callers
     can unconditionally compare ``triple_mi >= floor``. ``->`` the raw chance ceiling as
     the pool shrinks (a proposer-pruned small triple pool is LESS punishing than all
-    C(p, 3) -- tighter multiple-comparison correction, the architectural through-line).
+    C(p, 3) - tighter multiple-comparison correction, the architectural through-line).
     """
     n = int(factors_data.shape[0])
     n_triples = int(triple_a.shape[0])
@@ -669,7 +669,7 @@ def pooled_triple_permutation_null_joint_mi_floor(
         return 0.0
 
     # Reuse the exact batched plug-in 3-way joint-MI kernel a triple is scored with
-    # (CPU njit prange -- deterministic, GPU-independent for the floor compute), so the
+    # (CPU njit prange - deterministic, GPU-independent for the floor compute), so the
     # per-shuffle max is on the same scale as the gated ``triple_mi``. The order-2 floor
     # above uses ``batch_pair_mi_perm_batched`` to hoist the permutation-invariant joint
     # code/marginal out of the K-shuffle loop; mirror that here with the order-3 sibling

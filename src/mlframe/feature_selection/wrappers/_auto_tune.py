@@ -3,7 +3,7 @@
 The full plan (see TODO.md section A) is to run a synthetic benchmark sweep
 across data distributions (normal / heavy-tailed / categorical / mixed),
 target types (binary / multiclass / regression), MI strengths, redundancy
-patterns -- and fit a small classifier that maps a ``DataFingerprint`` -> the
+patterns - and fit a small classifier that maps a ``DataFingerprint`` -> the
 winning ``SearchConfig + FIConfig + RobustnessConfig`` combo from a calibrated
 table.
 
@@ -15,7 +15,7 @@ This module ships a STARTING POINT:
    max abs Pearson corr to y, presence of nan).
 
 2. ``suggest_configs(fp)`` returns 3 Config objects based on a small
-   rule-based table (no ML classifier yet -- that's the Wave 7+ work). The
+   rule-based table (no ML classifier yet - that's the Wave 7+ work). The
    rules encode the bench learnings from Wave 1-5:
       - p >> n -> prescreen='univariate_ht', init_design_size higher
       - flat/plateau curves (low max-MI) -> n_features_selection_rule='one_se_max'
@@ -27,7 +27,7 @@ This module ships a STARTING POINT:
    when the user didn't pass their own.
 
 When the ML-driven table replaces the rule table, the public API stays
-identical -- only the inner ``suggest_configs`` body changes.
+identical - only the inner ``suggest_configs`` body changes.
 """
 from __future__ import annotations
 
@@ -146,7 +146,7 @@ class DataFingerprint:
                 max_corr = float(np.max(corrs))
                 mean_corr = float(np.mean(corrs))
         else:
-            # ndarray path -- assume fully numeric.
+            # ndarray path - assume fully numeric.
             X_arr = np.asarray(X, dtype=float)
             has_nan = bool(np.isnan(X_arr).any())
             yfloat = y_arr.astype(float)
@@ -179,7 +179,7 @@ class DataFingerprint:
 
 
 def suggest_configs(fp: DataFingerprint) -> Tuple[SearchConfig, FIConfig, RobustnessConfig]:
-    """Rule-based suggestion (Wave 6 prelim). Returns (search, fi, robustness).
+    """Rule-based suggestion. Returns (search, fi, robustness).
 
     Rules encode the bench learnings from Wave 1-5:
       - p>>n (p_n_ratio > 1)        : prescreen='univariate_ht', larger init_design

@@ -155,7 +155,7 @@ def _prewarm_numba_cache_body():
 
         threading.Thread(target=_kick_cpu_count, daemon=True).start()
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _core_numba_warmup.py:153: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
 
     # iter199 (2026-05-23): pre-warm polars group_by + agg path. c0042 binary
@@ -183,7 +183,7 @@ def _prewarm_numba_cache_body():
         # Also warm the join path (used in _per_group_predict_polars._predict):
         _ = _warm_df.select("cat").join(_warm_df, on="cat", how="left")
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _core_numba_warmup.py:180: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
 
     # Numba compiles for each dtype separately.
@@ -242,7 +242,7 @@ def _prewarm_numba_cache_body():
         _ = fast_log_loss(_yt_bool, _yp_f64)
         _ = fast_ice_only(_yt_bool, _yp_f64, nbins=10, use_weights=True)
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _core_numba_warmup.py:238: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
 
     # iter192 (2026-05-23): also prewarm fast_aucs_per_group_optimized with
@@ -259,7 +259,7 @@ def _prewarm_numba_cache_body():
         # numba signature per dtype combo.
         _ = fast_brier_score_loss(_yt_bool, _yp_f64)
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _core_numba_warmup.py:254: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
 
     # iter198 (2026-05-23) bench-attempt-rejected: tried prewarming
@@ -276,7 +276,7 @@ def _prewarm_numba_cache_body():
     try:
         _ = format_classification_report(_yti, _ypi, nclasses=2)
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _core_numba_warmup.py:270: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
 
     logits_binary = np.array([-1.0, 0.0, 1.0, 2.0, -0.5, 0.5, 1.5, -1.5, 0.25, -0.25], dtype=np.float64)
@@ -399,7 +399,7 @@ def _prewarm_numba_cache_body():
             3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0,
         )
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _core_numba_warmup.py:372: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
 
     # Warm feature_selection numba kernels. Without this, the first MRMR.fit call pays ~60s of cumulative JIT compile. Lazy import keeps this module's import cost unchanged.
@@ -511,7 +511,7 @@ def _prewarm_numba_cache_body():
             _yt_rmse = _yp_gpu[:, 0]
             _ = gpu_multiple_rmse_scores(_yt_rmse, _yp_gpu)
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _core_numba_warmup.py:478: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
 
     # Warm `ranking_metrics._summary_batched_kernel` (parallel njit). On LTR combos `compute_ranking_summary` is called once per dummy baseline; the first call eats the entire JIT-compile budget. Compile with the canonical dtype combo used by `compute_ranking_summary` itself.
@@ -523,5 +523,5 @@ def _prewarm_numba_cache_body():
         _ks_rank = np.array([1, 5, 10], dtype=np.int64)
         _ = _summary_batched_kernel(_yt_rank, _ys_rank, _gs_rank, _ks_rank)
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _core_numba_warmup.py:489: %s", e)
+        logger.debug("suppressed: %s", e)
         pass

@@ -1,4 +1,4 @@
-"""ShapProxiedFS -- feature selection by ranking subsets via summed SHAP values.
+"""ShapProxiedFS - feature selection by ranking subsets via summed SHAP values.
 
 Idea (Mazzanti / TDS, extended): train one model on all features, compute SHAP values once, then
 approximate the OOS prediction of a model trained on any feature subset ``S`` by the coalition value
@@ -99,7 +99,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         max_interaction_features: int = 16,
         # ``proxy_mode`` ("auto" DEFAULT | "additive" | "interaction"): how a feature SUBSET is scored
         # by the proxy. "additive" = ``base + sum_{j in S} phi_j`` (purely additive SHAP coalition;
-        # blind to non-additive pairs -- the legacy escape hatch, byte-identical to pre-auto behaviour,
+        # blind to non-additive pairs - the legacy escape hatch, byte-identical to pre-auto behaviour,
         # runs NO screen at all). "interaction" re-scores the additive candidates under
         # ``base + sum phi_j + 2*sum_{i<j in S} Phi_ij`` (adds the off-diagonal TreeSHAP interaction
         # values) + a gated pair sweep, so an XOR / multiplicative pair earns the joint credit the
@@ -107,44 +107,44 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # features by mean |phi| (O(k^2) memory/cost, not O(P^2)). "interaction" stays OPT-IN: bench
         # (_benchmarks/bench_shap_interaction_proxy.py) shows it WINS the competing-XOR bed by ~+0.24
         # honest-holdout AUC REPLICATED 3/3 seeds, but only 1/6 beds and slightly regresses one
-        # additive-redundant seed -- not the majority+no-regression win a default flip requires. Tree
+        # additive-redundant seed - not the majority+no-regression win a default flip requires. Tree
         # models only; non-tree falls back to additive cleanly. REJECTED-as-default != deleted.
         #
         # "auto" (gt_08, NEW DEFAULT): closes the "default user gets zero interaction handling" gap
         # WITHOUT resurrecting the bench-rejected "interaction" flip. It ALWAYS runs the cheap
         # ``su_synergy_screen`` (pairwise-SU synergy + permutation-null SNR gate, O(P)+O(K), never the
         # O(P^2) tensor) regardless of the ``su_seeded_interactions`` flag: an empty ``kept`` list (the
-        # gate cleared nothing -- additive/noise-buried data) makes "auto" run BYTE-IDENTICAL to
+        # gate cleared nothing - additive/noise-buried data) makes "auto" run BYTE-IDENTICAL to
         # "additive" (screen result discarded, only cost is the screen itself); a non-empty ``kept``
         # enables the exact same operand-rescue + sparse-candidate-augmentation path
         # ``su_seeded_interactions=True`` already ships (measured +0.388 AUC pure-interaction, +0.072
         # synth, correct no-op on hard_synth). The SNR gate IS the "safe condition" the repo's
         # gate-a-big-win rule requires, so this flip is DIFFERENT from the rejected "interaction" flip:
         # it's data-driven, not unconditional. "auto" does NOT enable the O(P^2) interaction_aware /
-        # proxy_mode="interaction" tensor path -- that stays opt-in (P<=16 gate, bench-rejected as
+        # proxy_mode="interaction" tensor path - that stays opt-in (P<=16 gate, bench-rejected as
         # default). 6-bed x 3-seed pre-flip bench (_benchmarks/bench_shap_interaction_proxy.py,
         # arms=additive/interaction/auto): auto matched interaction's XOR-bed win, stayed
         # selected_features_-IDENTICAL to additive on every additive/additive-redundant bed
-        # (n_kept==0 on all of them), and the screen cost <=3% of e2e wall on the widest bed -- see
+        # (n_kept==0 on all of them), and the screen cost <=3% of e2e wall on the widest bed - see
         # that script's output for the committed numbers. ``su_seeded_interactions=True`` is redundant
         # under "auto" (no warning; it just runs the same path) and still matters standalone under
         # "additive"/"interaction" for callers who want the screen without opting into "auto".
         # "faith_interaction" (gt_01, OPT-IN): order-2 Faith-Shap (Tsai, Yeh, Ravikumar, JMLR 2023)
-        # surrogate ranking over the SAME additive proxy game -- weighted ridge regression over
+        # surrogate ranking over the SAME additive proxy game - weighted ridge regression over
         # SAMPLED coalitions (no O(P^2) tensor), candidate-pair-restricted to the su_synergy_screen's
-        # kept pairs (never the full k^2 design -- underdetermined at typical post-prescreen widths).
+        # kept pairs (never the full k^2 design - underdetermined at typical post-prescreen widths).
         # Unlike "interaction" (the raw, non-faithful TreeSHAP interaction tensor, P<=16 gated), this
         # runs at any proxy width. Kept opt-in until its own majority-win bench (see
         # _shap_proxy_faith_interactions.py and the biz_val suite for the pre-flip numbers).
         proxy_mode: str = "auto",
         interaction_proxy_top_k: int = 30,
         faith_n_coalitions: int = 2048,
-        # su_seeded_interactions (lever A4-4, OPT-IN, default OFF -- mirrors ``interaction_aware``):
+        # su_seeded_interactions (lever A4-4, OPT-IN, default OFF - mirrors ``interaction_aware``):
         # a CHEAP pairwise-SU SYNERGY screen ranks candidate interaction PAIRS at O(P)+O(K) cost, then
         # the interaction objective runs on ONLY the top-K synergistic pairs (a sparse product-column
         # augmentation), NEVER the O(P^2) TreeSHAP interaction tensor that gates ``interaction_aware``
         # to phi<=16 (a no-op on wide proxies). The screen scores
-        # ``synergy(a,b;y) = SU(joint_bin(a,b);y) - max(SU(a;y), SU(b;y))`` -- HIGH exactly for pure
+        # ``synergy(a,b;y) = SU(joint_bin(a,b);y) - max(SU(a;y), SU(b;y))`` - HIGH exactly for pure
         # interactions whose operands have ~0 marginal SU (XOR / sign(a*b)). A permutation-null SNR
         # GATE skips pairs whose synergy sits below the spurious-pair floor, so noise-buried
         # interactions (hard_synth's ia*ib among 200 noise cols) are correctly NOT seeded and the path
@@ -159,10 +159,10 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         su_seeded_snr_null_quantile: float = 0.99,
         su_seeded_snr_abs_floor: float = 1e-3,
         su_seeded_n_permutations: int = 3,
-        # residual_passes (gt_09, OPT-IN, default 0 -- see the rollout bench note near
+        # residual_passes (gt_09, OPT-IN, default 0 - see the rollout bench note near
         # ``self.residual_passes`` below): a second SHAP pass on pass-1's residual re-credits weak
         # features the additive coalition proxy under-weighs when strong features absorb most of the
-        # shared credit (the "<50% coverage wall"). Capped at 2 -- each pass costs one full OOF-SHAP.
+        # shared credit (the "<50% coverage wall"). Capped at 2 - each pass costs one full OOF-SHAP.
         residual_passes: int = 0,
         residual_merge: str = "rescue",
         residual_lambda: float = 1.0,
@@ -199,7 +199,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         prescreen_top: int | None = None,
         # ``prescreen_ranking`` (gt_03, default "mean_abs_phi"): which per-feature vector drives the
         # prescreen top-K cut. "banzhaf" swaps in an MSR-Banzhaf semivalue estimate over the SAME
-        # additive proxy game -- Wang & Jia (AISTATS 2023) show Banzhaf is the most noise-robust
+        # additive proxy game - Wang & Jia (AISTATS 2023) show Banzhaf is the most noise-robust
         # semivalue to a FIXED level of v(S) noise. Measured on THIS pipeline that theoretical
         # robustness does NOT translate into better seed-to-seed selection stability (see
         # test_biz_val_shap_proxied_banzhaf_ranking.py): MSR-Banzhaf layers its own fresh per-seed
@@ -214,7 +214,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # refine yields a clean, parsimonious subset (the native contract: exclude noise + redundancy). When the DOWNSTREAM
         # model is stronger / different (e.g. a 300-tree LightGBM) it can exploit features this proxy finds within-tol-
         # redundant, so AUC-optimising callers loosen the dial to parsimony_tol=0.005 (keeps ~2x the features, beats
-        # refine=False in 4/6 fs_hybrid cells, +~0.6pt downstream LightGBM AUC) -- see ``parsimony_tol`` above for that
+        # refine=False in 4/6 fs_hybrid cells, +~0.6pt downstream LightGBM AUC) - see ``parsimony_tol`` above for that
         # recall-vs-precision tradeoff. Set within_cluster_refine=False to skip refinement entirely.
         within_cluster_refine: bool = True,
         refine_n_estimators: int | None = 100,
@@ -225,10 +225,10 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # coalition can "block" it (removing it barely changes the coalition value) gets near-zero
         # credit and is dropped; a unit some coalition genuinely needs keeps positive credit even if
         # its marginal drop-one honest-loss delta is below parsimony_tol. The proposal is honestly
-        # verified ONCE and falls back to the legacy greedy path on any honest-gate failure -- "core"
+        # verified ONCE and falls back to the legacy greedy path on any honest-gate failure - "core"
         # never returns a result worse than "greedy" would have.
         # DEFAULT "auto": probes whether core is likely to find anything before paying its LP +
-        # honest-reverify cost (``auto_should_use_core_refine``) -- root-caused empirically that core
+        # honest-reverify cost (``auto_should_use_core_refine``) - root-caused empirically that core
         # degrades to greedy exactly when the strong/confident units' honest loss is already near its
         # achievable floor (measured marginal relative gain from the magnitude-relative confident
         # subset, end-to-end through this pipeline: -0.090 on a saturated bed vs +0.091 on a bed
@@ -279,7 +279,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         cat_features: list | None = None,
         # iter79: content-addressable disk cache for the OOF-SHAP stage. ``None`` (default) disables.
         # Set to a directory path to share phi/base across re-fits with the same (X, y, template,
-        # fold/seed) tuple -- e.g. hyperparam sweeps that vary downstream stages but leave the
+        # fold/seed) tuple - e.g. hyperparam sweeps that vary downstream stages but leave the
         # SHAP-attribution input unchanged. The cache is content-addressable, multi-process safe,
         # LRU-evicted; see ``mlframe.utils.disk_cache``.
         cache_dir: str | None = None,
@@ -332,15 +332,15 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # 10, 100) from the RAW input width ``p = n_features_in_`` (resolved at fit time in
         # _shap_proxied_fit): ~30 at p=25, ceiling 100 for p>=278. bench_shapproxied_adaptive_guards
         # WIDE majority win (5/6 seeds x {p=2000, p=6000}): proxy_fidelity_score auto>=fixed at 100
-        # anchors -- e.g. p=6000 fid 0.913/0.960/0.974 (auto) vs 0.830/0.907/0.907 (fixed); the one
+        # anchors - e.g. p=6000 fid 0.913/0.960/0.974 (auto) vs 0.830/0.907/0.907 (fixed); the one
         # loss is a near-tie (0.898 vs 0.914). A literal int pins the count (recovers legacy fixed-30
         # via ``n_anchors=30``). The iter93 note below explains why a fixed small count erodes the trust
-        # SCORE margin -- the adaptive scale lifts the count exactly on the wide frames it was thinnest.
+        # SCORE margin - the adaptive scale lifts the count exactly on the wide frames it was thinnest.
         self.n_anchors = n_anchors
         # ``prescreen_ladder_mode`` (default ``"hardcoded"``): how the post-OOF prescreen cap narrows.
         #   - ``"hardcoded"`` (DEFAULT): the legacy stability-table ladder (requires
         #     ``adaptive_prescreen_by_stability=True`` + OOF to fire; otherwise a no-op).
-        #   - ``"knee"`` (OPT-IN, bench-rejected as default): data-driven -- read the sorted |phi|
+        #   - ``"knee"`` (OPT-IN, bench-rejected as default): data-driven - read the sorted |phi|
         #     importance distribution and narrow the cap toward the kneedle knee of the cumulative-
         #     importance curve. Dense-signal keeps the full cap; sparse prunes to the knee. Always runs,
         #     only ever narrows. REJECTED as default (bench_shapproxied_adaptive_guards): on WIDE DENSE
@@ -355,7 +355,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # fires LOW. ``None`` is the "unset" sentinel resolved to 0.5 at fit time; storing it raw
         # (no coercion here) keeps the both-floors-set conflict guard able to distinguish an explicit
         # ``fidelity_floor=0.5`` from "user did not pin it" and preserves sklearn ``clone()`` identity.
-        # The legacy ``spearman_floor`` kwarg name is preserved as a deprecated alias since iter18 --
+        # The legacy ``spearman_floor`` kwarg name is preserved as a deprecated alias since iter18 -
         # supplying it emits a ``DeprecationWarning`` at fit time and copies into ``fidelity_floor``.
         # The legacy 0.6 default was set against the raw-Spearman scale (pre-iter16); on the composite
         # scale (iter16+) it is too conservative and trips on the partial-recovery ``interaction_heavy``
@@ -448,7 +448,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # proxy consumes the attribution RANKING and the coalition value; both are determined by the
         # fitted model's structural credit-allocation, which stabilises long before the last refinement
         # trees. iter4-baseline cProfile @ width=10000 showed OOF-SHAP dominated by xgboost ``update``
-        # (29.6s tottime / 40.4s cum out of 43.3s SERIAL OOF-SHAP -- 96% of stage). Mirror of the
+        # (29.6s tottime / 40.4s cum out of 43.3s SERIAL OOF-SHAP - 96% of stage). Mirror of the
         # iter9/iter10 ``prefilter_n_estimators`` / ``trust_guard_n_estimators`` / ``refine_n_estimators``
         # pattern. Same clamp semantics: ``min(current_template_n_estimators, cap)`` so a custom
         # model whose ``n_estimators`` is already below the cap is left untouched. ``None`` disables
@@ -474,7 +474,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # OOMing the wide regime at the cheapest stage. The chunked replacement (parity to
         # float64 rounding) caps per-batch allocation at ``8 * n_samples * batch`` bytes
         # independent of feature count. Tradeoff: smaller batches reduce peak RSS at the cost
-        # of per-batch Python loop overhead -- the auto-sizer targets a 256 MB chunk budget,
+        # of per-batch Python loop overhead - the auto-sizer targets a 256 MB chunk budget,
         # which empirically dominates Python overhead for n_features above ~256.
         self.prefilter_univariate_batch_size = prefilter_univariate_batch_size
         # ``shap_prefilter_*`` (iter31): SHAP-aware tightening of the effective ``prefilter_top``. The
@@ -484,7 +484,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # selector passes ``min(prefilter_top, shap_prefilter_top)`` to ``prefilter_columns`` where
         # ``shap_prefilter_top = max(brute_force_max_features * safety_factor, min_features)``
         # (default ``max(22*4, 40) = 88``) so the EXISTING prefilter booster's ranking already
-        # produces the tighter output -- no second booster fit is paid. ``safety_factor=4`` keeps a
+        # produces the tighter output - no second booster fit is paid. ``safety_factor=4`` keeps a
         # 4x cushion over the search cap so OOF-SHAP variance can still surface signal the prefilter
         # booster's ranking missed; ``min_features=40`` is a floor for small ``brute_force_max_features``.
         # Bench-attempt-rejected variant (separate post-clustering booster fit, 2026-05-28): width=
@@ -501,7 +501,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # 0.2*n_features)``), the two_stage prefilter's stage-B booster fit is the dominant
         # wall-clock cost (cProfile at C2 width=10000/n_rows=5000 attributed 14.8s of a 30s fit to
         # xgboost ``update`` on a 2000-column matrix). The eventual stage-B output is
-        # ``effective_prefilter_top`` (e.g. 112) anyway -- keeping stage A at 2000 forces the booster
+        # ``effective_prefilter_top`` (e.g. 112) anyway - keeping stage A at 2000 forces the booster
         # to score 1900+ columns it will then discard. The lever tightens stage A to
         # ``max(shap_aware_stage1_floor, effective_prefilter_top * shap_aware_stage1_cushion)``
         # (default ``max(200, 112*2) = 224``) so the booster fits on ~9x fewer columns at the same
@@ -510,7 +510,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # prefilter wall 3.0-4.0x and e2e wall 1.42-1.58x with recall preserved or improved (+1 at
         # C3). The 2x headroom is what survives stage A's univariate F-rank for marginal-signal
         # informatives that the stage-B interaction-aware booster then recovers (4x cushion gave
-        # the same recall at 1.42x e2e; 2x is the empirical optimum -- under-cushion would force
+        # the same recall at 1.42x e2e; 2x is the empirical optimum - under-cushion would force
         # the floor to dominate). ``shap_aware_stage1_floor=200`` is a hard floor that protects
         # pathological tight ``brute_force_max_features`` configs (e.g. 5 * 2 = 10 would be too
         # aggressive a stage-A funnel). The lever is a strict tightening: ``min(default_stage1_keep,
@@ -533,7 +533,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # sinusoidal) that Pearson misses. ``cluster_use_precomputed_bins``
         # gates the switch (default True so callers passing precomputed get
         # the upgrade automatically). ``cluster_su_threshold`` is the SU
-        # equivalent of ``cluster_corr_threshold`` -- different scale (SU is
+        # equivalent of ``cluster_corr_threshold`` - different scale (SU is
         # bounded by 1 but only reaches it on deterministic relationships),
         # default 0.5 calibrated to a similar linking density as |corr| 0.7.
         self.cluster_use_precomputed_bins = bool(cluster_use_precomputed_bins)
@@ -600,7 +600,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # ``revalidation_n_estimators`` (iter28) caps the per-candidate booster size inside
         # ``revalidate_top_n`` / ``active_learning_revalidate``. The honest re-validation stage's
         # parsimony-rule selection is a RELATIVE ranking decision (within ``parsimony_tol`` of the
-        # best stable_score), which stabilises long before 300 trees -- same rationale as iter9
+        # best stable_score), which stabilises long before 300 trees - same rationale as iter9
         # refine / iter19 oof_shap / iter10 trust_guard. Iter27 profile at width=1000/n_rows=5000/
         # snr=8 measured revalidation at 47.4% of total fit (the post-iter27 dominant stage). At
         # ``top_n=20`` x ``n_revalidation_models=3`` that's 60 honest retrains, each at 300 trees;
@@ -684,7 +684,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         #
         # Iter14 + iter16 originally rejected this lever because ``_softmax_weights`` was NOT
         # scale-invariant (raw F-scores in 10^2..10^4 collapsed softmax to ~one-hot). Iter97
-        # (2026-06-01) fixed the softmax. Iter99 (2026-06-01) re-evaluated the lever as a default
+        # fixed the softmax. Iter99 re-evaluated the lever as a default
         # flip vs uniform, running a 2x2 A/B at two production regimes PLUS the smaller W2K
         # biz_value regime:
         #
@@ -699,11 +699,11 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # dense-redundant narrow W2K regime (40 signal cols on 2000 with rho=0.85). The F-score
         # cohort prior concentrates anchors on the head of a tight redundant cluster where proxy
         # and honest losses agree trivially, compressing the Spearman spread. Default stays OFF
-        # because the lever does NOT universally pay -- shipping True as the default would silently
+        # because the lever does NOT universally pay - shipping True as the default would silently
         # regress fidelity for callers running on dense-redundant cohorts (small post-prefilter
         # widths, high inter-feature correlation).
         #
-        # Iter100 (2026-06-01) tested the width-aware ``'auto'`` dispatcher hypothesis with a
+        # Iter100 tested the width-aware ``'auto'`` dispatcher hypothesis with a
         # 4x2x2 contour sweep (n_rows=5000, n_inf=20, snr=8.0, seed=0; widths {2k,4k,6k,10k} x
         # {sparse n_red=0, dense n_red=20 rho=0.85} x {stratified, uniform}). Per-cell deltas
         # (d_sp / d_fid = stratified - uniform):
@@ -729,7 +729,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # silently regress callers on the contested cells. See
         # ``_benchmarks/bench_iter100_stratified_anchors_contour.py`` to reproduce.
         #
-        # Iter101 (2026-06-01) extended the contour to 2D (width x n_rows) on dense-only
+        # Iter101 extended the contour to 2D (width x n_rows) on dense-only
         # (rho=0.85, n_red=20, n_inf=20, snr=8.0, seed=0); widths {2k,4k,6k,10k} x
         # n_rows {2k,5k,10k} = 12 cells x {strat, uni}. d_fid (strat - uni) by cell:
         #
@@ -751,13 +751,13 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # (down to d_fid=-0.140 at w=6000/n=5000). No single-axis r=n_rows/width or
         # r=n_rows/sqrt(width) separator cleanly partitions the win-cells. iter99 W2K
         # (w=2000, n=2000, strat) re-measured at sp=0.9626 fid=0.8442 vs iter99's sp=0.9684
-        # fid=0.8811 -- ~0.04 swing reflects real measurement variance from concurrent CPU
+        # fid=0.8811 - ~0.04 swing reflects real measurement variance from concurrent CPU
         # contention during the sweep. The iter99 W6K/W10K wins do NOT reproduce at n_rows=5000
         # in this sweep, suggesting those were specific to a (width, n_rows, seed) interaction
         # rather than a generalisable property of stratified sampling. Lever stays opt-in. See
         # ``_benchmarks/bench_iter101_stratified_anchors_2d.py`` to reproduce.
         self.trust_guard_stratified_anchors = bool(trust_guard_stratified_anchors)
-        # ``trust_guard_uniform_tail_frac`` re-audited iter98 (2026-06-01) after iter97 made the
+        # ``trust_guard_uniform_tail_frac`` re-audited iter98 after iter97 made the
         # softmax scale-invariant. Question: does the calibrated 20% uniform tail still pay now that
         # stratified is well-behaved (no longer collapsing to ~one-hot on raw F-scores)? Sweep
         # {0.0, 0.1, 0.2, 0.3} at width=6000, n=3000, n_inf=12, snr=8.0, seed=0,
@@ -772,7 +772,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # both spearman AND composite fidelity. Reducing the tail to 0.1 / 0.0 costs recall@k
         # (0.833 vs 1.000) because the pure-stratified draw never probes any column outside the
         # F-score head, so the proxy's top-k overlap with honest top-k drops one anchor.
-        # iter97's scale-invariant softmax did NOT shift the optimum -- 20% uniform tail remains
+        # iter97's scale-invariant softmax did NOT shift the optimum - 20% uniform tail remains
         # the calibrated value.
         self.trust_guard_uniform_tail_frac = float(trust_guard_uniform_tail_frac)
         # ``trust_guard_cardinality_dist`` (iter15+iter16): how anchor cardinality ``k`` is drawn
@@ -795,7 +795,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # alpha=0 degenerates Zipf to uniform; higher alpha overcompresses to small-k extremes where
         # proxy and honest agree trivially. Set ``trust_guard_cardinality_dist='uniform'`` to recover
         # pre-iter16 behaviour exactly.
-        # Store the raw constructor value -- sklearn's ``clone()`` compares
+        # Store the raw constructor value - sklearn's ``clone()`` compares
         # post-init param identity (``param1 is not param2``) and a mid-init
         # ``.lower()`` rewrite returns a fresh string object on uncached inputs
         # which trips the "constructor modifies parameter X" check. Normalise
@@ -829,7 +829,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # the OOF-SHAP / reval / refine / trust-guard parallel pools. The legacy iter4 cap (booster
         # n_jobs = max(1, n_cores // outer)) was added to prevent xgboost-vs-joblib oversubscription
         # on the era's xgboost (1.x). iter53 A/B at width 4000+10000 measured the cap as 8-9% e2e
-        # SLOWER on 8-core modern boxes -- xgboost's own thread pool handles outer*inner > n_cores
+        # SLOWER on 8-core modern boxes - xgboost's own thread pool handles outer*inner > n_cores
         # more efficiently than the joblib-side cap (reval +8%, refine +11%, trust +12% wall-clock
         # loss with cap on; prefilter +2% small win). The selector now defaults inner=-1 so xgboost
         # decides; the chosen subset and honest losses are bit-identical between the two paths

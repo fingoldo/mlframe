@@ -1,4 +1,4 @@
-"""Layer 58 (2026-05-31): CONDITIONAL BASIS ROUTING for the orthogonal-
+"""Layer 58: CONDITIONAL BASIS ROUTING for the orthogonal-
 polynomial univariate FE path.
 
 Why this layer
@@ -8,7 +8,7 @@ Layer 21 (``generate_univariate_basis_features``) picks ONE basis per
 column via the moment fingerprint at :func:`basis_route_by_moments` and
 sweeps every degree in ``degrees=(2,3)``. Layer 57
 (``generate_adaptive_degree_basis_features``) extended that with a per-
-column argmax over the degree axis -- still ONE (basis, transform) pair
+column argmax over the degree axis - still ONE (basis, transform) pair
 per column, just with the best degree.
 
 But the moment fingerprint mis-routes for two important regimes the
@@ -16,9 +16,9 @@ user flagged on 2026-05-31:
 
 * **heavy-tail log-normal x driving y = f(log x)**: skew + kurtosis
   push the fingerprint toward Laguerre/Hermite-on-raw, but the actual
-  signal is linear in ``log|x|`` -- Hermite-on-``log|x|`` is dominant.
+  signal is linear in ``log|x|`` - Hermite-on-``log|x|`` is dominant.
 * **uniform x driving y = T_3(x)**: the fingerprint sees a bounded
-  domain and picks Chebyshev, which IS correct -- but only by luck;
+  domain and picks Chebyshev, which IS correct - but only by luck;
   on the same column with the wrong target (y = He_3(x)) Hermite-on-raw
   would dominate. The fingerprint is a marginal-of-x heuristic; it
   cannot know what y looks like.
@@ -37,7 +37,7 @@ Per column the candidate space is
   = 4 * 4 * len(degrees)
 
 with ``degrees=(2,3)`` that's 32 candidates / column. At p=200 sources
-the candidate pool is 6400 columns -- larger than Layer 21's 1200 but
+the candidate pool is 6400 columns - larger than Layer 21's 1200 but
 still cheap (one batch MI call). The ``min_uplift`` default is therefore
 tightened to ``1.10`` (10% gain over raw baseline) to compensate for the
 larger multiple-testing burden.
@@ -58,7 +58,7 @@ Selection rule
   ``min_uplift * baseline_MI`` where ``baseline_MI`` is the raw column MI;
 * global top-K: across surviving columns keep the top-K by uplift.
 
-NOT wired into MRMR.fit by default -- explicit opt-in via
+NOT wired into MRMR.fit by default - explicit opt-in via
 ``fe_hybrid_orth_conditional_routing_enable=True``.
 """
 from __future__ import annotations
@@ -109,7 +109,7 @@ _TAG_TO_PRE_TRANSFORM = {v: k for k, v in _PRE_TRANSFORM_TAG.items()}
 def _coerce_y_int64(y) -> np.ndarray:
     """Dense int64 class labels. Non-integer y is densified via
     ``np.unique(return_inverse=...)`` rather than truncated with
-    ``.astype(int64)`` -- plain truncation merges distinct labels and destroys
+    ``.astype(int64)`` - plain truncation merges distinct labels and destroys
     continuous-y signal (everything in [0, 1) collapses to class 0)."""
     arr = np.asarray(y).ravel()
     if np.issubdtype(arr.dtype, np.integer):
@@ -133,7 +133,7 @@ def _routing_col_name(src: str, basis: str, degree: int, pre_transform: str) -> 
 
     The ``raw`` tag is included explicitly (rather than omitted) so the
     routing-FE column names are visually distinct from Layer 21/57
-    columns even when the picked pre-transform happens to be identity --
+    columns even when the picked pre-transform happens to be identity -
     this avoids name collisions when both layers run on the same source.
     """
     code = _BASIS_CODE.get(basis, basis)
@@ -262,7 +262,7 @@ def generate_conditional_basis_routing_features(
 
     for col in cols:
         # Value-construction site (feeds the engineered column, not just an MI score): always
-        # float64, matching _apply_orth_univariate's hardcoded replay dtype -- a relaxed f32 cast
+        # float64, matching _apply_orth_univariate's hardcoded replay dtype - a relaxed f32 cast
         # here reproduces the fit/replay drift bug fixed in _orthogonal_univariate_fe/__init__.py.
         x_raw = np.asarray(X[col].to_numpy(), dtype=np.float64)
         finite_mask = np.isfinite(x_raw)
@@ -286,7 +286,7 @@ def generate_conditional_basis_routing_features(
                 fill2 = float(np.nanmean(xt[finite2])) if finite2.any() else 0.0
                 xt = np.where(finite2, xt, fill2)
             if float(np.std(xt)) <= 1e-12:
-                # Constant pre-transform output -- every basis_d(z) is zero
+                # Constant pre-transform output - every basis_d(z) is zero
                 # variance; skip the entire pre_transform * basis * degree
                 # sub-tree for this column.
                 continue
@@ -320,11 +320,11 @@ def generate_conditional_basis_routing_features(
     eng_mi = _mi_classif_batch(cand_mat, y_arr, nbins=nbins)
 
     # ---- Step 3b: routing score. The per-source ARGMAX (which (pre,basis,degree)
-    # cell to keep) is a LINEARISATION decision -- pick the cell a shallow/linear
-    # downstream can best use -- so route by |Pearson corr|, NOT by MI. A 30-class
-    # OOS study over this exact (pre x basis x degree) space (2026-06-03) showed
+    # cell to keep) is a LINEARISATION decision - pick the cell a shallow/linear
+    # downstream can best use - so route by |Pearson corr|, NOT by MI. A 30-class
+    # OOS study over this exact (pre x basis x degree) space showed
     # corr-routing near-oracle (OOS-linear R^2 0.81 vs MI 0.52; MI picks an
-    # informative-but-non-linear cell -- log|x|/tanh+Laguerre -- in 23/30 cases).
+    # informative-but-non-linear cell - log|x|/tanh+Laguerre - in 23/30 cases).
     # Mirrors ``basis_route_by_signal`` (the default Layer-21 router). The KEEP
     # gate below (uplift + noise floor) stays MI-based: relevance IS an MI
     # question. ``routing_criterion="mi"`` restores the legacy argmax.
@@ -529,7 +529,7 @@ def hybrid_orth_mi_conditional_routing_fe_with_recipes(
 ):
     """Same as :func:`hybrid_orth_mi_conditional_routing_fe` but additionally
     returns a list of ``EngineeredRecipe`` objects (kind ``orth_univariate``)
-    -- one per appended column -- so ``MRMR.transform`` can replay each
+    - one per appended column - so ``MRMR.transform`` can replay each
     engineered column on test data without re-running the per-column MI scan.
 
     Returns

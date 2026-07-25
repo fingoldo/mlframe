@@ -69,14 +69,14 @@ def _kernel_tuning_cache_lookup_cluster_threshold(kernel_name: str, factors_data
 
 CLUSTER_AGGREGATE_METHODS = (
     "mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score",
-    # Layer 44 (2026-05-31): four additional aggregators added to the DCD
+    # Layer 44: four additional aggregators added to the DCD
     # auto bake-off pool to give it more candidate combiners to choose from.
     # ``pca_pc2`` captures secondary cluster structure (correlated latents);
     # ``median_z`` is robust to outlier rows; ``signed_max_abs`` and
     # ``signed_l2_sum`` are non-linear combiners that surface the loudest
     # member signal / quadratic combination. The first two follow the
     # existing ``Z @ w`` linear-weight pattern; the last two are non-linear
-    # (no ``weights`` -- replay re-applies the same row reduction).
+    # (no ``weights`` - replay re-applies the same row reduction).
     "pca_pc2", "median_z", "signed_max_abs", "signed_l2_sum",
 )
 
@@ -100,7 +100,7 @@ def _apply_method_nonlinear(Z: np.ndarray, method: str) -> np.ndarray:
     ``signed_max_abs``: per-row ``sign(z_j*) * max_j |z_j|`` where ``j*`` is
         the arg-max of |z_j|. Surfaces the loudest single member signal.
     ``signed_l2_sum``: per-row ``sum_j sign(z_j) * z_j**2``. A signed
-        quadratic combiner -- larger-magnitude members contribute more,
+        quadratic combiner - larger-magnitude members contribute more,
         sign carried so cancellation across opposite-sign members works.
     """
     if method in ("median", "median_z"):
@@ -132,7 +132,7 @@ def _standardize_align(M: np.ndarray, ref_col: int):
     # Sign-align each column to ref_col by the SIGN of its correlation with ref.
     # corr(j, ref) < 0  <=>  the covariance numerator sum((Zc_j - mean_j)(Zc_ref
     # - mean_ref)) < 0 (the corr denominator is a non-negative std product), so
-    # we need only that numerator's sign -- computable for ALL columns at once
+    # we need only that numerator's sign - computable for ALL columns at once
     # via one centered matrix-vector product, replacing the per-column
     # np.corrcoef loop (K calls, each a 2x2 corr matrix over N rows; 1.12x at
     # K=4 rising to 2.36x at K=20). A constant column has a zero numerator ->
@@ -146,14 +146,14 @@ def _standardize_align(M: np.ndarray, ref_col: int):
     return Z, mean, std, signs
 
 
-# Layer 50 (2026-05-31): SVD-reuse cache for the DCD auto bake-off.
+# Layer 50: SVD-reuse cache for the DCD auto bake-off.
 #
 # Pre-fix: every call to ``_svd_flip_pc1`` / ``_svd_flip_pcN`` /
 # ``_pc1_communalities`` independently centred ``Z`` and called
 # ``np.linalg.svd``. The DCD auto bake-off (``_select_swap_method_auto``)
 # evaluates 7 combiner methods on each of K folds; 4 of those methods
 # (``mean_inv_var``, ``pca_pc1``, ``pca_pc2``, ``factor_score``) need the
-# SVD of the SAME ``Z_train`` matrix -- so per fold we paid 4x the SVD
+# SVD of the SAME ``Z_train`` matrix - so per fold we paid 4x the SVD
 # work on identical input. Layer 50 profile on p=200 / n=5000 / 10
 # latents attributed 0.444s tottime (#1 hotspot) to ``np.linalg.svd``
 # alone, 150 calls; that's where the cache pays off.
@@ -161,7 +161,7 @@ def _standardize_align(M: np.ndarray, ref_col: int):
 # Cache shape: a plain dict ``{"vt": vt, "Zc": Zc, "comm": comm}`` passed
 # explicitly to ``_derive_weights`` / ``_pc1_communalities`` /
 # ``_svd_flip_pc1`` / ``_svd_flip_pcN``. The caller owns the dict
-# (one per fold) and discards it after the fold finishes -- no global
+# (one per fold) and discards it after the fold finishes - no global
 # state, no thread-locals, no GC weakref shenanigans. Callers that don't
 # need caching pass ``svd_cache=None`` and the helpers compute fresh.
 
@@ -213,7 +213,7 @@ def _pc1_communalities(Z: np.ndarray, svd_cache: dict | None = None) -> np.ndarr
     """Communality_i = (corr of member_i with the PC1 score)^2 in [0,1] under a 1-factor read:
     the fraction of member_i's variance explained by the shared component. Used for reliability.
 
-    Layer 50 (2026-05-31): vectorised per-column corrcoef. Pre-fix the loop
+    Layer 50: vectorised per-column corrcoef. Pre-fix the loop
     ``[np.corrcoef(Z[:,j], score)[0,1]**2 for j ...]`` paid K corrcoef
     dispatches; for K=20 members on n=4000 rows that loop alone showed up
     on the profile as the bulk of ``_pc1_communalities`` cumtime. Replace
@@ -257,7 +257,7 @@ def _derive_weights(Z: np.ndarray, method: str, svd_cache: dict | None = None):
     pca_pc1 -> PC1 eigenvector (variance-max, best under hetero loadings); factor_score -> Bartlett
     1-factor combiner (principal-factor loadings, w ∝ Psi^-1 L / (L' Psi^-1 L)).
 
-    Layer 50 (2026-05-31): ``svd_cache`` is an optional dict the caller threads
+    Layer 50: ``svd_cache`` is an optional dict the caller threads
     through a batch of method evaluations on the SAME ``Z`` (e.g. the DCD auto
     bake-off's K-fold loop). Methods that need the SVD (``mean_inv_var``,
     ``pca_pc1``, ``pca_pc2``, ``factor_score``) share the cached vt / Zc /
@@ -267,7 +267,7 @@ def _derive_weights(Z: np.ndarray, method: str, svd_cache: dict | None = None):
     if method == "mean_z":
         return np.full(k, 1.0 / k, dtype=np.float64)
     # Layer 44: ``median`` (legacy alias) and the four new non-linear methods
-    # have no weight vector -- the aggregate is a row-reduction handled by
+    # have no weight vector - the aggregate is a row-reduction handled by
     # ``_apply_method_nonlinear`` at fit and replay.
     if method in _NONLINEAR_METHODS:
         return None
@@ -312,7 +312,7 @@ def _connected_components(n: int, edges: list) -> list:
 
     2026-06-03 bench-attempt-rejected (bench_community_vs_single_linkage): replacing
     this single-linkage CC with modularity/Louvain community detection gives NO win.
-    On the thresholded binned-SU graph the chaining failure mode does not occur --
+    On the thresholded binned-SU graph the chaining failure mode does not occur -
     a moderate bridge (corr ~0.6 to two groups) has binned SU ~0.09, far below tau,
     so it never links groups; single-linkage already recovers planted groups at
     ARI 1.0. Binning + the SU threshold supply the separation modularity would add.
@@ -397,7 +397,7 @@ def _discover_clusters(
         rep = members[0]
         # FCBF-style (Yu & Liu 2004) ordered-relevance pruning. Plain single-linkage connected
         # components (above) can chain A-B-C into one cluster via a bridge member B even when A and C
-        # don't directly correlate -- a genuine multi-latent-factor group gets merged with a spurious
+        # don't directly correlate - a genuine multi-latent-factor group gets merged with a spurious
         # reflection group. Processing members in DESCENDING relevance order and keeping only those that
         # correlate directly with the REPRESENTATIVE (not merely transitively, via some other member)
         # rejects chain artifacts while a genuine single-latent reflection cluster (every member directly
@@ -416,7 +416,7 @@ def _discover_clusters(
             # keep representative + top-|corr|-to-rep members
             members = [rep, *sorted([m for m in members if m != rep], key=lambda m: -abs(corr[rep_pos, pool.index(m)]))[: max_cluster_size - 1]]
         # Unidimensionality: PC1 explains >= tau of the standardized cluster variance. This is the
-        # structural discriminator -- genuine reflections of ONE latent are unidimensional; a
+        # structural discriminator - genuine reflections of ONE latent are unidimensional; a
         # partial-shared+distinct cluster (z + delta_i) is multi-factor -> low PC1 ratio -> rejected.
         # (The friend-graph conditional-MI "sink" test is NOT used here: for reflections it conflates
         # denoising-gain with distinct-signal info and would wrongly reject good clusters.)
@@ -429,7 +429,7 @@ def _discover_clusters(
             continue
         # ``members[0] == rep`` always (set two lines above, or forced to index 0 by the max_cluster_size
         # truncation branch), so Z/mu/sd/sg (standardized against ref_col=0) are exactly what
-        # run_cluster_aggregate_step would rebuild for this cluster's aggregate -- stash them so it reuses
+        # run_cluster_aggregate_step would rebuild for this cluster's aggregate - stash them so it reuses
         # this array instead of re-extracting + re-standardizing the same member columns.
         clusters.append({
             "members": members, "rep": rep, "rel": {m: rel[m] for m in members},
@@ -488,7 +488,7 @@ def run_cluster_aggregate_step(
         member_names = [cols[m] for m in members]
         rep = cl["rep"]
         # members[0] == rep by construction (_discover_clusters), so this is exactly the Z/mean/std/signs
-        # _discover_clusters already built (against the same ref_col=0) for the homogeneity gate -- reuse
+        # _discover_clusters already built (against the same ref_col=0) for the homogeneity gate - reuse
         # it instead of re-extracting + re-standardizing the same member columns from X.
         Z, mean, std, signs = cl["Z"], cl["mean"], cl["std"], cl["signs"]
         best_member_mi = max(cl["rel"].values())
@@ -505,7 +505,7 @@ def run_cluster_aggregate_step(
         for method in methods:
             weights = _derive_weights(Z, method, svd_cache=_svd_cache)
             agg_name = f"clusteragg_{method}({'+'.join(member_names)})"
-            # 2026-05-30 Wave 9.1 fix (loop iter 29): compute the
+            # Compute the
             # continuous aggregate FIRST so the recipe can persist the
             # fit-time quantile edges. Pre-fix the recipe was built
             # without edges and ``apply_recipe`` later re-quantiled on
@@ -583,7 +583,7 @@ def run_cluster_aggregate_step(
             if best is None or agg_mi > best[0]:
                 best = (agg_mi, recipe, binned, method)
 
-        # CLUSTERING_STABILITY-4 fix: unreachable in practice -- `methods` is
+        # Unreachable in practice - `methods` is
         # coerced to `("mean_z",)` when empty before this loop, so the loop always runs >=1 iteration and
         # always sets `best`. Kept as an assert (not silently removed) so a future change to that coercion
         # still fails loudly instead of a confusing downstream unpack error.

@@ -2,13 +2,13 @@
 
 Public API
 ----------
-* ``categorize_dataset(df, ...)`` -- top-level entry called by ``MRMR.fit``. Accepts pandas or polars (DataFrame / LazyFrame autocollected).
-* ``discretize_array(arr, ...)`` -- single-column 1-D discretiser.
-* ``discretize_2d_array(arr, ...)`` -- column-parallel njit version.
-* ``discretize_sklearn(arr, ...)`` -- pure-numpy port of sklearn's ``KBinsDiscretizer`` for cases where sklearn's overhead matters.
+* ``categorize_dataset(df, ...)`` - top-level entry called by ``MRMR.fit``. Accepts pandas or polars (DataFrame / LazyFrame autocollected).
+* ``discretize_array(arr, ...)`` - single-column 1-D discretiser.
+* ``discretize_2d_array(arr, ...)`` - column-parallel njit version.
+* ``discretize_sklearn(arr, ...)`` - pure-numpy port of sklearn's ``KBinsDiscretizer`` for cases where sklearn's overhead matters.
 * Lower-level numba helpers ``digitize``, ``quantize_dig``, ``quantize_search``, ``discretize_uniform``, ``get_binning_edges``.
 
-Polars ``LazyFrame`` is auto-collected at the boundary. Both pandas and polars paths route NaN through a shared ``_handle_missing`` helper -- the chosen
+Polars ``LazyFrame`` is auto-collected at the boundary. Both pandas and polars paths route NaN through a shared ``_handle_missing`` helper - the chosen
 strategy is documented and applied identically to both engines (legacy pandas silently used ``fillna(0.0)``; legacy polars let NaN propagate).
 """
 from __future__ import annotations
@@ -24,27 +24,33 @@ from typing import Any, Optional, Union
 import numpy as np
 import pandas as pd
 from numba import njit, prange
-# 2026-05-28: sklearn / astropy removed from categorize_1d_array hot path.
+# Sklearn / astropy removed from categorize_1d_array hot path.
 # Pure-numpy + numba kernels are ~10x faster than KBinsDiscretizer / OrdinalEncoder
 # (single-threaded estimator-API overhead) and ~12x faster than astropy.histogram
 # for the supported bin schemes. The legacy methods 'astropy' and 'discretizer'
 # still resolve via thin compat shims below.
-def _safe_code_dtype(n_bins: int, dtype: type) -> type:
-    """Widen ``dtype`` to one that can hold ordinal codes ``0..n_bins-1``.
+def _safe_code_dtype(n_bins: int, dtype: type, reserve_nan_slot: bool = False) -> type:
+    """Widen ``dtype`` to one that can hold ordinal codes ``0..n_bins-1`` (``0..n_bins`` when ``reserve_nan_slot``).
 
     Discretiser codes reach ``n_bins-1``; the default ``int8`` only holds 0..127, so an
     ``astype(int8)`` on ``n_bins>128`` wraps the top bins negative (modulo arithmetic),
     silently mis-binning the high-magnitude region. Auto-widen instead of silently
     corrupting: int8->int16->int32->int64 as the bin count grows. No-op for n_bins<=128.
+
+    The uniform path emits a dedicated NaN sentinel at code ``n_bins`` (one past the top real code
+    ``n_bins-1``); pass ``reserve_nan_slot=True`` there so the sentinel never wraps negative at
+    ``n_bins == dtype.max+1`` (int8@128, int16@32768). The quantile path routes NaN to the rightmost
+    real code ``n_bins-1`` and keeps the tighter default.
     """
     try:
         info = np.iinfo(np.dtype(dtype))  # type: ignore[type-var]  # dtype may be non-integer; caught below
     except (ValueError, TypeError):
         return dtype  # non-integer requested dtype: caller owns the contract
-    if n_bins - 1 <= info.max:
+    top_code = n_bins if reserve_nan_slot else n_bins - 1
+    if top_code <= info.max:
         return dtype
     for cand in (np.int16, np.int32, np.int64):
-        if n_bins - 1 <= np.iinfo(cand).max:
+        if top_code <= np.iinfo(cand).max:
             return cand
     return np.int64
 
@@ -68,7 +74,7 @@ def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int) -> n
     frequency desc), all rarer codes fold into one "other" bucket ``max_cardinality-1``; the ``-1`` NaN sentinel is
     preserved. Columns already at/below the cap are returned UNCHANGED (bit-identical). This is the standard high-card
     reduction: a categorical whose cardinality approaches N has sparse contingency cells, so its plug-in MI/CMI is
-    unreliable anyway (the analytic null already guards on >=5 expected/cell) -- folding the rare tail DENSIFIES the cells
+    unreliable anyway (the analytic null already guards on >=5 expected/cell) - folding the rare tail DENSIFIES the cells
     (better MI) while capping the code range so the whole codes matrix fits a narrow int (int8 for cap<=127). Operates on
     a float64 code matrix (the ``_multi_col_factorize_native`` output) and returns float64.
     """
@@ -88,11 +94,11 @@ def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int) -> n
             continue
         counts = np.bincount(finite.astype(np.int64), minlength=k)
         # keep the (cap-1) most frequent as 0..cap-2 (freq desc); everything else -> the "other" bucket cap-1.
-        # DISCRETIZATION-13 fix: kind="stable" so two categories tied exactly at
+        # kind="stable" so two categories tied exactly at
         # the cutoff boundary have a deterministic, documented tie-break (first-seen/lowest-index order)
         # rather than relying on the non-guaranteed default sort's tie behaviour across numpy
         # versions/architectures. Sort by NEGATED counts (descending) directly, rather than
-        # ascending-then-reverse -- reversing a stable ascending sort would itself un-stabilize the tie
+        # ascending-then-reverse - reversing a stable ascending sort would itself un-stabilize the tie
         # order (it reverses ties' relative order too), defeating the point of "stable".
         keep = np.argsort(-counts, kind="stable")[: max_cardinality - 1]
         remap = np.full(k, max_cardinality - 1, dtype=np.float64)
@@ -112,7 +118,7 @@ def _multi_col_factorize_native(categorical_df: "pd.DataFrame") -> np.ndarray:
 
     1. Pre-Categorical columns -> read ``.cat.codes`` directly (single C-level
        attribute access, no recomputation, no GIL contention). NaN is already
-       encoded as -1 by pandas convention -- matches downstream contract.
+       encoded as -1 by pandas convention - matches downstream contract.
     2. Non-Categorical object / string / bool columns -> joblib-threaded
        ``pd.factorize`` (releases GIL on the hash-table fill, threading wins).
     3. Single-column fallback -> sequential loop (zero overhead).
@@ -146,7 +152,7 @@ def _multi_col_factorize_native(categorical_df: "pd.DataFrame") -> np.ndarray:
     if needs_factorize:
         # Threshold raised 1 -> 8 (7-site joblib.Parallel audit, 2026-07-19): isolated/warmed/best-of-3+
         # measurement at the realistic column-count range for this branch (2-8 non-Categorical columns)
-        # found the joblib threading pool never clearly wins there -- 2 cols -> 1.29x (but that case was
+        # found the joblib threading pool never clearly wins there - 2 cols -> 1.29x (but that case was
         # already serial pre-fix, since the old threshold was ``<= 1``), 8 cols -> 0.52x (loses), 40 cols
         # -> 0.93x (roughly even). No clean win was found across 2-8 columns, so that whole range now stays
         # serial; the pool is still used above 8 columns where the per-thread pd.factorize work is enough
@@ -223,7 +229,7 @@ def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero", nan_mask:
     any missingness-as-signal. Now median-fills here and the caller
     re-routes NaN positions to the dedicated NaN bin (2026-05-30 Wave 9.1
     iter-11 fix: propagate used to return the NaN-bearing array unchanged,
-    silently merging NaN rows with the highest-value real category --
+    silently merging NaN rows with the highest-value real category -
     verified a NaN-is-the-signal column dropped from MI=0.69 nats under
     separate_bin to MI=0.38 under the old propagate).
 
@@ -231,14 +237,14 @@ def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero", nan_mask:
     ``categorize_dataset`` already computes this mask once (it needs it separately for the post-discretize
     NaN-bin re-routing), so passing it here avoids re-scanning the whole ``arr`` for NaN a second time on
     top of the ``np.nanmedian`` scan below. ``None`` (default) falls back to computing the mask internally,
-    for any caller that does not have one on hand. Private -- external callers should use the public
+    for any caller that does not have one on hand. Private - external callers should use the public
     ``discretize_*`` family.
 
     Mutates ``arr`` in place (returns the same object) for the ``separate_bin``/``propagate`` fill when
     ``arr`` is writable. A polars single-numeric-column selection can hand back a genuine zero-copy,
     READ-ONLY view onto the DataFrame's Arrow buffer (verified empirically: ``df.select([one_col]).to_numpy()``
     is non-writeable; multi-column selections always materialise a fresh writable buffer since interleaving
-    columns into one 2-D array cannot be zero-copy) -- mutating that in place would corrupt the caller's
+    columns into one 2-D array cannot be zero-copy) - mutating that in place would corrupt the caller's
     live data. Falls back to the legacy allocating ``np.where`` fill in that case.
     """
     _mask = nan_mask if nan_mask is not None else np.isnan(arr)
@@ -260,7 +266,7 @@ def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero", nan_mask:
         # discretize edges (the column will be all-NaN-bin anyway).
         col_medians = np.where(np.isnan(col_medians), 0.0, col_medians)
         if arr.flags.writeable:
-            # In-place broadcast-fill at the NaN positions -- avoids the full-size np.where allocation
+            # In-place broadcast-fill at the NaN positions - avoids the full-size np.where allocation
             # (a third pass over ``arr`` on top of the ``_mask`` computation and the nanmedian scan).
             arr[_mask] = np.broadcast_to(col_medians, arr.shape)[_mask]
             return arr
@@ -276,7 +282,7 @@ def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero", nan_mask:
 
 
 def _maybe_collect_lazy(df):
-    """If ``df`` is a polars LazyFrame, materialise it; other inputs pass through. ``.collect_streaming()`` is intentionally not used -- if the caller wanted
+    """If ``df`` is a polars LazyFrame, materialise it; other inputs pass through. ``.collect_streaming()`` is intentionally not used - if the caller wanted
     streaming, they should pass ``MRMR`` a frame that fits in memory."""
     try:
         import polars as pl
@@ -308,13 +314,13 @@ def categorize_1d_array(
     ``strategy`` removal note below for the sibling 'uniform'/'kmeans' cleanup); kept in the signature only
     for back-compat with external callers passing it positionally or as a keyword.
 
-    Wave 50 (2026-05-20): ``nan_filler=0.0`` default mixes NaN rows with real-0 rows
+    ``nan_filler=0.0`` default mixes NaN rows with real-0 rows
     into bin-0, biasing MI estimation. New callers should pass ``nan_filler=None``
     to raise honestly on NaN input, or use a sentinel that cannot collide with real
     data (``np.nan_to_num(vals, nan=vals.min()-1)`` upstream). Default kept as 0.0
-    for back-compat -- a WARN is emitted when NaNs are actually filled.
+    for back-compat - a WARN is emitted when NaNs are actually filled.
     """
-    # 2026-05-28: drop sklearn OrdinalEncoder; the legacy code path created a
+    # Drop sklearn OrdinalEncoder; the legacy code path created a
     # NEW estimator on every call (and never reused it), so the only contract
     # consumed was fit_transform's ordinal-encoding behaviour. The native
     # ``_native_ordinal_encode_2d`` shim above gives identical output bit-for-bit
@@ -323,7 +329,7 @@ def categorize_1d_array(
         vals = vals.astype(np.int8)
 
     if pd.isna(vals).any():
-        # Wave 50: surface the legacy bias when it actually fires.
+        # Surface the legacy bias when it actually fires.
         if nan_filler is None:
             raise ValueError("categorize_1d_array: input contains NaN and nan_filler=None; " "drop NaN upstream or pick a non-colliding sentinel.")
         import warnings as _w
@@ -353,7 +359,7 @@ def categorize_1d_array(
             if bins is None:
                 raise ValueError("categorize_1d_array: method='discretizer' requires method_kwargs['n_bins'].")
             if nuniques > bins:
-                # 2026-05-28: native pure-numpy quantile binning (replaces sklearn KBinsDiscretizer).
+                # Native pure-numpy quantile binning (replaces sklearn KBinsDiscretizer).
                 # Bit-for-bit identical output (np.nanpercentile + np.searchsorted) at ~12x lower wall-clock.
                 _strategy = method_kwargs.get("strategy", "quantile")
                 if _strategy != "quantile":
@@ -370,7 +376,7 @@ def categorize_1d_array(
             if method == "numpy":
                 bin_edges = np.histogram_bin_edges(vals, bins=bins if bins is not None else "auto")
             elif method == "astropy":
-                # 2026-05-28: astropy removed from the install graph. The legacy 'astropy'
+                # Astropy removed from the install graph. The legacy 'astropy'
                 # method used Bayesian-blocks / Knuth-rule binning; both have native numba
                 # implementations elsewhere in the project (see filters/supervised_binning.py).
                 # Until callers migrate, downgrade to numpy's histogram_bin_edges with bin
@@ -383,7 +389,7 @@ def categorize_1d_array(
                     _bins_for_numpy,
                 )
             else:
-                # Wave 55 (2026-05-20): pre-fix, an unknown method (typo / "quantile" / "kmeans")
+                # pre-fix, an unknown method (typo / "quantile" / "kmeans")
                 # left bin_edges undefined and the next line raised UnboundLocalError. Raise
                 # honestly with the offender so callers see a typed contract failure.
                 raise ValueError(f"categorize_1d_array: unknown method={method!r}; expected one of " "'discretizer', 'numpy', 'astropy'.")
@@ -395,7 +401,7 @@ def categorize_1d_array(
     else:
         new_vals = _native_ordinal_encode_2d(vals)
 
-    # Wave 40 (2026-05-20): auto-promote dtype to avoid silent wraparound on
+    # auto-promote dtype to avoid silent wraparound on
     # high-cardinality columns; matches categorize_dataset's promotion ladder.
     out = new_vals.ravel()
     out_max = int(out.max()) if out.size else 0
@@ -450,8 +456,8 @@ def quantize_dig(arr, bins):
 
 @njit(cache=True)
 def quantize_search(arr, bins):
-    """Bin-code assignment via ``np.searchsorted`` on the interior bin edges -- faster than ``quantize_dig``
-    for sorted, dense inputs. NOT bit-equivalent on-edge (DISCRETIZATION-7 fix):
+    """Bin-code assignment via ``np.searchsorted`` on the interior bin edges - faster than ``quantize_dig``
+    for sorted, dense inputs. NOT bit-equivalent on-edge:
     ``digitize(..., right=True)`` and ``searchsorted(..., side="right")`` disagree at an exact edge value
     (digitize's right=True excludes the left boundary of each bin; searchsorted's side="right" includes it),
     so a value sitting exactly on a bin edge can land in a different bin between the two. This is the
@@ -462,7 +468,7 @@ def quantize_search(arr, bins):
 @njit(cache=True)
 def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: Optional[float] = None, max_value: Optional[float] = None, dtype: type = np.int8) -> np.ndarray:
     """Equal-width binning of ``arr`` into ``n_bins`` over ``[min_value, max_value]`` (or the array's own range when unset)."""
-    # 2026-05-30 Wave 9.1 fix (loop iter 33): the divisor was
+    # The divisor was
     # ``(max - min + min/2)`` instead of the canonical ``(max - min)``.
     # That formula silently miscoded any positive-shifted input -
     # ``linspace(1000, 1100)`` into 10 bins collapsed to just bins
@@ -501,10 +507,10 @@ def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: Optional[float] 
             continue
         # Affine map then clip in the float domain BEFORE the (possibly narrow) cast: casting
         # first lets codes > dtype-max wrap negative (int8 modulo), and a later clip then maps
-        # those wrapped negatives to bin 0 -- silently collapsing the high-value region.
+        # those wrapped negatives to bin 0 - silently collapsing the high-value region.
         # A denormal-tiny range makes rev_bin_width overflow to inf, so (v-min)*inf is NaN at v==min
         # (0*inf). NaN passes both ``< 0`` and ``> hi`` (comparisons are False on NaN) and would cast to a
-        # garbage code -- route it to bin 0 (the value sits at the column floor) alongside the negatives.
+        # garbage code - route it to bin 0 (the value sits at the column floor) alongside the negatives.
         c = (v - min_value) * rev_bin_width
         if c != c or c < 0:
             c = 0.0
@@ -526,7 +532,7 @@ def discretize_uniform_parallel(arr: np.ndarray, n_bins: int, min_value: float, 
     """
     n = arr.shape[0]
     out: np.ndarray = np.empty(n, dtype=dtype)
-    # Dedicated NaN bin (n_bins, one past the top real code) -- mirrors discretize_uniform so NaN rows
+    # Dedicated NaN bin (n_bins, one past the top real code) - mirrors discretize_uniform so NaN rows
     # do not collide with real bin 0 and never hit the NaN-producing affine map + cast.
     nan_code = n_bins
     rng = max_value - min_value
@@ -564,11 +570,11 @@ def discretize_array(
 
     Single-column path uses raw numpy instead of dispatching to the ``@njit`` ``_discretize_array_impl``. Microbench at n=10000: njit ``np.percentile`` ~870us
     vs direct ``np.percentile`` ~405us (numba is ~2x slower than numpy at this size for percentile work). The FE pipeline calls this 6000+ times per fit on
-    n=10000, p=200 -- the un-njit path saves ~3s. Multi-column ``discretize_2d_array`` keeps the njit chain because it parallelises columns via ``prange``.
+    n=10000, p=200 - the un-njit path saves ~3s. Multi-column ``discretize_2d_array`` keeps the njit chain because it parallelises columns via ``prange``.
     """
     if method not in ("uniform", "quantile"):
         raise ValueError(f"Unsupported discretization method: '{method}'. Supported methods: 'uniform', 'quantile'")
-    dtype = _safe_code_dtype(n_bins, dtype)  # widen so n_bins>128 codes don't wrap negative
+    dtype = _safe_code_dtype(n_bins, dtype, reserve_nan_slot=(method == "uniform"))  # widen so n_bins>128 codes don't wrap negative
     arr = np.asarray(arr)
     if arr.size == 0:
         # Empty input: the uniform sibling already returns an empty array; the
@@ -585,14 +591,14 @@ def discretize_array(
                 min_value, max_value = arrayMinMax(arr)
             return np.asarray(discretize_uniform_parallel(arr, n_bins, float(min_value), float(max_value), dtype=dtype))
         return np.asarray(discretize_uniform(arr=arr, n_bins=n_bins, min_value=min_value, max_value=max_value, dtype=dtype))
-    # quantile path -- raw numpy.
+    # quantile path - raw numpy.
     # Wave 21 P0: nanpercentile so NaN-bearing columns don't collapse to a
     # constant via the all-NaN bin_edges trap. Same finding as the ``edges``
     # helper above.
     quantiles = np.linspace(0, 100, n_bins + 1)
     # bench-attempt-rejected (2026-06-14): routing the NaN-free 1-D case to np.percentile (skipping
     # nanpercentile's nan-mask) to mirror the 2-D batch win. Microbench at n=100k float32 x 2000 calls:
-    # 9.74s vs 9.68s nanpercentile -- a WASH (the O(n) np.isfinite(arr).all() guard offsets the saved
+    # 9.74s vs 9.68s nanpercentile - a WASH (the O(n) np.isfinite(arr).all() guard offsets the saved
     # nan-mask on the 1-D path; the 2-D win came from amortising dispatch over many columns, absent here).
     # Kept nanpercentile: equal speed, simpler, and NaN-correct without a guard.
     #
@@ -631,25 +637,25 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: typ
 
     Why this is bit-identical to calling ``discretize_array(method='quantile')`` column-by-column (the
     FE-pair-search hot path):
-      * Quantile grid: ``np.linspace(0, 100, n_bins+1)`` -- the identical grid the 1-D path uses.
+      * Quantile grid: ``np.linspace(0, 100, n_bins+1)`` - the identical grid the 1-D path uses.
       * Edges: ``np.percentile(arr2d, q, axis=0)`` partitions EACH COLUMN independently with the SAME
         linear-interpolation estimator as the 1-D path, so ``edges[:, j]`` equals the 1-D edge vector exactly.
         The 1-D path uses ``np.nanpercentile``; on a column WITHOUT NaN ``np.percentile == np.nanpercentile``
         bit-for-bit (verified across random + tie-heavy + constant-column frames). The FE caller always passes
         a post-``nan_to_num`` (NaN/inf-free) buffer, so the fast ``np.percentile`` path is exact there. If ANY
         NaN is present we fall back to ``np.nanpercentile(axis=0)`` (still bit-identical to the per-column 1-D
-        ``nanpercentile``, just slower) -- so the helper stays correct for any caller.
+        ``nanpercentile``, just slower) - so the helper stays correct for any caller.
       * Codes: ``np.searchsorted(edges[1:-1, j], arr2d[:, j], side='right')`` is the identical call the 1-D path
         makes; only the edges argument is sliced out of the 2-D edge matrix (same float64 values).
-      * dtype: NO cast is applied to ``arr2d`` -- it is consumed at its native dtype (the FE buffer is float32).
+      * dtype: NO cast is applied to ``arr2d`` - it is consumed at its native dtype (the FE buffer is float32).
         ``np.percentile``/``np.nanpercentile`` upcast internally to float64 for a float32 input regardless of
         1-D vs 2-D, so the float64 edges match; ``searchsorted(float64_edges, float32_col)`` is value-identical.
 
-    Performance note (2026-06-04): ``np.nanpercentile(axis=0)`` routes through ``apply_along_axis`` (a
-    Python-level per-column loop) and gives NO dispatch amortisation -- it is as slow as (or slower than) the
+    Performance note: ``np.nanpercentile(axis=0)`` routes through ``apply_along_axis`` (a
+    Python-level per-column loop) and gives NO dispatch amortisation - it is as slow as (or slower than) the
     per-column loop. ``np.percentile(axis=0)`` uses the fully vectorised C partition path (no per-column python
     loop) and is ~3-13x faster on the FE buffer shapes (e.g. n=400 x 300 cols: 3.8ms vs 48ms loop). That fast
-    vectorised partition -- only legal because the FE buffer is NaN-free -- is the actual win; the NaN guard keeps
+    vectorised partition - only legal because the FE buffer is NaN-free - is the actual win; the NaN guard keeps
     it bit-identical for the general case. ``searchsorted`` stays per-column (each column's sliced edge vector
     differs); that loop is cheap relative to the eliminated per-column ``percentile`` + ``linspace`` dispatch.
     """
@@ -663,20 +669,20 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: typ
     # current cache-friendly column-strided binary search. Isolated bench on scene FE buffer
     # shapes (parallel kernels): 300 cols/f32 1.27x (only win, tiny K), 300/f64 0.78x,
     # 1000 cols 0.49x, 4000 cols 0.04x (28x REGRESSION at the K=4000-8000 the FE buffer
-    # actually uses -- the scatter blows the LLC). The existing 2-pass (parallel edges-sort
+    # actually uses - the scatter blows the LLC). The existing 2-pass (parallel edges-sort
     # + parallel searchsorted, the latter only 26-34% of full) is already optimal; do not
     # re-attempt argsort-fusion. (proto D:/Temp/q1_fused_proto.py)
     # Fast path: NaN-free buffer -> ``_quantile_edges_2d_njit`` (sort each column ONCE,
     # read all quantiles) is BIT-IDENTICAL to ``np.percentile(axis=0, method='linear')``
     # (verified across float32/64, ties, constant columns) and removes the numpy
-    # ``ndarray.partition`` hotspot -- the FE sweep's single dominant numpy cost
+    # ``ndarray.partition`` hotspot - the FE sweep's single dominant numpy cost
     # (scene 1500x299 cProfile: 114.5s / 20% of fit in ``partition``, re-partitioning the
     # whole buffer once per quantile). NaN path keeps ``np.nanpercentile`` (the njit kernel
     # does not NaN-handle; callers that pass NaN are rare and stay correct + bit-identical).
     # ``assume_finite``: the caller already scrubbed NaN/inf out of ``arr2d`` (e.g. the FE-chunk
     # path does ``np.nan_to_num(buf, copy=False)`` on the line immediately before this call), so the
-    # per-call ``np.isnan(arr2d).any()`` scan -- a full O(n_rows*n_cols) pass plus a full bool-array
-    # allocation, run on every one of 1000+ discretise calls in a wide FE sweep -- is pure wasted work
+    # per-call ``np.isnan(arr2d).any()`` scan - a full O(n_rows*n_cols) pass plus a full bool-array
+    # allocation, run on every one of 1000+ discretise calls in a wide FE sweep - is pure wasted work
     # whose result is always False. Skipping it goes straight to the fast ``_quantile_edges_2d_njit``
     # branch; BIT-IDENTICAL by construction on a NaN-free buffer (the scan would pick exactly that branch).
     # Leave the default False so any caller that has NOT scrubbed keeps the safe NaN-aware path.
@@ -705,11 +711,11 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: typ
     # ``arr2d`` is passed at its NATIVE dtype (do NOT upcast to float64): the FE buffer is
     # float32 and full-width (n_rows x n_cols, often >1e8 cells on a wide pool), so a
     # ``np.ascontiguousarray(arr2d, dtype=np.float64)`` would DOUBLE it into a multi-GB
-    # float64 copy and OOM -- the regression that crashed MRMR.fit on the wide canonical
+    # float64 copy and OOM - the regression that crashed MRMR.fit on the wide canonical
     # fixture (20000 x ~19000 cols -> 2.9 GiB float64 alloc). The kernel's per-element
     # ``arr2d[r,j] < edges_inner[mid,j]`` promotes a float32 value to float64 against the
     # float64 edge in numba, EXACTLY matching numpy's ``searchsorted(float64_edges,
-    # float32_col)`` (which finds the float64 common dtype and compares there) -- so the
+    # float32_col)`` (which finds the float64 common dtype and compares there) - so the
     # codes are byte-identical to both the float64-copy path and the per-column 1-D path.
     # ``np.ascontiguousarray(arr2d)`` (no dtype) is a no-op view when arr2d is already
     # C-contiguous (the common FE case incl. column-slices ``buf[:, :k]``); a genuinely
@@ -726,10 +732,10 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: typ
     if n_cols > 0 and n_rows > 0:
         edges_inner = np.ascontiguousarray(edges[1:-1], dtype=np.float64)
         arr_c = np.ascontiguousarray(arr2d)
-        # OPT-A (2026-06-07): on the SERIAL-MAIN-THREAD FE path the searchsorted kernel
+        # OPT-A: on the SERIAL-MAIN-THREAD FE path the searchsorted kernel
         # runs single-threaded on one core while the rest sit idle (the serial kernel is
         # ``nogil`` not ``parallel`` to avoid deadlocking the joblib threading layer on the
-        # >=50000-row path -- but that path is NOT active here). ``parallel=True`` selects the
+        # >=50000-row path - but that path is NOT active here). ``parallel=True`` selects the
         # byte-identical column-prange twin so the per-column binary searches spread across
         # cores. The caller (check_prospective_fe_pairs) passes ``parallel=True`` ONLY when it
         # knows it is on the main-thread/no-joblib branch (threaded down from _mrmr_fe_step's
@@ -789,13 +795,13 @@ def _discretize_2d_array_njit(
 # CUDA path is ~5x faster than warm CPU prange; below 100_000 cells CPU wins.
 _DISCRETIZE_2D_CUDA_MIN_CELLS = 500_000
 # Spans the ~500k crossover; capped at 2M (the catch-all extrapolates beyond) to
-# keep the one-time cold-start sweep cheap -- discretize is a hot dispatch.
+# keep the one-time cold-start sweep cheap - discretize is a hot dispatch.
 _DISCRETIZE_SWEEP_CELLS = [50_000, 200_000, 500_000, 2_000_000]
 _DISCRETIZE_SALT = 1
 
 
 def _make_discretize_inputs(dims: dict):
-    """A 2-D float64 frame of ~``n_cells`` cells (fixed 8 columns) -- the operand
+    """A 2-D float64 frame of ~``n_cells`` cells (fixed 8 columns) - the operand
     discretize_2d_array bins per column."""
     rng = np.random.default_rng(0)
     cols = 8
@@ -850,14 +856,14 @@ def discretize_2d_array(
 
     Dispatcher that picks the fastest backend per call:
 
-    * **CUDA / CuPy** (``discretize_2d_array_cuda``) -- wins at ``n_rows *
+    * **CUDA / CuPy** (``discretize_2d_array_cuda``) - wins at ``n_rows *
       n_cols >= 500_000`` when CUDA is available AND ``method="quantile"``
       AND ``min_values is None`` AND ``max_values is None`` (the GPU path
       computes its own per-column percentiles via ``cp.percentile``).
-    * **CPU prange** (``_discretize_2d_array_njit``) -- the fallback;
+    * **CPU prange** (``_discretize_2d_array_njit``) - the fallback;
       always available, optimal at small frames.
 
-    Use ``prefer_gpu=False`` to force the CPU prange path -- the tests
+    Use ``prefer_gpu=False`` to force the CPU prange path - the tests
     that compare GPU-vs-CPU walls rely on this knob (mirrors the
     ``mi_direct(..., prefer_gpu=False)`` API added in commit 7319f11).
 
@@ -865,14 +871,14 @@ def discretize_2d_array(
     routes to the fastest backend by default; manual backend selection
     is only for tests + benches.
     """
-    dtype = _safe_code_dtype(n_bins, dtype)  # widen so n_bins>128 codes don't wrap negative
+    dtype = _safe_code_dtype(n_bins, dtype, reserve_nan_slot=(method == "uniform"))  # widen so n_bins>128 codes don't wrap negative
     # CUDA-eligibility: per-host backend_choice (cpu/cuda) from the kernel tuning
     # cache via get_or_tune (the hand-tuned 500k breakeven is the fallback), so the
     # dispatcher adapts to faster GPUs without code edits. _discretize_backend_choice
     # uses the module-singleton cache + is lru_cached, so it does NOT re-trigger
     # _build_provenance (nvidia-smi ~48ms) per call.
     #
-    # 2026-05-28: uniform method gained a CUDA path (single-pass vectorised
+    # Uniform method gained a CUDA path (single-pass vectorised
     # arithmetic + RawKernel searchsorted). Both methods route to GPU when
     # min_values/max_values are absent (the CUDA uniform path computes col_min/max).
     if (
@@ -886,13 +892,13 @@ def discretize_2d_array(
         try:
             from pyutilz.core.pythonlib import is_cuda_available
             if is_cuda_available():
-                # VRAM guard (2026-07-10): ``discretize_2d_array_cuda`` H2D-uploads the WHOLE ``arr``
+                # VRAM guard: ``discretize_2d_array_cuda`` H2D-uploads the WHOLE ``arr``
                 # unconditionally (``d_arr = cp.asarray(arr)``), then ``cp.percentile`` needs a
-                # comparably-sized internal sort/partition scratch buffer on top -- at production scale
+                # comparably-sized internal sort/partition scratch buffer on top - at production scale
                 # (millions of rows) this can consume a small card's entire VRAM. On Windows/WDDM an
                 # oversized upload can transparently over-subscribe device memory via host-paging instead
                 # of raising a catchable CUDA OOM, so the kernel then grinds through PCIe-paged memory for
-                # minutes before the OS silently kills the process -- the try/except below never fires
+                # minutes before the OS silently kills the process - the try/except below never fires
                 # because there is no exception to catch. Reject BEFORE attempting the upload, mirroring
                 # every other GPU-FE dispatch site's ``_fe_gpu_vram.fe_gpu_has_vram_cushion`` guard.
                 _bytes_needed = arr.nbytes * 2 + (arr.shape[0] * arr.shape[1] * np.dtype(dtype).itemsize)
@@ -911,8 +917,8 @@ def discretize_2d_array(
                 except Exception as exc:
                     logger.debug("discretize_2d_array: VRAM cushion probe failed (%s); permissive", exc)
                 if not _vram_ok:
-                    # Never silent (explicit user feedback): log the full sizing context -- requested GB,
-                    # shape/dtype, and free/total VRAM -- so a production run is diagnosable from the log
+                    # Never silent (explicit user feedback): log the full sizing context - requested GB,
+                    # shape/dtype, and free/total VRAM - so a production run is diagnosable from the log
                     # alone, not just "GPU skipped" with no numbers.
                     logger.warning(
                         "discretize_2d_array: GPU upload REJECTED -- requested %.2fGB upload+scratch "
@@ -924,7 +930,7 @@ def discretize_2d_array(
                     )
                     try:
                         # Thread the ALREADY-PROBED free-VRAM value through (memGetInfo is a read-only counter
-                        # query -- no GPU state changes between the probe above and here) so the row-chunked
+                        # query - no GPU state changes between the probe above and here) so the row-chunked
                         # fallback's OWN internal memGetInfo call is skipped: this reject-path used to call it
                         # 3x total (this probe, the cushion check's internal probe, and the row-chunked one)
                         # for one decision. ``None`` (probe failed above) keeps the row-chunked function's own
@@ -975,7 +981,7 @@ def discretize_2d_array_cuda(
 
     Returns:
         ``np.ndarray`` of shape ``arr.shape`` with the requested ``dtype``.
-        ``copy_to_host`` happens at the end -- callers see plain numpy.
+        ``copy_to_host`` happens at the end - callers see plain numpy.
 
     Raises:
         RuntimeError: if CuPy is not installed or CUDA is not available.
@@ -1010,13 +1016,13 @@ def discretize_2d_array_cuda(
     if n_rows == 0 or n_cols == 0:
         return np.empty(arr.shape, dtype=dtype)
 
-    # Widen the code dtype to hold ordinal codes 0..n_bins-1 BEFORE allocating the device output -- mirrors
+    # Widen the code dtype to hold ordinal codes 0..n_bins-1 BEFORE allocating the device output - mirrors
     # the CPU discretize_2d_array (_safe_code_dtype). Without this an int8 request at n_bins>128 wrapped the
     # top bins negative on the GPU (codes 128..n_bins-1 -> negative) while the CPU path widened to int16,
     # a silent cross-backend divergence on the public API. (Verified: NaN routing already matches CPU.)
-    dtype = _safe_code_dtype(n_bins, dtype)
+    dtype = _safe_code_dtype(n_bins, dtype, reserve_nan_slot=(method == "uniform"))
     d_arr = cp.asarray(arr)  # H2D once for the whole frame
-    # No throwaway GPU allocation just to read a dtype object -- ``np.dtype(dtype)`` produces the identical
+    # No throwaway GPU allocation just to read a dtype object - ``np.dtype(dtype)`` produces the identical
     # ``numpy.dtype`` instance cupy's own ``.dtype`` attribute would (cupy dtypes ARE numpy dtypes), so the
     # 1-element ``cp.asarray``/upload this used to pay per call is pure overhead with no different result.
     _out_cp_dtype = cp.int8 if dtype == np.int8 else np.dtype(dtype)
@@ -1025,12 +1031,12 @@ def discretize_2d_array_cuda(
     if method == "quantile":
         qs = cp.linspace(0.0, 100.0, n_bins + 1)
         # cp.percentile has no nanpercentile twin (unlike numpy), and a plain
-        # cp.percentile over a NaN-bearing column poisons EVERY edge for that column with NaN -- searchsorted
+        # cp.percentile over a NaN-bearing column poisons EVERY edge for that column with NaN - searchsorted
         # against an all-NaN edges row then silently collapses the WHOLE column's real values (not just the
         # NaN rows) to a single bin, the exact bug the CPU path's edges()/get_binning_edges() were already
-        # fixed for (Wave 21 P0). cupy has no NaN-aware percentile kernel to vectorise this with, so route the
+        # fixed for. cupy has no NaN-aware percentile kernel to vectorise this with, so route the
         # rare NaN-bearing case through numpy's nanpercentile on the host array already available in ``arr``
-        # (this function's caller has it; ``d_arr`` is just its device upload) -- the common NaN-free case
+        # (this function's caller has it; ``d_arr`` is just its device upload) - the common NaN-free case
         # keeps the fully vectorised cp.percentile fast path unchanged.
         if bool(cp.isnan(d_arr).any()):
             bin_edges = cp.asarray(np.nanpercentile(arr, cp.asnumpy(qs), axis=0))
@@ -1062,7 +1068,7 @@ def discretize_2d_array_cuda(
         # cp.nanmin/cp.nanmax exist (unlike cp.nanpercentile above) so this branch stays fully on-device.
         col_min = cp.nanmin(d_arr, axis=0, keepdims=True)
         col_max = cp.nanmax(d_arr, axis=0, keepdims=True)
-        # 2026-05-30 Wave 9.1 fix (loop iter 33): mirrors the CPU
+        # Mirrors the CPU
         # ``discretize_uniform`` fix - canonical formula
         # ``rev_bin_width = n_bins / (max - min)`` with constant-column
         # zero fallback. The pre-fix formula
@@ -1084,7 +1090,7 @@ def discretize_2d_array_cuda(
         # already fixed above) still produces NaN through the affine map; cp.clip is a no-op on NaN (like
         # numpy), so without this it would cast to an undefined/garbage int code. The CPU discretize_uniform
         # kernel routes NaN rows to a dedicated code one past the real range (``nan_code = n_bins``) instead
-        # of colliding with a real bin -- mirror that here so NaN rows carry the same, correct, honest code
+        # of colliding with a real bin - mirror that here so NaN rows carry the same, correct, honest code
         # on both backends rather than a silent garbage cast.
         out_f = cp.where(cp.isnan(d_arr), float(n_bins), out_f)
         out = out_f.astype(_out_cp_dtype)
@@ -1093,13 +1099,17 @@ def discretize_2d_array_cuda(
     return np.asarray(cp.asnumpy(out).astype(dtype, copy=False))
 
 
-def _choose_discretize_row_chunk_rows(n_cols: int, in_itemsize: int, free_bytes: int) -> int:
+def _choose_discretize_row_chunk_rows(n_cols: int, in_itemsize: int, free_bytes: int, out_itemsize: int = 2) -> int:
     """Rows of ``arr`` (``n_cols`` columns, ``in_itemsize`` bytes/element) that fit a single row-chunk
     upload within a safe VRAM budget (40% of free VRAM, leaving headroom for the output chunk + any
     quantile-edge/reduction scratch). Clamped to >=10_000 rows (a tiny chunk would need an excessive
-    number of launches) and to 20M as a sane ceiling."""
+    number of launches) and to 20M as a sane ceiling.
+
+    ``out_itemsize`` is the widened output code dtype's byte width (``_safe_code_dtype``): a high ``n_bins``
+    widens codes to int32/int64, so the fixed ``+2`` margin understated the per-row output cost and could
+    pick a chunk ~2x too large. Default 2 preserves the historical margin for callers that don't pass it."""
     budget = max(0, int(free_bytes * 0.4))
-    per_row_bytes = max(1, n_cols * (in_itemsize + 2))  # input row + a small output/scratch margin
+    per_row_bytes = max(1, n_cols * (in_itemsize + out_itemsize))  # input row + one output row of the real code width
     rows = budget // per_row_bytes
     return int(np.clip(rows, 10_000, 20_000_000))
 
@@ -1118,12 +1128,12 @@ def discretize_2d_array_cuda_row_chunked(
 
     * ``method="uniform"``: EXACT, no approximation. Column min/max are genuinely reducible across row-
       chunks (running min/max, pass 1), then the elementwise bin formula is applied per row-chunk (pass 2)
-      using the exact global min/max -- bit-identical to :func:`discretize_2d_array_cuda`.
+      using the exact global min/max - bit-identical to :func:`discretize_2d_array_cuda`.
     * ``method="quantile"``: APPROXIMATE by construction. Exact quantiles need the full column's order
       statistics, which is NOT reducible across row-chunks without a streaming quantile algorithm. Instead,
       bin edges are computed from a GPU-resident random SUBSAMPLE (``quantile_subsample_rows``, default
       ``None`` -> ``feature_engineering.UNIFIED_FE_SUBSAMPLE_N`` = 30_000, the SAME validated MI-sweep
-      subsample size used throughout MRMR's FE pipeline -- jaccard=1.0 vs full-n at 50k+, 0.88 at 5k, per
+      subsample size used throughout MRMR's FE pipeline - jaccard=1.0 vs full-n at 50k+, 0.88 at 5k, per
       the bench backing that constant. Quantile-edge estimation has far lower sampling variance than the
       MI estimation that constant was validated for, so 30k is comfortably sufficient here too) then
       applied via row-chunked ``searchsorted`` (exact application of approximate edges). This matches the
@@ -1137,9 +1147,9 @@ def discretize_2d_array_cuda_row_chunked(
     ``free_bytes``: an optional already-probed free-VRAM byte count (``cp.cuda.runtime.memGetInfo()``'s
     first element). When the caller (``discretize_2d_array``'s CUDA-eligibility gate) already probed
     free VRAM microseconds earlier for its own reject decision, passing it here skips this function's
-    own redundant ``memGetInfo`` call -- ``memGetInfo`` is a read-only device counter query with no
+    own redundant ``memGetInfo`` call - ``memGetInfo`` is a read-only device counter query with no
     intervening GPU allocation between the two probes, so reusing the value changes no decision.
-    ``None`` (the default -- direct/standalone calls) keeps the self-probe unchanged.
+    ``None`` (the default - direct/standalone calls) keeps the self-probe unchanged.
     """
     import cupy as cp
 
@@ -1157,8 +1167,8 @@ def discretize_2d_array_cuda_row_chunked(
     if n_rows == 0 or n_cols == 0:
         return np.empty(arr.shape, dtype=dtype)
 
-    dtype = _safe_code_dtype(n_bins, dtype)
-    # No throwaway GPU allocation just to read a dtype object -- ``np.dtype(dtype)`` produces the identical
+    dtype = _safe_code_dtype(n_bins, dtype, reserve_nan_slot=(method == "uniform"))
+    # No throwaway GPU allocation just to read a dtype object - ``np.dtype(dtype)`` produces the identical
     # ``numpy.dtype`` instance cupy's own ``.dtype`` attribute would (cupy dtypes ARE numpy dtypes), so the
     # 1-element ``cp.asarray``/upload this used to pay per call is pure overhead with no different result.
     _out_cp_dtype = cp.int8 if dtype == np.int8 else np.dtype(dtype)
@@ -1170,7 +1180,7 @@ def discretize_2d_array_cuda_row_chunked(
             free_b, _total_b = cp.cuda.runtime.memGetInfo()
         except Exception:
             free_b = 512 * 1024 * 1024  # conservative fallback if the probe is unavailable
-    row_chunk_rows = _choose_discretize_row_chunk_rows(n_cols, arr.dtype.itemsize, free_b)
+    row_chunk_rows = _choose_discretize_row_chunk_rows(n_cols, arr.dtype.itemsize, free_b, out_itemsize=np.dtype(_out_cp_dtype).itemsize)
     _quantile_subsample_note = f", quantile_subsample_rows={min(n_rows, quantile_subsample_rows)}/{n_rows}" if method == "quantile" else ""
     logger.info(
         "discretize_2d_array_cuda_row_chunked: method=%s n_rows=%d n_cols=%d in_dtype=%s -> row_chunk_rows=%d "
@@ -1185,8 +1195,8 @@ def discretize_2d_array_cuda_row_chunked(
     if method == "uniform":
         col_min_d: Any = None
         col_max_d: Any = None
-        # DISCRETIZATION-1 fix: mirrors the B-12 fix already landed on the
-        # non-chunked sibling discretize_2d_array_cuda -- plain cp.min/cp.max propagate NaN (a single NaN
+        # Mirrors the B-12 fix already landed on the
+        # non-chunked sibling discretize_2d_array_cuda - plain cp.min/cp.max propagate NaN (a single NaN
         # anywhere in a column poisons that column's min/max to NaN), so use cp.nanmin/cp.nanmax instead.
         for row_start in range(0, n_rows, row_chunk_rows):
             row_end = min(row_start + row_chunk_rows, n_rows)
@@ -1205,9 +1215,9 @@ def discretize_2d_array_cuda_row_chunked(
             out_f = (d_chunk - col_min_d) * rev
             out_f = cp.where(_rng > 0, out_f, 0.0)
             out_f = cp.clip(out_f, 0, n_bins - 1)
-            # DISCRETIZATION-1 fix: route individual NaN VALUES to the dedicated
+            # Route individual NaN VALUES to the dedicated
             # NaN bin code (n_bins), matching the CPU discretize_uniform kernel and the fixed non-chunked
-            # sibling -- without this, cp.clip is a no-op on NaN and it would cast to a garbage int code.
+            # sibling - without this, cp.clip is a no-op on NaN and it would cast to a garbage int code.
             out_f = cp.where(cp.isnan(d_chunk), float(n_bins), out_f)
             out[row_start:row_end] = cp.asnumpy(out_f.astype(_out_cp_dtype))
             del d_chunk, out_f
@@ -1221,7 +1231,7 @@ def discretize_2d_array_cuda_row_chunked(
             sub_arr = arr
         d_sub = cp.asarray(sub_arr)
         qs = cp.linspace(0.0, 100.0, n_bins + 1)
-        # DISCRETIZATION-1 fix: mirrors the B-12 fix on the non-chunked sibling --
+        # Mirrors the B-12 fix on the non-chunked sibling -
         # cp.percentile has no nanpercentile twin, and a plain cp.percentile over a NaN-bearing subsample
         # poisons EVERY edge for that column with NaN, collapsing the whole column to one degenerate bin.
         if bool(cp.isnan(d_sub).any()):
@@ -1230,7 +1240,7 @@ def discretize_2d_array_cuda_row_chunked(
             bin_edges = cp.percentile(d_sub, qs, axis=0)
         del d_sub
         # Cut points are derived from ``bin_edges`` ONCE here (fit-constant across every row-chunk below)
-        # instead of being re-transposed inside ``_discretize_quantile_rawkernel`` on every chunk call --
+        # instead of being re-transposed inside ``_discretize_quantile_rawkernel`` on every chunk call -
         # that re-derivation was an O(n_cols * n_bins) transpose+copy repeated per chunk for identical output.
         cuts = cp.ascontiguousarray(bin_edges[1:-1, :].T) if n_cols >= 1000 else None  # (n_cols, n_bins-1)
         for row_start in range(0, n_rows, row_chunk_rows):
@@ -1285,9 +1295,9 @@ def _get_searchsorted_right_2d_kernel():
     """Build (idempotently) and return the fused per-column searchsorted RawKernel.
 
     Mirrors ``info_theory._cmi_cuda._get_kernel``'s module-level-singleton pattern. ``cp.RawKernel`` used
-    to be rebuilt from CUDA source text on EVERY call to ``_discretize_quantile_rawkernel`` -- which
+    to be rebuilt from CUDA source text on EVERY call to ``_discretize_quantile_rawkernel`` - which
     ``discretize_2d_array_cuda_row_chunked``'s quantile branch calls once per row-chunk (up to 10-50+
-    times per large discretize call) -- so the source was recompiled that many times per fit instead of
+    times per large discretize call) - so the source was recompiled that many times per fit instead of
     once for the whole process lifetime.
     """
     global _searchsorted_right_2d_cuda
@@ -1315,7 +1325,7 @@ def _discretize_quantile_rawkernel(d_arr, cuts, n_bins, out_cp_dtype):
     vs ~70ms for the per-col loop on cc 6.1.
 
     ``cuts`` is the caller's PRE-TRANSPOSED, contiguous ``(n_cols, n_bins-1)`` cut-point matrix (its
-    ``bin_edges[1:-1, :].T``) -- hoisted out of this function because ``bin_edges``/``cuts`` are fit-
+    ``bin_edges[1:-1, :].T``) - hoisted out of this function because ``bin_edges``/``cuts`` are fit-
     constant across every row-chunk of one ``discretize_2d_array_cuda_row_chunked`` call, so re-deriving
     them here on every call re-paid an O(n_cols * n_bins) transpose+copy per chunk for identical output.
     """

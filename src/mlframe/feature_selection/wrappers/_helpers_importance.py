@@ -46,7 +46,7 @@ def _make_fast_default_scorer(model: object) -> Callable:
     """Build a permutation-FI scorer that reproduces ``estimator.score()`` bit-identically but
     skips its redundant per-call target-type validation.
 
-    perf P1 (2026-06-08): ``estimator.score()`` is the permutation-importance hotspot because it
+    Perf P1: ``estimator.score()`` is the permutation-importance hotspot because it
     re-runs sklearn's ``_check_targets`` / ``type_of_target`` validation on the SAME ``_y`` for every
     one of the ``p * n_repeats`` scorer calls per fold. For the standard single-output case the default
     score has a closed form that is bit-identical to ``estimator.score()``:
@@ -63,15 +63,15 @@ def _make_fast_default_scorer(model: object) -> Callable:
       - the closed-form value does not bit-match ``estimator.score()`` on the baseline,
       - any exception in the fast path.
 
-    perf P2 (2026-06-08): the per-call defensive ``np.array(_X, copy=True)`` is only required for
+    Perf P2: the per-call defensive ``np.array(_X, copy=True)`` is only required for
     estimators whose ``predict`` flips the input ndarray's writeable flag to False (CatBoost), which would
     make sklearn's NEXT in-place column shuffle of its reused ``X_permuted`` buffer raise
     "assignment destination is read-only". For every estimator that does NOT flip the flag (sklearn
-    linear / tree / ensemble, LightGBM, XGBoost, ...) the copy is pure waste -- it was ~36k array copies on
+    linear / tree / ensemble, LightGBM, XGBoost, ...) the copy is pure waste - it was ~36k array copies on
     the scene bench. We detect the flip on the baseline call: predict on a copy, then inspect that copy's
     writeable flag. If still writeable the estimator is flag-safe and we latch ``need_copy=False`` (read
     sklearn's ``X_permuted`` directly); if flipped (or the buffer was already read-only) we keep the copy.
-    Either way the values fed to ``predict`` are identical, so the score -- and the selected set -- is
+    Either way the values fed to ``predict`` are identical, so the score - and the selected set - is
     bit-identical.
     """
     from sklearn.base import is_classifier, is_regressor
@@ -81,7 +81,7 @@ def _make_fast_default_scorer(model: object) -> Callable:
 
     # mode:      -1 = baseline pending; 0 = safe (estimator.score); 1 = fast closed-form.
     # need_copy: True = defensive copy each call (writeable-flip / read-only buffer); False = read _X directly.
-    # _ycache:   y-derived invariants keyed by id(_y) -- see _fast_value.
+    # _ycache:   y-derived invariants keyed by id(_y) - see _fast_value.
     state: dict = {"mode": -1, "need_copy": True, "_ycache": None, "_yid": None}
 
     def _y_invariants(_y):
@@ -89,7 +89,7 @@ def _make_fast_default_scorer(model: object) -> Callable:
 
         ``permutation_importance`` permutes only X across its ``p*n_repeats`` scorer calls and feeds the IDENTICAL
         ``_y`` every time. The classifier path then re-ran ``np.asarray(_y)`` and the regressor path re-ran
-        ``_y.astype(float64)`` + ``np.mean(_y)`` + ``ss_tot=sum((y-mean)**2)`` -- all functions of ``_y`` alone --
+        ``_y.astype(float64)`` + ``np.mean(_y)`` + ``ss_tot=sum((y-mean)**2)`` - all functions of ``_y`` alone -
         on every call. Hoisting them behind an ``id(_y)`` cache is bit-identical (same float, same NaN handling)
         and removes ~3x of the regressor-path per-call cost (18.3us -> 6.0us in isolation). The caller holds ``_y``
         alive for the whole permutation loop, so ``id(_y)`` cannot alias a freed object mid-loop.
@@ -191,7 +191,7 @@ def _conditional_permutation_importance(
     decision tree X_{-j} -> X_j, then permutes X_j WITHIN each leaf, which
     preserves P(X_j | X_{-j}) and removes the correlation-induced bias.
 
-    F10 (Wave 3, 2026-05-28): max_depth=None grows the tree until
+    F10: max_depth=None grows the tree until
     min_samples_leaf binds. The pre-fix max_depth=5 cap under-conditioned on
     >5 correlated features and silently degenerated to vanilla permutation
     (Strobl 2008 recommends >=5 samples per leaf, no depth cap).
@@ -242,7 +242,7 @@ def _conditional_permutation_importance(
         """Tighter discrete-vs-continuous detection than ``_is_discrete``: integer dtype is canonical discrete; for
         floats, both low unique-count AND cardinality far below the row count are required, so decile-binned
         continuous columns route to the regressor conditioning tree instead of mis-triggering the classifier."""
-        # F11 (Wave 3, 2026-05-28): tighter discrete detection.
+        # F11: tighter discrete detection.
         # Integer dtype is canonical discrete. For floats, require BOTH (a) low
         # unique count AND (b) cardinality << n_rows. Decile-binned continuous
         # variables (10 unique values across 100k rows) now correctly route to
@@ -296,7 +296,7 @@ def _conditional_permutation_importance(
 
         # F10/F11: pass max_depth + min_samples_leaf. max_depth=None grows the tree
         # until min_samples_leaf binds (recommended by Strobl 2008 on >=5).
-        # F11 (Wave 3, 2026-05-28): _is_discrete heuristic improved to require
+        # F11: _is_discrete heuristic improved to require
         # integer-dtype OR n_unique<=max(5, sqrt(n)) so decile-binned continuous
         # variables don't trigger Classifier mis-detection.
         if _is_discrete_v2(Xj):
@@ -314,7 +314,7 @@ def _conditional_permutation_importance(
             tree.fit(Xnotj, Xj)
             leaves = tree.apply(Xnotj)
         except (ValueError, TypeError, MemoryError, RuntimeError):
-            # E11 (Wave 4, 2026-05-28): widen the except to catch MemoryError
+            # E11: widen the except to catch MemoryError
             # on 1M-row Xnotj and RuntimeError from custom-estimator paths
             # raising AttributeError-like wrapped exceptions. Conditioning
             # fit failed (constant Xj, all-NaN row, etc.); skip.
@@ -410,7 +410,7 @@ def get_feature_importances(
             # Score through a wrapper that hands the estimator a private copy, leaving sklearn's ``X_permuted``
             # writeable. The wrapper preserves the exact default metric (R2 / accuracy) used pre-fix.
             #
-            # perf P1 (2026-06-08): the per-call ``estimator.score()`` re-runs sklearn's full target-type
+            # Perf P1: the per-call ``estimator.score()`` re-runs sklearn's full target-type
             # validation (``_check_targets`` -> ``type_of_target``) on the IDENTICAL ``_y`` every call. On the
             # scene 2407x299 bench that validation is the dominant hotspot: cProfile cumtime ``_check_targets``
             # ~43s + ``type_of_target`` ~23s vs the irreducible ``predict`` matmul ~27s (the permutation FI loop
@@ -423,8 +423,8 @@ def get_feature_importances(
             # that fold, so the selected set stays bit-identical. The defensive ``copy`` is unchanged (keeps the
             # CatBoost / read-only-buffer safety exactly).
             scorer = _make_fast_default_scorer(model)
-            # perf P3 (2026-06-08): the estimator's ``predict`` re-validates the permuted X on every one of
-            # the p*n_repeats scorer calls -- ``check_array`` -> ``_assert_all_finite`` rescans the whole
+            # Perf P3: the estimator's ``predict`` re-validates the permuted X on every one of
+            # the p*n_repeats scorer calls - ``check_array`` -> ``_assert_all_finite`` rescans the whole
             # (test-fold-sized) array for NaN/inf each time even though permutation only RESHUFFLES already-
             # validated finite values within a column. sklearn's own ``assume_finite=True`` config skips that
             # rescan WITHOUT touching any numeric result. We enable it ONLY after verifying the fold's
@@ -452,14 +452,14 @@ def get_feature_importances(
                     n_jobs=1,
                 )
             # Cross-repeat aggregator stays the arithmetic mean: median / 20%-trimmed-mean were benched
-            # (bench_perm_fi_repeat_aggregator.py) and REJECTED -- neither beats the mean on spearman-vs-true-
+            # (bench_perm_fi_repeat_aggregator.py) and REJECTED - neither beats the mean on spearman-vs-true-
             # relevance at the realistic small n_repeats (3, 5); with so few repeats a robust aggregator just
             # discards the averaging that suppresses per-permutation noise. Revisit only at n_repeats >= 15.
             res = pi.importances_mean
         elif importance_getter == "conditional_permutation":
             if target is None:
                 raise ValueError("importance_getter='conditional_permutation' requires target (y_test) " "to score against. Pass target= explicitly.")
-            # F10 (Wave 3, 2026-05-28): cpi_max_depth=None lets the auxiliary tree grow
+            # F10: cpi_max_depth=None lets the auxiliary tree grow
             # until min_samples_leaf constraint kicks in (Strobl 2008 recommendation).
             # random_state forwarded (default 0 preserves legacy behaviour); lets
             # the caller thread a fold-derived seed so CPI shuffles vary per fold
@@ -474,7 +474,7 @@ def get_feature_importances(
         elif importance_getter == "drop_column":
             # Drop-column importance: refit ``model`` on data with each column
             # individually dropped, measure score drop vs full-X baseline.
-            # O(p * full_fit_time) -- infeasible on p>=1000. Useful as a
+            # O(p * full_fit_time) - infeasible on p>=1000. Useful as a
             # ground-truth oracle when benchmarking other importance methods.
             if data is None or target is None:
                 raise ValueError("importance_getter='drop_column' requires data (X) and target (y) at the call site.")
@@ -498,7 +498,7 @@ def get_feature_importances(
             # feature with a SHADOW (shuffled copy) and judge importance vs
             # the max-shadow importance. No external dep; uses the supplied
             # ``model``'s feature_importances_ / coef_ after refitting on
-            # [X, X_shadow]. Pure-Gini variant -- biased on high-cardinality
+            # [X, X_shadow]. Pure-Gini variant - biased on high-cardinality
             # categoricals. Use 'boruta_shap' for the SHAP-based unbiased
             # version when shap is available.
             if data is None or target is None:
@@ -535,7 +535,7 @@ def get_feature_importances(
             # consumer treats it like any FI vector.
             res = _real - _shadow_max
         elif importance_getter == "boruta_shap":
-            # L1 (Wave 5, 2026-05-28): Boruta-SHAP via the optional
+            # L1: Boruta-SHAP via the optional
             # ``BorutaShap`` package. Returns per-feature shadow-relative
             # importance: positive => beats max-shadow at the configured
             # p-value level; zero => indistinguishable from shadow.
@@ -567,7 +567,7 @@ def get_feature_importances(
             except Exception as _exc:
                 raise RuntimeError(f"BorutaShap failed: {_exc}") from _exc
         elif importance_getter == "powershap":
-            # L2 (Wave 5, 2026-05-28): PowerSHAP via optional ``powershap`` pkg.
+            # L2: PowerSHAP via optional ``powershap`` pkg.
             if target is None:
                 raise ValueError("importance_getter='powershap' requires target (y_test).")
             try:
@@ -585,7 +585,7 @@ def get_feature_importances(
             except Exception as _exc:
                 raise RuntimeError(f"PowerSHAP failed: {_exc}") from _exc
         elif importance_getter in ("shap", "shap_oof"):
-            # L4 (Wave 5, 2026-05-28): 'shap_oof' is an explicit alias for
+            # L4: 'shap_oof' is an explicit alias for
             # 'shap'. The standard RFECV fold path fits the model on
             # X_train then calls this with data=X_test (held-out fold),
             # so the resulting mean(|SHAP|) is already an OOF importance.
@@ -670,7 +670,7 @@ def get_feature_importances(
                 else:
                     res = getattr(model, getter_attr)
             if getter_attr == "coef_":
-                # F5 (Wave 3, 2026-05-28): multi-class collapse. 'max' (default)
+                # F5: multi-class collapse. 'max' (default)
                 # uses max(|coef_class|, axis=0) -> a feature important for ANY
                 # class is important. Pre-fix sum(|coef|) over OvR rows mixed
                 # class-specific signals: a single-class discriminator looked
@@ -681,7 +681,7 @@ def get_feature_importances(
                         res = res.max(axis=0)
                     else:
                         res = res.sum(axis=0)
-                # F4 (Wave 3, 2026-05-28): scale correction with TRAIN stds.
+                # F4: scale correction with TRAIN stds.
                 # Pre-fix used X_test stds -> leaks test variance into FI on small
                 # folds. Use train_data when provided; fall back to data only if
                 # train_data is absent (callable importance_getter path) and
@@ -752,7 +752,7 @@ def select_appropriate_feature_importances(
       - ``use_last_fi_run_only``: keep only runs whose feature-set size equals the FULL original feature count.
       - ``use_all_fi_runs`` (default): keep every run with more than 1 feature (all history votes).
       - ``use_one_freshest_fi_run``: walk feature-set sizes from ``nfeatures+1`` up to ``n_original_features``
-        (inclusive) and take the first size that has any runs recorded -- the "freshest" (smallest, most-refined)
+        (inclusive) and take the first size that has any runs recorded - the "freshest" (smallest, most-refined)
         run set that still covers at least ``nfeatures`` features.
       - else: keep runs with more than ``nfeatures`` features (excluding the degenerate size-1 case).
 
@@ -780,7 +780,7 @@ def select_appropriate_feature_importances(
             else:
                 fi_to_consider = {key: value for key, value in feature_importances.items() if (len(value) > nfeatures and len(value) != 1)}
     if use_fi_ranking:
-        # F12 (Wave 3, 2026-05-28): rank-based aggregation rules (Borda /
+        # F12: rank-based aggregation rules (Borda /
         # Copeland / Dowdall / Minimax / Plurality) internally rank the
         # input table anyway; pre-ranking it here is a no-op for them and
         # only adds tiebreaker-method drift (.rank default 'average' vs
@@ -801,7 +801,7 @@ def select_appropriate_feature_importances(
 
 
 def _impute_ragged_fi_table(table: pd.DataFrame, policy: str) -> pd.DataFrame:
-    """F1+F2+F3 (Wave 1, 2026-05-28): impute missing per-run FI entries in a ragged voting table BEFORE handing it to Leaderboard.
+    """F1+F2+F3: impute missing per-run FI entries in a ragged voting table BEFORE handing it to Leaderboard.
 
     The historical RFECV vote let pandas' NaN propagate into Borda / Dowdall / Copeland / Minimax / Plurality with skipna=True semantics
     that systematically biased toward late-surviving features (a feature voting in 30/30 runs sums over 30 columns vs a feature voting in
@@ -859,7 +859,7 @@ def get_actual_features_ranking(feature_importances: dict, votes_aggregation_met
             matter; the RATIO between newer and older runs is what shifts
             the final ranking.
 
-    F7 (Wave 3, 2026-05-28) tie-breaker: when two features end the rule with
+    F7 tie-breaker: when two features end the rule with
     identical Leaderboard scores (very common on tree FI with many zeros),
     fall back to lexicographic ordering by feature name so the output is
     fully deterministic across Python set/dict iteration orders.

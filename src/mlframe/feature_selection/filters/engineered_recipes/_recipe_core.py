@@ -18,7 +18,7 @@ def _extra_equal(a: dict, b: dict) -> bool:
     """Array-aware dict equality for ``EngineeredRecipe.extra``. Plain ``dict.__eq__`` returns an ndarray (not bool) when values are arrays; this helper uses
     ``np.array_equal`` for arrays and ``==`` otherwise.
 
-    2026-05-30 Wave 9.1 fix (loop iter 45): three correctness gaps:
+    Three correctness gaps:
       1. ``np.array_equal(va, vb)`` returns False on NaN-containing
          arrays because NaN != NaN. Persisted recipes whose lookups /
          diagnostics contained NaN (factorize/target_encoding lookups,
@@ -106,7 +106,7 @@ class EngineeredRecipe:
     # Layer 23 2026-05-31: ``orth_univariate`` carries (src_names=(c,),
     # extra={basis, degree}); ``orth_pair_cross`` carries
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
-    # is closed-form from the source column(s) alone -- no y reference is
+    # is closed-form from the source column(s) alone - no y reference is
     # captured at fit time, so transform() is leakage-free by construction.
     kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_quadruplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "orth_cluster_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff", "grouped_agg", "composite_group_agg", "grouped_quantile", "target_aware_group_bin", "cat_pair_cross", "numeric_rounding", "digit_extract", "temporal_expanding", "temporal_rolling", "temporal_lag", "modular", "pairwise_modular", "pairwise_integer_lattice", "row_argmax", "conditional_gate", "group_distance", "rare_category", "conditional_residual", "rankgauss", "hinge_basis", "orth_wavelet", "binned_numeric_agg", "conditional_dispersion", "cat_triple_cross", "conditional_quantile_rank", "ordinal_pattern_te", "random_fourier", "sir_direction", "lof_score", "mahalanobis_density"]
     src_names: tuple[str, ...]
@@ -140,7 +140,7 @@ class EngineeredRecipe:
         self.__post_init__()
 
     def __post_init__(self):
-        """2026-05-30 Wave 9.1 fix (loop iter 49): freeze ``extra``.
+        """2026-05-30 Wave 9.1 fix: freeze ``extra``.
 
         ``frozen=True`` blocks attribute REBIND (``recipe.extra = {}``
         raises) but NOT in-place mutation of the dict itself. Caller-
@@ -223,7 +223,7 @@ class EngineeredRecipe:
 
     def __hash__(self) -> int:
         # Name-based hash (names are unique per fit), since ``extra: dict`` is mutable and would normally disable __hash__.
-        # Wave 73 (2026-05-21) hardening: __eq__ (above) walks the ``extra`` dict
+        # Wave 73 hardening: __eq__ (above) walks the ``extra`` dict
         # content (incl. ndarrays via np.array_equal). Hash key (kind, name) is
         # NARROWER than equality, so two recipes with same (kind, name) but
         # different ``extra`` collide on the same hash bucket but DON'T compare

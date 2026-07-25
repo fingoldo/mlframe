@@ -1,8 +1,8 @@
-"""CPU FE-batcher path: score a resident (n, K) candidate matrix by edge-binned plug-in MI (2026-06-26).
+"""CPU FE-batcher path: score a resident (n, K) candidate matrix by edge-binned plug-in MI.
 
 The CPU half of the two separate, independently-optimised FE-scoring backends (the GPU half is
 ``_fe_gpu_batch``). It is deliberately simple: the host has ONE compute unit and large RAM, so there is
-no device loop and no VRAM packer -- cores are exploited by the njit ``parallel=True`` prange INSIDE the
+no device loop and no VRAM packer - cores are exploited by the njit ``parallel=True`` prange INSIDE the
 MI kernel (``_fe_edge_mi.plugin_mi_classif_batch_edge_njit``), and the only budgeting needed is an
 optional column-chunk so a very wide candidate matrix does not spike the transient MI working set beyond
 the host RAM envelope (``feature_engineering._fe_effective_buffer_budget_bytes``).
@@ -32,11 +32,11 @@ def _cpu_col_chunk(n: int, n_cols: int, *, n_workers: int = 1) -> int:
     """How many candidate columns to score in ONE prange call so the transient MI working set stays inside
     the host RAM budget. The resident matrix is already in RAM; this only bounds the per-call scratch
     (per-thread code buffer + histograms ~ a small multiple of n*8). Returns ``n_cols`` (no chunk) when no
-    budget is resolvable -- the common case, since the working set is tiny relative to RAM."""
+    budget is resolvable - the common case, since the working set is tiny relative to RAM."""
     from .feature_engineering import _fe_effective_buffer_budget_bytes
 
     budget = _fe_effective_buffer_budget_bytes(_available_ram_bytes(), n_workers=n_workers)
-    if budget is None or budget < 0:
+    if budget < 0:  # -1 is the no-cap sentinel; the source is typed -> int, never None
         return int(n_cols)
     # Per-column transient: the contiguous f64 column copy (n*8) plus the codes/hist scratch (~n*8). Two
     # f64-column-equivalents per column is a safe envelope for the prange scratch held concurrently.
@@ -61,7 +61,7 @@ def cpu_fe_batch_mi(
     are used by the prange inside the kernel; ``max_cols_per_chunk`` (default: RAM-budget-resolved) caps the
     transient scratch for very wide matrices. Returns a host (K,) float64 MI array.
     """
-    # bench-attempt-rejected (2026-07-04): a "branch the f64 copy on dtype/flags" idea is redundant --
+    # bench-attempt-rejected (2026-07-04): a "branch the f64 copy on dtype/flags" idea is redundant -
     # np.ascontiguousarray(X, float64) already returns the input UNCHANGED (same object, no copy) when it is
     # already f64 + C-contiguous; it only copies for a cast or a non-contiguous layout. See
     # _benchmarks/bench_fe_cpu_batch_copy_avoid.py.

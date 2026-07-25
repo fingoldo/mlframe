@@ -18,9 +18,9 @@ For a selected set of ``k`` features over the discretized matrix the build compu
 The last term dominates for large k and is the point of this module. The conditional
 ``neighbor_unique_target`` pass (``sum_j I(Y; X_j | X_i)``) is NOT batched here: it runs
 only for the (small) subset of suspect nodes whose degree clears ``garbage_min_degree``,
-so it is not an O(k^2) cost -- the CPU path keeps it.
+so it is not an O(k^2) cost - the CPU path keeps it.
 
-BIT-IDENTITY (non-negotiable -- the diagnostic + the prune/cluster path are pinned)
+BIT-IDENTITY (non-negotiable - the diagnostic + the prune/cluster path are pinned)
 -----------------------------------------------------------------------------------
 The edge significance floor (``pairwise_mi_edge``) is a float comparison; a GPU MI off by
 one ULP would flip a borderline edge and change the graph topology / which features the
@@ -29,15 +29,15 @@ the work the same way the noise-gate GPU kernel does:
 
   1. The GPU computes only the INTEGER joint / marginal histograms (deterministic
      counting -> bit-exact). The joint code for a pair ``(a, b)`` is ``va + vb*nbins[a]``
-     -- EXACTLY ``merge_vars``' dense encoding for ``vars_indices=[a, b]`` (var ``a``
+     - EXACTLY ``merge_vars``' dense encoding for ``vars_indices=[a, b]`` (var ``a``
      melted first, ``current_nclasses=nbins[a]``). The marginal code for a node is just
      ``va`` (a 1-var ``merge_vars``).
   2. The histogram is pruned of empty bins in ascending-code order (``counts[counts>0]``)
-     and divided by ``n`` (``counts / n`` -- an int/int float division, identical to
+     and divided by ``n`` (``counts / n`` - an int/int float division, identical to
      ``merge_vars``' ``freqs / len(factors_data)``), yielding the SAME ``freqs`` array
      ``merge_vars`` produces.
   3. The Shannon entropy is computed by calling the project's OWN ``entropy()`` njit
-     (numpy ``-(log(freqs)*freqs).sum()``) on those freqs -- so ``H`` is bit-identical.
+     (numpy ``-(log(freqs)*freqs).sum()``) on those freqs - so ``H`` is bit-identical.
   4. ``H(X_a) + H(X_b) - H(X_a, X_b)`` (clamped at 0) reproduces ``pairwise_mi_edge``'s
      cached-marginal path EXACTLY (which is itself bit-identical to ``mi()``); relevance
      reproduces ``mi(X, Y)`` the same way. The significance floor + ADC direction +
@@ -58,7 +58,7 @@ from .info_theory import entropy as _entropy
 
 logger = logging.getLogger(__name__)
 
-# Optional GPU deps -- mirror batch_pair_mi_gpu.py's probe order exactly.
+# Optional GPU deps - mirror batch_pair_mi_gpu.py's probe order exactly.
 try:
     from numba import cuda as _nb_cuda
 except Exception:
@@ -99,11 +99,11 @@ def _entropy_resident_enabled() -> bool:
 
     OPT-IN, default OFF (``MLFRAME_FRIEND_GRAPH_GPU_ENTROPY_RESIDENT=1``): unlike every other
     device_born_* mechanism in this codebase (tolerant of ~1e-9 FP-reorder divergence), THIS
-    module's own docstring documents its bit-identity contract as non-negotiable -- the edge
+    module's own docstring documents its bit-identity contract as non-negotiable - the edge
     significance floor is a float comparison, and a divergence even at machine-epsilon could flip a
     genuinely borderline edge's admit/reject decision and change graph topology. Measured divergence
     against the CPU path is ~1e-16 (float64 machine-epsilon) on the fixtures this module's own test
-    suite exercises -- well inside the codebase's standard ~1e-9 parity bar -- but this module's
+    suite exercises - well inside the codebase's standard ~1e-9 parity bar - but this module's
     OWN stricter contract is not overridden unilaterally; this flag lets it be validated broadly
     (a wider seed/shape sweep, explicitly checking near-floor edges) before a future change flips
     the default on, per the audit proposal's own staged guidance."""
@@ -116,9 +116,9 @@ def _entropy_from_counts(counts: np.ndarray, n: int) -> float:
     """Shannon entropy (nats) of an integer histogram, reproducing the CPU build to the bit.
 
     ``counts`` is the FULL (possibly empty-bin-padded) integer histogram for one variable
-    or joint. We prune empty bins in ascending-code order and divide by ``n`` -- exactly
+    or joint. We prune empty bins in ascending-code order and divide by ``n`` - exactly
     what ``merge_vars`` does (``freqs = counts / len(factors_data)`` after the empty-bin
-    remap) -- then call the project's ``entropy()`` njit. ``counts / n`` is an int/int
+    remap) - then call the project's ``entropy()`` njit. ``counts / n`` is an int/int
     float division (NOT ``counts * (1/n)``), matching ``merge_vars`` array division, so the
     resulting ``freqs`` array is bit-identical and ``entropy()`` returns the identical float.
     """
@@ -137,9 +137,9 @@ def _entropy_from_counts(counts: np.ndarray, n: int) -> float:
 class FriendGraphGPUStats:
     """Bit-exact GPU-computed node + edge statistics for ``build_friend_graph``.
 
-    ``H[i]`` / ``rel[i]`` -- per selected-column entropy + target relevance (dicts keyed
+    ``H[i]`` / ``rel[i]`` - per selected-column entropy + target relevance (dicts keyed
     by the ORIGINAL column index, mirroring the CPU build's ``H`` / ``rel`` dicts).
-    ``edge_mi`` -- a dict ``(a, b) -> raw I(X_a; X_b)`` (clamped >=0, BEFORE the
+    ``edge_mi`` - a dict ``(a, b) -> raw I(X_a; X_b)`` (clamped >=0, BEFORE the
     significance floor) for every upper-triangular pair ``a < b`` in ``sel``; the build
     applies the floor + ADC direction itself, unchanged.
     """
@@ -386,12 +386,12 @@ def _cuda_pair_hist_kernel_factory():
 
     @_nb_cuda.jit
     def _kernel(
-        sub,  # (n, k) int32 -- selected sub-frame
-        pair_posa,  # (n_pairs,) int64 -- column position in sub for endpoint a
-        pair_posb,  # (n_pairs,) int64 -- column position in sub for endpoint b
-        pair_nba,  # (n_pairs,) int64 -- nbins of endpoint a (joint stride)
-        pair_off,  # (n_pairs,) int64 -- start offset of pair p in counts_flat
-        counts_flat,  # (total_size,) int64 -- output, zeroed by host
+        sub,  # (n, k) int32 - selected sub-frame
+        pair_posa,  # (n_pairs,) int64 - column position in sub for endpoint a
+        pair_posb,  # (n_pairs,) int64 - column position in sub for endpoint b
+        pair_nba,  # (n_pairs,) int64 - nbins of endpoint a (joint stride)
+        pair_off,  # (n_pairs,) int64 - start offset of pair p in counts_flat
+        counts_flat,  # (total_size,) int64 - output, zeroed by host
         n,
     ):
         """Device kernel: one CUDA block per column pair accumulates that pair's joint histogram into ``counts_flat`` via atomic adds, striding threads over rows."""
@@ -420,9 +420,9 @@ def _cuda_node_hist_kernel_factory():
 
     @_nb_cuda.jit
     def _kernel(
-        codes,  # (n, k) int64 -- per-column code (marginal: va; joint: code(va, y))
-        col_off,  # (k,) int64 -- start offset of column i in counts_flat
-        counts_flat,  # (total_size,) int64 -- output, zeroed by host
+        codes,  # (n, k) int64 - per-column code (marginal: va; joint: code(va, y))
+        col_off,  # (k,) int64 - start offset of column i in counts_flat
+        counts_flat,  # (total_size,) int64 - output, zeroed by host
         n,
         k,
     ):
@@ -497,7 +497,7 @@ def friend_graph_stats_cuda(
     # ---- Node marginals: codes == sub (va), per-column offsets by nbins.
     off_node = np.zeros(k + 1, dtype=np.int64)
     off_node[1:] = np.cumsum(nb_sel)
-    # ``d_node_codes`` is just ``d_sub`` widened to int64 -- cast ON DEVICE (mirrors
+    # ``d_node_codes`` is just ``d_sub`` widened to int64 - cast ON DEVICE (mirrors
     # ``friend_graph_stats_cupy``'s ``d_sub.astype(cp.int64)``) instead of re-uploading ``sub`` from host a
     # second time with the same content. ``numba.cuda.DeviceNDArray`` implements the CUDA Array Interface,
     # so wrapping ``d_sub`` with ``cp.asarray`` is a zero-copy view (no H2D); the resulting cupy array is a
@@ -600,7 +600,7 @@ def friend_graph_stats_cuda(
 # array + a per-pair take_along_axis gather, which at large k materialises a huge
 # index buffer and blows up (0.11x at k=256). So the fallback prefers CUDA for the GPU
 # region. (bench-attempt: a resident cupy 3-D pair index like the noise-gate kernel was
-# NOT pursued -- the cuda atomic kernel already wins and needs no n*k^2 index array.)
+# NOT pursued - the cuda atomic kernel already wins and needs no n*k^2 index array.)
 GPU_MIN_ROWS = 3_000
 GPU_MIN_K = 128
 
@@ -706,7 +706,7 @@ def _friend_graph_code_version():
 def _friend_graph_fallback_choice(n_rows: int, k: int) -> str:
     """Pre-sweep heuristic: GPU only for large n AND large k (where the O(n*k^2) counting
     amortises the H2D copy + launch overhead); CPU otherwise (safe default). Prefers CUDA
-    (atomic-histogram, one block per pair -- scales with the edge work) over cupy (whose
+    (atomic-histogram, one block per pair - scales with the edge work) over cupy (whose
     dense (rows, n) pair-index buffer blows up at large k; see the bench table above)."""
     if n_rows >= GPU_MIN_ROWS and k >= GPU_MIN_K:
         if _CUDA_AVAIL:
@@ -751,7 +751,7 @@ def dispatch_friend_graph_stats(
     """Run the chosen GPU backend, returning a ``FriendGraphGPUStats`` or ``None`` when
     GPU is unavailable / not chosen (so ``build_friend_graph`` falls back to its CPU
     edge pass). Mirrors the other dispatchers' force_backend + availability guards. The
-    CPU build is NOT run here -- the caller owns the CPU path.
+    CPU build is NOT run here - the caller owns the CPU path.
 
     Returns ``None`` (CPU fallback) when ``len(sel) < 2`` (no edges to batch) too.
     """
@@ -764,14 +764,14 @@ def dispatch_friend_graph_stats(
 
     if gpu_globally_disabled():
         # MLFRAME_DISABLE_GPU=1 / CUDA_VISIBLE_DEVICES="" must win even over an explicit
-        # force_backend="cuda"/"cupy" caller request -- same absolute override as every other
+        # force_backend="cuda"/"cupy" caller request - same absolute override as every other
         # GPU dispatch site in this package (see _gpu_policy.py's module docstring).
         return None
 
-    # ABSOLUTE cushion guard (2026-07-05): on a near-full / SHARED card return None so the caller runs its CPU
+    # ABSOLUTE cushion guard: on a near-full / SHARED card return None so the caller runs its CPU
     # edge pass, BEFORE the per-tile relative ``free_b * 0.35`` budget inside the cupy backend. The dominant
     # device buffer is the (rows, n) pair-index array; estimate one pair-row as the cushion's bytes_needed.
-    # Pure ADD -- tightens, never loosens; permissive without cupy.
+    # Pure ADD - tightens, never loosens; permissive without cupy.
     try:
         from ._fe_gpu_vram import fe_gpu_has_vram_cushion
         if not fe_gpu_has_vram_cushion(n * 8):
@@ -781,12 +781,18 @@ def dispatch_friend_graph_stats(
         pass
 
     if force_backend is not None:
+        # A forced GPU backend must still fall back to CPU (return None) on a genuine device fault -
+        # numba's CudaAPIError / CudaDriverError derive from Exception (not RuntimeError), so a bare call
+        # here would propagate uncaught, unlike the noise-gate sibling's documented CPU fallback.
         fb = force_backend.lower()
-        if fb == "cupy" and _CUPY_AVAIL:
-            return friend_graph_stats_cupy(sel, factors_data, factors_nbins, target_indices, dtype)
-        if fb == "cuda" and _CUDA_AVAIL:
-            return friend_graph_stats_cuda(sel, factors_data, factors_nbins, target_indices, dtype)
-        return None  # forced CPU (or unavailable forced backend) -> caller uses CPU
+        try:
+            if fb == "cupy" and _CUPY_AVAIL:
+                return friend_graph_stats_cupy(sel, factors_data, factors_nbins, target_indices, dtype)
+            if fb == "cuda" and _CUDA_AVAIL:
+                return friend_graph_stats_cuda(sel, factors_data, factors_nbins, target_indices, dtype)
+        except Exception as e:
+            logger.debug("friend_graph forced %s backend failed (%s); falling back to CPU", fb, e)
+        return None  # forced CPU (or unavailable / failed forced backend) -> caller uses CPU
 
     choice = _friend_graph_backend_choice(n, k)
 
@@ -798,7 +804,7 @@ def dispatch_friend_graph_stats(
     if choice == "cuda" and _CUDA_AVAIL:
         try:
             return friend_graph_stats_cuda(sel, factors_data, factors_nbins, target_indices, dtype)
-        except (ValueError, RuntimeError) as e:
+        except Exception as e:  # incl. numba CudaAPIError/CudaDriverError (Exception, not RuntimeError)
             logger.debug("friend_graph cuda backend failed (%s); falling back to CPU", e)
 
     return None  # CPU region (or GPU failed) -> caller runs the CPU edge pass
@@ -820,7 +826,7 @@ try:
         cli_label="friend_graph_build",
     )
 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-    logger.debug("suppressed in friend_graph_gpu.py:747: %s", e)
+    logger.debug("suppressed: %s", e)
     pass
 
 

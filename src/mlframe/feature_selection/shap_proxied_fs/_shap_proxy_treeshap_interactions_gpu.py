@@ -1,7 +1,7 @@
 """Optional cupy/CUDA variant of the path-dependent TreeSHAP *interaction* scan (sample-parallel).
 
 Companion GPU kernel to the numba interaction kernel in ``_shap_proxy_treeshap_interactions`` (which
-stays the always-available fallback -- ALL kernel versions are kept so we can re-bench per HW). One
+stays the always-available fallback - ALL kernel versions are kept so we can re-bench per HW). One
 CUDA thread per SAMPLE runs the same conditioned-scan recurrence the numba kernel does (one
 unconditioned pass for the main effect ``phi`` plus, for each distinct split feature ``j``, an on-pass
 and an off-pass), writes the off-diagonal ``Phi[:, p, j] = (phi_on[p] - phi_off[p]) / 2`` on-device,

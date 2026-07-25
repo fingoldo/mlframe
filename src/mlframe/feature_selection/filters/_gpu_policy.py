@@ -9,8 +9,8 @@ of a 300k fit in cupy ``argsort`` + GPU-sync ``time.sleep`` with the CPU idle.
 ``gpu_globally_disabled()`` is the single source of truth every GPU dispatch should consult (in
 addition to the per-kernel size/availability gates), so a CPU-only or weak-GPU run can force the CPU
 path. Honors:
-  * ``MLFRAME_DISABLE_GPU=1`` -- explicit opt-out.
-  * ``CUDA_VISIBLE_DEVICES=""`` (empty string) -- the documented mlframe "no GPU on this run"
+  * ``MLFRAME_DISABLE_GPU=1`` - explicit opt-out.
+  * ``CUDA_VISIBLE_DEVICES=""`` (empty string) - the documented mlframe "no GPU on this run"
     convention (numba honors it; cupy does not, hence this shim).
 """
 from __future__ import annotations

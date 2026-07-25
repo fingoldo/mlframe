@@ -43,7 +43,7 @@ def _lookup_polyeval_thresholds(basis: str, n: int) -> tuple[int, int]:
 # The cuda branch stays EXACTLY on kernel_tuning_cache (_lookup_polyeval_thresholds), HW-tuned per host by
 # _run_sweep_polyeval. On transfer-bound laptop GPUs (e.g. RTX 500 Ada) the cheap degree-N Horner kernel
 # never beats njit_par because the H2D+D2H round trip dwarfs the compute, so the sweep persists a sentinel
-# cuda_threshold above the swept range -- the dispatcher then never routes to the slower cuda path on that host.
+# cuda_threshold above the swept range - the dispatcher then never routes to the slower cuda path on that host.
 # The oracle here governs ONLY the {njit, njit_par} CPU choice.
 
 _POLYEVAL_ORACLE_FN_NAME = "polyeval_cpu_backend"

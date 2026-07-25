@@ -2,7 +2,7 @@
 
 The univariate-MI ``seed_count`` gate that the prospective-pair sweep and the
 triplet/quadruplet FE stages use to pick source columns is BLIND to pure synergy:
-a zero-marginal interaction operand (``y = sign(x_a * x_b * x_c) + noise`` -- every
+a zero-marginal interaction operand (``y = sign(x_a * x_b * x_c) + noise`` - every
 marginal MI ~= 0) is never ranked top-N, so the pair is never enumerated and the
 triple is never seeded. The interaction needle is MISSED.
 
@@ -12,16 +12,16 @@ root-to-leaf path and tallies a DEPTH-DISCOUNTED SPLIT-GAIN co-occurrence weight
 every (a, b) PAIR and (a, b, c) TRIPLE that co-occur on a path. A zero-marginal
 synergy operand still appears as a split partner CONDITIONED on its co-splitter on
 the tree path, so co-occurrence ranks the true interaction members at the top even
-though their marginals are ~0 -- reaching the prospective pool / ``triplets=`` where
+though their marginals are ~0 - reaching the prospective pool / ``triplets=`` where
 ``seed_count`` never would. 3-way is FREE via path co-occurrence. Cost is
-``O(n * trees * depth)`` to fit + ``O(trees * depth^2)`` to tally -- INDEPENDENT of
+``O(n * trees * depth)`` to fit + ``O(trees * depth^2)`` to tally - INDEPENDENT of
 ``p^2`` / ``p^3``, the scaling lever for large-p frames.
 
 SELF-GATE (the proposer only GENERATES; downstream maxT floors gate admission). The
 seeder emits NOTHING unless the surrogate carries genuine joint signal: its
 out-of-fold score must beat a PERMUTED-y surrogate baseline (same hyper-params, y
 shuffled). On pure noise the real and permuted OOF scores tie, the gate fails, and the
-pool is not polluted -- the order-2 / order-3 Westfall-Young maxT floors then gate every
+pool is not polluted - the order-2 / order-3 Westfall-Young maxT floors then gate every
 emitted candidate as the outer best-of-pool guard.
 
 Integration: called at the top of ``MRMR._run_fe_step`` to populate ``_seeded_pairs``
@@ -56,7 +56,7 @@ def _walk_paths_tally(
     so a deep, low-gain split contributes less than a shallow high-gain one, then for
     every ANCESTOR split already on the path we credit the (ancestor, current) PAIR and
     every (ancestor_i, ancestor_j, current) TRIPLE with the MIN of the two/three split
-    weights (a conjunction is only as strong as its weakest leg -- a pair co-occurs only
+    weights (a conjunction is only as strong as its weakest leg - a pair co-occurs only
     where BOTH splits are taken). Leaves carry no split and terminate the recursion.
     """
     if not isinstance(node, dict) or "split_feature" not in node:
@@ -100,7 +100,7 @@ def _fit_surrogate_and_oof(
 ):
     """Fit one shallow LightGBM surrogate with a single 70/30 ordered OOF split and
     return ``(booster, oof_score)``. ``oof_score`` is OOF accuracy (classification) or
-    OOF R^2 (regression) -- the self-gate statistic compared against the permuted-y run.
+    OOF R^2 (regression) - the self-gate statistic compared against the permuted-y run.
     When ``shuffle_y`` the labels are permuted (the permuted-y baseline). Returns
     ``(None, nan)`` if LightGBM is unavailable or the fit degenerates."""
     try:
@@ -184,10 +184,10 @@ def surrogate_gbm_interaction_seeds(
     # the 3-way cell, lifting the operand split-gains above chance. Bench (D:/Temp/tune_3way.py,
     # n=4000 p=200 sign-product 3-way): md=3 -> needle-triple rank MISS (op-recall 0.67);
     # md=4 nl=16 ne=150 -> needle triple is the RANK-0 co-occurrence triple (op-recall 1.00);
-    # md=5+ OVER-fragments (op-recall drops to 0.33) -- so 4 is the sweet spot, NOT "deeper is
+    # md=5+ OVER-fragments (op-recall drops to 0.33) - so 4 is the sweet spot, NOT "deeper is
     # better". The 2-way needle + pure-noise self-gate are unaffected by the depth choice.
     # ne=300 (not 150): the hard 3-way is at the detectability boundary for a shallow tree at
-    # n=4000/p=200 -- recovered 2/5 seeds at ne=150 vs 3/5 at ne=300 (nbins=5; D:/Temp tuning
+    # n=4000/p=200 - recovered 2/5 seeds at ne=150 vs 3/5 at ne=300 (nbins=5; D:/Temp tuning
     # sweep), no downside. Co-occurrence is AGGREGATED over ``self_gate_reps`` boosters: the
     # true operands co-occur consistently across seeds while noise triples vary, so summing the
     # per-booster weights stabilises the ranking (reps=5 default; the boosters are already fit
@@ -208,18 +208,18 @@ def surrogate_gbm_interaction_seeds(
 
     ``disc_X`` is the ordinal-encoded screening matrix (n, p); ``candidate_indices`` the
     COLUMN INDICES (into ``disc_X``) eligible to seed (the same numeric operand pool the
-    pair sweep considers -- so seeds map back to real operands). ``y`` is the ordinal
+    pair sweep considers - so seeds map back to real operands). ``y`` is the ordinal
     target. Returns ``(seeded_pairs, seeded_triplets, info)``:
 
-      * ``seeded_pairs``  -- list of ``(a, b)`` index tuples, top-``top_k_pairs`` by
+      * ``seeded_pairs``  - list of ``(a, b)`` index tuples, top-``top_k_pairs`` by
         depth-discounted split-gain co-occurrence (a < b).
-      * ``seeded_triplets`` -- list of ``(a, b, c)`` index tuples, top-``top_k_triples``.
-      * ``info``  -- diagnostics dict (``oof_real``, ``oof_perm``, ``gated``,
+      * ``seeded_triplets`` - list of ``(a, b, c)`` index tuples, top-``top_k_triples``.
+      * ``info``  - diagnostics dict (``oof_real``, ``oof_perm``, ``gated``,
         ``n_pairs``, ``n_triples``, plus the raw weight maps for provenance).
 
     SELF-GATE (a permutation SIGNIFICANCE test): returns EMPTY pair/triple lists
     (``gated=False``) unless the real OOF-score MEAN over ``self_gate_reps`` splits sits
-    ``self_gate_min_z`` sigma ABOVE the permuted-y OOF null distribution -- on pure noise the
+    ``self_gate_min_z`` sigma ABOVE the permuted-y OOF null distribution - on pure noise the
     two distributions overlap (z ~ 0), so nothing is emitted and the pool is not polluted.
     The surrogate is trained on the CANDIDATE-ONLY submatrix (the target column is excluded;
     training on the full screening matrix, which contains the discretised target, leaks a
@@ -303,16 +303,16 @@ def surrogate_gbm_interaction_seeds(
     z = info["self_gate_z"]
 
     # SELF-GATE is asymmetric by INFORMATION CONTENT of the OOF statistic at each order:
-    #   * PAIRS -- a genuine 2-way (product / XOR) lifts the surrogate's held-out OOF FAR
+    #   * PAIRS - a genuine 2-way (product / XOR) lifts the surrogate's held-out OOF FAR
     #     above the permuted null (z >> 0), so the OOF z-test reliably gates pair emission:
     #     emit pairs ONLY when ``z >= self_gate_min_z`` (+ a small absolute margin). On pure
     #     noise z ~ 0 -> no pair pollution.
-    #   * TRIPLES -- a hard 3-way ``sign(a*b*c)`` is barely learnable by a shallow tree, so
+    #   * TRIPLES - a hard 3-way ``sign(a*b*c)`` is barely learnable by a shallow tree, so
     #     its held-out OOF sits at ~chance (z indistinguishable from noise) EVEN THOUGH its
     #     split CO-OCCURRENCE still ranks the operands top. An OOF z-test that rejected noise
     #     would therefore ALSO reject the genuine 3-way. So triples are ALWAYS emitted from
     #     co-occurrence and the ORDER-3 Westfall-Young maxT FLOOR (#7) is their binding noise
-    #     guard (it rejects the chance-max noise triples while the genuine 3-way clears it) --
+    #     guard (it rejects the chance-max noise triples while the genuine 3-way clears it) -
     #     the architectural through-line "proposer GENERATES, the maxT floors GATE".
     # ``info["gated"]`` reflects the PAIR (OOF-significant) gate.
     pairs_pass = bool(z >= float(self_gate_min_z) and oof_real > perm_mean + float(self_gate_margin))
@@ -326,8 +326,8 @@ def surrogate_gbm_interaction_seeds(
         )
 
     # AGGREGATE split-gain co-occurrence over ALL ``reps`` real-fit surrogates (different
-    # seeds). A hard 3-way ``sign(a*b*c)`` is at the EDGE of a single shallow tree's reach --
-    # one fit recovers the operand triple only on lucky seeds (seed-sensitive rank) -- but the
+    # seeds). A hard 3-way ``sign(a*b*c)`` is at the EDGE of a single shallow tree's reach -
+    # one fit recovers the operand triple only on lucky seeds (seed-sensitive rank) - but the
     # TRUE operands co-occur CONSISTENTLY across seeds while chance-max noise triples vary, so
     # summing the per-booster depth-discounted weights stabilises the ranking and lifts the
     # genuine needle to the top robustly (the boosters were already fit for the self-gate, so
@@ -366,7 +366,7 @@ def surrogate_gbm_interaction_seeds(
 
     # PAIRS: emitted only when the OOF pair self-gate passed (2-way signal IS OOF-detectable).
     seeded_pairs = [k for k, _ in sorted(pair_w.items(), key=lambda kv: kv[1], reverse=True)[: int(top_k_pairs)]] if pairs_pass else []
-    # TRIPLES: ALWAYS emitted (the order-3 maxT floor is their binding gate -- the OOF
+    # TRIPLES: ALWAYS emitted (the order-3 maxT floor is their binding gate - the OOF
     # statistic is blind to a hard 3-way, so gating triple emission on it would drop the needle).
     seeded_triplets = [k for k, _ in sorted(triple_w.items(), key=lambda kv: kv[1], reverse=True)[: int(top_k_triples)]]
     info["n_pairs"] = len(seeded_pairs)

@@ -2,7 +2,7 @@
 
 ``forward_select`` / ``greedy_backward_elimination`` / ``iterative_zero_importance_pruning`` /
 ``cascade_select`` are plain functions that return a selected-column LIST (or a report dict for
-``cascade_select``), not sklearn estimators -- unlike MRMR / BorutaShap / ShapProxiedFS / ACE, which
+``cascade_select``), not sklearn estimators - unlike MRMR / BorutaShap / ShapProxiedFS / ACE, which
 already expose the fit/get_support/transform contract the training suite's pre-pipeline slot drives
 selectors through (see ``ace.ACESelector`` for the template this module mirrors). Each adapter here
 runs its wrapped function once in ``fit`` and materialises ``support_`` / ``selected_features_`` /
@@ -21,7 +21,7 @@ from .zero_importance_pruning import iterative_zero_importance_pruning
 
 
 def _is_classification_target(y: np.ndarray) -> bool:
-    """Same low-cardinality heuristic as ``ace._default_estimator`` -- integer/label y with a
+    """Same low-cardinality heuristic as ``ace._default_estimator`` - integer/label y with a
     small number of unique values is treated as classification, everything else as regression.
 
     Delegates to the shared ``_sklearn_defaults.is_classification_target`` (see that module for the
@@ -43,7 +43,7 @@ def _default_tree_estimator(y: np.ndarray, random_state: int = 0):
 def _default_pointwise_scoring(y: np.ndarray):
     """Default ``scoring(y_true, y_pred) -> float`` (HIGHER is better) for the callable-scoring functions
     (``greedy_backward_elimination`` / ``iterative_zero_importance_pruning``): accuracy for classification,
-    R2 for regression -- auto-derived so an operator opting into these selectors needs no extra wiring."""
+    R2 for regression - auto-derived so an operator opting into these selectors needs no extra wiring."""
     from sklearn.metrics import accuracy_score, r2_score
 
     return accuracy_score if _is_classification_target(y) else r2_score
@@ -62,7 +62,7 @@ def _support_from_selected(feature_names: list, selected: list) -> np.ndarray:
     bare ndarray input (see their own docstrings: "ndarray (columns addressed by integer index)").
     ``_finalize`` always builds ``feature_names`` as strings (``x{i}`` synthetic names for an
     ndarray fit), so a positional ``selected`` (e.g. ``[0, 1, 4]``) must be resolved by INDEX, not
-    by string-matching "0" against "x0" -- the latter always misses, silently zeroing out the
+    by string-matching "0" against "x0" - the latter always misses, silently zeroing out the
     entire support mask (0 selected columns) for every ndarray-input fit. A DataFrame-input fit's
     ``selected`` are the real column names/values, which the fallback string-match path still
     handles correctly (covers non-str name types too, e.g. integer column labels)."""
@@ -78,12 +78,12 @@ def _numeric_view_for_selection(X):
     """Return an all-numeric view of ``X`` (same column order/names) for the tree-estimator-driven selection loop.
 
     ``forward_select`` / ``greedy_backward_elimination`` / ``iterative_zero_importance_pruning`` / ``cascade_select``
-    all fit the estimator on raw candidate-column subsets of ``X`` -- with the default ``_default_tree_estimator``
+    all fit the estimator on raw candidate-column subsets of ``X`` - with the default ``_default_tree_estimator``
     (plain sklearn RandomForest) this crashes with "could not convert string to float" on ANY non-numeric column,
     e.g. a CatBoost-native categorical kept as a raw string (``skip_categorical_encoding=True``): caught live via a
     fuzz combo where ``use_forward_select_fs`` (default-ON) silently dropped the whole cb model from the suite.
     Ordinal-encode (``pd.factorize``) any non-numeric column so the default/any bare-numeric-only estimator can
-    consume it; a fully-numeric ``X`` is returned unchanged (no copy). Only affects the internal selection fit --
+    consume it; a fully-numeric ``X`` is returned unchanged (no copy). Only affects the internal selection fit -
     ``_finalize`` still reads column NAMES off the original ``X``, so the selected features returned to the caller
     are unaffected.
     """
@@ -100,7 +100,7 @@ def _numeric_view_for_selection(X):
         return out
     if hasattr(X, "dtypes") and hasattr(X, "with_columns"):
         # polars DataFrame: encoding must stay a polars frame (never bare np.asarray(X), which silently
-        # strips column names -- forward_select/cascade_select need those to name candidate subsets, and
+        # strips column names - forward_select/cascade_select need those to name candidate subsets, and
         # dropping them was caught live as a correctness regression, not just a cosmetic type mismatch).
         non_numeric = [c for c, dt in zip(X.columns, X.dtypes) if not dt.is_numeric()]
         if not non_numeric:
@@ -138,7 +138,7 @@ class _FunctionalSelectorBase(BaseEstimator, TransformerMixin):
             return X.iloc[:, idx]
         if hasattr(X, "columns") and hasattr(X, "select"):
             # polars DataFrame: np.asarray(X) below would force a homogeneous (often object) ndarray,
-            # discarding every column's native dtype -- for a pl.Enum/Categorical column that silently
+            # discarding every column's native dtype - for a pl.Enum/Categorical column that silently
             # materialises back to raw Python strings, which then reaches XGBoost's enable_categorical
             # path as unencoded text and crashes deep in xgboost's dtype coercion. X.select(...) keeps
             # this a real polars frame with dtypes/column names intact (found live: the XGB polars
@@ -174,7 +174,7 @@ class _FunctionalSelectorBase(BaseEstimator, TransformerMixin):
         self.n_features_in_ = len(names)
         self.support_ = _support_from_selected(names, selected)
         # Derived from the RESOLVED mask (not `selected` directly): for a bare-ndarray fit,
-        # `selected` holds integer positions, not the synthetic "x{i}" names `names` uses -- see
+        # `selected` holds integer positions, not the synthetic "x{i}" names `names` uses - see
         # _support_from_selected's docstring. Deriving from `names[support_]` keeps
         # selected_features_ (get_feature_names_out's source) in the same naming convention as
         # feature_names_in_ regardless of whether `selected` was positional or name-based.
@@ -338,7 +338,7 @@ class CascadeSelectSelector(_FunctionalSelectorBase):
 
         numeric_view = _numeric_view_for_selection(X)
         # cascade_select requires a named-column DataFrame (Boruta/forward_select/RFECV all address
-        # columns by name internally) -- a bare ndarray input must be wrapped with the SAME synthetic
+        # columns by name internally) - a bare ndarray input must be wrapped with the SAME synthetic
         # "x{i}" names ``_finalize`` uses, so the returned selection matches by name rather than
         # raising/silently mismatching against ``_finalize``'s own naming convention.
         if not hasattr(numeric_view, "columns"):

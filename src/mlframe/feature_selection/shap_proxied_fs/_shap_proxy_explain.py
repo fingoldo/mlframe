@@ -9,11 +9,11 @@ Two modes:
     the K-1 train folds and SHAP-explained on the held-out fold. Each fold carries its OWN base
     value (``explainer.expected_value``); we store ``base`` per row so the coalition value stays
     additive within the fold the row came from. Concatenating raw phi against a single global base
-    would be wrong when fold base values differ -- we avoid that by keeping ``base`` per-row.
+    would be wrong when fold base values differ - we avoid that by keeping ``base`` per-row.
   - ``out_of_fold=False`` (fast): one model on the whole search set, explained in-sample.
 
 Multi-model averaging (``n_models > 1``): phi and base are averaged across models trained with
-distinct seeds -- a cheap robustness knob (the research found it roughly neutral but safe).
+distinct seeds - a cheap robustness knob (the research found it roughly neutral but safe).
 
 Defaults to ``feature_perturbation="tree_path_dependent"``: fastest exact tree path, and the user's
 research found it the only mode where CatBoost does NOT bloat ``expected_value``. We still assert
@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 # Cache-key namespace for the per-fold FITTED booster pickle inside ``compute_shap_matrix``.
 # The OOF-SHAP stage's dominant cost is the n_splits * n_models booster fits (TreeExplainer
 # attribution against an already-fitted booster is cheap). iter79's ``shap_phi_`` final-phi cache
-# is all-or-nothing -- ANY param change (including downstream knobs that happen to share rng with
+# is all-or-nothing - ANY param change (including downstream knobs that happen to share rng with
 # the OOF stage in some callers) invalidates the entire phi matrix. The per-fold cache hits even
 # when something orthogonal to (X_tr_fold, y_tr_fold, template, fold seed) changes; it nests
 # inside the iter79 cache so a clean re-run of identical params still short-circuits at the outer
@@ -51,7 +51,7 @@ _OOF_FOLD_FIT_CACHE_PREFIX = "oof_fold_fit_"
 def _build_oof_fold_fit_disk_key(model_template, X_tr_fold, y_tr_fold, classification, seed, jitter_depth, n_estimators_cap):
     """Stable cache key for a per-fold fitted booster inside ``compute_shap_matrix`` (iter83).
 
-    Cache determinants: the fold's actual training slice ((X_tr_fold, y_tr_fold) summary -- these
+    Cache determinants: the fold's actual training slice ((X_tr_fold, y_tr_fold) summary - these
     arrays naturally encode the fold's row selection AND the global rng-derived KFold splitter
     seed, so no separate fold_idx / train_idx_hash term is needed), the booster template params,
     the per-fold seed (different ``n_models`` slot in the same fold has a different seed and
@@ -63,7 +63,7 @@ def _build_oof_fold_fit_disk_key(model_template, X_tr_fold, y_tr_fold, classific
     OWN held-out rows so the X_ex passed to ``_shap_phi_and_base`` is implicitly co-determined
     with the fit data.
 
-    Returns ``None`` if hashing fails so the caller falls through to the compute path -- the
+    Returns ``None`` if hashing fails so the caller falls through to the compute path - the
     cache is best-effort, never a correctness gate.
     """
     try:
@@ -112,7 +112,7 @@ def _maybe_patch_shap_xgb_base_score():
     XGBoost 2.x / 3.x serialise the booster's ``base_score`` as a JSON array string ``"[0.5]"`` instead of the scalar ``"0.5"`` older XGBoost wrote. On shap < 0.52,
     ``shap.explainers._tree.XGBTreeModelLoader.__init__`` coerces it with ``float(...)`` and crashes (``could not convert string to float: '[5.06E-1]'``); we install the
     bracket-aware ``_safe_float`` onto the shap tree module's ``float`` name there. shap >= 0.52 (PR #3530) parses the array natively AND uses ``float`` as a numpy DTYPE
-    (``np.asarray(base_score, dtype=float)``) -- replacing it would break that -- so the patch is a strict NO-OP on >=0.52 (it must not touch ``_shap_tree.float``).
+    (``np.asarray(base_score, dtype=float)``) - replacing it would break that - so the patch is a strict NO-OP on >=0.52 (it must not touch ``_shap_tree.float``).
 
     Idempotent (gated on ``_SHAP_XGB_PATCHED``); a no-op if shap is unavailable.
     """
@@ -163,7 +163,7 @@ def _treeshap_numba_min_features() -> int:
             if isinstance(entry, dict) and entry.get("numba_min_features"):
                 return int(entry["numba_min_features"])
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _shap_proxy_explain.py:165: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
     return _TREESHAP_NUMBA_MIN_FEATURES
 
@@ -289,7 +289,7 @@ def _shap_phi_and_base(explainer_base, X: pd.DataFrame, backend: str = "auto"):
             )
     phi = np.asarray(phi, dtype=np.float64)
     if phi.ndim == 3:
-        # (n, f, n_classes) -- take the positive (last) class for binary.
+        # (n, f, n_classes) - take the positive (last) class for binary.
         if phi.shape[2] != 2:
             raise ValueError(f"ShapProxiedFS supports binary / single-target only; got {phi.shape[2]} output classes.")
         phi = phi[:, :, 1]
@@ -386,12 +386,12 @@ def compute_phi_rank_stability(per_fold_phi_mean, top_k: int = 80) -> float:
 # ``_models_phi`` + ``_honest_loss`` (revalidate.py) to skip XGBoost's ``_assign_dmatrix_features`` +
 # ``from_cstr_to_pystr`` + ``_validate_features`` marshalling. Motivated by iter19's cProfile attributing
 # ~17s of OOF-SHAP wall to that path at width=10000. Measured isolated cold+warm OOF-SHAP on a 4000x400
-# post-cohort frame: baseline cold=11.37s warm=9.11s; numpy-input cold=10.90s warm=9.11s -- 4% cold, 0%
+# post-cohort frame: baseline cold=11.37s warm=9.11s; numpy-input cold=10.90s warm=9.11s - 4% cold, 0%
 # warm. End-to-end scaling bench (medians over 4 warm runs at 6k+10k) showed OOF-SHAP within +/-3% and
 # total fit within noise (15-20% Windows run-to-run variance). The cProfile 17s attribution was a
 # JIT/cold-cache artifact, NOT a steady-state marshalling cost. Same lesson as iter6 (4-11% gain on
 # regime synthetic, didn't ship). Do not re-attempt without a NEW data regime (object/categorical-mixed
-# DataFrame where .values triggers a real copy / dtype conversion) -- on float64 single-block frames
+# DataFrame where .values triggers a real copy / dtype conversion) - on float64 single-block frames
 # the .values pass-through is essentially free for both pandas AND XGBoost.
 
 
@@ -418,7 +418,7 @@ def _fit_one(model_template, X, y, classification: bool, seed: Optional[int], ji
         except (ValueError, TypeError):
             pass
     # Cap the booster's tree count (iter19): the SHAP attribution path stabilises on per-feature
-    # credit well before the full template trains -- the proxy consumes the ATTRIBUTION ranking and
+    # credit well before the full template trains - the proxy consumes the ATTRIBUTION ranking and
     # the coalition value, both of which are determined by the fitted model's structure, not by how
     # many late trees the booster gets to add. Capping at ~100 trees mirrors the same "cap-the-ranker"
     # lever already applied to prefilter / trust-guard / within-cluster-refine (iter9/iter10/iter12).
@@ -474,7 +474,7 @@ def make_default_estimator(classification: bool, random_state: int = 0, n_estima
             n_estimators=int(n_estimators), cat_features=cat_features,
         )
         # Stamp the categorical hint on the estimator instance so it survives sklearn ``clone`` of
-        # the template across folds / honest retrains -- the `_shap_proxy_cat_features` attr is read
+        # the template across folds / honest retrains - the `_shap_proxy_cat_features` attr is read
         # back by ``_shap_phi_and_base`` to build the catboost ``Pool`` with matching categoricals.
         est._shap_proxy_cat_features = list(cat_features) if cat_features is not None else None
         return est
@@ -483,10 +483,10 @@ def make_default_estimator(classification: bool, random_state: int = 0, n_estima
     # not a module-level init) was reducible via DMatrix sharing or Booster pooling across the ~8-60
     # per-fit calls inside one selector run. Three options surveyed:
     #   (A) DMatrix pre-construction: each fit takes a DIFFERENT column subset of X (OOF-SHAP folds,
-    #       revalidation candidates, refine probes) -- no two fits share the same matrix.
+    #       revalidation candidates, refine probes) - no two fits share the same matrix.
     #   (B) Booster pool: xgboost's Booster.reset (3.0+) frees data caches but does NOT permit
     #       re-training a fresh booster on different data. No public API for state-reuse.
-    #   (C) Module-level _init: there is none -- core.py:1553 is QuantileDMatrix._init, an instance
+    #   (C) Module-level _init: there is none - core.py:1553 is QuantileDMatrix._init, an instance
     #       constructor; the work it does (callback registration + C-bridge DMatrix allocation +
     #       quantile sketch) is intrinsic per-fit cost.
     # Probe (width=2000, n_rows=3000): _init ncalls=8, tottime=0.332s, percall=42ms; total e2e 25.7s.
@@ -529,7 +529,7 @@ def compute_shap_matrix(
     """Compute the per-row SHAP value matrix + per-row base value.
 
     Returns ``(phi, base, y_aligned)``, or ``(phi, base, y_aligned, phi_var)`` when
-    ``return_variance`` -- where ``phi_var`` (n, f) is the model-to-model attribution variance within
+    ``return_variance`` - where ``phi_var`` (n, f) is the model-to-model attribution variance within
     each row's fold (lever #7: subsets built from unstable attributions can be penalised). With
     ``n_models == 1`` the variance is zero. ``config_jitter`` cycles tree depth across the models.
 
@@ -550,8 +550,8 @@ def compute_shap_matrix(
     / refine (iter9-iter12); xgboost training dominates the OOF stage per cProfile (iter19), so
     fewer trees translate near-linearly to wall-clock. ``None`` disables the cap (legacy behaviour).
 
-    phi : (n, f) float64 -- per-row SHAP in margin (clf) / target (reg) space.
-    base : (n,) float64 -- per-row baseline (the fold's expected_value), constant within a fold.
+    phi : (n, f) float64 - per-row SHAP in margin (clf) / target (reg) space.
+    base : (n,) float64 - per-row baseline (the fold's expected_value), constant within a fold.
 
     ``return_per_fold_phi_mean`` (iter59): when True, the return tuple gains a trailing
     ``per_fold_phi_mean`` of shape (n_splits, n_features), where row k is ``|phi|.mean(axis=0)`` over
@@ -573,7 +573,7 @@ def compute_shap_matrix(
     # paying the per-fold xgboost fit + TreeSHAP attribution cost. ``cache_dir=None`` skips entirely
     # (default, zero behaviour change). The RNG bit-stream is snapshotted at entry so the cache key
     # reflects the seed every fold WILL see, not whatever state ``rng`` reaches after the function
-    # consumes draws -- without that snapshot a hit on a partially-consumed rng would key under
+    # consumes draws - without that snapshot a hit on a partially-consumed rng would key under
     # different bits than the original miss.
     _cache = None
     _cache_key = None
@@ -615,7 +615,7 @@ def compute_shap_matrix(
                 # Replay the exact ``rng.integers`` draws the miss path would consume so the shared
                 # rng's post-state matches byte-for-byte. Without this, downstream stages that share
                 # the same rng (selector heuristics, refine, trust-guard) would observe different
-                # draws between cache-hit and cache-miss runs -- breaking subset bit-identity.
+                # draws between cache-hit and cache-miss runs - breaking subset bit-identity.
                 # Sequence (mirrors the non-cached code path below):
                 #   * out_of_fold=False: n_models seeds.
                 #   * out_of_fold=True: 1 splitter seed + n_splits * n_models fold seeds.
@@ -645,8 +645,8 @@ def compute_shap_matrix(
     def _models_phi(X_tr, y_tr, X_ex, seeds, inner_n_jobs=None):
         """Mean phi, mean base, and (model-to-model) phi variance over n_models fits on X_ex.
 
-        ``seeds`` is the pre-drawn list of model seeds (one per model). Passing them in -- instead of
-        drawing from ``rng`` inside the loop -- decouples the per-fold work from RNG draw ORDER, so the
+        ``seeds`` is the pre-drawn list of model seeds (one per model). Passing them in - instead of
+        drawing from ``rng`` inside the loop - decouples the per-fold work from RNG draw ORDER, so the
         out-of-fold loop can run folds concurrently and still produce the byte-identical result a serial
         run would (the seed each fold sees is fixed regardless of which fold finishes first).
 
@@ -735,7 +735,7 @@ def compute_shap_matrix(
         outer = max(1, min(outer, len(folds), n_cores))
     # iter54: default lets xgboost manage all cores via its own thread pool (inner=-1). iter53 A/B at
     # width 4000+10000 measured the iter4 oversubscription cap (n_cores // outer when outer > 1) as
-    # 8-9% e2e SLOWER -- per-stage: reval +8%, refine +11%, trust +12% wall-clock loss; prefilter +2%
+    # 8-9% e2e SLOWER - per-stage: reval +8%, refine +11%, trust +12% wall-clock loss; prefilter +2%
     # small win. xgboost's internal scheduler handles outer*inner > n_cores more efficiently than the
     # joblib-side cap on 8-core modern boxes. ``inner_n_jobs_cap=True`` restores legacy behaviour for
     # callers who measure regression on their HW.

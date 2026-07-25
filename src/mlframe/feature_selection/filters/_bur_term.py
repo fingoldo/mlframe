@@ -65,12 +65,12 @@ def bur_term(x_cand: np.ndarray, selected_cols: list[np.ndarray], y: np.ndarray,
     is the marginal relevance; the second is the strongest correlation of
     ``X_cand`` to any already-selected feature. The difference is the
     portion of ``X_cand``'s relevance that the selected set CANNOT explain
-    via marginal correlation -- the additive bonus.
+    via marginal correlation - the additive bonus.
 
     When ``S`` is empty, returns ``I(X_cand; Y)`` (no selected features to
     explain anything yet).
 
-    Floored at 0 -- a feature whose marginal-y MI is less than its
+    Floored at 0 - a feature whose marginal-y MI is less than its
     correlation with a selected feature gets zero bonus, not a penalty.
     """
     # Guard against out-of-range / -1-sentinel codes: the njit kernel indexes joint[x[i], y[i]] directly, so a
@@ -82,10 +82,15 @@ def bur_term(x_cand: np.ndarray, selected_cols: list[np.ndarray], y: np.ndarray,
     _assert_codes_in_range(y, int(nbins_y), "bur_term y")
     for _j, _c in enumerate(selected_cols):
         _assert_codes_in_range(_c, int(nbins_selected[_j]), "bur_term selected_col")
+    from .info_theory._batch_kernels import check_joint_cardinality
+
     x_int = x_cand.astype(np.int64)
     y_int = y.astype(np.int64)
     K_x = int(nbins_x)
     K_y = int(nbins_y)
+    check_joint_cardinality(K_x, K_y, what="bur_term")
+    for _nb_s in nbins_selected:
+        check_joint_cardinality(K_x, int(_nb_s), what="bur_term")
     mi_xy = _mi_pair_njit(x_int, y_int, K_x, K_y)
     if not selected_cols:
         return float(mi_xy)

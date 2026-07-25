@@ -2,8 +2,8 @@
 
 ``_pairwise_modular_fe._perm_null_hi`` is the dominant repetition of the modular scan: for the per-combiner best
 modulus it builds the residue ``r = c mod k`` ONCE on the host, then loops ``n_perm`` (=12) times scoring
-``_mi(r, y[perm_i])``. Each ``_mi`` reshapes its single residue column to ``(n, 1)`` and -- under
-``MLFRAME_FE_GPU_STRICT`` -- routes through the resident plug-in MI, ``cp.asarray``-uploading that ``(n, 1)``
+``_mi(r, y[perm_i])``. Each ``_mi`` reshapes its single residue column to ``(n, 1)`` and - under
+``MLFRAME_FE_GPU_STRICT`` - routes through the resident plug-in MI, ``cp.asarray``-uploading that ``(n, 1)``
 host residue FRESH on every one of the 12 calls at ``_orth_mi_backends.py:311`` (the SF2 share of a 300k STRICT
 F2 byte-audit: ~43 MB / 22x single-column residue uploads, the perm-null being the bulk).
 
@@ -13,9 +13,9 @@ perm) and then computes ``MI(codes_r; y[perm_i])`` via ``binned_mi_from_codes_gp
 JOINT reindex of both variables, so ``MI(codes_r; y[perm]) == MI(codes_r[inv_perm]; y)`` where ``inv_perm`` is
 the inverse of ``perm``. Reordering the INTEGER CODES is a pure index gather with NO re-binning, so it has none
 of the tie-break ambiguity that reordering the float RESIDUE before binning would (the residue is heavily tied
--- only ``k`` distinct values -- so binning ``r[inv_perm]`` would NOT equal ``codes_r[inv_perm]``). Therefore we
+-- only ``k`` distinct values - so binning ``r[inv_perm]`` would NOT equal ``codes_r[inv_perm]``). Therefore we
 bin ``r`` ONCE on the device, gather ``codes_r[inv_perm_i]`` into a single ``(n, n_perm)`` code matrix, and
-score it against the SAME resident y in ONE ``binned_mi_from_codes_gpu`` launch -- byte-identical to the host
+score it against the SAME resident y in ONE ``binned_mi_from_codes_gpu`` launch - byte-identical to the host
 per-perm rank loop, with the 12 uploads collapsed to one (small int) code-matrix transient. The permutations are
 the SAME seeded host ``rng.permutation`` arrays (passed in), drawn in the SAME loop order.
 
@@ -32,6 +32,8 @@ import logging
 from typing import Any, Optional, Sequence
 
 import numpy as np
+
+from ._y_encoding import encode_y_for_classif_mi
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +53,9 @@ def combiner_mi_resident(
 
     Uploads the integer combiner column ONCE via the resident-operand cache, computes the residue ``c % m`` on
     device when ``modulus > 0`` (exact integer cupy ``%``; ``modulus=0`` scores the raw combiner), and scores it
-    through the SAME (rank, under STRICT) resident estimator ``_mi`` uses -- so the baseline / residue MI is
+    through the SAME (rank, under STRICT) resident estimator ``_mi`` uses - so the baseline / residue MI is
     byte-identical to the host ``_mi`` (rank codes from the SAME column). Returns a Python float, OR ``None`` when
-    STRICT-residency is off / cupy is unavailable / the binner is not the rank binner / any cupy fault -- in which
+    STRICT-residency is off / cupy is unavailable / the binner is not the rank binner / any cupy fault - in which
     case the caller takes the EXACT host ``_mi`` (byte-identical default path untouched)."""
     try:
         from ._gpu_strict_fe import fe_gpu_device_born_modular_enabled
@@ -74,7 +76,7 @@ def combiner_mi_resident(
         cg = resident_operand(cf, ("modular_combiner", cf.shape[0]), dtype=np.int64)
         col = (cg % int(modulus)) if int(modulus) > 0 else cg
         Xd = col.astype(cp.float64)[:, None]
-        _yi = np.ascontiguousarray(np.asarray(y)).astype(np.int64).ravel()
+        _yi = np.ascontiguousarray(encode_y_for_classif_mi(y))
         yd = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
         _ymin = int(_yi.min()) if _yi.size else 0
         _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
@@ -96,15 +98,15 @@ def residue_grid_mis_resident(
 ) -> Optional[np.ndarray]:
     """DEVICE-BORN twin of ``_residue_grid_mi``: ``MI(c mod k; y)`` for every k in ``mods``, building the
     residues ON the device from a single resident combiner column (collapsing the per-group residue-matrix upload
-    at ``_orth_mi_backends.py:139`` -- the dominant modular :311 H2D). The combiner ``c`` uploads ONCE via the
+    at ``_orth_mi_backends.py:139`` - the dominant modular :311 H2D). The combiner ``c`` uploads ONCE via the
     resident-operand cache; ``c % k`` is exact integer arithmetic on device; each effective-nbins group
     (``max(nbins, k)``) is scored in one resident plug-in call (the SAME percentile-EDGE estimator the host
-    ``_residue_grid_mi`` routes to under STRICT -- the grid path leaves ``rank_binning`` False).
+    ``_residue_grid_mi`` routes to under STRICT - the grid path leaves ``rank_binning`` False).
 
     Returns a host ``(len(mods),)`` float64 array in ``mods`` order, OR ``None`` when STRICT-residency is off /
-    cupy is unavailable / any cupy fault -- in which case the caller takes the EXACT host ``_residue_grid_mi``
+    cupy is unavailable / any cupy fault - in which case the caller takes the EXACT host ``_residue_grid_mi``
     (byte-identical default path untouched). Selection-equivalent to the host grid: the device residue ``c % k``
-    has the SAME integer values as ``np.mod(c, k)``, so the percentile-edge partition -- and the per-column MI --
+    has the SAME integer values as ``np.mod(c, k)``, so the percentile-edge partition - and the per-column MI -
     matches the host edge path."""
     try:
         from ._gpu_strict_fe import fe_gpu_device_born_modular_enabled
@@ -124,7 +126,7 @@ def residue_grid_mis_resident(
 
         cf = np.ascontiguousarray(np.asarray(c, dtype=np.int64)).ravel()
         cg = resident_operand(cf, ("modular_combiner", cf.shape[0]), dtype=np.int64)
-        _yi = np.ascontiguousarray(np.asarray(y)).astype(np.int64).ravel()
+        _yi = np.ascontiguousarray(encode_y_for_classif_mi(y))
         yd = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
         _ymin = int(_yi.min()) if _yi.size else 0
         _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
@@ -161,7 +163,7 @@ def perm_null_residue_mis_resident(
     seeded ``rng.permutation`` arrays the host loop uses, in the SAME order), ``eff_nbins`` the per-residue bin
     count (``max(nbins, k)``), ``rank_binning`` the STRICT gate-MI binner select. Returns a host ``(n_perm,)``
     float64 array of the per-perm residue MIs, OR ``None`` when STRICT-residency is off / cupy is unavailable /
-    the binner is not the rank binner / any cupy fault -- in which case the caller takes the EXACT host per-perm
+    the binner is not the rank binner / any cupy fault - in which case the caller takes the EXACT host per-perm
     ``_mi`` loop (byte-identical default path)."""
     try:
         from ._gpu_strict_fe import fe_gpu_device_born_modular_enabled
@@ -204,7 +206,7 @@ def perm_null_residue_mis_resident(
         inv_g = cp.asarray(np.ascontiguousarray(inv_idx))
         code_mat = cp.ascontiguousarray(codes_r[inv_g])  # (n, n_perm), gathered codes
         # y rides the SAME resident "y_mi_classif" role the host STRICT MI path uses (uploaded once per fit).
-        _yi = np.ascontiguousarray(np.asarray(y)).astype(np.int64).ravel()
+        _yi = np.ascontiguousarray(encode_y_for_classif_mi(y))
         yd = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
         _ymin = int(_yi.min()) if _yi.size else 0
         if _ymin:
@@ -212,7 +214,7 @@ def perm_null_residue_mis_resident(
         _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
         # codes_trusted: code_mat is a permutation-gather of rank_bin_codes_batch_gpu_resident output (dense
         # 0..nb-1, range-preserving) and yd was shifted to dense 0-based above, so the in-range guard cannot
-        # fire -- skip its blocking min/max sync (FIX1).
+        # fire - skip its blocking min/max sync (FIX1).
         mis = binned_mi_from_codes_gpu(code_mat, yd, kx_per_col=[nb] * n_perm, ky=int(_ncls), codes_trusted=True)
         return np.asarray(mis, dtype=np.float64)
     except Exception as _exc:

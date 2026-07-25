@@ -1,7 +1,7 @@
 """sklearn transform-protocol surface (get_feature_names_out / get_support / usability union) for MRMR.
 
 Pure move from ``_mrmr_class`` into a mixin. ``transform`` itself stays directly on the ``MRMR`` class
-body -- see its docstring in ``_mrmr_class.py`` for why (``_SetOutputMixin.__init_subclass__`` wrapping);
+body - see its docstring in ``_mrmr_class.py`` for why (``_SetOutputMixin.__init_subclass__`` wrapping);
 the helpers it and the sklearn protocol call live here and resolve through the MRO on the concrete
 ``MRMR`` instance.
 """
@@ -130,7 +130,7 @@ class _MRMRTransformMixin:
     def discovered_structure_(self):
         """Read-only EDA view of the discrete STRUCTURAL relationships the four FE detectors found during ``fit`` (modular / lattice /
         argmax / conditional-gate). Assembled near-free from the frozen ``_engineered_recipes_`` metadata (op / modulus / tau / src_names)
-        the operators already emitted -- no re-scan, no y. Returns a :class:`~mlframe.feature_selection.structure_discovery.StructureReport`;
+        the operators already emitted - no re-scan, no y. Returns a :class:`~mlframe.feature_selection.structure_discovery.StructureReport`;
         MI / lift are ``nan`` here (the fit did not freeze the scan's MI), the kind + columns + parameter are exact. For MI / lift, call the
         standalone ``discover_structure(X, y)`` instead."""
         from ...structure_discovery import structure_report_from_recipes
@@ -184,7 +184,7 @@ class _MRMRTransformMixin:
         return np.where(mask)[0] if indices else mask
 
     def _get_support_mask(self) -> np.ndarray:
-        """Required by ``sklearn.feature_selection.SelectorMixin`` -- delegates to
+        """Required by ``sklearn.feature_selection.SelectorMixin`` - delegates to
         ``get_support()``, the mixin's own boolean-mask logic. MRMR's ``transform``/``get_feature_names_out``
         still win over ``SelectorMixin``'s versions via MRO (see the class-body comment on ``MRMR``'s bases);
         this only makes ``isinstance(mrmr, SelectorMixin)`` true and enables SelectorMixin's other
@@ -194,7 +194,7 @@ class _MRMRTransformMixin:
     def _append_usability_union(self, base_out, X):
         """Append the usability lists' features (``support_linear_`` + ``support_universal_``, deduped
         against the pure-MI output and each other) to the standard transform output, and record
-        ``usability_feature_groups_`` -- a ``{'nonlinear'|'linear'|'universal': [names]}`` map so a
+        ``usability_feature_groups_`` - a ``{'nonlinear'|'linear'|'universal': [names]}`` map so a
         downstream can subset to a model family's list. The pure-MI columns keep precedence on a name
         clash; the union is what lets a LINEAR model trained on the suite's shared matrix pick up the
         engineered interaction (c*d) it needs without any per-model re-transform."""
@@ -223,7 +223,7 @@ class _MRMRTransformMixin:
         return pd.concat([base_out, mat], axis=1)
 
     def transform_usability(self, X, which: Literal["linear", "universal", "nonlinear"] = "linear"):
-        """Materialise a USABILITY-AWARE feature space on ``X`` -- the linear-downstream selection
+        """Materialise a USABILITY-AWARE feature space on ``X`` - the linear-downstream selection
         produced when the estimator was fit with ``usability_aware_lists=True``.
 
         ``which='linear'`` -> ``support_linear_`` (the ``w->1`` usability list, for linear / additive
@@ -242,7 +242,7 @@ class _MRMRTransformMixin:
         candidates = getattr(self, attr, None)
         if candidates is None:
             # 09_error_messages_ux.md: a precondition-not-met/feature-not-enabled situation, same class
-            # of error as the `which` validation two lines above -- ValueError (not AttributeError) so a
+            # of error as the `which` validation two lines above - ValueError (not AttributeError) so a
             # caller catching ValueError for MRMR config problems catches this one too.
             raise ValueError(
                 f"{attr} is not available: fit MRMR with usability_aware_lists=True and a continuous target to populate it (the '{which}' usability list)."

@@ -2,15 +2,14 @@
 
 Two blocks with explicit inputs/outputs (no shared-local threading with the surrounding orchestrator beyond their declared parameters):
 
-* ``compute_pair_maxt_floor`` -- the order-2 Westfall-Young permutation-null joint-MI floor over the whole candidate-pair pool. Returns ``(floor, per_pair_mm_bias)``: the float floor applied as an extra gate in both the XOR and uplift branches of the pair loop, plus (when ``fe_mm_debias_prevalence``) the per-pair Miller-Madow joint-MI bias map subtracted from the observed ``pair_mi`` at the floor comparison so the floor stays on the same debiased scale as the prevalence ratio gate (IRON RULE: consistent debias on both sides).
-* ``run_cluster_aggregate_emission`` -- the opt-in clustered-feature aggregation emission block (runs once on the first FE step; returns the updated ``(data, cols, nbins, X, selected_vars, n_recommended_features)`` tuple and stamps the fitted summary onto ``self``).
+* ``compute_pair_maxt_floor`` - the order-2 Westfall-Young permutation-null joint-MI floor over the whole candidate-pair pool. Returns ``(floor, per_pair_mm_bias)``: the float floor applied as an extra gate in both the XOR and uplift branches of the pair loop, plus (when ``fe_mm_debias_prevalence``) the per-pair Miller-Madow joint-MI bias map subtracted from the observed ``pair_mi`` at the floor comparison so the floor stays on the same debiased scale as the prevalence ratio gate (IRON RULE: consistent debias on both sides).
+* ``run_cluster_aggregate_emission`` - the opt-in clustered-feature aggregation emission block (runs once on the first FE step; returns the updated ``(data, cols, nbins, X, selected_vars, n_recommended_features)`` tuple and stamps the fitted summary onto ``self``).
 
 Both take the ``MRMR`` instance as ``self`` so they read the frozen ``fe_*`` / ``cluster_aggregate_*`` config off it exactly as the inlined blocks did. The heavy kernels stay in their own modules (``_permutation_null``, ``_cluster_aggregate``) and are lazy-imported in-body to avoid import cycles.
 """
 from __future__ import annotations
 
 import logging
-from itertools import combinations
 from typing import Any, Sequence
 
 import numpy as np
@@ -33,7 +32,7 @@ def apply_synergy_bootstrap(
     """Synergy bootstrap: widen the FE pair pool with unselected raw numeric columns so zero-marginal synergy pairs get joint-MI screened.
 
     Pure-synergy interactions (a*d, sign products, log(c)*sin(d)) have ~zero marginal MI per factor, so neither factor is screened-in and the pair never reaches the prospective-pair
-    screen -- even though that screen ALREADY keeps a zero-individual-MI pair whose JOINT MI is positive (the canonical XOR branch). The fix is purely to widen the POOL: when the raw
+    screen - even though that screen ALREADY keeps a zero-individual-MI pair whose JOINT MI is positive (the canonical XOR branch). The fix is purely to widen the POOL: when the raw
     numeric feature count is within ``fe_synergy_screen_max_features``, add the UNSELECTED raw numeric columns so the all-pairs joint-MI sweep screens the synergy pairs. Two cost/quality
     guards live downstream: (1) synergy pairs (>=1 bootstrap-added operand) must clear the STRICTER ``fe_synergy_min_prevalence`` uplift bar (rejects finite-sample-bias noise pairs), and
     (2) the surviving synergy pairs are budget-capped to ``fe_synergy_max_pairs`` by joint MI. Runs only on the FIRST FE step.
@@ -41,12 +40,12 @@ def apply_synergy_bootstrap(
     Gated by a MIN-ROWS guard (``fe_synergy_min_rows``: a 2-D joint-MI estimate is finite-sample-bias-dominated at tiny n, admitting pure-NOISE pairs) and an N-AWARE COST GATE
     (``fe_synergy_max_sweep_cost`` ~ n*p^2: the O(p^2*n) sweep grows super-linearly in n; default 5e8 fires on the measured wins but SKIPS large-n blow-ups; set to inf to disable).
 
-    bench-rejected (2026-06-03) -- GAP-3 "poly-feature synergy re-entry": feeding ENGINEERED univariate poly features (He2(a) etc.) back into this bootstrap pool so a synergy like
-    y=He2(a)*b surfaces was benchmarked and REJECTED. Pool entry is NOT the blocker -- the raw (a,b) pair already reaches the prospective-pair screen as the top-joint-MI pair, and the
+    bench-rejected (2026-06-03) - GAP-3 "poly-feature synergy re-entry": feeding ENGINEERED univariate poly features (He2(a) etc.) back into this bootstrap pool so a synergy like
+    y=He2(a)*b surfaces was benchmarked and REJECTED. Pool entry is NOT the blocker - the raw (a,b) pair already reaches the prospective-pair screen as the top-joint-MI pair, and the
     per-pair unary search builds He2(a)*b from it. poly x raw classification is already recovered 6/6 via the default-on prewarp operand; the genuine miss is poly x raw regression (1/6),
     blocked simultaneously by four noise-control gates, and forcing recovery would loosen the gates ``test_biz_val_mrmr_default_filtering.py`` pins for a fragile 2/6. Don't re-add it.
 
-    Returns ``(numeric_vars_to_consider, synergy_added_idx)`` -- the (possibly widened) pool and the set of bootstrap-added operand indices (empty when the bootstrap did not fire).
+    Returns ``(numeric_vars_to_consider, synergy_added_idx)`` - the (possibly widened) pool and the set of bootstrap-added operand indices (empty when the bootstrap did not fire).
     """
     synergy_cap = int(getattr(self, "fe_synergy_screen_max_features", 0) or 0)
     synergy_added_idx: set = set()
@@ -67,7 +66,7 @@ def apply_synergy_bootstrap(
         if self.factors_names_to_use is not None:
             _raw_numeric_idx &= {cols.index(n) for n in self.factors_names_to_use if n in cols}
         _n_raw = len(_raw_numeric_idx)
-        # SECOND FUNNEL STAGE -- GPU-EXHAUSTIVE SYNERGY SWEEP (2026-06-19). The pre-rank below is an O(p)
+        # SECOND FUNNEL STAGE - GPU-EXHAUSTIVE SYNERGY SWEEP. The pre-rank below is an O(p)
         # propensity score; it PROVABLY cannot recover a perfectly-balanced (L=0) interaction whose every
         # univariate higher moment vs y is zero (balanced XOR / sign product). Only the EXHAUSTIVE C(p,2)
         # joint-MI sweep recovers such a pair. When ``fe_synergy_exhaustive`` is "force"/True AND a CUDA GPU is
@@ -86,31 +85,31 @@ def apply_synergy_bootstrap(
         except Exception as _exh_e:
             if verbose:
                 logger.info("MRMR FE synergy exhaustive decision degraded (%s: %s); using pre-rank path.", type(_exh_e).__name__, _exh_e)
-        # WIDE-FRAME PRE-RANK (2026-06-19). Above the cap the bootstrap historically SKIPPED entirely, so a
+        # WIDE-FRAME PRE-RANK. Above the cap the bootstrap historically SKIPPED entirely, so a
         # zero-marginal interaction on a wide frame (p >> cap) was engineered as NOTHING. Marginal MI cannot
-        # pick the surviving cap columns (the operands have ~0 marginal MI by construction -- the whole reason
+        # pick the surviving cap columns (the operands have ~0 marginal MI by construction - the whole reason
         # the bootstrap exists). Instead rank by an interaction-propensity score |corr(x^2,y)|+|corr(x,y^2)|
         # (higher moments leak even when the linear marginal is flat) and keep the top ``synergy_cap`` so the
         # exhaustive O(cap^2) sweep runs on the columns most likely to carry interaction signal. Bench
         # (2026-06-18, test_fe_interaction_prerank): recovers the planted operands into the top-250 at recall
         # ~0.88 (L=0.1) vs marginal-MI 0.68 / random 0.12, at O(p*n) ~5s for p=10k. IRREDUCIBLE: a perfectly
         # balanced zero-higher-moment interaction (L=0) is invisible to any O(p) score and still needs the full
-        # exhaustive sweep -- the pre-rank does not claim it. Default ON (fe_synergy_prerank); set False to
+        # exhaustive sweep - the pre-rank does not claim it. Default ON (fe_synergy_prerank); set False to
         # restore the legacy skip-past-cap behaviour. The ranking uses the discretised ``data`` codes (a
         # monotone transform preserves the higher-moment structure; bench-confirmed code-path recall holds).
         _prerank_on = bool(getattr(self, "fe_synergy_prerank", True))
         if _exhaustive_on:
             # FULL exhaustive sweep selected: treat EVERY raw numeric column as in-pool. Lift the cap to _n_raw
             # (no pre-rank trimming) and disable the n*p^2 cost gate so the all-pairs joint-MI sweep runs over all
-            # columns -- the only path that recovers a balanced (L=0) interaction. The exhaustive CUDA kernel is
+            # columns - the only path that recovers a balanced (L=0) interaction. The exhaustive CUDA kernel is
             # the dispatch target downstream (_step_core force_backend="cuda").
             synergy_cap = _n_raw
             synergy_max_sweep_cost = float("inf")
             self._fe_synergy_exhaustive_active_ = True
         elif _prerank_on and _n_raw > synergy_cap and (n_rows_for_synergy * (synergy_cap**2) > synergy_max_sweep_cost):
-            # COST-GATE FIRST (2026-06-19, critique #4). After the pre-rank keeps exactly ``synergy_cap``
+            # COST-GATE FIRST. After the pre-rank keeps exactly ``synergy_cap``
             # columns the sweep cost is n*cap^2; if THAT already exceeds the budget the sweep below will be
-            # skipped regardless -- so do NOT pay the O(p*n) pre-rank (which also risks OOM on a very wide
+            # skipped regardless - so do NOT pay the O(p*n) pre-rank (which also risks OOM on a very wide
             # frame at large n). Skip straight to the legacy log path.
             if verbose:
                 logger.info(
@@ -147,7 +146,7 @@ def apply_synergy_bootstrap(
                             "O(p) score; set fe_synergy_prerank=False to restore the legacy skip-past-cap.",
                             synergy_cap, _n_raw,
                         )
-            except Exception as _e:  # correctness over the optimisation -- fall back to the legacy skip
+            except Exception as _e:  # correctness over the optimisation - fall back to the legacy skip
                 if verbose:
                     logger.info("MRMR FE synergy pre-rank degraded (%s: %s); using legacy skip-past-cap.", type(_e).__name__, _e)
         _sweep_cost = n_rows_for_synergy * (_n_raw**2)
@@ -206,7 +205,7 @@ def apply_surrogate_gbm_seeder(
     floor (``batch_triple_mi_prange``-based, the #7 rail) and the survivors stamped onto
     ``self._seeded_triplets_`` for the triplet FE stage. Runs only on the FIRST FE step.
 
-    Returns ``(numeric_vars_to_consider, seeded_pairs)`` -- the (possibly widened) operand pool and
+    Returns ``(numeric_vars_to_consider, seeded_pairs)`` - the (possibly widened) operand pool and
     the surviving seeded pair-index tuples (empty when the seeder is off / self-gate fails). The
     seeded triples + raw seeder diagnostics are stamped on ``self`` (``_seeded_pairs_`` /
     ``_seeded_triplets_`` / ``fe_gbm_seeder_info_``). OPT-IN (``fe_gbm_seeder_enable``); self-routes
@@ -245,11 +244,11 @@ def apply_surrogate_gbm_seeder(
         from ._surrogate_interaction_seeder import surrogate_gbm_interaction_seeds
 
         # The seeder's candidate pool is ALL raw numeric columns (the operands the
-        # univariate seed_count ranks among) -- the whole point is to reach the
+        # univariate seed_count ranks among) - the whole point is to reach the
         # zero-marginal ones the top-N cut drops.
         _cand = sorted(_raw_numeric_idx)
-        # The surrogate predicts the DISCRETISED ordinal target ``classes_y`` -- the SAME
-        # small-cardinality representation every FE-gate MI is scored against -- so the
+        # The surrogate predicts the DISCRETISED ordinal target ``classes_y`` - the SAME
+        # small-cardinality representation every FE-gate MI is scored against - so the
         # split co-occurrence is on the exact signal the pair/triple floors gate. The binned
         # target is always a low-cardinality ordinal (a multiclass classification problem for
         # the surrogate), whether the original task was classification or regression.
@@ -268,7 +267,7 @@ def apply_surrogate_gbm_seeder(
         self.fe_gbm_seeder_info_ = {k: v for k, v in info.items() if k in ("oof_real", "oof_perm", "self_gate_z", "gated", "n_pairs", "n_triples")}
         # The seeder fit failed entirely (no surrogate) -> nothing to do. ``gated`` is the PAIR
         # self-gate; TRIPLES are emitted regardless (the order-3 floor gates them), so we do NOT
-        # early-return on ``gated=False`` -- only when there is no co-occurrence output at all.
+        # early-return on ``gated=False`` - only when there is no co-occurrence output at all.
         if not seeded_pairs and not seeded_triples:
             return numeric_vars_to_consider, []
 
@@ -384,7 +383,7 @@ def compute_pair_maxt_floor(
     """Order-2 Westfall-Young permutation-null joint-MI floor over the candidate-pair pool.
 
     The pair-gating loop ranks O(p^2) candidate pairs by JOINT MI(x_i, x_j; y); at high p the MAX joint MI over PURE-NOISE pairs is a positive order statistic that grows with the
-    pool size -- the same best-of-p selection bias the order-1 screening floor rejects, now at order 2. The per-pair prevalence gates are PER-PAIR; they do NOT account for the
+    pool size - the same best-of-p selection bias the order-1 screening floor rejects, now at order 2. The per-pair prevalence gates are PER-PAIR; they do NOT account for the
     max-over-pool selection, so a wide noise matrix still surfaces "synergistic-looking" noise pairs. Compute the floor ONCE over the WHOLE candidate pool: shuffle the discretised
     target K times, take the per-shuffle MAX joint MI via the SAME batched plug-in estimator the screen scores ``pair_mi`` with, floor at the q-th quantile. SELF-GATING: below
     ``fe_pair_maxt_min_pairs`` candidate pairs the floor is 0.0 (no-op => byte-identical narrow pools). ``fe_pair_maxt_null_permutations=0`` disables.
@@ -401,9 +400,15 @@ def compute_pair_maxt_floor(
         try:
             from ._permutation_null import pooled_pair_permutation_null_joint_mi_floor, pairwise_mm_joint_bias
 
-            _maxt_pairs = list(combinations(numeric_vars_to_consider, 2))
-            _maxt_pa = np.fromiter((p[0] for p in _maxt_pairs), dtype=np.int64, count=len(_maxt_pairs))
-            _maxt_pb = np.fromiter((p[1] for p in _maxt_pairs), dtype=np.int64, count=len(_maxt_pairs))
+            # Emit the pair index arrays directly via triu_indices (same lexicographic order as
+            # itertools.combinations) instead of materialising a Python tuple list - at k~5000 the tuple
+            # list alone is ~700MB of objects before the kernel even runs. _bias_vec stays index-aligned.
+            # np.fromiter (not np.asarray): the caller passes a SET, which asarray cannot convert, and
+            # fromiter also preserves the exact iteration order combinations() would have walked.
+            _k_vars = np.fromiter(numeric_vars_to_consider, dtype=np.int64, count=len(numeric_vars_to_consider))
+            _ia, _ib = np.triu_indices(_k_vars.shape[0], k=1)
+            _maxt_pa = _k_vars[_ia]
+            _maxt_pb = _k_vars[_ib]
             # Per-pair MM joint-MI bias (permutation-invariant) is needed BOTH at the gate (mapped into
             # _pair_mm_bias below) AND, when mm-debias, by the floor itself; compute it once up front so the
             # resident-GPU floor can subtract the IDENTICAL per-pair term the CPU floor does (consistent debias).
@@ -449,7 +454,7 @@ def compute_pair_maxt_floor(
                 try:
                     trip_pair_maxt_gpu_circuit_breaker()
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in _mrmr_fe_step_helpers.py:449: %s", e)
+                    logger.debug("suppressed: %s", e)
                     pass
                 _pair_maxt_floor = None
             if _pair_maxt_floor is None:
@@ -466,8 +471,8 @@ def compute_pair_maxt_floor(
                     mm_debias=_mm_debias,
                 )
             if _mm_debias and _bias_vec is not None:
-                for _pi, _pr in enumerate(_maxt_pairs):
-                    _pair_mm_bias[tuple(sorted(_pr))] = float(_bias_vec[_pi])
+                for _pi, (_a, _b) in enumerate(zip(_maxt_pa.tolist(), _maxt_pb.tolist())):
+                    _pair_mm_bias[(_a, _b) if _a <= _b else (_b, _a)] = float(_bias_vec[_pi])
             if _pair_maxt_floor != 0.0 and verbose >= 1:
                 logger.info(
                     "MRMR FE: order-2 maxT permutation-null joint-MI floor=%.5f over %d candidate "
@@ -518,7 +523,7 @@ def run_cluster_aggregate_emission(
             )
 
             # kernel_tuning_cache-route the two threshold knobs when the user left them at the
-            # package default (explicit user overrides always win) -- docs backlog: "kernel_tuning_
+            # package default (explicit user overrides always win) - docs backlog: "kernel_tuning_
             # cache for cluster thresholds", mirroring the DCD layer's existing pattern.
             _corr_threshold = self.cluster_aggregate_corr_threshold
             if _corr_threshold == CLUSTER_AGGREGATE_CORR_THRESHOLD_DEFAULT:
@@ -551,7 +556,7 @@ def run_cluster_aggregate_emission(
             n_recommended_features += int(_ca_added)
             if _ca_indices:
                 # The aggregate already passed the supervised MI gate (beats best member), so select it
-                # directly -- don't rely on a re-screen (with the default fe_max_steps=1 the loop breaks
+                # directly - don't rely on a re-screen (with the default fe_max_steps=1 the loop breaks
                 # before re-screening). Remap routes the engineered name into _engineered_recipes_.
                 _sv = list(selected_vars) if not isinstance(selected_vars, list) else selected_vars
                 selected_vars = _sv + [i for i in _ca_indices if i not in _sv]
@@ -694,7 +699,7 @@ def log_fe_summary(
             float(fe_good_to_best_feature_mi_threshold),
         )
         if n_recommended_features == 0 and _n_pairs_considered > 0:
-            # Suggest a value STRICTLY BELOW the value actually in effect -- the
+            # Suggest a value STRICTLY BELOW the value actually in effect - the
             # old text hardcoded "lower to 0.90", which is a no-op once 0.90 IS
             # the default (regression: it literally told the operator to set the
             # knob to the value it was already at). Derive the suggestion from the

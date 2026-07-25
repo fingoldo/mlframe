@@ -49,7 +49,7 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
     ``col_cache``: optional dict shared across every recipe replayed in ONE ``transform()`` call (see
     ``apply_recipe``); forwarded to ``_extract_column`` and to the recursive ``apply_recipe`` call for a
     nested-engineered operand so a hub raw column is pulled from ``X`` at most once per call."""
-    # GPU-RESIDENT REPLAY (2026-06-28): the elementwise ``binary(unary_a(X[a]),
+    # GPU-RESIDENT REPLAY: the elementwise ``binary(unary_a(X[a]),
     # unary_b(X[b]))`` materialisation on full-n (300k-1M) operands is
     # embarrassingly parallel and was the dominant FE-replay cost (~3.4s) on the
     # F2 STRICT path. Under the resident opt-in we apply the operator chain on
@@ -77,7 +77,7 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
     name_a, name_b = recipe.src_names
     u_a, u_b = recipe.unary_names
 
-    # The learned ``prewarp`` (2026-06-02) and ``gate_med`` (2026-06-04)
+    # The learned ``prewarp`` and ``gate_med``
     # pseudo-unaries are NOT members of any preset registry; their closed-form
     # replay reads the fit-time state stored in ``recipe.extra`` (prewarp: poly
     # coeffs; gate_med: the TRAIN median). Validate only the REAL unary names
@@ -88,7 +88,7 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
 
     def _is_pseudo(_u: str) -> bool:
         """Whether ``_u`` is a state-carrying pseudo-unary (not a preset registry lookup)."""
-        # prewarp / gate_med / poly_<coef> are STATE-CARRYING pseudo-unaries -- not members of any preset registry;
+        # prewarp / gate_med / poly_<coef> are STATE-CARRYING pseudo-unaries - not members of any preset registry;
         # they replay closed-form from state stored in recipe.extra (poly: hermite coeffs). Skip the preset lookup.
         return _u in _PSEUDO or _u.startswith("poly_")
 
@@ -99,11 +99,11 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
     if recipe.binary_name not in binary_funcs:
         raise KeyError(f"Binary function '{recipe.binary_name}' not in " f"'{recipe.binary_preset}' preset.")
 
-    # NESTED-ENGINEERED PARENTS (2026-06-08): when an operand is itself an engineered
+    # NESTED-ENGINEERED PARENTS: when an operand is itself an engineered
     # column (a higher-order composite), its values are NOT in ``X`` at transform time
     # (X carries only raw columns). Recompute it by recursively replaying the stored
     # parent recipe, forced to its CONTINUOUS output (quantization stripped) so the
-    # composite is built on continuous values exactly as at fit time -- the fit-time
+    # composite is built on continuous values exactly as at fit time - the fit-time
     # operand was the parent's continuous engineered value, not its bin codes.
     def _nested_continuous(parent: "EngineeredRecipe") -> np.ndarray:
         """Recursively replay ``parent`` (a step-k>1 composite operand), forcing its output continuous (quantization stripped) so it matches the fit-time operand."""
@@ -139,7 +139,7 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
             if uname.startswith("poly_"):
                 # ``poly_<coef>`` pseudo-unary: at fit the key mapped to a hermite coefficient ARRAY (not a callable),
                 # applied via ``hermval(vals, coef)`` (feature_engineering). The recipe stores that coef in extra so
-                # replay reconstructs it -- previously the coef lived only in the per-fit unary_transformations dict,
+                # replay reconstructs it - previously the coef lived only in the per-fit unary_transformations dict,
                 # so recipe replay raised KeyError looking ``poly_<coef>`` up in the static preset (critique ND-1).
                 from numpy.polynomial.hermite import hermval
                 _ckey = f"poly_{side}_coef"
@@ -149,8 +149,8 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
                         f"'{_ckey}' is missing from extra. Re-fit MRMR to regenerate the recipe."
                     )
                 return hermval(np.asarray(vals, dtype=np.float64), np.asarray(recipe.extra[_ckey], dtype=np.float64))
-            # BUG2 FIX (2026-06-12): ``smart_log`` (the registry ``log``) additively
-            # shifts non-positive inputs by ``(1e-5 - nanmin(vals))`` -- a
+            # BUG2 FIX: ``smart_log`` (the registry ``log``) additively
+            # shifts non-positive inputs by ``(1e-5 - nanmin(vals))`` - a
             # DATA-DEPENDENT anchor recomputed from ``vals`` each call. On a row-slice
             # replay ``nanmin`` differs from the full-frame fit, shifting every
             # ``log`` output and (after the downstream quantiser) drifting the bin code
@@ -194,16 +194,16 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
     # Match fit-time NaN/Inf scrubbing in ``feature_engineering.check_prospective_fe_pairs``.
     out = np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
-    # CONTINUOUS TRANSFORM OUTPUT (2026-06-12): ``transform()`` delivers the
+    # CONTINUOUS TRANSFORM OUTPUT: ``transform()`` delivers the
     # numeric pair-FE column as its CONTINUOUS value, never as the internal
     # MI quantile code. Quantile-binning a heavy-tailed product/ratio to integer
-    # codes preserves only RANK and discards MAGNITUDE -- which every non-tree
+    # codes preserves only RANK and discards MAGNITUDE - which every non-tree
     # downstream model needs. Measured on ``y = 0.2*a**2/b``: the 10-bin code of
     # ``div(sqr(a),abs(b))`` had Pearson 0.03 with the true ``a**2/b`` (rank-corr
     # 0.99), and a linear model on the code scored test-R2 ~0.002, versus >=0.99
     # on the continuous feature. The ``prewarp`` / ``hermite_pair`` siblings
     # already skip quantization for exactly this reason (see
-    # ``build_unary_binary_recipe`` -- prewarp sets ``quantization=None``); this
+    # ``build_unary_binary_recipe`` - prewarp sets ``quantization=None``); this
     # generalises it to EVERY unary_binary recipe at replay. ``recipe.quantization``
     # is left populated for provenance/audit only; it is replay-irrelevant because
     # the downstream MRMR fit discretises the fit-time column for its OWN MI matrix
@@ -241,17 +241,17 @@ def build_unary_binary_recipe(
     pickle-safe across numpy versions.
 
     The stored ``edges`` are PROVENANCE/AUDIT only: ``_apply_unary_binary`` replays the CONTINUOUS engineered value and never re-quantises, so it
-    never consults ``edges`` (the magnitude-preserving, drift-invariant contract -- see the apply-side rationale). ``fit_values_for_edges`` still
+    never consults ``edges`` (the magnitude-preserving, drift-invariant contract - see the apply-side rationale). ``fit_values_for_edges`` still
     lets the caller record the fit-time quantile boundaries on the recipe for inspection; passing ``None`` simply omits them. No replay-time
     leakage warning is emitted either way, because there is no replay-time quantiser left to leak.
 
-    NESTED-ENGINEERED PARENTS (2026-06-08): ``nested_parent_a`` / ``nested_parent_b`` are
+    NESTED-ENGINEERED PARENTS: ``nested_parent_a`` / ``nested_parent_b`` are
     the ``EngineeredRecipe`` objects for operands that are THEMSELVES engineered columns
     (a step-k>1 composite of two prior engineered features, e.g.
     ``add(div(sqr(a),abs(b)), mul(log(c),sin(d)))``). When supplied, the parent recipe is
     stored in ``extra["nested_parent_<side>"]`` and ``_apply_unary_binary`` recomputes that
     operand at transform time by recursively replaying the parent (forced to its CONTINUOUS
-    output -- quantization stripped -- so the composite is built on continuous values exactly
+    output - quantization stripped - so the composite is built on continuous values exactly
     as at fit time) rather than reading ``src_<side>_name`` from ``X`` (which only carries
     raw columns at transform time). This makes higher-order composites fully replayable."""
     # Pre-warp recipes emit a CONTINUOUS learned-polynomial product (the same
@@ -287,11 +287,11 @@ def build_unary_binary_recipe(
                     _edges = np.linspace(0.0, 0.0, int(quantization_nbins) + 1)
             quantization["edges"] = _edges.tolist()
 
-    # Per-operand pre-warp (2026-06-02): when the unary name on a side is the
+    # Per-operand pre-warp: when the unary name on a side is the
     # learned ``prewarp`` pseudo-unary, persist its fitted spec (basis, degree,
     # coeffs, basis-preprocess params) FLAT in ``extra`` so replay reproduces
     # the closed-form 1-D warp from x alone (leak-safe; no y). ``extra`` values
-    # must stay flat ndarray/scalar/str for ``_extra_equal`` -- the nested
+    # must stay flat ndarray/scalar/str for ``_extra_equal`` - the nested
     # ``preprocess`` dict is JSON-stringified (sorted keys, deterministic).
     extra: dict = {}
     # ND-1: persist the hermite coefficient array of a ``poly_<coef>`` unary so recipe replay can reconstruct it
@@ -316,7 +316,7 @@ def build_unary_binary_recipe(
             extra[f"prewarp_{_side}_robust_fit"] = True
             extra[f"prewarp_{_side}_winsor_lo"] = float(_spec["winsor_lo"])
             extra[f"prewarp_{_side}_winsor_hi"] = float(_spec["winsor_hi"])
-    # Per-operand median gate (2026-06-04): when a side used the ``gate_med``
+    # Per-operand median gate: when a side used the ``gate_med``
     # pseudo-unary, persist its single TRAIN-median float FLAT in ``extra`` so
     # replay reproduces ``(x > median)`` from x alone (leak-safe; no y). A plain
     # float is JSON-friendly and ``_extra_equal``-comparable as a scalar.
@@ -324,7 +324,7 @@ def build_unary_binary_recipe(
         if _med is None:
             continue
         extra[f"gate_med_{_side}_median"] = float(_med)
-    # Nested-engineered parents (2026-06-08): store the parent recipe per side so
+    # Nested-engineered parents: store the parent recipe per side so
     # replay recomputes the engineered operand recursively. ``_extra_equal`` compares
     # them via ``EngineeredRecipe.__eq__`` (the else branch), and ``__post_init__``
     # deep-copies extra so the stored parents are owned by this recipe.
@@ -332,9 +332,9 @@ def build_unary_binary_recipe(
         if _parent is None:
             continue
         extra[f"nested_parent_{_side}"] = _parent
-    # BUG2 FIX (2026-06-12): per-operand FROZEN ``smart_log`` shift anchor. The
+    # BUG2 FIX: per-operand FROZEN ``smart_log`` shift anchor. The
     # registry ``log`` (``smart_log``) shifts non-positive inputs by
-    # ``(1e-5 - nanmin(operand))`` -- a data-dependent anchor that, recomputed from a
+    # ``(1e-5 - nanmin(operand))`` - a data-dependent anchor that, recomputed from a
     # transform row-slice, drifts every log output (and the downstream bin code). When
     # a side's unary is ``log`` and the caller computed the fit-time anchor, persist it
     # FLAT so replay reproduces the exact fit-time shift. Stored only for ``log`` sides

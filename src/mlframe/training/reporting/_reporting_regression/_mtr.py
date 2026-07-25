@@ -49,7 +49,7 @@ def render_mtr_report(
                 _msg_lines.append(f"  {_k} = {_v:+.4f}")
             logger.info("\n".join(_msg_lines))
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _mtr.py:51: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
     # Per-target K-grid charts: one chart file per target column at ``{plot_file_base}_target{k}{ext}``, through the
     # same build_regression_panel_spec -> render_and_save pipeline as the single-target report.

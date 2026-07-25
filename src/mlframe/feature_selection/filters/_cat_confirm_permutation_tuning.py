@@ -17,7 +17,7 @@ from ._cat_confirm_permutation import (
     _count_nfailed_joint_indep_serial,
 )
 
-# Module-level cupy availability probe -- gates the crossover sweep + @kernel_tuner
+# Module-level cupy availability probe - gates the crossover sweep + @kernel_tuner
 # registration (the per-call dispatch still re-checks importability inside the parent's
 # ``_perm_kernel_dispatch_use_gpu``).
 try:

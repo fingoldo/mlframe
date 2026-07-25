@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 def _single_int(y) -> int:
     """Defensive fallback for a caller passing a bare int despite the Sequence[int] signature
-    (SCREEN_CONFIRM_A-15 fix: factors out 3 verbatim-repeated inline copies)."""
+    (: factors out 3 verbatim-repeated inline copies)."""
     return int(y[0]) if hasattr(y, "__len__") else int(y)
 
 
@@ -33,12 +33,12 @@ def build_dcd_state(
 ):
     """Construct the Wave 9 Dynamic Cluster Discovery state from ``dcd_config``, or return
     ``None`` when DCD is not requested / config is missing / init fails (fallback to legacy
-    path -- DCD is an opt-in accelerator, never a hard requirement for screening to proceed)."""
+    path - DCD is an opt-in accelerator, never a hard requirement for screening to proceed)."""
     if dcd_config is None or not dcd_config.get("enable", False):
         return None
     try:
         from ._dynamic_cluster_discovery import make_dcd_state
-        # Layer 47 (2026-05-31): tau_cluster passes through as-is so
+        # Layer 47: tau_cluster passes through as-is so
         # the literal ``'auto'`` sentinel reaches make_dcd_state's
         # calibration branch. Numeric values are float()-coerced.
         _raw_tau = dcd_config.get("tau_cluster", 0.7)
@@ -61,7 +61,7 @@ def build_dcd_state(
             pairwise_cache_max=int(dcd_config.get("pairwise_cache_max", 50_000)),
             min_cluster_size=int(dcd_config.get("min_cluster_size", 2)),
             max_cluster_size=int(dcd_config.get("max_cluster_size", 12)),
-            # Layer 47 (2026-05-31): forward auto-tau calibration knobs.
+            # Layer 47: forward auto-tau calibration knobs.
             tau_calibration_n_pairs=int(dcd_config.get(
                 "tau_calibration_n_pairs", 100,
             )),
@@ -71,8 +71,8 @@ def build_dcd_state(
             existing_state=existing_dcd_state,
         )
     except Exception as _dcd_init_exc:
-        # SCREEN_CONFIRM_A-8 fix: always log at debug level (was silent at the
-        # library's own verbose=0 default), promoting to warning only when verbose -- a DCD-init failure
+        # Always log at debug level (was silent at the
+        # library's own verbose=0 default), promoting to warning only when verbose - a DCD-init failure
         # should never be completely invisible.
         if verbose:
             logger.warning(

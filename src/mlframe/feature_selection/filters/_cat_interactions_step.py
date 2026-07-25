@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # cfg.backend="auto" GPU-eligibility floor: the ORIGINAL two-independent-thresholds contract was
 # "n_cols_eff >= 200 AND n_samples >= 500_000" (see the docstring at ``run_cat_interaction_step``'s
-# work-based gate below for why that's structurally wrong). Kept as named constants -- not inlined --
+# work-based gate below for why that's structurally wrong). Kept as named constants - not inlined -
 # so the SAME combined work magnitude is reused, not duplicated, at the one call site.
 _AUTO_GPU_MIN_COLS = 200
 _AUTO_GPU_MIN_N = 500_000
@@ -30,16 +30,16 @@ def _cat_fe_auto_wants_gpu(n_samples: int, n_cols_eff: int) -> bool:
     """Whether ``cfg.backend="auto"`` should attempt the GPU dispatch for this (n_samples, n_cols_eff)
     shape (CuPy availability is checked separately by the caller).
 
-    WORK-BASED gate (2026-07-16). The old rule required BOTH ``n_cols_eff >= _AUTO_GPU_MIN_COLS`` AND
-    ``n_samples >= _AUTO_GPU_MIN_N`` as two INDEPENDENT thresholds -- ignoring their PRODUCT, so a wide-
+    WORK-BASED gate. The old rule required BOTH ``n_cols_eff >= _AUTO_GPU_MIN_COLS`` AND
+    ``n_samples >= _AUTO_GPU_MIN_N`` as two INDEPENDENT thresholds - ignoring their PRODUCT, so a wide-
     but-under-500k-row fit could NEVER qualify purely for sitting under the row mark, no matter how many
     columns it had (and vice versa: a huge-row, ~100-column fit never qualified either, despite comparable
     total work). Converted to a work-PRODUCT check against the SAME combined magnitude the original two-
-    threshold rule implied (no new/invented calibration -- the same two constants, now multiplied instead
+    threshold rule implied (no new/invented calibration - the same two constants, now multiplied instead
     of AND'ed), plus the SAME p-floor the validated n*p CPU/CUDA crossover uses elsewhere in MRMR
     (``_should_use_cuda`` / ``_fe_gpu_strict._STRICT_MIN_CALL_P``) so a degenerate huge-n/tiny-p shape with
     no real column-batching parallelism still declines GPU. Note this does NOT, by itself, flip the
-    wellbore-100k shape (n=99401, ~500 candidate cols, work~49.7M) to GPU -- that shape is still under the
+    wellbore-100k shape (n=99401, ~500 candidate cols, work~49.7M) to GPU - that shape is still under the
     100M combined floor; a fit with either somewhat more columns or somewhat more rows at comparable width
     now correctly qualifies where the old AND-of-independent-thresholds rule never could, regardless of how
     large one dimension grew alone."""
@@ -50,12 +50,12 @@ def _quantile_bin_with_edges(raw: np.ndarray, n_bins: int) -> tuple:
     """Quantile-bin a 1-D numeric array into ``[0, n_bins)`` ordinal codes; return ``(codes, inner_edges)``.
 
     ``inner_edges`` are the ``n_bins - 1`` interior quantile cut points (unique-deduped); the bin code is
-    ``np.searchsorted(inner_edges, value, side="right")`` -- the EXACT convention ``categorize_dataset``'s
+    ``np.searchsorted(inner_edges, value, side="right")`` - the EXACT convention ``categorize_dataset``'s
     adaptive path uses (``_discretization_dataset.py``), so codes computed here at fit time are reproduced
     byte-for-byte by the recipe replay at transform time from the stored edges (no train/serve skew).
 
     Returns ``edges.size == 0`` for a constant / degenerate column (caller skips it: a 1-bin column carries
-    no interaction signal). NaN-bearing columns must be filtered out by the caller -- this v1 edge scheme has
+    no interaction signal). NaN-bearing columns must be filtered out by the caller - this v1 edge scheme has
     no dedicated NaN bin, so a NaN would ``searchsorted`` to the top real bin and silently corrupt the cross.
     """
     arr = np.asarray(raw, dtype=np.float64)
@@ -151,7 +151,7 @@ def run_cat_interaction_step(
     # Numeric columns are appended (quantile-coded, edges captured) to working copies of data / cols / nbins
     # and their positions joined to the candidate pool, so the existing pair / k-way machinery treats them
     # exactly like categoricals. The ORIGINAL data / cols / nbins are restored before the final concat, so the
-    # numeric columns' own (MDLP) codes that flow to downstream screening are UNCHANGED -- only the engineered
+    # numeric columns' own (MDLP) codes that flow to downstream screening are UNCHANGED - only the engineered
     # cross columns are appended. The per-column quantile edges are stamped into each recipe (below) so
     # ``transform`` reproduces identical bin codes from raw test values (leak-free, no train/serve skew).
     numeric_candidate_idxs: list = []
@@ -211,7 +211,7 @@ def run_cat_interaction_step(
 
     # Streaming cache check. If enabled AND cache provided, reuse cached marginal MIs for columns whose distribution hasn't drifted (KL < threshold).
     cache_active = getattr(cfg, "enable_streaming_cache", False) and streaming_cache is not None and streaming_cache  # non-empty
-    # Content signature of the (discretized) target -- gates cache reuse so a changed Y invalidates the
+    # Content signature of the (discretized) target - gates cache reuse so a changed Y invalidates the
     # cached MI(X;Y) even when X's distribution is unchanged.
     from .cat_interactions import _target_signature
     target_sig = _target_signature(data[:, target_indices])
@@ -284,14 +284,14 @@ def run_cat_interaction_step(
 
     # ---- Pair enumeration with cardinality budget ----
     max_combined = resolve_max_combined_nbins(cfg, n_samples)
-    # VECTORIZED (2026-07-13): ``np.triu_indices`` enumerates every unordered (ii, jj) pair in one call
-    # instead of a pure-Python nested loop (~125K iterations at p~500 per the audit) -- the cardinality-
+    # VECTORIZED: ``np.triu_indices`` enumerates every unordered (ii, jj) pair in one call
+    # instead of a pure-Python nested loop (~125K iterations at p~500 per the audit) - the cardinality-
     # budget filter is then a single boolean mask over the whole pair set rather than an if/continue per
     # iteration. Bit-identical selection: the SAME two conditions (``nb_prod <= max_combined`` and
     # ``nb_prod < 2**31``) gate the SAME candidate pairs, in the SAME (ii, jj) enumeration order
     # ``triu_indices`` produces (row-major upper triangle, matching the nested loop's iteration order).
     # ``nb_prod`` is computed in int64 (not numpy's default-width product) so a wide-cardinality pair
-    # cannot silently wrap before the ``>= 2**31`` overflow check gets to see it -- the whole point of
+    # cannot silently wrap before the ``>= 2**31`` overflow check gets to see it - the whole point of
     # that guard.
     _n_cand = len(candidate_idxs_arr)
     if _n_cand >= 2:
@@ -322,9 +322,9 @@ def run_cat_interaction_step(
     # - "gpu": always GPU dispatch (raises if CuPy missing)
     # - "auto": GPU only at large-N regime (N>=200 cols AND n>=500k rows)
     use_gpu = False
-    # CAT_INTERACTION_A-2 fix: the pair-search GPU gate used to consult only cupy
+    # The pair-search GPU gate used to consult only cupy
     # importability + is_gpu_available()'s own probe, never the project's canonical gpu_globally_disabled()
-    # (MLFRAME_DISABLE_GPU=1 / CUDA_VISIBLE_DEVICES="") -- a user forcing CPU-only via that env convention
+    # (MLFRAME_DISABLE_GPU=1 / CUDA_VISIBLE_DEVICES="") - a user forcing CPU-only via that env convention
     # still got GPU dispatch for backend="auto"/"gpu" cat-FE fits whenever cupy was importable. The global
     # off-switch now wins even over an explicit backend="gpu" request (raises a clear error instead of
     # silently using GPU), matching the pattern already used elsewhere in this package (_fe_gpu_strict.py,
@@ -364,8 +364,8 @@ def run_cat_interaction_step(
         if weights.size > 0 and not np.allclose(weights, weights[0]):
             use_weights = True
     if use_weights:
-        # CAT_INTERACTION_A-1 fix: marginal_mi_full above was built entirely via
-        # the UNWEIGHTED _marginal_screen_njit -- recompute it weighted now that use_weights is known True,
+        # marginal_mi_full above was built entirely via
+        # the UNWEIGHTED _marginal_screen_njit - recompute it weighted now that use_weights is known True,
         # so the joint-vs-marginal difference (II) is consistent regardless of which kernel/backend
         # computes the joint term below. See _marginal_screen_weighted's docstring for the full rationale.
         assert weights is not None  # use_weights=True only when weights was matched to n_samples above
@@ -499,7 +499,7 @@ def run_cat_interaction_step(
         cfg=cfg, dtype=dtype, verbose=verbose,
         weights=weights if use_weights else None,
     )
-    # Surface fold IIs into the state UNCONDITIONALLY -- even when 0 pairs survived, the per-fold values are useful diagnostics (user can see WHY the pair was rejected).
+    # Surface fold IIs into the state UNCONDITIONALLY - even when 0 pairs survived, the per-fold values are useful diagnostics (user can see WHY the pair was rejected).
     # Must happen BEFORE the early return.
     if per_fold_ii_dict:
         state.ii_stability.update(per_fold_ii_dict)
@@ -510,15 +510,15 @@ def run_cat_interaction_step(
 
     # ---- Permutation confirmation + FWER correction ----
     # Runs only when ``cfg.full_npermutations > 0`` (default 100). Tests joint-independence null; failed pairs are dropped from ``selected_idx``. The resulting
-    # ``confidence_dict`` is surfaced via diagnostics for user inspection. ``n_search_pairs`` is the family size for FWER correction -- the count of pairs CONSIDERED
+    # ``confidence_dict`` is surfaced via diagnostics for user inspection. ``n_search_pairs`` is the family size for FWER correction - the count of pairs CONSIDERED
     # in the search phase, NOT the top-K count.
     # Full Westfall-Young requires the per-shuffle max-II across ALL search pairs, materially more expensive than per-survivor permutation. To get the full WY
     # behaviour, we substitute the per-pair p-values from the joint-independence test with the WY-corrected versions BEFORE the orchestrator applies the floor.
     # Memory budget: full WY pre-merges m * n int32 cells; if that exceeds e.g. 500 MB we fall back to Bonferroni-on-survivors via the _apply_fwer_correction path.
     use_full_wy = cfg.fwer_correction == "westfall_young" and cfg.full_npermutations > 0 and len(pairs_a) * n_samples * 4 < 500 * 1024 * 1024
 
-    # CAT_INTERACTION_A-3 fix: perm_budget_strategy defaults to "bandit_ucb1" (not
-    # "fixed"), and the bandit allocator's bulk-shuffle kernels have no weighted variant -- so the DEFAULT
+    # perm_budget_strategy defaults to "bandit_ucb1" (not
+    # "fixed"), and the bandit allocator's bulk-shuffle kernels have no weighted variant - so the DEFAULT
     # confirmation path for any weighted cat-FE fit silently tested a weighted II_obs against an unweighted
     # permutation null (the one warning that existed was gated behind `verbose`, invisible at the library's
     # normal verbose=0). Auto-fall-back to the fixed path (which IS correctly weighted) whenever weighting
@@ -605,7 +605,7 @@ def run_cat_interaction_step(
             return orig_data, orig_cols, orig_nbins, state
 
     # ---- K-way greedy expansion (opt-in via max_kway_order > 2) ----
-    # HYBRID seeding -- first try only the top-K confirmed pairs, which is O(top_k * N) = ~6400 merge_vars at top_k=64, N=100. If that produces ZERO k-way results
+    # HYBRID seeding - first try only the top-K confirmed pairs, which is O(top_k * N) = ~6400 merge_vars at top_k=64, N=100. If that produces ZERO k-way results
     # (the pure-k-way-XOR case where all 2-way IIs are noise around 0 and top-K is random), fall back to seeding from ALL pairs. This avoids the quadratic cost
     # when the signal is detectable from top-K, but preserves the all-pairs path for pathological niches.
     kway_results: list = []
@@ -652,7 +652,7 @@ def run_cat_interaction_step(
             _expand_seeds(range(len(pairs_a)))
 
         # Sort k-way results by joint_MI desc and cap by top_k_pairs.
-        # Wave 58 (2026-05-20): secondary key on the var-index tuple so tied
+        # Secondary key on the var-index tuple so tied
         # joint_MI doesn't make the surviving k-way set drift across runs.
         kway_results.sort(key=lambda r: (-r[3], tuple(r[0]) if r and r[0] is not None else ()))
         kway_results = kway_results[: cfg.top_k_pairs]
@@ -727,7 +727,7 @@ def run_cat_interaction_step(
                 "src_indices": (i, j),
                 "src_names": (cols[i], cols[j]),
                 "n_obs_per_cell_p25": float(n_samples / max(int(n_uniq_arr[k_in]), 1)),
-                # Joint-dependence confidence: honest naming -- this tests "(X1, X2) jointly independent of Y", not "no synergy".
+                # Joint-dependence confidence: honest naming - this tests "(X1, X2) jointly independent of Y", not "no synergy".
                 # ``None`` when no permutation test ran (full_npermutations=0).
                 "joint_dependence_confidence": (float(confidence_dict[(i, j)]) if (i, j) in confidence_dict else None),
                 # Bootstrap CI on II. ``None`` when disabled.
@@ -756,7 +756,7 @@ def run_cat_interaction_step(
                 dtype=dtype,
                 seed=(i * 1000003 + j),  # deterministic per-interaction fold shuffle (decorrelates folds from row order)
             )
-            # te_vals dtype is float64; we don't quantize -- caller's downstream model handles continuous encoded values.
+            # te_vals dtype is float64; we don't quantize - caller's downstream model handles continuous encoded values.
             te_name = f"te({cols[i]}__{cols[j]})"
             if te_name in cols or te_name in new_names or te_name in te_names:
                 te_name = f"te_{k_out}({cols[i]}__{cols[j]})"
@@ -822,7 +822,7 @@ def run_cat_interaction_step(
 
     # ---- Build engineered_lineage map ----
     # Engineered cols land at indices [n_orig, n_orig + len(new_names)). For each, record the parent indices (in the ORIGINAL data layout) so screen_predictors
-    # can skip ``(orig_parent, engineered_col)`` k-way candidates -- they're redundant by construction.
+    # can skip ``(orig_parent, engineered_col)`` k-way candidates - they're redundant by construction.
     n_orig = data.shape[1]
     name_to_idx = {n: i for i, n in enumerate(cols)}  # original col name -> idx
     state.lineage = {}

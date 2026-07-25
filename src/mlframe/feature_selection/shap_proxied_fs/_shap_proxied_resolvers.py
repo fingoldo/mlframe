@@ -69,7 +69,7 @@ _DEFAULT_CLUSTER_SU_AUTO_MAX_FEATURES = 2000
 
 # Iter59 adaptive-prescreen-width thresholds. The lever is a recall-protection device for low-SNR
 # regimes: at low SHAP rank-stability across OOF folds, the top features past the strongly-informative
-# core are essentially noise -- pulling them into the prescreen pool injects noise into beam's input
+# core are essentially noise - pulling them into the prescreen pool injects noise into beam's input
 # and can perturb the chosen subset off the truly informative one. So we NARROW (never widen) the
 # prescreen cap when stability drops. High-stability regimes keep the existing cap untouched.
 #
@@ -116,7 +116,7 @@ def _resolve_adaptive_n_anchors(
     ``p`` is the post-prefilter proxy search width (``phi.shape[1]``).
 
     A cache-tuned override for (c, lo, hi) was attempted here via
-    ``pyutilz.performance.kernel_tuning.cache``'s module-level ``.get(key, default=...)`` -- that method
+    ``pyutilz.performance.kernel_tuning.cache``'s module-level ``.get(key, default=...)`` - that method
     has never existed on the module (current pyutilz only exposes the class-based, dimensional
     ``KernelTuningCache.lookup(kernel_name, **dims)``), so the call always raised ``AttributeError``,
     silently caught, always leaving (c, lo, hi) at their source defaults. Removed the always-dead
@@ -136,7 +136,7 @@ def noise_floor_rescue_keep_set(importance_full: np.ndarray, keep_idx: np.ndarra
     non-noise columns. ``noise_floor = median(bottom half of importance_full) * safety_factor`` is
     robust because on any reasonably wide frame the bottom half is dominated by genuine noise
     columns, regardless of how many real (strong or weak) informative columns exist above it. Only
-    ever WIDENS ``keep_idx`` -- never drops a column the caller already decided to keep. Used by
+    ever WIDENS ``keep_idx`` - never drops a column the caller already decided to keep. Used by
     both the knee-ladder cap resolver (``_resolve_knee_prescreen_cap``) and the flat importance
     prescreen (``_shap_proxied_fit.py``) so the two independent cut points share one calibrated
     rescue rule instead of drifting apart.
@@ -154,13 +154,13 @@ def noise_floor_rescue_keep_set(importance_full: np.ndarray, keep_idx: np.ndarra
 # Knee-rescue noise floor (bug fix): the knee only reads the shape of the TOP `default_cap`
 # columns, so a frame with a handful of dominant features (typical wide-data regime: a few strong
 # drivers + a longer tail of real-but-weaker signal) always looks "front-loaded" and narrows the
-# cap -- even when the tail past the knee is not noise. Measured on synthetic wide frames
+# cap - even when the tail past the knee is not noise. Measured on synthetic wide frames
 # (p=3000-10000, strong+weak+xor-interaction generative signal): the unguarded knee dropped
 # weak-signal recall from ~0.88 (post-prefilter survivor rate) to 0.0-0.12 (final selection),
 # because narrowing `effective_brute_force_cap` directly shrinks `prescreen_top` in
 # ``_shap_proxied_fit.py``, discarding real signal before the search even sees it. The rescue
 # compares each candidate past the knee against a noise floor estimated from the BOTTOM HALF of
-# the full (not just top-`default_cap`) importance vector -- the tail is dominated by genuine noise
+# the full (not just top-`default_cap`) importance vector - the tail is dominated by genuine noise
 # columns in a wide frame, so its median * safety_factor is a robust "clearly-not-noise" bar.
 # Columns clearing it are never pruned by the knee, regardless of the sparsity gate.
 _KNEE_RESCUE_SAFETY_FACTOR = 4.0
@@ -173,12 +173,12 @@ def _resolve_knee_prescreen_cap(importance, default_cap: int, *, floor: int = _A
     columns carry comparable importance) keeps the full ``default_cap``; a SPARSE-signal frame (a few
     dominant columns, long noise tail) prunes harder. The knee is the kneedle-style point of maximum
     drop below the diagonal of the normalised cumulative-importance curve over the top ``default_cap``
-    candidates. ``cap = clip(knee+1, floor, default_cap)`` -- this lever only ever NARROWS, mirroring
+    candidates. ``cap = clip(knee+1, floor, default_cap)`` - this lever only ever NARROWS, mirroring
     the stability ladder's contract, so a dense frame is never penalised.
 
     A noise-floor RESCUE (see ``_KNEE_RESCUE_SAFETY_FACTOR``) widens the cap back out, past the knee,
     to cover any column (within ``default_cap``) whose importance clears
-    ``median(bottom half of the FULL importance vector) * safety_factor`` -- protecting real
+    ``median(bottom half of the FULL importance vector) * safety_factor`` - protecting real
     weak-signal / interaction-operand columns from a knee that only reads local curve shape. Returns
     ``(cap, info)``; ``info`` carries ``noise_floor`` and ``rescued`` (count of columns the rescue
     widened the cap to cover) for diagnostics.
@@ -214,7 +214,7 @@ def _resolve_knee_prescreen_cap(importance, default_cap: int, *, floor: int = _A
         return int(default_cap), info
     cap = int(min(int(default_cap), max(int(floor), knee_idx + 1)))
     # Rescue: widen cap to cover any head column (within default_cap) clearing the noise floor,
-    # even past the knee -- never narrows below `cap`, only ever widens back toward default_cap.
+    # even past the knee - never narrows below `cap`, only ever widens back toward default_cap.
     above_floor = np.nonzero(head > noise_floor)[0]
     rescued = 0
     if above_floor.size:
@@ -230,7 +230,7 @@ def _resolve_brute_force_max_features(default: int = _DEFAULT_BRUTE_FORCE_MAX_FE
     """Per-HW brute-force cap, falling back to the module default.
 
     A cache-tuned override was attempted here via the non-existent ``kernel_tuning_cache.get(key,
-    default=...)`` API described in ``_shap_proxy_cluster_su_bitmap._resolve_bitmap_min_features`` --
+    default=...)`` API described in ``_shap_proxy_cluster_su_bitmap._resolve_bitmap_min_features`` -
     removed as dead, always-``default``-returning code."""
     return default
 
@@ -240,7 +240,7 @@ def _resolve_brute_force_n_sub_gate(default: int = _DEFAULT_BRUTE_FORCE_N_SUB_GA
     to ``beam`` regardless of ``brute_force_max_features``.
 
     A cache-tuned override was attempted here via the same non-existent ``kernel_tuning_cache.get``
-    API -- removed as dead, always-``default``-returning code."""
+    API - removed as dead, always-``default``-returning code."""
     return default
 
 
@@ -253,7 +253,7 @@ def _resolve_cluster_su_auto_max_features(
     vectorised Pearson |corr|).
 
     A cache-tuned override was attempted here via the same non-existent ``kernel_tuning_cache.get``
-    API -- removed as dead, always-``default``-returning code."""
+    API - removed as dead, always-``default``-returning code."""
     return default
 
 
@@ -261,7 +261,7 @@ def _resolve_adaptive_prescreen_thresholds():
     """Return the (stability, delta) threshold list, ordered descending by stability.
 
     A cache-tuned override was attempted here via the same non-existent ``kernel_tuning_cache.get``
-    API -- removed as dead, always-source-default code. Always coerced to a tuple of (float, int)
+    API - removed as dead, always-source-default code. Always coerced to a tuple of (float, int)
     pairs sorted by descending stability.
     """
     raw = _DEFAULT_ADAPTIVE_PRESCREEN_THRESHOLDS
@@ -287,3 +287,16 @@ def _resolve_adaptive_prescreen_width(stability: float, default_cap: int, floor:
             delta = d
             break
     return max(int(floor), int(default_cap) + int(delta))
+
+
+def _apply_min_selected_ratio(candidates, n_proxy_cols: int, min_selected_ratio: float):
+    """Drop candidate subsets below ``min_selected_ratio`` of proxy-column width; never return empty.
+
+    Guards ``n_proxy_cols == 0`` (no proxy columns survived prescreening) so the ``len(c)/n_proxy_cols``
+    ratio cannot raise ZeroDivisionError - in that degenerate case there is no width to ratio against
+    so the candidates pass through unfiltered.
+    """
+    if min_selected_ratio > 0 and n_proxy_cols > 0:
+        filtered = [(lo, c) for lo, c in candidates if len(c) / n_proxy_cols >= min_selected_ratio]
+        return filtered or candidates
+    return candidates

@@ -43,9 +43,9 @@ def _build_merge_prefix_states(
     """Incremental ``merge_vars`` states after merging ``sorted_members[:i]`` (ascending order), for every ``i`` in ``0..len(sorted_members)``.
 
     ``merge_vars``'s dense renumbering is ORDER-SENSITIVE: merging the same variable set in a different order yields a bijective but numerically DIFFERENT
-    ``final_classes`` encoding (verified empirically -- only the count of distinct classes is order-invariant, not the labels). A candidate variable inserted
+    ``final_classes`` encoding (verified empirically - only the count of distinct classes is order-invariant, not the labels). A candidate variable inserted
     at some position ``pos`` among ``sorted_members`` therefore needs the merge to walk ``sorted_members[:pos] + [cand] + sorted_members[pos:]`` to stay
-    bit-identical to a fresh ``merge_vars`` over the fully re-sorted tuple -- these prefix states let ``_merge_vars_sorted_insert`` splice a candidate in at
+    bit-identical to a fresh ``merge_vars`` over the fully re-sorted tuple - these prefix states let ``_merge_vars_sorted_insert`` splice a candidate in at
     its correct sorted position without re-scanning the members before it, for every candidate sharing that same insertion point.
 
     ``final_state`` lets the caller hand in an already-computed ``(classes, nclasses)`` for the FULL ``sorted_members`` merge (e.g. the parent state carried
@@ -78,7 +78,7 @@ def _merge_vars_sorted_insert(
 ) -> tuple:
     """``merge_vars`` over ``sorted(sorted_members + [cand_int])``, splicing ``cand_int`` into its correct sorted position via ``prefix_states`` instead of
     re-scanning the members before it. Bit-identical to a fresh full-tuple ``merge_vars`` call (verified end-to-end against the pre-fix algorithm across
-    randomized trials incl. min/mid/max insertion positions and varying arities/cardinalities/row-counts -- see
+    randomized trials incl. min/mid/max insertion positions and varying arities/cardinalities/row-counts - see
     ``_benchmarks/bench_kway_coord_ascent_frozen_prefix.py``)."""
     ins = bisect.bisect_left(sorted_members, cand_int)
     prefix_classes, prefix_nclasses = prefix_states[ins]
@@ -122,10 +122,10 @@ def _bootstrap_ii_cis(
     """For each pair in ``selected_idx``, compute bootstrap CI on II. Returns ``{(i, j): (lower, median, upper)}`` per ``cfg.bootstrap_ci_alpha``.
 
     ``weights``, when given, are sliced alongside each bootstrap
-    subsample and every MI term is computed via the weighted kernel -- otherwise a weighted
+    subsample and every MI term is computed via the weighted kernel - otherwise a weighted
     search-phase ``II_obs`` would be checked for stability against an UNWEIGHTED bootstrap null.
 
-    Cost: ``n_replicates * top_k * O(n)`` -- at n_replicates=20, top_k=32, n=10000 that's ~6.4M merge_vars-equivalents.
+    Cost: ``n_replicates * top_k * O(n)`` - at n_replicates=20, top_k=32, n=10000 that's ~6.4M merge_vars-equivalents.
     Heavy; gated by user opt-in (``bootstrap_ci_n_replicates > 0``).
     """
     if cfg.bootstrap_ci_n_replicates <= 0 or len(selected_idx) == 0:
@@ -216,7 +216,7 @@ def _anti_redundancy_rerank(
     ii_arr: np.ndarray,
     nbins: np.ndarray,
     selected_so_far: list,  # column indices (in ``data``) of already-selected features
-    classes_y: np.ndarray,  # unused -- the redundancy MI is against Z, not Y
+    classes_y: np.ndarray,  # unused - the redundancy MI is against Z, not Y
     cfg: CatFEConfig,
     dtype,
     verbose: int,
@@ -243,7 +243,7 @@ def _anti_redundancy_rerank(
     scored = ii_arr.copy()
     selected_so_far_arr = np.asarray(selected_so_far, dtype=np.int64)
     # Each already-selected feature ``z``'s single-column merge depends only on ``z``, not on the outer pair
-    # ``k`` -- precompute once and reuse across every survivor pair instead of recomputing per (k, z).
+    # ``k`` - precompute once and reuse across every survivor pair instead of recomputing per (k, z).
     z_merge_cache = {
         int(z): merge_vars(
             factors_data=factors_data,
@@ -314,10 +314,10 @@ def _kfold_stability_filter(
     ``(kept_selected_idx, per_fold_ii_dict)``. No-op (returns inputs unchanged) when ``cfg.n_folds_stability <= 0``.
 
     ``weights``, when given, are sliced per fold and every per-fold MI
-    term uses the weighted kernel -- otherwise a weighted search-phase II would be stability-checked
+    term uses the weighted kernel - otherwise a weighted search-phase II would be stability-checked
     against UNWEIGHTED per-fold statistics.
 
-    Determinism: folds are derived from ``np.arange(n) % K`` -- no shuffling, no RNG. Reproducible across runs.
+    Determinism: folds are derived from ``np.arange(n) % K`` - no shuffling, no RNG. Reproducible across runs.
     """
     if cfg.n_folds_stability <= 0 or len(selected_idx) == 0:
         return selected_idx, {}
@@ -335,7 +335,7 @@ def _kfold_stability_filter(
     if verbose:
         logger.info("cat-FE: K-fold stability check (K=%d) over %d top-K pair(s)", K, len(selected_idx))
 
-    # ``slice_data`` and the target's fold-local merge depend only on ``f``, not on the outer survivor ``k`` --
+    # ``slice_data`` and the target's fold-local merge depend only on ``f``, not on the outer survivor ``k`` -
     # precompute once per fold and reuse across every survivor instead of re-merging Y on the same fold slice
     # once per (k, f) pair. ``None`` marks a too-small fold (mirrors the original per-(k,f) "-inf" skip).
     fold_cache: dict = {}
@@ -451,7 +451,7 @@ def _refine_kway_coordinate_ascent(
         for _ in range(n_passes):
             improved = False
             for pos in range(len(current)):
-                # The other k-1 members are frozen for this position's whole candidate sweep -- pre-merge them
+                # The other k-1 members are frozen for this position's whole candidate sweep - pre-merge them
                 # once (prefix states keyed by sorted insertion point) instead of re-scanning all k raw columns
                 # for every candidate.
                 frozen_sorted = sorted(current[:pos] + current[pos + 1 :])
@@ -484,7 +484,7 @@ def _refine_kway_coordinate_ascent(
                         current_nuniq = new_nuniq
                         improved = True
                         # An accepted swap mid-sweep changes what "frozen" (current minus position pos)
-                        # means for the REMAINING candidates at this same pos -- rebuild immediately so
+                        # means for the REMAINING candidates at this same pos - rebuild immediately so
                         # they splice against the just-updated members, not a stale pre-accept snapshot.
                         frozen_sorted = sorted(current[:pos] + current[pos + 1 :])
                         prefix_states = _build_merge_prefix_states(factors_data, frozen_sorted, nbins, dtype)

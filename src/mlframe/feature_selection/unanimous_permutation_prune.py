@@ -1,12 +1,12 @@
 """``unanimous_permutation_prune``: drop a feature only if permuting it fails to improve EVERY CV fold.
 
-Source: 2nd_ieee-cis-fraud-detection.md -- kept a feature only if permuting it did NOT improve ANY of the 4
+Source: 2nd_ieee-cis-fraud-detection.md - kept a feature only if permuting it did NOT improve ANY of the 4
 walk-forward CV models' predictions (strict multi-fold agreement), iterated to convergence. This is a more
 CONSERVATIVE variant of standard mean-permutation-importance pruning: a feature whose permutation HELPS the
 metric in even one fold (a noisy/unstable time-split signal) survives, since dropping it risks discarding a
 feature that's genuinely useful in some regimes even if its AVERAGE importance looks weak. Standalone rather
 than wired into `RFECV`'s existing `VotesAggregation`/fold-aggregation machinery (which already has 8
-established vote rules and is exercised by a large existing test suite) -- this keeps the new, more aggressive
+established vote rules and is exercised by a large existing test suite) - this keeps the new, more aggressive
 pruning criterion isolated and independently testable rather than risking regressions in that shared,
 heavily-used aggregation path.
 """
@@ -34,14 +34,14 @@ def unanimous_permutation_prune(
     Parameters
     ----------
     X
-        Feature matrix (pandas DataFrame with named columns, or ndarray -- ``feature_names`` required for
+        Feature matrix (pandas DataFrame with named columns, or ndarray - ``feature_names`` required for
         ndarray input).
     y
         Target.
     estimator_factory
         Callable returning a fresh, unfitted sklearn-compatible estimator.
     cv_splits
-        Sequence of ``(train_idx, val_idx)`` pairs (walk-forward/time-split CV -- caller-constructed, e.g.
+        Sequence of ``(train_idx, val_idx)`` pairs (walk-forward/time-split CV - caller-constructed, e.g.
         via ``sklearn.model_selection.TimeSeriesSplit(...).split(X)``).
     scoring
         ``scoring(y_true, y_pred) -> float``, HIGHER is better. Defaults to negative RMSE for continuous
@@ -54,11 +54,11 @@ def unanimous_permutation_prune(
         Seed for the permutation shuffles.
     min_fold_agreement_fraction
         Opt-in relaxation of the strict-unanimity rule. ``None`` (default) requires ALL folds to flag a
-        feature as prune-eligible (permuting it improved the score in every fold) -- bit-identical to the
+        feature as prune-eligible (permuting it improved the score in every fold) - bit-identical to the
         original behavior. When set to a fraction in ``(0.0, 1.0]``, a feature is pruned once at least
         ``ceil(min_fold_agreement_fraction * n_folds)`` folds agree, letting the caller dial between the
         conservative unanimous rule (``1.0``, equivalent to ``None``) and a more aggressive mean-like rule
-        (small fractions e.g. ``0.5``) -- useful when a single noisy fold would otherwise block pruning of
+        (small fractions e.g. ``0.5``) - useful when a single noisy fold would otherwise block pruning of
         a feature that's genuinely unimportant almost everywhere.
 
     Returns
@@ -103,12 +103,12 @@ def unanimous_permutation_prune(
 
         deltas = np.stack(per_fold_deltas, axis=0)  # (n_folds, n_features)
         # "Permuting did NOT improve the metric" means importances_mean >= 0 in that fold (permuting a
-        # column HURT or was neutral -- sklearn's importance is baseline_score - permuted_score, so a
+        # column HURT or was neutral - sklearn's importance is baseline_score - permuted_score, so a
         # POSITIVE value means permuting made things worse, i.e. the feature is genuinely useful there).
         # A feature is prune-eligible only if permuting IMPROVED the score (negative importance) in EVERY
-        # fold -- unanimous evidence the feature is actively harmful/noise, not just weak on average.
+        # fold - unanimous evidence the feature is actively harmful/noise, not just weak on average.
         # When min_fold_agreement_fraction is set, relax this to a k-of-n vote (k = ceil(fraction * n_folds))
-        # instead of requiring all n folds -- a strict superset of the unanimous rule at fraction=1.0.
+        # instead of requiring all n folds - a strict superset of the unanimous rule at fraction=1.0.
         if min_fold_agreement_fraction is None:
             prune_eligible = np.all(deltas < 0, axis=0)
         else:

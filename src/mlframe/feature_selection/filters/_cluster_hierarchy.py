@@ -1,4 +1,4 @@
-"""Layer 48 (2026-05-31): hierarchical post-hoc clustering for DCD.
+"""Layer 48: hierarchical post-hoc clustering for DCD.
 
 DCD is greedy: each feature joins exactly ONE cluster (the first anchor
 whose pair SU passes ``tau_cluster``). Genuine data is often
@@ -26,7 +26,7 @@ exactly as the greedy pass produced it; Layer 48 only ADDS a
 super-structure on top.
 
 Determinism: the analyser is a pure function of
-``(dcd_summary, X, super_tau, max_levels)`` -- no RNG, no thread-locals.
+``(dcd_summary, X, super_tau, max_levels)`` - no RNG, no thread-locals.
 
 Pickleable: only stdlib + numpy types in the returned dict.
 """
@@ -177,7 +177,7 @@ def _components_from_pair_sus(
 
     def find(x: str) -> str:
         """Union-find root lookup with iterative path compression."""
-        # Iterative path compression -- stays pickle/clone-safe (no closures
+        # Iterative path compression - stays pickle/clone-safe (no closures
         # captured in stored data).
         root = x
         while parent[root] != root:
@@ -227,7 +227,7 @@ def build_cluster_hierarchy(
         ``None`` / missing keys / empty maps -> returns ``{}``.
     X
         The raw feature matrix (DataFrame or ndarray) used at fit time.
-        Required to compute SU between anchors -- the analyser does not
+        Required to compute SU between anchors - the analyser does not
         peek into DCD state.
     super_tau
         Pairwise-SU threshold for merging two level-N anchors into a
@@ -271,7 +271,7 @@ def build_cluster_hierarchy(
     name_to_idx = {str(c): i for i, c in enumerate(col_names)}
     # Lazy-import to break the circular dependency with the parent module.
     from ._dynamic_cluster_discovery import DCDState, pair_su
-    # Layer 51 (2026-05-31): batched pairwise-SU dispatch for the
+    # Layer 51: batched pairwise-SU dispatch for the
     # anchors-cross-anchors O(K^2) sweep at every hierarchy level.
     # Bit-equivalent to looped pair_su; pre-warms the per-column
     # entropy cache for all anchor columns in one sibling-column pass.
@@ -300,7 +300,7 @@ def build_cluster_hierarchy(
         # Anchors not present in X are silently dropped from level-N
         # consideration (engineered post-swap aggregates can't be scored
         # against the raw matrix). If fewer than 2 anchors resolve, no
-        # super-structure can form at this level -- stop.
+        # super-structure can form at this level - stop.
         if len(resolved) < 2:
             break
         resolved_names = sorted(resolved.keys())
@@ -362,7 +362,7 @@ def build_cluster_hierarchy(
             sub_anchors = [a for a in comp if a != super_anchor]
             level_dict[super_anchor] = sub_anchors
         if not level_dict:
-            # No merges at this level -- the hierarchy has stabilised.
+            # No merges at this level - the hierarchy has stabilised.
             break
         hierarchy[int(level)] = level_dict
         # Prepare next level: super-anchors of this level become the
@@ -372,7 +372,7 @@ def build_cluster_hierarchy(
         if len(next_level_anchors) == len(level_anchors):
             # Degenerate cycle guard: if the next level has as many
             # candidates as the current one, no merging actually
-            # happened (every component was size 1 except trivially) --
+            # happened (every component was size 1 except trivially) -
             # already guarded above by ``not level_dict``, but the cycle
             # check is cheap insurance against pathological inputs.
             break

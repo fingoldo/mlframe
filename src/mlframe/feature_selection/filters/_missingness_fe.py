@@ -1,4 +1,4 @@
-"""Layer 37 (2026-05-31): MISSING-VALUE-AWARE FE -- surface missingness as
+"""Layer 37: MISSING-VALUE-AWARE FE - surface missingness as
 predictive signal where it carries information (MNAR pattern).
 
 In production tabular pipelines, the FACT that a value is missing is
@@ -58,7 +58,7 @@ def _bitpack_rows_njit(arr: np.ndarray) -> np.ndarray:
     """Fused per-row bit-pack of an (n, k) bool/uint8 isna block into one int64 per row.
 
     Bit-identical to ``(arr.astype(int64) * (1 << arange(k))).sum(axis=1)`` but never materialises the two (n, k) int64 temporaries that broadcast-multiply
-    + row-reduce allocate -- at 10M rows those temporaries (~80MB each per column) are the memory-bandwidth bottleneck, not the packing arithmetic.
+    + row-reduce allocate - at 10M rows those temporaries (~80MB each per column) are the memory-bandwidth bottleneck, not the packing arithmetic.
     """
     n, k = arr.shape
     out = np.empty(n, dtype=np.int64)
@@ -121,7 +121,7 @@ def auto_detect_missing_cols(
     """Pick columns with non-trivial missingness.
 
     Heuristics:
-      * NaN rate in ``[min_nan_rate, max_nan_rate]`` -- below the floor
+      * NaN rate in ``[min_nan_rate, max_nan_rate]`` - below the floor
         the indicator is constant-zero (no MI), above the ceiling the
         indicator is constant-one (also no MI).
       * Any dtype works (numeric / object / categorical / datetime); we
@@ -143,7 +143,7 @@ def auto_detect_missing_cols(
         try:
             nan_rate = float(X[col].isna().sum()) / float(n)
         except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _missingness_fe.py:145: %s", e)
+            logger.debug("suppressed: %s", e)
             continue
         if min_nan_rate <= nan_rate <= max_nan_rate:
             candidates.append(col)
@@ -163,7 +163,7 @@ def _count_row_nans(X: pd.DataFrame, cols: Sequence[str]) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Per-column indicator: ``is_missing__{col}`` -- stateless (just isna)
+# Per-column indicator: ``is_missing__{col}`` - stateless (just isna)
 # ---------------------------------------------------------------------------
 
 
@@ -179,7 +179,7 @@ def missing_indicator_fit(
         Shape (n, len(cols)), columns named ``is_missing__{col}`` with
         int8 values (0/1).
     recipes : dict
-        ``{col: {}}`` -- no fit-time state; replay just re-runs ``isna()``.
+        ``{col: {}}`` - no fit-time state; replay just re-runs ``isna()``.
     """
     if len(X) == 0:
         raise ValueError("missing_indicator_fit: X is empty")
@@ -222,7 +222,7 @@ def missingness_count_fit(
     -------
     counts : ndarray, shape (n,), int32
     recipe : dict
-        ``{cols: tuple[str, ...]}`` -- replay just re-counts ``isna()``
+        ``{cols: tuple[str, ...]}`` - replay just re-counts ``isna()``
         across the same columns.
     """
     if len(X) == 0:
@@ -242,7 +242,7 @@ def apply_missingness_count(
     X_test: pd.DataFrame, recipe: dict,
 ) -> np.ndarray:
     """Replay per-row missingness count from the recipe's ``cols`` list.
-    Missing columns at test time contribute 0 (not 1) -- the recipe
+    Missing columns at test time contribute 0 (not 1) - the recipe
     contract is "count NaNs in the original column set", and a column
     that doesn't exist at test time is a schema bug, not an
     informative missing value."""
@@ -361,7 +361,7 @@ def apply_missingness_pattern(
     if not cols:
         return np.full(n, other_label, dtype=np.int32)
     # If some fit-time cols are missing at test time, treat their values
-    # as not-missing (False) in the signature -- the same "graceful
+    # as not-missing (False) in the signature - the same "graceful
     # schema-drift" contract used by missingness_count. The pattern
     # then resolves to "other" if it never appeared at fit.
     blocks = []

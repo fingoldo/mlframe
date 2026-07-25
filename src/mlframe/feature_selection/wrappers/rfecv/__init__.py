@@ -165,7 +165,7 @@ class RFECV(BaseEstimator, TransformerMixin):
     def __init__(
         self,
         estimator: Union[BaseEstimator, None] = None,
-        # 2026-05-28: grouped pydantic configs. When passed, their non-None fields override matching flat kwargs.
+        # Grouped pydantic configs. When passed, their non-None fields override matching flat kwargs.
         # All flat kwargs are kept for back-compat AND because some power-users want flat call-sites.
         # See ``_rfecv_configs.py`` and USAGE.md for the canonical mlframe pattern.
         search_config: "Union[SearchConfig, None]" = None,
@@ -218,7 +218,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         # Skip the full re-fit when fit() is called again on identical inputs. Despite the legacy "same_shape" name, the
         # skip keys on CONTENT: it invalidates on (a) X content / column-name change, (b) y / TARGET content change, AND
         # (c) ANY selector- or wrapped-estimator-parameter change (set_params or direct attribute assignment alike;
-        # params are re-read at every fit call) -- so it never replays a stale support_ for a changed target or settings.
+        # params are re-read at every fit call) - so it never replays a stale support_ for a changed target or settings.
         skip_retraining_on_same_shape: bool = True,
         stop_file: str = "stop",
         report_ndigits: int = 4,
@@ -282,7 +282,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         # a right-sized surrogate (ETR n_estimators=20 for budgets up to 30; CB iterations=50 up to 100; CB iterations=150 above).
         # Escape hatch: pass an explicit dict (e.g. ``{"model_name": "CBQ", "model_params": {"iterations": 50}}`` or any other MBHOptimizer kwarg subset) to override.
         optimizer_config: Union[dict, None] = None,
-        # ----- Wave 1 ML-correctness knobs (2026-05-28) -----
+        # ----- Wave 1 ML-correctness knobs -----
         # F9: when False (NEW default), the FI runs of a re-explored same-N subset that LOSES the best-of-N gate are popped from feature_importances
         # so they don't contaminate the next voting round. Set True to restore the pre-2026-05-28 behaviour (every explored subset votes equally).
         keep_loser_subset_fi: bool = False,
@@ -293,8 +293,8 @@ class RFECV(BaseEstimator, TransformerMixin):
         #   'median': impute with the run's median FI -> features eliminated early get average treatment (older project default for AM/GM/OG via fillna).
         #   'skip'  : pre-2026-05-28 raw behaviour (ragged NaN). Documented as biased but exposed for back-compat A/B benches.
         fi_missing_policy: str = "worst",
-        # C2: dummy-baseline-at-N=0 is fed to the MBH surrogate when True. Bench (2026-05-28) showed that on small p (~8) problems
-        # removing this anchor halves the explored-N count -- MBH can't extrapolate to low N without a low-anchor and converges to
+        # C2: dummy-baseline-at-N=0 is fed to the MBH surrogate when True. Bench showed that on small p (~8) problems
+        # removing this anchor halves the explored-N count - MBH can't extrapolate to low N without a low-anchor and converges to
         # even-N only. So the safer default is True until S9 (proper low-N init design) lands in Wave 2. Set False on imbalanced
         # accuracy/F1 datasets where the dummy ~= model score and the optimizer biases toward small N.
         submit_dummy_to_optimizer: bool = True,
@@ -304,7 +304,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         # select_optimal_nfeatures_, see that file for the dispatch.
         # E2 escape hatch: keep swap_top_k active even when val_cv is set (compare ES vs non-ES scores, accepting potential overfit-swaps).
         swap_top_k_allow_no_es: bool = False,
-        # ----- Wave 2 search-strategy knobs (2026-05-28) -----
+        # ----- Wave 2 search-strategy knobs -----
         # S8: what target value to feed the MBH surrogate. 'mean' (NEW default) submits raw cv_mean_perf -> aligned with the 1-SE rule
         #   semantics in select_optimal_nfeatures_; 'final_score' (legacy) submits mean*w_mean - std*w_std (a UCB-of-noise) which can
         #   disagree with the post-processing rule when std_perf_weight or feature_cost are non-default.
@@ -325,11 +325,11 @@ class RFECV(BaseEstimator, TransformerMixin):
         # best while the unevaluated N-pool is large AND the CV curve is flat, then collapse to step=1 midpoint refinement near
         # the knee. bench-attempt-rejected-as-default (see _benchmarks/bench_dichotomic_adaptive_step.py): selection is exactly
         # equivalent (Jaccard 1.00, held-out delta 0.0000 across 5 scenarios x 3 seeds, p in 30..600) but NO replicated wall win
-        # (median 1.00x, 3/15 wins) -- the outer-loop early-stop terminates the dichotomic search before the pool is ever large+
+        # (median 1.00x, 3/15 wins) - the outer-loop early-stop terminates the dichotomic search before the pool is ever large+
         # flat enough for a coarse stride to SAVE an iteration (iters identical auto/midpoint every row). Kept as an opt-in for
         # future re-test on harder curves / different stopping budgets.
         dichotomic_step: str = "midpoint",
-        # ----- Wave 3 FI-semantics knobs (2026-05-28) -----
+        # ----- Wave 3 FI-semantics knobs -----
         # F8: exponential decay of FI history weights. With rate=r>0, a K-iter-old FI run weighs (1-r)^K vs the freshest run = 1.0.
         # Without decay, voting treats iter-1 FI (on the full feature set) and iter-30 FI (on the narrowed-down survivor set) equally,
         # even though late-iter FI is generally more reliable (fewer correlated co-features). Recommended 0.02-0.1 for runs >=30 iters.
@@ -350,7 +350,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         # repeats for 'permutation' / 'conditional_permutation' importance (forwarded to get_feature_importances at each
         # fold + the stability bootstraps). Surfaced for tuning; default 5 keeps prior behaviour.
         n_repeats: int = 5,
-        # Wide-data perm-FI cost guard (2026-06-04). Permutation / conditional-permutation importance rescore the model
+        # Wide-data perm-FI cost guard. Permutation / conditional-permutation importance rescore the model
         # O(p * n_repeats) times PER FOLD. On wide frames a single RFECV iteration can exceed the whole runtime budget
         # (measured madelon p=500, n_repeats=5 -> ~208s/iter > a 180s budget), so only 2-3 iters complete, the CV curve
         # is ~3 points, and the N-rule lands at the over-selection. When True (NEW default) and the search universe
@@ -366,7 +366,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         # F14: when True (NEW default), drop per-fold-per-estimator FI runs whose score was NaN (estimator failed / degenerate fold). Set
         # False to keep them (legacy contaminates voting with garbage importances from collapsed fits).
         drop_nan_score_fi: bool = True,
-        # ----- TODO A / Wave 6 prelim (2026-05-28): auto-parameter tuning -----
+        # ----- TODO A / Wave 6 prelim: auto-parameter tuning -----
         # When True, ``fit`` first computes a DataFingerprint from (X, y) and
         # picks SearchConfig + FIConfig + RobustnessConfig from a rule-based
         # table (later: ML classifier trained on synthetic-bench sweep). The
@@ -374,13 +374,13 @@ class RFECV(BaseEstimator, TransformerMixin):
         # Any flat kwarg or config explicitly passed by the caller is PRESERVED
         # (auto-tune only fills the unspecified slots).
         auto_tune: bool = False,
-        # ----- Wave 4 robustness knobs (2026-05-28) -----
+        # ----- Wave 4 robustness knobs -----
         # E15: when True (NEW default), raise if must_exclude contains names not in X (catches typos). False = silently ignore (legacy).
         must_exclude_strict: bool = True,
         # C8: when False (NEW default), the no-improve counter only ticks when the iter actually stored a new best subset. Multi-revisit
         # of the same N with a worse subset no longer trips max_noimproving_iters prematurely. True = legacy.
         noimprove_counts_revisit: bool = False,
-        # ----- Wave 5 / L4-L7 (2026-05-28) -----
+        # ----- Wave 5 / L4-L7 -----
         # L7: optional prescreen pass run BEFORE the MBH outer loop. Reduces the universe original_features to a smaller candidate set
         # so MBH explores a tighter space. Supported values:
         #   None              (default) : no prescreen
@@ -392,30 +392,30 @@ class RFECV(BaseEstimator, TransformerMixin):
         prescreen_top_k: Union[int, None] = None,
         # L7: relevance p-value FDR-level (Benjamini-Yekutieli). 0.05 is the standard default.
         prescreen_fdr_level: float = 0.05,
-        # audit4-C (2026-07-03): honest nested prescreen. The full-data prescreen still defines the SEARCH universe
+        # audit4-C: honest nested prescreen. The full-data prescreen still defines the SEARCH universe
         # (legitimate for the final model), but when True the per-fold cv_mean_perf is computed against a prescreen
         # re-derived on that fold's TRAIN rows only, so a feature that survived the global prescreen purely via
-        # test-fold leakage is dropped in folds where it fails the train-only prescreen -- eliminating the
+        # test-fold leakage is dropped in folds where it fails the train-only prescreen - eliminating the
         # selection-metric optimism. Default True (honest); set False for the cheaper legacy in-universe estimate.
         prescreen_nested: bool = True,
         # multioutput_strategy: how to handle a 2D y (multilabel / multi-target regression). sklearn RFE/RFECV is single-target, so we fit one
-        # single-target RFECV per output column and aggregate the per-column support_. Default 'union' (OR) just works out of the box -- keeps a
+        # single-target RFECV per output column and aggregate the per-column support_. Default 'union' (OR) just works out of the box - keeps a
         # feature selected for ANY output (recall-oriented, never drops a feature useful to one target). 'intersect' (AND) keeps only features
         # selected for EVERY output (precision-oriented). Set None to opt OUT and get the historical clear NotImplementedError on a 2D y. Each
         # sub-fit clones the full configured RFECV on one y column.
         multioutput_strategy: Union[str, None] = "union",
-        # drop_id_like_sequences: when True (default), drop near-unique columns whose sorted distinct values are (near-)perfectly affine-spaced at fit entry --
+        # drop_id_like_sequences: when True (default), drop near-unique columns whose sorted distinct values are (near-)perfectly affine-spaced at fit entry -
         # an enumerated row-id / index / counter (or an affine rescale of one). Such a column is pure sample-order with ZERO generalisable signal yet a tree
         # estimator memorises it via split-frequency bias and admits it into support_. The guard is deliberately NARROW: it fires only on the structureless
         # affine-sequence shape (spacing coefficient-of-variation <= id_like_spacing_cv), so a continuous real signal (spacing CV ~O(1)) and a hash-style random
-        # id (irregular spacing) are NEVER touched -- it cannot drop a weak recoverable signal. Set False to disable.
+        # id (irregular spacing) are NEVER touched - it cannot drop a weak recoverable signal. Set False to disable.
         drop_id_like_sequences: bool = True,
         id_like_ratio_threshold: float = 0.999,
         id_like_spacing_cv: float = 1e-3,
-        # drop_near_dup_corr: when True (default), drop columns that are a (near-)monotone copy of another already kept -- a scaled / shifted / tiny-noise replica
+        # drop_near_dup_corr: when True (default), drop columns that are a (near-)monotone copy of another already kept - a scaled / shifted / tiny-noise replica
         # (``100*x``, ``x + 1e-3*eps``) the exact-dup hash misses bit-for-bit. RFECV's voting otherwise splits the replica's importance across the copies and admits
         # the redundant copy into support_. Uses |Spearman| (rank) so any monotone rescale is caught regardless of slope/offset; keeps the FIRST of each pair. NARROW
-        # BY CONSTRUCTION: the 0.999 default fires only on a near-perfect monotone replica -- a legitimately-distinct correlated pair (corr ~0.7, even ~0.95 cluster
+        # BY CONSTRUCTION: the 0.999 default fires only on a near-perfect monotone replica - a legitimately-distinct correlated pair (corr ~0.7, even ~0.95 cluster
         # mates) sits far below it and BOTH survive, so it cannot drop a weak recoverable signal. Reducing a genuine high-VIF cluster to a representative remains the
         # redundancy-aware GroupAwareMRMR wrapper's job (cluster_reduce=True). Set False to disable.
         drop_near_dup_corr: bool = True,
@@ -531,7 +531,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         if coef_scale_source not in ("train", "test", "none"):
             raise ValueError(f"coef_scale_source must be 'train', 'test', or 'none'; got {coef_scale_source!r}.")
 
-        # E9 (Wave 4, 2026-05-28): assert all entries in ``estimators=`` share the
+        # E9: assert all entries in ``estimators=`` share the
         # same type-family (classifier vs regressor). Mixing silently picks the
         # first estimator's family for CV stratification / scoring and the other
         # estimator crashes mid-fold with cryptic errors.
@@ -552,8 +552,8 @@ class RFECV(BaseEstimator, TransformerMixin):
                         f"{[type(e).__name__ for e in _est_list]}"
                     )
 
-        # F6 (Wave 3, 2026-05-28): multi-estimator + AM/GM is unsafe.
-        # LR coef ~ 0.01..1, RF Gini ~ 0..0.1, CB split-gain ~ thousands -- raw
+        # F6: multi-estimator + AM/GM is unsafe.
+        # LR coef ~ 0.01..1, RF Gini ~ 0..0.1, CB split-gain ~ thousands - raw
         # arithmetic / geometric mean is dominated by the largest-magnitude
         # estimator (AM) or zeroed by any single zero (GM). Force rank-based
         # rules (Borda / Copeland) for multi-estimator. User can opt back in
@@ -568,7 +568,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     votes_aggregation_method,
                 )
 
-        # E3 (Wave 1, 2026-05-28): feature_groups overlap is silently expanded into a contradictory all-or-nothing rule that grows
+        # E3: feature_groups overlap is silently expanded into a contradictory all-or-nothing rule that grows
         # the support_ by every group member of every overlapping group whenever ANY shared member is picked. Reject upfront.
         if feature_groups:
             _seen: dict = {}
@@ -586,7 +586,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     _seen[_m] = _gname
 
         params = get_parent_func_args()
-        # 2026-05-28: grouped-config merge. When a SearchConfig / FIConfig /
+        # grouped-config merge. When a SearchConfig / FIConfig /
         # RobustnessConfig is passed, its EXPLICITLY-SET fields (per pydantic
         # v2's ``model_fields_set``) override the matching flat kwarg before
         # ``store_params_in_object`` writes them onto ``self``. Default fields
@@ -606,7 +606,7 @@ class RFECV(BaseEstimator, TransformerMixin):
             for _k, _v in _dump.items():
                 if _k in params:
                     params[_k] = _v
-        # postfix="" -- see mlframe.calibration.post's identical fix comment: this class reads
+        # postfix="" - see mlframe.calibration.post's identical fix comment: this class reads
         # attributes back by their bare param name, but store_params_in_object()'s default postfix
         # changed to "_param_" without every caller being updated.
         store_params_in_object(obj=self, params=params, postfix="")
@@ -653,7 +653,7 @@ class RFECV(BaseEstimator, TransformerMixin):
             return
         dir_name = os.path.dirname(os.path.abspath(path)) or "."
         os.makedirs(dir_name, exist_ok=True)
-        # Wave 36 Low fix (2026-05-20): mirror the ``_fd_adopted`` flag
+        # Wave 36 Low fix: mirror the ``_fd_adopted`` flag
         # pattern used canonically across the project
         # (``training/io.py:atomic_write_bytes``,
         # ``composite_cache.py._save_lru``). If ``os.fdopen(fd, "wb")``
@@ -696,7 +696,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         path = self.checkpoint_path
         if not path:
             return None
-        # Wave 48 (2026-05-20): the prior exists-then-open pattern was a TOCTOU race
+        # The prior exists-then-open pattern was a TOCTOU race
         # with concurrent RFECV runs sharing checkpoint_path (or an external cleanup
         # cron); FileNotFoundError/OSError would propagate uncaught and abort the fit.
         # Drop the redundant exists check; add OSError/FileNotFoundError to the except.
@@ -739,13 +739,13 @@ class RFECV(BaseEstimator, TransformerMixin):
         (ColumnTransformer, set_output).
         """
         if not hasattr(self, "support_"):
-            # Wave 37 P1 fix (2026-05-20): sklearn convention is
+            # Wave 37 P1 fix: sklearn convention is
             # NotFittedError (ValueError-compatible subclass), so existing
             # ``except ValueError`` chains stay green AND
             # ``except NotFittedError`` discriminators work.
             from sklearn.exceptions import NotFittedError
             raise NotFittedError("RFECV is not fitted; call fit() first.")
-        # sklearn ``_check_feature_names_in`` contract: when the caller passes input_features it MUST match the fitted width, else raise (column-drift detection). A correct-length input_features overrides the stored feature_names_in_ -- this lets a caller re-inject real names after an ndarray fit (which synthesized x0..xN placeholders).
+        # sklearn ``_check_feature_names_in`` contract: when the caller passes input_features it MUST match the fitted width, else raise (column-drift detection). A correct-length input_features overrides the stored feature_names_in_ - this lets a caller re-inject real names after an ndarray fit (which synthesized x0..xN placeholders).
         names_in = getattr(self, "feature_names_in_", None)
         if input_features is not None:
             input_features = list(input_features)
@@ -777,7 +777,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         ``n_features_in_`` (``indices=False``) or the integer indices of the
         selected features (``indices=True``). ``support_`` is stored as either a
         bool mask or an int-index array depending on the fit path, so normalise
-        both shapes here -- sklearn tooling that introspects selection via
+        both shapes here - sklearn tooling that introspects selection via
         ``get_support`` (SelectFromModel-style pipelines, set_output column
         derivation) relies on this method existing.
         """

@@ -5,7 +5,7 @@ RawKernels and their lazy getters that the batched CMI / marginal-MI assembly in
 ``_fe_batched_mi.batched_cmi_gpu`` consumes (``_rows_entropy_and_k``, the joint-hist + joint-entropy +
 cmi-joint / marginal-mi entropy kernels, ``joint_counts_gpu`` / ``joint_entropy_gpu`` /
 ``joint_nnz_gpu`` / ``cmi_joint_entropies_gpu`` / ``marginal_mi_entropies_gpu`` / ``_cmi_assemble``).
-Function and kernel-source bodies are byte-for-byte the originals -- NO logic change. The parent
+Function and kernel-source bodies are byte-for-byte the originals - NO logic change. The parent
 re-exports every public name for back-compat; importers continue to use ``from ._fe_batched_mi import X``.
 """
 from __future__ import annotations
@@ -16,8 +16,8 @@ from typing import Any
 import numpy as np
 
 # bench-attempt-rejected (2026-06-28): fit-amortised reuse of the joint-histogram atomicAdd count buffers in
-# joint_counts_gpu (227 calls/fit, ~22M int64) and _batched_joint_counts2 (15 calls, up to ~320M int64) -- one
-# grow-to-max int64 buffer per site, .fill(0) the live [:M] slice instead of cp.zeros (alloc+memset) -- to kill
+# joint_counts_gpu (227 calls/fit, ~22M int64) and _batched_joint_counts2 (15 calls, up to ~320M int64) - one
+# grow-to-max int64 buffer per site, .fill(0) the live [:M] slice instead of cp.zeros (alloc+memset) - to kill
 # the 669 cp.zeros that cProfile reported as the #1 tottime (~29-34s) on the GPU-strict-resident F2 1M/200k fit.
 # Bit-identical counts (4/1 F2 selection-equiv flag-on AND flag-off; gpu_cpu_mi_selection_equivalence + joint-hist
 # identity all green). REJECTED on WALL: the 34s was a cProfile async-CUDA artifact (cp.zeros' memset is attributed
@@ -64,7 +64,7 @@ void rows_ent_nnz(const double* __restrict__ counts, const double inv_n, const i
 // INT32-counts variant (bandwidth fix, 2026-07-02): nsys at the 1M fit put rows_ent_nnz at 9.35s (34% of
 // GPU time) reading float64 cells of a huge mostly-zero counts matrix, PLUS 2.2s of cupy_copy for the
 // int64->float64 .astype the callers did first. Counts are exact small ints (<= n < 2^31): read them as
-// int32 (4B/cell, no astype copy at all) and cast in-register -- identical entropy/nnz values, ~6x less
+// int32 (4B/cell, no astype copy at all) and cast in-register - identical entropy/nnz values, ~6x less
 // memory traffic (astype read8+write8 + reduce read8 -> reduce read4).
 extern "C" __global__
 void rows_ent_nnz_i32(const int* __restrict__ counts, const double inv_n, const int K, const long long M,
@@ -172,7 +172,7 @@ def _rows_entropy_and_k(counts, inv_n):
 
     global _XLOGX_ROWS_EK
     try:
-        # int32 counts: fused in-register cast (rows_ent_nnz_i32) -- no float64 astype copy, 4B/cell reads.
+        # int32 counts: fused in-register cast (rows_ent_nnz_i32) - no float64 astype copy, 4B/cell reads.
         if counts.dtype == cp.int32:
             c = cp.ascontiguousarray(counts)
             _ker = _get_rows_ent_nnz_i32_kernel(cp)
@@ -286,7 +286,7 @@ void batched_joint_hist1_i32(const long long* __restrict__ X, const int Kx, cons
 }
 // OCCUPIED-CELL count in the SAME pass as the histogram: atomicAdd returns the OLD value, so a cell's
 // 0 -> 1 transition (first sample landing there) is detected race-free and bumps a single global nnz
-// counter. ONE launch yields the cardinality joint_cardinalities_cupy needs -- no separate _nnz reduction.
+// counter. ONE launch yields the cardinality joint_cardinalities_cupy needs - no separate _nnz reduction.
 extern "C" __global__
 void joint_hist_nnz1(const long long* __restrict__ a, const long long n,
                      long long* __restrict__ counts, unsigned long long* __restrict__ nnz) {
@@ -348,7 +348,7 @@ def _batched_joint_counts2(X, b, Kx, Kb):
     # 1M rows) and stays pinned all fit -> on a 4GB GTX 1050 Ti it starves the resident mempool and REGRESSES
     # wall (~122s -> ~132s). The .fill(0) of 2.5GB also costs ~the same as cp.zeros' memset, so the only saving
     # was the (warm-pool-cheap) malloc. Keep cp.zeros so this large buffer is returned to the pool after use.
-    # int32 counts (2026-07-02 bandwidth fix): exact frequencies <= n < 2^31; halves the memset + the
+    # int32 counts: exact frequencies <= n < 2^31; halves the memset + the
     # entropy-reduce traffic + the buffer VRAM (2x perms per perm-null chunk). Identical counts.
     counts = cp.zeros(int(K) * int(Kx) * int(Kb), dtype=cp.int32)
     h2 = _get_batched_joint_hist_kernels()[3]
@@ -373,7 +373,7 @@ def _batched_marginal_counts(X, Kx):
     return counts.reshape(K, int(Kx))
 
 
-# LAUNCH-FUSION (2026-06-27): per-column joint ENTROPY+NNZ in ONE launch -- the per-column analogue of the
+# LAUNCH-FUSION: per-column joint ENTROPY+NNZ in ONE launch - the per-column analogue of the
 # single-joint ``joint_entropy2``. The conditional CMI path fired _batched_joint_counts2 (atomicAdd launch ->
 # global (K, Kx*Kb) f64 counts) THEN _rows_entropy_and_k (a second launch reducing that matrix) for BOTH the
 # (x,z) and (x,y*z) joints (4 launches + 2 large f64 intermediates / fit). This kernel runs ONE BLOCK PER
@@ -431,7 +431,7 @@ def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
     # bench-attempt-rejected (2026-06-27): count+reduce -> 1 fused launch. nsys: removed ~18-36 cuLaunchKernel/
     # fit (total launch APIs 159->135 across the combined A/B). BIT-IDENTICAL (h/k maxdiff 0; full batched_cmi
     # + return_cards maxdiff 0). REJECTED on GPU KERNEL TIME: the one-block-per-column shared-hist kernel runs at
-    # a near-CONSTANT ~36ms (n=100k, K=384, GTX 1050 Ti) regardless of M -- it serializes n shared-mem atomicAdds
+    # a near-CONSTANT ~36ms (n=100k, K=384, GTX 1050 Ti) regardless of M - it serializes n shared-mem atomicAdds
     # per column across only K blocks x 256 threads (Pascal shared-atomic + low-occupancy bound). The unfused
     # count+reduce is GLOBAL-atomic over n*K threads (massively parallel) + a cheap reduce: 4.5ms at the joint
     # sizes the conditional CMI path actually hits (Kx*Kz, Kx*Kyz ~ 40-500 since Ky/Kz are small). Measured
@@ -655,7 +655,7 @@ def joint_entropy_gpu(codes: Any, cards: Any, inv_n: float) -> tuple[float, int]
 
 
 # FUSED four-joint conditional-CMI entropies in ONE launch (launch-reduction, 2026-06-26). The conditional
-# CMI(x;y|z) needs the plug-in entropy + occupied-cell count of FOUR joints -- (z), (x,z), (y,z), (x,y,z) --
+# CMI(x;y|z) needs the plug-in entropy + occupied-cell count of FOUR joints - (z), (x,z), (y,z), (x,y,z) -
 # which _cmi_from_binned_cupy computed as four separate joint_entropy_gpu launches (the #1 cuLaunchKernel
 # source on the F2 STRICT redundancy gate after the analytic-null card reuse removed joint_cardinalities).
 # This kernel runs all four as FOUR BLOCKS of one grid (block b builds joint b's histogram from the shared
@@ -701,8 +701,8 @@ _CMI_JOINT_ENTROPIES_KERNEL = None
 
 
 def cmi_joint_entropies_gpu(dx: Any, dy: Any, dz: Any, Kx: int, ky: int, kz: int, inv_n: float) -> Any:
-    """The four conditional-CMI joint (plug-in entropy, occupied-cell count) terms -- (z), (x,z), (y,z),
-    (x,y,z) -- in ONE launch. Returns ((h_z,k_z),(h_xz,k_xz),(h_yz,k_yz),(h_xyz,k_xyz)), or None when the
+    """The four conditional-CMI joint (plug-in entropy, occupied-cell count) terms - (z), (x,z), (y,z),
+    (x,y,z) - in ONE launch. Returns ((h_z,k_z),(h_xz,k_xz),(h_yz,k_yz),(h_xyz,k_xyz)), or None when the
     largest (x,y,z) joint won't fit the per-block shared limit (caller falls back to four joint_entropy_gpu
     launches). Bit-identical to four separate joint_entropy_gpu calls."""
     import cupy as cp
@@ -729,19 +729,19 @@ def cmi_joint_entropies_gpu(dx: Any, dy: Any, dz: Any, Kx: int, ky: int, kz: int
 # bench-attempt-rejected (2026-06-26): a two-block fused (x,z)+(x,y,z) kernel for the FIXED-yz greedy CMI path
 # (cmi_from_binned_fixed_yz_cupy, where H(z)/H(y,z) are precomputed so only xz/xyz remain) was BIT-IDENTICAL
 # to the two separate joint_entropy_gpu calls on random codes (10/10 A/B) yet FLIPPED the full-MRMR selection
-# on test_gpu_cpu_mi_selection_equivalence[reg_two_pairs] and [adv_wide_p60] -- a real divergence the random
+# on test_gpu_cpu_mi_selection_equivalence[reg_two_pairs] and [adv_wide_p60] - a real divergence the random
 # A/B did not surface (interaction with the precomputed-yz terms at a card combo). The four-block conditional
 # fusion (cmi_joint_entropies_gpu) is SAFE there (all four joints come from the one kernel -> self-consistent;
 # full suite green); the fixed-yz two-block split mixing fused xz/xyz with precomputed h_z/h_yz is not. Kept
 # the fixed-yz path on the two per-joint joint_entropy_gpu launches.
 
 
-# FUSED three-joint marginal-MI entropies in ONE launch -- the marginal MI(x;y) path (the seed anchor and the
+# FUSED three-joint marginal-MI entropies in ONE launch - the marginal MI(x;y) path (the seed anchor and the
 # redundancy gate's per-raw marginal anchor) needs H(x), H(y), H(x,y), three separate joint_entropy_gpu
 # launches per call. Three blocks of one grid (block 0: x, M=Kx; block 1: y, M=Ky; block 2: xy, M=Kx*Ky),
 # each the same per-block histogram + tree reduction. All three terms come from THIS kernel (the marginal MI
 # combines only its own h_x/h_y/h_xy, no precomputed cross-path term), so it is self-consistent like the
-# four-block conditional fusion -- not the rejected two-block fixed-yz split. Engages when the (x,y) joint
+# four-block conditional fusion - not the rejected two-block fixed-yz split. Engages when the (x,y) joint
 # fits the per-block shared limit (it is tiny: Kx*Ky). Same f64 plug-in entropy, occupied-cell definition,
 # and cell-index reduction order -> bit-identical.
 _MARGINAL_MI_ENTROPIES_SRC = r"""
@@ -771,7 +771,7 @@ _MARGINAL_MI_ENTROPIES_KERNEL = None
 
 
 def marginal_mi_entropies_gpu(dx: Any, dy: Any, Kx: int, ky: int, inv_n: float) -> Any:
-    """The three marginal-MI joint terms -- (x), (y), (x,y) -- in ONE launch. Returns
+    """The three marginal-MI joint terms - (x), (y), (x,y) - in ONE launch. Returns
     ((h_x,k_x),(h_y,k_y),(h_xy,k_xy)), or None when the (x,y) joint won't fit the per-block shared limit
     (caller falls back to three joint_entropy_gpu launches). Bit-identical to the three separate calls."""
     import cupy as cp
@@ -796,7 +796,7 @@ def marginal_mi_entropies_gpu(dx: Any, dy: Any, Kx: int, ky: int, inv_n: float) 
 
 # FUSED final CMI/MI assembly (launch-reduction, 2026-06-26). batched_cmi_gpu assembled the per-column result
 # with a cupy chain over (K,) arrays: cmi = h_xz + h_yz - h_z - h_xyz; bias = (k_xyz + k_z - k_xz - k_yz)/2n;
-# max(cmi - bias, 0) -- ~7 launches. Both the conditional and marginal forms reduce to
+# max(cmi - bias, 0) - ~7 launches. Both the conditional and marginal forms reduce to
 #   out[i] = max( he1[i] - he2[i] + hc - (kc1[i] - kc2[i] + kc) * inv2n , 0 )
 # so one (K,) kernel emits the result. Same f64 ops -> bit-identical.
 _CMI_ASSEMBLE_SRC = r"""
@@ -851,7 +851,7 @@ def _get_joint_nnz_kernels():
 
 
 def joint_nnz_gpu(codes: Any, cards: Any) -> int:
-    """Occupied-cell COUNT (cardinality) of the joint of 1-3 device code arrays in ONE launch -- the
+    """Occupied-cell COUNT (cardinality) of the joint of 1-3 device code arrays in ONE launch - the
     histogram atomicAdd and the nonzero count fuse via the atomicAdd-returns-old 0->1 trick, so no separate
     cp.bincount / _nnz reduction. ``codes`` cupy int64 (n,); ``cards`` the matching cardinalities. Returns a
     Python int. The count is exact (integer) -> identical to ``_nnz_from_counts(joint_counts_gpu(...))``."""

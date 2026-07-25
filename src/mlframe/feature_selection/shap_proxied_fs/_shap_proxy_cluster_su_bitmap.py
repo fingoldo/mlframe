@@ -87,7 +87,7 @@ def _resolve_bitmap_min_features(default: int = 200) -> int:
     the pack and the per-pair POPCNT speedup wins.
 
     A per-HW cache-tuned override was attempted here via ``pyutilz.performance.kernel_tuning.cache``'s
-    module-level ``.get(key, default=...)`` -- that method has never existed on the module (current
+    module-level ``.get(key, default=...)`` - that method has never existed on the module (current
     pyutilz only exposes the class-based, dimensional ``KernelTuningCache.lookup(kernel_name, **dims)``),
     so the call always raised ``AttributeError``, silently caught, always returning ``default``. Removed
     the always-dead attempt rather than invent an unverified new cache schema; this is a behavior-
@@ -115,7 +115,7 @@ def _resolve_bitmap_max_n_bins(default: int = 12) -> int:
 
     A per-HW cache-tuned override was attempted here via the same non-existent
     ``kernel_tuning_cache.get(key, default=...)`` API described in
-    :func:`_resolve_bitmap_min_features` -- removed as dead, always-``default``-returning code."""
+    :func:`_resolve_bitmap_min_features` - removed as dead, always-``default``-returning code."""
     return default
 
 
@@ -127,7 +127,7 @@ def _resolve_bitmap_min_samples(default: int = 256) -> int:
 
     A per-HW cache-tuned override was attempted here via the same non-existent
     ``kernel_tuning_cache.get(key, default=...)`` API described in
-    :func:`_resolve_bitmap_min_features` -- removed as dead, always-``default``-returning code."""
+    :func:`_resolve_bitmap_min_features` - removed as dead, always-``default``-returning code."""
     return default
 
 

@@ -2,7 +2,7 @@
 
 Extends the single-column ``_periodic_fe`` (``x mod period`` on a fixed calendar ladder) to the
 genuinely-uncovered case: a target that is a function of an INTEGER MODULUS of a COMBINATION of
-columns -- ``y = (a + b) mod m``, ``y = (a * b) mod m``, n-way parity ``y = (sum_i x_i) mod 2`` --
+columns - ``y = (a + b) mod m``, ``y = (a * b) mod m``, n-way parity ``y = (sum_i x_i) mod 2`` -
 or a single column with a HIDDEN integer period not in the calendar ladder. Smooth bases (poly /
 Fourier) need unboundedly many harmonics to fit a sawtooth residue, so they never clear the MI
 floor; the exact residue ``c mod m`` recovers the signal in one column.
@@ -23,16 +23,16 @@ Design: CHEAP-FIRST / ESCALATE.
   a FINE integer grid around the coarse winner and emit the materialised ``combiner mod m`` column
   for the selector to pick. Pure arithmetic on X, no y at replay time -> leak-free.
 
-Only integer-typed (or exactly-integer-valued float) columns are eligible -- modular structure is an
+Only integer-typed (or exactly-integer-valued float) columns are eligible - modular structure is an
 integer-lattice property; quantising a continuous column would manufacture spurious periodicity.
 
 Cost: ~99% of the scan is the shipped binned-MI kernel (``_mi`` -> ``_mi_classif_batch`` -> ``plugin_mi_classif_batch_dispatch``).
 Two caller-side optimisations cut it 2.3-3.4x (bench ``_benchmarks/bench_pairwise_modular_cost`` before/after, both bit-identical
-to the prior responded-set -- verified across TP + control frames):
+to the prior responded-set - verified across TP + control frames):
 
 * BATCHED GRID (``_residue_grid_mi``): the per-modulus residue MIs (the dominant ~57% of calls) stack into ONE multi-column
   ``_mi_classif_batch`` call per effective-nbins group instead of one call per modulus. ``_mi_classif_batch`` already takes a
-  ``(n, p)`` batch (per-column binning is independent), so this is pure caller batching -- the kernel API is untouched and the
+  ``(n, p)`` batch (per-column binning is independent), so this is pure caller batching - the kernel API is untouched and the
   per-column MI is byte-for-byte the same; only the per-call dispatch overhead is amortised.
 * EARLY-REJECT NULL: the 12-permutation null (~40% of calls) is computed ONLY for combiners that already clear the baseline
   margin (``_MIN_MARGIN``). ``_responded`` needs BOTH margin AND null, so a margin-failing combiner can never respond -> its
@@ -40,16 +40,16 @@ to the prior responded-set -- verified across TP + control frames):
   non-modular frame this drops the null for all 114 combiners.
 
 A shared per-(n, class-counts, k) null (one null reused across combiners) was REJECTED: the null band depends on the residue
-bin-count vector, which differs ~5e-4 in mean / ~3e-3 per-perm between combiners at the same k -- selection-altering, so it
+bin-count vector, which differs ~5e-4 in mean / ~3e-3 per-perm between combiners at the same k - selection-altering, so it
 could flip a borderline ``residue_mi > null_hi`` decision. Kept the per-combiner null for the (few) combiners that reach it.
 
 Generalisation audit (does this batching lever apply to OTHER FE families?): NULL RESULT. Every other MI-scoring FE family on the
-default path already scores its engineered columns with ONE ``_mi_classif_batch(full_matrix, y)`` call -- the orthogonal families
+default path already scores its engineered columns with ONE ``_mi_classif_batch(full_matrix, y)`` call - the orthogonal families
 (univariate / triplet / quadruplet / cluster / diff / routing / cmim / jmim / total-correlation / adaptive-arity / adaptive-degree /
 three-gate / pair-cross), the mi-greedy families, ``_extra_fe_families``, and the bootstrap / periodic scorers (which route through
 ``score_features_by_bootstrap_mi``, one batch call per replicate). The modular scan was the sole unbatched per-column MI loop on the
-default path because it materialised ``c mod k`` per-modulus inside Python. The one remaining genuine per-column MI loop --
-``_orth_auto_scorer_fe.select_best_scorer_per_column`` (per column x per bootstrap x per scorer) -- is gated behind
+default path because it materialised ``c mod k`` per-modulus inside Python. The one remaining genuine per-column MI loop -
+``_orth_auto_scorer_fe.select_best_scorer_per_column`` (per column x per bootstrap x per scorer) - is gated behind
 ``fe_hybrid_orth_auto_scorer_enable`` (default OFF) and interleaves plug-in MI with four per-column-native scorers (KSG / copula /
 dCor / HSIC), so batching just the plug-in leg would fork the uniform scorer dispatch for an opt-in path with no default-path win.
 """
@@ -62,11 +62,13 @@ from typing import Optional, Sequence
 
 import numpy as np
 
+from ._y_encoding import encode_y_for_classif_mi
+
 logger = logging.getLogger(__name__)
 
 
 def _is_cupy_ndarray(x) -> bool:
-    """True iff ``x`` is a resident cupy ndarray -- WITHOUT hard-importing cupy (no import when it is a host array).
+    """True iff ``x`` is a resident cupy ndarray - WITHOUT hard-importing cupy (no import when it is a host array).
 
     Used by ``_mi`` (and the conditional-gate / row-argmax scorers that thread a resident candidate handle) to
     take the resident-input branch instead of ``np.asarray`` (which raises on a cupy array). Returns False for
@@ -95,7 +97,7 @@ __all__ = [
 
 PAIRWISE_MODULAR_PREFIX = "pmod"
 
-# Coarse modulus ladder for the cheap stage: small primes (so a hidden PRIME period spikes -- a
+# Coarse modulus ladder for the cheap stage: small primes (so a hidden PRIME period spikes - a
 # prime m has no proper divisor in a composite-only grid, so it must be listed) + common composite /
 # byte cycles. A composite true modulus that is a MULTIPLE of a grid entry still spikes (its divisors
 # carry the signal); the escalate stage pins the exact m on a fine grid afterwards.
@@ -108,7 +110,7 @@ _PAIR_OPS = ("sum", "diff", "prod")
 
 # Gate floor shared by ``_responded`` and the cheap-scan early-reject: a combiner whose residue MI does not beat its own
 # raw-combiner baseline by this margin can NEVER respond (``_responded`` requires margin AND null), so the expensive
-# permutation null is skipped for it -- bit-identical to ``responded`` by short-circuit, not an approximation.
+# permutation null is skipped for it - bit-identical to ``responded`` by short-circuit, not an approximation.
 _MIN_MARGIN = 0.02
 
 # Absolute floor the residue MI must clear ABOVE the permutation-null upper band (not just `> null_hi`). The plug-in MI of a high-cardinality
@@ -127,8 +129,8 @@ def _mi(col: np.ndarray, y: np.ndarray, nbins: int = 12) -> float:
 
     RESIDENT-INPUT branch: a device-born caller may hand an ALREADY-RESIDENT cupy candidate column (e.g. the
     conditional-gate / row-argmax scorer, which uploads the scored candidate ONCE and reuses the resident handle
-    across its marginal MI + the 12-perm null). Pass it straight to ``_mi_classif_batch`` -- which accepts a
-    resident cupy input (isinstance branch, no upload) -- so the candidate float never re-crosses H2D at the
+    across its marginal MI + the 12-perm null). Pass it straight to ``_mi_classif_batch`` - which accepts a
+    resident cupy input (isinstance branch, no upload) - so the candidate float never re-crosses H2D at the
     :318 MI upload site. ``np.asarray`` on a cupy array would raise, so the resident branch MUST bypass it. Host
     columns take the exact prior ``np.asarray`` upload path -> byte-identical default."""
     from ._orthogonal_univariate_fe import _mi_classif_batch
@@ -142,19 +144,19 @@ def _mi(col: np.ndarray, y: np.ndarray, nbins: int = 12) -> float:
         arr = col  # resident (n,) or (n,1) cupy -> _mi_classif_batch reshapes 1-D to a column itself
     else:
         arr = np.asarray(col, dtype=np.float64).reshape(-1, 1)
-    return float(_mi_classif_batch(arr, np.asarray(y).astype(np.int64), nbins=nbins, rank_binning=_rb)[0])
+    return float(_mi_classif_batch(arr, encode_y_for_classif_mi(y), nbins=nbins, rank_binning=_rb)[0])
 
 
 def _residue_grid_mi(c: np.ndarray, y: np.ndarray, mods: Sequence[int], nbins: int) -> np.ndarray:
     """MI of ``c mod k`` vs y for every k in ``mods``, in one batched kernel call per effective-nbins group.
 
     ``_residue_mi`` bins each residue at ``max(nbins, k)``; columns sharing the same effective nbins can be stacked into
-    a single multi-column ``_mi_classif_batch`` call (bit-identical to per-column -- same per-column binning math, only
+    a single multi-column ``_mi_classif_batch`` call (bit-identical to per-column - same per-column binning math, only
     the per-call dispatch overhead is amortised). Moduli are grouped by ``max(nbins, k)`` so each group is one call."""
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
-    yi = np.asarray(y).astype(np.int64)
-    # SF2 :311 collapse (2026-06-30): the per-group residue matrices are the DOMINANT modular :311 H2D (one
+    yi = encode_y_for_classif_mi(y)
+    # SF2 :311 collapse: the per-group residue matrices are the DOMINANT modular :311 H2D (one
     # (n, |group|) cp.asarray per eff-nbins group at _orth_mi_backends:139). Build ``c mod k`` DEVICE-BORN from a
     # single resident combiner column (exact integer cupy ``%``) and score each group through the SAME
     # percentile-EDGE resident estimator the host grid uses (rank_binning stays False on the grid). None on cupy
@@ -170,7 +172,7 @@ def _residue_grid_mi(c: np.ndarray, y: np.ndarray, mods: Sequence[int], nbins: i
         groups.setdefault(max(nbins, int(k)), []).append(idx)
     for eff_nbins, idxs in groups.items():
         # Build the residue matrix as (|group|, n) with CONTIGUOUS row writes (each ``np.mod`` lands in a
-        # contiguous row, no strided column copy), then pass the ``.T`` F-view to the batched MI kernel --
+        # contiguous row, no strided column copy), then pass the ``.T`` F-view to the batched MI kernel -
         # bit-identical to the (n, |group|) column-build (same float64 residues, same per-column binning) but
         # avoids the strided writes + the result->column double-copy (1.19x on the host residue-grid path).
         matT = np.empty((len(idxs), c.shape[0]), dtype=np.float64)
@@ -213,7 +215,7 @@ def _combine(arrs: Sequence[np.ndarray], op: str) -> np.ndarray:
 def _residue_mi(c: np.ndarray, y: np.ndarray, k: int, nbins: int) -> float:
     """MI of ``c mod k`` vs y. For k <= nbins the residue is used as its own bin index (no rebin)."""
     eff = max(nbins, k)
-    # SF2 :311 collapse (2026-06-30): the escalate-stage residue single-column upload is built DEVICE-BORN from
+    # SF2 :311 collapse: the escalate-stage residue single-column upload is built DEVICE-BORN from
     # the resident combiner column (exact integer ``c % k``) + scored through the SAME rank resident estimator
     # host ``_mi`` uses. None on cupy failure / non-strict -> the EXACT host ``_mi`` below (byte-identical).
     try:
@@ -258,22 +260,22 @@ class ModularHit:
 
 def _responded(residue_mi: float, baseline_mi: float, null_hi: float, min_margin: float = _MIN_MARGIN, null_margin: float = _MIN_NULL_MARGIN) -> bool:
     """Gate: the residue MI must clear BOTH the smooth-basis baseline (by ``min_margin``) AND the permutation-null upper band by an absolute
-    ``null_margin`` (not just ``> null_hi`` -- a high-cardinality residue's cardinality-inflated plug-in MI can sit ~0.007 nats above a z=3
+    ``null_margin`` (not just ``> null_hi`` - a high-cardinality residue's cardinality-inflated plug-in MI can sit ~0.007 nats above a z=3
     null on noise; a true hit clears it by >1 nat). ``min_margin`` is the measured separation floor between a true modular hit and the best
     non-modular combiner (see ``_benchmarks/bench_modular_period_detection``)."""
     return (residue_mi - baseline_mi) >= min_margin and residue_mi > (null_hi + null_margin)
 
 
 def _perm_null_hi(c: np.ndarray, y: np.ndarray, k: int, nbins: int, n_perm: int = 12, seed: int = 0, z: float = 3.0) -> float:
-    """Upper band (mean + z*std) of ``c mod k`` MI under y permutation -- the noise reference the
+    """Upper band (mean + z*std) of ``c mod k`` MI under y permutation - the noise reference the
     residue MI must clear. Cheap: n_perm small, the residue is computed once and only y is shuffled."""
     r = np.mod(c, k).astype(np.float64)
     rng = np.random.default_rng(seed)
-    yi = np.asarray(y).astype(np.int64)
+    yi = encode_y_for_classif_mi(y)
     eff_nbins = max(nbins, k)
-    # SF2 :311 collapse (2026-06-30): the per-perm residue MIs are the dominant single-column residue uploads at
+    # SF2 :311 collapse: the per-perm residue MIs are the dominant single-column residue uploads at
     # _orth_mi_backends:311 (one (n,1) cp.asarray per perm). MI(r; y[perm]) == MI(r[inv_perm]; y) (joint-reindex
-    # invariance), so the 12 per-perm MIs are the per-column MIs of a single (n, n_perm) matrix -- scored in ONE
+    # invariance), so the 12 per-perm MIs are the per-column MIs of a single (n, n_perm) matrix - scored in ONE
     # resident plug-in call against the resident y. SAME seeded permutations (bit-identical perms drawn HERE in
     # the exact loop order) + SAME (rank, under STRICT) resident estimator the host _mi uses -> byte-identical
     # per-perm MIs -> byte-identical null band. None on cupy failure / non-strict -> the EXACT host loop below.
@@ -309,7 +311,7 @@ def cheap_modular_scan(
     """Cheap first-pass scan for modular structure over integer columns of X.
 
     For each integer column (``self`` op), each integer pair (``sum`` / ``diff`` / ``prod``) and a
-    budgeted set of integer TRIPLES (``sum3`` -- the n-way parity combiner ``(a+b+c) mod m``, which no
+    budgeted set of integer TRIPLES (``sum3`` - the n-way parity combiner ``(a+b+c) mod m``, which no
     pair can reach), take the residue at every coarse modulus, score MI vs y, and keep the best-modulus
     hit per combiner. The triple sweep is what makes 3-way parity ``y = (x0+x1+x2) mod 2`` detectable;
     pairwise parity of a 3-way target is independent of y, so the pair combiners stay at the null floor.
@@ -323,10 +325,10 @@ def cheap_modular_scan(
     elif not _cols_prefiltered:
         cols = [c for c in cols if _is_integer_col(np.asarray(X[c]))]
     # else: caller (e.g. hybrid_pairwise_modular_fe_with_recipes) already ran this exact filter to
-    # build ``cols`` -- re-scanning it here was pure duplicate work.
+    # build ``cols`` - re-scanning it here was pure duplicate work.
     # Canonicalize eligible-column order so the budgeted pair/triple enumeration scans the same combinations regardless of caller column order (reversed-column invariance).
     cols = sorted(cols, key=lambda c: str(c))
-    yi = np.asarray(y).astype(np.int64)
+    yi = encode_y_for_classif_mi(y)
     arrs = {c: np.asarray(X[c]) for c in cols}
     mods = [int(k) for k in moduli if int(k) >= 2]
 
@@ -341,7 +343,7 @@ def cheap_modular_scan(
 
     def _scan_one(op: str, cset: tuple[str, ...], c_arr: np.ndarray):
         """Score one candidate combiner column ``c_arr`` (from operator ``op`` over ``cset``): compute its raw-combiner baseline MI, then probe modular residues against it, recording any that clear the response gate."""
-        # SF2 :311 collapse (2026-06-30): the per-combiner baseline single-column upload (one (n,1) cp.asarray per
+        # SF2 :311 collapse: the per-combiner baseline single-column upload (one (n,1) cp.asarray per
         # combiner at _orth_mi_backends:311) is built DEVICE-BORN from the resident combiner column + scored
         # through the SAME rank resident estimator host ``_mi`` uses. None -> the EXACT host ``_mi`` below.
         base = combiner_mi_resident(c_arr, yi, nbins=nbins, rank_binning=_scan_rb, modulus=0)
@@ -397,13 +399,13 @@ def escalate_modulus(
     residue_column)``; the residue column is the materialised ``combiner mod best_m`` for the selector."""
     k0 = hit.modulus
     # Reuse the combiner column cheap_modular_scan already built for this hit when available (the
-    # common path -- detect_pairwise_modular / hybrid_pairwise_modular_fe_with_recipes always escalate
+    # common path - detect_pairwise_modular / hybrid_pairwise_modular_fe_with_recipes always escalate
     # a hit cheap_modular_scan just produced); rebuild only for a standalone/bare ModularHit lacking it.
     c_arr = hit.c_arr
     if c_arr is None:
         arrs = [np.asarray(X[c]) for c in hit.cols]
         c_arr = _combine(arrs, hit.op)
-    yi = np.asarray(y).astype(np.int64)
+    yi = encode_y_for_classif_mi(y)
 
     grid = set(range(max(2, k0 - span), k0 + span + 1))
     grid.update({2 * k0, 3 * k0})
@@ -428,7 +430,7 @@ def detect_pairwise_modular(
 ):
     """End-to-end cheap-first + escalate. Returns the list of responded+refined hits (each a dict with
     the final modulus, MI, and the materialised residue column), capped at ``top_k``. Empty when
-    nothing responds -- a non-modular frame escalates nothing."""
+    nothing responds - a non-modular frame escalates nothing."""
     hits = cheap_modular_scan(X, y, cols, moduli=moduli, nbins=nbins, seed=seed)
     out = []
     for h in hits:
@@ -448,7 +450,7 @@ def detect_pairwise_modular(
 
 
 # Recipe plumbing: emit frozen EngineeredRecipe objects so the MRMR selector materialises, scores, selects, and replays
-# the residue column at predict time identically. Replay is pure integer arithmetic on X (combine columns, take mod) --
+# the residue column at predict time identically. Replay is pure integer arithmetic on X (combine columns, take mod) -
 # no y reference, so it is leak-free + deterministic + train/test exact, mirroring the single-column ``_periodic_fe`` path.
 
 _RECIPE_VALID_OPS = ("self", "sum", "diff", "prod", "sum3")
@@ -468,7 +470,7 @@ def engineered_name_pairwise_modular(op: str, cols: Sequence[str], modulus: int)
 def apply_pairwise_modular(X, op: str, cols: Sequence[str], modulus: int) -> np.ndarray:
     """Replay one pairwise/n-way modular residue: combine the source columns via ``op`` then take ``mod modulus``.
 
-    Pure integer arithmetic on the source columns -- no y reference, no fitted state, so transform() is leak-free and
+    Pure integer arithmetic on the source columns - no y reference, no fitted state, so transform() is leak-free and
     train/test exact. Output float64 in ``[0, modulus)``; the residue is the materialised selector feature."""
     if op not in _RECIPE_VALID_OPS:
         raise ValueError(f"pairwise-modular op must be one of {_RECIPE_VALID_OPS}; got {op!r}")
@@ -478,7 +480,7 @@ def apply_pairwise_modular(X, op: str, cols: Sequence[str], modulus: int) -> np.
     arrs = [np.asarray(X[c]) for c in cols]
     # The fit-time eligibility scan guarantees finite integer-valued operands, but a drifted/test frame may
     # carry NaN/inf in a source column that was integer-valued on train. Casting those to int64 in _combine
-    # silently yields INT64_MIN and np.mod turns it into a wrong, non-NaN residue in [0, m) -- garbage that
+    # silently yields INT64_MIN and np.mod turns it into a wrong, non-NaN residue in [0, m) - garbage that
     # downstream cannot tell from a genuine residue. NaN-out those rows: the residue is undefined where an
     # operand is not a finite integer. On clean data the mask is all-False (byte-identical to before).
     bad = np.zeros(arrs[0].shape[0], dtype=bool)
@@ -528,7 +530,7 @@ def hybrid_pairwise_modular_fe_with_recipes(
     whole sweep is SKIPPED (logged, never silent); when it is within ``max_int_cols`` but exceeds the tighter
     ``max_triple_cols`` the expensive C(p,3) triple sweep is dropped (pairs-only, logged).
 
-    Returns ``(appended_names, recipes)`` -- the materialised columns are NOT concatenated here (the MRMR caller appends
+    Returns ``(appended_names, recipes)`` - the materialised columns are NOT concatenated here (the MRMR caller appends
     them under its own RAM-safe path); each recipe replays the exact residue column from X alone, leak-free."""
     if cols is None:
         int_cols = [c for c in X.columns if _is_integer_col(np.asarray(X[c]))]

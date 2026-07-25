@@ -1,19 +1,19 @@
-"""Univariate orthogonal-polynomial FE + MI-greedy selector for MRMR (2026-05-31).
+"""Univariate orthogonal-polynomial FE + MI-greedy selector for MRMR.
 
 Three pieces:
 
-1. ``generate_univariate_basis_features`` -- for each source column, fit the
+1. ``generate_univariate_basis_features`` - for each source column, fit the
    per-basis preprocess (z-score for Hermite, min-max for Legendre/Chebyshev,
    non-negative shift for Laguerre), then emit ``He_n(z)`` / ``L_n(z)`` /
    ``T_n(z)`` / ``L^Lag_n(z)`` for n in ``degrees`` as new columns. Basis is
    auto-routed per column via ``basis_route_by_moments`` when ``basis='auto'``.
 
-2. ``score_features_by_mi_uplift`` -- batch-score each emitted column against
+2. ``score_features_by_mi_uplift`` - batch-score each emitted column against
    y via the existing ``_plugin_mi_classif_batch_njit`` path (or sklearn KSG
    for regression-mode y). Returns ranked DataFrame with raw-column baseline,
    emitted MI, and ``uplift = MI / baseline_MI``.
 
-3. ``hybrid_orth_mi_fe`` -- pipeline: (a) generate univariate basis features
+3. ``hybrid_orth_mi_fe`` - pipeline: (a) generate univariate basis features
    for the user-selected source columns, (b) rank by MI uplift, (c) emit the
    top-K winners. Optionally appends user-requested pairwise outer products
    ``He_a(x_i) * He_b(x_j)`` for the strongest single-column winners.
@@ -24,7 +24,7 @@ Why this lives outside of polynom_pair_fe:
   CMA-ES on a 2-arg bin_func), excellent for discovering interaction signal
   but expensive (~1000 optimisation steps per pair) and gated by
   ``fe_smart_polynom_iters > 0``. The univariate path is O(p * max_degree)
-  evaluations + one MI ranking pass -- 100-1000x cheaper -- and complements
+  evaluations + one MI ranking pass - 100-1000x cheaper - and complements
   the pair optimiser for single-feature non-linearities (y = sign(He_2(x_i)))
   that the pair path never explores.
 
@@ -34,10 +34,10 @@ Why this lives outside of polynom_pair_fe:
   back into MRMR's standard relevance/redundancy gates as ordinary numeric
   columns.
 
-X_EFFICIENCY_ARCHITECTURE-4 fix: this docstring used to claim "NOT wired into
-MRMR.fit by default -- explicit opt-in via direct call" -- FALSE for ``hybrid_orth_mi_fe_with_recipes``,
+This docstring used to claim "NOT wired into
+MRMR.fit by default - explicit opt-in via direct call" - FALSE for ``hybrid_orth_mi_fe_with_recipes``,
 which IS the default-on production entry point (``fe_univariate_basis_enable`` defaults to ``True``;
-see ``_mrmr_fit_impl/_fit_impl_core.py``'s "UNIVARIATE-BASIS FE -- DEFAULT ON" call site). This stale
+see ``_mrmr_fit_impl/_fit_impl_core.py``'s "UNIVARIATE-BASIS FE - DEFAULT ON" call site). This stale
 claim plausibly caused this whole 13-file subpackage to be skipped by every per-file audit cluster in
 the 2026-07-22 wave, since a docstring confidently declaring "opt-in only, not production" is exactly
 the signal that makes an auditor reasonably deprioritize claiming it as in-scope. The standalone
@@ -99,7 +99,7 @@ _BASIS_CODE = {"hermite": "He", "legendre": "L", "chebyshev": "T", "laguerre": "
 def _source_from_engineered_name(name: str, raw_names) -> str:
     """Recover the TRUE source column of an engineered name ``"{src}__{suffix}"``.
 
-    The engineered-name grammar is ``"{src}__{basis_code}{degree}"`` -- but blindly
+    The engineered-name grammar is ``"{src}__{basis_code}{degree}"`` - but blindly
     splitting on the FIRST ``"__"`` (``name.split("__", 1)[0]``) MISPARSES any raw
     input whose own name contains ``"__"`` (one-hot / dummy names like ``"city__NY"``):
     it stems ``"city__NY__He2"`` to ``"city"`` instead of ``"city__NY"``, so the
@@ -113,15 +113,15 @@ def _source_from_engineered_name(name: str, raw_names) -> str:
     keeps standalone callers that never pass a raw set working).
 
     PERF (2026-07-16, cProfile-driven): a caller that already has a hashable
-    ``set``/``frozenset`` of raw names gets the O(1)-lookup FAST PATH -- every valid
+    ``set``/``frozenset`` of raw names gets the O(1)-lookup FAST PATH - every valid
     ``raw`` (where ``name.startswith(raw + "__")``) ends exactly at a ``"__"`` boundary
     in ``name``, so splitting ``name`` on ``"__"`` and testing successively SHORTER
     joined prefixes against the set is an EXACT (fuzz-verified, 20000 cases, 0
-    mismatches) replacement for the O(R) linear scan below -- just via a handful of set
+    mismatches) replacement for the O(R) linear scan below - just via a handful of set
     lookups instead of scanning every raw name. Measured: 2499 calls / 0.62s tottime
     (score_features_by_mi_uplift's per-engineered-column loop, same fixed raw_cols every
     call) collapsed once callers pass a pre-built set. List/other iterable ``raw_names``
-    keeps the original O(R) scan (safe default, unchanged behaviour) -- callers on a hot
+    keeps the original O(R) scan (safe default, unchanged behaviour) - callers on a hot
     loop should pass ``frozenset(raw_names)`` built ONCE outside the loop."""
     if isinstance(raw_names, (set, frozenset)):
         if name in raw_names:
@@ -152,7 +152,7 @@ def _evaluate_basis_column(
     return_params: bool = False,
 ):
     """Preprocess x to the basis domain, then evaluate the single basis function
-    of given degree via a one-hot coefficient vector. Returns shape (n,) -- or
+    of given degree via a one-hot coefficient vector. Returns shape (n,) - or
     ``(values, params)`` when ``return_params=True``.
 
     The preprocess ``fit`` functions return a (z, params) tuple where z is the
@@ -160,7 +160,7 @@ def _evaluate_basis_column(
     untyped params dict (which can vary per basis: zscore -> mean/std; minmax
     -> lo/hi; shift -> lo).
 
-    Layer 80 (2026-06-01) -- ``aux_for_fit``: optional auxiliary x values to
+    Layer 80 - ``aux_for_fit``: optional auxiliary x values to
     concatenate with ``x`` BEFORE the basis preprocess fits its params. Used
     by the semi-supervised FE wrapper (``fe_semi_supervised_enable``) to
     fit z-score / min-max / shift params on a labeled + unlabeled pool while
@@ -168,10 +168,10 @@ def _evaluate_basis_column(
     here, so no leakage is introduced. When ``aux_for_fit=None`` (default)
     the legacy bit-exact path runs.
 
-    2026-06-03 (audit cluster-aggregate-6) -- ``preprocess_params`` / ``return_-
+    2026-06-03 (audit cluster-aggregate-6) - ``preprocess_params`` / ``return_-
     params``: persist-and-replay the fit-time preprocess. With ``preprocess_-
     params`` set, the basis preprocess is APPLIED with the stored params instead
-    of refit on ``x`` -- so a recipe replayed on drifted test data maps a given
+    of refit on ``x`` - so a recipe replayed on drifted test data maps a given
     row to the same engineered value as at fit. With ``return_params=True`` the
     fit path also returns the params it computed so the caller can persist them.
     """
@@ -216,7 +216,7 @@ def basis_route_by_signal(
     candidate_bases: Sequence[str] = tuple(_POLY_BASES),
     aux_for_fit: Optional[np.ndarray] = None,
 ) -> str:
-    """Signal-adaptive orthogonal-polynomial basis routing (2026-06-03).
+    """Signal-adaptive orthogonal-polynomial basis routing.
 
     Choose the basis whose best low-degree expansion is most LINEARLY usable for
     ``y`` (max ``|Pearson corr|`` over ``degrees``). The legacy
@@ -228,7 +228,7 @@ def basis_route_by_signal(
 
     Bench (benchmarks/bench_basis_routing equivalent, 2026-06-03, 30 cases x 3
     seeds): moment-routing picked the signal-best basis in only 19/30 (63%); mean
-    |corr| gap +0.128, max +0.80. Catastrophic moment mis-routes fixed -- heavy-
+    |corr| gap +0.128, max +0.80. Catastrophic moment mis-routes fixed - heavy-
     tailed cubic 0.17->0.93, gamma cubic 0.43->0.92, lognormal-square 0.68->0.92.
 
     Routing by linear usability (|corr|) rather than raw MI is deliberate: MI is
@@ -246,7 +246,7 @@ def basis_route_by_signal(
     best_basis = None
     best_corr = -1.0
     _route_no_aux = aux_for_fit is None or len(np.asarray(aux_for_fit)) == 0
-    # MEMO SCOPE (2026-06-21): all 4 candidate bases' preprocess fits run _detect_heavy_tail on the SAME x
+    # MEMO SCOPE: all 4 candidate bases' preprocess fits run _detect_heavy_tail on the SAME x
     # (the verdict depends on x's values, not the basis), so memoise it for this routing sweep -> 4 sort-based
     # median+MAD probes collapse to 1 (byte-identical; the memo caches a deterministic boolean, id-keyed +
     # identity-verified, cleared at scope exit). Covers both the host and the GPU-resident orth-FE routing.
@@ -254,9 +254,9 @@ def basis_route_by_signal(
     with heavy_tail_memo_scope():
         for basis in candidate_bases:
             bcorr = 0.0
-            # FIT-ONCE per basis (2026-06-21): z depends on (x, basis) not degree, so fit the
+            # FIT-ONCE per basis: z depends on (x, basis) not degree, so fit the
             # preprocess (incl the robust heavy-tail np.median axis) ONCE and evaluate both degrees
-            # on the cached z -- byte-identical to the per-degree _evaluate_basis_column, halving the
+            # on the cached z - byte-identical to the per-degree _evaluate_basis_column, halving the
             # routing-probe medians (4 bases x 2 degrees = 8 fits -> 4). Aux-pool path stays per-degree.
             _zc = None
             if _route_no_aux:
@@ -274,7 +274,7 @@ def basis_route_by_signal(
                     else:
                         v = _evaluate_basis_column(x, basis, int(d), aux_for_fit=aux_for_fit)
                 except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in __init__.py:242: %s", e)
+                    logger.debug("suppressed: %s", e)
                     continue
                 v = np.asarray(v, dtype=np.float64)
                 if v.size != yv.size or not np.all(np.isfinite(v)) or float(np.std(v)) < 1e-12:
@@ -336,7 +336,7 @@ def generate_univariate_basis_features(
         cols = _dedup_collinear_source_cols(
             X, list(cols), corr_threshold=dedup_corr_threshold,
         )
-    # Layer 80 (2026-06-01): semi-supervised unlabeled-pool augmentation. When
+    # Layer 80: semi-supervised unlabeled-pool augmentation. When
     # ``fe_semi_supervised_enable`` is active inside MRMR.fit, the wrapper
     # pushes a {col_name -> unlabeled_values} mapping into a thread-local; the
     # mapping is consumed HERE so the per-column basis preprocess (z-score /
@@ -359,17 +359,17 @@ def generate_univariate_basis_features(
         # engineered_recipes._orth_basis_recipes._eval_orth_basis_column, which unconditionally casts its
         # column to float64 before applying them. An f32-computed fit axis drifts ~1e-6 abs / ~1e-4 rel from
         # the f64 replay axis on ~80%+ of rows (confirmed empirically: same mean/std, different z-score
-        # arithmetic precision) -- affects EVERY hybrid-orth column, independent of row-subsampling. The f32
+        # arithmetic precision) - affects EVERY hybrid-orth column, independent of row-subsampling. The f32
         # relaxation stays for the separate MI-uplift SCORING casts in ``score_features_by_mi_uplift`` (a
-        # ranking decision, not a persisted value) -- only this closed-form VALUE materialisation must match
+        # ranking decision, not a persisted value) - only this closed-form VALUE materialisation must match
         # replay bit-for-bit.
         x = np.asarray(X[col].to_numpy(), dtype=np.float64)
         # Skip orthogonal-polynomial expansion on integer-valued low-cardinality categorical group keys: T_n / He_n of an
-        # arbitrary label code (region 0..9) is spurious -- it fits the label->target mapping, floods the candidate pool, and
+        # arbitrary label code (region 0..9) is spurious - it fits the label->target mapping, floods the candidate pool, and
         # displaces the genuinely useful grouped aggregates of that key. Continuous / high-card columns keep the expansion. The
         # skip applies ONLY when ``cols`` was auto-detected (the default-on MRMR scan over every column): an EXPLICIT caller-
         # provided ``cols`` is trusted as-is, because a 3-level ORDINAL integer (a binned threshold) is a legitimate basis-FE
-        # axis the caller asked for -- only the auto scan over arbitrary group-key labels needs protecting.
+        # axis the caller asked for - only the auto scan over arbitrary group-key labels needs protecting.
         if _cols_auto and _is_int_as_cat_axis(x):
             continue
         finite_mask = np.isfinite(x)
@@ -386,14 +386,14 @@ def generate_univariate_basis_features(
         # train and unlabeled augmentation agree on basis selection.
         # ONE heavy-tail memo scope per column (2026-07-02, cProfile-driven): basis_route_by_signal already
         # memoizes the robust heavy-tail detect over its 4-basis probe, but the FIT-ONCE build below re-detected
-        # the same np.median/MAD on the identical column OUTSIDE that scope -- the dominant post-subsample
+        # the same np.median/MAD on the identical column OUTSIDE that scope - the dominant post-subsample
         # np.median caller (154 -> ~77 detects on F2). Wrapping route + build in one nesting-safe scope makes the
         # build an identity-verified cache hit on the routing detect (collision-proof: the memo returns a cached
         # verdict only when the stored array IS x). Cleared at column exit, so no cross-column ref retention.
         from ..hermite_fe._hermite_robust import heavy_tail_memo_scope
         with heavy_tail_memo_scope():
             if basis == "auto":
-                # 2026-06-03: signal-adaptive routing (route by which basis best
+                # signal-adaptive routing (route by which basis best
                 # LINEARISES y) beats moment-routing on both linear and tree OOS
                 # recovery (bench: corr-routing linear R^2 0.919 vs MI 0.769, tree
                 # 0.852 vs 0.829; moment-routing mis-routed 11/30 cases, catastrophic
@@ -416,11 +416,11 @@ def generate_univariate_basis_features(
             if chosen_basis not in _POLY_BASES:
                 logger.warning("generate_univariate_basis_features: unknown basis %r for col %r; skipping", chosen_basis, col)
                 continue
-            # FIT-ONCE-PER-COLUMN (2026-06-21): the basis preprocess ``z`` + params depend ONLY on
-            # (x, basis), NOT on degree -- the degree only swaps the one-hot coefficient. Re-fitting it
+            # FIT-ONCE-PER-COLUMN: the basis preprocess ``z`` + params depend ONLY on
+            # (x, basis), NOT on degree - the degree only swaps the one-hot coefficient. Re-fitting it
             # inside the degrees loop recomputed the robust heavy-tail axis (np.median/MAD) once per
             # degree, the dominant np.median caller in the post-subsample CPU tail. Fit ``z`` ONCE here
-            # and evaluate each degree via polyeval_dispatch on the cached ``z`` -- BYTE-IDENTICAL to the
+            # and evaluate each degree via polyeval_dispatch on the cached ``z`` - BYTE-IDENTICAL to the
             # per-degree _evaluate_basis_column (same fit_fn(x) -> same z -> same polyeval). The rare
             # aux-pool path keeps the per-degree call (its fit concatenates the pool; left untouched).
             _z_cached = None
@@ -441,7 +441,7 @@ def generate_univariate_basis_features(
                         x, chosen_basis, int(d), aux_for_fit=aux_col,
                     )
                 out_cols[f"{col}__{code.get(chosen_basis, chosen_basis)}{d}"] = vals
-            except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+            except Exception as exc:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
                 logger.warning("generate_univariate_basis_features: basis=%r degree=%d on col=%r raised %r; skipping", chosen_basis, d, col, exc)
                 continue
     return pd.DataFrame(out_cols, index=X.index)
@@ -485,7 +485,7 @@ def score_features_by_mi_uplift(
     raw_cols = list(raw_X.columns)
     from .._fe_usability_signal import _crit_np_dtype
     raw_np = raw_X.to_numpy(dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); scale-robust MI
-    # SF1a class-B :311 collapse (2026-06-30): the RAW baseline matrix is the fit-constant raw columns verbatim;
+    # SF1a class-B :311 collapse: the RAW baseline matrix is the fit-constant raw columns verbatim;
     # under STRICT it already routes through the resident plug-in but re-uploads fresh at _orth_mi_backends:311.
     # Ride the resident-operand cache so it uploads ONCE. Same percentile-edge resident estimator the host STRICT
     # path uses -> byte-identical per-column raw MI -> byte-identical uplift baseline. None on cupy failure /
@@ -497,9 +497,9 @@ def score_features_by_mi_uplift(
         raw_mi = _mi_classif_batch(raw_np, y_arr, nbins=nbins)
     raw_mi = np.asarray(raw_mi, dtype=np.float64)
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
-    # SF1b/1c class-A/C :311 collapse (2026-06-30): when EVERY engineered column is a poly leg (He/T/L/LL), the
+    # SF1b/1c class-A/C :311 collapse: when EVERY engineered column is a poly leg (He/T/L/LL), the
     # engineered matrix is rebuilt DEVICE-BORN from the resident raw operands and scored through the SAME resident
-    # plug-in MI (no host materialise/upload) -- the uplift RATIO stays internally consistent (numerator + baseline
+    # plug-in MI (no host materialise/upload) - the uplift RATIO stays internally consistent (numerator + baseline
     # on the SAME estimator). EXTRA-BASIS columns (spline/Fourier/chirp/wavelet) are not GPU-ported -> the helper
     # returns None and the engineered matrix stays on the host chunked scorer (SF1c irreducible born-fresh transient).
     # ENGINEERED-matrix MI, device-born when possible so the host matrix never uploads at _orth_mi_backends:311.
@@ -524,7 +524,7 @@ def score_features_by_mi_uplift(
     rows = []
     _raw_cols_set = frozenset(raw_cols)  # O(1)-lookup fast path for _source_from_engineered_name, built ONCE
     for j, eng_name in enumerate(engineered_X.columns):
-        # D1 (2026-06-22): recover the true source via longest raw-prefix match, not a blind
+        # D1: recover the true source via longest raw-prefix match, not a blind
         # first-``"__"`` split (which mis-stems one-hot sources like ``"city__NY"``).
         source = _source_from_engineered_name(eng_name, _raw_cols_set)
         baseline = float(raw_mi_map.get(source, 0.0))
@@ -568,7 +568,7 @@ def hybrid_orth_mi_fe(
 
     The selection rule is ``uplift >= min_uplift`` then top-K by uplift. A
     basis column with engineered_MI < its source baseline never enters the
-    output even if it makes the top-K -- the uplift gate dominates.
+    output even if it makes the top-K - the uplift gate dominates.
 
     Example
     -------
@@ -583,13 +583,13 @@ def hybrid_orth_mi_fe(
     """
     # MATRIX-NATIVE resident path (Piece 3, gated default-off): build the candidate matrix ON the device +
     # score plug-in MI resident (no H2D). Falls back to the host build/scoring on any failure or when off.
-    # STRICT (2026-06-28): under MLFRAME_FE_GPU_STRICT this device-born build is FORCED even when the
-    # MLFRAME_FE_GPU_RESIDENT_BASIS_MI opt-out turned it off -- the STRICT mandate is "every selection-
+    # STRICT: under MLFRAME_FE_GPU_STRICT this device-born build is FORCED even when the
+    # MLFRAME_FE_GPU_RESIDENT_BASIS_MI opt-out turned it off - the STRICT mandate is "every selection-
     # equivalent GPU twin runs on the device", and the orth-univariate basis build IS one (already default-on,
     # parity-validated). Without this, STRICT + that opt-out would host-materialise the (n, cols*bases*degrees)
     # expansion and upload it at _orth_mi_backends._mi_classif_batch:311; with it the operands upload once and
     # the basis is evaluated on-device (line 311 is never reached for THIS family). Scope note: the orth-uni
-    # hybrid is NOT the dominant :311 H2D site -- a full-fit byte-audit (2026-06-28, F2 300k strict) attributes
+    # hybrid is NOT the dominant :311 H2D site - a full-fit byte-audit (2026-06-28, F2 300k strict) attributes
     # ~78% of the :311 upload to the conditional-gate _gate_grid_mi (host-built tau-grid (n, k<=527) matrices,
     # which have NO device operand/basis handoff and whose residency was separately bench-rejected, see
     # _conditional_gate_fe.cheap_row_argmax_scan). This edit closes only the narrow STRICT+opt-out orth-uni
@@ -599,12 +599,12 @@ def hybrid_orth_mi_fe(
         from .._gpu_resident_fe import fe_gpu_resident_basis_mi_enabled, _cuda_present
         from .._fe_gpu_strict import fe_gpu_strict_enabled
         _p_cols = len(cols) if cols else int(X.shape[1])
-        # X_EFFICIENCY_ARCHITECTURE-3 fix: the GPU-resident twin
+        # The GPU-resident twin
         # (_gpu_build_and_score_univariate) never consults get_unlabeled_pool(), unlike the host builder
         # (generate_univariate_basis_features) a few lines below, which fits each column's basis-preprocess
         # params on the labeled+unlabeled POOL whenever fe_semi_supervised_enable=True. Silently using the
         # GPU path in that case would freeze different (labeled-only) basis-preprocess params purely based
-        # on whether GPU residency happened to engage for this fit -- no error, no test catches it. Bail to
+        # on whether GPU residency happened to engage for this fit - no error, no test catches it. Bail to
         # the host path (which DOES thread the aux pool through) whenever a non-empty pool is active, rather
         # than porting the aux-pool augmentation into the GPU kernel (cheaper, zero correctness risk).
         from .._semi_supervised_fe import get_unlabeled_pool as _get_unlabeled_pool_gate
@@ -629,9 +629,9 @@ def hybrid_orth_mi_fe(
     #        min_abs_mi_frac * max(raw_baseline_mi),    # legacy floor
     #        mean(raw_baseline_mi) + 3 * std(raw_baseline_mi),  # noise-aware floor
     #    )
-    # Layer 27 incident (2026-05-31): on all-noise frames every raw col has
+    # Layer 27 incident: on all-noise frames every raw col has
     # MI in a tight band around the noise floor and ``0.1 * max_raw`` is
-    # itself in that band -- so ANY engineered_mi clears the floor and the
+    # itself in that band - so ANY engineered_mi clears the floor and the
     # top-K fills with FPs. The noise-aware ``mean + 3*std`` reference is
     # statistical: a column drawn from the same noise distribution will
     # exceed it only on extreme tail, knocking the false-positive rate
@@ -660,15 +660,15 @@ def hybrid_orth_mi_fe(
         5.0,
         float(np.sqrt(2.0 * np.log(max(2.0, 2.0 * n_cands))) + 1.5),
     )
-    # X_EDGE_CASES_BEST_PRACTICES-2 fix: this used to hard-gate on
-    # raw_baselines.size >= 4 (below that, noise_floor silently defaulted to 0.0 -- a full no-op).
+    # This used to hard-gate on
+    # raw_baselines.size >= 4 (below that, noise_floor silently defaulted to 0.0 - a full no-op).
     # raw_baselines has one entry per SCORED ENGINEERED COLUMN (~len(degrees) * len(surviving raw
     # cols)), not per raw source column, so with the default 2 degrees the guard was bypassed whenever
     # at most 1 raw numeric column reached the scan (mostly-categorical frames, _dedup_collinear_source_cols
-    # collapsing redundant sensors down to 1 survivor, or an explicit short `cols=`) -- exactly the
+    # collapsing redundant sensors down to 1 survivor, or an explicit short `cols=`) - exactly the
     # degenerate-pool-size case the Layer 27 floor exists to guard, defeating BOTH documented safety
     # gates simultaneously. median/MAD are well-defined at any n >= 1 (n=1: MAD=0, so noise_floor
-    # collapses to that single baseline_mi value itself -- a strict, sound floor given zero evidence of
+    # collapses to that single baseline_mi value itself - a strict, sound floor given zero evidence of
     # the noise distribution's spread, not a no-op); always compute it instead of gating on count.
     med = float(np.median(raw_baselines)) if raw_baselines.size else 0.0
     mad = float(np.median(np.abs(raw_baselines - med))) if raw_baselines.size else 0.0
@@ -678,10 +678,10 @@ def hybrid_orth_mi_fe(
     # distribution. On all-noise frames the engineered cols inherit the same
     # noise structure; the top engineered_mi can be artifactually 2-4x the
     # median by pure tail sampling. Bound engineered_mi above the engineered
-    # median+sigma*MAD too -- legitimate signals are statistical outliers in
+    # median+sigma*MAD too - legitimate signals are statistical outliers in
     # the engineered distribution AS WELL.
-    # X_EDGE_CASES_BEST_PRACTICES-2 fix: matching fix to the raw-baseline floor
-    # above -- see that comment for the rationale (no size>=4 hard gate; median/MAD are well-defined at
+    # Matching fix to the raw-baseline floor
+    # above - see that comment for the rationale (no size>=4 hard gate; median/MAD are well-defined at
     # any n>=1).
     eng_mis = scores["engineered_mi"].to_numpy()
     med_e = float(np.median(eng_mis)) if eng_mis.size else 0.0
@@ -704,13 +704,13 @@ def hybrid_orth_mi_fe(
 
 
 # ---------------------------------------------------------------------------
-# Layer 23 (2026-05-31): recipe-emitting wrappers
+# Layer 23: recipe-emitting wrappers
 # ---------------------------------------------------------------------------
 #
 # The vanilla ``hybrid_orth_mi_fe`` / ``hybrid_orth_mi_pair_fe`` return a
 # DataFrame + scores. For MRMR.fit auto-wiring we ALSO need ``EngineeredRecipe``
 # objects so that ``MRMR.transform`` can replay each appended column on test
-# data deterministically (no y reference -- the recipe carries only basis +
+# data deterministically (no y reference - the recipe carries only basis +
 # degree per source column). The wrappers below re-derive the per-col basis
 # the same way ``generate_univariate_basis_features`` did, build one recipe
 # per appended column, and return them alongside the existing outputs.
@@ -731,14 +731,14 @@ def hybrid_orth_mi_fe_with_recipes(
     subsample_seed: int = 42,
 ):
     """Same as :func:`hybrid_orth_mi_fe` but additionally returns a list of
-    ``EngineeredRecipe`` objects -- one per appended univariate column --
+    ``EngineeredRecipe`` objects - one per appended univariate column -
     so that ``MRMR.transform`` can recompute each engineered column on
     test data without re-running the MI ranking.
 
-    SUBSAMPLED DECISION (2026-06-21). When ``subsample_n`` > 0 and the frame is
+    SUBSAMPLED DECISION. When ``subsample_n`` > 0 and the frame is
     larger, the basis-selection DECISION (MI ranking / uplift gate) is made on a
-    seeded row SUBSAMPLE -- the SAME pattern the pair-search FE
-    (``check_prospective_fe_pairs``) uses -- and the chosen engineered columns are
+    seeded row SUBSAMPLE - the SAME pattern the pair-search FE
+    (``check_prospective_fe_pairs``) uses - and the chosen engineered columns are
     then REBUILT at FULL n via the basis evaluator (the recipe loop already
     recomputes each winner's full-column values to freeze its preprocess params, so
     the OUTPUT is byte-identical to a full-data fit GIVEN the same winners). This
@@ -770,7 +770,7 @@ def hybrid_orth_mi_fe_with_recipes(
         min_abs_mi_frac=min_abs_mi_frac, nbins=nbins,
     )
     appended = [c for c in X_aug_fit.columns if c not in _X_fit.columns]
-    # D1 (2026-06-22): the authoritative raw-source set for un-stemming engineered names. frozenset ->
+    # D1: the authoritative raw-source set for un-stemming engineered names. frozenset ->
     # _source_from_engineered_name's O(1)-lookup fast path (was an O(R) scan repeated per appended name).
     _raw_src_cols = frozenset(_X_fit.columns)
     recipes = []
@@ -805,7 +805,7 @@ def hybrid_orth_mi_fe_with_recipes(
                 name,
             )
             continue
-        # BUG2 FIX (2026-06-12): freeze the fit-time basis-preprocess params into
+        # BUG2 FIX: freeze the fit-time basis-preprocess params into
         # the recipe so transform() replays byte-exactly on any row-slice. ``X`` is
         # the FULL fit frame, and the fit path preprocessed via ``fit_fn(full_col)``,
         # so recomputing the params from the same full column here reproduces the
@@ -816,14 +816,14 @@ def hybrid_orth_mi_fe_with_recipes(
         _pp = None
         try:
             # float64 (not _crit_np_dtype()'s f32 relaxation): match the transform()-time replay axis, which
-            # _orth_basis_recipes._eval_orth_basis_column casts to float64 unconditionally -- see the fit-time
+            # _orth_basis_recipes._eval_orth_basis_column casts to float64 unconditionally - see the fit-time
             # column-extraction fix above for the full rationale.
             _col_full = np.asarray(X[src].values, dtype=np.float64)
             _vals_full, _pp = _evaluate_basis_column(
                 _col_full, chosen_basis, int(chosen_degree), return_params=True,
             )
             # The full-column evaluation IS the full-n engineered output for this
-            # winner -- reuse it (the subsampled DECISION only chose basis/degree;
+            # winner - reuse it (the subsampled DECISION only chose basis/degree;
             # given that, the values equal a full-data fit, so the OUTPUT is exact).
             if _do_sub:
                 _full_eng_cols[name] = np.asarray(_vals_full)
@@ -874,7 +874,7 @@ from ._orth_extra_basis_fe import (
 )
 
 # ---------------------------------------------------------------------------
-# Layer 56 (2026-05-31): TRI-PRODUCT cross-basis FE lives in sibling module
+# Layer 56: TRI-PRODUCT cross-basis FE lives in sibling module
 # ``_orthogonal_triplet_fe`` (parent module size budget). Re-exporting here
 # would create a circular import (triplet sibling needs ``_evaluate_basis_column``
 # / ``_mi_classif_batch`` / ``_BASIS_CODE`` from THIS module at import time).

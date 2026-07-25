@@ -1,16 +1,16 @@
-"""Layer 90 (2026-06-01): NUMERIC DECOMPOSITION FE with bootstrap-MI gate.
+"""Layer 90: NUMERIC DECOMPOSITION FE with bootstrap-MI gate.
 
-NVIDIA cuDF Kaggle-Grandmaster blog technique #4 -- *multi-precision rounding
+NVIDIA cuDF Kaggle-Grandmaster blog technique #4 - *multi-precision rounding
 + digit extraction*. Two cheap, pure-arithmetic transforms on a numeric column:
 
 * **rounding**: ``round(x / p) * p`` for a ladder of precisions
   ``p in {1, 0.1, 0.01, 0.001}``. The coarse-precision variants act as
-  step-function / bucket detectors -- they collapse within-bucket jitter so a
+  step-function / bucket detectors - they collapse within-bucket jitter so a
   target that is piecewise-constant in coarse ``x`` (a price-anchored signal:
   "anything in [10, 20) behaves the same") becomes a clean low-entropy
   predictor. A model can recover the step boundary far more cheaply from
   ``round(x, 1)`` than from raw ``x``.
-* **digit extraction**: ``floor(x * 10^k) mod 10`` -- the ``k``-th decimal
+* **digit extraction**: ``floor(x * 10^k) mod 10`` - the ``k``-th decimal
   digit. Captures cents-digit / encoded-id-substructure signals: e.g. a price
   whose *cents* digit encodes a hidden category (psychological-pricing buckets,
   store-id-in-the-decimals, checksum digits). These are INVISIBLE to any
@@ -19,14 +19,14 @@ NVIDIA cuDF Kaggle-Grandmaster blog technique #4 -- *multi-precision rounding
 
 THE IT enhancement (the key over a naive emit-everything blast):
 each candidate precision / digit feature is gated by **Layer 62 bootstrap-
-stable MI** -- we keep a decomposition feature only when its MI lower
+stable MI** - we keep a decomposition feature only when its MI lower
 confidence bound (``mean - 1.96 * std`` over B bootstrap subsamples) clears the
 raw column's MI lower CB by a margin. A precision whose rounded value carries
 no MI beyond the raw column (the common case on a *smooth* target, where
 rounding is just lossy raw ``x`` and digit extraction is pure noise) lands
 inside the raw column's noise band and is DROPPED. Only decompositions that add
 genuinely stable signal survive. This reuses
-``_orthogonal_bootstrap_mi_fe.score_features_by_bootstrap_mi`` verbatim -- the
+``_orthogonal_bootstrap_mi_fe.score_features_by_bootstrap_mi`` verbatim - the
 same lower-CB ranking primitive, applied to a different candidate family.
 
 Polynomial extension
@@ -47,7 +47,7 @@ by construction):
 * ``numeric_rounding``  : ``extra = {precision: float}`` -> ``round(x/p)*p``
 * ``digit_extract``     : ``extra = {digit_position: int}`` -> ``floor(x*10^k) % 10``
 
-NOT wired into ``MRMR.fit`` by default -- opt-in via
+NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_numeric_decompose_enable=True``.
 """
 from __future__ import annotations
@@ -140,7 +140,7 @@ def apply_rounding(x: np.ndarray, precision: float) -> np.ndarray:
 
 
 def apply_digit_extract(x: np.ndarray, digit_position: int) -> np.ndarray:
-    """``floor(x * 10^k) mod 10`` -- the ``k``-th decimal digit (k=0 -> the
+    """``floor(x * 10^k) mod 10`` - the ``k``-th decimal digit (k=0 -> the
     ones digit of the integer part for k<=0 convention; here k counts decimal
     places: k=0 is the first decimal, etc. per the design spec
     ``floor(x*10^k) mod 10``). Output float64 in ``{0..9}``; NaN rows map to 0.
@@ -172,7 +172,7 @@ def generate_rounding_features(
 
     Returns a DataFrame (same row index as ``X``) of the engineered columns
     only; column names follow :func:`engineered_name_rounding`. Pure function
-    of ``X`` -- no y reference.
+    of ``X`` - no y reference.
     """
     cols = _numeric_cols(X, num_cols)
     out: dict[str, np.ndarray] = {}
@@ -190,7 +190,7 @@ def generate_digit_features(
 ) -> pd.DataFrame:
     """For each (num_col, k) emit ``floor(x * 10^k) mod 10`` (the k-th decimal
     digit). Returns a DataFrame of engineered columns only; names follow
-    :func:`engineered_name_digit`. Pure function of ``X`` -- no y reference.
+    :func:`engineered_name_digit`. Pure function of ``X`` - no y reference.
     """
     cols = _numeric_cols(X, num_cols)
     out: dict[str, np.ndarray] = {}
@@ -221,7 +221,7 @@ def score_decompose_by_bootstrap_mi(
 
     Returns the L62 scores frame (one row per engineered column) with columns
     ``engineered_col, source_col, baseline_mi_*, engineered_mi_*, uplift_*``,
-    sorted by ``uplift_lcb`` descending. Drops nothing itself -- the keep / drop
+    sorted by ``uplift_lcb`` descending. Drops nothing itself - the keep / drop
     decision lives in :func:`hybrid_numeric_decompose_fe`, which thresholds
     these lower-CB columns.
     """
@@ -239,11 +239,11 @@ def _parse_engineered_name(name: str):
     ``"{src}__digit_2"`` -> ('digit_extract', src, 2). Returns None on a name
     that doesn't match either convention.
 
-    CAT_INTERACTION_B-4 fix: this used to split on the FIRST "__", which breaks for
+    This used to split on the FIRST "__", which breaks for
     any raw source column whose own name contains "__" (e.g. flattened-JSON keys like "user__id", or even
     this codebase's own orth-basis engineered-column convention "{col}__{basis_code}{degree}"): for source
     "a__b", the emitted name "a__b__digit_1" split to src="a", suffix="b__digit_1", matching neither prefix
-    check, silently returning None -- hybrid_numeric_decompose_fe_with_recipes then skipped building a
+    check, silently returning None - hybrid_numeric_decompose_fe_with_recipes then skipped building a
     recipe for that column even though it stayed in X_aug/appended and could be selected, a silent
     fit/serve mismatch. Anchor on the KNOWN suffix pattern instead: rsplit on "__" and check the resulting
     suffix against the round_/digit_ prefixes, so any number of "__" occurrences in the source name (as
@@ -384,7 +384,7 @@ def hybrid_numeric_decompose_fe_with_recipes(
     min_uplift_lcb: float = 1.0,
 ):
     """Same as :func:`hybrid_numeric_decompose_fe` but additionally returns a
-    list of recipes -- one per appended column -- so ``MRMR.transform`` can
+    list of recipes - one per appended column - so ``MRMR.transform`` can
     recompute each decomposition on test data without re-running the bootstrap
     MI gate. Each recipe is pure arithmetic on X (no y), so replay is
     leakage-free by construction.
@@ -428,7 +428,7 @@ def build_numeric_rounding_recipe(
     *, name: str, src_name: str, precision: float,
 ):
     """Frozen recipe for ``round(X[src_name] / precision) * precision``. Replay
-    is pure arithmetic on the source column -- no y reference, no fitted state,
+    is pure arithmetic on the source column - no y reference, no fitted state,
     so transform() is leakage-free and train/test exact."""
     from .engineered_recipes import EngineeredRecipe
 
@@ -447,7 +447,7 @@ def build_digit_extract_recipe(
     *, name: str, src_name: str, digit_position: int,
 ):
     """Frozen recipe for ``floor(X[src_name] * 10^k) mod 10`` (the k-th decimal
-    digit). Replay is pure arithmetic on the source column -- no y reference."""
+    digit). Replay is pure arithmetic on the source column - no y reference."""
     from .engineered_recipes import EngineeredRecipe
 
     return EngineeredRecipe(

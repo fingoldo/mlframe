@@ -5,7 +5,7 @@ PURE single-pair engineered form (``mul(log(c),sin(d))``, ``div(sqr(a),sin(b))``
 post-FE engineered-vs-engineered CMI redundancy gate (``_fe_cmi_redundancy_gate``) has already
 run. The gate therefore never gets to test those re-attached forms against the engineered
 survivors that were admitted BEFORE retention. When one of those incumbents is a FUSED compound
-that already carries BOTH additive halves of the target -- e.g. the canonical
+that already carries BOTH additive halves of the target - e.g. the canonical
 ``add(neg(mul(sqr(a),reciproc(b))),neg(mul(log(c),sin(d))))`` for ``y = a**2/b + log(c)*sin(d)``
 -- a re-attached pure half is fully REDUNDANT: given the full compound it carries ~0 additional
 information about ``y`` (and a linear model reads the additive term straight off the compound).
@@ -14,11 +14,11 @@ The result is the fragmentation regression: one full compound PLUS several pure 
 This module supplies the engineered analog of the existing post-retention RAW redundancy drop
 (``_fe_raw_redundancy_drop``): before a retention candidate is committed, condition it on the
 already-admitted engineered survivors and DROP it when its information collapses given them. The
-decision reuses the SAME n-invariant debiased-excess-CMI machinery the S5 gate validated -- a
+decision reuses the SAME n-invariant debiased-excess-CMI machinery the S5 gate validated - a
 retention form is subsumed iff its conditional CMI given the incumbent survivors fails the
 within-stratum permutation floor OR its debiased conditional excess retains less than
 ``RETAIN_FRAC`` of its OWN marginal debiased excess. A genuinely COMPLEMENTARY pure form (one the
-incumbents do NOT already span -- the case the retention pass exists to rescue) keeps a large
+incumbents do NOT already span - the case the retention pass exists to rescue) keeps a large
 residual and is admitted; only a sub-fragment of an incumbent compound is dropped.
 
 Pure (no live framework state captured) so a fitted MRMR stays picklable.
@@ -54,7 +54,7 @@ def retention_form_is_subsumed(
     seed: int = 0,
 ) -> bool:
     """True iff the retention candidate carries NO significant information about ``y`` beyond the
-    already-admitted incumbent engineered survivors -- i.e. it is a redundant sub-fragment that
+    already-admitted incumbent engineered survivors - i.e. it is a redundant sub-fragment that
     must NOT be re-attached.
 
     ``cand_continuous`` / ``incumbent_continuous`` are full-n continuous engineered columns
@@ -63,14 +63,14 @@ def retention_form_is_subsumed(
     conservative retain direction: never silently drop a form the retention pass wanted).
 
     The verdict is INFORMATION-THEORETIC (two debiased-CMI legs), NOT linear. A linear-usability
-    guard was considered -- the retention pass exists to rescue a pure form a LINEAR model needs that
+    guard was considered - the retention pass exists to rescue a pure form a LINEAR model needs that
     the MI greedy dropped for a higher-MI nonlinear cross-mix, and a partial-rank-correlation residual
     could in principle distinguish a pure half ADDITIVELY subsumed by a clean compound (``mul(log(c),
     sin(d))`` given ``add(a**2/b, log(c)*sin(d))`` -> DROP) from one whose only incumbents are
     nonlinear cross-mixes (``div(neg(a),sqrt(b))`` -> KEEP). But it was REJECTED: an admitted fused
     compound's nuisance second additive term leaks a spurious partial-linear residual for the pure
     half, so the linear leg re-kept exactly the sub-fragments the strengthened ONE-fused-compound
-    contract requires dropping. The CMI legs alone get the F2 cross-mix case right anyway -- a genuine
+    contract requires dropping. The CMI legs alone get the F2 cross-mix case right anyway - a genuine
     cross-mix incumbent does NOT collapse the candidate's conditional CMI, so it stays above the floor
     + relative bar and is retained. ``y_continuous`` is accepted for API symmetry with the raw-
     redundancy linear leg but is not consulted; the CMI verdict stands."""
@@ -170,11 +170,11 @@ def retention_form_is_subsumed(
     passes_rel = excess >= float(retain_frac) * max(0.0, marg_excess)
     # SUBSUMED iff it neither clears the significance floor NOR retains a meaningful fraction of
     # its marginal given the incumbents. Carrying genuinely new information requires BOTH legs to
-    # hold -- a redundant sub-fragment of an incumbent compound fails them; a complementary form
+    # hold - a redundant sub-fragment of an incumbent compound fails them; a complementary form
     # passes. ``y_continuous`` is accepted for API symmetry with the raw-redundancy linear leg but
     # the verdict is intentionally INFORMATION-theoretic: a pure half whose information is wholly
     # carried by an admitted fused compound is dropped even when a degenerate partial-linear test
-    # would (spuriously, via the compound's nuisance second term) read a residual -- the strengthened
+    # would (spuriously, via the compound's nuisance second term) read a residual - the strengthened
     # ONE-fused-compound contract.
     return not (passes_floor and passes_rel)
 

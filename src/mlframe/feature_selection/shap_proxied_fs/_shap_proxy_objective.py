@@ -5,7 +5,7 @@ force / heuristic search maintains this margin incrementally (cheap running sum)
 is the O(n) reduction applied on top of that margin against the true target ``y``.
 
 Critical correction over the original research kernel: that kernel scored ``sum |y in {0,1} - margin|``
-i.e. MAE of a 0/1 label against a *log-odds margin* -- dimensionally incoherent. We instead map the
+i.e. MAE of a 0/1 label against a *log-odds margin* - dimensionally incoherent. We instead map the
 margin through ``sigmoid`` for classification and score with a proper loss (Brier / log-loss), and
 score regression in target space (RMSE / MAE). The incremental-margin speed trick is independent of
 the metric (the running sum is the margin; the loss is a separate pointwise reduction), so proper
@@ -13,7 +13,7 @@ metrics cost the same O(n) per subset.
 
 All objectives are returned as a LOSS (lower = better) so every optimizer minimises uniformly.
 AUC (ranking metric, not pointwise) is supported only on the Python path (needs a per-subset sort),
-not inside the numba hot loop -- documented in ``METRIC_CODES``.
+not inside the numba hot loop - documented in ``METRIC_CODES``.
 """
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ def score_margin_batch(margins: np.ndarray, y: np.ndarray, metric_code: int) -> 
 
     Callers that must score many independent coalitions per proxy-loss reduction (e.g. MSR-Banzhaf's
     per-chunk coalition sampling) pay njit call-dispatch overhead once per BATCH instead of once per
-    coalition when they call this instead of looping ``score_margin`` row-by-row -- the per-call
+    coalition when they call this instead of looping ``score_margin`` row-by-row - the per-call
     overhead is otherwise ~O(microseconds) but dominates at thousands of tiny per-row calls (measured:
     4096 sequential ``score_margin_auto`` calls cost ~0.41s of a 0.55s stage wall at n=3000, P=112).
     ``margins`` is ``(B, n_samples)``; returns the ``(B,)`` per-row loss vector, identical values to
@@ -221,7 +221,7 @@ def score_margin_auto(margin: np.ndarray, y: np.ndarray, metric_code: int) -> fl
 
 
 def coalition_margin(phi: np.ndarray, base: np.ndarray, feature_idx) -> np.ndarray:
-    """``base + sum over selected features of phi`` -- the proxy margin for one subset (numpy path).
+    """``base + sum over selected features of phi`` - the proxy margin for one subset (numpy path).
 
     ``phi`` is row-major (n_samples, n_units) so ``phi[:, idx]`` is a strided multi-column gather.
     When the caller already holds a contiguous transpose, :func:`coalition_margin_T` is ~4x faster."""
@@ -285,7 +285,7 @@ def subset_uncertainty_many(phi_var: np.ndarray, idx_list) -> np.ndarray:
 
     ``phi_var`` is row-major (n_samples, n_units); the per-subset column gather ``phi_var[:, idx]``
     is strided. Transpose ONCE to contiguous rows so each subset's gather ``phi_var_T[idx]`` is
-    unit-stride and sum down axis 0 -- same layout win as ``subset_redundancy_many`` (~4x at tall n,
+    unit-stride and sum down axis 0 - same layout win as ``subset_redundancy_many`` (~4x at tall n,
     bit-identical). Returns all-zeros when ``phi_var is None`` (n_models == 1, no per-model variance)."""
     n = len(idx_list)
     if phi_var is None:

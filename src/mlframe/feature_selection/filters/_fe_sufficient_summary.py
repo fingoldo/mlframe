@@ -7,26 +7,26 @@ Mechanism (the user iterated to THIS exact design)
 --------------------------------------------------
 After each MRMR feature SELECTION (once per fit/screen pass, NOT per candidate pair
 evaluated), ask whether the CURRENTLY-SELECTED set already captures all the information
-the observables carry about ``y`` -- i.e. whether the selection has reached the
+the observables carry about ``y`` - i.e. whether the selection has reached the
 theoretical maximum ``I(observables; y)``. If so, EVERY future engineered candidate is
 provably pointless and the whole remaining FE search can be skipped.
 
 Concretely:
 
 1. Fit a CHEAP linear/ridge model of ``y`` on the SMALL selected set
-   ``E_hat[y | selected]`` (1-5 columns -- engineered features linearise the signal, so a
+   ``E_hat[y | selected]`` (1-5 columns - engineered features linearise the signal, so a
    linear fit captures ``E[y | selected]`` well; the design matrix is tiny precisely
    because the SELECTED set is small, NOT the full feature pool). Compute the residual
    ``r = y - E_hat[y | selected]``.
 
 2. For EVERY RAW feature ``x_j``, test ``MI(r; x_j)`` against the Westfall-Young maxT
    permutation null computed over the SAME raw pool with ``r`` as the (shuffled) target
-   (the SHIPPED ``pooled_permutation_null_gain_floor`` -- best-of-pool chance ceiling).
+   (the SHIPPED ``pooled_permutation_null_gain_floor`` - best-of-pool chance ceiling).
    If ``MI(r; x_j) <= floor`` for ALL raws, no raw carries leftover signal about the
    residual.
 
-3. GUARD: only stop when the residual is ALSO small relative to ``y`` -- the unexplained
-   variance fraction ``Var(r)/Var(y)`` (== 1 - R^2) below ``residual_entropy_frac`` -- so a
+3. GUARD: only stop when the residual is ALSO small relative to ``y`` - the unexplained
+   variance fraction ``Var(r)/Var(y)`` (== 1 - R^2) below ``residual_entropy_frac`` - so a
    pure-noise / under-fit target (where every raw legitimately sits at the null because
    there is no signal to find) does NOT trigger a false stop. The variance ratio is the
    GRID-FREE, faithful realisation of "residual small relative to H(y)": for matched
@@ -40,7 +40,7 @@ reached ``I(observables; y)`` (the theoretical max) -> STOP the FE search.
 Why this is correct (DPI)
 -------------------------
 Any future engineered candidate ``g`` is a deterministic function of the raw features.
-By the Data-Processing Inequality ``I(r; g(raws)) <= I(r; raws)`` -- a transform cannot
+By the Data-Processing Inequality ``I(r; g(raws)) <= I(r; raws)`` - a transform cannot
 manufacture information about ``r`` that the raws do not already have. So if NO raw
 clears the chance ceiling against the residual, NO engineered feature built from them can
 either. The residual being pure noise (entropy guard) certifies that ``E_hat[y|selected]``
@@ -58,7 +58,7 @@ Integration
 -----------
 Called in ``_mrmr_fit_impl``'s greedy FE loop, AFTER ``screen_predictors`` returns the
 current ``selected_vars`` and BEFORE the next ``_run_fe_step`` (so a proven-sufficient
-selection skips the expensive operator search). The final selection is UNCHANGED -- the
+selection skips the expensive operator search). The final selection is UNCHANGED - the
 early-stop only skips PROVABLY-pointless further FE; with it OFF the loop simply runs the
 remaining steps and finds nothing new (verified byte-identical selection on genuine
 multi-signal fixtures).
@@ -142,7 +142,7 @@ def _get_shared_fe_subsample_idx(self, y_continuous, n_full):
     except Exception as exc:
         # A silent None here leaves ``_fe_shared_subsample_idx`` unset, so EVERY FE/MI consumer that reads
         # it (the order-1 screen relevance sweep, the CMI redundancy loop, the FE pair/polynom search)
-        # runs at FULL n -- a ~33x cost blow-up at n~1M that only shows up as "slow" in a profile. Log at
+        # runs at FULL n - a ~33x cost blow-up at n~1M that only shows up as "slow" in a profile. Log at
         # WARNING so a resolver failure is diagnosable; still fall back to full-n (best-effort), never
         # silently.
         logger.warning("_get_shared_fe_subsample_idx failed; FE screen will run at FULL n (no subsample): %r", exc, exc_info=True)
@@ -217,7 +217,7 @@ def sufficient_summary_reached(
     nbins : (p,) int array
         Per-column bin counts (cols-space), aligned with ``data``.
     y_continuous : (n,) float array
-        The RAW continuous target -- the regressand of the cheap ``E_hat[y|selected]`` fit
+        The RAW continuous target - the regressand of the cheap ``E_hat[y|selected]`` fit
         and the basis of the residual ``r = y - E_hat``.
     target_col_idx : int
         cols-index of the discretised target in ``data`` (its ``nbins`` gives ``H(y)``'s
@@ -315,7 +315,7 @@ def sufficient_summary_reached(
     sd = Z.std(axis=0)
     sd_safe = np.where(sd > 1e-12, sd, 1.0)
     Zs = (Z - mu) / sd_safe
-    # Drop columns that are constant after centring (std 0) -- they carry no fit signal
+    # Drop columns that are constant after centring (std 0) - they carry no fit signal
     # and would only add a zero column.
     keep = sd > 1e-12
     if not np.any(keep):
@@ -356,7 +356,7 @@ def sufficient_summary_reached(
         return v
 
     # Equi-frequency codes for the MI test (maximises the residual's own entropy, giving
-    # the MI(r; x_j) leftover-dependence test its full power -- the right discretisation
+    # the MI(r; x_j) leftover-dependence test its full power - the right discretisation
     # for DETECTION). The maxT floor + per-raw MI below score against these.
     edges_eqf = np.nanpercentile(r, np.linspace(0, 100, q_nbins + 1))
     r_codes = np.searchsorted(edges_eqf[1:-1], r, side="right").astype(np.int64)
@@ -365,7 +365,7 @@ def sufficient_summary_reached(
     # The size measure is the UNEXPLAINED VARIANCE FRACTION ``Var(r)/Var(y)`` (== 1 - R^2),
     # which is the faithful, GRID-FREE realisation of "residual small relative to H(y)":
     # for matched (e.g. Gaussian) families the differential entropy is
-    # ``H = 0.5*log(2*pi*e*Var)``, so ``Var(r)/Var(y) = exp(2*(H(r) - H(y)))`` -- the
+    # ``H = 0.5*log(2*pi*e*Var)``, so ``Var(r)/Var(y) = exp(2*(H(r) - H(y)))`` - the
     # variance ratio is a strictly-monotone transform of the H(y)-relative entropy gap, and
     # unlike a binned-entropy ratio it does NOT suffer the equi-frequency artefact (any
     # non-constant residual fills equal-occupancy bins -> ratio ~1.0) NOR the fixed-grid
@@ -492,7 +492,7 @@ def check_sufficient_summary_for_mrmr(
     mapped to cols-indices), and the continuous target, then defers entirely to the pure
     helper. Reads the knobs off ``self`` (getattr keeps this stable across the campaign's
     module split). Returns a no-stop verdict on any plumbing failure (best-effort
-    optimisation -- never skip when uncertain)."""
+    optimisation - never skip when uncertain)."""
     try:
         # Continuous target.
         yv = y.values if hasattr(y, "values") else np.asarray(y)
@@ -525,9 +525,9 @@ def check_sufficient_summary_for_mrmr(
                     logger.debug("_fe_sufficient_summary: probe failed: %s", e)
                     pass
 
-        # ONE shared subsample reused across the fit (2026-06-25): the maxT residual floor below was
+        # ONE shared subsample reused across the fit: the maxT residual floor below was
         # historically computed on FULL n even when the FE candidate search ran on the ~30k screen
-        # subsample -- the dominant large-n permutation-null cost / OOM source, AND a looser (lower-n
+        # subsample - the dominant large-n permutation-null cost / OOM source, AND a looser (lower-n
         # -> wider, smaller) chance-max threshold than the subsampled candidates it gates. Ride the
         # SAME single shared row draw as the rest of the FE step so the floor is the matched estimator
         # for the screened candidates and the full-n permutation work disappears. Slices ROWS only

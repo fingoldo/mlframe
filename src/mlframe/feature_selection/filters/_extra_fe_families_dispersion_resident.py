@@ -1,14 +1,14 @@
-"""DEVICE-BORN conditional-DISPERSION FE candidate builder + resident MI gate (2026-06-30).
+"""DEVICE-BORN conditional-DISPERSION FE candidate builder + resident MI gate.
 
 The Tier-1 ``local_mi_gate`` of the conditional-dispersion FE family (Family D,
-``_extra_fe_families_dispersion.py:563``) scores the ``enc_df`` matrix -- one column per ordered
-``(x_i, x_j)`` pair x emission kind -- by ``MI(col; y)``. Under ``MLFRAME_FE_GPU_STRICT`` that scoring
+``_extra_fe_families_dispersion.py:563``) scores the ``enc_df`` matrix - one column per ordered
+``(x_i, x_j)`` pair x emission kind - by ``MI(col; y)``. Under ``MLFRAME_FE_GPU_STRICT`` that scoring
 routes through the resident plug-in MI, but the ``enc_df`` matrix is built ENTIRELY ON THE HOST in
 ``generate_conditional_dispersion_features`` and then ``cp.asarray``-uploaded (H2D instrumentation:
 ~288 MB single-site H2D of a 300k STRICT F2 fit, attributed to ``_extra_fe_families_dispersion.py:563``).
 
 Unlike the binned-aggregate family, the dispersion transform is PURE-X and Y-INDEPENDENT (no OOF / fold /
-target) -- so there is NO leak surface and the device reconstruction is structurally simpler than binagg:
+target) - so there is NO leak surface and the device reconstruction is structurally simpler than binagg:
 per (x_i, x_j) the only inputs are TWO raw columns (x_i, x_j), the stored ``x_j`` quantile edges, and the
 per-bin ``(mu_hat, sigma_hat)`` of x_i. All small + resident-cacheable, so the WHOLE (n, K) candidate
 matrix can be built on the device from those operands, collapsing the matrix upload to just the operand
@@ -17,22 +17,22 @@ columns (uploaded once per fit via the resident-operand cache).
 This mirrors the committed device-born pattern of ``_binned_numeric_agg_resident`` /
 ``_resident_candidate_mi.gate_grid_mi_resident`` (build the candidate block on the device from resident
 operands; score with the SAME percentile-edge resident plug-in MI
-``_plugin_mi_classif_batch_cuda_resident`` the host STRICT path already uses -- NO estimator switch).
+``_plugin_mi_classif_batch_cuda_resident`` the host STRICT path already uses - NO estimator switch).
 
 BIT-IDENTICAL STRUCTURE (pure-X, no fold)
 -----------------------------------------
 The device reconstruction reproduces the host EXACTLY:
 
 * bin codes: the SAME stored ``edges`` (from the recipe) via ``searchsorted(edges[1:-1], xj, 'right')`` on
-  the device, then ``clip(0, n_bins-1)`` and NaN ``x_j`` rows forced to bin 0 -- the EXACT
+  the device, then ``clip(0, n_bins-1)`` and NaN ``x_j`` rows forced to bin 0 - the EXACT
   ``_digitize_with_edges`` body (interior edges, side='right', NaN->0), so the integer codes match the host
   ``np.searchsorted`` bit-for-bit (same f64 edges, same side, same clip, same NaN fill).
 * z-score: the SAME stored per-bin ``(bin_mean, bin_std)`` gathered by code; ``s = bin_std[code]``, then
   ``s = 1.0`` where ``s < sigma_floor`` (the EXACT ``_zscore_from_bins_njit`` floor), ``z = (x_i - mu)/s``,
-  NaN ``x_i`` rows -> 0.0 -- byte-identical per-row op sequence (subtract + divide, per-element independent).
+  NaN ``x_i`` rows -> 0.0 - byte-identical per-row op sequence (subtract + divide, per-element independent).
 * fold (|z| / z^2): the SAME ``_emit_kind`` map applied on the device.
 
-ULP NOTE: the per-bin ``(mu_hat, sigma_hat)`` themselves are NOT recomputed on the device -- they are the
+ULP NOTE: the per-bin ``(mu_hat, sigma_hat)`` themselves are NOT recomputed on the device - they are the
 SAME host-stored recipe constants (computed once at fit by ``_per_bin_mean_std``). So the ONLY arithmetic on
 the device is the per-row gather + subtract + divide + fold, which is per-element independent f64 and matches
 the host njit loop to the last ULP (no reduction-order delta). The codes / floor / NaN-fold / fallback
@@ -99,7 +99,7 @@ def build_dispersion_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[di
     resident operand columns.
 
     ``col_specs`` is a list of per-output dicts ``{name, x_i, x_j, edges, bin_mean, bin_std, kind}`` (exactly
-    the recipe fields) -- the columns the host ``enc_df`` carries, in the SAME order. Returns an (n, K) cupy
+    the recipe fields) - the columns the host ``enc_df`` carries, in the SAME order. Returns an (n, K) cupy
     float64 matrix whose columns are the device reconstructions, structurally bit-identical to the host (same
     bin codes, same sigma-floor, same NaN-fold, same emission fold); only the f64 divide differs at ~1e-10 ULP.
 
@@ -161,18 +161,18 @@ def build_dispersion_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[di
 def build_residual_abs_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[dict]) -> Any:
     """Build the ABSOLUTE Family-B mean-residual matrix ``|x_i - E[x_i|bin(x_j)]|`` ON the device, one column
     per ``col_specs`` entry, in the GIVEN order. Reproduces ``_extra_fe_families.generate_conditional_residual_features``'s
-    per-pair body on device from resident operand columns -- the SAME bin-code gather + per-bin-mean subtract
+    per-pair body on device from resident operand columns - the SAME bin-code gather + per-bin-mean subtract
     the device dispersion builder uses, but WITHOUT the ``/sigma`` step (this is the dispersion z-score
     NUMERATOR before the divide), then ``cp.abs``.
 
     ``col_specs`` is a list of per-output dicts ``{x_i, x_j, edges, bin_mean}`` (the Family-B recipe fields).
     Returns an (n, K) cupy float64 matrix whose columns are ``|residual|``, structurally bit-identical to the
     host (same x_j bin codes via the SAME stored edges, same per-bin mean gather, same NaN ``x_i`` -> 0.0
-    fold). There is NO divide here -- only a per-element gather + subtract + abs -- so the emitted values match
+    fold). There is NO divide here - only a per-element gather + subtract + abs - so the emitted values match
     the host to the last ULP (per-element independent f64).
 
     The bin codes reuse the SAME ``("disp_xj", x_j)`` / ``("disp_edges", x_j)`` resident operands the dispersion
-    builder caches (the x_j edges are computed the SAME way -- ``_quantile_edges`` -- in both families, so a
+    builder caches (the x_j edges are computed the SAME way - ``_quantile_edges`` - in both families, so a
     column built on the same ``(x_i, x_j)`` pair shares the codes); ``x_i`` rides ``("disp_xi", x_i)``; the
     per-bin mean is the Family-B-specific ``("resid_mean", x_i, x_j)`` constant uploaded once per pair. The
     candidate matrix itself is device-born + transient (NOT cached)."""
@@ -279,7 +279,7 @@ def local_mi_gate_dispersion_resident(
     exact host gate (byte-identical default path untouched).
 
     The MI noise FLOOR is computed on the host exactly as ``local_mi_gate`` does (``raw_mi_noise_floor`` over
-    raw_X) -- that path is the small raw matrix already routed through STRICT ``_mi_classif_batch`` and is NOT
+    raw_X) - that path is the small raw matrix already routed through STRICT ``_mi_classif_batch`` and is NOT
     the collapsed upload; reproducing it host-side keeps the floor (and thus the keep/drop decision)
     identical."""
     try:
@@ -345,7 +345,7 @@ def local_mi_gate_dispersion_resident(
                         reason="unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor",
                     )
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in _extra_fe_families_dispersion_resident.py:347: %s", e)
+                    logger.debug("suppressed: %s", e)
                     pass
     scored.sort(key=lambda t: t[1], reverse=True)
     if top_k is not None and int(top_k) > 0:

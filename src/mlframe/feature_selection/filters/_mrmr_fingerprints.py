@@ -18,7 +18,7 @@ What lives here:
 ``_replay_fitted_state`` takes ``target: MRMR, source: MRMR`` only as a
 string annotation (``from __future__ import annotations`` is active in
 the parent and inherited here), so it does not need the class at import
-time -- only at runtime.
+time - only at runtime.
 """
 from __future__ import annotations
 
@@ -29,13 +29,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-# Not used directly in this module -- load-bearing for import ORDER. This module is reached via
+# Not used directly in this module - load-bearing for import ORDER. This module is reached via
 # filters/mrmr/__init__.py -> _legacy.py (circular: _legacy does ``from .mrmr import MRMR`` back into
 # the package being loaded). Forcing wrappers.RFECV to resolve HERE, before that circular re-entry,
 # keeps a working import order; removing it (2026-07-05 ruff "unused import" sweep) let a different
 # external entry point (importing RFECV directly) trigger the circular mrmr<->_legacy re-entry first
 # instead, which crashed the interpreter natively deep in the C-extension init chain. Restored with a
-# suppression comment rather than re-deleted -- see CLAUDE.md's project-wide-rewrite-without-review incident.
+# suppression comment rather than re-deleted - see CLAUDE.md's project-wide-rewrite-without-review incident.
 from mlframe.feature_selection.wrappers import RFECV  # noqa: F401
 
 # astropy is imported lazily on first histogram() call: the top-level
@@ -78,7 +78,7 @@ logger = logging.getLogger(__name__)
 
 # Cross-target identity cache for MRMR.fit. A prod log showed
 # MRMR running 88 min on the SAME X for two composite targets
-# (raw y + a monotonic-residual variant) -- both calls returned identity
+# (raw y + a monotonic-residual variant) - both calls returned identity
 # (no features dropped, no engineered features added). The second
 # 88 min was pure loss because the result was already determined by
 # the first call. With ``mrmr_skip_when_prior_was_identity=True``,
@@ -104,11 +104,11 @@ _MRMR_IDENTITY_FP_LOCK = _threading.Lock()
 #   speedup would materialise).
 #
 # There is deliberately NO pool-size cap here. Until 2026-07-09 a flat ``_MRMR_BATCH_PRECOMPUTE_MAX_K=200``
-# ceiling forced any wider pool onto a ~35s/pair legacy joblib fallback -- a realistic several-hundred-column
+# ceiling forced any wider pool onto a ~35s/pair legacy joblib fallback - a realistic several-hundred-column
 # production pool (well within normal use) fell off a catastrophic-runtime cliff. The batch path now enumerates
 # pairs via ``dispatch_batch_pair_mi_chunked`` (see ``batch_pair_mi_gpu.py``), which processes the C(k,2) pair
 # space in RAM-bounded row-block chunks instead of materialising it all at once, so it is always the path taken
-# for pool sizes up to whatever ``sis_screen_threshold`` (Gate A, ``_mrmr_sis_screen.py``) lets through -- at true
+# for pool sizes up to whatever ``sis_screen_threshold`` (Gate A, ``_mrmr_sis_screen.py``) lets through - at true
 # extreme width (10^5+ raw columns) an exhaustive C(k,2) sweep is fundamentally intractable regardless of
 # implementation, which is exactly what that separate front-gate exists to bound.
 _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS = 8
@@ -174,8 +174,8 @@ def _mrmr_compute_x_fingerprint(X) -> str:
     """Stable per-process fingerprint of the X argument used to key the identity-cache.
 
     Captures column names, row count, CANONICAL dtype repr, and a 10-cell evenly-spaced
-    content sample per column so two structurally-equivalent frames -- one polars,
-    one pandas -- produce the SAME fingerprint while differently-content frames on
+    content sample per column so two structurally-equivalent frames - one polars,
+    one pandas - produce the SAME fingerprint while differently-content frames on
     the same schema produce DIFFERENT fingerprints. The cell sample mirrors
     ``_content_array_signature`` (10 evenly-spaced positions, rounded float repr,
     O(1) per column). On a 4M-row frame the sampling cost is O(n_cols) value
@@ -242,7 +242,7 @@ def _mrmr_compute_x_fingerprint(X) -> str:
                         # Bit-exact cell bytes (matches the deliberately-tightened y-side ``tobytes()``); ``repr`` of a float papered over distinct-but-near values.
                         vals = tuple(np.asarray(arr[p]).tobytes() for p in positions if p < len(arr))
                         samples.append((str(c), vals))
-                    except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+                    except Exception:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
                         samples.append((str(c), ()))
                 cell_sample = tuple(samples)
         except Exception:
@@ -271,7 +271,7 @@ def _hashable_params_signature(params: dict) -> tuple:
         try:
             hash(v)
             items.append((k, v))
-        except TypeError:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+        except TypeError:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
             # CACHE-Low-2: content-hash numpy arrays so a copy hashes equal
             # to the original. ``np.ndarray.tobytes`` + shape + dtype is the
             # cheapest exact fingerprint and works for all numpy versions.
@@ -280,7 +280,7 @@ def _hashable_params_signature(params: dict) -> tuple:
                     items.append((k, (v.tobytes(), v.shape, str(v.dtype))))
                     continue
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in _mrmr_fingerprints.py:268: %s", e)
+                    logger.debug("suppressed: %s", e)
                     pass
             try:
                 items.append((k, repr(v)))
@@ -414,7 +414,7 @@ def _target_name_signature(y) -> tuple:
         if name is not None:
             return (str(name),)
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _mrmr_fingerprints.py:401: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
     return ()
 
@@ -424,7 +424,7 @@ def _target_name_signature(y) -> tuple:
 # pass the SAME X frame in tight succession (line 131 builds the
 # signature for the cache lookup; line 158 re-runs the full hash for
 # the cache store key). The blake2b hash chain runs on the full X
-# frame bytes -- ~50ms on a 200MB frame per the iter59 bench, but
+# frame bytes - ~50ms on a 200MB frame per the iter59 bench, but
 # grows linear with frame size; on c0009-like wide post-FE frames
 # the second call wastes seconds re-hashing the same bytes.
 #
@@ -441,7 +441,7 @@ def _full_x_content_hash(X) -> str:
     The cheap 1024-strided ``_content_array_signature`` is still used as a fast-path discriminator but two
     truly different X frames whose 1024 strided cells happen to coincide (e.g. after a column-wise outlier
     clip that preserves the sampled positions) collide. Folding a full blake2b of X.tobytes() into the
-    ``_FIT_CACHE`` key rules this out at O(len(X) bytes hashed) cost -- negligible next to MRMR fit time
+    ``_FIT_CACHE`` key rules this out at O(len(X) bytes hashed) cost - negligible next to MRMR fit time
     (~50ms on a 200MB frame, vs minutes of actual screening).
 
     Mirrors ``_full_y_content_hash`` so the y-side and X-side guarantees are symmetric. Returns ``""`` on
@@ -484,12 +484,12 @@ def _full_x_content_hash(X) -> str:
             try:
                 h.update(",".join(str(c) for c in X.columns).encode())
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _mrmr_fingerprints.py:470: %s", e)
+                logger.debug("suppressed: %s", e)
                 pass
         result = h.hexdigest()
         # Guard the single-slot memo write with the same lock the sibling identity cache uses; the publish-hash-before-key ordering is the
-        # extra belt-and-braces so even a torn read (lock contention aside) can only see an OLD key paired with whatever hash -- a miss that
-        # recomputes -- never a NEW id_shape paired with a stale hash from a prior different X.
+        # extra belt-and-braces so even a torn read (lock contention aside) can only see an OLD key paired with whatever hash - a miss that
+        # recomputes - never a NEW id_shape paired with a stale hash from a prior different X.
         with _MRMR_IDENTITY_FP_LOCK:
             _MRMR_LAST_X_HASH_CACHE["hash"] = result
             _MRMR_LAST_X_HASH_CACHE["id_shape"] = id_shape
@@ -557,7 +557,7 @@ def _replay_fitted_state(target: MRMR, source: MRMR) -> int:
     # each instance's OWN lazily-created re-entrancy lock
     # guards ITS OWN concurrent-fit() detection. Replaying the cached source's lock object here would
     # alias the target's ``fit()`` wrapper (which already acquired the target's own, different, lock) to
-    # release a lock it never acquired -- "release unlocked lock" RuntimeError on every cache-hit replay.
+    # release a lock it never acquired - "release unlocked lock" RuntimeError on every cache-hit replay.
     _TRANSIENT_INSTANCE_KEYS = frozenset({"_fit_reentrancy_lock_", "_pre_fit_ctor_params_snapshot_"})
     n_replayed = 0
     for k, v in source.__dict__.items():
@@ -574,7 +574,7 @@ def _replay_fitted_state(target: MRMR, source: MRMR) -> int:
                     try:
                         v.flags.writeable = False
                     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                        logger.debug("suppressed in _mrmr_fingerprints.py:553: %s", e)
+                        logger.debug("suppressed: %s", e)
                         pass
                 target.__dict__[k] = v
         elif isinstance(v, _IMMUTABLE_SCALAR_TYPES):

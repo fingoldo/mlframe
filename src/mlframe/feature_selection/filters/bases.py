@@ -2,10 +2,10 @@
 
 Closes the scope gap of orthogonal polynomials (Hermite/Legendre/Chebyshev/Laguerre cannot capture periodic, threshold, or rational patterns):
 
-* **Fourier** -- ``sum_k a_k sin(2*pi*k*z) + b_k cos(2*pi*k*z)``. Periodic targets (``y ~ sin(2*pi*x_a*x_b)``).
-* **RBF** -- ``sum_k w_k * exp(-((z - c_k) / sigma)^2)``. Centres ``c_k`` fixed at train-fold quantiles; bandwidth ``sigma`` by Silverman's rule. Captures local bumps, soft thresholds.
-* **Sigmoid** -- ``sum_k w_k * sigma(s * (z - tau_k))``. Thresholds ``tau_k`` at train-fold quantiles; slope ``s`` set so a 10%-data-spread covers ``2 / s``. Captures sharp thresholds / cumulative-distribution targets.
-* **Pade** -- rational ``(a_0 + a_1*z + a_p*z^p) / (1 + b_1*z + b_q*z^q)``. Captures targets with poles (``y ~ x_a / x_b``). Research-grade -- denominator stability not constrained; expect OPTUNA/CMA to find high-MI fits when stable, fail gracefully otherwise.
+* **Fourier** - ``sum_k a_k sin(2*pi*k*z) + b_k cos(2*pi*k*z)``. Periodic targets (``y ~ sin(2*pi*x_a*x_b)``).
+* **RBF** - ``sum_k w_k * exp(-((z - c_k) / sigma)^2)``. Centres ``c_k`` fixed at train-fold quantiles; bandwidth ``sigma`` by Silverman's rule. Captures local bumps, soft thresholds.
+* **Sigmoid** - ``sum_k w_k * sigma(s * (z - tau_k))``. Thresholds ``tau_k`` at train-fold quantiles; slope ``s`` set so a 10%-data-spread covers ``2 / s``. Captures sharp thresholds / cumulative-distribution targets.
+* **Pade** - rational ``(a_0 + a_1*z + a_p*z^p) / (1 + b_1*z + b_q*z^q)``. Captures targets with poles (``y ~ x_a / x_b``). Research-grade - denominator stability not constrained; expect OPTUNA/CMA to find high-MI fits when stable, fail gracefully otherwise.
 
 Each family ships ``fit(x)``, ``apply(x, params)``, ``eval_njit(z, c)``, ``coef_size(degree)``, and ``canonical_seeds(degree)`` matching the contracts used in ``hermite_fe.py``. They register into the ``EXTRA_BASES`` dict that the dispatcher in ``hermite_fe.py`` auto-merges into ``_POLY_BASES`` at import time.
 """
@@ -21,11 +21,11 @@ try:
 except ImportError:
     _NUMBA_AVAILABLE = False
     def njit(*args, **kwargs):
-        """Fallback no-op stand-in for ``numba.njit`` when numba is not installed -- accepts and ignores any decorator kwargs (``fastmath``, ``cache``, ...) and returns the wrapped function unchanged, so the eval kernels below still run (as plain CPython) rather than raising ImportError."""
+        """Fallback no-op stand-in for ``numba.njit`` when numba is not installed - accepts and ignores any decorator kwargs (``fastmath``, ``cache``, ...) and returns the wrapped function unchanged, so the eval kernels below still run (as plain CPython) rather than raising ImportError."""
         if len(args) == 1 and callable(args[0]):
             return args[0]
         def deco(fn):
-            """Identity decorator used when ``njit(...)`` was called with kwargs only (no bare function argument) -- returns ``fn`` unmodified."""
+            """Identity decorator used when ``njit(...)`` was called with kwargs only (no bare function argument) - returns ``fn`` unmodified."""
             return fn
         return deco
 
@@ -35,7 +35,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 def _fourier_fit(x: np.ndarray):
-    """Min-max normalise x to [0, 1] -- one period covers the full data range. Returns (z, params)."""
+    """Min-max normalise x to [0, 1] - one period covers the full data range. Returns (z, params)."""
     lo = float(np.min(x))
     hi = float(np.max(x))
     raw_span = hi - lo
@@ -52,7 +52,7 @@ def _fourier_fit(x: np.ndarray):
 
 
 def _fourier_apply(x: np.ndarray, params: dict) -> np.ndarray:
-    """Rescale x with the fitted ``lo``/``span`` (or return the degenerate all-zero z) -- same mapping as ``_fourier_fit`` but for eval-time data (e.g. holdout/CV) that must reuse train-fold parameters instead of refitting."""
+    """Rescale x with the fitted ``lo``/``span`` (or return the degenerate all-zero z) - same mapping as ``_fourier_fit`` but for eval-time data (e.g. holdout/CV) that must reuse train-fold parameters instead of refitting."""
     if params.get("degenerate"):
         return np.zeros_like(x, dtype=np.float64)
     return np.asarray((x - params["lo"]) / params["span"])
@@ -60,7 +60,7 @@ def _fourier_apply(x: np.ndarray, params: dict) -> np.ndarray:
 
 @njit(fastmath=True, cache=True)
 def _fourier_eval_njit(z: np.ndarray, c: np.ndarray) -> np.ndarray:
-    """``sum_k a_k * sin(2*pi*k*z) + b_k * cos(2*pi*k*z)`` for k = 1..K. ``c`` packs ``[a_1, b_1, a_2, b_2, ..., a_K, b_K]`` -- length 2K."""
+    """``sum_k a_k * sin(2*pi*k*z) + b_k * cos(2*pi*k*z)`` for k = 1..K. ``c`` packs ``[a_1, b_1, a_2, b_2, ..., a_K, b_K]`` - length 2K."""
     n = z.shape[0]
     out = np.zeros(n, dtype=np.float64)
     K = c.shape[0] // 2
@@ -112,7 +112,7 @@ def _fourier_canonical_seeds(degree: int) -> list:
 
 def _rbf_fit(x: np.ndarray):
     """Fit RBF centres at quantiles 0.1..0.9 and Silverman bandwidth. 9 fixed centres -> 9 weight coefficients during search."""
-    # USABILITY_A-9 fix: unlike _fourier_fit/_pade_fit's degenerate-scale guard,
+    # Unlike _fourier_fit/_pade_fit's degenerate-scale guard,
     # nothing here stopped a NaN/Inf-containing column from silently propagating NaN through
     # np.quantile/np.std into centres/bandwidth. Scrub to finite first (same convention as
     # _usability_aware_selection.py's _scrub).
@@ -126,7 +126,7 @@ def _rbf_fit(x: np.ndarray):
 
 
 def _rbf_apply(x: np.ndarray, params: dict) -> np.ndarray:
-    """RBF doesn't transform x for eval -- centres + bandwidth come from params. Just ensure float64 contiguous."""
+    """RBF doesn't transform x for eval - centres + bandwidth come from params. Just ensure float64 contiguous."""
     return np.ascontiguousarray(x, dtype=np.float64)
 
 
@@ -150,10 +150,10 @@ def _rbf_eval_kernel_njit(z: np.ndarray, c: np.ndarray, centres: np.ndarray, ban
     return out
 
 
-# RBF eval signature differs (needs centres, bandwidth) -- the hermite_fe registry passes only (z, c). We close over centres / bandwidth via a closure factory.
+# RBF eval signature differs (needs centres, bandwidth) - the hermite_fe registry passes only (z, c). We close over centres / bandwidth via a closure factory.
 
 def _rbf_make_eval(params: dict):
-    """Factory building an RBF evaluator closure bound to this column's fitted ``centres``/``bandwidth``, so the returned ``_eval(z, c)`` matches the ``eval(z, c)`` contract other bases satisfy directly with a plain function -- required because the njit kernel needs the extra ``centres``/``bandwidth`` args the registry doesn't pass through."""
+    """Factory building an RBF evaluator closure bound to this column's fitted ``centres``/``bandwidth``, so the returned ``_eval(z, c)`` matches the ``eval(z, c)`` contract other bases satisfy directly with a plain function - required because the njit kernel needs the extra ``centres``/``bandwidth`` args the registry doesn't pass through."""
     centres = params["centres"]
     bandwidth = params["bandwidth"]
     def _eval(z, c):
@@ -175,7 +175,7 @@ def _rbf_canonical_seeds(degree: int) -> list:
         s = np.zeros(K, dtype=np.float64)
         s[k] = 1.0
         seeds.append(s)
-    # Constant offset (all centres equally weighted -- approximates mean of data).
+    # Constant offset (all centres equally weighted - approximates mean of data).
     seeds.append(np.ones(K, dtype=np.float64) / K)
     return seeds
 
@@ -186,7 +186,7 @@ def _rbf_canonical_seeds(degree: int) -> list:
 
 def _sigmoid_fit(x: np.ndarray):
     """Fit thresholds at quantiles 0.1..0.9 and slope to span the 10%-90% interquantile range with sharpness 4."""
-    # USABILITY_A-9 fix: see _rbf_fit's matching fix above -- scrub NaN/Inf before
+    # See _rbf_fit's matching fix above - scrub NaN/Inf before
     # np.quantile/np.std rather than silently propagating NaN into thresholds/slope.
     x = np.where(np.isfinite(x), x, 0.0)
     quantiles = np.linspace(0.1, 0.9, 9)
@@ -197,7 +197,7 @@ def _sigmoid_fit(x: np.ndarray):
 
 
 def _sigmoid_apply(x: np.ndarray, params: dict) -> np.ndarray:
-    """Sigmoid doesn't transform x for eval -- thresholds + slope come from params. Just ensure float64 contiguous (mirrors ``_rbf_apply``)."""
+    """Sigmoid doesn't transform x for eval - thresholds + slope come from params. Just ensure float64 contiguous (mirrors ``_rbf_apply``)."""
     return np.ascontiguousarray(x, dtype=np.float64)
 
 
@@ -250,7 +250,7 @@ def _sigmoid_canonical_seeds(degree: int) -> list:
         s = np.zeros(K, dtype=np.float64)
         s[k] = 1.0
         seeds.append(s)
-    # Cumulative ramp -- monotone increase across all thresholds.
+    # Cumulative ramp - monotone increase across all thresholds.
     seeds.append(np.linspace(0.0, 1.0, K).astype(np.float64))
     return seeds
 
@@ -260,12 +260,12 @@ def _sigmoid_canonical_seeds(degree: int) -> list:
 # ---------------------------------------------------------------------------
 
 def _pade_fit(x: np.ndarray):
-    """Standardize input -- Pade is sensitive to scale. Reference domain is roughly [-3, 3] post z-score."""
+    """Standardize input - Pade is sensitive to scale. Reference domain is roughly [-3, 3] post z-score."""
     mean = float(np.mean(x))
     raw_std = float(np.std(x))
     # Degenerate (constant / near-constant) column: an additive 1e-12 std floor does NOT dominate a
     # tiny-but-nonzero std (e.g. std ~ 1e-10 from one outlier), so z = (x - mean) / std blows the
-    # outlier to z ~ 8 while the bulk sits near 0 -- the rational Horner eval then produces a garbage
+    # outlier to z ~ 8 while the bulk sits near 0 - the rational Horner eval then produces a garbage
     # feature dominated by that single point. Treat a column whose std is negligible relative to its
     # own scale as constant and map it to z=0.
     scale = abs(mean) + 1.0
@@ -275,7 +275,7 @@ def _pade_fit(x: np.ndarray):
 
 
 def _pade_apply(x: np.ndarray, params: dict) -> np.ndarray:
-    """Standardize eval-time x with the fitted ``mean``/``std`` (or return the degenerate all-zero z) -- same z-score mapping as ``_pade_fit`` but reusing train-fold parameters instead of refitting."""
+    """Standardize eval-time x with the fitted ``mean``/``std`` (or return the degenerate all-zero z) - same z-score mapping as ``_pade_fit`` but reusing train-fold parameters instead of refitting."""
     if params.get("degenerate"):
         return np.zeros_like(x, dtype=np.float64)
     return np.asarray(((x - params["mean"]) / params["std"]).astype(np.float64))
