@@ -128,7 +128,12 @@ def relax_mrmr_score(
     """RelaxMRMR / FJMI 3-D-MI score for one candidate (Vinh 2016).
 
     Args:
-        x_cand, selected_cols, y, nbins_*: same shape as ``jmim_score``.
+        x_cand: 1-D integer-encoded candidate column.
+        selected_cols: 1-D integer-encoded columns already selected (the conditioning set).
+        y: 1-D integer-encoded target.
+        nbins_x: cardinality of ``x_cand``.
+        nbins_selected: cardinalities of ``selected_cols``, same order/length.
+        nbins_y: cardinality of ``y``.
         alpha: weight on the 3-way interaction term (default 1.0 per Vinh 2016).
 
     Returns: scalar score with full 3-way correction; higher = better.

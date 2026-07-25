@@ -164,6 +164,8 @@ def mixed_ksg_mi(x: np.ndarray, y: np.ndarray, k: int = 5, use_gpu: bool = False
             blow-up. Bench regression: discrete_low_card mean MI 0.0000 (bug)
             -> ~0.50 (signal-tracking) with this fix.
         seed: RNG seed for jitter.
+        max_input_n: cap on input size; a caller passing more rows is subsampled to this many
+            before the O(N log N) kNN search, bounding worst-case cost on very large inputs.
 
     Reference: Gao, W., Kannan, S., Oh, S., Viswanath, P. (2017),
     "Estimating Mutual Information for Discrete-Continuous Mixtures",
@@ -353,7 +355,8 @@ def ksg_lnc_mi(x: np.ndarray, y: np.ndarray, k: int = 5,
     truth; deviations are bugs.
 
     Args:
-        x, y: 1-D arrays.
+        x: 1-D array, the first variable.
+        y: 1-D array of equal length to ``x``, the second variable.
         k: nearest-neighbour count (default 5 matches Gao 2015 sec. 4 and
             NPEET_LNC default).
         alpha: PCA-bounding-box gate threshold. Default ``0.25`` is the
@@ -362,6 +365,10 @@ def ksg_lnc_mi(x: np.ndarray, y: np.ndarray, k: int = 5,
             permits the correction to fire more aggressively.
         intens: tie-breaking noise magnitude (Gao 2015 line 47 of reference).
             Default ``1e-10`` matches NPEET_LNC; floor on numerical artefacts.
+        low_entropy_skip: when ``y``'s unique-value fraction falls below ``min_y_unique_frac``,
+            skip the LNC correction and fall back to canonical Mixed-KSG, which is better
+            calibrated for discrete-mixed data (LNC otherwise inflates the no-signal floor).
+        min_y_unique_frac: the unique-value-fraction threshold used by ``low_entropy_skip``.
         seed: RNG seed for tie-breaking noise.
 
     Reference: Gao, S., Ver Steeg, G., Galstyan, A. (2015),

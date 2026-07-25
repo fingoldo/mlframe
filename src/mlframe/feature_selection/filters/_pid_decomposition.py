@@ -200,8 +200,12 @@ def pid_decomposition(x1: np.ndarray, x2: np.ndarray, y: np.ndarray, K_x1: int, 
     """Williams-Beer / Ince I_ccs Partial Information Decomposition.
 
     Args:
-        x1, x2, y: 1-D integer-encoded arrays.
-        K_x1, K_x2, K_y: cardinalities.
+        x1: 1-D integer-encoded array, the first source variable.
+        x2: 1-D integer-encoded array, the second source variable.
+        y: 1-D integer-encoded array, the target.
+        K_x1: cardinality of ``x1``.
+        K_x2: cardinality of ``x2``.
+        K_y: cardinality of ``y``.
 
     Returns: dict with keys ``redundant``, ``unique_x1``, ``unique_x2``,
         ``synergistic``, ``total`` - all in nats.

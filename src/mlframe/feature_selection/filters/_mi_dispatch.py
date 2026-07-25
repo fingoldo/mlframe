@@ -110,7 +110,8 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
     """Single entry point to all MI estimators.
 
     Args:
-        x, y: 1-D arrays of equal length.
+        x: 1-D array, the first variable.
+        y: 1-D array of equal length to ``x``, the second variable.
         estimator: One of the strings listed in the module docstring.
         estimator_kwargs: Forwarded verbatim to the chosen estimator (e.g.
             ``{'k': 7}`` for KSG, ``{'n_epochs': 800}`` for MINE).

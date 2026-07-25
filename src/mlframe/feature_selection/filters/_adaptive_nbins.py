@@ -251,6 +251,7 @@ def edges_knuth(x: np.ndarray, edge_type: str = "uniform", m_max_cap: int = MAX_
     """Knuth (2006) Bayesian-optimal nbins. Flags forwarded to ``_knuth_bin_edges``:
 
     Args:
+        x: the 1-D numeric column to bin.
         edge_type: ``'uniform'`` (legacy faithful) | ``'quantile'`` (audit fix).
         m_max_cap: ``MAX_ADAPTIVE_NBINS`` (256) shared adaptive-bin-count ceiling by default | ``64``
             audit recommendation to stay in low plug-in bias regime on small val-folds | ``500``
@@ -268,6 +269,7 @@ def edges_bayesian_blocks(
     """Bayesian Blocks (Scargle 2013) variable-width edges. Flags forwarded:
 
     Args:
+        x: the 1-D numeric column to bin.
         p0: ``0.05`` legacy | ``0.10`` audit recommendation for continuous data.
         edge_placement: ``'start'`` legacy | ``'midpoint'`` Scargle/astropy convention fix.
         subsample_threshold: ``0`` disabled | ``1000`` audit fast path.
@@ -304,6 +306,12 @@ def edges_fayyad_irani(
     """Fayyad-Irani MDLP supervised edges. Flags forwarded:
 
     Args:
+        x: the 1-D numeric column to bin.
+        y: the discrete target used to supervise the split search.
+        max_depth: maximum recursive split depth.
+        min_split_size: minimum samples on either side of a candidate split.
+        max_y_classes: cardinality cap on ``y`` before the target is treated as too wide to bin against.
+        n_permutations: permutation-null draws for the validated-splitting significance test.
         backend: ``'njit'`` (default; audit-recommended 10-30x speedup over
             the legacy pure-Python path) | ``'python'`` (legacy fallback
             kept for A/B testing). Sibling ``mdlp_bin_edges`` already
@@ -362,6 +370,12 @@ def edges_optimal_joint(
     than a single Freedman-Diaconis call.
 
     Args:
+        x: the 1-D numeric column to bin.
+        y: the target used to score each candidate bin count's fold MI.
+        candidates: candidate bin counts to sweep.
+        n_splits: number of CV folds used to score each candidate.
+        base: ``'quantile'`` or ``'uniform'`` edge placement within a candidate.
+        random_state: fold-split RNG seed.
         max_y_classes: Cardinality cap forwarded to :func:`_bin_y_for_mi` for the internal
             fold-scoring MI. Without this cap, an int/bool-dtype ``y`` with high cardinality (a
             continuous target mistakenly int-typed - e.g. a timestamp or counter column) was
@@ -491,6 +505,7 @@ def _bin_y_for_mi(y: np.ndarray, max_y_classes: int = 64) -> "tuple[np.ndarray, 
     and reuse, instead of paying the ``np.quantile`` re-sort on every candidate.
 
     Args:
+        y: the target to quantize into MI-scoring class codes.
         max_y_classes: Cardinality guard for int/bool-dtype ``y``. A continuous regression target that
             happens to be int-typed (timestamps, sensor counters, a float column upstream-cast to int)
             was previously treated as a discrete class label with NO cardinality check: ``K_y =

@@ -157,7 +157,8 @@ def fastmi(
     """fastMI mutual information estimator (Purkayastha-Song 2024).
 
     Args:
-        x, y: 1-D arrays of equal length.
+        x: 1-D array, the first variable.
+        y: 1-D array of equal length to ``x``, the second variable.
         grid_size: M, the side length of the FFT-KDE grid. Paper recommends
             M >= 64; defaults to 128. Cost grows as M^2 log M.
         bandwidth: ``'silverman'`` (closed form; default) or ``'mise'`` (auto-

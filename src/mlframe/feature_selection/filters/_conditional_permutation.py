@@ -56,8 +56,12 @@ def conditional_permutation_test(
     """Test ``H_0: X ⊥ Y | Z`` via within-stratum permutation.
 
     Args:
-        x, y, z: 1-D integer-encoded arrays.
-        nbins_x / y / z: cardinality of each variable.
+        x: 1-D integer-encoded array, the candidate variable under test.
+        y: 1-D integer-encoded array, the target.
+        z: 1-D integer-encoded array, the conditioning variable(s) being controlled for.
+        nbins_x: cardinality of ``x``.
+        nbins_y: cardinality of ``y``.
+        nbins_z: cardinality of ``z``.
         statistic_fn: callable ``(x, y, z) -> float``; default is plug-in
             ``I(X; Y | Z)``.
         n_permutations: number of conditional permutations.

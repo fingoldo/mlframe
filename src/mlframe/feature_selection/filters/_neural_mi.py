@@ -115,15 +115,20 @@ def mine_mi(
     (Belghazi 2018 sec. 3.2).
 
     Args:
-        x, y: 1-D arrays.
+        x: 1-D array, the first variable.
+        y: 1-D array of equal length to ``x``, the second variable.
         hidden_dim: width of the 2-hidden-layer ELU statistics network.
         n_epochs: number of full-batch passes; default 500 typically converges
             on N<=10k. Set ``verbose=True`` to see the per-epoch MI trace.
         batch_size: minibatch size for the DV objective.
         lr: Adam learning rate.
         ema_decay: bias-correction EMA decay (Belghazi 2018 eq. 12).
+        early_stop_patience: stop if no new best MI in this many epochs (after a 200-epoch warmup); 0 disables.
+        bootstrap_to_n: below this many rows, bootstrap-resample up to it so the minibatch SGD has enough
+            samples to converge; 0 disables.
         device: ``'auto'`` (CUDA if available), ``'cuda'``, or ``'cpu'``.
         seed: per-call RNG seed for reproducibility.
+        verbose: print the per-epoch MI trace every 50 epochs.
 
     Reference: Belghazi, Baratin, Rajeshwar, Ozair, Bengio, Courville, Hjelm
     (2018), "Mutual Information Neural Estimation", ICML 2018.
@@ -302,7 +307,8 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
     one-time CUDA compile (~80 s first call).
 
     Args:
-        x, y: 1-D arrays of equal length.
+        x: 1-D array, the first variable.
+        y: 1-D array of equal length to ``x``, the second variable.
         point_cloud_size: training-time fixed sequence length is 4781; smaller
             inputs are padded, larger sub-sampled. Default matches paper.
         device: ``'auto'``, ``'cuda'``, or ``'cpu'``.
@@ -575,8 +581,13 @@ def mist_mi(x: np.ndarray, y: np.ndarray, *, loss: str = "mse", calibrated: bool
     callers should not interpret the output as nats.
 
     Args:
-        x, y: 1-D arrays of equal length.
+        x: 1-D array, the first variable.
+        y: 1-D array of equal length to ``x``, the second variable.
         loss: ``'mse'`` (point estimate) or ``'qr'`` (quantile head).
+        calibrated: remap the raw model output through a y-kind-specific (binary/multiclass/continuous)
+            calibration table to nats; ``False`` returns the raw, uncalibrated model output.
+        max_input_n: inputs larger than this are subsampled before inference (the model was trained
+            at a fixed point-cloud size).
         device: ``'auto'``, ``'cuda'``, or ``'cpu'``.
         seed: ignored; feed-forward inference is deterministic.
 
