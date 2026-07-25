@@ -34,7 +34,7 @@ def _binom_test_cached(x_int: int, n: int, p: float, alternative: str = "two-sid
     calls on a wide frame), but ``(n, p, alternative)`` are fixed within a step and the hit count
     ``x`` is a small integer, so the distinct ``(x, n, p, alternative)`` set is tiny. Caching
     collapses ~36k per-call scipy ``binomtest`` constructions (profiled ~7s = 21% of a 299-feature
-    fit) to a handful -- bit-identical p-values. ``maxsize`` is bounded (not ``None``) so a
+    fit) to a handful - bit-identical p-values. ``maxsize`` is bounded (not ``None``) so a
     long-lived process that runs BorutaShap across many differently-sized frames cannot pin the
     cache unbounded; 100k dwarfs the distinct-key count of any single fit, so hit rate is unaffected."""
     return binom_test(x_int, n=n, p=p, alternative=alternative)
@@ -68,14 +68,14 @@ logger = logging.getLogger(__name__)
 # Pure selector (shadow features are internal, transform emits a column subset), but it intentionally hand-rolls the
 # SelectorMixin surface (get_support / get_feature_names_out) rather than inheriting SelectorMixin, to keep full control
 # over the fitted-mask semantics; SelectorMixin is deliberately NOT added to avoid clashing with those hand-rolled methods.
-# TODO(naming): rename this class/module from BorutaShap to plain Boruta -- track every call site, docs
+# TODO(naming): rename this class/module from BorutaShap to plain Boruta - track every call site, docs
 # reference, and pickle-compat shim (``__module__``/``__qualname__`` rewrites, like MRMR's) needed for a
 # non-breaking rename, since existing pickles + user code reference the current name.
 class BorutaShap(BaseEstimator, TransformerMixin):
     """
     BorutaShap is a wrapper feature selection method built on the foundations of both the SHAP and Boruta algorithms.
 
-    KNOWN LIMITATION -- single-sample false positives via the shadow comparison. Shadow features are produced by
+    KNOWN LIMITATION - single-sample false positives via the shadow comparison. Shadow features are produced by
     permuting each real column independently, which destroys not only the column's relationship to y but ALL of its
     joint/covariance structure with the other columns. A real column always retains its (often spurious, finite-sample)
     joint structure, so a model's importance fit on a single training sample systematically scores structure-bearing
@@ -102,7 +102,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
     DRIVER SELECTION (importance_measure), measured on the fs_hybrid bed (6 scenarios x 2 seeds, downstream
     honest-holdout AUC over LightGBM/Logistic/kNN). The default is 'gini': SHAP is dominated on BOTH axes (worst
-    mean AUC 0.755 AND ~137x slower than gini -- 20-30 min/fit -- because it recomputes per-trial SHAP values),
+    mean AUC 0.755 AND ~137x slower than gini - 20-30 min/fit - because it recomputes per-trial SHAP values),
     so it is no longer the default. gini (mean 0.762, ~11 s) is the fast, robust default. 'permutation' in its
     honest held-out mode (train_or_test='test', which permutes on the 30% holdout this class already carves) is
     the ACCURACY + PRECISION leader: it topped mean AUC (0.766) and drove accepted-noise to ~0 in 10/12 cells
@@ -113,7 +113,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
     this lives naturally in a caller that already computes the clustering (see the fs_hybrid HybridSelector).
 
     AUTO DISPATCH (importance_measure='auto', opt-in): one cheap RandomForest probe on (X, y) at fit
-    start picks the driver per-fit -- permutation on noisy / overfit-prone / small-n-relative-to-p beds
+    start picks the driver per-fit - permutation on noisy / overfit-prone / small-n-relative-to-p beds
     (where gini over-credits noise via split-frequency bias), gini on clean / large-n beds (where the
     ~11x permutation cost buys nothing). Signals: n/p ratio, train-vs-OOB gap, real-vs-shadow impurity
     fraction. The resolution + signals are exposed on ``auto_dispatch_diagnostics_`` after fit. The
@@ -128,7 +128,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
     history_x: "np.ndarray | pd.DataFrame"
     # tentative starts as a plain list (set difference at fit entry), then TentativeRoughFix() rebinds it to an ndarray for boolean-mask filtering.
     tentative: "list | np.ndarray"
-    # Set in _fit_explain.py's fit() (``self.X = X.copy()``) -- a different module in this cross-file
+    # Set in _fit_explain.py's fit() (``self.X = X.copy()``) - a different module in this cross-file
     # mixin pattern, invisible to mypy without this class-level annotation (found 2026-07-18: a
     # `self.X = self.X.drop(...)` self-referential assignment in __init__.py can't infer self.X's
     # type without it).
@@ -227,7 +227,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         # sklearn contract: __init__ stores params verbatim and derives nothing that mutates them. The
         # resolved-model (``model_``) is built in ``check_model`` so ``get_params``/``clone`` round-trip the
         # constructor args unchanged (``model=None`` stays None on a fitted instance). The private RNG
-        # (``_rng``, A-P0-004) is a fresh ``default_rng(random_state)`` -- an INDEPENDENT Generator that does
+        # (``_rng``, A-P0-004) is a fresh ``default_rng(random_state)`` - an INDEPENDENT Generator that does
         # NOT touch the process-global ``np.random`` stream, so building it here keeps both contracts: clone
         # re-runs __init__ and re-derives the same RNG from the unchanged seed.
         self.random_state = random_state
@@ -275,7 +275,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         # been unchanged for ``early_stop_patience`` consecutive trials AND no still-tentative feature is within a
         # binomial-decision margin (``early_stop_margin``) of crossing either threshold (so none can resolve soon).
         # CRITICAL: this is the MARGIN-GATED rule, NOT the naive 'accepted-set stable for W trials' rule. The naive
-        # rule is a measured CORRECTNESS TRAP -- it fires on a transient plateau and locks a WRONG accepted set
+        # rule is a measured CORRECTNESS TRAP - it fires on a transient plateau and locks a WRONG accepted set
         # (measured synth Jaccard-vs-cap 1.0 but hard_synth Jaccard 0.0). The margin gate refuses to stop while any
         # tentative feature is still close to a boundary, so the accepted/rejected sets at the stop are
         # decision-equivalent to running the full cap (measured synth Jaccard 1.0 ~72% wall saved, hard_synth
@@ -338,7 +338,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         """
         Resolve the working surrogate model into the learned attribute ``self.model_`` (sklearn contract:
         the constructor param ``self.model`` is stored verbatim and NEVER mutated, so ``get_params`` on a
-        fitted instance still returns the value the caller passed -- ``None`` stays ``None`` -- and ``clone``
+        fitted instance still returns the value the caller passed - ``None`` stays ``None`` - and ``clone``
         reconstructs from the original args). When ``self.model is None`` the default RandomForest surrogate
         is built into ``model_``; otherwise the caller-supplied estimator is used as-is.
 
@@ -362,7 +362,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         if self.model is None:
             # The default surrogate is refit every trial and the tree fit is ~82% of wall (profiled); sklearn's
             # default n_jobs=None runs it single-threaded. n_jobs=-1 parallelizes the independent trees across
-            # cores -- selection is bit-identical (fixed random_state makes the forest deterministic regardless
+            # cores - selection is bit-identical (fixed random_state makes the forest deterministic regardless
             # of worker count). Resolved into ``model_`` so the verbatim ``self.model`` param stays None.
             if self.classification:
                 self.model_ = RandomForestClassifier(n_jobs=-1, random_state=self.random_state)
@@ -557,7 +557,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         # silently selected the wrong columns.
         #
         # Fit-state guard: surfaced iter-347 (cb,lgb regression + boruta=True,
-        # weight=recency) -- the per-weight pre_pipeline path can hand a cloned
+        # weight=recency) - the per-weight pre_pipeline path can hand a cloned
         # (unfit) BorutaShap to ``transform`` directly, raising
         # ``AttributeError: 'BorutaShap' object has no attribute
         # 'selected_features_'`` and dropping the entire model from the suite.
@@ -571,7 +571,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             )
         # sklearn contract: validate the transform-time feature space against what fit saw. For a BARE ndarray
         # (no column names to realign by) a width mismatch means the caller is transforming an unrelated frame.
-        # Named DataFrames instead rely solely on the name-based "missing selected feature" check just below --
+        # Named DataFrames instead rely solely on the name-based "missing selected feature" check just below -
         # an ETL-prepended extra column (harmless width mismatch) must still realign by name and succeed, not
         # raise here before that check gets a chance to run.
         if not hasattr(X, "columns"):
@@ -729,7 +729,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
     def create_mapping_between_cols_and_indices(self):
         """Build the column-name <-> positional-index maps used by the shadow-feature loop."""
-        # Wave 54 (2026-05-20): refuse duplicate-column input -- prior dict(zip(...))
+        # Refuse duplicate-column input - prior dict(zip(...))
         # silently collapsed dupes to the LAST index, so any earlier-duplicated column
         # would never be shuffled / tested by Boruta's shadow-feature loop.
         cols = self.X.columns.to_list()

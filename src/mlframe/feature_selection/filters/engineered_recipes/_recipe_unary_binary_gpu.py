@@ -9,14 +9,14 @@ columns. On the F2 STRICT 300k-1M path this is the dominant FE-replay cost
 
 ``apply_unary_binary_gpu`` uploads the two source columns ONCE, applies the
 operator chain with cupy elementwise ops on device, and returns the materialised
-column to host (one legitimate bulk D2H -- the engineered output). Each operator
+column to host (one legitimate bulk D2H - the engineered output). Each operator
 is mapped to its EXACT cupy equivalent so the values match the numpy path within
 the f32/f64 discipline of the resident path (selection-equivalent on F2).
 
 GATING + FALLBACK: the caller takes this path only when
 ``fe_gpu_strict_resident_enabled()`` is True. Operands that are nested-engineered
 parents, the ``prewarp`` / ``gate_med`` closed-form pseudo-unaries, or any unary
-not in the closed-form cupy map are NOT handled here -- the function returns
+not in the closed-form cupy map are NOT handled here - the function returns
 ``None`` so the caller falls back to the numpy ``_apply_unary_binary`` (which
 also recurses for nested parents). Any cupy failure raises and the caller's
 try/except logs debug + falls back. NEVER calls
@@ -126,7 +126,7 @@ def _gpu_unary(cp, name: str, x, recipe: EngineeredRecipe, side: str):
             _shift = float(recipe.extra[_skey])
             return cp.log(x + _shift) if _shift != 0.0 else cp.log(x)
         # ``smart_log``: shift non-positive inputs by ``(1e-5 - nanmin(x))``. Branchless + resident: keep the
-        # shift as a device 0-dim scalar (cp.where picks 0 when min>0) instead of a float(x_min) sync -- x+0.0
+        # shift as a device 0-dim scalar (cp.where picks 0 when min>0) instead of a float(x_min) sync - x+0.0
         # is identity, so this is bit-identical to the min>0 -> log(x) branch.
         x_min = cp.nanmin(x)
         shift = cp.where(x_min > 0.0, cp.float64(0.0), 1e-5 - x_min)
@@ -166,9 +166,9 @@ def _gpu_binary(cp, name: str, a, b):
     if name == "heaviside":
         return cp.heaviside(a, b)
     if name == "greater":
-        # MI_GREEDY_RECIPES-4 fix: was `.astype(a.dtype)` (float32/float64),
+        # Was `.astype(a.dtype)` (float32/float64),
         # diverging from the CPU registry's `.astype(int)` (feature_engineering.py) for identical 0/1
-        # values -- only the returned ndarray dtype differed by backend. Match the CPU int dtype.
+        # values - only the returned ndarray dtype differed by backend. Match the CPU int dtype.
         return cp.greater(a, b).astype(cp.int64)
     if name == "less":
         return cp.less(a, b).astype(cp.int64)
@@ -183,7 +183,7 @@ def _materialise_recipe_gpu(recipe: EngineeredRecipe, X: Any, cp, dt, col_cache:
 
     This is the device twin of the host ``_apply_unary_binary`` recursion (``_nested_continuous`` -> replay the
     parent WITHOUT quantization -> continuous operand). A NESTED-engineered operand is materialised device-born
-    by recursing here instead of bailing to CPU -- so a compound like ``add(div(sqr(a),b), mul(log(c),d))`` is
+    by recursing here instead of bailing to CPU - so a compound like ``add(div(sqr(a),b), mul(log(c),d))`` is
     built entirely on device from the resident raw base columns, its intermediate product/ratio operands never
     crossing H2D. A raw operand rides the content-keyed resident-operand cache (uploaded once, shared). The
     pseudo-unaries (prewarp / gate_med) + unmapped unary/binary names still bail (``None``) so the caller keeps
@@ -235,7 +235,7 @@ def _materialise_recipe_gpu(recipe: EngineeredRecipe, X: Any, cp, dt, col_cache:
     out_gpu = _gpu_binary(cp, recipe.binary_name, ta, tb)
     # Match fit-time NaN/Inf scrubbing in check_prospective_fe_pairs + the CPU replay's nan_to_num.
     # cp.where(cp.isfinite(...)) not cp.nan_to_num(nan=0,posinf=0,neginf=0): cupy's nan_to_num runs
-    # cupy.isnan() on each scalar fill arg internally, a blocking D2H sync on every call -- the where form is
+    # cupy.isnan() on each scalar fill arg internally, a blocking D2H sync on every call - the where form is
     # elementwise and identical (nan / +-inf -> 0.0, finite unchanged).
     return cp.where(cp.isfinite(out_gpu), out_gpu, cp.asarray(0.0, dtype=out_gpu.dtype))
 
@@ -246,7 +246,7 @@ def apply_unary_binary_gpu(recipe: EngineeredRecipe, X: Any, col_cache: "dict[st
     Returns ``None`` when the recipe is NOT GPU-eligible (a ``prewarp`` / ``gate_med`` pseudo-unary or an
     unmapped unary/binary name, at any nesting level) so the caller falls back to the numpy
     ``_apply_unary_binary``. NESTED-engineered operands are now materialised device-born (recursion in
-    ``_materialise_recipe_gpu``) rather than bailing to CPU. Raises on a cupy runtime failure -- the caller's
+    ``_materialise_recipe_gpu``) rather than bailing to CPU. Raises on a cupy runtime failure - the caller's
     try/except logs debug + falls back.
 
     ``col_cache``: optional dict shared across every recipe replayed in ONE ``transform()`` call; forwarded to

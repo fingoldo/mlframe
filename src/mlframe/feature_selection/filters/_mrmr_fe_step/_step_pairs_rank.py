@@ -60,13 +60,13 @@ from .._fe_usability_signal import (  # shared leaf helpers (numpy-only, no cycl
 def _batch_usability_admission_verdicts(self, *, need_usability, y_continuous, cached_operand, cached_single_corr) -> dict:
     """Batched replacement for calling ``pair_is_tail_concentrated_rankaware`` once per pair in
     ``need_usability`` (a list of ``raw_vars_pair`` tuples already known to need the usability-admission
-    verdict -- see the pre-pass in :func:`score_prospective_pairs`). Returns ``{raw_vars_pair: bool}``;
-    best-effort -- any failure returns an empty dict so every caller lookup defaults to False (the strict
+    verdict - see the pre-pass in :func:`score_prospective_pairs`). Returns ``{raw_vars_pair: bool}``;
+    best-effort - any failure returns an empty dict so every caller lookup defaults to False (the strict
     rank-MI decision stands), matching the original inline try/except's failure mode exactly.
 
     Two-stage, matching ``batch_pair_tail_concentration_rankaware``'s own internal design: the expensive
     reduction (best pair-form |corr|) is batched across ALL pairs in one dispatch; the rank-correlation leg
-    -- which needs the winning form's actual VALUES, not just its |corr| -- only materializes those values
+    - which needs the winning form's actual VALUES, not just its |corr| - only materializes those values
     for the small subset that clears the cheap min_corr/pairness gate first. See that function's own
     docstring in ``batch_pair_usability_corr_gpu.py`` for the full numerical contract."""
     _usability_verdict: dict = {}
@@ -118,16 +118,16 @@ def _maybe_relax_prevalence_for_tail_concentrated_pool(
     *, self, cached_MIs, numeric_vars_to_consider, data, num_fs_steps, verbose,
     fe_min_pair_mi_prevalence, cached_operand, sorted_pairs=None, sort_dict_by_value=None,
 ):
-    """TAIL-CONCENTRATION FIRST-SWEEP PREVALENCE RELAXATION (2026-07-03). A co-signal half whose pair joint
-    MI is only marginally above its (high) marginal sum -- the F2 (c,d) ``mul(log(c),sin(d))`` half, ratio
-    ~1.24/1.20 < the strict 1.05 bar -- FAILS the strict pair-MI prevalence gate and never enters the FIRST
+    """TAIL-CONCENTRATION FIRST-SWEEP PREVALENCE RELAXATION. A co-signal half whose pair joint
+    MI is only marginally above its (high) marginal sum - the F2 (c,d) ``mul(log(c),sin(d))`` half, ratio
+    ~1.24/1.20 < the strict 1.05 bar - FAILS the strict pair-MI prevalence gate and never enters the FIRST
     FE sweep's prospective pool; today it builds ONLY in the adaptive-threshold RETRY, which fires solely
     when the first sweep yields ZERO features and then REPLACES (not merges) the pass. When a TAIL-
     CONCENTRATED pair is present (e.g. the outlier a/b half), the usability winner-promotion below makes the
     first sweep emit that half, so the retry is skipped and the co-signal half never builds in the SAME
-    sweep -- leaving C2 additive-fusion (which fuses two disjoint-token engineered halves) nothing to fuse.
+    sweep - leaving C2 additive-fusion (which fuses two disjoint-token engineered halves) nothing to fuse.
     FIX: when usability admission is on AND a RANK-AWARE tail-concentrated pair exists in this pool (linear
-    |corr(continuous y)| high AND genuinely pairwise AND its RANK association COLLAPSED -- the outlier
+    |corr(continuous y)| high AND genuinely pairwise AND its RANK association COLLAPSED - the outlier
     signature, FALSE for balanced canonical / the 4 passing profiles where rank and linear AGREE), rebind
     ``fe_min_pair_mi_prevalence`` to the SAME relaxed value the adaptive retry uses (``max(1.001, bar *
     fe_adaptive_relax_factor)``). The rest of the caller is then byte-identical to a retry call with that
@@ -146,8 +146,8 @@ def _maybe_relax_prevalence_for_tail_concentrated_pool(
         _margin_pre = float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05))
         _rank_frac_pre = float(getattr(self, "fe_pair_usability_admission_rank_frac", 0.7))
         _max_prescan = int(getattr(self, "fe_pair_usability_prescan_max_pairs", 256))
-        # DOMINANT-PAIR GATE (specificity): fire ONLY if the pool's dominant pair -- the one with
-        # the highest linear |corr(continuous y)| -- is rank-collapsed. A small divisor operand makes
+        # DOMINANT-PAIR GATE (specificity): fire ONLY if the pool's dominant pair - the one with
+        # the highest linear |corr(continuous y)| - is rank-collapsed. A small divisor operand makes
         # SPURIOUS forms (e.g. d/b ~ 1/b, which tracks an a**2/b target while d is noise) look tail-
         # concentrated on lower-|corr| pairs; those must NOT trigger the relaxation and disrupt cases
         # the existing path already fuses. The GENUINE tail-concentrated half is the dominant-|corr|
@@ -156,19 +156,19 @@ def _maybe_relax_prevalence_for_tail_concentrated_pool(
         # naturally-heavy-tailed user case where the dominant ratio tracks y in rank too (rank ~ linear).
         _pool_tail_concentrated = False
         _dom_p0, _dom_p1, _dom_cp, _dom_pk = None, None, -1.0, None
-        # BATCHED (2026-07-11 perf fix): the pre-fix version called _usability_form_corrs once per
-        # scanned pair in a serial Python loop -- measured 4.2-4.9x SLOWER at prescan-representative
+        # BATCHED: the pre-fix version called _usability_form_corrs once per
+        # scanned pair in a serial Python loop - measured 4.2-4.9x SLOWER at prescan-representative
         # scale (2k-30k pairs) than collecting the pool first and dispatching ONE batched call
         # (batch_pair_usability_corr_gpu's njit(parallel=True) backend, prange over the flattened
-        # (pair, form) index -- see bench_batch_pair_usability_corr_gpu.py). Bit-identical: same
+        # (pair, form) index - see bench_batch_pair_usability_corr_gpu.py). Bit-identical: same
         # per-pair two-pass reduction, same 5 pair-forms, same np.argmax first-on-tie semantics as
         # the original loop's strict `>` comparison (numpy argmax also returns the FIRST occurrence
-        # of the max). GPU is NOT engaged here (measured slower than CPU at every scale on this
-        # host, see that module's docstring) -- dispatch_batch_pair_usability_corr's un-forced
-        # default is CPU.
-        # FE_STEP_B-9 fix: scan candidates in DESCENDING joint-MI order (a principled
+        # of the max). dispatch_batch_pair_usability_corr's un-forced default is the warp-coalesced
+        # CUDA kernel when CUDA is available (measured 3.96-4.52x faster than CPU; see that module's
+        # docstring), and it honors the MLFRAME_DISABLE_GPU / CUDA_VISIBLE_DEVICES opt-out.
+        # Scan candidates in DESCENDING joint-MI order (a principled
         # importance proxy for "how likely is this the pool's dominant pair"), not raw cached_MIs insertion
-        # order (batch-precompute chunks, then legacy-sweep entries, then any GBM/gradient-seeded additions --
+        # order (batch-precompute chunks, then legacy-sweep entries, then any GBM/gradient-seeded additions -
         # an accident of WHEN a pair was computed, not how relevant it is). For a pool wider than
         # fe_pair_usability_prescan_max_pairs the old insertion-order scan could silently miss the actual
         # highest-|corr| dominant pair if it happened to be computed late, weakening the "fires only for the
@@ -202,14 +202,14 @@ def _maybe_relax_prevalence_for_tail_concentrated_pool(
             from .._fe_usability_signal import _corr_stride, _crit_np_dtype
             from ..batch_pair_usability_corr_gpu import ALL_PAIR_FORM_IDS, dispatch_batch_pair_usability_corr
 
-            # Match usability_form_corrs's OWN internal _subsample_for_corr stride exactly -- it
+            # Match usability_form_corrs's OWN internal _subsample_for_corr stride exactly - it
             # subsamples (y, x0, x1) TOGETHER to _ABS_PEARSON_MAX_ROWS before ever computing a form;
             # skipping this here would silently run the batched call on the FULL row count instead
-            # (wrong answer AND far slower -- the whole point of the cap). Also cast to
-            # _crit_np_dtype() (f32 by default) BEFORE batching -- usability_form_corrs casts its
+            # (wrong answer AND far slower - the whole point of the cap). Also cast to
+            # _crit_np_dtype() (f32 by default) BEFORE batching - usability_form_corrs casts its
             # own y/x0/x1 internally, so a caller passing raw f64 here would compute every form at
             # STRICTLY HIGHER precision than the reference (a real, if small, ~1e-9 divergence from
-            # comparing f32-then-f64-accumulated vs pure-f64 arithmetic -- found via direct A/B
+            # comparing f32-then-f64-accumulated vs pure-f64 arithmetic - found via direct A/B
             # against usability_form_corrs, not assumed).
             _stride_pre = _corr_stride(_ya_pre.shape[0])
             _dtype_pre = _crit_np_dtype()
@@ -264,7 +264,7 @@ def _get_col_codes_i64(data, col_idx: int, cache: "dict | None") -> np.ndarray:
     it is on an already-contiguous 1-D array. A small set of bootstrap/anchor columns gets paired against
     many different partner columns across the prevalence-gate pre-pass (found live, wellbore-50k cProfile:
     41902 ``ascontiguousarray`` calls / 22.7s tottime here, confirmed by microbench that a column-slice
-    copy costs ~1ms vs ~0.4us for an already-contiguous array) -- caching collapses the repeats onto one
+    copy costs ~1ms vs ~0.4us for an already-contiguous array) - caching collapses the repeats onto one
     copy per distinct column actually touched within the pre-pass."""
     if cache is None:
         return np.ascontiguousarray(data[:, int(col_idx)], dtype=np.int64)
@@ -282,7 +282,7 @@ def _resolve_pair_prevalence_gate(
     _col_codes_cache=None,
 ):
     """Pure (no side effects on ``vars_usage_counter`` / ``prospective_pairs`` / the rejection ledger)
-    resolution of the prevalence + order-2 maxT gate state for ONE pair -- factored out of the main loop
+    resolution of the prevalence + order-2 maxT gate state for ONE pair - factored out of the main loop
     (explicit kwargs, no closure capture, matching this module's own stated design) so the usability-
     admission pre-pass (which needs to know, for every pair, whether it will reach the usability gate) and
     the main loop itself always agree bit-for-bit, computed once each, never twice: neither this function's
@@ -303,13 +303,13 @@ def _resolve_pair_prevalence_gate(
     (E[sin(d)]~=0 zeroes MI(c;y)), yet log(c) carries real CONDITIONAL signal jointly with d. Its joint
     ratio (~1.13) clears 1.05 but fails 1.5, so the clean c/d half is never built and C2 has nothing to
     fuse. Relax to the REGULAR 1.05 bar ONLY for an asymmetric pair (exactly one bootstrap operand) whose
-    bootstrap operand's CONDITIONAL signal given the partner is GENUINE -- a leak-safe held-out test, NOT a
+    bootstrap operand's CONDITIONAL signal given the partner is GENUINE - a leak-safe held-out test, NOT a
     marginal-only heuristic. A marginal-only gate cannot separate the real (c,d) half from a noise cross-mix
     like canonical's (c,e): BOTH have a ~0-marginal bootstrap operand. The discriminator is CMI(boot; y |
     partner) vs its conditional-permutation null: genuine synergy clears the null by a wide margin (F2
     (c,d): CMI 0.020 vs floor 0.004, excess 0.018) while a noise operand sits ON the null (canonical (c,e):
     CMI 0.004 vs floor 0.004, excess 0.003). Require the CMI to clear the null AND its excess over the null
-    mean to be at least the null FLOOR magnitude (a chance-fluctuation scale) -- (c,d) excess 0.018 >= floor
+    mean to be at least the null FLOOR magnitude (a chance-fluctuation scale) - (c,d) excess 0.018 >= floor
     0.004 PASSES, (c,e) excess 0.003 < floor 0.004 FAILS. Best-effort: any error leaves the strict 1.5 bar
     in place (no relaxation), so canonical is never loosened on failure."""
     _mm_pair_bias = _pair_mm_bias.get(tuple(sorted(raw_vars_pair)), 0.0)
@@ -330,8 +330,8 @@ def _resolve_pair_prevalence_gate(
                 _bcodes = _get_col_codes_i64(data, _boot_idx, _col_codes_cache)
                 _pcodes = _get_col_codes_i64(data, _partner_idx, _col_codes_cache)
                 _yc = np.ascontiguousarray(classes_y, dtype=np.int64)
-                # SCORING SUBSAMPLE (2026-07-03). This bootstrap-prevalence relaxation runs an observed
-                # CMI + a within-stratum permutation null on the FULL 1M pair codes -- one of the top
+                # SCORING SUBSAMPLE. This bootstrap-prevalence relaxation runs an observed
+                # CMI + a within-stratum permutation null on the FULL 1M pair codes - one of the top
                 # _conditional_perm_null callers (~2.4s at 1M). The prevalence-relax verdict is a wide-
                 # margin CMI/floor DECISION, selection-equivalent under a large strided subsample: cap the
                 # candidate, partner, and y TOGETHER (aligned rows) above MLFRAME_PAIR_NULL_MAX_ROWS
@@ -364,7 +364,7 @@ def _resolve_pair_prevalence_gate(
     # pair's JOINT MI must clear the pool's permutation-null max as well, rejecting best-of-p chance-max
     # noise pairs the per-pair prevalence bar misses. No-op when floor==0.0. ``_pair_mi_floor_cmp`` is
     # the MM-debiased joint MI (IRON RULE, see above).
-    # GUARDED "auto" (2026-06-13): compare the MM-DEBIASED pair MI against the same ratio bar --
+    # GUARDED "auto": compare the MM-DEBIASED pair MI against the same ratio bar -
     # tightens the gate by the per-pair finite-sample bias, never loosens. Default (explicit float) uses
     # the raw pair_mi -> byte-identical.
     _obs_for_prevalence = _pair_mi_floor_cmp if _prevalence_debias_auto else pair_mi
@@ -378,21 +378,21 @@ def _prepass_gate_and_usability_candidates(
     cached_operand, usability_enabled, yc_shape_ok, gate_kwargs, sorted_pairs=None,
 ):
     """Walk every 2-tuple candidate pair ONCE (side-effect-free: no ``vars_usage_counter`` / rejection-ledger
-    writes) to (a) resolve + cache the prevalence/maxT/synergy gate state every pair needs -- see
-    :func:`_resolve_pair_prevalence_gate` -- and (b) collect the subset that will reach the usability-
+    writes) to (a) resolve + cache the prevalence/maxT/synergy gate state every pair needs - see
+    :func:`_resolve_pair_prevalence_gate` - and (b) collect the subset that will reach the usability-
     admission gate (fails the normal gates, has positive ``pair_mi``, usability admission is enabled, and
     both operands resolve) for the batched verdict pass. Filter conditions mirror ``score_prospective_pairs``'
     main loop's own OWN filter chain exactly (``len==2``, not in ``checked_pairs``, both operands considered,
     ``ind_elems_mi_sum>0``) so the returned ``_gate_cache`` has an entry for every pair the main loop will
     look up.
 
-    ``sorted_pairs``: FE_STEP_B-4 fix -- pass the caller's already-computed
+    ``sorted_pairs``: - pass the caller's already-computed
     ``sort_dict_by_value(cached_MIs)`` view (an unmutated dict between the two calls in
     ``score_prospective_pairs``) to avoid a second full O(n log n) sort + O(n) dict-copy of the whole
     candidate pool. Falls back to computing it here (the original behaviour) when omitted, so any other
     caller keeps working unchanged. A single ``_col_codes_cache`` dict is shared across every pair in this
     walk (``data`` is fixed for the whole call) so the asymmetric-synergy branch's bootstrap/anchor column
-    codes are copied at most once per distinct column touched, not once per pair -- see
+    codes are copied at most once per distinct column touched, not once per pair - see
     ``_get_col_codes_i64``."""
     _gate_cache: dict = {}
     _need_usability: list = []
@@ -444,12 +444,12 @@ def score_prospective_pairs(
     """Rank the gate-surviving candidate pairs; return (prospective_pairs, _prevalence_failed_synergy)."""
     vars_usage_counter: defaultdict = defaultdict(int)
     prospective_pairs = {}
-    # Per-call memoization for ``_usability_operand_continuous`` (2026-07-10 perf fix): both loops below call
+    # Per-call memoization for ``_usability_operand_continuous``: both loops below call
     # it twice per candidate PAIR, but each raw operand appears in O(n_candidates) pairs, so the SAME column
     # gets re-extracted from ``X`` (pandas getitem + dtype cast + ravel) once per pair it participates in.
     # Measured 170,160 calls / 3.27s cumtime on a 100k-row production profile, almost entirely this
     # redundancy (X/cols/self are fixed for the lifetime of this one call, so the result for a given
-    # ``var_idx`` never changes within it). A plain local dict is safe here -- this function is called
+    # ``var_idx`` never changes within it). A plain local dict is safe here - this function is called
     # serially from ``_step_core.py`` (no threading/loky dispatch at this level), so no shared-mutable-state
     # race risk (contrast the numba-typed-dict caches elsewhere in this package that DO cross worker threads
     # and need explicit per-worker copies).
@@ -466,10 +466,10 @@ def score_prospective_pairs(
     # Per-call memoization for the SINGLE-operand half of usability_form_corrs's ``_cs`` (2026-07-11 perf
     # fix): ``pair_is_tail_concentrated_rankaware`` runs once per candidate PAIR (~85k calls in a wide 100k-row
     # FE fit) against a target fixed for this whole call, but only 2 of its 9 internal abs_pearson forms
-    # (this operand's own value and its square) actually change per operand -- the OTHER operand's forms and
+    # (this operand's own value and its square) actually change per operand - the OTHER operand's forms and
     # all 5 pair forms genuinely depend on the specific pairing. Since a small pool of raw operands recurs
     # across a much larger pool of pairs (same rationale as ``_cached_operand`` above), caching THIS half by
-    # operand index turns ~4 abs_pearson calls/pair into ~2 calls per UNIQUE operand -- cProfile on a 100k-row
+    # operand index turns ~4 abs_pearson calls/pair into ~2 calls per UNIQUE operand - cProfile on a 100k-row
     # production run showed usability_form_corrs's single-operand share alone (a quarter of its 9 forms) was a
     # meaningful slice of the ~85k-call, ~95s cumtime this predicate costs. Bit-identical: see
     # ``_single_operand_usability_corr``'s docstring for why ``max()`` of the two cached halves equals the
@@ -492,7 +492,7 @@ def score_prospective_pairs(
     # but missed the STRICTER ``fe_synergy_min_prevalence`` raw-MI ratio bar is recorded
     # here as ``{(pair_idx_tuple): pair_mi}``. The raw-MI prevalence ratio structurally
     # UNDER-estimates a smooth non-bilinear ratio interaction (the genuine ``a**2/b``
-    # scores ratio ~1.11 -- below the 1.5 synergy bar -- yet a leak-safe rank-1 ALS pair
+    # scores ratio ~1.11 - below the 1.5 synergy bar - yet a leak-safe rank-1 ALS pair
     # warp beats its best single-operand warp held-out by ratio 1.24, cleanly separated
     # from cross-mix/noise at ~1.0). Rather than LOWER the raw-MI bar (bench-rejected:
     # injects optimisation-inflated noise products), these pairs are handed to the
@@ -512,8 +512,8 @@ def score_prospective_pairs(
     # ``permnull_cand_x`` sites. The partner / anchor stays host (it is the conditioning ``z``, uploaded by the
     # primitives). Computed once (fit-constant predicate). Byte-identical: same int codes, same partition.
     _pair_resident = _pair_gate_resident_enabled(n=int(data.shape[0]), p=len(numeric_vars_to_consider))
-    # FE_STEP_B-4/B-9 fix: compute the sorted view ONCE, here (before its first
-    # consumer), and reuse it in every downstream consumer in this function -- cached_MIs is not written to
+    # Compute the sorted view ONCE, here (before its first
+    # consumer), and reuse it in every downstream consumer in this function - cached_MIs is not written to
     # anywhere between here and the main loop below, so re-sorting it a second or third time was a pure
     # duplicate O(n log n) sort + O(n) dict-copy of the whole candidate pool (singles + all pairs) for no
     # reason. This same view also gives the dominant-pair prescan below a principled top-K-by-MI candidate
@@ -527,28 +527,28 @@ def score_prospective_pairs(
         cached_operand=_cached_operand, sorted_pairs=_sorted_pairs,
     )
 
-    # BATCHED USABILITY-ADMISSION PRE-PASS (2026-07-11 perf fix, main-loop call site). Restores the
+    # BATCHED USABILITY-ADMISSION PRE-PASS. Restores the
     # previously-dead-but-now-fixed ``_admit_via_usability`` gate (see its own comment below) at PRODUCTION
     # scale: the per-pair inline call used to run ``_pair_is_tail_concentrated_rankaware`` (9 abs_pearson
-    # passes + a rank transform) once per pair reaching this gate -- ~85k calls in a wide 100k-row
+    # passes + a rank transform) once per pair reaching this gate - ~85k calls in a wide 100k-row
     # production fit, one of the largest hotspots profiled this session. As a side effect of needing to know
-    # -- for every pair, ahead of time -- whether it will reach the usability gate, the prevalence/maxT/
+    # - for every pair, ahead of time - whether it will reach the usability gate, the prevalence/maxT/
     # synergy gate state (``_resolve_pair_prevalence_gate``) is ALSO now resolved once per pair here and
     # cached, rather than inline in the main loop: same total work, just relocated (the main loop was the
     # only place this used to run, so no computation happens twice).
     #
     # Two-stage, matching the batched kernel's own internal design: stage 1 batches ONLY the cheap
     # best-pair-form |corr| reduction for every candidate (the streamed on-core kernel never materializes a
-    # 9x-wider form matrix -- see ``batch_pair_usability_corr_gpu.py``); stage 2, the rank-correlation leg
+    # 9x-wider form matrix - see ``batch_pair_usability_corr_gpu.py``); stage 2, the rank-correlation leg
     # (which genuinely needs the winning form's VALUES, not just its |corr|), runs only on the SMALL subset
-    # that clears the min_corr/pairness gate -- most candidate pairs reaching this gate are noise and fail
+    # that clears the min_corr/pairness gate - most candidate pairs reaching this gate are noise and fail
     # it immediately, so materializing winning-form arrays for only that subset (instead of all ~85k
     # candidates) is the whole point of the two-stage split. Bit-identical to calling
-    # ``_pair_is_tail_concentrated_rankaware`` once per pair -- verified by
+    # ``_pair_is_tail_concentrated_rankaware`` once per pair - verified by
     # ``test_score_prospective_pairs_usability_admission_batching.py`` (mirrors both code paths on synthetic
     # data, including the argmax-first-on-tie / subsample-stride / dtype-cast details the prescan batching
     # fix above already had to get right once). Best-effort: any failure leaves ``_usability_verdict`` empty
-    # so every pair's lookup below defaults to False -- the strict rank-MI decision stands, exactly as the
+    # so every pair's lookup below defaults to False - the strict rank-MI decision stands, exactly as the
     # original inline try/except's failure mode.
     _usability_enabled = bool(getattr(self, "fe_pair_usability_admission_enable", True))
     _yc_pass = getattr(self, "_fe_prewarp_y_continuous_", None)
@@ -559,7 +559,7 @@ def score_prospective_pairs(
         fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence, _synergy_prev_resolved=_synergy_prev_resolved,
         _prevalence_debias_auto=_prevalence_debias_auto,
     )
-    # _sorted_pairs was already computed once, above, before the prevalence-relaxation prescan -- reused here.
+    # _sorted_pairs was already computed once, above, before the prevalence-relaxation prescan - reused here.
     _gate_cache, _need_usability = _prepass_gate_and_usability_candidates(
         cached_MIs=cached_MIs, checked_pairs=checked_pairs, numeric_vars_to_consider=numeric_vars_to_consider,
         data=data, sort_dict_by_value=sort_dict_by_value, cached_operand=_cached_operand,
@@ -581,11 +581,11 @@ def score_prospective_pairs(
                 ind_elems_mi_sum = cached_MIs[(raw_vars_pair[0],)] + cached_MIs[(raw_vars_pair[1],)]
                 # Guard against ZeroDivisionError: when both individual features have zero MI with target
                 # (canonical 3-way XOR case: MI(x_i, y) = 0 for all i but the joint signal exists), any positive pair_mi
-                # qualifies as infinite uplift -- keep the pair.
+                # qualifies as infinite uplift - keep the pair.
                 # MM-DEBIAS (2026-06-09, IRON RULE): the maxT floor was computed on the
                 # Miller-Madow-debiased joint-MI scale (per-pair bias subtracted inside the
                 # null kernel), so subtract the SAME per-pair joint-MI bias from the observed
-                # ``pair_mi`` before the ``>= floor`` comparison -- consistent debias on both
+                # ``pair_mi`` before the ``>= floor`` comparison - consistent debias on both
                 # sides keeps the outer best-of-pool guard at full strength even though the
                 # prevalence ratio bar downstream was lowered. No-op (0.0) when MM is off or
                 # the pool is below the floor's min-pairs self-gate.
@@ -622,9 +622,9 @@ def score_prospective_pairs(
                         )
                     continue
                 # Prevalence + order-2 maxT gate state (synergy debiasing, asymmetric-synergy CMI
-                # relaxation, MM-debias floor comparison -- see ``_resolve_pair_prevalence_gate``'s
+                # relaxation, MM-debias floor comparison - see ``_resolve_pair_prevalence_gate``'s
                 # docstring above for the full rationale) is resolved ONCE for every pair in the
-                # usability-admission pre-pass above and cached here -- not recomputed inline, so this
+                # usability-admission pre-pass above and cached here - not recomputed inline, so this
                 # lookup is the SAME computation the pre-pass already paid for, just relocated earlier.
                 _passes_prevalence, _passes_maxt, _is_synergy_pair, _prev_thresh, _pair_mi_floor_cmp = _gate_cache[raw_vars_pair]
                 # DATA-DRIVEN PREVALENCE (2026-06-12, EXPERIMENTAL, default OFF pending the
@@ -632,13 +632,13 @@ def score_prospective_pairs(
                 # under-admits an ASYMMETRIC interaction whose one operand has a strong
                 # marginal (the joint's analytic bias subtraction exceeds the marginals',
                 # dropping the ratio below the bar even when the OTHER operand adds genuine
-                # conditional signal -- F2's (c,d): MM-ratio ~1.03 < 1.05 yet CMI(d;y|c)
+                # conditional signal - F2's (c,d): MM-ratio ~1.03 < 1.05 yet CMI(d;y|c)
                 # clears its within-stratum permutation null by +0.085, while noise (c,e)
                 # sits ON the null). When the ratio bar fails but the pair cleared the maxT
                 # floor, re-decide with a CONDITIONAL-PERMUTATION NULL (cancels the
                 # finite-sample bias by construction). CAVEAT under measurement: CMI cannot
                 # separate a multiplicative interaction (c,d) from an additive cross-mix
-                # (a,c) -- both show CMI>0 -- so this over-admits cross-mix; whether the
+                # (a,c) - both show CMI>0 - so this over-admits cross-mix; whether the
                 # resulting fused features HELP or HURT downstream is being decided by RMSE,
                 # not assumed. ``fe_pair_perm_null_admission_enable`` (default False).
                 _admit_via_perm = False
@@ -695,15 +695,15 @@ def score_prospective_pairs(
                 # USABILITY ADMISSION (2026-07-02, tail-concentrated ratio credit, default ON). Under heavy
                 # operand outliers a genuine ratio (a**2/b) is TAIL-CONCENTRATED: its rank-MI collapses (bulk
                 # Spearman ~0, signal only in the 5% tail) so it fails BOTH prevalence and maxT, and the
-                # rank-CMI perm path is gated behind maxT too -- yet it carries strong LINEAR usability the
+                # rank-CMI perm path is gated behind maxT too - yet it carries strong LINEAR usability the
                 # rank gates never see. Unlike the prior binned-code OLS proxy (bench note above, which failed
                 # because binning CLIPS the outlier tail that carries the a**2 magnitude), this scores the pair
                 # on the RAW CONTINUOUS operands (outliers intact) via the max |Pearson corr(continuous y)|
-                # over a small scale/sign-robust bivariate form dictionary -- the header-validated
+                # over a small scale/sign-robust bivariate form dictionary - the header-validated
                 # distinguisher (div(sqr(a),b) reads 0.986 vs y while the spurious rank-MI winner reads 0.371).
                 # Fires ONLY when the rank-MI gates did not BOTH pass (can only ADD pairs the rank path dropped,
                 # never remove) AND the best PAIR form beats the best SINGLE-operand form by a pairness margin,
-                # so a cross-mix / noise pair where ONE operand dominates (no genuine pairness) is rejected --
+                # so a cross-mix / noise pair where ONE operand dominates (no genuine pairness) is rejected -
                 # this protects the 'e' noise operand and the canonical fixtures WITHOUT touching the rank-MI
                 # decision on any pair the rank path admitted (the 4 passing profiles never enter this branch:
                 # their (a,b) pair clears the rank gates). A false admit only PROPOSES; the full downstream FE
@@ -712,30 +712,30 @@ def score_prospective_pairs(
                 # on failure). Toggle ``fe_pair_usability_admission_enable`` (default True; set False for the
                 # legacy rank-MI-only, byte-identical admission).
                 #
-                # BUG FOUND AND FIXED (2026-07-11): `_admit_via_usability` was computed below (via
+                # BUG FOUND AND FIXED: `_admit_via_usability` was computed below (via
                 # `_pair_is_tail_concentrated_rankaware`, ~85k calls, one of the largest hotspots in a
-                # 100k-row production profile) but its result was NEVER consulted in the accept condition --
+                # 100k-row production profile) but its result was NEVER consulted in the accept condition -
                 # it read `(_passes_prevalence and _passes_maxt) or _admit_via_perm`, missing
                 # `or _admit_via_usability` entirely (grepped the whole file: no reassignment of
                 # `_passes_prevalence`/`_passes_maxt` inside this block, no other reader of the variable, no
-                # test anywhere references `fe_pair_usability_admission_enable` by name -- this bug had zero
+                # test anywhere references `fe_pair_usability_admission_enable` by name - this bug had zero
                 # test coverage). Wiring it in (below) was verified NOT to change the canonical
                 # `ratio_sqr/with_outliers` fixture this block's own comments target (identical selected-
-                # feature lists with and without, at both n=10000 and n=30000) -- that fixture's (a,b)
+                # feature lists with and without, at both n=10000 and n=30000) - that fixture's (a,b)
                 # recovery comes from the SEPARATE first-sweep prevalence-relaxation prescan (this file's
                 # dominant-pair rank-aware scan, above), which already relaxes the bar for the whole sweep
                 # whenever the POOL's dominant pair is tail-concentrated. This per-pair block's real,
                 # currently-untested value is the case the prescan structurally cannot reach: a NON-dominant
                 # pair in the scan pool that is individually tail-concentrated while the pool's dominant pair
-                # is not, so no global relaxation ever fires for it -- exactly the gap the two-test check
+                # is not, so no global relaxation ever fires for it - exactly the gap the two-test check
                 # above cannot exercise (both fixtures happen to have their tail-concentrated pair already be
                 # the dominant one). Fixed rather than removed.
                 # RANK-AWARE (not the loose |corr| check): admit via usability ONLY when the pair is linearly
                 # usable AND its RANK association has COLLAPSED (the tail-concentration signature). A
                 # genuinely usable ratio that also tracks y in rank (naturally-heavy-tailed / balanced data)
-                # is NOT admitted here -- the rank-MI gates already judge it, so canonical + the 4 passing
+                # is NOT admitted here - the rank-MI gates already judge it, so canonical + the 4 passing
                 # profiles stay byte-identical. Computed via the batched pre-pass above (``_usability_verdict``,
-                # keyed by ``raw_vars_pair``) instead of an inline per-pair call -- a pair absent from the
+                # keyed by ``raw_vars_pair``) instead of an inline per-pair call - a pair absent from the
                 # dict (trigger condition false, an operand failed to resolve, or the whole batch failed)
                 # defaults to False here exactly as the original inline try/except's failure mode did.
                 _admit_via_usability = False
@@ -759,7 +759,7 @@ def score_prospective_pairs(
                 else:
                     # REJECTION LEDGER (additive): the pair failed the marginal pair-MI prevalence
                     # pre-screen and/or the order-2 max-T null floor. Attribute to whichever leg
-                    # failed (prevalence first -- it is the primary screen the session diagnoses).
+                    # failed (prevalence first - it is the primary screen the session diagnoses).
                     if not _passes_prevalence:
                         # observed = joint MI; threshold = marginal-sum * prevalence bar.
                         _record_fe_rejection(
@@ -777,7 +777,7 @@ def score_prospective_pairs(
                         # on); only synergy pairs (selected-selected prevalence misses are
                         # genuinely additive and stay out), only when the joint MI cleared the
                         # maxT null (a pure-chance noise pair never reaches escalation).
-                        # PAIRNESS-ROUTED RESCUE (2026-06-12): synergy pairs always route here
+                        # PAIRNESS-ROUTED RESCUE: synergy pairs always route here
                         # (existing behaviour). With ``fe_prevalence_rescue_all_pairs`` ON, a
                         # SELECTED-SELECTED pair that cleared the maxT floor ALSO routes here, so
                         # the escalation's held-out ALS pairness test (which separates a genuine

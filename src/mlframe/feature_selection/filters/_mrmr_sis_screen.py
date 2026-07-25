@@ -19,10 +19,10 @@ WHY BOTH STATISTICS, FUSED
   those zero-marginal interaction operands via higher-moment leakage.
 Fusing = z-score each ranking and take the BEST-OF-EITHER rank, so an operand surviving on EITHER signal is
 kept. Neither class of signal is lost. (Irreducible floor: a perfectly balanced XOR with zero higher-moment
-leakage is invisible to ANY O(p) score -- out of scope for the screen, recoverable only by the O(cap^2)
+leakage is invisible to ANY O(p) score - out of scope for the screen, recoverable only by the O(cap^2)
 sweep itself.)
 
-MEMORY / I/O (load-bearing, measured -- see the design doc)
+MEMORY / I/O (load-bearing, measured - see the design doc)
 -----------------------------------------------------------
 At p=100k the (n,p) frame is an 8 GB on-disk float32 memmap and is NEVER fully resident. We read it in
 COLUMN blocks of width ``chunk_width`` (the survivor count is O(p) accumulators only). The production
@@ -34,13 +34,13 @@ HOTSPOT (cProfile, p=20000 n=4000, 2026-06-19)
 Screen wall ~6.8 s. The cost is entirely in the two REUSED sibling kernels (this module is glue):
 ``second_moment_propensity`` ~3.4 s (its column-standardize + corr matmul) and ``_mi_classif_batch`` njit
 ~2.5 s. Both are already numba/vectorised and one (the propensity kernel) is under active optimization by a
-sibling change -- so the screen inherits those speedups for free; there is nothing to optimize in the glue.
+sibling change - so the screen inherits those speedups for free; there is nothing to optimize in the glue.
 
 DETERMINISM / PICKLE
 --------------------
 No global RNG; column-block order is ascending index; survivor-cut ties broken by ascending index. Identical
-survivors across runs. This module stores no live numba/cuda kernel objects -- it only CALLS module-level
-cached kernels in sibling modules -- so it is pickle-clean by construction.
+survivors across runs. This module stores no live numba/cuda kernel objects - it only CALLS module-level
+cached kernels in sibling modules - so it is pickle-clean by construction.
 """
 from __future__ import annotations
 
@@ -107,10 +107,10 @@ def _choose_chunk_width(n_rows: int, p: int, free_bytes: int) -> int:
                 regions=[{"n_bucket": n_bucket, "ram_bucket": ram_bucket, "chunk_width": fb}],
             )
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _mrmr_sis_screen.py:109: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _mrmr_sis_screen.py:111: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
     return fb
 
@@ -131,7 +131,7 @@ def _zscore(a: np.ndarray) -> np.ndarray:
 def fuse_scores(mi: np.ndarray, prop: np.ndarray) -> np.ndarray:
     """Best-of-either fused score: per-column MAX of the z-scored MI and z-scored 2nd-moment propensity.
 
-    Max (not sum) so a feature strong on EITHER signal survives -- a pure-interaction operand (MI~0,
+    Max (not sum) so a feature strong on EITHER signal survives - a pure-interaction operand (MI~0,
     high propensity) is not diluted by its low MI, and a main effect (high MI, modest propensity) is not
     diluted by its propensity. Both classes surface."""
     return np.asarray(np.maximum(_zscore(mi), _zscore(prop)))
@@ -165,7 +165,7 @@ def survivor_count(
     m = max(knee, floor)
     if ram_cap is not None:
         # RAM cap SUPERSEDES the floor (a hard memory budget wins over the "never starve downstream" intent).
-        # Warn when it does so the under-starved survivor set is not silent (2026-06-19, critique Low-5).
+        # Warn when it does so the under-starved survivor set is not silent.
         if int(ram_cap) < floor and int(ram_cap) < min(knee if knee else floor, p):
             logger.warning(
                 "sis_screen: RAM cap (%d) is below the survivor floor (%d); returning %d survivors -- the "
@@ -200,7 +200,7 @@ def sis_screen(
     return_scores: bool = False,
 ):
     """Score every column of a wide ``(n, p)`` matrix by fused (marginal-MI + 2nd-moment) signal in COLUMN
-    BLOCKS (the matrix is never fully resident -- a memmap is read one block at a time) and return the
+    BLOCKS (the matrix is never fully resident - a memmap is read one block at a time) and return the
     survivor column indices.
 
     Parameters
@@ -245,33 +245,40 @@ def sis_screen(
     from ._fe_interaction_prerank import second_moment_propensity
     from ._orthogonal_univariate_fe._orth_mi_backends import _mi_classif_batch
 
-    # MARGINAL-MI TARGET ENCODING (2026-06-19, critique P0-1). ``_mi_classif_batch`` int64-casts y, so a
+    # MARGINAL-MI TARGET ENCODING. ``_mi_classif_batch`` int64-casts y, so a
     # CONTINUOUS regression target collapses to a single class -> MI==0 for EVERY column and the whole
     # marginal/main-effect half of the gate goes dead. Encode y to discrete classes first: factorise a
     # non-numeric target, and quantile-bin a continuous one (> nbins distinct numeric values) into nbins
-    # codes -- mirroring second_moment_propensity's discrete/continuous switch. (second_moment_propensity
+    # codes - mirroring second_moment_propensity's discrete/continuous switch. (second_moment_propensity
     # does its OWN y-encoding internally, so it keeps the raw y_arr.)
     y_mi = np.asarray(y_arr)
+    _n_rows = y_mi.shape[0]
+    _n_uniq = int(np.unique(y_mi).size)
     if y_mi.dtype.kind in "USO" or y_mi.dtype == bool:
         _, y_mi = np.unique(y_mi, return_inverse=True)  # nominal labels -> codes
-    elif y_mi.dtype.kind in "fc" or np.unique(y_mi).size > max(nbins, 2):
+    elif y_mi.dtype.kind in "iu" and _n_uniq <= max(1, _n_rows // 20):
+        # An integer target with few distinct values relative to n is nominal CLASSIFICATION: factorise it.
+        # Quantile-binning here would merge genuinely distinct classes and impose a false ordinal structure,
+        # under-ranking a real main-effect feature (kind 'iu' is NOT caught by the 'fc' continuous branch).
+        _, y_mi = np.unique(y_mi, return_inverse=True)
+    elif y_mi.dtype.kind in "fc" or _n_uniq > max(nbins, 2):
         yf = np.nan_to_num(y_mi.astype(np.float64), nan=0.0, posinf=0.0, neginf=0.0)
         edges = np.quantile(yf, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
         y_mi = np.searchsorted(edges, yf).astype(np.int64)  # continuous/high-card -> quantile bins
     y_mi = np.ascontiguousarray(y_mi)
     # CAVEAT (continuous target): the MI channel scores against this quantile-binned ``y_mi`` while ``second_moment_propensity`` keeps the RAW continuous ``y_arr`` and takes
-    # the moment path (|corr(x^2,y)|+|corr(x,y^2)|). The two channels therefore use slightly DIFFERENT y representations -- they are not on a strictly comparable y-grid. This
+    # the moment path (|corr(x^2,y)|+|corr(x,y^2)|). The two channels therefore use slightly DIFFERENT y representations - they are not on a strictly comparable y-grid. This
     # is tolerable because ``fuse_scores`` is a MAX over the per-channel z-scores (robust to scale differences) AND this gate only decides which survivors enter full MRMR; it
     # never sets the final selection. Aligning the two channels onto one y-grid would be over-engineering for a coarse pre-rank.
 
     mi = np.zeros(p, dtype=np.float64)
     prop = np.zeros(p, dtype=np.float64)
 
-    # REUSE-AUDIT RU-4 disposition (2026-06-19): aligning this screen's binning with categorize's content-hash
-    # cache to avoid "re-binning survivors" was evaluated and REJECTED -- there is no reusable double-work. The
+    # REUSE-AUDIT RU-4 disposition: aligning this screen's binning with categorize's content-hash
+    # cache to avoid "re-binning survivors" was evaluated and REJECTED - there is no reusable double-work. The
     # screen bins RAW columns with a fast fixed quantile (nbins=10) to SCORE/rank all p before selection;
     # categorize later bins only the ~2000 survivors with the DEFAULT supervised MDLP recipe for MRMR. Different
-    # recipes, different purposes, both necessary -- the screen cannot use MDLP codes (MDLP needs the expensive
+    # recipes, different purposes, both necessary - the screen cannot use MDLP codes (MDLP needs the expensive
     # supervised pass the gate exists to avoid), and categorize cannot reuse the quantile codes. The MDLP bin on
     # survivors (~10.5s/2k cols, measured) is unavoidable for MRMR regardless of the screen.
     # Single ascending sweep over contiguous COLUMN blocks (deterministic order). Each block is materialized
@@ -279,7 +286,7 @@ def sis_screen(
     for j0 in range(0, p, chunk_width):
         j1 = min(j0 + chunk_width, p)
         block = np.ascontiguousarray(Xarr[:, j0:j1], dtype=np.float32)
-        # marginal MI (full n -- a subsample collapses recall, see design). y_mi is class-encoded above.
+        # marginal MI (full n - a subsample collapses recall, see design). y_mi is class-encoded above.
         try:
             mi[j0:j1] = _mi_classif_batch(block, y_mi, nbins=nbins)
         except Exception as exc:  # never let one block kill the whole screen
@@ -303,11 +310,11 @@ def sis_screen(
     order = np.lexsort((np.arange(p), -fused))[:m]
     survivors = np.sort(order).astype(np.int64)
 
-    # REDUNDANCY DEDUP (2026-06-19, reuse audit RU-1): collapse near-duplicate survivors BEFORE the downstream
+    # REDUNDANCY DEDUP: collapse near-duplicate survivors BEFORE the downstream
     # O(k*p*n) Fleuret CMI loop chews on them. Reuses hybrid_selector.corr_clusters (the blocked O(n*p) greedy)
     # at |Pearson|>=dedup_corr_thr and keeps, per cluster, the HIGHEST-FUSED representative. Selection-neutral:
     # MRMR's CMI redundancy gate would reject these copies anyway (only the rep is selectable), so dropping them
-    # upfront is pure speedup. The win is DATA-DEPENDENT -- ~1% on a mostly-independent survivor set, up to the
+    # upfront is pure speedup. The win is DATA-DEPENDENT - ~1% on a mostly-independent survivor set, up to the
     # redundant fraction on a frame with real correlated families (measured: an 8-copy cluster collapses to 1,
     # ~63ms for 600 survivors). At thr>=0.92 only genuine near-linear duplicates merge; pure-interaction operands
     # (statistically independent) are never merged. Set dedup_corr_thr<=0 to disable.
@@ -319,7 +326,7 @@ def sis_screen(
             from ..hybrid_selector import corr_clusters  # lazy: avoids any import cycle at module load
 
             # The float64 upcast is load-bearing, NOT a removable copy: ``Xarr`` is a float32 memmap at
-            # wide p, and ``corr_clusters`` computes Pearson |corr| at the ``dedup_corr_thr`` boundary --
+            # wide p, and ``corr_clusters`` computes Pearson |corr| at the ``dedup_corr_thr`` boundary -
             # float32 accumulation would shift a correlation across the threshold and flip a cluster
             # membership (a selection change). The gather is over the SMALL (n x m) survivor sub-matrix
             # (m = post-screen survivors, a few thousand), never the full p-wide frame, and only when
@@ -336,7 +343,7 @@ def sis_screen(
                             "at |corr|>=%.2f before the CMI loop.", n_clusters_collapsed, n_pre_dedup,
                             int(deduped.size), float(dedup_corr_thr))
                 survivors = deduped
-        except Exception as exc:  # correctness over the optimisation -- keep the full survivor set on any failure
+        except Exception as exc:  # correctness over the optimisation - keep the full survivor set on any failure
             logger.warning("sis_screen: redundancy dedup skipped (%s: %s); keeping all %d survivors", type(exc).__name__, exc, n_pre_dedup)
 
     if return_scores:

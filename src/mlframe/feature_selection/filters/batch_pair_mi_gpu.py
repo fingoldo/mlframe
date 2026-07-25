@@ -2,12 +2,12 @@
 
 Three backends are exposed:
 
-* ``batch_pair_mi_njit_prange`` -- re-export of the CPU njit kernel from
+* ``batch_pair_mi_njit_prange`` - re-export of the CPU njit kernel from
   ``info_theory``. The reference implementation; numerical baseline.
-* ``batch_pair_mi_cuda`` -- ``numba.cuda`` JIT kernel. One CUDA block per pair,
+* ``batch_pair_mi_cuda`` - ``numba.cuda`` JIT kernel. One CUDA block per pair,
   threads inside the block share a joint-class histogram via shared memory
   before a single thread runs the MI reduction.
-* ``batch_pair_mi_cupy`` -- pure CuPy implementation. One vectorised sweep
+* ``batch_pair_mi_cupy`` - pure CuPy implementation. One vectorised sweep
   per pair using ``cupy.bincount`` for the joint histogram + a manual MI
   reduction. Trades GPU-occupancy for code simplicity; benefits more on
   high-bin combinations where CuPy's elementwise kernels saturate the SMs.
@@ -43,13 +43,13 @@ logger = logging.getLogger(__name__)
 # this file under the repo's 1000-LOC gate). ``_CUDA_AVAIL`` is re-exported
 # from there as the single source of truth.
 from ._batch_pair_mi_cuda_kernels import (
-    MAX_JOINT_BINS_CUDA,  # noqa: F401 -- re-exported facade name, imported directly by tests/benchmarks
-    MAX_Y_BINS_CUDA,  # noqa: F401 -- re-exported facade name, imported directly by tests/benchmarks
+    MAX_JOINT_BINS_CUDA,  # noqa: F401 - re-exported facade name, imported directly by tests/benchmarks
+    MAX_Y_BINS_CUDA,  # noqa: F401 - re-exported facade name, imported directly by tests/benchmarks
     _CUDA_AVAIL,
-    _choose_pair_subchunk_rows,  # noqa: F401 -- re-exported facade name, imported directly by tests/benchmarks
-    _choose_row_chunk_rows,  # noqa: F401 -- re-exported facade name, imported directly by tests/benchmarks
-    _hist_kernel_shared_fits_budget,  # noqa: F401 -- re-exported facade name, imported directly by tests/benchmarks
-    _new_zeroed_device_array,  # noqa: F401 -- re-exported facade name, imported directly by tests/benchmarks
+    _choose_pair_subchunk_rows,  # noqa: F401 - re-exported facade name, imported directly by tests/benchmarks
+    _choose_row_chunk_rows,  # noqa: F401 - re-exported facade name, imported directly by tests/benchmarks
+    _hist_kernel_shared_fits_budget,  # noqa: F401 - re-exported facade name, imported directly by tests/benchmarks
+    _new_zeroed_device_array,  # noqa: F401 - re-exported facade name, imported directly by tests/benchmarks
     batch_pair_mi_cuda,
     batch_pair_mi_cuda_row_chunked,
 )
@@ -95,9 +95,9 @@ def batch_pair_mi_cupy(
     if pair_a.shape[0] == 0:
         return np.empty(0, dtype=np.float64)
 
-    # RESIDENT UPLOAD (2026-07-16): factors_data/classes_y/freqs_y are fit-constant across the whole
+    # RESIDENT UPLOAD: factors_data/classes_y/freqs_y are fit-constant across the whole
     # greedy FE round (this kernel is reached once per pair-chunk of the SAME candidate pool, per
-    # dispatch_batch_pair_mi_chunked), yet were re-uploaded via a raw cp.asarray on EVERY call --
+    # dispatch_batch_pair_mi_chunked), yet were re-uploaded via a raw cp.asarray on EVERY call -
     # batch_pair_mi_cuda got the equivalent fix on 2026-07-12 (see _batch_pair_mi_cuda_kernels.py's
     # batch_pair_mi_cuda docstring) but this CuPy sibling was missed. resident_operand (this package's
     # proven fit-constant GPU cache) content-hashes each array and returns a cached cupy device array on
@@ -113,7 +113,7 @@ def batch_pair_mi_cupy(
     n_samples = int(factors_data.shape[0])
     n_pairs = int(pa_arr.shape[0])
     n_classes_y = int(d_freqs_y.shape[0])
-    # Wave 47 (2026-05-20): empty factors_data divides by zero in inv_n; return zeros.
+    # Empty factors_data divides by zero in inv_n; return zeros.
     if n_samples == 0:
         return np.zeros(n_pairs, dtype=np.float64)
     inv_n = 1.0 / n_samples
@@ -175,11 +175,11 @@ def batch_pair_mi_cupy(
 # CuPy never beat numba.cuda in any of the measured points (always 2-5x SLOWER)
 # because each pair dispatches one Python-side bincount kernel; the per-launch
 # overhead defeats the per-pair work. It only becomes competitive on very
-# large pair counts (>200) where the launch cost amortises -- those thresholds
+# large pair counts (>200) where the launch cost amortises - those thresholds
 # stay defensive.
 #
 # Callers can override the heuristic via ``dispatch_batch_pair_mi(..., force_backend=)``.
-# Wave 23 P1 (2026-05-20): the 4 hardcoded thresholds below are
+# Wave 23 P1: the 4 hardcoded thresholds below are
 # "measured on GTX 1050 Ti cc 6.1" defaults; per
 # `feedback_use_kernel_tuning_cache_for_gpu` they should be lookup-
 # driven via ``pyutilz.performance.kernel_tuning.cache`` so that consumer
@@ -196,7 +196,7 @@ CUPY_MIN_PAIRS = 200
 
 # Kernel-tuning-cache integration (get_or_tune + @kernel_tuner) ---------------
 #
-# Wave 23 P1 (2026-05-20) flagged the four hardcoded crossover thresholds above
+# Wave 23 P1 flagged the four hardcoded crossover thresholds above
 # as HW-overfit (GTX 1050 Ti cc 6.1). Per ``feedback_use_kernel_tuning_cache_for_gpu``
 # the live dispatch now consults the per-host cache via the shared ``get_or_tune``
 # orchestrator and a measured backend-crossover sweep. The thresholds above remain
@@ -204,8 +204,8 @@ CUPY_MIN_PAIRS = 200
 # live HW yet (mirrors ``signal/dtw.py``).
 #
 # 2-D axes: ``n_samples`` (dominant; primary sweep axis) and ``n_pairs`` (held at a
-# representative value for the sweep -- 64, above CUDA_MIN_PAIRS=16 and below
-# CUPY_MIN_PAIRS=200, matching the measured 28-120-pair bench band -- and threaded
+# representative value for the sweep - 64, above CUDA_MIN_PAIRS=16 and below
+# CUPY_MIN_PAIRS=200, matching the measured 28-120-pair bench band - and threaded
 # through as an extra region key so the cached regions stay keyed on both axes).
 _BPMI_SWEEP_N_PAIRS_GRID = [16, 64, 256]  # full n_pairs axis (was a single fixed 64)
 # Grid floor reaches below the GPU crossover (measured ~85-100k rows on a laptop RTX 500 Ada) so the cache learns the CPU-favorable
@@ -294,7 +294,7 @@ def _required_gpu_bytes(factors_data: np.ndarray, pair_a: np.ndarray, nbins: np.
     """Estimated device-resident bytes for one ``batch_pair_mi_cuda``/``batch_pair_mi_cupy`` call.
 
     ``factors_data`` is uploaded WHOLESALE (every column, not just the ones referenced by this pair
-    chunk) and always as int32 regardless of its host dtype -- that upload dominates the footprint at
+    chunk) and always as int32 regardless of its host dtype - that upload dominates the footprint at
     production scale (n=2.4M rows already needs ~4GB as int32, i.e. the entire VRAM budget of a 4GB
     card) and is invariant across chunks, so this must be checked BEFORE every cuda/cupy attempt, not
     just once.
@@ -304,7 +304,7 @@ def _required_gpu_bytes(factors_data: np.ndarray, pair_a: np.ndarray, nbins: np.
 
 
 def _gpu_upload_fits(required_bytes: int, *, n_samples: int = 0, n_cols: int = 0, n_pairs: int = 0, context: str = "batch_pair_mi") -> bool:
-    """Pre-flight VRAM check before launching a cuda/cupy pair-MI kernel -- mirrors the ``_should_use_cuda``
+    """Pre-flight VRAM check before launching a cuda/cupy pair-MI kernel - mirrors the ``_should_use_cuda``
     guard pattern already used by ``_cmi_cuda.py`` / ``gpu.py`` / ``hermite_fe`` / ``friend_graph_gpu.py`` /
     ``batch_mi_noise_gate_gpu.py`` / ``_permutation_null_pair_resident.py`` (this module was the one
     remaining GPU dispatch site without the guard). Two layers: a relative cap (<=50% of currently free
@@ -314,7 +314,7 @@ def _gpu_upload_fits(required_bytes: int, *, n_samples: int = 0, n_cols: int = 0
     "safe to launch".
 
     Why this matters (2026-07-10 wellbore 3M-row production crash): on a small-VRAM WDDM host, uploading an
-    oversized array does NOT reliably raise a catchable CUDA OOM -- WDDM can transparently over-subscribe
+    oversized array does NOT reliably raise a catchable CUDA OOM - WDDM can transparently over-subscribe
     device memory via host-paging, so the upload "succeeds" and the kernel launch then grinds through
     PCIe-paged memory for minutes before the OS kills the process with NO Python exception, no traceback,
     and no Windows Event Log trace (silent ``EXIT_CODE=1``, confirmed via a real 2.4M-row/423-column
@@ -322,7 +322,7 @@ def _gpu_upload_fits(required_bytes: int, *, n_samples: int = 0, n_cols: int = 0
     exception afterward is too late because there may be none to catch.
 
     A REJECTION is always logged at WARNING with the full sizing context (rows/cols/pairs/dtype, requested
-    GB, free/total VRAM) so a production run is diagnosable from the log alone -- never a silent fallback.
+    GB, free/total VRAM) so a production run is diagnosable from the log alone - never a silent fallback.
 
     Permissive (``True``) whenever cupy/memGetInfo is unavailable, matching every sibling guard's fail-open
     contract for non-GPU / probe-failure hosts.
@@ -384,10 +384,10 @@ def dispatch_batch_pair_mi(
     ``force_backend in {"njit", "cuda", "cupy"}`` overrides the heuristic.
 
     When the FULL upload would not safely fit in free VRAM (see :func:`_gpu_upload_fits`) but CUDA IS
-    available, routes to :func:`batch_pair_mi_cuda_row_chunked` -- a row-chunked GPU path that still gets
+    available, routes to :func:`batch_pair_mi_cuda_row_chunked` - a row-chunked GPU path that still gets
     the GPU speed win by uploading ``factors_data`` in VRAM-sized row-blocks and accumulating the joint
     histogram across them (bit-identical result; see that function's docstring). Only fully drops to the
-    CPU njit kernel when even that fails (no CUDA, or a genuine runtime/driver fault) -- a slower CORRECT
+    CPU njit kernel when even that fails (no CUDA, or a genuine runtime/driver fault) - a slower CORRECT
     result is still preferred over ever risking the silent-crash upload, but "slower" no longer means
     "no GPU at all" whenever CUDA is present.
     """
@@ -396,7 +396,7 @@ def dispatch_batch_pair_mi(
     if gpu_globally_disabled():
         # MLFRAME_DISABLE_GPU=1 / CUDA_VISIBLE_DEVICES="" is the project-wide "no GPU on this run"
         # override (see _gpu_policy.py's module docstring); it must win even over an explicit
-        # force_backend="cuda"/"cupy" caller request -- that is the whole point of the switch.
+        # force_backend="cuda"/"cupy" caller request - that is the whole point of the switch.
         return batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "njit"
 
     n_samples = int(factors_data.shape[0])
@@ -410,11 +410,11 @@ def dispatch_batch_pair_mi(
         row-chunked CUDA) on any failure or when the shape exceeds the opt-in shared-memory budget.
 
         Requires the FULL ``factors_data`` to already fit VRAM (same precondition as
-        :func:`batch_pair_mi_cuda`, checked by the caller's ``_vram_ok``) -- unlike the row-chunked
+        :func:`batch_pair_mi_cuda`, checked by the caller's ``_vram_ok``) - unlike the row-chunked
         kernel this one does not chunk rows, only sidesteps the static-shared-memory kernel's
         ``MAX_JOINT_BINS_CUDA``/``MAX_Y_BINS_CUDA`` compile-time caps via opt-in dynamic shared memory.
         Preferred over row-chunked whenever it fits: ONE launch regardless of free VRAM (the row-chunked
-        path's launch count grows with VRAM pressure -- 151+ launches measured at 200MB free for a
+        path's launch count grows with VRAM pressure - 151+ launches measured at 200MB free for a
         production-shape 85k-pair call, vs this kernel's constant 1), see
         ``_batch_pair_mi_cuda_shared_fused.py``'s module docstring for the full writeup and
         ``bench_batch_pair_mi_shared_fused.py`` for the A/B numbers.
@@ -478,7 +478,7 @@ def dispatch_batch_pair_mi(
     # Per-host backend (njit/cuda/cupy) from the kernel_tuning_cache via the shared
     # get_or_tune orchestrator; measurement-backed fallback = the old CUDA_/CUPY_MIN_*
     # thresholds. Guarded by live availability (the tuning host had the backend; a
-    # reader may not) -- preserves the original cupy-then-cuda-then-njit preference order.
+    # reader may not) - preserves the original cupy-then-cuda-then-njit preference order.
     choice = _batch_pair_mi_backend_choice(n_samples, n_pairs)
 
     if choice == "cupy" and _CUPY_AVAIL and _vram_ok:
@@ -496,7 +496,7 @@ def dispatch_batch_pair_mi(
                 # shared-memory kernel's compile-time caps) or a runtime/driver fault -> try the single-
                 # launch shared-fused kernel (sidesteps the static caps via opt-in dynamic shared memory,
                 # still one launch regardless of VRAM pressure), then row-chunked CUDA, then CPU. Broadened
-                # from ``(ValueError, RuntimeError)`` (2026-07-10): numba's ``CudaAPIError``/``CudaDriverError``
+                # from ``(ValueError, RuntimeError)``: numba's ``CudaAPIError``/``CudaDriverError``
                 # derive directly from ``Exception``, not ``RuntimeError``, so a genuine CUDA driver fault
                 # used to skip this handler and propagate to the caller uncaught.
                 _result = _try_cuda_shared_fused("full-upload CUDA kernel raised (shape exceeds static shared-memory caps)")
@@ -518,7 +518,7 @@ def dispatch_batch_pair_mi(
 
 def _free_ram_bytes_for_chunking() -> int:
     """Best-effort free physical RAM in bytes; conservative fallback if psutil is missing. Mirrors
-    ``_mrmr_sis_screen._free_ram_bytes`` -- duplicated (not imported) to avoid a cross-package import
+    ``_mrmr_sis_screen._free_ram_bytes`` - duplicated (not imported) to avoid a cross-package import
     cycle (``_mrmr_sis_screen`` itself lazily imports sibling FE modules that can reach this file)."""
     try:
         import psutil
@@ -545,7 +545,7 @@ def _fallback_pair_chunk_size(free_bytes: int) -> int:
 
 def _choose_pair_chunk_size(free_bytes: int) -> int:
     """Look the pairs-per-chunk up in the kernel_tuning_cache keyed on a free-RAM bucket; fall back to
-    the measured analytic default. Mirrors ``_mrmr_sis_screen._choose_chunk_width``'s pattern -- this is
+    the measured analytic default. Mirrors ``_mrmr_sis_screen._choose_chunk_width``'s pattern - this is
     a MEMORY-SAFETY bound (never hardcoded), not a throughput choice; the throughput-critical decision
     (which backend: njit/cuda/cupy) remains fully delegated to :func:`dispatch_batch_pair_mi` per chunk,
     which is already kernel_tuning_cache-driven via ``_batch_pair_mi_backend_choice``."""
@@ -583,7 +583,7 @@ def _iter_upper_triangle_pair_chunks(k: int, chunk_pairs: int):
 
     Never materialises the full ``C(k, 2)`` pair list: each row ``i`` contributes ``k - 1 - i`` pairs via
     a plain ``np.arange``, so the per-chunk cost is ``O(chunk_pairs)`` and the total cost across the whole
-    generator is ``O(k + total_pairs)`` -- the same asymptotic work an exhaustive pairwise scan requires
+    generator is ``O(k + total_pairs)`` - the same asymptotic work an exhaustive pairwise scan requires
     regardless of implementation, with peak memory bounded by ``chunk_pairs`` instead of ``C(k, 2)``.
     """
     if k < 2 or chunk_pairs < 1:
@@ -616,7 +616,7 @@ def dispatch_batch_pair_mi_chunked(
     row-block chunks so peak memory never scales with ``C(len(ids), 2)``.
 
     Replaces the previous pattern of building the full ``pair_a``/``pair_b``/output arrays via
-    ``np.triu_indices`` up front (``O(k^2)`` memory -- infeasible past a few thousand columns; at
+    ``np.triu_indices`` up front (``O(k^2)`` memory - infeasible past a few thousand columns; at
     k=100_000, ``C(k,2)`` ~= 5e9 pairs would need ~120 GB just for the index/output arrays). Each chunk is
     still dispatched through the existing :func:`dispatch_batch_pair_mi` (so backend selection stays fully
     kernel_tuning_cache-driven, per-chunk); only the ENUMERATION of which pairs to compute is chunked.

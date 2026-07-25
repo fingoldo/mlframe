@@ -350,7 +350,7 @@ def _apply_pre_pipeline_transforms(
                             _selector_label, _kept, _input_n, max(_input_n - _kept, 0),
                         )
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in _pipeline_helpers_apply.py:353: %s", e)
+                    logger.debug("suppressed: %s", e)
                     pass
                 if verbose:
                     log_ram_usage()

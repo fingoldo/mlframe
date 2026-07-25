@@ -55,7 +55,7 @@ def build_raw_redundancy_anchors(
     """Build the anchor/consumer/binning context ``drop_redundant_raw_operands`` scores each raw against.
 
     Returns a namespace with ``early_return`` set to ``(sel, [])`` when the degenerate/guard paths short-circuit
-    (no engineered or raw survivors, no replayable anchor, no consumer map) -- the caller must check it first and
+    (no engineered or raw survivors, no replayable anchor, no consumer map) - the caller must check it first and
     return immediately when non-``None``. Otherwise every field the per-raw loop needs is populated.
     """
     _gate_resident = gate_resident
@@ -63,7 +63,7 @@ def build_raw_redundancy_anchors(
     def _dev_from_cont(_vals, _eng_card_local: int) -> Any:
         """RESIDENT int64 codes from CONTINUOUS values via the device equi-frequency binner (identical
         partition to ``_quantile_bin``), or ``None`` when residency is off / the column is non-finite / cupy
-        faults -- the caller then keeps the host ``_quantile_bin`` codes."""
+        faults - the caller then keeps the host ``_quantile_bin`` codes."""
         if not _gate_resident:
             return None
         try:
@@ -98,7 +98,7 @@ def build_raw_redundancy_anchors(
     if not eng_idx or not raw_sel_idx:
         return SimpleNamespace(early_return=(sel, []))
 
-    # REPLAYABLE-ANCHOR GUARD (2026-06-11): restrict the engineered subsumer/anchor set to survivors that will
+    # REPLAYABLE-ANCHOR GUARD: restrict the engineered subsumer/anchor set to survivors that will
     # actually survive into the fitted ``transform()`` output (see the parent module docstring for the full
     # nested-engineered-anchor rationale).
     if replayable_eng_names is not None:
@@ -157,7 +157,7 @@ def build_raw_redundancy_anchors(
 
     def _raw_codes(_rname, _ridx):
         """Cached binned codes for raw column ``_ridx`` at the fair-comparison resolution (up-resolved from
-        continuous values to ``_eng_card`` only when the fit codes in ``data`` are coarser, never finer -- see
+        continuous values to ``_eng_card`` only when the fit codes in ``data`` are coarser, never finer - see
         the 2026-06-15 compromise note in the parent module). Also populates the parallel resident-code cache."""
         if _ridx in _raw_codes_cache:
             return _raw_codes_cache[_ridx]
@@ -277,14 +277,14 @@ def build_raw_redundancy_anchors(
 
         for ei, _subtree in _consumer_subtrees.items():
             # ``_subexpr_signal_parents(_sub)`` depends only on ``_sub`` (fixed per ``(ei, _sname)``), NOT on
-            # ``_rn`` -- the old code recomputed it once per ``_rn in raw_name_set`` (hundreds of raw columns)
+            # ``_rn`` - the old code recomputed it once per ``_rn in raw_name_set`` (hundreds of raw columns)
             # for the SAME sub-expression set, an O(|raw_name_set|) redundant recompute. Hoisted to run ONCE
             # per ``ei`` (56980 calls / 0.97s tottime on a 99401x~519 wellbore-shaped profile), reused across
             # every ``_rn`` below via a plain dict lookup. Selection-identical (same values, just computed once).
             _sub_parents = {_sname: _subexpr_signal_parents(_sub) for _sname, _sub in _subtree.items()}
-            # FE_REDUNDANCY_SYNERGY-2 fix: this loop used to iterate the CALLER'S
+            # This loop used to iterate the CALLER'S
             # FULL raw input-feature-name set (P in the tens of thousands on a wide production frame), not
-            # just the raw names actually referenced by this ei's sub-expressions -- an O(P) trivial-but-
+            # just the raw names actually referenced by this ei's sub-expressions - an O(P) trivial-but-
             # non-zero pass (a set-membership + length check per raw name per sub-expression) for a decision
             # the recipe already narrows to 2-4 relevant raw names. Iterate only the (bounded) union of
             # actually-referenced parents instead; bit-identical result (excluded raw names never had a

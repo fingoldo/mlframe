@@ -3,7 +3,7 @@
 Fully replaces the joblib + cma/optuna stack with one ``@njit(parallel=True)``
 kernel that:
 
-  1. ``prange`` over feature pairs -- outer parallelism via numba threads
+  1. ``prange`` over feature pairs - outer parallelism via numba threads
      (no GIL, no joblib worker spawn, no pickle, no memmap).
   2. Inside one pair: random batch + elitism + Gaussian perturbation,
      fully njit, no Python decisions.
@@ -18,18 +18,18 @@ Random draws (uniform sampling + Gaussian perturbation) are pre-
 generated outside numba and passed as flat streams so the inner kernel
 has no global RNG state to share across threads.
 
-EVALUATION-PARITY HISTORY (2026-07-15): a budget-matched A/B
+EVALUATION-PARITY HISTORY: a budget-matched A/B
 (``_benchmarks/bench_polynom_optimizer_variants_ab.py``) caught this backend returning ``None`` on the
 cubic-inner hard case (``y = ((a**3 - 2a) * b > 0)``) that every reference-scored optimizer solved at
-mi=0.4813 -- even with the known winner PLANTED into its warm seeds. Root cause was a THREE-way
+mi=0.4813 - even with the known winner PLANTED into its warm seeds. Root cause was a THREE-way
 evaluation divergence from ``_eval_coef_pair``: (1) BF_LOGABS computed ``sign(ab)*log1p(|ab|)`` instead
 of the reference sum-of-factor-logs; (2) BF_DIV used the sign-breaking ``a/(|b|+1e-9)`` instead of
 ``_safe_div``'s exact sign-preserving divide; (3) the L2 penalty was the RAW ``lambda*s`` instead of the
-saturating ``lambda*s/(s+1)`` default -- suppressing exactly the high-||c|| solutions the saturating
+saturating ``lambda*s/(s+1)`` default - suppressing exactly the high-||c|| solutions the saturating
 regime exists to admit. All three fixed to bit-parity (see ``test_numba_bf_dispatch_parity.py`` and the
 planted-winner regression test); the kernel now recovers the same mi=0.4813 logabs winner.
 
-Public entry point: ``run_numba_kernel_search`` -- single-pair drop-in
+Public entry point: ``run_numba_kernel_search`` - single-pair drop-in
 matching the ``_run_cma_search`` / ``_run_random_batch_search`` return
 shape. The full multi-pair kernel is exposed via
 ``optimize_all_pairs_numba_kernel`` for callers that can hand over
@@ -38,12 +38,12 @@ target consumer).
 
 Limitations:
   - Factory bases (RBF, Sigmoid) with Python preprocess closures NOT
-    supported -- falls back to caller.
+    supported - falls back to caller.
   - BLAS GEMV fastpath (B_a / B_b precomputed basis matrices) NOT
-    supported -- uses inlined Horner via the existing serial @njit
+    supported - uses inlined Horner via the existing serial @njit
     polyeval routines.
   - ``eval_pair_fn`` closures (multi-fidelity, custom warm-start
-    selectors) NOT supported -- the kernel uses the full dataset for
+    selectors) NOT supported - the kernel uses the full dataset for
     every evaluation. Warm-start seeds CAN be passed as an explicit
     ndarray.
 """
@@ -56,7 +56,7 @@ import numpy as np
 from numba import njit, prange
 
 # Import the existing @njit polyeval routines for the 4 polynomial bases.
-# Using the SERIAL versions (not _parallel) -- we already parallelise OVER
+# Using the SERIAL versions (not _parallel) - we already parallelise OVER
 # pairs at the outer kernel layer via prange; nested parallel kernels
 # inside prange bodies oversubscribe and slow down.
 from .hermite_fe import (
@@ -68,7 +68,7 @@ from .hermite_fe import _plugin_mi_classif_batch_njit, _plugin_mi_regression_bat
 logger = logging.getLogger(__name__)
 
 
-# Integer dispatch enum for basis_id -- matches polynomial families.
+# Integer dispatch enum for basis_id - matches polynomial families.
 BASIS_HERMITE = 0
 BASIS_LEGENDRE = 1
 BASIS_CHEBYSHEV = 2
@@ -82,7 +82,7 @@ _BASIS_NAME_TO_ID = {
 }
 
 
-# Integer dispatch enum for bf_id -- matches DEFAULT_BIN_FUNCS in hermite_fe.
+# Integer dispatch enum for bf_id - matches DEFAULT_BIN_FUNCS in hermite_fe.
 BF_MUL = 0
 BF_ADD = 1
 BF_SUB = 2
@@ -123,7 +123,7 @@ def _fill_bf_batch_njit(ha_arr: np.ndarray, hb_arr: np.ndarray, cand_valid: np.n
     """Fill the (P*n_bf, n) row-major bf-combination batch in ONE parallel njit call: row r = candidate
     r//n_bf x bf r%n_bf, computed via ``_bf_dispatch_njit`` (bit-parity with the numpy callables) with the
     finiteness scan fused in. Replaces the Python-side loop of 120 separate njit calls + allocs + memcpys +
-    np.isfinite passes in ``_eval_coef_pair_batch`` -- one prange over all rows instead."""
+    np.isfinite passes in ``_eval_coef_pair_batch`` - one prange over all rows instead."""
     n_bf = bf_ids.shape[0]
     total = ha_arr.shape[0] * n_bf
     for r_row in prange(total):
@@ -147,7 +147,7 @@ def _bf_dispatch_njit(bf_id: int, a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Integer-dispatched binary function. Operates element-wise.
 
     Mirrors the six bf entries in ``_DEFAULT_BIN_FUNCS`` (mul / add /
-    sub / div / atan2 / logabs) at BIT-PARITY -- see test_numba_bf_dispatch_parity.py.
+    sub / div / atan2 / logabs) at BIT-PARITY - see test_numba_bf_dispatch_parity.py.
     """
     n = a.shape[0]
     out = np.empty(n, dtype=np.float64)
@@ -163,7 +163,7 @@ def _bf_dispatch_njit(bf_id: int, a: np.ndarray, b: np.ndarray) -> np.ndarray:
     elif bf_id == BF_DIV:
         # Parity with hermite_fe._safe_div: EXACT divide for every nonzero denominator (sign preserved),
         # eps only at exact zero. The old |b|+1e-9 spelling flipped the sign for negative b and rescaled
-        # every value -- a different feature entirely, so the kernel could never reproduce a div winner.
+        # every value - a different feature entirely, so the kernel could never reproduce a div winner.
         for i in range(n):
             denom = b[i] if b[i] != 0.0 else 1e-9
             out[i] = a[i] / denom
@@ -171,7 +171,7 @@ def _bf_dispatch_njit(bf_id: int, a: np.ndarray, b: np.ndarray) -> np.ndarray:
         for i in range(n):
             out[i] = np.arctan2(a[i], b[i])
     else:  # BF_LOGABS
-        # Parity with hermite_fe._log_abs_signed: sign(a*b + eps) * (log(|a|+eps) + log(|b|+eps)) --
+        # Parity with hermite_fe._log_abs_signed: sign(a*b + eps) * (log(|a|+eps) + log(|b|+eps)) -
         # the sum of factor logs (negative magnitude for sub-unit factors), NOT log1p of the product the
         # old spelling used; the mismatch made logabs winners (e.g. the cubic-inner case) unreachable.
         for i in range(n):
@@ -208,7 +208,7 @@ def _eval_one_candidate_njit(
     (best_score, best_raw_mi, best_bf_id). Mirrors the inner body of
     ``_eval_coef_pair`` from ``_hermite_fe_optimise.py`` but fully njit.
     """
-    # L2-normalise if direction_only -- keep coef magnitudes from
+    # L2-normalise if direction_only - keep coef magnitudes from
     # exploding the polyeval output range.
     if direction_only:
         a_sq = 0.0
@@ -279,7 +279,7 @@ def _eval_batch_candidates_njit(
     out_bfs: np.ndarray,  # (B,)
 ) -> None:
     """Evaluate B candidates in ONE batched MI call. Replaces the
-    per-candidate ``_plugin_mi_classif_njit`` call pattern -- batch MI
+    per-candidate ``_plugin_mi_classif_njit`` call pattern - batch MI
     pranges over columns (B * K), saturating cores in a single kernel
     launch instead of B sequential numba calls each holding its own
     quantile-bin sort.
@@ -449,7 +449,7 @@ def _random_batch_one_pair_njit(
                 coefs_b_batch[i, j] = uniform_stream[u_cursor]
                 u_cursor += 1
 
-        # Phase 2: elitism -- replace first elitism_k slots with
+        # Phase 2: elitism - replace first elitism_k slots with
         # Gaussian perturbations of the current best (after iter 0).
         if has_best:
             k_eff = elitism_k if elitism_k < batch_size else batch_size
@@ -471,11 +471,11 @@ def _random_batch_one_pair_njit(
                         v = coef_hi
                     coefs_b_batch[i, j] = v
         else:
-            # No best yet -- skip normal_stream cursor advance to keep
+            # No best yet - skip normal_stream cursor advance to keep
             # the per-iter consumption deterministic across pairs.
             n_cursor += elitism_k * dim
 
-        # Phase 3: batched eval -- ONE MI batch call across all
+        # Phase 3: batched eval - ONE MI batch call across all
         # (batch_size * K) columns. _plugin_mi_classif_batch_njit pranges
         # over columns, saturating cores in a single kernel launch.
         _eval_batch_candidates_njit(
@@ -531,7 +531,7 @@ def _optimize_all_pairs_kernel(
     for p in prange(P):
         col_a = pair_indices[p, 0]
         col_b = pair_indices[p, 1]
-        # X_arr is (N, F) -- slice the two columns.
+        # X_arr is (N, F) - slice the two columns.
         n_rows = X_arr.shape[0]
         x_a = np.empty(n_rows, dtype=np.float64)
         x_b = np.empty(n_rows, dtype=np.float64)
@@ -573,7 +573,7 @@ def _basis_name_to_id(basis: str) -> int:
 
 def _bf_names_to_ids(bf_names: Sequence[str]) -> np.ndarray:
     """Translate bf_callable name strings to the integer ids the kernel
-    dispatches on. Unknown names raise -- the caller is expected to pass
+    dispatches on. Unknown names raise - the caller is expected to pass
     the same names the existing ``_DEFAULT_BIN_FUNCS`` dict uses."""
     out = np.empty(len(bf_names), dtype=np.int64)
     for i, name in enumerate(bf_names):
@@ -594,8 +594,8 @@ def run_numba_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_
     Internally calls the multi-pair kernel with P=1, so the JIT cache
     is shared with the multi-pair path.
 
-    GPU_INFRA_D-6 fix: returns
-    ``(coef_a_best, coef_b_best, bf_idx_best, raw_mi_best, n_evals)`` -- the 5th element is an evaluation
+    returns
+    ``(coef_a_best, coef_b_best, bf_idx_best, raw_mi_best, n_evals)`` - the 5th element is an evaluation
     *count* (``int(out_n_evals[0])``), NOT the same contract as the cupy twin ``run_cupy_kernel_search``,
     which returns ``best_score`` (``mi - penalty``) in that position. Currently benign because the sole
     caller discards element 5 for every optimizer branch.
@@ -603,7 +603,7 @@ def run_numba_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_
     # Resolve basis + bf_names from eval_kwargs. The caller passes the
     # same eval_kwargs dict it would pass to _eval_coef_pair.
     eval_func = eval_kwargs["eval_func"]
-    # Discover basis from the eval_func name -- the existing _NJIT_FUNCS
+    # Discover basis from the eval_func name - the existing _NJIT_FUNCS
     # dispatch in hermite_fe maps function-name suffixes to basis names.
     fn_name = getattr(eval_func, "__name__", "")
     if "hermeval" in fn_name:
@@ -619,7 +619,7 @@ def run_numba_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_
     basis_id = _basis_name_to_id(basis)
     bf_ids = _bf_names_to_ids(eval_kwargs["bf_names"])
 
-    # Build x_a / x_b from z_a / z_b (already standardised) -- the
+    # Build x_a / x_b from z_a / z_b (already standardised) - the
     # njit polyeval operates on z directly.
     x_a = np.ascontiguousarray(eval_kwargs["z_a"], dtype=np.float64)
     x_b = np.ascontiguousarray(eval_kwargs["z_b"], dtype=np.float64)
@@ -636,8 +636,8 @@ def run_numba_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_
     sigma_perturb = perturb_sigma_frac * (coef_hi - coef_lo)
     n_iters = max(1, int(np.ceil(n_trials / max(1, batch_size))))
 
-    # Pre-generate RNG streams. Per-iter cost: ~3-4 KB per pair -- trivial.
-    # GPU_INFRA_D-3 fix: was `seed if seed > 0 else 1`, silently substituting
+    # Pre-generate RNG streams. Per-iter cost: ~3-4 KB per pair - trivial.
+    # Was `seed if seed > 0 else 1`, silently substituting
     # 1 for any seed<=0 (including the valid seed=0), diverging from the cupy twin's plain
     # np.random.default_rng(seed) and from np.random.default_rng's own native seed=0 support.
     rng = np.random.default_rng(seed)
@@ -646,7 +646,7 @@ def run_numba_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_
     uniform_stream = rng.uniform(coef_lo, coef_hi, size=u_per_iter * n_iters)
     normal_stream = rng.normal(0.0, sigma_perturb, size=n_per_iter * n_iters)
 
-    # Warm-start seeds -- pad / truncate to ca_size / cb_size.
+    # Warm-start seeds - pad / truncate to ca_size / cb_size.
     if warm_start_seeds:
         n_warm = len(warm_start_seeds)
         warm_a = np.zeros((n_warm, ca_size), dtype=np.float64)
@@ -732,7 +732,7 @@ def optimize_all_pairs_numba_kernel(
     sigma_perturb = perturb_sigma_frac * (coef_hi - coef_lo)
     n_iters = max(1, int(np.ceil(n_trials / max(1, batch_size))))
 
-    # GPU_INFRA_D-3 fix: was `seed if seed > 0 else 1`, silently substituting
+    # Was `seed if seed > 0 else 1`, silently substituting
     # 1 for any seed<=0 (including the valid seed=0), diverging from the cupy twin's plain
     # np.random.default_rng(seed) and from np.random.default_rng's own native seed=0 support.
     rng = np.random.default_rng(seed)

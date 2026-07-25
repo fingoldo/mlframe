@@ -1,10 +1,10 @@
-"""CuPy (GPU-resident) polynom-pair FE optimizer -- the device twin of ``_numba_polynom_optimizer``.
+"""CuPy (GPU-resident) polynom-pair FE optimizer - the device twin of ``_numba_polynom_optimizer``.
 
 One generation of P coefficient candidates is scored as TWO GEMMs plus batched elementwise/binning/MI
 device work, instead of P independent host evaluations:
 
   1. Basis matrices ``B_a (n, D+1)`` / ``B_b`` are built ONCE per (pair, degree) on the device via the
-     exact numpy.polynomial recurrences (He/P/T/L -- parity with the ``_*val_njit`` kernels).
+     exact numpy.polynomial recurrences (He/P/T/L - parity with the ``_*val_njit`` kernels).
   2. ``H_A = B_a @ C_a^T`` -> (n, P) for the whole generation in one cuBLAS GEMM (same trick as the
      host BLAS fastpath, but for all candidates at once).
   3. The six binary functions are cupy elementwise ops at BIT-PARITY with ``_DEFAULT_BIN_FUNCS``
@@ -18,17 +18,17 @@ Search structure mirrors the numba kernel: random init (+ warm seeds), elitism, 
 all random draws come from a HOST ``np.random.default_rng(seed)`` so runs are deterministic and
 seed-comparable across backends regardless of device.
 
-CORRECTNESS BAR: selection-equivalence, not bit-identity -- ``cp.argsort`` breaks ties differently from
+CORRECTNESS BAR: selection-equivalence, not bit-identity - ``cp.argsort`` breaks ties differently from
 the host quicksort ``np.argsort``, so tied feature values may bin differently (ties in a GEMM-produced
 continuous feature are measure-zero in practice; the e2e regression pins winner recovery).
 
 DEFAULTS (batch_size=100, elitism_k=10, sigma_frac=0.1) come from the 2026-07-15 sweep
 (scratch harness, cases ratio_regime + cubic_inner, 3 seeds x 3 restarts): bs=100 lifted cubic_inner
-0.4901 -> 0.5834 at 39.6s (vs bs=20's 8-10s and bs=300's 138s/0.5267 -- the sweet spot), and the
+0.4901 -> 0.5834 at 39.6s (vs bs=20's 8-10s and bs=300's 138s/0.5267 - the sweet spot), and the
 speed->restarts conversion closes the ratio_regime gap entirely (bs=100 x 15 restarts finds it 3/3
 seeds at 0.465-0.487 in 102.9s vs cma_batch's 4/5 at 492.5s full-budget wall).
 
-Public entry point: ``run_cupy_kernel_search`` -- same return contract as ``run_numba_kernel_search`` /
+Public entry point: ``run_cupy_kernel_search`` - same return contract as ``run_numba_kernel_search`` /
 ``_run_cma_search_batch`` so the pair-optimiser dispatch swaps it in via ``optimizer="cupy_kernel"``.
 Limitations (same set as the numba kernel): plugin MI only, the 4 polynomial bases only, no
 multi-fidelity closures.
@@ -49,12 +49,12 @@ _BF_ORDER = ("mul", "add", "sub", "div", "atan2", "logabs")
 def _basis_matrix_gpu(cp, x, degree: int, basis_id: int):
     """(n, degree+1) device basis matrix via the exact numpy.polynomial recurrences.
 
-    float32 (2026-07-20, GPU-residency pass): built and consumed in float32, not float64 -- the
+    float32 (2026-07-20, GPU-residency pass): built and consumed in float32, not float64 - the
     GEMM output feeds straight into rank-based equi-frequency binning (a small fixed bin count),
     which absorbs float32-vs-float64 rounding noise long before it could move a bin assignment.
     Verified (see ``_benchmarks/bench_cupy_polynom_f32_gemm.py``) bit-identical winning MI across
     multiple seeds on the module's own cubic-inner regression scenario when BOTH this matrix and
-    the coefficient population upload are float32 -- cupy promotes float32 @ float64 back to
+    the coefficient population upload are float32 - cupy promotes float32 @ float64 back to
     float64 silently, so half-measures (only one side float32) would give zero benefit."""
     n = x.shape[0]
     B = cp.empty((n, degree + 1), dtype=cp.float32)
@@ -98,7 +98,7 @@ def _rank_bin_batched_gpu(cp, M, n_bins: int):
     more sort segments), while the MI itself was 4.5%%. ``batched_quantile_bin_gpu`` computes the SAME
     equi-frequency partition from radix-selected value edges + a vectorized coder (~nbins+3 fused
     elementwise launches, no sort at all). Value-edge vs rank coding differs only on TIED feature values
-    (ties get one bin instead of an arbitrary rank split) -- measure-zero on continuous GEMM outputs and
+    (ties get one bin instead of an arbitrary rank split) - measure-zero on continuous GEMM outputs and
     arguably more correct on genuine ties; the e2e winner-recovery regressions pin the quality bar."""
     from ._fe_batched_mi import batched_quantile_bin_gpu
 
@@ -110,8 +110,8 @@ _ALL_FINITE_AXIS0_KERNEL = None
 
 def _get_all_finite_axis0_kernel(cp):
     """Lazy-compiled ``cp.ReductionKernel`` fusing ``cp.isfinite(x).all(axis=0)`` into ONE kernel launch
-    (nsys, 2026-07-15: the two-kernel form -- elementwise isfinite materializing a full boolean array, then
-    a separate .all() reduce -- cost cupy_isfinite 5.9%% + cupy_all 10%% of GPU time in the cupy-search
+    (nsys, 2026-07-15: the two-kernel form - elementwise isfinite materializing a full boolean array, then
+    a separate .all() reduce - cost cupy_isfinite 5.9%% + cupy_all 10%% of GPU time in the cupy-search
     microbench, ~480 launches each). Bit-identical (verified incl. NaN columns): 'isfinite(x)' as the map
     expression, '&&' as the reduce, avoids ever materializing the intermediate boolean array. ~7x faster
     isolated at (20, 20000)."""
@@ -126,11 +126,11 @@ def _get_all_finite_axis0_kernel(cp):
 def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int, l2_penalty: float, direction_only: bool, bf_names: Sequence[str]):
     """Score P candidates across all binary funcs; returns host (score, raw_mi, bf_idx) arrays of len P.
 
-    GPU-RESIDENCY NOTE (2026-07-20): everything inside this function -- the finite masks, the per-bf MI,
-    the running best-score/raw/bf accumulators -- stays a cupy device array through the WHOLE bf_names
+    GPU-RESIDENCY NOTE: everything inside this function - the finite masks, the per-bf MI,
+    the running best-score/raw/bf accumulators - stays a cupy device array through the WHOLE bf_names
     loop; the single ``cp.asnumpy`` call at the very end is the ONLY device->host sync per generation.
     Pre-fix this was up to ``2 + 2*len(bf_names)`` separate syncs (one per finite-mask check and one per
-    ``binned_mi_from_codes_gpu`` call, which itself unconditionally synced) -- nsys on the wellbore
+    ``binned_mi_from_codes_gpu`` call, which itself unconditionally synced) - nsys on the wellbore
     100k GPU-strict trace showed cudaStreamSynchronize/cudaMemcpyAsync call counts consistent with this
     exact multiplicity. Selection logic (upd/where) is bit-identical, just evaluated on-device."""
     from ._fe_batched_mi import binned_mi_from_codes_gpu
@@ -162,7 +162,7 @@ def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int,
         finite = col_finite & all_finite0(C, axis=0)
         codes = _rank_bin_batched_gpu(cp, C, n_bins)
         # kx_per_col=n_bins (codes are always in [0, n_bins) by construction of the quantile binner) skips
-        # binned_mi_from_codes_gpu's int(C.max())+1 fallback -- a BLOCKING device sync that nsys showed
+        # binned_mi_from_codes_gpu's int(C.max())+1 fallback - a BLOCKING device sync that nsys showed
         # costing more than the MI kernel itself (cupy_max ~9.1% of GPU time, one sync every generation).
         mi = binned_mi_from_codes_gpu(codes, y_codes_dev, kx_per_col=n_bins, ky=ky, codes_trusted=True, as_device=True)
         score = mi - penalty
@@ -180,8 +180,8 @@ def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_t
     """GPU generation-batched random+elitism search.
     Returns ``(coef_a_best, coef_b_best, bf_idx_best, raw_mi_best, best_score)`` or ``None``.
 
-    GPU_INFRA_D-6 fix: the 5th element is NOT the same contract as
-    ``run_numba_kernel_search``'s 5th element -- this backend returns ``best_score`` (``mi - penalty``),
+    The 5th element is NOT the same contract as
+    ``run_numba_kernel_search``'s 5th element - this backend returns ``best_score`` (``mi - penalty``),
     the numba twin returns an evaluation *count* (``int(out_n_evals[0])``). Currently benign because the
     sole caller (``_hermite_fe_optimise_pair.py``) discards element 5 for every optimizer branch, but do
     not rely on element 5 meaning the same thing across backends without fixing this divergence first."""
@@ -202,7 +202,7 @@ def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_t
     if eval_kwargs.get("mi_estimator", "plugin") != "plugin" or not bool(eval_kwargs["discrete_target"]):
         raise ValueError("cupy kernel supports plugin MI on a discrete target only")
 
-    # float32 (2026-07-20): see _basis_matrix_gpu's docstring -- both the operand upload and the
+    # float32: see _basis_matrix_gpu's docstring - both the operand upload and the
     # basis matrix it feeds must be float32 together, or cupy silently promotes the GEMM back to
     # float64 and this is a no-op.
     z_a = np.ascontiguousarray(eval_kwargs["z_a"], dtype=np.float32)

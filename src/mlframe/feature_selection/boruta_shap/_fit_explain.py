@@ -76,11 +76,11 @@ def _premerge_expand(accepted_reps, rep_members, original_cols):
 
 
 def _naive_accepted_set_stable(accepted_history, patience):
-    """REJECTED naive trial-stop -- kept as a DOCUMENTED CONTRAST, deliberately NOT wired into the loop.
+    """REJECTED naive trial-stop - kept as a DOCUMENTED CONTRAST, deliberately NOT wired into the loop.
 
     The naive rule stops as soon as the cumulative accepted set has been unchanged for ``patience`` consecutive
     trials. It is a measured CORRECTNESS TRAP: on the fs_hybrid bed it fired on a TRANSIENT plateau while weak
-    features were still slowly crossing -- synth Jaccard(vs full cap)=1.0 but hard_synth Jaccard=0.0 (it locked a
+    features were still slowly crossing - synth Jaccard(vs full cap)=1.0 but hard_synth Jaccard=0.0 (it locked a
     WRONG accepted set). Do NOT enable this. The safe stop (``_should_stop_tentative_tail``) additionally requires
     that no still-tentative feature is near a decision boundary, so it only stops when the tail is provably stuck.
 
@@ -126,7 +126,7 @@ def _should_stop_tentative_tail(accepted_history, hits, tentative_indices, itera
 
     Condition (b) is what makes this decision-equivalent to running the full n_trials cap: a feature that could
     still cross keeps the loop alive, so the accepted/rejected partition at the stop matches the full-cap partition
-    (measured synth Jaccard 1.0, hard_synth Jaccard 0.842). The naive rule drops (b) and locks a wrong set -- see
+    (measured synth Jaccard 1.0, hard_synth Jaccard 0.842). The naive rule drops (b) and locks a wrong set - see
     ``_naive_accepted_set_stable``. Returns True iff it is safe to stop now.
     """
     if not _naive_accepted_set_stable(accepted_history, patience):
@@ -232,7 +232,7 @@ def _fit_with_subsample_stability(self, X, y):
     self.rejected = [c for c in all_columns if accept_counts[c] == 0]
     self.tentative = [c for c in all_columns if 0 < accept_counts[c] < need]
     # Intersection mode (stability_threshold==1.0, the default once stability is enabled) keeps ONLY
-    # features accepted by ALL subsamples -- that is exactly set(self.accepted) with need==n_sub. The
+    # features accepted by ALL subsamples - that is exactly set(self.accepted) with need==n_sub. The
     # 'tentative' bucket here is 0<count<need, i.e. features accepted by SOME but not all subsamples:
     # precisely the draw-level-spurious columns intersection is meant to drop. So in intersection mode we
     # must NOT let optimistic re-add tentative (which would silently keep the spurious column the class
@@ -362,7 +362,7 @@ def fit(self, X, y):
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="sklearn")
 
         # Memory: frames here can be 100+ GB, so the algorithm keeps exactly ONE full-frame copy. ``self.X``
-        # is that single mutable working frame -- BorutaShap ordinal-encodes its object/category columns,
+        # is that single mutable working frame - BorutaShap ordinal-encodes its object/category columns,
         # drops rejected columns, and appends shadow features into it. ``self.X = X.copy()`` makes that copy
         # independent of the caller, so neither the encode nor the drops mutate the caller's ``X``.
         # ``starting_X`` keeps the ORIGINAL-dtype frame for ``Subset()`` (__init__.py): since encoding now
@@ -371,7 +371,7 @@ def fit(self, X, y):
         # read for splits / model fit), so it is referenced, not copied.
         # TODO(perf, 100GB-class frames): this IS a real deep copy (ordinal-encoding + column drops mutate
         # existing cell values in place, so MRMR's "always-shallow-copy-is-safe" fix does NOT apply here
-        # unmodified) -- but a full deep copy of a 100+GB frame is exactly the kind of cost the project's
+        # unmodified) - but a full deep copy of a 100+GB frame is exactly the kind of cost the project's
         # memory-discipline convention flags as unacceptable. Investigate an in-place-safe alternative:
         # e.g. mutate-and-restore (try/finally) on the CALLER's own frame instead of copying it, or encode
         # into a SEPARATE small side-table (object/category columns only, not the full frame) plus a
@@ -490,7 +490,7 @@ def fit(self, X, y):
                 # stop above never resolves. Stop only when the accepted set has plateaued for the patience window
                 # AND no still-tentative feature can still cross a binomial threshold within the margin (the tail is
                 # provably stuck). This is decision-equivalent to running the full cap; the naive 'plateau-only' rule
-                # is deliberately NOT used (it locks a wrong set on a transient plateau -- see helper docstrings).
+                # is deliberately NOT used (it locks a wrong set on a transient plateau - see helper docstrings).
                 if _early_stop_tentative:
                     _accepted_history.append(frozenset(_acc))
                     _decided = _acc | _rej
@@ -549,7 +549,7 @@ def fit(self, X, y):
 
     # sklearn fit-returns-self contract: the stability path already returns self, so this single-fit path
     # must too, otherwise ``selector.fit(X, y).transform(X)`` (used across this codebase) yields None ->
-    # AttributeError, and breaks only when stability is off -- a config-dependent behavioral divergence.
+    # AttributeError, and breaks only when stability is off - a config-dependent behavioral divergence.
     return self
 
 
@@ -573,8 +573,8 @@ def explain(self):
         explainer_base = get_pipeline_last_element(self.model_)
     else:
         explainer_base = self.model_
-    # perf note (2026-06-08): profiled on n=2407/p=120/LGBM-50tree/n_trials=30, a SHAP-driven fit is 98%
-    # third-party -- model .fit ~69%, TreeSHAP ~29% (TreeExplainer.__init__ ~1.35s reading the just-refit model
+    # Perf note: profiled on n=2407/p=120/LGBM-50tree/n_trials=30, a SHAP-driven fit is 98%
+    # third-party - model .fit ~69%, TreeSHAP ~29% (TreeExplainer.__init__ ~1.35s reading the just-refit model
     # + shap_values ~6.76s of C++ tree traversal). Both are intrinsic per-trial: the model is REFIT every trial,
     # so the explainer must be rebuilt and cannot be cached. GPU TreeSHAP was considered and is OUT OF SCOPE here:
     # (a) the wrapped model is caller-supplied (a CPU booster), so we cannot move it to GPU without changing the
@@ -600,7 +600,7 @@ def explain(self):
     else:
         basis = self.X_boruta
 
-    # SHAP background must be the TRAIN slice -- self.X_boruta = [self.X | shadow] and self.X was set in fit() from the caller-supplied X (train) via X.copy(). The shadow half is randomized from self.X column-wise so it stays train-distribution-aligned. Both invariants must hold for SHAP TreeExplainer (tree_path_dependent feature_perturbation) to produce attributions on the same distribution the surrogate model was trained on; mixing val/test rows here would let SHAP interpolate against held-out distribution and inflate borderline features' importance.
+    # SHAP background must be the TRAIN slice - self.X_boruta = [self.X | shadow] and self.X was set in fit() from the caller-supplied X (train) via X.copy(). The shadow half is randomized from self.X column-wise so it stays train-distribution-aligned. Both invariants must hold for SHAP TreeExplainer (tree_path_dependent feature_perturbation) to produce attributions on the same distribution the surrogate model was trained on; mixing val/test rows here would let SHAP interpolate against held-out distribution and inflate borderline features' importance.
     if hasattr(self, "X") and hasattr(self.X, "shape") and hasattr(self.X_boruta, "shape"):
         _n_train = int(self.X.shape[0])
         _n_basis = int(self.X_boruta.shape[0]) if not self.sample else int(basis.shape[0])
@@ -621,7 +621,7 @@ def explain(self):
     _y_multi = hasattr(self.y, "shape") and getattr(self.y, "ndim", 1) >= 2 and self.y.shape[1] > 1
     if self.classification or _y_multi:
         # for some reason shap returns values wrapped in a list of length 1
-        # Wave 29 P1 fix (2026-05-20): pre-fix wrapped the raw return
+        # Wave 29 P1 fix: pre-fix wrapped the raw return
         # in ``np.array(...)`` BEFORE the ``isinstance(..., list)``
         # check, which made the list branch unreachable on modern
         # SHAP that returns ``list[ndarray]`` for multi-class. As a
@@ -649,7 +649,7 @@ def explain(self):
                 # SHAP (>=0.43) returns (samples, features, classes). The old
                 # ``abs.sum(axis=0).mean(0)`` hard-coded classes-first, so on the
                 # modern layout it reduced over (samples, features) and collapsed
-                # to length n_CLASSES instead of n_features -- a too-short
+                # to length n_CLASSES instead of n_features - a too-short
                 # importance vector that left ``Shadow_feature_import`` empty and
                 # crashed update_importance_history with an IndexError (fuzz
                 # c0095 hgb_xgb). Identify the FEATURE axis by matching

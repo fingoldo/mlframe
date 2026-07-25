@@ -19,7 +19,7 @@ This module renders the selected set as a "friend graph" for diagnosis:
 
 A feature is flagged red when it shares a large fraction of its own entropy
 with neighbors AND those neighbors collectively carry more *unique* target
-information than the feature itself adds -- i.e. the friends know more about the
+information than the feature itself adds - i.e. the friends know more about the
 target than the node does, so it is mostly an aggregator. The conditional
 quantity ``I(Y; X_j | X_i)`` is computed via the chain rule
 ``I((X_i, X_j); Y) - I(X_i; Y)`` so the whole module needs only the plug-in
@@ -161,14 +161,14 @@ def node_relevance(factors_data, idx, target, factors_nbins, dtype=np.int32) -> 
 
 
 def _joint_entropy_2vars(factors_data, a, b, factors_nbins, dtype=np.int32) -> float:
-    """H(X_a, X_b) in nats -- the joint half of I(X_a; X_b). Split out so the
+    """H(X_a, X_b) in nats - the joint half of I(X_a; X_b). Split out so the
     O(k^2) edge pass can reuse already-computed per-node marginals H(X_a),
-    H(X_b) (mi() otherwise recomputes both marginals on EVERY edge -- 2 of its
+    H(X_b) (mi() otherwise recomputes both marginals on EVERY edge - 2 of its
     3 merge_vars passes are redundant when the caller already has them).
 
     iter (2026-06-08 wasted-work sweep): the single per-edge ``merge_vars`` this
     used to call builds a length-n ``final_classes`` array + a lookup-table remap
-    pass, then the result feeds STRAIGHT into ``entropy`` -- the array, the remap,
+    pass, then the result feeds STRAIGHT into ``entropy`` - the array, the remap,
     and entropy's ``freqs[freqs > 0]`` / ``log(freqs) * freqs`` temporaries are all
     allocated-then-discarded for a single scalar. ``joint_entropy_2var`` fuses the
     histogram->entropy reduction with NONE of that per-edge waste, at BIT-IDENTICAL
@@ -188,7 +188,7 @@ def pairwise_mi_edge(factors_data, a, b, factors_nbins, n_samples, mi_eps=1e-6, 
 
     iter469: when the caller passes the pre-computed marginal entropies
     ``h_a = H(X_a)`` and ``h_b = H(X_b)``, MI is recovered as
-    ``H(X_a) + H(X_b) - H(X_a, X_b)`` and only the joint entropy is computed --
+    ``H(X_a) + H(X_b) - H(X_a, X_b)`` and only the joint entropy is computed -
     1 merge_vars pass instead of mi()'s 3. Bit-identical to the mi() path
     (same merge_vars + entropy plug-in estimator; the marginals ARE what
     build_friend_graph already computed via _node_entropy). Falls back to the
@@ -207,7 +207,7 @@ def pairwise_mi_edge(factors_data, a, b, factors_nbins, n_samples, mi_eps=1e-6, 
     # ``len(factors_data)``). The G-test significance floor below mixes the
     # MI value (a per-row-normalised nats quantity) with this n; if a caller
     # ever passes a different n the floor silently mis-scales. The sole caller
-    # passes ``factors_data.shape[0]``, so they coincide -- keep it that way.
+    # passes ``factors_data.shape[0]``, so they coincide - keep it that way.
     floor = max(mi_eps, edge_significance * (na - 1) * (nb - 1) / (2.0 * max(1, int(n_samples))))
     return m if m > floor else None
 
@@ -216,9 +216,9 @@ def _apply_edge_floor(m, a, b, factors_nbins, n_samples, mi_eps=1e-6, edge_signi
     """Apply ``pairwise_mi_edge``'s finite-sample significance floor to a PRE-COMPUTED
     raw edge MI ``m`` (e.g. the bit-identical GPU value ``H_a + H_b - H_ab`` clamped >=0).
 
-    Returns ``m`` if it clears the floor, else ``None`` -- the IDENTICAL keep/drop rule as
+    Returns ``m`` if it clears the floor, else ``None`` - the IDENTICAL keep/drop rule as
     ``pairwise_mi_edge``, just without recomputing the MI (the GPU already produced it).
-    ``m is None`` (pair absent from the GPU result -- should not happen for an in-``sel``
+    ``m is None`` (pair absent from the GPU result - should not happen for an in-``sel``
     pair) is treated as "no edge". The floor formula is duplicated verbatim from
     ``pairwise_mi_edge`` so the two paths can never diverge in their gating threshold.
     """
@@ -236,7 +236,7 @@ def neighbor_unique_target(factors_data, i, neighbor_indices, target, rel_i, fac
     (friend-graph "sink"); small total => neighbors are noisy copies of the same signal (a reflection
     cluster the aggregate step wants).
 
-    The per-neighbor value carried in ``detail`` is the RAW chain-rule CMI (it may be slightly negative from plug-in finite-sample noise -- the joint estimate over the
+    The per-neighbor value carried in ``detail`` is the RAW chain-rule CMI (it may be slightly negative from plug-in finite-sample noise - the joint estimate over the
     (X_i, X_j) cells carries more positive bias than the marginal I(X_i;Y), so a true-zero CMI fluctuates around 0). Only the ``total_unique`` AGGREGATE is clamped at 0
     for the red-flag comparison, which must be a non-negative "how much extra do the friends know" quantity. Previously the per-neighbor value was clamped too, which
     silently zeroed every noisy-but-real positive neighbor and could leave a red node flagged-but-unprunable (no justifier survived the clamp); keeping the raw sign in
@@ -246,7 +246,7 @@ def neighbor_unique_target(factors_data, i, neighbor_indices, target, rel_i, fac
     ``I((X_i,X_j);Y)`` is symmetric in ``i``/``j``, so when the caller iterates suspects and both ``i``
     and ``j`` are suspects that are each other's neighbors, this value is computed twice (once per side)
     without the cache. Threading a dict shared across the caller's suspect loop makes the second side a
-    lookup instead of a recompute -- bit-identical (same ``mi()`` value, just reused).
+    lookup instead of a recompute - bit-identical (same ``mi()`` value, just reused).
     """
     detail: List[Tuple[int, float]] = []
     total_unique = 0.0
@@ -271,7 +271,7 @@ def _inf_fs_centrality(sel: List[int], edges: List[FriendGraphEdge]) -> Dict[int
     = (I - alpha*A)^-1 - I`` where ``A`` is the symmetric nonnegative MI-edge adjacency and
     ``alpha = 0.5 / lambda_max(A)`` guarantees convergence (``lambda_max`` is ``A``'s spectral radius,
     a symmetric nonneg matrix's largest eigenvalue by Perron-Frobenius). A node's score is its row sum
-    of ``S`` -- total (decayed) influence over paths of all lengths, not just its immediate neighbors,
+    of ``S`` - total (decayed) influence over paths of all lengths, not just its immediate neighbors,
     which is what distinguishes this from a plain weighted-degree centrality. Row-sums are min-max
     normalized to ``[0, 1]`` so the score is comparable across differently-sized selected sets.
 
@@ -318,7 +318,7 @@ def _layout(sel: List[int], edges: List[FriendGraphEdge], seed) -> Dict[int, Tup
     except (ImportError, ModuleNotFoundError) as _exc:
         logger.debug("networkx unavailable (%s); using deterministic circular layout", _exc)
     except Exception as _exc:
-        # Layout is purely cosmetic (node positions for the plot), so a degenerate-graph failure inside spring_layout must not abort graph construction -- but WARN
+        # Layout is purely cosmetic (node positions for the plot), so a degenerate-graph failure inside spring_layout must not abort graph construction - but WARN
         # so a real networkx bug is distinguishable from the expected "networkx absent" path above, then fall through to the deterministic circular layout.
         logger.warning("friend_graph spring_layout raised %s: %s; using circular layout", type(_exc).__name__, _exc, exc_info=True)
     n = len(sel)
@@ -393,7 +393,7 @@ def build_friend_graph(
     # BIT-IDENTICAL (GPU does only integer counting; entropy + every keep/drop decision
     # stay on the bit-exact CPU path). ``None`` -> per-host kernel_tuning dispatch (CPU
     # fallback default); "cpu" -> force the legacy CPU pass; "cupy"/"cuda" -> force GPU.
-    # Skipped when the edge pass is skipped (max_nodes guard) -- no O(k^2) cost to offload.
+    # Skipped when the edge pass is skipped (max_nodes guard) - no O(k^2) cost to offload.
     gpu_stats = None
     if not edges_skipped and gpu_backend != "cpu":
         try:
@@ -408,7 +408,7 @@ def build_friend_graph(
             logger.debug("friend_graph GPU dispatch unavailable (%s); using CPU edge pass", _exc)
             gpu_stats = None
         except Exception as _exc:
-            # A real error from the GPU path (shape mismatch, bad dtype, CUDA OOM) -- distinct from "GPU absent". WARN so a genuine kernel bug is not silently
+            # A real error from the GPU path (shape mismatch, bad dtype, CUDA OOM) - distinct from "GPU absent". WARN so a genuine kernel bug is not silently
             # indistinguishable from a missing device, then still fall back to CPU so the diagnostic graph is produced.
             logger.warning("friend_graph GPU dispatch raised %s: %s; falling back to CPU edge pass", type(_exc).__name__, _exc, exc_info=True)
             gpu_stats = None
@@ -478,11 +478,11 @@ def build_friend_graph(
     shared_frac = {i: (weighted_degree[i] / H[i] if H[i] > 0 else 0.0) for i in sel}
 
     # Garbage classification. A node is a sink suspect when it is connected to many
-    # others (degree >= garbage_min_degree -- "связан с множеством других"). Only
+    # others (degree >= garbage_min_degree - "связан с множеством других"). Only
     # suspects pay the conditional-MI pass, which measures how much UNIQUE target
     # information their neighbors carry beyond them: sum_j I(Y; X_j | X_i). A suspect
     # is flagged red when that exceeds its own relevance (its friends know more about
-    # the target than it adds -- an aggregator). A node connected to at most
+    # the target than it adds - an aggregator). A node connected to at most
     # unique_max_degree others carries non-shared knowledge and is green.
     neighbors_unique: Dict[int, float] = {i: 0.0 for i in sel}
     klass: Dict[int, str] = {}
@@ -537,7 +537,7 @@ def build_friend_graph(
 
     # Inf-FS (Roffo et al. 2017 ICCV) eigenvector-style centrality re-rank on the MI-weighted
     # adjacency: a global structural score (walks of all lengths) the local degree/garbage
-    # heuristics above never compute. Diagnostic only -- it does not change ``selected_vars``,
+    # heuristics above never compute. Diagnostic only - it does not change ``selected_vars``,
     # just flags nodes whose influence on the rest of the selected set is negligible.
     centrality: Dict[int, float] = {}
     if compute_centrality and not edges_skipped:

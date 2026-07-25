@@ -32,7 +32,7 @@ __all__ = [
 def _pair_sources_from_engineered_name(name: str, raw_names):
     """Recover ``(col_i, col_j)`` from a pair-cross name ``"{col_i}*{col_j}__{suffix}"``.
 
-    D1 (2026-06-22): the legacy ``name.split("__", 1)[0]`` then ``head.split("*", 1)``
+    D1: the legacy ``name.split("__", 1)[0]`` then ``head.split("*", 1)``
     MISPARSES whenever a one-hot raw source contains ``"__"`` (e.g.
     ``"city__NY*age__He2_He3"`` -> head ``"city"`` -> not a pair). Recover the legs by
     matching against the known raw-column set: split on each ``"*"``, take the FIRST split
@@ -67,9 +67,9 @@ def _pair_sources_from_engineered_name(name: str, raw_names):
 def _pair_eng_col_name(col_i: str, col_j: str, basis_a: str, basis_b: str, deg_a: int, deg_b: int) -> str:
     """Stable naming: ``"{col_i}*{col_j}__He{a}_He{b}"`` when both legs share one basis code, else ``"{col_i}*{col_j}__He{a}_T{b}"`` when ``basis="auto"`` routes each column to a different family.
 
-    The cross-basis enumeration intentionally fixes one basis family per pair when possible -- mixing
+    The cross-basis enumeration intentionally fixes one basis family per pair when possible - mixing
     families (He_a * T_b) blows up combinatorially without measurable signal gain on the standard
-    XOR / saddle / circle targets -- but ``basis="auto"`` routes each column independently by its own
+    XOR / saddle / circle targets - but ``basis="auto"`` routes each column independently by its own
     moments, so the two legs CAN still land on different families; the name must reflect the family
     actually used for each leg rather than silently mislabeling leg b's basis as leg a's.
     """
@@ -101,16 +101,16 @@ def generate_pair_cross_basis_features(
         (multiplication is commutative); pass each unordered pair once.
     max_degree : int
         Maximum degree per leg. Default 2 covers XOR (1,1), partial saddle
-        (1,2)/(2,1), and pure quadratic interaction (2,2) -- enough for the
+        (1,2)/(2,1), and pure quadratic interaction (2,2) - enough for the
         classic non-linear pair targets without combinatorial blowup.
     basis : {'auto', 'hermite', 'legendre', 'chebyshev', 'laguerre'}
         Routed per-column via ``basis_route_by_moments`` when ``'auto'``. The
-        two legs of a pair may end up on different bases under 'auto' -- the
+        two legs of a pair may end up on different bases under 'auto' - the
         name reflects each leg's chosen basis only via the suffix; we keep
         the join-token consistent (``He{a}_He{b}`` even when leg basis
         differ) so callers can group by name prefix.
     min_degree : int
-        Minimum degree per leg. Default 1 -- degree 0 produces the constant
+        Minimum degree per leg. Default 1 - degree 0 produces the constant
         column (= identity for the OTHER leg's transform), already covered
         by the univariate path.
 
@@ -120,9 +120,9 @@ def generate_pair_cross_basis_features(
 
     Notes
     -----
-    bench-rejected (2026-06-03): "product-signal JOINT routing" -- choosing the
+    bench-rejected (2026-06-03): "product-signal JOINT routing" - choosing the
     (basis_a, deg_a, basis_b, deg_b) cell that maximises ``|corr(basis_a(x_i)*
-    basis_b(x_j), y)|`` instead of moment-routing each leg -- was benchmarked and
+    basis_b(x_j), y)|`` instead of moment-routing each leg - was benchmarked and
     REJECTED. Premise (from a poly-synergy probe) was that per-leg routing never
     materialises the Hermite leg of a pure-synergy product like ``He2(a)*b``. False
     for THIS path: moment-routing sends a Gaussian leg to Hermite / a bounded leg to
@@ -162,7 +162,7 @@ def generate_pair_cross_basis_features(
         _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); matches the device
         # builder's operand dtype (_gpu_resident_cross_basis.py's _leg() now uploads at this SAME
         # dtype instead of forcing float64) so host and device run the polynomial recurrence in the
-        # SAME arithmetic precision -- see build_leg_product_matrix_gpu's docstring for the resulting
+        # SAME arithmetic precision - see build_leg_product_matrix_gpu's docstring for the resulting
         # host/device tolerance under relaxed mode.
         x_i = np.array(X[col_i].to_numpy(), dtype=_dt)
         x_j = np.array(X[col_j].to_numpy(), dtype=_dt)
@@ -279,7 +279,7 @@ def score_pair_cross_basis_by_mi_uplift(
     ``[engineered_col, source_col_i, source_col_j, baseline_mi_i,
     baseline_mi_j, baseline_mi, engineered_mi, uplift]`` sorted by
     ``uplift`` descending. ``baseline_mi`` is ``max(baseline_mi_i,
-    baseline_mi_j)`` -- the cross-basis term must beat the BETTER individual
+    baseline_mi_j)`` - the cross-basis term must beat the BETTER individual
     leg, not just the worse one, to count as genuine interaction signal.
     """
     y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
@@ -291,8 +291,8 @@ def score_pair_cross_basis_by_mi_uplift(
             "engineered_mi", "uplift",
         ])
     # DEVICE-BORN (STRICT-resident): rebuild the pair-cross product matrix on the GPU from the small raw operand
-    # columns and score BOTH it and the raw baseline through the SAME resident plug-in MI -- collapsing the host
-    # product-matrix upload at _orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (ORTH_BASIS_B-5 fix: dropped the exact line number, which had already gone stale). Returns None (-> exact host path below) on no-cupy /
+    # columns and score BOTH it and the raw baseline through the SAME resident plug-in MI - collapsing the host
+    # product-matrix upload at _orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (dropped the exact line number, which had already gone stale). Returns None (-> exact host path below) on no-cupy /
     # non-strict / any cupy failure / unsupported basis. Selection-equivalent (device Clenshaw vs host forward
     # recurrence ~1e-12, same estimator for numerator + baseline so the uplift ratio cannot flip).
     raw_mi_map = eng_mi = None
@@ -310,11 +310,11 @@ def score_pair_cross_basis_by_mi_uplift(
     assert raw_mi_map is not None  # set by either the device-born path or the host fallback above
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):
-        # D1 (2026-06-22): recover legs against the raw-column set, not a blind first-"__"
+        # D1: recover legs against the raw-column set, not a blind first-"__"
         # split + first-"*" (which mis-parses one-hot sources like "city__NY*age__He2_He3").
         col_i, col_j = _pair_sources_from_engineered_name(eng_name, raw_cols)
         if col_i is None or col_j is None:
-            # not a pair column -- skip
+            # not a pair column - skip
             continue
         baseline_i = float(raw_mi_map.get(col_i, 0.0))
         baseline_j = float(raw_mi_map.get(col_j, 0.0))
@@ -469,7 +469,7 @@ def hybrid_orth_mi_pair_fe(
         max_raw_baseline = max(max_raw_baseline, float(uni_scores["baseline_mi"].max()))
     max_cross_engineered = float(cross_scores["engineered_mi"].max()) if not cross_scores.empty else 0.0
     legacy_floor = float(pair_min_abs_mi_frac) * max(max_raw_baseline, max_cross_engineered)
-    # Layer 27 (2026-05-31) noise-aware floor: see hybrid_orth_mi_fe for
+    # Layer 27 noise-aware floor: see hybrid_orth_mi_fe for
     # the rationale. The pair stage is even more prone to noise pollution
     # (O(p^2) candidates vs O(p) for univariate); the noise-aware
     # mean+3*std reference protects the all-noise frame's contract.
@@ -547,7 +547,7 @@ def hybrid_orth_mi_pair_fe_with_recipes(
     )
     appended = [c for c in X_aug.columns if c not in X.columns]
     code_to_basis = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
-    # D1 (2026-06-22): authoritative raw-source set for un-stemming engineered names.
+    # D1: authoritative raw-source set for un-stemming engineered names.
     _raw_src_cols = [c for c in X.columns]
     recipes = []
     from .._fe_usability_signal import _crit_np_dtype
@@ -600,9 +600,9 @@ def hybrid_orth_mi_pair_fe_with_recipes(
                     basis_a = basis_route_by_moments(x_i)
                     basis_b = basis_route_by_moments(x_j)
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in _orth_pair_cross_fe.py:592: %s", e)
+                    logger.debug("suppressed: %s", e)
                     pass
-            # BUG2 FIX (2026-06-12): freeze each operand's fit-time preprocess
+            # BUG2 FIX: freeze each operand's fit-time preprocess
             # params from the FULL fit column so replay is byte-exact on a slice.
             from . import _evaluate_basis_column as _ebc
             _ppi = _ppj = None
@@ -642,7 +642,7 @@ def hybrid_orth_mi_pair_fe_with_recipes(
                     name,
                 )
                 continue
-            # BUG2 FIX (2026-06-12): freeze the fit-time preprocess params.
+            # BUG2 FIX: freeze the fit-time preprocess params.
             from . import _evaluate_basis_column as _ebc
             _pp = None
             try:

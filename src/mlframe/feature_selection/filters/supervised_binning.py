@@ -2,9 +2,9 @@
 
 Two backends:
 
-* ``mdlp_bin_edges`` -- Fayyad-Irani 1993 entropy-based recursive splits. No ``n_bins`` hyperparameter; splits are chosen via the MDL
+* ``mdlp_bin_edges`` - Fayyad-Irani 1993 entropy-based recursive splits. No ``n_bins`` hyperparameter; splits are chosen via the MDL
   principle. Simple pure-numpy implementation.
-* ``optimal_bin_edges`` -- thin wrapper around ``optbinning.OptimalBinning`` (already a project dep). Production-grade, supports
+* ``optimal_bin_edges`` - thin wrapper around ``optbinning.OptimalBinning`` (already a project dep). Production-grade, supports
   monotonic constraints + IV-based feature pre-selection.
 
 Both produce ``bin_edges`` that the downstream ``np.searchsorted`` / ``np.digitize`` chain can consume identically to the unsupervised
@@ -47,12 +47,12 @@ def mdlp_bin_edges(
     1. Sort ``x``, with target ``y`` aligned.
     2. Find candidate split point that maximally reduces conditional entropy ``H(y | x <= split) + H(y | x > split)``.
     3. Accept the split via a per-node significance gate (DEFAULT) or the classic Fayyad-Irani
-       1993 MDL threshold test (``fast_mode=True``) -- see ``fast_mode`` below.
+       1993 MDL threshold test (``fast_mode=True``) - see ``fast_mode`` below.
     4. Recurse on each half.
 
     Args:
         x: 1-D continuous feature.
-        y: 1-D class labels (int, string, or continuous -- see ``max_y_classes``).
+        y: 1-D class labels (int, string, or continuous - see ``max_y_classes``).
         min_split_size: Absolute floor on samples per child node. Default 5
             mirrors pre-fix behaviour. Pass via ``scaled_min_split=True`` to
             additionally scale to ``max(min_split_size, int(0.02 * N))``.
@@ -70,31 +70,31 @@ def mdlp_bin_edges(
             labels. 2026-07-19 wellbore-50k profiling fix: a regression target (e.g.
             depth-like ``TVT``, tens of thousands of near-unique float values) passed
             straight through used to be silently ``.astype(np.int64)``-truncated into
-            thousands of spurious "classes" -- one per truncated value. Two compounding
+            thousands of spurious "classes" - one per truncated value. Two compounding
             bugs resulted: (a) ``3.0**n_classes_full`` in the MDL threshold test
             overflows to ``inf`` for n_classes_full above ~650, so ``best_gain/log2 >
-            threshold`` is NEVER true -- every split is silently rejected at the root,
+            threshold`` is NEVER true - every split is silently rejected at the root,
             producing empty edges (caller falls back to plain quantile binning anyway);
             (b) the O(n_classes) entropy/count arrays in ``_mdlp_best_split_njit`` are
             rebuilt at every class-boundary candidate along the O(n) scan, so a column
             with ~2500 spurious classes measured ~190x slower than the same column with
-            a real few-class target (1.05s vs ~5.6ms) -- the dominant new hotspot in the
+            a real few-class target (1.05s vs ~5.6ms) - the dominant new hotspot in the
             wellbore-50k profile (``categorize_dataset`` ~50s of a 432.9s fit, of which
             isolated few-class MDLP itself is only ~2.9s). Above ``max_y_classes``
             distinct values, ``y`` is quantile-discretized into ``max_y_classes``
-            pseudo-classes before MDLP runs -- restores both a bounded-cost recursion
+            pseudo-classes before MDLP runs - restores both a bounded-cost recursion
             and an actually-meaningful (non-empty) supervised split, since MDL entropy
             over ~64 pseudo-classes is a sane classification-style signal instead of
             per-row noise. Below the cap (real classification targets: binary, few-way,
-            small ordinal) behaviour is unchanged bit-for-bit -- this is the y-analog of
+            small ordinal) behaviour is unchanged bit-for-bit - this is the y-analog of
             the existing high-cardinality-x safety caps elsewhere in this module. When
             the quantization branch engages, ``max_depth`` is additionally capped to
             ``ceil(log2(max_y_classes))`` in ``fast_mode`` ONLY (see ``fast_mode`` below)
-            -- an uncapped depth measured WORSE held-out RMSE on the real wellbore target
+            - an uncapped depth measured WORSE held-out RMSE on the real wellbore target
             (0.5553 vs 0.4333 baseline) while costing 3.6x more wall time in that classic
             path, i.e. the extra x-resolution overfits pseudo-class boundaries rather
             than adding real signal.
-        fast_mode: ``False`` (DEFAULT, 2026-07-19 user decision -- accuracy over speed
+        fast_mode: ``False`` (DEFAULT, 2026-07-19 user decision - accuracy over speed
             per project convention): route splitting through
             ``_mdlp_validated_split._mdlp_recurse_validated``, which gates every
             candidate split by a statistical-significance test (an analytic chi-square/
@@ -125,13 +125,13 @@ def mdlp_bin_edges(
             (default path only). Default ``30``.
         bonferroni: Extra depth-wise ``alpha / 2**depth`` correction on top of the
             (always-applied) per-node candidate-count correction (default path only).
-            Default ``False`` -- classic ChiMerge/Chi2 use one fixed significance level
+            Default ``False`` - classic ChiMerge/Chi2 use one fixed significance level
             per decision, not a whole-tree multiplicity correction; benched both ways,
             no consistent accuracy difference observed, left off to match that convention.
         validated_seed: RNG seed for the permutation-null fallback (default path only).
     """
     x = np.asarray(x).ravel()
-    # 2026-05-30 Wave 9.1 fix (loop iter 50): handle non-numeric y
+    # Handle non-numeric y
     # dtypes (string / object / pandas Categorical / pandas StringDtype).
     # Pre-fix the raw ``.astype(np.int64)`` cast crashed with
     # ``ValueError: invalid literal for int() with base 10: 'yes'`` on
@@ -161,15 +161,15 @@ def mdlp_bin_edges(
             _q = np.linspace(0.0, 1.0, int(max_y_classes) + 1)[1:-1]
             _y_edges = np.unique(np.quantile(_y_finite, _q))
             _y_arr = np.searchsorted(_y_edges, _y_arr, side="right")
-            # 2026-07-19: this blunt depth cap now applies ONLY when ``fast_mode=True``.
+            # This blunt depth cap now applies ONLY when ``fast_mode=True``.
             # The DEFAULT path (``fast_mode=False``) replaces the depth heuristic with a
             # per-split significance gate (``_mdlp_recurse_validated``) that decides, per
             # COLUMN and per NODE, whether the extra x-resolution reflects real signal
             # instead of applying one fixed ratio to every column regardless of its
-            # actual signal depth -- measured to both reject pure-noise splits (matches
+            # actual signal depth - measured to both reject pure-noise splits (matches
             # the capped baseline, 1 bin) AND recover real signal the uniform cap
             # truncates (real wellbore GR: 450.4 vs 491.1 RMSE; GR_diff_5: 576.0 vs
-            # 585.8 RMSE -- see ``_mdlp_validated_split.py`` module docstring).
+            # 585.8 RMSE - see ``_mdlp_validated_split.py`` module docstring).
             if fast_mode:
                 max_depth = min(int(max_depth), max(1, math.ceil(math.log2(int(max_y_classes)))))
     if len(x) != len(_y_arr):
@@ -177,7 +177,7 @@ def mdlp_bin_edges(
     if scaled_min_split:
         min_split_size = max(int(min_split_size), int(0.02 * len(x)))
 
-    # 2026-05-30 Wave 9.1 fix (loop iter 48): drop NaN rows BEFORE
+    # Drop NaN rows BEFORE
     # sorting. Pre-fix ``np.argsort(x)`` placed NaN at the tail; the
     # njit recursion then sliced ``x[best_idx+1:]`` and could include
     # the NaN tail, poisoning subsequent ``x[best_idx] + x[best_idx+1]``
@@ -193,7 +193,7 @@ def mdlp_bin_edges(
     # target with too FEW distinct finite values to trigger the quantile-rebucketing branch above
     # (so ``_y_arr`` still holds raw floats here), a NaN in ``y`` survived this filter and then
     # ``.astype(np.int64)`` below turned it into a platform-defined garbage class label (typically
-    # INT64_MIN) instead of being dropped or raising -- a phantom "class" silently polluting every
+    # INT64_MIN) instead of being dropped or raising - a phantom "class" silently polluting every
     # entropy computation downstream. Fold ``y``'s finiteness into the SAME mask (only meaningful
     # when ``_y_arr`` is still float; the factorize/quantise branches above never leave a NaN in an
     # already-integer ``_y_arr``).
@@ -221,15 +221,15 @@ def mdlp_bin_edges(
         else:
             _mdlp_recurse(x_sorted, y_sorted, splits, depth=0, min_split_size=int(min_split_size), max_depth=int(max_depth))
     else:
-        # DEFAULT (2026-07-19, user decision -- accuracy over speed per project convention):
+        # DEFAULT (2026-07-19, user decision - accuracy over speed per project convention):
         # significance-gated splitting (``_mdlp_validated_split.py``). Lazy import to avoid a
         # module-load-order circular import (that module imports ``_mdlp_best_split_njit`` /
         # ``_entropy_from_counts_njit`` from HERE at ITS top level; by the time this function
-        # runs, this module has finished loading, so the import is safe -- doing it at this
+        # runs, this module has finished loading, so the import is safe - doing it at this
         # module's own top level would not be).
         from ._mdlp_validated_split import _dedupe_xy, _mdlp_recurse_validated
 
-        # Exact-duplicate (x, y) rows must be collapsed BEFORE the significance-gated recursion --
+        # Exact-duplicate (x, y) rows must be collapsed BEFORE the significance-gated recursion -
         # see ``_dedupe_xy``'s docstring for the measured over-splitting artifact this prevents
         # (duplicated rows sit x-adjacent with an identical y, which a permutation null built by
         # shuffling y never reproduces, so the observed gain spuriously clears the test).
@@ -360,7 +360,7 @@ def _mdlp_recurse_njit(
     ``counts_parent``: the dense bincount of THIS subset the parent already built for its MDL test
     (``None`` at the root). The present class labels are its non-zero bins, so at every deeper node the
     class set + count come from ``np.flatnonzero`` (O(K)) instead of an ``np.unique`` re-sort of the
-    O(m) subset -- bit-identical (``flatnonzero(bincount) == np.unique`` for the parent-compacted labels).
+    O(m) subset - bit-identical (``flatnonzero(bincount) == np.unique`` for the parent-compacted labels).
     """
     n = len(x)
     if n < 2 * min_split_size or depth >= max_depth:
@@ -385,7 +385,7 @@ def _mdlp_recurse_njit(
     # Compute left/right entropies for the MDL test (njit recompute is cheap).
     # bench-attempt-rejected (2026-07-05): fusing counts_left/right + h_l/h_r OUT of _mdlp_best_split_njit
     # (snapshot at the winning boundary, return them) to skip these np.bincount x2 + entropy x2 measured
-    # 0.81x SLOWER -- the per-best-update counts.copy() (O(K), fires on every gain improvement in the scan)
+    # 0.81x SLOWER - the per-best-update counts.copy() (O(K), fires on every gain improvement in the scan)
     # + returning two njit arrays cost more than the two vectorised-C bincounts they remove. Kept.
     left_mask_idx = best_idx + 1  # x[:left_mask_idx] is left, x[left_mask_idx:] is right
     y_left = y_compact[:left_mask_idx]
@@ -528,7 +528,7 @@ def apply_bin_edges(
 
     Leak-safe: edges are computed once on train and used on both train + val without re-fitting.
 
-    2026-05-30 Wave 9.1 fix (loop iter 47):
+
     1. Auto-pick dtype based on the actual bin count so int8's 128-bin
        ceiling never silently wraps. Pre-fix default ``dtype=np.int8``
        silently overflowed once ``len(edges) >= 128`` (multi-quantile /

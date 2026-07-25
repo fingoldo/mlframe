@@ -1,4 +1,4 @@
-"""Per-feature adaptive bin-count selection for MRMR (2026-05-28).
+"""Per-feature adaptive bin-count selection for MRMR.
 
 Pre-fix: ``MRMR(quantization_method='quantile', quantization_nbins=10)`` binned
 EVERY column to the same fixed n_bins=10 regardless of distribution shape,
@@ -7,22 +7,22 @@ sample size, or signal strength. That's a one-size-fits-all compromise that:
 * under-resolves a binary signal (only 2 bins needed, gets 10)
 * under-resolves a continuous fine-structure signal (10 bins lose the cuts)
 * equalises post-binning cardinality, washing out the MI cardinality bias
-  (so SU normalisation has no effect -- see test_biz_val_mrmr_symmetric_uncertainty)
+  (so SU normalisation has no effect - see test_biz_val_mrmr_symmetric_uncertainty)
 
 This module ships per-feature adaptive bin selection via six methods:
 
-* **'sturges'**  -- `ceil(1 + log2(n))`. Simplest formula; assumes Gaussian-ish.
-* **'freedman_diaconis'** (= `'fd'`, DEFAULT for auto) -- `ceil((max-min) / (2*IQR/n^(1/3)))`.
+* **'sturges'**  - `ceil(1 + log2(n))`. Simplest formula; assumes Gaussian-ish.
+* **'freedman_diaconis'** (= `'fd'`, DEFAULT for auto) - `ceil((max-min) / (2*IQR/n^(1/3)))`.
   Robust to outliers/skew; the recommended default for MI estimation
   on natural data per Freedman & Diaconis 1981.
-* **'knuth'**  -- Bayesian-posterior optimum over M in [1, sqrt(N)*4].
+* **'knuth'**  - Bayesian-posterior optimum over M in [1, sqrt(N)*4].
   Native impl in ``discretization.py``. Returns 1 bin for featureless uniform.
-* **'blocks'**  -- Bayesian Blocks (Scargle 2013). Variable-width edges, no n_bins.
-* **'fayyad_irani'** (= `'mdlp'`)  -- SUPERVISED MDLP from Fayyad & Irani 1993.
+* **'blocks'**  - Bayesian Blocks (Scargle 2013). Variable-width edges, no n_bins.
+* **'fayyad_irani'** (= `'mdlp'`)  - SUPERVISED MDLP from Fayyad & Irani 1993.
   Returns 3-8 bins typically, signal-aware. **Target-leak-safe via CV-fold splits**.
-* **'optimal_joint'** (= `'cv'`) -- CV-based: train binning on fold-train, score
+* **'optimal_joint'** (= `'cv'`) - CV-based: train binning on fold-train, score
   MI on fold-val, average across folds. Most expensive but no overfitting risk.
-* **'auto'** -- alias for 'freedman_diaconis'.
+* **'auto'** - alias for 'freedman_diaconis'.
 
 The dispatcher ``per_feature_nbins`` returns bin EDGES per column (jagged list since
 each feature may have a different bin count). MRMR's downstream ``np.searchsorted``
@@ -52,12 +52,20 @@ from ._mdlp_validated_split import edges_fayyad_irani_validated
 # upper bound (knuth, bayesian_blocks). MDLP already lands here implicitly via max_depth=8 -> up to
 # 2**8=256 leaves (supervised_binning.py); freedman_diaconis's own sqrt(N)*4 cap is additionally
 # clamped to this same ceiling below. Kept as one named constant so every strategy answers "how many
-# bins can a single column produce" the same way -- divergent per-method caps (found live: knuth
+# bins can a single column produce" the same way - divergent per-method caps (found live: knuth
 # defaulted to 500, bayesian_blocks had NO cap at all) let a single real-data column reach thousands
 # of bins, blowing the downstream joint-cardinality (nbins_a * nbins_b) past both the CUDA
 # shared-memory budget and the row-chunked global-memory fallback's launch-count budget, forcing a
 # multi-thousand-second CPU njit fallback per column pair (found live, 50k-row wellbore GT sweep).
 MAX_ADAPTIVE_NBINS = 256
+
+# Default cap for the Bayesian-Blocks DP at the ``per_feature_edges`` dispatch layer. BB is O(N^2)-per-column;
+# without a subsample cap ``nbins_strategy='blocks'`` pays unbounded quadratic cost on ordinary column sizes.
+# When N exceeds this, the BB DP fits on a uniform sub-sample of this many rows (the block EDGES it returns
+# still apply to the full column). Direct low-level ``edges_bayesian_blocks`` callers keep the 0-means-exact
+# contract; only this auto dispatch layer defaults a safe bound (per CLAUDE.md "enable corrective mechanisms
+# by default"). Callers can override via ``bb_subsample_threshold`` (0 restores the exact full-N DP).
+_BB_DEFAULT_SUBSAMPLE_THRESHOLD = 5000
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +108,7 @@ def freedman_diaconis_nbins(x: np.ndarray, max_bins: int = MAX_ADAPTIVE_NBINS) -
     Robust to outliers via IQR; falls back to Sturges when IQR is 0 (constant /
     very-discrete data). Floor at 1; cap at min(sqrt(N)*4, max_bins) to avoid
     bin-per-sample on heavy-tail data AND to bound joint-cardinality cost on
-    large real datasets (sqrt(N)*4 alone is unbounded as N grows -- e.g. ~895
+    large real datasets (sqrt(N)*4 alone is unbounded as N grows - e.g. ~895
     bins at N=50k, which is what MAX_ADAPTIVE_NBINS additionally clamps).
     """
     x = np.asarray(x, dtype=np.float64).ravel()
@@ -123,14 +131,14 @@ def freedman_diaconis_nbins(x: np.ndarray, max_bins: int = MAX_ADAPTIVE_NBINS) -
 
 # -----------------------------------------------------------------------------
 # Edge-builders. Each returns a SORTED ndarray of bin edges (inner cuts) suitable
-# for ``np.searchsorted(edges, x, side='right')`` -- matching the legacy contract.
+# for ``np.searchsorted(edges, x, side='right')`` - matching the legacy contract.
 # -----------------------------------------------------------------------------
 
 
 def _edges_from_quantiles(x: np.ndarray, n_bins: int) -> np.ndarray:
     """Quantile binning helper. Returns INNER edges only (n_bins - 1 values).
 
-    2026-05-30 Wave 9.1 fix (loop iter 6): de-duplicate via ``np.unique``
+    de-duplicate via ``np.unique``
     before returning. ``np.nanpercentile`` on a constant column emits
     ``n_bins + 1`` identical values; on a heavily skewed / sparse column
     (e.g. 99% zeros) it emits a run of identical inner edges. Both cases
@@ -263,7 +271,7 @@ def edges_bayesian_blocks(
         p0: ``0.05`` legacy | ``0.10`` audit recommendation for continuous data.
         edge_placement: ``'start'`` legacy | ``'midpoint'`` Scargle/astropy convention fix.
         subsample_threshold: ``0`` disabled | ``1000`` audit fast path.
-        m_max_cap: bound on returned block count, default ``MAX_ADAPTIVE_NBINS`` (256) -- see
+        m_max_cap: bound on returned block count, default ``MAX_ADAPTIVE_NBINS`` (256) - see
             ``_bayesian_blocks_bin_edges`` docstring (unbounded DP output on near-continuous real
             data blows up downstream pairwise-MI cost).
     """
@@ -301,7 +309,7 @@ def edges_fayyad_irani(
             kept for A/B testing). Sibling ``mdlp_bin_edges`` already
             defaults to ``'njit'``; this wrapper now matches that default
             so callers that go through the wrapper benefit too.
-            c0022_9f2cf625 @500k profile (2026-05-30): the python-backend
+            c0022_9f2cf625 @500k profile: the python-backend
             path consumed 1566 s of a 1700 s suite (88 % of wall) before
             this fix because ``_mdlp_recurse`` calls ``_entropy_from_labels``
             268 345 times, each doing ``np.unique`` + ``np.sort`` on the
@@ -313,8 +321,8 @@ def edges_fayyad_irani(
             uses its own njit kernel regardless of ``backend``.
         scaled_min_split: ``False`` legacy | ``True`` audit fix
             (``max(5, 0.02*N)``).
-        fast_mode: ``False`` DEFAULT (2026-07-19 user decision, accuracy over speed) --
-            significance-gated validated splitting; ``True`` -- classic in-sample MDL
+        fast_mode: ``False`` DEFAULT (2026-07-19 user decision, accuracy over speed) -
+            significance-gated validated splitting; ``True`` - classic in-sample MDL
             threshold + depth cap, 20-80x cheaper. See ``mdlp_bin_edges`` docstring.
         alpha, n_permutations, bonferroni, validated_seed: forwarded to
             ``mdlp_bin_edges``'s validated-splitting path (ignored when ``fast_mode=True``).
@@ -356,7 +364,7 @@ def edges_optimal_joint(
     Args:
         max_y_classes: Cardinality cap forwarded to :func:`_bin_y_for_mi` for the internal
             fold-scoring MI. Without this cap, an int/bool-dtype ``y`` with high cardinality (a
-            continuous target mistakenly int-typed -- e.g. a timestamp or counter column) was
+            continuous target mistakenly int-typed - e.g. a timestamp or counter column) was
             treated as one discrete class per distinct value: confirmed to SEGFAULT the process
             (oversized ``(K_x, K_y)`` dense joint-count allocation in ``_plug_in_mi_njit``) at
             n=50000 with ~50k unique int64 values. Same bug class as MDLP's ``max_y_classes``.
@@ -364,7 +372,7 @@ def edges_optimal_joint(
     x = np.asarray(x, dtype=np.float64).ravel()
     y = np.asarray(y).ravel()
     mask = np.isfinite(x)
-    # DISCRETIZATION-6 fix: the mask used to check only x's finiteness -- a
+    # The mask used to check only x's finiteness - a
     # NaN-y row with finite x survived and could propagate NaN into that fold's quantile edges via
     # _bin_y_for_mi's np.quantile call. Fold y's finiteness into the mask too (only meaningful when y is
     # float-dtype; an int/bool y is never NaN-capable).
@@ -424,13 +432,13 @@ def edges_optimal_joint(
                 best_score = mean_mi
                 best_M = M
     if best_M is None:
-        # No candidate M was ever scored by ANY fold -- e.g. every candidate in ``candidates`` exceeds
+        # No candidate M was ever scored by ANY fold - e.g. every candidate in ``candidates`` exceeds
         # every fold's train size, or every fold/candidate combination produced degenerate (empty) train
         # edges. The pre-fix code silently fell back to ``candidates[0]`` here UNVALIDATED by the CV
-        # search -- when ``candidates[0] < 2`` (a caller passing e.g. ``candidates=(1, 1000)`` to probe a
+        # search - when ``candidates[0] < 2`` (a caller passing e.g. ``candidates=(1, 1000)`` to probe a
         # single-bin option) this returned EMPTY edges with no signal that the CV search never ran at
         # all, exactly the MDLP silent-empty-output bug class. Fall back to the same Freedman-Diaconis
-        # path used for the too-small-n guard above -- at least one principled, unconditional binning
+        # path used for the too-small-n guard above - at least one principled, unconditional binning
         # instead of an untested/possibly-invalid M.
         return edges_freedman_diaconis(x, base=base)
     # Return edges built on full data at the winning M.
@@ -487,7 +495,7 @@ def _bin_y_for_mi(y: np.ndarray, max_y_classes: int = 64) -> "tuple[np.ndarray, 
             happens to be int-typed (timestamps, sensor counters, a float column upstream-cast to int)
             was previously treated as a discrete class label with NO cardinality check: ``K_y =
             y.max()+1`` could reach millions, and ``_plug_in_mi_njit`` allocates a dense ``(K_x, K_y)``
-            joint-count matrix -- confirmed to SEGFAULT the process on an int64 target with ~50k unique
+            joint-count matrix - confirmed to SEGFAULT the process on an int64 target with ~50k unique
             values (n=50000, K_y ~ 3.2e9 range) via an oversized ``np.zeros`` allocation. This mirrors the
             exact bug class found in MDLP (``mdlp_bin_edges``'s ``max_y_classes``): a high-cardinality
             target silently blows up an internal per-class computation. Fix: int/bool ``y`` with more
@@ -518,7 +526,7 @@ def _plug_in_mi(x_binned: np.ndarray, y: np.ndarray, miller_madow: bool = False,
             floor at higher M values (FD's no-signal inflation collapses from
             0.077 -> ~0.02). Floor at zero. Default ``False`` preserves the
             pre-2026-05-29 leaderboard baseline; opt-in via flag.
-        max_y_classes: Forwarded to :func:`_bin_y_for_mi` -- caps int/bool ``y`` cardinality before it
+        max_y_classes: Forwarded to :func:`_bin_y_for_mi` - caps int/bool ``y`` cardinality before it
             is treated as class labels (see that function's docstring for the segfault this guards).
     """
     if x_binned.size == 0:
@@ -598,7 +606,7 @@ def per_feature_edges(
             count; ``1`` = exact serial path; values are clamped to ``[1, n_features]``. Only
             engaged above ``_PARALLEL_EDGES_MIN_COLS`` columns (thread-pool overhead does not pay
             on narrow frames). Edges are BIT-IDENTICAL to the serial path regardless of n_jobs
-            and thread scheduling -- column order is preserved in the output list.
+            and thread scheduling - column order is preserved in the output list.
         **kwargs: Forwarded to the underlying edge-builder
             (e.g. ``max_depth`` for fayyad_irani, ``candidates`` for optimal_joint,
             ``p0`` for bayesian_blocks).
@@ -687,14 +695,14 @@ def per_feature_edges(
                 col,
                 p0=kwargs.get("p0", 0.05),
                 edge_placement=kwargs.get("bb_edge_placement", "start"),
-                subsample_threshold=kwargs.get("bb_subsample_threshold", 0),
+                subsample_threshold=kwargs.get("bb_subsample_threshold", _BB_DEFAULT_SUBSAMPLE_THRESHOLD),
                 m_max_cap=kwargs.get("bb_m_max_cap", kwargs.get("max_adaptive_nbins", MAX_ADAPTIVE_NBINS)),
             )
         elif method_resolved == "fayyad_irani":
             assert y is not None  # needs_y guard above raises for this method when y is None
             edges = edges_fayyad_irani(
                 col, y,
-                # MDLP's own leaf count is bounded by 2**max_depth -- deriving the default from the
+                # MDLP's own leaf count is bounded by 2**max_depth - deriving the default from the
                 # same max_adaptive_nbins ceiling used by knuth/bayesian_blocks/freedman_diaconis
                 # (instead of a hardcoded 8) keeps "how many bins can one column produce" answered
                 # the same way across every strategy. An explicit max_depth still wins.
@@ -703,14 +711,14 @@ def per_feature_edges(
                 # Match edges_fayyad_irani / mdlp_bin_edges default ('njit').
                 # The legacy 'python' default here re-introduced the
                 # 1566 s / 1700 s @500 k regression that the iter570 fix
-                # otherwise resolved -- this kwargs.get path is the
+                # otherwise resolved - this kwargs.get path is the
                 # production caller from categorize_dataset, so the
                 # default flip is the actual gating change.
                 backend=kwargs.get("mdlp_backend", "njit"),
                 scaled_min_split=kwargs.get("mdlp_scaled_min_split", False),
                 max_y_classes=kwargs.get("mdlp_max_y_classes", 64),
-                # 2026-07-19: validated (significance-gated) splitting is now the DEFAULT
-                # (accuracy over speed per project convention -- see supervised_binning.py's
+                # Validated (significance-gated) splitting is now the DEFAULT
+                # (accuracy over speed per project convention - see supervised_binning.py's
                 # mdlp_bin_edges docstring for the full A/B). Pass mdlp_fast_mode=True (e.g.
                 # MRMR(nbins_strategy_kwargs={"mdlp_fast_mode": True})) to opt back into the
                 # cheap depth-capped classic path for a specific run.
@@ -770,7 +778,7 @@ def per_feature_edges(
                 edges = _edges_from_quantiles(col, _fallback_nb)
             else:
                 edges = _edges_from_uniform(col, _fallback_nb)
-        # 2026-05-31: SPARSE-AWARE secondary fallback. For TF-IDF /
+        # SPARSE-AWARE secondary fallback. For TF-IDF /
         # one-hot / bag-of-words style columns (>50% mass at a single
         # value, e.g. zero for sparse tokens) the unsupervised quantile
         # fallback ALSO collapses: every quantile lands at the dominant
@@ -815,12 +823,12 @@ def per_feature_edges(
                             _sub[_sub > _dom_val],
                         ])
                     edges = np.unique(_new_edges)
-        # Systemic silent-degenerate-fallback guardrail (2026-07-19): EVERY method funnels through this
+        # Systemic silent-degenerate-fallback guardrail: EVERY method funnels through this
         # single return point, so this is the ONE place that can catch "binning method returned empty/
         # near-empty edges despite the column having real variance" for ALL strategies (qs/mah/sturges/fd/
         # knuth/blocks/fayyad_irani/optimal_joint), not just the three with a dedicated collapse-fallback
         # above. This is exactly the bug class an MDLP overflow (3.0**n_classes -> inf, acceptance check
-        # always False, empty edges returned with no signal) slipped through undetected -- a column with
+        # always False, empty edges returned with no signal) slipped through undetected - a column with
         # >1 distinct finite value that still ends up with 0 usable edges collapses to a single degenerate
         # bin (all rows get the same code) with NO observable signal anywhere. Log so it is diagnosable
         # from a production run's logs alone, without per-strategy vigilance.
@@ -838,7 +846,7 @@ def per_feature_edges(
     # Cache lookup happens BEFORE the low-card branch so even cheap midpoint edges
     # hit the cache on repeat fits; the code path stays uniform. Doing all GETs (and
     # later all PUTs) serially on the main thread keeps the DiskCache single-threaded
-    # -- no lock needed, hit/miss behavior bit-identical to the historical loop.
+    # - no lock needed, hit/miss behavior bit-identical to the historical loop.
     edges_list: list = [None] * n_features
     _miss_keys: list = [None] * n_features  # cache key per missed col (None => don't cache)
     _miss_cols: list = []  # indices needing compute, in ascending order
@@ -912,7 +920,7 @@ def per_feature_edges(
                 try:
                     _cache.put(_key, edges)
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in _adaptive_nbins.py:753: %s", e)
+                    logger.debug("suppressed: %s", e)
                     pass
 
     return edges_list

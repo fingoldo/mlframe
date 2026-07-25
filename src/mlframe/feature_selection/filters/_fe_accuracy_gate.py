@@ -1,16 +1,16 @@
-"""Accuracy-truth gate for engineered-feature candidates (2026-06-04).
+"""Accuracy-truth gate for engineered-feature candidates.
 
 The MI-based FE acceptance gates (``_confirm_predictor`` conditional-MI, the
 ``score_features_by_mi_uplift`` binned-MI uplift) are fooled by the bias
 inflation of plug-in MI: a Fourier / chirp / Hermite transform of a strong raw
 signal gets an *inflated* MI estimate and outranks (and evicts) the raw column
 even when it adds no real predictive value. This gates candidates on the
-**multivariate downstream uplift** -- does adding the engineered feature SET to
-its raw source measurably improve a held-out linear probe? -- the accuracy
+**multivariate downstream uplift** - does adding the engineered feature SET to
+its raw source measurably improve a held-out linear probe? - the accuracy
 ground truth, not a single-feature geometry heuristic.
 
 Applied to the engineered columns AFTER ``_run_fe_step`` returns them (i.e. the
-final screening candidates), NOT inside the generators -- the generators are
+final screening candidates), NOT inside the generators - the generators are
 reused for internal scorer routing, so filtering there corrupts the routing that
 finds the genuine signal. At the post-FE-step level the routing has already run;
 this only filters which engineered columns COMPETE in the screen, so a genuine
@@ -35,22 +35,22 @@ _FE_UPLIFT_MIN: float = 0.015
 
 # Content-keyed cache of the per-fold X_base-only CV scores (the ``_score(X_base)`` baseline).
 # Several engineered SIBLINGS derived from the SAME raw source (x__He2, x__He3, x__T2, x__L2,
-# ...) call ``measure_feature_uplift`` with an IDENTICAL X_base/y/seed -- the baseline is
+# ...) call ``measure_feature_uplift`` with an IDENTICAL X_base/y/seed - the baseline is
 # deterministic (same KFold/StratifiedKFold split given the same seed) and was being refit
 # from scratch for every sibling. Keyed on the exact inputs that determine the split + the
 # baseline fit (X_base bytes, y bytes, classification, n_splits, seed); bounded FIFO like
 # ``_INFER_CLS_MEMO`` above.
 _BASELINE_CV_MEMO: dict = {}
 _BASELINE_CV_MEMO_MAXSIZE = 64
-# FE_ORCH_BUDGET-2 fix: this and _INFER_CLS_MEMO below used the unlocked
-# `if len(cache) > N: cache.pop(next(iter(cache)))` eviction idiom -- see _unified_fe_gate.py's
+# This and _INFER_CLS_MEMO below used the unlocked
+# `if len(cache) > N: cache.pop(next(iter(cache)))` eviction idiom - see _unified_fe_gate.py's
 # _FE_GATE_MEMO_LOCK note for the full rationale (same race class, same fix).
 _FE_GATE_MEMO_LOCK = threading.Lock()
 
 
 def _baseline_cv_key(X_base: np.ndarray, y: np.ndarray, *, classification: bool, n_splits: int, seed: int):
     """Content-hash cache key for the ``X_base``-only CV baseline, or ``None`` when the
-    inputs cannot be hashed cheaply (falls back to always recomputing -- never crashes)."""
+    inputs cannot be hashed cheaply (falls back to always recomputing - never crashes)."""
     try:
         return (
             X_base.shape, hash(X_base.tobytes()),
@@ -76,7 +76,7 @@ def measure_feature_uplift(
     R^2 regression), or ``None`` when the uplift CANNOT be measured (degenerate
     input, too few rows/classes, or a probe exception). ``None`` is the fail-OPEN
     sentinel: callers must KEEP the engineered column when they cannot assess it
-    (a probe that errors must not silently evict a candidate -- the documented
+    (a probe that errors must not silently evict a candidate - the documented
     contract of ``keep_engineered_over_source``). A genuine measured zero uplift
     still returns ``0.0`` (and is correctly dropped)."""
     X_base = np.asarray(X_base, dtype=np.float64)
@@ -117,7 +117,7 @@ def measure_feature_uplift(
 
     deltas = []
     # Siblings derived from the SAME raw source share an IDENTICAL X_base/y_enc/seed, so the
-    # X_base-only baseline CV score is deterministic across sibling calls -- cache it keyed on
+    # X_base-only baseline CV score is deterministic across sibling calls - cache it keyed on
     # the exact content that determines the split + fit (see ``_baseline_cv_key``).
     _bkey = _baseline_cv_key(X_base, y_enc, classification=classification, n_splits=n_splits, seed=seed)
     with _FE_GATE_MEMO_LOCK:
@@ -221,7 +221,7 @@ def class_mi_fe_applicable(y: np.ndarray) -> bool:
 def bin_y_for_class_mi(y: np.ndarray, nbins: int = 10) -> np.ndarray:
     """Return int64 class labels for the MI-floor FE operators' ``_mi_classif_batch`` relevance path, given a 1D y.
 
-    CLASSIFICATION / already-discrete y (``infer_classification`` true) passes through as ``np.asarray(y).astype(np.int64)`` -- BIT-IDENTICAL to
+    CLASSIFICATION / already-discrete y (``infer_classification`` true) passes through as ``np.asarray(y).astype(np.int64)`` - BIT-IDENTICAL to
     the prior per-operator cast, so the discrete path does not move. A CONTINUOUS 1D y is quantile-binned into ``nbins`` bins (``pd.qcut``,
     ``duplicates='drop'``) so the kernel sees a meaningful discrete target instead of ~n collapsed int64 classes; this is mlframe's standard
     continuous-y relevance binning (mirrors the MRMR core ``pd.qcut(..., q=nbins, labels=False, duplicates='drop')`` in ``_fit_impl_core``).
@@ -234,7 +234,7 @@ def bin_y_for_class_mi(y: np.ndarray, nbins: int = 10) -> np.ndarray:
     if infer_classification(arr):
         if arr.dtype.kind in ("O", "U", "S"):
             # Non-numeric class labels (string/object dtype, e.g. 'A'..'E') cannot be cast to int64
-            # directly -- numpy tries to parse each label as a decimal integer literal and raises
+            # directly - numpy tries to parse each label as a decimal integer literal and raises
             # ``ValueError: invalid literal for int() with base 10``. Factorize to dense 0..k-1 integer
             # codes instead. Numeric/bool classification labels keep the direct cast unchanged.
             return np.asarray(np.unique(arr, return_inverse=True)[1]).astype(np.int64)
@@ -257,7 +257,7 @@ def keep_engineered_over_source(
     seed: int = 0,
 ) -> bool:
     """True if the engineered column SET ``eng_mat`` adds held-out downstream
-    uplift over its raw source column(s) ``src_vals`` -- i.e. worth keeping
+    uplift over its raw source column(s) ``src_vals`` - i.e. worth keeping
     rather than evicting the raw signal. Subsamples to ``max_probe_n`` rows.
     Fail-open (True) on degenerate input so the gate never silently drops
     everything."""
@@ -271,7 +271,7 @@ def keep_engineered_over_source(
     n = src_vals.shape[0]
     if n != eng_mat.shape[0] or n != y.size or eng_mat.shape[1] == 0:
         return True
-    # Missingness-aware fail-closed: if the raw source carries non-trivial missingness, the signal often LIVES in the NaN pattern (MNAR). The held-out probe drops NaN rows and cannot assess that, so a Fourier/Hermite/chirp of such a column must NOT be allowed to out-rank the raw column or its is_missing__/missingness_* FE -- drop it. (Those missingness FE columns are exempt: their source name is not a raw column, so the caller never routes them here.)
+    # Missingness-aware fail-closed: if the raw source carries non-trivial missingness, the signal often LIVES in the NaN pattern (MNAR). The held-out probe drops NaN rows and cannot assess that, so a Fourier/Hermite/chirp of such a column must NOT be allowed to out-rank the raw column or its is_missing__/missingness_* FE - drop it. (Those missingness FE columns are exempt: their source name is not a raw column, so the caller never routes them here.)
     if float(np.mean(~np.isfinite(np.asarray(src_vals, dtype=np.float64)))) > 0.02:
         return False
     if n > max_probe_n:
@@ -280,5 +280,5 @@ def keep_engineered_over_source(
         src_vals, eng_mat, y = src_vals[idx], eng_mat[idx], y[idx]
     uplift = measure_feature_uplift(src_vals, eng_mat, y, classification=infer_classification(y))
     # Fail-open: a probe that COULD NOT measure uplift (None) must KEEP the column
-    # (the docstring contract) -- never silently evict on an unmeasurable probe.
+    # (the docstring contract) - never silently evict on an unmeasurable probe.
     return True if uplift is None else uplift >= threshold

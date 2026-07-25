@@ -6,15 +6,15 @@ from __future__ import annotations
 import numpy as np
 from numba import njit, prange
 
-# OPT-A (2026-06-07): per-host serial-vs-parallel crossover for the FE materialise /
+# OPT-A: per-host serial-vs-parallel crossover for the FE materialise /
 # searchsorted kernels on the serial-main-thread path (no hardcoded threshold).
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
-# NJIT MATERIALISATION (2026-06-06). The chunk's candidate columns were filled by a PYTHON loop
-# (``out[:, col] = bin_func(a, b)`` per candidate) -- GIL-held -> the remaining single-core bottleneck after the
+# NJIT MATERIALISATION. The chunk's candidate columns were filled by a PYTHON loop
+# (``out[:, col] = bin_func(a, b)`` per candidate) - GIL-held -> the remaining single-core bottleneck after the
 # discretize/MI kernels were batched. ``_materialise_chunk_njit`` fills the WHOLE chunk in ONE ``nogil`` njit call,
-# so the joblib pair-search threads (``backend="threading"``) run it concurrently across cores -- parallelism
-# governed by ``n_jobs``. NOTE: it is deliberately NOT ``parallel=True`` -- a numba prange here would nest
+# so the joblib pair-search threads (``backend="threading"``) run it concurrently across cores - parallelism
+# governed by ``n_jobs``. NOTE: it is deliberately NOT ``parallel=True`` - a numba prange here would nest
 # numba-parallel inside the joblib threads and deadlock the threading layer (0% CPU, idle threads). BIT-IDENTICAL to the
 # numpy bin_funcs: every op is computed in float32 (the buffer + transformed_vars dtype), and the Python-float
 # constants (``1e-9``, ``1.0``) are weak/value-based so the numpy expressions stay float32 too -> same hardware
@@ -29,7 +29,7 @@ _NJIT_BINARY_OP_CODES: dict = {
 
 def _njit_binary_op_codes(binary_transformations) -> "np.ndarray | None":
     """Return an int8 op-code per binary-op name (in registry order), or None if ANY op is not njit-coded
-    (the caller then uses the per-candidate numpy path -- bit-safe for hypot / scipy.special / comparison ops)."""
+    (the caller then uses the per-candidate numpy path - bit-safe for hypot / scipy.special / comparison ops)."""
     codes = []
     for name in binary_transformations:
         c = _NJIT_BINARY_OP_CODES.get(name)
@@ -40,20 +40,20 @@ def _njit_binary_op_codes(binary_transformations) -> "np.ndarray | None":
 
 
 def _narrow_code_dtype(n_bins: int, requested_dtype) -> object:
-    """OPT-B (2026-06-07): pick the NARROWEST signed-int dtype that holds the FE discretiser's
-    ordinal codes ``[0, n_bins)`` -- ``int8`` when ``n_bins <= 127`` (the single-column
+    """OPT-B: pick the NARROWEST signed-int dtype that holds the FE discretiser's
+    ordinal codes ``[0, n_bins)`` - ``int8`` when ``n_bins <= 127`` (the single-column
     ``discretize_array`` ALREADY defaults to ``int8``), else ``int16`` (``n_bins <= 32767``),
     else the requested dtype (or int32). The codes are non-negative ordinals, so a narrower
-    storage width is VALUE-IDENTICAL -- only the bytes-per-element of the ``disc_2d`` code matrix
+    storage width is VALUE-IDENTICAL - only the bytes-per-element of the ``disc_2d`` code matrix
     shrink (1-2 vs the 4 of the ``quantization_dtype=int32`` default). That directly cuts the DRAM
     traffic of the two memory-bound hotspots that gather ``disc_2d[:, k]`` column-by-column out of
     a row-major buffer: the ``_searchsorted_2d_right`` code WRITE and the
     ``batch_mi_with_noise_gate`` per-column histogram READ (and it quarters the chunk-disc_2d
-    allocation -- on the scene 2407x64152 chunk that is 147 MiB int8 vs 589 MiB int32).
+    allocation - on the scene 2407x64152 chunk that is 147 MiB int8 vs 589 MiB int32).
 
     BIT-IDENTICAL MI: inside ``batch_mi_with_noise_gate`` the per-column histogram ``counts`` and
     the dense ``classes_dense`` / ``joint_counts`` accumulators are typed by the kernel's OWN
-    ``dtype`` argument (>= int32), INDEPENDENTLY of ``disc_2d.dtype`` -- the kernel only READS
+    ``dtype`` argument (>= int32), INDEPENDENTLY of ``disc_2d.dtype`` - the kernel only READS
     ``disc_2d[r, k]`` as a non-negative index (``counts[col[r]] += 1``), which is width-agnostic.
     Every GPU twin re-casts ``disc_2d`` to int32 on H2D upload, so the device path is unaffected.
     ``requested_dtype`` is honoured only when the bins genuinely exceed int16 (never on the FE path
@@ -73,7 +73,7 @@ def _materialise_chunk_njit(tv, a_cols, b_cols, op_codes, out):
     check_prospective_fe_pairs runs under joblib ``backend="threading"`` (one thread per pair-chunk), so a numba
     ``parallel=True`` prange here would be numba-parallel NESTED inside Python threads -> the threading layer
     deadlocks (observed: 0% CPU, 28 idle threads). With ``nogil`` the joblib threads run THIS kernel concurrently
-    across cores -- the parallelism is governed by ``n_jobs`` (consistent with the rest of the pair-search), with no
+    across cores - the parallelism is governed by ``n_jobs`` (consistent with the rest of the pair-search), with no
     nested-parallel hazard."""
     n = tv.shape[0]
     K = op_codes.shape[0]
@@ -126,20 +126,20 @@ def _materialise_chunk_njit(tv, a_cols, b_cols, op_codes, out):
 
 @njit(parallel=True, cache=True, error_model="numpy")
 def _materialise_chunk_njit_parallel(tv, a_cols, b_cols, op_codes, out):
-    """``parallel=True`` (prange over CANDIDATE COLUMNS) twin of ``_materialise_chunk_njit`` --
+    """``parallel=True`` (prange over CANDIDATE COLUMNS) twin of ``_materialise_chunk_njit`` -
     BYTE-IDENTICAL output, only the outer ``for k`` candidate loop is a numba ``prange`` so the
     per-candidate float32 op fills spread across cores (OPT-A, 2026-06-07).
 
     Kept SEPARATE from the serial ``nogil`` kernel (``feedback_keep_all_kernel_versions``): the
     serial variant MUST stay for the joblib ``backend="threading"`` FE path (>=50000 rows) where
-    a nested numba ``prange`` deadlocks the threading layer (observed 0% CPU / 28 idle threads --
+    a nested numba ``prange`` deadlocks the threading layer (observed 0% CPU / 28 idle threads -
     documented in the serial kernel). This twin is dispatched ONLY from the SERIAL-MAIN-THREAD FE
     path (``len(X) < 50000`` in ``_mrmr_fe_step`` -> ``check_prospective_fe_pairs`` runs with NO
     joblib threads), mirroring the column-prange already shipped in ``_quantile_edges_2d_njit`` /
     the searchsorted parallel twin.
 
     BIT-IDENTICAL: each candidate ``k`` reads its own operand columns ``tv[:, a_cols[k]]`` /
-    ``tv[:, b_cols[k]]`` and writes ONLY ``out[:, k]`` -- zero cross-column dependence -> result
+    ``tv[:, b_cols[k]]`` and writes ONLY ``out[:, k]`` - zero cross-column dependence -> result
     independent of thread count. The per-element arithmetic (the float32 ops, the float64-promoted
     div/ratio_abs literals, the nan_to_num) is the IDENTICAL body as the serial kernel.
     """
@@ -188,14 +188,14 @@ def _materialise_chunk_njit_parallel(tv, a_cols, b_cols, op_codes, out):
             out[r, k] = v
 
 
-# OPT-A SERIAL-vs-PARALLEL CROSSOVER (2026-06-07). On the serial-main-thread FE path
+# OPT-A SERIAL-vs-PARALLEL CROSSOVER. On the serial-main-thread FE path
 # (``len(X) < 50000`` in ``_mrmr_fe_step`` -> ``check_prospective_fe_pairs`` runs with NO
 # joblib threads) the materialise + searchsorted kernels can use their ``parallel=True``
-# (column-prange) twins instead of the serial ``nogil`` variants -- spreading the per-column
+# (column-prange) twins instead of the serial ``nogil`` variants - spreading the per-column
 # work across cores. But ``prange`` has a fixed dispatch/fork-join overhead per call, so for a
 # TINY chunk (few candidate columns) the serial kernel is faster. The crossover column-count is
 # HARDWARE-dependent (core count, mem bandwidth), so it is resolved per-host via the canonical
-# ``kernel_tuning_cache`` (NO hardcoded threshold -- ``feedback_use_kernel_tuning_cache_for_gpu``)
+# ``kernel_tuning_cache`` (NO hardcoded threshold - ``feedback_use_kernel_tuning_cache_for_gpu``)
 # with a measurement-backed fallback. ``choose(n_cols=K)`` returns "parallel" or "serial".
 _FE_PARALLELISM_SWEEP_COLS = [16, 64, 256, 1024, 4096]
 _FE_PARALLELISM_SALT = 1
@@ -245,7 +245,7 @@ def _fe_parallelism_fallback_choice(n_cols: int) -> str:
     """Pre-sweep heuristic: parallel above a conservative column count where the prange
     fork-join overhead is amortised by the per-column work (each column does n_rows binary
     searches + n_rows float ops); serial below. 256 columns is a deliberately conservative
-    floor -- the scene chunks carry thousands of columns, far above it."""
+    floor - the scene chunks carry thousands of columns, far above it."""
     return "parallel" if int(n_cols) >= 256 else "serial"
 
 
@@ -267,7 +267,7 @@ _FE_PARALLELISM_SPEC = kernel_tuner(
 
 def _fe_use_parallel_kernels(n_cols: int, serial_main_thread: bool) -> bool:
     """OPT-A dispatch predicate: use the ``parallel=True`` materialise/searchsorted twins iff
-    (a) we are on the SERIAL-MAIN-THREAD FE path (no joblib threading nest -- the ONLY place a
+    (a) we are on the SERIAL-MAIN-THREAD FE path (no joblib threading nest - the ONLY place a
     numba prange is safe here) AND (b) the per-host kernel_tuning_cache says the column count is
     above the serial-vs-parallel crossover. On the joblib ``backend="threading"`` path
     (``serial_main_thread`` False) ALWAYS return False -> serial ``nogil`` kernels (nesting a
@@ -284,21 +284,21 @@ def _fe_use_parallel_kernels(n_cols: int, serial_main_thread: bool) -> bool:
 @njit(nogil=True, cache=True, error_model="numpy")
 def _materialise_extval_njit(param_a, param_b_mat, op_codes, out):
     """Fill ``out[:, e*n_ops + o] = op_o(param_a, param_b_mat[:, e])`` for the external-
-    validation MI sweep -- ALL (external_factor x binary_op) candidate columns in ONE
+    validation MI sweep - ALL (external_factor x binary_op) candidate columns in ONE
     nogil kernel.
 
     Unlike ``_materialise_chunk_njit`` this produces the RAW float64 bin_func output with
     NO nan_to_num: the external-validation path discretises the raw values (the per-
-    candidate ``discretize_array`` it replaces never scrubbed NaN/inf either --
+    candidate ``discretize_array`` it replaces never scrubbed NaN/inf either -
     ``nanpercentile`` ignores NaN and ``searchsorted`` routes NaN/inf to the rightmost
     bin), so scrubbing here would change the codes. float64 throughout so the arithmetic
     is bit-identical to the numpy bin_funcs (which upcast the float32 ``param_a`` to
     float64 against the float64 ``param_b``): mul/add/sub/max/min are the exact numpy ops
-    and ``div`` mirrors the current ``_safe_div`` -- exact ``x/y`` for every nonzero denominator, with the ``1e-9``
+    and ``div`` mirrors the current ``_safe_div`` - exact ``x/y`` for every nonzero denominator, with the ``1e-9``
     floor substituting only for an exact-zero ``y`` (the 2026-06-13 heavy-tail form, no per-denominator perturbation).
 
     ``op_codes`` are the ``_NJIT_BINARY_OP_CODES`` (0=mul 1=add 2=sub 3=div 4=max 5=min
-    6=abs_diff 7=signed 8=ratio_abs -- ALL registry-coded ops, matching ``_materialise_chunk_njit``;
+    6=abs_diff 7=signed 8=ratio_abs - ALL registry-coded ops, matching ``_materialise_chunk_njit``;
     a prior version implemented only 0-5 and silently computed 6/7/8 as ``min``);
     callers MUST gate on ``_njit_binary_op_codes(...) is not None`` (returns None for any op
     not in the registry, e.g. hypot / scipy.special) and fall back to the numpy loop otherwise. ``op_codes``

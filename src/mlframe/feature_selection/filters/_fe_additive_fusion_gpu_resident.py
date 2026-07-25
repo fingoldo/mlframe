@@ -4,7 +4,7 @@ RESIDENCY CONTRACT (not a wall win). Gated on the resident flag
 (``MLFRAME_FE_GPU_STRICT`` + ``MLFRAME_FE_GPU_STRICT_RESIDENT``); default OFF.
 On this GTX 1050 Ti the half/candidate operands are small (an F2 train slice)
 and the fusion loop is a sequential disjoint-pair scan, so the GPU twin is
-EXPECTED to be SLOWER than the fused njit/numpy CPU path -- and that is a PASS by
+EXPECTED to be SLOWER than the fused njit/numpy CPU path - and that is a PASS by
 the residency contract. This twin exists for RESIDENCY COMPLETENESS so that,
 under the resident flag, the candidate-half columns + the target stay RESIDENT on
 the device and the per-candidate numeric work (equi-frequency binning, the
@@ -17,26 +17,26 @@ What is resident vs host control-flow (allowed by the contract):
     continuous values + the dense y codes. From it the device computes the (n, H)
     equi-frequency bin-code matrix RESIDENT via the distinct-edge-dedup binner
     ``_usability_njit_pool._gpu_quantile_bin_codes`` (cp.unique adjacent dedup +
-    searchsorted side='right' -- documented BIT-IDENTICAL to the njit ``_qbin_into`` /
+    searchsorted side='right' - documented BIT-IDENTICAL to the njit ``_qbin_into`` /
     host ``_quantile_bin`` per row, and crucially it does NOT interpolate across edges
     the way ``cp.percentile`` does, so the partition is selection-equivalent), every
-    half's marginal relevance MI (``batched_cmi_gpu`` over the resident codes), and --
-    in the disjoint-pair loop -- the fused ``vals_a + vals_b`` sum, its bin codes (same
+    half's marginal relevance MI (``batched_cmi_gpu`` over the resident codes), and -
+    in the disjoint-pair loop - the fused ``vals_a + vals_b`` sum, its bin codes (same
     resident dedup binner), its joint MI, and the three OLS multiple-R fits, ALL on
     resident device arrays. Binning is fully on the device with NO binning D2H.
-  * HOST scalar / bounded D2H (allowed; NOT binning -- the binning above stays
+  * HOST scalar / bounded D2H (allowed; NOT binning - the binning above stays
     resident): the relevance-MI vector (H floats, a per-FAMILY result), and the
-    PROBE-INPUT code pulls -- each relevant half's resident code row pulled ONCE for
+    PROBE-INPUT code pulls - each relevant half's resident code row pulled ONCE for
     the permutation-null floor and, per ADMITTED pair, the fused code row + the
     required fused-values return array. The floor / ``_cmi_from_binned`` / raw-
     subsumption probes are CPU-interface helpers (host int codes; themselves GPU-routed
-    internally via ``_cmi_gpu_enabled``), so feeding them needs a host code array -- but
+    internally via ``_cmi_gpu_enabled``), so feeding them needs a host code array - but
     that D2H is for the PROBE, not the binning, and is bounded O(H + n_fusions), never
     per-candidate. ``fused_vals`` is a REQUIRED return (the same single array the CPU
     path holds). Audited: NO binning D2H; only these bounded probe-input/return pulls.
 
 Selection-equivalence: the proposed ``add(half_a, half_b)`` fusions (names + order
-+ subsumed fragments/raws) MATCH the CPU :func:`propose_additive_fusions` -- the
++ subsumed fragments/raws) MATCH the CPU :func:`propose_additive_fusions` - the
 same equi-frequency partition (``_gpu_quantile_bin_codes`` is bit-identical to the
 host ``_quantile_bin`` value-edge binning), the same Miller-Madow plug-in MI
 (``batched_cmi_gpu`` / ``_cmi_from_binned`` per pair), the same relevance floor,
@@ -60,7 +60,7 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 def _multiple_r_gpu(cp, X2_dev, yv_dev, y_std: float) -> float:
     """Scale/sign-invariant multiple correlation R of an OLS fit ``y ~ cols + intercept``,
-    fully resident -- GPU twin of :func:`_fe_additive_fusion._multiple_r`.
+    fully resident - GPU twin of :func:`_fe_additive_fusion._multiple_r`.
 
     ``X2_dev`` is a resident (n, k) device matrix (1 or 2 columns), ``yv_dev`` the
     resident pre-cleaned float target, ``y_std`` its host std (already > 1e-12 when
@@ -128,7 +128,7 @@ def propose_additive_fusions_gpu(
 
     A raw token can recur as an operand of multiple accepted fusions; ``resident_operand``
     already dedupes its H2D upload by content, but the downstream quantile-binning of that
-    SAME resident array was still recomputed per recurrence -- ``_raw_bin_cache`` below
+    SAME resident array was still recomputed per recurrence - ``_raw_bin_cache`` below
     dedupes that too (keyed by raw column name, mirroring the CPU twin's ``_raw_bin_cache``)."""
     import cupy as cp
 
@@ -146,12 +146,11 @@ def propose_additive_fusions_gpu(
     _max_fusions = int(getattr(self, "fe_additive_fusion_max", 4))
     _raw_bin_cache: dict[str, tuple[Any, np.ndarray]] = {}
 
-    # y codes (dense int) the MI primitives score against -- host preamble identical to the CPU path.
-    _y = np.asarray(classes_y).ravel()
-    if not np.issubdtype(_y.dtype, np.integer):
-        _y = _y.astype(np.int64)
-    _, y_dense = np.unique(_y, return_inverse=True)
-    y_dense = y_dense.astype(np.int64)
+    # y codes (dense int) the MI primitives score against - host preamble identical to the CPU path
+    # (continuous y is quantile-binned, not int-truncated; see _y_encoding.encode_y_for_classif_mi).
+    from ._y_encoding import encode_y_for_classif_mi
+
+    y_dense = encode_y_for_classif_mi(classes_y)
     n_rows = y_dense.shape[0]
 
     # Candidate halves (cheap host filters identical to the CPU pre-pass): a replayable recipe + continuous
@@ -186,10 +185,10 @@ def propose_additive_fusions_gpu(
     for j in range(H):
         vals_host[:, j] = _vals_cols[j]
     vals_host = np.nan_to_num(vals_host, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-    vals_dev = cp.asarray(vals_host)  # (n, H) resident -- FULL n (output values)
+    vals_dev = cp.asarray(vals_host)  # (n, H) resident - FULL n (output values)
     y_dev = cp.asarray(y_dense)  # (n,) resident
 
-    # SCORING SUBSAMPLE (2026-07-03). The fusion stage only DECIDES which disjoint half-pairs to fuse (per-half
+    # SCORING SUBSAMPLE. The fusion stage only DECIDES which disjoint half-pairs to fuse (per-half
     # relevance MI + floor, then the O(H^2) per-pair add/sub MI + OLS-R separability razor). Every such decision
     # is a wide-margin MI/floor comparison that is selection-equivalent under a large strided subsample, while
     # binning the (n, H) matrix + scoring O(H^2) fused pairs on full 1M rows dominates this stage. Score halves
@@ -197,12 +196,12 @@ def propose_additive_fusions_gpu(
     # drift), above MLFRAME_FE_FUSION_MAX_ROWS (default 250k, 0=full-n). ``vals_dev`` stays FULL n so an ADMITTED
     # compound's ``fused_vals`` (materialised downstream) is built at full resolution.
     _fus_max = int(os.environ.get("MLFRAME_FE_FUSION_MAX_ROWS", "250000"))
-    # GPU_INFRA_D-11 fix: floor division gave stride==1 (no thinning) for any
+    # Floor division gave stride==1 (no thinning) for any
     # n_rows strictly between _fus_max and 2*_fus_max, so "caps at <=_fus_max rows" was only true once
     # n_rows reached ~2*_fus_max. Ceiling division actually caps at n_rows (matches _hinge_detect's fix).
     _stride = -(-n_rows // _fus_max) if _fus_max > 0 and n_rows > _fus_max else 1
     if _stride > 1:
-        vals_sc = cp.ascontiguousarray(vals_dev[::_stride])  # (n_sc, H) resident -- scoring only
+        vals_sc = cp.ascontiguousarray(vals_dev[::_stride])  # (n_sc, H) resident - scoring only
         y_dense_sc = np.ascontiguousarray(y_dense[::_stride])
         y_dev_sc = cp.ascontiguousarray(y_dev[::_stride])
     else:
@@ -210,10 +209,10 @@ def propose_additive_fusions_gpu(
 
     # Per-half bin codes ON THE DEVICE via the distinct-edge-dedup resident binner ``_gpu_quantile_bin_codes``
     # (cp.unique adjacent dedup + searchsorted side='right', the SAME np.quantile linear-interp edges as the host
-    # ``_quantile_bin`` / njit ``_qbin_into`` -- it is documented BIT-IDENTICAL to ``_qbin_into`` per row, so the
+    # ``_quantile_bin`` / njit ``_qbin_into`` - it is documented BIT-IDENTICAL to ``_qbin_into`` per row, so the
     # partition is SELECTION-EQUIVALENT to the CPU pre-pass). Unlike ``cp.percentile`` it does NOT shift values
     # across edges. The binner is row-oriented ((m, n)), so the (n, H) operand is binned as its transpose
-    # (H, n); codes come back resident (H, n) -- no code H2D/D2H for the binning itself.
+    # (H, n); codes come back resident (H, n) - no code H2D/D2H for the binning itself.
     qs = cp.linspace(0.0, 1.0, int(nbins) + 1)
     codes_T_dev, _kx = _gpu_quantile_bin_codes(cp.ascontiguousarray(vals_sc.T), qs)  # (H, n_sc) resident codes
     codes_dev = cp.ascontiguousarray(codes_T_dev.T)  # (n_sc, H) resident
@@ -228,12 +227,12 @@ def propose_additive_fusions_gpu(
         # _conditional_perm_null accepts an ALREADY-RESIDENT cupy candidate (its resident-input branch
         # consumes it without a re-upload), so the floor probe runs on the resident column directly.
         # The host copy of the codes is only needed by the downstream fusion probe for halves that
-        # actually SURVIVE the floor gate -- pulling it before the gate paid a per-half D2H for every
+        # actually SURVIVE the floor gate - pulling it before the gate paid a per-half D2H for every
         # irrelevant half too (most of the pool, by design).
         col_dev = cp.ascontiguousarray(codes_dev[:, j])
         floor, _ = _conditional_perm_null(col_dev, y_dense_sc, None, seed=seed)
         if mi <= floor:
-            continue  # not relevant -- never a fusion half
+            continue  # not relevant - never a fusion half
         vb = cp.asnumpy(col_dev)
         halves.append({
             "name": _names[j], "recipe": _recs[j], "tokens": _toks[j],
@@ -246,7 +245,7 @@ def propose_additive_fusions_gpu(
     # Strongest half first so the most-informative disjoint pair is fused before the cap.
     halves.sort(key=lambda h: h["mi"], reverse=True)
 
-    # Resident float target for the OLS multiple-R fits (cleaned once) -- on the SCORING subsample (the OLS-R
+    # Resident float target for the OLS multiple-R fits (cleaned once) - on the SCORING subsample (the OLS-R
     # separability razor is a decision, scored on the same sample as the MI razor).
     yc_dev = y_dev_sc.astype(cp.float64)
     y_std = float(cp.std(yc_dev))
@@ -271,7 +270,7 @@ def propose_additive_fusions_gpu(
                 continue
             # FUSED SUM + its bin codes RESIDENT: vals_a + vals_b on the device, then the distinct-edge-dedup
             # resident binner ``_gpu_quantile_bin_codes`` (selection-equivalent to the host ``_quantile_bin``;
-            # no interpolation drift). The sum + binning both stay resident -- no binning D2H.
+            # no interpolation drift). The sum + binning both stay resident - no binning D2H.
             ca = vals_sc[:, ha["col"]]  # SCORING operands (subsampled); output built full-n on admit
             cb = vals_sc[:, hb["col"]]
             # SIGN-AWARE ALIGNMENT (2026-07-01, mirrors the CPU path in _fe_additive_fusion.py). Each half is
@@ -296,7 +295,7 @@ def propose_additive_fusions_gpu(
             else:
                 _binary, _, fvb_dev, fused_mi = "add", _fadd, _bcodes[0], _mi_add
             # ``_cmi_from_binned`` scored above from the RESIDENT codes; the raw-subsumption probe below is a
-            # CPU-interface helper, so pull the CHOSEN fused codes back ONCE -- a per-ACCEPTED-pair probe-input
+            # CPU-interface helper, so pull the CHOSEN fused codes back ONCE - a per-ACCEPTED-pair probe-input
             # D2H, not a binning D2H (binning stayed resident). Bounded by the number of admitted fusions.
             fvb = cp.asnumpy(fvb_dev)
             # Fusion admission razor (not grid-snapped): fused_mi vs strong-half mi + margin*floor. The cupy-vs-
@@ -311,8 +310,8 @@ def propose_additive_fusions_gpu(
                 _r_b = _multiple_r_gpu(cp, cb[:, None], yc_dev, y_std)
                 _r_fused = _multiple_r_gpu(cp, cp.stack([ca, cb], axis=1), yc_dev, y_std)
                 _r_best_single = max(_r_a, _r_b)
-                # GPU_INFRA_D-4 fix: was `/ max(np.sqrt(float(n_sc)), 1.0)` -- the
-                # SCORING-SUBSAMPLE row count -- while the CPU sibling (_fe_additive_fusion.py) computes the
+                # Was `/ max(np.sqrt(float(n_sc)), 1.0)` - the
+                # SCORING-SUBSAMPLE row count - while the CPU sibling (_fe_additive_fusion.py) computes the
                 # identical margin against the TRUE, full fit row count. Above the subsample threshold this
                 # made the GPU threshold systematically stricter than the CPU one (2/sqrt(250k)=0.004 vs
                 # 2/sqrt(1M)=0.002 at n=1M), not merely the same decision scored on fewer rows (the separate,
@@ -323,7 +322,7 @@ def propose_additive_fusions_gpu(
                 continue
             # Build the fused recipe via the EXISTING unary_binary + nested-parent machinery (host; replays
             # byte-exactly). The fused VALUES are a REQUIRED return (recipe fit_values_for_edges + the admitted
-            # "values" the caller materialises) -- the SAME single array the CPU path holds -- so build the
+            # "values" the caller materialises) - the SAME single array the CPU path holds - so build the
             # chosen (add/sub) fused sum at FULL n from the full-resolution operands (the add/sub CHOICE was
             # decided on the scoring subsample; the materialised values must be full-n), clean it identically
             # to the scored sum, and pull it back ONCE here, only on an ADMITTED pair (bounded by the fusions).
@@ -358,11 +357,11 @@ def propose_additive_fusions_gpu(
             subsumed.add(hb["name"])
             used.add(ha["name"])
             used.add(hb["name"])
-            # RAW-OPERAND SUBSUMPTION -- identical verdict to the CPU path. The raw operand originates on host
-            # (a column of X), so it is uploaded with a BOUNDED H2D (one column, per ACCEPTED fusion -- bounded,
+            # RAW-OPERAND SUBSUMPTION - identical verdict to the CPU path. The raw operand originates on host
+            # (a column of X), so it is uploaded with a BOUNDED H2D (one column, per ACCEPTED fusion - bounded,
             # NOT per-candidate) and binned RESIDENT via the same distinct-edge-dedup binner, keeping ALL binning
             # on the device. The keep-probe (``raw_retains_signal_given_genuine_children``) is a CPU-interface
-            # helper (GPU-routed internally), so its raw bin codes are pulled back ONCE -- a bounded probe-input
+            # helper (GPU-routed internally), so its raw bin codes are pulled back ONCE - a bounded probe-input
             # D2H, not a binning D2H. ``fvb`` (the fused codes) is the genuine child.
             from ._fe_raw_redundancy_drop import raw_retains_signal_given_genuine_children
             for _rn in (ha["tokens"] | hb["tokens"]):
@@ -382,7 +381,7 @@ def propose_additive_fusions_gpu(
                 else:
                     # Subsample the raw operand onto the SAME scoring rows as the fused child codes (``fvb`` is
                     # the subsampled fused sum) so the keep-probe's raw / child / y all share the strided sample
-                    # -- the subsumption verdict is a wide-margin decision, selection-equivalent to the full-n probe.
+                    # - the subsumption verdict is a wide-margin decision, selection-equivalent to the full-n probe.
                     _rv_sc = _rv[::_stride] if _stride > 1 else _rv
                     # The same raw token column recurs across accepted fusions -> content-keyed resident cache so it
                     # uploads once (H2D audit: 4x re-uploads). Read-only (binned below) -> selection-equivalent.

@@ -250,7 +250,7 @@ def _score_proxy(model: Any, carrier: Any, n: int) -> Optional[np.ndarray]:
         try:
             out = np.asarray(fn(carrier))
         except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in shap_panels.py:200: %s", e)
+            logger.debug("suppressed: %s", e)
             continue
         if out.ndim == 2:
             out = out[:, -1] if out.shape[1] >= 2 else out.ravel()
@@ -443,7 +443,7 @@ def _close_figs(figs: List[Any]) -> None:
             try:
                 plt.close(fig)
             except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate; nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in shap_panels.py:382: %s", e)
+                logger.debug("suppressed: %s", e)
                 pass
 
 
@@ -499,7 +499,7 @@ def _dependence_grid_figs(
         try:
             fig.tight_layout(rect=(0, 0, 1, 0.97))
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in shap_panels.py:437: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
         figs.append(fig)
     return figs

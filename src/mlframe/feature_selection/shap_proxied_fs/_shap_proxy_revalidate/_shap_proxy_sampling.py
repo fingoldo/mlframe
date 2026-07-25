@@ -1,7 +1,7 @@
 """Anchor-subset sampling primitives for the SHAP-proxy trust guard.
 
 Pure numpy helpers: softmax weighting of unit F-scores, WRSwoR column draws, a Zipf cardinality
-prior, and the stratified anchor-subset sampler. Leaf module -- no back-import to the revalidate
+prior, and the stratified anchor-subset sampler. Leaf module - no back-import to the revalidate
 parent, so the loss / refine siblings can depend on it freely.
 """
 
@@ -111,7 +111,7 @@ def _sample_anchor_subsets(
         agree TRIVIALLY (no nuance for Spearman to rank), while large-k samples land in the
         interesting informative-mix-vs-noise-mix middle where the proxy is actually being asked to
         rank. Recall@k DID improve under Zipf (1.0 vs 0.833) and recovery was preserved (10/12 across
-        all alphas) -- so the prior may pay in other regimes (e.g. callers with low-redundancy data or
+        all alphas) - so the prior may pay in other regimes (e.g. callers with low-redundancy data or
         no prefilter). Kept as an opt-in knob for that use case.
       - ``'zipf'`` (opt-in; iter15): ``P(k) ∝ k^(-zipf_alpha)``. Small-k anchors are FAR more common
         (k=1..~10 dominate). ``zipf_alpha=1.0`` is the canonical 1/k Zipf; ``alpha=0`` degenerates to

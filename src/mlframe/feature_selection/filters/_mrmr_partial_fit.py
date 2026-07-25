@@ -17,7 +17,7 @@ DESIGN
     * when a refit triggers, run ``self.fit`` over the buffered data with
       decay-weighted ``sample_weight`` reflecting recency
 
-MEMORY: set ``partial_fit_window`` for long streams. With ``partial_fit_window=None`` the buffer grows UNBOUNDED -- every
+MEMORY: set ``partial_fit_window`` for long streams. With ``partial_fit_window=None`` the buffer grows UNBOUNDED - every
 call does ``pd.concat([buffer, new_batch])``, which copies the WHOLE accumulated buffer each time (O(total rows) per call,
 O(total^2) over the stream). On an endless stream this eventually exhausts RAM (the 100GB-frame rule applies: an unbounded
 in-memory buffer cannot fit a frame larger than host memory). A finite ``partial_fit_window`` caps the buffer to the most
@@ -126,8 +126,8 @@ def _apply_rolling_window(
     if n <= window:
         return X_buf, y_buf, batch_sizes
     drop = n - window
-    # USABILITY_B-4 fix: this single loop already correctly builds the
-    # post-truncation batch-size registry -- once drop_remaining hits 0, every subsequent iteration's
+    # This single loop already correctly builds the
+    # post-truncation batch-size registry - once drop_remaining hits 0, every subsequent iteration's
     # `drop_remaining >= size` check is False, so it falls through to `new_sizes.append(size - drop_remaining)`
     # with drop_remaining==0, i.e. appends the batch's FULL size unchanged. A second, essentially-identical
     # loop used to rebuild the same list from scratch (discarding this one), justified by a comment
@@ -259,9 +259,9 @@ def partial_fit(
     if sample_weight is not None:
         sw_new = np.asarray(sample_weight, dtype=np.float64).ravel()
         kept_new = batch_sizes[-1]
-        # USABILITY_B-3 fix: the trailing-slice recovery below is only a legitimate
+        # The trailing-slice recovery below is only a legitimate
         # recovery when the CURRENT batch was actually truncated by the rolling window (kept_new < len(X_df)
-        # -- fewer rows survived than the caller's sample_weight covers). When no truncation occurred
+        # - fewer rows survived than the caller's sample_weight covers). When no truncation occurred
         # (kept_new == len(X_df), the common case with the default partial_fit_window=None), a length
         # mismatch is a genuine caller error: a too-LONG sample_weight used to be silently sliced
         # (`sw_new[-kept_new:]`) and misattributed to the wrong rows with zero warning, instead of raising

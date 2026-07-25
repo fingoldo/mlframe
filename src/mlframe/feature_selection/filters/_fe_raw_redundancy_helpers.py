@@ -16,15 +16,15 @@ import numpy as np
 # Row cap for the raw-operand redundancy CMI + conditional-permutation null. The perm-null is an
 # EXPLICITLY RANDOM null estimate (selection-equivalence, not byte-identical), and the CMI gate already
 # subsamples (30k). On the FINAL raw-drop the observed CMI + the ~25-perm within-stratum null run on the
-# full n (1M) -- the single largest per-call redundancy hotspot. Estimating both on a strided subsample
+# full n (1M) - the single largest per-call redundancy hotspot. Estimating both on a strided subsample
 # (all of cand / y / z together, so the returned cmi/floor/excess stay MUTUALLY consistent and every
 # drop comparison is self-consistent) keeps the decision selection-equivalent while the null cost drops
-# ~n/cap. Env-tunable; 0 -> full-n (strict). 100k default (2026-07-03): the perm-null floor's precision
-# scales ~1/sqrt(n * nperm), so at 100k x ~25 perms it is already far past the CLT plateau -- 250k -> 100k
+# ~n/cap. Env-tunable; 0 -> full-n (strict). 100k default: the perm-null floor's precision
+# scales ~1/sqrt(n * nperm), so at 100k x ~25 perms it is already far past the CLT plateau - 250k -> 100k
 # is accuracy-NEUTRAL (not a speed/accuracy trade), and validated selection-equivalent on the adversarial
 # user-case-a multi-seed retention pin + the F2 5-profile goal. Measured drop_redundant ~4.1s -> ~3.0s.
 # tune-attempt-rejected (2026-07-03): 60k passed the SAME suite but buys only ~0.2s while adding ~29% per-draw
-# floor noise (SE ~1/sqrt(n)) on the tightest-margin adversarial retention decision -- not worth eroding that
+# floor noise (SE ~1/sqrt(n)) on the tightest-margin adversarial retention decision - not worth eroding that
 # safety margin for 0.7%. 100k is the accurate-default floor here.
 try:
     _CMI_NULL_MAX_ROWS = int(os.environ.get("MLFRAME_CMI_NULL_MAX_ROWS", "100000"))
@@ -32,7 +32,7 @@ except (ValueError, TypeError):
     _CMI_NULL_MAX_ROWS = 100000
 
 
-# GATE / BINAGG / ARGMAX pseudo-child name prefixes (2026-06-13). The default-ON
+# GATE / BINAGG / ARGMAX pseudo-child name prefixes. The default-ON
 # conditional-gate (``gate_mask__a__b__t...`` / ``gate_select__...``), binned-
 # numeric-agg (``binagg_skew(c|qbin(a))``) and row-argmax (``argmax__a__b``)
 # families build engineered children that are THRESHOLD / BINNING re-mixes of a raw
@@ -40,7 +40,7 @@ except (ValueError, TypeError):
 # PARTIALLY tracks a genuine private LINEAR term ``10*a``, so when a raw's
 # conditional excess is computed GIVEN such a pseudo-child its residual collapses
 # below the self-retention bar and the raw is WRONGLY judged redundant (the
-# raw-self-signal-masking trap -- the same lesson the DPI-trap consumer filter
+# raw-self-signal-masking trap - the same lesson the DPI-trap consumer filter
 # encodes for self-transforms). These pseudo-children are therefore EXCLUDED from
 # the set of consuming children a raw is conditioned against for the keep/drop
 # verdict; only GENUINE elementary composites (ratio / product / poly), which can
@@ -61,7 +61,7 @@ _MIN_ROWS = 500
 
 def _is_pseudo_remix_child(name: str) -> bool:
     """True iff the engineered name is a conditional-gate / binned-numeric-agg /
-    row-argmax pseudo-child -- a threshold/binning re-mix that can MASK (not
+    row-argmax pseudo-child - a threshold/binning re-mix that can MASK (not
     subsume) a raw operand's genuine private signal and so must NOT condition the
     raw's redundancy verdict. Detected by the canonical name prefix family."""
     nm = name or ""
@@ -79,7 +79,7 @@ def raw_retains_signal_given_genuine_children(
     genuine_child_bins_dev: Optional[Sequence] = None,
     raw_bin_dev=None,
 ) -> bool:
-    """KEEP-rule probe reused by the PSEUDO-CHILD MASKED-RAW RESCUE (2026-06-13).
+    """KEEP-rule probe reused by the PSEUDO-CHILD MASKED-RAW RESCUE.
 
     Returns True iff the raw carries a SIGNIFICANT INDEPENDENT RESIDUAL given ONLY
     its GENUINE (non-pseudo) consuming engineered children: its conditional CMI
@@ -90,7 +90,7 @@ def raw_retains_signal_given_genuine_children(
     genuine subsumption or merely a gate/binagg/argmax pseudo-child MASKING the raw's
     private signal (a re-mix is selected first and DPI-collapses the raw's relevance).
     A genuine private LINEAR term keeps ~50% given its true ratio child; a fully-
-    subsumed ``a**2/b`` operand keeps ~0.6% -- the 0.05 bar separates them with >8x
+    subsumed ``a**2/b`` operand keeps ~0.6% - the 0.05 bar separates them with >8x
     margin (measured user fixture, n=40000). With NO genuine child (the conditioning
     set is empty) it returns True (cannot prove subsumption -> retention stands)."""
     from ._mi_greedy_cmi_fe import _renumber_joint
@@ -101,7 +101,7 @@ def raw_retains_signal_given_genuine_children(
     # DEVICE-BORN candidate residency (same contract as ``drop_redundant_raw_operands``; opt-out
     # MLFRAME_FE_GATE_RESIDENT_CANDS=0). The raw ``rb`` is scored (marginal + conditional) but never
     # ``_renumber_joint``-ed here (the children build ``z_support``), so upload it ONCE as resident int64 codes
-    # and thread that handle into both ``_excess_and_floor`` calls -- the candidate never re-crosses H2D at the
+    # and thread that handle into both ``_excess_and_floor`` calls - the candidate never re-crosses H2D at the
     # ``cmi_cand_x`` / ``card_cand_x`` / ``permnull_cand_x`` sites. Host codes on any fault / when off.
     # Prefer an ALREADY-RESIDENT raw candidate code handed in (the caller device-binned it) so the raw never
     # re-crosses H2D; else upload once via the content-keyed cache.
@@ -136,7 +136,7 @@ def raw_retains_signal_given_genuine_children(
     # HOST join only when the device join is unavailable: _excess_and_floor explicitly supports
     # ``z_support=None`` with a resident ``z_support_dev`` (its perm-null / analytic legs D2H the device form
     # only if a genuine host consumer is reached), and the host multi-column ``_renumber_joint`` is a full-n
-    # unique SORT per gate call -- a measurable host sink that was paid even when the device join was used.
+    # unique SORT per gate call - a measurable host sink that was paid even when the device join was used.
     z_support = None
     if z_support_dev is None:
         z_support, _zcard = _renumber_joint(*_gc)
@@ -145,8 +145,8 @@ def raw_retains_signal_given_genuine_children(
         return True
     # LINEAR-USABILITY leg (variant-3): a linearly-usable raw whose conditional CMI collapsed
     # under an excellent NONLINEAR child is still wanted in SIMPLE mode (robust raw set). Gated
-    # off in full FE mode where a subsumed monotone operand -- statistically indistinguishable
-    # from a genuine linear term -- must still drop (I4b). See the drop-sweep twin leg.
+    # off in full FE mode where a subsumed monotone operand - statistically indistinguishable
+    # from a genuine linear term - must still drop (I4b). See the drop-sweep twin leg.
     if not allow_linear_usability:
         return False
     return raw_retains_linear_signal_given_children(rb, yb, _gc, seed=seed)
@@ -194,7 +194,7 @@ def _subexpr_continuous(recipe, raw_X) -> Optional[np.ndarray]:
     Uses the production ``apply_recipe`` with quantization stripped so the
     sub-expression is reconstructed on continuous values exactly as at fit time.
     Returns ``None`` on any replay failure (the caller then falls back to the
-    fused-composite continuous values -- the conservative KEEP direction)."""
+    fused-composite continuous values - the conservative KEEP direction)."""
     if recipe is None or raw_X is None:
         return None
     try:
@@ -217,8 +217,8 @@ def _excess_and_floor(cand_bin, y_bin, z_support, *, seed=0, z_support_dev=None,
     ``z_support=None`` -> marginal MI / free-shuffle null (used for the anchor).
 
     ``z_support_dev`` (optional): a DEVICE-BORN conditioning support (``_renumber_joint_gpu`` of the resident
-    conditioning codes). When supplied it is scored RESIDENT -- the CMI reads it via ``_cmi_from_binned_cupy``'s
-    resident-z branch and the perm-null derives order/z_rank on device -- so the support never crosses H2D (the
+    conditioning codes). When supplied it is scored RESIDENT - the CMI reads it via ``_cmi_from_binned_cupy``'s
+    resident-z branch and the perm-null derives order/z_rank on device - so the support never crosses H2D (the
     ``cmi_z`` + order/z_rank uploads). The host ``z_support`` stays the byte-path fallback (and NULL if the
     caller only has the device form)."""
     from ._mi_greedy_cmi_fe import _cmi_from_binned
@@ -245,7 +245,7 @@ def _excess_and_floor(cand_bin, y_bin, z_support, *, seed=0, z_support_dev=None,
     # histograms) which only amortises across MANY candidate columns; for the SINGLE candidate here it is
     # heavier (~11 launches) than _cmi_from_binned (~5) + joint_cardinalities (~4) separately. This path is
     # genuinely per-raw with VARYING conditioning z (base / full-composite / sibling), so it is not
-    # batchable with the fixed-y/z primitives -- keep the per-call _cmi_from_binned.
+    # batchable with the fixed-y/z primitives - keep the per-call _cmi_from_binned.
     if z_support is None and z_support_dev is None:
         cmi = float(_cmi_from_binned(cand_bin, y_bin, None, kx=kx))
         floor, null_mean = _conditional_perm_null(cand_bin, y_bin, None, seed=seed)
@@ -320,7 +320,7 @@ def raw_retains_linear_signal_given_children(
     info-subsumed by an excellent NONLINEAR predictor (``s0`` captured by
     ``sub(log(s1),cbrt(add(s0,log(s2))))``) from a genuinely subsumed ratio operand
     (``a`` in ``a**2/b``): both have ~0 conditional excess. Linear usability separates
-    them -- a nonlinear child is not a linear equivalent of the raw, so ``s0`` retains
+    them - a nonlinear child is not a linear equivalent of the raw, so ``s0`` retains
     a large partial linear correlation with ``y`` after the children are regressed out,
     while ``a``'s linear residual is ~0 (the ratio child IS ``y`` linearly).
 
@@ -358,7 +358,7 @@ def raw_retains_linear_signal_given_children(
     # Permutation null: shuffle the raw residual; the 95th-percentile |corr| is the
     # n-invariant spurious-correlation floor the real partial corr must clear.
     # corr(perm, ry) reduces to (perm @ (ry-mean(ry))) / (n*std(rx)*std(ry)): perm is a
-    # reordering of rx so its mean/std are loop-invariant, and ry is fixed -- only the
+    # reordering of rx so its mean/std are loop-invariant, and ry is fixed - only the
     # cross dot product varies. Hoisting the centred target + constant denominator out
     # of the loop replaces np.corrcoef's per-iteration 2x2 rebuild with one dot product
     # (bit-identical to corrcoef up to FP reduction order, ~1e-17).
@@ -374,7 +374,7 @@ def raw_retains_linear_signal_given_children(
 
 
 def _heldout_ridge_r2(X: np.ndarray, y: np.ndarray, frac: float = 0.7) -> Optional[float]:
-    """Held-out StandardScaler+Ridge R^2 -- the SAME linear probe the I4b downstream no-harm contract measures
+    """Held-out StandardScaler+Ridge R^2 - the SAME linear probe the I4b downstream no-harm contract measures
     with (first ``frac`` rows train, remainder score; no shuffle, matching the endtoend uplift split). Returns
     None on any degenerate/estimator fault so the caller leaves its decision unchanged."""
     try:

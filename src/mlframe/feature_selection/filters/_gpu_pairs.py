@@ -1,6 +1,6 @@
-"""Cat-FE GPU dispatch -- batched joint MI computation across many pairs.
+"""Cat-FE GPU dispatch - batched joint MI computation across many pairs.
 
-Wave 99 (2026-05-21): split out from ``gpu.py`` to keep that file
+Wave 99: split out from ``gpu.py`` to keep that file
 below the 1k-line monolith threshold. Behaviour preserved bit-for-bit;
 ``mi_direct_gpu_batched_pairs`` is re-exported from ``gpu`` so
 existing imports continue to work.
@@ -16,7 +16,7 @@ from ._internals import GPU_MAX_BLOCK_SIZE
 
 logger = logging.getLogger(__name__)
 
-# GPU_INFRA_D-2 fix: the property-set + launch pair below mutates a process-wide,
+# The property-set + launch pair below mutates a process-wide,
 # module-level compiled-kernel object's CUDA driver attribute (max_dynamic_shared_size_bytes) with no lock.
 # Two threads calling mi_direct_gpu_batched_pairs concurrently with different shared-mem requirements could
 # race: one thread's smaller value could overwrite the other's larger budget before its own launch enqueues,
@@ -39,10 +39,10 @@ def mi_direct_gpu_batched_pairs(
     """Compute ``I(X_i, X_j; Y)`` for every ``(i, j) in zip(pairs_a, pairs_b)`` on GPU. Returns a 1-D ``float64`` array of joint MIs aligned with the input order.
 
     Kernel-level batching via 3D grid: ONE launch processes all pairs in parallel through ``compute_joint_hist_multi_pair_cuda``. Joint MI per pair is then
-    computed on CPU (cheap relative to histogram aggregation). Cuts per-pair kernel-launch overhead (~30us) to zero -- at n_pairs=4950 that saves ~150ms vs the
+    computed on CPU (cheap relative to histogram aggregation). Cuts per-pair kernel-launch overhead (~30us) to zero - at n_pairs=4950 that saves ~150ms vs the
     naive per-pair loop.
 
-    Preconditions: CuPy installed and a GPU available; ``classes_y`` / ``freqs_y`` precomputed by the caller. Raises a clear error if CuPy is missing -- callers
+    Preconditions: CuPy installed and a GPU available; ``classes_y`` / ``freqs_y`` precomputed by the caller. Raises a clear error if CuPy is missing - callers
     must resolve ``backend`` before calling.
     """
     try:
@@ -54,7 +54,7 @@ def mi_direct_gpu_batched_pairs(
             "or set CatFEConfig(backend='cpu')."
         ) from e
 
-    # Wave 99: lazy-import the parent module so kernel symbols can be
+    # lazy-import the parent module so kernel symbols can be
     # resolved AFTER _ensure_kernels_inited() populates them. The kernel
     # globals start as None at module-load and get reassigned by
     # init_kernels(); importing the names directly would cache the None.
@@ -77,7 +77,7 @@ def mi_direct_gpu_batched_pairs(
     # A5 fix (Critic 1): validate factors_data values are within their
     # declared bin range. Out-of-range values produce a ``merged`` index
     # that overflows the per-pair slice and silently corrupts the next
-    # pair's histogram (still inside joint_counts_flat -- no segfault,
+    # pair's histogram (still inside joint_counts_flat - no segfault,
     # just wrong MI numbers). The CPU path validates via ``merge_vars``;
     # the GPU path didn't. Cheap host-side max-per-column scan.
     _ref_cols = np.unique(np.concatenate([np.asarray(pairs_a), np.asarray(pairs_b)]))
@@ -122,15 +122,15 @@ def mi_direct_gpu_batched_pairs(
             f"max_combined_nbins or run on CPU."
         )
 
-    # RESIDENT UPLOAD (2026-07-13): this function is invoked ONCE per fit (the cat-FE step runs it once
-    # before the screening loop -- see ``_fit_impl_core.py``'s "Runs once before the screening loop"
+    # RESIDENT UPLOAD: this function is invoked ONCE per fit (the cat-FE step runs it once
+    # before the screening loop - see ``_fit_impl_core.py``'s "Runs once before the screening loop"
     # comment at its call site), so ``resident_operand``'s cross-call dedup has no repeat-call win to claim
     # for the CURRENT callers; applied anyway (cheap + correct via content-hash, never a perf regression)
     # in case a future/other caller invokes this more than once per fit. ``classes_y``/``nbins_a``/
     # ``joint_offsets`` are genuinely fit-constant-shaped operands; ``factors_data_T`` is rebuilt fresh
     # from ``factors_data.T`` every call (a transient transpose, not a stored fit-constant), so its content
     # generally differs call-to-call and the resident cache will practically never hit for it in this
-    # single-call-per-fit codepath -- kept for correctness/consistency, not for a measured win.
+    # single-call-per-fit codepath - kept for correctness/consistency, not for a measured win.
     from ._fe_resident_operands import resident_operand
     factors_data_T = np.ascontiguousarray(factors_data.T.astype(np.int32))
     factors_data_T_gpu = resident_operand(factors_data_T, "pairs_factors_data_T", dtype=np.int32)
@@ -140,7 +140,7 @@ def mi_direct_gpu_batched_pairs(
     nbins_a_gpu = resident_operand(nbins_a, "pairs_nbins_a", dtype=np.int32)
     # Host-side joint_offsets is int64 (overflow-safe cumsum); the kernel
     # signature ``const int *joint_offsets`` (int32) is preserved by
-    # narrowing here -- safe because the earlier 4 GB total_cells guard
+    # narrowing here - safe because the earlier 4 GB total_cells guard
     # enforces ``total_cells < 2**30 < 2**31``, which fits int32 exactly.
     joint_offsets_gpu = resident_operand(joint_offsets, "pairs_joint_offsets", dtype=np.int32)
     joint_counts_flat = cp.zeros(total_cells, dtype=cp.int32)
@@ -162,25 +162,25 @@ def mi_direct_gpu_batched_pairs(
             if _entry is not None and "block_size" in _entry:
                 block_size = int(_entry["block_size"])
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _gpu_pairs.py:147: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
     grid_x = (n_rows + block_size - 1) // block_size
 
     # Kernel-variant dispatch: shared-mem multi-pair kernel wins for small
     # per-pair joint_size_y. Pre-fix the 4096-cell cap was a hardcoded
     # cc 6.x 16 KB assumption; cc 7+ opt-in shared memory reaches 96-227 KB.
-    # Wave 23 P1 fix (2026-05-20): probe live device's shared-mem budget
+    # Wave 23 P1 fix: probe live device's shared-mem budget
     # via pyutilz.system.gpu_dispatch.get_shared_mem_budget_per_block
     # (the helper that batch_pair_mi_gpu._derive_max_joint_bins already
     # uses); fall back to 4096 only when the probe is unavailable.
     #
     # BUG (found 2026-07-16, fixed here): the probe call below was ``_shared_budget()`` with NO
     # arguments, but ``get_shared_mem_budget_per_block`` requires ``(cc_major, cc_minor,
-    # allow_opt_in=False)`` -- every call raised TypeError, silently caught by the bare except, so this
+    # allow_opt_in=False)`` - every call raised TypeError, silently caught by the bare except, so this
     # "fix" never actually engaged on ANY host; every dispatch fell back to the pre-2026-05-20 4096-cell
     # default regardless of hardware. Also switched to ``allow_opt_in=True`` (the comment above already
     # says cc7+ opt-in reaches 96-227 KB, matching this kernel's own opt-in ``max_dynamic_shared_size_bytes``
-    # wiring below -- see ``_batch_pair_mi_cuda_shared_fused.py`` for the sibling fix and the verified-live
+    # wiring below - see ``_batch_pair_mi_cuda_shared_fused.py`` for the sibling fix and the verified-live
     # opt-in numbers on this host, 48KB static vs 99KB opt-in on an RTX 500 Ada).
     max_joint_size_y = int(pair_joint_sizes.max()) if len(pair_joint_sizes) else 0
     try:
@@ -205,9 +205,9 @@ def mi_direct_gpu_batched_pairs(
         _needed_shared_bytes = max_joint_size_y * 4
         # Opt into extended dynamic shared memory (cp.RawKernel-native; verified working, see
         # _batch_pair_mi_cuda_shared_fused.py) only when the STATIC 48KB-per-block default would not
-        # cover this call's actual shared-memory need -- avoids touching the property (which some
+        # cover this call's actual shared-memory need - avoids touching the property (which some
         # driver versions reject below the static default) on the common small-shape path.
-        # GPU_INFRA_D-2 fix: the property set + launch must be atomic together --
+        # The property set + launch must be atomic together -
         # otherwise a concurrent call with a different _needed_shared_bytes could overwrite the budget
         # between this thread's set and its own launch enqueuing (see _SHARED_MEM_SET_LOCK's module note).
         with _SHARED_MEM_SET_LOCK:
@@ -243,8 +243,8 @@ def mi_direct_gpu_batched_pairs(
     # MI = sum over non-zero cells of (jc/n) * log(jc * n / (marg_m * marg_y)), in nats.
     n_total = float(n_rows)
     joint_mi_out = np.zeros(n_pairs, dtype=np.float64)
-    # GPU_INFRA_D-5 fix: the per-pair reduction below used to be a pure-Python
-    # triple-nested loop (for k / for m / for y), i.e. O(total joint cells) at native Python speed -- up to
+    # The per-pair reduction below used to be a pure-Python
+    # triple-nested loop (for k / for m / for y), i.e. O(total joint cells) at native Python speed - up to
     # ~1.07e9 cells (the 4GB guard elsewhere in this module), which would dominate wall-clock and defeat the
     # point of collapsing per-pair kernel launches into one batched launch. Vectorized per-pair with numpy;
     # SAME formula (sum over non-zero cells of jf * log(jc*n/(mm*my))), zero semantic change.

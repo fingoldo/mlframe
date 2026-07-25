@@ -1,12 +1,12 @@
 """Standalone structure-discovery / EDA tool: ``discover_structure(X, y) -> StructureReport``.
 
-Surfaces the hidden DISCRETE structural relationships the four FE detectors find -- turning them from silent feature-emitters into a
+Surfaces the hidden DISCRETE structural relationships the four FE detectors find - turning them from silent feature-emitters into a
 user-facing insight tool. A correlation matrix or a tree-importance plot never reveals that ``y`` depends on ``gcd(price, quantity)``,
 on ``(a + b) mod 7``, on a regime switch ``c > tau ? a : b``, or on ``argmax(a, b, c)``; these relationships are number-theoretic /
 non-smooth / comparison-based, so smooth bases and a single correlation coefficient cannot express them. This runs the four shipped
 detectors on ``(X, y)`` and returns a ranked, human-readable report of what it found.
 
-It REUSES the detectors verbatim -- it does NOT reimplement detection, the MI scoring, the permutation-null gate, or the
+It REUSES the detectors verbatim - it does NOT reimplement detection, the MI scoring, the permutation-null gate, or the
 best-existing-op baseline. Each detector already returns only ``responded`` hits (cleared both the smooth-basis / best-existing-op
 baseline AND a permutation-null upper band), so the 0-false-discovery guarantee on structureless data is INHERITED: a smooth / linear /
 noise frame returns an EMPTY report.
@@ -64,9 +64,9 @@ class DiscoveredRelation:
     parameter
         The detected structural parameter: the modulus ``m`` for modular kinds, the threshold ``tau`` for gate kinds, ``None`` otherwise.
     mi
-        Engineered-column plug-in MI vs y (nats) -- how strongly the discovered structure explains y.
+        Engineered-column plug-in MI vs y (nats) - how strongly the discovered structure explains y.
     baseline_mi
-        MI of the best EXISTING op / raw operand the relationship is gated against -- the floor the structure had to beat.
+        MI of the best EXISTING op / raw operand the relationship is gated against - the floor the structure had to beat.
     lift
         ``mi / baseline_mi`` (clamped; ``inf`` when the baseline is ~0). How much the discovered structure adds over what a selector
         already had from the raw columns / cheap ops.
@@ -93,7 +93,7 @@ class DiscoveredRelation:
 class StructureReport:
     """Ranked report of the discrete structural relationships ``discover_structure`` found in ``(X, y)``.
 
-    ``relations`` is ranked by MI descending (then lift), capped at ``top_k``. Empty when nothing responded -- the headline
+    ``relations`` is ranked by MI descending (then lift), capped at ``top_k``. Empty when nothing responded - the headline
     anti-false-discovery guarantee on smooth / linear / noise frames. ``str(report)`` / ``report.summary()`` render a readable block;
     ``skipped`` carries a reason string when the scan was skipped (e.g. 2D y)."""
 
@@ -281,9 +281,9 @@ def discover_structure(
 ) -> StructureReport:
     """Discover hidden DISCRETE structural relationships between the columns of ``X`` and the target ``y``.
 
-    Runs the four shipped FE detectors -- pairwise/n-way MODULAR (``(a+b) mod m`` / parity / hidden period), integer-LATTICE
+    Runs the four shipped FE detectors - pairwise/n-way MODULAR (``(a+b) mod m`` / parity / hidden period), integer-LATTICE
     (``gcd`` / ``lcm`` / ``bitwise_and``), row-ARGMAX (which of a, b, c is largest), and conditional-GATE (regime switch
-    ``c>tau ? a : b`` / masked interaction ``1[c>tau]*a``) -- and returns a ranked, human-readable :class:`StructureReport` of what
+    ``c>tau ? a : b`` / masked interaction ``1[c>tau]*a``) - and returns a ranked, human-readable :class:`StructureReport` of what
     responded. Each detector's own permutation-null + best-existing-op gate is reused unchanged, so a smooth / linear / noise frame
     yields an EMPTY report (0 false discovery, inherited).
 
@@ -375,7 +375,7 @@ def discover_structure(
 def structure_report_from_recipes(recipes, *, n_columns: int = 0) -> StructureReport:
     """Assemble a :class:`StructureReport` from the frozen ``EngineeredRecipe`` objects a fitted MRMR already emitted.
 
-    Reads ONLY the metadata the four detectors froze at fit time (``kind`` / ``src_names`` / ``extra`` op / modulus / tau / mode) -- no
+    Reads ONLY the metadata the four detectors froze at fit time (``kind`` / ``src_names`` / ``extra`` op / modulus / tau / mode) - no
     re-scan, no y, near-free. Used by ``MRMR.discovered_structure_`` so a user who already fit MRMR can read what discrete structure was
     found. MI / baseline / lift are not available from the recipe (the fit did not freeze the scan's MI), so they are reported as ``nan``;
     the kind + columns + parameter (the structural facts) are exact."""

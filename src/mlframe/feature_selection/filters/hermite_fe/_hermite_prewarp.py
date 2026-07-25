@@ -60,7 +60,7 @@ def _l2_normalize_pair(coef_a: np.ndarray, coef_b: np.ndarray, target_norm: floa
 
 # Default saturation constant for the scale-invariant coefficient penalty (see
 # ``_l2_penalty_value``). When ``l2_penalty_saturation > 0`` the penalty is
-# ``lambda * ||c||^2 / (||c||^2 + saturation)`` -- it rises from 0 toward a
+# ``lambda * ||c||^2 / (||c||^2 + saturation)`` - it rises from 0 toward a
 # CONSTANT ``lambda`` ceiling as ``||c||^2`` grows past ``saturation``, so a
 # genuinely high-MI / high-coefficient solution is never crushed (the failure
 # mode the raw ``lambda * ||c||^2`` penalty caused on the F-POLY pre-distortion
@@ -114,16 +114,16 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
 
     ``B_a`` / ``B_b`` are precomputed basis matrices ``B[i, k] = T_k(z[i])`` of
     shape ``(n, degree + 1)`` (see :func:`build_basis_matrix`). Returns
-    ``(coef_a, coef_b)`` -- each length ``degree + 1`` -- such that ``B_a @
+    ``(coef_a, coef_b)`` - each length ``degree + 1`` - such that ``B_a @
     coef_a`` and ``B_b @ coef_b`` are the rank-1 separable factors best fitting
     the centred target.
 
     Why ALS and not two independent 1-D fits: for a centred product target the
     marginal ``E[y | x_b]`` is ~ ``g(x_b) * E[f(x_a)] ~ 0``, so an independent
     1-D least-squares fit of ``y`` on ``B_b`` recovers almost nothing on the
-    b-side (measured corr 0.49 vs Q on the F-POLY fixture). One ALS sweep -- fit
+    b-side (measured corr 0.49 vs Q on the F-POLY fixture). One ALS sweep - fit
     ``f`` given the current ``g`` by regressing ``y`` on ``B_a`` scaled
-    column-wise by ``g``, then symmetrically -- recovers BOTH factors exactly
+    column-wise by ``g``, then symmetrically - recovers BOTH factors exactly
     (corr 1.0 each on F-POLY) in three cheap ``lstsq`` solves. This is the
     highest-leverage, near-free warm start: it lands the joint optimiser
     directly in the true (large-coefficient) basin that CMA-ES otherwise never
@@ -131,14 +131,14 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
 
     The returned coefficient SCALE is arbitrary for a ``mul`` combination (MI is
     scale-invariant under ``mul``); the magnitude is split between the two
-    factors by the ALS normalisation and is intentionally NOT projected -- the
+    factors by the ALS normalisation and is intentionally NOT projected - the
     saturating penalty (:func:`_l2_penalty_value`) makes that scale harmless.
 
     Returns ``(None, None)`` if the target has no variance or ``lstsq`` fails.
 
     ROBUST WARP FIT: ``x_a`` / ``x_b`` (the raw operand
     columns) are accepted so a heavy-tail-gated robust (Huber-IRLS) ALS sweep COULD
-    be substituted here -- but it is intentionally NOT, because robustifying the
+    be substituted here - but it is intentionally NOT, because robustifying the
     rank-1 ALS does not ship safely. The robust fit DID ship for the convex 1-D
     :func:`fit_operand_prewarp` solve (clean 30/30 win, never regresses); the ALS
     sweep is different and the params are kept only for call-site symmetry / future
@@ -181,7 +181,7 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
                 import cupy as _cp
                 _dev_errs.append(_cp.cuda.runtime.CUDARuntimeError)
                 _dev_errs.append(_cp.cuda.memory.OutOfMemoryError)
-                # FIX4 (2026-06-28): cuSOLVER/cuBLAS faults from cp.linalg.solve/lstsq subclass plain
+                # FIX4: cuSOLVER/cuBLAS faults from cp.linalg.solve/lstsq subclass plain
                 # RuntimeError, NOT CUDARuntimeError -> omitting them would crash instead of falling
                 # back. getattr so an absent symbol can't break the tuple builder.
                 from cupy_backends.cuda.libs import cusolver as _cusolver
@@ -236,9 +236,9 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
     # degenerate operand basis is still handled bit-for-bit as before. bench: bench_als.py.
     # GPU-RESIDENCY bench-note (iter17, 2026-06-23): warm_start_als_seed + its _als_solve stay CPU.
     # F2 100k cProfile: warm_start_als_seed 0.497s tottime / 0.957s cum over 89 calls; _als_solve 0.325s
-    # over 623 calls -- ~1.5-3% of the 31.6s WALL. NOT resident-routable on this HW: each seed is a strictly
+    # over 623 calls - ~1.5-3% of the 31.6s WALL. NOT resident-routable on this HW: each seed is a strictly
     # SEQUENTIAL rank-1 ALS sweep (1 init + iters*2 = 7 dependent solves; g depends on cb, f on ca, next cb on f),
-    # so there is no batch axis -- a cupy twin would H2D a tiny (n x degree+1<=5) design and run solve(AtA, At b)
+    # so there is no batch axis - a cupy twin would H2D a tiny (n x degree+1<=5) design and run solve(AtA, At b)
     # on a 5x5 normal-eq system 623 separate times. The GEMM is (5x5) and the solve is 5x5: every kernel is
     # below the GTX 1050 Ti launch+H2D crossover (the cmi/maxT residents only won by batching THOUSANDS of cols
     # into one resident call; here the inner dim is ~4 and the sweep can't be unrolled across seeds without
@@ -291,7 +291,7 @@ def fit_operand_prewarp(
     implementation rather than duplicating the basis fit.
 
     The fit consumes ``y`` (it is supervised, like the MI scoring), but the
-    returned spec is a CLOSED-FORM function of ``x`` alone -- the stored
+    returned spec is a CLOSED-FORM function of ``x`` alone - the stored
     ``coef`` + basis ``preprocess`` params reproduce ``f(x)`` deterministically
     at transform() time with NO ``y`` reference (leak-safe replay).
 
@@ -359,8 +359,8 @@ def fit_pair_prewarp_als(
     for a centred product target ``y ~ P(a) * Q(b)`` the marginal ``E[y | b] ~
     Q(b) * E[P(a)] ~ 0``, so an INDEPENDENT 1-D fit of ``y`` on the b-basis
     recovers almost nothing on the b-side (measured corr ~0.1 on the F-POLY
-    fixture). The ALS sweep alternates -- fit ``f`` given the current ``g``, then
-    ``g`` given ``f`` -- and recovers BOTH factors (corr ~1.0 each). This is the
+    fixture). The ALS sweep alternates - fit ``f`` given the current ``g``, then
+    ``g`` given ``f`` - and recovers BOTH factors (corr ~1.0 each). This is the
     SAME mechanism the orthogonal-poly path warm-starts the joint CMA optimiser
     with; reusing it here gives the elementary unary/binary search a genuine
     per-operand non-monotone pre-warp for product-structured pairs.
@@ -418,7 +418,7 @@ def apply_operand_prewarp(x: np.ndarray, spec: dict) -> np.ndarray:
     the held-out-validated adaptive detector (non-integer, so the integer-
     harmonic ``"fourier"`` basis in ``bases.py`` cannot express them); ``coef``
     packs ``[a_1, b_1, ..., a_K, b_K]``. Pure function of ``x`` + stored params
-    -- leak-safe replay, same contract as the polynomial branch below."""
+    - leak-safe replay, same contract as the polynomial branch below."""
     basis = str(spec["basis"])
     if basis == "fourier_adaptive":
         pp = dict(spec["preprocess"])
@@ -447,14 +447,13 @@ def apply_operand_prewarp(x: np.ndarray, spec: dict) -> np.ndarray:
 
 
 def _ksg_mi_1d(x: np.ndarray, y: np.ndarray, *, discrete_target: bool, n_neighbors: int = 3, random_state: int = 42) -> float:
-    """KSG MI of 1-D x with target -- used as the optimisation objective.
+    """KSG MI of 1-D x with target - used as the optimisation objective.
 
-    ``random_state`` (X_EDGE_CASES_BEST_PRACTICES-5 fix): was hardcoded to 42
-    regardless of the estimator's own random_state/random_seed -- the same hardcoded-seed bug class
-    fixed elsewhere this audit wave (MI_GREEDY_RECIPES-1, ORTH_BASIS_A-1, GPU_INFRA_D-3). This function
-    is currently dead code (re-exported but never called from src/ or tests/), so the hardcoded default
-    is harmless today; the parameter now exists so a future caller wiring this in as a real "ksg"
-    mi_estimator option threads its own seed instead of silently reintroducing the bug."""
+    ``random_state`` was previously hardcoded to 42 regardless of the estimator's own
+    random_state/random_seed - the hardcoded-seed bug class. This function is currently unused in ``src/``
+    (re-exported but never called from production code), so the hardcoded default is harmless today; the
+    parameter now exists so a future caller wiring this in as a real "ksg" mi_estimator option threads its
+    own seed instead of silently reintroducing the bug."""
     if discrete_target:
         return float(mutual_info_classif(x.reshape(-1, 1), y, n_neighbors=n_neighbors, random_state=random_state, discrete_features=False)[0])
     return float(mutual_info_regression(x.reshape(-1, 1), y, n_neighbors=n_neighbors, random_state=random_state, discrete_features=False)[0])

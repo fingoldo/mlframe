@@ -4,7 +4,7 @@ A feature can pass the model-based adversarial-AUC diagnostic (the CLASSIFIER ca
 using it, or its contribution to the combined signal is small) yet still have a distribution that shifted
 meaningfully between splits when examined ALONE. A 1st-place LANL-earthquake-prediction team's rule: only
 keep a feature if its train-vs-test Kolmogorov-Smirnov test p-value clears a threshold (``<= 0.05`` rejects
-the feature) -- a per-feature, distribution-based check that complements (not duplicates) adversarial
+the feature) - a per-feature, distribution-based check that complements (not duplicates) adversarial
 validation's model-based, joint-feature-set check.
 """
 from __future__ import annotations
@@ -67,9 +67,9 @@ def ks_stability_filter(
 
     multi_split = n_splits > 1
     if multi_split and not (0.0 < split_frac <= 1.0):
-        # CLUSTERING_STABILITY-8 fix: a split_frac > 1.0 (or <= 0) used to crash
+        # a split_frac > 1.0 (or <= 0) used to crash
         # deep inside rng.choice(..., replace=False) with an opaque "a cannot be greater than population
-        # size" ValueError -- validate up front and name the bad argument clearly.
+        # size" ValueError - validate up front and name the bad argument clearly.
         raise ValueError(f"ks_stability_filter: split_frac must be in (0.0, 1.0]; got {split_frac!r}")
     rng = np.random.default_rng(random_state) if multi_split else None
 

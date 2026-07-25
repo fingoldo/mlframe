@@ -2,14 +2,14 @@
 fe_expansion.md "Multivariate Mahalanobis / Gaussian-copula joint density anomaly score").
 
 Computes a single new feature ``d(row) = sqrt((x-mu)^T Sigma^-1 (x-mu))`` over a correlated
-cluster (or all) of numeric raw columns jointly -- the classical multivariate-normal quadratic
+cluster (or all) of numeric raw columns jointly - the classical multivariate-normal quadratic
 form, with the mean/covariance Ledoit-Wolf shrunk (reused from ``sklearn.covariance.LedoitWolf``,
 not reimplemented) to avoid p-close-to-n ill-conditioning.
 
 Why this catches a shape the catalog misses: y can depend on whether a row sits inside or outside
 an ELLIPSOIDAL level-set of the joint distribution of p=15-30 correlated numeric columns (e.g. a
 multivariate process-control / fraud "jointly-typical vs jointly-atypical" target) where NO single
-column, pair, triplet, or even a quadruplet arity-4 cross-basis is individually extreme -- each
+column, pair, triplet, or even a quadruplet arity-4 cross-basis is individually extreme - each
 column can sit comfortably within its own marginal range while the JOINT combination is far in
 Mahalanobis distance (the classic multivariate-outlier-invisible-to-univariate-checks scenario).
 The existing group_distance / conditional-dispersion families condition one column's deviation on
@@ -57,7 +57,7 @@ def mahalanobis_density_feature(
     Returns
     -------
     (n,) float64 array of Mahalanobis distances (``>= 0``). Degenerate input (n_fit < p+1, p < 1,
-    non-finite X or X_fit) returns an all-NaN ``(n,)`` array rather than raising -- Ledoit-Wolf
+    non-finite X or X_fit) returns an all-NaN ``(n,)`` array rather than raising - Ledoit-Wolf
     itself needs at least a modest sample-to-dimension ratio to shrink meaningfully.
     """
     X = np.asarray(X, dtype=np.float64)
@@ -115,7 +115,7 @@ def generate_mahalanobis_density_features(X: "pd.DataFrame", cols: Sequence[str]
 
 def apply_mahalanobis_density(X_test: "pd.DataFrame", payload: dict) -> "pd.DataFrame":
     """Replay a fitted Mahalanobis-density score on new rows: closed-form quadratic form against
-    the frozen ``mu``/``Sigma_inv`` -- reads only X, no ``y``."""
+    the frozen ``mu``/``Sigma_inv`` - reads only X, no ``y``."""
     cols = list(payload["cols"])
     missing = [c for c in cols if c not in X_test.columns]
     if missing:

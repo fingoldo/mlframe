@@ -4,7 +4,7 @@ A feature can look informative on MI/permutation-importance yet be "jumpy": its 
 target (via its deviation from a per-entity/group baseline) flips sign across different subsamples of
 entities/groups, meaning the signal doesn't generalize and is likely a resampling artifact rather than a real
 effect. This complements plain permutation-MI/MRMR (which score on the full sample once) with a check for
-whether the monotonic separation actually holds up under resampling -- the diagnostic an 8th-place Ubiquant
+whether the monotonic separation actually holds up under resampling - the diagnostic an 8th-place Ubiquant
 writeup used to discard features that were "jumpy... across many different baskets" of entities.
 """
 from __future__ import annotations
@@ -81,7 +81,7 @@ def monotonic_deviation_stability_filter(
 
     y = np.asarray(y, dtype=np.float64)
     group_means = df.groupby(group_col, sort=False)[feature_cols].transform("mean")
-    # Materialise the (n, p) deviation matrix ONCE -- the loops below used to call ``.to_numpy()`` on a
+    # Materialise the (n, p) deviation matrix ONCE - the loops below used to call ``.to_numpy()`` on a
     # single column per (subsample, feature)/(segment, feature) cell (30x500 = ~15,000 re-materialisations
     # by default); every consumer below slices ROWS out of this one array instead.
     dev_matrix = np.asarray(df[feature_cols].to_numpy(), dtype=np.float64) - np.asarray(group_means.to_numpy(), dtype=np.float64)
@@ -95,8 +95,8 @@ def monotonic_deviation_stability_filter(
     full_sample_corr = dict(zip(feature_cols, full_sample_corr_arr.tolist()))
     full_sign_arr = np.sign(full_sample_corr_arr)
 
-    # BATCHED SPEARMAN (2026-07-13): the pre-fix code called ``scipy.stats.spearmanr`` ONCE PER (subsample,
-    # feature) -- default 30 x 500 = ~15,000 individual scipy calls. Spearman correlation IS Pearson
+    # BATCHED SPEARMAN: the pre-fix code called ``scipy.stats.spearmanr`` ONCE PER (subsample,
+    # feature) - default 30 x 500 = ~15,000 individual scipy calls. Spearman correlation IS Pearson
     # correlation of the (average-tie) ranks by definition, so every feature sharing one subsample's row
     # mask can be rank-transformed and correlated in ONE batched pass instead of one scipy call per column
     # (see ``_spearman_corr_batch``). ``agreement_counts_arr`` replaces the per-column dict with a running
@@ -165,14 +165,14 @@ def _spearman_corr_batch(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     against the shared ``y`` (n,), in ONE rank-transform + ONE vectorized Pearson-on-ranks pass instead of
     one ``scipy.stats.spearmanr`` call per column.
 
-    Spearman correlation IS Pearson correlation of the (average-tie) ranks by definition -- not an
-    approximation -- and ``scipy.stats.rankdata(x, axis=0)`` ranks each column of a 2D array
+    Spearman correlation IS Pearson correlation of the (average-tie) ranks by definition - not an
+    approximation - and ``scipy.stats.rankdata(x, axis=0)`` ranks each column of a 2D array
     INDEPENDENTLY (a NaN confined to one column only poisons that column's own rank vector, verified), the
     same average-tie method ``scipy.stats.spearmanr`` uses internally, so batching the rank transform
     across every column sharing one ``y`` reproduces ``_spearman_corr``'s per-column results to ~1e-12.
 
     Matches ``_spearman_corr``'s degenerate-input contract per column: 0.0 when ``n < 2``, ``y`` is
-    NaN-containing or constant (checked once, since ``y`` is shared -- the sub-loop calling this once per
+    NaN-containing or constant (checked once, since ``y`` is shared - the sub-loop calling this once per
     subsample no longer re-derives that per feature), or the column itself is NaN-containing or constant
     (``scipy.stats.spearmanr`` propagates any NaN in either side to the WHOLE correlation, matching the
     isfinite-mask precheck here rather than a masked/partial-overlap correlation).

@@ -1,16 +1,16 @@
-"""MANDATE-2 (2026-06-23): resident GPU candidate-GENERATION + MI for the host-numpy FE-gate MI path.
+"""MANDATE-2: resident GPU candidate-GENERATION + MI for the host-numpy FE-gate MI path.
 
 The #1 mlframe CPU-compute kernel in the F2 MRMR fit is ``_plugin_mi_classif_batch_njit`` (cProfile tottime
 ~2.94s of a 34.7s warm F2 100k fit, 157 calls), reached via ``_orth_mi_backends._mi_classif_batch`` from the
 conditional-gate FE (``best_existing_op_mi`` / ``_gate_grid_mi``), the pairwise-modular FE, and the unified
 FE gate. Its candidate matrices are built on the HOST with numpy (``u*v``, ``u-v``, ``u/(|v|+eps)``, ``u+v``,
-``column_stack``, ``stack.max/min/sum``) -- the candidates were NEVER on the GPU, so unlike the FE-PAIR MI path
+``column_stack``, ``stack.max/min/sum``) - the candidates were NEVER on the GPU, so unlike the FE-PAIR MI path
 (already end-to-end resident) there was no device handoff to extend. This module ports that candidate
 GENERATION to cupy and feeds the ALREADY-RESIDENT plug-in MI (``_plugin_mi_classif_batch_cuda_resident`` in
-``_hermite_fe_mi``) with NO host round-trip -- the candidate columns are built, binned, and MI-scored entirely
+``_hermite_fe_mi``) with NO host round-trip - the candidate columns are built, binned, and MI-scored entirely
 on the device.
 
-PER-OP COVERAGE: every operator ``best_existing_op_mi`` uses has a bit-identical cupy twin --
+PER-OP COVERAGE: every operator ``best_existing_op_mi`` uses has a bit-identical cupy twin -
 ``u*v`` / ``u-v`` / ``u+v`` / ``u/(|v|+eps)`` (elementwise, IEEE-identical to numpy), and the
 ``stack.max/min/sum(axis=1)`` row reductions (cupy reductions match numpy to fp64 round-off). There is NO
 scipy.special / transcendental op in this path, so the WHOLE candidate set ports; a future op with no
@@ -22,9 +22,9 @@ overwhelmingly sub-crossover (k<=18 dominate; the resident GPU MI crossover is ~
 keeps small-k on CPU here (correct) and selects the resident path for large-k / stronger GPUs / larger p.
 
 EQUIVALENCE: the resident MI uses percentile-edge equi-frequency binning (vs the njit rank-based binning),
-selection-equivalent (not bit-identical at ties) -- the SAME approved trade the FE-PAIR resident path already
+selection-equivalent (not bit-identical at ties) - the SAME approved trade the FE-PAIR resident path already
 ships (Spearman 1.0, argmax match; MRMR selection-equivalence tests pass). On a no-cupy / CPU-only host the
-gate returns ``None`` and the caller stays on the exact njit path -- byte-for-byte unchanged.
+gate returns ``None`` and the caller stays on the exact njit path - byte-for-byte unchanged.
 """
 from __future__ import annotations
 
@@ -85,7 +85,7 @@ def _build_best_existing_op_candidates_gpu(cols_arr_gpu: list, cp):
 
     Mirrors the host numpy generation in ``_conditional_gate_fe.best_existing_op_mi`` op-for-op (raw columns
     + pairwise product / diff / ratio / sum + row max / min + full row sum when >=3 operands). Returns an
-    (n, k) cupy float64 matrix -- NO host transfer. Column ORDER is identical to the host path so the
+    (n, k) cupy float64 matrix - NO host transfer. Column ORDER is identical to the host path so the
     per-column MI maps 1:1.
 
     FUSED (launch-reduction): one op-table RawKernel builds ALL candidate columns (raw + 4 pairwise ops +
@@ -94,7 +94,7 @@ def _build_best_existing_op_candidates_gpu(cols_arr_gpu: list, cp):
 
     bench-attempt-rejected (2026-06-26): host-stacking the operand columns (np.column_stack + one H2D) to drop
     the device cp.stack launch was selection-IDENTICAL by construction (same f64 matrix) yet flipped
-    test_gpu_cpu_mi_selection_equivalence[reg_mixed] -- the host column_stack of the operand views does not
+    test_gpu_cpu_mi_selection_equivalence[reg_mixed] - the host column_stack of the operand views does not
     reproduce the exact device cp.stack byte layout/order this razor-edge case depends on. Kept the device
     cp.stack."""
     m = len(cols_arr_gpu)
@@ -186,8 +186,8 @@ def gate_grid_mi_resident(
     """Resident-GPU twin of ``_conditional_gate_fe._gate_grid_mi`` that builds the tau-grid candidate columns
     ON THE DEVICE (no host-built matrix uploaded) and scores per-column MI with the resident plug-in kernel.
 
-    DEVICE-BORN TAU-GRID (2026-06-29): the host gate-grid path materialises an ``(n, sum_k)`` float64 matrix on
-    the HOST then ``cp.asarray``-uploads it at ``_orth_mi_backends.py:311`` -- the dominant H2D of a GPU-strict
+    DEVICE-BORN TAU-GRID: the host gate-grid path materialises an ``(n, sum_k)`` float64 matrix on
+    the HOST then ``cp.asarray``-uploads it at ``_orth_mi_backends.py:311`` - the dominant H2D of a GPU-strict
     F2 fit (~2.8 GB / 65% on a 300k fit). Here each combo's tau-grid block is built directly on the device from
     the RESIDENT operand columns (uploaded once per fit via the operand cache), so ONLY the small operand
     columns cross H2D, never the (much larger) candidate matrix.
@@ -199,11 +199,11 @@ def gate_grid_mi_resident(
     column-name tuple ((a, c) for mask = operands (cv=c, av=a); (a, b, c) for select = operands (cv=c, av=a,
     bv=b)) used as the STABLE resident-operand cache key so each recurring column uploads ONCE per fit (not once
     per spec). ``taus`` is a host 1-D float64 array of thresholds. The returned (sum_k,) host MI vector
-    concatenates each combo's per-tau MIs in spec order -- IDENTICAL layout to the host ``_gate_grid_mi`` of the
+    concatenates each combo's per-tau MIs in spec order - IDENTICAL layout to the host ``_gate_grid_mi`` of the
     concatenated blocks, so the caller's per-combo argmax slicing is unchanged.
 
     ESTIMATOR CONSISTENCY: ``rank_binning`` is threaded through verbatim so the resident batch bins with the
-    SAME estimator (RANK vs percentile-EDGE) the per-triple / host path would have used -- no EDGE<->RANK switch
+    SAME estimator (RANK vs percentile-EDGE) the per-triple / host path would have used - no EDGE<->RANK switch
     that could shift selection (the reg_mixed failure mode). Each column is binned INDEPENDENTLY, so the MI is
     per-column bit-identical to the host estimator's per-column MI.
 

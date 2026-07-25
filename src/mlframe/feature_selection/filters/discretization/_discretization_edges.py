@@ -1,8 +1,8 @@
 """Native bin-edge calculators for the discretisation pipeline.
 
 Houses the Knuth (2006) optimal-bin-count rule and the Scargle (2013) Bayesian
-Blocks change-point binner -- both reimplemented from primary sources after
-astropy was dropped from the install graph -- plus the ``histogram`` shim that
+Blocks change-point binner - both reimplemented from primary sources after
+astropy was dropped from the install graph - plus the ``histogram`` shim that
 routes ``bins='knuth'`` / ``bins='blocks'`` to them and the lower-level edge
 helpers (`get_binning_edges`, `edges`, `discretize_sklearn`).
 """
@@ -49,7 +49,7 @@ def _knuth_best_M(a_sorted: np.ndarray, a_min: float, a_max: float, M_max: int) 
     _knuth_log_posterior`` scan, but runs entirely in compiled code on the pre-sorted column:
     uniform-bin counts are obtained by integer differencing of ``np.searchsorted`` positions
     (``side='right'`` reproduces ``np.histogram``'s half-open ``[e_j, e_{j+1})`` bins with the final
-    bin closed at ``a_max``), and the lgamma log-posterior is accumulated inline -- no per-M
+    bin closed at ``a_max``), and the lgamma log-posterior is accumulated inline - no per-M
     ``np.histogram`` dispatch and no ``counts.astype(int64)`` copy. ~6-47x over the object-mode loop
     (n=2k..50k) at zero numeric change to ``best_M``; bench discretization/_benchmarks/bench_knuth_posterior_fused.py.
     """
@@ -62,11 +62,11 @@ def _knuth_best_M(a_sorted: np.ndarray, a_min: float, a_max: float, M_max: int) 
     if n < 1 or not (a_max > a_min):
         return 2
     # Distinct-value cap: on tie-heavy/low-cardinality data (e.g. an integer column with a handful of
-    # distinct values), Knuth's posterior -- built for continuous data -- keeps favouring M=M_max: each
+    # distinct values), Knuth's posterior - built for continuous data - keeps favouring M=M_max: each
     # extra bin beyond the number of distinct values is EMPTY, contributing a small constant
     # lgamma(0.5) term that the n*log(M) term still outweighs as M grows, so the search never turns
     # around. Bins beyond the number of distinct values can never carry additional information (every
-    # value already gets its own bin), so cap M at n_distinct -- a data-driven ceiling, not a magic
+    # value already gets its own bin), so cap M at n_distinct - a data-driven ceiling, not a magic
     # constant, that leaves genuinely continuous columns (n_distinct large) unaffected.
     n_distinct = 1
     for i in range(1, n):
@@ -102,7 +102,7 @@ def _knuth_bin_edges(a: np.ndarray, edge_type: str = "quantile", m_max_cap: int 
         edge_type: Type of edges to emit at the chosen M.
             ``'uniform'`` (legacy): equal-width edges matching Knuth's posterior
             likelihood model. Faithful but wastes resolution on skewed tails.
-            ``'quantile'`` (2026-05-29 fix): quantile edges at the Knuth-optimal
+            ``'quantile'``: quantile edges at the Knuth-optimal
             M. Empirically closes most of the bench gap to FD on heavy-tailed
             data. Per-audit recommendation; preserves M selection (Knuth's
             actual contribution) while routing edges through equal-frequency
@@ -239,16 +239,16 @@ def _bayesian_blocks_bin_edges(
             precision on small val-folds).
         m_max_cap: Upper bound on the returned block count. Unlike ``edges_knuth``'s
             same-named cap (chosen up front by a posterior search over M), Bayesian
-            Blocks' DP has no built-in bin-count knob -- on near-continuous real data
+            Blocks' DP has no built-in bin-count knob - on near-continuous real data
             (e.g. wellbore log columns, 50k rows) it can detect thousands of change
             points (observed: ~2470 bins on one column, joint cardinality vs another
             adaptively-binned column = 6.1M), which is both statistically useless
             (a handful of samples per bin) and catastrophic for downstream pairwise-MI
-            cost -- CUDA rejects the joint histogram outright (``MAX_JOINT_BINS_CUDA``)
+            cost - CUDA rejects the joint histogram outright (``MAX_JOINT_BINS_CUDA``)
             and the row-chunked global-memory fallback degrades to needing >100k kernel
             launches, forcing a multi-thousand-second CPU njit fallback per column pair.
             When the DP finds more than ``m_max_cap`` blocks, evenly-spaced (by rank,
-            not value) change points are kept -- preserves the variable-width character
+            not value) change points are kept - preserves the variable-width character
             while bounding downstream cost the same way ``knuth``'s cap does. ``500``
             matches ``edges_knuth``'s legacy default for consistency between the two
             uncapped-by-construction strategies.
@@ -274,7 +274,7 @@ def _bayesian_blocks_bin_edges(
     cp_idx = _bayesian_blocks_inner(a_sorted_dp, ncp_prior)
     if m_max_cap > 0 and cp_idx.size > m_max_cap:
         # DP found more change points than the downstream MI path can afford (see m_max_cap
-        # docstring) -- keep an evenly-spaced-by-RANK subset. cp_idx is already sorted (DP walks
+        # docstring) - keep an evenly-spaced-by-RANK subset. cp_idx is already sorted (DP walks
         # left to right), so np.linspace over its own index range preserves order and coverage
         # across the full domain rather than favouring dense regions.
         keep = np.unique(np.linspace(0, cp_idx.size - 1, num=m_max_cap, dtype=np.int64))
@@ -310,7 +310,7 @@ def _bayesian_blocks_bin_edges(
 def histogram(a, bins="auto", **kwargs):
     """In-tree histogram supporting np.histogram's bin schemes + 'blocks' / 'knuth'.
 
-    2026-05-28: astropy was removed from the install graph; 'blocks' and 'knuth'
+    Astropy was removed from the install graph; 'blocks' and 'knuth'
     are now native numba-compiled implementations of Scargle 2013 / Knuth 2006
     respectively. Other bin schemes (int / 'auto' / 'fd' / 'doane' / 'scott' /
     'rice' / 'sqrt' / 'sturges') route through np.histogram unchanged.
@@ -336,7 +336,7 @@ def edges(arr, quantiles):
     # bin edge. ``discretize_array`` calls this 6000+ times per FS fit
     # (per the module docstring); pre-fix any NaN-bearing column made
     # bin_edges all-NaN, then digitize / searchsorted silently bucketed
-    # every row to bin 0 -- the entire discretised feature collapsed to
+    # every row to bin 0 - the entire discretised feature collapsed to
     # a constant with no upstream signal.
     bin_edges = np.asarray(np.nanpercentile(arr, quantiles))
     return bin_edges
@@ -346,7 +346,7 @@ def edges(arr, quantiles):
 def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform", min_value: Optional[float] = None, max_value: Optional[float] = None) -> np.ndarray:
     """Numba-jitted binning-edge calculator. Used by ``discretize_2d_array`` (itself ``@njit(parallel=True)`` and cannot dispatch to object-mode helpers).
 
-    Outside an njit context (single-column path via ``discretize_array``) prefer the inlined raw-numpy version -- ``np.percentile`` beats numba's njit
+    Outside an njit context (single-column path via ``discretize_array``) prefer the inlined raw-numpy version - ``np.percentile`` beats numba's njit
     equivalent at n >= ~5000.
     """
     if method == "uniform":
@@ -366,7 +366,7 @@ def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform"
             arr_finite = arr[_mask]
         if arr_finite.size == 0:
             # (P0): an all-NaN column has zero finite values, so
-            # ``np.percentile`` on the empty ``arr_finite`` raised ValueError -- correctly
+            # ``np.percentile`` on the empty ``arr_finite`` raised ValueError - correctly
             # when this function is called in isolation, but that exception is silently
             # swallowed when this runs inside ``_discretize_2d_array_njit``'s ``prange`` loop
             # (a documented numba limitation: exceptions inside a parallel prange body do not
@@ -374,7 +374,7 @@ def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform"
             # ``np.empty_like`` happened to contain for that column. An all-NaN column
             # genuinely carries zero information, so the correct (and now uniform, both in
             # isolation and inside the batch prange path) treatment is every row mapping to
-            # the same single bin -- a single-element edges array makes ``quantize_search``'s
+            # the same single bin - a single-element edges array makes ``quantize_search``'s
             # ``bins[1:-1]`` empty, so ``np.searchsorted`` returns 0 for every row regardless
             # of NaN, deterministically and without ever calling percentile on empty input.
             return np.zeros(1, dtype=np.float64)

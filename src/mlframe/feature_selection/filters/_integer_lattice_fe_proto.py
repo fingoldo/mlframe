@@ -1,26 +1,26 @@
 """EXPERIMENTAL prototype: integer-lattice pairwise operators (gcd / lcm / bitwise AND-OR-XOR).
 
-NOT wired into prod. Sibling-in-spirit to ``_pairwise_modular_fe`` -- where the modular operator captures a hidden
-PERIOD of an integer combination, these capture a hidden COMMON DIVISOR (``gcd(a, b)`` -- shared factor / grid
-alignment) or a bit-level INTERACTION of integer codes (``a & b``, ``a ^ b`` -- flag co-occurrence, parity-of-shared-bits).
+NOT wired into prod. Sibling-in-spirit to ``_pairwise_modular_fe`` - where the modular operator captures a hidden
+PERIOD of an integer combination, these capture a hidden COMMON DIVISOR (``gcd(a, b)`` - shared factor / grid
+alignment) or a bit-level INTERACTION of integer codes (``a & b``, ``a ^ b`` - flag co-occurrence, parity-of-shared-bits).
 
 Smooth bases (poly / Fourier / RBF / spline) and the existing arithmetic ops (mul/add/sub/div/mod) provably cannot
-express these: ``gcd`` is number-theoretic (non-smooth, non-monotone in either argument -- gcd(6,9)=3 but gcd(6,10)=2),
+express these: ``gcd`` is number-theoretic (non-smooth, non-monotone in either argument - gcd(6,9)=3 but gcd(6,10)=2),
 and bitwise XOR is the canonical zero-marginal interaction at the BIT level (each bit position is an independent XOR,
 so ``a ^ b`` has near-zero pairwise corr with both a and b yet fully determines a step target keyed on shared low bits).
 The commented-out ``np.gcd`` / ``np.lcm`` lines in ``feature_engineering.create_binary_transformations`` confirm these
 were intended but dropped because the numpy ufuncs reject float32 inputs; this prototype handles the int-cast explicitly.
 
-Eligibility mirrors the modular operator: integer-typed (or exactly-integer-valued float) columns only -- the lattice
+Eligibility mirrors the modular operator: integer-typed (or exactly-integer-valued float) columns only - the lattice
 structure is an integer property; quantising a continuous column would manufacture spurious shared factors.
 
 Cost model: each op is one vectorised integer ufunc on (n,) + the shipped binned-MI kernel (the same ``_mi`` used by
 the modular scan). Cheap-first gate: emit a column only when its MI beats BOTH operands' raw MI by a margin AND a
-permutation-null band -- so a non-lattice frame injects nothing.
+permutation-null band - so a non-lattice frame injects nothing.
 
 cProfile (n=2000, 6 cols, 5 reps): ~99% of wall is the shipped ``_mi_classif_batch`` kernel; the integer arithmetic is
 ~0.7%. When wiring into prod the per-op MI calls should be batched into one ``_mi_classif_batch`` per pair (mirror
-``_pairwise_modular_fe._residue_grid_mi``) -- the prototype scores per-op for clarity, which the prod path need not.
+``_pairwise_modular_fe._residue_grid_mi``) - the prototype scores per-op for clarity, which the prod path need not.
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def _to_int(x: np.ndarray) -> np.ndarray:
 
 
 def _perm_null_hi(feat: np.ndarray, yi: np.ndarray, nbins: int, n_perm: int, rng, z: float = 3.0) -> float:
-    """Upper band (mean + z*std) of the pre-computed feature's MI under y permutation -- the noise reference the
+    """Upper band (mean + z*std) of the pre-computed feature's MI under y permutation - the noise reference the
     feature MI must clear. The feature is fixed; only y is shuffled (cheap, n_perm small)."""
     vals = np.empty(n_perm, dtype=np.float64)
     for i in range(n_perm):
@@ -56,7 +56,7 @@ def _perm_null_hi(feat: np.ndarray, yi: np.ndarray, nbins: int, n_perm: int, rng
 
 
 def apply_integer_lattice(a: np.ndarray, b: np.ndarray, op: str) -> np.ndarray:
-    """One integer-lattice column from a pair. Pure function of (a, b) -- leak-free at replay (no y)."""
+    """One integer-lattice column from a pair. Pure function of (a, b) - leak-free at replay (no y)."""
     ai, bi = _to_int(a), _to_int(b)
     if op == "gcd":
         return np.asarray(np.gcd(ai, bi).astype(np.float64))
@@ -85,7 +85,7 @@ def scan_integer_lattice_pairs(
     rng_seed: int = 0,
 ) -> list[dict]:
     """Cheap-first scan over integer-typed column pairs. Returns one hit dict per (op, pair) that beats BOTH operand
-    MIs by ``min_margin`` AND a permutation-null upper band -- the same dual gate the modular operator uses.
+    MIs by ``min_margin`` AND a permutation-null upper band - the same dual gate the modular operator uses.
 
     ``X`` is (n, p) numeric; only columns passing ``_is_integer_col`` are eligible. Bitwise/gcd are symmetric so each
     unordered pair is scanned once.
@@ -95,8 +95,8 @@ def scan_integer_lattice_pairs(
     elig = [j for j in range(p) if _is_integer_col(X[:, j])]
     raw_mi = {j: _mi(X[:, j], yi, nbins=nbins) for j in elig}
     hits: list[dict] = []
-    # ORTH_BASIS_A-8 fix: build ONE Generator here instead of re-seeding
-    # np.random.default_rng(rng_seed) fresh inside the innermost loop -- the fresh-reseed-per-candidate
+    # Build ONE Generator here instead of re-seeding
+    # np.random.default_rng(rng_seed) fresh inside the innermost loop - the fresh-reseed-per-candidate
     # pattern tested every candidate against the IDENTICAL n_perm shuffles of y (same draws every time,
     # since the generator restarts at the same seed each call), wasteful and reduces the effective
     # independence of the per-candidate null estimate. Still fully deterministic given the same rng_seed.

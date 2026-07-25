@@ -13,11 +13,11 @@ from ._pairs_materialise import (
     _materialise_chunk_njit_parallel,
     _narrow_code_dtype,
 )
-from ..feature_engineering import _FE_BUFFER_RAM_BUDGET_RATIO  # noqa: F401 -- re-exported via package __init__
+from ..feature_engineering import _FE_BUFFER_RAM_BUDGET_RATIO  # noqa: F401 - re-exported via package __init__
 
 # NOTE: the authoritative ``_FE_BUFFER_RAM_BUDGET_RATIO`` (and the RAM-budget block comment
 # documenting the hoist/recompute dispatch) lives in ``feature_engineering.py`` (value 0.3). The
-# chunk module previously carried a stale duplicate (0.4) that nothing here read -- the chunk WIDTH
+# chunk module previously carried a stale duplicate (0.4) that nothing here read - the chunk WIDTH
 # is bounded by the ``chunk_max_cols`` param passed in by the caller, which the caller derives from
 # ``_fe_effective_buffer_budget_bytes`` (the same authoritative ratio). The duplicate is removed; we
 # re-export the authoritative constant so the package ``__init__`` surface (and any historical import)
@@ -25,7 +25,7 @@ from ..feature_engineering import _FE_BUFFER_RAM_BUDGET_RATIO  # noqa: F401 -- r
 
 logger = logging.getLogger(__name__)
 
-# CROSS-PAIR (CHUNK) BATCHING (2026-06-06). The per-pair 3-phase batch (materialise
+# CROSS-PAIR (CHUNK) BATCHING. The per-pair 3-phase batch (materialise
 # -> ONE discretize_2d -> ONE batch_mi) below is bit-identical to the per-candidate
 # path but its batches are too SMALL to saturate the cores: the njit-prange kernels
 # (discretize_2d_quantile_batch, batch_mi_with_noise_gate) release the GIL, yet one
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # and dominates -> ~15-21% CPU (1 of 8), GPU idle (mrmr.py keeps backend="threading"
 # because loky memmaps crash Windows paging on 1M-row data).
 #
-# Fix: process a CHUNK of many raw-pairs together -- accumulate ALL the chunk's
+# Fix: process a CHUNK of many raw-pairs together - accumulate ALL the chunk's
 # candidate columns into ONE wide buffer, run ONE big discretize_2d + ONE big
 # batch_mi over the whole chunk (the prange now has K_chunk = sum of per-pair K
 # columns of work -> enough to spread across cores via nogil, AND the batch crosses
@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 # by pair. Bit-identical because BOTH kernels score each column INDEPENDENTLY
 # (discretize: per-column percentile axis=0 / searchsorted; batch_mi: prange over
 # columns with per-column joint histogram, and the permutation shuffle is seeded by
-# (base_seed=0, perm_index) ONLY -- never by the column -- so concatenating columns
+# (base_seed=0, perm_index) ONLY - never by the column - so concatenating columns
 # from many pairs into one disc_2d yields the same per-column MI as scoring each pair
 # separately). Only the hoist+quantile path is chunked; the recompute-fallback (no
 # buffer) and uniform method keep the per-pair path verbatim.
@@ -63,13 +63,13 @@ def _plan_fe_chunks(*, prospective_pairs, pair_combs, vars_transformations, n_bi
 
     A pair is NEVER split across chunks (so the per-pair replay stays intact); a single
     pair larger than the cap becomes its own chunk. Pairs with zero valid candidates
-    (both-operand registration fails for every comb) are dropped from the plan -- the
+    (both-operand registration fails for every comb) are dropped from the plan - the
     caller's per-pair path no-ops them identically.
 
     Returns ``(chunks, pair_valid_combs, buf_width)``:
-      * ``chunks`` -- list of lists of ``raw_vars_pair`` (chunk membership, in order).
-      * ``pair_valid_combs`` -- ``raw_vars_pair -> [valid transformations_pair, ...]``.
-      * ``buf_width`` -- the column width the shared chunk buffer must have (the widest
+      * ``chunks`` - list of lists of ``raw_vars_pair`` (chunk membership, in order).
+      * ``pair_valid_combs`` - ``raw_vars_pair -> [valid transformations_pair, ...]``.
+      * ``buf_width`` - the column width the shared chunk buffer must have (the widest
         chunk's candidate count); 0 when nothing is chunkable.
     """
     chunk_max_cols = max(int(chunk_max_cols), 1)
@@ -138,7 +138,7 @@ def _compute_one_fe_chunk(
     / can cross the GPU threshold). BIT-IDENTITY: both kernels score each column
     INDEPENDENTLY (per-column percentile/searchsorted; prange over columns with a
     per-column joint histogram and a permutation shuffle seeded by (base_seed=0,
-    perm_index) ONLY -- never by the column), so a candidate's codes + MI are exactly
+    perm_index) ONLY - never by the column), so a candidate's codes + MI are exactly
     what the per-pair batch produced. The materialise order (combs x bin_func) and
     nan_to_num/timing per pair mirror the per-pair Phase 1 exactly. The caller must
     extract any survivor columns from ``chunk_buffer`` BEFORE the next chunk overwrites
@@ -188,13 +188,13 @@ def _compute_one_fe_chunk(
                     col += 1
             _cands_by_pair[raw_vars_pair] = cands
         _t0 = timer()
-        # GPU FUSED MATERIALISE+BINNING (2026-06-20). The candidate MATERIALISE
-        # (``_materialise_chunk_njit``) is the #1 CPU FE hotspot at the canonical fit -- it is
+        # GPU FUSED MATERIALISE+BINNING. The candidate MATERIALISE
+        # (``_materialise_chunk_njit``) is the #1 CPU FE hotspot at the canonical fit - it is
         # MEMORY-BANDWIDTH bound on the strided operand gathers ``tv[r, ai]`` / ``tv[r, bi]``, not
         # compute (a CPU branch-hoist gave 0.95x and was reverted). The GPU has the bandwidth, and the
         # chunk-binning step right after this ALREADY runs on the GPU under the SAME size+HW gate
         # (``_fe_gpu_discretize_enabled``). So when that gate fires we generate the (n, K) candidate
-        # matrix on the GPU and keep it RESIDENT to feed the resident discretize -- only the operand
+        # matrix on the GPU and keep it RESIDENT to feed the resident discretize - only the operand
         # columns go up and the small int codes come down; the float candidate matrix never crosses
         # the bus, removing both the CPU materialise AND the separate float H2D upload. BIT-IDENTICAL:
         # ``gpu_materialise_discretize_codes_host`` mirrors ``_materialise_chunk_njit``'s op semantics
@@ -217,7 +217,7 @@ def _compute_one_fe_chunk(
         _gpu_disc_2d = None
         _gpu_materialise_done = False
         # Escape hatch / A/B knob: MLFRAME_FE_GPU_MATERIALISE=0 disables ONLY the fused GPU materialise
-        # (falls through to the CPU njit materialise + the existing GPU binning below). Default on -- the
+        # (falls through to the CPU njit materialise + the existing GPU binning below). Default on - the
         # path is gated by the SAME size+HW predicate as the GPU binning (_fe_gpu_discretize_enabled).
         # ``gpu_mat_enabled`` is the caller-hoisted, call-invariant env gate (a parameter), not re-read here.
         if col > 0 and gpu_mat_enabled:
@@ -225,7 +225,7 @@ def _compute_one_fe_chunk(
                 from ._pairs_core import _fe_gpu_discretize_enabled
                 # RESIDENCY-OVERRIDE bench-attempt-rejected (2026-06-21): forcing the fused GPU path on
                 # sub-crossover njit chunks (``... or fe_gpu_resident_codes_enabled()``) to keep their codes
-                # on-device was a NO-OP at the canonical 100k fit -- A/B (seed 777): override on vs off =
+                # on-device was a NO-OP at the canonical 100k fit - A/B (seed 777): override on vs off =
                 # IDENTICAL 60.27 MB H2D / 953 cp.asarray calls / 45.2-45.8s wall. Every njit chunk already
                 # passes the speed crossover at the 30k screen subsample, so there are no sub-crossover njit
                 # chunks to force; where it COULD fire (smaller fits) it would re-upload operand columns
@@ -249,7 +249,7 @@ def _compute_one_fe_chunk(
                         # RESIDENCY DEFERRAL (gated, ``defer_float``): skip this (n,K) float D2H entirely;
                         # the caller RE-MATERIALISES on the GPU (``_fe_materialise_block_gpu``) only the few
                         # buffer columns it actually reads, from the (a_col,b_col,op_code) metadata returned
-                        # below -- BIT-IDENTICAL bytes (same kernel) so selection is unchanged. See the
+                        # below - BIT-IDENTICAL bytes (same kernel) so selection is unchanged. See the
                         # residency map in _gpu_resident_fe.py.
                         out_cand=None if defer_float else chunk_buffer[:, :col],
                     )
@@ -279,7 +279,7 @@ def _compute_one_fe_chunk(
                 _materialise_chunk_njit_parallel(*_mat_args)
             else:
                 _materialise_chunk_njit(*_mat_args)
-        # Fold the single batched materialise time evenly across the bin_func names (diagnostic only -- the
+        # Fold the single batched materialise time evenly across the bin_func names (diagnostic only - the
         # per-bin_func breakdown does not affect recovery; the MI/feature selection below is index-driven).
         _per = (timer() - _t0) / max(len(_name_list), 1)
         for raw_vars_pair in chunk_pairs:
@@ -305,7 +305,7 @@ def _compute_one_fe_chunk(
                             chunk_buffer[:, col] = np.nan
                             continue
                         # NaN/inf scrub DEFERRED to one vectorised pass over chunk_buffer[:, :col]
-                        # below (was a per-column ``nan_to_num`` here -- the same per-column serial
+                        # below (was a per-column ``nan_to_num`` here - the same per-column serial
                         # numpy hotspot the per-pair Phase-1 path had). Elementwise -> byte-identical.
                         local_times[bin_func_name] = local_times.get(bin_func_name, 0.0) + (timer() - start)
                         candidates.append((transformations_pair, bin_func_name, col, uses_pw))
@@ -333,20 +333,20 @@ def _compute_one_fe_chunk(
         # The fused GPU path generated the candidate matrix AND binned it RESIDENT (no CPU materialise,
         # no float H2D); ``disc_2d`` is the bit-identical int codes. Skip the CPU/GPU re-binning below.
         pass
-    # GPU-binning decoupled from the analytic gate (2026-06-20): the cross-pair chunk binning
+    # GPU-binning decoupled from the analytic gate: the cross-pair chunk binning
     # (_quantile_edges_2d_njit + _searchsorted_2d_right_njit_parallel) is the dominant CPU FE
     # hotspot at the default 30k screen-subsample (~4.4s of the warm canonical fit, on a single
     # (30000, ~3888) batch). The full GPU pair-MI path (``gpu_pairs_fe_mi``) DECLINES at n<50k
-    # because its analytic chi2 noise-gate needs n >= analytic_null_min_n -- but the BINNING does
+    # because its analytic chi2 noise-gate needs n >= analytic_null_min_n - but the BINNING does
     # NOT depend on that gate. ``gpu_discretize_codes_host`` is bit-identical to the CPU
     # ``discretize_2d_quantile_batch`` (verified maxdiff 0; same cp.percentile linspace edges +
     # right-searchsorted) and ~1.7x faster at these screen sizes, so run ONLY the binning on the GPU
-    # and feed the identical codes to the UNCHANGED CPU MI dispatcher below -- preserving selection
+    # and feed the identical codes to the UNCHANGED CPU MI dispatcher below - preserving selection
     # bit-for-bit. Same size+HW gate as the pair path (``_fe_gpu_discretize_enabled``); any GPU
     # failure falls back to the CPU discretise (never a regression).
     if disc_2d is None:
         try:
-            # Route the standalone binning through the DEDICATED binning crossover (2026-06-23): the
+            # Route the standalone binning through the DEDICATED binning crossover: the
             # bit-identical GPU binning is 17-24x faster at n=100k but was wrongly disabled by the full
             # ``fe_gpu_pairs_mi`` sweep's "cpu" verdict at the n<=100k band. The binning has its own gate
             # so the cheap, bit-identical op is no longer held hostage to the full MI path's crossover.

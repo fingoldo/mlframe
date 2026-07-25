@@ -14,7 +14,7 @@ fallback warning.
 The block reads/writes the ``MRMR`` instance heavily, so ``self`` is threaded
 explicitly along with the pure fit-body locals it consumes
 (``n_engineered_out`` / ``cols`` / ``data`` / ``nbins`` / ``target_indices``).
-It returns nothing -- every output is an attribute set on ``self`` -- so the
+It returns nothing - every output is an attribute set on ``self`` - so the
 call site in ``_fit_impl`` is a single call. Behaviour is byte-for-byte
 identical to the inlined branch. The lazy in-body ``from ..X import ...``
 imports stay inside the function to preserve the original import timing and the
@@ -44,7 +44,7 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
     # marginals are all ~0 stays engineered-only. Only triggers when min_features_fallback >= 1.
     self.n_features_ = n_engineered_out
     _min_fb = int(getattr(self, "min_features_fallback", 0) or 0)
-    # 2026-05-30 Wave 9.1 fix (loop iter 39): hoist the
+    # Hoist the
     # ``warnings.warn`` OUT of the try block. Pre-fix the warning
     # was inside ``try:`` and the surrounding ``except Exception``
     # caught it under ``simplefilter('error', UserWarning)`` -
@@ -75,7 +75,7 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
             _cached = self.cached_MIs if hasattr(self, "cached_MIs") else {}
             # Operands the n-invariant conditional-redundancy sweep deliberately dropped
             # (fully subsumed by a surviving engineered child) must NOT be resurrected by
-            # this empty-raw rescue -- the rescue exists for "the screen left 0 raw despite
+            # this empty-raw rescue - the rescue exists for "the screen left 0 raw despite
             # recoverable signal", not to undo an intentional redundancy drop. Excluding them
             # leaves an engineered-only support, which is legitimate and non-empty (the
             # never-empty guarantee only forces a column when n_engineered_out == 0).
@@ -89,7 +89,7 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
             # raw-retention block, the additional-RFECV rescue pool, and the augmentation already apply.
             _rescue_redund_dropped |= set(getattr(self, "_cluster_aggregate_removals_", None) or ())
             # Operands of SURVIVING engineered features: in the empty-screen case the conditional-redundancy
-            # sweep never ran (0 raws selected) so it could not mark them in ``_raw_redundancy_dropped_`` --
+            # sweep never ran (0 raws selected) so it could not mark them in ``_raw_redundancy_dropped_`` -
             # compute them directly from the surviving recipes so the rescue does not resurrect a raw a
             # surviving engineered child already captures (the underselection redundancy-dedup invariant).
             from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _RESC_TOK_SPLIT
@@ -131,14 +131,14 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
                 # Keep the cols-space index alongside the input-space index so the rescue can re-run the permutation-significance / redundancy tests on the screen's own matrices.
                 _raw_mi.append((_i, float(_mi), _cols_idx))
             # Sort by MI desc; pick top-K.
-            # Wave 57 (2026-05-20): secondary key on feature index so
+            # Secondary key on feature index so
             # tied MI doesn't make the empty-support fallback drift.
             _raw_mi.sort(key=lambda kv: (-kv[1], kv[0]))
             _abs_floor = float(getattr(self, "min_relevance_gain", 0.0) or 0.0)
             _rel_frac = float(getattr(self, "min_relevance_gain_relative_to_first", 0.0) or 0.0)
             _max_mi = max((m for _, m, _c in _raw_mi), default=0.0)
             # Rescue EVERY raw feature clearing the relevance floor (the stricter of the absolute floor and the relative-to-strongest floor), not just the top
-            # ``min_features_fallback`` -- with the empirical-null-debiased ``cached_MIs`` the ranking is honest, so genuine multi-signal pools (e.g. x1/x2/x3 each shadowed by an
+            # ``min_features_fallback`` - with the empirical-null-debiased ``cached_MIs`` the ranking is honest, so genuine multi-signal pools (e.g. x1/x2/x3 each shadowed by an
             # engineered child) recover fully. But two failure modes the debiased-MI floor alone does NOT catch and that the rescue MUST guard against:
             #   (1) PURE NOISE small-n: the coarse-binning plug-in MI is upward-biased, so a pure-noise leg can leave a tiny residual debiased MI ABOVE the (very small) absolute
             #       floor and be wrongly rescued. The relevance floor is a magnitude test, not a significance test; gate the rescue on a permutation p-value (re-run on the screen's
@@ -165,15 +165,15 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
             _q_dtype = getattr(self, "quantization_dtype", np.int32)
             _accepted: list = []  # input-space indices accepted into the rescue
             _accepted_cols = []  # their cols-space indices (for redundancy MI)
-            # ENGINEERED-SURVIVOR CONDITIONING (2026-06-08): seed the redundancy-dedup
+            # ENGINEERED-SURVIVOR CONDITIONING: seed the redundancy-dedup
             # conditioning set with the cols-space indices of every SURVIVING engineered
             # feature. The empty-RAW-screen rescue fires precisely when 0 raw columns
             # survived the greedy screen but engineered children DID (``n_engineered_out > 0``);
             # on a composite target (``y = a**2/b + log(c)*sin(d)``) the engineered children
             # ``div(sqr(a),abs(b))`` / ``mul(log(c),sin(d))`` fully carry their raw operands'
             # y-information, yet each raw operand a,b,c,d individually clears the relevance
-            # floor AND its own permutation null (it IS a genuine operand), and -- being
-            # mutually independent uniforms -- none is redundant with ANOTHER RAW operand.
+            # floor AND its own permutation null (it IS a genuine operand), and - being
+            # mutually independent uniforms - none is redundant with ANOTHER RAW operand.
             # So the raw-only dedup admitted all four, re-injecting exactly the operands the
             # engineered children already subsume (the F2/two-pairs regression: a,b,c,d all
             # rescued alongside the correct engineered pairs). Conditioning the dedup on the
@@ -185,8 +185,8 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
             _name_to_cols_idx_eng = {c: i for i, c in enumerate(cols)}
             # SEED ONLY ON SURVIVING ENGINEERED FEATURES (2026-06-16, s319 under-selection).
             # Condition the dedup on the engineered features that ACTUALLY REACH THE OUTPUT
-            # -- i.e. the replayable ``self._engineered_recipes_`` counted in ``n_engineered_out``
-            # -- NOT ``self._engineered_features_``, which still carries composites that were
+            # - i.e. the replayable ``self._engineered_recipes_`` counted in ``n_engineered_out``
+            # - NOT ``self._engineered_features_``, which still carries composites that were
             # SELECTED by the greedy step but then DROPPED downstream (recipeless nested parents,
             # or features that failed the ``fe_min_engineered_mi_prevalence`` gate). A composite
             # about to be dropped must not suppress its raw operands here: doing so loses BOTH the
@@ -197,7 +197,7 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
             # delta -0.311). Seeding on the (empty here) survivor set lets b,g,k pass the raw-vs-raw
             # dedup -> support {a,b,g,k}, delta +0.0005. When engineered survivors DO reach output
             # (the F2 ``a**2/b + log(c)*sin(d)`` composite case) they remain in ``_engineered_recipes_``
-            # and still correctly drop their subsumed operands -- behaviour unchanged there.
+            # and still correctly drop their subsumed operands - behaviour unchanged there.
             def _surv_eng_name(_r):
                 """Extract the recipe's engineered-feature name, falling back to ``str(recipe)`` when it has no ``.name`` attribute."""
                 _nm = getattr(_r, "name", None)
@@ -247,9 +247,9 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
             _topk = list(_accepted)
             # ``min_features_fallback`` count floor: if the significance/redundancy gates left fewer than the requested K, top up from the remaining above-absolute-floor
             # candidates (magnitude order) so legacy callers asking for >=K always get at least K. The never-empty guarantee then keeps one column even on a fully-null pool.
-            # SURVIVING ENGINEERED FEATURES COUNT TOWARD THE FLOOR (2026-06-17): the floor is "support is never empty / has >= K features", and ``get_feature_names_out`` returns
+            # SURVIVING ENGINEERED FEATURES COUNT TOWARD THE FLOOR: the floor is "support is never empty / has >= K features", and ``get_feature_names_out`` returns
             # raw (``support_``) + engineered. When an engineered feature already survived (``n_engineered_out >= 1``), the floor is met WITHOUT a raw, so do NOT magnitude-top-up a
-            # raw that FAILED the permutation-significance gate -- that force-added a pure-noise raw (``e`` in ``y=log(a)*c+0.4*f``: MI 0.0004, p=0.34, only candidate left after the
+            # raw that FAILED the permutation-significance gate - that force-added a pure-noise raw (``e`` in ``y=log(a)*c+0.4*f``: MI 0.0004, p=0.34, only candidate left after the
             # engineered operands a/c were excluded) purely to satisfy a floor the engineered feature already satisfies. Mirrors the ``_redundancy_emptied_raw_`` branch's engineered-
             # only support. The top-up also stays gated on the absolute relevance floor so it never adds a sub-floor column.
             if len(_topk) + n_engineered_out < _min_fb:
@@ -262,7 +262,7 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
                 _topk = [_raw_mi[0][0]]
             elif not _topk and n_engineered_out == 0 and not _raw_mi:
                 # The redundancy/cluster exclusion (``_rescue_redund_dropped``) emptied the rescue pool:
-                # EVERY raw candidate was marked redundant -- but with a mutually-redundant cluster
+                # EVERY raw candidate was marked redundant - but with a mutually-redundant cluster
                 # (e.g. two ~0.997-collinear columns each recorded as the other's cluster member) that
                 # leaves the support EMPTY even though one representative should survive. The never-empty
                 # guarantee must keep the single strongest column REGARDLESS of the exclusion, so a

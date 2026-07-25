@@ -2,8 +2,8 @@
 
 Extension of Layer 87 (``_grouped_agg_fe``) from SINGLE group columns to
 COMPOSITE (multi-column) group keys. Real-world aggregations key on more than
-one column at once -- ``groupby([region, month])``, ``groupby([store,
-category])`` -- and the interaction is frequently where the signal lives: the
+one column at once - ``groupby([region, month])``, ``groupby([store,
+category])`` - and the interaction is frequently where the signal lives: the
 per-(region, month) mean of a value can carry information that neither the
 per-region mean nor the per-month mean exposes on its own (a seasonal effect
 that differs by region, say).
@@ -24,7 +24,7 @@ Cardinality guard (Layer 29 lesson)
 A composite key explodes cardinality multiplicatively: ``groupby([a, b])`` with
 100 distinct ``a`` and 100 distinct ``b`` can reach 10k cells. When the number
 of distinct composite cells exceeds ``max_card_frac * n`` (default 0.5) the key
-is REFUSED -- every group would hold ~1 row, the per-group statistic would just
+is REFUSED - every group would hold ~1 row, the per-group statistic would just
 re-encode the row's own value (target-leakage-shaped overfitting), and the
 broadcast would carry no generalisable signal. Refused keys emit nothing.
 """
@@ -122,7 +122,7 @@ def build_composite_keys(X: pd.DataFrame, group_cols: Sequence[str]) -> np.ndarr
             arr = ser.to_numpy()
             if arr.dtype.kind == "f":
                 # Float column with NaN: a float array's missing is NaN (never Python None), and every NaN maps to the
-                # canonical 'nan' token whether np.unique merges NaNs or leaves them distinct -- so the per-unique path
+                # canonical 'nan' token whether np.unique merges NaNs or leaves them distinct - so the per-unique path
                 # is bit-identical to the per-row map AND runs canonical_group_token per-unique instead of per-row
                 # (~13x at 100k / few-hundred uniques; canonical_group_token was the fit's #1 tottime at 5.77M calls).
                 uniq, inv = np.unique(arr, return_inverse=True)
@@ -253,7 +253,7 @@ def generate_composite_group_agg_features(
 
     ``_precomputed_keys``, when supplied by an auto-detect caller (see
     :func:`auto_detect_key_sets`'s ``_key_cache``), maps ``group_cols -> (keys, key_uniq, key_inverse,
-    n_distinct)`` for combos already built while ranking candidates -- skips rebuilding + re-hashing the
+    n_distinct)`` for combos already built while ranking candidates - skips rebuilding + re-hashing the
     identical composite key for every surviving combo.
     """
     if not isinstance(X, pd.DataFrame):
@@ -303,7 +303,7 @@ def generate_composite_group_agg_features(
         cur_num_cols = [c for c in num_cols if c in X.columns and c not in set(group_cols) and pd.api.types.is_numeric_dtype(X[c])]
         # FUTURE (perf): this still rebuilds a temp frame + re-hashes "_g" (already known via key_uniq/key_inverse
         # above) for every num_col. A bincount-style mean/std accumulation keyed by key_inverse would skip the
-        # pandas groupby entirely, mirroring _binned_numeric_agg_fe's njit raw-moment kernel -- deferred because
+        # pandas groupby entirely, mirroring _binned_numeric_agg_fe's njit raw-moment kernel - deferred because
         # replicating pandas' NaN-skipping mean/Welford-based std exactly (not just mathematically) needs the
         # same empirical bit-identity verification as the K-fold subtraction rewrite, and this file's num_cols
         # loop is uncapped (unlike the capped max_pairs paths that make that verification cheap to scope).
@@ -331,9 +331,9 @@ def generate_composite_group_agg_features(
                     agg_series = grouped.agg(_agg_func_for_stat(stat))
                 lookup = {str(k): (float(v) if np.isfinite(v) else 0.0) for k, v in agg_series.items()}
                 if stat in ("count", "nunique"):
-                    # CAT_INTERACTION_B-2 fix: the whole-population fallback
+                    # The whole-population fallback
                     # (finite.size / np.unique(finite).size) used to emit a WILDLY out-of-distribution
-                    # value for an unseen composite key -- confirmed by direct execution: real per-cell
+                    # value for an unseen composite key - confirmed by direct execution: real per-cell
                     # count values were 14-25 (n=2000) vs a global fallback of 2000 (the entire training
                     # set, ~100x). Every OTHER stat's fallback stays on the SAME SCALE as a per-cell value;
                     # use the median PER-CELL count/nunique across fit-time cells instead.
@@ -524,10 +524,10 @@ def composite_group_agg_with_recipes(
 
 def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 6) -> list[str]:
     """Reuse the Layer 87 / composite_auto_detect int-as-cat detector."""
-    # CAT_INTERACTION_B-6 fix: this used to try a two-dot
-    # `from .._grouped_agg_fe import ...` FIRST (wrong depth -- `_grouped_agg_fe.py` is a SIBLING, one dot,
+    # This used to try a two-dot
+    # `from .._grouped_agg_fe import ...` FIRST (wrong depth - `_grouped_agg_fe.py` is a SIBLING, one dot,
     # not a parent-package member) inside a bare `except Exception`, which always failed and silently fell
-    # through to the correct single-dot import below -- functionally masked, but dead/misleading code.
+    # through to the correct single-dot import below - functionally masked, but dead/misleading code.
     try:
         from ._grouped_agg_fe import _auto_detect_group_cols as _l87_detect
         return list(_l87_detect(X, max_cols=max_cols))
@@ -579,7 +579,7 @@ def auto_detect_key_sets(
     L29 guard. Returns ordered tuples, lowest-cardinality first.
 
     ``_key_cache``, when supplied, is populated with ``{combo: (keys, key_uniq, key_inverse, n_distinct)}``
-    for every candidate combo built here -- lets :func:`hybrid_composite_group_agg_fe` thread the already-built
+    for every candidate combo built here - lets :func:`hybrid_composite_group_agg_fe` thread the already-built
     composite keys into :func:`generate_composite_group_agg_features` for the SURVIVING combos instead of
     rebuilding + re-hashing them from scratch."""
     cols = list(detected_group_cols) if detected_group_cols is not None else _auto_detect_group_cols(X)

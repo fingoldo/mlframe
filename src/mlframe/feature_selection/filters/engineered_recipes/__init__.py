@@ -4,8 +4,8 @@ A *recipe* is a frozen description of how to recompute one engineered column fro
 engineered feature; ``MRMR.transform`` replays each recipe against the test X and appends the resulting columns to the output.
 
 Recipe kinds:
-``"unary_binary"``: numeric pair FE -- ``binary(unary_a(X[a]), unary_b(X[b]))``, optionally discretized.
-``"factorize"``:    cat-FE -- ``merge_vars`` of k ordinal-encoded categorical columns (XOR-style synergy capture).
+``"unary_binary"``: numeric pair FE - ``binary(unary_a(X[a]), unary_b(X[b]))``, optionally discretized.
+``"factorize"``:    cat-FE - ``merge_vars`` of k ordinal-encoded categorical columns (XOR-style synergy capture).
 ``"target_encoding"``: ``E[Y | merged_class]`` per cell, with optional OOF smoothing.
 
 The recipe is a small frozen dataclass (no behaviour bound to ``self``) so it round-trips cleanly through pickle and ``sklearn.base.clone``.

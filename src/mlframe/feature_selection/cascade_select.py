@@ -1,20 +1,20 @@
 """``cascade_select``: 3-stage noise-injection screen -> forward selection -> permutation backward elimination.
 
-Source: AV WNS Hackathon 2018 top-3, Team Cheburek -- "Feature selection employed Gini importance and noised
+Source: AV WNS Hackathon 2018 top-3, Team Cheburek - "Feature selection employed Gini importance and noised
 LightGBM importance for initial screening, followed by forward algorithm selection, then permutation
 importance with backward elimination" on 4600+ generated features down to ~21/61.
 
 Orchestrates three EXISTING mlframe primitives rather than reimplementing any of them:
 
-1. :func:`mlframe.feature_selection.filters._boruta.boruta_select` -- Boruta-style all-relevant screen
+1. :func:`mlframe.feature_selection.filters._boruta.boruta_select` - Boruta-style all-relevant screen
    (shadow-shuffled copies of every feature; a real feature is confirmed only when it repeatedly beats the
    best shadow importance more often than chance). Cuts a very large raw feature set down to the "clearly
    not noise" subset cheaply.
-2. :func:`mlframe.feature_selection.forward_select.forward_select` (added alongside this orchestrator --
+2. :func:`mlframe.feature_selection.forward_select.forward_select` (added alongside this orchestrator -
    the one genuinely missing primitive; MRMR's own greedy loop is MI/redundancy-driven, not CV-score-driven,
    and RFECV's SFFS pass is a refinement of an already-narrowed subset, not a from-scratch greedy build).
    Grows a candidate subset from the Boruta-confirmed features by best CV-score marginal improvement.
-3. :class:`mlframe.feature_selection.wrappers.rfecv.RFECV` with ``importance_getter="permutation"`` --
+3. :class:`mlframe.feature_selection.wrappers.rfecv.RFECV` with ``importance_getter="permutation"`` -
    already supports permutation-importance-driven backward elimination natively; used here as a black box
    via its documented public API (constructor + ``fit`` + ``support_``), not modified.
 """
@@ -54,7 +54,7 @@ def cascade_select(
         (used for the Boruta screen's importance function) and usable by ``forward_select``/``RFECV``.
     n_boruta_iterations, boruta_alpha
         Passed to :func:`boruta_select`. Features decided ``"confirmed"`` or ``"tentative"`` survive to
-        stage 2 (``"rejected"`` features are dropped -- "tentative" is kept rather than dropped since a
+        stage 2 (``"rejected"`` features are dropped - "tentative" is kept rather than dropped since a
         false rejection here is unrecoverable, while stages 2-3 will naturally deprioritize a truly-useless
         tentative feature anyway).
     forward_max_features, forward_min_improvement

@@ -3,12 +3,12 @@
 MRMR's marginal-MI greedy STRUCTURALLY under-selects on interaction-heavy data: a pure-interaction operand
 (``y = a*b``, XOR, sign products) has ~zero MARGINAL MI per operand, so the greedy never selects it and the feature
 is lost. This is the SELECTION gate, not FE or binning (confirmed by the MDLP-collapse diagnostic + the FE-cap bench:
-raising the FE synergy cap or injecting tree products does NOT help -- the greedy discards them). On the standard
+raising the FE synergy cap or injecting tree products does NOT help - the greedy discards them). On the standard
 madelon FS benchmark MRMR collapses to <=3 features (downstream lgbm 0.69 vs 0.87 on all features).
 
 This subclass adds a cheap, gated RESCUE: after a normal MRMR fit, when the selection is small relative to a WIDE
-feature pool (the under-selection regime), it fits one shallow gradient-boosted tree -- which branches on the
-informative operands regardless of their marginal MI -- and UNIONS its top-K importance features into ``support_``.
+feature pool (the under-selection regime), it fits one shallow gradient-boosted tree - which branches on the
+informative operands regardless of their marginal MI - and UNIONS its top-K importance features into ``support_``.
 Gated to the collapse regime, so it is a BYTE-IDENTICAL no-op wherever MRMR already selects well.
 
 MEASURED (3-seed): madelon mrmr_fe 0.6885 -> +rescue 0.7999 (+0.111, all seeds +0.10..0.12, std 0.0084);
@@ -37,14 +37,14 @@ class MRMRTreeRescued(MRMR):
       tree_rescue : "auto" (default) fires the rescue only when MRMR under-selects on a wide frame; True/"always"
         fires it whenever p > tree_rescue_min_p; False/"off"/None disables it (behaves exactly like MRMR).
       tree_rescue_top_k : number of shallow-GBM importance features to union into the selection (default 20).
-      tree_rescue_min_p : only consider the rescue when n_features_in_ exceeds this (default 60 -- narrow frames
+      tree_rescue_min_p : only consider the rescue when n_features_in_ exceeds this (default 60 - narrow frames
         do not have the marginal-MI blind spot at scale and MRMR selects fine).
-      tree_rescue_min_ratio / tree_rescue_min_features : "auto" under-selection threshold -- fire when the raw
+      tree_rescue_min_ratio / tree_rescue_min_features : "auto" under-selection threshold - fire when the raw
         selected count < max(tree_rescue_min_features, ceil(tree_rescue_min_ratio * p)) (default 5 / 0.04).
-      tree_rescue_n_estimators / tree_rescue_max_depth : the shallow GBM (default 80 / 3 -- cheap, ~0.4s).
+      tree_rescue_n_estimators / tree_rescue_max_depth : the shallow GBM (default 80 / 3 - cheap, ~0.4s).
     """
 
-    # The rescue's own params; the rest are forwarded to MRMR (404 params -- enumerating them in the signature would
+    # The rescue's own params; the rest are forwarded to MRMR (404 params - enumerating them in the signature would
     # be unmaintainable), so the ctor keeps **kwargs and we report the merged param set for sklearn introspection.
     _TREE_RESCUE_PARAMS = ("tree_rescue", "tree_rescue_top_k", "tree_rescue_min_p", "tree_rescue_min_ratio",
                            "tree_rescue_min_features", "tree_rescue_n_estimators", "tree_rescue_max_depth")
@@ -99,7 +99,7 @@ class MRMRTreeRescued(MRMR):
                 # Fast path for the common all-numeric frame: a single ``np.asarray(..., float)`` gather +
                 # in-place NaN->0 replaces the per-column ``apply(pd.to_numeric).fillna().to_numpy()`` (~3
                 # passes). Byte-identical to the slow path on numeric frames (``to_numeric`` is a no-op there,
-                # ``fillna(0.0)`` only touches NaN, never inf -- matched by ``isnan``). A non-numeric column
+                # ``fillna(0.0)`` only touches NaN, never inf - matched by ``isnan``). A non-numeric column
                 # makes ``asarray(float)`` raise; fall back to the lenient coerce-to-NaN-then-zero path so a
                 # mixed frame still rescues exactly as before (the bad column becomes all-zeros, not a skip).
                 try:
@@ -129,12 +129,15 @@ class MRMRTreeRescued(MRMR):
                     n_jobs=getattr(self, "n_jobs", -1), verbose=-1, random_state=int(seed))
             m.fit(Xnum, yv)
             imp = np.asarray(m.feature_importances_, dtype=float)
-            order = [int(i) for i in np.argsort(imp)[::-1] if imp[i] > 0][: self.tree_rescue_top_k]
-            # respect factors_to_use if the user restricted the pool
+            order = [int(i) for i in np.argsort(imp)[::-1] if imp[i] > 0]
+            # respect factors_to_use if the user restricted the pool: filter the FULL ranking BEFORE the
+            # top-k cut, so an allowed feature ranked below the global top-k is still eligible for rescue
+            # (truncating first dropped allowed-but-globally-lower features -> under-added).
             allowed = getattr(self, "factors_to_use", None)
             if allowed is not None:
                 allowed = set(int(a) for a in allowed)
                 order = [i for i in order if i in allowed]
+            order = order[: self.tree_rescue_top_k]
             existing = {int(i) for i in np.asarray(self.support_, dtype=np.int64)}
             added = [i for i in order if i not in existing]
             if added:

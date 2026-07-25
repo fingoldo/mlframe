@@ -74,13 +74,13 @@ def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = COR
     column of each cluster) and members maps rep -> [member columns incl. the rep]. Computed once and shared.
 
     Vectorized inner scan: the per-pair Python ``abs(C[i,j]) >= thr`` test is replaced by a single boolean adjacency
-    matrix ``A = |C| >= thr`` and an ``np.flatnonzero`` of each rep's upper row -- byte-identical to the prior greedy
+    matrix ``A = |C| >= thr`` and an ``np.flatnonzero`` of each rep's upper row - byte-identical to the prior greedy
     (same rep order = first unassigned column; same member order = ascending column index), but skips the full j-loop
     for the common all-singleton frame where each row has few/no above-threshold candidates (measured 3.83x on the
     p=240 mostly-singleton hybrid frame; the glue floor's single largest item, ~86% of the hybrid's own tottime).
 
     WIDE-DATA path (p > ``block_threshold``): the full p x p ``np.corrcoef`` materializes an O(p^2) float64 matrix
-    (~800 MB at p=10k) -- the one uncapped super-linear-in-p hotspot among the FS paths. Above the threshold we never
+    (~800 MB at p=10k) - the one uncapped super-linear-in-p hotspot among the FS paths. Above the threshold we never
     build the dense matrix: columns are z-standardized once, then for each rep we compute ONLY its row of correlations
     (a single 1 x p GEMV: z_i @ Z / (n-1)) and threshold that, so peak extra memory is O(n*p) for Z plus O(p) per row.
     The greedy is identical (it reads the same |corr| values for the same (i, j>i) pairs), so reps + members are
@@ -90,7 +90,7 @@ def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = COR
     756 MB peak; BLOCKED path 1344 ms / 132 MB peak == 5.8x less memory at ~equal wall. The gap widens with p (the
     full path is O(p^2): ~800 MB at p=10k before corrcoef's internal deviation-matrix copy ~doubles it -> the OOM
     blocker), while the blocked path stays O(n*p) for Z + O(bs*p) for the slab. Small frames (p <= block_threshold)
-    keep the faster full path. (p=2000: FULL 187 ms vs BLOCKED 311 ms -- the per-block matmul overhead, paid only
+    keep the faster full path. (p=2000: FULL 187 ms vs BLOCKED 311 ms - the per-block matmul overhead, paid only
     above the threshold where the memory bound matters more than the sub-second wall.)"""
     cols = list(X.columns)
     p = len(cols)
@@ -116,7 +116,7 @@ def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = COR
 
     # --- wide-data blocked path: standardize once, compute correlations in COLUMN BLOCKS (no dense p x p) ---
     # Columns are z-standardized once (Z is O(n*p)); then a block of ``bs`` rep-rows is correlated against all p columns
-    # in a single (bs x p) GEMV slab (Z[:, blk].T @ Z), so peak transient memory is O(bs*p) -- a small constant slab,
+    # in a single (bs x p) GEMV slab (Z[:, blk].T @ Z), so peak transient memory is O(bs*p) - a small constant slab,
     # never the full p x p. The greedy reads each rep's slab row exactly as it would the dense matrix row, so the
     # assignment is identical to the full-matrix path. bs trades speed (bigger = fewer, larger matmuls) vs the slab's
     # memory (bs*p*8 bytes); 512 keeps the slab modest (e.g. 512*10000*8 ~= 41 MB) while recovering near-BLAS speed.
@@ -167,7 +167,7 @@ class HybridSelector:
                  hybrid_corr_max_features: int = 2000,
                  random_state: int = 42, classification: "Optional[bool]" = None, name: str = "hybrid",
                  keep_augmented_data: bool = True):
-        # cooccur_weight (default "gain" -- MEASURED win on interaction beds): how the tree member ranks candidate
+        # cooccur_weight (default "gain" - MEASURED win on interaction beds): how the tree member ranks candidate
         # co-occurrence PAIRS proposed from GBM split co-occurrence. "count" weights a pair by raw frequency (how many
         # trees split on both a and b); "gain" weights it by the summed split GAIN the two features contribute within
         # each tree (how much they actually reduce loss). Frequency over-rewards shallow high-frequency-but-low-gain
@@ -175,17 +175,17 @@ class HybridSelector:
         self.cooccur_weight = cooccur_weight
         # cluster_rep (default "first"): when a correlation cluster is collapsed to one representative, which member to
         # keep. "first" = the cluster's first column (default); "max_fi" = highest single mean perm-FI; "sum_fi" =
-        # highest summed-per-repeat perm-FI. The FI-based reps are bed-dependent -- benched 5/9 cells but they REGRESS
+        # highest summed-per-repeat perm-FI. The FI-based reps are bed-dependent - benched 5/9 cells but they REGRESS
         # first-column on some correlated-cluster beds (>0.005 honest-AUC), so they stay OPT-IN, not the default. See
         # _rep_member + _benchmarks/fs_hybrid/round5_innovate_cooccur_clusterrep.json.
         self.cluster_rep = cluster_rep
-        # tree_rich_ops (default the full set -- MEASURED +0.020 on madelon 3-seed over products-only, variance
+        # tree_rich_ops (default the full set - MEASURED +0.020 on madelon 3-seed over products-only, variance
         # halved): the operators the tree member engineers per co-occurrence pair. Beyond the "mul" product,
         # absdiff/signed/ratio recover NON-product interaction signal (|a-b|, sign(a)|b|, a/(|b|+1)) a bilinear term
         # cannot linearize; the synergy gate keeps each only where it genuinely helps (madelon gains, synth unchanged).
         # Set to ("mul",) for products-only. See _TREE_OPS.
         self.tree_rich_ops = tuple(tree_rich_ops)
-        # mrmr_synergy_cap (default 250 -- MEASURED win): the MRMR member's fe_synergy_screen_max_features. MRMR's
+        # mrmr_synergy_cap (default 250 - MEASURED win): the MRMR member's fe_synergy_screen_max_features. MRMR's
         # default (60) SKIPS the synergy bootstrap on frames wider than 60 cols, so on a moderate-width frame
         # (e.g. hard_synth, 220 cols) MRMR never engineers the interaction products its bootstrap would find. Raising
         # to 250 enables the bootstrap on moderate-p frames -> hybrid hard_synth +0.030 (3-seed, all seeds up,
@@ -193,7 +193,7 @@ class HybridSelector:
         # AND on very-wide frames (madelon 500>250, bootstrap still skipped -> avoids its O(p^2) cost where it finds
         # nothing: madelon's 5-dim XOR is not bilinear). 250 is the cost/benefit sweet spot. (round4_hybrid_mrmrcap_bench)
         self.mrmr_synergy_cap = mrmr_synergy_cap
-        # hybrid_corr_max_features (default 2000 -- the wide-data clustering guard): corr_clusters is the one uncapped
+        # hybrid_corr_max_features (default 2000 - the wide-data clustering guard): corr_clusters is the one uncapped
         # super-linear-in-p hotspot (a full p x p Pearson matrix; ~800 MB float64 at p=10k). BEFORE clustering, X_aug is
         # narrowed to the columns the shared permutation-FI found relevant (FI>0) PLUS all MRMR-relevant and engineered
         # columns (those never drop, they passed their own FE gate). The relevant set is typically << p on wide noisy
@@ -209,7 +209,7 @@ class HybridSelector:
         self.fi_guard = fi_guard
         self.corr_thr = corr_thr
         self.use_mrmr = use_mrmr
-        # use_tree_member (default ON -- MEASURED win on interaction-heavy real data): a cheap shallow-GBM that
+        # use_tree_member (default ON - MEASURED win on interaction-heavy real data): a cheap shallow-GBM that
         # contributes a signal the MI-filter members structurally MISS. MRMR's marginal-MI greedy collapses on
         # interaction-heavy data (madelon: 3 features, lgbm 0.69) because the informative operands have ~0 marginal
         # MI; a depth-limited GBM branches on them anyway. The member adds two things to the shared composition:
@@ -219,19 +219,19 @@ class HybridSelector:
         # Both are GATED by the shared honest permutation-FI so the member self-regulates by regime: on madelon the
         # product columns clear the FI floor and lift the hybrid 0.805 -> ~0.84 (beating standalone tree_top20+cooccur
         # 0.840 measured 3-seed); on the FE-saturated synthetic the raw products do NOT clear the floor (MRMR's
-        # Hermite/prewarp transforms are what win there), so they are not voted and MRMR's win is preserved -- the
+        # Hermite/prewarp transforms are what win there), so they are not voted and MRMR's win is preserved - the
         # two FE styles fail oppositely and the composition keeps both. (round4_tree_seed_bench / _tree_rescue_validate)
         self.use_tree_member = use_tree_member
         self.tree_top_k = tree_top_k
         self.tree_cooccur_pairs = tree_cooccur_pairs
         self.tree_n_estimators = tree_n_estimators
         self.tree_max_depth = tree_max_depth
-        # tree_prod_gate: which co-occurrence products earn a vote. The gate is the regime self-regulator -- it must
+        # tree_prod_gate: which co-occurrence products earn a vote. The gate is the regime self-regulator - it must
         # admit madelon's true interaction products (big win) while rejecting the FE-saturated bed's weak raw products
         # (which dilute, esp. distance-based downstreams). "synergy" (default): admit prod(a,b) only if its shared-FI
         # exceeds BOTH operands' FI (a genuine interaction adds information beyond its parts). "relevant_median":
         # FI >= median FI over the prescreened survivors (a high bar). "raw_median": FI >= median over ALL raw cols
-        # (loose -- regresses the FE-saturated bed because its many noise features drag the median to ~0).
+        # (loose - regresses the FE-saturated bed because its many noise features drag the median to ~0).
         self.tree_prod_gate = tree_prod_gate
         # use_fe: let the MRMR member feature-ENGINEER (fe_max_steps) and SHARE its engineered columns to every other
         # member via a once-built augmented frame X_aug=[raw|engineered]. This closes the measured ~0.05 AUC gap to
@@ -247,10 +247,10 @@ class HybridSelector:
         # which lifts logit ~0.75->0.85 so residual noise no longer matters. So gini stays the default; permutation
         # remains available as the high-precision option.
         self.boruta_driver = boruta_driver
-        # anchor_fe (default OFF -- MEASURED net-negative): the idea was to keep ALL of MRMR's picks verbatim and let
+        # anchor_fe (default OFF - MEASURED net-negative): the idea was to keep ALL of MRMR's picks verbatim and let
         # the other members only ADD, so selected ⊇ mrmr_selected. But that guarantees more FEATURES, not higher AUC:
         # benched on make_dataset (anchor 0.8348 < no-anchor 0.8356 < mrmr_fe 0.8367) AND on the hard bed (anchor
-        # 0.7744 < no-anchor 0.7752) -- the kept-then-added features dilute the set. The plain cluster-vote (anchor_fe
+        # 0.7744 < no-anchor 0.7752) - the kept-then-added features dilute the set. The plain cluster-vote (anchor_fe
         # =False) is the better default on both beds. Kept as an option; not the fix it was meant to be.
         self.anchor_fe = anchor_fe
         self.random_state = random_state
@@ -259,10 +259,10 @@ class HybridSelector:
         # and skip value-sniffing entirely (mirrors hetero_vote / ShapProxiedFS which take an explicit classification=).
         self.classification = classification
         self.name = name
-        # keep_augmented_data (default True -- preserves the pre-existing behavior every _benchmarks/fs_hybrid/
+        # keep_augmented_data (default True - preserves the pre-existing behavior every _benchmarks/fs_hybrid/
         # combine-rule/diagnostic script depends on: self._Xaug_/self._y_ populated after fit()). A live
         # (non-pickled) fitted HybridSelector otherwise retains a full copy of the augmented (raw + engineered)
-        # training data for its whole in-process lifetime -- __getstate__ already drops both before pickling, so
+        # training data for its whole in-process lifetime - __getstate__ already drops both before pickling, so
         # this only matters for a caller keeping the fitted object around unpickled (e.g. a long-lived service).
         # Set False to free that memory immediately after fit() instead of waiting for pickling/GC.
         self.keep_augmented_data = keep_augmented_data
@@ -299,7 +299,7 @@ class HybridSelector:
             from mlframe.feature_selection.filters import MRMR
             # fe_strict (round-3 M3-4/M3-7): tighter synergy + engineered-MI prevalence gates than MRMR's defaults
             # (1.15 / 0.90). Measured on make_dataset: cuts spurious noise-product engineered features (~1.0 -> 0.67)
-            # and HALVES the engineered set (15 -> 7) while raising standalone mrmr_fe AUC 0.831 -> 0.837 -- a cleaner,
+            # and HALVES the engineered set (15 -> 7) while raising standalone mrmr_fe AUC 0.831 -> 0.837 - a cleaner,
             # more parsimonious FE substrate to share to the other members.
             fe_strict = dict(fe_synergy_min_prevalence=1.5, fe_min_engineered_mi_prevalence=0.97) if self.use_fe else {}
             # mrmr_synergy_cap (default 250; see __init__): raise the MRMR member's fe_synergy_screen_max_features so
@@ -335,7 +335,7 @@ class HybridSelector:
     def _tree_signals(self, X, y):
         """One cheap depth-limited GBM on RAW X -> (importance-ranked feature list, top co-occurring raw pairs).
         Co-occurrence proxy: within each tree, every pair of split features gets a count weighted by the tree's
-        total split gain -- features the tree branches on together are the interactions it exploits, a supervised
+        total split gain - features the tree branches on together are the interactions it exploits, a supervised
         operand proposer blind to marginal MI (the exact signal MRMR's marginal-MI greedy discards). Stored on self
         (ranked features + product pairs) so the product columns replay leakage-free at transform time."""
         self._tree_ranked_, self._tree_prod_pairs_, self._tree_prod_names_, self._tree_op_ = [], [], [], {}
@@ -358,7 +358,7 @@ class HybridSelector:
             for _tid, g in tdf.groupby("tree_index"):
                 feats = sorted(set(g["split_feature"].tolist()))
                 if mode == "count":
-                    # count: every co-occurring pair gets +1 -- raw split-co-occurrence frequency (legacy).
+                    # count: every co-occurring pair gets +1 - raw split-co-occurrence frequency (legacy).
                     for a, b in combinations(feats, 2):
                         pair_w[(a, b)] = pair_w.get((a, b), 0.0) + 1.0
                 else:
@@ -388,7 +388,7 @@ class HybridSelector:
 
     def _admit_tree_products(self, relevant, raw_cols):
         """Apply ``tree_prod_gate`` to decide which co-occurrence product columns earn a tree vote (the regime
-        self-regulator). Uses only the already-shared FI -- no extra compute. Returns a list of admitted tprod names."""
+        self-regulator). Uses only the already-shared FI - no extra compute. Returns a list of admitted tprod names."""
         if not getattr(self, "_tree_prod_names_", None):
             return []
         fi, gate = self.fi_, str(self.tree_prod_gate).lower()
@@ -401,7 +401,7 @@ class HybridSelector:
             floor = max(float(np.median(rfis)) if rfis else 0.0, 1e-12)
             return [nm for nm in prods if fi.get(nm, 0.0) >= floor]
         # default "synergy": a product earns its place only if it is more informative than BOTH operands alone
-        # (FI[a*b] > max(FI[a], FI[b])) -- a genuine interaction adds information beyond its parts. Regime-agnostic:
+        # (FI[a*b] > max(FI[a], FI[b])) - a genuine interaction adds information beyond its parts. Regime-agnostic:
         # madelon's true products clear it; the FE-saturated bed's redundant raw products (subsumed by the operands
         # or by MRMR's transforms) do not.
         out = []
@@ -414,7 +414,7 @@ class HybridSelector:
         """Pick the kept representative of a (correlation) cluster per ``cluster_rep``. ``members`` is already the
         candidate subset (filtered to in-frame / relevant). "first" = the cluster's first column (legacy, arbitrary);
         "max_fi" = highest single mean perm-FI; "sum_fi" (default) = highest summed-per-repeat perm-FI (most stable).
-        Empty input returns None. Pure function of the shared FI -- no extra compute."""
+        Empty input returns None. Pure function of the shared FI - no extra compute."""
         if not members:
             return None
         rep = str(getattr(self, "cluster_rep", "sum_fi")).lower()
@@ -458,7 +458,7 @@ class HybridSelector:
         precomputed = None
         # MRMR artifacts cover only RAW columns; if the relevant set carries engineered cols (use_fe), ShapProxiedFS
         # would warn + discard the precomputed entirely (feature_names mismatch). Only share artifacts when every
-        # relevant column is covered (the pure-selection case) -- otherwise let the shap member recompute cleanly.
+        # relevant column is covered (the pure-selection case) - otherwise let the shap member recompute cleanly.
         if artifacts is not None:
             try:
                 from mlframe.feature_selection.shap_proxied_fs import restrict_artifacts
@@ -478,7 +478,7 @@ class HybridSelector:
 
     def _run_boruta_premerge(self, X, y, relevant):
         """BorutaShap on the SHARED cluster representatives (premerge, R2b-6), then re-expand accepted reps. Uses the
-        boruta_driver importance measure -- "gini" by default (measured net-negative for "permutation" without FE;
+        boruta_driver importance measure - "gini" by default (measured net-negative for "permutation" without FE;
         see __init__'s boruta_driver comment for the full benchmark), with "permutation" available as the
         high-precision, held-out option (~0 noise leak, vs "gini" which admits the top spurious column and caps the
         linear downstream under vote=1)."""
@@ -533,7 +533,7 @@ class HybridSelector:
         # HybridSelector is intrinsically CLASSIFICATION-only: the shared FI uses a stratified split + LGBMClassifier, and
         # the ShapProxiedFS / BorutaShap members are wired with classification=True (binary). A continuous / multi-output
         # target previously crashed deep inside sklearn's stratify ("least populated class has 1 member") or the LGBM 1d
-        # check -- opaque tracebacks. Detect the unsupported target shape up front and raise an actionable error.
+        # check - opaque tracebacks. Detect the unsupported target shape up front and raise an actionable error.
         from sklearn.utils.multiclass import type_of_target
         y_arr = np.asarray(y)
         if y_arr.ndim > 1 and not (y_arr.ndim == 2 and y_arr.shape[1] == 1):
@@ -560,24 +560,24 @@ class HybridSelector:
                     f"'{_ttype}' target. For regression use MRMR / RFECV / GroupAwareMRMR with a regression estimator."
                 )
             if _ttype in ("binary", "multiclass") and np.asarray(y).dtype.kind == "f":
-                # A float target that sniffs as classification (e.g. exactly 2 distinct float values) is ambiguous --
+                # A float target that sniffs as classification (e.g. exactly 2 distinct float values) is ambiguous -
                 # it may be a low-cardinality regression target. Warn so a silent classifier-on-regression run is visible.
                 warnings.warn(
                     "HybridSelector: target dtype is float but was value-sniffed as a classification target "
                     f"('{_ttype}'); pass classification=True to confirm or classification=False if this is regression.",
                     stacklevel=2,
                 )
-        # STAGE 0 -- MRMR FIRST (it engineers the shared FE columns), then build the augmented frame X_aug once;
+        # STAGE 0 - MRMR FIRST (it engineers the shared FE columns), then build the augmented frame X_aug once;
         # every downstream shared artifact + member then operates on raw+engineered features.
         self.mrmr_selected_, self.artifacts_ = self._run_mrmr(X, y) if self.use_mrmr else ([], None)
         if not self.use_mrmr:
             self._mrmr_member, self._eng_names, self._eng_rename = None, [], {}
         # tree signals on RAW X (importance ranking + co-occurrence product pairs). The candidate product columns are
         # folded into the augmented frame and scored by the ONE shared FI pass, THEN GATED: only gate-admitted products
-        # survive -- rejected ones are pruned from the frame AND the replay pairs, so they never reach the clusters,
+        # survive - rejected ones are pruned from the frame AND the replay pairs, so they never reach the clusters,
         # members, vote, or transform. This makes tree_prod_gate actually BIND (it is the regime self-regulator: on
         # interaction-heavy data the true products clear synergy/FI; on FE-saturated data the redundant raw products do
-        # not, so they are dropped and MRMR's engineered transforms win unchallenged -- no dilution of that regime).
+        # not, so they are dropped and MRMR's engineered transforms win unchallenged - no dilution of that regime).
         self._tree_signals(X, y)
         X_aug = self._augment(X)  # all candidate products present, for honest FI scoring
         fi_full = self._shared_perm_fi(X_aug, y)  # the single (expensive) shared FI pass
@@ -606,7 +606,7 @@ class HybridSelector:
         self.fi_ = {c: fi_full.get(c, 0.0) for c in cols}
         # WIDE-DATA CLUSTERING GUARD (hybrid_corr_max_features): narrow X_aug to the relevance-survivor set BEFORE the
         # O(p^2) corr_clusters. Survivors = FI>0 OR MRMR-relevant OR engineered (the exact prescreen rule below). The
-        # dropped columns are pure-noise singletons (FI==0, not MRMR, not engineered) -- they would each cluster alone
+        # dropped columns are pure-noise singletons (FI==0, not MRMR, not engineered) - they would each cluster alone
         # and never be voted/selected, so omitting them is selection-neutral on the kept set while bounding clustering
         # cost on wide frames. self.fi_ retains the FULL frame so _rep_fi / cluster_rep still see every column.
         mrmr_set_pre = set(self.mrmr_selected_)
@@ -619,7 +619,7 @@ class HybridSelector:
             must = [c for c in cluster_cols if c in engineered or c in mrmr_set_pre]
             rest = [c for c in cluster_cols if c not in engineered and c not in mrmr_set_pre]
             # Full sort key (-fi, col) so ties on importance break deterministically by column name instead of
-            # depending on the input order -- otherwise two equal-FI columns at the cap boundary could be kept
+            # depending on the input order - otherwise two equal-FI columns at the cap boundary could be kept
             # or dropped non-reproducibly across runs / platforms.
             rest = sorted(rest, key=lambda c: (-self.fi_.get(c, 0.0), c))[: max(cap - len(must), 0)]
             cluster_cols = [c for c in cols if c in set(must) | set(rest)]  # preserve original column order
@@ -633,7 +633,7 @@ class HybridSelector:
                 self.reps_.append(c); self.members_[c] = [c]
         self.cluster_of_ = {f: r for r, ms in self.members_.items() for f in ms}
 
-        # STAGE 1 -- shared relevance pre-screen (held-out permutation FI > 0, OR MRMR-relevant, OR engineered:
+        # STAGE 1 - shared relevance pre-screen (held-out permutation FI > 0, OR MRMR-relevant, OR engineered:
         # engineered columns already passed MRMR's FE gate, so they are never dropped by the raw-FI prescreen)
         if self.prescreen:
             mrmr_set = set(self.mrmr_selected_)
@@ -644,11 +644,11 @@ class HybridSelector:
             relevant = list(cols)
         self.relevant_ = relevant
 
-        # STAGE 2 -- reuse the member selectors on the shared, narrowed augmented space.
+        # STAGE 2 - reuse the member selectors on the shared, narrowed augmented space.
         # bench-attempt-rejected (2026-06-08, member-parallelism): _run_shap (~7s) and _run_boruta_premerge (~17s)
         # are independent (no shared mutable state) so they LOOK parallelizable, but each already runs n_jobs=-1
         # internally (sklearn RF / njit / LGBM) and SATURATES all cores on its own. Probed on the 8-core dev box
-        # (hard_synth 1500x220): a 2-thread overlap won only 1.02x (22.34s -> 21.95s; bit-identical) -- no real
+        # (hard_synth 1500x220): a 2-thread overlap won only 1.02x (22.34s -> 21.95s; bit-identical) - no real
         # overlap, the inner pools time-slice the same cores. loky/process parallelism would be WORSE here: the
         # members are unequal (17s vs 7s) and RF/LGBM scale ~linearly with cores, so capping each to 4 cores to fit
         # two processes roughly doubles the 17s member to ~33s > the 24s sequential sum, and it multiplies the
@@ -678,7 +678,7 @@ class HybridSelector:
                 member_sel["tree"] = tree_votes  # use_fe=False + tree_top_k=0 -> no key, keeps the raw-only contract)
         self.member_selections_ = member_sel
 
-        # STAGE 3 -- cluster-aware vote over the shared clusters (pure, deterministic; extracted for unit testing)
+        # STAGE 3 - cluster-aware vote over the shared clusters (pure, deterministic; extracted for unit testing)
         selected = self._combine(member_sel, cols)
         self.raw_selected_ = [c for c in cols if c in set(selected)] or cols[:1]
         self.n_engineered_ = sum(1 for c in self.raw_selected_ if c in engineered)
@@ -707,7 +707,7 @@ class HybridSelector:
             """Cluster r's credibility score: the highest shared-FI among its still-present members (0.0 if none survived the frame)."""
             return max((self.fi_.get(m, 0.0) for m in self.members_[r] if m in cols), default=0.0)
 
-        # FI-CREDIBILITY GUARD (off by default -- MEASURED net loss): a cluster confirmed by only ONE member is
+        # FI-CREDIBILITY GUARD (off by default - MEASURED net loss): a cluster confirmed by only ONE member is
         # admitted only if its shared-permutation-FI clears the credibility floor = the median rep-FI of the
         # CONSENSUS clusters (>= 2 members). The intent was to drop the single-member noise leak while keeping
         # real single-member features. Benched (round2_hybrid_bench.py, 3 seeds on make_dataset): it DOES cut

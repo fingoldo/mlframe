@@ -1,11 +1,11 @@
 """Haar wavelet / localized multiresolution basis FE.
 
 A NEW univariate operator for a signal shape the catalog cannot capture: a
-**localized bump / multiscale piecewise structure** -- ``y`` jumps only inside a
+**localized bump / multiscale piecewise structure** - ``y`` jumps only inside a
 narrow sub-interval of x, or has step/contrast structure at SEVERAL scales at
 once. The closest existing operators all have the WRONG form:
 
-* Fourier is **GLOBAL** -- a localized bump forces a long tone sum and the
+* Fourier is **GLOBAL** - a localized bump forces a long tone sum and the
   truncated series RINGS (Gibbs) around the discontinuity;
 * cubic B-spline knots are placed at **FIXED quantiles** of x (unsupervised), so
   a bump that falls between knots is SMOOTHED AWAY;
@@ -22,7 +22,7 @@ dyadic set of **Haar wavelet indicators** ``psi_{j,k}(z)``: ``+1`` on the LEFT
 half / ``-1`` on the RIGHT half of the dyadic interval
 ``[k/2^j, (k+1)/2^j)``, ``0`` outside. Scales ``j = 0 .. max_scale`` (default 3),
 positions ``k = 0 .. 2^j - 1``. Each ``psi_{j,k}`` is a localized step/contrast
-detector at scale ``2^{-j}`` centred on a dyadic position -- a multiresolution
+detector at scale ``2^{-j}`` centred on a dyadic position - a multiresolution
 edge dictionary.
 
 Candidate explosion control (the load-bearing risk)
@@ -40,12 +40,12 @@ the candidate pool. Two self-limiting bounds keep it small:
 2. The downstream :func:`hybrid_wavelet_fe_with_recipes` then re-applies the same
    MI-uplift gate + noise-aware MAD floor the spline / Fourier extra-basis path
    uses (:func:`score_features_by_mi_uplift`), so a surviving leg must ALSO beat
-   its raw source's MI -- a second, pool-level self-limit.
+   its raw source's MI - a second, pool-level self-limit.
 
 Why MI-gateable (unlike the hinge)
 ----------------------------------
 A Haar leg ``psi_{j,k}`` is NON-monotone in x (it is +1 then -1 then 0), so it is
-NOT MI-invariant by the data-processing inequality -- a leg in the RIGHT window
+NOT MI-invariant by the data-processing inequality - a leg in the RIGHT window
 carries genuine MARGINAL MI about a localized target (unlike a single Fourier
 phase-leg, whose MI is split across sin/cos, or the monotone hinge/isotonic legs
 that MI cannot see). So the wavelet routes through the NORMAL MI-uplift gate, no
@@ -55,9 +55,9 @@ deferred-materialisation / re-add dance is needed (contrast the hinge, backlog
 Leak-safe replay
 ----------------
 The recipe (kind ``"orth_wavelet"``) stores only ``(lo, span)`` + the dyadic
-``(j, k)`` -- NO y -- so ``transform`` replay is the closed-form indicator
+``(j, k)`` - NO y - so ``transform`` replay is the closed-form indicator
 ``_dyadic_haar_leg(clip((x - lo) / span, 0, 1), j, k)``. The scale SELECTION
-consumes y at FIT time (like every supervised FE here -- spline knot placement,
+consumes y at FIT time (like every supervised FE here - spline knot placement,
 Fourier frequency detection, hinge breakpoint search) but the emitted COLUMN
 VALUE does not depend on y, so the replayed feature is leakage-free by
 construction. Structurally identical to ``orth_spline`` (store basis params +
@@ -97,7 +97,7 @@ __all__ = [
 # Coarsest..finest dyadic scales. j=0 is the root contrast (left vs right half of
 # the whole support, = psi_{0,0}); j=3 resolves features at 1/8 of the support.
 # Beyond j=3 a leg spans < ~1/16 of the range and on n<=4000 its half-cells hold
-# too few rows for a trustworthy held-out MI -- so cap at 3 (the backlog's
+# too few rows for a trustworthy held-out MI - so cap at 3 (the backlog's
 # j=0..3). The TOTAL leg count before selection is sum_{j=0}^{3} 2^j = 15.
 _WAVELET_MAX_SCALE: int = 3
 # Max legs EMITTED per column after held-out scale-selection. The held-out MAD
@@ -158,7 +158,7 @@ _WAVELET_SMOOTH_COMPLEMENT_RATIO: float = 0.5
 # incremental MI under K y-shuffles (same binning, same cells) so the statistic measures the
 # leg's value ABOVE its own finite-sample bias: a localized step/bump keeps a large positive
 # debiased incr; a pure-noise leg centers at ~0 and fails the floor. K small (the null mean is
-# a stable estimate -- its variance shrinks as 1/K and the floor has margin).
+# a stable estimate - its variance shrinks as 1/K and the floor has margin).
 _WAVELET_INCR_NULL_PERMS: int = 8
 
 
@@ -166,7 +166,7 @@ def _dyadic_haar_leg(z: np.ndarray, j: int, k: int, dtype=np.float32) -> np.ndar
     """Closed-form Haar wavelet indicator ``psi_{j,k}(z)`` for ``z`` in [0, 1].
 
     ``+1`` on the LEFT half ``[k/2^j, (k+0.5)/2^j)``, ``-1`` on the RIGHT half
-    ``[(k+0.5)/2^j, (k+1)/2^j)``, ``0`` outside. Pure function of ``z`` -- no y,
+    ``[(k+0.5)/2^j, (k+1)/2^j)``, ``0`` outside. Pure function of ``z`` - no y,
     no fitted state beyond the (j, k) integers, so it replays leak-free.
 
     The output is allocated in ``dtype`` (float32 by default, the large-n working
@@ -222,14 +222,14 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> flo
 
     ``discrete``: the caller guarantees ``feat`` (and, when ``y_codes`` is None, ``y``) are ALREADY small
     integer bin codes (the held-out incremental-MI path passes ``xc`` / ``xc*3+legcode`` / class codes).
-    Then the ``cp.unique`` densify -- a FULL device sort just to dedupe already-discrete values, the single
-    largest MergeSort source in the F2 STRICT profile -- is skipped: the codes are used directly (offset by
+    Then the ``cp.unique`` densify - a FULL device sort just to dedupe already-discrete values, the single
+    largest MergeSort source in the F2 STRICT profile - is skipped: the codes are used directly (offset by
     min, a label relabel that leaves the partition, hence the plug-in MI, identical) and scored by the
     fused MI-from-codes RawKernel. Selection-EXACT (no approximation), no sort."""
     import cupy as cp
 
     # y / y_codes are the FIT-CONSTANT target (invariant across every leg of a source column, AND across
-    # every source column in the fit, since the %3 train/held-out mask is the same for all of them) --
+    # every source column in the fit, since the %3 train/held-out mask is the same for all of them) -
     # resident-cache them so repeated calls within one fit (up to 6 legs/column via _heldout_incremental_mi)
     # upload ONCE instead of every call. feat/df is the candidate leg/joint code, which genuinely varies per
     # call, and stays a raw upload.
@@ -259,7 +259,7 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> flo
                 if e is not None:
                     return e.ravel()
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _wavelet_basis_fe.py:250: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
         return cp.quantile(v, cp.linspace(0.0, 1.0, nbins + 1)[1:-1])
 
@@ -304,14 +304,14 @@ def _binned_mi(feat: np.ndarray, y: np.ndarray, nbins: int = 10, y_codes: Option
     n = feat.size
     if n == 0 or n != y.size:
         return 0.0
-    # GPU route (2026-06-25): MI(feat;y) = H(feat)+H(y)-H(feat,y) on device via cp.unique partition counts
+    # GPU route: MI(feat;y) = H(feat)+H(y)-H(feat,y) on device via cp.unique partition counts
     # (the binning's np.unique/digitize over n rows is the wavelet leg-rank hot cost). Same partition ->
     # same MI -> same leg RANKING (selection-identical). Gated (STRICT / MLFRAME_CMI_GPU), default CPU.
     if _binnedmi_gpu_enabled(n=int(n), p=1):
         try:
             return _binned_mi_cupy(feat, y, int(nbins), y_codes, discrete=discrete)
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _wavelet_basis_fe.py:301: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
     # Feature is a Haar leg taking values in {-1, 0, +1} -> use those as classes
     # directly (3 cells); avoids quantile-binning a ternary column.
@@ -333,7 +333,7 @@ def _binned_mi(feat: np.ndarray, y: np.ndarray, nbins: int = 10, y_codes: Option
         yb = np.digitize(y, edges_y)
     # Joint-histogram MI: the prior O(|fa|*|yb|*n) double loop recomputed an O(n) boolean
     # mask per contingency cell; a single bincount over the dense joint code yields the same
-    # plug-in counts. Bit-identical by construction -- pa/pb/pab are still count/n float64 and
+    # plug-in counts. Bit-identical by construction - pa/pb/pab are still count/n float64 and
     # the (a ascending, b ascending) over-nonzero-pab summation order is preserved row-major.
     fa_vals, fa_inv = np.unique(fb, return_inverse=True)
     yb_vals, yb_inv = np.unique(yb, return_inverse=True)
@@ -372,11 +372,11 @@ def _x_codes(v: np.ndarray, nbins: int = 10) -> np.ndarray:
 
 def _heldout_incremental_mi_prep(x: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> Optional[dict]:
     """Per-SOURCE-COLUMN prep for :func:`_heldout_incremental_mi`: everything depending only on ``(x, y,
-    nbins)`` -- NOT on any particular leg -- computed ONCE per source column, including the expensive 8-shuffle
+    nbins)`` - NOT on any particular leg - computed ONCE per source column, including the expensive 8-shuffle
     permutation-null baseline (``Yp`` / ``bm``). A column can emit up to ``_WAVELET_MAX_LEGS`` legs, each of
     which used to redo this identical work; :func:`hybrid_wavelet_fe_with_recipes` now groups legs by source
     column and calls this once per group, reusing the result via :func:`_heldout_incremental_mi_from_prep`.
-    Returns ``None`` on the same guards the original function used to return ``(0.0, 0.0)`` for -- the caller
+    Returns ``None`` on the same guards the original function used to return ``(0.0, 0.0)`` for - the caller
     then scores every leg of this column as ``(0.0, 0.0)``."""
     x = np.asarray(x, dtype=np.float64).ravel()
     y = np.asarray(y).ravel()
@@ -401,9 +401,9 @@ def _heldout_incremental_mi_prep(x: np.ndarray, y: np.ndarray, *, nbins: int = 1
         Yp = np.empty((int(y_va.size), n_perm), dtype=np.int64)
         for _p in range(n_perm):
             Yp[:, _p] = y_va[_rng.permutation(y_va.size)]
-        # bm (the null's xc-side term) depends only on (xc, y_va, Yp) -- leg-independent, unlike jm (the
+        # bm (the null's xc-side term) depends only on (xc, y_va, Yp) - leg-independent, unlike jm (the
         # joint-side term, computed per leg in _heldout_incremental_mi_from_prep). BATCHED (launch-reduction):
-        # stack the n_perm permuted-y columns and score them all in ONE binned_mi_from_codes_gpu workload --
+        # stack the n_perm permuted-y columns and score them all in ONE binned_mi_from_codes_gpu workload -
         # the SAME plain plug-in-MI kernel _binned_mi(discrete) uses, so selection-equivalent.
         try:
             import cupy as cp
@@ -480,7 +480,7 @@ def _heldout_incremental_mi_from_prep(prep: Optional[dict], leg: np.ndarray) -> 
             for _p in range(n_perm):
                 null[_p] = _binned_mi(joint_f, Yp[:, _p], nbins=joint_nb, discrete=True) - bm[_p]
         # Subtract the MAX incremental MI over the shuffles: the leg survives only if its incremental MI beats
-        # every shuffled-y replicate -- a permutation test (p < 1/(n_perm+1)) on the leg's extra cells. The
+        # every shuffled-y replicate - a permutation test (p < 1/(n_perm+1)) on the leg's extra cells. The
         # extra contingency cells inflate the joint MI even on noise (finite-sample plug-in bias) and that bias
         # has high variance on the small held-out slice, so a pure-noise leg can still hit a large positive raw
         # incr; subtracting the worst shuffle cancels both the bias and its spread. A genuine localized
@@ -498,9 +498,9 @@ def _heldout_incremental_mi(
     scored on the ``%3`` stride slice, PLUS the gain of a SMOOTH refinement
     competitor. Returns ``(leg_incr, smooth_gain)``:
 
-    * ``leg_incr = MI(y; [bin_{nbins}(x), leg])_va - MI(y; bin_{nbins}(x))_va`` --
+    * ``leg_incr = MI(y; [bin_{nbins}(x), leg])_va - MI(y; bin_{nbins}(x))_va`` -
       what the localized Haar leg adds ON TOP of the coarse binned raw column.
-    * ``smooth_gain = MI(y; bin_{2*nbins}(x))_va - MI(y; bin_{nbins}(x))_va`` --
+    * ``smooth_gain = MI(y; bin_{2*nbins}(x))_va - MI(y; bin_{nbins}(x))_va`` -
       what simply refining the raw column's binning (a SMOOTH, location-only
       refinement, no contrast structure) adds over the same coarse baseline. This
       is the complementarity competitor: a SMOOTH signal (sin, monotone) is
@@ -552,10 +552,10 @@ def _select_wavelet_legs(
     in held-out MI -> admitted. Returns ``[]`` on too-few rows / degenerate x.
 
     ``return_arrays`` (default False, byte-identical legacy return of ``(j, k)`` tuples): when True, each
-    admitted entry is ``(j, k, leg_array)`` -- ``leg_array`` is the SAME ``_dyadic_haar_leg(z, j, k)`` array
+    admitted entry is ``(j, k, leg_array)`` - ``leg_array`` is the SAME ``_dyadic_haar_leg(z, j, k)`` array
     already built here to rank the candidate, so :func:`generate_wavelet_features` can reuse it instead of
     rebuilding an identical array from scratch for every survivor. The GPU-batched delegate path (which
-    returns bare ``(j, k)`` tuples only) rebuilds the array for survivors when ``return_arrays=True`` -- still
+    returns bare ``(j, k)`` tuples only) rebuilds the array for survivors when ``return_arrays=True`` - still
     correct, just without the reuse (the batched twin lives in a separate module)."""
     # BATCHED born-on-device path under STRICT (default OFF -> CPU below, byte-identical). The batched twin
     # scores all candidate legs' train+held-out MI in two device workloads (one cp.bincount each) instead of
@@ -663,7 +663,7 @@ def generate_wavelet_features(
         pre-categorize wall at p=420), scaling with column count regardless of row count.
         ``None`` (default) = unlimited, byte-identical legacy behaviour. Unlike the Fourier
         extra-basis cap, columns beyond this cap get NO wavelet legs at all (there is no cheap
-        fallback basis for wavelets the way Fourier has a fixed grid) -- set only when the wide
+        fallback basis for wavelets the way Fourier has a fixed grid) - set only when the wide
         wall-time cost is a bigger concern than wavelet recall on the excluded columns.
 
     Returns
@@ -722,7 +722,7 @@ def generate_wavelet_features(
         for j, k, leg_arr in legs:
             # Reuse the array _select_wavelet_legs already built to rank this survivor instead of rebuilding
             # it from scratch; a plain dtype cast (when feature_dtype differs from the selection's default
-            # float32) is cheaper than a fresh zeros_like + two boolean-mask assigns, and exact -- the leg
+            # float32) is cheaper than a fresh zeros_like + two boolean-mask assigns, and exact - the leg
             # only ever holds {-1, 0, +1}, bit-identically representable in any float dtype.
             leg = leg_arr if leg_arr.dtype == np.dtype(feature_dtype) else leg_arr.astype(feature_dtype)
             if float(np.std(leg)) <= 1e-12:
@@ -743,7 +743,7 @@ def build_orth_wavelet_recipe(
     ``z = clip((X[src_name] - lo) / span, 0, 1)`` with the dyadic ``(j, k)`` and
     ``(lo, span)`` fixed at fit time.
 
-    Replay is closed-form in the source column alone -- no y reference captured,
+    Replay is closed-form in the source column alone - no y reference captured,
     so ``transform`` is leakage-free by construction. Mirrors
     ``build_orth_spline_recipe`` (store basis params + ``lo``/``span``, replay a
     closed-form basis function of x)."""
@@ -761,7 +761,7 @@ def build_orth_wavelet_recipe(
 
 def _apply_orth_wavelet(recipe, X) -> np.ndarray:
     """Replay one Haar wavelet basis column from the stored ``(j, k, lo, span)``
-    -- a pure function of the source column (no y). Mirrors ``_apply_orth_spline``.
+    - a pure function of the source column (no y). Mirrors ``_apply_orth_spline``.
     """
     from .engineered_recipes import _extract_column
     if len(recipe.src_names) != 1:
@@ -813,7 +813,7 @@ def hybrid_wavelet_fe_with_recipes(
     2. Each surviving leg must clear the held-out INCREMENTAL MI floor
        (``leg_incr >= min_incr_mi`` on the ``%3`` slice): the joint
        ``MI(y; [bin(x), leg])`` must beat ``MI(y; bin(x))`` by an absolute margin
-       -- the leg sharpens y BEYOND what the coarse raw column already says.
+       - the leg sharpens y BEYOND what the coarse raw column already says.
     3. COMPLEMENTARITY GUARD: the leg's incremental MI must also exceed
        ``smooth_complement_ratio`` x the SMOOTH-refinement gain (what finer
        location-only binning of raw x adds over the same coarse baseline). On a
@@ -860,7 +860,7 @@ def hybrid_wavelet_fe_with_recipes(
         y_codes = y_arr.astype(np.int64)
     rows = []
     # Most of _heldout_incremental_mi's work (x_src extraction/fill, xc, base_mi, the 8-shuffle permutation-
-    # null baseline, xc_fine/fine_mi/smooth_gain) depends only on (src, y_codes, nbins), not on the leg -- up
+    # null baseline, xc_fine/fine_mi/smooth_gain) depends only on (src, y_codes, nbins), not on the leg - up
     # to _WAVELET_MAX_LEGS legs per source column used to redo it identically. Group by src and cache the prep.
     _prep_cache: dict = {}
     for name in engineered.columns:

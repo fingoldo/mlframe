@@ -2,10 +2,10 @@
 
 Companion to ``_shap_proxy_treeshap`` (main-effect TreeSHAP). This module computes the (n, P, P)
 SHAP interaction tensor that ``shap.TreeExplainer.shap_interaction_values`` produces, but with the
-self-contained numba kernel that already powers the main-effect path -- avoiding the painfully slow
+self-contained numba kernel that already powers the main-effect path - avoiding the painfully slow
 ``shap`` Python/Cython interaction call on wide proxy widths.
 
-Algorithm (Lundberg's interaction extension -- the same recurrence the reference shap C++
+Algorithm (Lundberg's interaction extension - the same recurrence the reference shap C++
 ``tree_shap_recursive`` uses with its ``condition`` / ``condition_feature`` / ``condition_fraction``
 parameters, Algorithm 2 of "Consistent Individualized Feature Attribution for Tree Ensembles"):
 

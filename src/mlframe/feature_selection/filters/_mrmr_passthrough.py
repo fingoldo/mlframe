@@ -3,14 +3,14 @@
 MRMR's MI estimator discretises every candidate column into integer bins, which requires scalar (hashable, orderable) cell values. Two column kinds violate
 that contract and must NOT enter the MI candidate set:
 
-* EMBEDDING-VECTOR columns -- object-dtype cells holding ``list`` / ``np.ndarray`` / ``tuple`` of floats (a learned/precomputed embedding per row). Passing such a
+* EMBEDDING-VECTOR columns - object-dtype cells holding ``list`` / ``np.ndarray`` / ``tuple`` of floats (a learned/precomputed embedding per row). Passing such a
   cell to the discretiser raises ``TypeError: unhashable type: 'numpy.ndarray'`` or silently mis-bins.
-* FREE-TEXT columns -- object/string cells holding long natural-language strings. Treated as a categorical with ~N distinct levels they carry no usable MI signal
+* FREE-TEXT columns - object/string cells holding long natural-language strings. Treated as a categorical with ~N distinct levels they carry no usable MI signal
   and blow up the bin count; the downstream PyTorch-Lightning network's ``_encode_emb_text_fit`` boundary encoder is the correct consumer.
 
 These columns are detected at fit time, EXCLUDED from the discretisation / MI / FE candidate set, and PASSED THROUGH to the transform output unchanged so the
 learnable-embedding MLP / recurrent network (and the boundary encoder) receive them end-to-end. The detector is sampling-based (never materialises a 100+ GB
-column) and is enabled by default -- the legacy "drop / crash on non-scalar column" behaviour was silently wrong.
+column) and is enabled by default - the legacy "drop / crash on non-scalar column" behaviour was silently wrong.
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def detect_passthrough_columns(
 ) -> tuple[list, list]:
     """Detect embedding-vector and free-text columns in ``X``.
 
-    Returns ``(embedding_cols, text_cols)`` -- two lists of column labels. Only object/string-dtype columns are inspected (numeric / category / bool columns can
+    Returns ``(embedding_cols, text_cols)`` - two lists of column labels. Only object/string-dtype columns are inspected (numeric / category / bool columns can
     never carry list cells and are cheap to bin, so they stay in the MI candidate set). Detection samples at most ``_SAMPLE_ROWS`` non-null cells per column.
 
     A column is an EMBEDDING column when its sampled non-null cells are predominantly list/tuple/ndarray. It is a FREE-TEXT column when its sampled cells are

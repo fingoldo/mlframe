@@ -1,6 +1,6 @@
 """Per-family FE wall-time accounting for MRMR.
 
-The MRMR FE step fans out into several independent families -- orthogonal pair / triplet / quadruplet / adaptive-arity
+The MRMR FE step fans out into several independent families - orthogonal pair / triplet / quadruplet / adaptive-arity
 cross-basis, and the smart-polynom pair search. cProfile cannot cleanly attribute their cost (compiled-njit / cupy time is
 mis-charged to the Python caller, and the orchestrator note in ``_mrmr_fe_step/_step_core.py`` shows the body itself is at
 floor), so which family dominates a given fit was previously unknowable. This module records true perf_counter wall per
@@ -27,17 +27,29 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 # single end-of-run summary reflects the whole suite. Guarded by a lock because FE families can run under joblib threads.
 _FE_FAMILY_WALL: dict[str, list[float]] = defaultdict(lambda: [0.0, 0])
 _LOCK = threading.Lock()
+# In-flight timer count and the maximum ever observed. When families run concurrently (joblib threads, or a
+# nested fit), their intervals OVERLAP, so the per-family walls no longer sum to real elapsed time and the
+# percentages are shares-of-CPU-time, not shares-of-wall. Track the peak concurrency so the summary can say so
+# instead of silently reporting a total that exceeds the fit's actual duration.
+_INFLIGHT = 0
+_MAX_INFLIGHT = 0
 
 
 @contextmanager
 def fe_family_timer(name: str) -> Iterator[None]:
     """Context manager that accumulates wall time and invocation count for ``name`` into the process-global ``_FE_FAMILY_WALL`` map under the lock."""
+    global _INFLIGHT, _MAX_INFLIGHT
+    with _LOCK:
+        _INFLIGHT += 1
+        if _INFLIGHT > _MAX_INFLIGHT:
+            _MAX_INFLIGHT = _INFLIGHT
     _t0 = perf_counter()
     try:
         yield
     finally:
         _dt = perf_counter() - _t0
         with _LOCK:
+            _INFLIGHT -= 1
             slot = _FE_FAMILY_WALL[name]
             slot[0] += _dt
             slot[1] += 1
@@ -48,7 +60,8 @@ def record_fe_family_wall(name: str, dt: float) -> None:
 
     For call sites where wrapping the timed region in ``with fe_family_timer(name):`` would force
     reindenting a large pre-existing block; callers measure ``perf_counter()`` before/after
-    themselves and pass the delta here. Equivalent to one ``fe_family_timer`` context exit."""
+    themselves and pass the delta here. Equivalent to one ``fe_family_timer`` context exit
+    (it does not participate in the concurrency tracking, since the caller owns the timed region)."""
     with _LOCK:
         slot = _FE_FAMILY_WALL[name]
         slot[0] += float(dt)
@@ -70,8 +83,10 @@ def fe_timed(name: str) -> Callable[[_F], _F]:
 
 def reset_fe_family_wall() -> None:
     """Clear all accumulated per-family wall-time/invocation counters (e.g. between independent fits in the same process)."""
+    global _MAX_INFLIGHT
     with _LOCK:
         _FE_FAMILY_WALL.clear()
+        _MAX_INFLIGHT = _INFLIGHT
 
 
 def get_fe_family_wall() -> dict[str, tuple[float, int]]:
@@ -80,14 +95,31 @@ def get_fe_family_wall() -> dict[str, tuple[float, int]]:
         return {k: (v[0], int(v[1])) for k, v in _FE_FAMILY_WALL.items()}
 
 
+def get_fe_family_max_concurrency() -> int:
+    """Peak number of ``fe_family_timer`` regions that were ever in flight simultaneously.
+
+    ``> 1`` means some family intervals OVERLAPPED, so the recorded walls sum to more than the fit's real
+    elapsed time and the summary percentages are CPU-time shares, not wall shares.
+    """
+    with _LOCK:
+        return int(_MAX_INFLIGHT)
+
+
 def log_fe_family_summary(*, reset: bool = True) -> None:
     """Emit one INFO line ranking FE families by total wall, then optionally reset. No-op when nothing was recorded."""
+    global _MAX_INFLIGHT
     with _LOCK:
         if not _FE_FAMILY_WALL:
             return
         rows = sorted(_FE_FAMILY_WALL.items(), key=lambda kv: kv[1][0], reverse=True)
         total = sum(v[0] for _, v in rows) or 1e-9
         parts = [f"{name}={wall:.1f}s({100.0 * wall / total:.0f}%, x{n})" for name, (wall, n) in rows]
+        overlapped = _MAX_INFLIGHT > 1
+        peak = int(_MAX_INFLIGHT)
         if reset:
             _FE_FAMILY_WALL.clear()
-    logger.info("MRMR FE per-family wall: %s  [total %.1fs]", "  ".join(parts), total)
+            _MAX_INFLIGHT = _INFLIGHT
+    # Without this caveat a reader would compare the total against the fit's wall clock and conclude the
+    # accounting is broken; concurrent families genuinely double-count overlapping intervals.
+    caveat = f"  [CONCURRENT: peak {peak} families in flight; walls overlap, shares are CPU-time not wall]" if overlapped else ""
+    logger.info("MRMR FE per-family wall: %s  [total %.1fs]%s", "  ".join(parts), total, caveat)

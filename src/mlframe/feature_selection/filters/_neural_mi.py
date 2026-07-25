@@ -1,4 +1,4 @@
-"""Neural mutual-information estimators for MRMR (2026-05-29).
+"""Neural mutual-information estimators for MRMR.
 
 Five PyTorch-based estimators (each behind its own opt-in flag in MRMR):
 
@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 
 def _clamp_mi_nonneg(mi: float, estimator: str) -> float:
-    """Clamp an MI estimate to ``[0, inf)``, but never silently coerce a NaN/inf divergence to 0.0 --
+    """Clamp an MI estimate to ``[0, inf)``, but never silently coerce a NaN/inf divergence to 0.0 -
     that would make a failed neural-MI training run indistinguishable from a genuinely near-zero MI.
     Logs and returns NaN instead so callers can filter/retry on the real failure signature."""
     if not math.isfinite(mi):
@@ -178,7 +178,7 @@ def mine_mi(
         else:
             ema = ema_decay * ema + (1.0 - ema_decay) * cur_mean
         # Loss = -DV bound. The EMA-corrected gradient (Belghazi 2018 eq. 12) replaces the gradient
-        # of ``log(mean(exp_t))`` with ``mean(exp_t) / ema`` -- a constant-detached normaliser -- to
+        # of ``log(mean(exp_t))`` with ``mean(exp_t) / ema`` - a constant-detached normaliser - to
         # remove the biased-gradient artefact of the log-of-a-minibatch-mean. The forward value the
         # backward graph minimises must therefore be ``mean(exp_t) / ema * <stop-grad sum>`` only via
         # its gradient; using ``(mean/ema) * log(ema)`` as the forward term made the OPTIMISED quantity
@@ -254,13 +254,13 @@ def _get_infonet_model(device: str = "auto"):
             raise RuntimeError(f"InfoNet vendored config missing at {config_path}. " f"Run the vendor copy step from the InfoNet setup script.")
         # Use the vendored infer module via sys.path injection (it has relative-style imports
         # inside the model directory).
-        # USABILITY_B-10 fix: infer.py's own top-level imports (`from model.decoder
+        # infer.py's own top-level imports (`from model.decoder
         # import Decoder`, etc.) only resolve via this sys.path injection, but leaving it permanently
         # inserted made the generic top-level names `model`/`util`/`query`/`decoder`/`encoder`/`attention`
         # importable process-wide at sys.path[0] (highest priority) for the rest of the interpreter's
-        # lifetime -- a landmine for any other code in the process later doing e.g. `import model`. Once
+        # lifetime - a landmine for any other code in the process later doing e.g. `import model`. Once
         # `infer` (and its `model.*` submodule tree) is imported, it's cached in sys.modules, so future
-        # calls resolve from cache without touching sys.path at all -- scope the injection to just this
+        # calls resolve from cache without touching sys.path at all - scope the injection to just this
         # one-time import via try/finally.
         import sys
         vendored = str(pkg_root / "_vendored" / "infonet")
@@ -329,7 +329,7 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
     # finished ``yr`` is cached per distinct y instead of re-running the np.unique cardinality scan +
     # O(n log n) rankdata sort on every pair. Jitter draws for x and y come from INDEPENDENT streams
     # (spawned from the same seed) rather than one rng consumed sequentially across x-then-y, so y's
-    # stream -- and therefore the cached ``yr`` -- never depends on whether x needed jittering.
+    # stream - and therefore the cached ``yr`` - never depends on whether x needed jittering.
     _y_key = None
     try:
         _y_key = (y.shape, hash(y.tobytes()), int(seed), int(point_cloud_size))
@@ -368,7 +368,7 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
                 _INFONET_Y_PREP_CACHE.pop(next(iter(_INFONET_Y_PREP_CACHE)))
             _INFONET_Y_PREP_CACHE[_y_key] = yr
 
-    # USABILITY_B-10 fix: see the matching fix in _get_infonet_model above --
+    # See the matching fix in _get_infonet_model above -
     # scope the sys.path injection to just this import (already cached in sys.modules after the first
     # call, so this is cheap on every subsequent call too).
     pkg_root = Path(__file__).resolve().parent
@@ -447,7 +447,7 @@ def _calibrate_mist(device: str = "auto", N: int = 2000, seed: int = 42, n_calib
       2. Run MIST raw, sort by raw, build monotonic lookup ``raw -> nats``.
       3. ``np.interp`` at inference clips outside-range raw values.
 
-    Returns ``(raw_grid, nats_grid)`` -- the lookup table for the (device, y_kind).
+    Returns ``(raw_grid, nats_grid)`` - the lookup table for the (device, y_kind).
     """
     cache_key = (device, y_kind)
     if cache_key in _MIST_CALIBRATION_CACHE:
@@ -594,7 +594,7 @@ def mist_mi(x: np.ndarray, y: np.ndarray, *, loss: str = "mse", calibrated: bool
     # 2026-05-29 stress-bench fix: MIST set-transformer is O(N^2) in attention.
     # At N=100k it tried to allocate 596 GB (CUDA OOM). Sub-sample to
     # ``max_input_n`` (default 2000) on inputs that exceed it. The model was
-    # trained at this scale anyway -- bigger inputs don't improve accuracy.
+    # trained at this scale anyway - bigger inputs don't improve accuracy.
     if x.size > int(max_input_n):
         rng = np.random.default_rng(int(seed))
         idx = rng.choice(x.size, size=int(max_input_n), replace=False)

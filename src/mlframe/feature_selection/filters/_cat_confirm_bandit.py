@@ -62,7 +62,7 @@ def _confirm_pairs_bandit_ucb1(
     ``weights`` is accepted for interface parity with the fixed-budget permutation path
      but the bulk shuffle kernels this bandit allocator calls
     (``_shuffle_and_compute_three_mis`` / ``_bulk_shuffle_and_compute_three_mis``) have no weighted
-    variant yet -- a non-None ``weights`` logs a one-time warning and the allocation proceeds
+    variant yet - a non-None ``weights`` logs a one-time warning and the allocation proceeds
     UNWEIGHTED. Weighting the bandit's bulk kernels is a separate, larger follow-up.
     """
     n_perms_total = cfg.full_npermutations

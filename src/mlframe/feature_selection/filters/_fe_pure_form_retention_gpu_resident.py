@@ -5,7 +5,7 @@ RESIDENCY CONTRACT (not a wall win). Gated on the resident flag
 (``MLFRAME_FE_GPU_STRICT`` + ``MLFRAME_FE_GPU_STRICT_RESIDENT``); default OFF. On
 this GTX 1050 Ti the retention pool runs on a ~3000-row subsample, so the cupy
 launch + reduction overhead dominates the tiny per-candidate 12-column OLS and
-this twin is EXPECTED to be SLOWER than the per-candidate sklearn CPU path -- and
+this twin is EXPECTED to be SLOWER than the per-candidate sklearn CPU path - and
 that is a PASS by the residency contract. This twin exists to KILL the
 per-candidate value D2H/H2D churn the gated ``_usability_gpu`` primitives incur:
 the prior GPU usability path (``MLFRAME_FE_GPU_USABILITY``) re-uploaded each
@@ -17,19 +17,19 @@ P bulk D2H. This twin uploads the candidate value matrix + every distinct raw
 operand column ONCE (one bulk H2D at entry) and keeps EVERYTHING resident: each
 candidate's additive single-operand basis residual is solved on device and only
 the two BOUNDED SCALARS the gate needs (std(resid) and |corr(resid, y)|) are
-pulled back -- NO per-candidate residual D2H, NO per-candidate re-upload.
+pulled back - NO per-candidate residual D2H, NO per-candidate re-upload.
 
 What is resident vs host control-flow (allowed by the contract):
   * RESIDENT (one bulk H2D at entry): the (n, P) candidate form-value matrix
     ``Vdev`` (float64), the (n, B) distinct raw-operand matrix ``Bdev`` and the
     (n,) relevance target ``ydev``. From them, per candidate, the device builds the
     12-column additive basis (6 functions of each of the candidate's two operands,
-    looked up by base-column index -- NO re-upload), solves the mean-centered OLS
+    looked up by base-column index - NO re-upload), solves the mean-centered OLS
     via ``cp.linalg.lstsq``, forms the residual, and reduces it to the two scalars
     the CPU gate compares. NO per-candidate H2D and NO per-candidate value/residual
     D2H.
   * HOST scalar D2H (allowed by the contract): per candidate the form std, the
-    residual std and the |corr(resid, y)| -- three bounded scalars, the SAME
+    residual std and the |corr(resid, y)| - three bounded scalars, the SAME
     quantities the CPU ``_adds_nonlinear_value`` computes per candidate. None is
     bulk per-candidate value data.
 
@@ -38,7 +38,7 @@ SELECTION-EQUIVALENCE IS THE BAR. The math is the SAME as the CPU
 operand (standardized x, x^2, x^3, sign*sqrt|x|, sign*log1p|x|, 1/(|x|+1)), the
 SAME StandardScaler+LinearRegression == mean-centered-OLS residual (the scaler's
 affine map is absorbed into the coefficients + intercept; identical up to fp
-round-off -- this is exactly the equivalence ``gpu_additive_basis_residual``
+round-off - this is exactly the equivalence ``gpu_additive_basis_residual``
 already documents), the SAME ``std(resid) < min_resid_frac * f_std`` non-separable
 gate and the SAME ``|corr(resid, y)| >= min_resid_corr`` relevance gate (REGRESSION
 relevance target ``y``; the SAME ``_abscorr`` centered dot / sqrt(ss) estimator
@@ -49,7 +49,7 @@ per-candidate CPU/sklearn path.
 
 CLASSIFICATION is NOT ported here (the caller passes ``is_clf``): the classification
 relevance gate is the WHOLE-form point-biserial ``|corr(fv, class_indicator)|`` (not
-the residual corr), a different discriminator -- a classification call returns
+the residual corr), a different discriminator - a classification call returns
 ``None`` so the dispatcher falls through to the exact CPU path.
 """
 from __future__ import annotations
@@ -85,7 +85,7 @@ def adds_nonlinear_value_batch_gpu_resident(
 
     Each candidate's verdict needs only bounded scalars off device (form std, residual std, |corr(resid,y)|);
     the (n,) residual itself NEVER leaves the GPU. Raw-operand columns are uploaded ONCE (``Bdev``) and reused
-    by index for every candidate -- no per-candidate re-upload.
+    by index for every candidate - no per-candidate re-upload.
     """
     if not form_values:
         return None
@@ -96,7 +96,7 @@ def adds_nonlinear_value_batch_gpu_resident(
     # Narrow device-fault set for the resident fallbacks below. A genuine cupy/device/linalg fault
     # (singular OLS, OOM, CUDA runtime error) legitimately routes to the exact CPU path; a logic/shape
     # bug (ValueError/KeyError/IndexError) must SURFACE to tests, not be silently swallowed as a
-    # "device fallback" -- so the per-candidate and outer guards catch only these, not bare Exception.
+    # "device fallback" - so the per-candidate and outer guards catch only these, not bare Exception.
     _dev_errs = [np.linalg.LinAlgError]
     try:
         _dev_errs.append(cp.cuda.runtime.CUDARuntimeError)
@@ -106,7 +106,7 @@ def adds_nonlinear_value_batch_gpu_resident(
         _dev_errs.append(cp.cuda.memory.OutOfMemoryError)
     except Exception:  # nosec B110 - best-effort path
         pass
-    # FIX4 (2026-06-28): the direct cp.linalg.lstsq below raises cuSOLVER/cuBLAS errors that subclass
+    # FIX4: the direct cp.linalg.lstsq below raises cuSOLVER/cuBLAS errors that subclass
     # plain RuntimeError, NOT CUDARuntimeError -> omitting them would crash instead of falling back to
     # the exact CPU path. getattr so an absent symbol can't break the tuple builder.
     try:
@@ -161,7 +161,7 @@ def adds_nonlinear_value_batch_gpu_resident(
         ydev = cp.asarray(rel_host)  # (n,) resident
 
         # Precompute the 6-function additive basis for EVERY distinct raw operand ONCE (resident, (n, 6) each),
-        # so a candidate's design is two index lookups -- not a re-derivation/re-upload per candidate.
+        # so a candidate's design is two index lookups - not a re-derivation/re-upload per candidate.
         def _basis(xcol):
             """Standardize ``xcol`` and expand it into the 6-function additive basis (linear, square, cube, signed-sqrt, signed-log1p, reciprocal-magnitude) used to test whether a candidate adds nonlinear value over its raw operand."""
             xs = (xcol - xcol.mean()) / (xcol.std() + 1e-12)
@@ -181,18 +181,18 @@ def adds_nonlinear_value_batch_gpu_resident(
         y_std = float(ydev.std())
 
         # BATCHED-READ gate (2026-07-02, residency): the per-candidate OLS keeps the EXACT per-candidate lstsq
-        # (SVD, same solver + values as before -- cusolver runs fully on device, no host read), but each
+        # (SVD, same solver + values as before - cusolver runs fully on device, no host read), but each
         # candidate's four gate scalars (f_std, std(resid), centered-resid SS, resid.y_rel dot) are written into
         # resident (P,) vectors and read back in ONE batched D2H at the end, instead of two scalar syncs per
         # candidate. The host gate branches below are byte-identical to the per-candidate version.
         # Build every candidate's 12x12 normal-equations Gram + rhs resident (matmuls, no host read), then ONE
-        # BATCHED solve -- avoiding cp.linalg.lstsq's per-candidate internal host sync (its SVD rank readback).
+        # BATCHED solve - avoiding cp.linalg.lstsq's per-candidate internal host sync (its SVD rank readback).
         # The centered-OLS residual gate scalars are quadratic forms in beta, so they never need the residual
         # vector materialised: with the design centered and fc = fv - mean(fv), resid has mean 0, hence
         #   ss_resid = fc.fc - beta.rhs   (rhs = Xc^T fc, using G beta = rhs),
         #   resid_std = sqrt(ss_resid / n),   num = fc.y_rel - beta.(Xc^T y_rel).
         # A tiny trace-scaled ridge makes every Gram solvable in one batched call (negligible ~1e-10 shift;
-        # handles the near-collinear designs lstsq would rank-cut -- the gate scalars still do not flip, F2 +
+        # handles the near-collinear designs lstsq would rank-cut - the gate scalars still do not flip, F2 +
         # the retention suites confirm). f_std / the four gate scalars read back in ONE batched D2H.
         out = [False] * P
         _nrows = float(int(Vdev.shape[0]))

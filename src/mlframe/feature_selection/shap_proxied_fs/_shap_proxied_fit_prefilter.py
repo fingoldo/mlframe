@@ -6,7 +6,7 @@ This is a VERBATIM lift of the post-prefilter holdout-materialisation + clusteri
 materialises the deferred disjoint holdout at the narrow post-prefilter column count, then runs the
 optional correlated-feature clustering (SU / Pearson dispatch + unit-matrix build). It reads the
 fit-local state it needs as explicit keyword params (no closure capture; the ``_stage`` timing
-context manager is passed in) and returns ``(X_hold, X_proxy, unit_to_members)`` -- the values the
+context manager is passed in) and returns ``(X_hold, X_proxy, unit_to_members)`` - the values the
 fit continuation consumes. ``self`` carries the constructor knobs + the ``_deferred_holdout`` scratch
 exactly as before, and ``report`` is mutated in place, so behaviour is byte-for-byte identical.
 """

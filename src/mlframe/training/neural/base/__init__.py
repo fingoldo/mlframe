@@ -118,7 +118,7 @@ try:
                 pass
         _lf_registry._mlframe_callback_cache_installed = True  # type: ignore[attr-defined]  # dynamic monkeypatch marker on a third-party module
 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-    logger.debug("suppressed in __init__.py:119: %s", e)
+    logger.debug("suppressed: %s", e)
     pass
 
 

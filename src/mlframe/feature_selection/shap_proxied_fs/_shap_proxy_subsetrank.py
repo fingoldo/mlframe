@@ -2,19 +2,19 @@
 
 The subset-ranking step scores many candidate feature subsets by the additive proxy margin
 ``base[i] + sum_{j in S} phi[i, j]`` reduced through a proper loss (Brier / log-loss / RMSE / MAE),
-and keeps the top-N. It is an embarrassingly-parallel map(subset -> loss) + reduce(argmin) -- the GPU
+and keeps the top-N. It is an embarrassingly-parallel map(subset -> loss) + reduce(argmin) - the GPU
 kernel in ``_shap_proxy_gpu`` runs one thread per subset.
 
 This module adds the missing two halves of the "fastest path is the default, routed by a HW-aware
 dispatcher" contract (CLAUDE.md numerical-kernel ladder):
 
-  1. ``_subset_loss_scan_njit`` -- a CPU njit REFERENCE that mirrors the GPU kernel's per-subset
+  1. ``_subset_loss_scan_njit`` - a CPU njit REFERENCE that mirrors the GPU kernel's per-subset
      layout exactly (naive full re-sum per subset, no incremental-prefix trick), so it is
      bit-identical to the GPU kernel BY CONSTRUCTION and serves as the safe fallback + the unit
      oracle. The production CPU path stays the incremental ``brute_force_top_n`` (faster); this naive
      scan exists for cross-backend bit-identity verification and as the dispatcher's GPU mirror.
 
-  2. ``brute_force_top_n_dispatch`` -- a stateless, size-aware dispatcher. It DEFAULTS TO CPU and only
+  2. ``brute_force_top_n_dispatch`` - a stateless, size-aware dispatcher. It DEFAULTS TO CPU and only
      routes to the GPU kernel when (a) the caller opts in (``prefer_gpu``), (b) cupy + a device are
      available, and (c) the kernel_tuning_cache crossover (or its measured fallback) says the subset
      count is past the GPU break-even. On ANY cupy unavailability / OOM / kernel error it auto-falls
@@ -23,7 +23,7 @@ dispatcher" contract (CLAUDE.md numerical-kernel ladder):
 HOST CAVEAT (this dev box): importing cupy under contention native-segfaults the training process, so
 the dispatcher default is CPU here regardless of the measured GPU win (1.04-1.96x, bit-identical, see
 ``_benchmarks/bench_shap_subsetrank_backends.py``). The GPU route stays gated off until a stable host
-measures its own crossover into the kernel_tuning_cache. The win is real and hardware-relative -- kept,
+measures its own crossover into the kernel_tuning_cache. The win is real and hardware-relative - kept,
 not deleted (REJECTED != DELETED): a datacenter GPU box flips it on by setting ``prefer_gpu=True``.
 """
 
@@ -52,11 +52,11 @@ _fallback_logged = False
 
 @njit(cache=True)
 def _subset_loss_scan_njit(phi, base, y, combos, metric_code, out):
-    """CPU reference: one subset per outer iteration, full re-sum -- mirrors the GPU thread layout.
+    """CPU reference: one subset per outer iteration, full re-sum - mirrors the GPU thread layout.
 
     ``phi`` row-major (n, f), ``combos`` shape (C, r); writes the per-subset loss into ``out`` (len C).
     Deliberately NON-incremental (recomputes ``base + sum phi[:, comb]`` from scratch each subset) so it
-    is bit-identical to the cupy kernel by construction -- the dispatcher's GPU/CPU cross-check oracle.
+    is bit-identical to the cupy kernel by construction - the dispatcher's GPU/CPU cross-check oracle.
     Serial; the production CPU path is the faster incremental ``brute_force_top_n``."""
     C = combos.shape[0]
     r = combos.shape[1]
@@ -167,7 +167,7 @@ def _gpu_min_subsets() -> int:
             if isinstance(entry, dict) and entry.get("gpu_min_subsets"):
                 return int(entry["gpu_min_subsets"])
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _shap_proxy_subsetrank.py:169: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
     return _DEFAULT_GPU_MIN_SUBSETS
 

@@ -5,7 +5,7 @@ feature's own importance) and from MRMR (a MINIMAL-redundant selector that delib
 features once one representative is kept). Boruta instead answers "is this feature relevant AT ALL" (an
 ALL-relevant selector): it appends a per-column-shuffled "shadow" copy of every real feature, fits an
 importance function over several iterations, and confirms a real feature only when it repeatedly beats the
-best (max) shadow importance more often than chance -- via a two-sided binomial test against p=0.5, per the
+best (max) shadow importance more often than chance - via a two-sided binomial test against p=0.5, per the
 original Boruta algorithm (Kursa & Rudnicki 2010).
 """
 from __future__ import annotations
@@ -55,7 +55,7 @@ def boruta_select(
         original Boruta multi-round rule instead of a one-shot test at the end: after EVERY round, each
         still-undecided feature is re-tested against its cumulative hit count with a significance threshold
         corrected for the repeated testing across rounds (and, for ``"bonferroni"``, across the remaining
-        undecided features too) -- so a feature can be confirmed/rejected as soon as it is genuinely decided,
+        undecided features too) - so a feature can be confirmed/rejected as soon as it is genuinely decided,
         rather than only once at round ``n_iterations``, and the correction keeps the per-round repeated testing
         from inflating the false-positive rate the way a naive per-round alpha=0.05 test would.
     correction
@@ -80,7 +80,7 @@ def boruta_select(
 
     import pandas as pd
 
-    # USABILITY_A-2 fix: n_iterations<1 left the loop never running, producing a
+    # n_iterations<1 left the loop never running, producing a
     # 0/0 NaN win_rate followed by an unhelpful `binomtest(count, 0, ...)` ValueError from scipy internals.
     if n_iterations < 1:
         raise ValueError(f"boruta_select: n_iterations must be >= 1; got {n_iterations}")
@@ -90,7 +90,7 @@ def boruta_select(
         n_features = len(cols)
         names = list(feature_names) if feature_names is not None else cols
         # ``hasattr(X, "columns")`` also matches polars.DataFrame, which has no ``.reset_index()``
-        # / isn't accepted by ``pd.concat`` -- only route through the pandas-specific shadow
+        # / isn't accepted by ``pd.concat`` - only route through the pandas-specific shadow
         # construction below for an actual pandas.DataFrame; every other columned frame type
         # (polars, etc.) falls through to the dtype-agnostic numpy path, which needs no index.
         is_pandas_frame = isinstance(X, pd.DataFrame)
@@ -111,7 +111,7 @@ def boruta_select(
         rounds_run = it + 1
         if is_pandas_frame:
             # ``Generator.permuted(x, axis=0)`` shuffles each column INDEPENDENTLY along axis 0 in one
-            # vectorised call -- bit-identical to the per-column ``rng.permutation(col)`` loop
+            # vectorised call - bit-identical to the per-column ``rng.permutation(col)`` loop
             # (``.apply(..., axis=0)`` dispatches one Python-level call per column under the hood; verified
             # both consume the SAME rng draw sequence per column) without the ``n_features``-call overhead.
             real_cols = X[cols].to_numpy()
@@ -132,7 +132,7 @@ def boruta_select(
             undecided = [j for j in range(n_features) if resolved[j] is None]
             if undecided:
                 if correction == "bonferroni":
-                    # Correct for both the repeated per-round testing AND the simultaneous per-feature testing --
+                    # Correct for both the repeated per-round testing AND the simultaneous per-feature testing -
                     # a naive uncorrected alpha=0.05 test run every round would inflate the false-confirm rate.
                     corrected_alpha = alpha / (rounds_run * len(undecided))
                     for j in undecided:
@@ -140,7 +140,7 @@ def boruta_select(
                         if result.pvalue < corrected_alpha:
                             resolved[j] = "confirmed" if hit_counts[j] / rounds_run > 0.5 else "rejected"
                 elif correction == "bh":
-                    # USABILITY_A-13 fix: the BH step-up alone only controls the FDR
+                    # The BH step-up alone only controls the FDR
                     # across the SIMULTANEOUS per-feature tests within a single round; run every round at the
                     # nominal alpha and the repeated-testing-across-rounds inflation the "bonferroni" branch
                     # above explicitly guards against (dividing by rounds_run) goes uncorrected here. Scale the
@@ -175,7 +175,7 @@ def boruta_select(
     decisions: List[str] = []
     for j, count in enumerate(hit_counts):
         if resolve_tentative:
-            # Any feature not resolved by the corrected per-round rule above stays "tentative" -- unlike the
+            # Any feature not resolved by the corrected per-round rule above stays "tentative" - unlike the
             # single-shot mode, this never falls back to an UNcorrected end-of-run test, so it does not
             # reintroduce the family-wise error-rate inflation (n_features simultaneous alpha=0.05 tests) that
             # the correction across rounds AND features exists to control.

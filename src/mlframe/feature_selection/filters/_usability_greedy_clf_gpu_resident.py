@@ -12,7 +12,7 @@ residency.
 RESIDENCY CONTRACT (not a wall win). On this GTX 1050 Ti the usability greedy runs on
 a ~3000-row pool subsample, so the cupy launch + per-fit Newton overhead dominates the
 tiny per-fold logistic and this twin is EXPECTED to be SLOWER than the sklearn CPU
-path -- and that is a PASS by the residency contract. The twin exists to KILL the
+path - and that is a PASS by the residency contract. The twin exists to KILL the
 per-candidate value D2H/H2D churn: it uploads the candidate value matrix + the target
 ONCE (one bulk H2D at entry) and keeps EVERYTHING resident across all rounds/folds;
 only bounded per-round SCALARS / result-vectors cross D2H (the (P,) shortlist score
@@ -25,7 +25,7 @@ by K-fold CV-logloss. ``StandardScaler -> LogisticRegression`` is an L2-penalise
 logistic on the per-column standardised design (penalty='l2', C=1.0, intercept
 unpenalised) whose UNIQUE convex optimum the lbfgs solver finds; a resident Newton /
 IRLS on the SAME regularised objective converges to that same optimum (the problem is
-strictly convex), so the per-fold CV-logloss -- and therefore the committed feature set
+strictly convex), so the per-fold CV-logloss - and therefore the committed feature set
 -- matches. Everything ELSE is byte-for-byte the SAME as the CPU path: the same encoded
 0..C-1 class codes, the same seeded ``arange % k`` fold partition, the same
 ``(1-w)*mi/mi_max + w*|corr(resid)|`` shortlist pre-rank with the same positive-class /
@@ -76,8 +76,8 @@ def usability_greedy_clf_gpu_resident(
 
     Returns the SAME selected ``UsableCandidate`` list (selection-equivalent: same indices
     in the same order) as the CPU logistic CV-logloss greedy, computed with the candidate
-    value matrix resident on the GPU. Returns ``None`` -- so the caller falls back to the
-    exact CPU path -- for an empty/degenerate pool, a single-class target, a non-convergent
+    value matrix resident on the GPU. Returns ``None`` - so the caller falls back to the
+    exact CPU path - for an empty/degenerate pool, a single-class target, a non-convergent
     or singular fold fit, or any cupy/device/import error. ``mae_improve_rel`` carries the
     relative-improvement stop (it is the logloss stop here; the kwarg name is shared with the
     regression path the dispatcher forwards from)."""
@@ -122,7 +122,7 @@ def usability_greedy_clf_gpu_resident(
             #       probabilities differ (single 3-class fit: sklearn train-logloss 0.65829 vs reduced
             #       0.65879) and the per-fold CV-logloss differs at the improvement gate. Measured with a
             #       GUARANTEED-CONVERGED reduced multinomial (scipy L-BFGS-B to the optimum, ftol 1e-14,
-            #       gtol 1e-10 -- so this is the GAUGE effect, not solver instability): on the 3-class +
+            #       gtol 1e-10 - so this is the GAUGE effect, not solver instability): on the 3-class +
             #       4-class usability fixtures x 6 seeds x {strong,weak} (24 cases) the reduced selection
             #       FLIPPED sklearn's on 9/24 (systematically over-selecting, e.g. appending 'ab'/'c'):
             #         3cls strong seed2: sklearn [a,b,f,cd]      vs reduced [a,b,f,cd,ab]
@@ -131,7 +131,7 @@ def usability_greedy_clf_gpu_resident(
             #
             # The bar is SELECTION-EQUIVALENCE. (1) cannot run, (2) flips 9/24 selections by the gauge
             # alone, so a resident multinomial must NOT ship; multiclass stays on the exact CPU sklearn
-            # path. (Binary is selection-equivalent and DOES run -- the binary L2 Newton is non-singular.)
+            # path. (Binary is selection-equivalent and DOES run - the binary L2 Newton is non-singular.)
             return None
         n = int(y_enc.shape[0])
         if n < 2:
@@ -236,12 +236,12 @@ def usability_greedy_clf_gpu_resident(
             """Symmetric multinomial L2 Newton (full block Hessian) on standardized design. ``yc`` is a
             resident int code vector. Returns W (k+1, C) or raises. sklearn 1.x multinomial default.
 
-            RETAINED REJECTED PROTOTYPE (bench-attempt-rejected 2026-06-28): unreachable -- the >2-class
+            RETAINED REJECTED PROTOTYPE (bench-attempt-rejected 2026-06-28): unreachable - the >2-class
             guard above returns ``None`` BEFORE any fit. Kept (per the keep-all-kernel-versions policy) as
             the documented symmetric attempt: its block Hessian is SINGULAR in the unpenalised-intercept
             null direction, so ``cp.linalg.solve`` returns a garbage step and the fit blows up to NaN (re-
             measured 2026-06-28). The non-singular reduced (C-1) alternative converges but flips 9/24
-            multiclass selections by the gauge alone -- see the >2-class guard's evidence block. Do not wire
+            multiclass selections by the gauge alone - see the >2-class guard's evidence block. Do not wire
             either into the dispatch; multiclass stays on the exact CPU sklearn path."""
             nn, k = Xs.shape
             d = k + 1
@@ -382,7 +382,7 @@ def usability_greedy_clf_gpu_resident(
         def _cv_baseline() -> np.ndarray:
             """No-selection per-fold logloss: predict each val fold by its train-fold class PRIOR. Binary
             (multiclass is deferred to CPU above), so the prior is the SCALAR train-fold positive rate; the
-            per-val proba is BROADCAST resident from that scalar -- NO per-fold H2D tile (residency contract)."""
+            per-val proba is BROADCAST resident from that scalar - NO per-fold H2D tile (residency contract)."""
             errs = np.empty(nf, dtype=np.float64)
             for fo in range(nf):
                 tr, va = tr_masks[fo], va_masks[fo]

@@ -3,19 +3,19 @@ fe_expansion.md "Row-wise ordinal-pattern (Bandt-Pompe permutation) encoding").
 
 Bandt & Pompe (2002, "Permutation Entropy: A Natural Complexity Measure for Time Series"): for a
 chosen K-tuple of columns ``(x_i1, ..., x_iK)``, encode each row by the FULL RELATIVE ORDER
-(permutation) of the K values -- i.e. which of the ``K!`` orderings the row realizes.
+(permutation) of the K values - i.e. which of the ``K!`` orderings the row realizes.
 
 Why this catches a shape the catalog misses: the existing row-argmax operator
-(``_conditional_gate_fe.apply_row_argmax``) only reports WHICH column is the row maximum -- for
+(``_conditional_gate_fe.apply_row_argmax``) only reports WHICH column is the row maximum - for
 K=3 that collapses all 6 possible total orderings into 3 buckets, discarding the second-vs-third
 order entirely. Concrete scenario: ``y = 1{x1 > x2 > x3}`` (exactly one of the 6 orderings is
-positive) -- ``argmax(x1,x2,x3)`` only tells you x1 is the max in 2 of those 6 orderings
+positive) - ``argmax(x1,x2,x3)`` only tells you x1 is the max in 2 of those 6 orderings
 (x1>x2>x3 AND x1>x3>x2) and cannot distinguish the target-positive one from the target-negative
 one; only the full permutation id resolves it. This is operator #3 in the argmax/conditional-gate
 family (generalizing #1, argmax, to the full ranking).
 
 This module computes only the permutation-id CATEGORICAL itself (not the downstream target
-encoding) -- the caller feeds the resulting low-cardinality categorical through the existing
+encoding) - the caller feeds the resulting low-cardinality categorical through the existing
 K-fold target-encoding / count-encoding machinery (``_cat_target_encoding_and_weighted.py``)
 exactly like any other synthetic categorical column, per the audit's own sketch.
 """
@@ -44,7 +44,7 @@ __all__ = [
 
 def ordinal_pattern_lexicographic_rank(perm: tuple) -> int:
     """Lexicographic rank (0-indexed) of a permutation of ``range(len(perm))`` among all ``K!``
-    permutations of that size -- the base-``K!`` integer id Bandt-Pompe patterns are conventionally
+    permutations of that size - the base-``K!`` integer id Bandt-Pompe patterns are conventionally
     numbered by. E.g. for K=3, ``(0,1,2)`` -> 0 (the identity, lexicographically first) and
     ``(2,1,0)`` -> 5 (lexicographically last)."""
     k = len(perm)
@@ -76,10 +76,10 @@ def ordinal_pattern_ids(X_cols: np.ndarray, *, tie_policy: str = "nan") -> np.nd
         triplet/quadruplet arity cap, typically 3-5).
     tie_policy : {"nan", "ignore"}
         ``"nan"``: a row with any exactly-tied values among its K columns gets ``np.nan`` (the
-        ordering is not well-defined for that row -- honest missingness, matching the row-argmax
+        ordering is not well-defined for that row - honest missingness, matching the row-argmax
         operator's own NaN-propagation-on-ambiguity convention). ``"ignore"``: ties are broken by
         ``np.argsort``'s own stable (first-occurrence) rule, silently picking one of the tied
-        orderings -- only safe when the caller has already verified ties are rare/irrelevant.
+        orderings - only safe when the caller has already verified ties are rare/irrelevant.
 
     Returns
     -------
@@ -96,10 +96,10 @@ def ordinal_pattern_ids(X_cols: np.ndarray, *, tie_policy: str = "nan") -> np.nd
         raise ValueError(f"ordinal_pattern_ids: K must be >= 2; got K={k}")
 
     # Vectorized Lehmer-code rank (replaces an earlier per-row Python dict-lookup loop, which
-    # cProfiled as the dominant cost at n=100k -- see bench_ordinal_pattern_cprofile.py). Loops only
+    # cProfiled as the dominant cost at n=100k - see bench_ordinal_pattern_cprofile.py). Loops only
     # over K (small, 3-5), never over n: for each position i, count how many of the REMAINING
-    # positions (i+1..K-1) hold a smaller column index than position i's -- exactly the Lehmer code
-    # digit -- then combine via the standard factorial-number-system weights (bit-identical to the
+    # positions (i+1..K-1) hold a smaller column index than position i's - exactly the Lehmer code
+    # digit - then combine via the standard factorial-number-system weights (bit-identical to the
     # per-row dict lookup, since both compute the same lexicographic rank definition).
     order = np.argsort(X_cols, axis=1, kind="stable")
     fact = [1] * (k + 1)
@@ -154,12 +154,12 @@ def generate_ordinal_pattern_te_features(
     random_state: int = 0,
 ) -> "tuple[pd.DataFrame, dict[str, dict]]":
     """For every K-tuple of columns in ``col_tuples``, compute the row-wise ordinal-pattern id and
-    K-fold OOF target-encode it -- a SINGLE fused feature per tuple (the intermediate perm_id
+    K-fold OOF target-encode it - a SINGLE fused feature per tuple (the intermediate perm_id
     categorical is never exposed as its own column / recipe, avoiding a 2-deep nested-recipe replay
     the codebase's 1-deep replay convention cannot order at transform() time).
 
     Returns ``(enc_df, raw_recipes)``; each recipe payload stores the column tuple + the full-data
-    TE lookup (``{perm_id: te_value}``) + ``global_mean`` + ``smoothing`` -- replay recomputes
+    TE lookup (``{perm_id: te_value}``) + ``global_mean`` + ``smoothing`` - replay recomputes
     perm_id fresh from the raw source columns (a deterministic pure function) and looks up its TE
     value, so the payload never captures ``y``.
     """
@@ -182,7 +182,7 @@ def generate_ordinal_pattern_te_features(
         perm_id = ordinal_pattern_ids(X_cols)
         finite = np.isfinite(perm_id)
         if finite.sum() < 2 or float(np.nanstd(perm_id[finite])) <= 1e-12:
-            continue  # degenerate: all rows tied, or a single realized pattern -- no information
+            continue  # degenerate: all rows tied, or a single realized pattern - no information
 
         # OOF fold assignment (same construction as kfold_target_encode_fit): each row's TE value is
         # looked up from a lookup fit on the OTHER folds only, so the emitted TRAIN column is leak-safe.

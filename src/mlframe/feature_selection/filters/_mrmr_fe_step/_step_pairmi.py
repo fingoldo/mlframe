@@ -28,12 +28,12 @@ from .._joblib_safe import disable_cuda_in_worker
 from .._fe_family_timing import record_fe_family_wall
 
 # Measured floor (7-site joblib.Parallel audit, 2026-07-19) for the loky pool built below: at the realistic
-# ``fe_npermutations=3`` production regime, the pool LOSES to serial at every pair count tested -- n_pairs=190
-# -> 0.03x, n_pairs=4950 -> 0.22-0.38x, n_pairs=20000 -> 0.21x -- with no crossover found across that range.
+# ``fe_npermutations=3`` production regime, the pool LOSES to serial at every pair count tested - n_pairs=190
+# -> 0.03x, n_pairs=4950 -> 0.22-0.38x, n_pairs=20000 -> 0.21x - with no crossover found across that range.
 # The pool's per-pair cost scales with ``fe_npermutations`` (each pair runs a full ``mi_direct`` permutation
 # test), so a high-enough budget should eventually amortise the loky spawn/pickle overhead even though no
 # tested n_pairs did; 20 is a conservative floor extrapolated well above the tested 3-permutation regime (not
-# itself measured to win -- if a future workload legitimately needs a much larger fe_npermutations, re-bench
+# itself measured to win - if a future workload legitimately needs a much larger fe_npermutations, re-bench
 # before trusting this floor at that scale). Below the floor, the loky pool is skipped and the existing serial
 # ``compute_pairs_mis`` per-pair sweep runs instead (identical results, no pool-construction overhead).
 _LOKY_POOL_MIN_FE_NPERMUTATIONS = 20
@@ -63,34 +63,34 @@ def compute_pair_mis_and_floor(
         tqdmu,
     )
 
-    # ENGINEERED-OPERAND FEED-FORWARD CAP (2026-06-08). At FE step k>1 the operand
+    # ENGINEERED-OPERAND FEED-FORWARD CAP. At FE step k>1 the operand
     # pool now also carries the engineered columns selected by the prior step(s)
     # (their cols-space indices are promoted into ``selected_vars`` at this
     # function's bottom and re-confirmed by the next screening pass). Feeding them
-    # back lets the pair search build COMPOSITES of two engineered features -- e.g.
+    # back lets the pair search build COMPOSITES of two engineered features - e.g.
     # the additive ``add(div(sqr(a),abs(b)), mul(log(c),sin(d)))`` that captures ~the
     # entire deterministic signal. But engineered columns accumulate across steps,
     # so an uncapped feed-forward makes the O(k^2) pair count blow up. Keep only the
     # top-K engineered operands BY THEIR MARGINAL SCREENING MI (``cached_MIs[(idx,)]``,
     # populated by screen_predictors for every selected var); the rest still reach
-    # ``support_`` -- they just don't seed further composites. ``fe_max_engineered_operands``:
+    # ``support_`` - they just don't seed further composites. ``fe_max_engineered_operands``:
     # 0 -> raw-only pool (legacy, no composites), <0 -> no cap, >0 -> top-K cap.
     # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
     _raw_name_set = set(getattr(self, "feature_names_in_", []))
     _eng_cap = int(getattr(self, "fe_max_engineered_operands", 8))
     _engineered_in_pool = [v for v in numeric_vars_to_consider if cols[v] not in _raw_name_set]
-    # ESCALATION FEATURES ARE TERMINAL -- never feed them forward as composite operands
+    # ESCALATION FEATURES ARE TERMINAL - never feed them forward as composite operands
     # (2026-06-12, F2 rescue). An ``esc_*`` escalation feature (orth-poly / adaptive-Fourier
     # pair warp) already captures a genuine richer-basis interaction the library could not
     # express; nesting it INTO a further pair composite (the feed-forward built
     # ``div(log(esc_poly_legendre_mul(a,b)),exp(mul(prewarp(c),prewarp(d))))`` on F2) fuses
     # two INDEPENDENT additive terms of the target into a single ratio whose joint MI tops
     # the greedy ranking, so MRMR then DROPS the clean raw predictors and the standalone
-    # captures -- measured on F2: the standalone esc_poly(a,b) is a +0.05 downstream R^2 WIN
+    # captures - measured on F2: the standalone esc_poly(a,b) is a +0.05 downstream R^2 WIN
     # (raw c,d,f 0.943 -> +a**2/b 0.995), but the fed-forward nested form REGRESSES it to
     # 0.864 by restructuring the selection. The escalation feature stays selected (reaches
     # ``support_``); it just does not seed further composites. Gated on
-    # ``fe_escalation_feedforward_enable`` (default OFF -- terminal is the safe default).
+    # ``fe_escalation_feedforward_enable`` (default OFF - terminal is the safe default).
     if not bool(getattr(self, "fe_escalation_feedforward_enable", False)):
         _esc_idx = {
             v
@@ -106,7 +106,7 @@ def compute_pair_mis_and_floor(
         else:
             # Rank by marginal MI desc; missing single-var MI sorts last. Tie-break on the var index so the
             # cap survivors are deterministic (the pool derives from a set, whose iteration order is not stable
-            # across processes -- without the secondary key equal-MI operands kept an arbitrary, irreproducible subset).
+            # across processes - without the secondary key equal-MI operands kept an arbitrary, irreproducible subset).
             _ranked = sorted(_engineered_in_pool, key=lambda v: (-cached_MIs.get((v,), 0.0), v))
             _keep_eng = set(_ranked[:_eng_cap])
         _drop_eng = set(_engineered_in_pool) - _keep_eng
@@ -145,10 +145,10 @@ def compute_pair_mis_and_floor(
     # realistic several-hundred-column production pool fall off a catastrophic-runtime cliff (observed: hours where
     # a few minutes was achievable). ``dispatch_batch_pair_mi_chunked`` enumerates the C(k,2) pair space in
     # RAM-bounded row-block chunks (never materialising the full pair-index arrays), so the fast batched path is
-    # now ALWAYS used regardless of pool width -- there is no width at which this falls back to the slow path for
+    # now ALWAYS used regardless of pool width - there is no width at which this falls back to the slow path for
     # pool-size reasons. Note this does not (and cannot) make an EXHAUSTIVE pairwise sweep sub-quadratic: at true
     # extreme width (10^5-10^6 raw columns) C(k,2) itself is intractable, which is what ``sis_screen_threshold``
-    # (Gate A, ``_mrmr_sis_screen.py``) exists to bound BEFORE this stage ever runs -- see that module's docstring.
+    # (Gate A, ``_mrmr_sis_screen.py``) exists to bound BEFORE this stage ever runs - see that module's docstring.
     #
     # Guards:
     #   * n_pairs < _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS: pair count too small to amortise the dispatcher overhead.
@@ -160,16 +160,16 @@ def compute_pair_mis_and_floor(
         "MLFRAME_MRMR_BATCH_PAIR_MI", "1",
     ).strip().lower() not in ("0", "false", "no", "off", "")
     _batch_prefill_count = 0
-    # SECOND FUNNEL STAGE (2026-06-19): when the synergy bootstrap selected the GPU-exhaustive sweep it set
-    # ``self._fe_synergy_exhaustive_active_`` -- FORCE the cuda backend so the full C(p,2) joint-MI sweep over ALL
+    # SECOND FUNNEL STAGE: when the synergy bootstrap selected the GPU-exhaustive sweep it set
+    # ``self._fe_synergy_exhaustive_active_`` - FORCE the cuda backend so the full C(p,2) joint-MI sweep over ALL
     # raw numeric columns runs on the measured CUDA kernel (the only path that recovers a balanced L=0 interaction).
     # The exhaustive decision already verified GPU availability + budget. With the pool-size cap removed, exhaustive
-    # mode no longer needs to "bypass" anything -- it only forces the backend choice.
+    # mode no longer needs to "bypass" anything - it only forces the backend choice.
     _exhaustive_active = bool(getattr(self, "_fe_synergy_exhaustive_active_", False))
     # When exhaustive is active, run the full C(p,2) sweep on the measured CUDA kernel where a GPU is
     # present, else on the CPU njit-prange backend (decide_exhaustive_sweep made the choice hardware-
     # independent, so a GPU-less host runs exhaustive on CPU rather than silently dropping to the lossy
-    # pre-rank -- otherwise a balanced L=0 interaction feature would exist only on CUDA hosts).
+    # pre-rank - otherwise a balanced L=0 interaction feature would exist only on CUDA hosts).
     _exhaustive_backend = None
     if _exhaustive_active:
         try:
@@ -195,7 +195,7 @@ def compute_pair_mis_and_floor(
             # Skip pairs already in cached_confident_MIs (those had a confident permutation outcome).
             _n_pairs_batch = int(_pair_a_arr.shape[0])
             for _i in range(_n_pairs_batch):
-                # FE_STEP_B-3 fix: canonicalize to a sorted tuple. numeric_vars_to_consider
+                # Canonicalize to a sorted tuple. numeric_vars_to_consider
                 # is rebuilt as a fresh set every FE step and iterated to build the candidate-pair pool; set
                 # iteration order is not guaranteed ascending once it mixes small and large ints (e.g. raw indices
                 # plus later-appended engineered indices), so under fe_max_steps>1 the SAME logical pair could
@@ -211,9 +211,9 @@ def compute_pair_mis_and_floor(
                     _batch_prefill_count, _n_pairs_batch, _backend_summary,
                 )
         except Exception as _exc:
-            # WARNING, not gated on ``verbose`` (2026-07-10 fix): this used to be ``if verbose:``, so on
+            # WARNING, not gated on ``verbose``: this used to be ``if verbose:``, so on
             # a default ``verbose=0`` fit (the wellbore production config) a real batch-precompute
-            # failure was completely SILENT -- live-reproduced at n=3M/p=423: this path failed with no
+            # failure was completely SILENT - live-reproduced at n=3M/p=423: this path failed with no
             # trace in the log, the downstream loky pool then also timed out, and the fit fell all the
             # way to the legacy per-pair sweep with zero diagnostic evidence of why. A failure this
             # consequential (it decides between a sub-minute batched pass and an hours-long serial one)
@@ -227,9 +227,9 @@ def compute_pair_mis_and_floor(
             )
     record_fe_family_wall("pairwise_mi_batch_precompute", perf_counter() - _batch_precompute_t0)
 
-    # SKIP THE LOKY POOL when the batch precompute above already covers every pair (2026-07-10 fix). With
-    # the finding-#21 cap removed, the batch precompute now runs unconditionally at n_pairs>=8 and --
-    # confirmed live (verbose repro, n=8000/p=249/n_pairs=31125): "batch-prefilled 31125/31125 pair MIs" --
+    # SKIP THE LOKY POOL when the batch precompute above already covers every pair. With
+    # the finding-#21 cap removed, the batch precompute now runs unconditionally at n_pairs>=8 and -
+    # confirmed live (verbose repro, n=8000/p=249/n_pairs=31125): "batch-prefilled 31125/31125 pair MIs" -
     # routinely covers 100% of the pool, leaving NOTHING for the sweep below to compute. Spinning up a loky
     # PROCESS pool when there is zero real work is not just wasted overhead: it was the exact spot a
     # cold-cache multi-worker pool spawn was observed to take the full 300s watchdog bound (see the watchdog
@@ -238,7 +238,7 @@ def compute_pair_mis_and_floor(
     # ``compute_pairs_mis`` already skips every pair already in ``cached_MIs``/``cached_confident_MIs`` (see
     # ``test_pair_mi_legacy_sweep_cache_starved.py``), so the serial pass is just a fast membership scan, not
     # a compute pass. Realistically thousands-to-low-hundred-thousands pairs at this stage (the operand-pool
-    # PAIR stage, already bounded by the upstream operand caps -- not the raw-column count).
+    # PAIR stage, already bounded by the upstream operand caps - not the raw-column count).
     _all_pairs_precomputed = n_pairs > 0 and all((p in cached_MIs or p in cached_confident_MIs) for p in combinations(numeric_vars_to_consider, 2))
     # Parallelise whenever (a) more than one worker is configured and
     # (b) we have at least n_jobs pairs to spread; per-pair MI compute is
@@ -282,17 +282,17 @@ def compute_pair_mis_and_floor(
     else:
         chunk_size = max(1, n_pairs // (n_jobs * prefetch_factor))
         # BACKEND FIX (2026-07-06, wellbore diag): the per-chunk ``compute_pairs_mis``
-        # body is GIL-bound CPU work -- it calls ``mi_direct`` per pair (joint plug-in
+        # body is GIL-bound CPU work - it calls ``mi_direct`` per pair (joint plug-in
         # MI + the analytic/permutation null over ``fe_npermutations`` shuffles), all in
         # Python/numpy/njit-with-the-GIL-held-at-the-dispatch-boundary. Under the wellbore's
         # ``parallel_kwargs={'backend':'threading'}`` the whole chunk list serialised onto
         # ONE core (py-spy: MainThread stuck in joblib ``_retrieve`` sleep-poll at ~1.1
         # cores for ~42 min); GPU util was 0% because at the ~30k prospective-pair
-        # subsample the dense-cell ANALYTIC MI null (n>=25k) is taken -- pure CPU, no CUDA.
+        # subsample the dense-cell ANALYTIC MI null (n>=25k) is taken - pure CPU, no CUDA.
         #
         # Route to a loky PROCESS pool for real multi-core parallelism, with every worker
         # forced CPU-ONLY via ``initializer=disable_cuda_in_worker`` (CUDA_VISIBLE_DEVICES="")
-        # so no worker grabs a ~250 MB cupy context -- mirroring the ``run_polynom_pair_fe``
+        # so no worker grabs a ~250 MB cupy context - mirroring the ``run_polynom_pair_fe``
         # loky-CPU-only fix (commit 0476d8aa). This is selection-equivalent: ``compute_pairs_mis``
         # caches only the DETERMINISTIC ``original_mi`` (the confidence is discarded), and at
         # this n the analytic null path is CUDA-independent, so CPU-only workers compute the
@@ -300,18 +300,18 @@ def compute_pair_mis_and_floor(
         #
         # We build a ``LokyBackend`` INSTANCE (not ``backend="loky"``) because in joblib 1.5.x
         # ``initializer`` / ``inner_max_num_threads`` are honoured ONLY when set on the backend
-        # object -- passed to ``Parallel(...)`` directly they are silently dropped. Calling
+        # object - passed to ``Parallel(...)`` directly they are silently dropped. Calling
         # ``joblib.Parallel`` here (not ``parallel_run``) because ``parallel_run`` does
         # ``"dask" in backend`` which raises on a backend instance. Memmapping of the large
         # ``data`` array is preserved (LokyBackend forwards to the memmapping executor).
         # ``inner_max_num_threads=1`` stops N worker processes each spawning N numba/BLAS
         # threads and oversubscribing the box.
         #
-        # ``max_nbytes`` is stripped, NOT forwarded (2026-07-09 fix): ``parallel_kwargs``'s
+        # ``max_nbytes`` is stripped, NOT forwarded: ``parallel_kwargs``'s
         # ``max_nbytes=MAX_JOBLIB_NBYTES`` (1e3 bytes) is tuned for the ``backend="threading"``
         # branch, where the constructor's own comment (``_mrmr_class.py``) documents it as a
         # silently-ignored no-op. That no-op assumption does NOT hold here: this is a REAL loky
-        # PROCESS backend, where joblib auto-memmaps every argument over ``max_nbytes`` bytes --
+        # PROCESS backend, where joblib auto-memmaps every argument over ``max_nbytes`` bytes -
         # at a 1 KB bar that is ``nbins``/``classes_y``/``freqs_y`` on every dispatch, not just the
         # intentionally-memmapped multi-GB ``data`` matrix. Omitting the key lets joblib's own
         # built-in default (``'1M'``) govern instead, which still memmaps ``data`` (far past 1 MB)
@@ -321,20 +321,20 @@ def compute_pair_mis_and_floor(
             inner_max_num_threads=1,
             initializer=disable_cuda_in_worker,
         )
-        # OUTER WALL-CLOCK WATCHDOG, not just joblib's own ``timeout=`` (2026-07-10 fix). A fresh loky pool
+        # OUTER WALL-CLOCK WATCHDOG, not just joblib's own ``timeout=``. A fresh loky pool
         # spawns ``n_jobs`` brand-new Python processes, each re-importing mlframe/numba/its heavy deps and
-        # JIT-compiling every njit kernel it touches from a COLD cache -- on Windows this has been observed
+        # JIT-compiling every njit kernel it touches from a COLD cache - on Windows this has been observed
         # to hang INDEFINITELY (reproduced repeatedly: a 900s wait with zero progress, stuck in joblib's
         # ``_retrieve`` sleep-poll; likely a numba disk-cache write race, or a stuck process spawn, when
         # many freshly-spawned workers compile the SAME kernel concurrently for the first time). Passing
         # ``timeout=`` to ``Parallel(...)`` alone does NOT catch this: joblib's task-level timeout only
-        # fires once a task has actually been DISPATCHED and registered in ``self._jobs`` -- a hang during
+        # fires once a task has actually been DISPATCHED and registered in ``self._jobs`` - a hang during
         # POOL SPAWN, before the first task is ever dispatched, is invisible to it (confirmed: the hang
         # recurred identically with ``timeout=300`` set on ``Parallel`` itself). Windows has no
         # ``signal.alarm``, so the only reliable bound is an OUTER watchdog: run the risky call on a daemon
         # thread and stop WAITING for it after ``_LOKY_POOL_WALL_CLOCK_TIMEOUT`` seconds, falling back to
         # the exact serial path immediately. The abandoned thread (and any loky worker processes it spawned)
-        # may linger as orphans -- strictly better than blocking the whole fit indefinitely, which is the
+        # may linger as orphans - strictly better than blocking the whole fit indefinitely, which is the
         # exact "10h44m fit, weak CPU/GPU utilization" pathology the whole audit started from.
         _LOKY_POOL_WALL_CLOCK_TIMEOUT = 300
 
@@ -342,7 +342,7 @@ def compute_pair_mis_and_floor(
         # np.memmap to loky workers by FILENAME, skipping the per-Parallel-invocation re-dump of the
         # whole ~hundreds-of-MB buffer to a fresh temp file (45 dumps / ~315s of _pickle.dumps on the
         # wellbore-100k profile). One dump per fit (content-keyed cache in _joblib_safe); fallback on
-        # any failure is the original array -- identical behavior, only the dedup is lost.
+        # any failure is the original array - identical behavior, only the dedup is lost.
         from .._joblib_safe import fit_constant_memmap
         _data_shipped = fit_constant_memmap(data)
 
@@ -384,7 +384,7 @@ def compute_pair_mis_and_floor(
                 dicts = _future.result(timeout=_LOKY_POOL_WALL_CLOCK_TIMEOUT)
             finally:
                 # wait=False: never block here waiting for an already-abandoned (possibly hung-forever)
-                # worker thread -- that would defeat the whole point of the watchdog.
+                # worker thread - that would defeat the whole point of the watchdog.
                 _executor.shutdown(wait=False)
             for next_dict in dicts:
                 cached_MIs.update(next_dict)
@@ -397,7 +397,7 @@ def compute_pair_mis_and_floor(
             # Retry via the batched dispatcher FORCED to CPU njit-parallel, not the legacy per-pair sweep
             # directly (2026-07-10 fix; reproduced live at n=3M/p=423, n_pairs=89,253: the loky pool
             # timing out and falling straight to ``compute_pairs_mis``'s serial per-pair ``mi_direct``
-            # loop turned into a multi-hour, single-core slog -- the exact "weak CPU/GPU utilization"
+            # loop turned into a multi-hour, single-core slog - the exact "weak CPU/GPU utilization"
             # pathology the whole audit traces back to). The batched kernel is 10-30x faster per pair
             # than the legacy permutation-test loop regardless of backend (see the finding-#21 fix
             # above); forcing ``njit_parallel`` here specifically avoids retrying on a GPU that may have
@@ -461,9 +461,9 @@ def compute_pair_mis_and_floor(
 
     # ---------------------------------------------------------------------------------------------------------------
     # ORDER-2 Westfall-Young maxT permutation-null floor on the PROSPECTIVE-PAIR
-    # JOINT MI (2026-06-03). The gating loop below ranks O(p^2) candidate pairs by
+    # JOINT MI. The gating loop below ranks O(p^2) candidate pairs by
     # JOINT MI(x_i, x_j; y); at high p the MAX joint MI over PURE-NOISE pairs is a
-    # positive order statistic that grows with the pool size -- the same best-of-p
+    # positive order statistic that grows with the pool size - the same best-of-p
     # selection bias the order-1 screening floor rejects, now at order 2. The
     # per-pair prevalence gates (``fe_min_pair_mi_prevalence`` /
     # ``fe_synergy_min_prevalence``) are PER-PAIR; they do NOT account for the
@@ -496,8 +496,8 @@ def compute_pair_mis_and_floor(
     if _prevalence_debias_auto and not _pair_mm_bias:
         try:
             from .._permutation_null import pairwise_mm_joint_bias
-            # FE_STEP_B-2 fix: RAM-bounded chunking, not a full unchunked
-            # list(combinations(...)) materialization -- this module's own design (see the primary
+            # RAM-bounded chunking, not a full unchunked
+            # list(combinations(...)) materialization - this module's own design (see the primary
             # pair-MI sweep a few screens up, and the "NO POOL-SIZE CAP" rationale) explicitly avoids
             # exactly that O(k^2) tuple/array blowup (~300 MB at k=5000) at a wide production pool.
             # ``_lazy_chunks`` keeps peak memory O(chunk_size), mirroring the primary sweep's own chunking.
@@ -516,7 +516,7 @@ def compute_pair_mis_and_floor(
                 # unchanged). So skip the debias (bias -> 0, raw pair_mi) for any pair whose rows-per-
                 # occupied-joint-cell falls below ``fe_confirm_undersample_rows_per_cell`` (default 5),
                 # mirroring the existing CMI-fallback rule. This FORGOES the (unreliable) tiny-n win
-                # rather than risk the tiny-n harm -- the large-n win (bilinear n=8000 0.195 -> 0.052)
+                # rather than risk the tiny-n harm - the large-n win (bilinear n=8000 0.195 -> 0.052)
                 # is preserved because there rows-per-cell clears the floor. k_joint is recovered from
                 # the bias: k_joint = 1 + bias*2n/(k_y-1).
                 for _api, _apr in enumerate(_auto_chunk):

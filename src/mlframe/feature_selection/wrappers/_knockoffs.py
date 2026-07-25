@@ -1,6 +1,6 @@
 """Knockoff-based feature importance (Barber-Candes 2015 et seq.) for RFECV.
 
-Carved out of _helpers.py in the Wave 5 sweep (2026-05-28) to keep _helpers.py below the 1k-LOC soft limit. Re-exported at the
+Carved out of _helpers.py in the Wave 5 sweep to keep _helpers.py below the 1k-LOC soft limit. Re-exported at the
 parent's bottom so from mlframe.feature_selection.wrappers import knockoff_importance / select_features_fdr / make_gaussian_knockoffs
 keep resolving exactly as before.
 """
@@ -67,7 +67,7 @@ def make_gaussian_knockoffs(X, random_state=None, sdp_solve: bool = False) -> np
         raise NotImplementedError("SDP knockoffs not yet implemented; use equicorrelated default.")
 
     rng = np.random.default_rng(random_state)
-    # E10 (Wave 4, 2026-05-28): explicit numeric check. ``np.asarray(X, dtype=float)`` would silently NaN-fill an object/string column;
+    # E10: explicit numeric check. ``np.asarray(X, dtype=float)`` would silently NaN-fill an object/string column;
     # detect those upstream and raise so the user fixes encoding rather than getting a useless all-NaN-knockoff path.
     if hasattr(X, "select_dtypes"):
         try:
@@ -107,7 +107,7 @@ def make_gaussian_knockoffs(X, random_state=None, sdp_solve: bool = False) -> np
     lam_min = float(max(eigvals[0], 1e-8))
     # When Sigma is near-singular (anti-correlated pairs X_j = -X_k or 100% collinear copies),
     # lam_min ~ 1e-8 -> s_val ~ 2e-8 -> X_tilde becomes ~ X (self-corr ~ 1, useless as knockoff).
-    # E8 (Wave 4, 2026-05-28): when ``strict_lam_min=True``, RAISE instead of just warning -- callers explicitly opting into knockoff
+    # E8: when ``strict_lam_min=True``, RAISE instead of just warning - callers explicitly opting into knockoff
     # selection get a hard signal that the knockoffs are degenerate; otherwise they get an empty support_ with no obvious cause.
     if lam_min < 1e-4:
         _msg = (
@@ -162,8 +162,8 @@ def select_features_fdr(W: dict, q: float = 0.1) -> list:
 
     Low-power caveat (NOT a bug): on few positive W (e.g. one strong driver + one negative knockoff lead) the
     ``(1 + #neg)`` numerator offset cannot be beaten at small support, so even an obvious driver yields ``[]``. This
-    is correct Barber-Candes behaviour -- the data-splitting "knockoff+" offset is the price of finite-sample FDR
-    control -- not a defect. When the support is small, prefer a marginal screen (univariate-HT) for power.
+    is correct Barber-Candes behaviour - the data-splitting "knockoff+" offset is the price of finite-sample FDR
+    control - not a defect. When the support is small, prefer a marginal screen (univariate-HT) for power.
 
     Parameters
     ----------
@@ -194,7 +194,7 @@ def select_features_fdr(W: dict, q: float = 0.1) -> list:
     if not np.isfinite(tau):
         return []
     selected = [(n, v) for n, v in W.items() if v >= tau]
-    # Wave 58 (2026-05-20): secondary key on feature name; tied |W| (shrinkage
+    # Secondary key on feature name; tied |W| (shrinkage
     # saturation) no longer makes downstream [:topN] slicing drift.
     selected.sort(key=lambda kv: (-kv[1], kv[0]))
     return [n for n, _ in selected]
@@ -213,7 +213,7 @@ def knockoff_importance(model_factory, X, y, current_features=None, random_state
     the importance source is non-negative (|SHAP| / gain). Without this swap, a non-negative importance gives no negative W_j,
     the FDR threshold's negative reference set is empty, and the procedure provides NO real control.
 
-    L3 (Wave 5, 2026-05-28): ``w_statistic`` chooses the importance source for
+    L3: ``w_statistic`` chooses the importance source for
     the W computation:
         - 'auto'   : tree models -> TreeSHAP mean(|shap|), else coef_ / FI (legacy default).
         - 'shap'   : force TreeSHAP (raises if shap import fails).
@@ -249,7 +249,7 @@ def knockoff_importance(model_factory, X, y, current_features=None, random_state
     # Flip-sign antisymmetry (Barber-Candes 2015, eq. for the swap statistic). The importance-difference W_j = imp(X_j) - imp(X_tilde_j)
     # only yields a valid FDR guarantee if W is ANTISYMMETRIC under swapping a null feature with its knockoff: swapping must flip the sign
     # of W_j. With real/knockoff in FIXED column positions and a NON-NEGATIVE importance source (|SHAP| / gain), imp(real) - imp(fake) is
-    # NOT sign-symmetric under the null -- there is no mechanism producing negative W_j, so the (1 + #neg)/#pos threshold has an empty
+    # NOT sign-symmetric under the null - there is no mechanism producing negative W_j, so the (1 + #neg)/#pos threshold has an empty
     # negative reference set and gives no real control. We restore antisymmetry by drawing an independent fair coin per feature that
     # decides which of the two adjacent columns carries the REAL value and which carries the knockoff; the model cannot tell them apart,
     # so under the null the sign of (imp at real-slot - imp at knockoff-slot) is symmetric -> W is sign-symmetric as the theory requires.
@@ -280,7 +280,7 @@ def knockoff_importance(model_factory, X, y, current_features=None, random_state
     model = model_factory()
     model.fit(X_joint_df, y)
 
-    # L3 (Wave 5, 2026-05-28): pick the W-statistic source per ``w_statistic``.
+    # L3: pick the W-statistic source per ``w_statistic``.
     _w = w_statistic
     if _w == "auto":
         # Detect tree-family: any of feature_importances_ AND class-name contains "Forest" / "Boost" / "Tree".

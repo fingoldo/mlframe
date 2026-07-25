@@ -1,4 +1,4 @@
-"""Layer 82 (2026-06-01): ELASTIC NET (L1 + L2) coefficient-based ranking +
+"""Layer 82: ELASTIC NET (L1 + L2) coefficient-based ranking +
 MUTUAL-RANK fusion for hybrid orth-poly FE.
 
 Why this layer
@@ -6,13 +6,13 @@ Why this layer
 
 Layer 81 ships Lasso (pure L1) coefficient-based pre-selection. Lasso is the
 right tool when the support is genuinely sparse and the candidate columns are
-WEAKLY correlated -- in that regime the L1 path pins each truly-informative
+WEAKLY correlated - in that regime the L1 path pins each truly-informative
 column with a non-zero coefficient and drives the rest to exactly zero.
 
 Lasso's known failure mode is CORRELATED CANDIDATE GROUPS: when two columns
 carry near-identical predictive content, the L1 path arbitrarily picks ONE of
 the pair (whichever the coordinate-descent solver visits first) and shrinks
-the other to zero. The choice is solver-dependent and seed-fragile -- exactly
+the other to zero. The choice is solver-dependent and seed-fragile - exactly
 the kind of brittle behaviour pre-selection should avoid. Zou & Hastie (2005)
 introduced Elastic Net to fix this: the L2 penalty term shares coefficient
 mass among correlated columns ("grouping effect"), so a correlated PAIR is
@@ -20,28 +20,28 @@ either kept together or dropped together rather than arbitrarily split.
 
 This module:
 
-* ``score_features_by_elasticnet_coef`` -- the Layer 81 Lasso scorer with the
+* ``score_features_by_elasticnet_coef`` - the Layer 81 Lasso scorer with the
   L1-only fit swapped for sklearn ``ElasticNet(alpha, l1_ratio)``. Same I/O
   shape as Layer 81; the ``engineered_mi`` column carries ``|coef|`` from the
   Elastic Net fit instead of from Lasso.
 
-* ``hybrid_orth_mi_elasticnet_fe`` -- generator + Elastic-Net ranking + the
+* ``hybrid_orth_mi_elasticnet_fe`` - generator + Elastic-Net ranking + the
   same two-gate filter Layer 81 uses (uplift + abs-coef floor).
 
 * ``MUTUAL-RANK fusion`` strategy added to the Layer 69 ensemble path
   (``_orthogonal_scorer_auto_fe.py``): ``mutual_top_k`` keeps a candidate
   only if it is in the top-K of EVERY participating scorer. This is the
   strict-conjunction complement of the existing ``mean_rank`` / ``borda_count``
-  aggregators -- high-precision selection at the cost of recall.
+  aggregators - high-precision selection at the cost of recall.
 
 Recipe replay
 -------------
 
-Each emitted column is backed by an ``orth_univariate`` recipe -- the SAME
-kind Layers 21 / 65-81 use -- because the engineered VALUES are bit-equal;
+Each emitted column is backed by an ``orth_univariate`` recipe - the SAME
+kind Layers 21 / 65-81 use - because the engineered VALUES are bit-equal;
 only the SCORING changes.
 
-NOT wired into ``MRMR.fit`` by default -- opt-in via
+NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_hybrid_orth_elasticnet_enable=True`` on the MRMR ctor.
 """
 from __future__ import annotations
@@ -78,7 +78,7 @@ def _fit_elasticnet_abs_coefs(
     Standardisation mirrors Layer 81: constant columns are zeroed before the
     fit so they cannot inflate or NaN through the coordinate descent solver.
     NaN / inf are scrubbed to zero. l1_ratio=1.0 reproduces pure Lasso;
-    l1_ratio=0.0 reproduces pure Ridge -- sklearn's ElasticNet handles both
+    l1_ratio=0.0 reproduces pure Ridge - sklearn's ElasticNet handles both
     edges via internal dispatch.
     """
     from sklearn.exceptions import ConvergenceWarning
@@ -188,7 +188,7 @@ def score_features_by_elasticnet_coef(
     # Single Elastic-Net fit on the JOINT stack so |coef| values are
     # comparable across raw and engineered columns (mirrors Layer 81's
     # rationale: two separate fits would double-count shared signal).
-    # f64 kept: covariance/coordinate-descent stability (f32 sums lose precision here) -- NOT routed through _crit_np_dtype.
+    # f64 kept: covariance/coordinate-descent stability (f32 sums lose precision here) - NOT routed through _crit_np_dtype.
     stack_arr = np.column_stack([
         raw_X.to_numpy(dtype=np.float64),
         engineered_X.to_numpy(dtype=np.float64),
@@ -298,12 +298,12 @@ def hybrid_orth_mi_elasticnet_fe_with_recipes(
     random_state: int = 0,
 ):
     """Same as :func:`hybrid_orth_mi_elasticnet_fe` plus a list of
-    ``orth_univariate`` recipes -- one per appended column -- so that
+    ``orth_univariate`` recipes - one per appended column - so that
     ``MRMR.transform`` can recompute each engineered column on test data
     without re-running the Elastic-Net fit.
 
     Recipes are byte-identical to Layer 21 because the engineered VALUES
-    are byte-identical -- only the SCORING (and therefore the selection)
+    are byte-identical - only the SCORING (and therefore the selection)
     differs.
     """
     from .engineered_recipes import build_orth_univariate_recipe
@@ -344,7 +344,7 @@ def hybrid_orth_mi_elasticnet_fe_with_recipes(
             continue
         # freeze the fit-time basis-preprocess params (mirrors the
         # canonical Layer-21 hybrid_orth_mi_fe_with_recipes fix); recomputing on the FULL fit-time
-        # source column is safe/exact -- it reproduces, not refits, the fit-time params.
+        # source column is safe/exact - it reproduces, not refits, the fit-time params.
         _pp = None
         try:
             _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)

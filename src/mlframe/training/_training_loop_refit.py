@@ -325,7 +325,7 @@ def _maybe_refit_on_collapsed_predictions(
                 try:
                     _inner.network = None
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logging.getLogger(__name__).debug("suppressed in _training_loop_refit.py:323: %s", e)
+                    logging.getLogger(__name__).debug("suppressed: %s", e)
                     pass
             model_obj.fit(train_df, train_target, **fit_params)
             _preds2 = np.asarray(model.predict(train_df)).reshape(-1)

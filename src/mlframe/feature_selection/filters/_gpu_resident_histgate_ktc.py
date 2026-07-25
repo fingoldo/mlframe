@@ -1,10 +1,10 @@
-"""Lever C (2026-06-23): HW-aware + kernel-tuning-cache integration for the MI noise-gate batched histogram
+"""Lever C: HW-aware + kernel-tuning-cache integration for the MI noise-gate batched histogram
 threads/block (the ``_kernel_bs`` shared-privatized joint-histogram in ``_batch_mi_noise_gate_kernels``).
 
-Carved as a sibling of ``batch_mi_noise_gate_gpu.py`` (that module is at ~892 LOC -- adding the sweep there
+Carved as a sibling of ``batch_mi_noise_gate_gpu.py`` (that module is at ~892 LOC - adding the sweep there
 would push it over the 1k ceiling; mirrors the radix ``_gpu_resident_radix_ktc`` carve). The batched hist
 kernel ``_kernel_bs`` (and the global-atomic ``_kernel_b``) launched with a HARDCODED ``threads_per_block=128``
-over a grid of ``(K, P)`` blocks -- each block strides over ALL n rows, so the row-loop parallelises across
+over a grid of ``(K, P)`` blocks - each block strides over ALL n rows, so the row-loop parallelises across
 threads exactly like the radix-select n-loop. 128 threads left the GTX 1050 Ti badly under-occupied (max
 2048 threads/SM -> 128 is 1/16th of an SM per block); nsys (isolated KTC, F2 100k, one fit) showed the
 MI-gate hist ``_kernel_bs`` = the #2 kernel (~2375ms, 32 launches). More threads/block = more rows binned in
@@ -31,7 +31,7 @@ def _histgate_threads_variants() -> list:
     """HW-occupancy-bounded threads/block candidates for the batched-hist kernel. Intersects the seed list
     with the warp-multiple block sizes hitting >=2 active blocks/SM on THIS device (the kernel's dynamic
     shared is the small per-column nb_k*K_y*4 histogram, so it is register/thread-limited, not shared-limited
-    -- pass a tiny dyn_smem). Falls back to the seed list when no HW info (no cupy)."""
+    - pass a tiny dyn_smem). Falls back to the seed list when no HW info (no cupy)."""
     seed = list(_HISTGATE_THREADS_SEED)
     try:
         from ._gpu_hw_launch import device_props, occupancy_block_candidates
@@ -103,7 +103,7 @@ def _make_histgate_inputs(dims: dict):
     contention-distorted A/B). The definitive interleaved-min CUDA-event A/B on the GTX 1050 Ti at K=512 gives,
     per single launch: n=50k 128=58ms vs 1024=88ms; n=100k 128=110ms vs 1024=174ms (1.57x SLOWER at 1024);
     n=300k 128=800ms vs 1024=535ms (1024 wins only here). So 128 IS the true-fastest at <=100k and the
-    contention-robust sweep correctly keeps th_128 there + th_1024 at >=300k -- there is NO ~1.28s MI-gate win to
+    contention-robust sweep correctly keeps th_128 there + th_1024 at >=300k - there is NO ~1.28s MI-gate win to
     materialise; forcing 1024 at 100k would REGRESS the kernel ~1.5x. The KTC pick now matches the measured floor."""
     rng = np.random.default_rng(0)
     n = int(dims["n_rows"])

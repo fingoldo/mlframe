@@ -1,8 +1,8 @@
 """``drop_near_noise_univariate_auc``: cheap univariate-AUC prescreen before MRMR/DCD.
 
-Source: 4th_santander-customer-transaction-prediction.md -- "I removed some vars from train which predictions
+Source: 4th_santander-customer-transaction-prediction.md - "I removed some vars from train which predictions
 by long model had AUC near .5 (before grouping)." A feature whose OWN univariate AUC sits at chance carries
-essentially no linear/monotone signal about the target in isolation -- dropping it before the expensive
+essentially no linear/monotone signal about the target in isolation - dropping it before the expensive
 MRMR/DCD redundancy-aware search is a cheap first-pass filter for independent-feature datasets (won't catch a
 feature that's only informative in COMBINATION with others, which is exactly what MRMR itself is for; this
 is a pre-filter, not a replacement).
@@ -49,7 +49,7 @@ def drop_near_noise_univariate_auc(
         each) and a column is flagged only when its ENTIRE ``bootstrap_percentile_band`` percentile range
         of per-resample AUCs stays within ``tolerance`` of 0.5. This guards against a single unlucky
         sample making a genuinely weak-but-real feature (whose true AUC is just outside ``tolerance``)
-        look like pure noise by chance -- the single-pass check has no way to distinguish "AUC is near
+        look like pure noise by chance - the single-pass check has no way to distinguish "AUC is near
         0.5 because there's no signal" from "AUC is near 0.5 because this particular sample happened to
         land there".
     bootstrap_frac

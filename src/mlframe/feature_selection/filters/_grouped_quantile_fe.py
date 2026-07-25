@@ -5,14 +5,14 @@ grouped multi-stat aggregator). Where Layer 87 broadcasts a per-group scalar
 statistic (mean / std / ...), Layer 88 captures the *distributional* position
 of a row WITHIN its group:
 
-* ``percentile-rank-within-group`` -- the empirical CDF position of a row's
+* ``percentile-rank-within-group`` - the empirical CDF position of a row's
   value among the values of its own group, i.e. ``P(X <= x | group)``. A row
   sitting at the group's median maps to ~0.5 regardless of the group's
   absolute location / scale. This recovers signals where ``y`` depends on
   whether ``x`` is low / high *relative to its group's distribution*, not on
   ``x`` itself nor on any single group moment (Layer 87 mean / std miss it
   whenever the discriminating structure is bimodal-within-group).
-* ``group quantile spread`` -- per-group IQR (``q75 - q25``) and
+* ``group quantile spread`` - per-group IQR (``q75 - q25``) and
   ``p90 - p10`` broadcast back to rows. A dispersion feature: the WIDTH of a
   group's distribution, orthogonal to the group's centre.
 
@@ -37,7 +37,7 @@ Leakage safety (CRITICAL)
 * ``target_aware_group_bin`` recipes store the per-group MDLP edges refit on
   ALL train rows after the OOF scoring pass; the OOF assignment is used ONLY to
   compute the leak-safe MI uplift score, never persisted. Replay maps a row's
-  value through ``searchsorted`` on its group's stored edges -- a pure function
+  value through ``searchsorted`` on its group's stored edges - a pure function
   of X. No ``y`` reference is captured in either recipe kind.
 """
 from __future__ import annotations
@@ -103,7 +103,7 @@ def _broadcast_lookup(g_keys: np.ndarray, lookup: dict, glob: float) -> np.ndarr
 
     Group columns are low-cardinality, so the ``str(key)`` + ``dict.get`` is
     resolved once per UNIQUE key (np.unique return_inverse) and broadcast back
-    via the inverse index, not once per row -- the per-row listcomp form was a
+    via the inverse index, not once per row - the per-row listcomp form was a
     Layer-88 grouped-quantile hotspot (~0.65s x 2 sites / 32 calls each). Bit-
     identical to the per-row mapping (same str()+get per distinct key). Ravels
     the inverse (numpy 2.0.0 briefly returned 2-D) and falls back to the per-row
@@ -121,7 +121,7 @@ def _broadcast_lookup(g_keys: np.ndarray, lookup: dict, glob: float) -> np.ndarr
 
 
 def _pct_rank_in_sorted(sorted_vals: np.ndarray, x: np.ndarray) -> np.ndarray:
-    """Empirical CDF position of each ``x`` in ``sorted_vals`` -- the fraction
+    """Empirical CDF position of each ``x`` in ``sorted_vals`` - the fraction
     of group values ``<= x`` via the midpoint of the left / right insertion
     ranks (ties get their average rank, matching ``rank(pct=True)`` semantics).
     Returns values in ``[0, 1]``; an empty reference yields 0.5 (neutral).
@@ -150,7 +150,7 @@ def generate_grouped_quantile_features(
     Each recipe stores the per-group SORTED value array (for the percentile
     variant) or the per-group spread scalar (for IQR / p90-p10), plus the
     pooled-global fallback used for groups unseen at replay. Replay reads only
-    X -- no ``y`` reference is captured, so transform() is leakage-free.
+    X - no ``y`` reference is captured, so transform() is leakage-free.
     """
     if not isinstance(X, pd.DataFrame):
         raise TypeError(f"generate_grouped_quantile_features: X must be a pandas DataFrame; " f"got {type(X).__name__}")
@@ -399,7 +399,7 @@ def generate_target_aware_group_bins(
             global_edges = _fit_group_edges(finite_all, y_arr[np.isfinite(x)], n_bins) if finite_all.size else np.array([], dtype=np.float64)
 
             # ---- OOF bin assignment for leak-safe MI scoring ----
-            # bench-attempt-FUTURE (2026-06-23): capping the n_folds x n_groups MDLP refits below
+            # bench-attempt-FUTURE: capping the n_folds x n_groups MDLP refits below
             # (e.g. refit only groups above a higher min-count, route the rest to global_edges)
             # changes OOF bin edges => NOT identity-safe and NOT selection-equivalent. _benchmarks/
             # bench_grouped_quantile_fe.py measured 100% of qualifying groups (n=100k, n_groups
@@ -418,7 +418,7 @@ def generate_target_aware_group_bins(
                     continue
                 # Small-group fallback edges must be fit on this fold's TRAIN rows only. Using the all-rows
                 # ``global_edges`` (fit on every row INCLUDING the scored fold) let the fold's own y shape the cut
-                # points that then bin it -- a y-leak into the OOF MI score that can float a pure-noise tiny-group bin
+                # points that then bin it - a y-leak into the OOF MI score that can float a pure-noise tiny-group bin
                 # above the gate. The persisted recipe below still uses all-rows edges (serving is out-of-sample).
                 _tr_finite = train_mask & np.isfinite(x)
                 fold_global_edges = _fit_group_edges(x[_tr_finite], y_arr[_tr_finite], n_bins) if _tr_finite.any() else global_edges
@@ -582,7 +582,7 @@ def score_grouped_quantile_by_mi_uplift(
             try:
                 y_arr = pd.qcut(y_arr, q=10, labels=False, duplicates="drop").to_numpy()
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _grouped_quantile_fe.py:572: %s", e)
+                logger.debug("suppressed: %s", e)
                 pass
         _, y_arr = np.unique(y_arr, return_inverse=True)
     y_bin = y_arr.astype(np.int64)
@@ -685,7 +685,7 @@ def _auto_detect_num_cols(
             continue
         # Skip already-engineered grouped columns (grpagg/grpz/grpratio/grpiqr/grpp90p10/... appended by an EARLIER grouped-FE
         # stage). A per-group quantile of one of these builds a nested recipe whose transform-replay needs the intermediate
-        # engineered column materialised first -- but transform() replays from raw X only, so it raises KeyError on the missing
+        # engineered column materialised first - but transform() replays from raw X only, so it raises KeyError on the missing
         # source. The grouped aggregates are also constant within group, so a quantile of them is degenerate. Keep the source scope
         # to raw columns so every grouped-quantile recipe is 1-deep and replayable.
         if str(c).startswith("grp"):

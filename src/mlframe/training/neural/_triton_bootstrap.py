@@ -67,7 +67,7 @@ def ensure_triton_loaded() -> bool:
         try:
             candidates.append(os.path.join(site.getusersitepackages(), "triton", "_C", "libtriton.pyd"))
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _triton_bootstrap.py:71: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
 
         for pyd in candidates:

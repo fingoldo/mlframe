@@ -32,14 +32,14 @@ def _discretize_input_dtype():
     """Working dtype for the numeric matrix that ``categorize_dataset`` discretises.
 
     ``categorize_dataset`` copies ALL numeric columns into one dense array before binning
-    (``arr = df[...].to_numpy(...)``) -- a second full-frame copy that coexists with the caller's
+    (``arr = df[...].to_numpy(...)``) - a second full-frame copy that coexists with the caller's
     (already large) engineered float frame, and is the dominant term of the large-n FE peak (a 1M-row
     fit projects to ~21GB, OOMing a 16GB box). Quantile / MDLP edges + searchsorted do NOT need
     float64: float32 edges differ only at ~1e-7 (far below the selection-altering ~1e-3 bar) and only
     for values sitting exactly on a bin edge.
 
     DEFAULT ON as of 2026-07-09 (the ~21GB->~10GB memory cut; corrective mechanisms default ON once
-    validated -- see ``tests/feature_selection/MRMR_FE_PERF_NOTES.md`` 2026-06-17 entry, which measured
+    validated - see ``tests/feature_selection/MRMR_FE_PERF_NOTES.md`` 2026-06-17 entry, which measured
     selection IDENTICAL float32-vs-float64 on the canonical 60k fit). Set ``MLFRAME_DISCRETIZE_FLOAT32=0``
     to force the legacy float64 path (e.g. bit-exact replay of a pre-2026-07-09 fit).
     """
@@ -115,7 +115,7 @@ def _discretize_2d_array_col_cached(arr, *, n_bins, method, min_ncats, dtype, di
     arrT = np.ascontiguousarray(arr.T)
     keys: list = []
     if _xxh3_128 is not None:
-        # xxh3 (non-cryptographic, content-only fingerprint -- this cache key never needs collision
+        # xxh3 (non-cryptographic, content-only fingerprint - this cache key never needs collision
         # resistance against an adversary) is an order of magnitude faster than blake2b for this purpose;
         # 128-bit digest keeps the same collision margin blake2b's digest_size=16 gave.
         keys.extend(_xxh3_128(arrT[j]) + _param_tag for j in range(n_cols))
@@ -178,7 +178,7 @@ def create_redundant_continuous_factor(
     rng = check_random_state(random_state)
     if dist:
         rvs = dist.rvs
-        # Wave 31 (2026-05-20): assert -> AttributeError.
+        # Assert -> AttributeError.
         if not callable(rvs):
             raise AttributeError(f"dist must have a callable .rvs method; got {dist!r}.")
         noise = rvs(*dist_args, size=len(df), random_state=rng)
@@ -210,7 +210,7 @@ def categorize_dataset(
     cache_dir: Optional[str] = None,
     max_categorical_cardinality: Optional[int] = None,
 ):
-    """Convert a DataFrame into an ordinal-encoded ``(n_samples, n_features)`` array. Accepts pandas or polars (DataFrame or LazyFrame -- materialised at the
+    """Convert a DataFrame into an ordinal-encoded ``(n_samples, n_features)`` array. Accepts pandas or polars (DataFrame or LazyFrame - materialised at the
     boundary). ``missing_strategy`` controls NaN handling: see :func:`_handle_missing`."""
     from . import (
         _handle_missing,
@@ -245,7 +245,7 @@ def categorize_dataset(
     _dt = _discretize_input_dtype()
     if _is_polars:
         # An all-categorical polars frame (no numeric columns) makes df.select([]).to_numpy() collapse to shape (0, 0)
-        # -- ZERO rows -- so the later per-column np.append(numeric, categorical) raises a row-count mismatch. Build an
+        # - ZERO rows - so the later per-column np.append(numeric, categorical) raises a row-count mismatch. Build an
         # explicit (n_rows, 0) array instead so the categorical branch initialises/extends a full-height matrix (pandas
         # already yields (n, 0) here).
         if numerical_cols:
@@ -260,7 +260,7 @@ def categorize_dataset(
     # produces clean edges, then we overwrite the same positions in the
     # discretized output with bin=n_bins (max+1 per column). Net effect: NaN
     # gets its own honest category that MI estimators see correctly.
-    # 2026-05-30 Wave 9.1 fix (loop iter 11): include 'propagate' alongside
+    # Include 'propagate' alongside
     # 'separate_bin' so NaN positions get re-routed to the dedicated NaN
     # bin instead of silently colliding with the top real bin via
     # np.searchsorted(NaN -> ej.size).
@@ -270,15 +270,15 @@ def categorize_dataset(
     # available) so _handle_missing does not rescan ``arr`` for NaN a second time.
     arr = _handle_missing(arr, strategy=missing_strategy, nan_mask=_nan_mask)
 
-    # 2026-05-29 Wave 7: per-column adaptive bin chooser.
+    # per-column adaptive bin chooser.
     # When ``nbins_strategy`` is provided, compute per-column edges via the
     # _adaptive_nbins dispatcher, apply them with np.searchsorted, and pad to
     # the global max nbins so downstream MRMR sees a uniform-nbins matrix.
     #
-    # PERF NOTE (2026-06-19, wide-data reuse audit CK-secondary): the unsupervised path below
+    # PERF NOTE: the unsupervised path below
     # (nbins_strategy is None -> _discretize_2d_array_col_cached -> discretize_2d_array) ALREADY routes to the
     # CUDA quantile kernel where it wins (measured 2.89x: 1276ms->442ms on the (20000,2000) discretize op;
-    # size-gated via _DISCRETIZE_SPEC). The SUPERVISED path here (mdlp/optimal_joint/...) has NO GPU kernel --
+    # size-gated via _DISCRETIZE_SPEC). The SUPERVISED path here (mdlp/optimal_joint/...) has NO GPU kernel -
     # measured ~10.5s at (20000,2000) (~52s extrapolated to 100k) vs ~3.4s for the CUDA-eligible quantile path.
     # A CUDA MDLP would be a large NEW recursive-supervised kernel; it is DEFERRED behind the dominant Fleuret
     # CMI redundancy loop (~290s at 100k) which the batched-CUDA CMI kernel attacks first. A cheaper interim
@@ -297,10 +297,10 @@ def categorize_dataset(
         edges_per_col = per_feature_edges(
             arr, y=_y_arr, method=nbins_strategy, cache_dir=cache_dir, **_strategy_kwargs,
         )
-        # Dispatcher-level silent-degenerate-fallback guardrail (2026-07-19): ``per_feature_edges`` already
+        # Dispatcher-level silent-degenerate-fallback guardrail: ``per_feature_edges`` already
         # logs a per-column WARNING when a strategy returns empty edges for a column with real variance (see
         # its own guardrail), but ``categorize_dataset`` is the actual top-level entry MRMR.fit calls and it
-        # previously used ``edges_per_col`` completely blindly -- an empty-edges column silently becomes an
+        # previously used ``edges_per_col`` completely blindly - an empty-edges column silently becomes an
         # all-bin-0 column further down (the ``+inf``-padded searchsorted resolves every value to bin 0), with
         # NO signal at this call site. This is exactly how the MDLP overflow bug (3.0**n_classes -> inf,
         # acceptance check always False) went undetected in production: nothing at the entry point a caller
@@ -334,18 +334,18 @@ def categorize_dataset(
                 f"Use a wider dtype or constrain the strategy (e.g. knuth_m_max_cap=64)."
             )
         data = np.empty((n_rows, n_cols), dtype=dtype)
-        # BATCHED (2026-07-13): pad every column's interior-edge vector to the SAME length
+        # BATCHED: pad every column's interior-edge vector to the SAME length
         # (``n_edges_max``, already implied by ``max_bins`` above) with ``+inf`` sentinels, then run ONE
         # ``_searchsorted_2d_right_njit_parallel`` call over the padded (n_edges_max, n_cols) matrix instead
-        # of a per-column ``np.searchsorted`` Python-dispatch loop -- this file's own prior comment flagged
+        # of a per-column ``np.searchsorted`` Python-dispatch loop - this file's own prior comment flagged
         # this exact gap ("max_bins is already computed one line above"). Padding is safe: ``side='right'``
-        # counts edges <= v, and a finite v is never >= +inf, so padding entries are never counted --
+        # counts edges <= v, and a finite v is never >= +inf, so padding entries are never counted -
         # identical to the per-column call with that column's OWN (shorter) edge vector. A column with
         # ``ej.size == 0`` is an all-``+inf`` row: every comparison resolves to bin 0, matching the
         # original explicit ``data[:, j] = 0`` branch exactly. NaN never reaches this call (``_handle_missing``
         # above unconditionally fills or raises on NaN for every strategy), so the kernel's separate
-        # NaN-walks-to-``len(edges)`` contract -- which WOULD differ under padding -- never engages here.
-        # PARALLEL (not the serial ``nogil`` twin): measured -- the serial kernel is a WASH-TO-SLIGHT-LOSS
+        # NaN-walks-to-``len(edges)`` contract - which WOULD differ under padding - never engages here.
+        # PARALLEL (not the serial ``nogil`` twin): measured - the serial kernel is a WASH-TO-SLIGHT-LOSS
         # against numpy's per-column ``searchsorted`` (0.83-1.26x across n=20k-100k, p=200-4000; numpy's C
         # binary search is already fast per call, so a single-threaded scalar njit loop doesn't beat it) while
         # the ``prange``-parallel twin is a consistent 6-10x win at the same scales. Safe here (unlike the
@@ -361,7 +361,7 @@ def categorize_dataset(
         from ._kernels import _searchsorted_2d_right_njit_parallel
         # ``arr`` passed at its NATIVE dtype (float32 or float64): the kernel promotes per-element against
         # the float64 edges, byte-identical to pre-upcasting the whole column (see the kernel's own
-        # docstring) -- avoids an (n_rows, n_cols) float64 copy on top of the input buffer.
+        # docstring) - avoids an (n_rows, n_cols) float64 copy on top of the input buffer.
         _searchsorted_2d_right_njit_parallel(edges_padded, arr, _codes)
         data[:, :] = _codes.astype(dtype)
     else:
@@ -373,7 +373,7 @@ def categorize_dataset(
         )
 
     if _nan_mask is not None and _nan_mask.any():
-        # 2026-05-30 Wave 9.1 fix (loop iter 9): per-COLUMN NaN bin code.
+        # per-COLUMN NaN bin code.
         # Pre-fix used the constructor ``n_bins`` as the dedicated NaN code
         # for every column, but the adaptive ``nbins_strategy`` branch
         # produces per-column bin counts that often exceed ``n_bins``
@@ -390,7 +390,7 @@ def categorize_dataset(
         else:
             # Legacy unsupervised path: discretize_2d_array can emit a real code == n_bins for some columns
             # ([0..n_bins], n_bins+1 distinct codes), so a flat NaN code = ctor n_bins collides with that real
-            # top bin and destroys the missingness signal -- the same defect the adaptive branch fixes per-column.
+            # top bin and destroys the missingness signal - the same defect the adaptive branch fixes per-column.
             # ``max(n_bins, col_real_max + 1)`` keeps the NaN code at n_bins wherever it is already distinct
             # (bit-identical to the prior behaviour) and only pushes it one past the real max for a colliding column.
             col_real_max = data.max(axis=0).astype(np.int64) if data.size else np.zeros(arr.shape[1], dtype=np.int64)
@@ -440,7 +440,7 @@ def categorize_dataset(
         else:
             new_vals = None
     if categorical_cols and new_vals is not None:
-        # 2026-05-30 Wave 9.1 fix (loop iter 31): the categorical block
+        # The categorical block
         # bypassed ``missing_strategy`` entirely. ``_multi_col_factorize_native``
         # / ``pd.factorize`` / ``.cat.codes`` emit ``-1`` for NaN, which then
         # silently flowed into the joint-histogram allocator and got
@@ -492,7 +492,12 @@ def categorize_dataset(
         if data is None:
             data = new_vals
         else:
-            data = np.append(data, new_vals, axis=1)
+            # Single merge of the numeric block + the one categorical block (not a loop). np.concatenate is
+            # np.append without its internal ravel/reshape wrapper - one alloc + two block copies either way.
+            # bench-attempt-rejected (bench_discretize_dataset_merge.py): a preallocated-empty + two-slice
+            # write is a wash (identical alloc+copies); the only real win is an out=-slice discretiser writing
+            # the numeric block straight into the combined buffer, deferred (touches the cached discretiser).
+            data = np.concatenate([data, new_vals], axis=1)
 
     # ``data.max(axis=0)`` raises on an empty reduction axis (0 columns OR 0 rows): return a typed empty result so callers
     # get a consistent ``(data, cols, nbins)`` triple instead of an opaque reduction ValueError.

@@ -7,7 +7,11 @@ from ..._mrmr_fe_step import _non_numeric_column_indices paths keep resolving.
 """
 from __future__ import annotations
 
+import logging
+
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def _non_numeric_column_indices(X, cols) -> set:
@@ -33,6 +37,9 @@ def _non_numeric_column_indices(X, cols) -> set:
                 if not pd.api.types.is_numeric_dtype(dt):
                     idx.add(i)
     except Exception:
+        # Returning set() marks EVERY column numeric, which can let a string/categorical column reach the
+        # numeric basis and crash downstream - log the introspection failure instead of swallowing silently.
+        logger.debug("_non_numeric_column_indices: dtype introspection failed; treating all columns as numeric", exc_info=True)
         return set()
     return idx
 
@@ -41,7 +48,7 @@ def _synergy_bootstrap_can_supply_pool(self, num_fs_steps: int, data) -> bool:
     """Whether the synergy bootstrap (below) would seed a non-empty interaction-only pair pool.
 
     Mirrors the bootstrap's own gating (``fe_synergy_screen_max_features`` enabled, first FE step, enough rows) so the empty-screen branch can decide to CONTINUE into the FE
-    step on a pure-interaction target whose marginals all screen out -- rather than returning None and engineering nothing. The actual per-frame caps (feature count, sweep cost)
+    step on a pure-interaction target whose marginals all screen out - rather than returning None and engineering nothing. The actual per-frame caps (feature count, sweep cost)
     are re-checked at the bootstrap site; this is the cheap necessary-condition probe.
     """
     if int(getattr(self, "fe_synergy_screen_max_features", 0) or 0) <= 0:

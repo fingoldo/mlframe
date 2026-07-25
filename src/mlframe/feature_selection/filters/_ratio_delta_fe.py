@@ -1,4 +1,4 @@
-"""Layer 38 (2026-05-31): CROSS-FEATURE RATIO + GROUPED-DELTA + LAGGED-DIFF FE.
+"""Layer 38: CROSS-FEATURE RATIO + GROUPED-DELTA + LAGGED-DIFF FE.
 
 Three patterns every real-world prod tabular ML pipeline uses:
 
@@ -106,7 +106,7 @@ def _map_group_keys(
     ``Series.map`` instead of a Python per-row loop. The group keys arrive as an
     object-string array (from ``group_key_strings``); a sort-based
     ``np.unique`` gather is ~7x SLOWER on object strings than the per-row loop
-    (it sorts n strings), so we hash-join here -- ~2x faster than the loop at
+    (it sorts n strings), so we hash-join here - ~2x faster than the loop at
     n=200k (microbench). The ``str()`` is a no-op on the already-string keys
     (kept for parity with callers that pass raw labels).
 
@@ -168,7 +168,7 @@ def pairwise_ratio_features(
     cols_present = [c for c in cols if c in X.columns]
     # bench-attempt-rejected (2026-06-23): hoisting per-column to_numpy() into an
     # outer dict to avoid the in-loop re-extract was 0.98x (13.3s->13.6s, p=40
-    # n=100k) -- the O(p^2) _passes_redundancy corrcoef dominates the loop, the
+    # n=100k) - the O(p^2) _passes_redundancy corrcoef dominates the loop, the
     # to_numpy() re-extract is noise. Bench: _benchmarks/bench_ratio_delta_fe.py.
     encoded: dict[str, np.ndarray] = {}
     accepted: list[tuple[str, str]] = []
@@ -207,7 +207,7 @@ def pairwise_log_ratio_features(
         raise ValueError("pairwise_log_ratio_features: X is empty")
     cols_present = [c for c in cols if c in X.columns]
     # bench-attempt-rejected (2026-06-23): per-column to_numpy() hoist was 1.00x
-    # here too (16.8s, p=40 n=100k) -- corrcoef redundancy gate dominates, not
+    # here too (16.8s, p=40 n=100k) - corrcoef redundancy gate dominates, not
     # the re-extract. See pairwise_ratio_features note + bench_ratio_delta_fe.py.
     encoded: dict[str, np.ndarray] = {}
     accepted: list[tuple[str, str]] = []
@@ -231,17 +231,17 @@ def _passes_redundancy(
     candidate: np.ndarray, a_vals: np.ndarray, b_vals: np.ndarray, threshold: float,
 ) -> bool:
     """Reject the candidate column if |Pearson(candidate, a)| > threshold or
-    |Pearson(candidate, b)| > threshold -- i.e. it would carry no new info
+    |Pearson(candidate, b)| > threshold - i.e. it would carry no new info
     over the source pair.
 
     One-pass njit correlation (``_abs_corr_finite_njit``, shared with the FE-pairs scorer's
     identical masked-Pearson pattern) replaces the previous isfinite-mask + boolean-index
-    copies + full 2x2 ``np.corrcoef`` per (candidate, source) check -- this fires up to
+    copies + full 2x2 ``np.corrcoef`` per (candidate, source) check - this fires up to
     O(p^2) times per call (every ordered column pair x 2 sources), the dominant cost of
     ``pairwise_ratio_features``/``pairwise_log_ratio_features`` per the file's own
     bench-attempt-rejected note above. ``min_n=2`` (not the kernel's small-sample-noise
-    default of 8) matches what a masked ``np.corrcoef`` call implicitly requires -- variance,
-    and hence Pearson r, is defined from as few as 2 points -- so the redundancy verdict on a
+    default of 8) matches what a masked ``np.corrcoef`` call implicitly requires - variance,
+    and hence Pearson r, is defined from as few as 2 points - so the redundancy verdict on a
     thin joint-finite overlap between candidate and source is unchanged, not just close.
     """
     from ._feature_engineering_pairs._pairs_core import _abs_corr_finite_njit
@@ -412,12 +412,12 @@ def lagged_diff_features(
     appended columns line up with X row-by-row.
 
     Recipes store ``{time_col, value_col, period, entity_cols}``; replay reproduces the
-    sort + lag from X alone (no fit-time state needed -- the operation is
+    sort + lag from X alone (no fit-time state needed - the operation is
     a pure function of the test frame).
 
-    ``entity_cols`` (CAT_INTERACTION_B-5 fix): optional per-entity scoping,
+    ``entity_cols``: optional per-entity scoping,
     mirroring ``_temporal_agg_fe.generate_lag_features``'s entity-scoped design. Without it (the default,
-    unchanged behaviour), the diff is computed on the GLOBAL time-sorted order -- on a panel/multi-entity
+    unchanged behaviour), the diff is computed on the GLOBAL time-sorted order - on a panel/multi-entity
     dataset this can silently compute a cross-entity diff wherever the global time-sort places one entity's
     row immediately after a different entity's row. When given, the frame is sorted by ``(entity_key,
     time_col)`` instead, and a lag whose ``period``-back neighbour in the sorted order belongs to a
@@ -441,7 +441,7 @@ def lagged_diff_features(
         from ._temporal_agg_fe import _entity_key_series
 
         entity_key = _entity_key_series(X, entity_cols).to_numpy()
-        # Sort by (entity_key, time_col) -- lexsort's LAST key is primary.
+        # Sort by (entity_key, time_col) - lexsort's LAST key is primary.
         sort_idx = np.lexsort((X[time_col].to_numpy(), entity_key))
         entity_sorted = entity_key[sort_idx]
     else:
@@ -479,7 +479,7 @@ def lagged_diff_features(
 
 def apply_lagged_diff(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Replay a fitted lagged-diff recipe on new data: resort ``X_test`` by ``time_col`` (or ``(entity_cols,
-    time_col)`` when the recipe carries ``entity_cols`` -- CAT_INTERACTION_B-5 fix),
+    time_col)`` when the recipe carries ``entity_cols``),
     compute the ``period``-step diff (zeroed across an entity boundary when entity-scoped), then unsort
     back to input row order (pure function of X_test alone, no fit-time state needed)."""
     if not isinstance(X_test, pd.DataFrame):
@@ -548,7 +548,7 @@ def pairwise_ratio_with_recipes(
     """Append ratio columns to X and emit one recipe per accepted pair.
 
     ``mi_gate=True`` (with ``y``) applies the Tier-1 local MI floor (Layer 91)
-    over the O(p^2) ordered-pair ratio pool -- the most explosion-prone L38
+    over the O(p^2) ordered-pair ratio pool - the most explosion-prone L38
     emitter.
     """
     from .engineered_recipes import build_pairwise_ratio_recipe
@@ -677,7 +677,7 @@ def lagged_diff_with_recipes(
     ``mi_gate=True`` (with ``y``) applies the Tier-1 local MI floor (Layer 91)
     over the |value_cols| * |periods| lag pool.
 
-    ``entity_cols`` (CAT_INTERACTION_B-5 fix): optional per-entity scoping -- see
+    ``entity_cols``: optional per-entity scoping - see
     :func:`lagged_diff_features`'s docstring. ``None`` (the default) preserves the exact prior global-sort
     behaviour.
     """

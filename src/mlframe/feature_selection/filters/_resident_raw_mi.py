@@ -1,26 +1,26 @@
 """Resident-operand MI for FIT-CONSTANT raw baseline matrices (the class-B :311 H2D collapse, 2026-06-30).
 
-Several FE scorers compute ``MI(col; y)`` over a matrix that is a PURE FIT-CONSTANT raw-operand baseline --
+Several FE scorers compute ``MI(col; y)`` over a matrix that is a PURE FIT-CONSTANT raw-operand baseline -
 the raw numeric columns verbatim (the unified-gate noise floor ``raw_mi_noise_floor``), the gate-prune raw
 relevance ranking (``_conditional_gate_fe._rank_and_prune``'s ``column_stack`` of the candidate columns), and
 the orth-univariate uplift RAW baseline (``score_features_by_mi_uplift``'s ``raw_X.to_numpy()``). Under
 ``MLFRAME_FE_GPU_STRICT`` each of those ``_mi_classif_batch`` calls already routes through the resident plug-in
 MI, but the host matrix is ``cp.asarray``-uploaded FRESH on every call at ``_orth_mi_backends.py:311`` (the
 matrix is treated as a per-call transient there; only ``y`` was routed to the resident-operand cache). For
-these THREE callers the matrix is NOT a transient -- it is the SAME fit-constant raw columns re-scored across
-the fit -- so it can ride the resident-operand cache and upload ONCE.
+these THREE callers the matrix is NOT a transient - it is the SAME fit-constant raw columns re-scored across
+the fit - so it can ride the resident-operand cache and upload ONCE.
 
 This module is the class-B route the per-sub-family residency plan identified: take a host ``(n, k)``
 fit-constant matrix + a stable ROLE key, upload it ONCE via ``resident_operand`` (keyed role + shape +
 content-fingerprint), and score it through the SAME percentile-EDGE (or argsort-RANK, when the caller's gate MI
-uses rank binning) resident plug-in MI the host STRICT ``_mi_classif_batch`` routes to -- no estimator switch.
+uses rank binning) resident plug-in MI the host STRICT ``_mi_classif_batch`` routes to - no estimator switch.
 The y label vector rides the SAME ``"y_mi_classif"`` resident role the STRICT MI path already uses, so the
 baseline shares the cached y buffer.
 
 SELECTION-EQUIVALENCE: the resident plug-in over the SAME matrix + SAME y + SAME (edge|rank) binner is the
 EXACT estimator the host STRICT ``_mi_classif_batch`` already invokes at :311 (this only removes the redundant
-re-upload), so the per-column MI -- and every downstream median/MAD floor / argsort ranking / uplift baseline
-built on it -- is byte-identical to the host STRICT path. The NON-strict default path is untouched (the caller
+re-upload), so the per-column MI - and every downstream median/MAD floor / argsort ranking / uplift baseline
+built on it - is byte-identical to the host STRICT path. The NON-strict default path is untouched (the caller
 runs the host ``_mi_classif_batch``) -> byte-identical there too.
 
 GATE: engages ONLY under ``fe_gpu_strict_resident_enabled`` (so the non-strict default never reaches it) AND
@@ -53,12 +53,12 @@ def resident_raw_baseline_mi(
     ``role_key`` is a stable ROLE discriminator (e.g. ``("gate_prune_raw", cols_tuple)``); the matrix shape +
     dtype + a content fingerprint are folded in by ``resident_operand`` so a same-role matrix with different
     VALUES re-uploads rather than aliasing a stale buffer. ``rank_binning`` selects the argsort equi-frequency
-    RANK resident binner (the gate MI byte-match path) instead of the percentile-EDGE binner -- it mirrors the
+    RANK resident binner (the gate MI byte-match path) instead of the percentile-EDGE binner - it mirrors the
     exact dispatch of ``_orth_mi_backends._mi_classif_batch:333`` so the resident MI matches the host STRICT MI
     the caller would otherwise compute.
 
     Returns a host ``(k,)`` float64 MI array, OR ``None`` when STRICT-residency is off / cupy is unavailable /
-    any cupy fault -- in which case the caller MUST fall back to the EXACT host ``_mi_classif_batch`` (the
+    any cupy fault - in which case the caller MUST fall back to the EXACT host ``_mi_classif_batch`` (the
     byte-identical default path)."""
     try:
         from ._gpu_strict_fe import fe_gpu_resident_raw_baseline_enabled

@@ -101,7 +101,7 @@ def n_features_one_se_(self, direction: str = "min") -> int:
     # Mask NaN candidates before argmax: argmax picks a NaN slot when any candidate's cv_mean_perf is all-NaN-folds.
     _finite_mask = np.isfinite(m)
     if not _finite_mask.any():
-        # No usable candidates -- fall back to the cached n_features_.
+        # No usable candidates - fall back to the cached n_features_.
         return getattr(self, "n_features_", 0)
     if not _finite_mask.all():
         nf, m, s = nf[_finite_mask], m[_finite_mask], s[_finite_mask]

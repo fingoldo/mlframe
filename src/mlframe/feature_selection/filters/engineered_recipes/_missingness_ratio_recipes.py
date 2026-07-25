@@ -63,7 +63,7 @@ def build_mi_greedy_transform_recipe(
 
 
 # ---------------------------------------------------------------------------
-# Layer 37 (2026-05-31): missingness-aware FE recipes (thin builders; the
+# Layer 37: missingness-aware FE recipes (thin builders; the
 # apply helpers live in ``_missingness_fe.py`` to keep this module under the
 # 1k-LOC ceiling).
 # ---------------------------------------------------------------------------
@@ -72,7 +72,7 @@ def build_mi_greedy_transform_recipe(
 def build_missing_indicator_recipe(
     *, name: str, src_name: str,
 ) -> EngineeredRecipe:
-    """Frozen recipe for one ``is_missing__{col}`` indicator. Stateless --
+    """Frozen recipe for one ``is_missing__{col}`` indicator. Stateless -
     replay just runs ``isna()`` on the source column."""
     from . import EngineeredRecipe
     return EngineeredRecipe(
@@ -128,7 +128,7 @@ def build_missingness_pattern_recipe(
 
 
 # ---------------------------------------------------------------------------
-# Layer 38 (2026-05-31): cross-feature ratio + grouped-delta + lagged-diff
+# Layer 38: cross-feature ratio + grouped-delta + lagged-diff
 # (thin builders; apply helpers live in ``_ratio_delta_fe.py``).
 # ---------------------------------------------------------------------------
 

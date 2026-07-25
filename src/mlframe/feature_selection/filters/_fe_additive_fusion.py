@@ -1,17 +1,17 @@
 """C2 ADDITIVE-FUSION of two unfused, additively-separable engineered halves.
 
 When the FE pair search constructs the two additively-separable halves of a compound
-target ``y = f(group_1) + g(group_2) + noise`` -- e.g. ``y = a**2/b + log(c)*sin(d)``
+target ``y = f(group_1) + g(group_2) + noise`` - e.g. ``y = a**2/b + log(c)*sin(d)``
 materialised as the SEPARATE engineered features ``div(neg(b),a__p2sin1)`` (the {a,b}
-half) and ``mul(log(c),sin(d))`` (the {c,d} half) -- but does NOT fuse them into the
+half) and ``mul(log(c),sin(d))`` (the {c,d} half) - but does NOT fuse them into the
 single ``add(...)`` compound, the two fragments survive side by side. The conditional-MI
 redundancy gates cannot collapse them (each fragment carries a PRIVATE additive term the
 OTHER does not span, so both keep a large CMI) and the downstream model never sees the
 fused feature. This is the FUSION-blocked failure mode of the distribution-robustness goal
 (``test_f2_single_compound_across_distributions`` heavy_tailed / mixed).
 
-The fix reuses the EXISTING ``unary_binary`` recipe machinery -- NO new recipe kind. A
-fused candidate ``add(half_a, half_b)`` (or ``sub`` -- see SIGN-AWARE ALIGNMENT below) is built with
+The fix reuses the EXISTING ``unary_binary`` recipe machinery - NO new recipe kind. A
+fused candidate ``add(half_a, half_b)`` (or ``sub`` - see SIGN-AWARE ALIGNMENT below) is built with
 ``binary_name in {'add','sub'}``, ``unary_names=('identity','identity')`` and ``nested_parent_a/b`` set to
 the two halves' own ``EngineeredRecipe`` objects, so it replays byte-exactly by recursively replaying the
 parents (``_recipe_unary_binary.py``). SIGN-AWARE ALIGNMENT: since each half is chosen by SIGN-INVARIANT MI,
@@ -19,14 +19,14 @@ a half may arrive sign-flipped; the builder scores BOTH ``ha+hb`` and ``ha-hb`` 
 better-aligned one (``binary_name`` records which), so a destructive sum is never materialised. The candidate
 is proposed ONLY when two surviving
 engineered features (or one engineered + one raw operand) have:
-  * DISJOINT raw-token sets (no shared raw operand -- they cover different signal groups);
+  * DISJOINT raw-token sets (no shared raw operand - they cover different signal groups);
   * each half RELEVANT (its binned MI clears a marginal-permutation null floor);
   * GENUINE additive separability: the fused ``add`` MI strictly exceeds BOTH halves'
     MI by a margin (so an unrelated pair whose sum carries no joint uplift is never fused).
 When admitted, the fused compound is materialised exactly like an escalation survivor and
 the two now-subsumed fragment columns are dropped from ``selected_vars`` / the recipe dict
 (the fused compound carries both their additive terms, so each fragment's conditional
-excess given the fused feature collapses -- the redundancy logic the S5 gate would apply,
+excess given the fused feature collapses - the redundancy logic the S5 gate would apply,
 realised structurally here because the fragments pre-date the fusion candidate).
 
 Default-ON (``fe_additive_fusion_enable``); self-gates to a no-op when fewer than two
@@ -56,7 +56,7 @@ def _multiple_r(cols_2d: np.ndarray, y: np.ndarray) -> float:
     """Scale/sign-invariant multiple correlation R of an OLS fit ``y ~ cols + intercept``.
 
     Returns ``corr(fitted, y)`` (the multiple-R), in [0, 1]. OLS absorbs per-column scaling
-    and sign, so this is invariant to the operand distributions' scale/sign -- exactly the
+    and sign, so this is invariant to the operand distributions' scale/sign - exactly the
     invariance the binned-MI separability gate LACKS under variance imbalance (where the
     dominant half saturates the coarse bins and the weak half's genuine additive lift shows
     almost no binned-MI margin, even though it materially improves the LINEAR usability of
@@ -86,7 +86,7 @@ def _multiple_r(cols_2d: np.ndarray, y: np.ndarray) -> float:
 
 
 def _bare_tokens(name: str, raw_name_set: set) -> set:
-    """Raw-column operands referenced by an engineered (or raw) name -- including warped
+    """Raw-column operands referenced by an engineered (or raw) name - including warped
     ``base__suffix`` tokens mapped back to their raw base."""
     out: set = set()
     if name in raw_name_set:
@@ -132,7 +132,7 @@ def propose_additive_fusions(
     # resident on the device and run the per-candidate binning, relevance MIs, and each fused-pair sum/bin/MI/
     # OLS-R resident. Selection-equivalent to (NOT byte-identical) this CPU path. Any cupy/device/import error
     # falls through to the CPU body below, so the default (flag-off) path is byte-identical and a GPU fault never
-    # breaks a fit. This twin is EXPECTED slower on the small-n / sequential-pair-scan HW -- a PASS by the contract.
+    # breaks a fit. This twin is EXPECTED slower on the small-n / sequential-pair-scan HW - a PASS by the contract.
     try:
         from ._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled as _fusion_resident_flag_on
     except Exception:
@@ -153,7 +153,7 @@ def propose_additive_fusions(
                 import cupy as _cp
                 _dev_errs.append(_cp.cuda.runtime.CUDARuntimeError)
                 _dev_errs.append(_cp.cuda.memory.OutOfMemoryError)
-                # FIX4 (2026-06-28): cuSOLVER/cuBLAS faults from cp.linalg.solve/lstsq subclass plain
+                # FIX4: cuSOLVER/cuBLAS faults from cp.linalg.solve/lstsq subclass plain
                 # RuntimeError, NOT CUDARuntimeError -> omitting them would crash instead of falling
                 # back. getattr so an absent symbol can't break the tuple builder.
                 from cupy_backends.cuda.libs import cusolver as _cusolver
@@ -185,22 +185,22 @@ def propose_additive_fusions(
 
     # Additive-separability margin multiple (getattr keeps the signature stable). The fused
     # ``add`` MI must exceed the STRONGER half by MORE than this multiple of that half's
-    # marginal-permutation floor -- a chance-fluctuation scale, so an unrelated pair whose
+    # marginal-permutation floor - a chance-fluctuation scale, so an unrelated pair whose
     # sum carries no genuine joint uplift (fused MI ~= the stronger half +/- noise) is NOT
     # fused, while a genuine second additive term (the weak half DOES lift the joint MI
     # above the chance scale) is. This separates real additive separability from a spurious
-    # sum far more robustly than a flat MI-ratio bar -- the weak half's contribution to the
+    # sum far more robustly than a flat MI-ratio bar - the weak half's contribution to the
     # COARSELY-BINNED joint MI is small in absolute terms (the dominant half saturates most
     # bins) yet still well above the per-half chance floor.
     _floor_margin = float(getattr(self, "fe_additive_fusion_floor_margin", 1.0))
     _max_fusions = int(getattr(self, "fe_additive_fusion_max", 4))
 
-    # y codes (dense int) the MI primitives score against.
-    _y = np.asarray(classes_y).ravel()
-    if not np.issubdtype(_y.dtype, np.integer):
-        _y = _y.astype(np.int64)
-    _, y_dense = np.unique(_y, return_inverse=True)
-    y_dense = y_dense.astype(np.int64)
+    # y codes (dense int) the MI primitives score against. A continuous float target is quantile-binned,
+    # never int-truncated (astype(int64) would collapse 0.7->0 and densifying continuous y explodes it to
+    # ~n singleton classes) - see _y_encoding.encode_y_for_classif_mi.
+    from ._y_encoding import encode_y_for_classif_mi
+
+    y_dense = encode_y_for_classif_mi(classes_y)
     n_rows = y_dense.shape[0]
 
     # Candidate halves: engineered features just admitted that have BOTH a replayable
@@ -239,7 +239,7 @@ def propose_additive_fusions(
         mi = float(_mis[_j]) if _mis is not None else float(_cmi_from_binned(vb, y_dense, None))
         floor, _ = _conditional_perm_null(vb, y_dense, None, seed=seed)
         if mi <= floor:
-            continue  # not relevant -- never a fusion half
+            continue  # not relevant - never a fusion half
         halves.append({"name": nm, "recipe": rec, "vals": vals, "tokens": toks, "mi": mi, "floor": float(floor), "binned": vb})
 
     if len(halves) < 2:
@@ -267,21 +267,21 @@ def propose_additive_fusions(
             hb = halves[ib]
             if hb["name"] in used:
                 continue
-            # DISJOINT raw-token sets -- the two halves cover DIFFERENT signal groups.
+            # DISJOINT raw-token sets - the two halves cover DIFFERENT signal groups.
             if ha["tokens"] & hb["tokens"]:
                 continue
-            # SIGN-AWARE ALIGNMENT (2026-07-01). The a/b (and c/d) pair search picks each half by SIGN-INVARIANT
-            # MI, so a half can arrive sign-flipped -- e.g. ``div(sqr(a),neg(b))`` = -a**2/b won the a/b pair
+            # SIGN-AWARE ALIGNMENT. The a/b (and c/d) pair search picks each half by SIGN-INVARIANT
+            # MI, so a half can arrive sign-flipped - e.g. ``div(sqr(a),neg(b))`` = -a**2/b won the a/b pair
             # although the target carries +a**2/b. A blind ``ha + hb`` is then DESTRUCTIVE toward y: on F2
             # ``add(-a**2/b, log(c)sin(d))`` measures |corr(.,y)|=0.03 (garbage) while ``sub`` = -(a**2/b +
             # log(c)sin(d)) = -y measures 0.998. The destructive sum still clears the binned-MI/OLS gate and gets
             # selected, then the retention pass correctly re-attaches the real halves to fix the sign -> the
             # single-step fragmentation regression. Build BOTH the ``add`` and ``sub`` alignment, bin each, and
-            # keep the one whose binned MI with y is higher -- the SUM's alignment is NOT sign-invariant even
+            # keep the one whose binned MI with y is higher - the SUM's alignment is NOT sign-invariant even
             # though each half's marginal MI is. Prefer ``add`` unless ``sub`` beats it by more than the stronger
             # half's marginal-permutation floor (the SAME chance-fluctuation scale the admission razor uses
             # below), so a pair already best-aligned as ``add`` stays byte-identical (no spurious binned-MI-noise
-            # flips). OLS multiple-R is NOT usable to pick the sign -- it fits FREE per-column coefficients, so
+            # flips). OLS multiple-R is NOT usable to pick the sign - it fits FREE per-column coefficients, so
             # ``R(ha,hb) == R(ha,-hb)`` exactly (same column space); it gates admission only, never the sign.
             _strong = ha if ha["mi"] >= hb["mi"] else hb
             _fv_add = np.nan_to_num(ha["vals"] + hb["vals"], copy=False, nan=0.0, posinf=0.0, neginf=0.0)
@@ -358,8 +358,8 @@ def propose_additive_fusions(
             subsumed.add(hb["name"])
             used.add(ha["name"])
             used.add(hb["name"])
-            # RAW-OPERAND SUBSUMPTION (2026-06-24). A raw operand of either half that the
-            # fused compound now FULLY captures must drop too -- otherwise it lingers as a
+            # RAW-OPERAND SUBSUMPTION. A raw operand of either half that the
+            # fused compound now FULLY captures must drop too - otherwise it lingers as a
             # redundant single-group fragment (raw ``a`` beside ``add(a**2/b, log(c)sin(d))``).
             # Reuse the production keep-probe (``raw_retains_signal_given_genuine_children``):
             # condition the raw on the fused compound's bin; if it retains NO significant

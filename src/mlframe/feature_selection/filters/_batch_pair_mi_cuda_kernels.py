@@ -78,13 +78,13 @@ except Exception:
 # bench-attempt-rejected (2026-07-14): raising this 16 -> 20 to admit the wellbore-100k production
 # target (n_classes_y=20, whose rejection sent the whole batched pair-MI into the row-chunked path,
 # 118 launches / 227.7s) DOES fit shared memory (256*(20+1)*8 = 43,008 B <= 48 KB, joint stays 256)
-# -- but it cannot restore the full-resident kernel for that workload anyway: the same production
+# - but it cannot restore the full-resident kernel for that workload anyway: the same production
 # shape has max_joint = 441 (nbins=21 -> 21*21), which exceeds MAX_JOINT_BINS_CUDA=256, so the full
 # kernel is rejected on the JOINT cap regardless of the y cap. Meanwhile the y cap leaks into the
 # row-chunked path's own shared-vs-global kernel-variant selection, changing its chunk geometry and
 # breaking its fragmentation-bail contract at y=20 fixtures. The real fix for the 227s row-chunked
 # cost is a global-memory-histogram kernel variant for large joint*y shapes (no smem caps at all),
-# not a cap bump -- tracked as the follow-up.
+# not a cap bump - tracked as the follow-up.
 MAX_Y_BINS_CUDA = 16  # supports up to 16-class multiclass targets
 
 
@@ -219,18 +219,18 @@ def _cuda_hist_kernel_factory():
     finalizing the MI reduction afterward on the accumulated counts is mathematically identical to the
     single-shot kernel: joint/marginal counts are a plain sum over rows, and integer-addition is
     order-independent, so the finalize step (same reduction formula, same iteration order) is bit-identical
-    to :func:`batch_pair_mi_cuda`'s single-launch result -- see :func:`batch_pair_mi_cuda_row_chunked`.
+    to :func:`batch_pair_mi_cuda`'s single-launch result - see :func:`batch_pair_mi_cuda_row_chunked`.
     """
     if not _CUDA_AVAIL:
         return None
 
     @_nb_cuda.jit
     def _hist_kernel(
-        factors_data,  # (chunk_rows, n_features) int32 -- ONE row-chunk slice, not the whole array
+        factors_data,  # (chunk_rows, n_features) int32 - ONE row-chunk slice, not the whole array
         pair_a,  # (n_pairs,) int64
         pair_b,  # (n_pairs,) int64
         nbins,  # (n_features,) int32
-        classes_y,  # (chunk_rows,) int32 -- ONE row-chunk slice
+        classes_y,  # (chunk_rows,) int32 - ONE row-chunk slice
         joint_counts,  # (n_pairs, max_joint, n_classes_y) int64 device-persistent ACCUMULATOR
         fx_counts,  # (n_pairs, max_joint) int64 device-persistent ACCUMULATOR
         chunk_rows,
@@ -262,22 +262,22 @@ def _cuda_hist_kernel_shared_factory():
     """Shared-memory-staged variant of :func:`_cuda_hist_kernel_factory`'s kernel.
 
     Found live (2026-07-10 wellbore 100k-row ncu profiling): the plain global-atomics kernel above
-    achieved 99.2% occupancy but only 2.5% compute throughput -- ncu's Warp State Statistics attributed
+    achieved 99.2% occupancy but only 2.5% compute throughput - ncu's Warp State Statistics attributed
     93.5% of the 703.7-cycle average stall between issued instructions to "LG Throttle" (the L1
     instruction queue for local/global memory operations staying full), with ncu's own recommendation
     reading "avoid redundant global memory accesses... combine multiple lower-width memory operations
     into fewer wider memory operations". Each thread issues 2 GLOBAL atomic adds PER ROW it processes
-    (up to chunk_rows per block, e.g. 79,237 at the profiled shape) -- :func:`_cuda_kernel_factory`'s
+    (up to chunk_rows per block, e.g. 79,237 at the profiled shape) - :func:`_cuda_kernel_factory`'s
     original non-chunked kernel already avoids exactly this by staging counts in per-block SHARED memory
     (fast, on-chip) and touching global memory only once per histogram cell. This kernel applies the same
     staging to the row-chunked path: a per-block dynamic shared-memory buffer (int32, safe up to a
-    ~2.1e9-row chunk -- ``_choose_row_chunk_rows`` caps chunks at 5,000,000) accumulates the block's
-    contribution, then ONE atomic-add-per-cell flushes it to the persistent global int64 accumulator --
+    ~2.1e9-row chunk - ``_choose_row_chunk_rows`` caps chunks at 5,000,000) accumulates the block's
+    contribution, then ONE atomic-add-per-cell flushes it to the persistent global int64 accumulator -
     cutting global atomic traffic from ``O(chunk_rows)`` to ``O(max_joint * n_classes_y)`` per block
     (~17x fewer at the profiled shape: 441*20=8,820 cells vs up to 158,474 row-driven atomics).
 
     Numba.cuda's dynamic shared memory is one flat buffer per kernel (multiple ``cuda.shared.array(0,
-    ...)`` calls alias the same base address) -- laid out here as ``[0:max_joint*n_classes_y)`` for the
+    ...)`` calls alias the same base address) - laid out here as ``[0:max_joint*n_classes_y)`` for the
     joint histogram followed by ``[max_joint*n_classes_y : +max_joint)`` for the marginal counts, with
     manual index arithmetic (``cls_x * n_classes_y + cls_y``) standing in for what would otherwise be a
     2D shared array. Callers must pass ``shared_mem_bytes=(max_joint*n_classes_y + max_joint) * 4`` in
@@ -289,11 +289,11 @@ def _cuda_hist_kernel_shared_factory():
 
     @_nb_cuda.jit
     def _hist_kernel_shared(
-        factors_data,  # (chunk_rows, n_features) int32 -- ONE row-chunk slice, not the whole array
+        factors_data,  # (chunk_rows, n_features) int32 - ONE row-chunk slice, not the whole array
         pair_a,  # (n_pairs,) int64
         pair_b,  # (n_pairs,) int64
         nbins,  # (n_features,) int32
-        classes_y,  # (chunk_rows,) int32 -- ONE row-chunk slice
+        classes_y,  # (chunk_rows,) int32 - ONE row-chunk slice
         joint_counts,  # (n_pairs, max_joint, n_classes_y) int64 device-persistent ACCUMULATOR
         fx_counts,  # (n_pairs, max_joint) int64 device-persistent ACCUMULATOR
         chunk_rows,
@@ -343,10 +343,10 @@ def _cuda_hist_kernel_shared_factory():
 def _hist_kernel_shared_fits_budget(max_joint: int, n_classes_y: int) -> int:
     """Bytes needed for :func:`_cuda_hist_kernel_shared_factory`'s dynamic shared buffer, or 0 if it
     would exceed the device's per-block shared-memory budget (caller falls back to the global-only
-    kernel in that case -- gating a fast path on its safe condition rather than risking a launch failure
+    kernel in that case - gating a fast path on its safe condition rather than risking a launch failure
     or, worse on some drivers, a silently truncated allocation).
 
-    Pure arithmetic against a device shared-memory budget -- doesn't need a live CUDA device to
+    Pure arithmetic against a device shared-memory budget - doesn't need a live CUDA device to
     evaluate (the ``try/except`` below already falls back to the cc 6.x+ safe constant when no
     device is queryable), so this must NOT early-return 0 on a CUDA-less host; doing so made the
     gate untestable off-GPU and, worse, would silently disable the shared-memory fast path's
@@ -365,17 +365,17 @@ def _mi_from_joint_counts_cupy(joint_counts_dev, fx_counts_dev, freqs_y_dev, n_s
     """Device-side twin of :func:`_mi_from_joint_counts`: reduces the ``(n_pairs, max_joint,
     n_classes_y)`` accumulator to a ``(n_pairs,)`` MI vector ON-DEVICE via cupy broadcasting, so the
     row-chunked path's PCIe D2H shrinks from the full histogram accumulator (``n_pairs*max_joint*
-    n_classes_y*8`` bytes -- 698MB at the wellbore-100k production pair-subchunk shape, 9 subchunks
+    n_classes_y*8`` bytes - 698MB at the wellbore-100k production pair-subchunk shape, 9 subchunks
     -> ~6.3GB total transferred) to the final ``(n_pairs,)`` float64 result alone.
 
     Bit-identical to :func:`_mi_from_joint_counts`: same ``sum jf*log(jf/(px*py))`` reduction over the
     SAME (i, j) grid, only reassociated across a different (but still commutative/associative-safe
-    integer-count-derived) summation order -- fp reduction order differs at the ~1e-15 ULP level
+    integer-count-derived) summation order - fp reduction order differs at the ~1e-15 ULP level
     (verified in the accompanying regression test), never a selection-relevant magnitude.
 
     ``fx==0`` and ``freqs_y[j]<=0`` cells are implicitly excluded via a ``cp.where`` mask (mirrors the
     host loop's ``if fx == 0: continue`` / ``if prob_y > 0.0`` guards) rather than skipped by iteration,
-    since cupy broadcasting always touches the full grid -- correctness-equivalent, not a performance
+    since cupy broadcasting always touches the full grid - correctness-equivalent, not a performance
     concern (the grid is already resident and small relative to the accumulator it replaces)."""
     inv_n = 1.0 / n_samples
     prob_x = fx_counts_dev.astype(_cp.float64) * inv_n  # (n_pairs, max_joint)
@@ -389,12 +389,12 @@ def _mi_from_joint_counts_cupy(joint_counts_dev, fx_counts_dev, freqs_y_dev, n_s
 
 @numba.njit(cache=True)
 def _mi_from_joint_counts(joint_counts: np.ndarray, fx_counts: np.ndarray, freqs_y: np.ndarray, n_samples: int, joint_cards: np.ndarray) -> np.ndarray:
-    """Host-side MI finalize from accumulated joint/marginal counts -- the EXACT reduction formula and
+    """Host-side MI finalize from accumulated joint/marginal counts - the EXACT reduction formula and
     iteration order :func:`_cuda_kernel_factory`'s single-launch kernel uses (``sum jf * log(jf/(px*py))``
     over ``i in range(joint_card)`` then ``j in range(n_classes_y)``), so the result is bit-identical to
     the non-chunked path. njit'd: at production pair counts (tens of thousands) x max_joint (up to 128) x
     n_classes_y (up to 16) this loop can reach ~1e8 iterations, which would be a real wall-clock cost in
-    plain Python -- the accumulated counts array is small enough to upload/download cheaply, but reducing
+    plain Python - the accumulated counts array is small enough to upload/download cheaply, but reducing
     it still needs compiled code."""
     n_pairs = joint_counts.shape[0]
     n_classes_y = freqs_y.shape[0]
@@ -444,15 +444,15 @@ def _new_zeroed_device_array(shape: tuple, dtype) -> Any:
     through PCIe first.
 
     Found live (2026-07-10 wellbore 100k-row nsys profiling): the row-chunked kernel's pair-subchunk
-    accumulator was zeroed via ``to_device(np.zeros(shape), to=d_arr)`` -- allocating a FULL host-side
+    accumulator was zeroed via ``to_device(np.zeros(shape), to=d_arr)`` - allocating a FULL host-side
     zeros array the same size as the device accumulator (up to ~400MB at production shape) and shipping
     it over PCIe just to zero a buffer whose content doesn't matter. nsys showed ``cuMemcpyDtoH_v2``
     (the accumulator's later readback) averaging 266ms/call with a 4.16s max against an isolated ~1-30ms
-    baseline -- consistent with the same WDDM VRAM-oversubscription paging hazard already worked around
+    baseline - consistent with the same WDDM VRAM-oversubscription paging hazard already worked around
     elsewhere in this module; the redundant zero-upload doubles transient memory pressure at exactly the
     moment (pair-subchunk allocation) that pressure is most likely to trigger it. cupy's ``cp.zeros``
     zero-fills device-side (``cudaMemsetAsync``, no host transfer); on hosts without cupy, fall back to a
-    trivial numba.cuda zero-fill kernel -- still no host round-trip, just one extra (cheap) launch.
+    trivial numba.cuda zero-fill kernel - still no host round-trip, just one extra (cheap) launch.
     """
     if _CUPY_AVAIL:
         return _nb_cuda.as_cuda_array(_cp.zeros(shape, dtype=dtype))
@@ -470,7 +470,7 @@ def _new_zeroed_device_array(shape: tuple, dtype) -> Any:
 
 # Sane ceiling on TOTAL row-chunk x pair-subchunk kernel launches for one batch_pair_mi_cuda_row_chunked
 # call. Both chunk-size choosers independently clamp to a safe-but-degenerate floor when free VRAM is
-# itself near-zero (row_chunk_rows>=1000, pair_subchunk_rows>=1) -- individually correct (never over-
+# itself near-zero (row_chunk_rows>=1000, pair_subchunk_rows>=1) - individually correct (never over-
 # allocates), but their PRODUCT can reach tens of millions of launches, each paying real upload+dispatch
 # overhead. Past this ceiling, the row-chunked path is no longer worth attempting; see its use below.
 _MAX_REASONABLE_ROW_CHUNK_LAUNCHES = 2000
@@ -478,7 +478,7 @@ _MAX_REASONABLE_ROW_CHUNK_LAUNCHES = 2000
 
 def _choose_row_chunk_rows(n_cols: int, free_bytes: int, budget_frac: float = 0.3) -> int:
     """How many rows of ``factors_data`` (``n_cols`` columns, int32) fit per GPU launch, within a
-    DEDICATED VRAM budget fraction independent of pair count -- the pair dimension is bounded
+    DEDICATED VRAM budget fraction independent of pair count - the pair dimension is bounded
     separately by :func:`_choose_pair_subchunk_rows` (see its docstring for why the two must NOT
     share one combined budget calculation). Clamped to >= 1000 rows (a degenerate 1-row chunk would
     need thousands of tiny launches) and to the RAM-based fallback ceiling used elsewhere in this
@@ -496,12 +496,12 @@ def _choose_pair_subchunk_rows(max_joint: int, n_classes_y: int, free_bytes: int
 
     Found live (2026-07-10 wellbore 100k-row profiling): the ORIGINAL row-chunked design sized the
     accumulator by the FULL ``n_pairs`` passed to one call (``n_pairs * max_joint * n_classes_y * 8``
-    bytes) and only chunked ROWS -- but a wide candidate pool (86,736 pairs, max_joint=441,
+    bytes) and only chunked ROWS - but a wide candidate pool (86,736 pairs, max_joint=441,
     n_classes_y=20) needs a ~6 GB accumulator, bigger than the ENTIRE 4 GB card, regardless of how
     small the row-chunk is. The allocation likely silently succeeded via WDDM over-subscription (the
     exact hazard this whole guard chain exists to avoid) and then thrashed: cProfile showed 165
     ``to_device`` calls averaging 4.6s each (an isolated microbench on the same host, same shape,
-    shows ~1-30ms) -- 772s of a 1633s wall, the single largest hotspot in the run. The fix chunks
+    shows ~1-30ms) - 772s of a 1633s wall, the single largest hotspot in the run. The fix chunks
     PAIRS too: :func:`batch_pair_mi_cuda_row_chunked` now loops pair-subchunks (each with its own
     correctly-bounded accumulator) as the OUTER loop, row-chunks as the inner. Clamped to >= 1 pair
     (a single pair's accumulator must always fit; if genuinely one pair's ``max_joint*n_classes_y``
@@ -527,14 +527,14 @@ def batch_pair_mi_cuda_row_chunked(
     safely fit in free VRAM. Uploads ``factors_data`` in row-chunks small enough to fit, accumulating joint/
     marginal histogram counts into a persistent device buffer across chunks (counts are additive over rows),
     then finalizes MI on the small accumulated histogram. Bit-identical to :func:`batch_pair_mi_cuda` (same
-    reduction formula/order; integer-count accumulation is order-independent) -- see
+    reduction formula/order; integer-count accumulation is order-independent) - see
     ``tests/feature_selection/gpu/test_batch_pair_mi_row_chunked.py``.
 
     Preserves the GPU speed win at production row counts instead of falling all the way back to the CPU
     njit kernel, which was the prior behaviour whenever the full-array VRAM guard rejected a launch.
 
     Raises ``RuntimeError``/``ValueError`` under the same preconditions as :func:`batch_pair_mi_cuda`
-    (shape guards, shared-mem-derived joint-cardinality cap) -- callers should catch broadly, same as the
+    (shape guards, shared-mem-derived joint-cardinality cap) - callers should catch broadly, same as the
     non-chunked kernel.
     """
     global _CUDA_HIST_KERNEL, _CUDA_HIST_KERNEL_SHARED
@@ -550,12 +550,12 @@ def batch_pair_mi_cuda_row_chunked(
         return np.empty(0, dtype=np.float64)
 
     # NOTE: unlike :func:`batch_pair_mi_cuda`, this kernel accumulates into GLOBAL device memory
-    # (``d_joint``/``d_fx`` below), not per-block SHARED memory -- so it is NOT bound by
+    # (``d_joint``/``d_fx`` below), not per-block SHARED memory - so it is NOT bound by
     # ``MAX_Y_BINS_CUDA``/``MAX_JOINT_BINS_CUDA`` (those caps exist solely because the non-chunked
     # kernel's shared-memory histogram is sized to them at compile time; a 48KB-per-block shared-mem
     # budget does not apply to a dynamically-sized global-memory array). The accumulator's actual size
     # (``n_pairs * max_joint * n_classes_y * 8`` bytes) is instead bounded by VRAM via
-    # :func:`_choose_row_chunk_rows`, which subtracts it from the row-chunk budget -- a genuine
+    # :func:`_choose_row_chunk_rows`, which subtracts it from the row-chunk budget - a genuine
     # hardware constraint, not an arbitrary compile-time one. Found live (2026-07-10 wellbore 3M-row
     # run): a copy-pasted ``n_classes_y > MAX_Y_BINS_CUDA=16`` check rejected a real n_classes_y=20
     # discretized-target pair-MI call, forcing an unnecessary fall-through to slow CPU njit even though
@@ -587,8 +587,8 @@ def batch_pair_mi_cuda_row_chunked(
     n_samples = int(factors_data.shape[0])
     n_cols = int(factors_data.shape[1])
     if n_samples == 0:
-        # GPU_INFRA_A-2 fix: mirrors batch_pair_mi_cupy's explicit
-        # `if n_samples == 0: return zeros` guard -- without it, _mi_from_joint_counts_cupy/
+        # Mirrors batch_pair_mi_cupy's explicit
+        # `if n_samples == 0: return zeros` guard - without it, _mi_from_joint_counts_cupy/
         # _mi_from_joint_counts's `inv_n = 1.0 / n_samples` raises ZeroDivisionError for an empty input.
         return np.zeros(n_pairs, dtype=np.float64)
 
@@ -614,11 +614,11 @@ def batch_pair_mi_cuda_row_chunked(
     if total_launches > _MAX_REASONABLE_ROW_CHUNK_LAUNCHES:
         # Found live (2026-07-10 wellbore 1M-row profiling): when free VRAM is itself near-zero (a
         # cupy pool cap + other resident allocations can leave <5MB), both chunk-size choosers clamp to
-        # their floor (row_chunk_rows=1000, pair_subchunk_rows=1) -- individually "safe" (never over-
+        # their floor (row_chunk_rows=1000, pair_subchunk_rows=1) - individually "safe" (never over-
         # allocates), but together that's `ceil(n_samples/1000) * n_pairs` kernel launches, e.g.
         # 796 x 89,676 = ~71M at a real production shape. Per-launch overhead (upload + dispatch) alone
         # would take many HOURS for work a CPU kernel finishes in seconds. There is no useful amount of
-        # GPU chunking left to try once granularity degrades this far -- raise so the caller's existing
+        # GPU chunking left to try once granularity degrades this far - raise so the caller's existing
         # fallback (``dispatch_batch_pair_mi``'s ``_try_cuda_row_chunked`` -> CPU njit) takes over
         # immediately instead of grinding through a pathological launch count.
         raise RuntimeError(
@@ -631,7 +631,7 @@ def batch_pair_mi_cuda_row_chunked(
     classes_y_c = np.ascontiguousarray(classes_y, dtype=np.int32)
     freqs_y_c = np.ascontiguousarray(freqs_y, dtype=np.float64)
     # nbins is indexed by raw column id (not pair position), small, and fit-constant (cardinalities never
-    # change) -- resident_operand (content-hash keyed) shares the upload not just across this call's
+    # change) - resident_operand (content-hash keyed) shares the upload not just across this call's
     # pair-subchunks but across every OUTER call to this function within the same fit too, instead of a
     # fresh to_device on every call (2026-07-12, was re-uploaded every outer call despite never changing).
     from ._fe_resident_operands import resident_operand
@@ -642,14 +642,14 @@ def batch_pair_mi_cuda_row_chunked(
     # freqs_y_c is fit-constant (the y-marginal never changes across pair-subchunks OR row-chunks within
     # this call) but the finalize step re-uploaded it via cp.asarray on EVERY pair-subchunk iteration
     # (cProfile, 2026-07-15 wellbore fit: cupy._core.core.array 56.1s / 19620 calls, ~6540 outer iterations
-    # x 3 asarray calls -- freqs_y_c was one of the 3, purely wasted since only d_joint/d_fx change per
+    # x 3 asarray calls - freqs_y_c was one of the 3, purely wasted since only d_joint/d_fx change per
     # iteration). Upload it ONCE before the loop; bit-identical (same array, same device, same dtype).
     _d_freqs_y_const = _cp.asarray(freqs_y_c) if _CUPY_AVAIL else None
 
     # Prefer the shared-memory-staged kernel (cuts global-atomic traffic ~O(max_joint*n_classes_y) vs
-    # O(chunk_rows) per block -- see _cuda_hist_kernel_shared_factory's docstring for the ncu evidence)
+    # O(chunk_rows) per block - see _cuda_hist_kernel_shared_factory's docstring for the ncu evidence)
     # whenever the per-block histogram fits the device's shared-memory budget; fall back to the
-    # global-atomics-only kernel otherwise (still correct, just slower -- e.g. a very high max_joint x
+    # global-atomics-only kernel otherwise (still correct, just slower - e.g. a very high max_joint x
     # n_classes_y combination).
     shared_mem_bytes = _hist_kernel_shared_fits_budget(max_joint, n_classes_y)
     if shared_mem_bytes > 0:
@@ -658,7 +658,7 @@ def batch_pair_mi_cuda_row_chunked(
 
     # PAIR-subchunk is the OUTER loop, ROW-chunk the inner: the histogram accumulator
     # (pair_subchunk_rows * max_joint * n_classes_y * 8 bytes) must be sized to whichever pair-subchunk is
-    # ACTIVE, bounded independently of the row dimension (see _choose_pair_subchunk_rows -- the bug this
+    # ACTIVE, bounded independently of the row dimension (see _choose_pair_subchunk_rows - the bug this
     # fixes let the accumulator alone reach ~6GB on a 4GB card when pair-chunking wasn't done at all).
     # This does mean factors_data row-chunks get re-uploaded once per pair-subchunk; that's a bounded,
     # cheap H2D transfer (~1-30ms per chunk, measured) traded for never over-allocating the accumulator.
@@ -725,14 +725,14 @@ def batch_pair_mi_cuda(
     Callers exceeding either limit must fall back to the CPU kernel.
 
     Preconditions enforced host-side (raise ``ValueError`` on violation):
-      * ``factors_data >= 0`` everywhere -- negative codes would underflow
+      * ``factors_data >= 0`` everywhere - negative codes would underflow
         the joint-index arithmetic ``va * nb_b + vb`` and write to undefined
         shared-mem cells (numba.cuda has no array-bounds checks in release
         mode, so this is silent corruption rather than a crash).
-      * ``classes_y[i] < n_classes_y`` for every i -- out-of-range class ids
+      * ``classes_y[i] < n_classes_y`` for every i - out-of-range class ids
         would write past the shared histogram into ``sm_fx``.
       * ``nbins[a] >= 1`` for every column referenced by ``pair_a`` /
-        ``pair_b`` -- a zero-cardinality column collapses ``joint_card`` to
+        ``pair_b`` - a zero-cardinality column collapses ``joint_card`` to
         zero, returning a meaningless MI=0.
     """
     global _CUDA_KERNEL
@@ -795,13 +795,13 @@ def batch_pair_mi_cuda(
 
     n_samples = int(factors_data.shape[0])
 
-    # RESIDENT UPLOAD (2026-07-12): ``factors_data``/``nbins``/``classes_y``/``freqs_y`` are all
+    # RESIDENT UPLOAD: ``factors_data``/``nbins``/``classes_y``/``freqs_y`` are all
     # fit-constant across the whole greedy FE round (this kernel is reached once per pair-chunk of the
     # SAME candidate pool, per ``dispatch_batch_pair_mi_chunked``), yet were re-uploaded via raw
-    # ``_nb_cuda.to_device`` on EVERY call -- ~200MB of ``factors_data`` alone at 100k x 500, the
+    # ``_nb_cuda.to_device`` on EVERY call - ~200MB of ``factors_data`` alone at 100k x 500, the
     # single highest-magnitude finding in the whole-file audit. ``resident_operand`` (this package's
     # proven fit-constant GPU cache, already used by 28+ sibling files) content-hashes each array and
-    # returns a cached cupy device array on a repeat upload -- verified (see module docstring / CUDA
+    # returns a cached cupy device array on a repeat upload - verified (see module docstring / CUDA
     # Array Interface) that a cupy device array is a drop-in argument for a ``numba.cuda.jit`` kernel
     # launch, so no separate numba.cuda-flavored cache is needed. ``pair_a``/``pair_b`` genuinely vary
     # per call (the chunk's own pair ids) and stay a fresh per-call upload; ``d_out`` is a fresh output

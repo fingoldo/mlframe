@@ -1,7 +1,7 @@
 """FWER/multiple-testing correction for ``_cat_confirm_permutation``'s pair-confirmation phase.
 
-Split out of ``_cat_confirm_permutation.py`` (X_EFFICIENCY_ARCHITECTURE-1 fix)
-to clear the repo's enforced hard 1000-LOC CI gate (``tests/test_meta/test_no_file_over_1k_loc.py``) --
+Split out of ``_cat_confirm_permutation.py``
+to clear the repo's enforced hard 1000-LOC CI gate (``tests/test_meta/test_no_file_over_1k_loc.py``) -
 that file was 1106 lines and absent from the gate's exempt list. Behaviour preserved bit-for-bit; the
 parent re-exports both functions so ``_confirm_pairs_via_permutation`` continues to call them unchanged.
 
@@ -22,7 +22,7 @@ from .info_theory import compute_mi_from_classes, compute_mi_from_classes_weight
 
 logger = logging.getLogger("mlframe.feature_selection.filters._cat_confirm_permutation")  # matches the pre-carve logger name; preserves log-filter/caplog compatibility for existing callers/tests
 
-# Stable base seed for the Westfall-Young shuffle -- mirrors _cat_confirm_permutation._CAT_CONFIRM_BASE_SEED
+# Stable base seed for the Westfall-Young shuffle - mirrors _cat_confirm_permutation._CAT_CONFIRM_BASE_SEED
 # (kept as a separate module-level constant so this file has no import-time dependency on the parent).
 _CAT_CONFIRM_BASE_SEED = 1_000_003
 
@@ -52,7 +52,7 @@ def _compute_westfall_young_corrected_p(
     The proper WY procedure (Westfall & Young 1993) naturally accounts for inter-pair correlation: pairs that share a column have correlated permutation distributions and
     the max-II statistic captures this. Strictly more powerful than Bonferroni on the same B.
 
-    Cost: per shuffle, compute joint MI for all m = ``len(pairs_a)`` pairs. At m=4950 and B=100 that's 495k MI computations. Heavy -- enable only when
+    Cost: per shuffle, compute joint MI for all m = ``len(pairs_a)`` pairs. At m=4950 and B=100 that's 495k MI computations. Heavy - enable only when
     ``cfg.fwer_correction='westfall_young'`` AND the user accepts the cost. Savings vs Bonferroni: typically need 2-5x fewer permutations for the same effective alpha.
 
     Returns ``{(i, j): corrected_p_value}`` ONLY for the survivors in
@@ -61,7 +61,7 @@ def _compute_westfall_young_corrected_p(
     n_samples = factors_data.shape[0]
     m = len(pairs_a)
     classes_y_safe = classes_y.copy()
-    # Local RNG: the prior code used the unseeded global ``np.random.shuffle`` -- non-reproducible
+    # Local RNG: the prior code used the unseeded global ``np.random.shuffle`` - non-reproducible
     # AND it polluted the process-global RNG stream for every downstream caller (the cupy sibling
     # already uses a local stream). Seed from ``base_seed`` so re-runs are bit-stable.
     wy_rng = np.random.default_rng(int(base_seed))

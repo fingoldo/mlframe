@@ -15,11 +15,11 @@ from typing import Iterator
 # n_sub=30k f32 is 120KB, so 8KB cleanly separates scalar decisions from bulk data).
 BULK_BYTES = 8192
 
-# X_EDGE_CASES_BEST_PRACTICES-4 fix: residency_audit monkeypatches
+# residency_audit monkeypatches
 # process-wide cp.asarray/cp.asnumpy/cp.ndarray.get with no reentrancy guard. Two overlapping
 # residency_audit() regions on different threads would have the second region's "_orig_*" capture be
 # the first region's wrapper (not the true original), and whichever region exits first restores to a
-# stale value -- silently corrupting the surviving region's byte tally with no error. Serialize entry
+# stale value - silently corrupting the surviving region's byte tally with no error. Serialize entry
 # so only one region's monkeypatch is ever installed at a time.
 _AUDIT_LOCK = threading.RLock()  # RLock: a same-thread nested residency_audit() must not deadlock
 
@@ -34,17 +34,17 @@ class ResidencyReport:
 
     @property
     def bulk_h2d(self):
-        """H2D transfer byte sizes that are >= :data:`BULK_BYTES` -- the ones the resident-FE contract forbids."""
+        """H2D transfer byte sizes that are >= :data:`BULK_BYTES` - the ones the resident-FE contract forbids."""
         return [b for b in self.h2d if b >= BULK_BYTES]
 
     @property
     def bulk_d2h(self):
-        """D2H transfer byte sizes that are >= :data:`BULK_BYTES` -- the ones the resident-FE contract forbids."""
+        """D2H transfer byte sizes that are >= :data:`BULK_BYTES` - the ones the resident-FE contract forbids."""
         return [b for b in self.d2h if b >= BULK_BYTES]
 
     @property
     def scalar_d2h_bytes(self):
-        """Total bytes of D2H transfers below :data:`BULK_BYTES` -- the tolerated scalar/branch-decision traffic."""
+        """Total bytes of D2H transfers below :data:`BULK_BYTES` - the tolerated scalar/branch-decision traffic."""
         return sum(b for b in self.d2h if b < BULK_BYTES)
 
     def summary(self) -> str:

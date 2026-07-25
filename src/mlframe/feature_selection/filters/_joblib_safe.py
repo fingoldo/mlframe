@@ -3,7 +3,7 @@
 On Windows, ``joblib.Parallel(backend="loky")`` spawns worker processes
 whose main thread has the OS-default 1MB stack. The first @njit kernel
 call inside such a worker loads numba's on-disk JIT cache, which routes
-through ``llvmlite.binding.executionengine.finalize_object`` -- a deep
+through ``llvmlite.binding.executionengine.finalize_object`` - a deep
 recursive C++ pass that needs ~2-3MB stack to finalize a non-trivial
 LLVM module. With only 1MB available the worker crashes with::
 
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 _BIG_STACK_BYTES = 8 * 1024 * 1024
 _NEEDS_BIG_STACK = sys.platform.startswith("win")
 
-# USABILITY_A-5 fix: threading.stack_size is a process-global setting, so
+# threading.stack_size is a process-global setting, so
 # concurrent run_in_big_stack_thread() callers racing on the save/set/restore sequence could have the
 # loser's `finally` restore a stale value. Serialize the whole sequence process-wide.
 _STACK_SIZE_LOCK = threading.Lock()
@@ -50,7 +50,7 @@ def disable_cuda_in_worker() -> None:  # pragma: no cover - runs in a loky child
 
     Runs once per freshly-spawned loky worker BEFORE the first task unpickles
     ``mlframe`` (and thus before any ``cupy`` import), so the worker sees NO CUDA
-    device and every GPU-FE / permutation path in it takes the njit CPU branch --
+    device and every GPU-FE / permutation path in it takes the njit CPU branch -
     i.e. NO ~250 MB cupy CUDA context is created per worker.
 
     Why this matters (2026-07-05 wellbore diag, 4 GB GTX 1050 Ti): when a phase
@@ -59,7 +59,7 @@ def disable_cuda_in_worker() -> None:  # pragma: no cover - runs in a loky child
     workers then block on GPU allocations while the joblib parent sleep-polls in
     ``_retrieve`` at ~1 core. Killing the GPU per worker keeps every worker on the
     CPU kernels (real process parallelism across all cores) and leaves the card
-    free. The parent keeps its own GPU context for other phases -- only the
+    free. The parent keeps its own GPU context for other phases - only the
     workers go CPU-only.
 
     Shared by the polynom-pair FE loky pool and the FE pair-MI scoring loky pool.
@@ -73,13 +73,13 @@ def disable_cuda_in_worker() -> None:  # pragma: no cover - runs in a loky child
 # get_reusable_executor pool-reuse key includes this value, and a pre-warmed pool that's already been torn
 # down before the real dispatch runs is worse than not pre-warming at all).
 #
-# 2026-07-11: was 900s in an earlier version of this fix, sized against the gap measured BEFORE
+# Was 900s in an earlier version of this fix, sized against the gap measured BEFORE
 # maybe_prewarm_polynom_loky_pool's call site moved from fit-entry to right-after-categorization (~418s).
-# After that move the real gap shrank to ~236s at 100k rows, but 900s was never revisited -- a full
+# After that move the real gap shrank to ~236s at 100k rows, but 900s was never revisited - a full
 # production A/B (round 13) showed idle workers lingering for up to 900s past their one use measurably
 # contended with the REST of the fit (second target's categorization/training etc.): wall-clock was still
 # 862s vs a 712s no-prewarm baseline, despite the polynom-pair-FE phase itself genuinely being faster
-# (125.4s -> 117.4s). Reduced to 450s -- comfortably above the measured 236s gap (accounting for the gap
+# (125.4s -> 117.4s). Reduced to 450s - comfortably above the measured 236s gap (accounting for the gap
 # likely growing at 1M/3M scale, where GPU pair-MI screening between categorization and this dispatch takes
 # proportionally longer) while roughly halving how long a pool can linger unused afterward.
 POLYNOM_LOKY_IDLE_WORKER_TIMEOUT = 450
@@ -94,28 +94,28 @@ def maybe_prewarm_polynom_loky_pool(fe_smart_polynom_iters: int, n_jobs: int) ->
     Isolated A/B on real (79237, 544) production shape, TRIVIAL per-task work: a COLD ``LokyBackend`` pool (16
     fresh worker processes each re-importing mlframe/numba/cupy) took 28.1s; the SAME pool warm took 0.7s.
     IMPORTANT CALIBRATION (round-13 production A/B): that 28s/0.7s gap does NOT translate directly to
-    wall-clock saved on the REAL dispatch -- the real polynom-pair-FE phase's ~110-160s is dominated by actual
+    wall-clock saved on the REAL dispatch - the real polynom-pair-FE phase's ~110-160s is dominated by actual
     Optuna/CMA-ES trial work (100 trials x 5 restarts x ~11 hard pairs), so pool cold-start is a SMALL fraction
     of it. Measured real effect of a correctly-warmed pool on the phase itself: 125.4s (cold, no pre-warm) ->
-    117.4s (warm) -- an ~8s win, not ~27s. Still worth taking (free -- runs on a daemon thread while GPU work
+    117.4s (warm) - an ~8s win, not ~27s. Still worth taking (free - runs on a daemon thread while GPU work
     happens), but do not expect the isolated microbenchmark's ratio to hold end-to-end.
 
     THREE bugs found and fixed across two production A/B rounds before this pre-warm's net effect went from
     negative to (modestly) positive:
-    (1) [round 12] An earlier version called this at fit-ENTRY (before categorization) -- categorization is
+    (1) [round 12] An earlier version called this at fit-ENTRY (before categorization) - categorization is
     itself CPU-active, not idle, so pre-warming there made the categorization-to-GPU-screen gap grow 85.3s ->
     153.1s (16 new "Grid size 1" GPU warnings appeared in that window, matching the 16 concurrently-spawning
     workers contending for CPU). Result: -223s wall-clock regression. Fixed by moving the call site to right
     after categorization, where the next phase (GPU pair-MI screening) is genuinely GPU-bound (blocks on
     ``.get()``/``copy_to_host``) and leaves CPU actually free.
     (2) [round 12] The gap from that (still too-early) call site to ``run_polynom_pair_fe``'s actual dispatch
-    measured ~418s -- longer than loky's default ``idle_worker_timeout=300``, so the pre-warmed pool
+    measured ~418s - longer than loky's default ``idle_worker_timeout=300``, so the pre-warmed pool
     self-terminated before it was ever used, paying the contention cost above for zero benefit.
     (3) [round 13] Fixing (1) shrank the real gap to ~236s, but the timeout from fix (2) was left at a
-    generously-oversized 900s (sized against the STALE 418s figure) -- idle workers then lingered for up to
+    generously-oversized 900s (sized against the STALE 418s figure) - idle workers then lingered for up to
     900s past their one use, contending with the REST of the fit (second target's own categorization/training
     etc.). Wall-clock was STILL 862s vs a 712s no-prewarm baseline despite the polynom-pair-FE phase itself
-    genuinely being faster (125.4s -> 117.4s) -- the ~8s phase-level win was swamped by lingering-pool
+    genuinely being faster (125.4s -> 117.4s) - the ~8s phase-level win was swamped by lingering-pool
     contention elsewhere. Fixed by reducing ``POLYNOM_LOKY_IDLE_WORKER_TIMEOUT`` to 450s (comfortably above the
     measured 236s gap, accounting for it likely growing at 1M/3M scale, while roughly halving how long an
     unused pool can linger). Round-14 validates whether this closes the remaining gap.
@@ -124,7 +124,7 @@ def maybe_prewarm_polynom_loky_pool(fe_smart_polynom_iters: int, n_jobs: int) ->
     idle_worker_timeout=POLYNOM_LOKY_IDLE_WORKER_TIMEOUT)`` construction ``run_polynom_pair_fe`` uses so loky's
     ``get_reusable_executor`` reuse-key (initializer function identity + worker count + timeout) hits and the
     real dispatch reuses this pool. Best-effort: any failure inside the background thread is silently
-    swallowed -- the real dispatch still works, just cold.
+    swallowed - the real dispatch still works, just cold.
     """
     if not fe_smart_polynom_iters or not n_jobs or n_jobs <= 1:
         return None
@@ -210,12 +210,12 @@ def run_in_big_stack_thread(
 # ---------------------------------------------------------------------------
 
 # joblib's memmapping reducer dumps every over-``max_nbytes`` ndarray argument to a fresh temp file on
-# EVERY ``Parallel(...)`` invocation -- for the fit-constant ``data`` matrix shipped to the FE loky pools
+# EVERY ``Parallel(...)`` invocation - for the fit-constant ``data`` matrix shipped to the FE loky pools
 # that meant re-writing the same ~200-400MB buffer to disk once per pool call (wellbore-100k GPU-strict
 # profile: 45 memmap dumps, ~315s of _pickle.dumps). An ndarray that is ALREADY a np.memmap is instead
 # passed to workers by FILENAME (no dump at all), so: dump each fit-constant array ONCE per process
 # (content-keyed), hand back the read-only memmap view, and let every subsequent Parallel call ship it
-# for free. Keyed by (shape, dtype, sampled content hash) -- cheap, and a genuinely different array
+# for free. Keyed by (shape, dtype, sampled content hash) - cheap, and a genuinely different array
 # (next fit) gets its own entry. Files live in joblib's own temp folder convention and are freed on
 # process exit (best-effort unlink; Windows may defer until handles close).
 _FIT_MEMMAP_CACHE: dict = {}
@@ -226,9 +226,9 @@ def _fit_constant_key(arr) -> tuple:
 
     a bounded first/last-64KB + coarse-stride sample let two
     genuinely different-content arrays of the same shape/dtype collide (agree at every
-    sampled point, differ elsewhere) and silently return the WRONG cached memmap -- a
+    sampled point, differ elsewhere) and silently return the WRONG cached memmap - a
     correctness bug, not a perf one. Hashing the full buffer via a memoryview (no
-    ``.tobytes()`` copy -- ``hashlib.update`` consumes the buffer-protocol object directly)
+    ``.tobytes()`` copy - ``hashlib.update`` consumes the buffer-protocol object directly)
     is O(n) time but O(1) additional memory, same discipline as the rest of the package's
     "never copy a large frame" rule; the cost is paid once per distinct-content array per
     process (repeat calls on the SAME object still re-hash, but that's unchanged from the
@@ -245,7 +245,7 @@ def _fit_constant_key(arr) -> tuple:
 
 def fit_constant_memmap(arr: "Any") -> "Any":
     """Return a READ-ONLY ``np.memmap`` view of ``arr``, dumped to disk at most once per process per
-    content (see module note above). Falls back to the original array on any failure -- callers lose
+    content (see module note above). Falls back to the original array on any failure - callers lose
     only the dump-dedup, never correctness. The view is read-only ('r') so a worker bug can never
     corrupt the shared file."""
     import numpy as _np

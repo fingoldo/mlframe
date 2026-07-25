@@ -1,27 +1,27 @@
 """``ridge_coefficient_prefilter``: a cheap Ridge-coefficient-based fast pre-filter ahead of MRMR/RFECV.
 
-Source: 1st_home-credit-default-risk.md, Bojan -- "very simple forward feature selection using just Ridge
+Source: 1st_home-credit-default-risk.md, Bojan - "very simple forward feature selection using just Ridge
 regression" reduced ~1600 features to ~240 with almost no CV loss, before combining with teammates' features.
 
 MRMR/DCD's information-theoretic screening is expensive at thousands of candidate features (that's WHY they
-exist -- they find genuinely nonlinear/redundancy-aware structure a linear model misses). This module is
+exist - they find genuinely nonlinear/redundancy-aware structure a linear model misses). This module is
 explicitly NOT a replacement: it's a much cheaper linear surrogate meant to run FIRST, when the raw feature
 count is high enough that running the expensive pipeline directly is impractical, pruning down to a
 manageable candidate pool before handing off to MRMR for the real (non-linear-aware) selection pass.
 
 Algorithm: one Ridge fit on ALL (standardized) features gives a fast ``|coefficient|`` importance ranking
-(a single O(features) fit, not a per-feature greedy refit loop -- the whole point is to be cheap at
+(a single O(features) fit, not a per-feature greedy refit loop - the whole point is to be cheap at
 thousands of features). Then a handful of candidate pool sizes (log-spaced) are cross-validated, and the
-SMALLEST pool whose CV score is within ``tol`` of the best observed score is returned -- Bojan's own
+SMALLEST pool whose CV score is within ``tol`` of the best observed score is returned - Bojan's own
 "almost no CV loss" criterion, made explicit and tunable.
 
 A single Ridge fit's |coefficient| ranking is a single noisy draw: when two features are collinear, Ridge
 splits the coefficient weight between them roughly arbitrarily depending on sampling noise, so a genuinely
 useful feature can rank just below the cutoff purely by chance, and a smaller-than-necessary pool then
-silently drops it. The opt-in ``n_bootstrap`` mode (off by default -- omitting it reproduces the exact
+silently drops it. The opt-in ``n_bootstrap`` mode (off by default - omitting it reproduces the exact
 single-fit result bit-for-bit) repeats the ranking fit across bootstrap resamples of the training rows and
 keeps any feature that lands in the top pool often enough (``bootstrap_stability_threshold``) even if the
-single main fit missed it -- classic stability selection (Meinshausen & Buhlmann, 2010) applied to Bojan's
+single main fit missed it - classic stability selection (Meinshausen & Buhlmann, 2010) applied to Bojan's
 cheap linear ranker.
 """
 from __future__ import annotations
@@ -55,7 +55,7 @@ def ridge_coefficient_prefilter(
     X
         ``(n_samples, n_features)``, columns aligned with ``feature_names``.
     y
-        Target -- continuous (regression, ``is_classifier=False``) or class labels (``is_classifier=True``).
+        Target - continuous (regression, ``is_classifier=False``) or class labels (``is_classifier=True``).
     feature_names
         Names for each column of ``X``.
     candidate_sizes
@@ -65,7 +65,7 @@ def ridge_coefficient_prefilter(
         Number of cross-validation folds for the candidate-size sweep.
     tol
         Max ALLOWED relative drop from the best observed CV score (score comparison assumes HIGHER is
-        better -- R^2 for regression, accuracy for classification) for a smaller pool to be preferred.
+        better - R^2 for regression, accuracy for classification) for a smaller pool to be preferred.
     is_classifier
         Use ``RidgeClassifier``/accuracy scoring instead of ``Ridge``/R^2.
     alpha
@@ -75,7 +75,7 @@ def ridge_coefficient_prefilter(
         exactly. When set to a positive int, the ranking Ridge fit is repeated on ``n_bootstrap`` row
         resamples (with replacement); any feature reaching the top pool in at least
         ``bootstrap_stability_threshold`` of those resamples is added back to the final pool even if the
-        single main fit's ranking placed it just below the cutoff -- guards against a collinear-but-useful
+        single main fit's ranking placed it just below the cutoff - guards against a collinear-but-useful
         feature being dropped by one noisy fit. Added features are appended after the main-fit selection,
         ordered by bootstrap selection frequency (most stable first).
     bootstrap_stability_threshold
@@ -127,7 +127,7 @@ def ridge_coefficient_prefilter(
             selected_idx = ranked_idx[:size]
             break
     else:
-        selected_idx = ranked_idx  # pragma: no cover -- unreachable, largest candidate always satisfies the check
+        selected_idx = ranked_idx  # pragma: no cover - unreachable, largest candidate always satisfies the check
 
     if n_bootstrap is not None and n_bootstrap > 0:
         return _bootstrap_stability_select(
@@ -159,7 +159,7 @@ def _bootstrap_stability_select(
     """Bootstrap stability-selection pass: re-fit the ranking Ridge model on ``n_bootstrap`` row resamples
     and recover any feature that lands in the top pool often enough, even if the single main fit dropped it.
 
-    The per-resample Ridge fit (not the bookkeeping) dominates wall time -- there is no numpy hot loop here
+    The per-resample Ridge fit (not the bookkeeping) dominates wall time - there is no numpy hot loop here
     to vectorize/njit, the fit itself is the cost, same as the main-fit sweep above.
     """
     n_samples, n_features = X_std.shape

@@ -4,20 +4,20 @@
 vs its raw source column. It accepts an already-materialised host ``engineered_X`` DataFrame and scores it with
 ``mi_classif_batch_chunked`` (the engineered matrix) + ``_mi_classif_batch`` (the raw baseline). Under
 ``MLFRAME_FE_GPU_STRICT`` both route through the resident plug-in MI, so the WHOLE host engineered matrix is
-``cp.asarray``-uploaded at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (ORTH_BASIS_B-5 fix: dropped the exact line number, which had already gone stale)`` (the SF1 share of a 300k STRICT F2 byte-audit:
+``cp.asarray``-uploaded at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (dropped the exact line number, which had already gone stale)`` (the SF1 share of a 300k STRICT F2 byte-audit:
 ~72 MB = 64 MB engineered + 8 MB raw).
 
 When EVERY engineered column name parses to a poly basis leg (``"{src}__{code}{degree}"`` with
 ``code in {He, T, L, LL}``), the engineered matrix is a stack of arity-1 orthogonal-polynomial legs the device
 batched Clenshaw evaluator supports. This module rebuilds that matrix ON the device from the small raw operand
-columns (uploaded once via the resident-operand cache) and scores it -- plus the raw baseline -- through the
+columns (uploaded once via the resident-operand cache) and scores it - plus the raw baseline - through the
 SAME percentile-edge resident plug-in MI ``score_features_by_mi_uplift`` already uses under STRICT, so the host
 engineered matrix is never materialised/uploaded. It REUSES the shipped device-born cross-basis builder
 ``_gpu_resident_cross_basis.build_leg_product_matrix_gpu`` (arity-1 specs) + the resident MI; the cross-basis
 twin is the arity>=2 sibling of this scorer.
 
 EXTRA-BASIS columns (spline ``__sp`` / Fourier ``__sin`` ``__cos`` / chirp ``__qsin`` ``__qcos`` / wavelet)
-are NOT GPU-ported by the basis evaluator -- when ANY engineered column is one, this returns ``None`` and the
+are NOT GPU-ported by the basis evaluator - when ANY engineered column is one, this returns ``None`` and the
 caller keeps the engineered matrix on the host path (irreducible born-fresh transient, SF1c). The raw baseline
 is collapsed separately by the class-B ``_resident_raw_mi`` route regardless.
 
@@ -51,7 +51,7 @@ def _specs_from_engineered_names(eng_names, raw_cols):
     """Parse each engineered column name ``"{src}__{code}{degree}"`` into an arity-1 leg spec
     ``{"legs": [(src, degree, basis_name)]}`` aligned 1:1 with ``eng_names`` (the basis is pinned from the name's
     code so the device reproduces the host's EXACT basis, not a moment re-route). Returns ``None`` when ANY name
-    does NOT parse to a poly leg (an extra-basis emit / a source not in ``raw_cols``) -- the signal that the
+    does NOT parse to a poly leg (an extra-basis emit / a source not in ``raw_cols``) - the signal that the
     device builder cannot reproduce the matrix and the caller must keep it on the host."""
     from . import _source_from_engineered_name
 
@@ -92,10 +92,10 @@ def uplift_univariate_eng_mi_resident(
     (``mi_classif_batch_chunked(engineered_X)``).
 
     Rebuilds the engineered poly-leg matrix ON the device from the small resident raw operand columns
-    (collapsing the host engineered-matrix upload at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (ORTH_BASIS_B-5 fix: dropped the exact line number, which had already gone stale)``) and scores it through the
+    (collapsing the host engineered-matrix upload at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (dropped the exact line number, which had already gone stale)``) and scores it through the
     SAME percentile-edge resident plug-in MI the host STRICT path uses. Returns the (K,) host float64 MI array
     in ``engineered_X.columns`` order, OR ``None`` when STRICT-residency is off / cupy is unavailable / any
-    column is not a poly leg / any cupy fault -- in which case the caller keeps the engineered matrix on the
+    column is not a poly leg / any cupy fault - in which case the caller keeps the engineered matrix on the
     EXACT host ``mi_classif_batch_chunked`` scorer (byte-identical default path untouched)."""
     try:
         from .._gpu_strict_fe import fe_gpu_device_born_uplift_univariate_enabled

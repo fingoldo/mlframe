@@ -4,13 +4,13 @@ All functions are ``@njit``-compiled and operate on integer-encoded arrays produ
 
 Contents
 --------
-* ``merge_vars``  -- collapse multiple ordinal-encoded variables into a single 1-D class array (used as the histogram building block).
-* ``entropy``  -- Shannon entropy ``-sum(p * log p)``.
-* ``mi``  -- mutual information ``I(X; Y) = H(X) + H(Y) - H(X, Y)`` computed via entropy decomposition.
-* ``conditional_mi`` -- ``I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)`` with a pluggable entropy cache. Each cache branch owns its own
+* ``merge_vars``  - collapse multiple ordinal-encoded variables into a single 1-D class array (used as the histogram building block).
+* ``entropy``  - Shannon entropy ``-sum(p * log p)``.
+* ``mi``  - mutual information ``I(X; Y) = H(X) + H(Y) - H(X, Y)`` computed via entropy decomposition.
+* ``conditional_mi`` - ``I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)`` with a pluggable entropy cache. Each cache branch owns its own
   ``key_z`` / ``key_xz`` / ``key_yz`` / ``key_xyz`` local; ``test_info_theory_cache.py`` enumerates all four ``(can_use_x_cache, can_use_y_cache)`` combos and
   pins down exactly which keys land in the cache.
-* ``compute_mi_from_classes`` -- mutual information directly from two pre-computed class vectors and their marginals (used by the permutation loop where
+* ``compute_mi_from_classes`` - mutual information directly from two pre-computed class vectors and their marginals (used by the permutation loop where
   ``classes_y`` is shuffled in place).
 
 This package is the carved form of the former ``info_theory.py`` module; the public surface is unchanged and every name below resolves from

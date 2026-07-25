@@ -1,4 +1,4 @@
-"""Cluster Stability Selection + Complementary Pairs Stability (Wave 8).
+"""Cluster Stability Selection + Complementary Pairs Stability.
 
 Two opt-in stability-selection variants for MRMR:
 
@@ -13,7 +13,7 @@ E12 - **Complementary Pairs Stability Selection** (Shah & Samworth 2013,
 derive a tight error bound on falsely selected features without
 exchangeability assumptions. Tighter than Meinshausen-Buhlmann 2010 bound.
 
-Both are OPT-IN -- not active by default. The MRMR ``stability_selection``
+Both are OPT-IN - not active by default. The MRMR ``stability_selection``
 constructor knob (already present per RFECV wave 4 work) is extended to
 accept dict-style config:
 
@@ -37,22 +37,22 @@ logger = logging.getLogger(__name__)
 # the pre-clustering correlation step doesn't need per-feature
 # precision beyond the |corr|>=corr_threshold decision (a wide-margin threshold, typically 0.8), so it
 # follows the same MLFRAME_CRIT_DTYPE_RELAXED convention _fe_usability_signal.py's usability-|corr| pass
-# already uses for precision-non-critical thresholded correlations -- float32 by default (~halves the
+# already uses for precision-non-critical thresholded correlations - float32 by default (~halves the
 # (n, p) working-set RAM), set the env var to 0 to force strict float64.
 def _stability_corr_dtype() -> type:
-    """float32 when MLFRAME_CRIT_DTYPE_RELAXED (default ON), else float64 -- see module docstring."""
+    """float32 when MLFRAME_CRIT_DTYPE_RELAXED (default ON), else float64 - see module docstring."""
     if os.environ.get("MLFRAME_CRIT_DTYPE_RELAXED", "1").strip().lower() in ("0", "false", "off", "no"):
         return np.float64
     return np.float32
 
 
 # Analogous to the main fit path's ``sis_screen_threshold`` (``_mrmr_class.py``), which protects the
-# O(p) screen step from unbounded wide-p input -- ``cluster_stability_selection`` had no equivalent cap
+# O(p) screen step from unbounded wide-p input - ``cluster_stability_selection`` had no equivalent cap
 # on its O(p^2) correlation-clustering step. Above this column count, a cheap O(p*n)
 # marginal-|corr(x,y)| pre-rank keeps only the top-K columns before the O(p^2) pass; columns dropped by
 # the pre-rank never enter clustering (a weak/irrelevant column is unlikely to be the sole representative
 # of a real cluster) but ARE still visible to the bootstrap ``selector_fn`` on the ORIGINAL X, so they can
-# still be individually selected -- the cap only bounds clustering cost/memory, not selectability.
+# still be individually selected - the cap only bounds clustering cost/memory, not selectability.
 try:
     _CLUSTER_MAX_FEATURES = int(os.environ.get("MLFRAME_STABILITY_CLUSTER_MAX_FEATURES", "4000"))
 except (ValueError, TypeError):
@@ -78,7 +78,7 @@ def cluster_stability_selection(
 
     Step 2: for ``b = 1..n_bootstrap``, draw a half-sample of rows, run
     ``selector_fn`` on it, and record per-CLUSTER (not per-feature) selection
-    -- a cluster is "selected" if ANY of its members is selected by the
+    - a cluster is "selected" if ANY of its members is selected by the
     base selector.
 
     Step 3: keep clusters whose selection frequency >= ``pi_threshold``.
@@ -104,7 +104,7 @@ def cluster_stability_selection(
     rng = np.random.default_rng(int(rng_seed))
     _dtype = _stability_corr_dtype()
     # Numeric view for the |Pearson| clustering. A raw categorical/string column (reaching here under skip_categorical_encoding) cannot enter a
-    # correlation graph, so coerce per-column and flag the non-numeric ones -- they stay SINGLETON clusters (never merged) yet remain selectable via
+    # correlation graph, so coerce per-column and flag the non-numeric ones - they stay SINGLETON clusters (never merged) yet remain selectable via
     # the bootstrap selector below, which is handed dtype-preserved rows so a classic sub-MRMR factorises them itself. Pre-fix a blanket
     # ``np.asarray(X, dtype=float64)`` raised "could not convert string to float" on such a column and the caller fell back to classic, disabling
     # cluster stability entirely on any data carrying a raw categorical.
@@ -147,7 +147,7 @@ def cluster_stability_selection(
                 Xn[:, _c] = _cast
     # ---- p-cap: the O(p^2) correlation-clustering step below
     # has no analogue of the main fit path's sis_screen_threshold. Above ``_CLUSTER_MAX_FEATURES``,
-    # cluster only the top-K numeric columns by cheap O(p*n) marginal |corr(x,y)| -- the dropped columns
+    # cluster only the top-K numeric columns by cheap O(p*n) marginal |corr(x,y)| - the dropped columns
     # stay individually selectable via ``selector_fn`` on the full-p ORIGINAL X (only clustering, not
     # selectability, is capped).
     _numeric_idx = np.where(_num_ok)[0]
@@ -213,7 +213,7 @@ def cluster_stability_selection(
     # that raises is silently ``continue``d; dividing by the nominal count then
     # scales every frequency by (n_success / n_bootstrap), systematically
     # deflating them toward 0 on an effective sample size the caller never sees
-    # -- which invalidates the Faletto-Bien / Shah-Samworth bounds (parameterised
+    # - which invalidates the Faletto-Bien / Shah-Samworth bounds (parameterised
     # by the number of subsamples). Track and surface n_effective / n_failed.
     n_success = 0
     n_failed = 0
@@ -222,7 +222,7 @@ def cluster_stability_selection(
         try:
             sel = selector_fn(X.iloc[idx] if _is_df else X[idx], y[idx])
         except Exception as exc:
-            # CLUSTERING_STABILITY-9 fix: log at debug so a systematically-broken
+            # Log at debug so a systematically-broken
             # selector_fn is diagnosable from logs (with debug logging enabled) instead of needing a debugger.
             logger.debug("cluster_stability_selection: bootstrap %d's selector_fn raised: %r", _b, exc)
             n_failed += 1
@@ -234,8 +234,8 @@ def cluster_stability_selection(
         selected_clusters = np.unique(cluster_id[sel])
         cluster_sel_freq[selected_clusters] += 1
     if n_success == 0:
-        # CLUSTERING_STABILITY-1 fix: mirrors StabilityMRMR.fit's post-B-14
-        # contract -- every bootstrap failing means the input is fundamentally too small/degenerate for
+        # Mirrors StabilityMRMR.fit's post-B-14
+        # contract - every bootstrap failing means the input is fundamentally too small/degenerate for
         # selector_fn at this sample size, not "some unlucky draws". Raise loudly instead of silently
         # returning an empty/"nothing is stable" result a caller could easily mistake for a real answer.
         raise RuntimeError(
@@ -298,7 +298,7 @@ def complementary_pairs_stability(
     is tighter than Meinshausen-Buhlmann's by leveraging the
     complementary-pair structure (no exchangeability assumption needed).
     """
-    # complementary_pairs uses X only to feed the bootstrap selector (no correlation/clustering step), so keep the ORIGINAL dtype -- a blanket
+    # complementary_pairs uses X only to feed the bootstrap selector (no correlation/clustering step), so keep the ORIGINAL dtype - a blanket
     # float64 coercion crashed on a raw categorical column. The selector is handed dtype-preserved rows (a classic sub-MRMR factorises categoricals).
     _is_df = hasattr(X, "iloc")
     n, p = X.shape
@@ -316,7 +316,7 @@ def complementary_pairs_stability(
         # 2026-06-03 (audit hierarchy-stability-8): the complement must be the
         # REST of the permutation (idx[half:]), not idx[half:2*half]. For odd n
         # the latter drops the middle row, so the two halves are not a true
-        # partition of the sample -- violating the complementary-pair structure
+        # partition of the sample - violating the complementary-pair structure
         # the Shah-Samworth bound assumes (it allows |I| and |I^c| to differ by
         # one, but requires I ∪ I^c = all rows).
         idx_bc = idx[half:]
@@ -324,7 +324,7 @@ def complementary_pairs_stability(
             sel_b = np.asarray(selector_fn(X.iloc[idx_b] if _is_df else X[idx_b], y[idx_b]), dtype=np.int64).ravel()
             sel_bc = np.asarray(selector_fn(X.iloc[idx_bc] if _is_df else X[idx_bc], y[idx_bc]), dtype=np.int64).ravel()
         except Exception as exc:
-            # CLUSTERING_STABILITY-9 fix: log at debug so a systematically-broken
+            # Log at debug so a systematically-broken
             # selector_fn is diagnosable from logs (with debug logging enabled) instead of needing a debugger.
             logger.debug("complementary_pairs_stability: pair %d's selector_fn raised: %r", _b, exc)
             n_failed += 1
@@ -342,8 +342,8 @@ def complementary_pairs_stability(
         for f in union:
             union_freq[f] += 1
     if n_success == 0:
-        # CLUSTERING_STABILITY-1 fix: mirrors StabilityMRMR.fit's post-B-14
-        # contract -- see cluster_stability_selection's matching fix for the full rationale.
+        # Mirrors StabilityMRMR.fit's post-B-14
+        # contract - see cluster_stability_selection's matching fix for the full rationale.
         raise RuntimeError(
             f"complementary_pairs_stability: all {int(n_pairs)} pairs failed (selector_fn raised every "
             f"time); the input is too small/degenerate for selector_fn at this sample size (half={half})."

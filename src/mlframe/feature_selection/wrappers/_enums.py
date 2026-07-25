@@ -9,7 +9,7 @@ class OptimumSearch(str, Enum):
     """Strategy RFECV uses to search for the feature-count optimum along the elimination curve."""
 
     # W8: _suggest_scipy_local/_suggest_scipy_global (in _helpers.py) are thin aliases of
-    # _suggest_dichotomic, not Brent/DIRECT/differential-evolution/SHGO -- a deliberate, well-reasoned
+    # _suggest_dichotomic, not Brent/DIRECT/differential-evolution/SHGO - a deliberate, well-reasoned
     # simplification (the argmax of a piecewise-linear interpolant always lands on an already-evaluated
     # breakpoint, so a real scipy optimizer call was redundant with dichotomic search), but these
     # per-member comments still promised the original scipy backends they no longer call. See

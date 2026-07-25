@@ -2,7 +2,7 @@
 
 A near-free CONSENSUS layer over the existing FE gates. The expensive MRMR FE
 search runs ONCE on the full data (unchanged); this module adds a cheap K-fold
-*confirmation*: every surviving ``unary_binary`` recipe is REPLAYED (leak-safe --
+*confirmation*: every surviving ``unary_binary`` recipe is REPLAYED (leak-safe -
 the recipe is fixed, only the rows change) on K held-out folds, its uplift gate
 statistic recomputed on each fold, and the recipe admitted into the support only
 if it clears the gate in ``>= ceil(quorum * K)`` folds.
@@ -10,12 +10,12 @@ if it clears the gate in ``>= ceil(quorum * K)`` folds.
 Why this is orthogonal to what already ships
 --------------------------------------------
 * ``_stability_fe.py`` (Layer 36) does bootstrap voting but as a separate opt-in
-  estimator that REFITS MRMR N times -- expensive, not default-wired. THIS reuses
+  estimator that REFITS MRMR N times - expensive, not default-wired. THIS reuses
   the single full-fit's recipes and only REPLAYS them on folds -> no refit, so the
   added cost is K cheap quantile-bin + plug-in-MI passes per recipe.
 * The order-2 / order-3 maxT permutation floors kill the chance-MAX candidate
   WITHIN a fold (best-of-pool selection bias). This kills a different failure: a
-  recipe that won only on a fold-specific QUIRK of the full-data split -- its
+  recipe that won only on a fold-specific QUIRK of the full-data split - its
   uplift is carried by a handful of rows that happen to sit in the training
   split, and collapses on the held-out folds. maxT cannot see that; cross-fold
   voting can.
@@ -23,16 +23,16 @@ Why this is orthogonal to what already ships
 Leak-safety
 -----------
 ``apply_recipe`` replays a recipe from its frozen ``extra`` (quantile edges,
-prewarp coeffs, gate medians -- all pinned at full-fit time) WITHOUT any y
+prewarp coeffs, gate medians - all pinned at full-fit time) WITHOUT any y
 reference, so replaying on a held-out fold is leakage-free by construction. The
 per-fold gate statistic compares ``MI(engineered_fold; y_fold)`` against the
-fold's source-operand marginal MIs -- a held-out re-evaluation of the same
+fold's source-operand marginal MIs - a held-out re-evaluation of the same
 uplift the in-fit gate used.
 
 Scope
 -----
 Only ``unary_binary`` recipes (the numeric pair-FE survivors built in
-``_mrmr_fe_step``) are voted on -- they are the fold-specific-quirk-prone family
+``_mrmr_fe_step``) are voted on - they are the fold-specific-quirk-prone family
 the backlog targets. Other recipe kinds (cat-FE encoders, orth-basis, cluster
 aggregates, hinge / wavelet) are passed through untouched: they either carry no
 per-fold gate analogue here or are produced by separate stages with their own
@@ -56,7 +56,7 @@ def resolve_adaptive_vote_k(k_param: Any, n_rows: int, *, min_rows_per_fold: int
     bench showed LOWERING K degrades the vote (k=3 on the F2 archetype at n=2500 lost the good
     feature: MAE 1.985 vs 0.917 at k=5), so a naive "small K on small n" would HURT. This resolver is
     the GUARDED hybrid: an explicit int is honoured VERBATIM (default 5 -> byte-identical to the
-    pre-2026-06-13 behaviour), and only the opt-in sentinel ``"auto"`` adapts -- and it adapts ONLY
+    pre-2026-06-13 behaviour), and only the opt-in sentinel ``"auto"`` adapts - and it adapts ONLY
     DOWNWARD for genuinely tiny n where 5 folds cannot keep ``min_rows_per_fold`` rows each, never
     above 5. So ``"auto"`` == 5 for n >= 5*min_rows_per_fold (=500 by default) and degrades to 2-4
     only when the data cannot sustain 5 reliable folds.
@@ -83,7 +83,7 @@ def _marginal_mi(x_codes: np.ndarray, y_codes: np.ndarray) -> float:
 
     Reuses the exact CMI primitive the in-fit S5 engineered-redundancy gate
     scores with (``z_joint=None`` reduces it to marginal MI), so the held-out
-    statistic is on the SAME debiased scale as the production estimator -- no
+    statistic is on the SAME debiased scale as the production estimator - no
     second MI kernel, no scale skew.
     """
     from ._mi_greedy_cmi_fe import _cmi_from_binned
@@ -105,22 +105,22 @@ def _recipe_clears_fold(
     Mirrors the in-fit gate (``_mrmr_fe_step``): the engineered column's joint
     information with y must beat the sum of its source operands' marginal MIs by
     the prevalence ratio. When both operands' marginal MIs are ~0 (the canonical
-    zero-marginal / XOR pair), any positive engineered MI clears -- exactly the
+    zero-marginal / XOR pair), any positive engineered MI clears - exactly the
     in-fit ``ind_elems_mi_sum <= 0`` branch. Source codes may be ``None`` (the
     operand was an engineered parent whose raw column is not directly available);
     a missing operand contributes 0 to the marginal sum, matching the in-fit
     treatment of a zero-MI operand.
 
-    ``alt_acceptance`` (2026-06-11): the recipe was admitted in-fit via the
-    ALTERNATIVE acceptance path -- the per-operand learned PRE-WARP uplift gate or
-    the gate_med path -- NOT the elementary ``eng_mi > sum_marg`` joint-prevalence
+    ``alt_acceptance``: the recipe was admitted in-fit via the
+    ALTERNATIVE acceptance path - the per-operand learned PRE-WARP uplift gate or
+    the gate_med path - NOT the elementary ``eng_mi > sum_marg`` joint-prevalence
     gate. A prewarp recipe is a 1-D summary of a 2-D NON-monotone product whose
     whole reason for its dedicated acceptance path is that it CANNOT beat the raw
     operand marginal sum (the elementary library is representationally blind to the
     non-monotone inner); applying the ``eng_mi > sum_marg`` bar here would
     STRUCTURALLY drop every genuine prewarp recovery. For these recipes the
-    held-out confirmation is the SAME signal test the prewarp gate uses -- the
-    engineered column must carry genuine information about y -- so any positive
+    held-out confirmation is the SAME signal test the prewarp gate uses - the
+    engineered column must carry genuine information about y - so any positive
     held-out MI clears (the marginal-sum comparison does not apply). Empirically
     this only becomes load-bearing once a SECOND unary_binary recipe exists (the
     voter is a <2-recipe no-op otherwise); the auto-escalation residual complement
@@ -132,7 +132,7 @@ def _recipe_clears_fold(
     if alt_acceptance:
         # Prewarp / gate_med alternative-acceptance recipe: genuine positive
         # held-out MI is the confirmation (the elementary marginal-sum bar does
-        # not apply -- see docstring).
+        # not apply - see docstring).
         return True
     sum_marg = 0.0
     if src_a_codes is not None:
@@ -173,11 +173,11 @@ def confirm_recipes_cross_fold(
         dict built during the FE step). Only ``unary_binary`` recipes are voted.
     X
         The (possibly augmented) fit-time frame. Must still carry every RAW
-        ``feature_names_in`` column -- ``apply_recipe`` extracts source columns by
+        ``feature_names_in`` column - ``apply_recipe`` extracts source columns by
         name. A DataFrame (pandas / polars) or ndarray (column-name lookup then
         falls back through ``_extract_column``).
     y_codes
-        Discretised target codes (``classes_y`` -- the SAME codes the MI sweep
+        Discretised target codes (``classes_y`` - the SAME codes the MI sweep
         scored against), length == n_rows.
     feature_names_in
         Raw input feature names; a recipe whose ``src_names`` are all raw is
@@ -230,7 +230,7 @@ def confirm_recipes_cross_fold(
 
     # TARGET ANCHOR RE-BINNING (IRON RULE / drop_redundant_raw_operands precedent,
     # _mrmr_fit_impl.py:6603). The ``classes_y`` codes the FE sweep scored against
-    # are the SCREENING-level target binning -- on a skewed regression target that
+    # are the SCREENING-level target binning - on a skewed regression target that
     # is value-edge, HIGH-cardinality and HEAVILY imbalanced (e.g. 26 unequal
     # levels for ``y=a**2/b + log(c)*sin(d)``). Scoring the held-out uplift gate
     # with that anchor while the engineered column + source operands are re-binned
@@ -289,10 +289,10 @@ def confirm_recipes_cross_fold(
         src = tuple(getattr(recipe, "src_names", ()) or ())
         src_a = src[0] if len(src) >= 1 else None
         src_b = src[1] if len(src) >= 2 else None
-        # ALTERNATIVE-ACCEPTANCE recipe detection (2026-06-11): a recipe whose
+        # ALTERNATIVE-ACCEPTANCE recipe detection: a recipe whose
         # operand used the learned ``prewarp`` (or ``gate_med``) pseudo-unary was
         # admitted in-fit via the prewarp-uplift / gate alternative path, NOT the
-        # elementary ``eng_mi > sum_marg`` gate -- so it must not be voted against
+        # elementary ``eng_mi > sum_marg`` gate - so it must not be voted against
         # that bar (see ``_recipe_clears_fold``). The fit-time spec is persisted
         # flat in ``recipe.extra`` as ``prewarp_<side>_coef`` / ``gate_med_<side>_median``.
         _rx = getattr(recipe, "extra", None) or {}
@@ -309,7 +309,7 @@ def confirm_recipes_cross_fold(
             try:
                 eng_fold = np.asarray(apply_recipe(recipe, X_fold)).ravel()
             except Exception as exc:
-                # A recipe that cannot replay on a fold is not penalised here --
+                # A recipe that cannot replay on a fold is not penalised here -
                 # transform()-time replay safety is a separate concern. Skip the
                 # fold; if every fold fails to replay the recipe is left admitted.
                 if verbose:

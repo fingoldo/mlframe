@@ -3,7 +3,7 @@
 SHAP attribution on a full model divides credit among all features jointly; when a few strong
 features explain most of the target, genuinely-predictive weak features receive small mean|phi| not
 because they carry no signal but because the strong features absorb the shared credit. This module
-runs a SECOND SHAP pass on pass-1's residuals -- the strong features' signal is already explained
+runs a SECOND SHAP pass on pass-1's residuals - the strong features' signal is already explained
 away there, so weak features become the dominant explanators of what remains and earn full credit
 (boosting's insight applied to attribution rather than prediction). Carved out of
 ``_shap_proxied_fit.py`` to keep it under the 1k LOC ceiling.
@@ -29,13 +29,13 @@ def _sigmoid(x: np.ndarray) -> np.ndarray:
 def compute_residual_target(phi: np.ndarray, base: np.ndarray, y_phi: np.ndarray, *, classification: bool) -> np.ndarray:
     """Pass-1 residual target: what the additive coalition proxy failed to explain.
 
-    Regression: ``y - (base + sum(phi))`` -- the plain proxy residual, free (no extra OOF-predict
+    Regression: ``y - (base + sum(phi))`` - the plain proxy residual, free (no extra OOF-predict
     pass) because it's exactly the full-coalition proxy margin pass 1 already computed.
 
     Classification: the pseudo-residual of logistic loss ``y - sigmoid(margin)``. ``margin_pred =
     base + phi.sum(axis=1)`` is already log-odds (TreeSHAP on a binary xgboost classifier attributes
     margin space, and ``base`` is the margin base value), but a discrete ``{0,1}`` label has no
-    finite log-odds target -- so instead of an ``inverse-sigmoid(clip(y))`` infinity-handling hack,
+    finite log-odds target - so instead of an ``inverse-sigmoid(clip(y))`` infinity-handling hack,
     this uses the standard boosting gradient-of-logloss residual: bounded, continuous, exactly what
     a boosting step would fit next.
     """
@@ -90,10 +90,10 @@ def run_residual_pass(
     """Second SHAP pass on pass-1's residual; returns ``(rescue_proxy_idx, blend_importance, protected_working_cols)``.
 
     MUST be called on the PRE-prescreen ``phi``/``X_proxy`` (rescue only helps if it can save a
-    column the prescreen would otherwise cut -- computing it post-prescreen would be too late for
+    column the prescreen would otherwise cut - computing it post-prescreen would be too late for
     the cut it is meant to rescue from). ``unit_to_members`` entries at this point are WORKING-space
-    column positions -- the same space ``within_cluster_refine``'s ``member_cols``/``protected_cols``
-    consume -- so ``protected_working_cols`` needs no further remapping downstream.
+    column positions - the same space ``within_cluster_refine``'s ``member_cols``/``protected_cols``
+    consume - so ``protected_working_cols`` needs no further remapping downstream.
 
     ``rescue_proxy_idx`` (``residual_merge="rescue"``): top ``residual_top_k`` proxy columns by
     mean|phi2|, to be unioned into the prescreen keep-set as a fourth member (alongside top-K,
@@ -101,7 +101,7 @@ def run_residual_pass(
 
     ``blend_importance`` (``residual_merge="blend"``): ``phi1_importance + residual_lambda *
     phi2_importance_aligned`` (full ``n_proxy``-length vector, zero contribution from excluded
-    columns) for the prescreen's RANKING order only -- the search/coalition proxy always consumes
+    columns) for the prescreen's RANKING order only - the search/coalition proxy always consumes
     raw phi1, never this blended vector.
     """
     n_passes = _validate_residual_params(self)
@@ -121,7 +121,7 @@ def run_residual_pass(
     # "Hard residual": drop the top residual_exclude_top pass-1 columns from pass-2's X entirely, so
     # pass 2 must explain the residual WITHOUT the strong features at all (never just soft-discount
     # them via low proxy loss). Index MAP (not positional assumption): phi2's column j corresponds to
-    # proxy column kept_proxy_idx[j] -- required because pass-2 X can be a column subset.
+    # proxy column kept_proxy_idx[j] - required because pass-2 X can be a column subset.
     excluded: set = set()
     if self.residual_exclude_top > 0 and n_proxy > 1:
         n_excl = min(int(self.residual_exclude_top), n_proxy - 1)
@@ -142,7 +142,7 @@ def run_residual_pass(
         return rescue_proxy_idx, blend_importance, protected_working_cols
 
     # Pass 2 runs on the SAME already-narrowed X_proxy (post-prefilter, possibly post-cluster), never
-    # the raw frame -- memory discipline at C4-scale widths where phi2 is another significant (n, f)
+    # the raw frame - memory discipline at C4-scale widths where phi2 is another significant (n, f)
     # float64 matrix.
     X_pass2 = X_proxy.iloc[:, kept_proxy_idx] if kept_proxy_idx.size < n_proxy else X_proxy
 
@@ -187,7 +187,7 @@ def run_residual_pass(
     # for phi1) was tried and REJECTED here: measured on the p=3000 mixed-strength biz_val fixture,
     # the TRUE weak feature is phi2's rank-1 column by OOF mean|phi2| yet its magnitude still sits
     # below a 4x floor (the residual's own sampling noise is too large relative to a weight=0.25
-    # signal for any fixed multiplier to cleanly separate them) -- so a magnitude floor either killed
+    # signal for any fixed multiplier to cleanly separate them) - so a magnitude floor either killed
     # all recall (tight) or let noise columns leak into the protected set (loose), and an ungated
     # search-pool alternative let the search stage itself pick spurious noise independent of
     # protection (measured: 6->8 selected, 2 noise columns, with NO protection involved at all).
@@ -197,7 +197,7 @@ def run_residual_pass(
     # near the top consistently across INDEPENDENT folds, while a noise column's rank is a one-fold
     # sampling fluke that does not replicate. Require a column's per-fold rank to clear a generous
     # per-fold pool (``3 * top_k``) in EVERY fold (``n_splits`` independent estimates) before it is
-    # eligible for rescue -- a much better-calibrated signal-vs-noise separator than the column's
+    # eligible for rescue - a much better-calibrated signal-vs-noise separator than the column's
     # single aggregate OOF magnitude.
     top_k = int(self.residual_top_k) if self.residual_top_k is not None else int(self.brute_force_max_features)
     top_k = min(top_k, importance2.shape[0])

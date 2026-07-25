@@ -619,7 +619,7 @@ class _DatasetReuseMixin:
                             if X_val[_c].dtype != _dt:
                                 _realign[_c] = X_val[_c].astype(_dt)
                         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                            logger.debug("suppressed in lgb_shim.py:555: %s", e)
+                            logger.debug("suppressed: %s", e)
                             pass
                     if _realign:
                         X_val = X_val.assign(**_realign)
@@ -851,7 +851,7 @@ class _DatasetReuseMixin:
                 if X[_c].dtype != _dt:
                     _realign[_c] = X[_c].astype(_dt)
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in lgb_shim.py:773: %s", e)
+                logger.debug("suppressed: %s", e)
                 pass
         return X.assign(**_realign) if _realign else X
 

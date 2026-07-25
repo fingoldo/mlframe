@@ -1,4 +1,4 @@
-"""Layer 68 (2026-06-01): per-column scorer AUTO-SELECTION for hybrid orth-poly FE.
+"""Layer 68: per-column scorer AUTO-SELECTION for hybrid orth-poly FE.
 
 Why this layer
 --------------
@@ -6,13 +6,13 @@ Why this layer
 Layers 21 / 65 / 66 / 67 each ship a different dependence scorer for ranking
 orth-poly engineered columns:
 
-* Layer 21 -- plug-in quantile-binned MI (fast; weak on smooth signal
+* Layer 21 - plug-in quantile-binned MI (fast; weak on smooth signal
   below bin resolution, weak on heavy tails);
-* Layer 65 -- Kraskov-Stoegbauer-Grassberger k-NN MI (binning-free; wins
+* Layer 65 - Kraskov-Stoegbauer-Grassberger k-NN MI (binning-free; wins
   on smooth continuous signal);
-* Layer 66 -- copula MI on rank-uniformised pairs (marginal-invariant;
+* Layer 66 - copula MI on rank-uniformised pairs (marginal-invariant;
   wins on heavy-tailed / skewed marginals);
-* Layer 67 -- Szekely-Rizzo distance correlation (NON-MI; wins on
+* Layer 67 - Szekely-Rizzo distance correlation (NON-MI; wins on
   non-monotone / non-functional / oscillatory dependence).
 
 Each is a separate opt-in flag, and the user has to KNOW which scorer is
@@ -43,16 +43,16 @@ Layer 68 vs Layers 65 / 66 / 67
   dCor} via bootstrap LCB. Right scorer on each column without prior
   knowledge of the signal family.
 
-The four are complementary -- this layer materialises the COMPLEMENTARITY.
+The four are complementary - this layer materialises the COMPLEMENTARITY.
 
 Recipe replay
 -------------
 
-Each emitted column is backed by an ``orth_univariate`` recipe -- the
-SAME kind Layer 21 uses -- because the engineered VALUES are bit-equal to
+Each emitted column is backed by an ``orth_univariate`` recipe - the
+SAME kind Layer 21 uses - because the engineered VALUES are bit-equal to
 Layer 21; only the SCORING (and therefore the selection) changes.
 
-NOT wired into ``MRMR.fit`` by default -- opt-in via
+NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_hybrid_orth_auto_scorer_enable=True``.
 """
 from __future__ import annotations
@@ -111,7 +111,7 @@ ENSEMBLE_AGGREGATORS = (
 # participating scorer (strict conjunction). Complements the existing
 # mean/Borda/RR aggregators which are all UNION-flavoured (one strong scorer
 # can carry a candidate). The strict-conjunction rule trades recall for
-# precision -- useful when the cost of admitting a noise column is higher
+# precision - useful when the cost of admitting a noise column is higher
 # than the cost of missing a borderline signal.
 MUTUAL_RANK_AGGREGATORS = ("mutual_top_k",)
 
@@ -230,7 +230,7 @@ def _compute_per_scorer_rank_table(
                     uniq = np.unique(y_mi[np.isfinite(y_mi)] if y_mi.dtype.kind in "fc" else y_mi)
                     if uniq.size <= 32:
                         # densify via np.unique(return_inverse=...) rather
-                        # than truncating .astype(int64) -- non-integer labels (e.g. 0.1/0.2/...) would
+                        # than truncating .astype(int64) - non-integer labels (e.g. 0.1/0.2/...) would
                         # otherwise all collapse to class 0.
                         _, y_mi = np.unique(y_mi, return_inverse=True)
                         y_mi = y_mi.astype(np.int64, copy=False)
@@ -301,7 +301,7 @@ def _aggregate_ranks(
     * ``reciprocal_rank``: ``sum(1 / (k + rank))`` (k = 60, the
       Cormack/Clarke/Buettcher 2009 default). Returned negated so lower
       = better.
-    * ``mutual_top_k`` (Layer 82): strict conjunction -- a candidate is
+    * ``mutual_top_k`` (Layer 82): strict conjunction - a candidate is
       tagged "qualified" (aggregate score = max-of-ranks, lower = better)
       only if it sits in the top-K of EVERY participating scorer. Columns
       that miss the top-K of ANY scorer get a huge sentinel score so the
@@ -398,7 +398,7 @@ def score_features_by_ensemble_uplift(
     aggregator : str
         One of ``ENSEMBLE_AGGREGATORS``. See module docstring.
     random_state, nbins, n_neighbors, copula_n_bins, dcor_n_sample
-        Passed to the underlying scorers verbatim. No bootstrap here --
+        Passed to the underlying scorers verbatim. No bootstrap here -
         the ensemble's robustness comes from cross-scorer consensus, not
         cross-resample averaging. Callers wanting both can stack this
         function on top of bootstrap-averaged scorers; the current API
@@ -415,12 +415,12 @@ def score_features_by_ensemble_uplift(
     -----
     * ``engineered_mi`` is the MEAN score across participating scorers
       after per-scorer normalisation by that scorer's max raw-source
-      baseline -- the same headroom rescaling Layer 68 uses cross-scorer.
+      baseline - the same headroom rescaling Layer 68 uses cross-scorer.
       This keeps the metric dimensionless so MRMR's two-gate selection
       (``uplift >= min_uplift`` + abs MI floor) is comparable to Layers
       65 / 66 / 67 / 68.
     * ``baseline_mi`` is the same MEAN-normalised score but for the
-      engineered column's SOURCE row -- the natural uplift denominator.
+      engineered column's SOURCE row - the natural uplift denominator.
     * ``aggregate_rank`` is the per-aggregator fused rank (lower =
       better; ``mean_rank`` is the literal mean; ``borda_count`` and
       ``reciprocal_rank`` are stored NEGATED so a uniform "lower = better"
@@ -627,7 +627,7 @@ def hybrid_orth_mi_ensemble_fe_with_recipes(
     """:func:`hybrid_orth_mi_ensemble_fe` + ``orth_univariate`` recipes.
 
     Recipes are byte-identical to Layer 21 because the engineered
-    VALUES are identical -- only the SCORING (and therefore the
+    VALUES are identical - only the SCORING (and therefore the
     selection) differs.
     """
     from .engineered_recipes import build_orth_univariate_recipe

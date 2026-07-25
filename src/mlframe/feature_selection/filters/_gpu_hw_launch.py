@@ -1,20 +1,20 @@
-"""HW-spec / occupancy-aware launch-config derivation for the GPU-resident FE kernels (2026-06-23).
+"""HW-spec / occupancy-aware launch-config derivation for the GPU-resident FE kernels.
 
 The resident FE RawKernels (``radix_select_f32`` / ``_kernel_bs`` MI-gate hist / ``transpose_f32``) used to
-hardcode their threads/block (512 / 128 / 32x32) -- magic constants tuned on the dev box that are wrong on
+hardcode their threads/block (512 / 128 / 32x32) - magic constants tuned on the dev box that are wrong on
 ANY other card (a 6-SM GTX 1050 Ti vs a 100-SM+ A100 want very different block sizes and grids). This module
 queries the device properties ONCE (cached) and derives launch parameters from them:
 
   * candidate block sizes = WARP-MULTIPLES that achieve >= a target active-blocks/SM occupancy given the
     kernel's measured register + static-shared usage and the per-SM limits (MaxThreadsPerMultiProcessor,
     MaxBlocksPerMultiprocessor, registers/SM, shared/SM). These are the HW-VALID, occupancy-reasonable
-    candidates the KTC sweep then ranges over -- so the empirical winner is always among HW-sane options and
+    candidates the KTC sweep then ranges over - so the empirical winner is always among HW-sane options and
     the candidate SET is portable (each card derives its own).
   * grid size = enough blocks to fill ALL SMs (>= MultiProcessorCount * max_active_blocks_per_SM) for the
     flat 1-D kernels, killing the "Grid size N -> low occupancy" warning on big cards.
 
 WHY ANALYTIC OCCUPANCY (not the CUDA occupancy API): cupy's ``cp.cuda.runtime`` on this build does NOT export
-``occupancyMaxActiveBlocksPerMultiprocessor`` and ``RawKernel`` exposes no occupancy method -- but it DOES
+``occupancyMaxActiveBlocksPerMultiprocessor`` and ``RawKernel`` exposes no occupancy method - but it DOES
 expose ``num_regs`` / ``shared_size_bytes`` / ``max_threads_per_block``, and the device attributes give the
 per-SM limits, so max-active-blocks/SM is computed directly from the standard occupancy formula (min over the
 warp-, register-, shared-, and block-count limits). When even the attribute query fails the caller falls back
@@ -26,16 +26,28 @@ bit-identical for any HW-valid (block, grid). This module only picks faster-but-
 """
 from __future__ import annotations
 
-# Device-property cache (queried once per process). Keyed nothing -- single current device.
+import threading
+
+# Device-property cache (queried once per process). Keyed nothing - single current device.
 _DEV_PROPS: "dict | None" = None
+_DEV_PROPS_LOCK = threading.Lock()
 
 
 def device_props() -> dict:
-    """Device launch-relevant properties (cached once). Empty dict if cupy/CUDA is unavailable -- callers
+    """Device launch-relevant properties (cached once). Empty dict if cupy/CUDA is unavailable - callers
     treat an empty dict as 'no HW info' and fall back to their historical default / KTC sweep."""
     global _DEV_PROPS
-    if _DEV_PROPS is not None:
+    if _DEV_PROPS is not None:  # fast path, no lock
         return _DEV_PROPS
+    with _DEV_PROPS_LOCK:
+        if _DEV_PROPS is not None:  # re-check under the lock (double-checked init)
+            return _DEV_PROPS
+        return _device_props_uncached()
+
+
+def _device_props_uncached() -> dict:
+    """Populate and cache ``_DEV_PROPS`` under the caller's lock. Query the current CUDA device once."""
+    global _DEV_PROPS
     props: dict = {}
     try:
         import cupy as cp
@@ -68,7 +80,7 @@ def device_props() -> dict:
 
 def _max_active_blocks_per_sm(block: int, regs_per_thread: int, static_smem: int, dyn_smem: int, props: dict) -> int:
     """Analytic max active blocks/SM for a candidate ``block`` given the kernel's per-thread register use and
-    its static+dynamic shared bytes -- min over the warp-, register-, shared-, and block-count SM limits
+    its static+dynamic shared bytes - min over the warp-, register-, shared-, and block-count SM limits
     (the standard CUDA occupancy calculation). Returns 0 if ``block`` is itself infeasible (over the
     per-block thread or shared cap)."""
     warp = props["warp"]

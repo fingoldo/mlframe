@@ -1,4 +1,4 @@
-"""Single-GPU resident FE-batch MI executor (2026-06-26).
+"""Single-GPU resident FE-batch MI executor.
 
 Scores a candidate matrix on ONE device by the resident edge-binned plain plug-in MI
 (``_hermite_fe_mi._plugin_mi_classif_batch_cuda_resident``), VRAM-budget column-chunked so peak device
@@ -8,12 +8,12 @@ calls (this function is reached once per candidate-matrix batch from ``_fe_batch
 ``_orth_mi_backends._mi_classif_batch_numba``, many times per fit with an UNCHANGED ``y_codes``), the
 device upload of ``y`` is deduplicated too via ``resident_operand`` (content-hash keyed, shared with every
 other resident-cache consumer in this package), and ``y_min``/``n_classes`` are derived HOST-side from
-``y_codes`` directly instead of via a device ``.min()``/``.max()`` sync -- both a repeat-call H2D and the
+``y_codes`` directly instead of via a device ``.min()``/``.max()`` sync - both a repeat-call H2D and the
 2 blocking D2H syncs per call are avoided, not merely cached. Math is identical to the CPU twin
 ``_fe_cpu_batch.cpu_fe_batch_mi`` (same percentile-edge binning + plug-in MI) so the two backends
 select the same forms.
 
-NaN policy: candidate columns are scrubbed to 0 on upload (the FE nan_to_num convention) -- a no-op on the
+NaN policy: candidate columns are scrubbed to 0 on upload (the FE nan_to_num convention) - a no-op on the
 all-finite production candidate matrix, on which it matches the CPU dense path bit-for-bit. (The CPU path
 additionally finite-MASKS partial-NaN columns; that edge case is not reproduced here because the FE
 candidate matrices fed to the batcher are nan-filled upstream.)
@@ -42,7 +42,7 @@ def gpu_fe_batch_mi(
 ) -> np.ndarray:
     """Edge-binned plain plug-in MI of every column of ``X_cands`` (n, K) vs discrete ``y_codes`` (n,),
     computed on a single GPU. Returns a host (K,) float64 MI array. ``device`` selects the CUDA device
-    (default: current). Raises if cupy / CUDA is unavailable -- the dispatcher gates that upstream.
+    (default: current). Raises if cupy / CUDA is unavailable - the dispatcher gates that upstream.
     """
     import cupy as cp
 
@@ -64,10 +64,10 @@ def gpu_fe_batch_mi(
 
     dev_ctx = cp.cuda.Device(device) if device is not None else cp.cuda.Device()
     with dev_ctx:
-        # RESIDENT UPLOAD (2026-07-13): y_codes is fit-constant across every call this executor sees in one
+        # RESIDENT UPLOAD: y_codes is fit-constant across every call this executor sees in one
         # fit (see module docstring); resident_operand dedups the H2D on repeat content instead of a fresh
         # cp.asarray every call. y_min/n_classes are derived HOST-side (numpy min/max on the same array the
-        # upload hashes) instead of a device .min()/.max().item(), which is a blocking D2H sync -- computing
+        # upload hashes) instead of a device .min()/.max().item(), which is a blocking D2H sync - computing
         # them host-side removes that sync entirely, on both a cache hit AND a miss.
         from .._fe_resident_operands import resident_operand
         y_host = np.ascontiguousarray(y_codes, dtype=np.int64)
@@ -80,7 +80,7 @@ def gpu_fe_batch_mi(
             sl = slice(s, min(s + chunk, k))
             block = np.ascontiguousarray(X[:, sl])
             Xg = cp.asarray(block)
-            # FE scrub (inf/-inf/nan -> 0, the FE convention -- NOT cupy's default inf->float-max). cupy's
+            # FE scrub (inf/-inf/nan -> 0, the FE convention - NOT cupy's default inf->float-max). cupy's
             # nan_to_num always runs a full array scan (_check_nan_inf, ~12% of the GPU wall here), so callers
             # that already guarantee finite columns (e.g. the orth path's dense finite-filtered subset) pass
             # scrub=False to skip it entirely. Default True keeps the generic path safe on non-finite input.
@@ -91,8 +91,8 @@ def gpu_fe_batch_mi(
             out[sl] = np.asarray(_plugin_mi_classif_batch_cuda_resident(Xg, y_gpu, nbins, y_min=y_min, n_classes=n_classes, keep_dtype=_f32))
             del Xg
             if free_blocks:
-                # Investigated (2026-07-13): this forces a real cudaFree + fresh cudaMalloc on the NEXT
-                # chunk instead of cupy pool reuse -- a genuine cost. Left unchanged: this executor is
+                # Investigated: this forces a real cudaFree + fresh cudaMalloc on the NEXT
+                # chunk instead of cupy pool reuse - a genuine cost. Left unchanged: this executor is
                 # reached repeatedly across a whole fit (once per candidate-matrix batch, many batches) and
                 # concurrently across devices from ``multi_gpu_fe_batch_mi``'s ThreadPoolExecutor, and
                 # verifying pool-retention is safe under both (no cross-call/cross-device VRAM-budget
@@ -116,7 +116,7 @@ def multi_gpu_fe_batch_mi(
     packer (faster GPU gets more), and each device scores its columns resident IN PARALLEL (one thread per
     device; cupy device contexts are thread-local). Per-column MI is assignment-invariant, so the result is
     identical to the single-GPU path regardless of how columns are spread (``test_fe_multi_gpu``). Collapses
-    to the single-device executor when 0 or 1 device is visible -- the multi-GPU code runs unchanged on a
+    to the single-device executor when 0 or 1 device is visible - the multi-GPU code runs unchanged on a
     1-GPU host. ``profiles`` (a list of ``DeviceProfile``) overrides enumeration (used by tests).
     """
     from concurrent.futures import ThreadPoolExecutor

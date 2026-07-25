@@ -41,21 +41,21 @@ from ._batch_mi_noise_gate_kernels import (
 # So the GPU win starts at n>=~2000 AND K>=256 on this host AND GROWS with n (the O(n*K)
 # counting amortises the fixed H2D + launch overhead); below that the launch + H2D
 # overhead loses to the tiny CPU joint-hist pass. (Note the CPU njit-prange has a sharp
-# slowdown at n=2407,K>=1024 -- per-thread (nbins x K_y) joint buffers x 1024 columns
-# thrash cache -- which widens the GPU win there; the cache captures it.)
+# slowdown at n=2407,K>=1024 - per-thread (nbins x K_y) joint buffers x 1024 columns
+# thrash cache - which widens the GPU win there; the cache captures it.)
 GPU_MIN_ROWS = 2_000
 GPU_MIN_COLS = 256
 
-# LARGE-N ROUTING FIX (2026-06-08). The sweep grid previously topped out at
+# LARGE-N ROUTING FIX. The sweep grid previously topped out at
 # n_rows=10000, so EVERY query beyond it (the n=50000/100000/1M FE batches the
 # large-n MRMR path actually produces) fell through to the multi-dim grid's
-# "catch-all" region -- whose winner is the decision at the LARGEST swept cell
+# "catch-all" region - whose winner is the decision at the LARGEST swept cell
 # (n_rows=10000, n_cols=4096). On a card where that corner does not win for GPU
 # (e.g. the 4GB 1050 Ti, where K=4096 OOMs -> CPU), the catch-all is CPU and the
-# GPU path is DEAD for ALL large n at ALL K -- even though the GPU is measured
+# GPU path is DEAD for ALL large n at ALL K - even though the GPU is measured
 # 26-33x FASTER and bit-identical at n=100000, K=256/1024. Extending the grid to
 # n_rows=50000/100000 makes the catch-all corner a genuine large-n cell, so on
-# capable HW (>=8GB Ampere/Hopper -- e.g. the user's RTX 2070, where the
+# capable HW (>=8GB Ampere/Hopper - e.g. the user's RTX 2070, where the
 # (100000, n_cols[-1]) corner fits in memory and GPU wins) the cache routes large
 # batches to GPU. On this 4GB box the top-K corner still OOMs -> the corner picks
 # CPU (correct locally), but the per-cell large-n bands at GPU-friendly K
@@ -96,7 +96,7 @@ def _run_batch_mi_noise_gate_sweep() -> list:
     """Full (n_rows x n_cols) grid sweep -> backend_choice regions: cpu / cuda /
     cupy, fastest BIT-IDENTICAL variant per cell. The GPU variants are exact (they
     only move the integer counting to the GPU; entropy stays on the bit-exact CPU
-    path), so equivalence holds at array_equal -- a tight rtol/atol is used for the
+    path), so equivalence holds at array_equal - a tight rtol/atol is used for the
     sweep's equivalence harness."""
     from pyutilz.dev.benchmarking import sweep_backend_grid
     from .batch_mi_noise_gate_gpu import batch_mi_with_noise_gate_cuda, batch_mi_with_noise_gate_cupy
@@ -109,12 +109,12 @@ def _run_batch_mi_noise_gate_sweep() -> list:
     if _CUPY_AVAIL:
         variants["cupy"] = lambda *a: batch_mi_with_noise_gate_cupy(*a)
     # MEMORY-AWARE grid filter. The CPU reference kernel allocates ~int64 (n, K) intermediates, so the
-    # top cell (100k x 4096 ~ 3 GiB) OOMs the HOST on RAM-tight boxes and -- because the per-cell guard
-    # does not cover the shared input-gen + reference allocation -- kills the WHOLE sweep, leaving 0
+    # top cell (100k x 4096 ~ 3 GiB) OOMs the HOST on RAM-tight boxes and - because the per-cell guard
+    # does not cover the shared input-gen + reference allocation - kills the WHOLE sweep, leaving 0
     # regions (so the dispatch is stuck on the fallback heuristic forever). Drop the n_cols that would
     # exceed a fraction of free host RAM at the largest n_row, so the sweep COMPLETES with the runnable
     # cells (partial per-host tuning beats no tuning). The cartesian grid only lets us filter whole
-    # columns; that is acceptable -- the dropped large-K-at-large-n cells are exactly the OOM ones, and
+    # columns; that is acceptable - the dropped large-K-at-large-n cells are exactly the OOM ones, and
     # the fallback (cupy at K>=256) already routes them correctly.
     n_rows = list(_BMING_SWEEP_N_ROWS)
     n_cols = list(_BMING_SWEEP_N_COLS)
@@ -157,7 +157,7 @@ def _batch_mi_noise_gate_code_version():
 def ensure_batch_mi_noise_gate_tuning(force: bool = False):
     """Force-run the ``batch_mi_noise_gate`` CPU-vs-GPU sweep and persist it per-host.
 
-    This is the CLI / ``refresh-all`` entry point that was MISSING -- without it the noise-gate sweep
+    This is the CLI / ``refresh-all`` entry point that was MISSING - without it the noise-gate sweep
     only ever fired ASYNC during the first real fit (a multi-minute grid sweep that thrashes the GPU
     mid-MRMR). Pre-running it via the CLI avoids that first-fit cost. Persists with the SAME
     ``code_version`` + ``axes`` the live dispatch's ``get_or_tune`` uses (see

@@ -2,11 +2,11 @@
 
 Public functions
 ----------------
-* ``mi_direct(factors_data, x, y, ...)`` -- compute the original MI of ``(x, y)``, then permute ``y`` ``npermutations`` times and count how often the permuted
+* ``mi_direct(factors_data, x, y, ...)`` - compute the original MI of ``(x, y)``, then permute ``y`` ``npermutations`` times and count how often the permuted
   MI exceeds the original. Optionally distributes the permutations across joblib workers.
-* ``parallel_mi`` -- the inner ``@njit`` worker that ``mi_direct`` ships to joblib pool members.
-* ``shuffle_arr`` -- ``@njit`` shim around ``np.random.shuffle`` so it's callable from ``parallel_mi``.
-* ``distribute_permutations`` -- partition the permutation budget across worker chunks.
+* ``parallel_mi`` - the inner ``@njit`` worker that ``mi_direct`` ships to joblib pool members.
+* ``shuffle_arr`` - ``@njit`` shim around ``np.random.shuffle`` so it's callable from ``parallel_mi``.
+* ``distribute_permutations`` - partition the permutation budget across worker chunks.
 
 Both ``parallel_mi`` and the caller-side ``confidence = 1 - nfailed / (i + 1)`` guard against ``npermutations == 0`` (returns ``(0, 0)`` from the worker,
 confidence ``0.0`` from the caller) to avoid ``UnboundLocalError`` on ``i`` when the for-loop never executes.
@@ -28,12 +28,12 @@ from ._internals import NMAX_NONPARALLEL_ITERS
 # ``state >> np.uint64(..)`` arithmetic) without a function call in the signature default.
 _DEFAULT_BASE_SEED = np.uint64(0)
 
-# HISTORICAL (2026-07-19): a first pass at this fix gated the "outer" joblib.Parallel pool behind a measured
+# HISTORICAL: a first pass at this fix gated the "outer" joblib.Parallel pool behind a measured
 # floor, ``_OUTER_PARALLEL_MIN_PERMUTATIONS = 64`` (npermutations=10 -> 0.36-0.40x SLOWER than serial at
 # n=99401, =100 -> 1.45-1.79x, crossover ~50-100). A follow-up head-to-head bench
 # (``_benchmarks/bench_permutation_njit_prange_vs_joblib.py``) found the existing ``parallel_mi_prange`` njit
 # kernel dominates the joblib pool at EVERY scale tested (including above the floor), so the pool branch was
-# retired outright (see the comment block at its former call site) rather than merely gated -- the constant
+# retired outright (see the comment block at its former call site) rather than merely gated - the constant
 # itself is no longer needed and was removed as dead code.
 from .info_theory import (
     merge_vars, compute_relevance_score, use_su_normalization, use_mi_miller_madow, use_mi_chao_shen,
@@ -41,11 +41,11 @@ from .info_theory import (
 
 logger = logging.getLogger(__name__)
 
-# GPU CIRCUIT BREAKER (2026-07-09 fix, mirrors info_theory._cmi_cuda's ``_CMI_GPU_FAILED``). Before this,
+# GPU CIRCUIT BREAKER. Before this,
 # ``mi_direct``'s GPU fastpath had no persistent failure memory: a CUDA context poisoned by ONE launch fault
-# (see _cmi_cuda.py's own circuit-breaker docstring for the mechanism -- a launch fault poisons the context, so
+# (see _cmi_cuda.py's own circuit-breaker docstring for the mechanism - a launch fault poisons the context, so
 # every subsequent launch on it faults identically) meant every SUBSEQUENT ``mi_direct`` call would re-attempt
-# the GPU, fail again, and pay the same failed-launch overhead -- a retry-storm identical in kind to the
+# the GPU, fail again, and pay the same failed-launch overhead - a retry-storm identical in kind to the
 # "1515 futile GPU retries" incident that motivated the CMI-path breaker, just not yet mirrored here. Trips on
 # the first GPU-fastpath exception; every subsequent call in this process routes straight to CPU without
 # re-attempting. Reset only via ``reset_mi_direct_gpu_circuit_breaker()`` (tests / a fresh CUDA context).
@@ -60,9 +60,9 @@ def reset_mi_direct_gpu_circuit_breaker() -> None:
 
 # Number of y-permutations used by ``mi_direct(return_null_mean=True)`` to estimate BOTH the empirical relevance null mean AND the permutation p-value that gates the
 # significance-aware debiasing in ``evaluate_candidate``. The MRMR screen's exceedance budget (``baseline_npermutations``, default 2) is far too few shuffles for either
-# purpose -- 2 samples give a null-mean estimate with ~70% relative noise and a p-value that resolves only to {0, 0.5, 1.0}. 32 serves two needs: (a) it brings the null-mean
+# purpose - 2 samples give a null-mean estimate with ~70% relative noise and a p-value that resolves only to {0, 0.5, 1.0}. 32 serves two needs: (a) it brings the null-mean
 # standard error down ~4x, and (b) it makes the p-value resolve to 1/32 ~ 0.031, FINE ENOUGH for a textbook alpha=0.05 significance cut to cleanly separate weak-but-real
-# signal (sits above its null, p ~ 0) from spurious noise (sits within its null, p large) -- at 16 perms the p-resolution (1/16 ~ 0.0625) is coarser than alpha and the gate
+# signal (sits above its null, p ~ 0) from spurious noise (sits within its null, p large) - at 16 perms the p-resolution (1/16 ~ 0.0625) is coarser than alpha and the gate
 # would have to demand ZERO exceedances, which is too strict for a genuinely-weak leg whose null occasionally ties it. 32 of these per candidate is still microseconds on the
 # screening hot path (each is one ``compute_relevance_score`` call). Tunable via the ``MLFRAME_MRMR_NULL_PERMS`` env var for users who want a tighter/looser null estimate.
 import os as _os
@@ -88,14 +88,14 @@ def _relevance_mi_1var_fused(
     Returns ``(mi, bx)`` where ``mi`` is BIT-IDENTICAL to
     ``compute_mi_from_classes(*merge_vars(factors_data, [ix], ...)[:2], classes_y, freqs_y)``
     and ``bx`` equals the pruned ``len(freqs_x)`` (occupied x-bins) that
-    ``merge_vars`` returns -- exactly the two quantities the ANALYTIC-null branch of
+    ``merge_vars`` returns - exactly the two quantities the ANALYTIC-null branch of
     ``mi_direct`` consumes (``_ax_freqs.shape[0]`` and the MI). The legacy path built the
     length-n ``classes_x`` relabel array via ``merge_vars`` (one O(n) accumulate pass plus a
     second O(n) lookup-remap pass when any x-bin is empty) and then walked all n samples AGAIN
-    inside ``compute_mi_from_classes`` to build the joint histogram -- and the analytic branch
+    inside ``compute_mi_from_classes`` to build the joint histogram - and the analytic branch
     DISCARDS ``classes_x`` entirely (it needs only ``len(freqs_x)`` and the MI scalar). This
     kernel builds the ``(nb_x, K_y)`` joint histogram directly from ``factors_data[:, ix]`` and
-    ``classes_y`` in a SINGLE row pass, then derives ``freqs_x`` from the row sums -- eliminating
+    ``classes_y`` in a SINGLE row pass, then derives ``freqs_x`` from the row sums - eliminating
     the separate ``merge_vars(x)`` pass + its ``final_classes``/lookup allocations. Mirrors the
     ``joint_freqs_2var`` / ``joint_entropy_2var`` pruned-fast-path wins on the DCD pairwise path.
 
@@ -107,7 +107,7 @@ def _relevance_mi_1var_fused(
       * ``prob_x = rowcount / n`` reproduces ``merge_vars``'s ``freqs / n_rows`` (int64 count,
         float64 true division); ``prob_y = freqs_y[j]`` is passed through unchanged; and
         ``jf = jc * inv_n`` with ``inv_n = 1.0 / n`` matches ``compute_mi_from_classes`` exactly
-        -- same operands, same order, so the ``jf*log(jf/(prob_x*prob_y))`` terms accumulate
+        - same operands, same order, so the ``jf*log(jf/(prob_x*prob_y))`` terms accumulate
         bit-for-bit.
       * Empty x-bins (and empty joint cells) contribute nothing to MI in EITHER path, so pruning
         vs skipping is numerically inert.
@@ -198,7 +198,7 @@ def _shuffle_arr_lcg_kernel(arr: np.ndarray, state: np.uint64) -> np.uint64:
 
 
 def shuffle_arr_lcg(arr: np.ndarray, state: np.uint64) -> np.uint64:
-    """Inline LCG Fisher-Yates -- same RNG pattern as
+    """Inline LCG Fisher-Yates - same RNG pattern as
     ``parallel_mi_besag_clifford`` (LCG state-machine + bit-shifted high
     bits modulo j+1). Returns the post-shuffle state so the caller threads
     it across iterations.
@@ -211,18 +211,18 @@ def shuffle_arr_lcg(arr: np.ndarray, state: np.uint64) -> np.uint64:
     regardless of whether the shuffle source is numba's np.random or an
     inline LCG.
 
-    Thin Python wrapper around ``_shuffle_arr_lcg_kernel`` (2026-07-10 fix): numba boxes a
+    Thin Python wrapper around ``_shuffle_arr_lcg_kernel``: numba boxes a
     ``uint64`` return value as a plain Python ``int``, not an ``np.uint64`` scalar. Once the LCG
-    state's high bit sets (roughly even odds per iteration once the stream looks random --
+    state's high bit sets (roughly even odds per iteration once the stream looks random -
     typically within the first few calls), re-passing that bare ``int`` into another njit call made
     numba infer ``int64`` (a raw Python int carries no dtype), which fails to unbox with
     ``OverflowError: int too big to convert`` for any value >= 2**63. Confirmed via a minimal
     repro: the failure is at the numba dispatcher's argument-unboxing boundary (not inside the
-    kernel body), single-threaded, with no other cause -- pre-existing, unrelated to this session's
+    kernel body), single-threaded, with no other cause - pre-existing, unrelated to this session's
     ``nogil=True`` addition (reproduces identically without it). Explicitly wrapping both the input
     and the return in ``np.uint64(...)`` at the PYTHON level (not inside numba) reconstructs a real
     ``np.uint64`` scalar object each time, which numba always unboxes correctly regardless of
-    magnitude -- verified over 5000 chained calls with zero failures (pre-fix: fails within 1-5
+    magnitude - verified over 5000 chained calls with zero failures (pre-fix: fails within 1-5
     calls almost every seed).
     """
     return cast(np.uint64, np.uint64(_shuffle_arr_lcg_kernel(arr, np.uint64(state))))
@@ -241,7 +241,7 @@ def parallel_mi_besag_clifford(
     p_high: float = 0.05,
     min_perms: int = 30,
     dtype: type = np.int32,
-    use_su: bool = False,  # 2026-05-28: SU normalization toggle threaded from mi_direct.
+    use_su: bool = False,  # SU normalization toggle threaded from mi_direct.
 ) -> tuple:
     """Besag-Clifford sequential permutation test with early stopping.
 
@@ -250,7 +250,7 @@ def parallel_mi_besag_clifford(
     interval on the p-value after each permutation; once the CI falls entirely below ``p_low`` (clearly significant) or entirely above ``p_high`` (clearly
     null) we can stop without running the rest of the budget. Saves 5-10x permutations on average for typical mRMR workloads.
 
-    Returns ``(nfailed, nchecked)`` -- same contract as ``parallel_mi``.
+    Returns ``(nfailed, nchecked)`` - same contract as ``parallel_mi``.
 
     References: Besag & Clifford (1991) "Sequential Monte Carlo p-values." Biometrika 78(2): 301-304.
     """
@@ -261,7 +261,7 @@ def parallel_mi_besag_clifford(
     nfailed = 0
     i = 0
 
-    # Single LCG state -- this is sequential by nature (running CI test).
+    # Single LCG state - this is sequential by nature (running CI test).
     state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(1)
     local = classes_y.copy()
 
@@ -315,7 +315,7 @@ def parallel_mi_besag_clifford_with_null(
     """Null-mean-accumulating twin of :func:`parallel_mi_besag_clifford`.
 
     Bit-identical ``(nfailed, nchecked)`` to the legacy kernel (same LCG stream, same early-stop logic) but ALSO accumulates the sum of the per-permutation MIs it
-    already computes and returns ``(nfailed, nchecked, sum_perm_mi)``. The empirical permutation-null mean is ``sum_perm_mi / max(1, nchecked)`` -- it costs nothing
+    already computes and returns ``(nfailed, nchecked, sum_perm_mi)``. The empirical permutation-null mean is ``sum_perm_mi / max(1, nchecked)`` - it costs nothing
     extra because ``mi_perm`` is computed regardless; the legacy kernel simply discarded it. Kept as a sibling (not an in-place edit) so the 2-tuple contract every
     existing caller and test relies on stays untouched.
     """
@@ -370,7 +370,7 @@ def parallel_mi_prange(
     original_mi: float,
     base_seed: np.uint64,
     dtype: type = np.int32,
-    use_su: bool = False,  # 2026-05-28: SU normalization toggle threaded from mi_direct.
+    use_su: bool = False,  # SU normalization toggle threaded from mi_direct.
 ) -> tuple:
     """Inner-loop parallel permutation test.
 
@@ -379,7 +379,7 @@ def parallel_mi_prange(
     bit-exact across ``n_workers in {1, 2, 4, 8}`` for the same ``base_seed`` (verified by ``test_phase1_reproducibility``).
 
     Differences from ``parallel_mi`` (joblib-process worker):
-    * No early termination on ``nfailed >= max_failed`` -- every permutation in the budget runs because ``prange`` iterations are independent. For short budgets
+    * No early termination on ``nfailed >= max_failed`` - every permutation in the budget runs because ``prange`` iterations are independent. For short budgets
       (npermutations < 30) the early-exit win was negligible anyway.
     * No global ``np.random.shuffle``; manual Fisher-Yates with a per-iteration LCG so the parallel race that legacy code hit under multi-thread numba is gone
       by construction.
@@ -432,7 +432,7 @@ def parallel_mi_prange_with_null(
     ``use_mm``/``use_cs`` (critique N-F1, extended to Chao-Shen at ): the permutation null
     MUST use the SAME estimator as the observed relevance it is tested against. The observed MI is
     computed with Miller-Madow or Chao-Shen when the corresponding ``mi_correction`` is active, so each
-    shuffle's MI is computed with the same correction too -- otherwise the exceedance test compares
+    shuffle's MI is computed with the same correction too - otherwise the exceedance test compares
     plug-in shuffles against a corrected observed value (over-rejection) AND
     ``observed_corrected - null_mean_plugin`` subtracts a mismatched bias (double correction). No-op
     when both are False (the default), so the plug-in path is unchanged.
@@ -481,7 +481,7 @@ def parallel_mi(
     max_failed: int,
     dtype: type = np.int32,
     base_seed: np.uint64 = _DEFAULT_BASE_SEED,
-    use_su: bool = False,  # 2026-05-28: SU normalization toggle threaded from mi_direct.
+    use_su: bool = False,  # SU normalization toggle threaded from mi_direct.
     perm_offset: int = 0,  # 2026-05-30 Wave 9.1 iter 18: cumulative permutation index offset for n_workers-independent seeding.
 ) -> tuple[int, int]:
     """Worker for the joblib pool used by ``mi_direct``. Returns ``(n_failed, n_checked)`` so the caller can aggregate across pool members. ``npermutations=0`` returns ``(0, 0)`` cleanly.
@@ -489,7 +489,7 @@ def parallel_mi(
     ``base_seed`` threads a per-worker seed through the inline LCG Fisher-Yates so two parallel suite calls with the same seed produce identical ``(nfailed, _i+1)`` output. ``base_seed=0`` keeps the legacy stream
     deterministic across calls in the same process; parent callers (``mi_direct`` joblib branch) should derive per-worker seeds via Knuth multiplicative hash so the worker streams stay independent.
 
-    2026-05-30 Wave 9.1 fix (loop iter 18): switched to per-permutation
+    Switched to per-permutation
     LCG seeding (``base_seed * 2654435761 + (perm_offset + i + 1)``)
     matching ``parallel_mi_prange``. Pre-fix the function advanced a
     single LCG across all iterations from ``base_seed``, so the random
@@ -554,7 +554,7 @@ def parallel_mi_with_null(
     """Null-mean-accumulating twin of :func:`parallel_mi` (joblib worker).
 
     Returns ``(nfailed, nchecked, sum_perm_mi)``; the first two are bit-identical to the legacy worker for the same ``(base_seed, perm_offset, npermutations)``. Note the
-    ``max_failed`` early break is preserved, so on a clearly-non-significant candidate the worker stops early and ``nchecked < npermutations`` -- the null mean is then the
+    ``max_failed`` early break is preserved, so on a clearly-non-significant candidate the worker stops early and ``nchecked < npermutations`` - the null mean is then the
     average over the perms actually run (``sum_perm_mi / nchecked``), which is the correct empirical estimate for the perms drawn. Used only by the ``return_null_mean`` path,
     which always runs the full budget (``max_failed`` set to a no-trip sentinel) so the null mean is over all ``npermutations`` shuffles.
     """
@@ -610,7 +610,7 @@ def mi_direct(
     """CPU mutual-information + permutation-test wrapper.
 
     ``return_null_mean`` (default ``False``, fully backward-compatible): when ``True`` the call returns a 4-tuple ``(original_mi, confidence, null_mean, p_value)`` instead of
-    the 2-tuple. ``null_mean`` is the EMPIRICAL permutation-null mean MI -- the average of the ``mi_perm`` values the permutation kernels already compute -- and ``p_value`` is
+    the 2-tuple. ``null_mean`` is the EMPIRICAL permutation-null mean MI - the average of the ``mi_perm`` values the permutation kernels already compute - and ``p_value`` is
     the permutation p-value ``nfailed / nchecked`` (the fraction of shuffles whose MI tied or beat the observed MI). The MRMR screen uses BOTH for SIGNIFICANCE-GATED debiasing:
     a feature that is permutation-SIGNIFICANT (``p_value < alpha``) keeps its full observed MI (protecting weak-but-real signal that sits above its own null), while a feature
     that is NOT significant (``p_value >= alpha``) has the null mean subtracted (``relevance = max(0, observed - null_mean)``), demoting spurious high-cardinality / heavy-tailed
@@ -618,7 +618,7 @@ def mi_direct(
     mean (coarse binning inflates the plug-in null), but only noise sits WITHIN its null distribution. Default ``False`` so every existing caller is unaffected.
 
     ``parallelism`` modes:
-    * ``"outer"`` (default): RETIRED as a joblib pool (2026-07-19) -- always dispatches to the same ``parallel_mi_prange`` njit kernel as ``"inner"``,
+    * ``"outer"`` (default): RETIRED as a joblib pool - always dispatches to the same ``parallel_mi_prange`` njit kernel as ``"inner"``,
       regardless of ``n_workers``. The joblib.Parallel(backend="threading") pool this mode used to build is strictly dominated by ``parallel_mi_prange``
       at every scale measured (see ``_benchmarks/bench_permutation_njit_prange_vs_joblib.py``: n=100000/npermutations=500 -> prange 4.57x over serial vs
       joblib 1.6-1.7x; n=20000/npermutations=500 -> prange 7.26x vs joblib 3.3-4.1x), so the pool code is kept only as an inline comment for reference and
@@ -632,14 +632,14 @@ def mi_direct(
     if parallel_kwargs is None:
         parallel_kwargs = {}
 
-    # ---- Analytic large-n null (2026-06-16) -------------------------------------------------------
-    # The permutation null -- the CPU prange shuffles AND the GPU cupy-argsort branch just below --
+    # ---- Analytic large-n null -------------------------------------------------------
+    # The permutation null - the CPU prange shuffles AND the GPU cupy-argsort branch just below -
     # is the dominant large-n cost (bench_scaling: the GPU argsort permutation generator was 72% of a
     # 400k fit). At large n the plug-in MI null is analytic, so the shuffles are unnecessary:
     #   null_mean = (Bx-1)(By-1)/(2N)  [nats, Miller-Madow]    p = chi2.sf(2N*MI, (Bx-1)(By-1)) [G-test].
     # Validated against the permutation kernel (npermutations=64) across n in {5k..200k}: the null mean
     # matches to 3+ digits even at 5k and the p reproduces the significance decision. Engaged ONLY when
-    # MI is raw (NOT SU-normalised -- the 2N*MI~chi2 identity requires it) AND n >= a threshold; below
+    # MI is raw (NOT SU-normalised - the 2N*MI~chi2 identity requires it) AND n >= a threshold; below
     # it the legacy permutation path runs byte-for-byte unchanged. Covers BOTH the 2-tuple confidence
     # and 4-tuple null-mean contracts, so it also bypasses the GPU permutation branch below.
     try:
@@ -647,9 +647,9 @@ def mi_direct(
             analytic_mi_null, analytic_null_enabled, analytic_null_min_n, analytic_null_applicable,
         )
 
-        # SCREEN_CONFIRM_B-2 fix: the analytic-null fast path returned RAW plug-in
+        # The analytic-null fast path returned RAW plug-in
         # MI unconditionally (compute_relevance_score(False, ...), no use_mm/use_cs) while the sub-threshold
-        # permutation path below always applies the active mi_correction -- a silent formula discontinuity
+        # permutation path below always applies the active mi_correction - a silent formula discontinuity
         # in the reported relevance value exactly at the analytic_null_min_n() threshold whenever
         # mi_correction='miller_madow'/'chao_shen' is active. Fall through to the exact permutation path
         # (unchanged) when either correction is active, matching the existing SU/sparsity fall-through pattern.
@@ -672,7 +672,7 @@ def mi_direct(
         _n_rows = int(factors_data.shape[0])
         _by = int(freqs_y.shape[0])
         # FUSED single-var fast path (wasted-per-call-work audit, 2026-07-05): the analytic branch
-        # needs only the MI scalar + the occupied-x-bin count -- it DISCARDS the length-n classes_x
+        # needs only the MI scalar + the occupied-x-bin count - it DISCARDS the length-n classes_x
         # that merge_vars(x) builds. For the single-variable relevance x (every MRMR/FE caller passes
         # x=(var,) / x=[0]), ``_relevance_mi_1var_fused`` builds the joint histogram + MI + bx in ONE
         # O(n) pass, skipping the separate merge_vars(x) accumulate (+ remap) pass entirely.
@@ -716,7 +716,7 @@ def mi_direct(
     # time. Same ``(original_mi, confidence)`` contract.
     #
     # Gating notes:
-    #   * ``parallelism in ("outer", "none")`` -- the inner/besag-clifford
+    #   * ``parallelism in ("outer", "none")`` - the inner/besag-clifford
     #     paths have their own numba-prange or sequential contracts that
     #     don't compose with GPU dispatch.
     #   * ``classes_y_safe`` is intentionally NOT a gate condition. The
@@ -730,8 +730,8 @@ def mi_direct(
     # surface the empirical null, and the screen's relevance-baseline budget (``npermutations<32``) never reaches the GPU branch anyway, so routing-to-CPU here costs nothing
     # in practice; it only guards the unusual case of a caller asking for the null mean with a large budget on a CUDA host.
     if prefer_gpu and npermutations >= 32 and parallelism in ("outer", "none") and not return_null_mean and not _MI_DIRECT_GPU_FAILED:
-        # SCREEN_CONFIRM_B-4 fix: this internal fastpath gate never consulted
-        # gpu_globally_disabled()/MLFRAME_DISABLE_GPU -- only is_cuda_available() (honors
+        # This internal fastpath gate never consulted
+        # gpu_globally_disabled()/MLFRAME_DISABLE_GPU - only is_cuda_available() (honors
         # CUDA_VISIBLE_DEVICES but not the mlframe-specific opt-out). A caller that decided NOT to use
         # GPU (e.g. confirm_candidate's _confirm_use_gpu=False fallback, which calls plain mi_direct()
         # with no prefer_gpu=False) could have mi_direct silently re-route to GPU anyway once
@@ -744,7 +744,7 @@ def mi_direct(
             _gpu_ok = False
         if _gpu_ok:
             # Proactive VRAM headroom check: before this,
-            # ``mi_direct``'s GPU fastpath had no upfront capacity guard -- unlike the CMI path
+            # ``mi_direct``'s GPU fastpath had no upfront capacity guard - unlike the CMI path
             # (``_cmi_cuda._should_use_cuda``), which already probes ``memGetInfo`` + calls this SAME
             # ``fe_gpu_has_vram_cushion`` helper before launching. The dominant device buffer here is the
             # batched-permutation y-matrix (``max(npermutations, 64)`` int32 rows of length ``n``, per the
@@ -778,7 +778,7 @@ def mi_direct(
                     use_gpu=True,
                 )
             except Exception as _exc:
-                # Promoted DEBUG -> WARNING + trips the circuit breaker (2026-07-09 fix): a launch fault poisons
+                # Promoted DEBUG -> WARNING + trips the circuit breaker: a launch fault poisons
                 # the CUDA context (see the breaker's module-level docstring), so silently retrying at DEBUG on
                 # every future call was both invisible in a normal INFO-level log AND wasted a repeated failed
                 # launch. First fault routes every subsequent mi_direct call straight to CPU for the rest of the
@@ -790,7 +790,7 @@ def mi_direct(
                     type(_exc).__name__, _exc,
                 )
 
-    # 2026-05-28: read SU toggle once per call; threaded into every njit branch
+    # Read SU toggle once per call; threaded into every njit branch
     # below so cardinality-bias correction stays consistent across the permutation
     # test (original score AND permuted scores both use the same scorer).
     _use_su = use_su_normalization()
@@ -815,9 +815,9 @@ def mi_direct(
         # Dedicated empirical-null sub-path, isolated from the legacy branch tree so it can never perturb existing ``return_null_mean=False`` behaviour. The relevance debiasing
         # needs a STABLE null mean AND a usable permutation p-value, so we run a larger null budget (``_NULL_MEAN_MIN_PERMS``, default 32) than the screen's tiny exceedance budget
         # (``npermutations``, default 2), then average the per-permutation MIs the kernel already computes and count the exceedances. The exceedance/rejection contract is preserved
-        # on a RATE basis: a candidate is rejected (``original_mi -> 0``) only when the null-failure RATE meets the caller's ``1 - min_nonzero_confidence`` floor -- equivalent to the
+        # on a RATE basis: a candidate is rejected (``original_mi -> 0``) only when the null-failure RATE meets the caller's ``1 - min_nonzero_confidence`` floor - equivalent to the
         # legacy budget-absolute ``nfailed >= max_failed`` test at ``n_checked == npermutations``, but correct when the null budget is larger. The screen calls with
-        # ``min_nonzero_confidence=0.0`` so the rate floor is 1.0 (reject only if EVERY shuffle ties/beats observed -- pure noise), keeping the Wave-9.1 unanimous-rejection semantics
+        # ``min_nonzero_confidence=0.0`` so the rate floor is 1.0 (reject only if EVERY shuffle ties/beats observed - pure noise), keeping the Wave-9.1 unanimous-rejection semantics
         # intact. ``p_value = nfailed / n_checked`` is surfaced so the screen can SIGNIFICANCE-GATE the null-mean subtraction (subtract only when the feature is NOT significant).
         null_mean = 0.0
         confidence = 0.0
@@ -841,7 +841,7 @@ def mi_direct(
             if n_checked > 0:
                 null_mean = sum_perm_mi / float(n_checked)
                 # The rejection gate uses the RAW exceedance rate (legacy unanimous-rejection semantics on the screen's tiny budget), while the surfaced p_value / confidence use
-                # the add-one Monte-Carlo estimator -- the gate decision is unchanged, only the reported confidence is calibrated. ``_null_nperms`` is the full budget for P2.
+                # the add-one Monte-Carlo estimator - the gate decision is unchanged, only the reported confidence is calibrated. ``_null_nperms`` is the full budget for P2.
                 _raw_rate = nfailed / float(n_checked)
                 p_value = _perm_pvalue(nfailed, n_checked, full_budget=_null_nperms)
                 confidence = 1.0 - p_value
@@ -874,7 +874,7 @@ def mi_direct(
                 use_su=_use_su,
             )
             i = n_checked - 1
-            # 2026-05-30 Wave 9.1 fix (loop iter 10): use RATE-based check
+            # Use RATE-based check
             # for the BC early-stop path. BC may exit at small ``n_checked``
             # (as low as ``min_perms=30``) when its Wilson CI on the failure
             # rate proves the null hypothesis. In that case ``nfailed`` is
@@ -892,7 +892,7 @@ def mi_direct(
             if nfailed >= max_failed or (n_checked > 0 and (nfailed / float(n_checked)) >= _rate_floor):
                 original_mi = 0.0
         elif parallelism == "inner" and npermutations > NMAX_NONPARALLEL_ITERS:
-            # Inner parallelism via numba prange. Single function call returns (nfailed, npermutations) -- matches outer-pool aggregation contract.
+            # Inner parallelism via numba prange. Single function call returns (nfailed, npermutations) - matches outer-pool aggregation contract.
             nfailed, n_checked = parallel_mi_prange(
                 classes_x=classes_x,
                 freqs_x=freqs_x,
@@ -907,7 +907,7 @@ def mi_direct(
             i = n_checked - 1
             if nfailed >= max_failed:
                 original_mi = 0.0
-        # RETIRED (2026-07-19): the "outer" joblib.Parallel(backend="threading") pool branch used to live here,
+        # RETIRED: the "outer" joblib.Parallel(backend="threading") pool branch used to live here,
         # gated on ``n_workers>1 and npermutations>NMAX_NONPARALLEL_ITERS`` (later tightened to
         # ``npermutations>=_OUTER_PARALLEL_MIN_PERMUTATIONS=64`` after an isolated A/B showed it losing below
         # that budget: 0.36-0.40x at npermutations=10, n=99401). A follow-up head-to-head bench
@@ -918,7 +918,7 @@ def mi_direct(
         # 7.26x vs joblib 3.3-4.1x. Both kernels share the same per-iteration LCG seeding scheme, so their
         # ``(nfailed, n_checked)`` output is bit-identical (verified in the bench and in
         # ``test_mi_direct_outer_parallelism_always_routes_to_prange``). The branch below is kept verbatim
-        # (never executes -- the ``elif`` condition that used to guard it has been removed, so control always
+        # (never executes - the ``elif`` condition that used to guard it has been removed, so control always
         # falls through to the unified ``else`` below) purely as a historical reference for the joblib-based
         # dispatch shape; do not re-enable it without a fresh A/B on current hardware.
         #
@@ -951,7 +951,7 @@ def mi_direct(
             # njit @njit(parallel=True) kernel) for the n_workers<=1 /
             # parallelism="outer" fallback. The kernel was previously
             # gated by ``parallelism == "inner" AND npermutations >
-            # NMAX_NONPARALLEL_ITERS=2`` -- so a default-parameter call
+            # NMAX_NONPARALLEL_ITERS=2`` - so a default-parameter call
             # (n_workers=1, parallelism="outer", npermutations=10) fell
             # to the hand-rolled pure-Python LCG below it instead, which
             # ran 5 million Python loop iterations per call at n=500k
@@ -960,12 +960,12 @@ def mi_direct(
             # MRMR.fit). ``parallel_mi_prange`` implements the SAME
             # per-iter LCG (Knuth multiplicative hash + PCG step) so
             # the (nfailed, n_checked) output is bit-equivalent to what
-            # the legacy Python loop produced -- the Wave 9.1 iter-18
+            # the legacy Python loop produced - the Wave 9.1 iter-18
             # fix (PRESERVED in this routing) aligned the seeding
             # schemes for exactly this reason. Below the kernel call
             # the early-stop ``if nfailed >= max_failed: original_mi = 0``
             # branch is preserved because ``parallel_mi_prange`` runs
-            # the full budget (no early exit -- prange iterations are
+            # the full budget (no early exit - prange iterations are
             # independent), matching the inner-parallel contract at
             # line 412-427.
             nfailed, n_checked = parallel_mi_prange(

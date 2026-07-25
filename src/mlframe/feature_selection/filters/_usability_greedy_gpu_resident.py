@@ -5,7 +5,7 @@ RESIDENCY CONTRACT (not a wall win). Gated on the resident flag
 this GTX 1050 Ti the usability greedy runs on a ~3000-row pool subsample, so the
 cupy launch + reduction overhead dominates the tiny per-fold linear algebra and
 this twin is EXPECTED to be SLOWER than the incremental-bordered numpy/sklearn CPU
-path -- and that is a PASS by the residency contract. The twin exists to KILL the
+path - and that is a PASS by the residency contract. The twin exists to KILL the
 per-candidate value D2H/H2D churn the gated ``_usability_gpu`` primitives incur:
 the prior GPU usability path (``MLFRAME_FE_GPU_USABILITY``) re-uploaded each
 candidate's column and pulled each scalar back PER candidate PER fold PER round
@@ -14,14 +14,14 @@ twin uploads the candidate value matrix + the target ONCE (one bulk H2D at entry
 and keeps EVERYTHING resident across all rounds/folds: the per-round held-out
 residual + the |corr| shortlist (one device GEMV over all candidates), and the
 per-candidate K-fold CV-MAE via the SAME incremental bordered normal equations as
-the CPU path -- pulling back only bounded per-round SCALARS (the shortlist order is
+the CPU path - pulling back only bounded per-round SCALARS (the shortlist order is
 recovered on host from a small (P,) score vector; the per-candidate fold-MAE
 matrix is a bounded (shortlist, n_folds) result, NOT per-candidate value data).
 
 What is resident vs host control-flow (allowed by the contract):
   * RESIDENT (one bulk H2D at entry): the (n, P) candidate value matrix ``Vdev``
-    (float64) and the (n,) target ``ydev``. From them every round computes -- on
-    device -- the selected-set design, the held-out residual, the centered |corr|
+    (float64) and the (n,) target ``ydev``. From them every round computes - on
+    device - the selected-set design, the held-out residual, the centered |corr|
     of EVERY candidate vs that residual (the shortlist score), and for the
     shortlisted candidates the bordered (k+1)x(k+1) Gram solve per fold giving the
     per-fold MAE. NO per-candidate H2D and NO per-candidate value D2H.
@@ -40,7 +40,7 @@ minimiser sklearn's StandardScaler+LinearRegression also finds), the same
 majority-of-folds (>=75%) improvement gate, the same relative-MAE stop. Only the
 float reduction ORDER differs between cupy and numpy (~1e-12), to which the
 majority-of-folds gate is tolerant in practice (F2 selection-equivalent). NOTE: there
-is NO explicit near-tie detector here -- the only fall-throughs to the exact CPU path
+is NO explicit near-tie detector here - the only fall-throughs to the exact CPU path
 are the singular-border ``_ResidentFallbackError`` (refits exactly) and any cupy/device
 error (returns None); a pathological reduction-order tie that the gate cannot absorb
 is a theoretical residual, not a guarded case.
@@ -80,8 +80,8 @@ def usability_greedy_gpu_resident(
 
     Returns the SAME selected ``UsableCandidate`` list (selection-equivalent: same
     indices in the same order) as the CPU greedy, computed with the candidate value
-    matrix resident on the GPU. Returns ``None`` -- so the caller falls back to the
-    exact CPU path -- for the classification scorer, an empty/degenerate pool, or
+    matrix resident on the GPU. Returns ``None`` - so the caller falls back to the
+    exact CPU path - for the classification scorer, an empty/degenerate pool, or
     any cupy/device/import error.
 
     The signature mirrors the CPU function exactly (the dispatcher forwards every
@@ -158,7 +158,7 @@ def usability_greedy_gpu_resident(
         mi_max = max((c.mi for c in pool), default=1.0) or 1.0
         mi_dev = cp.asarray(np.asarray([float(c.mi) for c in pool], dtype=np.float64))
 
-        # Resident per-fold train/val ROW INDICES (n,) -- reused every round. Integer indices, not boolean
+        # Resident per-fold train/val ROW INDICES (n,) - reused every round. Integer indices, not boolean
         # masks: a boolean-mask gather Vdev[mask] / ci[mask] re-syncs on the mask nonzero count for EVERY
         # candidate and fold (the dominant residency stall in this path), whereas an integer-index gather has a
         # known output size (no sync). The cp.where cost is paid once here (2*nf syncs) instead of per gather.
@@ -219,9 +219,9 @@ def usability_greedy_gpu_resident(
             sel_set = set(sel_idx)
             scored = []
             mi_host = cp.asnumpy(mi_dev)
-            # GPU_INFRA_C-7 fix: `uses` is already a host numpy array here --
+            # `uses` is already a host numpy array here -
             # _abscorr_batch_resident is type-hinted -> np.ndarray and returns np.asarray(cp.asnumpy(out))
-            # on every branch -- so the `cp.asnumpy(uses) if hasattr(...) else ...` dead branch (left over
+            # on every branch - so the `cp.asnumpy(uses) if hasattr(...) else ...` dead branch (left over
             # from an earlier refactor where the function may have returned a device array) always took the
             # no-op np.asarray(uses) path. Removed; uses is used directly.
             uses_host = uses
@@ -264,7 +264,7 @@ def usability_greedy_gpu_resident(
             """{cand_i: per-fold MAE (nf,)} via the bordered normal equations, fully resident. Per fold the
             selected-set centered Gram + rhs are built ONCE; each candidate is a rank-1 border solved as a
             (k+1)x(k+1) system. A singular border for a candidate raises so the caller refits via the exact
-            CPU path for that candidate -- correctness never depends on the fast path."""
+            CPU path for that candidate - correctness never depends on the fast path."""
             # Precompute, ONCE per step per fold, the centered selected design pieces (resident).
             per_fold = []
             for fo in range(nf):
@@ -286,7 +286,7 @@ def usability_greedy_gpu_resident(
                 per_fold.append((tr, va, ybar, yc, yva, Sc_tr, Sc_va, Gs, bs))
 
             # Accumulate EVERY candidate's per-fold MAE row resident, then do ONE D2H for the whole
-            # shortlist (a (n_cand, nf) stacked pull) instead of one .get() per candidate -- the values
+            # shortlist (a (n_cand, nf) stacked pull) instead of one .get() per candidate - the values
             # are unchanged, just coalesced into a single device->host sync per round.
             errs_rows = []  # resident (nf,) row per candidate, in cand_list order
             cand_keys = []

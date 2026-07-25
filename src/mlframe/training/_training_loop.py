@@ -127,7 +127,7 @@ def _ensure_cb_mtr_loss(model, train_target, pool=None) -> None:
             model._init_params["loss_function"] = "MultiRMSE"
             model._init_params["eval_metric"] = "MultiRMSE"
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _training_loop.py:128: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
 
 
@@ -183,7 +183,7 @@ def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
             model._init_params["loss_function"] = "MultiLogloss"
             model._init_params["eval_metric"] = "HammingLoss"
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _training_loop.py:183: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
 
 
@@ -324,7 +324,7 @@ def _train_model_with_fallback(
             _dtype_summary = ""
         logger.info("  [pre-fit] train_df type=%s, %s", _kind, _dtype_summary)
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _training_loop.py:323: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
 
     # Polars-frame contract: only CatBoost, XGBoost, and HistGradientBoosting
@@ -697,7 +697,7 @@ def _train_model_with_fallback(
                 # Deliberately NOT named `e`: this is nested inside the outer `except Exception as e:` handler,
                 # and Python implicitly `del`s the exception name at the end of its own except clause -- reusing
                 # `e` here would delete the OUTER `e` too, breaking the `raise e` re-raise further down.
-                logger.debug("suppressed in _training_loop.py:688: %s", _mark_broken_err)
+                logger.debug("suppressed: %s", _mark_broken_err)
                 pass
             schema_dump = _polars_schema_diagnostic(
                 train_df,

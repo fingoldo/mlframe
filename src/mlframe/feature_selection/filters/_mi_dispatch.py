@@ -1,4 +1,4 @@
-"""Unified MI-estimator dispatcher for MRMR (2026-05-29 Wave 7).
+"""Unified MI-estimator dispatcher for MRMR.
 
 Single entry point ``score_pair_mi(x, y, estimator='plug_in', **kwargs)`` that
 routes to any of:
@@ -26,11 +26,11 @@ routes to any of:
   * **'median'**: median(fd, qs, mixed_ksg) panel aggregator.
 
   * **'genie'**: GENIE-weighted ensemble (Moon 2021, IEEE TIT). The mega-bench
-    v3 honest leader -- MI close to truth across signal types, clean noise floor.
+    v3 honest leader - MI close to truth across signal types, clean noise floor.
 
   * **'renyi_alpha'**: ``mlframe.feature_selection.filters._renyi_alpha.renyi_alpha_mi``
     (Yu, Giraldo, Jenssen, Príncipe 2020, IEEE TPAMI). Matrix-based Rényi
-    alpha-order entropy from an RBF Gram matrix's eigen-spectrum -- no
+    alpha-order entropy from an RBF Gram matrix's eigen-spectrum - no
     binning, no plug-in bias; best suited to small n (< 500) where
     histogram-based MI is least reliable. O(n^2)/O(n^3), subsampled above
     ``max_n`` (default 1500).
@@ -38,13 +38,13 @@ routes to any of:
 Caveats per the mega-bench v3 leaderboard:
   - 'mist' over-estimates by 90-200% on binary y; use as RANKING signal only.
   - 'mine' needs N >= 1000 per pair; under-converges on small CV val folds.
-  - 'fastmi' (silverman variant) over-smooths -- use bandwidth='mise'.
+  - 'fastmi' (silverman variant) over-smooths - use bandwidth='mise'.
   - 'genie' costs ~23x plug_in's wall-time (it runs 3 sub-estimators).
 
 Public entry: ``score_pair_mi(x, y, estimator=..., **kwargs)``.
 
 The dispatcher is bench-validated (see bench_adaptive_nbins_mega) and ready to
-plug into MRMR's per-pair MI loop -- the deep internal-loop integration is
+plug into MRMR's per-pair MI loop - the deep internal-loop integration is
 deferred to the next sprint because it requires refactoring the njit
 ``mi_direct`` kernel chain. Until then callers can use ``MRMR.score_pair_mi``
 directly for ad-hoc scoring against any estimator.
@@ -62,8 +62,8 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# DORMANT PATH (Wave 13, verified 2026-07-13): ``score_pair_mi``/``_score_plug_in`` are not called anywhere in
-# the per-pair MRMR loop (grep confirms no caller besides this module and its own docstring) -- the "next sprint"
+# DORMANT PATH: ``score_pair_mi``/``_score_plug_in`` are not called anywhere in
+# the per-pair MRMR loop (grep confirms no caller besides this module and its own docstring) - the "next sprint"
 # deep integration this module's docstring describes was never wired in. ``np.unique(y)``+``searchsorted`` below
 # is still cheap to cache keyed on ``id(y)`` (mirrors ``_mah._get_y_binning``'s pattern) since a future caller
 # that DOES loop this over many columns with the same y benefits for free; not worth heavier test/bench
@@ -114,11 +114,11 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
         estimator: One of the strings listed in the module docstring.
         estimator_kwargs: Forwarded verbatim to the chosen estimator (e.g.
             ``{'k': 7}`` for KSG, ``{'n_epochs': 800}`` for MINE).
-        nbins_strategy: For 'plug_in' only -- the per-column bin-chooser
+        nbins_strategy: For 'plug_in' only - the per-column bin-chooser
             strategy ('auto', 'fd', 'qs', 'knuth', 'mdlp', etc.). When None,
             uses fixed 10-quantile bins (legacy default).
         nbins_strategy_kwargs: kwargs for the strategy (e.g. ``{'qs_alpha': 0.25}``).
-        miller_madow: For 'plug_in' only -- subtract MM bias correction at the
+        miller_madow: For 'plug_in' only - subtract MM bias correction at the
             scoring step. Restores honest no-signal floor at higher M values.
 
     Returns:
@@ -145,7 +145,7 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
         from ._renyi_alpha import renyi_alpha_mi
         # renyi_alpha_mi returns bits (its own module's documented, internally
         # self-consistent convention, log2-based); this dispatcher's contract is nats for every estimator
-        # (see the docstring above) -- convert at this boundary rather than changing the module's own units.
+        # (see the docstring above) - convert at this boundary rather than changing the module's own units.
         _mi_bits = float(renyi_alpha_mi(x, y_arr.astype(np.float64), **estimator_kwargs))
         return _mi_bits * math.log(2.0)
     if estimator in ("median", "genie"):

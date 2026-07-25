@@ -14,7 +14,7 @@ The block reads the ``MRMR`` instance + a couple of pure fit-body locals
 ``hybrid_orth_features_``) plus the passed-in ``_temporal_agg_pre_recipes``
 dict in place. It reassigns the working ``X`` frame, so the (possibly
 replaced) ``X`` is RETURNED and the single call site rebinds it. Behaviour is
-byte-for-byte identical to the inlined block -- same appended columns, same
+byte-for-byte identical to the inlined block - same appended columns, same
 order, same recipes, same attributes set, same RNG (none used here). The lazy
 in-body ``from .._temporal_agg_fe import ...`` import stays inside the function
 to preserve the original import timing.
@@ -38,7 +38,7 @@ def _fe_stage_temporal_agg(self, X, _y_np, verbose, _temporal_agg_pre_recipes):
     passed-in ``_temporal_agg_pre_recipes`` dict in place, and RETURNS the
     (possibly replaced) working ``X`` frame so the caller can rebind it.
     """
-    # Layer 92 (2026-06-01): temporal leak-safe grouped aggregations. Keyed on
+    # Layer 92: temporal leak-safe grouped aggregations. Keyed on
     # a time column, only ever seeing the strict past (expanding / rolling /
     # lag). Each survivor MI-gated against y; recipes store the fit-time
     # per-entity sorted history so transform() replays test rows against TRAIN

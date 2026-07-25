@@ -3,7 +3,7 @@
 Mirrors the numba kernel in ``_shap_proxy_treeshap`` exactly (same EXTEND/UNWIND polynomial, same
 float32 routing, same cover-ratio weights) but with one CUDA thread per SAMPLE iterating all trees.
 The flat ensemble tensors are uploaded once; the kernel writes the (n, f) phi matrix on-device. This
-is the always-kept GPU version (the numba kernel is the fallback) -- the dispatcher in
+is the always-kept GPU version (the numba kernel is the fallback) - the dispatcher in
 ``_shap_proxy_explain`` selects it only on a CUDA box for large ``n * f``.
 
 Per-thread path scratch lives in local memory sized ``(max_depth+2) * (max_depth+2)``; this caps the
@@ -36,7 +36,7 @@ def _cuda_demote_errors():
         if compile_exc is not None and hasattr(compile_exc, "CompileException"):
             excs = (*excs, compile_exc.CompileException)
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _shap_proxy_treeshap_gpu.py:37: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
     return excs
 

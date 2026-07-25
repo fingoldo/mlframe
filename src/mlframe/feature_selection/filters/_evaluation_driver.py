@@ -72,23 +72,23 @@ def _prefill_cond_MIs_gpu(
 
       * ``mrmr_relevance_algo == 'fleuret'`` (the only branch keyed by ``arr2str(X)+'|'+arr2str(Z)``)
       * NOT ``use_su`` and NOT ``use_jmim`` (those branches skip the cache entirely)
-      * ``max_veteranes_interactions_order == 1`` -- the batched kernel conditions on a SINGLE var
+      * ``max_veteranes_interactions_order == 1`` - the batched kernel conditions on a SINGLE var
         ``Z=[z]``; order >= 2 mixes multi-element ``Z`` the kernel does not cover, so it is left
         on the exact scalar path (selection unchanged)
-      * ``selected_vars`` non-empty AND ``not use_simple_mode`` -- otherwise the conditional branch
+      * ``selected_vars`` non-empty AND ``not use_simple_mode`` - otherwise the conditional branch
         is never reached
       * single-var (order-1) candidates only (``len(X) == 1``)
 
     For every selected var ``Z=[z]`` it calls the dispatch ONCE over all order-1 candidates and
     writes the RAW CMI (the ``nexisting`` exponent is applied at READ time in ``evaluate_gain``;
     do NOT pre-apply). Key format replicates ``evaluate_gain`` EXACTLY via the same ``@njit``
-    ``arr2str`` -- a mismatch would silently disable the cache.
+    ``arr2str`` - a mismatch would silently disable the cache.
 
     SELECTION-EQUIVALENCE (not bit-identical): the GPU CMI reduces the four entropies from the joint
     counts on-device (``_cmi_cuda._entropy_from_counts_axis``), parity ~1e-9 to the CPU scalar
     ``conditional_mi`` (a different float64 reduction order over the nonzero bins). This is the SAME
     parity bound the rest of the GPU MI path carries and is treated identically: a ranking flip needs two
-    candidates whose Fleuret gains sit within ~1e-9 -- a pathological near-tie. Crucially the prefill is
+    candidates whose Fleuret gains sit within ~1e-9 - a pathological near-tie. Crucially the prefill is
     ALL-OR-NOTHING per round: if ANY candidate is multi-element it returns 0 and the WHOLE round stays on
     the exact scalar CPU path (see the ``len(X) != 1`` guard), and within a round it writes every order-1
     ``(cand, z)`` CMI, so the candidates compared against each other use a CONSISTENT backend rather than a
@@ -130,22 +130,22 @@ def _prefill_cond_MIs_gpu(
         y_index = int(np.asarray(y).ravel()[0])
         factors_nbins_arr = np.asarray(factors_nbins)
 
-        # Candidate-key strings are z-independent -- build them once, reuse across every z below.
+        # Candidate-key strings are z-independent - build them once, reuse across every z below.
         cand_keys = [arr2str(np.asarray([ci], dtype=np.int64)) for ci in cand_indices]
 
         # Shadow the numba typed-dict's keys in a plain Python set for this call's membership checks
         # (cProfile, 2026-07-16 wellbore fit: numba.typed.typeddict.__contains__ cost 40.5s / 1.6M calls,
-        # ~1613570 of them from the missing_pos scan below -- EVERY (candidate, z) membership check crosses
+        # ~1613570 of them from the missing_pos scan below - EVERY (candidate, z) membership check crosses
         # the Python<->numba boundary individually. A python 'x in str_key' against a numba typed Dict pays
         # real per-call marshaling overhead: measured ~25us/check vs ~0.2us against a plain python set/dict,
         # ~120x. One bulk `set(cached_cond_MIs.keys())` per call (cost scales with dict SIZE, done once)
         # replaces N_missing_checks cross-boundary lookups (cost scales with candidates x selected_vars,
-        # done every round) -- a clear net win once check-count exceeds dict-size, which happens quickly as
+        # done every round) - a clear net win once check-count exceeds dict-size, which happens quickly as
         # selected_vars grows across rounds. Read-only snapshot; the real numba dict below is still the one
         # ``evaluate_gain`` reads from and the one every write (here + evaluation.py's scalar-path cache
-        # fill) targets, so no staleness risk -- a key written by that OTHER path after this snapshot is
+        # fill) targets, so no staleness risk - a key written by that OTHER path after this snapshot is
         # simply treated as "missing" here too (re-dispatched, then overwritten with the same value at
-        # write time -- redundant work, never a correctness bug: the CMI value is a pure function of
+        # write time - redundant work, never a correctness bug: the CMI value is a pure function of
         # (cand, z), not of which path filled it first).
         cached_keys_shadow = set(cached_cond_MIs.keys())
         n_written = 0
@@ -154,7 +154,7 @@ def _prefill_cond_MIs_gpu(
             z_key_arr = np.asarray([z_idx], dtype=np.int32)
             z_str = arr2str(z_key_arr)
             # Dispatch ONLY the (cand, z) pairs missing from the cache. The greedy loop calls this
-            # prefill EVERY round with the full selected_vars list, but each round adds just ONE new z --
+            # prefill EVERY round with the full selected_vars list, but each round adds just ONE new z -
             # every (surviving-candidate, older-z) CMI was already computed and cached in a prior round,
             # and the old code recomputed the ENTIRE (candidates x z) matrix per round only to discard
             # the already-cached values at write time (measured on the wellbore-100k profile: 4375
@@ -323,7 +323,7 @@ def _evaluate_candidates_inner(
     )
     python_dict_2_numba_dict(python_dict=cached_cond_MIs, numba_dict=cached_cond_MIs_dict)
 
-    # 2026-06-19: JMIM joint-MI cache, built the SAME way as cached_cond_MIs (numba typed
+    # JMIM joint-MI cache, built the SAME way as cached_cond_MIs (numba typed
     # dict seeded from the optional python dict the caller threads through; merged back to a
     # plain python dict at the return boundary so nothing non-picklable escapes onto an
     # instance). Keyed on arr2str({X} u Z); only the JMIM branch of evaluate_gain touches it.
@@ -359,7 +359,7 @@ def _evaluate_candidates_inner(
 
     # RelaxMRMR: y_col/k_y and every already-selected column's materialize_var
     # result depend only on (y, factors_data, factors_nbins, dtype, selected_vars), none of which
-    # change across this workload's per-candidate loop -- selected_vars is a fixed list threaded
+    # change across this workload's per-candidate loop - selected_vars is a fixed list threaded
     # through unmutated (see the loop below). Hoist the SAME condition evaluate_candidate gates the
     # RelaxMRMR block on and compute once per greedy iteration instead of once per candidate. Gated
     # behind relaxmrmr_alpha>0 (default OFF); any failure here falls through to per-candidate
@@ -438,22 +438,22 @@ def _evaluate_candidates_inner(
 
     entropy_cache = dict(entropy_cache_dict)
     cached_cond_MIs = dict(cached_cond_MIs_dict)
-    # 2026-06-19: convert the JMIM typed dict back to a plain python dict at the
+    # Convert the JMIM typed dict back to a plain python dict at the
     # boundary (mirrors cached_cond_MIs) so nothing non-picklable can leak onto an
     # instance. The cache is currently per-call (not threaded through the driver's
     # 7-tuple return, which other modules unpack positionally), so it is discarded
-    # here -- its only effect is within-call memoisation of repeated {X} u Z keys.
+    # here - its only effect is within-call memoisation of repeated {X} u Z keys.
     # The final size is published to the module-level stats deque purely for
     # observability (the parity test reads it to PROVE the cache populated/hit).
     # bench (2026-06-19, n=4000 p=40 order-2 JMIM): cache delivers ~117k HITS over ~1.26M
     # entries -> real cross-round reuse; selection byte-identical (test_jmim_cache_parity).
     # WALL-TIME A/B (3 seeds, distinct frames per arm to dodge the re-fit content cache, cache ON vs a
-    # forced-miss kill path): 183.2s on vs 190.0s off => ~1.04x (-6.8s, ~4%) -- a real but MODEST wall win,
+    # forced-miss kill path): 183.2s on vs 190.0s off => ~1.04x (-6.8s, ~4%) - a real but MODEST wall win,
     # since the avoided mi() calls are a small slice of the full JMIM fit (discretize / relevance / FE /
     # stability-vote dominate). Net: keep it (positive + harmless at order 1), but it is not a headline lever.
     # At interactions_max_order==1 the (current_gain, last_checked_k) resume already evaluates
     # each (X, Z) once across the whole fit, so the cache populates but never HITS (n=6000
-    # p=150: ~456k entries, 0 hits) -- harmless, kept for the order>=2 win.
+    # p=150: ~456k entries, 0 hits) - harmless, kept for the order>=2 win.
     cached_jmim_MIs = dict(cached_jmim_MIs_dict)
     if use_jmim_aggregator():
         _JMIM_CACHE_STATS.append({"size": len(cached_jmim_MIs), "hits": int(jmim_hit_counter[0])})
@@ -461,7 +461,7 @@ def _evaluate_candidates_inner(
     return best_gain, best_candidate, partial_gains, expected_gains, cached_MIs, cached_cond_MIs, entropy_cache
 
 
-# X_EFFICIENCY_ARCHITECTURE-1 fix: find_best_partial_gain carved out of
+# find_best_partial_gain carved out of
 # evaluation.py (which had crept to 1011 LOC, over the repo's enforced hard 1000-LOC CI gate) into this
 # already-established sibling. Re-exported from evaluation.py so every import path still resolves.
 def find_best_partial_gain(
@@ -469,7 +469,7 @@ def find_best_partial_gain(
     dcd_state=None,
 ) -> "tuple[float, Any]":
     """Find the highest-scoring already-evaluated-but-not-yet-confirmed candidate in ``partial_gains`` (used to redirect the confirmation loop to the next-best option when the current top candidate fails confirmation), excluding failed/added/skip_indices candidates and any candidate DCD has since pruned."""
-    # 2026-06-02 Wave 9 fix: a DCD-pruned candidate must NOT be returned as a
+    # a DCD-pruned candidate must NOT be returned as a
     # redirect target. ``partial_gains`` persists across the confirmation
     # ``while`` retries within one interactions-order; when DCD prunes a
     # candidate AFTER it was scored (``discover_cluster_members`` sets
@@ -479,7 +479,7 @@ def find_best_partial_gain(
     # ``find_best_partial_gain`` had no view of the prune mask, so it kept
     # returning that pruned candidate's stale gain as "the best other option",
     # the confirmation loop redirected to it forever (it can never be confirmed
-    # -- it is skipped), and the genuinely-good candidate that DID confirm was
+    # - it is skipped), and the genuinely-good candidate that DID confirm was
     # never committed -> the screen stopped early and dropped real signal
     # (sensor-mesh: 6 features -> 2, -4% downstream AUC). Skipping pruned
     # candidates here closes the redirect loop. ``None`` dcd_state is the
@@ -489,7 +489,7 @@ def find_best_partial_gain(
         try:
             from ._dynamic_cluster_discovery import should_be_pruned as _should_be_pruned
         except Exception as exc:
-            # SCREEN_CONFIRM_A-7 fix: log so a genuine import-time bug is not
+            # Log so a genuine import-time bug is not
             # indistinguishable from "DCD not configured".
             logger.debug("mrmr: importing should_be_pruned failed; DCD pruning disabled for this call: %r", exc, exc_info=True)
             _should_be_pruned = None
@@ -497,7 +497,7 @@ def find_best_partial_gain(
     best_key = None
     # Hoist selected_vars to a set: the inner ``subel in selected_vars`` membership is O(len) on the list, and it runs
     # per sub-element per candidate per confirmation-retry -> an O(1) set lookup is ~1.6x on a wide candidate pool
-    # (bit-identical -- same membership test). selected_vars is small so building the set once is negligible.
+    # (bit-identical - same membership test). selected_vars is small so building the set once is negligible.
     _selected_set = set(selected_vars)
     for key, value in partial_gains.items():
         if (key not in failed_candidates) and (key not in added_candidates) and (key not in skip_indices):

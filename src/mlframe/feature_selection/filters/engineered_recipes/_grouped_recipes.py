@@ -52,7 +52,7 @@ def build_grouped_agg_recipe(
     lookup_mean: dict, lookup_std: dict,
     global_mean: float, global_std: float,
 ) -> EngineeredRecipe:
-    """Layer 87 (2026-06-01): frozen recipe for one grouped multi-stat
+    """Layer 87: frozen recipe for one grouped multi-stat
     aggregate. ``op='broadcast'`` emits the per-group ``stat`` broadcast back
     to rows; ``op='z_within'`` emits ``(x - mean(x|group)) / std(x|group)``;
     ``op='ratio'`` emits ``x / mean(x|group)``. Unseen groups at replay fall
@@ -89,7 +89,7 @@ def build_composite_group_agg_recipe(
     lookup_mean: dict, lookup_std: dict,
     global_mean: float, global_std: float,
 ) -> EngineeredRecipe:
-    """Layer 93 (2026-06-01): frozen recipe for one COMPOSITE-key grouped
+    """Layer 93: frozen recipe for one COMPOSITE-key grouped
     multi-stat aggregate. ``group_cols`` is the ORDERED tuple of group columns
     (e.g. ``("region", "month")``); the composite key is rebuilt at replay from
     those columns the same way it was at fit. ``op='broadcast'`` emits the
@@ -132,7 +132,7 @@ def build_grouped_quantile_recipe(
     global_iqr: float, global_p90p10: float,
     quantiles=(),
 ) -> EngineeredRecipe:
-    """Layer 88 (2026-06-01): frozen recipe for one per-group distributional
+    """Layer 88: frozen recipe for one per-group distributional
     feature. ``op='pct_rank'`` emits the empirical-CDF position of x within its
     group (stored per-group sorted value arrays); ``op='iqr'`` / ``op='p90p10'``
     emit the per-group spread broadcast. Unseen groups at replay fall back to
@@ -166,11 +166,11 @@ def build_target_aware_group_bin_recipe(
     group_edges: dict, global_edges: list, n_bins: int,
     op: str = "target_aware_bin",
 ) -> EngineeredRecipe:
-    """Layer 88 (2026-06-01): frozen recipe for one target-aware per-group
+    """Layer 88: frozen recipe for one target-aware per-group
     supervised bin index. ``group_edges`` holds, per group key, the inner MDLP
     edges (refit on ALL train rows, maximising ``I(bin; y)`` within the group);
     ``global_edges`` is the pooled fallback for unseen groups. Replay maps a
-    row's value through ``searchsorted`` on its group's edges -- a pure function
+    row's value through ``searchsorted`` on its group's edges - a pure function
     of X. The leak-safe OOF assignment used at fit for MI scoring is NOT
     persisted, so transform() carries no y reference."""
     from . import EngineeredRecipe
@@ -194,7 +194,7 @@ def build_lagged_diff_recipe(
     *, name: str, time_col: str, value_col: str, period: int, entity_cols: "tuple[str, ...] | None" = None,
 ) -> EngineeredRecipe:
     """Frozen recipe for ``x_t - x_{t-period}`` after sorting by ``time_col`` (or ``(entity_cols, time_col)``
-    when ``entity_cols`` is given -- CAT_INTERACTION_B-5 fix).
+    when ``entity_cols`` is given).
     Replay re-sorts the test frame the same way and emits the per-row
     difference; the first ``period`` rows of each (entity-scoped) sorted run get 0."""
     from . import EngineeredRecipe

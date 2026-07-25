@@ -1,11 +1,11 @@
 """``greedy_backward_elimination``: iteratively drop the single feature whose removal most improves CV score.
 
-Source: dd_1st_pover-t-tests.md -- permutation importance used not just to rank but to actually decide
+Source: dd_1st_pover-t-tests.md - permutation importance used not just to rank but to actually decide
 removal: "removed the ones for which we registered a score improvement" when shuffled/dropped. Distinct from
 mlframe's existing `RFECV` (drops the worst-RANKED feature per round by importance) and
 `unanimous_permutation_prune` (drops any feature permutation fails to improve in EVERY fold): this evaluates
 removing EACH remaining feature via fresh CV, removes whichever single removal most improves the mean CV
-score, and repeats until no remaining removal helps -- a directly score-driven search rather than an
+score, and repeats until no remaining removal helps - a directly score-driven search rather than an
 importance-proxy or a fixed unanimity rule.
 """
 from __future__ import annotations
@@ -22,14 +22,14 @@ def _cv_score(estimator, X: pd.DataFrame, y_arr: np.ndarray, folds, scoring: Cal
     """``folds`` is a precomputed ``[(train_idx, test_idx), ...]`` list, not a CV splitter to call ``.split()`` on.
 
     ``greedy_backward_elimination``'s O(d^2) removal search calls this once per remaining column per round, always
-    with the SAME row count (only columns change) -- ``cv.split(X)`` reshuffles and re-derives the identical fold
+    with the SAME row count (only columns change) - ``cv.split(X)`` reshuffles and re-derives the identical fold
     index arrays every single call, pure wasted work since the row count (and therefore the split) never changes
     across candidates. The caller now computes ``folds`` ONCE and passes it in; see ``greedy_backward_elimination``.
     """
     row_select = (lambda idx: X.iloc[idx]) if hasattr(X, "iloc") else (lambda idx: X[idx])
     # A pandas Series' bracket indexing is LABEL-based, not positional, once its index is no
     # longer the default 0..n-1 RangeIndex (e.g. y_arr still carries an upstream row-filter's
-    # index) -- the precomputed folds above are always plain 0..n-1 positional indices, so
+    # index) - the precomputed folds above are always plain 0..n-1 positional indices, so
     # y_arr[train_idx] then raises KeyError / silently mis-selects rows on a non-default index.
     # .iloc is positional regardless of the index, matching X's own row_select above.
     y_select = (lambda idx: y_arr.iloc[idx]) if hasattr(y_arr, "iloc") else (lambda idx: y_arr[idx])
@@ -53,7 +53,7 @@ def _cv_score_repeated(
 
     Each repeat set was built from its own ``random_state`` (``seed_base + repeat_idx``) so the removal decision
     reflects the score across several splits rather than a single noisy one; computed once by the caller (see
-    ``greedy_backward_elimination``) since the row count -- and therefore every repeat's split -- never changes
+    ``greedy_backward_elimination``) since the row count - and therefore every repeat's split - never changes
     across the O(d^2) column-drop candidates.
     """
     return float(np.mean([_cv_score(estimator, X, y_arr, folds, scoring) for folds in repeat_folds]))
@@ -108,7 +108,7 @@ def greedy_backward_elimination(
         ndarray input), in original order.
     """
     # Coerce to a plain ndarray ONCE so bare ``y_arr[idx]`` is unambiguously positional: a pd.Series ``y`` with a
-    # non-default (gapped) index -- e.g. after an upstream row filter that didn't reset_index() -- makes bare
+    # non-default (gapped) index - e.g. after an upstream row filter that didn't reset_index() - makes bare
     # bracket indexing resolve train_idx/test_idx (KFold's 0-based POSITIONS) as LABELS instead, raising a
     # spurious KeyError once the index has any gaps relative to a dense 0..n-1 range.
     y_arr = np.asarray(y)

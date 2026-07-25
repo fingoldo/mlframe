@@ -24,7 +24,7 @@ __all__ = [
 ]
 
 
-# Backlog #13 (2026-06-09): ``"wavelet"`` adds the Haar / localized
+# Backlog #13: ``"wavelet"`` adds the Haar / localized
 # multiresolution basis alongside the global Fourier + fixed-knot spline. Its
 # legs are held-out-scale-selected in ``_wavelet_basis_fe`` and emitted here so
 # the extra-basis path (``fe_hybrid_orth_enable`` / ``extra_bases``) can route
@@ -93,9 +93,9 @@ def generate_extra_basis_features(
         emission, so the legacy path stays leakage-free / y-independent.
     fourier_adaptive : bool, default False
         When True and ``y`` is given, run :func:`_detect_fourier_freqs_for_col`
-        on each source column's z (power==1 only) and -- for each held-out-
+        on each source column's z (power==1 only) and - for each held-out-
         validated dominant frequency found (multitone: several peaks via
-        residual deflation) -- ADD it to that column's Fourier frequency set.
+        residual deflation) - ADD it to that column's Fourier frequency set.
         The emitted sin/cos meta entries for adaptive frequencies are tagged
         ``"adaptive": True`` so MRMR can protect them past screening. Covers
         arbitrary-period oscillations and their superpositions
@@ -103,17 +103,17 @@ def generate_extra_basis_features(
     fourier_adaptive_min_val_corr : float, default 0.15
         Held-out validation effective-|corr| floor for the adaptive detector.
     fourier_chirp : bool, default False
-        ADAPTIVE-CHIRP path (2026-06-03). When True and ``y`` is given, run the
+        ADAPTIVE-CHIRP path. When True and ``y`` is given, run the
         SAME held-out-validated detector on the QUADRATIC-ARGUMENT warp
         ``u = sign(z) * z**2`` (z standardised on the column) for each source
-        column. A chirp ``y ~ sin(2*pi*f*z**2)`` -- whose frequency GROWS with z
-        -- is STATIONARY in u, so the detector locks its frequency and the
+        column. A chirp ``y ~ sin(2*pi*f*z**2)`` - whose frequency GROWS with z
+        - is STATIONARY in u, so the detector locks its frequency and the
         emitted ``sin(2*pi*f*u)`` / ``cos(2*pi*f*u)`` reconstruct it; a Fourier on
         the LINEAR argument cannot express a frequency that grows with z. The
         emitted sin/cos meta entries carry ``"arg": "quadratic"`` (the warp the
         recipe replays) AND ``"adaptive": True`` (so MRMR protects them past the
         screen, identical to the linear adaptive legs). This is an ADDITIVE
-        second path alongside the linear adaptive one -- both fire; on a plain
+        second path alongside the linear adaptive one - both fire; on a plain
         linear target the chirp legs are harmless (Ridge regularises them to ~0,
         Phase-0 bench: combined R^2 == linear-only on linear targets, +0.3-0.5
         R^2 on fast chirps). N-gated at >= 800 MI rows like the linear path.
@@ -121,14 +121,14 @@ def generate_extra_basis_features(
         Held-out validation effective-|corr| floor for the chirp detector.
     max_adaptive_cols : int, optional
         2026-07-09 fix: cap on how many columns run the EXPENSIVE adaptive-frequency /
-        chirp DETECTION (``_detect_fourier_freqs_for_col``) -- profiled as the dominant
+        chirp DETECTION (``_detect_fourier_freqs_for_col``) - profiled as the dominant
         cost of this whole family (~34% of a wide-p fit's pre-categorize wall, roughly
         linear in column count since each call does its own held-out frequency sweep
         regardless of row count). ``None`` (default) = unlimited, byte-identical legacy
         behaviour. When set and ``len(cols) > max_adaptive_cols``, only the first
         ``max_adaptive_cols`` columns (in ``cols`` order) get adaptive/chirp detection;
         the remaining columns still get the cheap FIXED-GRID Fourier basis (unaffected
-        by this cap) -- only the expensive per-column detector is bounded, not basis
+        by this cap) - only the expensive per-column detector is bounded, not basis
         emission itself.
 
     Returns
@@ -147,8 +147,8 @@ def generate_extra_basis_features(
     Notes
     -----
     bench-rejected (2026-06-03): a per-column "poly-vs-Fourier COMPETITION gate"
-    -- emit only the better of {orth-poly basis, this Fourier path} per column to
-    cut the redundant cross-family features that co-occur in the support -- was
+    - emit only the better of {orth-poly basis, this Fourier path} per column to
+    cut the redundant cross-family features that co-occur in the support - was
     benchmarked and REJECTED. The co-occurrence is genuine COMPLEMENTARITY, not
     redundancy: on kink/step/bump targets (e.g. y=|x|) the Fourier legs carry
     independent residual R^2 0.16-0.60 that a degree<=4 poly under-fits, so a
@@ -184,7 +184,7 @@ def generate_extra_basis_features(
             _y_adapt = None
         else:
             # Hoist the y-only (x-independent) pieces of the per-column auto-gate ONCE for this fixed
-            # _y_adapt (cProfile-driven, 2026-07-16: _heldout_smooth_r2 cost 4.6s/50 calls -- same train/val
+            # _y_adapt (cProfile-driven, 2026-07-16: _heldout_smooth_r2 cost 4.6s/50 calls - same train/val
             # split + val-side sums recomputed every column despite depending only on y). None on degenerate
             # y -> the loop below falls back to the exact original per-column function unchanged.
             _y_adapt_prep = _heldout_smooth_r2_prep(_y_adapt)
@@ -218,7 +218,7 @@ def generate_extra_basis_features(
             # (transform() emits all-NaN). Skip; the missingness signal belongs to the dedicated missingness-FE family.
             # TODO(imputation): skipping the WHOLE column on a single NaN forfeits a genuine periodic/spline signal
             # whenever the column is only lightly missing. A proper fix is a fit-time imputation (e.g. median, or a
-            # model-based fill) BAKED INTO the recipe so transform() replays the SAME fill -- then the basis is a
+            # model-based fill) BAKED INTO the recipe so transform() replays the SAME fill - then the basis is a
             # genuine signal, not an all-NaN replay, and it no longer doubles as a missingness proxy (pair it with an
             # explicit missing-indicator column so the missingness signal still lands in its dedicated family). Until
             # then the conservative skip stays (correctness over coverage).
@@ -229,7 +229,7 @@ def generate_extra_basis_features(
             _r2 = _heldout_smooth_r2_fast(x, _y_adapt_prep) if _y_adapt_prep is not None else _heldout_smooth_r2(x, _y_adapt)
             _adaptive_fe_ok = _r2 < _ADAPTIVE_FE_RAW_USABILITY_CAP
             # Column-count cap on the expensive detector itself (2026-07-09 fix, see max_adaptive_cols
-            # docstring) -- columns beyond the cap still get the cheap fixed-grid Fourier basis below,
+            # docstring) - columns beyond the cap still get the cheap fixed-grid Fourier basis below,
             # only the held-out frequency-sweep detection is skipped for them.
             if max_adaptive_cols is not None and _col_idx >= int(max_adaptive_cols):
                 _adaptive_fe_ok = False
@@ -240,7 +240,7 @@ def generate_extra_basis_features(
                 z = np.clip((x - lo) / span, 0.0, 1.0)
                 for i in range(n_basis):
                     vals = _bspline_basis_values(z, knots, i, degree=3)
-                    # Skip near-constant columns -- the boundary cubic
+                    # Skip near-constant columns - the boundary cubic
                     # B-splines occasionally collapse to ~0 on quantile-
                     # placed knots when ties pile at the edge.
                     if float(np.std(vals)) <= 1e-12:
@@ -262,7 +262,7 @@ def generate_extra_basis_features(
         # is spurious periodicity that floods the support and displaces the genuinely useful grouped aggregates of that key.
         if "fourier" in extra_bases and not _is_int_as_cat_axis(x):
             try:
-                # POWER-ARGUMENT Fourier (2026-06-03): build the Fourier on x**p for
+                # POWER-ARGUMENT Fourier: build the Fourier on x**p for
                 # p in fourier_powers, as a SELF-CONTAINED replayable recipe (raw x ->
                 # x**p -> Fourier; 1-deep, no nesting). p=2 captures even-argument
                 # CHIRPS like ``sin(a**2)`` (freq~1 on the a**2 argument reproduces it
@@ -276,7 +276,7 @@ def generate_extra_basis_features(
                     lo_f, span_f = _fit_fourier_for_col(_xp)
                     z = (_xp - lo_f) / max(span_f, 1e-12)
                     _pfx = "" if _p == 1 else f"p{_p}"
-                    # ADAPTIVE-FREQUENCY (2026-06-03): for the linear argument
+                    # ADAPTIVE-FREQUENCY: for the linear argument
                     # (power==1) detect the column's dominant z-space frequency
                     # from a coarse sweep + local refine, held-out validated.
                     # The detected freq is ADDED to this column's freq set and
@@ -284,7 +284,7 @@ def generate_extra_basis_features(
                     # it past screening. Disjoint-by-detection from the fixed
                     # grid: a fixed freq that already recovers the signal makes
                     # the periodogram peak land near it, so the detector's
-                    # held-out gate is satisfied by the fixed twin too -- but
+                    # held-out gate is satisfied by the fixed twin too - but
                     # we still tag/add the refined freq because the fixed grid
                     # cannot express a non-integer period.
                     _adaptive_freqs: list[float] = []
@@ -292,7 +292,7 @@ def generate_extra_basis_features(
                         # max_freqs=6: a multitone superposition (3-4 genuine
                         # tones) needs enough sin/cos pairs to SPAN the signal
                         # subspace after the per-iteration deflation leaves a
-                        # residual -- 4 pairs recovered the 3-tone gate-A signal
+                        # residual - 4 pairs recovered the 3-tone gate-A signal
                         # at OOS R^2 ~0.95 but 6 pairs lift it to ~0.985, a far
                         # safer margin above the 0.9 bar. Each extra freq still
                         # passes the held-out 0.30 floor, so noise never inflates
@@ -333,12 +333,12 @@ def generate_extra_basis_features(
                                 "lo": float(lo_f), "span": float(span_f),
                                 "power": _p, "adaptive": _is_adaptive,
                             }
-                # ADAPTIVE-CHIRP (2026-06-03): a SECOND argument-warp alongside
+                # ADAPTIVE-CHIRP: a SECOND argument-warp alongside
                 # the linear-adaptive path above. The chirp axis u = sign(z)*z**2
                 # (z standardised on the column) makes a growing-frequency
                 # oscillation ``y ~ sin(2*pi*f*z**2)`` STATIONARY in u, so the
                 # SAME held-out-validated multitone detector locks its frequency
-                # and the emitted sin/cos on u reconstruct it -- which a Fourier
+                # and the emitted sin/cos on u reconstruct it - which a Fourier
                 # on the linear argument cannot (Phase-0: linear R^2 0.07-0.53 vs
                 # chirp 0.88 on a fast chirp). Emitted legs carry arg="quadratic"
                 # (the warp the recipe replays) + adaptive=True (so MRMR protects
@@ -391,7 +391,7 @@ def generate_extra_basis_features(
                     col,
                     exc,
                 )
-        # Backlog #13 (2026-06-09): Haar wavelet / localized multiresolution
+        # Backlog #13: Haar wavelet / localized multiresolution
         # legs. The per-column held-out scale-selection lives in the standalone
         # ``_wavelet_basis_fe`` module (candidate-count control via the noise-aware
         # held-out MAD floor + max_legs cap); here we only emit the selected legs
@@ -447,7 +447,7 @@ def _build_recipe_from_meta(name: str, meta_entry: dict):
             lo=float(meta_entry["lo"]), hi=float(meta_entry["hi"]),
         )
     if basis == "wavelet":
-        # Backlog #13 (2026-06-09): Haar wavelet leg recipe (orth_wavelet).
+        # Backlog #13: Haar wavelet leg recipe (orth_wavelet).
         from .._wavelet_basis_fe import build_orth_wavelet_recipe
         return build_orth_wavelet_recipe(
             name=name, src_name=str(meta_entry["src"]),
@@ -496,7 +496,7 @@ def hybrid_orth_extra_basis_fe_with_recipes(
     polynomial path but emits extra-basis columns (B-spline, Fourier)
     instead. Returns (X_augmented, scores, recipes).
 
-    SUBSAMPLED DECISION (2026-06-21). When ``subsample_n`` > 0 and the frame is
+    SUBSAMPLED DECISION. When ``subsample_n`` > 0 and the frame is
     larger, BOTH the expensive adaptive-frequency DETECTION and the MI ranking run
     on a seeded row SUBSAMPLE (the pair-search pattern), and the winning columns are
     REPLAYED at full n via ``apply_recipe`` (the recipe carries the detected
@@ -510,7 +510,7 @@ def hybrid_orth_extra_basis_fe_with_recipes(
     noise-aware floor). See :func:`hybrid_orth_mi_fe` for the rationale.
 
     ``fourier_adaptive`` (default False) forwards to
-    :func:`generate_extra_basis_features` -- when True, each source column's
+    :func:`generate_extra_basis_features` - when True, each source column's
     dominant z-space frequency is detected (held-out validated) and added to
     its Fourier set, with the emitted sin/cos recipes tagged ``adaptive=True``.
 
@@ -600,7 +600,7 @@ def hybrid_orth_extra_basis_fe_with_recipes(
             recipes.append(r)
     # OUTPUT at FULL n. Without subsampling ``engineered`` already holds full-n columns.
     # With subsampling, REPLAY each winner's recipe on the full X (the recipe carries the
-    # detected frequency + axis params) so the appended columns are full length -- output
+    # detected frequency + axis params) so the appended columns are full length - output
     # equals a full-data fit GIVEN the same winners. A winner without a replayable recipe is
     # dropped (it could not be reproduced at transform time anyway).
     if _do_sub:
@@ -609,7 +609,7 @@ def hybrid_orth_extra_basis_fe_with_recipes(
         for r in recipes:
             try:
                 _full_cols[r.name] = np.asarray(apply_recipe(r, X))
-            except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+            except Exception:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
                 logger.warning("extra-basis subsample replay failed for %r; dropping.", r.name)
         X_aug = pd.concat([X, pd.DataFrame(_full_cols, index=X.index)], axis=1) if _full_cols else X.copy()
     else:

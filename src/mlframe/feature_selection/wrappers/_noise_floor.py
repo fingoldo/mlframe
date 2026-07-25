@@ -4,7 +4,7 @@ On a noise-robust GBM the CV-vs-N curve is FLAT, so RFECV's band N-rules (one_se
 (measured: RFECV keeps 251/500 on madelon ~ all-features). Knockoff-FDR degenerates on correlated probes. This module
 implements a DIFFERENT mechanism that cuts the over-selection: compare the REAL per-N CV curve to a PERMUTED-y
 reference curve (same top-N feature sets, y shuffled). The PLATEAU rule stops at the smallest N past which the real
-curve's REMAINING climb is within the shuffled-y noise envelope -- i.e. everything beyond N* is indistinguishable
+curve's REMAINING climb is within the shuffled-y noise envelope - i.e. everything beyond N* is indistinguishable
 from noise.
 
 MEASURED (2026-06-04, post-hoc cut on a LightGBM-gain ranking): madelon 251 -> N*=8..16 (modal 12 over n_perm/seed),
@@ -17,10 +17,10 @@ default config times out on wide frames); call it on a fitted model's importance
 
 The task (binary / multiclass / continuous) is inferred from y: binary -> roc_auc, multiclass -> one-vs-rest macro AUC,
 continuous -> R^2; classification uses StratifiedKFold, regression KFold. A stratified class with fewer members than the
-fold count still crashes the splitter (an intrinsic sklearn limit) -- pass a smaller ``cv`` for such tiny rare classes.
+fold count still crashes the splitter (an intrinsic sklearn limit) - pass a smaller ``cv`` for such tiny rare classes.
 
 The LITERAL "first N to clear the noise floor" rule is a signal-ONSET detector (fires at N~2, over-cuts); only the
-PLATEAU rule is a valid stop -- so only that one is exposed.
+PLATEAU rule is a valid stop - so only that one is exposed.
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def noise_floor_plateau(n_grid: Sequence[int], real_curve: np.ndarray, perm_curv
 
     For each grid index i, ask whether ANY larger j adds real gain (real[j]-real[i]) exceeding the ``pct`` percentile
     of the permuted incremental gain (perm[:,j]-perm[:,i]) over that same span. N* is the smallest N for which NO
-    larger j clears -- the parsimonious analogue of RFECV's 'plateau' rule referenced to a permuted-y noise floor
+    larger j clears - the parsimonious analogue of RFECV's 'plateau' rule referenced to a permuted-y noise floor
     instead of a fixed 1-SE band, so on a flat (noise-robust-GBM) real curve it stops where signal genuinely flattens.
 
     Parameters
@@ -50,7 +50,7 @@ def noise_floor_plateau(n_grid: Sequence[int], real_curve: np.ndarray, perm_curv
 
     Returns
     -------
-    (n_star, idx_star, remaining_gain, remaining_env) -- n_star is the chosen feature count; remaining_gain[i] /
+    (n_star, idx_star, remaining_gain, remaining_env) - n_star is the chosen feature count; remaining_gain[i] /
     remaining_env[i] are the best real / noise incremental gain available beyond i (for diagnostics).
     """
     n_grid = list(n_grid)
@@ -158,7 +158,7 @@ def select_features_noise_floor(estimator_factory: Callable, X, y, ranking: Sequ
         model's importances, or RFECV's elimination order). The cut keeps a leading prefix of this ranking.
     n_grid : feature counts to evaluate; default a log-ish grid up to len(ranking).
     cv : int folds or a CV splitter; n_perm : permutations for the noise envelope. Default 50; must be large enough that
-        the ``pct`` percentile is an interior order statistic (>=ceil(100/(100-pct)), e.g. >=20 at pct=95) -- a tiny
+        the ``pct`` percentile is an interior order statistic (>=ceil(100/(100-pct)), e.g. >=20 at pct=95) - a tiny
         n_perm makes the envelope a high-variance sample maximum and the floor seed-unstable / anti-conservative.
     pct : noise-envelope percentile.
 

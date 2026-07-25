@@ -20,8 +20,8 @@ frequency clears a user-defined threshold.
 
 Public surface
 --------------
-``stability_select_fe`` -- one-shot helper for an analyst.
-``StabilityFESelector`` -- sklearn-compatible estimator (fit / transform
+``stability_select_fe`` - one-shot helper for an analyst.
+``StabilityFESelector`` - sklearn-compatible estimator (fit / transform
 / get_params / set_params; survives pickle + sklearn.base.clone).
 
 Both share the canonical bookkeeping list of FE attributes that MRMR
@@ -80,7 +80,7 @@ def _resolve_mrmr_cls():
     """Lazy import so ``import mlframe.feature_selection.filters._stability_fe``
     does not eagerly pay the MRMR class-build cost (numba JIT subgraph
     + GPU NVRTC kernel preflight). Mirrors the lazy-MRMR pattern used in
-    ``_cluster_aggregate`` -- see MEMORY note 2026-05-21 on
+    ``_cluster_aggregate`` - see MEMORY note 2026-05-21 on
     monolith-split via re-export."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     return MRMR
@@ -153,7 +153,7 @@ def _run_bootstraps(
             m.fit(Xb, yb)
         except Exception as exc:
             # one degenerate bootstrap subsample used to crash the whole
-            # sweep -- mirrors the fix applied to the sibling StabilityMRMR (stability.py) and
+            # sweep - mirrors the fix applied to the sibling StabilityMRMR (stability.py) and
             # _stability_cluster.py. Excluded bootstraps are simply absent from ``per_boot``, so
             # ``_aggregate_frequencies``'s ``n_boot = len(per_boot)`` denominator already becomes the
             # effective (successful) count with no further change needed there.
@@ -162,8 +162,8 @@ def _run_bootstraps(
             continue
         per_boot.append(_engineered_union(m))
     if not per_boot:
-        # CLUSTERING_STABILITY-1 fix: mirrors StabilityMRMR.fit's post-B-14
-        # contract -- every bootstrap failing means the input is fundamentally too small/degenerate for
+        # Mirrors StabilityMRMR.fit's post-B-14
+        # contract - every bootstrap failing means the input is fundamentally too small/degenerate for
         # MRMR at this sample size, not "some unlucky draws". Raise loudly instead of silently returning
         # an empty per-bootstrap list a caller could easily mistake for "no stable engineered features".
         raise RuntimeError(
@@ -302,7 +302,7 @@ class StabilityFESelector(BaseEstimator, TransformerMixin):
       to (raw input columns the full MRMR kept) U (engineered columns
       in ``stable_set_``). Engineered columns whose recipes the full
       MRMR did not learn (e.g. an obscure orth-poly term that only one
-      bootstrap surfaced) are silently dropped from the output -- a
+      bootstrap surfaced) are silently dropped from the output - a
       conservative "stable AND reproducible at full-data fit time"
       rule. ``stable_set_`` retains the full list for analyst inspection.
 
@@ -372,9 +372,9 @@ class StabilityFESelector(BaseEstimator, TransformerMixin):
         return self.fit(X, y).transform(X)
 
     def get_feature_names_out(self, input_features=None):
-        """Selected feature names (sklearn transformer contract). X_SECURITY_API_PACKAGING-1 fix
+        """Selected feature names (sklearn transformer contract).
         was missing entirely, unlike ``MRMR``/``GroupAwareMRMR``/``StabilityMRMR``
-        in the same module -- a ``Pipeline([("sel", StabilityFESelector(...)), ...]).get_feature_names_out()``
+        in the same module - a ``Pipeline([("sel", StabilityFESelector(...)), ...]).get_feature_names_out()``
         raised ``AttributeError`` even though ``transform()`` already returns a well-defined column subset.
         Recomputes the SAME stable-AND-reproducible column set ``transform()`` builds (raw columns the
         full-data MRMR kept, plus stable engineered names it also surfaced) from ``full_mrmr_``'s own

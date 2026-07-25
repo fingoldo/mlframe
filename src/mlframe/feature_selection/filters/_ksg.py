@@ -1,4 +1,4 @@
-"""k-NN-based mutual-information estimators for MRMR (2026-05-29).
+"""k-NN-based mutual-information estimators for MRMR.
 
 Two estimators in this module:
 
@@ -38,7 +38,7 @@ from numba import njit
 logger = logging.getLogger(__name__)
 
 # process-level circuit breaker for ksg_mi_dispatch's GPU path, mirroring
-# info_theory/_cmi_cuda.py's pattern. Pre-fix, the only guard was ``except ImportError: pass`` -- a real
+# info_theory/_cmi_cuda.py's pattern. Pre-fix, the only guard was ``except ImportError: pass`` - a real
 # runtime/driver fault (CUDA OOM, context corruption) raised something OTHER than ImportError and
 # propagated straight out of ksg_mi_dispatch instead of falling back to CPU, and (unlike every other GPU
 # path in this package) nothing prevented every subsequent call from re-attempting the same doomed launch.
@@ -182,7 +182,7 @@ def mixed_ksg_mi(x: np.ndarray, y: np.ndarray, k: int = 5, use_gpu: bool = False
     # shows MI converges by N=20k for KSG; 50k default gives a safety margin
     # without paying the full N=1M cost.
     #
-    # BIAS CAVEAT: sub-sampling raises the kNN-distance estimator's bias -- KSG MI bias scales
+    # BIAS CAVEAT: sub-sampling raises the kNN-distance estimator's bias - KSG MI bias scales
     # ~ k/N_eff, so capping N_eff at max_input_n leaves a small positive-bias floor that the full
     # sample would shrink further. The 20k-convergence bench above shows the residual is negligible
     # for the screening use here; raise max_input_n (paying the runtime) when an unbiased MI on a
@@ -287,7 +287,7 @@ def _lnc_correction_v2(knn_xy: np.ndarray, log_d_x: float, log_d_y: float, alpha
         e1u, e1v = v1u / norm1, v1v / norm1
         e2u, e2v = -e1v, e1u
     # Semi-axes via max-abs projection (includes the focus point at origin which
-    # gives projection 0 -- harmless).
+    # gives projection 0 - harmless).
     a1 = 0.0
     a2 = 0.0
     for i in range(n_pts):
@@ -429,7 +429,7 @@ def ksg_lnc_mi(x: np.ndarray, y: np.ndarray, k: int = 5,
 # changing MI values. The pair MI cost is dominated by the JOINT (x, y) KDTree,
 # which is irreducibly per-pair and not cacheable per column. The only
 # per-column structure it cached was ``np.sort`` of a column for
-# ``_count_within_eps`` -- but (a) that sort is now ~1.5 ms after the CPX7
+# ``_count_within_eps`` - but (a) that sort is now ~1.5 ms after the CPX7
 # vectorisation (negligible vs the joint tree), and (b) mixed_ksg_mi jitters
 # tied columns with fresh per-call noise, so a cross-pair cached sort would be
 # stale and produce DIFFERENT counts. Dead code, removed rather than wired.
@@ -508,7 +508,7 @@ def ksg_mi_dispatch(x: np.ndarray, y: np.ndarray, *, k: int = 5, estimator: str 
         except ImportError:
             pass
         except Exception as _exc:
-            # A real runtime/driver fault (CUDA OOM, context corruption) rather than "cupy absent" --
+            # A real runtime/driver fault (CUDA OOM, context corruption) rather than "cupy absent" -
             # trip the circuit breaker so every subsequent call in this process goes straight to CPU
             # instead of re-attempting the same doomed launch, and fall back to CPU for THIS call too.
             _KSG_GPU_FAILED = True

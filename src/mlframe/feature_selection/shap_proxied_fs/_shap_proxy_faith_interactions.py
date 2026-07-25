@@ -1,13 +1,13 @@
 """Faith-Shap (Tsai, Yeh, Ravikumar, JMLR 2023) order-2 interaction index over the proxy game.
 
 Faith-Shap is the UNIQUE interaction index satisfying the natural extensions of the Shapley axioms
-AND minimizing the Shapley-kernel-weighted least-squares reconstruction error of the coalition game --
+AND minimizing the Shapley-kernel-weighted least-squares reconstruction error of the coalition game -
 the interaction analogue of "SHAP = weighted-least-squares projection". Unlike the raw TreeSHAP
 interaction tensor (``compute_interaction_tensor``, O(P^2) memory/compute, hard-gated to P<=16), the
 order-2 coefficients here are estimated by weighted ridge regression over SAMPLED coalitions of the
-SAME additive proxy game (``v(S) = -subset_loss(S)``) -- no tensor, cost is
+SAME additive proxy game (``v(S) = -subset_loss(S)``) - no tensor, cost is
 ``O(n_coalitions * (1 + k + k_pairs))`` where the pairwise design is restricted to a screened candidate-
-pair set (never the full k^2 -- that is explicitly rejected, see the plan's known-risks section: at
+pair set (never the full k^2 - that is explicitly rejected, see the plan's known-risks section: at
 proxy width 112 a full pairwise design has 6216 columns against a ~2048-coalition sample, an
 underdetermined system).
 """
@@ -40,16 +40,16 @@ def faith_shap_order2(
     coalition SIZES are sampled from the kernel-normalized size distribution, then a uniform random
     subset of that size is drawn (standard KernelSHAP sampling). ``S=empty`` and ``S=full`` are always
     included with a large finite weight (``1e6``, the standard surrogate for the axioms' infinite-
-    weight boundary constraints -- the kernel weight is mathematically infinite at those two sizes).
+    weight boundary constraints - the kernel weight is mathematically infinite at those two sizes).
     ``v(S) = -evaluator.loss(S)`` (negate: game value = goodness; loss is lower-better). ``evaluator``
     treats the empty subset as invalid (``+inf`` loss by convention, see ``_shap_proxy_heuristics.py``);
     ``v(empty)`` is instead defined as the negative of the WORST single-feature loss among
-    ``range(n_features)`` -- a finite, well-defined "no information" reference point (mirrors gt_02's
+    ``range(n_features)`` - a finite, well-defined "no information" reference point (mirrors gt_02's
     ``project_chi2_ball``'s analogous worst-singleton reference-point choice for the same reason: the
     proxy game has no natural zero baseline of its own).
 
     The weighted ridge system is solved via ``np.linalg.lstsq`` on the sqrt-weighted, ridge-augmented
-    design (append ``sqrt(ridge) * I`` rows with zero target -- the standard lstsq-ridge trick).
+    design (append ``sqrt(ridge) * I`` rows with zero target - the standard lstsq-ridge trick).
     """
     if n_features < 2:
         raise ValueError(f"faith_shap_order2: n_features must be >= 2, got {n_features}")
@@ -58,7 +58,7 @@ def faith_shap_order2(
 
     # Pure-Python int/float arithmetic throughout: comb(n_features, s) is a Python arbitrary-precision
     # int that can exceed numpy's fixed-width int64 (max ~9.2e18) well before it exceeds float64's
-    # range (~1.8e308) -- a numpy scalar (e.g. from np.arange) contaminating this expression silently
+    # range (~1.8e308) - a numpy scalar (e.g. from np.arange) contaminating this expression silently
     # overflows int64 (RuntimeWarning, wrapped/corrupted value) instead of raising, which then produced
     # a downstream OverflowError at width=112 (measured while benchmarking). Plain Python ints avoid
     # the fixed-width cast entirely and are exact up to comb(n_features, n_features//2) for any
@@ -150,7 +150,7 @@ def faith_interaction_top_n(
     """Rank candidate subsets by the order-2 Faith-Shap surrogate game
     ``v_hat(S) = a0 + sum_{j in S} a_j + sum_{(i,j) subset S} a_ij``.
 
-    The surrogate closed form is O(k + |candidate_pairs intersecting S|) per subset -- cheap enough to
+    The surrogate closed form is O(k + |candidate_pairs intersecting S|) per subset - cheap enough to
     greedily grow candidates directly over it rather than re-running the real (expensive) proxy loss:
     seed one growth path per candidate pair (starting from its 2 operands) and one from the single
     best-``a_j`` feature, then greedily add the locally-best-surrogate feature at each step up to
@@ -158,7 +158,7 @@ def faith_interaction_top_n(
     ``(candidates, info)``: ``candidates`` is the top_n distinct ``(surrogate_loss, idx_tuple)`` pairs,
     ``surrogate_loss = -v_hat(S)`` (lower is better, to stay directly mergeable with the rest of the
     search's candidate list, which is loss-sorted ascending); ``info`` is :func:`faith_shap_order2`'s
-    own diagnostic dict (``r2_of_fit`` is the key one -- low R^2 means the order-2 surrogate is a poor
+    own diagnostic dict (``r2_of_fit`` is the key one - low R^2 means the order-2 surrogate is a poor
     fit and callers should treat the ranking with caution).
     """
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_heuristics import _Evaluator

@@ -1,7 +1,7 @@
-"""FAMILY D -- Cross-feature conditional DISPERSION / 2nd-moment (NUM x NUM)
+"""FAMILY D - Cross-feature conditional DISPERSION / 2nd-moment (NUM x NUM)
 
-Backlog #12 (2026-06-09). Family B (``_extra_fe_families.conditional_residual``)
-models conditional **location** -- ``x_i - E[x_i | bin(x_j)]`` -- but NOTHING in
+Backlog #12. Family B (``_extra_fe_families.conditional_residual``)
+models conditional **location** - ``x_i - E[x_i | bin(x_j)]`` - but NOTHING in
 the L21-L104 catalog models conditional **scale**. A small mean-residual can be a
 huge outlier vs a TIGHT conditional spread (a fraud amount anomalous FOR that
 merchant, a latency anomalous FOR that payload size, a volatility regime). Family
@@ -15,9 +15,9 @@ store BOTH the conditional mean ``mu_hat_bin`` AND the conditional std
 
 * ``z   = (x_i - mu_hat_bin) / sigma_hat_bin``  (signed, scale-normalised
   deviation);
-* ``|z| = abs(z)``                              (the dispersion ANOMALY -- how
+* ``|z| = abs(z)``                              (the dispersion ANOMALY - how
   many conditional std's out, regardless of direction);
-* ``z2  = z**2``                                (squared anomaly -- emphasises
+* ``z2  = z**2``                                (squared anomaly - emphasises
   the tails / extreme outliers).
 
 The signed ``z`` carries the SAME monotone ordering as Family B's raw residual
@@ -31,7 +31,7 @@ Why this is MI-gateable (UNLIKE the hinge / isotonic monotone reshapes)
 -----------------------------------------------------------------------
 ``|z|`` is a genuinely NON-monotone transform of ``x_i`` (it folds the residual
 about its conditional mean), so on a heteroscedastic target it carries MUTUAL
-INFORMATION the raw column and the Family-B mean-residual do NOT -- it clears the
+INFORMATION the raw column and the Family-B mean-residual do NOT - it clears the
 NORMAL MI-uplift gate (the same gate Families A/B route through). This is the key
 contrast with /#14: a single relu leg / isotonic fit is MONOTONE ->
 MI-invariant by the data-processing inequality, so they need the
@@ -44,7 +44,7 @@ When ``x_i``'s conditional spread is CONSTANT across ``x_j`` bins
 (``sigma_hat_bin ~= sigma_const``), ``z = residual / sigma_const`` is just a
 SCALED copy of the Family-B mean-residual and ``|z|`` is a scaled ``|residual|``.
 The cross-stage Spearman dedup that already protects the catalog then drops the
-dispersion column as a near-duplicate of its mean-residual sibling -- so on
+dispersion column as a near-duplicate of its mean-residual sibling - so on
 homoscedastic data Family D adds NOTHING (it only earns its keep where the
 conditional spread genuinely varies). Pure noise -> no dispersion column clears
 the MI-uplift gate. Both are verified in the biz-value benchmark.
@@ -55,7 +55,7 @@ The recipe (kind ``"conditional_dispersion"``) extends Family B's
 ``conditional_residual`` payload with the per-bin std: it stores the ``x_j``
 quantile EDGES + the per-bin ``(mu_hat, sigma_hat)`` of ``x_i`` (NO y). Replay
 digitises ``x_j`` with the stored edges, looks up the per-bin ``(mu_hat,
-sigma_hat)``, and computes ``z = (x_i - mu_hat) / sigma_hat`` closed-form --
+sigma_hat)``, and computes ``z = (x_i - mu_hat) / sigma_hat`` closed-form -
 reads only X, so ``transform`` is leakage-free by construction (exactly Family
 B's contract, plus the stored std).
 """
@@ -131,7 +131,7 @@ def _bin_sum_cnt_njit(xi_f, codes_f, n_bins):
 
 @njit(cache=True, nogil=True)
 def _bin_css_njit(xi_f, codes_f, bin_mean, n_bins):
-    """Per-bin centred sum of squares ``sum((x_i - bin_mean[bin])^2)`` in a single O(n) walk -- the njit twin of
+    """Per-bin centred sum of squares ``sum((x_i - bin_mean[bin])^2)`` in a single O(n) walk - the njit twin of
     the ``np.add.at(bin_css, codes_f, centred*centred)`` pass. Same per-row op (subtract bin mean, square) in the
     SAME ascending-i order as ``np.add.at``, so ``bin_css`` is BIT-IDENTICAL."""
     bin_css = np.zeros(n_bins, dtype=np.float64)
@@ -166,7 +166,7 @@ def _per_bin_mean_std(
         global_std = 1.0  # degenerate x_i -> unit normaliser (residual ~0 anyway)
 
     # Per-bin sum + count in one compiled O(n) walk (bit-identical to the two ``np.add.at`` scatter-adds it
-    # replaces -- same ascending-i accumulation order -- but ~10-50x faster; ``np.add.at`` was the tottime sink).
+    # replaces - same ascending-i accumulation order - but ~10-50x faster; ``np.add.at`` was the tottime sink).
     codes_f = np.ascontiguousarray(codes_f).astype(np.int64)
     xi_f = np.ascontiguousarray(xi_f, dtype=np.float64)
     bin_sum, bin_cnt = _bin_sum_cnt_njit(xi_f, codes_f, int(n_bins_eff))
@@ -200,7 +200,7 @@ def _zscore_from_bins_njit(
 ) -> np.ndarray:
     """Single-pass conditional z-score. Reproduces the numpy multi-pass body of
     ``_zscore_from_bins`` (clip codes + gather mean/std + floor-std + masked
-    divide) bit-for-bit -- the per-row op sequence (one subtract, one divide) is
+    divide) bit-for-bit - the per-row op sequence (one subtract, one divide) is
     identical and per-element independent, so there is no reduction-order delta."""
     n = xi.shape[0]
     nb = bin_mean.shape[0]
@@ -234,7 +234,7 @@ def _zscore_from_bins(
     Fused into a single njit pass (``_zscore_from_bins_njit``): the prior numpy
     body did 5 full-n passes (clip / two gathers / where-floor / isfinite / masked
     divide). The njit loop is BIT-IDENTICAL (per-element independent float ops in
-    the same order) and ~3.5-6.2x faster at n=10k..1M -- this is the top tottime
+    the same order) and ~3.5-6.2x faster at n=10k..1M - this is the top tottime
     frame in ``generate_conditional_dispersion_features``, called once per ordered
     (x_i, x_j) pair. Bench: ``_benchmarks/bench_dispersion_zscore_njit.py``."""
     return np.asarray(_zscore_from_bins_njit(
@@ -266,7 +266,7 @@ def generate_conditional_dispersion_features(
 ) -> tuple[pd.DataFrame, dict[str, dict]]:
     """For every ordered pair ``(x_i, x_j)`` from ``num_cols`` emit the
     conditional dispersion-anomaly columns selected by ``kinds`` (default the two
-    NON-monotone folds ``|z|`` and ``z**2`` -- the signed ``z`` is a near-
+    NON-monotone folds ``|z|`` and ``z**2`` - the signed ``z`` is a near-
     duplicate of the Family-B mean-residual under dedup).
 
     Returns ``(enc_df, raw_recipes)``. Each payload stores the ``x_j`` quantile
@@ -314,7 +314,7 @@ def generate_conditional_dispersion_features(
             }
             for kind in kinds:
                 vals = _emit_kind(z, kind)
-                # Skip a degenerate constant emission (e.g. |z| all 0) -- it
+                # Skip a degenerate constant emission (e.g. |z| all 0) - it
                 # carries no information and only burdens the screen.
                 if float(np.std(vals)) <= 1e-12:
                     continue
@@ -434,7 +434,7 @@ def _dual_uplift_filter(
     ``x_i - E[x_i | bin(x_j)]`` (Family B with the SAME edges). We materialise
     those siblings once per distinct ``(x_i, x_j)`` pair in the winner set and
     compare batched MI. Columns that do not beat the cheaper location features are
-    dropped -- the self-limit that keeps homoscedastic / canonical fixtures from
+    dropped - the self-limit that keeps homoscedastic / canonical fixtures from
     accreting a redundant dispersion column."""
     if not winners:
         return []
@@ -490,12 +490,12 @@ def _dual_uplift_filter(
             # (self-limiting). On heteroscedastic data the per-bin scale-norm makes
             # |z| carry MI the unnormalised |resid| cannot -> uplift clears.
             #
-            # DEVICE-BORN route (2026-06-30): under STRICT-residency the host-built sib_abs matrix is the
+            # DEVICE-BORN route: under STRICT-residency the host-built sib_abs matrix is the
             # ~120 MB host->device upload at this site. Rebuild the |Family-B residual| candidate matrix ON the
             # device from the small resident operand columns (each (x_i, x_j) sibling recipe carries x_i / x_j /
-            # edges / bin_mean -- the SAME bin-code + per-bin-mean gather as the device dispersion builder, only
+            # edges / bin_mean - the SAME bin-code + per-bin-mean gather as the device dispersion builder, only
             # WITHOUT the /sigma divide -> just subtract + abs), and score with the SAME resident plug-in MI the
-            # host STRICT _mi_classif_batch routes to -- collapsing the matrix H2D. The transform is PURE-X /
+            # host STRICT _mi_classif_batch routes to - collapsing the matrix H2D. The transform is PURE-X /
             # Y-INDEPENDENT (no OOF / fold / target -> no leak surface) and there is NO divide, so the bin-code /
             # NaN-fold STRUCTURE is bit-identical AND the values match the host to the last ULP. The dual-uplift
             # comparison is ADDITIVE on the SAME estimator (cand / raw / sibling MI all route through the resident
@@ -593,10 +593,10 @@ def hybrid_conditional_dispersion_fe(
     if mi_gate and y is not None:
         from ._unified_fe_gate import local_mi_gate
         _gate_top_k = int(mi_gate_top_k) if mi_gate_top_k else int(top_k)
-        # DEVICE-BORN route (2026-06-30): under STRICT-residency the enc_df matrix is the ~288 MB host->device
+        # DEVICE-BORN route: under STRICT-residency the enc_df matrix is the ~288 MB host->device
         # upload at this site. Rebuild the conditional-dispersion candidate matrix ON the device from the small
         # resident operand columns (the recipes carry each column's x_i/x_j/edges/bin_mean/bin_std/kind) and
-        # score with the SAME resident plug-in MI -- collapsing the matrix H2D. The transform is PURE-X /
+        # score with the SAME resident plug-in MI - collapsing the matrix H2D. The transform is PURE-X /
         # Y-INDEPENDENT (no OOF / fold / target -> no leak surface), so the bin-code / sigma-floor / NaN-fold /
         # emission-fold STRUCTURE is bit-identical to the host; only the per-row f64 divide differs at ULP (the
         # per-bin moments are the SAME host-stored recipe constants). ``None`` (no cupy / non-strict / any GPU

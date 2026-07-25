@@ -1,4 +1,4 @@
-"""Layer 73 (2026-06-01): Total Correlation (Watanabe 1960) multivariate-
+"""Layer 73: Total Correlation (Watanabe 1960) multivariate-
 redundancy ranking for hybrid orth-poly FE.
 
 Why this layer
@@ -9,9 +9,9 @@ dependence with the target; Layer 72 (JMIM) ranks by the WORST-CASE pairwise
 joint MI with the already-selected support. Both criteria are still
 PAIRWISE in their redundancy book-keeping: JMIM evaluates a separate joint
 MI against each selected column and takes the min. Higher-order
-redundancy -- the case where three or more columns are PAIRWISE
+redundancy - the case where three or more columns are PAIRWISE
 near-independent but JOINTLY redundant (the canonical example is the XOR
-parity ``x_3 = x_1 XOR x_2``) -- is invisible to a pairwise scorer.
+parity ``x_3 = x_1 XOR x_2``) - is invisible to a pairwise scorer.
 
 Total Correlation closes that hole. For a column set ``Z = (Z_1, ..., Z_d)``
 TC is
@@ -25,7 +25,7 @@ the total amount of information SHARED among the variables in ``Z``, and
 collapses to ``I(X; Y)`` when ``d = 2``. Critically, TC of an XOR triple
 ``(x_1, x_2, x_3=x_1 XOR x_2)`` is POSITIVE because the joint entropy
 ``H(Z_1, Z_2, Z_3)`` is one bit less than ``sum H(Z_i)`` even though
-``I(Z_i; Z_j) = 0`` for every pair -- the higher-order redundancy that
+``I(Z_i; Z_j) = 0`` for every pair - the higher-order redundancy that
 pairwise MI misses entirely.
 
 Score for FE ranking
@@ -40,7 +40,7 @@ Higher = ``c`` adds GENUINE new information (the joint entropy grows more
 than the per-column entropy sum implies redundancy). Lower / negative =
 ``c`` is jointly redundant with the support given ``y``. A column that is
 marginally informative with ``y`` but JOINTLY redundant with the support
-posts a low / negative delta_tc -- the property pairwise MI cannot see.
+posts a low / negative delta_tc - the property pairwise MI cannot see.
 
 TC vs JMIM (Layer 72)
 ---------------------
@@ -52,7 +52,7 @@ TC vs JMIM (Layer 72)
   pure-noise column even though jointly ``x_3`` is fully determined.
 * TC delta is a ``d+2``-variable joint MI (candidate + all of support +
   y). It catches all-order redundancy at the cost of an exponentially-
-  sized joint histogram -- mitigated by the dense-renumber trick
+  sized joint histogram - mitigated by the dense-renumber trick
   ``_renumber_joint`` borrowed from Layer 60: the cartesian space
   ``prod_j K_j`` never materialises; only the ``<= n`` occupied joint
   cells are tracked.
@@ -64,17 +64,17 @@ TC of a ``d``-variable set with equi-frequency binning and the dense-
 renumber trick is ``O(n * d)`` time and ``O(n)`` memory for the joint
 histogram (one ``np.unique`` per fold). Each ranking pass over ``p``
 engineered candidates is ``O(p * n * |support|)``. Calibration: ``n =
-2000``, ``p = 50``, ``|support| = 5`` -- about 500k joint-renumber ops,
+2000``, ``p = 50``, ``|support| = 5`` - about 500k joint-renumber ops,
 sub-second on a modern laptop.
 
 Recipe replay
 -------------
 
-Each emitted column is backed by an ``orth_univariate`` recipe -- the
-SAME kind Layer 21 uses -- because the engineered VALUES are bit-equal
+Each emitted column is backed by an ``orth_univariate`` recipe - the
+SAME kind Layer 21 uses - because the engineered VALUES are bit-equal
 to Layer 21; only the SCORING (and therefore the selection) changes.
 
-NOT wired into ``MRMR.fit`` by default -- opt-in via
+NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_hybrid_orth_tc_enable=True``.
 """
 from __future__ import annotations
@@ -106,7 +106,7 @@ __all__ = [
 def _coerce_y_int64(y) -> np.ndarray:
     """Dense int64 class labels. Non-integer y is densified via
     ``np.unique(return_inverse=...)`` rather than truncated with
-    ``.astype(int64)`` -- plain truncation merges distinct labels and destroys
+    ``.astype(int64)`` - plain truncation merges distinct labels and destroys
     continuous-y signal (everything in [0, 1) collapses to class 0)."""
     arr = np.asarray(y).ravel()
     if np.issubdtype(arr.dtype, np.integer):
@@ -259,7 +259,7 @@ def total_correlation(
     float
         Plug-in TC in nats. Always non-negative for d >= 2 in the
         asymptotic limit; the finite-sample plug-in estimate can drift
-        slightly negative on near-independent low-n data -- callers
+        slightly negative on near-independent low-n data - callers
         comparing TC values across candidate sets should treat
         differences below the per-sample noise floor (~ 0.01 nat at
         n=2000, d=4) as ties.
@@ -303,7 +303,7 @@ def _build_support_bins(
 
     Falls back to an empty support when ``current_support`` is None /
     empty / misaligned with ``raw_X`` (the natural "first-round"
-    behaviour -- no extra TC contribution from the empty support, so the
+    behaviour - no extra TC contribution from the empty support, so the
     score reduces to the candidate's own TC contribution with y).
     """
     if current_support is None or not isinstance(current_support, pd.DataFrame) or current_support.shape[1] == 0:
@@ -342,12 +342,12 @@ def score_features_by_tc_uplift(
         score(c)     = delta_tc - I(c ; joint_S)             # = I(c; y | S)
 
     The raw TC increment ``delta_tc`` is the mutual information of the
-    candidate with the joint ``(support, y)`` -- it decomposes exactly
+    candidate with the joint ``(support, y)`` - it decomposes exactly
     as ``I(c; S) + I(c; y | S)``. Ranking by ``delta_tc`` itself would
     REWARD candidates that overlap with the support (the redundancy
     term), which is the opposite of what we want. We strip the ``I(c;
     joint_S)`` redundancy term and rank by the conditional ``I(c; y |
-    S)`` -- the genuinely-new information the candidate carries about
+    S)`` - the genuinely-new information the candidate carries about
     ``y`` GIVEN the support.
 
     The ``joint_S`` conditioning is what makes this score TC-flavoured
@@ -373,7 +373,7 @@ def score_features_by_tc_uplift(
     current_support : Optional[DataFrame]
         Reference set ``S`` whose joint with ``c`` and ``y`` defines
         ``tc_after``. When None / empty, ``S`` is empty and the score
-        becomes ``TC([c, y]) = I(c; y)`` -- equivalent to marginal MI
+        becomes ``TC([c, y]) = I(c; y)`` - equivalent to marginal MI
         for the first-round case (so callers without an explicit
         support get a sensible ordering on cold start).
     n_bins : int
@@ -422,13 +422,13 @@ def score_features_by_tc_uplift(
 
     # Layer 86 optimization: pre-compute the support-side joints ONCE.
     # ``_renumber_joint(*sup_bins)`` and ``_renumber_joint(*sup_bins,
-    # y_bin)`` are INVARIANT across the p_eng candidates -- chaining
+    # y_bin)`` are INVARIANT across the p_eng candidates - chaining
     # them per-candidate (the pre-opt path) re-did ``len(sup_bins) + 1``
     # ``np.unique`` calls each loop iter. We hoist them outside the
     # loop AND switch the per-candidate fold from sort-based
     # ``_renumber_joint`` to hash-based ``_factorize_pack``: each
     # candidate's joint_after = factorize_pack(joint_Sy, cand) and
-    # joint_cS = factorize_pack(joint_S, cand) -- two hash-dedup ops
+    # joint_cS = factorize_pack(joint_S, cand) - two hash-dedup ops
     # vs. (len(sup_bins) + 2) chained np.unique folds. Bit-equivalent
     # (entropy invariant under class-id permutation).
     if sup_bins:
@@ -455,7 +455,7 @@ def score_features_by_tc_uplift(
         cand_bin = eng_bins[j]
         cand_H = _entropy_from_classes(cand_bin)
         # Build joint(S, c, y) via hash-dedup over the pre-computed
-        # invariant (S, y) joint -- one factorize_pack call instead of
+        # invariant (S, y) joint - one factorize_pack call instead of
         # the (len(sup_bins)+1)-fold _renumber_joint chain.
         if joint_sy_invariant is not None:
             joint_after = _factorize_pack(joint_sy_invariant, cand_bin)
@@ -470,7 +470,7 @@ def score_features_by_tc_uplift(
         # so the "TC grew" includes BOTH the new-info-with-y term AND
         # the candidate-support-redundancy term. A near-copy of an
         # already-selected support col scores high purely from the
-        # ``I(c; S)`` redundancy contribution -- the OPPOSITE of "new
+        # ``I(c; S)`` redundancy contribution - the OPPOSITE of "new
         # info". We rank by the conditional ``I(c; y | S)`` term,
         # obtained by subtracting ``I(c; joint_S)`` from delta_tc.
         if joint_s_invariant is not None:
@@ -492,7 +492,7 @@ def score_features_by_tc_uplift(
         })
     df = pd.DataFrame(rows)
     if not df.empty:
-        # Rank by raw delta_tc -- the per-source baseline uplift would
+        # Rank by raw delta_tc - the per-source baseline uplift would
         # explode on near-zero-MI sources, the same pathology Layer 72
         # documents for JMIM. Bennasar-style: trust the joint-info score
         # itself.
@@ -586,12 +586,12 @@ def hybrid_orth_mi_tc_fe_with_recipes(
     n_bins: int = 10,
 ):
     """Same as :func:`hybrid_orth_mi_tc_fe` plus a list of
-    ``orth_univariate`` recipes -- one per appended column -- so
+    ``orth_univariate`` recipes - one per appended column - so
     ``MRMR.transform`` can recompute each engineered column on test
     data without re-running the TC ranking.
 
     Recipes are byte-identical to Layer 21 because the engineered
-    VALUES are byte-identical -- only the SCORING (and therefore the
+    VALUES are byte-identical - only the SCORING (and therefore the
     selection) differs.
     """
     from .engineered_recipes import build_orth_univariate_recipe
@@ -634,7 +634,7 @@ def hybrid_orth_mi_tc_fe_with_recipes(
             _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
-            # ORTH_SCORING_A-3 fix: was a bare except with zero logging,
+            # Was a bare except with zero logging,
             # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
             # exception (including a genuine programming bug), with no diagnostic trace.
             logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)

@@ -3,7 +3,7 @@
 User-facing question this layer answers, in ONE accessor and under one screen:
   * WHY these features?   -> the surviving selected features + their engineered recipe kinds
                              (assembled from ``fe_provenance_``, the Layer-54 survivor surface).
-  * WHAT did FE build / WHICH gate dropped what? -> the BINDING rejection gate -- the single
+  * WHAT did FE build / WHICH gate dropped what? -> the BINDING rejection gate - the single
                              biggest killer from the Layer-? ``fe_rejection_ledger_`` (b1a1048a),
                              with how many candidates it dropped and the margin band by which
                              they missed (reuses ``get_fe_rejection_report``'s ledger).
@@ -47,7 +47,7 @@ _GATE_TO_HINT_KNOB: dict[str, str] = {
 # is the additive step by which a user would loosen the gate's threshold; the ledger
 # records ``margin = observed - threshold``, so loosening the threshold by ``delta``
 # re-admits a recorded candidate iff this gate ACTUALLY BLOCKED it (``margin < 0``, observed
-# below the floor) AND it would clear the relaxed floor (``margin > -delta``) -- i.e.
+# below the floor) AND it would clear the relaxed floor (``margin > -delta``) - i.e.
 # ``-delta < margin < 0``. Candidates recorded with ``margin >= 0`` cleared this gate and were
 # dropped downstream, so relaxing this gate does not re-admit them (they stay dropped on refit).
 # Bands are sized to the gate's natural scale: ratio gates (prevalence) step in ~0.10 ratio;
@@ -108,7 +108,7 @@ def _survivor_section(mrmr_self: Any) -> str:
     # sees WHICH survivors carry the signal. Gain is non-NaN for selected columns;
     # screened-out produced columns carry NaN and are excluded from the attribution
     # roster. Falls back to provenance order when no gains are recorded.
-    # NOTE: the helper gain column MUST NOT start with an underscore -- ``itertuples``
+    # NOTE: the helper gain column MUST NOT start with an underscore - ``itertuples``
     # rewrites leading-underscore / invalid-identifier column names to positional
     # ``_N``, which would make ``getattr(row, ...)`` silently miss the gain.
     if "mrmr_gain" in prov.columns:
@@ -174,10 +174,10 @@ def _recommender_section(mrmr_self: Any) -> str:
 def _whatif_section(mrmr_self: Any, binding_gate: str | None) -> str:
     """WHAT-IF-FLIP preview: how many ledger candidates a one-band relaxation re-admits.
 
-    PURE COUNT over the recorded ledger -- NO refit. For the binding gate (and any other
+    PURE COUNT over the recorded ledger - NO refit. For the binding gate (and any other
     gate that maps to an fe_* knob), relaxing the threshold by the gate's one-band ``delta``
     re-admits exactly the recorded candidates this gate ACTUALLY BLOCKED (``margin < 0``,
-    observed below the floor) that would clear the relaxed floor (``margin > -delta``) --
+    observed below the floor) that would clear the relaxed floor (``margin > -delta``) -
     i.e. ``-delta < margin < 0`` (margin == observed - threshold). Candidates recorded with
     ``margin >= 0`` cleared this gate and were dropped downstream, so relaxing this gate does
     not re-admit them. The preview reports that count per knob.
@@ -229,8 +229,8 @@ def explain_selection(mrmr_self: Any) -> str:
     domain user can read to answer "why these features / what did FE build /
     what would I turn" WITHOUT reading source.
     """
-    # USABILITY_B-8 fix: each section's except-Exception used to embed the
-    # exception's type name into the returned narrative but never called `logger` at all -- unlike every
+    # Each section's except-Exception used to embed the
+    # exception's type name into the returned narrative but never called `logger` at all - unlike every
     # other file in this cluster, a production failure here (e.g. a corrupted fe_provenance_ DataFrame)
     # was invisible to log-based monitoring; only a human reading the returned string would ever see it.
     # The never-raise contract is unchanged; only a debug-level log line is added per section.

@@ -70,7 +70,7 @@ def plot(self, X_rotation=90, X_size=8, figsize=(12, 8), y_scale="log", which_fe
     # data from wide to long
     # .copy() makes the intent explicit: `iloc[1:]` may return either a view or an independent frame
     # depending on pandas version/internals, so mutating it in place afterward (data["index"] = ...) is a
-    # classic chained-assignment anti-pattern -- fragile across pandas versions (can raise
+    # classic chained-assignment anti-pattern - fragile across pandas versions (can raise
     # SettingWithCopyWarning) even though it currently works.
     data = self.history_x.iloc[1:].copy()
     data["index"] = data.index

@@ -1,7 +1,7 @@
 """Least-core / nucleolus stability refine (gt_02): a principled alternative to greedy parsimony_tol drop.
 
 ``within_cluster_refine``'s legacy stage-2b greedy-backward drops any member whose removal keeps the
-honest holdout loss within ``parsimony_tol`` of the best seen -- a scalar-threshold decision that
+honest holdout loss within ``parsimony_tol`` of the best seen - a scalar-threshold decision that
 cannot distinguish "redundant given the rest" from "individually small but jointly meaningful". This
 module treats the selected proxy UNITS as players of a cooperative game with characteristic function
 v(C) = max(0, L_ref - proxy_loss(C)) (higher v = better coalition, monotone transform of the proxy
@@ -67,7 +67,7 @@ def least_core_allocation(
     ``players`` are unit indices scored via ``evaluator.loss(idx)`` (a memoised proxy-loss oracle,
     e.g. ``_shap_proxy_heuristics._Evaluator``). The characteristic function is
     ``v(C) = max(0, L_ref - evaluator.loss(list(players[i] for i in C)))`` where ``L_ref`` is the
-    loss of the WORST (highest-loss) singleton among ``players`` -- a finite, cheap-to-compute zero
+    loss of the WORST (highest-loss) singleton among ``players`` - a finite, cheap-to-compute zero
     point (the natural "empty coalition" loss is +inf for most metrics and unusable directly). Core
     membership / the eps*-minimising allocation is invariant to this additive shift; only the absolute
     scale of ``x`` moves with it.
@@ -80,7 +80,7 @@ def least_core_allocation(
     ``sum(x) == v(N)``, and for each sampled coalition C (excluding the grand coalition N itself):
     ``sum_{j in C} x_j >= v(C) - eps``; ``x_j >= 0``.
 
-    ``exhaustive=True`` enumerates ALL ``2**k - 2`` proper nonempty subsets instead of sampling --
+    ``exhaustive=True`` enumerates ALL ``2**k - 2`` proper nonempty subsets instead of sampling -
     used by the textbook-game unit tests to prove exact LP correctness against known analytic cores.
 
     ``nucleolus_refine=True`` runs a truncated (cap 3 iterations) lexicographic-minimisation second
@@ -167,7 +167,7 @@ def _truncated_nucleolus(
     then re-solve minimising the largest excess among the remaining (non-frozen) constraints. Each round
     strictly reduces (or holds) the max remaining excess; capped at ``max_iters`` because the exact
     nucleolus needs up to k-1 such rounds with a full re-derivation of the active constraint lattice,
-    which is O(2^k) worst case -- we deliberately truncate as a cheap "sharpen" pass, not an exact solve.
+    which is O(2^k) worst case - we deliberately truncate as a cheap "sharpen" pass, not an exact solve.
     """
     x, eps = x0, eps0
     frozen = np.zeros(len(coalitions), dtype=bool)
@@ -287,29 +287,29 @@ def auto_should_use_core_refine(
 
     Root-caused empirically (see ``test_biz_val_shap_proxied_core_refine.py``'s own docstring): core
     degrades to greedy when the strong/already-confident units' honest loss is already near the
-    achievable floor -- the marginal held-out benefit of the weaker/borderline units crowds toward
+    achievable floor - the marginal held-out benefit of the weaker/borderline units crowds toward
     zero (or goes slightly negative from noise), so every unit's least-core credit share washes out
     below the drop threshold and the LP has nothing to differentiate. Measured end-to-end through the
     real ``ShapProxiedFS.fit()`` pipeline (not an isolated toy model) on the two calibration fixtures
     this repo already has: a saturated bed (6 strong w=1.0 + 6 weak w=0.25, where core measurably
     degrades to greedy's exact recall) shows a marginal RELATIVE loss gain of -0.090; a non-saturated
     bed (3 strong w=0.8 + 6 weak w=0.35, where core measurably recovers more weak recall than greedy)
-    shows +0.091 -- comfortably on either side of this function's default 0.02 threshold. A first
+    shows +0.091 - comfortably on either side of this function's default 0.02 threshold. A first
     attempt at "confident" = a fixed top-half-by-RANK of ``unit_players`` failed to discriminate (a
-    real fit carries far more proxy units than raw informative columns -- measured 20-22 units
-    surviving from a 3-9-column fixture, not 9 -- so ranking exactly the top half diluted the
+    real fit carries far more proxy units than raw informative columns - measured 20-22 units
+    surviving from a 3-9-column fixture, not 9 - so ranking exactly the top half diluted the
     comparison with units that were never dominant); the magnitude-RELATIVE split below fixed that.
 
-    Compares ``base_honest_loss`` (the FULL unit set's already-computed honest holdout loss -- callers
+    Compares ``base_honest_loss`` (the FULL unit set's already-computed honest holdout loss - callers
     pass this in rather than recomputing it) against the honest loss of just the units within a
     FRACTION of the single strongest unit's mean(|phi|) magnitude (a cheap, already-available
     confidence proxy: no new proxy-side computation, only one extra honest retrain via
-    ``honest_loss_fn``) -- adapting to however many units are actually dominant, whatever the total
+    ``honest_loss_fn``) - adapting to however many units are actually dominant, whatever the total
     count. A relative marginal gain below ``margin_threshold`` means the weaker units aren't buying
-    enough held-out accuracy to be worth core's LP + honest-reverify cost -- route to greedy directly.
+    enough held-out accuracy to be worth core's LP + honest-reverify cost - route to greedy directly.
 
     Degenerate cases (fewer than 4 units, a degenerate all-zero magnitude vector, or the confident
-    split being empty/the full set) return ``True`` (use core) -- there's no safe reduced subset to
+    split being empty/the full set) return ``True`` (use core) - there's no safe reduced subset to
     measure a marginal against, and core's own honest-gate fallback (see :func:`core_refine`) already
     protects against a bad outcome either way.
     """
@@ -323,7 +323,7 @@ def auto_should_use_core_refine(
         return True
     # Magnitude-RELATIVE split (not a fixed top-half-by-RANK): a real fit can carry many more proxy
     # units than there are genuinely informative raw columns (measured: 20 units surviving from a
-    # 3-strong+6-weak fixture, not 9) -- ranking "confident" as exactly the top half then dilutes the
+    # 3-strong+6-weak fixture, not 9) - ranking "confident" as exactly the top half then dilutes the
     # comparison with units that were never dominant to begin with, washing out the marginal signal
     # regardless of true saturation. Isolating units within a FRACTION of the single strongest unit's
     # magnitude adapts to however many units are actually dominant, whatever the total count.

@@ -4,7 +4,7 @@
 memoization caches and passes them into njit kernels (``evaluate_gain``, the
 entropy kernels, ``fleuret``, ``friend_graph``). Constructing the first such
 dict in a process JIT-compiles the whole typed-dict method suite (empty /
-setitem / getitem / contains / delitem / len / iter) -- ~5s of LLVM codegen
+setitem / getitem / contains / delitem / len / iter) - ~5s of LLVM codegen
 that is NOT numba-disk-cacheable and otherwise lands inside the first fit.
 
 The compile is per-process: once the machinery exists, every subsequent fit in

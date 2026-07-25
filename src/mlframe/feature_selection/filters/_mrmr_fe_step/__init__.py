@@ -1,4 +1,4 @@
-"""``MRMR._run_fe_step`` FE-step package -- thin re-export facade.
+"""``MRMR._run_fe_step`` FE-step package - thin re-export facade.
 
 Historical ``from mlframe.feature_selection.filters._mrmr_fe_step import _run_fe_step`` (the bind in
 ``mrmr.py``) and the helper imports (``_non_numeric_column_indices`` / ``_synergy_bootstrap_can_supply_pool``)

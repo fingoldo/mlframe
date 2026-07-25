@@ -24,11 +24,11 @@ logger = logging.getLogger(__name__)
 def _slice_cols_to_numpy(X, cols):
     """Gather ``cols`` from ``X`` (DataFrame or ndarray) as a plain float numpy array.
 
-    Speed lever (2026-06-08): the honest-retrain hot loop (revalidation / within-cluster refine /
+    Speed lever: the honest-retrain hot loop (revalidation / within-cluster refine /
     trust guard / ablation) trains + predicts the booster hundreds of times per fit on a column
     slice of the SAME ``X_search`` / ``X_hold`` frames. Passing the slice as a *named* pandas
     DataFrame forces xgboost to (a) extract C-string feature names via ``from_cstr_to_pystr`` on
-    every fit AND every predict, and (b) run ``_validate_features`` name-matching -- cProfile @
+    every fit AND every predict, and (b) run ``_validate_features`` name-matching - cProfile @
     width=4000 attributed ~1.0s (8% of a 12.6s fit) to ``from_cstr_to_pystr`` / ``_get_feature_info``
     / ``_validate_features``, all GIL-holding Python work that also serialises the threaded honest
     pool. Tree splits depend only on column VALUES + POSITIONS, never names; a microbench confirmed
@@ -60,14 +60,14 @@ def _build_honest_loss_disk_key(model_template, X_tr, y_tr, X_ev, y_ev, idx, cla
     """Return a stable cache key for an ``_honest_loss`` call, or ``None`` if hashing fails.
 
     Key inputs cover everything that determines the cached float:
-      * (X_tr, y_tr) summary -- the fit data.
-      * (X_ev, y_ev) summary -- the eval data (different holdouts give different losses).
+      * (X_tr, y_tr) summary - the fit data.
+      * (X_ev, y_ev) summary - the eval data (different holdouts give different losses).
       * column subset (sorted, frozen) + classification + metric + seed.
       * model template params + n_estimators_cap + template_id (so capped vs full-template entries
         live in disjoint key namespaces, mirroring the in-memory cache's ``template_id`` field).
 
     Hash failure (an exotic template that doesn't pickle, etc.) returns ``None`` so the caller
-    falls through to the compute path -- the cache is best-effort, never a correctness gate.
+    falls through to the compute path - the cache is best-effort, never a correctness gate.
     """
     try:
         from mlframe.utils.disk_cache import compose_key, hash_array_summary, hash_object
@@ -100,7 +100,7 @@ def _build_perm_fit_disk_key(model_template, X_tr, y_tr, idx, n_estimators_cap, 
 
     Permutation importance fits a single booster on (X_tr[:, idx], y_tr); subsequent per-column
     shuffle predictions are evaluated against that fitted booster. The cached payload here is the
-    pickled fitted booster itself -- different from ``_HONEST_LOSS_CACHE_PREFIX`` entries (scalar
+    pickled fitted booster itself - different from ``_HONEST_LOSS_CACHE_PREFIX`` entries (scalar
     losses). Key inputs therefore depend ONLY on the fit determinants (training data + column
     subset + template params + n_estimators_cap + template_id); the permutation seed is intentionally
     NOT included because the seed affects only the post-fit shuffle predicts, never the fit itself.
@@ -134,7 +134,7 @@ def _open_disk_cache(disk_cache_dir):
     """Return a ``DiskCache`` for ``disk_cache_dir`` or ``None`` if it can't be opened.
 
     Failure here (permission error, exotic path) downgrades to "compute and skip cache" rather than
-    raising -- a cache hiccup must never poison the honest-retrain path it's optimising.
+    raising - a cache hiccup must never poison the honest-retrain path it's optimising.
     """
     if disk_cache_dir is None:
         return None
@@ -152,7 +152,7 @@ def _expand(idx, unit_to_members):
 
     Identity when ``unit_to_members is None`` (non-clustering mode: idx already are feature columns).
     In clustering mode the proxy ranks in unit space (one column per denoised cluster), but honest
-    re-validation must train on the REAL member columns we actually deploy -- so a unit subset expands
+    re-validation must train on the REAL member columns we actually deploy - so a unit subset expands
     to the union of its clusters' member columns.
     """
     if unit_to_members is None:
@@ -172,7 +172,7 @@ class HonestLossCache:
     fixed seed) and frequently re-evaluate the SAME large member subset (e.g. the chosen winner is
     retrained as the ablation's proxy baseline AND as within-cluster-refine's starting ``base``), so
     caching returns those identical results without a duplicate fit. Keyed on
-    ``(frozenset(cols), seed)`` -- order-independent, so column permutations of one subset collide
+    ``(frozenset(cols), seed)`` - order-independent, so column permutations of one subset collide
     correctly. Random-seeded re-validation fits get distinct seeds and so are never wrongly merged.
     Thread-safe for the threading-backend parallel pool (dict get/set under a lock)."""
 
@@ -191,7 +191,7 @@ class HonestLossCache:
         """Order-independent cache key: frozenset of column indices + seed + template_id, so subset permutations collide while distinct model-template variants (e.g. capped ``n_estimators``) never do."""
         # ``template_id`` namespaces cache entries by model-template variant. When refine retrains use
         # a capped ``n_estimators`` template (cheap ranking-only fits) the resulting losses are NOT
-        # interchangeable with full-template entries from the same ``(cols, seed)`` -- a distinct
+        # interchangeable with full-template entries from the same ``(cols, seed)`` - a distinct
         # ``template_id`` keeps both populations in the same cache without collision, while a final
         # full-template re-evaluation of the winner still hits the surrounding pipeline's cache entries.
         return (frozenset(int(c) for c in idx), seed, template_id)
@@ -260,7 +260,7 @@ def _loss_from_predictions(p_or_pred, y_ev, classification, metric):
     """Compute the holdout loss from a precomputed prediction vector (no fit, no slicing).
 
     Exposed so :func:`_permutation_importance_ranking` can reuse the loss-aggregation branches
-    without re-fitting the booster -- the permutation-importance pass scores k shuffled-column
+    without re-fitting the booster - the permutation-importance pass scores k shuffled-column
     holdout predictions per fit, so we want the predict+loss path with zero fit overhead.
 
     Multiclass (L3): when the classification probability is a 2-D ``(n, C>2)`` matrix the binary
@@ -312,7 +312,7 @@ def _honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, me
     """Train ``model_template`` on selected feature columns; return holdout loss (lower=better).
 
     When ``cache`` (a :class:`HonestLossCache`) is supplied, an identical ``(cols, seed, template_id)``
-    retrain is served from the cache instead of refitting -- the same model on the same data with the
+    retrain is served from the cache instead of refitting - the same model on the same data with the
     same seed is deterministic, so the cached float is numerically identical to a fresh fit.
 
     ``disk_cache`` (iter80, optional :class:`mlframe.utils.disk_cache.DiskCache`) extends the
@@ -320,7 +320,7 @@ def _honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, me
     per ``ShapProxiedFS.fit`` (so a second fit on identical (X, y, columns, template) retrains from
     scratch); the disk cache survives the process boundary. Cache key includes (X_tr summary, y_tr
     summary, X_ev summary, y_ev summary, sorted cols, seed, template params, n_estimators_cap,
-    template_id, classification, metric) -- everything that determines the cached float. Cached
+    template_id, classification, metric) - everything that determines the cached float. Cached
     payload is the scalar loss (one float, ~8 bytes serialised), so the disk overhead is
     millions-of-entries-cheap even before LRU eviction. Cache miss is silent; a hashing or I/O
     hiccup transparently degrades to compute + don't-cache (best-effort policy: the cache is a
@@ -339,7 +339,7 @@ def _honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, me
 
     # Cross-process disk cache lookup. The in-memory cache misses here (or was None), but a prior
     # ShapProxiedFS.fit on identical (X_tr, y_tr, X_ev, y_ev, cols, template) may have cached the
-    # scalar loss to disk -- a hit avoids the fit + predict + loss work entirely. Hash-build failure
+    # scalar loss to disk - a hit avoids the fit + predict + loss work entirely. Hash-build failure
     # (None key) and DiskCache.get failure both degrade silently to the compute path.
     disk_key = None
     if disk_cache is not None:
@@ -403,14 +403,14 @@ def _permutation_importance_ranking(model_template, X_tr, y_tr, X_ev, y_ev, curr
 
     The booster is trained ONCE on ``current_cols``; for each member column we then build a SHUFFLED
     copy of the evaluation matrix (one column permuted, others intact), score it, and report
-    ``loss_shuffled - base_loss`` -- the canonical permutation-importance signal. Low/negative values
+    ``loss_shuffled - base_loss`` - the canonical permutation-importance signal. Low/negative values
     mean the member contributes little to the model's holdout performance and is a safe drop
     candidate; large positive values mean the member is essential.
 
     Cost: 1 fit + k predicts. Compared to the legacy "k separate honest retrains" per refine round,
-    this saves k-1 fits per ranking pass at identical predict cost -- the basis of the iter11 ~4-5x
+    this saves k-1 fits per ranking pass at identical predict cost - the basis of the iter11 ~4-5x
     refine speedup. The caller (``within_cluster_refine``) then uses the ranking to batch-drop the
-    bottom-importance members and ONLY then runs an honest retrain to verify -- O(log k) retrains
+    bottom-importance members and ONLY then runs an honest retrain to verify - O(log k) retrains
     instead of O(k) trial fits.
 
     The shuffle seed is fixed (deterministic across n_jobs=1 calls) so the ranking is reproducible.
@@ -418,7 +418,7 @@ def _permutation_importance_ranking(model_template, X_tr, y_tr, X_ev, y_ev, curr
     ``disk_cache`` (iter82): when supplied, the fitted booster pickle is cached under a key derived
     from (X_tr summary, y_tr summary, sorted cols, template params, n_estimators_cap, template_id).
     A warm second call with identical fit determinants reloads the booster from disk and skips the
-    fit entirely -- the perm-importance shuffle predicts (cheap) still run on the cached estimator.
+    fit entirely - the perm-importance shuffle predicts (cheap) still run on the cached estimator.
     Cache hit / miss / pickle errors degrade silently to the compute path (best-effort policy).
     """
     cols = list(current_cols)
@@ -468,7 +468,7 @@ def _permutation_importance_ranking(model_template, X_tr, y_tr, X_ev, y_ev, curr
     rng = np.random.default_rng(int(seed))
     # Pre-build column-major copy so we can swap one column at a time without re-allocating the matrix.
     # Predict directly on the numpy buffer: the booster was fit nameless above, so it accepts
-    # positional numpy columns -- this drops the per-shuffle DataFrame rewrap (k extra allocations +
+    # positional numpy columns - this drops the per-shuffle DataFrame rewrap (k extra allocations +
     # name marshalling per ranking pass), bit-identical because the column order never changes.
     # Own a contiguous, writable copy (X_ev_arr may be a view into X_ev) so the in-place column
     # swaps below never touch the caller's buffer; ``predict`` needs C-contiguous input anyway.

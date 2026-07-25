@@ -2,22 +2,22 @@
 
 BorutaShap's ``importance_measure`` picks the per-trial driver:
 
-* ``gini`` -- fast (impurity), the default. Over-credits noise features via split-frequency bias on
+* ``gini`` - fast (impurity), the default. Over-credits noise features via split-frequency bias on
   high-noise / low-signal / small-n-relative-to-p data.
-* ``permutation`` -- held-out permutation_importance (when train_or_test='test'). ~11x slower but the
+* ``permutation`` - held-out permutation_importance (when train_or_test='test'). ~11x slower but the
   measured noise-control leader: drives accepted-noise to ~0 where gini leaks 1-5 spurious columns.
-* ``shap`` -- slowest, dominated on both axes; never auto-selected.
+* ``shap`` - slowest, dominated on both axes; never auto-selected.
 
 ``importance_measure="auto"`` (this module) runs ONE cheap probe on (X, y) at fit start and routes:
 permutation on noisy / overfit-prone / small-n/p beds (where gini's bias hurts), gini on clean /
 large-n beds (where the 11x permutation cost buys nothing). Explicit gini/permutation/shap stay
-recoverable -- auto only acts when the user asks for it.
+recoverable - auto only acts when the user asks for it.
 
 The probe (one shared RandomForest fit, train+OOB, no extra full BorutaShap pass):
 
-1. ``n/p`` ratio -- small samples-per-feature inflate impurity's split-frequency bias.
-2. ``oob_gap`` -- (train R2/acc) - (OOB R2/acc); a large train-vs-OOB gap is direct overfit evidence.
-3. ``shadow_gap`` -- fraction of REAL features whose impurity exceeds the MAX shadow (permuted-copy)
+1. ``n/p`` ratio - small samples-per-feature inflate impurity's split-frequency bias.
+2. ``oob_gap`` - (train R2/acc) - (OOB R2/acc); a large train-vs-OOB gap is direct overfit evidence.
+3. ``shadow_gap`` - fraction of REAL features whose impurity exceeds the MAX shadow (permuted-copy)
    impurity. DIAGNOSTIC ONLY, NOT a routing signal: a clean bed with many true features legitimately
    shows a HIGH fraction here, so it does not discriminate noise (measured: clean n/p=150 -> 0.6).
    Kept for inspection; routing uses only the two overfit signals above.
@@ -78,7 +78,7 @@ def _probe_signals(X, y, classification: bool, random_state: int) -> dict:
         )
 
     # Shadow columns: a permuted copy of each real feature (same construction the gate uses), so the
-    # real-vs-shadow impurity gap mirrors what BorutaShap will see -- a cheap preview of the leak.
+    # real-vs-shadow impurity gap mirrors what BorutaShap will see - a cheap preview of the leak.
     rng = np.random.default_rng(random_state)
     shadow = Xv.copy()
     for j in range(p):

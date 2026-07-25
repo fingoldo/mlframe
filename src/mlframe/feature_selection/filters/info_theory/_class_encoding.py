@@ -14,7 +14,6 @@ def merge_vars(
     var_is_nominal,
     factors_nbins,
     dtype=np.int32,
-    min_occupancy: Optional[int] = None,
     current_nclasses: int = 1,
     final_classes: Optional[np.ndarray] = None,
     verbose: bool = False,
@@ -26,14 +25,14 @@ def merge_vars(
 
     bench-attempt-rejected (2026-05-21, c0148 / iter136): 1-var
     fast-path replacing the per-row loop with np.bincount + cast runs
-    15-20% SLOWER at n=50k..1M -- numba already compiles the manual
+    15-20% SLOWER at n=50k..1M - numba already compiles the manual
     loop into tight machine code; the bincount path pays an int64->
     dtype cast plus an extra .copy() for the no-prune branch. Bench:
     profiling/bench_merge_vars_1var_fastpath.py.
 
     bench-attempt-rejected (2026-06-03): parallelising the per-row
     histogram via a chunked per-thread-freqs accumulator + reduction
-    (bit-identical -- integer counts sum associatively, final_classes
+    (bit-identical - integer counts sum associatively, final_classes
     writes are per-row independent) is memory-bound, not compute-bound,
     so it does NOT scale: 0.56x at n=50k (prange overhead dominates the
     tight loop), ~neutral at n=200k, only ~1.34x at n=1M / K=256. The
@@ -51,7 +50,7 @@ def merge_vars(
     for var_number, var_index in enumerate(vars_indices):
 
         expected_nclasses = current_nclasses * factors_nbins[var_index]
-        # 2026-05-30 Wave 9.1 fix (loop iter 21): use int64 for the
+        # Use int64 for the
         # per-class counter ``freqs`` and the remap ``lookup_table``,
         # decoupled from the caller-supplied ``dtype`` (which sizes the
         # per-sample class-id workspace). Pre-fix when ``dtype=np.int8``,
@@ -96,7 +95,7 @@ def merge_vars(
 
 @njit(cache=True)
 def joint_freqs_2var(factors_data: np.ndarray, ia: int, ib: int, nb_a: int, nb_b: int) -> np.ndarray:
-    """Normalized NONZERO joint-class frequencies for the column PAIR ``(ia, ib)`` --
+    """Normalized NONZERO joint-class frequencies for the column PAIR ``(ia, ib)`` -
     BIT-IDENTICAL to ``merge_vars(factors_data, [ia, ib], None, factors_nbins, dtype)[1]``
     but WITHOUT the per-sample ``final_classes`` output array + the lookup-table remap pass
     that ``merge_vars`` builds and the pairwise SU path discards.
@@ -106,7 +105,7 @@ def joint_freqs_2var(factors_data: np.ndarray, ia: int, ib: int, nb_a: int, nb_b
     ``H(X_ia, X_ib)`` (the per-column marginals ``H(X_ia)`` / ``H(X_ib)`` are state-cached, so the
     sole per-pair ``merge_vars`` call is this 2-var joint). ``merge_vars`` allocates a length-``n``
     ``final_classes`` array, an ``expected``-length ``lookup_table``, and walks every sample twice
-    (accumulate + remap) -- all unused here, since ``entropy`` only needs the pruned freqs. On the
+    (accumulate + remap) - all unused here, since ``entropy`` only needs the pruned freqs. On the
     scene DCD sweep (~24k pairs at 600 rows, ~345k at full) that wasted allocation+remap is the
     dominant per-pair cost: this kernel is ~23x faster (171.9us -> 7.4us/pair incl. the downstream
     ``entropy`` call; bench D:/Temp/microbench_pairsu2.py) at ZERO numeric change.
@@ -115,8 +114,8 @@ def joint_freqs_2var(factors_data: np.ndarray, ia: int, ib: int, nb_a: int, nb_b
     uniform / sparse / heavy-skew / constant-column data at n=37/600/2407, 14160 pairs each):
       * Joint class id ``cls = ca + cb * nb_a`` reproduces ``merge_vars``'s incremental encoding
         for two variables (var0=ia: current_nclasses=1 -> class=ca, nclasses=nb_a; var1=ib:
-        class = ca + cb*nb_a) EXACTLY -- same integer arithmetic, no float involved.
-      * ``freqs[freqs > 0]`` prunes empty bins in ASCENDING class-id order -- the identical dense
+        class = ca + cb*nb_a) EXACTLY - same integer arithmetic, no float involved.
+      * ``freqs[freqs > 0]`` prunes empty bins in ASCENDING class-id order - the identical dense
         order ``merge_vars`` produces (its lookup-table renumber is monotone in oldclass), so the
         downstream ``-(log(p)*p).sum()`` reduces the SAME values in the SAME order -> bit-identical
         float64 entropy (FP summation order preserved).
@@ -127,7 +126,7 @@ def joint_freqs_2var(factors_data: np.ndarray, ia: int, ib: int, nb_a: int, nb_b
     counts). ``factors_data`` is the ``(n_samples, n_features)`` ordinal-encoded matrix; columns
     ``ia`` / ``ib`` are read directly (no copy). Returns the float64 normalized nonzero freqs,
     ready to hand straight to ``entropy`` (kept as a SEPARATE njit call so the canonical entropy
-    reduction is reused verbatim -- no re-derivation of the log-sum numerics here).
+    reduction is reused verbatim - no re-derivation of the log-sum numerics here).
     """
     n = factors_data.shape[0]
     if n == 0:
@@ -145,18 +144,18 @@ def joint_freqs_2var(factors_data: np.ndarray, ia: int, ib: int, nb_a: int, nb_b
 
 @njit(nogil=True, cache=True)
 def joint_entropy_2var(factors_data: np.ndarray, ia: int, ib: int, nb_a: int, nb_b: int) -> float:
-    """Shannon entropy ``H(X_ia, X_ib)`` in nats for the column PAIR ``(ia, ib)`` -- BIT-IDENTICAL
+    """Shannon entropy ``H(X_ia, X_ib)`` in nats for the column PAIR ``(ia, ib)`` - BIT-IDENTICAL
     to ``entropy(joint_freqs_2var(factors_data, ia, ib, nb_a, nb_b))`` but FUSED: the joint
     histogram is reduced straight to the entropy scalar with NO intermediate normalized-freqs
     array, NO ``freqs[freqs > 0]`` boolean-mask allocation, and NO ``np.log(freqs) * freqs``
-    temporary -- all of which ``joint_freqs_2var`` (which returns the full normalized nonzero freqs
+    temporary - all of which ``joint_freqs_2var`` (which returns the full normalized nonzero freqs
     array) and the downstream ``entropy`` call allocate-then-discard on the way to a single float.
 
     The DCD pairwise-SU hot loop (``_dcd_metrics.pair_su``) is the dominant per-pair consumer of
     ``joint_freqs_2var``: 341,777 calls on the full scene fit, and EVERY one immediately collapses
     the returned freqs array to a scalar via ``entropy``. The two-call form therefore allocates a
     pruned freqs array + a ``/ n`` normalized array per pair, then ``entropy`` re-runs the
-    ``freqs > 0`` mask and builds ``log(freqs) * freqs`` -- pure per-call wasted WORK once only the
+    ``freqs > 0`` mask and builds ``log(freqs) * freqs`` - pure per-call wasted WORK once only the
     entropy scalar is wanted. This kernel walks the joint histogram ONCE and accumulates
     ``-(p * log(p))`` directly. ~1.24x per pair at ZERO numeric change (bench D:/Temp/ww_micro_jointentropy.py).
 
@@ -168,7 +167,7 @@ def joint_entropy_2var(factors_data: np.ndarray, ia: int, ib: int, nb_a: int, nb
         so the FP accumulation visits the IDENTICAL ``p`` values in the IDENTICAL order.
       * SAME per-bin probability ``p = cnt / n`` (int64 count divided by ``n`` in float64), matching
         ``joint_freqs_2var``'s ``nz / n``.
-      * SAME reduction: ``entropy`` is ``-(np.log(freqs) * freqs).sum()`` -- numpy's ``.sum()`` over a
+      * SAME reduction: ``entropy`` is ``-(np.log(freqs) * freqs).sum()`` - numpy's ``.sum()`` over a
         contiguous 1-D array of < 128 elements (the joint nonzero-bin count, ``<= nb_a * nb_b``) is a
         NAIVE sequential add (pairwise summation only kicks in at >= 128 elements), so the scalar
         left-to-right ``h += log(p) * p`` accumulation here reproduces it bit-for-bit, then negates.

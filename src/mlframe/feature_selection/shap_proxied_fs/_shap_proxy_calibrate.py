@@ -2,16 +2,16 @@
 
 The coalition proxy is a *biased* estimator of a retrained model: the bias grows with subset
 redundancy (correlated survivors a retrain could lean on, that the proxy can't) and varies with
-cardinality. The trust guard already trains a handful of honest anchor models -- instead of throwing
+cardinality. The trust guard already trains a handful of honest anchor models - instead of throwing
 those (proxy, honest) pairs away after computing Spearman, we fit a tiny calibrator
 ``honest_loss ~ f(proxy_loss, cardinality, redundancy)`` and use it to RE-RANK candidates before the
 expensive top-N honest re-validation. This both answers the user's open "do we need to scale the
-partial sums?" question (yes -- but as a redundancy/cardinality-dependent map fit from data, not a
+partial sums?" question (yes - but as a redundancy/cardinality-dependent map fit from data, not a
 guessed global scale) and concentrates the honest-retrain budget on the corrector's best subsets.
 
 The corrector is cheap (Ridge over 4 engineered features) and order-guarded: with too few anchors it
 degrades gracefully to "proxy_loss only" (rank-preserving), and even when fit it is KEPT only if its
-predicted ordering on the anchors is non-inverting vs the raw proxy (positive Spearman) -- otherwise it
+predicted ordering on the anchors is non-inverting vs the raw proxy (positive Spearman) - otherwise it
 falls back to identity. So it can never do worse than the raw proxy ordering on the held anchors.
 """
 
@@ -36,7 +36,7 @@ def _mean_abs_offdiag_corr(sub_by_var: np.ndarray) -> float:
 
 
 def subset_redundancy(phi: np.ndarray, idx) -> float:
-    """Mean pairwise |correlation| of the selected proxy columns' attributions -- a cheap redundancy
+    """Mean pairwise |correlation| of the selected proxy columns' attributions - a cheap redundancy
     summary (0 for singletons). High redundancy is exactly where the proxy under-credits subsets.
 
     For scoring MANY subsets that share one ``phi`` prefer :func:`subset_redundancy_many`, which
@@ -59,7 +59,7 @@ def subset_redundancy_many(phi: np.ndarray, idx_list, *, phi_T: Optional[np.ndar
 
     ``phi_T`` (optional, perf): a precomputed ``np.ascontiguousarray(phi.T)``. When the caller already
     holds the contiguous transpose (e.g. ``proxy_trust_guard`` builds ``_phi_T`` for its coalition
-    margins), passing it here reuses that single transpose instead of re-transposing ``phi`` -- one
+    margins), passing it here reuses that single transpose instead of re-transposing ``phi`` - one
     fewer O(n_samples*n_units) contiguous copy per call. When ``None`` (default) the transpose is built
     here, preserving the existing behaviour for all other callers."""
     if phi_T is None:
@@ -122,10 +122,10 @@ def fit_proxy_corrector(proxy_losses, honest_losses, cards, redunds, *, min_anch
     # vs honest loss and breaks that guarantee. Enforce it empirically: the corrector is only kept if
     # its predicted ordering on the anchors is positively rank-correlated with the raw proxy ordering;
     # otherwise we fall back to identity (proxy-only, rank-preserving). This is the cheap, robust
-    # monotonicity gate -- a non-inverting map by construction, with no extra anchors required.
+    # monotonicity gate - a non-inverting map by construction, with no extra anchors required.
     #
     # IN-SAMPLE CAVEAT: this gate checks non-inversion on the SAME anchors the Ridge was fit on, so it
-    # verifies the FITTED map does not invert on the training anchors, NOT that it generalises -- a
+    # verifies the FITTED map does not invert on the training anchors, NOT that it generalises - a
     # corrector can pass here yet invert the proxy order on unseen specs. We accept the in-sample check
     # because the alternative (a held-out anchor split) would halve the already-scarce anchors (min 12)
     # and the fallback-to-identity on failure makes a wrong-keep strictly safer than a wrong-drop. Revisit

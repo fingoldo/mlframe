@@ -47,7 +47,7 @@ def pair_su(state: DCDState, a: int, b: int, entropy_cache: Optional[dict] = Non
         return 0.0
     state.n_cache_misses += 1
     state.n_su_calls += 1
-    # Layer 46 (2026-05-31): ``"auto"`` runs the SU and VI branches
+    # Layer 46: ``"auto"`` runs the SU and VI branches
     # in sequence and reports the tighter redundancy score. The two
     # underlying scores share the per-column entropy cache + fn_arr /
     # pair_buf scratch buffers, so the extra work over a pure SU pair
@@ -137,8 +137,8 @@ def pair_su(state: DCDState, a: int, b: int, entropy_cache: Optional[dict] = Non
             )
             h_b = float(entropy(freqs_b))
             ec[b] = h_b
-        # iter (2026-06-08): the joint H(X_a, X_b) is the ONLY genuinely per-pair term
-        # (the marginals are state-cached above), so it runs on every cache-miss pair --
+        # iter: the joint H(X_a, X_b) is the ONLY genuinely per-pair term
+        # (the marginals are state-cached above), so it runs on every cache-miss pair -
         # ~24k pairs at 600 rows / ~345k at full scene. ``merge_vars`` here builds a
         # length-n ``final_classes`` array + a lookup-table remap pass that this SU path
         # discards (it only consumes the pruned freqs for ``entropy``); the dedicated 2-var
@@ -180,7 +180,7 @@ def pair_su(state: DCDState, a: int, b: int, entropy_cache: Optional[dict] = Non
         else:
             su = 2.0 * (h_a + h_b - h_ab) / denom
     elif state.distance == "vi":
-        # 2026-05-30 Wave 9.1 fix (loop iter 23): proper Variation of
+        # Proper Variation of
         # Information distance. Pre-fix this branch was a silent alias
         # of ``"su"``: it called ``symmetric_uncertainty`` and returned
         # SU, ignoring the user's opt-in to VI semantics. The in-source
@@ -213,7 +213,7 @@ def pair_su(state: DCDState, a: int, b: int, entropy_cache: Optional[dict] = Non
         pair_buf[0] = a
         pair_buf[1] = b
         mi_ab = float(mi(fd, pair_buf[0:1], pair_buf[1:2], fn_arr, dtype=dtype))
-        # iter587: same per-column entropy cache as the SU branch above --
+        # iter587: same per-column entropy cache as the SU branch above -
         # H(X_a) / H(X_b) recomputation was the dominant per-call cost.
         ec = state.column_entropy_cache
         h_a = ec.get(a)
@@ -237,13 +237,13 @@ def pair_su(state: DCDState, a: int, b: int, entropy_cache: Optional[dict] = Non
         su = max(0.0, min(1.0, 1.0 - vi / norm)) if norm > 0 else 0.0
     elif state.distance == "sotoca_pla":
         # 2026-06-03 (audit integration-defaults-1): LEAKAGE FIREWALL.
-        # The Sotoca-Pla 2010 distance is TARGET-AWARE -- it reads I(X_i; Y)
+        # The Sotoca-Pla 2010 distance is TARGET-AWARE - it reads I(X_i; Y)
         # and I(X_j; Y):
         #   d(X_i, X_j) = 2 H(X_i, X_j) - I(X_i; X_j) - I(X_i; Y) - I(X_j; Y)
         # But ``pair_su`` is used ONLY to decide UNSUPERVISED cluster membership
         # / pool pruning (discover_cluster_members, tau auto-calibration, the
         # hierarchy analyser). Letting a y-aware score choose which candidates
-        # get pruned lets the target decide the feature support -- and a pruned
+        # get pruned lets the target decide the feature support - and a pruned
         # candidate never gets a later y-aware accept/reject re-screen, so this
         # is exactly the leak the rest of the clustering machinery forbids
         # (_cluster_aggregate.py: "Aggregation is UNSUPERVISED; only the
@@ -369,8 +369,8 @@ def _binarize_aggregate(values: np.ndarray, *, method: str, n_bins: int, dtype) 
     finite = values[np.isfinite(values)]
     if finite.size == 0:
         return np.zeros(values.shape, dtype=dtype)
-    # CLUSTERING_STABILITY-6 fix: NaN/Inf rows were excluded only from the EDGE
-    # computation above -- the `values` array passed to searchsorted/the uniform-binning arithmetic below
+    # NaN/Inf rows were excluded only from the EDGE
+    # computation above - the `values` array passed to searchsorted/the uniform-binning arithmetic below
     # still included them, so a non-finite row got silently routed into a REAL bin (searchsorted places
     # NaN past every finite edge -> the last bin in quantile mode; NaN.astype(int64) -> garbage, clamped to
     # 0 by np.clip in uniform mode) instead of a dedicated out-of-band code, unlike the discretization

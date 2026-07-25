@@ -2,10 +2,10 @@
 
 Public functions:
 
-* ``check_prospective_fe_pairs`` -- given high-MI raw pairs, enumerate unary x binary transformation candidates, evaluate each via ``mi_direct``, recommend top-N replacements.
-* ``compute_pairs_mis`` -- precompute MI for every pair candidate so the screening loop has a fast lookup.
-* ``create_unary_transformations`` / ``create_binary_transformations`` -- preset registries of numpy / scipy.special / hermval functions.
-* ``get_existing_feature_name`` / ``get_new_feature_name`` -- string formatters for engineered-feature names.
+* ``check_prospective_fe_pairs`` - given high-MI raw pairs, enumerate unary x binary transformation candidates, evaluate each via ``mi_direct``, recommend top-N replacements.
+* ``compute_pairs_mis`` - precompute MI for every pair candidate so the screening loop has a fast lookup.
+* ``create_unary_transformations`` / ``create_binary_transformations`` - preset registries of numpy / scipy.special / hermval functions.
+* ``get_existing_feature_name`` / ``get_new_feature_name`` - string formatters for engineered-feature names.
 """
 from __future__ import annotations
 
@@ -19,24 +19,24 @@ from numpy.polynomial.hermite import hermval
 from scipy import special as sp
 
 from ._feature_engineering_mem_budget import (
-    _time,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
-    _TIMES_SPENT_LOCK,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
-    _FE_BUFFER_RAM_BUDGET_RATIO,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
-    _FE_PEAK_OVERHEAD_FACTOR,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
-    _FE_HOIST_HEADROOM_OVERHEAD,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
-    _FE_BUFFER_ABSOLUTE_MAX_GB,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
-    _FE_VMEM_CACHE,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
-    _FE_MIN_FREE_RAM_GB,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
-    _fe_hoist_headroom_overhead,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
-    _fe_min_free_ram_bytes,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
-    _fe_buffer_absolute_max_bytes,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
-    _fe_effective_buffer_budget_bytes,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
-    UNIFIED_FE_SUBSAMPLE_N,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
-    _estimate_fe_shared_buffer_bytes,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
-    _FE_VMEM_TTL_S,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
-    _FE_VMEM_LOCK,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
-    _available_ram_bytes_cached,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
-    _can_hoist_shared_buffer,  # noqa: F401 -- re-exported, see _feature_engineering_mem_budget.py
+    _time,  # noqa: F401 - re-exported, see _feature_engineering_mem_budget.py
+    _TIMES_SPENT_LOCK,  # noqa: F401 - re-exported, see _feature_engineering_mem_budget.py
+    _FE_BUFFER_RAM_BUDGET_RATIO,  # noqa: F401 - re-exported, see _feature_engineering_mem_budget.py
+    _FE_PEAK_OVERHEAD_FACTOR,  # noqa: F401 - re-exported, see _feature_engineering_mem_budget.py
+    _FE_HOIST_HEADROOM_OVERHEAD,  # noqa: F401 - re-exported, see _feature_engineering_mem_budget.py
+    _FE_BUFFER_ABSOLUTE_MAX_GB,  # noqa: F401 - re-exported, see _feature_engineering_mem_budget.py
+    _FE_VMEM_CACHE,  # noqa: F401 - re-exported, see _feature_engineering_mem_budget.py
+    _FE_MIN_FREE_RAM_GB,  # noqa: F401 - re-exported, see _feature_engineering_mem_budget.py
+    _fe_hoist_headroom_overhead,  # noqa: F401 - re-exported, see _feature_engineering_mem_budget.py
+    _fe_min_free_ram_bytes,  # noqa: F401 - re-exported, see _feature_engineering_mem_budget.py
+    _fe_buffer_absolute_max_bytes,  # noqa: F401 - re-exported, see _feature_engineering_mem_budget.py
+    _fe_effective_buffer_budget_bytes,  # noqa: F401 - re-exported, see _feature_engineering_mem_budget.py
+    UNIFIED_FE_SUBSAMPLE_N,  # noqa: F401 - re-exported, see _feature_engineering_mem_budget.py
+    _estimate_fe_shared_buffer_bytes,  # noqa: F401 - re-exported, see _feature_engineering_mem_budget.py
+    _FE_VMEM_TTL_S,  # noqa: F401 - re-exported, see _feature_engineering_mem_budget.py
+    _FE_VMEM_LOCK,  # noqa: F401 - re-exported, see _feature_engineering_mem_budget.py
+    _available_ram_bytes_cached,  # noqa: F401 - re-exported, see _feature_engineering_mem_budget.py
+    _can_hoist_shared_buffer,  # noqa: F401 - re-exported, see _feature_engineering_mem_budget.py
 )
 
 
@@ -60,7 +60,7 @@ def _rebuild_full_survivor_col(
     bounded to ~K calls per pair, trivial vs the MI sweep work.
 
     ENGINEERED-OPERAND SUPPORT (subsample path): at FE step k>1 an operand index can
-    point at a column appended by a prior step -- NOT a raw position in
+    point at a column appended by a prior step - NOT a raw position in
     ``original_cols``. Such operands are resolved by name from the full-n continuous
     store ``engineered_operand_values[cols[var_idx]]`` (preferred, lossless) or, as a
     fallback, by name from ``X_full``. Mirrors ``_extval_raw_col`` so the subsample
@@ -97,10 +97,10 @@ def _rebuild_full_survivor_col(
     vals_b = _operand_full_vals(var_b_idx)
     # ``poly_*`` unary keys hold hermval coefficient arrays, not callables;
     # check_prospective_fe_pairs handles them via the same hermval(c=tr_func) path.
-    # ``prewarp`` is the per-operand learned pseudo-unary (2026-06-02): its fitted
+    # ``prewarp`` is the per-operand learned pseudo-unary: its fitted
     # spec lives in ``prewarp_spec_by_var`` and replays closed-form from x alone.
     _pw = prewarp_spec_by_var or {}
-    # ``gate_med`` is the per-operand median-gate pseudo-unary (2026-06-04): its
+    # ``gate_med`` is the per-operand median-gate pseudo-unary: its
     # only fitted state is one TRAIN-median float in ``gate_med_median_by_var``;
     # replays closed-form as ``(x > stored_median).astype(float)`` from x alone.
     _gm = gate_med_median_by_var or {}
@@ -151,7 +151,7 @@ UNARY_INPUT_CONSTRAINTS: dict[str, str] = {
 }
 
 from ._internals import njit_functions_dict, smart_log
-from .discretization import discretize_array, discretize_2d_quantile_batch  # noqa: F401 -- re-exported (see _feature_engineering_pairs/_pairs_core.py)
+from .discretization import discretize_array, discretize_2d_quantile_batch  # noqa: F401 - re-exported (see _feature_engineering_pairs/_pairs_core.py)
 from .permutation import mi_direct
 
 logger = logging.getLogger(__name__)
@@ -177,7 +177,7 @@ def compute_pairs_mis(
     # tqdm bar itself, so we surface the running top single feature by its (already-
     # computed) marginal MI with y, plus the strongest pair MI, in the bar postfix.
     # ``set_postfix`` exists only on the tqdm object, not on the plain chunk lists handed
-    # to the parallel workers -- guard via ``hasattr``. Pure display: the MIs shown are
+    # to the parallel workers - guard via ``hasattr``. Pure display: the MIs shown are
     # exactly the ones we cache, no extra compute.
     _bar = all_pairs if hasattr(all_pairs, "set_postfix") else None
     _top_var, _top_var_mi = None, -1.0
@@ -205,7 +205,7 @@ def compute_pairs_mis(
                     except (TypeError, ValueError):
                         pass
 
-        # FE_STEP_B-3 fix: canonicalize to a sorted tuple at the point of insertion --
+        # Canonicalize to a sorted tuple at the point of insertion -
         # ``all_pairs`` is built from candidate-pool set iteration whose order is not guaranteed ascending once
         # it mixes small and large ints, so without this the same logical pair could land as two divergent
         # cached_MIs entries, (a,b) and (b,a), doubling MI computation and downstream scoring bookkeeping.
@@ -246,7 +246,7 @@ def compute_pairs_mis(
             try:
                 _bar.set_postfix(_pf, refresh=False)
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in feature_engineering.py:520: %s", e)
+                logger.debug("suppressed: %s", e)
                 pass
 
     return cached_MIs
@@ -412,7 +412,7 @@ def _resolve_preset(preset: str | None) -> str:
     ``rich`` / ``full`` are treated as aliases for ``maximal`` (the richest
     tier) so callers using the historical loose vocabulary still get a
     well-defined registry. ``None`` (and the empty string) mean "use the
-    default tier" and resolve to ``medium`` -- callers pass ``None`` to opt
+    default tier" and resolve to ``medium`` - callers pass ``None`` to opt
     into the standard preset without naming it. Any other value raises
     ValueError so a typo (``minimal``) surfaces loudly rather than silently
     aliasing to ``medium``.
@@ -437,12 +437,12 @@ def _safe_pow(x, exponent):
     ``invsquared``, ``invqubed``, ``invcbrt``, ``invsqrt``) that is EXACT for every nonzero ``x`` and finite
     (never +-inf) when ``x`` is exactly zero. A genuine ``x=0`` previously produced ``x**-1 = +-inf``, which
     then propagated through a downstream binary op as ``0*inf=nan`` once multiplied with another operand's
-    zero -- the RuntimeWarning class a real MRMR fit hit repeatedly.
+    zero - the RuntimeWarning class a real MRMR fit hit repeatedly.
 
     Unlike a fixed-eps floor (``x=eps`` then ``eps**exponent``), the substituted x==0 output is set to a
     FIXED ceiling directly, independent of ``exponent``. A fixed eps=1e-9 floor would give
     ``eps**-1=1e9`` for ``reciproc`` but ``eps**-2=1e18`` / ``eps**-3=1e27`` for ``invsquared``/``invqubed``
-    -- values so far outside the codebase's normal ~1e9 zero-substitution scale (``_safe_div``'s own
+    - values so far outside the codebase's normal ~1e9 zero-substitution scale (``_safe_div``'s own
     ``x/eps``) that a compound engineered feature containing one can dominate an unscaled downstream
     model's fit by many orders of magnitude, silently destroying its use of every OTHER (informative)
     engineered column. A real MRMR biz-value regression (holdout AUC 0.86 -> 0.54) was traced to exactly
@@ -464,26 +464,26 @@ def create_unary_transformations(preset: str = "minimal"):
     # by transform name (e.g. ``arccos`` requires ``-1to1``).
     #
     # Preset ladder (monotone: minimal subset of medium subset of maximal):
-    #   minimal -- non-degenerate workhorse set able to express the common
+    #   minimal - non-degenerate workhorse set able to express the common
     #     algebraic targets (a**2/b, log(c)*sin(d), ...): identity + the
     #     elementary powers, sqrt, log, sin and their sign/neg/abs companions.
     #     Every tier MUST have >1 member; an identity-only "minimal" silently
     #     crippled MRMR's pair FE (it could only form mul(a,b)/add(a,b), never
     #     sqr(a) or log(c)), so the default fit found ZERO engineered cols.
-    #   medium -- minimal + exp, reciprocal/inverse powers, cbrt, rint.
-    #   maximal -- medium + trig/hyperbolic/special families (below).
+    #   medium - minimal + exp, reciprocal/inverse powers, cbrt, rint.
+    #   maximal - medium + trig/hyperbolic/special families (below).
     preset = _resolve_preset(preset)
-    # NJIT-WRAPPING (2026-07-16): `njit_functions_dict` below can only wrap a PLAIN PYTHON FUNCTION --
+    # NJIT-WRAPPING: `njit_functions_dict` below can only wrap a PLAIN PYTHON FUNCTION -
     # a bare numpy ufunc (e.g. `np.cos`) fails at decoration (`TypeError: The decorated object is not a
     # function`), so registering one directly leaves it un-jitted forever (the failure is silently
     # swallowed). A `lambda x: np.cos(x)` wrapper compiles fine (numba lowers most numpy ufunc calls
     # inside a jitted body as intrinsics). Benchmarked every bare-ufunc entry at n in {1e3, 3e4, 1e5}
     # (`_benchmarks/bench_unary_transform_njit_wrap.py`) before converting: only entries with a clear,
-    # consistent win (>=1.02x, several far higher) were switched to a wrapping lambda -- `sign` (numpy's
+    # consistent win (>=1.02x, several far higher) were switched to a wrapping lambda - `sign` (numpy's
     # float64 sign has an unexpectedly slow path, ~18x), `tanh` (~1.8-2.7x), `neg`/`rint`/`cbrt`/`arccos`/
     # `arctan`/`cosh`/`arcsinh` (~1.02-1.13x). `abs`/`sin`/`exp`/`cos`/`tan`/`sinh`/`arcsin`/`arccosh`/
     # `arctanh` measured FLAT-TO-REGRESSING (0.6-0.99x, numpy's already-vectorized C loop wins) and stay
-    # bare numpy -- bench-attempt-rejected, kept as the measured-correct default. `erf`/`gammaln` (scipy
+    # bare numpy - bench-attempt-rejected, kept as the measured-correct default. `erf`/`gammaln` (scipy
     # special) fail njit compilation entirely (`Unknown attribute 'erf' of type Module(scipy.special)`,
     # no numba-scipy extension installed) and must stay bare regardless of speed. All conversions verified
     # bit-identical or ~1 ULP FP-reorder (`cbrt`/`tanh`; max abs diff ~4e-16/~1e-16 on a 200k-row fuzz).
@@ -582,11 +582,11 @@ def _safe_div(x, y):
     rather than only via reciproc-then-multiply, which loses a representative on
     tight unary presets.
 
-    HEAVY-TAIL FIX (2026-06-13): the prior form ``x / (y + sign(y)*eps + eps)``
+    HEAVY-TAIL FIX: the prior form ``x / (y + sign(y)*eps + eps)``
     perturbed EVERY positive denominator by ``2*eps`` (and, asymmetrically, left
     negative ones exact). On a heavy-tailed ratio target the perturbation is
     negligible for ordinary ``y`` but reaches ~``2*eps/y`` relative error as
-    ``y -> 0`` -- e.g. ``b=1e-6`` gives a 0.2% error on ``a**2/b``, and on a
+    ``y -> 0`` - e.g. ``b=1e-6`` gives a 0.2% error on ``a**2/b``, and on a
     target whose magnitude is dominated by that single small-``b`` point a linear
     downstream's MAE is inflated by ~0.05 (measured on ``y=0.2*a**2/b``: replayed
     feature -> 0.10 test MAE vs 0.05 with the exact ratio). Dividing exactly
@@ -608,13 +608,13 @@ def _safe_div(x, y):
 def create_binary_transformations(preset: str = "minimal"):
     """Build the ``{name: callable}`` binary-transform registry for the given preset (``minimal``/``medium``/``maximal``, monotone supersets)."""
     # Preset ladder (monotone: minimal subset of medium subset of maximal):
-    #   minimal -- the elementary closed binary algebra: mul, add, sub,
+    #   minimal - the elementary closed binary algebra: mul, add, sub,
     #     div, max, min. ``sub`` and ``div`` were absent from EVERY
     #     prior tier; division was only reachable as reciproc o mul, so a plain
     #     a/b ratio target could not be formed when the unary preset lacked
     #     reciproc. Every tier MUST have >1 member.
-    #   medium -- minimal + abs_diff, hypot (richer magnitude combinations).
-    #   maximal -- medium + the full numpy / scipy.special family below.
+    #   medium - minimal + abs_diff, hypot (richer magnitude combinations).
+    #   maximal - medium + the full numpy / scipy.special family below.
     preset = _resolve_preset(preset)
 
     binary_transformations = {
@@ -659,7 +659,7 @@ def create_binary_transformations(preset: str = "minimal"):
                 # Powers
                 "pow": np.power,  # non-symmetrical! may required dtype=complex for arbitrary numbers
                 # Logarithms
-                # GPU-DISABLED(restore): np.emath.logn (complex base) -- real GPU form is
+                # GPU-DISABLED(restore): np.emath.logn (complex base) - real GPU form is
                 # log(y-ymin+0.1)/log(x-xmin+0.1) (2026-06-21, full-GPU residency build).
                 # "logn": lambda x, y: np.emath.logn(x - np.min(x) + 0.1, y - np.min(y) + 0.1),  # non-symmetrical!
                 # DSP
@@ -673,7 +673,7 @@ def create_binary_transformations(preset: str = "minimal"):
                 "equal": lambda x, y: np.equal(x, y).astype(int),
                 # special
                 "beta": sp.beta,  # symmetrical
-                # GPU-DISABLED(restore): deferred with the full-GPU residency batch (2026-06-21).
+                # GPU-DISABLED(restore): deferred with the full-GPU residency batch.
                 # "binom": sp.binom,  # non-symmetrical! binomial coefficient considered as a function of two real variables.
             }
         )

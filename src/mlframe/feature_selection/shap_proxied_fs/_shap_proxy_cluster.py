@@ -141,7 +141,7 @@ def _resolve_gpu_min_features(default: int = 2000) -> int:
     The blocked CPU path picks up >`max_dense_features`.
 
     A cache-tuned override was attempted here via the non-existent ``kernel_tuning_cache.get(key,
-    default=...)`` API described in ``_shap_proxy_cluster_su_bitmap._resolve_bitmap_min_features`` --
+    default=...)`` API described in ``_shap_proxy_cluster_su_bitmap._resolve_bitmap_min_features`` -
     removed as dead, always-``default``-returning code."""
     return default
 

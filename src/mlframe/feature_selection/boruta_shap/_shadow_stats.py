@@ -92,10 +92,10 @@ def create_shadow_features(self):
 
     The shadow kernel is a value-PERMUTATION (``_rng.permutation`` per column): it reorders each column's existing
     values, so the shadow's value-multiset is IDENTICAL to the real column's and its marginal distribution is exactly
-    preserved -- only the row alignment with y (and the other columns) is destroyed. This is tie-agnostic BY
+    preserved - only the row alignment with y (and the other columns) is destroyed. This is tie-agnostic BY
     CONSTRUCTION: permuting values never compares or sorts them, so a discrete / heavily-tied column is shuffled with
     no positional bias and its shadow MI is unbiased. (Contrast: a rank/argsort-based shadow breaks ties positionally
-    and biases the shadow MI low on tied columns -- the failure class ``_column_tie_fraction`` /
+    and biases the shadow MI low on tied columns - the failure class ``_column_tie_fraction`` /
     ``SHADOW_TIE_GATE_FRACTION`` guard, should anyone replace this with such a fast path.)
 
     Returns:
@@ -108,9 +108,9 @@ def create_shadow_features(self):
     # COLUMN ORDER, one ``_rng.permutation`` call per column. That per-column lambda wraps every result in a
     # pandas Series, which dominates this method (~13 ms/trial -> 2.4% of a SHAP fit). When every column shares
     # one numpy numeric dtype, ``to_numpy()`` is a no-upcast 2-D view, so permuting each column into a
-    # same-dtype 2-D buffer reproduces ``.apply`` EXACTLY -- same per-column ``_rng.permutation(col.values)``
+    # same-dtype 2-D buffer reproduces ``.apply`` EXACTLY - same per-column ``_rng.permutation(col.values)``
     # call sequence (so the rng stream, and thus every downstream shadow value + hit, is bit-identical) and
-    # the same per-column dtype -- at ~1.9x. Mixed-dtype / categorical / bool frames take the dict fallback,
+    # the same per-column dtype - at ~1.9x. Mixed-dtype / categorical / bool frames take the dict fallback,
     # which is itself dtype-identical to ``.apply`` (``col.values`` -> category=int codes, object=str, etc.)
     # but carries no speedup. ``bool`` is excluded from the fast path (``np.empty_like`` on a bool 2-D buffer
     # is correct, but keeping the explicit per-column path avoids any edge with bool ``permutation``).
@@ -123,7 +123,7 @@ def create_shadow_features(self):
             (_dtypes == _d0).all()
             and pd.api.types.is_numeric_dtype(_d0)
             and not isinstance(_d0, pd.CategoricalDtype)
-            and _d0 != bool  # noqa: E721 -- dtype vs type comparison; numpy/pandas dtype `==`/`!=` is intended, `is` would break it
+            and _d0 != bool  # noqa: E721 - dtype vs type comparison; numpy/pandas dtype `==`/`!=` is intended, `is` would break it
         ):
             _vals = self.X.to_numpy()
             if _vals.dtype == _d0:  # guard: confirm no silent upcast (e.g. nullable/extension dtypes)
@@ -267,7 +267,7 @@ def isolation_forest(X):
     return preds
 
 def get_5_percent(num):
-    """5% of ``num``, rounded to the nearest integer -- the base step size for ``get_5_percent_splits``' sampling grid."""
+    """5% of ``num``, rounded to the nearest integer - the base step size for ``get_5_percent_splits``' sampling grid."""
     return round(5 / 100 * num)
 
 def get_5_percent_splits(self, length):
@@ -302,7 +302,7 @@ def find_sample(self):
         if iteration == 20:
             element += 1
             iteration = 0
-            # Exhausted every sample size without a KS match -- return the last (largest) draw.
+            # Exhausted every sample size without a KS match - return the last (largest) draw.
             if element >= len(size):
                 break
 
@@ -362,7 +362,7 @@ def test_features(self, iteration):
 
     # ``self.hits`` is full-length (indexed by ``all_columns``), so this re-tests already-removed features every
     # trial. That is CORRECT, not a bug: a removed feature's hit count is frozen at removal, the Bonferroni base is
-    # the constant full count (see ``_n_tests`` below), so its decision never changes -- re-testing it is a no-op on
+    # the constant full count (see ``_n_tests`` below), so its decision never changes - re-testing it is a no-op on
     # the final partition. The only residual cost is the extra binomtests, which the ``_binom_test_cached`` LRU
     # collapses to O(1) per distinct ``(x, n, p, alternative)``, so the waste is negligible (B4, subsumed by the B3 base fix).
     # Null hit probability. A "hit" is X_feature_import > percentile-th percentile of the shadow pool. Under H0 (a real
@@ -380,13 +380,13 @@ def test_features(self, iteration):
     # MAX-shadow gate (percentile=100 -> null_hit_p~1e-9): H0 then expects ~0 hits, so a 0-hit noise column is consistent
     # with it and NOTHING is ever rejected (every noise column lingers as tentative -> ``optimistic`` keeps it). A pure-
     # noise column hits at ~null_hit_p << 0.5, so its hit count is significantly below 0.5*n and it is correctly rejected,
-    # while a borderline-redundant column (hit rate near 0.5) stays tentative -- preserving Boruta's three-way verdict.
+    # while a borderline-redundant column (hit rate near 0.5) stays tentative - preserving Boruta's three-way verdict.
     reject_hit_p = 0.5
     regect_p_values = self.binomial_H0_test(self.hits, n=iteration, p=reject_hit_p, alternative="less")
 
     # [1] as function returns a tuple. Bonferroni base is the FULL original feature count (all_columns), not the
     # shrinking current column set: self.hits and the accept/reject indexing are full-length, and using the live
-    # (post-removal) count would weaken the correction trial-over-trial as features drop out -- a leniency drift.
+    # (post-removal) count would weaken the correction trial-over-trial as features drop out - a leniency drift.
     # This matches the base the shipped margin-gated stop already uses (_n_total_cols = len(all_columns)).
     _n_tests = len(self.all_columns)
     modified_acceptance_p_values = self.bonferoni_corrections(acceptance_p_values, alpha=0.05, n_tests=_n_tests)[1]

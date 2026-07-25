@@ -5,7 +5,7 @@ RESIDENCY CONTRACT (not a wall win). Gated on the resident flag
 (``MLFRAME_FE_GPU_STRICT`` + ``MLFRAME_FE_GPU_STRICT_RESIDENT``); default OFF.
 On this GTX 1050 Ti the detector's operand is small (<=66k subsampled train
 slice) and the body is a sequential deflation loop, so the GPU twin is EXPECTED
-to be slower than the fused njit CPU path -- and that is a PASS by the residency
+to be slower than the fused njit CPU path - and that is a PASS by the residency
 contract. The bench-note in the CPU detector documents why it stays CPU for the
 WALL; this twin exists for RESIDENCY COMPLETENESS so that, under the resident
 flag, the column operand + target stay resident on the device and the per-stage
@@ -16,7 +16,7 @@ bulk (n-scaled) H2D/D2H.
 What is resident vs host control-flow (allowed by the contract):
   * RESIDENT: z_tr/z_va/y_tr/y_va columns, the (nf, n) coarse sin/cos plane, all
     centered dot products, the refine-scan power vectors, the 3-column lstsq
-    deflation, the cubic detrend -- one bulk H2D of the 4 columns at entry, then
+    deflation, the cubic detrend - one bulk H2D of the 4 columns at entry, then
     no n-scaled transfer until return.
   * HOST scalar D2H (bounded, O(max_freqs + grid + refine_steps)): the coarse
     argmax index, the refined-freq value, the held-out gate compare, the
@@ -41,16 +41,16 @@ import numpy as np
 _TWO_PI = 2.0 * np.pi
 
 
-# HOST-preamble memoisation (2026-07-02). The seeded held-out split and the seeded row-subsample indices are a
-# pure deterministic function of ``n`` (seed 0) / ``(size, cap)`` (seed 0xF0F0_1234) -- IDENTICAL for every column
+# HOST-preamble memoisation. The seeded held-out split and the seeded row-subsample indices are a
+# pure deterministic function of ``n`` (seed 0) / ``(size, cap)`` (seed 0xF0F0_1234) - IDENTICAL for every column
 # the detector scans in a fit (same 1M n, same train/val sizes). Recomputing ``default_rng(0).permutation(n)`` +
 # the ``rng.choice`` subsample on every column was ~30 full 1M-row shuffles per fit (F2 host hotspot: this preamble
 # is 0.285s tottime / 34 calls). Cache them so the shuffle/choice runs ONCE per distinct shape. The cached arrays
-# are used read-only (boolean-mask indexing / fancy-index gather -- never mutated), so returning the shared object
+# are used read-only (boolean-mask indexing / fancy-index gather - never mutated), so returning the shared object
 # is byte-identical to a fresh recompute. Bounded: keyed by scalar shape, a handful of entries per process.
 _SPLIT_MASK_CACHE: dict = {}
 _SUBSAMPLE_IDX_CACHE: dict = {}
-# ORTH_BASIS_B-3 fix: both caches performed an unlocked read-then-write
+# Both caches performed an unlocked read-then-write
 # (.get() then [key]=), the same hand-rolled unlocked module-level cache pattern the cross-cutting audit
 # reproduced a crash for elsewhere ("dictionary changed size during iteration"/KeyError under concurrent
 # access). Low-reachability today (gated behind default-OFF MLFRAME_FE_GPU_STRICT_RESIDENT; joblib workers
@@ -61,7 +61,7 @@ _CACHE_LOCK = threading.Lock()
 
 
 def _seeded_split_masks(n: int):
-    """(train_mask, val_mask) for the seed-0 permutation held-out split -- memoised by ``n``. Byte-identical to
+    """(train_mask, val_mask) for the seed-0 permutation held-out split - memoised by ``n``. Byte-identical to
     recomputing ``default_rng(0).permutation(n)`` each call (deterministic), read-only for the caller."""
     with _CACHE_LOCK:
         cached = _SPLIT_MASK_CACHE.get(n)
@@ -74,10 +74,10 @@ def _seeded_split_masks(n: int):
 
 
 def _seeded_subsample_idx(tr_size: int, cap: int, va_size: int, va_cap: int):
-    """(sub_tr, sub_va) row-subsample gather indices for the seed-0xF0F0_1234 cap -- memoised by the shape tuple.
+    """(sub_tr, sub_va) row-subsample gather indices for the seed-0xF0F0_1234 cap - memoised by the shape tuple.
 
     Reproduces the ORIGINAL single-generator sequence EXACTLY: one ``default_rng(0xF0F0_1234)`` draws ``sub_tr``
-    first and then (only when ``va_size > va_cap``) ``sub_va`` from the SAME advanced state -- NOT two fresh seeds
+    first and then (only when ``va_size > va_cap``) ``sub_va`` from the SAME advanced state - NOT two fresh seeds
     (which would give a different ``sub_va``). ``sub_va`` is None when the val slice is not subsampled. Byte-identical
     to recomputing per call, read-only gather indices for the caller."""
     key = (tr_size, cap, va_size, va_cap)
@@ -108,7 +108,7 @@ def _corr_sq_centered_gpu(cp, v, yc, y_ss: float) -> float:
 
 
 def _power_centered_gpu(cp, z, yc, y_ss: float, freq: float) -> float:
-    """Periodogram power at ``freq`` against pre-centered resident ``yc`` -- GPU
+    """Periodogram power at ``freq`` against pre-centered resident ``yc`` - GPU
     twin of ``_power_centered`` / ``_power_centered_fused_par_njit``. sin/cos
     planes are resident; only the final scalar power comes back."""
     ang = (_TWO_PI * float(freq)) * z
@@ -119,7 +119,7 @@ def _power_centered_gpu(cp, z, yc, y_ss: float, freq: float) -> float:
 
 def _power_grid_centered_gpu(cp, z, yc, y_ss: float, freqs_dev):
     """Periodogram power against pre-centered resident ``yc`` for EVERY frequency in
-    resident ``freqs_dev`` (F,) in ONE batched pass -- the (F, n) sin/cos planes and
+    resident ``freqs_dev`` (F,) in ONE batched pass - the (F, n) sin/cos planes and
     all centered dots run as matmuls, returning a resident (F,) power vector (no
     per-frequency scalar D2H). Selection-equivalent to calling ``_power_centered_gpu``
     per frequency: same raw-moment v_ss = v@v - sum(v)^2/n, same num = v@yc, same
@@ -147,7 +147,7 @@ def _refine_peak_freq_gpu(cp, z_tr, yc, y_ss: float, coarse_f: float) -> float:
     """GPU twin of ``_refine_peak_freq``: two-stage local scan (+-0.25 @ 0.05,
     then +-0.05 @ 0.0125) maximising resident periodogram power. Each scan's
     candidate frequencies (the center + the swept grid) are powered in ONE batched
-    matmul pass and the argmax is a single scalar D2H -- selection-equivalent to the
+    matmul pass and the argmax is a single scalar D2H - selection-equivalent to the
     per-frequency scan (same powers, ``cp.argmax`` first-max ties matching the
     original strictly-greater earliest-wins order)."""
     def _scan(center: float, half_width: float, step: float):
@@ -171,7 +171,7 @@ def _refine_peak_freq_gpu(cp, z_tr, yc, y_ss: float, coarse_f: float) -> float:
 
 def _deflate_sincos_gpu(cp, z, y, freq: float):
     """Residual of resident ``y`` after least-squares projection onto resident
-    ``[1, sin, cos]`` -- GPU twin of ``_deflate_sincos``. Normal-equations solve
+    ``[1, sin, cos]`` - GPU twin of ``_deflate_sincos``. Normal-equations solve
     on the 3-col design (lstsq fallback on singular A^T A). Stays resident: the
     returned residual is a device array, no D2H of y."""
     ang = (_TWO_PI * float(freq)) * z
@@ -232,7 +232,7 @@ def detect_fourier_freqs_for_col_gpu(
     grid = [float(f) for f in f_grid if float(f) > 0.0]
     if not grid:
         return []
-    # SEEDED held-out split -- IDENTICAL RNG seed/recipe to the CPU detector so the resident path operates on
+    # SEEDED held-out split - IDENTICAL RNG seed/recipe to the CPU detector so the resident path operates on
     # the byte-identical train/val rows (selection-equivalence depends on this matching exactly).
     train_mask, val_mask = _seeded_split_masks(n)
     z_tr_h, z_va_h = z01[train_mask], z01[val_mask]
@@ -240,7 +240,7 @@ def detect_fourier_freqs_for_col_gpu(
     y_va_h = y[val_mask].copy()
     if z_tr_h.size < 16 or z_va_h.size < 8:
         return []
-    # Row-subsample cap -- IDENTICAL seed/recipe to the CPU detector.
+    # Row-subsample cap - IDENTICAL seed/recipe to the CPU detector.
     _fdet_cap = int(fourier_detect_max_n)
     if _fdet_cap > 0 and z_tr_h.size > _fdet_cap:
         _va_cap = max(8, _fdet_cap // 2)
@@ -273,7 +273,7 @@ def detect_fourier_freqs_for_col_gpu(
     y_tr = resident_operand(y_tr_h, "fourier_y_tr", dtype=_zdt)
     y_va = resident_operand(y_va_h, "fourier_y_va", dtype=_zdt)
 
-    # POLYNOMIAL DETREND (cubic in z, train-fit / val-applied) -- resident.
+    # POLYNOMIAL DETREND (cubic in z, train-fit / val-applied) - resident.
     _V_tr = _vander4_gpu(cp, z_tr)
     try:
         try:

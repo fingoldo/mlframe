@@ -3,7 +3,7 @@
 Several independent opt-in orthogonal-FE scorer layers (total-correlation, routing, adaptive-degree,
 cluster-basis, diff-basis, adaptive-arity) each independently compute a full raw-column MI(x; y) batch
 and/or a dense NaN-mean-filled Pearson |corr| matrix over the SAME numeric-column universe whenever the
-caller leaves ``cols=None`` (the common default) -- a "kitchen sink" MRMR config stacking 2+ of these
+caller leaves ``cols=None`` (the common default) - a "kitchen sink" MRMR config stacking 2+ of these
 layers otherwise repeats the identical O(n*p) MI batch / O(p^2*n) corrcoef pass once per layer within ONE
 ``MRMR.fit()`` call.
 
@@ -58,15 +58,15 @@ def cached_raw_mi_baseline(
     Deliberately takes the PREPARED matrix rather than ``(X, cols, dtype)``: the raw-MI-baseline callers
     across the orth-FE family do not all pre-process identically (some pass a raw ``_crit_np_dtype()``-cast
     slice straight through, letting ``_mi_classif_batch`` handle NaN internally; others pre-fill NaN with
-    the column mean before casting) -- reusing each caller's own already-built matrix keeps that
+    the column mean before casting) - reusing each caller's own already-built matrix keeps that
     convention exactly intact; the memo only adds a cache layer in front of the identical
     ``_mi_classif_batch`` call, it never changes what gets computed.
 
     Memoized PER COLUMN within an active :func:`orth_scoring_memo_scope` keyed by ``(column content hash
-    + dtype + shape, y_int content hash, nbins)`` -- a caller requesting a subset of already-cached columns
+    + dtype + shape, y_int content hash, nbins)`` - a caller requesting a subset of already-cached columns
     (same content, same dtype, same NaN treatment) is a pure cache hit; any new columns are batched
     together in ONE ``_mi_classif_batch`` call (not one call per miss). Outside an active scope this is
-    unconditionally a full fresh batch call -- byte-for-byte identical to calling
+    unconditionally a full fresh batch call - byte-for-byte identical to calling
     ``_mi_classif_batch(raw_mat, y_int, nbins=nbins)`` directly.
     """
     from ._orth_mi_backends import _mi_classif_batch
@@ -109,12 +109,12 @@ def cached_dense_finite_corr_matrix(
     X: pd.DataFrame, cols: Optional[Sequence[str]], *, dtype,
 ) -> tuple[list[str], np.ndarray]:
     """Dense NaN-mean-filled Pearson ``|corr|`` matrix over ``cols`` (``None`` = all numeric columns of
-    ``X``), dropping constant / all-NaN columns -- the shared build both
+    ``X``), dropping constant / all-NaN columns - the shared build both
     ``_orthogonal_cluster_basis_fe._discover_clusters`` and
     ``_orthogonal_diff_basis_fe.detect_correlated_pairs`` need (identical NaN-fill + corrcoef recipe).
 
     Memoized (whole-list key, mirroring ``_orth_dedup._dedup_cache_key``) within an active
-    :func:`orth_scoring_memo_scope`; a pure fresh build outside an active scope -- byte-for-byte identical
+    :func:`orth_scoring_memo_scope`; a pure fresh build outside an active scope - byte-for-byte identical
     to the inline build either caller used to do itself.
 
     Returns ``(dense_names, abs_corr)`` where ``abs_corr`` is the ``len(dense_names) x len(dense_names)``

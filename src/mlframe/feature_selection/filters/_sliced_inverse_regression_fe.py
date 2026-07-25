@@ -5,11 +5,11 @@ Li (1991, "Sliced Inverse Regression for Dimension Reduction"): slice ``y`` into
 compute the per-slice mean of ``X``, form the between-slice-mean covariance matrix
 ``M = Cov(E[X | slice])``, then solve the generalized eigenproblem ``Sigma^{-1} M v = lambda v``
 (``Sigma`` = overall covariance of ``X``); the top eigenvector(s) ``v`` give the LINEAR COMBINATION
-direction(s) ``w.x`` along which ``y`` varies most -- an effective dimension-reduction direction,
+direction(s) ``w.x`` along which ``y`` varies most - an effective dimension-reduction direction,
 not restricted to any 2 or 3 named columns.
 
 Why this catches a shape the catalog misses: ``y = 1{0.6*x1 + 0.5*x2 + 0.4*x3 + 0.3*x4 + 0.4*x5 >
-c}`` -- a genuinely OBLIQUE (rotated) threshold spread thinly across 5 correlated columns, where
+c}`` - a genuinely OBLIQUE (rotated) threshold spread thinly across 5 correlated columns, where
 EVERY individual weight is too small for that column's marginal MI to clear the screening floor,
 and no pairwise/triplet/quadruplet product of any 2-4 of the 5 columns reconstructs the linear
 combination (axis-aligned bases multiplied together cannot represent a rotated hyperplane
@@ -59,7 +59,7 @@ def sir_direction_features(
     y : (n,) array
         Continuous or discrete target; sliced into ``n_slices`` equi-frequency bins (reusing the
         existing ``_quantile_bin`` helper) regardless of whether it is a classification or
-        regression target -- SIR's own construction only needs a slicing, not a native
+        regression target - SIR's own construction only needs a slicing, not a native
         classification/regression distinction.
     n_slices : int
         Number of equi-frequency slices of ``y``. Li (1991)'s own guidance: more slices resolve
@@ -72,7 +72,7 @@ def sir_direction_features(
     -------
     (n, n_directions) float64 array of projections ``X @ v_1, ..., X @ v_{n_directions}``.
     Degenerate input (n < 2, p < 1, fewer than 2 realized slices, or a singular/near-singular
-    ``Sigma``) returns an ``(n, 0)`` array rather than raising -- callers treat zero emitted
+    ``Sigma``) returns an ``(n, 0)`` array rather than raising - callers treat zero emitted
     directions as "nothing to add".
     """
     X = np.asarray(X, dtype=np.float64)
@@ -105,7 +105,7 @@ def sir_direction_features(
         M += (n_h / n) * np.outer(slice_mean_dev, slice_mean_dev)
 
     # Ridge-stabilize Sigma so the generalized eigenproblem stays solvable even when X's columns
-    # are exactly collinear (a genuinely singular Sigma) -- a tiny trace-scaled shift that does not
+    # are exactly collinear (a genuinely singular Sigma) - a tiny trace-scaled shift that does not
     # move a well-conditioned Sigma's eigenvectors materially, mirroring the same trace-scaled-ridge
     # convention used elsewhere in this codebase (e.g. _fe_pure_form_retention_gpu_resident.py).
     trace = float(np.trace(Sigma))
@@ -137,7 +137,7 @@ def generate_sir_direction_features(
     centering ``x_mean`` (both pure functions of X/y, frozen once at fit time), emit
     ``n_directions`` named projection columns. Returns ``(enc_df, payload)`` where ``payload``
     carries the frozen ``x_mean``/``v`` arrays needed for leak-safe replay (``y`` itself is NOT
-    stored -- only its already-baked-in effect on the frozen direction vectors)."""
+    stored - only its already-baked-in effect on the frozen direction vectors)."""
     cols = [c for c in cols if c in X.columns]
     if len(cols) < 1:
         return pd.DataFrame(index=X.index), {}
@@ -187,7 +187,7 @@ def generate_sir_direction_features(
 
 def apply_sir_direction(X_test: "pd.DataFrame", payload: dict) -> "pd.DataFrame":
     """Replay a fitted SIR block on new rows: project the raw source columns onto the frozen
-    directions after centering with the frozen ``x_mean`` -- reads only X, no ``y``."""
+    directions after centering with the frozen ``x_mean`` - reads only X, no ``y``."""
     cols = list(payload["cols"])
     missing = [c for c in cols if c not in X_test.columns]
     if missing:

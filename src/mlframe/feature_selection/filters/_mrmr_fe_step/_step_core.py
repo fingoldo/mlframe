@@ -1,4 +1,4 @@
-"""MRMR._run_fe_step -- the FE-step orchestrator for mlframe.feature_selection.filters.mrmr.
+"""MRMR._run_fe_step - the FE-step orchestrator for mlframe.feature_selection.filters.mrmr.
 
 The single irreducible ~1.36k-line _run_fe_step function lives here, verbatim. The package
 __init__ re-exports it (and the small _helpers symbols), and mrmr.py binds it back onto
@@ -6,11 +6,11 @@ the MRMR class at its module bottom, so self._run_fe_step(...) call sites are un
 
 The parent module helpers (_lazy_chunks etc.) and every other intra-filters dependency are
 imported lazily in-body (from ..mrmr import ... etc.) since .mrmr re-imports this package at
-its bottom for method binding -- a top-level import would create a hard cycle. The self-contained FE
+its bottom for method binding - a top-level import would create a hard cycle. The self-contained FE
 sub-blocks (synergy bootstrap, order-2 maxT floor, FE summary log, cluster-aggregate emission) live in
 the sibling _mrmr_fe_step_helpers module; the two small operand-pool helpers live in ._helpers.
 
-bench-note (2026-06-24, MRMR-FE wall /loop): _run_fe_step's OWN body is AT FLOOR -- it is pure
+bench-note (2026-06-24, MRMR-FE wall /loop): _run_fe_step's OWN body is AT FLOOR - it is pure
 orchestration. cProfile F2 100k full fit: this function's tottime = 0.001s (cumtime ~13s over 2 calls is
 ALL in carved-sibling callees). line_profiler over the body: glue (every getattr resolution, the
 synergy-budget dict-comp at ~300, the original_cols dict-comp at ~464, sort_dict_by_value, the prewarp/
@@ -19,7 +19,7 @@ gate-med/rejection-ledger merge loops) sums to 0.166ms = 0.149% of the function'
 / _step_score. The remaining wall lives in (a) GPU-dispatched routes (cupy .get 2.0s,
 gpu_materialise_discretize_codes_host 2.77s cum) and (b) njit compute at CPU-optimum
 (_plugin_mi_classif_batch_njit 1.8s, _combine_factorize_njit 0.85s, _pair_combo_mi_njit_table_parallel
-0.82s, conditional_mi 0.64s) -- none in this body. No safe wall win exists at the orchestrator level; do
+0.82s, conditional_mi 0.64s) - none in this body. No safe wall win exists at the orchestrator level; do
 not re-profile the body. Next dominant wall hotspot = the _score_one_pair / check_prospective_fe_pairs
 permutation-null + cupy-host-transfer path (already GPU-routed; iter9/11b/15).
 """
@@ -44,9 +44,9 @@ from ._helpers import _synergy_bootstrap_can_supply_pool
 def _should_serialize_fe_pair_check(n_prospective_pairs: int, gpu_fe_active: bool, serial_min_pairs_per_worker: int) -> bool:
     """Route ``check_prospective_fe_pairs`` to the serial-main-thread branch instead of the joblib
     threading fan-out. True when the GPU-discretize path is active (N threads would otherwise all
-    contend for the single device -- see the GPU-FE SERIALIZE comment at this module's main call site) OR
+    contend for the single device - see the GPU-FE SERIALIZE comment at this module's main call site) OR
     when there are too few prospective pairs to fill the worker pool. Extracted as a pure, directly
-    testable predicate (2026-07-09, MRMR audit regression coverage); behavior is unchanged.
+    Testable predicate; behavior is unchanged.
     """
     return bool(gpu_fe_active) or int(n_prospective_pairs) < int(serial_min_pairs_per_worker)
 
@@ -57,7 +57,7 @@ def _free_gpu_fe_mempool() -> bool:
     When the FE step ran GPU kernels (``MLFRAME_FE_GPU_STRICT`` / ``MLFRAME_CMI_GPU``), the cupy default pool
     RETAINS every block it cached this step for reuse. Across repeated fits (CV folds, repeated ``MRMR().fit``
     on a 4 GB card) the retained pool sits at its high-water mark near the device cap and the allocator thrashes
-    cudaMalloc/sync -- measured: consecutive 100k f32 STRICT fits degrade 11.2s -> 31.8s -> 32.3s, while freeing
+    cudaMalloc/sync - measured: consecutive 100k f32 STRICT fits degrade 11.2s -> 31.8s -> 32.3s, while freeing
     the unused blocks at each step teardown holds the footprint flat (~2.9 GB) and the wall at ~11.2s.
     ``free_all_blocks`` only returns blocks with no live reference, so a resident operand table held across the
     fit is untouched; this is post-compute teardown, never mid-pipeline. Best-effort + env-gated so CPU users /
@@ -65,7 +65,7 @@ def _free_gpu_fe_mempool() -> bool:
     import os as _os
     if not (_os.environ.get("MLFRAME_FE_GPU_STRICT") or _os.environ.get("MLFRAME_CMI_GPU")):
         return False
-    # FIX3 (2026-06-28): drop the resident y/z device cache in _cmi_cuda FIRST so its device arrays carry no
+    # FIX3: drop the resident y/z device cache in _cmi_cuda FIRST so its device arrays carry no
     # live reference -> free_all_blocks below can actually reclaim them (a fit-scoped cache, never persisted).
     try:
         from ..info_theory._cmi_cuda import clear_cmi_resident_cache
@@ -91,19 +91,19 @@ def _free_gpu_fe_mempool() -> bool:
 def _run_fe_step(self, **kwargs):
     """Fit-scoped wrapper around ``_run_fe_step_impl``: opens ``dedup_collinear_memo_scope()`` for the
     WHOLE FE step so every opt-in FE family's ``_dedup_collinear_source_cols`` call within this one round
-    (orth univariate, extra-basis, gpu-resident, wavelet, hinge -- up to 7 call sites, see that function's
+    (orth univariate, extra-basis, gpu-resident, wavelet, hinge - up to 7 call sites, see that function's
     docstring) shares ONE fit-scoped memo instead of each repeating the identical O(P^2) corrcoef pass on
     the same candidate columns. cProfile, 2026-07-16 wellbore-100k fit: _dedup_collinear_source_cols cost
     3.8s (3 calls, orth univariate path) + 2.5s (hinge path) SEPARATELY in one FE step despite operating on
     overlapping candidate-column sets. The memo mechanism (content-hash keyed, thread-local, nesting-safe)
-    already existed (2026-07-12) but was never actually wired to any call site -- built, never engaged.
+    Already existed but was never actually wired to any call site - built, never engaged.
     Wrapping here (not each family's own call site) is the single choke point every family's dedup call
     passes through, so no per-family wiring can be missed. Purely additive: with no repeated (cols,
     corr_threshold) pair the memo is a single miss-then-store per key, i.e. free within measurement noise."""
     from .._orthogonal_univariate_fe._orth_dedup import dedup_collinear_memo_scope
     with dedup_collinear_memo_scope():
-        # FE_STEP_A-1 fix: _free_gpu_fe_mempool teardown used to be a bare
-        # trailing statement inside _run_fe_step_impl -- any exception raised anywhere in that ~900-line
+        # _free_gpu_fe_mempool teardown used to be a bare
+        # trailing statement inside _run_fe_step_impl - any exception raised anywhere in that ~900-line
         # body after the GPU-STRICT path engaged skipped VRAM-pool cleanup entirely, silently
         # reintroducing the cross-fit VRAM-bloat degradation (11.2s -> 31.8s -> 32.3s, see the teardown's
         # own docstring) on the very "repeated MRMR().fit / CV folds" scenario it exists to prevent.
@@ -157,7 +157,7 @@ def _run_fe_step_impl(
     ``(data, cols, nbins, X, selected_vars, n_recommended_features)``. ``n_recommended_features == 0`` signals
     the outer loop to stop. Private; external callers should use ``MRMR.fit()`` or ``MRMR.fit_transform()``.
     """
-    # VRAM POOL CAP (2026-07-05): setup counterpart to the ``_free_gpu_fe_mempool`` teardown below. Cap MRMR's
+    # VRAM POOL CAP: setup counterpart to the ``_free_gpu_fe_mempool`` teardown below. Cap MRMR's
     # OWN cupy default pool to ``MLFRAME_FE_GPU_POOL_FRACTION`` (default 0.6) of total VRAM ONCE per process at the
     # FE-step entry, so the pool cannot grow unbounded and eat a shared 4 GB card (starving the next launch / other
     # processes). Idempotent + best-effort (no-op without cupy); on exhaustion cupy raises OutOfMemoryError which
@@ -169,7 +169,7 @@ def _run_fe_step_impl(
         logger.debug("mrmr: ensure_fe_gpu_pool_limit() (VRAM pool cap at FE-step entry) failed (best-effort): %s", e, exc_info=True)
     # SEPARATE KTC-free GPU-RESIDENT FE step (MLFRAME_FE_GPU_STRICT + MLFRAME_FE_GPU_STRICT_RESIDENT). Per
     # ``fe_gpu_strict_resident_enabled()``'s own docstring this is now DEFAULT-ON whenever MLFRAME_FE_GPU_STRICT
-    # itself is on (FE_STEP_A-4 fix, -- this comment previously said "default OFF", which
+    # itself is on (this comment previously said "default OFF", which
     # was stale and had led a prior audit to independently mis-conclude this call site had zero production
     # callers). When the resident path is enabled it takes over the WHOLE FE step (operands uploaded once per
     # device, all compute on GPU kernels, no bulk D2H). Phase 0: the entry is a stub that raises
@@ -177,9 +177,9 @@ def _run_fe_step_impl(
     # phases implement it.
     from .._gpu_strict_fe import fe_gpu_strict_resident_enabled, run_fe_step_gpu_strict
     if fe_gpu_strict_resident_enabled():
-        # FE_STEP_A-5 fix: explicit allowlist of the forwarded kwargs, not a locals()-introspection snapshot.
+        # Explicit allowlist of the forwarded kwargs, not a locals()-introspection snapshot.
         # The prior `{k: v for k, v in locals().items() if k not in (...)}` pattern depended on being written
-        # BEFORE any other local was bound in this function -- any future edit inserting a new local-binding
+        # BEFORE any other local was bound in this function - any future edit inserting a new local-binding
         # line ahead of this block would silently change the kwarg set forwarded to run_fe_step_gpu_strict,
         # a bug that would only surface once a later phase actually implements that function.
         _fe_args = {"data": data, "cols": cols, "nbins": nbins, "X": X, "target_names": target_names,
@@ -210,13 +210,13 @@ def _run_fe_step_impl(
     # ``fe_min_pair_mi_prevalence == "auto"``, keep the proven 1.05 ratio bar but apply it to the
     # MILLER-MADOW-DEBIASED pair MI (the analytic finite-sample joint-MI bias subtracted, the value
     # the maxT floor already uses) rather than the raw ``pair_mi``. Debiasing can ONLY LOWER the
-    # observed joint MI, so the gate can only TIGHTEN -- it drops the best-of-pool finite-sample-noise
+    # observed joint MI, so the gate can only TIGHTEN - it drops the best-of-pool finite-sample-noise
     # pairs a fixed 1.05 admits (the bench showed a higher effective bar helps the bilinear archetype:
     # 0.207 -> 0.092) while a genuine high-signal pair (joint MI >> bias, e.g. F2's c*d) is untouched.
     # Resolve to the float HERE so every downstream float use is byte-identical to the default path;
     # only the per-pair prevalence comparison below switches to the debiased observed value. An
     # explicit float (incl. the default 1.05) is honoured verbatim -> byte-identical to pre-conversion.
-    # R1 STRATIFIED SUBSAMPLE flag, resolved ONCE per FE step (UNCONDITIONALLY -- both the polynom-pair
+    # R1 STRATIFIED SUBSAMPLE flag, resolved ONCE per FE step (UNCONDITIONALLY - both the polynom-pair
     # FE and the unary/binary ``check_prospective_fe_pairs`` calls below consume it, and the polynom
     # block is gated by ``if fe_smart_polynom_iters`` so this must live at function-body level). The
     # MRMR ``fe_subsample_stratify`` tri-state knob (None=auto / True / False) is resolved against the
@@ -240,7 +240,7 @@ def _run_fe_step_impl(
     # SYNERGY prevalence "auto" (conversion #3, 2026-06-13): the synergy-pair bar
     # (``max(fe_min_pair_mi_prevalence, fe_synergy_min_prevalence)``, default 1.5) gates the
     # bootstrap-added synergy operands. "auto" activates the SAME MM-debias mechanism for the
-    # prevalence comparison and resolves the bar to its 1.5 default float -- so a synergy pair is
+    # prevalence comparison and resolves the bar to its 1.5 default float - so a synergy pair is
     # admitted only when its DEBIASED joint MI clears 1.5x the marginal sum, tightening against the
     # finite-sample noise that a fixed 1.5 on the RAW MI lets through. ``_synergy_prev_resolved`` is
     # the float used at the gate; an explicit float (incl. the 1.15/1.5 defaults) is honoured verbatim.
@@ -269,7 +269,7 @@ def _run_fe_step_impl(
             logger.info("Proceeding with all features though (fe_fallback_to_all=True).")
             # ``cols.index(col)`` while iterating ``cols`` itself is always just the loop position
             # (column names are unique by construction, matching every other name->index map in
-            # the FE step) -- enumerate() gives the identical index without the O(F) rescan per item.
+            # the FE step) - enumerate() gives the identical index without the O(F) rescan per item.
             selected_vars = np.array([i for i, col in enumerate(cols) if col not in target_names])
         elif getattr(self, "cluster_aggregate_enable", False) and num_fs_steps == 0:
             # cluster_aggregate operates on raw ``feature_names_in_`` columns
@@ -277,7 +277,7 @@ def _run_fe_step_impl(
             # When screening returns 0 features (heavily-correlated reflection
             # clusters routinely trigger this, since every member's marginal
             # MI is near-zero), the legacy ``return None`` skipped the
-            # cluster-aggregate step too -- the test contract (and the
+            # cluster-aggregate step too - the test contract (and the
             # documented "ON by default and fires on a clean reflection
             # cluster" promise) requires running it regardless. Continue with
             # an empty ``selected_vars`` and let the cluster-aggregate block
@@ -288,7 +288,7 @@ def _run_fe_step_impl(
                 "running cluster-aggregate step anyway (operates on raw "
                 "feature_names_in_, not on selected_vars).",
             )
-            selected_vars = np.array([], dtype=np.int64)  # FE_STEP_A-8 fix: match the ndarray type the fe_fallback_to_all branch (and the normal caller-provided path) use.
+            selected_vars = np.array([], dtype=np.int64)  # Match the ndarray type the fe_fallback_to_all branch (and the normal caller-provided path) use.
             # 2026-06-03 (wave-9 follow-up, default_filtering.py:165): screening
             # selected nothing but we continue (interaction-only signal / cluster
             # aggregate). Flag this so the smart-polynom optimiser does NOT treat
@@ -296,7 +296,7 @@ def _run_fe_step_impl(
             # would exclude EVERY pair and the polynom search would never fire).
             _screening_returned_empty = True
         elif _synergy_bootstrap_can_supply_pool(self, num_fs_steps, data):
-            # INTERACTION-ONLY SIGNAL (2026-06-05): screening returned 0 features because every operand of a pure-interaction target (a*b + c*d + ...) has ~0 MARGINAL MI -- and the
+            # INTERACTION-ONLY SIGNAL: screening returned 0 features because every operand of a pure-interaction target (a*b + c*d + ...) has ~0 MARGINAL MI - and the
             # empirical-null debiasing (Fix B) now correctly demotes those near-zero marginals to exactly 0, so even the weak pre-debiasing marginal that used to slip one operand
             # through the screen no longer does. The signal is entirely in the PAIRS, which the synergy bootstrap below surfaces by seeding the all-pairs joint-MI sweep with the raw
             # numeric columns. Continue into the FE step (rather than skipping it) so that sweep + the smart-polynom / pair search can recover the interaction features. Without this,
@@ -306,13 +306,13 @@ def _run_fe_step_impl(
                 "Screening returned 0 features but the synergy bootstrap can seed an interaction-only pool "
                 "(fe_synergy_screen_max_features>0); running the FE pair / smart-polynom search anyway.",
             )
-            selected_vars = np.array([], dtype=np.int64)  # FE_STEP_A-8 fix: match the ndarray type the fe_fallback_to_all branch (and the normal caller-provided path) use.
+            selected_vars = np.array([], dtype=np.int64)  # Match the ndarray type the fe_fallback_to_all branch (and the normal caller-provided path) use.
             _screening_returned_empty = True
         else:
             logger.info("Skipping Feature Engineering (screening returned 0 features and fe_fallback_to_all=False).")
             return None
 
-    # RAW-RETENTION capture (2026-06-03): record the SCREENING-confirmed genuine
+    # RAW-RETENTION capture: record the SCREENING-confirmed genuine
     # raw features on the first FE step. The post-FE re-selection can drop a
     # screening-confirmed (permutation-validated) weak feature when an engineered
     # feature absorbs its signal as a redundant near-duplicate (measured: a genuine
@@ -395,7 +395,7 @@ def _run_fe_step_impl(
     # SIGNED INTERACTION-INFORMATION ROUTING (2026-06-09, backlog idea #8). Among the
     # pairs that PASSED the ratio gate + order-2 maxT floor above, separate genuine
     # synergy (II > null floor) from the ADDITIVE cross-mix (II <= floor: a feeds one
-    # independent term of y, b a DIFFERENT one -- the weak-F2 ``add(invqubed(a),
+    # independent term of y, b a DIFFERENT one - the weak-F2 ``add(invqubed(a),
     # invsqrt(c))`` surrogate that mixes an (a,b)-term operand with a (c,d)-term operand)
     # and from REDUNDANCY (II < 0). ``II(a;b;y) = I((a,b);y) - I(a;y) - I(b;y)`` is the
     # signed difference of terms the gate ALREADY computed (cached marginals + pair_mi),
@@ -412,7 +412,7 @@ def _run_fe_step_impl(
     # user's WEAK F2 the cross-mix pair (b,c) has HIGHER interaction information than the
     # genuine (a,b) a**2/b pair on every cross-mix seed (II +0.0132/+0.0135/+0.0139 vs
     # +0.0114/+0.0120/+0.0132 at n=20000, seeds 0/6/8), and the y-shuffle null floor sits at
-    # ~0.0007 -- so no II threshold demotes the cross-mix without also dropping the genuine
+    # ~0.0007 - so no II threshold demotes the cross-mix without also dropping the genuine
     # pair. F2 10-seed result NEUTRAL (cross_mix 3/10 -> 3/10). The router is correct on
     # STRONG synergy (synthetic synergy II +0.55 vs additive +0.03 below floor) and stays an
     # opt-in; see the default-off rationale in ``mrmr.py`` (fe_ii_routing_enable). The call
@@ -429,7 +429,7 @@ def _run_fe_step_impl(
         verbose=verbose,
     )
 
-    # SYNERGY-PAIR BUDGET (2026-06-02): cap the synergy pairs (>=1 operand is a
+    # SYNERGY-PAIR BUDGET: cap the synergy pairs (>=1 operand is a
     # bootstrap-added unselected column) at ``fe_synergy_max_pairs`` top-joint-MI
     # pairs before the expensive per-pair search, so a noise-heavy frame cannot
     # flood ``check_prospective_fe_pairs``. Selected-selected pairs are kept in
@@ -455,15 +455,15 @@ def _run_fe_step_impl(
     # Also need to sort them by their members usage frequency+members ids sum. this way, their splitting will benefit more from caching.
     prospective_pairs = sort_dict_by_value(prospective_pairs, reverse=True)
 
-    # SUCCESSIVE-HALVING / RUNG-SCHEDULE FE-search budget (2026-06-10).
+    # SUCCESSIVE-HALVING / RUNG-SCHEDULE FE-search budget.
     # ON by default. Before the EXPENSIVE per-pair operator search below
-    # (``check_prospective_fe_pairs`` -- all unary x binary transforms / CMA-ES / full
+    # (``check_prospective_fe_pairs`` - all unary x binary transforms / CMA-ES / full
     # discretize / prewarp, ~4-50s per pair), run a CHEAP rung-0 SCREEN: rank the
-    # gate-surviving prospective pairs by their JOINT MI ``pair_mi`` (key[1] -- a
+    # gate-surviving prospective pairs by their JOINT MI ``pair_mi`` (key[1] - a
     # monotone-ish proxy of the operator-search outcome ALREADY computed by the pair-MI
     # gate, so the screen is FREE) and keep only the top fraction (UNION a relative-MI
     # floor so a moderate-MI genuine winner is never cut). The expensive search then runs
-    # on the survivors only. GATES UNCHANGED -- this changes WHERE the compute goes, not
+    # on the survivors only. GATES UNCHANGED - this changes WHERE the compute goes, not
     # admission (a pair the rung-0 screen drops simply never gets the operator search,
     # exactly as the synergy budget already caps synergy pairs; this generalises that to
     # the whole pool). Measured 1.7-2.2x at keep_frac=0.5 with NO genuine signal pair
@@ -480,7 +480,7 @@ def _run_fe_step_impl(
             min_pairs=int(getattr(self, "fe_rung_min_pairs", 6)),
             verbose=verbose,
         )
-        # FE_STEP_A-6 fix: apply_rung_schedule's own docstring documents ``info`` as "for logging / tests" --
+        # apply_rung_schedule's own docstring documents ``info`` as "for logging / tests" -
         # it was computed and silently discarded here with no consumer. Surface it at verbose>=1.
         if verbose and _rung_info.get("applied"):
             logger.info(
@@ -498,7 +498,7 @@ def _run_fe_step_impl(
         # fixed degree per study, L2 regularisation, identity-baseline filter. Override basis via
         # ``self.fe_polynomial_basis``. See feature_selection.filters.hermite_fe and bench_polynomial_bases.
         #
-        # 2026-05-18: extracted from inline ~200 LOC block into
+        # Extracted from inline ~200 LOC block into
         # ``polynom_pair_fe.run_polynom_pair_fe`` (joblib-threaded pair
         # eval + serial inject). ``self._hermite_features_`` is fed
         # through as a target list so the helper stays method-free.
@@ -516,7 +516,7 @@ def _run_fe_step_impl(
         # the optimiser loses no recovery while keeping the pure-noise control clean.
         _prospective_for_polynom = prospective_pairs
         # Withhold SPECULATIVE synergy pairs from the powerful poly optimiser
-        # (it can fit a high-MI cell to pure noise on a noise-operand pair) --
+        # (it can fit a high-MI cell to pure noise on a noise-operand pair) -
         # but ONLY when there was a genuine selected pool to augment. When
         # screening returned 0 features (interaction-only signal), EVERY operand
         # is "synergy-added", so this exclusion would withhold every pair and the
@@ -532,7 +532,7 @@ def _run_fe_step_impl(
             # (screening kept 0-1 features on an interaction-only target, so
             # every surviving pair has a synergy-added operand), excluding them
             # would withhold EVERY pair and silently disable the polynom search
-            # -- yet those pairs ARE the signal. Keep them in that case; the
+            # - yet those pairs ARE the signal. Keep them in that case; the
             # synergy max-pairs cap + the downstream pair-MI / engineered-MI /
             # uplift gates already bound the pure-noise risk.
             if _filtered_for_polynom:
@@ -540,7 +540,7 @@ def _run_fe_step_impl(
         # None / 0 / negative all map to "no subsample" (use full data).
         _subsample_raw = getattr(self, "fe_smart_polynom_subsample_n", 0)
         _subsample_n = int(_subsample_raw) if _subsample_raw and _subsample_raw > 0 else 0
-        # ONE shared FE subsample for this fit (2026-06-25): resolve + cache the single row-index draw
+        # ONE shared FE subsample for this fit: resolve + cache the single row-index draw
         # ONCE here, so the polynom path, the pair-search and the sufficient-summary floor all REUSE it
         # (same rows everywhere) instead of each drawing its own. ``classes_y`` is the discrete fit
         # target; the helper returns None at small n (<= unified screen size) -> legacy per-call draw.
@@ -579,7 +579,7 @@ def _run_fe_step_impl(
             fe_hermite_l2_penalty=getattr(self, "fe_hermite_l2_penalty", 0.05),
             fe_polynomial_basis=getattr(self, "fe_polynomial_basis", "chebyshev"),
             fe_mi_estimator=getattr(self, "fe_mi_estimator", "plugin"),
-            # 2026-05-22: cma_batch is the new default (20.58x faster than
+            # cma_batch is the new default (20.58x faster than
             # optuna, 1.09x faster than per-solution cma, within_1%=1.00
             # on a 12-pair benchmark). See profiling/bench_polynom_optimizers.py.
             fe_optimizer=getattr(self, "fe_optimizer", "cma_batch"),
@@ -613,25 +613,25 @@ def _run_fe_step_impl(
     # block so the standard pipeline always runs after the Hermite block;
     # users get the unary/binary FE they asked for via
     # ``fe_unary_preset='medium'`` regardless of whether Hermite ran.
-    # feature_names_in_ is an ndarray (sklearn convention) -- list() once so .index() works (ndarray has none)
+    # feature_names_in_ is an ndarray (sklearn convention) - list() once so .index() works (ndarray has none)
     # and the comprehension below doesn't rebuild it per element.
     _fni_list = list(self.feature_names_in_)
     # name -> index map built once (O(F)) instead of an ``in`` test + ``.index()`` rescan of
-    # ``_fni_list`` per ``col`` (O(F) each) -- turns the O(K*F) lookup below into O(K+F).
+    # ``_fni_list`` per ``col`` (O(F) each) - turns the O(K*F) lookup below into O(K+F).
     _fni_idx = {nm: i for i, nm in enumerate(_fni_list)}
     original_cols = {i: _fni_idx[col] for i, col in enumerate(cols) if col in _fni_idx}
     if verbose >= 1:
         logger.info("Checking %d most prospective_pairs for feature engineering...", len(prospective_pairs))
 
-    # PER-OPERAND PRE-WARP (2026-06-02): read the opt-in flag + knobs off the
+    # PER-OPERAND PRE-WARP: read the opt-in flag + knobs off the
     # MRMR instance (getattr keeps _run_fe_step's signature stable, mirroring
     # ``fe_check_pairs_subsample_n``). When enabled, the discretised target
-    # (``classes_y`` -- the SAME codes the MI sweep scores against) is handed
+    # (``classes_y`` - the SAME codes the MI sweep scores against) is handed
     # to ``check_prospective_fe_pairs`` so it can fit a learned 1-D pre-warp
     # per operand; ``_prewarp_specs`` collects the fitted coeffs (by cols-space
     # var index) for leak-safe recipe construction. Default OFF.
     _prewarp_enable = bool(getattr(self, "fe_pair_prewarp_enable", False))
-    # CONTINUOUS ALS RECONSTRUCTION TARGET (2026-06-11): the raw continuous y
+    # CONTINUOUS ALS RECONSTRUCTION TARGET: the raw continuous y
     # stashed by ``_fit_impl`` so the rank-1 ALS warp reconstructs against the
     # faithful continuous target instead of the coarse target-rebin-guard codes.
     # Aligned to the FE-step row count (full-n; ``check_prospective_fe_pairs``
@@ -641,8 +641,8 @@ def _run_fe_step_impl(
         _pwc = getattr(self, "_fe_prewarp_y_continuous_", None)
         if _pwc is not None and len(_pwc) == len(classes_y):
             _prewarp_y_cont = _pwc
-    # LINEAR-USABILITY GUARD TARGET (2026-06-17): the leader tie-break + noise-wrap |corr|
-    # guard must score against CONTINUOUS y regardless of prewarp -- the binned ``classes_y``
+    # LINEAR-USABILITY GUARD TARGET: the leader tie-break + noise-wrap |corr|
+    # guard must score against CONTINUOUS y regardless of prewarp - the binned ``classes_y``
     # fallback INVERTS linear usability on heavy-tailed targets (picks ``a/sqrt(b)`` over
     # ``a**2/b``). Threaded unconditionally; None for classification/non-numeric y (correct
     # ``classes_y`` fallback inside ``check_prospective_fe_pairs``).
@@ -654,12 +654,12 @@ def _run_fe_step_impl(
     _prewarp_max_degree = int(getattr(self, "fe_pair_prewarp_max_degree", 4))
     _prewarp_uplift = float(getattr(self, "fe_pair_prewarp_uplift_threshold", 1.20))
     _prewarp_min_val_corr = float(getattr(self, "fe_pair_prewarp_min_val_corr", 0.08))
-    # PREWARP-SPEC PERSISTENCE (2026-06-08 fix). ``_mrmr_fe_step`` is re-entered
+    # PREWARP-SPEC PERSISTENCE. ``_mrmr_fe_step`` is re-entered
     # once per FE-bearing MRMR iteration, and each call's ``check_prospective_fe_pairs``
     # fits prewarp specs ONLY for the operands of THIS iteration's prospective pairs
     # (a var whose pair isn't prospective this round is not re-fit). But the recipe
     # build below runs per iteration over ``this_pair_features`` and can construct a
-    # recipe whose operand used the ``prewarp`` pseudo-unary in an EARLIER iteration --
+    # recipe whose operand used the ``prewarp`` pseudo-unary in an EARLIER iteration -
     # if ``_prewarp_specs`` were a fresh per-call dict, that operand's coeffs would be
     # absent and the recipe would be built with ``prewarp_a/b=None``, producing a
     # recipe that names ``prewarp`` but lacks ``prewarp_*_coef`` in ``extra`` -> a
@@ -674,7 +674,7 @@ def _run_fe_step_impl(
         _prewarp_specs = {}
         self._prewarp_specs_accum_ = _prewarp_specs
 
-    # PER-OPERAND MEDIAN GATE (2026-06-04): opt-in flag off the MRMR instance
+    # PER-OPERAND MEDIAN GATE: opt-in flag off the MRMR instance
     # (getattr keeps the signature stable, mirroring the prewarp wiring). When
     # enabled, ``check_prospective_fe_pairs`` fits one TRAIN median per operand
     # and exposes a ``gate_med`` pseudo-unary; ``_gate_med_specs`` collects the
@@ -683,7 +683,7 @@ def _run_fe_step_impl(
     # persistence as the prewarp specs above (a gate_med operand selected in an
     # earlier iteration must keep its median available for recipe replay).
     _gate_med_enable = bool(getattr(self, "fe_gate_med_enable", False))
-    # MULTI-CANDIDATE DIVERSE EMISSION (2026-06-12): per pair, emit up to this many
+    # MULTI-CANDIDATE DIVERSE EMISSION: per pair, emit up to this many
     # DISTINCT engineered forms (MI is rank-blind to linear usability, so a single
     # MI-winner can be tree-friendly-but-linearly-useless while a lower-MI form is the
     # linearly-usable one; both should survive for the downstream model to choose).
@@ -695,10 +695,10 @@ def _run_fe_step_impl(
         _gate_med_specs = {}
         self._gate_med_specs_accum_ = _gate_med_specs
 
-    # SERIAL-vs-JOBLIB DISPATCH (2026-06-08 narrow+tall fix). The ``else`` branch
+    # SERIAL-vs-JOBLIB DISPATCH. The ``else`` branch
     # spreads the prospective PAIRS across ``n_jobs`` joblib ``backend="threading"``
     # workers, each running the SERIAL (no-prange) FE kernels (a numba prange would
-    # nest inside the threading layer and deadlock -- see ``_fe_use_parallel_kernels``).
+    # nest inside the threading layer and deadlock - see ``_fe_use_parallel_kernels``).
     #
     # BACKEND BENCH (2026-06-19, n=8000 p=150 FE pair-search, 3-rep medians, peak RSS incl children):
     #   joblib-threading 8.98s/1599MB  <  serial 10.75s/1321MB  <  cf-ThreadPool 10.22s/1898MB
@@ -719,11 +719,11 @@ def _run_fe_step_impl(
     # workers (joblib-over-pairs cannot saturate the pool): selection is unchanged
     # (same ``check_prospective_fe_pairs`` over the same pairs; only kernel
     # parallelism + chunk-merge differ, both byte-identical). The pair-count crossover
-    # subsumes the old fixed ``len(X) < 50000`` row gate -- a tall narrow frame now
+    # subsumes the old fixed ``len(X) < 50000`` row gate - a tall narrow frame now
     # takes the all-cores path it always should have.
     _fe_serial_min_pairs_per_worker = max(2, int(n_jobs) if n_jobs and n_jobs > 0 else 1)
-    # GPU-FE SERIALIZE (2026-06-20): when the per-pair candidate materialise/binning runs on the
-    # GPU, the single device is the bottleneck resource -- spreading the pair-chunks across joblib
+    # GPU-FE SERIALIZE: when the per-pair candidate materialise/binning runs on the
+    # GPU, the single device is the bottleneck resource - spreading the pair-chunks across joblib
     # ``backend="threading"`` workers does NOT parallelize the GPU work, it just makes every worker
     # CONTEND for the one device while the joblib parent burns the wait in its ``_retrieve`` sleep-
     # poll. Measured (canonical n=100k FE fit): default multi-worker = 105s of which ~84s is
@@ -735,7 +735,7 @@ def _run_fe_step_impl(
     # the same pairs; only the kernel parallelism + chunk-merge differ, both byte-identical).
     # Ensure the ONE shared FE subsample draw is bound on the pair-search path too (the polynom
     # block above that first resolves it may be skipped when the smart-polynom search is off). The
-    # helper caches on the instance keyed by n, so this is idempotent -- same cached draw, no re-draw.
+    # helper caches on the instance keyed by n, so this is idempotent - same cached draw, no re-draw.
     try:
         from .._fe_sufficient_summary import _get_shared_fe_subsample_idx
         _shared_fe_idx = _get_shared_fe_subsample_idx(self, np.asarray(classes_y), int(getattr(X, "shape", [len(X)])[0]))
@@ -798,7 +798,7 @@ def _run_fe_step_impl(
             fe_pair_usability_admission_min_corr=float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6)),
             fe_pair_usability_admission_pairness_margin=float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05)),
             gate_med_specs_out=_gate_med_specs,
-            # OPT-A (2026-06-07): THIS is the serial-main-thread branch -- the whole FE
+            # OPT-A: THIS is the serial-main-thread branch - the whole FE
             # search runs here with NO joblib threads (the ``else`` below is the
             # ``len(X) >= 50000`` joblib ``backend="threading"`` path). On this branch a
             # numba prange does not nest inside Python threads, so the FE materialise /
@@ -806,7 +806,7 @@ def _run_fe_step_impl(
             # column-prange twins (gated further by the per-host crossover). The joblib
             # path below leaves ``serial_main_thread`` at its default False -> serial kernels.
             serial_main_thread=True,
-            # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): resolve engineered operands by
+            # ENGINEERED-OPERAND FEED-FORWARD: resolve engineered operands by
             # name so (eng_i, eng_j) composites materialise. Off when the cap is 0 (raw-only
             # pool); the pool already excludes them in that case. ``engineered_operand_values``
             # supplies the CONTINUOUS engineered values so the composite is built on them
@@ -892,25 +892,25 @@ def _run_fe_step_impl(
                     fe_pair_usability_admission_min_corr=float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6)),
                     fe_pair_usability_admission_pairness_margin=float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05)),
                     gate_med_specs_out=None,  # loky: recovered from result dict below
-                    # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): see the serial branch above.
+                    # ENGINEERED-OPERAND FEED-FORWARD: see the serial branch above.
                     allow_engineered_operands=(_eng_cap != 0),
                     engineered_operand_values=getattr(self, "_engineered_continuous_", None),
                     # MM-DEBIAS (2026-06-09, + #4): see the serial branch above.
                     fe_mm_debias_prevalence=bool(getattr(self, "fe_mm_debias_prevalence", False)),
-                    # LARGE-N PEAK-MEMORY FIX (2026-06-08): joblib ``backend="threading"``
+                    # LARGE-N PEAK-MEMORY FIX: joblib ``backend="threading"``
                     # runs up to ``n_jobs`` of these CONCURRENTLY in the shared address space,
                     # each allocating its own candidate/chunk/disc/MI buffers; divide the
                     # per-call RAM budget by the worker count so N threads don't collectively
                     # blow past 0.4*available and OOM a worker.
                     concurrent_workers=int(n_jobs) if n_jobs and n_jobs > 0 else 1,
-                    # OPT-A n_jobs=1 EXTENSION (2026-06-20). This ``else`` branch is the joblib
+                    # OPT-A n_jobs=1 EXTENSION. This ``else`` branch is the joblib
                     # path, but joblib ``Parallel(n_jobs=1)`` runs every ``delayed`` chunk
                     # SEQUENTIALLY in the CALLING thread (joblib's SequentialBackend short-circuit
-                    # -- no worker thread is spawned, regardless of the requested backend), so
+                    # - no worker thread is spawned, regardless of the requested backend), so
                     # there is NO Python-threading nest a numba prange could deadlock. Mark the
                     # call serial-main-thread when n_jobs<=1 so the FE materialise / searchsorted /
                     # discretise kernels may dispatch to their BYTE-IDENTICAL ``parallel=True``
-                    # column-prange twins (gated further by the per-host kernel_tuning crossover) --
+                    # column-prange twins (gated further by the per-host kernel_tuning crossover) -
                     # the canonical n=100k/n_jobs=1 fit (>=2 pairs -> this branch, but 1 joblib
                     # worker) otherwise ran the serial nogil kernels with every other core idle.
                     # Selection is unchanged (the twins are verified maxdiff 0). For n_jobs>1 the
@@ -923,11 +923,11 @@ def _run_fe_step_impl(
             n_jobs=n_jobs,
             **parallel_kwargs,
         )
-        # PREWARP/GATE-MED SPEC-MERGE FIX (2026-06-08). Each chunk's result dict
+        # PREWARP/GATE-MED SPEC-MERGE FIX. Each chunk's result dict
         # carries its OWN fitted-spec payload under the SAME reserved key
         # (``_PREWARP_SPECS_RESULT_KEY`` / ``_GATE_MED_SPECS_RESULT_KEY``). A bare
         # ``prospective_additions.update(next_dict)`` lets each chunk's reserved-key
-        # entry CLOBBER the previous chunk's -- only the LAST chunk's specs survive,
+        # entry CLOBBER the previous chunk's - only the LAST chunk's specs survive,
         # so an operand whose ``prewarp`` warp was fit in an EARLIER chunk loses its
         # coeffs. The recipe builder below then constructs a recipe that names
         # ``prewarp`` but has no ``prewarp_*_coef`` in ``extra`` -> a KeyError at
@@ -1047,14 +1047,14 @@ def _run_fe_step_impl(
         verbose=verbose,
     )
 
-    # GPU memory-pool teardown (2026-06-27): when the FE step ran GPU kernels (STRICT / CMI_GPU), the cupy
+    # GPU memory-pool teardown: when the FE step ran GPU kernels (STRICT / CMI_GPU), the cupy
     # default pool RETAINS every block it cached this step for reuse. Across repeated fits (CV folds, repeated
     # MRMR().fit on a 4 GB card) the pool grows toward the device cap and the allocator starts thrashing
-    # cudaMalloc/sync -- measured: consecutive 100k f32 STRICT fits degrade 11.2s -> 31.8s -> 32.3s, while
+    # cudaMalloc/sync - measured: consecutive 100k f32 STRICT fits degrade 11.2s -> 31.8s -> 32.3s, while
     # freeing the UNUSED blocks at each step teardown holds it flat at ~11.2s (pool total stays well under the
     # cap). free_all_blocks only returns blocks with no live reference, so a resident operand table held across
     # the fit is untouched; this is post-compute teardown, never mid-pipeline. Guarded + best-effort.
-    # (FE_STEP_A-1 fix: moved into a try/finally in the ``_run_fe_step`` wrapper above this function, so it
-    # also runs on the exception path -- this was previously the only call site and skipped on any raise.)
+    # (moved into a try/finally in the ``_run_fe_step`` wrapper above this function, so it
+    # also runs on the exception path - this was previously the only call site and skipped on any raise.)
 
     return data, cols, nbins, X, selected_vars, n_recommended_features

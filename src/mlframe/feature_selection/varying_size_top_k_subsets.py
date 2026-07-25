@@ -1,15 +1,15 @@
 """``varying_size_top_k_subsets``: generate diverse-size feature subsets from a ranked importance list.
 
-Source: 7th_elo-merchant-category-recommendation.md -- "at late stage I use target permutation... finally get
+Source: 7th_elo-merchant-category-recommendation.md - "at late stage I use target permutation... finally get
 12 different feature sets with number from 200~700" used as 12 base LGBM models for stacking. Distinct from
 ``FeatureSubsetBaggingEnsemble`` (correlation-cluster-diverse subsets of a FIXED size, for variance
-reduction) -- this generates VARYING-SIZE top-k prefixes of an existing importance ranking (e.g. from
+reduction) - this generates VARYING-SIZE top-k prefixes of an existing importance ranking (e.g. from
 permutation-null-importance or MRMR), explicitly for feeding a diverse set of base models into a stacking
 ensemble rather than committing to one "best" feature set.
 
-GAP (2026-07-11): the literal top-k prefix has no notion of CROSS-SUBSET diversity. When several
+GAP: the literal top-k prefix has no notion of CROSS-SUBSET diversity. When several
 top-ranked features form a highly-correlated cluster (e.g. sensor duplicates, or several engineered
-variants of the same latent signal), EVERY size's prefix leads with the same cluster members -- small-``k``
+variants of the same latent signal), EVERY size's prefix leads with the same cluster members - small-``k``
 subsets can end up entirely composed of one redundant cluster while missing other, equally-informative,
 signal directions altogether. That defeats the whole point of varying-size subsets for stacking diversity:
 the base models end up highly correlated with each other (same dominant cluster, same blind spots) instead
@@ -17,7 +17,7 @@ of exploring genuinely different feature combinations. ``diversify=True`` below 
 member leads in each subset (cluster membership found via a simple pairwise-|correlation| pass over
 ``data``, the same anchor-greedy idea DCD uses internally, kept self-contained here since DCD needs a fitted
 MRMR context this free function does not have) so each subset still respects the importance ranking at the
-CLUSTER level but samples a different representative -- broader coverage of the true signal at every size,
+CLUSTER level but samples a different representative - broader coverage of the true signal at every size,
 and less-correlated base-model predictions for the downstream stacker. Default (``diversify=False``) is
 byte-identical to the prior behavior.
 """
@@ -55,7 +55,7 @@ def _cluster_anchors(ranked_features: Sequence[str], data: FloatMatrix, corr_thr
 
     n_cols = mat.shape[1] if mat.ndim == 2 else 0
     if n_cols != len(cols) or n_cols == 0:
-        # data doesn't line up with the requested features -- every feature is its own cluster (no pruning).
+        # data doesn't line up with the requested features - every feature is its own cluster (no pruning).
         clusters: dict = {}
         for f in ranked_features:
             clusters[f] = [f]
@@ -99,7 +99,7 @@ def _diverse_ranking(ranked_features: Sequence[str], clusters: dict, rotation: i
     signal direction; round-robin interleaving guarantees even a SMALL prefix covers every cluster, so the
     downstream model sees all the independent signal instead of several near-duplicate views of just one.
     ``rotation`` additionally rotates which member leads within each cluster, so different subset sizes
-    (each called with a different rotation) sample different representatives -- diversity ACROSS subsets on
+    (each called with a different rotation) sample different representatives - diversity ACROSS subsets on
     top of coverage WITHIN each subset."""
     anchors_in_rank_order: List[str] = []
     seen_anchor_for: dict = {}
@@ -152,9 +152,9 @@ def varying_size_top_k_subsets(
         bare ndarray is assumed column-aligned with ``ranked_features`` in the same order. Ignored when
         ``diversify=False``.
     diversify
-        Opt-in (default ``False`` -- byte-identical to the prior literal-top-k behavior). When ``True``,
+        Opt-in (default ``False`` - byte-identical to the prior literal-top-k behavior). When ``True``,
         each subset rotates which member of a correlated cluster leads, so different sizes sample
-        different representatives of the same signal cluster instead of all leading with the same one --
+        different representatives of the same signal cluster instead of all leading with the same one -
         broader coverage per subset and less-correlated base models for a downstream stacker. Requires
         ``data``; raises ``ValueError`` if omitted.
     corr_threshold

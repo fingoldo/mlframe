@@ -1,4 +1,4 @@
-"""Layer 62 (2026-05-31): BOOTSTRAP-STABLE MI ranking for hybrid orth-poly FE.
+"""Layer 62: BOOTSTRAP-STABLE MI ranking for hybrid orth-poly FE.
 
 Why this layer
 --------------
@@ -9,7 +9,7 @@ samples that estimate has non-trivial variance: a borderline candidate
 ``He_n(x_noise)`` with mean MI ~ noise floor but a long right tail can win
 a slot purely because that ONE bootstrap of its sampling distribution
 landed on the right tail. Across different training subsets / seeds the
-selection then flips in and out -- selection instability that downstream
+selection then flips in and out - selection instability that downstream
 stacking / refit pipelines pay for in variance and brittle behaviour.
 
 This module provides a bootstrap-stable scorer:
@@ -35,12 +35,12 @@ inspect the spread directly without re-running the bootstrap.
 Recipe replay
 -------------
 
-Each emitted column is backed by an ``orth_univariate`` recipe -- the
-SAME kind Layer 21 uses -- because the engineered values are bit-equal
+Each emitted column is backed by an ``orth_univariate`` recipe - the
+SAME kind Layer 21 uses - because the engineered values are bit-equal
 to Layer 21's; only the SELECTION rule changes. Replay therefore reuses
 the existing ``_apply_orth_univariate`` path.
 
-NOT wired into ``MRMR.fit`` by default -- opt-in via
+NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_hybrid_orth_bootstrap_enable=True``.
 """
 from __future__ import annotations
@@ -75,7 +75,7 @@ _LCB_Z = 1.96
 def _coerce_y_int64(y) -> np.ndarray:
     """Dense int64 class labels. Non-integer y is densified via
     ``np.unique(return_inverse=...)`` rather than truncated with
-    ``.astype(int64)`` -- plain truncation merges distinct labels and destroys
+    ``.astype(int64)`` - plain truncation merges distinct labels and destroys
     continuous-y signal (everything in [0, 1) collapses to class 0)."""
     arr = np.asarray(y).ravel()
     if np.issubdtype(arr.dtype, np.integer):
@@ -346,7 +346,7 @@ def hybrid_orth_mi_bootstrap_fe(
 
     # Two-gate selection on the LCB metrics. Mirrors Layer 21 but every
     # threshold is applied to the LCB rather than the point estimate:
-    # 1. uplift_lcb >= min_uplift_lcb (default 1.0 -- "with 95% confidence
+    # 1. uplift_lcb >= min_uplift_lcb (default 1.0 - "with 95% confidence
     #    the engineered MI is at least as large as the baseline MI";
     #    stricter than Layer 21's 1.05 point-estimate gate IN EFFECT
     #    because the LCB subtracts 1.96*std before comparison).
@@ -391,12 +391,12 @@ def hybrid_orth_mi_bootstrap_fe_with_recipes(
     nbins: int = 10,
 ):
     """Same as :func:`hybrid_orth_mi_bootstrap_fe` but additionally returns
-    a list of ``orth_univariate`` recipes -- one per appended column -- so
+    a list of ``orth_univariate`` recipes - one per appended column - so
     that ``MRMR.transform`` can recompute each engineered column on test
     data without re-running the bootstrap MI ranking.
 
     Recipes are byte-identical to Layer 21 because the engineered VALUES
-    are byte-identical -- only the SELECTION rule (LCB vs point estimate)
+    are byte-identical - only the SELECTION rule (LCB vs point estimate)
     differs. The recipe parser logic is reused unchanged.
     """
     from .engineered_recipes import build_orth_univariate_recipe
@@ -433,13 +433,13 @@ def hybrid_orth_mi_bootstrap_fe_with_recipes(
             continue
         # freeze the fit-time basis-preprocess params (mirrors the
         # canonical Layer-21 hybrid_orth_mi_fe_with_recipes fix); recomputing on the FULL fit-time
-        # source column is safe/exact -- it reproduces, not refits, the fit-time params.
+        # source column is safe/exact - it reproduces, not refits, the fit-time params.
         _pp = None
         try:
             _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
-            # ORTH_SCORING_A-3 fix: was a bare except with zero logging,
+            # Was a bare except with zero logging,
             # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
             # exception (including a genuine programming bug), with no diagnostic trace.
             logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)

@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import logging
 import os
-from timeit import default_timer as timer
 from typing import Any, Sequence, Tuple
 
 import numba
@@ -22,11 +21,11 @@ from ._numba_utils import arr2str, count_cand_nbins
 from .gpu import mi_direct_gpu
 from .info_theory import (
     conditional_mi, entropy, merge_vars, mi,
-    # 2026-05-28: SU normalization dispatcher. ``cmi_or_csu`` reads a thread-local
+    # SU normalization dispatcher. ``cmi_or_csu`` reads a thread-local
     # toggle set by ``MRMR.fit`` when ``mi_normalization='su'``; legacy path
     # (toggle off) is one extra Python call ahead of njit kernels.
     use_su_normalization, conditional_symmetric_uncertainty, use_mi_miller_madow,
-    # 2026-05-30 Wave 8: JMIM aggregator + BUR weight thread-local toggles
+    # JMIM aggregator + BUR weight thread-local toggles
     # used in evaluate_gain / evaluate_candidate.
     use_jmim_aggregator, get_bur_lambda,
     # 2026-05-30 Wave 9.1 iter 5: setters for re-publishing the toggles into
@@ -40,33 +39,33 @@ from .info_theory._group_mi import group_relevance_mi
 logger = logging.getLogger(__name__)
 
 # S-F3: the JMIM joint-MI aggregation applies the same ``nexisting`` discount exponent the Fleuret CMI branch uses. For a conditional MI (usually in [0,1] nats) ``x**k``
-# shrinks the value (a discount for deeper interactions), but a JMIM JOINT MI ``I({X,Z};Y)`` is routinely >1 nat, and ``x**k`` AMPLIFIES values >1 -- the opposite of a
+# shrinks the value (a discount for deeper interactions), but a JMIM JOINT MI ``I({X,Z};Y)`` is routinely >1 nat, and ``x**k`` AMPLIFIES values >1 - the opposite of a
 # discount. When set, ``MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY=1`` clamps the exponent so it can only ever shrink (never amplify) the joint MI, removing that spurious
 # amplification. Read once at import so the njit ``evaluate_gain`` captures it as a compile-time constant (a bench toggles it per subprocess). Default off = bit-identical.
-# bench-attempt-rejected: bench_sf3_jmim_exponent_selection.py (8 seeds, synergy fixture) -- the discount-only correction NEVER improved selection (0 seed wins), was
+# bench-attempt-rejected: bench_sf3_jmim_exponent_selection.py (8 seeds, synergy fixture) - the discount-only correction NEVER improved selection (0 seed wins), was
 # selection-identical on 7/8 and regressed 1 seed (recall 0.8->0.6), mean recall 0.800 (exponent) vs 0.775 (corrected). The exponent is load-bearing, so it stays the default;
 # the correction is kept as an off-by-default option for re-testing on other data/hardware.
 _JMIM_EXPONENT_DISCOUNT_ONLY = os.environ.get("MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY", "0") == "1"
 
-# 2026-06-19: observability sink for the JMIM joint-MI cache (see _evaluate_candidates_inner).
+# Observability sink for the JMIM joint-MI cache (see _evaluate_candidates_inner).
 # Each completed JMIM-mode candidate-evaluation appends {"size", "hits"}. Bounded so a long
 # fit cannot grow it without limit. Read by tests / benches to confirm the cache engages;
 # carries no algorithmic meaning and is safe to clear() at any time.
 from collections import deque as _deque
 _JMIM_CACHE_STATS: "_deque" = _deque(maxlen=4096)
 
-# Significance level for the permutation-null debiasing of the relevance MI. A candidate whose relevance permutation p-value is BELOW this alpha is SIGNIFICANT -- it sits
-# above its own null distribution -- and keeps its FULL observed MI (no subtraction); a candidate at/above alpha is NOT significant and has the empirical null mean subtracted
+# Significance level for the permutation-null debiasing of the relevance MI. A candidate whose relevance permutation p-value is BELOW this alpha is SIGNIFICANT - it sits
+# above its own null distribution - and keeps its FULL observed MI (no subtraction); a candidate at/above alpha is NOT significant and has the empirical null mean subtracted
 # (``max(0, observed - null_mean)``), demoting it toward zero. This replaces the earlier fixed keep-fraction clamp with the textbook discriminator the clamp was a proxy for:
 # the null MEAN alone cannot tell a WEAK GENUINE signal (whose coarse-binning null is a large fraction of its observed MI) apart from SPURIOUS NOISE (whose null is high because
-# it IS noise) -- but the permutation p-value can, because weak genuine signal sits ABOVE its null (significant) while noise sits WITHIN its null (not significant). alpha=0.05 is
+# it IS noise) - but the permutation p-value can, because weak genuine signal sits ABOVE its null (significant) while noise sits WITHIN its null (not significant). alpha=0.05 is
 # a STANDARD statistical level, not a fixture-tuned coefficient; the selection is stable across a wide alpha range (0.02-0.10) precisely because real signal clears p ~ 0 and
 # noise sits near p ~ 1, far from any alpha in that band. Subtraction is scale-preserving (stays in MI units) so the downstream min_relevance_gain / relative-gain / FDR floors
 # need no recalibration. Override via the ``MLFRAME_MRMR_NULL_SIGNIF_ALPHA`` env var.
 #
 # RESOLUTION LIMIT: the p_value the gate compares against is the add-one Monte-Carlo estimate ``(1 + nfailed) / (full_budget + 1)`` (see permutation._perm_pvalue) over the
 # null budget ``MLFRAME_MRMR_NULL_PERMS`` (default 32). It is therefore QUANTIZED in steps of ~1/(32+1) ~ 0.0303: the only attainable p-values near alpha are 0/33=0.0,
-# 1/33~0.0303, 2/33~0.0606, ... -- so any alpha in the open interval (0.0303, 0.0606) is INDISTINGUISHABLE from alpha=0.0606, and a feature whose null is tied/beaten by exactly
+# 1/33~0.0303, 2/33~0.0606, ... - so any alpha in the open interval (0.0303, 0.0606) is INDISTINGUISHABLE from alpha=0.0606, and a feature whose null is tied/beaten by exactly
 # one shuffle ("1 tie") reads p~0.0606 >= 0.05 and is treated as NON-significant (its full null mean is subtracted). At the default budget the gate cannot resolve the
 # 0.0303..0.0606 band; raise ``MLFRAME_MRMR_NULL_PERMS`` (finer steps ~1/(B+1), at proportional permutation cost) if you need to separate alpha values inside that band.
 import os as _os
@@ -111,118 +110,15 @@ def _su_normalize_relevance(direct_gain: float, X, y, factors_data, factors_nbin
     except Exception:
         # SU denominator unavailable (degenerate joint) -> keep the raw debiased relevance. Log at DEBUG so a
         # GENUINE merge_vars/entropy bug (not just a degenerate joint) is diagnosable instead of silently
-        # masked -- a swallowed bug here can quietly change which features/interactions get selected.
+        # masked - a swallowed bug here can quietly change which features/interactions get selected.
         logger.debug("evaluation: SU normalization skipped; using raw debiased gain", exc_info=True)
     return direct_gain
 
 
-def get_candidate_name(candidate_indices: Sequence, factors_names: Sequence[str]) -> str:
-    """Render a candidate (single index or k-way interaction tuple) as a human-readable ``"-"``-joined name for logging, resolving each factor index against ``factors_names``."""
-    cand_name = "-".join([factors_names[el] for el in candidate_indices])
-    return cand_name
-
-
-def should_skip_candidate(
-    cand_idx: int,
-    X: tuple,
-    interactions_order: int,
-    failed_candidates: set,
-    added_candidates: set,
-    expected_gains: np.ndarray,
-    selected_vars: list,
-    selected_interactions_vars: list,
-    only_unknown_interactions: bool = True,
-    engineered_lineage: dict | None = None,
-    dcd_state=None,
-) -> tuple:
-    """Decide if current candidate for predictors should be skipped (already accepted, failed, or computed).
-
-    ``engineered_lineage``: optional ``{engineered_idx -> frozenset(parent_indices)}`` from the cat-FE step. When set, a k-way candidate is skipped if it
-    combines an engineered column with one of its own parents (conditional MI degenerates and confidence gates waste budget). Legacy/numeric path leaves it ``None``.
-
-    ``dcd_state`` (Wave 9): optional ``DCDState`` reference. When provided, a
-    candidate (single index OR k-way tuple) is skipped if its ``pool_pruned_mask``
-    bit is set per ``should_be_pruned`` semantics (Critic1/B-3: tuple of indices
-    skipped iff ALL components pruned). Bit-stable when ``None``.
-    """
-
-    nexisting = 0
-
-    if (cand_idx in failed_candidates) or (cand_idx in added_candidates) or expected_gains[cand_idx]:
-        return True, nexisting
-
-    # 2026-05-30 Wave 9 — DCD prune-mask short-circuit (Critic1/B-1 fix:
-    # uses the mask instead of mutating the candidates list).
-    if dcd_state is not None:
-        try:
-            from ._dynamic_cluster_discovery import should_be_pruned as _should_be_pruned
-            target = X if interactions_order > 1 else int(cand_idx)
-            if _should_be_pruned(dcd_state, target):
-                return True, nexisting
-        except Exception as _dcd_exc:  # nosec B110 - non-trivial body
-            # DCD is best-effort; never break candidate evaluation.
-            logger.debug("should_skip_candidate: DCD prune-mask lookup failed (%s); skipping DCD short-circuit.", _dcd_exc)
-
-    if interactions_order > 1:  # disabled for single predictors 'cause Fleuret formula won't detect pairs predictors
-
-        # Lineage filter: skip k-way candidates that combine an engineered column with one of its own parent columns.
-        if engineered_lineage:
-            X_set = set(X)
-            for subel in X:
-                parents = engineered_lineage.get(subel)
-                if parents is not None and not parents.isdisjoint(X_set):
-                    return True, nexisting
-
-        # Check if any sub-element is already selected at this stage.
-        skip_cand = False
-        for subel in X:
-            if subel in selected_interactions_vars:
-                skip_cand = True
-                break
-        if skip_cand:
-            return True, nexisting
-
-        # Or all selected at the lower stages.
-        skip_cand_flags = [(subel in selected_vars) for subel in X]
-        nexisting = sum(skip_cand_flags)
-        if (only_unknown_interactions and any(skip_cand_flags)) or all(skip_cand_flags):
-            return True, nexisting
-
-    return False, nexisting
-
-
-def handle_best_candidate(
-    current_gain: float,
-    best_gain: float,
-    X: Sequence,
-    best_candidate: Sequence,
-    factors_names: list,
-    verbose: int = 1,
-    ndigits: int = 5,
-    max_runtime_mins: float | None = None,
-    start_time: float | None = None,
-    min_relevance_gain: float | None = None,
-):
-    """Update the running best-candidate/best-gain tracker for the current MRMR search iteration, logging progress when verbose, and signal whether the ``max_runtime_mins`` budget has been exceeded (early-stop check). Returns ``(best_gain, best_candidate, run_out_of_time)``."""
-    # Save best known candidate, to enable early stopping.
-    run_out_of_time = False
-
-    if current_gain > best_gain:
-        best_candidate = X
-        best_gain = current_gain
-        if verbose > 2:
-            logger.info(
-                "\t%s is so far the best candidate with best_gain=%.*f",
-                get_candidate_name(best_candidate, factors_names=factors_names), ndigits, best_gain,
-            )
-    else:
-        if min_relevance_gain and verbose > 2 and current_gain > min_relevance_gain:
-            logger.info("\t\t%s current_gain=%.*f", get_candidate_name(X, factors_names=factors_names), ndigits, current_gain)
-
-    if max_runtime_mins and start_time is not None and not run_out_of_time:
-        run_out_of_time = (timer() - start_time) > max_runtime_mins * 60
-
-    return best_gain, best_candidate, run_out_of_time
+# Candidate bookkeeping helpers (get_candidate_name / should_skip_candidate / handle_best_candidate)
+# carved to _evaluation_candidate.py to keep this file under the 1k-LOC gate; re-imported so every
+# ``from .evaluation import ...`` call site is unchanged.
+from ._evaluation_candidate import get_candidate_name, handle_best_candidate, should_skip_candidate  # noqa: F401  (re-export for external callers)
 
 
 @njit(cache=True)
@@ -244,14 +140,14 @@ def evaluate_gain(
     sink_threshold: float = -1.0,
     entropy_cache: dict | None = None,
     cached_cond_MIs: dict | None = None,
-    # 2026-06-19: JMIM joint-MI cache. Mirrors ``cached_cond_MIs`` but keyed on the
+    # JMIM joint-MI cache. Mirrors ``cached_cond_MIs`` but keyed on the
     # multiset ``{X} u Z`` only (``arr2str(xz_combined)``); y is fixed per fit so it
     # is not part of the key. Stores the RAW ``mi({X,Z}; y)``; the nexisting exponent
     # is applied at READ time, exactly as the plain-CMI branch does for its cache.
     cached_jmim_MIs: dict | None = None,
-    # 2026-06-19: 1-element int64 array hit counter for the JMIM cache. An array
+    # 1-element int64 array hit counter for the JMIM cache. An array
     # (not a scalar) so the @njit kernel can mutate it in place and the caller can
-    # read the post-loop count -- proves the cache actually HITS, not just that it
+    # read the post-loop count - proves the cache actually HITS, not just that it
     # is harmless. Counter[0] is incremented on every JMIM cache read-hit.
     jmim_hit_counter: np.ndarray | None = None,
     can_use_x_cache=False,
@@ -259,8 +155,8 @@ def evaluate_gain(
     dtype=np.int32,
     confidence_mode: bool = False,
     max_confirmation_cand_nbins: int = MAX_CONFIRMATION_CAND_NBINS,
-    use_su: bool = False,  # 2026-05-28: SU normalization toggle threaded from process_candidates / mrmr_fit_impl.
-    use_jmim: bool = False,  # 2026-05-30 Wave 8: JMIM aggregator toggle, threaded from the Python-level caller for the same reason as ``use_su`` -- ``@njit`` cannot do ``from X import Y`` or call a non-njit thread-local reader at runtime (IMPORT_NAME opcode is unsupported).
+    use_su: bool = False,  # SU normalization toggle threaded from process_candidates / mrmr_fit_impl.
+    use_jmim: bool = False,  # JMIM aggregator toggle, threaded from the Python-level caller for the same reason as ``use_su`` - ``@njit`` cannot do ``from X import Y`` or call a non-njit thread-local reader at runtime (IMPORT_NAME opcode is unsupported).
     use_mm: bool = False,  # N-F2: Miller-Madow toggle for the redundancy CMI, threaded like use_su so the redundancy carries the SAME bias correction as the MM relevance. Default False -> plug-in redundancy, unchanged.
 ) -> tuple:
     """``max_confirmation_cand_nbins`` is a parameter (not a baked-in constant). Default mirrors the legacy value; ``MRMR.fit`` overrides with ``quantization_nbins ** interactions_max_order * 2`` unless the user pins it explicitly."""
@@ -273,7 +169,7 @@ def evaluate_gain(
     for interactions_order in range(max_veteranes_interactions_order):
         # calls the njit-compiled core directly rather than pyutilz's plain-Python validating wrapper
         # (generate_combinations_recursive_njit): a bare Python function with a `raise` cannot be called
-        # from this @njit context in nopython mode -- numba reports "Untyped global name" on any cold
+        # from this @njit context in nopython mode - numba reports "Untyped global name" on any cold
         # compile (a warm on-disk cache from before pyutilz's wrapper regressed to plain Python can mask
         # this). r = interactions_order + 1 is always >= 1 here, so the wrapper's r<0 validation is moot.
         combs = _generate_combinations_recursive_njit_core(np.array(selected_vars, dtype=np.int32), interactions_order + 1)[::-1]
@@ -288,7 +184,7 @@ def evaluate_gain(
                         # additional_knowledge = I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z); I(X, Z) = entropy_x + entropy_z - entropy_xz.
                         key_found = False
                         if not confidence_mode:
-                            # 2026-05-30 Wave 9.1 fix (loop iter 14):
+                            #
                             # ``arr2str`` already uses ``_`` as its element
                             # separator, so the prior boundary ``"_"`` between
                             # ``arr2str(X)`` and ``arr2str(Z)`` aliased every
@@ -301,7 +197,7 @@ def evaluate_gain(
                             # conditional-MI scoring. Switching to ``"|"``
                             # (a character ``arr2str`` cannot emit) makes the
                             # boundary unambiguous.
-                            # 2026-05-30 Wave 9.1 fix (loop iter 37):
+                            #
                             # cache the RAW (pre-exponent) conditional MI
                             # and apply ``** (nexisting + 1)`` at every
                             # read site. Pre-fix the cache stored the
@@ -334,12 +230,12 @@ def evaluate_gain(
                             # because the joint-MI computation has its own
                             # per-pair entropy cost; future sprint may add a
                             # joint-MI cache keyed on the multiset {X, Z, Y}.
-                            # 2026-05-28: SU branch bypasses entropy caches because the SU denominator
+                            # SU branch bypasses entropy caches because the SU denominator
                             # is path-dependent and re-using cached unconditional CMI numbers would
                             # silently desync the normalization. Cheap (no caching) is correct here;
                             # legacy raw-CMI path keeps cache wired in. ``use_su`` AND ``use_jmim``
                             # are threaded from the Python-level caller (evaluate_candidate ->
-                            # evaluate_gain) -- the njit kernel cannot read the Python thread-locals
+                            # evaluate_gain) - the njit kernel cannot read the Python thread-locals
                             # at runtime (IMPORT_NAME / dynamic Python call are unsupported in @njit).
                             if use_jmim:
                                 # Build the joint variable index multiset {X, Z} for JMIM's
@@ -351,7 +247,7 @@ def evaluate_gain(
                                 _x_int = np.asarray(X, dtype=np.int64)
                                 _z_int = np.asarray(Z, dtype=np.int64)
                                 xz_combined = np.unique(np.concatenate((_x_int, _z_int)))
-                                # 2026-06-19: JMIM joint-MI cache. The multiset {X} u Z recurs
+                                # JMIM joint-MI cache. The multiset {X} u Z recurs
                                 # across greedy rounds (and across (X, Z) swaps within a round),
                                 # so memoise the raw mi({X,Z}; y) keyed on arr2str(xz_combined).
                                 # Stored RAW; nexisting exponent applied below at read time, as
@@ -360,7 +256,7 @@ def evaluate_gain(
                                 # collide under the same arr2str(X)+"|"+arr2str(Z) key.
                                 # ``cached_jmim_MIs`` / ``jmim_hit_counter`` may be None when a
                                 # direct caller invokes evaluate_gain without the cache wired
-                                # (e.g. focused unit tests). Guard with ``is not None`` -- numba
+                                # (e.g. focused unit tests). Guard with ``is not None`` - numba
                                 # narrows the Optional so the typed-dict ``in``/index ops only
                                 # type-check on the non-None branch; the uncached fallback just
                                 # recomputes mi() every time (pre-cache behaviour).
@@ -405,7 +301,7 @@ def evaluate_gain(
                                     use_mm=use_mm,  # N-F2: redundancy carries the SAME MM bias correction as the relevance
                                 )
 
-                            # 2026-05-30 Wave 9.1 fix (loop iter 37):
+                            #
                             # write the RAW additional_knowledge to the
                             # cache BEFORE applying the nexisting
                             # exponent. Apply the exponent only to the
@@ -413,7 +309,7 @@ def evaluate_gain(
                             # write. This makes the cache nexisting-
                             # independent and lets all callers share
                             # the underlying CMI compute.
-                            # 2026-06-19: JMIM manages its OWN cache + exponent above
+                            # JMIM manages its OWN cache + exponent above
                             # (cached_jmim_MIs, keyed on the {X} u Z multiset). Skip the
                             # shared cond-MI write/exponent here so JMIM values are neither
                             # stored under the CMI key nor double-exponentiated. The SU
@@ -430,7 +326,7 @@ def evaluate_gain(
                     # not guaranteed, but cases are too precious to ignore. Also enables skipping higher-order interactions containing all approved candidates.
                     # CAVEAT (extra_knowledge_multipler > 0): this is NOT MRMR redundancy for that candidate. Once a single Z yields additional_knowledge above the
                     # multiplied direct_gain, ``positive_mode`` flips and the score becomes the MAX over Z of that extra-knowledge term, NOT the MIN-redundancy MRMR
-                    # objective -- the candidate is ranked by its single BEST synergistic relationship instead of its worst-case redundancy. Default is -1.0 (off), so
+                    # objective - the candidate is ranked by its single BEST synergistic relationship instead of its worst-case redundancy. Default is -1.0 (off), so
                     # the default selection stays pure MRMR; enable this only when you deliberately want a synergy-seeking (max-extra-knowledge) ranking.
                     if extra_knowledge_multipler > 0 and additional_knowledge > direct_gain * extra_knowledge_multipler:
                         if not positive_mode:
@@ -446,7 +342,7 @@ def evaluate_gain(
                     current_gain = additional_knowledge
 
                     if best_gain is not None and current_gain <= best_gain:
-                        # No point checking other Zs -- current_gain already won't beat best_gain (assuming best_gain was estimated confidently; checked at end).
+                        # No point checking other Zs - current_gain already won't beat best_gain (assuming best_gain was estimated confidently; checked at end).
                         # Also fix what Z caused X (the most) to sink.
                         if sink_threshold > -1 and current_gain < sink_threshold:
                             sink_reasons = Z
@@ -501,7 +397,7 @@ def evaluate_candidate(
     sink_reasons: set = set()
 
     # Is this candidate any good for target 1-vs-1?
-    if X in cached_confident_MIs:  # type: ignore[operator]  # caller always supplies a dict; cached_confident_MIs first -- more reliable (but don't fill them here).
+    if X in cached_confident_MIs:  # type: ignore[operator]  # caller always supplies a dict; cached_confident_MIs first - more reliable (but don't fill them here).
         # cached_confident_MIs stores (bootstrapped_gain, confidence) tuples (see confirm_candidate); take the gain.
         # WITHIN one screen_predictors() round, a candidate only lands in cached_confident_MIs AFTER permutation
         # confirmation, at which point its cand_idx is in added_/failed_candidates and should_skip_candidate filters it
@@ -510,9 +406,9 @@ def evaluate_candidate(
         # across rounds, since the candidate pool changes shape), so a candidate confirmed in an earlier round is
         # correctly re-scored here on a later round rather than treated as already-decided. This is proven
         # equivalent by controlled A/B (seed_caches with vs without cached_confident_MIs threaded: identical
-        # selection on the canonical signal/noise fixture) -- the bootstrapped gain still passes the same SU
+        # selection on the canonical signal/noise fixture) - the bootstrapped gain still passes the same SU
         # floor-scaling the else-path applies (it is already permutation-confirmed, so it does NOT re-enter the
-        # null-debiasing/significance gate -- re-applying that would double-penalise). DEBUG, not WARNING: this is
+        # null-debiasing/significance gate - re-applying that would double-penalise). DEBUG, not WARNING: this is
         # the expected steady-state path for a multi-round fit, not an anomaly to investigate.
         logger.debug(
             "evaluate_candidate: confirmed candidate %s re-entered the cached_confident_MIs branch on a later round; "
@@ -561,9 +457,9 @@ def evaluate_candidate(
             # all-noise and >90% pass rate on signal/synergy.
             _bnp = max(2, int(baseline_npermutations))
             if use_gpu:
-                # Wrapped in try/except (2026-07-09 fix): this call previously had NO exception handling, unlike
+                # Wrapped in try/except: this call previously had NO exception handling, unlike
                 # every sibling GPU dispatch point in this codebase (_cmi_cuda.py's circuit breaker, mi_direct's
-                # own internal GPU fastpath try/except) -- a single CUDA fault here (driver hiccup, transient OOM,
+                # own internal GPU fastpath try/except) - a single CUDA fault here (driver hiccup, transient OOM,
                 # a poisoned context from an EARLIER unrelated GPU call) would propagate all the way up and crash
                 # the whole MRMR.fit(), not just degrade to CPU for this one candidate. Falls back to the exact
                 # CPU path (same args as the ``else`` branch below) on any failure.
@@ -628,7 +524,7 @@ def evaluate_candidate(
                     return_null_mean=True,
                 )
                 # Gate the subtraction on permutation SIGNIFICANCE. The null mean alone cannot distinguish a WEAK GENUINE signal (whose coarse-binning null is a large fraction of
-                # its observed MI) from SPURIOUS NOISE (whose null is high because it IS noise) -- subtracting the full null would over-correct the weak signal below the
+                # its observed MI) from SPURIOUS NOISE (whose null is high because it IS noise) - subtracting the full null would over-correct the weak signal below the
                 # relative-gain floor and drop it. The permutation p-value IS that discriminator: a significant feature (``p_value < alpha``) sits ABOVE its null and keeps its
                 # full observed MI; a non-significant feature (``p_value >= alpha``) sits WITHIN its null and gets the full null mean subtracted, collapsing toward 0. alpha is a
                 # textbook level (0.05), not a fixture-tuned fraction, and the selection is stable across a wide alpha band because real signal clears p ~ 0 and noise sits at p ~ 1.
@@ -636,7 +532,7 @@ def evaluate_candidate(
                     direct_gain = max(0.0, direct_gain - null_mean)
             # SU-NORMALIZE THE MARGINAL RELEVANCE under mi_normalization='su'. The conditional/redundancy term already uses
             # conditional_symmetric_uncertainty, but the marginal relevance (the value the min_relevance_gain floor compares against,
-            # and the first-pick score) was left as RAW MI -- so a high-cardinality noise column whose raw MI clears the entropy-relative
+            # and the first-pick score) was left as RAW MI - so a high-cardinality noise column whose raw MI clears the entropy-relative
             # floor (e.g. 80-level hi_* with MI ~0.11 > 0.16*H(y)=0.111) was admitted even though its SU ~0.044 sits far below. Scale the
             # debiased relevance by the SU denominator 2/(H(X)+H(Y)) so the floor sees the cardinality-scrubbed score, matching the unit
             # SU definition. Done only when direct_gain > 0 (a zero stays zero) and the SU toggle is on; legacy path is byte-identical.
@@ -647,7 +543,7 @@ def evaluate_candidate(
     # marginal MI is zero by construction but the conditional MI given an
     # already-selected variable surfaces the synergy). When the fleuret-style
     # complex mode is active (``selected_vars`` non-empty AND
-    # ``use_simple_mode=False``) we MUST still evaluate the conditional gain --
+    # ``use_simple_mode=False``) we MUST still evaluate the conditional gain -
     # gating on ``direct_gain > 0`` skips exactly the synergy class the
     # algorithm is supposed to find. The simple-mode path (no conditional MI)
     # still short-circuits on zero direct gain since there's nothing else to
@@ -656,11 +552,11 @@ def evaluate_candidate(
     if direct_gain > 0 or _force_cond:
         if selected_vars and not use_simple_mode:
             # Some factors already selected. Best gain from including X is min I(X; Y | Z) over Z in selected_vars. But a variable correlated to every real
-            # predictor plus noise has real value zero -- I(X; Y | Z) alone still gives significant impact. Summing I(X, Z) over Zs reveals it shares all
+            # predictor plus noise has real value zero - I(X; Y | Z) alone still gives significant impact. Summing I(X, Z) over Zs reveals it shares all
             # knowledge with the rest and has no value alone, but that requires all real factors already in S; otherwise 'connected-to-all' trash dominates.
-            # Solution: compute sum(X, Z) not only when adding Z, but repeat for all Zs once a new X is added -- some Zs may become useless after.
-            # P2 FIX (2026-06-13): the (current_gain, last_checked_k) cross-step resume is only VALID
-            # when newly-selected vars APPEND to the end of the combination sequence -- true at the
+            # Solution: compute sum(X, Z) not only when adding Z, but repeat for all Zs once a new X is added - some Zs may become useless after.
+            # P2 FIX: the (current_gain, last_checked_k) cross-step resume is only VALID
+            # when newly-selected vars APPEND to the end of the combination sequence - true at the
             # default max_veteranes_interactions_order == 1 (a new singleton appends at the tail), but
             # NOT at order >= 2, where growing selected_vars inserts the new singleton in the MIDDLE of
             # the global k-sequence. Resuming from a stale last_checked_k then SKIPS measuring the new
@@ -695,7 +591,7 @@ def evaluate_candidate(
                 current_gain = LARGE_CONST
                 last_checked_k = -1
 
-            # 2026-06-19: the @njit evaluate_gain types the JMIM-cache ``in`` check
+            # The @njit evaluate_gain types the JMIM-cache ``in`` check
             # unconditionally (even when use_jmim is off), so it needs a REAL numba
             # typed dict + a real counter array, never None. Callers that do not
             # thread a shared cache (e.g. the serial/parallel _confirm_predictor
@@ -739,10 +635,10 @@ def evaluate_candidate(
             )
 
             partial_gains[cand_idx] = current_gain, k
-            if not stopped_early:  # no break -- current_gain computed fully.
+            if not stopped_early:  # no break - current_gain computed fully.
                 expected_gains[cand_idx] = current_gain
         else:
-            # No factors selected yet -- current_gain is just direct_gain.
+            # No factors selected yet - current_gain is just direct_gain.
             current_gain = direct_gain
             expected_gains[cand_idx] = current_gain
     else:
@@ -775,18 +671,18 @@ def evaluate_candidate(
             if cand_idx in partial_gains:
                 _g, _k = partial_gains[cand_idx]
                 partial_gains[cand_idx] = (float(_g) + bonus, _k)
-            # 2026-05-30 Wave 9.1 fix (loop iter 26): publish the BUR-
+            # Publish the BUR-
             # bonus-inflated gain into ``expected_gains[cand_idx]``
             # unconditionally. Pre-fix the publish was gated on
             # ``if expected_gains[cand_idx]:`` which:
             #   - raised KeyError on the dict-path stopped_early branch
             #     (line 575-577 only sets expected_gains when fully
-            #     evaluated -- on stopped_early it stays absent)
+            #     evaluated - on stopped_early it stays absent)
             #   - returned 0 (falsy) on the ndarray-path stopped_early
             #     branch, skipping the publish
             # In both cases ``partial_gains[cand_idx]`` and ``current_gain``
             # carried the BUR bonus but the dense ranking vector
-            # ``expected_gains`` did not -- the confirmation loop's
+            # ``expected_gains`` did not - the confirmation loop's
             # lexsort then ranked the BUR-bonus winner BELOW peers
             # whose ``expected_gains`` entries reflected pre-bonus
             # scores. The bare ``except Exception: pass`` silently
@@ -814,7 +710,7 @@ def evaluate_candidate(
             from ._relaxmrmr_3d import relax_mrmr_score
             x_col, k_x = _materialize_var(factors_data, X, factors_nbins, dtype=dtype)
             # y_col/k_y and every selected column's materialize_var result depend only on (y,
-            # factors_data, factors_nbins, dtype, selected_vars) -- NOT on the candidate X -- and
+            # factors_data, factors_nbins, dtype, selected_vars) - NOT on the candidate X - and
             # selected_vars is stable across the caller's per-candidate workload loop within one
             # greedy iteration, so the caller (_evaluate_candidates_inner) hoists and passes these
             # once per iteration instead of every candidate rebuilding them from scratch. Falls back
@@ -839,7 +735,7 @@ def evaluate_candidate(
             logger.warning("RelaxMRMR score computation failed silently: %r", _relax_exc)
 
     # PID synergy bonus (Williams-Beer / Ince I_ccs). Default bonus=0.0 -> skipped (byte-identical). When bonus>0, add ``bonus * max_j synergy(X, Z_j; Y)`` so a candidate
-    # that is synergistic with an already-selected feature (XOR-like joint information neither carries alone) is rewarded -- the standard redundancy gate would otherwise drop
+    # that is synergistic with an already-selected feature (XOR-like joint information neither carries alone) is rewarded - the standard redundancy gate would otherwise drop
     # it. Mirrors the BUR additive-bonus shape: computed once per candidate, floored at zero, republished into the dense ranking vector.
     _pid_bonus = get_pid_synergy_bonus()
     if _pid_bonus > 0.0 and selected_vars:
@@ -864,7 +760,7 @@ def evaluate_candidate(
 
     # concurrency audit: cmi_perm_stop / cpt_test below previously seeded their permutation null
     # SOLELY from ``cand_idx`` (identical across every greedy round for the same candidate). ``selected_vars``
-    # -- the conditioning set the candidate is actually being tested against -- grows every round, so the SAME
+    # - the conditioning set the candidate is actually being tested against - grows every round, so the SAME
     # candidate re-evaluated against a DIFFERENT (larger) conditioning set drew the IDENTICAL row permutation
     # every time, understating the true null variance the stopping/p-value decision relies on. Folding a stable
     # hash of the current ``selected_vars`` content into the seed makes each round's null draw independent of
@@ -945,7 +841,7 @@ def find_best_partial_gain(
     dcd_state=None,
 ) -> Tuple[float, Any]:
     """Find the highest-scoring already-evaluated-but-not-yet-confirmed candidate in ``partial_gains`` (used to redirect the confirmation loop to the next-best option when the current top candidate fails confirmation), excluding failed/added/skip_indices candidates and any candidate DCD has since pruned."""
-    # 2026-06-02 Wave 9 fix: a DCD-pruned candidate must NOT be returned as a
+    # a DCD-pruned candidate must NOT be returned as a
     # redirect target. ``partial_gains`` persists across the confirmation
     # ``while`` retries within one interactions-order; when DCD prunes a
     # candidate AFTER it was scored (``discover_cluster_members`` sets
@@ -955,7 +851,7 @@ def find_best_partial_gain(
     # ``find_best_partial_gain`` had no view of the prune mask, so it kept
     # returning that pruned candidate's stale gain as "the best other option",
     # the confirmation loop redirected to it forever (it can never be confirmed
-    # -- it is skipped), and the genuinely-good candidate that DID confirm was
+    # - it is skipped), and the genuinely-good candidate that DID confirm was
     # never committed -> the screen stopped early and dropped real signal
     # (sensor-mesh: 6 features -> 2, -4% downstream AUC). Skipping pruned
     # candidates here closes the redirect loop. ``None`` dcd_state is the
@@ -971,7 +867,7 @@ def find_best_partial_gain(
     best_key = None
     # Hoist selected_vars to a set: the inner ``subel in selected_vars`` membership is O(len) on the list, and it runs
     # per sub-element per candidate per confirmation-retry -> an O(1) set lookup is ~1.6x on a wide candidate pool
-    # (bit-identical -- same membership test). selected_vars is small so building the set once is negligible.
+    # (bit-identical - same membership test). selected_vars is small so building the set once is negligible.
     _selected_set = set(selected_vars)
     for key, value in partial_gains.items():
         if (key not in failed_candidates) and (key not in added_candidates) and (key not in skip_indices):
@@ -991,13 +887,13 @@ def find_best_partial_gain(
     return best_partial_gain, best_key
 
 
-# Tier E carve (2026-06-22): the candidate-evaluation driver cluster (the batched-GPU cond-MI
+# Tier E carve: the candidate-evaluation driver cluster (the batched-GPU cond-MI
 # cache pre-fill + the thread-worker entry points) was moved verbatim to ``_evaluation_driver.py``
 # to bring this module under the 1k-LOC ceiling. Re-exported at the BOTTOM so the sibling's
 # top-level ``from .evaluation import evaluate_candidate, handle_best_candidate, _JMIM_CACHE_STATS``
 # resolves against the already-executed parent body (no circular-import hazard), and the public
 # API of ``mlframe.feature_selection.filters.evaluation`` stays byte-for-byte unchanged.
 from ._evaluation_driver import (
-    _prefill_cond_MIs_gpu,  # noqa: F401 -- re-exported for _confirm_predictor.py
-    evaluate_candidates,  # noqa: F401 -- re-exported for _mrmr_class.py / mrmr/__init__.py / _confirm_predictor.py / _legacy.py
+    _prefill_cond_MIs_gpu,  # noqa: F401 - re-exported for _confirm_predictor.py
+    evaluate_candidates,  # noqa: F401 - re-exported for _mrmr_class.py / mrmr/__init__.py / _confirm_predictor.py / _legacy.py
 )

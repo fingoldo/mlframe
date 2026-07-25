@@ -2,14 +2,14 @@
 
 A) ``proposal_generator``: run the cheap proxy (no honest re-validation) to emit its top-N candidate
    subsets as a SHAP-guided seed set for an expensive honest search (RFECV's MBH optimiser, a genetic
-   wrapper, ...). "SHAP proposes, honest retraining disposes" -- turns blind search into guided search.
+   wrapper, ...). "SHAP proposes, honest retraining disposes" - turns blind search into guided search.
 
 B) ``per_fold_stability_select``: run ShapProxiedFS once per outer CV fold and aggregate how often
    each feature survives. The frequency table is a Boruta-like confidence signal; a majority vote
    yields a final subset robust to any single fold's winner's-curse. Each fold's measured proxy
    fidelity (trust Spearman) weights its vote.
 
-Both are thin orchestration over the existing selector -- self-contained (no training-suite coupling).
+Both are thin orchestration over the existing selector - self-contained (no training-suite coupling).
 """
 
 from __future__ import annotations

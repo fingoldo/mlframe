@@ -12,7 +12,7 @@ Design (mirrors the CPU path's vectorised within-stratum shuffle exactly):
   * The within-stratum uniform permutation is the SAME single-key argsort the CPU path uses: a dense stratum
     rank ``z_rank`` (integer, 0,1,2,... over the sorted support blocks) plus a uniform key in [0,1) keeps every
     row's sort key in the half-open band ``[rank, rank+1)``, so ``argsort`` orders strictly by stratum then by
-    random key within each block -- an independent uniform permutation inside every stratum. The keys are drawn
+    random key within each block - an independent uniform permutation inside every stratum. The keys are drawn
     on the DEVICE (``cupy.random.RandomState``) so there is no per-perm host->device key copy.
   * All ``nperm`` shuffled candidate columns are built into one ``(n, nperm)`` device matrix and scored in ONE
     ``batched_cmi_gpu`` workload (the existing GPU joint-entropy / CMI kernels), reusing the same Miller-Madow
@@ -27,16 +27,16 @@ matches the CPU path on F2. The device RNG draw sequence is NOT bit-identical to
 values differ at the noise scale, but the 0.95 quantile and the mean over 25 draws agree to within the gate's
 razor tolerance and the F2 selection is unchanged.
 
-NEVER call ``cp.get_default_memory_pool().free_all_blocks()`` here -- it nukes the resident pool (+47s regression
+NEVER call ``cp.get_default_memory_pool().free_all_blocks()`` here - it nukes the resident pool (+47s regression
 measured previously). The CPU path remains the default and the rare-GPU-failure fallback (the caller wraps this
 in try/except -> CPU, debug-logged).
 
 bench note (2026-06-28, CORRECTED): an earlier A/B reported this port +8s on F2 STRICT 300k and it was wrongly
-filed bench-rejected. That A/B ran on a GPU SHARED with a concurrent job -- the walls were contention-inflated
+filed bench-rejected. That A/B ran on a GPU SHARED with a concurrent job - the walls were contention-inflated
 (55-72s where the quiet-box fit is ~35s) and the cProfile cumtime delta (9.89->12.33s) was the async-CUDA
 attribution artifact (the tottime actually DROPPED 0.424->0.240s). A synchronized micro-bench at the true perm-
-null shapes settles it: over 44 calls the device path beats the CPU loop at every size EVEN with per-call H2D --
-n=3000 GPU-host-input 0.20s vs CPU 0.67s; n=8000 0.24s vs 0.92s; n=15000 0.35s vs 1.18s -- and pre-resident is
+null shapes settles it: over 44 calls the device path beats the CPU loop at every size EVEN with per-call H2D -
+n=3000 GPU-host-input 0.20s vs CPU 0.67s; n=8000 0.24s vs 0.92s; n=15000 0.35s vs 1.18s - and pre-resident is
 faster again (0.17/0.21/0.29s). A clean full-fit flag-on vs flag-off A/B is within run-to-run noise (no +8s).
 So the port is a WIN, not a regression; it is now DEFAULT ON under STRICT (opt-out MLFRAME_FE_CMI_PERM_NULL_GPU=0).
 NEVER call free_all_blocks() here (it nukes the resident pool, +47s measured previously). The CPU path remains
@@ -58,8 +58,8 @@ def _floor_mean_from_nulls_dev(cp, nulls_dev, quantile: float) -> tuple[float, f
 
     Implements the module's documented design (the quantile + mean are reduced ON DEVICE; only the two scalars
     cross back) which the earlier code violated by ``np.quantile`` on a host-copied array. Uses a manual sort +
-    linear interpolation quantile (numpy's default method) rather than ``cp.quantile``, which -- like
-    ``cp.percentile`` -- does an internal host index read that would resync. ``quantile`` is a host float, so the
+    linear interpolation quantile (numpy's default method) rather than ``cp.quantile``, which - like
+    ``cp.percentile`` - does an internal host index read that would resync. ``quantile`` is a host float, so the
     interpolation position/indices are host-computed; only ``nulls_dev[lo]/[hi]`` and the mean are device reads,
     stacked into a single D2H. The null vector itself never leaves the device."""
     m = int(nulls_dev.size)
@@ -112,13 +112,13 @@ def conditional_perm_null_gpu(
 
     Parameters mirror the host loop already prepared in ``_conditional_perm_null``:
 
-    * ``x``  -- dense int candidate codes (n,), the column permuted within strata.
-    * ``y_i``  -- dense int target codes (n,), shuffle-invariant.
-    * ``z_i``  -- dense int support codes (n,) or ``None`` for the marginal (seed) null.
-    * ``order``  -- ``np.argsort(z, kind='stable')`` (the conditional path's stratum grouping); the device
+    * ``x``  - dense int candidate codes (n,), the column permuted within strata.
+    * ``y_i``  - dense int target codes (n,), shuffle-invariant.
+    * ``z_i``  - dense int support codes (n,) or ``None`` for the marginal (seed) null.
+    * ``order``  - ``np.argsort(z, kind='stable')`` (the conditional path's stratum grouping); the device
                       shuffle scatters ``x_sorted[within]`` back through this order. Unused on the marginal path.
-    * ``z_rank``  -- dense float stratum rank over ``sorted_z`` (0,1,2,...); the single-key argsort base.
-    * ``seed``/``salt`` -- folded into the device ``RandomState`` so each candidate draws an INDEPENDENT,
+    * ``z_rank``  - dense float stratum rank over ``sorted_z`` (0,1,2,...); the single-key argsort base.
+    * ``seed``/``salt`` - folded into the device ``RandomState`` so each candidate draws an INDEPENDENT,
                       REPRODUCIBLE stream (same ``(seed, salt)`` the CPU path mixes via ``SeedSequence``).
 
     Returns ``(floor, null_mean)`` (host float64 scalars). Raises on ANY cupy error so the caller falls back to
@@ -139,9 +139,9 @@ def conditional_perm_null_gpu(
     rs = cp.random.RandomState(dev_seed & 0x7FFFFFFFFFFFFFFF)
 
     # x is held resident on device; y/z stay host (``batched_cmi_gpu`` consumes the (n,nperm) candidate matrix
-    # on device but reads y/z as host ndarrays -- it does its own H2D for them, once per call, not per perm).
+    # on device but reads y/z as host ndarrays - it does its own H2D for them, once per call, not per perm).
     # RESIDENT-INPUT fast path (device-born candidate-code foundation): the CMI-redundancy gate device-bins each
-    # candidate ONCE (``_quantile_bin_gpu_resident``) and hands the ALREADY-RESIDENT int64 codes here -- use them
+    # candidate ONCE (``_quantile_bin_gpu_resident``) and hands the ALREADY-RESIDENT int64 codes here - use them
     # as-is so the candidate never re-crosses H2D at the ``permnull_cand_x`` site (and ``np.asarray`` on a cupy
     # array would raise, so the host path below must NOT run for a device input). A host candidate takes the
     # content-keyed cache path (uploaded once per fit; the cache hits the copy the per-candidate CMI scorer made).
@@ -157,7 +157,7 @@ def conditional_perm_null_gpu(
         # key matrix on device and argsort each column -> nperm independent free permutations, all resident.
         # INT32 keys (2026-07-02, nsys-driven): cub radix-sorts int32 in HALF the passes of f64 (the argsort was
         # the dominant per-call cost, micro-bench 305ms at n=1M nperm=25). A 32-bit random key ties within a
-        # column with probability ~C(n,2)/2^32; a tie sorts in stable index order -- a microscopically
+        # column with probability ~C(n,2)/2^32; a tie sorts in stable index order - a microscopically
         # non-uniform but valid permutation (this is a NULL estimate; selection-equivalent, same bar as the
         # device-RNG stream itself).
         keys = rs.randint(0, np.iinfo(np.int32).max, size=(n, nperm), dtype=cp.int32)
@@ -196,10 +196,10 @@ def conditional_perm_null_gpu(
     # WITHIN-STRATUM shuffle keys. INT32 RANK-PACK fast path (2026-07-02, nsys-driven): the argsort of the
     # combined (z_rank + key) matrix was the dominant per-call cost (micro-bench 305ms of ~880ms at n=1M,
     # nperm=25) because cub radix-sorts f64 in 8 byte-passes. Pack the stratum rank into the HIGH bits of an
-    # int32 and the random key into the remaining LOW bits -- blocks still never overlap (rank dominates), the
-    # low bits give an independent uniform draw per row -- and radix-sort int32 in HALF the passes (~2x). Ties
+    # int32 and the random key into the remaining LOW bits - blocks still never overlap (rank dominates), the
+    # low bits give an independent uniform draw per row - and radix-sort int32 in HALF the passes (~2x). Ties
     # (two rows drawing the same low bits within one stratum, ~2^-rand_bits per pair) sort in stable index
-    # order: a microscopically non-uniform but valid permutation -- the same selection-equivalence bar as the
+    # order: a microscopically non-uniform but valid permutation - the same selection-equivalence bar as the
     # device RNG stream itself. Falls back to the exact f64 (rank + uniform) sum when the occupied stratum
     # count leaves fewer than 12 random bits (never at the gate's shapes).
     _nrank = int(z_rank_d[-1, 0]) + 1  # dense ranks are monotone over the sorted rows
@@ -214,16 +214,16 @@ def conditional_perm_null_gpu(
 
     # SPARSE sort/run-length CMI (2026-07-02, design-agent + nsys): at the raw-redundancy gate the conditioning
     # support is near-continuous (Kz ~ 1e5 -> Kx*Kyz multi-million), so the dense (chunk, Kx*Kyz) joint of the
-    # chunked scorer is multi-GB -- the chunk collapses to ~1 perm and the ~nperm dense passes serialize (the
+    # chunked scorer is multi-GB - the chunk collapses to ~1 perm and the ~nperm dense passes serialize (the
     # gate's 14.7s). The plug-in CMI needs only OCCUPIED-cell counts, and in the z-SORTED domain (order_d /
     # z_rank already built above) each permuted column's occupied (x,z) / (x,y,z) cells are the RUNS of a
-    # composite int64 key -- one batched cp.sort(axis=0) over ALL perms, O(n*nperm) memory, ZERO chunking.
+    # composite int64 key - one batched cp.sort(axis=0) over ALL perms, O(n*nperm) memory, ZERO chunking.
     # Same occupied-cell definition -> same partition counts; fp order differs ~1e-15 (selection-equivalent).
     # Engaged only when the dense joint would exceed the sparse working set (huge-joint predicate); the dense
     # atomic path (faster at small joints) is otherwise unchanged. Opt-out MLFRAME_FE_CMI_PERM_NULL_SPARSE=0.
     if _perm_null_sparse_enabled():
         try:
-            # GPU_INFRA_D-12 fix: `isinstance(y_h, cp.ndarray)` can never be True --
+            # `isinstance(y_h, cp.ndarray)` can never be True -
             # y_h is unconditionally built via np.ascontiguousarray at this function's call site, always a
             # host numpy array. Removed the dead resident-y branch it guarded (misleading: implied a
             # resident-y fast path that does not exist).
@@ -263,7 +263,7 @@ def conditional_perm_null_gpu(
 
 def _sparse_batched_entropy_k(cp, keys2d, inv_n: float):
     """Plug-in entropy + occupied-cell count of EVERY column of the (n, nperm) int64 ``keys2d`` via
-    sort/run-length -- O(n) memory per column, NO dense (Kx*Kyz) histogram. The occupied cells of a column
+    sort/run-length - O(n) memory per column, NO dense (Kx*Kyz) histogram. The occupied cells of a column
     are the RUNS of equal keys after a per-column sort; a run's length is the cell count. Returns
     ``(h[nperm] f64, k[nperm] i64)`` device vectors. Same occupied-cell definition as the dense bincount
     path -> identical partition counts; only the fp summation order differs (~1e-15)."""
@@ -286,7 +286,7 @@ def _sparse_batched_entropy_k(cp, keys2d, inv_n: float):
 
 def _perm_null_sparse_enabled() -> bool:
     """bench-attempt-rejected as DEFAULT (2026-07-02, GTX 1050 Ti): the sparse sort/run-length null (below)
-    measured F2 1M/30k wall 49.10s vs 45.82s for the dense chunked path WITH the precomp_yz hoist -- the
+    measured F2 1M/30k wall 49.10s vs 45.82s for the dense chunked path WITH the precomp_yz hoist - the
     batched (n, nperm) int64 sorts move ~10 passes of 200 MB each, more traffic than the hoisted dense
     joint at this card's bandwidth. Selection-equivalent and OOM-free, so it stays available (opt-in
     MLFRAME_FE_CMI_PERM_NULL_SPARSE=1) for cards/joints where the dense path cannot fit at all."""
@@ -300,7 +300,7 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z):
     ``batched_cmi_gpu``'s conditional path densifies a ``(nperm, Kx*Kyz)`` joint-count histogram (Kyz = the
     occupied (y,z) cells). At the FULL-n redundancy-gate calls the conditioning support is near-continuous
     (Kz ~ 1e5 -> Kyz multi-million), so the whole-batch joint is multi-GB (measured 7-11 GB at nperm=25) and
-    OOMs a small card -- which is exactly why the resident null used to raise OOM and the gate fell back to the
+    OOMs a small card - which is exactly why the resident null used to raise OOM and the gate fell back to the
     800 MB host-key path + the per-perm CPU loop (the residency leak). Each perm's CMI is INDEPENDENT of how
     many perms share a batched call, so splitting the perms into VRAM-sized chunks yields the SAME null values
     while keeping the null fully resident (device RNG, no per-perm candidate or key H2D). Adaptive: on OOM the
@@ -317,13 +317,13 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z):
     # device) or a host ndarray (legacy path). ``batched_cmi_gpu`` accepts either z form directly.
     Kx = (int(Xp_d.max()) + 1) if Xp_d.size else 1
     # Build the column-invariant y/z terms ONCE for the WHOLE null and thread them into every chunk call via
-    # batched_cmi_gpu(precomp_yz=...) -- the chunked driver used to re-derive the identical z entropies +
+    # batched_cmi_gpu(precomp_yz=...) - the chunked driver used to re-derive the identical z entropies +
     # yz key (fused 1M-row entropy launches + .max() syncs) INSIDE batched_cmi_gpu on every perm chunk (down
     # to 1 perm/chunk at the gate's huge joints => up to ~nperm recomputes per null). Same values -> the CMI
     # is bit-identical; only the redundant recomputation is gone.
     from ._fe_batched_mi import joint_entropy_gpu
     from ._fe_resident_operands import resident_operand
-    # GPU_INFRA_D-12 fix: `isinstance(y_h, cp.ndarray)` can never be True -- y_h is
+    # `isinstance(y_h, cp.ndarray)` can never be True - y_h is
     # unconditionally a host numpy array at every production call site. Removed the dead resident-y branch.
     _dy = resident_operand(np.ascontiguousarray(y_h, dtype=np.int64).ravel(), "cmi_y", dtype=np.int64)
     if isinstance(z, cp.ndarray):
@@ -338,7 +338,7 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z):
     h_z, k_z = joint_entropy_gpu([_dz], [Kz], _inv_n)
     h_yz, k_yz = joint_entropy_gpu([_yzk], [Kyz], _inv_n)
     _precomp = (_dz, Kz, h_z, k_z, _yzk, Kyz, h_yz, k_yz)
-    joint_bytes = max(1, Kx * Kyz * 4)  # int32 counts (2026-07-02) -> the dense joint is half its old size
+    joint_bytes = max(1, Kx * Kyz * 4)  # int32 counts -> the dense joint is half its old size
     try:
         free_b, _ = cp.cuda.runtime.memGetInfo()
     except Exception:

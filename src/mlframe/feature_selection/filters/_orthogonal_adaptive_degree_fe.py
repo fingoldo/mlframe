@@ -1,4 +1,4 @@
-"""Layer 57 (2026-05-31): ADAPTIVE PER-COLUMN DEGREE selection for the
+"""Layer 57: ADAPTIVE PER-COLUMN DEGREE selection for the
 orthogonal-polynomial univariate FE path.
 
 Why this layer
@@ -20,7 +20,7 @@ SKIP the column entirely if even the best degree does not beat the raw
 baseline by ``min_uplift``. Output:
 
 * fewer candidate columns (1 per surviving source vs degree_count per col),
-* the SAME ``orth_univariate`` recipe kind -- replay is unchanged, only
+* the SAME ``orth_univariate`` recipe kind - replay is unchanged, only
   the (basis, degree) value is the per-column argmax instead of a fixed
   sweep,
 * a much smaller multiple-testing footprint at the abs-floor stage.
@@ -55,7 +55,7 @@ logger = logging.getLogger(__name__)
 
 # Below this baseline MI a source is treated as carrying no signal, so the
 # uplift ratio is suppressed (it would otherwise explode) and an absolute MI
-# floor is required instead -- the same guard JMIM applies (Layer 21/65+).
+# floor is required instead - the same guard JMIM applies (Layer 21/65+).
 _BASELINE_EPS = 1e-6
 _ABS_MI_FLOOR = 1e-3
 
@@ -118,7 +118,7 @@ def generate_adaptive_degree_basis_features(
     min_uplift : float
         Skip a source entirely if its best-degree ``MI(basis_d(c); y)``
         does not reach ``min_uplift * MI(c; y)``. Defaults to 1.05 (5%
-        gain over raw baseline) -- conservative; the column adds noise
+        gain over raw baseline) - conservative; the column adds noise
         to the candidate pool otherwise.
     nbins : int
         Quantile bins for MI estimation. Forwarded to ``_mi_classif_batch``.
@@ -175,8 +175,8 @@ def generate_adaptive_degree_basis_features(
         if not finite_mask.all():
             fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
             x = np.where(finite_mask, x, fill)
-        # 2026-06-03: signal-adaptive routing (route by which basis best linearises
-        # y, max best-degree |corr|) -- mirrors the default Layer-21/58 routers;
+        # signal-adaptive routing (route by which basis best linearises
+        # y, max best-degree |corr|) - mirrors the default Layer-21/58 routers;
         # beats moment routing on heavy-tailed/skewed x (bench: OOS-linear 0.92 vs
         # 0.77). Falls back to moment routing without a usable y.
         chosen_basis = basis_route_by_signal(x, y_arr, degrees=degree_range) if basis == "auto" else basis
@@ -197,7 +197,7 @@ def generate_adaptive_degree_basis_features(
                     chosen_basis, d, col, exc,
                 )
                 continue
-            # Reject constant / non-finite candidates outright -- they
+            # Reject constant / non-finite candidates outright - they
             # carry zero MI and pollute downstream argmax tie-breaks.
             if not np.isfinite(vals).all():
                 continue
@@ -287,7 +287,7 @@ def hybrid_orth_mi_adaptive_degree_fe(
             appended in source-column iteration order. Index preserved.
         scores : DataFrame with columns
             ``[engineered_col, source_col, basis, degree, baseline_mi,
-            engineered_mi, uplift]`` -- one row per surviving source,
+            engineered_mi, uplift]`` - one row per surviving source,
             ordered by ``uplift`` descending.
     """
     engineered, meta = generate_adaptive_degree_basis_features(
@@ -332,7 +332,7 @@ def hybrid_orth_mi_adaptive_degree_fe_with_recipes(
 ):
     """Same as :func:`hybrid_orth_mi_adaptive_degree_fe` but additionally
     returns a list of ``EngineeredRecipe`` objects (kind
-    ``orth_univariate``) -- one per appended column -- so ``MRMR.transform``
+    ``orth_univariate``) - one per appended column - so ``MRMR.transform``
     can replay each engineered column on test data without re-running the
     per-column MI scan.
 
@@ -363,13 +363,13 @@ def hybrid_orth_mi_adaptive_degree_fe_with_recipes(
             continue
         # freeze the fit-time basis-preprocess params (mirrors the
         # canonical Layer-21 hybrid_orth_mi_fe_with_recipes fix); recomputing on the FULL fit-time
-        # source column is safe/exact -- it reproduces, not refits, the fit-time params.
+        # source column is safe/exact - it reproduces, not refits, the fit-time params.
         _pp = None
         try:
             _col_full = np.asarray(X[str(row["source_col"])].to_numpy(), dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, str(row["basis"]), int(row["degree"]), return_params=True)
         except Exception as exc:
-            # ORTH_SCORING_A-3 fix: was a bare except with zero logging,
+            # Was a bare except with zero logging,
             # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
             # exception (including a genuine programming bug), with no diagnostic trace.
             logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)

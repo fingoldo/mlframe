@@ -28,12 +28,12 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# Layer 33 (2026-05-31): K-fold target encoding for raw categorical columns
+# Layer 33: K-fold target encoding for raw categorical columns
 # ---------------------------------------------------------------------------
 #
 # The K-fold OOF mean-of-y per category. The recipe stores the FULL-DATA
 # per-category mean (computed once at fit time) so transform() is a pure
-# dict lookup with no y reference -- the OOF discipline is enforced at FIT
+# dict lookup with no y reference - the OOF discipline is enforced at FIT
 # only (the rows that fed into MRMR screening saw an out-of-fold encoded
 # value, never their own y).
 #
@@ -107,7 +107,7 @@ def build_kfold_target_encoded_recipe(
     from . import EngineeredRecipe
     # Canonicalise keys (int<->float drift safe): the generators pre-canonicalise via _column_to_str so this is a
     # no-op today (canonical of an already-canonical string is idempotent), but a future caller that builds this
-    # recipe from RAW category values would otherwise store str(1.0)="1.0" while the apply side queries "1" -- every
+    # recipe from RAW category values would otherwise store str(1.0)="1.0" while the apply side queries "1" - every
     # lookup then falls to the global fallback silently. Canonicalising IN the builder removes that footgun (EN-1).
     from .._internals import canonical_group_token
     lookup_clean = {canonical_group_token(k): float(v) for k, v in lookup.items()}
@@ -124,7 +124,7 @@ def build_kfold_target_encoded_recipe(
 
 
 # ---------------------------------------------------------------------------
-# Layer 34 (2026-05-31): count / frequency encoding + cat x num residual.
+# Layer 34: count / frequency encoding + cat x num residual.
 # ---------------------------------------------------------------------------
 #
 # Companions to ``kfold_target_encoded``: these three kinds cover the
@@ -136,7 +136,7 @@ def build_kfold_target_encoded_recipe(
 # * frequency_encoded : {lookup: dict[str, float], default: float}
 # * cat_num_residual  : {lookup: dict[str, float], global_mean: float,
 #                        smoothing: float, num_col: str}
-#   src_names is (cat_col, num_col) -- both extracted at replay.
+#   src_names is (cat_col, num_col) - both extracted at replay.
 #
 # All three replays are STATELESS given X (no y reference, no fold info).
 
@@ -286,7 +286,7 @@ def build_cat_num_residual_recipe(
 
 
 # ---------------------------------------------------------------------------
-# Layer 89 (2026-06-01): cat x cat synergy cross. The (cat_i, cat_j) value-pair
+# Layer 89: cat x cat synergy cross. The (cat_i, cat_j) value-pair
 # -> code mapping is stored as a list-of-(key, value) pairs so the frozen
 # recipe's array-aware __eq__ / pickle round-trip handle the tuple keys cleanly
 # (tuple-keyed dicts aren't JSON-friendly; a flat pair list is). ``encoding`` is
@@ -306,7 +306,7 @@ def build_cat_pair_cross_recipe(
     cell code. ``encoding='raw'`` emits the cell code (unseen pairs -> sentinel
     bin); ``encoding='target'`` emits the per-cell smoothed mean-of-y from
     ``te_lookup`` (unseen pairs / codes -> ``global_mean``). No y reference is
-    consumed at replay -- ``transform()`` is a pure function of X."""
+    consumed at replay - ``transform()`` is a pure function of X."""
     from . import EngineeredRecipe
     from .._internals import canonical_group_token
     # Canonicalise each key element (int<->float drift safe, idempotent on the already-canonical strings the
@@ -329,8 +329,8 @@ def build_cat_pair_cross_recipe(
 
 
 # ---------------------------------------------------------------------------
-# Layer 94 (2026-06-01): cat x cat x cat TRIPLE synergy cross. Mirrors the
-# Layer 89 pair recipe -- the value-TRIPLE -> code mapping is stored as a list-
+# Layer 94: cat x cat x cat TRIPLE synergy cross. Mirrors the
+# Layer 89 pair recipe - the value-TRIPLE -> code mapping is stored as a list-
 # of-(key, value) pairs (tuple-keyed dicts aren't JSON-friendly; a flat pair
 # list round-trips cleanly through the frozen recipe's array-aware __eq__ /
 # pickle). ``encoding`` is "raw" (emit the integer cell code) or "target" (emit
@@ -350,7 +350,7 @@ def build_cat_triple_cross_recipe(
     dense int cell code. ``encoding='raw'`` emits the cell code (unseen triples
     -> sentinel bin); ``encoding='target'`` emits the per-cell smoothed mean-of-y
     from ``te_lookup`` (unseen triples / codes -> ``global_mean``). No y
-    reference is consumed at replay -- ``transform()`` is a pure function of X."""
+    reference is consumed at replay - ``transform()`` is a pure function of X."""
     from . import EngineeredRecipe
     from .._internals import canonical_group_token
     # Canonicalise each key element (int<->float drift safe, idempotent on the already-canonical strings the

@@ -23,12 +23,12 @@ from ..hermite_fe import _detect_heavy_tail, _robust_axis_enabled, _robust_lo_hi
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "generate_extra_basis_features",  # noqa: F822 -- bound lazily via module __getattr__ below
-    "hybrid_orth_extra_basis_fe_with_recipes",  # noqa: F822 -- bound lazily via module __getattr__ below
+    "generate_extra_basis_features",  # noqa: F822 - bound lazily via module __getattr__ below
+    "hybrid_orth_extra_basis_fe_with_recipes",  # noqa: F822 - bound lazily via module __getattr__ below
 ]
 
 
-# Backlog #13 (2026-06-09): ``"wavelet"`` adds the Haar / localized
+# Backlog #13: ``"wavelet"`` adds the Haar / localized
 # multiresolution basis alongside the global Fourier + fixed-knot spline. Its
 # legs are held-out-scale-selected in ``_wavelet_basis_fe`` and emitted here so
 # the extra-basis path (``fe_hybrid_orth_enable`` / ``extra_bases``) can route
@@ -42,12 +42,12 @@ def _fit_spline_for_col(x: np.ndarray, n_inner_knots: int):
     module so the knot-vector layout stays in one place.
 
     Knots are placed at QUANTILES of x (unsupervised). bench-rejected
-    (2026-06-03): a TARGET-SUPERVISED knot strategy (knots at a shallow x->y
+: a TARGET-SUPERVISED knot strategy (knots at a shallow x->y
     tree's splits / conditional-mean curvature) was benchmarked and REJECTED.
-    (1) In the real MRMR pipeline NO spline column -- quantile OR supervised --
+    (1) In the real MRMR pipeline NO spline column - quantile OR supervised -
     survives the MI-uplift gate, so the support is byte-identical with either
     strategy (the gate, not knot placement, is the binding constraint; and
-    supervised knots score LOWER at the gate -- narrower, individually-lower-MI
+    supervised knots score LOWER at the gate - narrower, individually-lower-MI
     basis columns). (2) Even at the raw block level the win reverses by shape:
     supervised wins a narrow bump (|corr| 0.884 vs 0.614) but LOSES a sharp step
     (0.793 vs 0.931) and kink (0.719 vs 0.933). (3) The one shape it helps is
@@ -66,7 +66,7 @@ def _fit_fourier_for_col(x: np.ndarray):
     """Returns (lo, span). Min-max normalise x so one period covers data range.
 
     OUTLIER-ROBUST (gated): on a heavy-tailed column the raw min/max span blows up ~1000x, so 99% of the data collapses
-    into a sliver of one period near z=0 -- the sin/cos legs go flat there and carry an outlier-inflated MI while a single
+    into a sliver of one period near z=0 - the sin/cos legs go flat there and carry an outlier-inflated MI while a single
     new extreme value in production shifts the whole axis. When the shared heavy-tail detector trips, fit lo/span from the
     inner-quantile core instead so the bulk of the data spans a full period; the few clipped extremes fall outside [0, 1]
     and sin/cos simply wrap them (bounded, harmless), no longer stretching the scale for everyone. Byte-identical to the
@@ -87,20 +87,20 @@ def _fit_fourier_for_col(x: np.ndarray):
 
 
 def _fit_chirp_warp_for_col(x: np.ndarray):
-    """Fit the QUADRATIC-ARGUMENT ("chirp") warp params on ``x`` (2026-06-03).
+    """Fit the QUADRATIC-ARGUMENT ("chirp") warp params on ``x``.
 
     The chirp axis is ``u = sign(z) * z**2`` where ``z = (x - mean) / std``.
     Squaring the STANDARDISED z (signed, so the map stays monotone and one-to-one
     across the whole real line rather than folding ``x`` and ``-x`` together)
     turns an oscillation whose frequency GROWS with the argument
-    (``y ~ sin(2*pi*f*z**2)``) into a STATIONARY-frequency sinusoid in ``u`` --
+    (``y ~ sin(2*pi*f*z**2)``) into a STATIONARY-frequency sinusoid in ``u`` -
     which the existing periodogram peak-search then locks onto. A Fourier on the
     LINEAR argument cannot represent a frequency that grows with z (Phase-0 bench:
     linear multitone R^2 0.07-0.53 vs chirp warp 0.88 on a fast chirp f=2.5).
 
     Returns ``(mean, std, lo, span)``:
-    * ``mean`` / ``std`` -- standardisation of x into z (fit on the finite subset).
-    * ``lo`` / ``span``  -- min / range of ``u`` so ``(u - lo) / span`` lands the
+    * ``mean`` / ``std`` - standardisation of x into z (fit on the finite subset).
+    * ``lo`` / ``span``  - min / range of ``u`` so ``(u - lo) / span`` lands the
       warped axis in [0, 1], matching the linear emitter's z normalisation so the
       same coarse frequency grid applies.
 
@@ -124,8 +124,8 @@ def _fit_chirp_warp_for_col(x: np.ndarray):
 
 @numba.njit(cache=True)
 def _chirp_axis_njit(x: np.ndarray, mean: float, std: float, lo: float, span: float) -> np.ndarray:
-    """Fused single-pass core of :func:`_chirp_axis`. NO fastmath (the ops -- subtract,
-    divide, sign, square, divide -- run in the SAME IEEE order as the numpy expression), so
+    """Fused single-pass core of :func:`_chirp_axis`. NO fastmath (the ops - subtract,
+    divide, sign, square, divide - run in the SAME IEEE order as the numpy expression), so
     the result is BIT-IDENTICAL to the numpy path (verified 0.0 max-abs-diff over 1e5 random
     rows); the win is dropping the three length-n numpy temporaries (z, u, and the two
     intermediate arrays) for one fused C loop."""
@@ -141,11 +141,11 @@ def _chirp_axis_njit(x: np.ndarray, mean: float, std: float, lo: float, span: fl
 
 def _chirp_axis(x: np.ndarray, mean: float, std: float, lo: float, span: float) -> np.ndarray:
     """Apply the stored chirp warp: x -> z=(x-mean)/std -> u=sign(z)*z**2 ->
-    (u-lo)/span. Pure function of the fit-time params -- the single source of
+    (u-lo)/span. Pure function of the fit-time params - the single source of
     truth shared by fit-time detection (``generate_extra_basis_features``) and
     transform-time replay (``_apply_orth_fourier``) so both produce a
     bit-identical axis. The per-element math is a fused njit loop
-    (:func:`_chirp_axis_njit`, no fastmath) -- bit-identical to the numpy
+    (:func:`_chirp_axis_njit`, no fastmath) - bit-identical to the numpy
     expression but with no length-n intermediate temporaries."""
     x = np.ascontiguousarray(np.asarray(x, dtype=np.float64).ravel())
     return np.asarray(_chirp_axis_njit(x, float(mean), float(std), float(lo), float(span)))
@@ -155,7 +155,7 @@ def _chirp_axis(x: np.ndarray, mean: float, std: float, lo: float, span: float) 
 def _coarse_basis_njit(z: np.ndarray, freqs: np.ndarray) -> tuple:
     """Build the per-frequency centered sin/cos coarse basis in ONE fused prange-over-freqs pass.
 
-    Returns ``(sin_centered (nf,n), cos_centered (nf,n), sin_ss (nf,), cos_ss (nf,))`` -- the same four quantities the
+    Returns ``(sin_centered (nf,n), cos_centered (nf,n), sin_ss (nf,), cos_ss (nf,))`` - the same four quantities the
     numpy build loop produces per grid frequency, but with the sin/cos transcendentals + the mean / sum-of-squares
     reductions fused into a single njit kernel parallelised across the frequencies. The sequential per-element reduction
     differs from numpy's pairwise summation by ~1e-13 (single-ULP class), so this is dispatched only on the held-out
@@ -199,8 +199,8 @@ def _coarse_basis_njit(z: np.ndarray, freqs: np.ndarray) -> tuple:
 
 @numba.njit(fastmath=True, cache=True)
 def _corr_sq_reductions_njit(v: np.ndarray, y_centered: np.ndarray) -> tuple:
-    """Fuse the three ``_corr_sq_centered`` reductions -- ``sum(v)``, ``v@v``,
-    ``v@y_centered`` -- into ONE sequential pass over ``v``/``y_centered``.
+    """Fuse the three ``_corr_sq_centered`` reductions - ``sum(v)``, ``v@v``,
+    ``v@y_centered`` - into ONE sequential pass over ``v``/``y_centered``.
 
     The numpy form ran three separate reductions, and the 1-D ``v @ v`` / ``v @ y``
     dispatch to threaded BLAS whose per-call thread spin-up dominates at the periodogram
@@ -221,7 +221,7 @@ def _corr_sq_reductions_njit(v: np.ndarray, y_centered: np.ndarray) -> tuple:
 def _corr_sq_centered(v: np.ndarray, y_centered: np.ndarray, y_ss: float) -> float:
     """Squared Pearson correlation of ``v`` with a pre-centered ``y`` whose
     sum-of-squares is ``y_ss``. Avoids ``np.corrcoef`` (2x2-matrix build + two
-    std passes) -- a direct centered dot product. Returns 0.0 on a degenerate
+    std passes) - a direct centered dot product. Returns 0.0 on a degenerate
     ``v``.
 
     Computes the centered SS / numerator from RAW ``v`` dot products so no
@@ -235,7 +235,7 @@ def _corr_sq_centered(v: np.ndarray, y_centered: np.ndarray, y_ss: float) -> flo
     sv, vv, vy = _corr_sq_reductions_njit(np.ascontiguousarray(v, dtype=np.float64), y_centered)
     v_ss = vv - sv * sv / n
     # RELATIVE degeneracy guard (P1-4): the raw-moment form ``vv - sv^2/n`` catastrophically cancels for a
-    # near-constant ``v`` -- it can land at a tiny positive residual (e.g. 1e-23) that clears an absolute
+    # near-constant ``v`` - it can land at a tiny positive residual (e.g. 1e-23) that clears an absolute
     # 1e-24 floor yet makes ``(vy^2)/(v_ss*y_ss)`` explode past 1.0, letting a degenerate column win the
     # periodogram. A genuinely varying v has ``v_ss`` an O(1) fraction of ``vv``; cancellation gives
     # ``v_ss << vv``. Reject when the centered SS is a negligible fraction of the raw SS.
@@ -247,7 +247,7 @@ def _corr_sq_centered(v: np.ndarray, y_centered: np.ndarray, y_ss: float) -> flo
 def _periodogram_power(z01: np.ndarray, y: np.ndarray, freq: float) -> float:
     """Phase-invariant periodogram power of ``y`` at z-space frequency ``freq``.
 
-    ``corr(sin(2*pi*freq*z), y)^2 + corr(cos(2*pi*freq*z), y)^2`` -- the sum of
+    ``corr(sin(2*pi*freq*z), y)^2 + corr(cos(2*pi*freq*z), y)^2`` - the sum of
     the squared linear correlations of the sin and cos projections. Phase-
     invariant because a pure ``sin(2*pi*freq*z + phi)`` decomposes into a
     sin + cos mix whose combined power is independent of phi. Returns 0.0 when
@@ -276,7 +276,7 @@ _POWER_CENTERED_PAR_MIN_N = 4000
 # many numba threads run, each block sums its six accumulators SERIALLY (so a block's partial is exact for that
 # block), the prange parallelises ACROSS blocks, and the per-block partials are combined in a FIXED 0..NB-1
 # order afterwards. Because both the within-block order and the cross-block combine order are independent of the
-# thread schedule, the float result is bit-identical across thread counts / process starts -- unlike a numba
+# thread schedule, the float result is bit-identical across thread counts / process starts - unlike a numba
 # auto-reduction over ``prange(n)``, whose per-thread partial-combine order drifts in the low ULPs with the
 # thread count and silently flips razor-tie frequency-rank selections downstream (_refine_peak_freq argmax).
 _POWER_CENTERED_PAR_NBLOCKS = 64
@@ -289,7 +289,7 @@ def _power_centered_fused_par_njit(z: np.ndarray, yc: np.ndarray, y_ss: float, f
     over ``prange(n)``): each block sums serially into a private partial row, then the partials combine in a
     fixed block order. The result is bit-IDENTICAL across thread counts / process starts (deterministic float
     reduction order), so the downstream razor-tie frequency argmax (_refine_peak_freq) is process-stable.
-    Bit-close to ~1e-15 (reduction-order) of the numpy-sin/cos + _corr_sq_centered path -- far below any
+    Bit-close to ~1e-15 (reduction-order) of the numpy-sin/cos + _corr_sq_centered path - far below any
     frequency-rank scale."""
     n = z.shape[0]
     tp = 2.0 * np.pi * freq
@@ -319,7 +319,7 @@ def _power_centered_fused_par_njit(z: np.ndarray, yc: np.ndarray, y_ss: float, f
             psumc += c; pss_c += c * c; pcy += c * yv
         partials[b, 0] = psums; partials[b, 1] = pss_s; partials[b, 2] = psy
         partials[b, 3] = psumc; partials[b, 4] = pss_c; partials[b, 5] = pcy
-    # Fixed-order serial combine across blocks -- thread-count-independent reduction order.
+    # Fixed-order serial combine across blocks - thread-count-independent reduction order.
     sums = 0.0; ss_s = 0.0; sy = 0.0
     sumc = 0.0; ss_c = 0.0; cy = 0.0
     for b in range(nblocks):
@@ -327,7 +327,7 @@ def _power_centered_fused_par_njit(z: np.ndarray, yc: np.ndarray, y_ss: float, f
         sumc += partials[b, 3]; ss_c += partials[b, 4]; cy += partials[b, 5]
     out = 0.0
     # RELATIVE degeneracy guard (P1-4): reject when the centered SS is a negligible fraction of the raw
-    # SS (catastrophic-cancellation residual for a near-constant sin/cos projection) -- an absolute 1e-24
+    # SS (catastrophic-cancellation residual for a near-constant sin/cos projection) - an absolute 1e-24
     # floor lets a ~1e-23 residual through and explodes the ratio, letting a degenerate frequency win.
     v_ss = ss_s - sums * sums / n
     if v_ss > 1e-12 * ss_s and v_ss >= 1e-24 and y_ss >= 1e-24:
@@ -342,9 +342,9 @@ def _power_centered(z: np.ndarray, yc: np.ndarray, y_ss: float, freq: float) -> 
     """Periodogram power at ``freq`` against a pre-centered ``y`` (``yc``,
     sum-of-squares ``y_ss``). Hot-loop variant that skips re-centering y."""
     # bench-attempt-rejected (2026-06-13): a SERIAL fused njit kernel measured 1.06x@n800 / 0.89x@n1667 /
-    # 1.26x@n5000 / 0.80x@n20000 -- numba scalar sin/cos loses to numpy's vectorised transcendental ufunc.
+    # 1.26x@n5000 / 0.80x@n20000 - numba scalar sin/cos loses to numpy's vectorised transcendental ufunc.
     # The PARALLEL fused twin (prange) instead WINS from ~n>=4k (1.45x@5k / 2.48x@20k / 2.71x@50k / 3.11x@100k,
-    # rel ~1e-15) -- the per-element sin/cos work amortises thread spawn. Gated below; serial numpy path stays
+    # rel ~1e-15) - the per-element sin/cos work amortises thread spawn. Gated below; serial numpy path stays
     # for small n. bench: _benchmarks/bench_power_centered_njit.py.
     if z.shape[0] >= _POWER_CENTERED_PAR_MIN_N:
         return float(_power_centered_fused_par_njit(
@@ -363,7 +363,7 @@ def _refine_peak_freq(
 
     Stage 1 scans +-0.25 at 0.05 step (the coarse-grid spacing); stage 2 then
     scans +-0.05 at 0.0125 step around the stage-1 winner. The finer second
-    pass tightens secondary-peak localisation after deflation -- which widens
+    pass tightens secondary-peak localisation after deflation - which widens
     the downstream Ridge recovery margin on multitone signals (a 0.05-only
     refine left secondary tones mis-located by up to ~0.3, costing R^2)."""
     def _scan(center: float, half_width: float, step: float) -> tuple[float, float]:
@@ -417,10 +417,10 @@ def _detect_fourier_freqs_for_col(
     min_rows: int = 800,
     max_freqs: int = 4,
 ) -> list[float]:
-    """MULTI-FREQUENCY adaptive detector (2026-06-03).
+    """MULTI-FREQUENCY adaptive detector.
 
     Returns the list of held-out-validated dominant z-space frequencies of
-    ``y`` as a function of ``z01`` -- the multitone generalisation of
+    ``y`` as a function of ``z01`` - the multitone generalisation of
     :func:`_detect_fourier_freq_for_col`. Real signals routinely superpose
     several arbitrary-period oscillations (``sin(3.7x) + sin(5.3x) +
     sin(6.8x)``); detecting only the single dominant frequency leaves a Ridge
@@ -440,7 +440,7 @@ def _detect_fourier_freqs_for_col(
     * picks the coarse peak by periodogram power on TRAIN, local-refines +-0.25
       at 0.05 step,
     * confirms ``sqrt(val-slice power) >= max(min_val_corr, 0.30)`` on the
-      held-out stride slice -- the 0.30 robust floor rejects finite-sample
+      held-out stride slice - the 0.30 robust floor rejects finite-sample
       chance peaks (40-seed linear-fixture max spurious 0.232 vs genuine >= 0.96
       at n=800); ``min_val_corr`` is the user-raisable lower bound,
     * DEFLATES both the train and val targets by least-squares-projecting out
@@ -456,16 +456,16 @@ def _detect_fourier_freqs_for_col(
     (_coarse_basis_njit, _corr_sq_reductions_njit, _power_centered_fused_par_njit) STAY CPU.
     F2 100k cProfile: _detect_fourier_freqs_for_col 0.357s tottime / 0.938s cum over 42 calls;
     _coarse_basis_njit 0.201s/42; _power_centered_fused_par_njit 0.233s/924; _corr_sq_reductions_njit
-    small -- the whole family is ~3-4% of the 31.6s WALL. NOT resident-routable favourably on this HW
+    small - the whole family is ~3-4% of the 31.6s WALL. NOT resident-routable favourably on this HW
     for three independent reasons: (1) the detector caps + row-subsamples its working set at
     MLFRAME_FOURIER_DETECT_MAX_N (200k) and runs on a <=66k train slice, so the operand is small;
-    (2) the body is a SEQUENTIAL deflation loop -- pick peak -> _refine_peak_freq local scan -> held-out
-    confirm -> least-squares deflate y_tr/y_va -- with host-side argmax/corr control flow each iteration,
+    (2) the body is a SEQUENTIAL deflation loop - pick peak -> _refine_peak_freq local scan -> held-out
+    confirm -> least-squares deflate y_tr/y_va - with host-side argmax/corr control flow each iteration,
     so there is no single batched workload; (3) the only batchable piece (the coarse grid x n sin/cos
     plane build) was ALREADY tried in batched-matrix form TWICE and bench-rejected (np.outer + matrix
-    sin/cos LOSES 0.5-0.7x at n>=1100; raw-SS variant NEUTRAL) -- the (<=48 x <=66k) transcendental plane's
+    sin/cos LOSES 0.5-0.7x at n>=1100; raw-SS variant NEUTRAL) - the (<=48 x <=66k) transcendental plane's
     alloc + bandwidth dominates, and the GPU twin would re-pay that as H2D + a tiny launch 42*max_freqs times.
-    _power_centered_fused_par_njit returns a single scalar per call (924 calls) -- a GPU twin would transfer a
+    _power_centered_fused_par_njit returns a single scalar per call (924 calls) - a GPU twin would transfer a
     66k vector to compute ONE float, pure overhead. All three are already at the CPU optimum (fused
     njit(parallel) machine code, 2.45-9.2x over the numpy loop), gated below the parallel-crossover for small n.
     """
@@ -496,7 +496,7 @@ def _detect_fourier_freqs_for_col(
                 import cupy as _cp
                 _dev_errs.append(_cp.cuda.runtime.CUDARuntimeError)
                 _dev_errs.append(_cp.cuda.memory.OutOfMemoryError)
-                # FIX4 (2026-06-28): cuSOLVER/cuBLAS faults from cp.linalg.solve/lstsq subclass plain
+                # FIX4: cuSOLVER/cuBLAS faults from cp.linalg.solve/lstsq subclass plain
                 # RuntimeError, NOT CUDARuntimeError -> omitting them would crash instead of falling
                 # back. getattr so an absent symbol can't break the tuple builder.
                 from cupy_backends.cuda.libs import cusolver as _cusolver
@@ -555,15 +555,15 @@ def _detect_fourier_freqs_for_col(
             z_va = np.ascontiguousarray(z_va[_sub_va]); y_va = np.ascontiguousarray(y_va[_sub_va])
     if float(np.std(y_tr)) < 1e-12 or float(np.std(y_va)) < 1e-12:
         return []
-    # POLYNOMIAL DETREND (2026-06-03): regress y on [1, z, z^2, z^3] and run
+    # POLYNOMIAL DETREND: regress y on [1, z, z^2, z^3] and run
     # detection on the RESIDUAL. A monotone / smooth trend (the linear-additive
     # target ``y = sign(x1 + 0.7*x2)``) has HIGH periodogram power at LOW
-    # frequencies because a sub-1-cycle sinusoid mimics a monotone ramp -- so
+    # frequencies because a sub-1-cycle sinusoid mimics a monotone ramp - so
     # the raw periodogram would FALSE-POSITIVE a "frequency" on a non-periodic
     # target (the linear fixture emitted a spurious ``x1__sin0.75``). A low-
     # degree polynomial in z ABSORBS any such trend, so its z-frequency power
     # collapses to ~0 after detrending (measured 0.689 -> 0.002), while a
-    # genuine oscillation -- which a cubic CANNOT express -- is left intact
+    # genuine oscillation - which a cubic CANNOT express - is left intact
     # (sin(5.3x) power 0.94 retained). The cubic coefficients are fit on TRAIN
     # and APPLIED to VAL (no val leakage); this is the discriminator that
     # separates "arbitrary-period oscillation" from "smooth trend the poly
@@ -579,7 +579,7 @@ def _detect_fourier_freqs_for_col(
         y_tr = y_tr - _V_tr @ _poly_coef
         y_va = y_va - np.vander(z_va, 4) @ _poly_coef
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _orth_extra_basis_fe.py:580: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
     if float(np.std(y_tr)) < 1e-9 or float(np.std(y_va)) < 1e-9:
         return []
@@ -587,7 +587,7 @@ def _detect_fourier_freqs_for_col(
     # SAMPLE chance frequency can clear a lenient floor: across 40 linear-
     # additive fixtures (``y = sign(x1 + 0.7*x2)``, n=1200) the max spurious
     # held-out sqrt-power was 0.232, while a genuine oscillation sits at >= 0.96
-    # even at n=800 -- a wide gap. A robust 0.30 floor rejects the chance peaks
+    # even at n=800 - a wide gap. A robust 0.30 floor rejects the chance peaks
     # without touching genuine recovery (gate-A multitone tones clear 0.6+).
     # ``min_val_corr`` is honoured as a LOWER bound a caller can RAISE; the
     # built-in 0.30 is the anti-false-positive guard the small-n regime needs.
@@ -598,7 +598,7 @@ def _detect_fourier_freqs_for_col(
     # the coarse sweep to a centered dot product per cached basis).
     # bench-attempt-rejected (2026-06-13): batching the coarse-basis build (and the
     # refine-peak scan) into one ``np.outer`` + matrix ``np.sin``/``np.cos`` eval LOSES
-    # at the scene train-slice sizes -- the m*n temporary's allocation + memory-bandwidth
+    # at the scene train-slice sizes - the m*n temporary's allocation + memory-bandwidth
     # cost dominates the saved per-call overhead (0.5-0.7x at n>=1100, only winning at
     # n~533), and the ``axis=1`` reduction shifts power by ~1e-12. benches:
     # profiling/bench_coarse_basis_batched.py, profiling/bench_refine_peak_batched.py.
@@ -612,7 +612,7 @@ def _detect_fourier_freqs_for_col(
     # transcendentals + reductions run in machine code, parallelised across the 16/48 grid frequencies. Measured 2.45-9.2x
     # warm over the numpy loop across n=533..8000 (bench_coarse_basis_njit_parallel). The fused reduction shifts the
     # sin/cos SS by ~1e-13 (single-ULP, sequential-vs-pairwise sum) which only perturbs the coarse-sweep ``best_f``
-    # argmax that ``_refine_peak_freq`` re-localises -- end-to-end MRMR scene selection is byte-identical. Set
+    # argmax that ``_refine_peak_freq`` re-localises - end-to-end MRMR scene selection is byte-identical. Set
     # ``MLFRAME_FOURIER_COARSE_BASIS_EXACT=1`` to force the exact numpy build.
     _coarse_basis = []  # (sin_centered, sin_ss, cos_centered, cos_ss) per grid freq
     _use_exact_basis = os.environ.get("MLFRAME_FOURIER_COARSE_BASIS_EXACT", "") == "1"
@@ -667,11 +667,11 @@ def _detect_fourier_freqs_for_col(
     return out
 
 
-# Auto-gate for the adaptive Fourier / chirp operators (2026-06-04): a Fourier or chirp leg only helps where the RAW column is NOT already a strong smooth predictor of y. On a near-step / leak column (``leaky ~ y``) the cubic detrend leaves Gibbs ringing the periodogram mistakes for an oscillation; on a genuinely linear / monotone / heavy-tailed-monotone signal the raw column already carries the usability. In both cases a Fourier/chirp leg adds no generalisable signal -- it only manufactures engineered columns that then evict the raw signal from ``support_``. So when the raw column's held-out cubic R^2 clears this cap, skip the adaptive operators for it; genuine oscillatory / chirp targets (raw cubic R^2 ~ 0) stay below the cap and keep firing.
+# Auto-gate for the adaptive Fourier / chirp operators: a Fourier or chirp leg only helps where the RAW column is NOT already a strong smooth predictor of y. On a near-step / leak column (``leaky ~ y``) the cubic detrend leaves Gibbs ringing the periodogram mistakes for an oscillation; on a genuinely linear / monotone / heavy-tailed-monotone signal the raw column already carries the usability. In both cases a Fourier/chirp leg adds no generalisable signal - it only manufactures engineered columns that then evict the raw signal from ``support_``. So when the raw column's held-out cubic R^2 clears this cap, skip the adaptive operators for it; genuine oscillatory / chirp targets (raw cubic R^2 ~ 0) stay below the cap and keep firing.
 _ADAPTIVE_FE_RAW_USABILITY_CAP: float = 0.5
 
 # Cardinality ceiling for treating an integer-valued column as a categorical group key (NOT a continuous axis). A column whose
-# distinct integer values number <= this is an arbitrary-label categorical -- sin/cos of the label code is spurious periodicity
+# distinct integer values number <= this is an arbitrary-label categorical - sin/cos of the label code is spurious periodicity
 # (the "frequency" the adaptive detector finds is just fitting the arbitrary label->target mapping, not a real oscillation). Mirrors
 # the int-as-cat group-key band used by the grouped-agg auto-detector + recommender (min 3); kept low (50) so an ordinal integer
 # axis with many levels (counts, ages) still gets Fourier.
@@ -686,7 +686,7 @@ def _is_int_as_cat_njit(x: np.ndarray, max_card: int) -> bool:
     Walks ``x`` once: skips non-finite, returns False on the FIRST non-integer
     element (``v != floor(v)``), and tracks distinct finite values in a small
     linear-probe buffer that early-exits the moment cardinality exceeds
-    ``max_card`` (so a high-card ordinal integer column -- counts/ages -- bails
+    ``max_card`` (so a high-card ordinal integer column - counts/ages - bails
     after seeing its 51st distinct value instead of sorting all n rows). The
     boolean verdict is IDENTICAL to the numpy form (verified across low/high-card
     int, continuous, and NaN-mixed columns); ``np.unique``'s O(n log n) full sort
@@ -720,11 +720,11 @@ def _is_int_as_cat_njit(x: np.ndarray, max_card: int) -> bool:
 def _is_int_as_cat_axis(x: np.ndarray, *, max_card: int = _FOURIER_INT_AS_CAT_MAX_CARD) -> bool:
     """True iff ``x`` is an integer-valued low-cardinality column that reads as a categorical group key rather than a continuous
     axis. Fourier sin/cos of such a column's arbitrary integer labels is spurious (region code 0..9 has no periodicity), so the
-    adaptive-Fourier basis must skip it -- otherwise it floods the support with label-fitting sin/cos pairs that crowd out the
+    adaptive-Fourier basis must skip it - otherwise it floods the support with label-fitting sin/cos pairs that crowd out the
     genuinely useful grouped aggregates of that key. Continuous columns (floats, high-card ints) return False and keep Fourier.
 
     The finite/integer/cardinality checks are fused into ONE early-exiting njit
-    pass (:func:`_is_int_as_cat_njit`) -- bit-identical verdict, but a continuous
+    pass (:func:`_is_int_as_cat_njit`) - bit-identical verdict, but a continuous
     column bails at the first fractional value and a high-card integer column bails
     at its ``max_card+1``-th distinct value, both without the full ``np.unique`` sort
     the numpy form paid on every 1M-row column."""
@@ -752,7 +752,7 @@ def _heldout_smooth_r2(x: np.ndarray, y: np.ndarray) -> float:
         return 0.0
     # Rank-normalise x to [-1, 1] so heavy tails (Cauchy / lognormal outliers) cannot dominate the least-squares fit and understate the raw column's usability. Ranks are a monotone reparametrisation, so a genuine oscillation stays non-cubic (gate keeps letting Fourier fire) while a monotone heavy-tailed signal reads as smooth (gate blocks Fourier on it).
     # single argsort + scatter (2026-07-16, cProfile-driven: this rank computation was the dominant cost of
-    # the whole function, 34ms/call @ n=99401) instead of a double argsort -- same ranks (verified bit-
+    # the whole function, 34ms/call @ n=99401) instead of a double argsort - same ranks (verified bit-
     # identical), ~1.7x faster (32.5ms -> 19.0ms @ n=99401): argsort once for the sort order, then scatter
     # 0..n-1 into that order's positions, instead of sorting the sort-order array a second time.
     _order = np.argsort(x, kind="stable")
@@ -777,8 +777,8 @@ def _heldout_smooth_r2(x: np.ndarray, y: np.ndarray) -> float:
 
 
 def _heldout_smooth_r2_prep(y: np.ndarray) -> Optional[tuple]:
-    """Precompute the Y-ONLY, x-INDEPENDENT pieces of :func:`_heldout_smooth_r2`'s held-out cubic-fit gate --
-    the train/val split mask, ``y[va]``/``y[tr]``, and the val-side total sum-of-squares ``sst`` -- ONCE for
+    """Precompute the Y-ONLY, x-INDEPENDENT pieces of :func:`_heldout_smooth_r2`'s held-out cubic-fit gate -
+    the train/val split mask, ``y[va]``/``y[tr]``, and the val-side total sum-of-squares ``sst`` - ONCE for
     a fixed ``y``, instead of every one of the (per-column) calls redoing them (cProfile, 2026-07-16
     wellbore-100k fit: 4.6s / 50 calls in ``generate_extra_basis_features``'s adaptive-fire auto-gate loop,
     same ``y`` every call). The split itself is even seeded identically every call (``np.random.default_rng(0)``)
@@ -803,7 +803,7 @@ def _heldout_smooth_r2_prep(y: np.ndarray) -> Optional[tuple]:
 
 def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
     """Fast twin of :func:`_heldout_smooth_r2` given a precomputed ``prep`` from
-    :func:`_heldout_smooth_r2_prep` (the SAME fixed ``y`` across many columns' ``x``) -- only the
+    :func:`_heldout_smooth_r2_prep` (the SAME fixed ``y`` across many columns' ``x``) - only the
     x-dependent rank-normalise + cubic Vandermonde fit/predict re-runs per call. Bit-identical to the
     original (verified: same split mask, same y-side sums, same formula, just hoisted out of the loop)."""
     va, tr, y_tr, yv, sst = prep
@@ -811,7 +811,7 @@ def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
     if x.size != va.size or not np.all(np.isfinite(x)) or float(np.std(x)) < 1e-12:
         return 0.0
     # single argsort + scatter (2026-07-16, cProfile-driven: this rank computation was the dominant cost of
-    # the whole function, 34ms/call @ n=99401) instead of a double argsort -- same ranks (verified bit-
+    # the whole function, 34ms/call @ n=99401) instead of a double argsort - same ranks (verified bit-
     # identical), ~1.7x faster (32.5ms -> 19.0ms @ n=99401): argsort once for the sort order, then scatter
     # 0..n-1 into that order's positions, instead of sorting the sort-order array a second time.
     _order = np.argsort(x, kind="stable")
@@ -840,21 +840,21 @@ def _detect_fourier_freq_for_col(
     min_val_corr: float = 0.15,
     min_rows: int = 800,
 ) -> Optional[float]:
-    """ADAPTIVE-FREQUENCY Fourier detector (2026-06-03).
+    """ADAPTIVE-FREQUENCY Fourier detector.
 
     The fixed Fourier univariate grid only covers z-space frequencies {1, 2}.
     An ARBITRARY-period oscillation (e.g. ``y = sin(3.7*x)``, ``sin(5.3*x)``)
     lands at a non-integer z-space frequency and is missed by the fixed grid
     (recovered at |corr| 0.02-0.23). This detector sweeps a coarse z-space
     frequency grid, locally refines around the peak, and returns the dominant
-    frequency ONLY when a held-out validation slice confirms it -- otherwise
+    frequency ONLY when a held-out validation slice confirms it - otherwise
     None (no adaptive column emitted).
 
     Method
     ------
     * Deterministic stride train/val split: ``val = arange(n) % 3 == 0`` (a
       third held out, no RNG so the recipe replays identically). The frequency
-      is RANKED on train rows and CONFIRMED on the held-out val rows -- a
+      is RANKED on train rows and CONFIRMED on the held-out val rows - a
       chance frequency that fits a train slice but not the held-out slice is
       rejected. This is the n-gated false-positive guard: a naive default-on
       version regressed 9 tests because at small n a chance frequency clears
@@ -882,7 +882,7 @@ def _detect_fourier_freq_for_col(
 
     Returns the SINGLE dominant validated frequency (or None). The multitone
     superposition case is handled by :func:`_detect_fourier_freqs_for_col`,
-    which this delegates to (taking the first detected peak) -- so the coarse-
+    which this delegates to (taking the first detected peak) - so the coarse-
     sweep + local-refine + held-out-gate contract is shared verbatim.
     """
     freqs = _detect_fourier_freqs_for_col(
@@ -895,9 +895,9 @@ def _detect_fourier_freq_for_col(
 # generate/recipe entry points carved to _orth_extra_basis_fe_generate.py (1k-LOC ceiling), re-exported
 # here for backward-compat callers importing them from this module.
 #
-# ORTH_BASIS_B-4 fix: this used to be a plain top-level `from
+# This used to be a plain top-level `from
 # ._orth_extra_basis_fe_generate import ...`, but that sibling module ITSELF imports 9 names back from
-# THIS module at ITS OWN top level -- a genuine circular top-level import that only resolved because every
+# THIS module at ITS OWN top level - a genuine circular top-level import that only resolved because every
 # current caller happens to trigger it via this module first (so by the time this line executes, this
 # module's names are already bound). Any future caller importing `_orth_extra_basis_fe_generate` FIRST
 # would hit `ImportError: cannot import name ... from partially initialized module`. A lazy module

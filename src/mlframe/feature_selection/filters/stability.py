@@ -1,7 +1,7 @@
 """Stability selection wrapper around MRMR.
 
 mRMR with permutation-test confidence is unstable for small N: the support depends on the seed of the permutation pass. Stability
-selection (Meinshausen-Buhlmann 2010 -- analog ``RandomizedLasso`` in old sklearn) addresses this by running mRMR on ``n_bootstraps``
+selection (Meinshausen-Buhlmann 2010 - analog ``RandomizedLasso`` in old sklearn) addresses this by running mRMR on ``n_bootstraps``
 subsamples and recommending only features that appear in the support of at least ``support_threshold`` (default 0.6 = 60%) of runs.
 
 Public class
@@ -55,8 +55,8 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
     * ``selection_probabilities_[j] = P(feature_j in support across bootstraps)``.
     * ``support_`` = features with prob >= ``support_threshold``.
 
-    Error control. The Meinshausen-Buhlmann (2010, JRSS-B) PFER bound ``E[V] <= q^2 / ((2*pi_thr - 1) * p)`` -- where ``q`` is the
-    average number of features selected per bootstrap, ``pi_thr`` the ``support_threshold``, and ``p`` the feature count -- is derived
+    Error control. The Meinshausen-Buhlmann (2010, JRSS-B) PFER bound ``E[V] <= q^2 / ((2*pi_thr - 1) * p)`` - where ``q`` is the
+    average number of features selected per bootstrap, ``pi_thr`` the ``support_threshold``, and ``p`` the feature count - is derived
     under ``sample_fraction = 0.5`` (the canonical complementary-pairs / n/2 subsampling regime). It does NOT hold at other fractions,
     so the default is ``0.5``; raising ``support_threshold`` toward ~0.8 tightens control. The realized PFER bound for a fitted instance
     is exposed via ``pfer_bound_`` (and the per-bootstrap selection count via ``avg_selected_per_bootstrap_``) so callers can check the
@@ -76,12 +76,12 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         Passes through to ``joblib.Parallel`` for the bootstrap loop.
     stratify : bool, default True
         Preserve the per-class proportions of ``y`` in each bootstrap subsample (class-stratified sampling without replacement). On rare / imbalanced targets an
-        unstratified subsample can omit the minority class entirely, giving a single-class fit that the base MI/MRMR selector degenerates on -- its garbage support is then
+        unstratified subsample can omit the minority class entirely, giving a single-class fit that the base MI/MRMR selector degenerates on - its garbage support is then
         silently folded into the inclusion counts. Stratification draws ``round(sample_fraction * n_class)`` rows from each class (floored at 1 per present class) so every
-        class survives every bootstrap. ON by default per the corrective-mechanism convention, but it ENGAGES only when a class is genuinely at risk -- when the
+        class survives every bootstrap. ON by default per the corrective-mechanism convention, but it ENGAGES only when a class is genuinely at risk - when the
         smallest class's expected count in a plain subsample (``sample_fraction * min_class_size``) is below ~25; on a near-balanced target every class survives an
         unstratified draw anyway, so the plain draw is kept (quota-forcing there is a pure perturbation that needlessly shifts inclusion probabilities). Also falls back
-        to the plain unstratified draw when ``y`` is not class-like (more than ``max(50, n/2)`` distinct values -- a regression / continuous target). Set ``stratify=False`` for the legacy behaviour.
+        to the plain unstratified draw when ``y`` is not class-like (more than ``max(50, n/2)`` distinct values - a regression / continuous target). Set ``stratify=False`` for the legacy behaviour.
         Rare classes still need adequate n: per the project rule a 1%-prevalence class needs n >~ 5000 for a reliable split even with stratification.
     """
     def __init__(
@@ -107,7 +107,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         ``selection_probabilities_``, ``support_`` (features with frequency >= ``support_threshold``), and the Meinshausen-Buhlmann PFER bound
         ``pfer_bound_`` (only defined at ``sample_fraction == 0.5`` and ``support_threshold > 0.5``, NaN otherwise)."""
         from joblib import Parallel, delayed
-        # 2026-05-30 Wave 9.1 fix (loop iter 41): input validation.
+        # Input validation.
         # Pre-fix:
         #   * sample_fraction=0.05 with n=10 -> sub_size=int(0.5)=0,
         #     every clone got X[0:0] (empty fit), silent garbage
@@ -148,7 +148,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         if self.stratify and _y_arr.ndim == 1:
             _uniq, _counts = np.unique(_y_arr, return_counts=True)
             # Stratify only when a class is genuinely AT RISK in the plain draw. Forcing per-class quotas on a near-balanced target is a no-op for class
-            # coverage (every class survives an unstratified subsample with overwhelming probability) but still perturbs the subsample composition -- it shifts
+            # coverage (every class survives an unstratified subsample with overwhelming probability) but still perturbs the subsample composition - it shifts
             # the noise-feature inclusion probabilities and can push a borderline false positive over ``support_threshold``. The corrective mechanism should
             # fire exactly where it corrects something: when the smallest class's EXPECTED count in an unstratified subsample is small enough that a draw could
             # realistically drop or starve it (``sample_fraction * min_class_size < _STRATIFY_MIN_EXPECTED_PER_CLASS``), per the rare-imbalance regime.
@@ -184,7 +184,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
             except Exception as exc:
                 # one degenerate bootstrap subsample (e.g. a class dropped
                 # despite stratification at extreme sample_fraction, or a subsample too small for the
-                # inner estimator's own floors) used to crash the WHOLE .fit() call -- mirrors the fix
+                # inner estimator's own floors) used to crash the WHOLE .fit() call - mirrors the fix
                 # already applied to the sibling _stability_cluster.py implementations (exclude the
                 # failed draw, log how many failed, and compute frequencies over the successful ones).
                 logger.warning("StabilityMRMR: bootstrap seed=%d failed (%s: %s); excluded from stability frequencies.", seed, type(exc).__name__, exc)
@@ -195,7 +195,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         else:
             # backend="threading": each bootstrap fits an estimator clone on a
             # resampled (X, y) tuple. loky's default would deep-copy the whole
-            # (X, y) into each worker process -- with the stability path
+            # (X, y) into each worker process - with the stability path
             # already running inside MRMR's outer FE loop, that's a recipe for
             # the iter-371 paging cascade. Estimator clones share the parent
             # X/y arrays under threading; the inner fit holds the GIL anyway
@@ -204,12 +204,12 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
             supports = Parallel(n_jobs=self.n_jobs, backend="threading")(delayed(_one_bootstrap)(s) for s in seeds)
 
         # filter out failed bootstraps (see _one_bootstrap's except clause)
-        # before accumulating -- frequencies are computed over the effective (successful) B, mirroring
+        # before accumulating - frequencies are computed over the effective (successful) B, mirroring
         # _stability_cluster.py's n_failed/n_success pattern, not over the nominal n_bootstraps.
         n_failed_bootstraps = sum(1 for sup in supports if sup is None)
         supports_ok: list = [sup for sup in supports if sup is not None]
         if not supports_ok:
-            # Every single bootstrap failed -- this is not "some unlucky draws", it means the input
+            # Every single bootstrap failed - this is not "some unlucky draws", it means the input
             # itself is fundamentally too small/degenerate for ``estimator`` at this sample_fraction.
             # Raise clearly instead of silently returning a meaningless all-zero-frequency result (the
             # existing contract this class already promised: "no silent corruption").
@@ -253,7 +253,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
 
     def transform(self, X, y=None):
         """Select ``self.support_`` columns from ``X``, verifying (by name when available) that ``X``'s columns still match those seen at fit time."""
-        # 2026-05-30 Wave 9.1 fix (loop iter 42): validate fit-time
+        # Validate fit-time
         # column semantics at transform. Pre-fix the function
         # positional-indexed via ``X.iloc[:, self.support_]`` with no
         # check that the columns AT transform time match the columns
@@ -282,9 +282,9 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         return X[:, self.support_]
 
     def get_feature_names_out(self, input_features=None):
-        """Selected feature names (sklearn transformer contract). X_SECURITY_API_PACKAGING-1 fix
+        """Selected feature names (sklearn transformer contract).
         was missing entirely, unlike ``MRMR``/``GroupAwareMRMR`` in the same
-        module -- a ``Pipeline([("sel", StabilityMRMR(...)), ...]).get_feature_names_out()`` raised
+        module - a ``Pipeline([("sel", StabilityMRMR(...)), ...]).get_feature_names_out()`` raised
         ``AttributeError`` even though ``transform()`` already returns a well-defined column subset.
         Mirrors ``GroupAwareMRMR.get_feature_names_out``'s contract exactly: ``support_`` is an integer
         index array into ``feature_names_in_``; a passed ``input_features`` must match ``n_features_in_``

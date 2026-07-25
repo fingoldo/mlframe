@@ -4,7 +4,7 @@ A single bandit run's "top_feats" lock-in pool depends on the RNG seed: which we
 cross ``lock_in_threshold`` before the epoch budget runs out is itself a stochastic outcome. Running
 several independent seeds and unioning their locked-in pools recovers a more complete feature set than any
 one seed, and the per-seed agreement (what fraction of seeds selected each feature) is a direct stability
-diagnostic -- a feature selected by 9/10 seeds is a trustworthy signal, one selected by 1/10 is noise that
+diagnostic - a feature selected by 9/10 seeds is a trustworthy signal, one selected by 1/10 is noise that
 a single-seed run got lucky (or unlucky) with.
 
 This module is purely additive: it reuses the single-seed core loop from ``stochastic_bandit_selection``
@@ -36,7 +36,7 @@ class EnsembleSelectionResult:
     """Per-feature fraction of seeds (in [0, 1]) whose selected set (locked-in ∪ best subset) contained it."""
 
     per_seed_best_subsets: List[List[str]] = field(default_factory=list)
-    """Each seed's best-CV-score subset, in seed order -- for diagnostics/debugging."""
+    """Each seed's best-CV-score subset, in seed order - for diagnostics/debugging."""
 
     per_seed_selected_feats: List[List[str]] = field(default_factory=list)
     """Each seed's full selected set (locked-in ∪ best subset), in seed order."""
@@ -79,7 +79,7 @@ def stochastic_bandit_selection_ensemble(
     if len(seeds) < 2:
         # A single seed is still allowed (e.g. a caller deliberately comparing single-seed vs ensemble
         # recall, as tests/feature_selection/test_biz_val_stochastic_bandit_selection.py does), but
-        # `stability` then trivially reports 1.0 for every selected feature -- not the meaningful
+        # `stability` then trivially reports 1.0 for every selected feature - not the meaningful
         # cross-seed diagnostic this docstring promises. Warn rather than raise so that legitimate
         # single-seed use is not broken.
         logger.warning(

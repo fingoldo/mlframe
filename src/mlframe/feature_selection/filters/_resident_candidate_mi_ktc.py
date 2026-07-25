@@ -1,4 +1,4 @@
-"""MANDATE-1/2 KTC crossover for the resident-GPU FE-gate candidate-MI path (2026-06-23).
+"""MANDATE-1/2 KTC crossover for the resident-GPU FE-gate candidate-MI path.
 
 Gates ``_resident_candidate_mi.best_existing_op_mi_resident`` (resident GPU candidate-gen + plug-in MI) against
 the host ``_plugin_mi_classif_batch_njit`` it replaces. Per ``feedback_use_kernel_tuning_cache_for_gpu`` the
@@ -20,7 +20,7 @@ import numpy as np
 
 # (n, k) grid. k spans the F2 gate distribution (small-k k~16) up to the wide orth-univariate / large-screen
 # regimes (k>=128) where the resident gen+MI amortises its launch. The default fallback keeps the un-tuned
-# host path (njit) -- the resident path is OPT-IN-BY-MEASUREMENT only, never the un-tuned default.
+# host path (njit) - the resident path is OPT-IN-BY-MEASUREMENT only, never the un-tuned default.
 _RESCAND_SWEEP_N_SAMPLES = [50_000, 100_000, 300_000]
 _RESCAND_SWEEP_K = [16, 64, 128, 256]
 _RESCAND_SALT = 1
@@ -52,7 +52,7 @@ def rescand_use_resident(n: int, k: int) -> bool:
 def _make_rescand_inputs(dims: dict):
     """An (n, k) host float64 candidate matrix + an int64 y, shaped like a gate MI call. The two probe
     variants score the SAME matrix (njit on host vs the resident GPU plug-in MI on its device copy), so the
-    crossover measured is gen-agnostic launch+MI vs njit -- the dominant cost the gate routes."""
+    crossover measured is gen-agnostic launch+MI vs njit - the dominant cost the gate routes."""
     n = int(dims["n_samples"])
     k = int(dims["k"])
     rng = np.random.default_rng(0)
@@ -74,7 +74,7 @@ def _rescand_resident(mat, y):
     """Sweep probe variant: upload ``mat``/``y`` to the GPU and score via the resident plug-in MI kernel being gated."""
     import cupy as cp
 
-    from . import hermite_fe as _hf  # noqa: F401 -- full-init parent before sibling import
+    from . import hermite_fe as _hf  # noqa: F401 - full-init parent before sibling import
     from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
 
     mat_gpu = cp.asarray(mat, dtype=cp.float64)

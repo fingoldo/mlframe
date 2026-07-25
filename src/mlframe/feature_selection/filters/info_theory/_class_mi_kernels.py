@@ -53,7 +53,7 @@ def _chao_shen_entropy_from_counts(counts: np.ndarray, n: int) -> float:
     singleton categories) and applying the Horvitz-Thompson-style ``1 - (1-p)^n`` inclusion-probability
     correction per category. Falls back to the plug-in estimator (mathematically equivalent to
     ``C_hat=1``) when every observed category is a singleton (``f1==n``, coverage estimate undefined)
-    or when the per-category correction denominator underflows -- both edge cases where the plug-in
+    or when the per-category correction denominator underflows - both edge cases where the plug-in
     term is already a reasonable finite-sample estimate and the correction would otherwise blow up.
     """
     f1 = 0
@@ -120,7 +120,7 @@ def compute_mi_from_classes(
     freqs_x: np.ndarray,
     classes_y: np.ndarray,
     freqs_y: np.ndarray,
-    dtype=np.int32,
+    dtype=np.int32,  # kept for signature parity across the class-MI kernel family; the joint counter is hardcoded int64 (overflow-safe), so dtype is unused
 ) -> float:
     """Mutual information from two pre-computed class arrays + their marginals. Used by the permutation loop where ``classes_y`` is shuffled in place and we don't want to re-bin from scratch each time.
 
@@ -183,7 +183,7 @@ def compute_mi_from_classes_weighted(
     cat-FE's downstream confirmation/rerank steps (MM re-rank,
     permutation test, bandit-UCB1, Westfall-Young, bootstrap CI, K-fold stability,
     anti-redundancy rerank, k-way greedy expansion) previously recomputed every statistic
-    UNWEIGHTED even when the search-phase point estimate used sample weights -- a weighted
+    UNWEIGHTED even when the search-phase point estimate used sample weights - a weighted
     ``II_obs`` was tested against an unweighted null/refinement. This weighted joint-MI kernel
     (weighted joint counts + weighted marginals, mirroring ``compute_mi_from_classes`` exactly
     when ``weights`` is uniform) is the shared primitive threaded through every downstream step.
@@ -234,7 +234,7 @@ def compute_su_from_classes(
     pass as ``compute_mi_from_classes`` so the permutation loop in
     ``permutation.py`` can swap to this scorer when ``mi_normalization='su'``
     without recomputing classes/freqs. Reuses the freqs_x / freqs_y arrays
-    to compute H(X), H(Y) -- one log-pass per marginal, O(K_x + K_y).
+    to compute H(X), H(Y) - one log-pass per marginal, O(K_x + K_y).
     """
     n = len(classes_x)
     K_x = len(freqs_x)

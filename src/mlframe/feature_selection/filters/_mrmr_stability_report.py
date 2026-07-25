@@ -1,6 +1,6 @@
 """One-call SELECTION-STABILITY / CONFIDENCE report for MRMR (backlog W3, 2026-06-11).
 
-A fitted ``MRMR`` gives users a POINT selection -- a set of survivor features --
+A fitted ``MRMR`` gives users a POINT selection - a set of survivor features -
 with no readout of how CONFIDENT that selection is. A feature that barely cleared
 the relevance screen on the one full-data split is indistinguishable, in the
 public surface, from one that dominates every resample. This accessor closes that
@@ -10,7 +10,7 @@ The "replay not refit" trick (#15 precedent)
 --------------------------------------------
 The cheap cross-fold confirmation vote (#15, ``_fe_stability_vote.confirm_recipes_
 cross_fold``) made stability cheap by REPLAYING the already-fitted recipes on row
-subsets and recomputing only the cheap plug-in-MI gate statistic -- never refitting
+subsets and recomputing only the cheap plug-in-MI gate statistic - never refitting
 MRMR. Layer 36 (``_stability_fe.StabilityFESelector``) takes the expensive route:
 it REFITS the whole MRMR ``n_bootstraps`` times.
 
@@ -20,8 +20,8 @@ and quantised the target into ``classes_y`` codes. We STORE a compact slice of t
 binned screening matrix + the target codes + the per-column selection outcome
 (``_stability_replay_state_``). The report then, for each of K bootstrap row
 resamples, recomputes the cheap marginal ``MI(column_codes; y_codes)`` for every
-candidate -- the EXACT debiased primitive the in-fit screen used
-(``_cmi_from_binned(x, y, None)``) -- ranks the candidates, and records which would
+candidate - the EXACT debiased primitive the in-fit screen used
+(``_cmi_from_binned(x, y, None)``) - ranks the candidates, and records which would
 have been selected. No MRMR refit, no recipe re-search, no quantile re-fitting:
 the bins are frozen from the full fit, only the rows are resampled. Cost is K cheap
 MI sweeps over the stored matrix == K screen-replays, NOT K * single-fit-time.
@@ -78,7 +78,7 @@ def selection_stability_report(
     candidate column (the exact debiased primitive the in-fit relevance screen
     used), the candidates are ranked, and the top-``n_selected`` are recorded as
     "selected on this resample". The selection-frequency of a feature is the
-    fraction of resamples on which it was selected -- a confidence readout that
+    fraction of resamples on which it was selected - a confidence readout that
     separates genuine signal (high frequency) from features that won the single
     point selection by chance (low frequency).
 
@@ -192,7 +192,7 @@ def _replay_recipe_survival(*, voted, rec_state, y_codes, n_boot, rng) -> dict:
     replayed on bootstrap resamples of the stored engineered/source bin codes.
 
     ``rec_state`` maps engineered_name -> {"eng_codes", "a_codes", "b_codes",
-    "alt"} -- all frozen at fit time (the engineered column + its source operands,
+    "alt"} - all frozen at fit time (the engineered column + its source operands,
     already binned). No recipe re-application, no MRMR refit: pure bin-code replay.
     """
     from ._fe_stability_vote import _recipe_clears_fold

@@ -1,15 +1,15 @@
 """``iterative_zero_importance_pruning``: cheap batch-drop-zero-importance pre-filter.
 
-Source: dd_2nd_pover-t-tests.md -- "The `find_exclude` method iteratively retrains a model, drops zero-
+Source: dd_2nd_pover-t-tests.md - "The `find_exclude` method iteratively retrains a model, drops zero-
 importance features, and re-evaluates 5-fold CV log loss, repeating until no further features can be dropped,
 then keeps the feature-exclusion set with lowest CV log loss." Distinct from mlframe's existing selectors:
 RFECV drops the single worst-ranked feature per round; `greedy_backward_elimination` evaluates removing EACH
 candidate via a fresh CV pass (O(features^2 x folds)). This drops the WHOLE batch of zero/near-zero native
 `feature_importances_` features per round in one refit, tracking CV score only once per round. It does NOT
-stop early on a degrading round -- every round's `candidate_remaining` becomes the new working set
+stop early on a degrading round - every round's `candidate_remaining` becomes the new working set
 regardless of its CV score, and the loop runs to `max_rounds` (or until no zero-importance feature remains
 / every remaining feature would be dropped); the BEST-scoring round's feature set is remembered separately
-and returned at the end, so a mid-run regression is simply not selected as the winner, not a stop signal --
+and returned at the end, so a mid-run regression is simply not selected as the winner, not a stop signal -
 an O(features x rounds) fast pre-filter for tree ensembles with cheap native importances, meant to run
 BEFORE the heavier MRMR/RFECV passes on a huge feature set, not to replace them.
 """
@@ -27,7 +27,7 @@ def _cv_score(estimator, X: pd.DataFrame, y: np.ndarray, cv, scoring: Callable[[
     """Fit a cloned estimator on each CV fold and return the mean out-of-fold score."""
     row_select = (lambda idx: X.iloc[idx]) if hasattr(X, "iloc") else (lambda idx: X[idx])
     # A pandas Series' bracket indexing is LABEL-based, not positional, once its index is no
-    # longer the default 0..n-1 RangeIndex (e.g. y still carries an upstream row-filter's index) --
+    # longer the default 0..n-1 RangeIndex (e.g. y still carries an upstream row-filter's index) -
     # cv.split(X) always yields plain 0..n-1 positional indices, so y[train_idx] then raises
     # KeyError / silently mis-selects rows on a non-default index. .iloc is positional regardless
     # of the index, matching X's own row_select above.
@@ -75,15 +75,15 @@ def iterative_zero_importance_pruning(
         Optional ``importance_fn(fitted_estimator, X_round, y) -> np.ndarray`` returning one importance value
         per column of ``X_round`` (same order). When omitted (default), the native ``feature_importances_``
         of the fitted estimator is used, preserving prior behavior exactly. Supply this for estimators
-        without a reliable/meaningful native importance -- e.g. linear models with no ``feature_importances_``
-        at all, or tree ensembles whose native importance is biased toward high-cardinality columns -- typically
+        without a reliable/meaningful native importance - e.g. linear models with no ``feature_importances_``
+        at all, or tree ensembles whose native importance is biased toward high-cardinality columns - typically
         a permutation-importance or SHAP-based callable (e.g. wrapping ``sklearn.inspection.permutation_importance``).
 
     Returns
     -------
     list
         The best-scoring surviving feature set seen across all rounds (column names for a DataFrame input,
-        integer positions for a bare ndarray input; not necessarily the LAST round's set --
+        integer positions for a bare ndarray input; not necessarily the LAST round's set -
         the round with the highest CV score is kept, matching the source's "keeps the exclusion set with
         lowest CV log loss" convention, generalized to "highest ``scoring``").
     """
@@ -111,7 +111,7 @@ def iterative_zero_importance_pruning(
 
         candidate_remaining = [col for col, is_zero in zip(remaining, zero_mask) if not is_zero]
         if not candidate_remaining:
-            break  # never drop every feature -- degenerate case, stop here.
+            break  # never drop every feature - degenerate case, stop here.
 
         candidate_score = _cv_score(estimator, col_select(candidate_remaining), y, cv, scoring)
         remaining = candidate_remaining

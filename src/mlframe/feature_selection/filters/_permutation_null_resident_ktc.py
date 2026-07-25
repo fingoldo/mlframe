@@ -21,11 +21,11 @@ import numpy as np
 
 # (n, ncand, nperm) grid. ncand spans the narrow tabular floor (ncand~8) up to wide embedding/TF-IDF pools
 # (ncand>=128) where the resident histogram amortises its launch; nperm spans the legacy 25 and the default
-# 200. Default fallback keeps the un-tuned host path (njit) -- the resident path is OPT-IN-BY-MEASUREMENT.
+# 200. Default fallback keeps the un-tuned host path (njit) - the resident path is OPT-IN-BY-MEASUREMENT.
 _PERMNULL_SWEEP_N = [50_000, 100_000, 300_000]
 _PERMNULL_SWEEP_NCAND = [8, 64, 256]
 _PERMNULL_SWEEP_NPERM = [25, 200]
-_PERMNULL_SALT = 1
+_PERMNULL_SALT = 2  # bumped to invalidate any region tuned under the old (far too loose) 5e-2 equivalence tol
 
 
 def permnull_use_resident(n: int, ncand: int, nperm: int) -> bool:
@@ -54,7 +54,7 @@ def permnull_use_resident(n: int, ncand: int, nperm: int) -> bool:
 
 def _make_permnull_inputs(dims: dict):
     """An (n, ncand, nperm) host workload shaped like a maxT floor call: per-candidate scaled X-codes, the
-    K target shuffles, and the invariant marginal terms -- the SAME arguments both kernels receive, so the
+    K target shuffles, and the invariant marginal terms - the SAME arguments both kernels receive, so the
     crossover measured is the histogram+MI+max work the floor routes (gen-agnostic)."""
     n = int(dims["n_samples"])
     ncand = int(dims["ncand"])
@@ -112,7 +112,10 @@ def _run_permnull_sweep() -> list:
         {"n_samples": _PERMNULL_SWEEP_N, "ncand": _PERMNULL_SWEEP_NCAND, "nperm": _PERMNULL_SWEEP_NPERM},
         _make_permnull_inputs,
         reference="njit",
-        repeats=3, equiv_rtol=5e-2, equiv_atol=5e-2,
+        # The resident and njit floors are plug-in entropies of the SAME integer contingency table differing
+        # only in float64 summation order (~1e-12 worst case), so 5e-2 was ~13 orders too loose and could crown
+        # a genuinely-divergent resident kernel as equivalent. Match the sibling noise-gate KTC sweep.
+        repeats=3, equiv_rtol=1e-9, equiv_atol=1e-12,
     )
 
 

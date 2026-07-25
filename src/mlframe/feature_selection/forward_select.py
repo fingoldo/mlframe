@@ -6,7 +6,7 @@ subset and repeatedly adds the single candidate feature giving the largest cross
 improvement, stopping when no remaining candidate improves the score by at least ``min_improvement`` or
 ``max_features`` is reached.
 
-Cost: O(d^2) model fits in the worst case (every remaining candidate is tried at every step) -- fine for the
+Cost: O(d^2) model fits in the worst case (every remaining candidate is tried at every step) - fine for the
 tens-to-low-hundreds of already-screened candidates this is meant to run on (e.g. after a Boruta-style
 shadow-feature filter has cut a few thousand raw features down to a few dozen), not intended as a
 first-pass filter over the full raw feature set.
@@ -76,17 +76,17 @@ def forward_select(
     candidate_features
         Restrict the search to this column subset (default: all of ``X``'s columns).
     initial_selected
-        Column(s) always included in every trial subset and never candidates for removal or re-selection --
+        Column(s) always included in every trial subset and never candidates for removal or re-selection -
         e.g. a stacking meta-model's fixed core of first-level OOF predictions, with only raw features
         greedily forward-selected on top (the "raw-feature-augmented meta-model" pattern). ``None``
         (default) preserves the original empty-start behavior exactly.
     patience
         Opt-in early-stop: once the best remaining candidate's per-fold CV-score improvement over the
         current subset is statistically indistinguishable from noise (paired one-sided t-test, candidate
-        folds vs. current-subset folds, Bonferroni-corrected p-value > ``significance_level`` -- corrected
+        folds vs. current-subset folds, Bonferroni-corrected p-value > ``significance_level`` - corrected
         by dividing by the number of remaining candidates, since each round already picks the best of many
         comparisons) for this many consecutive rounds, stop the loop instead of continuing to exhaustion.
-        ``None`` (default) disables this check entirely -- the loop always runs to
+        ``None`` (default) disables this check entirely - the loop always runs to
         ``max_features``/candidate exhaustion exactly as before, byte-for-byte.
     significance_level
         Pre-correction p-value threshold for the ``patience`` noise test (default 0.05). Unused when
@@ -94,7 +94,7 @@ def forward_select(
     return_report
         When True, return ``(selected, report)`` instead of just ``selected``. ``report`` is a
         ``ForwardSelectReport`` with one ``MarginalGainStep`` per round (the round's best candidate, its
-        mean CV-score improvement, and -- when computable -- the paired-t-test p-value/significance flag
+        mean CV-score improvement, and - when computable - the paired-t-test p-value/significance flag
         used by ``patience``). Default False preserves the original ``List[Any]`` return type exactly.
 
     Returns
@@ -156,7 +156,7 @@ def forward_select(
                 p_value, significant = 1.0, False
             else:
                 _, p_value = ttest_rel(best_fold_scores, current_fold_scores, alternative="greater")
-                # Bonferroni-correct for picking the best of `len(remaining)` candidates each round --
+                # Bonferroni-correct for picking the best of `len(remaining)` candidates each round -
                 # without this, "best-of-many noise columns" is significant far more often than
                 # `significance_level` alone implies (the classic post-selection multiple-comparisons bias).
                 significant = bool(p_value <= significance_level / len(remaining))

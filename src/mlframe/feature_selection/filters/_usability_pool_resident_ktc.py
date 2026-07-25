@@ -9,16 +9,16 @@ faster. The resident path engages only where MEASURED faster; otherwise the call
 per-pair table kernel.
 
 WHY BATCHED-ACROSS-PAIRS (not per-pair): iter13/iter16 proved per-PAIR ``_pair_combo_mi_cupy`` is a 3x LOSS
-(F2 100k 34.8s -> 102.5s) -- each pair pays a fresh operand H2D + tiny launch grid that swamps the ~1.0s CPU
+(F2 100k 34.8s -> 102.5s) - each pair pays a fresh operand H2D + tiny launch grid that swamps the ~1.0s CPU
 kernel. Batching every pair's nc combos into one (npairs*nc, n) device matrix amortises launch overhead over
 the WHOLE sweep, so the GPU only competes at LARGE total work (many pairs x large nc and/or large n / a
 stronger card). On the dev GTX 1050 Ti the F2 pool is narrow (joint-MI prune -> few pairs, modest nc) and the
-sweep is expected to keep it on CPU -- correct (njit is already ~1.0s there).
+sweep is expected to keep it on CPU - correct (njit is already ~1.0s there).
 
 BIT-FAITHFUL: the resident table reuses the SAME bit-faithful GPU primitives the per-pair cupy twin uses
-(rank-based binning + Miller-Madow MI), so it matches the njit table to ~6e-15 -- the equivalence tol is
+(rank-based binning + Miller-Madow MI), so it matches the njit table to ~6e-15 - the equivalence tol is
 tight (not the looser percentile-edge trade). CPU/no-cupy host: the sweep never runs, ``.choose()`` returns
-"njit", and the caller takes the exact host per-pair path -- byte-for-byte unchanged.
+"njit", and the caller takes the exact host per-pair path - byte-for-byte unchanged.
 """
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ def pool_table_use_resident(n_rows: int, npairs: int, n_combos: int) -> bool:
 
 def _make_pooltable_inputs(dims: dict):
     """A workload shaped like a full pool table call: ``npairs`` operand pairs, the shared y codes/terms, and
-    the op-code arrays -- the SAME arguments both paths consume (the njit reference is invoked per-pair, the
+    the op-code arrays - the SAME arguments both paths consume (the njit reference is invoked per-pair, the
     resident path once over all pairs), so the crossover measured is the real table-build work."""
     n = int(dims["n_rows"])
     npairs = int(dims["npairs"])

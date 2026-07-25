@@ -1,4 +1,4 @@
-"""fastMI: copula-based FFT-KDE mutual information estimator (2026-05-29).
+"""fastMI: copula-based FFT-KDE mutual information estimator.
 
 Port of Purkayastha & Song, *Journal of Multivariate Analysis* 201:105270, 2024
 (https://arxiv.org/abs/2212.10268). Original R reference: github.com/soumikp/fastMI.
@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import Optional
 
 import numpy as np
 
@@ -54,7 +55,7 @@ def _rank_to_uniform(x: np.ndarray) -> np.ndarray:
 
 
 def _probit(u: np.ndarray) -> np.ndarray:
-    """Standard-normal inverse CDF (probit). ``scipy.special.ndtri`` is the bare kernel that ``scipy.stats.norm.ppf`` calls internally for the standard normal -- bit-identical output (incl. +/-inf at 0/1) at ~2.4x the speed (norm.ppf pays rv_continuous arg-broadcast / validation / masking overhead this finite-array path does not need)."""
+    """Standard-normal inverse CDF (probit). ``scipy.special.ndtri`` is the bare kernel that ``scipy.stats.norm.ppf`` calls internally for the standard normal - bit-identical output (incl. +/-inf at 0/1) at ~2.4x the speed (norm.ppf pays rv_continuous arg-broadcast / validation / masking overhead this finite-array path does not need)."""
     from scipy.special import ndtri
     return np.asarray(ndtri(u))
 
@@ -70,8 +71,8 @@ def _mise_optimal_bandwidth(zx: np.ndarray, zy: np.ndarray, *, n_grid: int = 12,
     Per Purkayastha-Song 2024 sec. 3 the MISE-optimal h minimises:
         AMISE(h) = R(K) / (N h^d) + (1/4) sigma_K^4 h^4 * tr(Hessian)^2
 
-    On probit-transformed data (zx, zy) -- unit-variance marginals by
-    construction -- we approximate the optimum via grid search over
+    On probit-transformed data (zx, zy) - unit-variance marginals by
+    construction - we approximate the optimum via grid search over
     h in [h_silverman * h_min_factor, h_silverman * h_max_factor]
     selecting the h that maximises the leave-one-out log-likelihood under
     the Gaussian-product copula model:
@@ -90,7 +91,7 @@ def _mise_optimal_bandwidth(zx: np.ndarray, zy: np.ndarray, *, n_grid: int = 12,
     # Hoist the per-row logsumexp shift out of the h-grid loop. The kernel
     # ``log_k[i,j] = -0.5*sp[i,j]/h^2 - C(h)`` is strictly DECREASING in
     # ``sp[i,j]`` for every h (the coeff ``-0.5/h^2`` is < 0), so the row-max
-    # ``m[i] = max_j log_k[i,j]`` is always attained at ``argmin_j sp[i,j]`` --
+    # ``m[i] = max_j log_k[i,j]`` is always attained at ``argmin_j sp[i,j]`` -
     # the SAME column for every h. Therefore ``dmin = sp.min(axis=1)`` is
     # loop-invariant, and the stabilised summand simplifies to
     # ``exp(log_k - m) = exp((sp - dmin[:,None]) * (-0.5/h^2))`` with the
@@ -143,7 +144,16 @@ def _fft_conv_2d(samples: np.ndarray, kernel: np.ndarray) -> np.ndarray:
 # =============================================================================
 
 
-def fastmi(x: np.ndarray, y: np.ndarray, *, grid_size: int = 128, bandwidth: str = "mise", grid_pad_sigma: float = 4.0, prefer_gpu: bool = False) -> float:
+def fastmi(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    grid_size: int = 128,
+    bandwidth: str = "mise",
+    grid_pad_sigma: float = 4.0,
+    prefer_gpu: bool = False,
+    random_seed: Optional[int] = None,
+) -> float:
     """fastMI mutual information estimator (Purkayastha-Song 2024).
 
     Args:
@@ -155,6 +165,8 @@ def fastmi(x: np.ndarray, y: np.ndarray, *, grid_size: int = 128, bandwidth: str
         grid_pad_sigma: probit-grid extent in standard deviations; default 4.0
             covers >99.99% of probit-transformed mass.
         prefer_gpu: route FFT through cupy if available AND N >= 10000.
+        random_seed: seed for the MISE sub-sample draw when N > 1000; ``None`` maps to 0 so the default call
+            stays deterministic while distinct seeds give independent replicates.
 
     Reference: Purkayastha, S., Song, P.X.-K. (2024), "fastMI: a fast and
     consistent copula-based nonparametric estimator of mutual information",
@@ -191,7 +203,7 @@ def fastmi(x: np.ndarray, y: np.ndarray, *, grid_size: int = 128, bandwidth: str
         # For large N use a sub-sample for the grid search (the optimum is
         # bandwidth-independent of N once N >= 500).
         if n > 1000:
-            idx = np.random.default_rng(0).choice(n, size=1000, replace=False)
+            idx = np.random.default_rng(0 if random_seed is None else random_seed).choice(n, size=1000, replace=False)
             h = _mise_optimal_bandwidth(zx[idx], zy[idx])
         else:
             h = _mise_optimal_bandwidth(zx, zy)
@@ -208,7 +220,7 @@ def fastmi(x: np.ndarray, y: np.ndarray, *, grid_size: int = 128, bandwidth: str
             density = cp.asnumpy(density_gpu)
         except Exception as exc:
             # A real runtime GPU fault (OOM, device fault, driver mismatch) must fall back too, not just
-            # a missing cupy install -- otherwise a transient GPU error crashes the whole MI computation
+            # a missing cupy install - otherwise a transient GPU error crashes the whole MI computation
             # instead of degrading to the (selection-equivalent) CPU FFT path.
             logger.warning(
                 "fastmi: cupy GPU FFT convolution raised %s: %s; falling back to the CPU path.",

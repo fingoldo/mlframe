@@ -1,15 +1,15 @@
-"""Layer 104 (2026-06-01): THREE recipe-based FE families filling genuine gaps
+"""Layer 104: THREE recipe-based FE families filling genuine gaps
 in the L21-L103 chain.
 
-FAMILY A -- Rare-category indicator + frequency-band encoding
+FAMILY A - Rare-category indicator + frequency-band encoding
 -------------------------------------------------------------
 A category being RARE is itself predictive (a rare merchant id is a fraud
 signal; a rare device fingerprint a bot signal). Extends Layer 34 count /
 frequency encoding (raw count) with the SHAPE of rarity:
 
-* ``is_rare_{col}``  -- 1.0 when the category's fit-time frequency
+* ``is_rare_{col}``  - 1.0 when the category's fit-time frequency
   (count / n) is below ``rare_threshold`` (default 1%), else 0.0.
-* ``freq_band_{col}`` -- ordinal frequency band of the category:
+* ``freq_band_{col}`` - ordinal frequency band of the category:
   ``0=very_rare`` (< rare_threshold), ``1=rare`` (< 4x threshold),
   ``2=common`` (< the 90th-percentile of per-category frequency),
   ``3=dominant`` (>= that). Captures the rare/common/dominant tier without
@@ -20,27 +20,27 @@ row's category through it (unseen categories -> frequency 0 -> very_rare /
 is_rare=1, which is the natural prior: a category never seen in training is, if
 anything, rarer than the rarest training category). No ``y`` reference.
 
-FAMILY B -- Cross-feature conditional residual (NUM x NUM)
+FAMILY B - Cross-feature conditional residual (NUM x NUM)
 ----------------------------------------------------------
 Extends Layer 34's cat-num residual (``x - E[x | cat]``) to the NUM x NUM case:
 for an ordered pair ``(x_i, x_j)`` bin ``x_j`` into ``n_bins`` quantile bins and
-emit ``x_i - E[x_i | bin(x_j)]`` -- how far ``x_i`` deviates from its conditional
+emit ``x_i - E[x_i | bin(x_j)]`` - how far ``x_i`` deviates from its conditional
 expectation given ``x_j``'s bin. Captures conditional anomalies a marginal
 feature cannot express: an income that is high FOR a given age bracket, a
 latency that is high FOR a given payload size. The fit-time state is the
 ``x_j`` bin EDGES + the per-bin mean of ``x_i``; replay digitises ``x_j`` with
 the stored edges and subtracts the stored per-bin mean (no ``y``, leak-safe).
 
-FAMILY C -- Quantile-transform / rank-Gaussianisation (RankGauss)
+FAMILY C - Quantile-transform / rank-Gaussianisation (RankGauss)
 -----------------------------------------------------------------
 Map each numeric column to its rank-based Gaussian quantile (the classic Kaggle
 "RankGauss"): rank -> normalised rank in (0, 1) -> ``norm.ppf``. Produces an
 exactly-Gaussian marginal, which materially helps downstream LINEAR / NN models
 that assume Gaussian inputs, and is a monotone-invariant representation.
 
-DPI CONTRACT (CRITICAL -- the Layer 90 lesson): RankGauss is a strictly
+DPI CONTRACT (CRITICAL - the Layer 90 lesson): RankGauss is a strictly
 MONOTONE transform of the raw column, so by the data-processing inequality it
-CANNOT add mutual information about ``y`` -- ``MI(rankgauss(x); y) ==
+CANNOT add mutual information about ``y`` - ``MI(rankgauss(x); y) ==
 MI(x; y)`` up to binning noise. Its value is DOWNSTREAM (linear / NN), not in
 MI. Family C is therefore NOT MI-gated (an MI floor would be a no-op at best
 and wrongly drop a genuinely useful Gaussianisation at worst). Pin a downstream
@@ -50,9 +50,9 @@ candidate columns by their RAW marginal MI and keeping the top ``top_k``.
 The fit-time state is the SORTED unique fit values (+ their normalised-rank
 Gaussian targets); replay interpolates each test value's rank against the
 stored sorted values (``np.searchsorted``), so an unseen test value maps to the
-Gaussian quantile of its interpolated rank -- leak-safe, reads only X.
+Gaussian quantile of its interpolated rank - leak-safe, reads only X.
 
-NOT wired ON by default -- opt-in via ``fe_rare_category_enable`` /
+NOT wired ON by default - opt-in via ``fe_rare_category_enable`` /
 ``fe_conditional_residual_enable`` / ``fe_rankgauss_enable``.
 """
 from __future__ import annotations
@@ -85,7 +85,7 @@ __all__ = [
     "apply_rankgauss",
     "build_rankgauss_recipe",
     "hybrid_rankgauss_fe",
-    # Family D (conditional dispersion / 2nd-moment) -- re-exported from
+    # Family D (conditional dispersion / 2nd-moment) - re-exported from
     # the sibling module ``_extra_fe_families_dispersion`` (kept in its own
     # file under the module-size limit; the public import path stays here).
     "engineered_name_conditional_dispersion",
@@ -106,7 +106,7 @@ def _column_to_str(col) -> np.ndarray:
     instead of the global fallback."""
     # Delegate to the canonical per-unique factorize-gather implementation in ``_target_encoding_fe`` (identical ``"__nan__"`` sentinel +
     # ``canonical_group_token`` contract). That copy canonicalises each DISTINCT value once and gathers per-row via the factorize codes
-    # (Python-level ``canonical_group_token`` runs per-unique instead of per-row -- 8-65x at 10M rows / few-hundred uniques) and carries the
+    # (Python-level ``canonical_group_token`` runs per-unique instead of per-row - 8-65x at 10M rows / few-hundred uniques) and carries the
     # bool/0/1 collision gate that falls back to the exact per-row loop on bool-in-object columns. Sharing it retires the duplicate per-row map.
     from ._target_encoding_fe import _column_to_str as _canonical_column_to_str
 
@@ -114,7 +114,7 @@ def _column_to_str(col) -> np.ndarray:
 
 
 # ===========================================================================
-# FAMILY A -- rare-category indicator + frequency-band encoding
+# FAMILY A - rare-category indicator + frequency-band encoding
 # ===========================================================================
 
 # Frequency-band cut points (in units of ``rare_threshold``) for the two low
@@ -179,7 +179,7 @@ def generate_rare_category_features(
         freqs = counts.astype(np.float64) / float(n)
         freq_lookup = {str(unique_cats[c]): float(freqs[c]) for c in range(unique_cats.shape[0])}
         # Data-driven common/dominant split: 90th percentile of the per-category
-        # frequency distribution (frequency-weighted is wrong here -- we want the
+        # frequency distribution (frequency-weighted is wrong here - we want the
         # split over the CATEGORIES, so a few dominant categories don't drag it).
         dominant_cut = float(np.quantile(freqs, 0.90)) if freqs.size else 1.0
         # Guard: if all categories share the same frequency the 90th pctile
@@ -374,7 +374,7 @@ def hybrid_rare_category_fe(
 
 
 # ===========================================================================
-# FAMILY B -- cross-feature conditional residual (NUM x NUM)
+# FAMILY B - cross-feature conditional residual (NUM x NUM)
 # ===========================================================================
 
 
@@ -432,7 +432,7 @@ def generate_conditional_residual_features(
         return pd.DataFrame(index=X.index), raw_recipes
 
     col_vals = {c: np.asarray(X[c].to_numpy(), dtype=np.float64) for c in num_cols}
-    # Per-x_i invariants (finiteness mask, global mean, masked values) depend only on x_i, so hoist them out of the inner x_j loop -- recomputing them per (x_i, x_j) pair walked the full 10M array C-1 extra times each.
+    # Per-x_i invariants (finiteness mask, global mean, masked values) depend only on x_i, so hoist them out of the inner x_j loop - recomputing them per (x_i, x_j) pair walked the full 10M array C-1 extra times each.
     finite_of: dict[str, np.ndarray] = {}
     global_mean_of: dict[str, float] = {}
     for x_i in num_cols:
@@ -452,7 +452,7 @@ def generate_conditional_residual_features(
             finite_i = finite_of[x_i]
             global_mean = global_mean_of[x_i]
             codes_jf = codes_j[finite_i]
-            # np.bincount accumulates per bin in element order exactly as np.add.at does -- bit-identical sum/count, but a single C pass instead of the unbuffered scatter.
+            # np.bincount accumulates per bin in element order exactly as np.add.at does - bit-identical sum/count, but a single C pass instead of the unbuffered scatter.
             bin_sum = np.bincount(codes_jf, weights=xi[finite_i], minlength=n_bins_eff).astype(np.float64)
             bin_cnt = np.bincount(codes_jf, minlength=n_bins_eff).astype(np.float64)
             bin_mean = np.where(
@@ -550,7 +550,7 @@ def _top_mi_num_cols(
     X: pd.DataFrame, num_cols: Sequence[str], y: np.ndarray, max_cols: int,
 ) -> list[str]:
     """Rank numeric columns by RAW marginal ``MI(col; y)`` and keep the top
-    ``max_cols`` -- the cardinality bound that keeps the O(p^2) conditional-
+    ``max_cols`` - the cardinality bound that keeps the O(p^2) conditional-
     residual pair pool tractable."""
     num_cols = [c for c in num_cols if c in X.columns]
     if len(num_cols) <= max_cols:
@@ -631,12 +631,12 @@ def hybrid_conditional_residual_fe(
 
 
 # ===========================================================================
-# FAMILY C -- RankGauss (quantile / rank-Gaussianisation)
+# FAMILY C - RankGauss (quantile / rank-Gaussianisation)
 # ===========================================================================
 #
 # DPI CONTRACT: RankGauss is a strictly MONOTONE map of the raw column, so
 # MI(rankgauss(x); y) == MI(x; y) up to binning noise (data-processing
-# inequality). NOT MI-gated -- the value is DOWNSTREAM (linear / NN), pinned by
+# inequality). NOT MI-gated - the value is DOWNSTREAM (linear / NN), pinned by
 # a linear-model lift test, never an MI-gain test.
 #
 # bench-rejected (2026-06-10): an ISOTONIC (monotone-constrained, free-shape)
@@ -646,9 +646,9 @@ def hybrid_conditional_residual_fe(
 # 5-inner-knot (8-basis) quantile cubic B-spline in ALL 6 (n,noise) cells
 # [n in {500,1500,4000} x noise in {0.15,0.35}], by -0.0014 .. -0.0110 R^2 (0/6
 # isotonic wins). The "monotone prior cuts small-n variance" claim is FALSIFIED
-# vs the production spline -- the spline wins by the LARGEST margin at the
+# vs the production spline - the spline wins by the LARGEST margin at the
 # smallest-n/highest-noise cell. Isotonic only beats a 16-knot over-parameterised
-# spline that mlframe does NOT ship (and explicitly chose against -- see the
+# spline that mlframe does NOT ship (and explicitly chose against - see the
 # supervised-knots bench-reject in _orth_extra_basis_fe._fit_spline_for_col). The
 # cubic spline's own regularisation already subsumes the monotone prior, exactly
 # as it subsumes RankGauss. Complementarity control passes (isotonic loses on
@@ -665,11 +665,11 @@ def engineered_name_rankgauss(col: str) -> str:
 def _rank_to_gauss(ranks: np.ndarray, n: int) -> np.ndarray:
     """Map 0-based ranks in ``[0, n-1]`` to Gaussian quantiles via
     ``norm.ppf((rank + 0.5) / n)`` (the (r + 0.5)/n plotting position keeps the
-    transform finite at the extremes -- no +/-inf at rank 0 / n-1)."""
+    transform finite at the extremes - no +/-inf at rank 0 / n-1)."""
     from scipy.special import ndtri
     u = (np.asarray(ranks, dtype=np.float64) + 0.5) / float(max(n, 1))
     u = np.clip(u, 1e-6, 1.0 - 1e-6)
-    # ndtri == norm.ppf for the standard normal (bit-identical), ~2.4x faster -- skips the rv_continuous broadcast/validation wrapper.
+    # ndtri == norm.ppf for the standard normal (bit-identical), ~2.4x faster - skips the rv_continuous broadcast/validation wrapper.
     return np.asarray(ndtri(u).astype(np.float64))
 
 
@@ -678,7 +678,7 @@ def _avg_tie_rank(fit_sorted: np.ndarray, vals: np.ndarray) -> np.ndarray:
 
     ``lo``/``hi`` are the left/right ``searchsorted`` insertion points; they differ only where ``vals`` exactly equals
     a fit value (a tie). For continuous data (the common rank-Gauss case) there are no exact ties, so ``hi == lo`` and
-    the result collapses to ``lo - 0.5`` -- skipping the entire second ``searchsorted`` sweep (~half the cost at 10M).
+    the result collapses to ``lo - 0.5`` - skipping the entire second ``searchsorted`` sweep (~half the cost at 10M).
     A cheap ``fit_sorted[lo] == vals`` probe detects whether any tie exists; the exact two-pass path runs only then,
     keeping the output bit-identical on tied / discrete inputs.
     """
@@ -697,7 +697,7 @@ def _self_avg_tie_rank(fit_finite: np.ndarray) -> np.ndarray:
     """Average (mid) 0-based rank of each element of ``fit_finite`` AMONG ITSELF.
 
     Bit-identical to ``_avg_tie_rank(np.sort(fit_finite), fit_finite)`` but avoids the two ``searchsorted`` sweeps over
-    the full array -- at FIT time the query set IS the reference set, so a single ``argsort`` + a run-length mid-rank
+    the full array - at FIT time the query set IS the reference set, so a single ``argsort`` + a run-length mid-rank
     scatter computes the same average ranks (~3.4x faster at 1M rows). The replay path (``apply_rankgauss``) still uses
     ``searchsorted`` because there the test values are NOT the fit values.
     """
@@ -722,15 +722,15 @@ def generate_rankgauss_features(
 ):
     """Map each numeric column to its rank-based Gaussian quantile (RankGauss).
 
-    Returns ``(enc_df, raw_recipes)``. Each payload stores the FULL SORTED finite fit values (WITH duplicates -- the
+    Returns ``(enc_df, raw_recipes)``. Each payload stores the FULL SORTED finite fit values (WITH duplicates - the
     average-tie mid-rank needs the tie multiplicities, so duplicates are NOT collapsed); replay interpolates each test
-    value's rank against the stored sorted values (``np.searchsorted``) and maps it to a Gaussian quantile -- leak-safe,
+    value's rank against the stored sorted values (``np.searchsorted``) and maps it to a Gaussian quantile - leak-safe,
     reads only X. Memory note: the stored array is length n_finite per column (~80 MB per rankgauss column at 10M rows)
-    -- see FUTURE (mrmr_critique EX-4): store unique values + tie counts to bound recipe size while preserving the
+    - see FUTURE (mrmr_critique EX-4): store unique values + tie counts to bound recipe size while preserving the
     average-tie ranks.
 
     NN training note: RankGauss's near-Gaussian, well-conditioned inputs converge in far fewer epochs than
-    MinMaxScaler/raw features on the same architecture (reported: 3-5 epochs vs. 50-90) -- if reusing an
+    MinMaxScaler/raw features on the same architecture (reported: 3-5 epochs vs. 50-90) - if reusing an
     epoch-count default tuned for MinMax/raw-feature training, lower it substantially when switching a model
     to RankGauss-encoded inputs, or the run will overtrain/waste compute at the old epoch count.
     """
@@ -852,7 +852,7 @@ def hybrid_rankgauss_fe(
 ):
     """End-to-end RankGauss FE. Bounds the pool by ranking candidate columns on
     their RAW marginal ``MI(col; y)`` and keeping the top ``top_k`` (NOT an
-    MI-gain gate on the engineered column -- RankGauss is monotone, so by the
+    MI-gain gate on the engineered column - RankGauss is monotone, so by the
     DPI it cannot add MI; the value is downstream for linear / NN models).
 
     Returns ``(X_aug, appended, recipes, scores)``. ``y`` is consumed only to
@@ -885,7 +885,7 @@ def hybrid_rankgauss_fe(
 
 
 # ===========================================================================
-# FAMILY D -- cross-feature conditional DISPERSION / 2nd-moment (NUM x NUM)
+# FAMILY D - cross-feature conditional DISPERSION / 2nd-moment (NUM x NUM)
 # ===========================================================================
 # Family D extends Family B from conditional LOCATION to conditional SCALE
 # (volatility / dispersion regimes). It lives in the sibling module

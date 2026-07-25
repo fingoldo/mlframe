@@ -11,7 +11,7 @@ important features, instead of every family always getting an equal (or uncondit
 regardless of whether its output is ever kept.
 
 HONEST SIMPLIFICATION (v1, stated explicitly per the plan): full Shapley over families (retraining
-selection once per family coalition) is unnecessary and expensive -- each generated column already
+selection once per family coalition) is unnecessary and expensive - each generated column already
 receives an importance score from the selector (MRMR's ``mrmr_gain``, exposed per-survivor via
 ``fe_provenance_``), and columns map to families via their recipe kind (see :func:`_recipe_kind_to_family`
 -- NOT via name-string parsing, which is provably ambiguous for this codebase's FE families, see that
@@ -19,7 +19,7 @@ function's docstring). Family credit = sum of surviving columns' importance is t
 approximation; it inherits Shapley's meaning only to the extent the underlying selector importances do
 (MRMR relevance is itself an additive/greedy approximation, not an exact game value). A ``credit="loo"``
 upgrade (leave-one-family-out re-selection deltas, the middle ground between additive and full Shapley)
-is specced as future opt-in work for datasets where families' outputs are strongly redundant --
+is specced as future opt-in work for datasets where families' outputs are strongly redundant -
 additive credit double-counts value shared between two families producing near-identical survivors;
 LOO would not. Not implemented in v1.
 """
@@ -42,7 +42,7 @@ _BUDGET_CACHE_DIR = Path(os.environ.get("MLFRAME_FE_BUDGET_CACHE_DIR", str(Path.
 # Recipe-kind -> family, at the SAME granularity as the wall-time ledger's own family names
 # (``_fe_family_timing.py``'s ``@fe_timed("...")`` call sites), NOT the coarser ``origin`` bucket
 # ``_mrmr_fe_provenance.py`` uses (that bucket merges orth_pair_cross/orth_triplet_cross/
-# orth_quadruplet_cross/orth_spline/orth_fourier/... into one "hybrid_orth" origin -- too coarse for
+# orth_quadruplet_cross/orth_spline/orth_fourier/... into one "hybrid_orth" origin - too coarse for
 # per-family ROI, which needs to distinguish triplet's wall-cost from quadruplet's).
 _RECIPE_KIND_TO_FAMILY: dict[str, str] = {
     "orth_pair_cross": "orth_pair",
@@ -63,19 +63,19 @@ _ORIGINAL_FAMILY = "_original"
 def _recipe_kind_to_family(recipe_kind: Optional[str]) -> str:
     """Map an ``fe_provenance_`` row's recipe kind to a wall-ledger-granularity family name.
 
-    KNOWN ARCHITECTURAL AMBIGUITY (not a parsing bug -- verified against the actual FE generator
+    KNOWN ARCHITECTURAL AMBIGUITY (not a parsing bug - verified against the actual FE generator
     source, not guessed): adaptive-arity's winning arity-2/3/4 columns explicitly REUSE the
     orth_pair_cross/orth_triplet_cross/orth_quadruplet_cross recipe kinds respectively (see
     ``_orthogonal_adaptive_arity_fe.py``'s module docstring: "arity-2 winners reuse the Layer 22
-    orth_pair_cross recipe" etc) -- there is NO recipe-kind-level (or column-name-level; both were
+    orth_pair_cross recipe" etc) - there is NO recipe-kind-level (or column-name-level; both were
     checked) signal distinguishing an adaptive-arity column from a same-arity fixed-family column.
     When ``fe_hybrid_orth_adaptive_arity`` is enabled ALONGSIDE the fixed-arity families, its
     surviving columns' credit is attributed to the fixed-arity family sharing its winning arity, NOT
-    to "adaptive_arity" -- meaning adaptive_arity's WALL cost is tracked separately (it has its own
+    to "adaptive_arity" - meaning adaptive_arity's WALL cost is tracked separately (it has its own
     ``@fe_timed("adaptive_arity")`` site) but its CREDIT silently flows elsewhere, understating its
     own ROI and overstating the fixed-arity families'. This is a real, currently-unresolvable
     coupling in the recipe system (fixing it would mean adding a NEW recipe kind per adaptive-arity
-    winner, out of scope for this plan) -- documented here rather than hidden, and callers relying on
+    winner, out of scope for this plan) - documented here rather than hidden, and callers relying on
     adaptive_arity's specific ROI should treat it as a floor (true value >= reported).
     """
     if recipe_kind is None:
@@ -101,7 +101,7 @@ def family_credit(
 
     ``mechanism_details`` is a stringified dict (``_mrmr_fe_provenance.py``'s ``_safe_str``); the
     recipe kind is recovered from its ``'kind': '...'`` entry via a targeted regex rather than a full
-    parse (the stringification is one-way, not round-trippable JSON) -- verified against real
+    parse (the stringification is one-way, not round-trippable JSON) - verified against real
     provenance output in the accompanying unit test, not guessed.
 
     Raises ``NotImplementedError`` for ``credit="loo"`` (specced as v2, not implemented).
@@ -137,7 +137,7 @@ def family_roi(credit: dict[str, float], wall: dict[str, Any]) -> dict[str, Opti
 
     Families with recorded wall but zero credit get ROI ``0.0`` (they ran and produced nothing that
     survived). Families never yet run (absent from ``wall``, or present with 0 invocations) get ROI
-    ``None`` -- a family that has never had a chance to prove itself must not be starved by
+    ``None`` - a family that has never had a chance to prove itself must not be starved by
     :func:`reallocate_budgets` before its first trial (the explore/exploit floor+exploration terms
     exist precisely for this).
     """
@@ -163,11 +163,11 @@ def reallocate_budgets(
     """Proportional-to-ROI budget reallocation with a MANDATORY floor and an exploration reserve.
 
     Families present in ``base_budget`` but ABSENT from ``roi`` (never run) get the shared
-    ``exploration`` reserve split evenly among them, never zero -- a family that never got a chance
+    ``exploration`` reserve split evenly among them, never zero - a family that never got a chance
     to run must not be permanently starved. Families with a known (non-``None``) ROI split the
     remaining ``1 - exploration`` budget mass proportional to their ROI, each floored at
     ``floor * base_budget[family]`` (a family that scored zero ROI once must still keep a minimum
-    stake -- target regimes change between datasets, and a permanently-zeroed family can never
+    stake - target regimes change between datasets, and a permanently-zeroed family can never
     redeem itself; this is the explore/exploit tension the floor+exploration terms encode).
     ``smoothing`` EMA-blends the newly-computed allocation with the PREVIOUS ``base_budget`` (``0`` =
     keep the old budget unchanged, ``1`` = fully adopt the new proportional-to-ROI allocation) to
@@ -208,7 +208,7 @@ def reallocate_budgets(
 
     # Renormalize to exactly conserve total_mass (floor+proportional+exploration bookkeeping can
     # drift by float error, or floor_mass_scored alone can exceed remaining_mass at extreme floor
-    # values -- always end on an exact-sum guarantee rather than a "should be close" one).
+    # values - always end on an exact-sum guarantee rather than a "should be close" one).
     new_total = sum(new_budget.values())
     if new_total > 0.0:
         new_budget = {f: v / new_total * total_mass for f, v in new_budget.items()}
@@ -222,7 +222,7 @@ def dataset_fingerprint(n_features: int, column_names: Any) -> str:
 
     REQUIRED (not optional) per the plan's own risk section: budgets learned on one dataset applied
     unconditionally to an unrelated dataset is a silent correctness bug (that dataset's family
-    usefulness may be entirely different) -- this fingerprint gates cross-dataset carryover.
+    usefulness may be entirely different) - this fingerprint gates cross-dataset carryover.
     """
     names_joined = "|".join(sorted(str(c) for c in column_names))
     digest = hashlib.sha256(f"{n_features}:{names_joined}".encode()).hexdigest()[:16]
@@ -230,9 +230,9 @@ def dataset_fingerprint(n_features: int, column_names: Any) -> str:
 
 
 def _sanitize_budget_file_key(file_key: str) -> str:
-    """Defensive allowlist for the on-disk cache filename component (FE_ORCH_BUDGET-8 fix,
+    """Defensive allowlist for the on-disk cache filename component (
     ): ``cache_key``/``fingerprint`` are concatenated directly into a filename with
-    no sanitisation -- every current call site passes only a literal default ``cache_key`` and a sha256
+    no sanitisation - every current call site passes only a literal default ``cache_key`` and a sha256
     hex-digest ``fingerprint`` (not exploitable today), but the public function signature accepts an
     arbitrary string, so a future caller passing a user- or column-derived string would have a path-
     traversal write primitive into the cache directory. Strip to a safe filename-component charset."""
@@ -246,13 +246,13 @@ def persist_budgets(budgets: dict[str, float], *, cache_key: str = "mlframe.fe_f
     """Persist ``budgets`` to a local JSON cache file keyed by ``cache_key`` + ``fingerprint``.
 
     Uses a plain local JSON cache under ``MLFRAME_FE_BUDGET_CACHE_DIR`` (default
-    ``~/.cache/mlframe/fe_family_budget``), NOT ``pyutilz.performance.kernel_tuning.cache`` -- that
+    ``~/.cache/mlframe/fe_family_budget``), NOT ``pyutilz.performance.kernel_tuning.cache`` - that
     cache's API (``get_or_tune``/``lookup``/``update``, keyed by HARDWARE fingerprint) is built for
     per-hardware kernel-parameter tuning, not per-DATASET arbitrary key-value persistence; a prior
     attempt to (mis)use a simple ``.get(key, default=...)`` shape against it elsewhere in this repo
     was already identified as dead/non-existent API and removed (see
     ``shap_proxied_fs/_shap_proxied_resolvers.py``'s ``_resolve_brute_force_max_features`` docstring)
-    -- this module does not repeat that mistake.
+    - this module does not repeat that mistake.
     """
     _BUDGET_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     file_key = _sanitize_budget_file_key(f"{cache_key}.{fingerprint}" if fingerprint else cache_key)

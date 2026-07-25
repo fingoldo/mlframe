@@ -7,9 +7,9 @@ Kaggle Grandmaster blog, technique #1): for a categorical / low-cardinality
 every row in the group. Two derived "anomaly-from-norm" residuals are also
 emitted per (group, num) pair:
 
-* ``z-within-group``   ``(x - mean(x | group)) / std(x | group)`` -- how many
+* ``z-within-group``   ``(x - mean(x | group)) / std(x | group)`` - how many
   group-local standard deviations a row sits from its group centre.
-* ``ratio-to-group``   ``x / mean(x | group)`` -- multiplicative deviation.
+* ``ratio-to-group``   ``x / mean(x | group)`` - multiplicative deviation.
 
 Why this matters
 ----------------
@@ -22,7 +22,7 @@ raw ``x`` hides.
 
 The CMI gate (reusing the Layer 60 conditional-MI primitives in
 ``_mi_greedy_cmi_fe``) ranks each engineered aggregate by ``CMI(agg; y |
-base_cols)`` -- i.e. the NEW information the aggregate adds on top of the
+base_cols)`` - i.e. the NEW information the aggregate adds on top of the
 already-present raw columns. An aggregate that merely re-expresses a raw
 column already in the support (e.g. a group-mean that just shifts ``x`` when
 the group is degenerate) scores near zero CMI and is gated out. The gate
@@ -196,7 +196,7 @@ def generate_grouped_agg_features(
             # even if the user didn't request them as broadcast stats.
             mean_series = grouped.mean()
             std_series = grouped.std(ddof=1)
-            # Keys built from the RAW group column (native dtype) -- canonicalise
+            # Keys built from the RAW group column (native dtype) - canonicalise
             # so they match the canonical per-row keys (group_key_strings) at
             # both fit and a dtype-drifted predict (int<->float).
             lookup_mean = {canonical_group_token(k): float(v) for k, v in mean_series.items()}
@@ -216,14 +216,14 @@ def generate_grouped_agg_features(
                     agg_series = grouped.agg(_agg_func_for_stat(stat))
                 lookup = {canonical_group_token(k): (float(v) if np.isfinite(v) else 0.0) for k, v in agg_series.items()}
                 if stat == "nunique":
-                    # CAT_INTERACTION_B-2 fix: the whole-population
+                    # The whole-population
                     # np.unique(finite).size fallback used to emit a WILDLY out-of-distribution value for
                     # an unseen group (confirmed by direct execution: real per-group nunique 241-283 vs a
-                    # global fallback of 4882, ~18x, at n=5000/20 groups) -- every OTHER stat's fallback
+                    # global fallback of 4882, ~18x, at n=5000/20 groups) - every OTHER stat's fallback
                     # stays on the SAME SCALE as a per-group value (a population mean/std/min/max/median IS
                     # a plausible per-group value), but the whole-population cardinality is not a plausible
                     # per-group cardinality. Use the median PER-GROUP nunique across fit-time groups instead
-                    # -- scale-consistent with every other stat's fallback.
+                    # - scale-consistent with every other stat's fallback.
                     global_value = float(np.median(agg_series.to_numpy())) if len(agg_series) else 0.0
                 else:
                     global_value = _global_value_for_stat(x, stat)
@@ -424,7 +424,7 @@ def score_grouped_agg_by_cmi_uplift(
     y : ndarray
         Target.
     base_cols : sequence of str
-        Conditioning support -- typically the raw columns already present.
+        Conditioning support - typically the raw columns already present.
     eng_to_source : dict or None
         Maps each engineered column name to its source num_col name (for the
         uplift baseline). When ``None``, the uplift baseline is 0 (pure CMI
@@ -450,7 +450,7 @@ def score_grouped_agg_by_cmi_uplift(
             try:
                 y_arr = pd.qcut(y_arr, q=10, labels=False, duplicates="drop").to_numpy()
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _grouped_agg_fe.py:427: %s", e)
+                logger.debug("suppressed: %s", e)
                 pass
         _, y_arr = np.unique(y_arr, return_inverse=True)
     y_bin = y_arr.astype(np.int64)
@@ -558,7 +558,7 @@ def _filter_num_cols_by_relevance(
     """Keep auto-detected ``num_cols`` that carry marginal information about ``y``; drop those indistinguishable from noise.
 
     A grouped aggregate of a source independent of y re-encodes only the group key's own marginal info (constant within group), so
-    it adds nothing the group identity already provides -- but its in-sample CMI ties the genuine signal aggregate, letting the
+    it adds nothing the group identity already provides - but its in-sample CMI ties the genuine signal aggregate, letting the
     screen pick a noise aggregate. A column is kept when its marginal MI(x; y) clears BOTH a relative bar (``rel_ratio`` x the most
     relevant column's MI, so a few weak-but-real columns survive alongside the strongest) AND a small absolute floor (``abs_floor``,
     above the plug-in binning-bias noise level). Best-effort: on any failure return the input unchanged (never lose real columns)."""
@@ -624,7 +624,7 @@ def hybrid_grouped_agg_fe(
         num_cols = _auto_detect_num_cols(X, group_cols)
         # y-aware relevance filter (auto-detect only). A grouped aggregate of a source column that is INDEPENDENT of y can only
         # re-encode the group key's own marginal info about y (the aggregate is constant within each group), so it adds nothing the
-        # group identity does not already carry -- yet its in-sample CMI ties the genuine signal aggregate, letting the downstream
+        # group identity does not already carry - yet its in-sample CMI ties the genuine signal aggregate, letting the downstream
         # screen pick a pure-noise aggregate by chance. Restrict the auto-detected sources to those with marginal MI about y above a
         # noise floor so only columns carrying real signal (e.g. a per-group-mean-driven x) get aggregated. Manual num_cols (caller
         # supplied) are trusted as-is and never filtered. Best-effort: any failure falls back to the unfiltered auto set.

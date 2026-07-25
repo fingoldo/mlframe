@@ -4,7 +4,7 @@ MRMR already tolerates pathological input columns without crashing (an all-NaN /
 constant column lands at MI ~ 0 and is silently dropped by the relevance gate; an
 exact-duplicate / perfectly-collinear column is dropped by the conditional-MI
 redundancy gate). What was MISSING is a DIAGNOSTIC SURFACE telling the user WHICH
-columns were degenerate and WHY -- mirroring the sibling selectors' diagnostic
+columns were degenerate and WHY - mirroring the sibling selectors' diagnostic
 attributes (RFECV's suspicious-column logs, ShapProxied's cluster reports).
 
 ``audit_degenerate_columns`` runs a cheap O(p) scan (one variance / NaN check per
@@ -12,9 +12,9 @@ column + an O(p) hashed-content pass for exact duplicates + a correlation pass o
 the numeric columns for perfect collinearity) and returns a dict
 ``column -> reason`` where reason is one of::
 
-    "all_nan"  -- every value is NaN/null
-    "constant"  -- zero variance (one distinct non-null value)
-    "duplicate_of:<col>" -- byte-identical to an earlier column
+    "all_nan"  - every value is NaN/null
+    "constant"  - zero variance (one distinct non-null value)
+    "duplicate_of:<col>" - byte-identical to an earlier column
     "collinear_with:<col>"-- |Pearson| == 1 with an earlier numeric column (perfect
                             linear dependence, e.g. 2*x+3)
 
@@ -109,13 +109,13 @@ def _is_constant(values: np.ndarray) -> bool:
 def _content_key(values: np.ndarray):
     """A hashable, NaN-aware fingerprint of a column's content for exact-duplicate
     detection. Two columns fingerprint equal iff they are element-wise identical
-    (NaN bit patterns included) -- standard IEEE NaN encodings are consistent within
+    (NaN bit patterns included) - standard IEEE NaN encodings are consistent within
     one numpy/pandas process, so a raw byte-content hash preserves the same equality
     contract ``pandas.util.hash_array`` gave, without allocating a fresh (n,) hash
     array + its own ``.tobytes()`` copy per column (measured ~17ms/column on a
     99401-row wellbore-shaped frame -> the #1 self-time line of this whole scan at
     ~500 raw columns). ``xxh3_64_intdigest`` reads the array's own buffer directly
-    (copy-free for C-contiguous arrays -- the same technique already used by
+    (copy-free for C-contiguous arrays - the same technique already used by
     ``_fe_resident_operands._content_hash``), falling back to pandas' hash_array
     (numeric/object-safe, handles non-contiguous input) when xxhash is unavailable
     or the fast path errors for any reason.
@@ -123,7 +123,7 @@ def _content_key(values: np.ndarray):
     USABILITY_B (found while adding coverage): two bit-identical columns
     could previously get DIFFERENT-TYPED keys (xxhash int vs pandas hash_array bytes) whenever their
     underlying memory layout differed (e.g. ``df['b'] = df['a']`` can leave one C-contiguous and the
-    other not, depending on pandas' block-manager consolidation) -- an int key and a bytes key never
+    other not, depending on pandas' block-manager consolidation) - an int key and a bytes key never
     compare equal, so the duplicate silently went undetected. Force contiguity first (a no-op copy when
     already contiguous) so the fast path's OWN dtype/contiguity gate always sees the same answer for
     equal content, regardless of the caller's original array layout."""
@@ -148,11 +148,11 @@ def _gram_matrix(M: np.ndarray) -> np.ndarray:
     """``M @ M.T`` for the row-standardised candidate block, dispatched to cupy under GPU-strict.
 
     cProfile on the wellbore-100k GPU-strict fit attributed 43.0s tottime to ``audit_degenerate_columns``'s
-    single call (p~518 raw columns) -- entirely this one BLAS GEMM, hardcoded to CPU numpy regardless of
+    single call (p~518 raw columns) - entirely this one BLAS GEMM, hardcoded to CPU numpy regardless of
     STRICT mode (this scan is PURELY DIAGNOSTIC, see module docstring, so it never had a GPU twin like the
     selection-critical kernels). Routing through the same ``fe_gpu_strict_enabled`` work-floor gate used
     elsewhere keeps tiny frames on CPU (upload overhead would dominate) and only engages cupy once the GEMM
-    itself is worth the H2D/D2H round trip -- the matrix is (p, p), a few MB at most, so the download back is
+    itself is worth the H2D/D2H round trip - the matrix is (p, p), a few MB at most, so the download back is
     negligible next to the O(n*p^2) contraction it replaces."""
     p, n_rows = M.shape
     try:
@@ -160,7 +160,7 @@ def _gram_matrix(M: np.ndarray) -> np.ndarray:
 
         if not fe_gpu_strict_enabled(n=n_rows, p=p):
             return np.asarray(M @ M.T)
-    except Exception as e:  # nosec B110 -- strict-gate probe failure must never break the diagnostic scan
+    except Exception as e:  # nosec B110 - strict-gate probe failure must never break the diagnostic scan
         logger.debug("fe_gpu_strict_enabled probe failed (%s: %s) -- falling back to CPU GEMM for the diagnostic scan", type(e).__name__, e)
         return np.asarray(M @ M.T)
     try:
@@ -185,9 +185,9 @@ def audit_degenerate_columns(X, max_collinearity_cols: int = _COLLINEARITY_PASS_
     column). Duplicate / collinear are reported relative to the FIRST (earliest)
     matching column.
 
-    ``max_collinearity_cols`` (USABILITY_B-1 fix): the O(p) all_nan/constant/
+    ``max_collinearity_cols``: the O(p) all_nan/constant/
     duplicate checks above always run regardless of width, but the collinearity pass below allocates a
-    dense ``(p, n)`` Gram-matrix input -- unbounded on a genuinely wide raw frame (tens of thousands of
+    dense ``(p, n)`` Gram-matrix input - unbounded on a genuinely wide raw frame (tens of thousands of
     columns), a multi-GB-to-tens-of-GB allocation purely for a PURELY DIAGNOSTIC scan that never
     influences selection. Above this many numeric candidate columns, the collinearity pass is skipped
     (``collinear_with`` reasons simply won't be reported that fit; all_nan/constant/duplicate still are).
@@ -216,10 +216,10 @@ def audit_degenerate_columns(X, max_collinearity_cols: int = _COLLINEARITY_PASS_
             if finite.sum() >= 2:
                 numeric_cols.append((name, v, finite))
 
-    # Perfect-collinearity pass -- VECTORISED so the whole correlation matrix is one
+    # Perfect-collinearity pass - VECTORISED so the whole correlation matrix is one
     # BLAS GEMM (O(n*p^2) in optimised C) instead of a Python O(p^2) loop of np.corrcoef
     # calls (which on p=200 / n=20k cost ~8 s; the GEMM is ~tens of ms). NaNs are filled
-    # with the per-column mean (so they contribute zero deviation) -- exact for an honest
+    # with the per-column mean (so they contribute zero deviation) - exact for an honest
     # complete linear relationship, which is the only case |corr| reaches 1.0. Only the
     # numeric, non-degenerate columns participate; the first column of each collinear
     # group is the reference.
@@ -234,10 +234,10 @@ def audit_degenerate_columns(X, max_collinearity_cols: int = _COLLINEARITY_PASS_
         names = [n for (n, _, _) in live]
         n_rows = live[0][1].shape[0]
         # ROW-major (K, n_rows), not (n_rows, K): writing ``M[k, :] = col`` fills a CONTIGUOUS row,
-        # while the previous ``M[:, k] = col`` wrote a column of a C-order (n_rows, K) array --
+        # while the previous ``M[:, k] = col`` wrote a column of a C-order (n_rows, K) array -
         # every element strided by K*8 bytes, the classic column-into-row-major antipattern (measured
         # ~13ms/column on a 99401x~500 wellbore-shaped frame, 15% of this whole scan's wall). The GEMM
-        # below is transposed to match (``M @ M.T`` instead of ``M.T @ M``) -- same Gram matrix, same
+        # below is transposed to match (``M @ M.T`` instead of ``M.T @ M``) - same Gram matrix, same
         # BLAS call, just the operand layout that lets each per-column write stay contiguous.
         M = np.empty((len(live), n_rows), dtype=np.float64)
         for k, (_, v, fin) in enumerate(live):
@@ -246,7 +246,7 @@ def audit_degenerate_columns(X, max_collinearity_cols: int = _COLLINEARITY_PASS_
                 col_mean = float(np.nanmean(col)) if fin.any() else 0.0
                 col = np.where(fin, col, col_mean)
             M[k, :] = col
-        # Standardise; zero-variance columns (shouldn't reach here -- caught as constant)
+        # Standardise; zero-variance columns (shouldn't reach here - caught as constant)
         # are guarded by a non-zero std floor so they cannot spuriously read |corr|=1.
         with np.errstate(invalid="ignore"):  # a non-finite-derived col_mean can make the centre subtract NaN; the std floor below handles it
             M -= M.mean(axis=1, keepdims=True)

@@ -101,7 +101,7 @@ def compute_mrmr_artifacts(
     feature_names_in : list[str]
         Original-frame column names; the artifact axes mirror this order.
     support_original : np.ndarray, shape (n_selected,), dtype int
-        ``self.support_`` -- positional indices into ``feature_names_in`` of the
+        ``self.support_`` - positional indices into ``feature_names_in`` of the
         MRMR-kept raw features.
     retain_bins : bool
         When True, copy the binned columns into the export dict (memory cost:
@@ -184,7 +184,7 @@ def compute_mrmr_artifacts(
 
         if retain_bins:
             # np.ascontiguousarray already allocates a fresh, unaliased buffer for a non-contiguous
-            # slice like ``x_bins`` (verified: ``.base is x_bins`` is False) -- copies the column out
+            # slice like ``x_bins`` (verified: ``.base is x_bins`` is False) - copies the column out
             # of the shared ``data`` matrix so a later in-place edit (e.g. DCD aggregate append)
             # cannot corrupt the export. A trailing ``.copy()`` would only duplicate that same buffer.
             assert bins_dict is not None and nbins_dict is not None  # retain_bins guarantees both were allocated above
@@ -209,7 +209,7 @@ def validate_artifact_dict(artifacts: dict | None) -> bool:
     """Cheap sanity check on a precomputed artifact dict received from a
     consumer (ShapProxiedFS / future selectors). Returns True if the dict is
     structurally valid AND carries at minimum a usable SU vector. Logs a
-    warning and returns False on any failure -- callers should then fall back
+    warning and returns False on any failure - callers should then fall back
     to recomputing from scratch.
     """
     if artifacts is None or not isinstance(artifacts, dict):
@@ -221,7 +221,7 @@ def validate_artifact_dict(artifacts: dict | None) -> bool:
         return False
     try:
         su_arr = np.asarray(su)
-    except Exception:  # pragma: no cover -- defensive
+    except Exception:  # pragma: no cover - defensive
         return False
     if su_arr.ndim != 1 or su_arr.shape[0] != len(names):
         logger.warning(

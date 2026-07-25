@@ -138,7 +138,7 @@ def estimate_features_relevancy(
         2. its bias-corrected MI is at least ``min_mi_prevalence`` times higher than the
            ``permuted_max_mi_quantile`` (default MAXIMUM) permuted MI across all features/permutations;
         3. it survives a Benjamini-Hochberg FDR correction (at ``fdr_alpha``) over the per-feature
-           analytic G-test p-values ``chi2.sf(2*N*MI, (Bx-1)(By-1))`` -- the multiple-comparison control
+           analytic G-test p-values ``chi2.sf(2*N*MI, (Bx-1)(By-1))`` - the multiple-comparison control
            that keeps many independent noise features from over-selecting at scale.
 
     The bias floor and p-values reuse ``feature_selection.filters._analytic_mi_null`` (the same
@@ -158,7 +158,7 @@ def estimate_features_relevancy(
 
     columns_to_drop = []
 
-    # Wave 31 (2026-05-20): assert -> ValueError.
+    # Assert -> ValueError.
     if min_randomized_permutations < 1:
         raise ValueError(f"min_randomized_permutations must be >= 1; got {min_randomized_permutations!r}.")
 
@@ -175,7 +175,7 @@ def estimate_features_relevancy(
             mi_algorithms_ranking = base_mi_algos
 
     # ----------------------------------------------------------------------------------------------------------------------------
-    # For each of the targets, compute joint freqs and then MI for each of the "normal" columns:
+    # for each of the targets, compute joint freqs and then MI for each of the "normal" columns:
     # ----------------------------------------------------------------------------------------------------------------------------
 
     if verbose > 1:
@@ -377,7 +377,7 @@ def run_efs(
             **efs_params,
         )
 
-        # Wave 54 (2026-05-20): refuse duplicate target names -- the prior dict-comp
+        # Refuse duplicate target names - the prior dict-comp
         # silently dropped MI rows when the caller listed the same target twice
         # (e.g. multi-target classification+regression view of the same column).
         if len(set(target_columns)) != len(target_columns):

@@ -1,22 +1,22 @@
-"""Layer 95 PART B (2026-06-01): PER-GROUP DISTRIBUTION-DISTANCE FE.
+"""Layer 95 PART B: PER-GROUP DISTRIBUTION-DISTANCE FE.
 
 Extends Layer 88 (``_grouped_quantile_fe``: percentile-rank-within-group +
 per-group spread). Where Layer 88 captures where a row sits WITHIN its own
 group's distribution, this layer captures how far the row's GROUP is from the
-GLOBAL (pooled) distribution -- a group-anomaly detector broadcast to rows.
+GLOBAL (pooled) distribution - a group-anomaly detector broadcast to rows.
 
 For each ``(group_col, num_col)`` three distance features:
 
-* ``gzdist``  -- group-level z: ``(group_mean - global_mean) / global_std``.
+* ``gzdist``  - group-level z: ``(group_mean - global_mean) / global_std``.
   How many global-scale standard deviations the group's centre sits from the
   pooled centre. Recovers a target that depends on whether a row belongs to a
   group whose typical value is unusual relative to everyone else.
-* ``gkldist`` -- per-group KL divergence ``KL(P_group || P_global)`` over a
+* ``gkldist`` - per-group KL divergence ``KL(P_group || P_global)`` over a
   fixed global histogram binning, broadcast to every row in the group. The
   information-theoretic distance between the group's value distribution and the
-  global one -- catches shape anomalies (a group whose values cluster in a
+  global one - catches shape anomalies (a group whose values cluster in a
   region the global distribution rarely visits) that a mean-shift z misses.
-* ``gwdist``  -- per-group Wasserstein-1 (earth-mover) distance between the
+* ``gwdist``  - per-group Wasserstein-1 (earth-mover) distance between the
   group's empirical distribution and the global one, broadcast to rows. A
   metric-aware distance (sensitive to HOW FAR the mass moved, not just bin
   overlap), complementary to KL.
@@ -37,9 +37,9 @@ Leakage safety (CRITICAL)
 Recipes store ONLY per-group distance scalars + the pooled-global fallback,
 all computed on TRAIN. Replay reads only X (maps each row's group key through
 the stored lookup; unseen groups fall back to the global value). No ``y``
-reference is captured -- transform() is leakage-free by construction.
+reference is captured - transform() is leakage-free by construction.
 
-NOT wired into ``MRMR.fit`` by default -- opt-in via
+NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_group_distance_enable=True``.
 """
 from __future__ import annotations
@@ -137,7 +137,7 @@ if _HAVE_NUMBA:
         O(nu + nv). Reproduces ``scipy.stats._cdf_distance(p=1)``: the integral of
         ``|CDF_u - CDF_v|`` over the merged support. A two-pointer merge tracks the
         running counts ``i`` / ``j`` consumed from each side, which equal
-        ``searchsorted(prev, 'right')`` of u / v at every step -- so no per-step
+        ``searchsorted(prev, 'right')`` of u / v at every step - so no per-step
         searchsorted and, crucially, no re-sort of the (already-sorted) global array
         that scipy would redo on every group call.
         """

@@ -3,7 +3,7 @@
 The dominant large-``n`` cost of MRMR is the greedy Fleuret redundancy step: for every
 candidate column ``X_j`` it evaluates ``I(X_j; Y | Z)`` against the just-selected feature ``Z``,
 each greedy round. The CPU path (``info_theory._entropy_kernels.conditional_mi``) is a serial
-njit that rebuilds four joint histograms per call via the per-row ``merge_vars`` melt -- O(p * n)
+njit that rebuilds four joint histograms per call via the per-row ``merge_vars`` melt - O(p * n)
 per round with no parallelism.
 
 This module adds a BATCHED GPU kernel that computes ``I(X_j; Y | Z)`` for ALL ``p`` candidates in a
@@ -15,24 +15,24 @@ candidate, shared-memory histogram (mirrors ``filters/gpu.py``'s ``compute_joint
     I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)
 
 returned RAW (clamped at 0), bit-comparable (within ~1e-9) to the CPU ``conditional_mi`` on the
-SAME discretized inputs -- see ``test_cmi_cuda_kernel.py``.
+SAME discretized inputs - see ``test_cmi_cuda_kernel.py``.
 
 PARITY: the CPU ``entropy`` reduces ``-(log(p) * p)`` over the NONZERO joint bins in ascending
 merged-class-id order, with ``p = count / n`` in float64. The kernel walks the dense per-candidate
-histogram in the same ascending merged-class order, skips zero bins, and accumulates in float64 --
+histogram in the same ascending merged-class order, skips zero bins, and accumulates in float64 -
 reproducing the CPU reduction value (sequential add order matches numpy ``.sum`` for the small
 nonzero-bin counts here). The merged class id ``cz + cx * nbz + cy * (nbx * nbz)`` keeps ``Z`` the
 fastest-varying axis so the (X, Z) marginal and (Y, Z) marginal collapse in the same monotone order
 the CPU ``merge_vars`` pruning produces.
 
-PICKLE: NO live CUDA context or RawKernel object is ever stored on a class instance -- the kernel is
+PICKLE: NO live CUDA context or RawKernel object is ever stored on a class instance - the kernel is
 a module-level singleton built lazily in ``_get_kernel()`` and attached to THIS module's namespace.
 Callers hold only plain numpy arrays. Safe to pickle any consumer.
 
 DISPATCH: ``conditional_mi_batched_dispatch`` is the public entry. It routes to CUDA at large
 ``(n, p)`` where the launch wins, and to the CPU per-candidate loop otherwise / when no GPU. The
 size/HW gate integrates with ``pyutilz`` ``kernel_tuning_cache`` (via the FS ``_kernel_tuning``
-singleton) -- NO hardcoded thresholds baked into the hot path; a hand fallback only applies on
+singleton) - NO hardcoded thresholds baked into the hot path; a hand fallback only applies on
 cache miss / pyutilz-unavailable.
 """
 from __future__ import annotations
@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 # Below this many candidates the njit-parallel CMI loop's thread-spawn overhead is not worth it -> exact serial path.
 # Lowered 32 -> 8 (2026-07): at the default 30k SCREEN-SUBSAMPLE size (the typical per-candidate CMI shape once the
 # Q1 screen subsample engages) prange beats the serial loop 2.4-7.8x for EVERY p>=4, and p>=8 wins universally
-# (1.7-8.6x) across n=1k..30k -- each candidate's exact conditional_mi on ~30k rows dwarfs the ~50us thread spawn.
+# (1.7-8.6x) across n=1k..30k - each candidate's exact conditional_mi on ~30k rows dwarfs the ~50us thread spawn.
 # The old 32 floor kept small candidate pools (the wellbore's serial single-core / ~44%-CPU window) on ONE core.
 # 8 captures nearly all the win while keeping the tiniest pools (p<8, sub-ms, where spawn variance matters at very
 # small n) serial. Both branches are exact CMI (selection-equivalent); the threshold only trades cores for spawn.
@@ -66,7 +66,7 @@ except (TypeError, ValueError):
 
 # F-ORDER (column-contiguous) VIEW CACHE for the CPU CMI melt.
 # ``factors_data`` is (n, nfeat) C-contiguous, so reading candidate column ``xi`` in the per-candidate
-# melt strides ``nfeat*4`` bytes -- every O(n) pass thrashes cache lines. The batched-GPU path already
+# melt strides ``nfeat*4`` bytes - every O(n) pass thrashes cache lines. The batched-GPU path already
 # side-steps this by transposing to (candidates, n) contiguous (line ~684); the CPU melt did not. A
 # column-contiguous (F-order) copy of the SAME matrix makes every candidate column a contiguous run:
 # the identical loop runs 2-6x faster, BIT-IDENTICAL (asfortranarray only changes physical order, so
@@ -215,7 +215,7 @@ def _get_kernel():
 # .sum(axis=1) = ~3 cuLaunchKernel -> ~12 per call (the measured #1 hidden launch source, 228+95). One block
 # per candidate now reads the global joint once, builds the (X,Z)/(Y,Z)/(Z) marginals in shared memory via
 # atomicAdd, reduces all four plug-in entropies (block tree reduction, 256 threads), and writes the clamped
-# CMI -- ONE launch. Same float64 p*log p over nonzero cells -> within the documented ~1e-9 parity gate.
+# CMI - ONE launch. Same float64 p*log p over nonzero cells -> within the documented ~1e-9 parity gate.
 _cmi_from_joint_cuda = None
 
 
@@ -223,7 +223,7 @@ def _get_cmi_from_joint_kernel():
     """Build (idempotently) and return the fused CMI-from-joint-counts RawKernel.
 
     One block per candidate reads the global joint histogram once, accumulates the (X,Z)/(Y,Z)/(Z) marginals in
-    shared memory via ``atomicAdd``, and reduces all four plug-in entropies in a single launch -- replacing the
+    shared memory via ``atomicAdd``, and reduces all four plug-in entropies in a single launch - replacing the
     four separate ``_entropy_from_counts_axis`` launches (H(Z), H(X,Z), H(Y,Z), H(X,Y,Z)) that used to dominate
     per-call CUDA launch count. Result is clamped to ``>= 0`` (plug-in CMI can go slightly negative from bias).
     """
@@ -309,8 +309,8 @@ def _entropy_from_counts_axis(counts_3d, axes, n):
     marg = counts_3d.sum(axis=axes)  # (p, ...) remaining axes
     marg = marg.reshape(marg.shape[0], -1)
     # Fused x*log(x) (launch-reduction): one ElementwiseKernel folds the /n + zero-mask + log + multiply
-    # (cp.divide + cp.where + cp.log + multiply, ~4 cuLaunchKernel) into a single launch -- ``c>0 ?
-    # (c*invn)*log(c*invn) : 0`` -- then one sum(axis=1). Same float64 plug-in entropy -> within the 1e-9
+    # (cp.divide + cp.where + cp.log + multiply, ~4 cuLaunchKernel) into a single launch - ``c>0 ?
+    # (c*invn)*log(c*invn) : 0`` - then one sum(axis=1). Same float64 plug-in entropy -> within the 1e-9
     # selection gate (cmi_cuda parity tests stay < 1e-9). ElementwiseKernel launches via the same
     # cuLaunchKernel driver API -> genuine count reduction, not a counter shift.
     global _XLOGX_EK
@@ -322,7 +322,7 @@ def _entropy_from_counts_axis(counts_3d, axes, n):
 
 _XLOGX_EK = None
 
-# FIX3 (2026-06-28): y and z are fit-CONSTANTS across the greedy CMI loop (the same target / just-selected
+# FIX3: y and z are fit-CONSTANTS across the greedy CMI loop (the same target / just-selected
 # columns for every candidate batch in a round, and z changes only ONCE per greedy round). The prior code
 # re-uploaded BOTH via cp.asarray on EVERY call -> per-candidate-batch H2D churn (the measured safe_cuda_api
 # 0.63s + .get() 0.45s overhead on the CPU-strict path, where the CMI GPU launch is neutral-to-hurting vs the
@@ -343,17 +343,17 @@ from collections import OrderedDict as _CmiResidentOrderedDict
 
 _CMI_RESIDENT_CACHE: "_CmiResidentOrderedDict" = _CmiResidentOrderedDict()
 _CMI_RESIDENT_CACHE_MAX_ENTRIES = 16
-# INFO_THEORY_A-9 fix: this cache had no lock at all, unlike its two siblings in
+# This cache had no lock at all, unlike its two siblings in
 # this same file (_FORDER_LOCK, _FACTORS_DEVICE_LOCK). Content-hash-guarded (see _resident_upload's own
 # `sig` fingerprint), so an unlocked race here only cost a redundant upload (self-healing) rather than
-# silent corruption -- but the 2-of-3-locked inconsistency was a design smell worth closing.
+# silent corruption - but the 2-of-3-locked inconsistency was a design smell worth closing.
 _CMI_RESIDENT_CACHE_LOCK = threading.Lock()
 
 
 def _resident_upload(arr, key):
     """Return a device int32 copy of host ``arr``, reusing a cached upload keyed on the caller's ``key``.
 
-    The dispatch keys on ``(id(factors_data), column_index, nbins)`` -- a STABLE identity across the greedy
+    The dispatch keys on ``(id(factors_data), column_index, nbins)`` - a STABLE identity across the greedy
     loop (the freshly-sliced host column is re-allocated every call, so keying on the slice's own id would
     never hit; the parent ``factors_data`` + column index is the fit-constant). ``id()`` can be recycled
     after factors_data is GC'd, so shape/dtype are folded into the cached entry and a recycled id with a
@@ -363,13 +363,13 @@ def _resident_upload(arr, key):
     import cupy as cp
 
     # Diagnostic A/B switch only (default ON): MLFRAME_CMI_RESIDENT_CACHE=0 forces a fresh upload every call
-    # to reproduce the pre-FIX3 H2D churn for the wall A/B. NOT a perf gate -- the cache is always on in prod.
+    # to reproduce the pre-FIX3 H2D churn for the wall A/B. NOT a perf gate - the cache is always on in prod.
     import os as _os
     if _os.environ.get("MLFRAME_CMI_RESIDENT_CACHE", "1").strip().lower() in ("0", "false", "off", "no"):
         return cp.asarray(arr)
     # CONTENT FINGERPRINT (recycled-id guard): id(factors_data) is reused by the allocator after the parent
     # is GC'd, so a recycled id with the SAME column index + shape + dtype but DIFFERENT values would return a
-    # STALE device copy (a silent correctness bug -- caught by the cmi parity tests). Fold a cheap O(n) host
+    # STALE device copy (a silent correctness bug - caught by the cmi parity tests). Fold a cheap O(n) host
     # content hash of the (small, 1-D, int) array into the key so different contents never alias. The hash is
     # pure CPU and far cheaper than the H2D it guards; on a real greedy loop the same y/z hash identically ->
     # the cache still hits every candidate batch.
@@ -395,22 +395,22 @@ def clear_cmi_resident_cache() -> None:
 
 
 # --------------------------------------------------------------------------------------------------------------------
-# XC RESIDENT MATRIX (2026-07-12): ``factors_data`` (ALL candidate columns) is a fit-CONSTANT across the whole
-# greedy CMI loop -- same object for every round -- yet the dispatch below re-sliced the round's candidate subset
+# XC RESIDENT MATRIX: ``factors_data`` (ALL candidate columns) is a fit-CONSTANT across the whole
+# greedy CMI loop - same object for every round - yet the dispatch below re-sliced the round's candidate subset
 # via ``factors_data[:, cand_indices].T`` on the HOST every round and handed the fresh host array to
-# ``conditional_mi_batched_cuda``, which then re-uploaded it via ``cp.asarray`` -- a host slice-copy PLUS an H2D
+# ``conditional_mi_batched_cuda``, which then re-uploaded it via ``cp.asarray`` - a host slice-copy PLUS an H2D
 # transfer, repeated every round, of the single LARGEST operand any GPU kernel in this package touches (bigger
 # than y/z by a factor of p, the audit's biggest-magnitude finding: tens of GB of redundant PCIe traffic over a
 # 100k x 500 fit). y/z already got the resident treatment above (FIX3) for exactly this reason; Xc did not,
-# because it is genuinely PER-CANDIDATE -- but every round's candidates are always a SUBSET of the SAME
+# because it is genuinely PER-CANDIDATE - but every round's candidates are always a SUBSET of the SAME
 # fit-constant ``factors_data``, so the fix is to upload ``factors_data`` itself ONCE (keyed on its identity,
 # mirroring ``_cmi_forder_view``'s weakref-identity guard a few dozen lines above) and GATHER the round's
-# candidate columns ON-DEVICE (cupy fancy-indexing + transpose) -- the host never sees the big matrix again
+# candidate columns ON-DEVICE (cupy fancy-indexing + transpose) - the host never sees the big matrix again
 # after the first round. Selection-equivalent by construction: the gathered device values are byte-identical to
 # the old host-sliced-then-uploaded ones (same source array, same column selection, same dtype cast).
 # OrderedDict (not plain dict) for O(1) LRU: bounded at a handful of entries (each a FULL factors_data
 # copy, potentially ~100s of MB of VRAM) so a long-lived process running many fits/CV-folds never grows
-# this cache unboundedly -- move-to-end on hit, evict only the single coldest entry on overflow (mirrors
+# this cache unboundedly - move-to-end on hit, evict only the single coldest entry on overflow (mirrors
 # ``_fe_resident_operands.py``'s ``_FE_RESIDENT_OPERANDS`` LRU discipline for the exact same VRAM-safety
 # reason). 4 is enough to keep 2-3 concurrently-alive folds/fits resident without ever approaching a 4 GB
 # card's budget (at ~200 MB/entry that is <=800 MB worst case, comfortable alongside the other resident
@@ -435,7 +435,7 @@ def _assert_codes_in_range_2d_per_column(host2d: np.ndarray, factors_nbins: np.n
     only validated the round's own ``cand_indices`` against the round's ``nbins_x = max(factors_nbins[cand])``
     upper bound); checking every column against its OWN nbins entry is at least as strict, so it can only catch
     an invalid code EARLIER, never later. Run ONCE per ``factors_data`` identity (see
-    ``_resident_factors_device``) instead of every greedy round -- cheaper in total than the old per-round
+    ``_resident_factors_device``) instead of every greedy round - cheaper in total than the old per-round
     re-scan (which repeats across dozens of rounds over overlapping candidate sets) while never weakening the
     safety net the OOB screen exists for (a code indexing outside the device histogram is a hard
     ``cudaErrorIllegalAddress`` crash, not a catchable Python error).
@@ -457,12 +457,12 @@ def _assert_codes_in_range_2d_per_column(host2d: np.ndarray, factors_nbins: np.n
 def _resident_factors_device(factors_data: np.ndarray, factors_nbins: np.ndarray) -> Any:
     """Return the WHOLE ``factors_data`` matrix resident on-device as int32, uploaded ONCE per fit.
 
-    Keyed on ``id(factors_data)`` with a weakref identity guard -- mirrors ``_cmi_forder_view`` a few dozen
+    Keyed on ``id(factors_data)`` with a weakref identity guard - mirrors ``_cmi_forder_view`` a few dozen
     lines above (the SAME object, already trusted with an id-only guard in this exact file): a recycled id
     (allocator reuse after the original ``factors_data`` is GC'd) fails the ``ref() is factors_data`` check and
     re-uploads, never returning a stale buffer. The one-time OOB guard (see
     ``_assert_codes_in_range_2d_per_column``) runs on every fresh upload (cache miss OR the disabled A/B path),
-    so every device array this function returns has already been fully validated -- callers may pass
+    so every device array this function returns has already been fully validated - callers may pass
     ``codes_trusted=True`` downstream.
     """
     import weakref
@@ -475,7 +475,7 @@ def _resident_factors_device(factors_data: np.ndarray, factors_nbins: np.ndarray
         return cp.asarray(host)
 
     # Cache-hit fast path never touches the host array at all (no ascontiguousarray/dtype check on the
-    # hot loop) -- the identity key alone decides the hit, matching the "gather on-device, never re-touch
+    # hot loop) - the identity key alone decides the hit, matching the "gather on-device, never re-touch
     # the host" goal this cache exists for.
     key = id(factors_data)
     with _FACTORS_DEVICE_LOCK:
@@ -497,7 +497,11 @@ def _resident_factors_device(factors_data: np.ndarray, factors_nbins: np.ndarray
 
 def clear_cmi_xc_resident_cache() -> None:
     """Drop the resident whole-factors_data device cache (call at FE-step teardown alongside the y/z cache)."""
-    _FACTORS_DEVICE_CACHE.clear()
+    # Hold the same lock every mutate/iterate of this OrderedDict takes (_resident_factors_device's
+    # dead-purge loop), else a teardown clear racing a still-fitting worker raises
+    # "RuntimeError: dictionary changed size during iteration".
+    with _FACTORS_DEVICE_LOCK:
+        _FACTORS_DEVICE_CACHE.clear()
 
 
 def conditional_mi_batched_cuda(
@@ -517,17 +521,17 @@ def conditional_mi_batched_cuda(
 
     Parameters
     ----------
-    Xc : (p, n) int32 -- candidate codes, one row per candidate (0..nbins_x-1). May be ``None`` when
-        ``Xc_g`` (an already-uploaded, already-validated device array) is supplied instead -- the
+    Xc : (p, n) int32 - candidate codes, one row per candidate (0..nbins_x-1). May be ``None`` when
+        ``Xc_g`` (an already-uploaded, already-validated device array) is supplied instead - the
         resident-gather dispatch path below does exactly this so the host never rebuilds the big matrix.
-    y, z : (n,) int32 -- target / conditioning codes.
+    y, z : (n,) int32 - target / conditioning codes.
     nbins_x, nbins_y, nbins_z : per-variable cardinalities (max code + 1 is fine; empty bins cost
         only shared-mem, not correctness).
     block_size : threads per block (one block per candidate).
     Xc_g : pre-uploaded, pre-gathered (p, n) int32 device array (skips the host ``Xc`` -> ``cp.asarray``
         round-trip entirely when supplied).
     codes_trusted : when True, skips the OOB guard on ``Xc``/``Xc_g`` (the caller has already validated the
-        WHOLE parent matrix once via ``_resident_factors_device`` -- see that function's docstring).
+        WHOLE parent matrix once via ``_resident_factors_device`` - see that function's docstring).
 
     Returns RAW CMI clamped at 0, mirroring the CPU ``conditional_mi``.
     """
@@ -578,7 +582,7 @@ def conditional_mi_batched_cuda(
 
     # FUSED (launch-reduction): one block-per-candidate kernel reads the global joint once, builds the
     # (X,Z)/(Y,Z)/(Z) marginals in shared memory, reduces all four plug-in entropies, and writes the clamped
-    # CMI in ONE launch -- replacing the four _entropy_from_counts_axis calls (~12 cuLaunchKernel) + the
+    # CMI in ONE launch - replacing the four _entropy_from_counts_axis calls (~12 cuLaunchKernel) + the
     # cmi assembly + maximum. Same float64 p*log p over nonzero cells -> within the ~1e-9 parity gate.
     # Falls back to the four-call cupy path on any kernel error.
     try:
@@ -603,7 +607,7 @@ def conditional_mi_batched_cuda(
 
 @njit(parallel=True, cache=True)
 def _cpu_cmi_loop_parallel(factors_data, cand_indices, y, z, factors_nbins, var_is_nominal) -> np.ndarray:
-    """``prange`` CMI over candidates -- each ``conditional_mi(X_j; Y | Z)`` is independent and stateless
+    """``prange`` CMI over candidates - each ``conditional_mi(X_j; Y | Z)`` is independent and stateless
     (``entropy_cache=None``), so this fans the exact per-candidate kernel across ALL cores. Bit-identical to the serial
     loop (verified maxdiff 0.0; ~9x on 16 cores at p=400). ``var_is_nominal`` is passed through but unused inside
     ``conditional_mi`` (it hardcodes ``None`` to ``merge_vars``)."""
@@ -618,20 +622,20 @@ def _cpu_cmi_loop_parallel(factors_data, cand_indices, y, z, factors_nbins, var_
 # --------------------------------------------------------------------------------------------------------------------
 # Y,Z-ENTROPY HOIST (2026-07): in an MRMR greedy round Y (target) and Z (just-selected feature) are FIXED across the
 # WHOLE candidate pool, yet ``conditional_mi`` rebuilds H(Z), the (Y,Z) joint melt (``classes_yz``) and H(Y,Z) on EVERY
-# candidate -- its existing ``entropy_z``/``entropy_yz`` params cannot remove that work because the H(X,Y,Z) term is
+# candidate - its existing ``entropy_z``/``entropy_yz`` params cannot remove that work because the H(X,Y,Z) term is
 # built by melting X on top of ``classes_yz`` (needed per candidate). This pair of kernels computes the fixed (Y,Z)/Z
 # terms + ``classes_yz`` ONCE per call and reuses a per-candidate COPY of ``classes_yz`` for the H(X,Y,Z) melt, so each
 # candidate does only the two X-dependent melts (X,Z and X-on-YZ) instead of all four. BIT-IDENTICAL by construction:
-# same merge order (unpack_and_sort), same ``entropy`` reduction -- verified maxabsdiff EXACTLY 0.0 in
+# same merge order (unpack_and_sort), same ``entropy`` reduction - verified maxabsdiff EXACTLY 0.0 in
 # ``_benchmarks/bench_cmi_yz_hoist.py`` and ``tests/.../test_cpu_cmi_loop_yz_hoist_identity.py``. Measured 1.60-1.74x
-# (serial AND prange, n=1e6, nb=10/16, p=10..300) -- this path is the dominant wellbore main-process hotspot (the GPU
+# (serial AND prange, n=1e6, nb=10/16, p=10..300) - this path is the dominant wellbore main-process hotspot (the GPU
 # CMI cascade routes all redundancy through it). Mirrors the already-shipped ``_mi_greedy_cmi_fe.cmi_from_binned_fixed_yz``
 # hoist for the binned-values FE path; this applies the SAME win to the merge_vars ``conditional_mi`` path.
 
 
 @njit(cache=True)
 def _cmi_yz_fixed_terms(factors_data, y, z, factors_nbins, dtype):
-    """H(Z), the (Y,Z) merged dense classes, H(Y,Z) and nclasses_yz -- the per-round CONSTANTS. Melt order matches
+    """H(Z), the (Y,Z) merged dense classes, H(Y,Z) and nclasses_yz - the per-round CONSTANTS. Melt order matches
     ``conditional_mi``: Z alone for H(Z); ``unpack_and_sort(y, z)`` for the (Y,Z) joint."""
     _, freqs_z, _ = merge_vars(factors_data, z, None, factors_nbins, dtype=dtype)
     ent_z = entropy(freqs_z)
@@ -649,11 +653,11 @@ def _cmi_yz_fixed_terms(factors_data, y, z, factors_nbins, dtype):
 def _cmi_one_fixed_yz(factors_data, xi, zi, classes_yz, nclasses_yz, ent_yz, ent_z, factors_nbins, dtype):
     """I(X_i; Y | Z) reusing the fixed (Y,Z)/Z terms: only the X-dependent (X,Z) and (X-on-YZ) melts run.
 
-    Both melts use the freqs-ONLY pruned kernels ``conditional_mi`` itself already uses -- ``_entropy_xz_fused``
+    Both melts use the freqs-ONLY pruned kernels ``conditional_mi`` itself already uses - ``_entropy_xz_fused``
     (single-pass ``joint_freqs_2var`` for the 2-var X u Z union) and ``_entropy_x_onto_classes`` (histograms X onto
     the precomputed (Y,Z) labels ``classes_yz`` READ-ONLY, no length-n scratch copy, no discarded relabel/remap).
     Wasted-work audit (2026-07): the prior body called full ``merge_vars`` twice, each building + remapping a
-    length-n ``final_classes`` array (and a ``classes_yz.copy()``) that this path immediately discards -- only the
+    length-n ``final_classes`` array (and a ``classes_yz.copy()``) that this path immediately discards - only the
     joint freqs feed ``entropy``. Bit-identical BY CONSTRUCTION (same kernels as ``conditional_mi``, maxabsdiff
     EXACTLY 0.0), measured 1.33-1.65x at the wellbore redundancy shape (n=30k, p=100..2000, nbins 10-16, |Z|=1).
     Bench: ``_benchmarks/bench_cmi_pruned_melts.py``. ``classes_yz`` is never mutated -> prange-safe with no copy."""
@@ -698,7 +702,7 @@ def _cpu_cmi_loop(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int3
     candidate pool clears ``_CMI_PARALLEL_MIN_CANDS``; exact serial for a tiny pool (thread-spawn not worth it).
 
     ``cand_indices`` is a (p,) array of column indices into ``factors_data``; ``y`` / ``z`` are 1-element column-index
-    arrays (target / selected-feature). Was a SERIAL Python loop -- the 1-core CMI-screen bottleneck on the greedy path.
+    arrays (target / selected-feature). Was a SERIAL Python loop - the 1-core CMI-screen bottleneck on the greedy path.
 
     Routes through the Y,Z-entropy hoist by default (1.6-1.7x, bit-identical); MLFRAME_CMI_YZ_HOIST=0 restores the
     un-hoisted ``conditional_mi`` recompute path for the A/B (bench_cmi_yz_hoist.py). Both branches are exact.
@@ -733,10 +737,10 @@ def _cpu_cmi_loop(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int3
 
 
 # CIRCUIT BREAKER (2026-07): a cudaErrorLaunchFailure / illegal-address is an EXECUTION fault that POISONS the CUDA
-# context -- every SUBSEQUENT launch on that context then fails identically. In the wellbore run the first fault
+# context - every SUBSEQUENT launch on that context then fails identically. In the wellbore run the first fault
 # cascaded into 1515 futile GPU retries (each logged + each paying the host-side setup before failing) before falling
 # to CPU. Once ANY GPU CMI launch faults we trip this flag and route ALL further CMI to the (now-hoisted) CPU path for
-# the rest of the process -- no re-attempt on a dead context. Cheap, correct, and kills the retry spam. Reset only via
+# the rest of the process - no re-attempt on a dead context. Cheap, correct, and kills the retry spam. Reset only via
 # reset_cmi_gpu_circuit_breaker() (tests). NOT a substitute for preventing the fault; a resilience backstop.
 _CMI_GPU_FAILED = False
 
@@ -751,7 +755,7 @@ def _cmi_cuda_shmem_fits(joint_size: int, nbins_x: int = 0, nbins_y: int = 0, nb
     """Do BOTH batched-CMI kernels' shared-memory requests fit the per-block limit (cc 6.x = 48 KB)?
 
     Kernel 1 (joint histogram) needs ``joint_size * 4`` bytes. Kernel 2 (``cmi_from_joint``) needs
-    ``256*8 + (nbx*nbz + nby*nbz + nbz)*4`` -- which can EXCEED kernel 1 when an axis is degenerate (e.g. ``nby=1``
+    ``256*8 + (nbx*nbz + nby*nbz + nbz)*4`` - which can EXCEED kernel 1 when an axis is degenerate (e.g. ``nby=1``
     makes ``nbx*nbz == joint_size``, so kernel 2 = ``joint_size*4 + 2048 + 8*nbz``). Guarding only kernel 1 let that
     over-request launch-fail. When the individual nbins are unknown (default 0) only kernel 1 is checked (legacy)."""
     if joint_size * 4 > cc_smem_bytes:
@@ -768,7 +772,7 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
 
     Integrates with the FS kernel_tuning_cache singleton (pyutilz). On cache hit the decision is the
     measured one; on cache miss / pyutilz-unavailable a hand fallback applies (NO hardcoded value on
-    the hot path -- the fallback is the documented bootstrap heuristic only). VRAM guard: the joint
+    the hot path - the fallback is the documented bootstrap heuristic only). VRAM guard: the joint
     buffer is ``p * joint_size * 4`` bytes; reject if it would exceed a conservative slice.
     """
     if _CMI_GPU_FAILED:  # context poisoned by a prior launch fault -> never re-attempt the GPU this process.
@@ -793,11 +797,11 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
         pass
     if bytes_needed > cap:
         return False
-    # ABSOLUTE cushion guard (2026-07-05): the relative cap above is computed only AFTER the cupy pool may
+    # ABSOLUTE cushion guard: the relative cap above is computed only AFTER the cupy pool may
     # have already eaten the card; on a near-full / SHARED 4 GB card that lets the next launch fault. Require
-    # an ABSOLUTE free-VRAM floor (default >=1 GB) BEFORE touching the GPU. Pure ADD -- tightens, never loosens.
+    # an ABSOLUTE free-VRAM floor (default >=1 GB) BEFORE touching the GPU. Pure ADD - tightens, never loosens.
     # Reuses the ``memGetInfo`` probe already taken above for the relative cap (``free_b``/``total_b``) instead
-    # of letting ``fe_gpu_has_vram_cushion`` re-query the device a second time per dispatch (2026-07-13 fix) --
+    # of letting ``fe_gpu_has_vram_cushion`` re-query the device a second time per dispatch -
     # falls back to that function's own probe when the probe above failed (``free_b``/``total_b`` still None).
     try:
         from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
@@ -819,10 +823,10 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
     # diagnose). The CPU/CUDA conditional-MI backends are numerically equivalent (~1e-9) -> selection-equivalent.
     try:
         from mlframe.feature_selection.filters._fe_gpu_strict import fe_gpu_strict_enabled
-        # Pass THIS call's own (n, p) shape (2026-07-09 fix), not just the fit-level row count: STRICT used to
+        # Pass THIS call's own (n, p) shape, not just the fit-level row count: STRICT used to
         # force every dispatch to CUDA for the rest of a >=100k-row fit even when a LATE-round call has shrunk
         # to a handful of candidates (conditional_mi_batched_dispatch's p = len(cand_indices), which shrinks
-        # every greedy round) -- forcing GPU on a trivially small call pays full host<->device round-trip +
+        # every greedy round) - forcing GPU on a trivially small call pays full host<->device round-trip +
         # kernel-launch overhead for negligible compute, which is a plausible driver of low CPU+GPU utilization
         # simultaneously. See fe_gpu_strict_enabled's docstring / _STRICT_MIN_CALL_WORK.
         if fe_gpu_strict_enabled(n=n, p=p):
@@ -846,9 +850,9 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
     except Exception as _exc:
         logger.debug("cmi_cuda: kernel_tuning_cache unavailable (%s); hand fallback", _exc)
 
-    # MANDATE-1 (2026-06-23): per-host KTC-derived crossover (sibling _cmi_cuda_ktc). The legacy "FS
+    # per-host KTC-derived crossover (sibling _cmi_cuda_ktc). The legacy "FS
     # kernel_tuning_cache singleton" lookup above is a manual cache; this adds the SWEPT crossover the repo
-    # rule mandates -- a kernel_tuner that benches CPU vs CUDA on the real (n, p) conditional-MI shapes and
+    # rule mandates - a kernel_tuner that benches CPU vs CUDA on the real (n, p) conditional-MI shapes and
     # records the faster backend per region. On a measured hit it IS the gate; the hardcoded heuristic below
     # survives ONLY as the un-tuned (pre-sweep / no-cupy / lookup-failure) bootstrap default, per the rule.
     try:
@@ -882,7 +886,7 @@ def conditional_mi_batched_dispatch(
     ``conditional_mi`` loop. ``y_index`` / ``z_index`` are the single column indices of the target
     and the just-selected feature; ``cand_indices`` are the candidate column indices.
 
-    ``force`` -- ``"cuda"`` or ``"cpu"`` overrides the size/HW gate (tests / benchmarks). Default
+    ``force`` - ``"cuda"`` or ``"cpu"`` overrides the size/HW gate (tests / benchmarks). Default
     ``None`` uses the dispatcher.
     """
     cand_indices = np.asarray(cand_indices)
@@ -908,7 +912,7 @@ def conditional_mi_batched_dispatch(
         # out-of-range code (illegal-address) surfaces as a ValueError instead of being swallowed by
         # the device-fault fallback (which would silently mask a real bug -> CPU). Cheap host min/max.
         # Xc's OOB check is now the ONE-TIME whole-matrix guard inside ``_resident_factors_device``
-        # (see XC RESIDENT MATRIX above) -- it is strictly a superset of the old per-round Xc-subset
+        # (see XC RESIDENT MATRIX above) - it is strictly a superset of the old per-round Xc-subset
         # check, so it is not repeated here.
         from .._fe_batched_mi import _assert_codes_in_range
         _assert_codes_in_range(y, int(nbins_y), "conditional_mi_batched_dispatch y codes")
@@ -924,7 +928,7 @@ def conditional_mi_batched_dispatch(
             y_g = _resident_upload(y, (_fid, "y", int(y_index), int(nbins_y)))
             z_g = _resident_upload(z, (_fid, "z", int(z_index), int(nbins_z)))
             # XC RESIDENT: factors_data itself is uploaded ONCE per fit (id-keyed, weakref-guarded) and the
-            # round's candidate columns are GATHERED on-device (fancy-index + transpose) -- no host re-slice,
+            # round's candidate columns are GATHERED on-device (fancy-index + transpose) - no host re-slice,
             # no re-upload, of the single largest operand any GPU kernel here touches. codes_trusted=True
             # because _resident_factors_device already ran the (strictly stronger) whole-matrix OOB guard.
             factors_dev = _resident_factors_device(factors_data, factors_nbins)

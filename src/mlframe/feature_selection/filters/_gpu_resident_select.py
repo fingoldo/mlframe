@@ -30,9 +30,9 @@ from ._gpu_resident_select_kernels import (
     _resolve_radix_threads,
     _transpose_to_cm,
 )
-from ._gpu_resident_select_kernels import _transpose_cm_to_rm  # noqa: F401 -- re-export only, see module docstring
-from ._gpu_resident_select_kernels import fe_gpu_radix_edges_enabled  # noqa: F401 -- re-export only, see module docstring
-from ._gpu_resident_select_kernels import transpose_codes_to_cm  # noqa: F401 -- re-export only, see module docstring
+from ._gpu_resident_select_kernels import _transpose_cm_to_rm  # noqa: F401 - re-export only, see module docstring
+from ._gpu_resident_select_kernels import fe_gpu_radix_edges_enabled  # noqa: F401 - re-export only, see module docstring
+from ._gpu_resident_select_kernels import transpose_codes_to_cm  # noqa: F401 - re-export only, see module docstring
 
 
 def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extremes: bool = False):
@@ -47,14 +47,14 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
     itself, no special-casing needed) computed in the SAME select pass, returning the FULL (nbins+1, K)
     edge matrix (min, interior..., max) instead of interior-only. This lets ``batched_quantile_bin_gpu``
     skip its separate ``Xd.min(axis=0)``/``Xd.max(axis=0)`` reduction kernels (nsys: ~18%% of GPU time in the
-    cupy-search microbench) for the price of +2 order statistics in an already-shared-mem-bounded kernel --
+    cupy-search microbench) for the price of +2 order statistics in an already-shared-mem-bounded kernel -
     a no-op when nbins-1 interior ranks already include ranks near 0/n-1 (union dedups), and at worst +2
-    slots against the R<=64 cap. Cached under a SEPARATE key from the interior-only path -- the two modes
+    slots against the R<=64 cap. Cached under a SEPARATE key from the interior-only path - the two modes
     never share or corrupt each other's cache entries.
 
     ``cm_hint`` (LAUNCH-FUSION 2026-06-27): an OPTIONAL (K, n) C-order column-major view of the SAME data as
     ``cand_gpu`` (e.g. the materialise kernel's pre-transpose cm buffer). When supplied, the internal
-    ``_transpose_to_cm(cand_gpu)`` is SKIPPED -- the chunk path already produced this exact buffer (the
+    ``_transpose_to_cm(cand_gpu)`` is SKIPPED - the chunk path already produced this exact buffer (the
     materialise kernel wrote cm then transposed it to the rm ``cand_gpu``), so the round-trip transpose pair
     (rm->cm here + cm->rm in materialise) collapses to ONE. The order statistics read the same values ->
     BIT-IDENTICAL edges. Validated shape (K, n) == (cand_gpu.shape[1], cand_gpu.shape[0]); any mismatch
@@ -64,10 +64,10 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
     n, K = cand_gpu.shape
     is_f32 = cand_gpu.dtype == cp.float32
     # ALL of the order-statistic geometry (ranks, R, shared-mem gate, the cupy 'linear' interp gathers bi/ai/w,
-    # the device rank vector ranks_g) depends ONLY on (n, nbins) -- NOT the candidate data -- so compute it ONCE
+    # the device rank vector ranks_g) depends ONLY on (n, nbins) - NOT the candidate data - so compute it ONCE
     # per (n, nbins) and cache it. Was recomputed on EVERY per-candidate call (~11.6k x on the FE pair scan): the
     # np.unique host sort (cProfile 2026-07-01: 12,149 calls / 4.05s = the top host-CPU cost on this path), the
-    # linspace/floor, the per-call device-attribute lookup, AND the ranks H2D -- all data-independent. A cached
+    # linspace/floor, the per-call device-attribute lookup, AND the ranks H2D - all data-independent. A cached
     # None records the "radix inapplicable" verdict (R over the kernel cap / shared-mem over the device limit) so
     # the caller's cp.percentile fallback is taken without recomputing. Selection-IDENTICAL: same ranks -> same
     # order statistics -> bit-identical edges.
@@ -86,7 +86,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
         uniq = np.unique(np.concatenate([bel, abv]))  # the order-statistic ranks to extract
         R = int(uniq.size)
         # shared-mem budget: R*256 uint32 histogram (host gate vs the device's per-block shared limit). The gate
-        # must reserve the kernels' STATIC __shared__ footprint too -- dynamic ``shmem`` ALONE near the limit, plus
+        # must reserve the kernels' STATIC __shared__ footprint too - dynamic ``shmem`` ALONE near the limit, plus
         # the static arrays, overflows the per-block budget and cuLaunchKernel raises CUDA_ERROR_INVALID_VALUE.
         shmem = R * 256 * 4
         try:
@@ -97,7 +97,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
         if R > _RADIX_SELECT_MAXR or shmem > sh_limit - _RADIX_STATIC_SHARED_BYTES:
             _RADIX_INTERP_CACHE[_ik] = None  # radix path inapplicable for this (n, nbins)
         else:
-            # cupy 'linear' interp gather indices + weight (bi/ai/w) -- needed BEFORE the kernel for the fused f64
+            # cupy 'linear' interp gather indices + weight (bi/ai/w) - needed BEFORE the kernel for the fused f64
             # path, which interpolates in-kernel.
             ranks_g = cp.asarray(uniq, dtype=cp.int64)
             pos = {int(r): i for i, r in enumerate(uniq)}
@@ -112,7 +112,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
     # COLUMN-MAJOR input (nvprof-driven, 2026-06-20): one block/column previously read data[i*K+col] from
     # the (n,K) row-major buffer -> stride-K, gld_efficiency 12.5% (1/8 coalesced) on the dominant n-loop
     # (4 byte-passes x n reads). Transpose to (K,n) C-order so consecutive threads read consecutive memory
-    # (data[col*n+i]) -- one transpose pass buys ~8x coalescing across the 4 passes. Values unchanged ->
+    # (data[col*n+i]) - one transpose pass buys ~8x coalescing across the 4 passes. Values unchanged ->
     # bit-identical order statistics. (The bin_codes step still uses the original (n,K) cand_gpu.)
     # Reuse the materialise kernel's pre-transpose (K, n) cm buffer when handed in (launch-fusion: skip the
     # rm->cm transpose that exactly inverts materialise's cm->rm). Validate shape/contiguity/dtype; else transpose.
@@ -136,7 +136,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
     ne_rows = int(bi.shape[0])
     if not is_f32:
         # FUSED select+interp (launch-reduction): the f64 radix select keeps its R order statistics in shared
-        # memory and emits the (ne, K) interior edges directly -- ONE launch, no osv global, no separate
+        # memory and emits the (ne, K) interior edges directly - ONE launch, no osv global, no separate
         # radix_interp launch. Bit-identical to the two-kernel f64 path (same select body + same f64 interp).
         try:
             edges = cp.empty((ne_rows, K), dtype=cp.float64)
@@ -181,13 +181,13 @@ def _radix_quantiles(cand_gpu, q_fracs):
     """Per-column quantiles at ``q_fracs`` (fractions in [0,1]) over the resident (n, K) cupy ``cand_gpu``
     via the SAME sort-free radix-select kernel + cupy 'linear' interpolation as ``_radix_select_interior_edges``.
     Returns ``(len(q_fracs), K)`` float64, BIT-IDENTICAL to ``cp.percentile(cand, [q*100 ...], axis=0)``
-    (and to ``cp.median`` at q=0.5 -- even-n linear interp == mean of the two middle order statistics).
+    (and to ``cp.median`` at q=0.5 - even-n linear interp == mean of the two middle order statistics).
     Returns ``None`` when the radix path is inapplicable (R over the kernel cap / shared-mem over the device
     limit) so the caller takes the cp.percentile fallback. ``cand_gpu`` must be a finite (n, K) cupy array.
 
     This generalises ``_radix_select_interior_edges`` (which is locked to ``linspace(0,100,nbins+1)`` binning
     edges) to ARBITRARY quantiles so the robust-scale / heavy-tail path (median, MAD-median, q25/q75) reuses
-    the radix machinery instead of cp.median/cp.percentile's full per-call sort -- one select+interp launch
+    the radix machinery instead of cp.median/cp.percentile's full per-call sort - one select+interp launch
     pair per quantile-set vs the sort's ~6-8."""
     import cupy as cp
 
@@ -223,7 +223,7 @@ def _radix_quantiles(cand_gpu, q_fracs):
     out = cp.empty((nq, K), dtype=cp.float64)
     if not is_f32:
         # FUSED select+interp (launch-reduction): the f64 radix select keeps its order statistics in shared
-        # memory and emits the nq interior quantiles directly -- ONE launch, no osv global, no separate interp.
+        # memory and emits the nq interior quantiles directly - ONE launch, no osv global, no separate interp.
         try:
             _get_radix_select_interp_f64_kernel()(
                 (K,), (threads,), (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), bi, ai, w, np.int32(nq), out), shared_mem=shmem

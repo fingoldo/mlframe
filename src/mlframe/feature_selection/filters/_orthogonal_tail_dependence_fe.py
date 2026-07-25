@@ -1,5 +1,5 @@
-"""Layer 73 (mrmr_audit_2026-07-20 fe_expansion.md): upper/lower tail-dependence coefficient scorer
-for the auto-scorer pool -- a dedicated co-exceedance statistic, distinct from the Layer 66
+"""Layer 73: upper/lower tail-dependence coefficient scorer
+for the auto-scorer pool - a dedicated co-exceedance statistic, distinct from the Layer 66
 copula-MI scorer's FULL-distribution average.
 
 From extreme-value / copula theory (Longin & Solnik 2001; McNeil, Frey & Embrechts 2005), the upper
@@ -12,18 +12,18 @@ empirically as the co-exceedance rate at a fixed high quantile threshold ``q`` d
 ``(1 - q)`` (symmetrically, ``lambda_L`` at the lower tail via ``1 - q``).
 
 Why this catches a shape the catalog misses: the Layer 66 copula-MI scorer computes MI on the FULL
-rank-uniformized joint distribution -- an AVERAGE dependence measure over the whole ``[0,1]^2``
+rank-uniformized joint distribution - an AVERAGE dependence measure over the whole ``[0,1]^2``
 unit square. On a target where two columns are co-dependent ONLY in their joint extreme tail and
-essentially independent in the bulk (a Gumbel-copula-like structure -- financial contagion,
+essentially independent in the bulk (a Gumbel-copula-like structure - financial contagion,
 extreme-weather co-occurrence, catastrophic-failure data), the bulk's near-independence DILUTES the
 average copula-MI toward a middling, easy-to-miss value, while this dedicated statistic isolates
 exactly the co-exceedance signal that matters for a target like ``y = 1{catastrophic joint extreme
-event}``. This reuses the SAME rank-uniformization the copula-MI family already computes -- a
+event}``. This reuses the SAME rank-uniformization the copula-MI family already computes - a
 different summary of the same transformed data, not a duplicate.
 
 The raw co-exceedance rate is floored against a permutation-null co-exceedance rate (independently
 shuffling ``v``) to distinguish genuine tail dependence from finite-sample chance co-exceedance at
-small ``n * (1 - q)`` -- with few points in the tail, a handful of coincidental co-exceedances can
+small ``n * (1 - q)`` - with few points in the tail, a handful of coincidental co-exceedances can
 otherwise look like strong dependence.
 """
 

@@ -17,23 +17,23 @@ no admitted feature holds keeps a large CMI and is admitted.
 
 Validated design (S5; won 10/10 vs four failing approaches across 16
 (seed, formula) cells in ``D:/Temp/prevalence_proto.py``). The decisive
-conditioning is on the OTHER already-selected ENGINEERED features -- NOT the
+conditioning is on the OTHER already-selected ENGINEERED features - NOT the
 candidate's own operands (CMI given own operands is ~0 for EVERY feature incl.
-genuine ones -- a data-processing-inequality trap), NOT the raw top-k (operand-
+genuine ones - a data-processing-inequality trap), NOT the raw top-k (operand-
 coverage collisions kill real features).
 
 Two legs, BOTH load-bearing:
-  1. CMI clears a CONDITIONAL-PERMUTATION floor (the significance bar -- reuses
+  1. CMI clears a CONDITIONAL-PERMUTATION floor (the significance bar - reuses
      the production within-stratum permutation null,
      ``_conditional_permutation.conditional_permutation_test``).
   2. The DEBIASED conditional MI retains >= ``retain_frac`` (TAU, default 0.15)
      of the WEAKEST already-admitted feature's DEBIASED CMI (the relative-gap /
-     order-of-magnitude separator that the floor alone misses -- a redundant
+     order-of-magnitude separator that the floor alone misses - a redundant
      ``sub`` sits a few x above its own permutation floor yet far below every
      genuine engineered feature). TAU is a SCALE-FREE FRACTION of an in-data
      quantity; it is NOT an MI-nats constant.
 
-n-INVARIANCE (the debiasing -- 2026-06-08 hardening)
+n-INVARIANCE (the debiasing - 2026-06-08 hardening)
 ----------------------------------------------------
 The plug-in CMI (even Miller-Madow corrected by ``_cmi_from_binned``) carries a
 RESIDUAL positive finite-sample bias of order O(occupied_cells / n). That bias
@@ -59,16 +59,16 @@ clean separation at every n from 1k up. The significance FLOOR leg is unchanged
 carry the same bias). The seed feature's anchor likewise uses a marginal-
 permutation-debiased excess so all anchors live on one debiased scale.
 
-STRONG-SIGNIFICANCE ESCAPE (the false-reject fix -- 2026-06-11 hardening)
+STRONG-SIGNIFICANCE ESCAPE (the false-reject fix - 2026-06-11 hardening)
 ------------------------------------------------------------------------
 The relative bar (leg 2) is a RELATIVE separator anchored to the WEAKEST admitted
 feature's excess. When the admitted set is dominated by ONE strong seed, the bar
 ``TAU * seed_excess`` becomes a large ABSOLUTE CMI threshold, and a genuinely
 COMPLEMENTARY feature that is merely WEAKER than that seed (independent of the
 admitted support, but adding an order-of-magnitude less information) is dropped
-``redundant_below_rel_bar`` -- a FALSE REJECT. Adversarial repro: one strong
-driver plus several INDEPENDENT weak drivers (each provably non-redundant -- MI
-with the support ~0 -- each clearing its OWN conditional-permutation floor 20x+)
+``redundant_below_rel_bar`` - a FALSE REJECT. Adversarial repro: one strong
+driver plus several INDEPENDENT weak drivers (each provably non-redundant - MI
+with the support ~0 - each clearing its OWN conditional-permutation floor 20x+)
 were ALL dropped, costing ~3% R2 on a real gradient-boosting model. "Much weaker
 than the strongest selected feature" is NOT "redundant".
 
@@ -85,13 +85,13 @@ requires ``passes_floor`` first (leg 1), so it only ever loosens leg 2, never
 leg 1.
 
 Greedy: seed on the highest-marginal-MI engineered candidate (admitted on its
-marginal significance -- nothing to condition on yet), then admit remaining
+marginal significance - nothing to condition on yet), then admit remaining
 candidates in MI order subject to the two-leg test, folding each admitted
 feature into the conditioning support.
 
 All MI/CMI is computed via the production primitives
 (``_cmi_from_binned`` / ``_quantile_bin`` / ``_renumber_joint`` from
-``_mi_greedy_cmi_fe``) -- this module does NOT reimplement MI. The function is
+``_mi_greedy_cmi_fe``) - this module does NOT reimplement MI. The function is
 pure (no live framework state captured), so a fitted MRMR remains picklable.
 """
 from __future__ import annotations
@@ -115,7 +115,7 @@ from ._fe_cmi_redundancy_null import (  # noqa: F401
 )
 
 # Default TAU (relative-retention fraction). Scale-free fraction of the weakest
-# admitted feature's in-data CMI -- robust window measured [0.084, 1.0) across
+# admitted feature's in-data CMI - robust window measured [0.084, 1.0) across
 # 16 (seed, formula) cells; 0.15 sits in the middle with ~2x margin both sides.
 DEFAULT_CMI_RETAIN_FRAC = 0.15
 
@@ -128,11 +128,11 @@ DEFAULT_CMI_RETAIN_FRAC = 0.15
 # candidate whose information is an order of magnitude weaker than the weakest
 # admitted feature. Its DESIGN TARGET is the genuinely redundant feature (e.g. a
 # cross-signal ``sub`` whose y-information is already carried by the admitted
-# pair) -- such a feature sits only a SMALL multiple above its OWN conditional-
+# pair) - such a feature sits only a SMALL multiple above its OWN conditional-
 # permutation floor (measured ``cmi/floor`` 1.0--1.4 for the spurious ``sub`` vs
 # 50--340 for the genuine ``div``/``mul``). But the bar by itself ALSO drops a
 # genuinely COMPLEMENTARY feature that is merely WEAKER than a strong incumbent
-# (independent of the support, ``cmi/floor`` ~20, real predictive value) -- a
+# (independent of the support, ``cmi/floor`` ~20, real predictive value) - a
 # FALSE REJECT, because "much weaker than the strongest selected feature" is not
 # the same as "redundant". The escape fixes this: a candidate whose observed CMI
 # clears its OWN conditional-permutation floor by at least this MULTIPLICATIVE
@@ -165,7 +165,7 @@ _MIN_ROWS_FOR_CMI = 500
 # tunable (``MLFRAME_CMI_ANALYTIC_NULL_MIN_N``); a future kernel_tuning_cache sweep can refine per host.
 import os as _os
 
-# COST GUARD (2026-06-11): the greedy gate is O(K^2) in the candidate count K --
+# COST GUARD: the greedy gate is O(K^2) in the candidate count K -
 # every still-remaining candidate is re-scored against the admitted support in
 # EACH greedy round, and each scoring runs a within-stratum permutation null (25
 # permutations x a per-stratum Python shuffle). With a wide FE candidate pool
@@ -177,17 +177,17 @@ import os as _os
 # candidate and admits in MI order, so the top-M-by-marginal-MI prefix is exactly
 # the prefix the unbounded gate would process first; (b) a redundant monotone/
 # linear remap has the SAME marginal MI as its genuine sibling, so each genuine
-# driver's representative is retained -- only deep-tail redundant remaps (which the
+# driver's representative is retained - only deep-tail redundant remaps (which the
 # gate would reject anyway) are dropped pre-greedy; (c) genuinely complementary
 # drivers are real signal with high marginal MI, so they survive the cap. Default
 # 64 sits ~4x above the widest validated pool; raise to admit a larger greedy.
 _DEFAULT_MAX_CANDIDATES = 64
 
 _Y_DENSE_MEMO: dict = {}
-# FE_REDUNDANCY_SYNERGY-3 fix: the read-check-evict-write sequence below used to
-# run with no lock -- two MRMR.fit() calls running concurrently on DIFFERENT instances in different threads
+# The read-check-evict-write sequence below used to
+# run with no lock - two MRMR.fit() calls running concurrently on DIFFERENT instances in different threads
 # of the same process (joblib.Parallel(prefer="threads") / GridSearchCV(backend="threading") wrapping
-# MRMR -- a topology the per-instance _fit_reentrancy_lock does NOT protect against) could race on this
+# MRMR - a topology the per-instance _fit_reentrancy_lock does NOT protect against) could race on this
 # dict: next(iter(_Y_DENSE_MEMO)) can raise `RuntimeError: dictionary changed size during iteration` if
 # another thread's insert/pop lands between the iterator's creation and its first next().
 _Y_DENSE_MEMO_LOCK = threading.Lock()
@@ -213,7 +213,7 @@ def apply_cmi_redundancy_gate(
     candidates : dict ``{name -> (continuous_values: np.ndarray, marginal_mi: float)}``
         The engineered columns that already cleared the per-pair acceptance
         machinery (joint / prewarp / marginal-uplift). ``continuous_values`` is
-        the full-n float column (NOT pre-binned -- binned here so the CMI codes
+        the full-n float column (NOT pre-binned - binned here so the CMI codes
         match the production quantile binning the prototype validated).
     y_bin : np.ndarray
         Discretised target codes (the same ``classes_y`` the MI sweep scores
@@ -221,7 +221,7 @@ def apply_cmi_redundancy_gate(
     nbins : int
         Equi-frequency bins per candidate column.
     retain_frac : float
-        TAU -- the scale-free relative-retention fraction (default 0.15).
+        TAU - the scale-free relative-retention fraction (default 0.15).
     n_permutations, quantile : int, float
         Conditional-permutation floor config.
     significance_escape_margin : float
@@ -238,7 +238,7 @@ def apply_cmi_redundancy_gate(
         remaining candidate re-scored against the support in each round, each
         scoring running a per-stratum permutation null). When ``len(candidates)``
         exceeds this cap the pool is PRE-RANKED by marginal MI and only the
-        top-``max_candidates`` enter the greedy -- bounding the cost to O(M^2)
+        top-``max_candidates`` enter the greedy - bounding the cost to O(M^2)
         regardless of how wide the upstream FE pool grows. Safe for the redundancy
         decision: the gate already admits in marginal-MI order and a redundant
         remap shares its genuine sibling's marginal MI, so every genuine driver's
@@ -261,7 +261,7 @@ def apply_cmi_redundancy_gate(
 
     Degenerate fallback: with <2 candidates, or fewer than ``_MIN_ROWS_FOR_CMI``
     rows, there is nothing to condition on (or the conditional estimate is
-    unreliable) -- ACCEPT every candidate on its marginal significance rather
+    unreliable) - ACCEPT every candidate on its marginal significance rather
     than rejecting everything.
     """
     from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin, _renumber_joint
@@ -278,7 +278,7 @@ def apply_cmi_redundancy_gate(
     # ``cmi_cand_x`` / ``card_cand_x`` / ``permnull_cand_x`` re-uploads the host-code path incurred, plus the
     # ``qbin_x`` float that the host binner used to D2H back). The host int64 copy (``cand_bins``) is the D2H of
     # the SAME resident partition, retained for the host-only sites (partition-dedup hashing, ``_renumber_joint``
-    # support building on admit, and the CPU fallbacks) -- byte-identical to the device codes, so selection is
+    # support building on admit, and the CPU fallbacks) - byte-identical to the device codes, so selection is
     # unchanged. Falls back per-candidate to the host ``_quantile_bin`` on any cupy fault.
     _gate_resident = False
     if _os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() in ("1", "true", "on", "yes"):
@@ -352,18 +352,18 @@ def apply_cmi_redundancy_gate(
             cand_bins[nm] = _quantile_bin(vals, nbins=nbins)
     marg = {nm: float(candidates[nm][1]) for nm in names}
 
-    # PARTITION DEDUP (2026-06-11): a monotone/linear remap of an admitted feature
+    # PARTITION DEDUP: a monotone/linear remap of an admitted feature
     # bins to the IDENTICAL equi-frequency partition (equi-frequency binning is
     # rank-invariant; a decreasing remap yields the reversed-but-identical
     # partition). Such a remap carries IDENTICAL information and IDENTICAL marginal
-    # MI, so the greedy would correctly admit exactly one and reject the rest -- but
+    # MI, so the greedy would correctly admit exactly one and reject the rest - but
     # at full per-round permutation-null cost, AND (critically) a plain top-M-by-
     # marginal-MI cap can STARVE a genuine driver: when many tied-MI remaps of the
     # strongest driver crowd out every form of a weaker (but genuine) driver, the
     # weaker driver loses ALL its forms before the greedy even runs. Collapse each
     # exact-partition equivalence class to its best representative (highest marginal
     # MI; ties broken by name for determinism) BEFORE the cap so the cap operates on
-    # DISTINCT partitions -- every genuine driver keeps a representative and the
+    # DISTINCT partitions - every genuine driver keeps a representative and the
     # redundant siblings never pay the greedy cost. Partition identity is hashed on
     # the canonical (dense-renumbered) bin codes so a reversed-but-identical
     # partition collapses to the same key.
@@ -400,7 +400,7 @@ def apply_cmi_redundancy_gate(
     # COST GUARD: the greedy below is O(K^2) in the candidate count. When the pool
     # is STILL wide after partition dedup, PRE-RANK by marginal MI and keep only the
     # top-``max_candidates`` before the greedy (bounds cost to O(M^2)). The dropped
-    # tail is the lowest-marginal-MI DISTINCT-partition candidates -- genuine drivers
+    # tail is the lowest-marginal-MI DISTINCT-partition candidates - genuine drivers
     # are real signal with high marginal MI, so they survive; only deep-tail weak
     # candidates (which the greedy would reject anyway) never pay the per-round
     # permutation-null cost. ``max_candidates <= 0`` disables it.
@@ -444,13 +444,13 @@ def apply_cmi_redundancy_gate(
 
     # Seed: highest-marginal-MI candidate, admitted on its marginal significance
     # (nothing to condition on yet). Its DEBIASED-EXCESS marginal MI (marginal MI
-    # minus its marginal-permutation null mean) anchors the relative bar -- so the
+    # minus its marginal-permutation null mean) anchors the relative bar - so the
     # anchor lives on the SAME n-invariant debiased scale as the conditional
     # candidate excesses below (the raw marginal MI would re-introduce the bias the
     # excess removes).
     # Deterministic, hash-INDEPENDENT seed selection. ``remaining`` is a SET, so a bare
     # ``max(remaining, key=marg)`` over candidates with EQUAL marginal MI returns whichever
-    # element the set happened to iterate first -- PYTHONHASHSEED-randomised for string names,
+    # element the set happened to iterate first - PYTHONHASHSEED-randomised for string names,
     # so the seed (and therefore which equal-MI form anchors the support and which redundant
     # siblings are dropped) flipped across processes. This was the root cause of the non-
     # deterministic F2 ``heavy_tailed`` fusion flake: two RANK-EQUAL a/b forms (the raw (a,b)
@@ -461,7 +461,7 @@ def apply_cmi_redundancy_gate(
     #
     # MI is a RANK statistic and cannot separate the two (their bins are rank-equivalent), so the
     # tie is resolved by a STRUCTURAL preference: among equal-MI candidates prefer the SIMPLEST
-    # representative -- fewest WARPED operand tokens (``base__warp`` prewarp/engineered operands,
+    # representative - fewest WARPED operand tokens (``base__warp`` prewarp/engineered operands,
     # counted by ``__``), then fewest total operator tokens, then ascending name. This is the
     # project's "prefer the simpler/raw member of an MI-equivalence class" rule (raw operands carry
     # no fitted warp -> lower overfit risk AND they remain fusable by the downstream additive-fusion
@@ -494,13 +494,13 @@ def apply_cmi_redundancy_gate(
 
     while remaining:
         # DEVICE-BORN conditioning support Z: when every admitted feature has a resident code, join them ON the
-        # device (``_renumber_joint_gpu``) so Z never crosses H2D -- threaded RESIDENT through the round-batched
+        # device (``_renumber_joint_gpu``) so Z never crosses H2D - threaded RESIDENT through the round-batched
         # CMI, the per-candidate CMI, and the conditional perm-null (which derives order/z_rank on device). The
         # device join yields a different dense-id numbering than the host njit factorize but the SAME partition
         # -> the same CMI, so admit/reject is selection-identical. Mixed / host-fallback rounds keep the host
         # join. The host ``z_support`` is still built when NOT device-born (or as a rare perm-null fallback).
         # A round's frag-cap admission check (candidate_support, below) joins accepted_bins + the
-        # winning candidate -- EXACTLY the join this round needs here once that candidate is folded in
+        # winning candidate - EXACTLY the join this round needs here once that candidate is folded in
         # (accepted_bins now equals that same set). Reuse it instead of a second _renumber_joint over
         # the identical columns; consumed-and-cleared unconditionally so a frag-cap-frozen round (which
         # left accepted_bins unchanged) or the very first round never carries a stale/absent value in.
@@ -522,10 +522,10 @@ def apply_cmi_redundancy_gate(
             z_support = None  # host support built lazily only if a host consumer needs it this round
             _z_card = None
         # z handed to the DEVICE scorers (round-batched CMI + per-candidate CMI): the resident support when
-        # device-born, else the host support -- both accepted by the cupy resident-input branches.
+        # device-born, else the host support - both accepted by the cupy resident-input branches.
         _z_scored = z_support_dev if z_support_dev is not None else z_support
         # Relative bar is a fraction of the WEAKEST admitted feature's DEBIASED
-        # EXCESS CMI -- n-invariant because the finite-sample bias cancels in the
+        # EXCESS CMI - n-invariant because the finite-sample bias cancels in the
         # excess (cmi_obs - null_mean). A redundant candidate's excess ~ 0; a
         # genuine candidate's excess stays a large positive value.
         rel_bar = float(retain_frac) * min(admitted_excess)
@@ -594,7 +594,7 @@ def apply_cmi_redundancy_gate(
             _round_cmi = {}
             _round_floor = {}
         # z_support is FIXED within the round, so read its occupied cardinality ONCE here (one D2H) and pass it
-        # to every per-candidate CMI fallback as kz -- otherwise _cmi_from_binned_cupy re-reads int(dz.max()) per
+        # to every per-candidate CMI fallback as kz - otherwise _cmi_from_binned_cupy re-reads int(dz.max()) per
         # candidate. Candidate codes are nbins-binned, so kx=nbins is a safe (empty-bin) upper bound with no read.
         _zcard = 0
         if _z_card is not None:
@@ -629,7 +629,7 @@ def apply_cmi_redundancy_gate(
             # its OWN conditional-permutation floor by a robust multiplicative
             # margin carries genuinely NEW conditional information that is NOT in
             # the admitted support (a redundant feature's CMI collapses to ~its
-            # floor -- measured cmi/floor 1.0--1.4 for the spurious cross-signal
+            # floor - measured cmi/floor 1.0--1.4 for the spurious cross-signal
             # vs >=20 for a genuine complementary feature). Such a feature is
             # admitted even if its debiased excess is below the relative bar,
             # which by itself would FALSELY REJECT a complementary-but-weaker

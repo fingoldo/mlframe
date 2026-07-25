@@ -2,11 +2,11 @@
 ``mlframe.feature_selection.filters._screen_predictors`` so that file stays well below the
 1k-line monolith threshold and the (most-frequently-patched) confirmation math lives in one place:
 
-* :func:`score_candidates`  -- evaluate every feasible candidate's conditional-MI
+* :func:`score_candidates`  - evaluate every feasible candidate's conditional-MI
                                   gain given the current ``selected_vars`` (serial +
                                   joblib-parallel paths), filling ``expected_gains`` /
                                   ``partial_gains`` and returning the running best.
-* :func:`confirm_candidate`  -- permutation-confirm a single candidate ``X`` (direct
+* :func:`confirm_candidate`  - permutation-confirm a single candidate ``X`` (direct
                                   MI bootstrap + Fleuret conditional recheck), returning
                                   ``(bootstrapped_gain, confidence)``.
 * :func:`confirm_one_predictor`-- the full single-predictor confirmation cycle (the
@@ -27,6 +27,8 @@ from __future__ import annotations
 import logging
 from timeit import default_timer as timer
 from typing import Optional, cast
+
+import os
 
 import numba
 import numpy as np
@@ -52,27 +54,26 @@ from .permutation import mi_direct, _addone_pvalue_enabled
 
 logger = logging.getLogger(__name__)
 
-# RETIRED (2026-07-19, 7-site joblib.Parallel audit): ``score_candidates``'s ``evaluate_candidates``
-# threading-pool dispatch used to gate on ``n_workers > 1`` alone. Isolated/warmed/best-of-3+ A/B at this
-# call site's realistic scales found the pool NEVER wins over the serial fallback below: m=10 candidates ->
-# 0.03x, m=320 (wellbore-scale) -> 0.72-0.73x, m=820/n_workers=8 -> 0.81x -- confirming the GIL-bound
-# dispatch-boundary contention the 2026-07-09 comment (``_screen_predictors.py``) left
-# UNRESOLVED. ``_screen_predictors.py`` no longer ever builds a non-``None`` ``workers_pool`` for this
-# path, so this flag is redundant defense-in-depth, kept ``False`` as a documented historical marker rather
-# than deleting the branch outright. ``n_workers`` itself is still accepted/threaded through (other call
-# sites, e.g. the Fleuret conditional-confirmation gate further down, still branch on it).
-_EVALUATE_CANDIDATES_POOL_ENABLED = False
+# OPT-IN (default OFF): ``score_candidates``'s ``evaluate_candidates`` threading-pool dispatch used to gate on
+# ``n_workers > 1`` alone. Isolated/warmed/best-of-3+ A/B at this call site's realistic scales found the pool
+# NEVER wins over the serial fallback below: m=10 candidates -> 0.03x, m=320 (wellbore-scale) -> 0.72-0.73x,
+# m=820/n_workers=8 -> 0.81x, confirming GIL-bound dispatch-boundary contention. The serial path therefore
+# stays the default; ``MLFRAME_MRMR_EVAL_POOL=1`` re-enables the parallel branch so it remains reachable (not
+# dead code) for a workload shape a future host-specific measurement might favor. The parallel merge-back is
+# selection-identical to the serial path. ``n_workers`` is still accepted/threaded through regardless (other
+# call sites, e.g. the Fleuret conditional-confirmation gate further down, branch on it).
+_EVALUATE_CANDIDATES_POOL_ENABLED = os.environ.get("MLFRAME_MRMR_EVAL_POOL", "0").strip().lower() in ("1", "true", "on", "yes")
 
 
 # ``_mrmr_fit_impl`` imports ``_extract_single_raw_parent`` from this module by name (raw-retention pass).
 from ._confirm_predictor_engineered import (
     _confirmable_engineered_child,
     _conditioning_rows_per_cell,
-    _extract_single_raw_parent,  # noqa: F401 -- re-exported for _mrmr_fit_impl/_fit_impl_core.py
+    _extract_single_raw_parent,  # noqa: F401 - re-exported for _mrmr_fit_impl/_fit_impl_core.py
     _prefer_engineered_order,
 )
 
-# X_EFFICIENCY_ARCHITECTURE-1 fix: ScreenContext carved out into
+# ScreenContext carved out into
 # _confirm_predictor_context.py to clear the repo's enforced hard 1000-LOC CI gate (this file had crept
 # back to 1007 lines). Re-exported here so every existing import keeps working unchanged.
 from ._confirm_predictor_context import ScreenContext
@@ -102,7 +103,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
     cached_MIs = ctx.cached_MIs
     num_possible_candidates = ctx.num_possible_candidates
     cached_cond_MIs = ctx.cached_cond_MIs
-    # 2026-06-19: JMIM joint-MI cache + hit counter (see ScreenContext). Lazily
+    # JMIM joint-MI cache + hit counter (see ScreenContext). Lazily
     # provisioned for direct ScreenContext callers that don't set them, so the
     # serial evaluate_candidate path always gets a real numba dict (the @njit
     # kernel types the cache ``in`` check unconditionally).
@@ -364,7 +365,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
     if verbose > 2 and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
         logger.info("evaluate_candidates took %.1f sec.", timer() - eval_start)
 
-    # 2026-06-19: publish JMIM cache observability (size + cumulative hits) so tests /
+    # Publish JMIM cache observability (size + cumulative hits) so tests /
     # benches can confirm the cache engages. Only meaningful in JMIM mode; harmless else.
     try:
         from .info_theory import use_jmim_aggregator as _use_jmim_obs
@@ -432,10 +433,10 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
             # _fleuret_base_seed fix below) so ``random_seed`` actually reaches this marginal-confirmation
             # permutation gate (pre-fix: neither mi_direct nor mi_direct_gpu received any seed here, so the
             # CPU branch always drew the identical base_seed=0 permutation stream for every candidate, and
-            # the GPU branch drew fresh unseeded entropy every call -- non-reproducible and unaffected by
+            # the GPU branch drew fresh unseeded entropy every call - non-reproducible and unaffected by
             # ctx.random_seed either way).
             _marginal_base_seed = int(((int(random_seed or 0) * 2654435761) + hash(X)) & 0xFFFFFFFF)
-            # Route the confirm to CPU ``mi_direct`` (which carries the analytic large-n null -- the
+            # Route the confirm to CPU ``mi_direct`` (which carries the analytic large-n null - the
             # nperm->inf limit of the permutation test: faster, decision-equivalent) whenever the
             # analytic path would engage (n >= threshold) OR the GPU is globally disabled. The GPU
             # permutation confirm (``mi_direct_gpu``, cupy argsort) was 37% of a 300k fit on a weak
@@ -458,11 +459,11 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     if _gpu_off or _analytic_n:
                         _confirm_use_gpu = False
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in _confirm_predictor.py:528: %s", e)
+                    logger.debug("suppressed: %s", e)
                     pass
             if _confirm_use_gpu:
-                # SCREEN_CONFIRM_A-2 fix: mirror evaluate_candidate's GPU
-                # try/except (evaluation.py, 2026-07-09 fix) -- this call previously had NO exception
+                # Mirror evaluate_candidate's GPU
+                # try/except (evaluation.py, 2026-07-09 fix) - this call previously had NO exception
                 # handling, unlike every sibling GPU dispatch point in this codebase. A transient CUDA
                 # fault here (driver hiccup, OOM, a poisoned context from an earlier unrelated GPU call)
                 # would otherwise propagate all the way up and crash the whole (possibly hours-long)
@@ -518,7 +519,7 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     workers_pool=workers_pool,
                     parallel_kwargs=parallel_kwargs,
                     base_seed=_marginal_base_seed,
-                    # SCREEN_CONFIRM_B-4 fix: belt-and-braces -- this branch runs
+                    # belt-and-braces - this branch runs
                     # precisely when the caller already decided NOT to use GPU (_confirm_use_gpu=False);
                     # pin prefer_gpu=False explicitly rather than trusting mi_direct's own internal gate
                     # (which is now also fixed to check gpu_globally_disabled(), but a caller that already
@@ -580,14 +581,14 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     # unreliable conditional permutation gate.
                     return bootstrapped_gain, confidence
 
-            # fold the candidate's own identity (``hash(X)``) into the seed --
+            # fold the candidate's own identity (``hash(X)``) into the seed -
             # pre-fix this only depended on (random_seed, len(selected_vars)), so every distinct candidate
             # confirmed at the same selected_vars depth within one greedy round drew the IDENTICAL
             # permutation stream for the Fleuret conditional recheck.
             _fleuret_base_seed = int(((int(random_seed or 0) * 2654435761) + len(selected_vars) + 1 + hash(X)) & 0xFFFFFFFFFFFFFFFF)
             if n_workers and n_workers > 1 and full_npermutations > NMAX_NONPARALLEL_ITERS:
-                # SCREEN_CONFIRM_A-4 fix: build the Fleuret parallel pool ONCE per
-                # screen round and cache it on ``ctx`` -- pre-fix, ``workers_pool`` was always None here
+                # Build the Fleuret parallel pool ONCE per
+                # screen round and cache it on ``ctx`` - pre-fix, ``workers_pool`` was always None here
                 # (deliberately, per the RETIRED note above, for the UNRELATED evaluate_candidates path),
                 # so ``get_fleuret_criteria_confidence_parallel`` rebuilt a fresh joblib.Parallel pool on
                 # EVERY candidate needing the conditional recheck, even though the same ctx/round can
@@ -639,7 +640,7 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     base_seed=np.uint64(_fleuret_base_seed),
                 )
                 # The SERIAL confirm runs only at the screen's tiny default budget (full_npermutations=3,
-                # below NMAX_NONPARALLEL_ITERS) where the parallel path is never taken -- so there is no serial-vs-
+                # below NMAX_NONPARALLEL_ITERS) where the parallel path is never taken - so there is no serial-vs-
                 # parallel comparison to reconcile here. The add-one estimator's ceiling at budget 3 is 1-1/4=0.75,
                 # which lowers gain*confidence ~25% below min_relevance_gain and STARVES the screen (a prior C4
                 # attempt to add-one this path regressed cluster-aggregate / FE recovery). Keep the raw rate: a clean
@@ -690,7 +691,7 @@ def confirm_one_predictor(
 
     # Order-invariant gain tie-break. The descending-gain selection order below
     # used ``np.arange`` (candidate POSITION) as its secondary key, so on a gain
-    # tie the lower-positioned candidate won -- making the whole greedy path
+    # tie the lower-positioned candidate won - making the whole greedy path
     # depend on input column order: reversing the columns reverses the positions
     # and a DIFFERENT feature wins the tie, then conditions every later pick,
     # yielding a different selected set (column-order-invariance contract break,
@@ -709,7 +710,7 @@ def confirm_one_predictor(
 
     while True:  # confirmation loop (by random permutations)
 
-        # 2026-07-19: time EVERY score_candidates call (the whole remaining-pool rescore, cost
+        # Time EVERY score_candidates call (the whole remaining-pool rescore, cost
         # scaling with pool_size x |selected_vars|) separately from the rest of this retry loop, and
         # accumulate onto ctx so it survives across retries/predictors/interactions_orders. This is
         # what let a prior investigation reconstruct, after the fact, that wall time here (NOT the
@@ -786,7 +787,7 @@ def confirm_one_predictor(
 
                     # Budget-aware confidence for the gain multiplier. The marginal bootstrap confidence
                     # from ``mi_direct`` uses the add-one Monte-Carlo p-value (calibrated for the REPORTED
-                    # significance), whose ceiling at a clean null is ``budget/(budget+1)`` -- only 0.75 at
+                    # significance), whose ceiling at a clean null is ``budget/(budget+1)`` - only 0.75 at
                     # the screen's tiny default budget (full_npermutations=3). Multiplying the gain by that
                     # ceiling deflates a perfectly clean signal ~25%, dropping it below ``min_relevance_gain``
                     # and starving the FE pair-pool (engineered features collapse to ~0). Dividing by the
@@ -851,7 +852,7 @@ def confirm_one_predictor(
             # Per-signal prefer-engineered substitution. By the data-processing
             # inequality a transform E=f(P) cannot out-score its raw parent P on
             # mutual information, so when a raw feature wins a near-tie against
-            # its own transform the MI criterion always keeps the raw one -- yet
+            # its own transform the MI criterion always keeps the raw one - yet
             # the transform is the representation a shallow downstream actually
             # needs. If the confirmed winner X is raw and a transform of X sits
             # within the prefer-engineered band below it AND independently

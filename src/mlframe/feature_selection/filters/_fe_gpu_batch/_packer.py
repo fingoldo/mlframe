@@ -1,15 +1,15 @@
-"""Heterogeneous multi-GPU block packer for the FE batcher (2026-06-26).
+"""Heterogeneous multi-GPU block packer for the FE batcher.
 
-Assigns candidate-column BLOCKS to devices so the speed-weighted MAKESPAN is minimised -- a faster GPU
+Assigns candidate-column BLOCKS to devices so the speed-weighted MAKESPAN is minimised - a faster GPU
 gets proportionally more work. Each block is pre-sized by the caller to fit the SMALLEST device's per-wave
 VRAM budget, so device VRAM capacity is satisfied by construction and the assignment problem reduces to
 makespan on uniformly-related machines (R||Cmax with time = work / speed).
 
-PRIMARY solver: OR-Tools CP-SAT on the live path -- a trivial ILP (a few dozen booleans) solved to proven
+PRIMARY solver: OR-Tools CP-SAT on the live path - a trivial ILP (a few dozen booleans) solved to proven
 optimality in low-single-digit ms, run ONCE per fit. Greedy weighted-LPT is the labelled-SUBOPTIMAL
 fallback used only if ortools is unavailable; it is NOT equal to the solver (LPT makespan worst case
 4/3-1/3m, e.g. m=2 works [3,3,2,2,2] -> OPT 6, LPT 7), but it never changes which columns get scored, only
-how evenly they are spread -- the per-column MI is assignment-invariant, so the packer can never alter the
+how evenly they are spread - the per-column MI is assignment-invariant, so the packer can never alter the
 selected features.
 """
 from __future__ import annotations
@@ -73,9 +73,9 @@ def pack_blocks_to_devices(works: list[int], speeds: list[float], *, prefer: str
     """
     if not works:
         return []
-    # X_EDGE_CASES_BEST_PRACTICES-6 fix: a genuinely empty speeds list (zero
+    # a genuinely empty speeds list (zero
     # visible devices) used to be treated identically to the single-device case, silently returning
-    # device index 0 for every block -- misleading, since there IS no device 0. Currently unreachable
+    # device index 0 for every block - misleading, since there IS no device 0. Currently unreachable
     # via the sole caller (multi_gpu_fe_batch_mi already special-cases len(profs)<=1 before calling
     # this), but a future direct caller must fail loudly rather than get a bogus device assignment.
     if not speeds:

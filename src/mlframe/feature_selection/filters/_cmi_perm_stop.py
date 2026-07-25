@@ -1,4 +1,4 @@
-"""CMI-permutation stopping criterion + UAED elbow detector (2026-05-30 Wave 8).
+"""CMI-permutation stopping criterion + UAED elbow detector.
 
 C8 - Yu & Príncipe 2019 (*Entropy* 21(1):99). Stop when ``I(X_cand; Y | S)``
 is NOT significantly larger than a permutation null. Fuses CMI estimation
@@ -27,7 +27,7 @@ from numba import njit
 
 logger = logging.getLogger(__name__)
 
-# SCREEN_CONFIRM_A-3 fix: dense (K_x, K_y, K_z) histogram cap -- see cmi_permutation_stop's inline comment.
+# Dense (K_x, K_y, K_z) histogram cap - see cmi_permutation_stop's inline comment.
 _MAX_K_Z = 10_000
 
 
@@ -100,18 +100,18 @@ def cmi_permutation_stop(x_cand: np.ndarray, y: np.ndarray,
             z_comp = z_comp * K_j + col_j.astype(np.int64)
             K_z = K_z * K_j
             if K_z > _MAX_K_Z:
-                # SCREEN_CONFIRM_A-3 fix: this cap used to be 1_000_000 --
+                # This cap used to be 1_000_000 -
                 # _cmi_plugin_njit allocates a DENSE (K_x, K_y, K_z) float64 histogram, so even a modest
                 # K_x=K_y=10 at the old cap was 10*10*1_000_000*8 bytes = ~800 MB, rebuilt from scratch for
-                # the observed call AND every one of n_permutations (default 100) null draws -- a
+                # the observed call AND every one of n_permutations (default 100) null draws - a
                 # near-certain OOM/multi-minute hang once ~6+ ten-bin features are selected (K_z reaches
-                # ~1e6 fast: 10**6). Lowered by 100x to _MAX_K_Z=10_000 -- still generous for a
+                # ~1e6 fast: 10**6). Lowered by 100x to _MAX_K_Z=10_000 - still generous for a
                 # conditional-independence test (worst case K_x=K_y=10: 10*10*10_000*8 bytes = 8 MB) while
                 # removing the realistic OOM/hang risk. Conditioning cardinality overflowed the modulus:
                 # distinct conditioning states now collide under ``z_comp % _MAX_K_Z``, so the CMI is
                 # measured against a COARSENED Z. This can make a genuinely relevant feature look
                 # insignificant (its conditional dependence is masked by collided states) and trigger a
-                # premature stop -- warn so the caller can raise nbins / reduce |selected| rather than
+                # premature stop - warn so the caller can raise nbins / reduce |selected| rather than
                 # silently trust a coarse test.
                 logger.warning(
                     "CMI permutation-stop: conditioning cardinality K_z exceeded %d after %d/%d "

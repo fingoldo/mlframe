@@ -85,6 +85,27 @@ def test_group_aware_demotion_strips_engineered_features_with_zero_within_group_
     assert not (set(sel) & control_engineered_names), f"a demoted engineered feature survived into the final selection: {sel}"
 
 
+def test_group_aware_demotion_keeps_mrmr_gains_aligned(monkeypatch):
+    """FIT_IMPL-1 regression: the group-aware final demotion lowers ``n_features_`` (drops zero-within-group
+    engineered recipes) but is the LAST fit step; the ``len(mrmr_gains_) == n_features_ == number of output
+    columns`` contract must still hold afterward. Pre-fix the gains-alignment ran BEFORE the demotion, so a
+    demotion left ``len(mrmr_gains_) > n_features_``."""
+    X, y, groups = _nonlinear_panel(1)
+
+    control = _fit(X, y, groups, group_aware_mi=True)
+    assert list(control._engineered_recipes_ or []), "fixture must produce >=1 engineered survivor for demotion to bite"
+
+    monkeypatch.setattr(
+        "mlframe.feature_selection.filters.info_theory._group_mi.group_relevance_mi",
+        lambda *a, **kw: 0.0,
+    )
+    m = _fit(X, y, groups, group_aware_mi=True)
+    n_out = len(list(m.get_feature_names_out()))
+    assert (
+        len(m.mrmr_gains_) == m.n_features_ == n_out
+    ), f"post-demotion desync: len(mrmr_gains_)={len(m.mrmr_gains_)}, n_features_={m.n_features_}, n_out={n_out}"
+
+
 def test_group_aware_off_demotion_pass_is_a_noop():
     """No-op control: without ``group_aware_mi`` (or without ``groups``), ``get_group_mi()`` returns
     ``None`` and the demotion pass never runs -- the naive-MI FE selection is untouched."""

@@ -158,7 +158,7 @@ class MatplotlibRenderer:
                 try:
                     _eng.set(rect=(0.0, _band, 1.0, 1.0))  # type: ignore[call-arg]  # matplotlib stubs type _eng as the base LayoutEngine; constrained_layout was forced on above so this is always a ConstrainedLayoutEngine, whose .set() does accept rect
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in matplotlib.py:163: %s", e)
+                    logger.debug("suppressed: %s", e)
                     pass
             fig.text(0.5, _band * 0.5, _cap, ha="center", va="center", fontsize=7, color="0.35")
         return fig

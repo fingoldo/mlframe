@@ -4,14 +4,14 @@
 every target shuffle and every candidate it rebuilds the joint H(x, y_perm) contingency table and tracks
 the per-shuffle MAX corrected marginal MI over the pool. The X-codes, the per-candidate marginal entropy
 ``h_x`` and the Miller-Madow bias are permutation-INVARIANT (precomputed once on host, cheap); only the
-joint entropy changes per shuffle. This is the textbook resident pattern -- ONE batched workload, no
+joint entropy changes per shuffle. This is the textbook resident pattern - ONE batched workload, no
 per-pair launches (the trap that sank iter13's per-pair ``score_pair_combos``): upload the invariant
 operands ONCE, run the whole (perm x cand) histogram + MI + per-shuffle-max reduction on the device, and
 D2H only the (nperm,) per-shuffle maxes.
 
 GATE: engages only where a per-host KTC crossover (``_permutation_null_resident_ktc.permnull_use_resident``)
 MEASURED the resident path faster than the njit kernel; otherwise the caller stays on the exact njit. On a
-small card (GTX 1050 Ti, 6 SMs) the crossover favours the resident path only at LARGE (nperm * ncand * n) --
+small card (GTX 1050 Ti, 6 SMs) the crossover favours the resident path only at LARGE (nperm * ncand * n) -
 the production tabular F2 floor (ncand<=9, nperm=200, n=100k) may stay CPU there, which is correct.
 
 SELECTION-EQUIVALENCE: the per-cell ``-p*log(p)`` accumulation differs from the njit kernel ONLY in FP
@@ -30,10 +30,10 @@ import numpy as np
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
-# SCREEN_CONFIRM_B-5 fix: process-level circuit breaker, mirroring
+# process-level circuit breaker, mirroring
 # _permutation_null_pair_resident.py's order-2 _PAIR_MAXT_GPU_FAILED exactly. A WDDM-TDR
 # cudaErrorLaunchFailure on a small/weak card POISONS the CUDA context, so every subsequent order-1
-# resident-floor attempt this process re-faults; without this (and without ANY logging -- this file had
+# resident-floor attempt this process re-faults; without this (and without ANY logging - this file had
 # none before this fix), a real device fault would silently re-attempt the GPU on every screen_predictors/
 # FE call for the rest of the fit with zero trace in the logs. Trip on the FIRST fault; reset only via
 # reset_order1_maxt_gpu_circuit_breaker() (tests).
@@ -56,8 +56,8 @@ def order1_maxt_gpu_circuit_breaker_tripped() -> bool:
     """Whether the order-1 resident maxT GPU path is currently poisoned (skip GPU, use CPU njit floor)."""
     return _ORDER1_MAXT_GPU_FAILED
 
-# Working-set budget so the largest intermediate -- the (chunk_cand * chunk_perm * n) int64 joint-code
-# array -- stays well inside a small (4GB) card. We size the (cand, perm) tile so that
+# Working-set budget so the largest intermediate - the (chunk_cand * chunk_perm * n) int64 joint-code
+# array - stays well inside a small (4GB) card. We size the (cand, perm) tile so that
 # ``cc * pb * n * 8`` bytes is bounded; below ~96M cells -> ~768MB for the joint plus a same-size bincount
 # input, comfortably under 4GB with headroom for the operand uploads. Candidates and perms are BOTH tiled.
 _PERMNULL_TILE_CELLS = 24_000_000  # cc * pb * n upper bound (int64 cells); ~192MB per (joint) buffer
@@ -98,7 +98,7 @@ def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, j
     for c0 in range(0, ncand, cand_chunk):
         c1 = min(c0 + cand_chunk, ncand)
         cc = c1 - c0
-        # max_jc drives host-side shape/arange sizing, so read it from the HOST joint_card slice -- a device
+        # max_jc drives host-side shape/arange sizing, so read it from the HOST joint_card slice - a device
         # ``cp.max(...).item()`` here was a tiny per-chunk D2H scalar pull (latency, not bandwidth).
         max_jc = int(jc_host[c0:c1].max()) if c1 > c0 else 0
         if max_jc <= 0:
@@ -123,8 +123,8 @@ def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, j
             joint = (x_codes[:, None, :] + yp[None, :, :]).astype(cp.int64)  # (cc, pb, n)
             base = (cp.arange(cc, dtype=cp.int64)[:, None] * pb + cp.arange(pb, dtype=cp.int64)[None, :]) * max_jc  # (cc, pb)
             flat = (base[:, :, None] + joint).ravel()  # (cc*pb*n,)
-            # COALESCE (2026-06-24): cp.bincount internally pulls the input max (+ a sizing scalar) to host on
-            # EVERY call -- 2 tiny per-(cand,perm)-tile D2H scalar pulls that, summed over the floor's tile loop,
+            # COALESCE: cp.bincount internally pulls the input max (+ a sizing scalar) to host on
+            # EVERY call - 2 tiny per-(cand,perm)-tile D2H scalar pulls that, summed over the floor's tile loop,
             # are the canonical-fit's dominant tiny-D2H source (~2400 of ~2810 sub-4KB .get()s, F2 100k). The
             # output extent is KNOWN here (cc*pb*max_jc, every flat code < it by construction), so scatter_add
             # into a pre-zeroed buffer needs no max-pull and is sync-free (0 tiny D2H). int32 counts hold the
@@ -155,7 +155,7 @@ def gen_target_shuffles_cupy(y_codes: np.ndarray, nperm: int, dtype: type, rando
     no H2D upload of the ``(nperm, n)`` matrix (only the small ``(n,)`` target codes go up once). This is the
     residency-fair shuffle-gen the campaign left undone: on a small-VRAM card the ``(nperm, n)`` key+order
     buffers OOM at large n, so it is KTC-gated (``shufflegen_use_gpu``) and only fires where a per-host sweep
-    measured it faster -- a big-VRAM host -- with the host njit/numpy gen as the default + fallback.
+    measured it faster - a big-VRAM host - with the host njit/numpy gen as the default + fallback.
 
     Each row is a uniform permutation of ``y_codes`` (argsort of i.i.d. keys), a DIFFERENT stream than the
     host backends -> the floor is statistically equivalent, not byte-identical (same contract as the existing

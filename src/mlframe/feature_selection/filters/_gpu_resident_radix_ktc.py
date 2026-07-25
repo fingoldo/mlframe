@@ -1,4 +1,4 @@
-"""Lever B (2026-06-23): kernel-tuning-cache integration for the radix-select block size (threads/block).
+"""Lever B: kernel-tuning-cache integration for the radix-select block size (threads/block).
 
 Carved as a sibling of ``_gpu_resident_select.py`` (LOC budget + acyclic import graph, mirroring the G3
 ``_gpu_resident_k_chunk_ktc`` pattern). The ``radix_select_f32`` / ``radix_select_f64`` quantile-edge
@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import numpy as np
 
-# Candidate threads/block to sweep. HW-AWARE (2026-06-23): instead of fixed magic constants the candidate
+# Candidate threads/block to sweep. HW-AWARE: instead of fixed magic constants the candidate
 # SET is now derived from the device occupancy (warp-multiple block sizes that achieve >=2 active blocks/SM
 # for THIS kernel's register + shared usage, see _gpu_hw_launch.occupancy_block_candidates) so a different
 # card sweeps its own HW-valid points. The seed list below (powers + 768, spanning the GTX 1050 Ti measured
@@ -58,7 +58,7 @@ def _radix_threads_variants() -> list:
         cands = sorted(v for v in seed if v in valid)
         if _RADIX_THREADS_DEFAULT not in cands and _RADIX_THREADS_DEFAULT in valid:
             cands.append(_RADIX_THREADS_DEFAULT)
-        # Add the device's occupancy-max block (largest warp-multiple still >=2 blocks/SM) if not present --
+        # Add the device's occupancy-max block (largest warp-multiple still >=2 blocks/SM) if not present -
         # the seed list may not contain this card's sweet spot. Keeps the sweep small but HW-spanning.
         top = max(valid)
         if top not in cands:
@@ -92,11 +92,11 @@ def radix_select_threads(n: int) -> int:
     return _RADIX_THREADS_DEFAULT
 
 
-# Lever C/4 (2026-06-23): which f32 radix-select variant -- the base linear scan, the binary-search
-# window-match (Lever C), or the parallel-per-rank-scan ``v3`` (Lever 4) -- is the per-host fastest. The
+# Lever C/4: which f32 radix-select variant - the base linear scan, the binary-search
+# window-match (Lever C), or the parallel-per-rank-scan ``v3`` (Lever 4) - is the per-host fastest. The
 # base kernel is warp-divergence bound (~42% eff) on the per-row linear window scan; bsearch replaces that
 # with a branchless binary search; v3 ADDITIONALLY parallelises the per-pass cumulative scan across the R
-# ranks (was serial in tid==0 -- the dominant cost, NOT the n-read bandwidth: CUDA-event A/B at the
+# ranks (was serial in tid==0 - the dominant cost, NOT the n-read bandwidth: CUDA-event A/B at the
 # production shape measured the kernel at ~20 GB/s << the card's ~96 GB/s read peak; v3 = ~2x over bsearch,
 # 48.6->22.1ms uniform / 45.6->22.0ms normal, interleaved-min 2x-confirmed). All THREE are bit-identical in
 # the produced order statistics (only HOW windows are matched / WHERE the scan runs differs; the sweep ranks
@@ -133,16 +133,16 @@ def _radix_edges_with_f32_variant(cand, nbins: int, variant: str):
     from . import _gpu_resident_select_kernels as _grsk
 
     # Must set the override on the OWNING module (_gpu_resident_select_kernels, where
-    # _resolve_radix_f32_variant actually reads the global), not on _sel -- _sel re-exports the
+    # _resolve_radix_f32_variant actually reads the global), not on _sel - _sel re-exports the
     # name via a plain `from ... import`, which creates its own independent binding in _sel's
     # namespace; writing to that binding would silently never reach the kernels module's global
     # (found 2026-07-18: this sweep probe's override was a no-op the whole time).
     saved = _grsk._RADIX_F32_VARIANT_OVERRIDE
     try:
-        _grsk._RADIX_F32_VARIANT_OVERRIDE = str(variant)  # nosemgrep: module-global-write-via-reexport-alias -- _grsk IS _gpu_resident_select_kernels, the owning module
+        _grsk._RADIX_F32_VARIANT_OVERRIDE = str(variant)  # nosemgrep: module-global-write-via-reexport-alias - _grsk IS _gpu_resident_select_kernels, the owning module
         edges = _sel._radix_select_interior_edges(cand, int(nbins))
     finally:
-        _grsk._RADIX_F32_VARIANT_OVERRIDE = saved  # nosemgrep: module-global-write-via-reexport-alias -- same, restoring the owning module's global
+        _grsk._RADIX_F32_VARIANT_OVERRIDE = saved  # nosemgrep: module-global-write-via-reexport-alias - same, restoring the owning module's global
     if edges is None:
         return np.empty(0, dtype=np.float64)
     return cp.asnumpy(edges)
@@ -181,10 +181,10 @@ def _radix_edges_with_threads(cand, nbins: int, threads: int):
     # Same fix as _radix_edges_with_f32_variant above: must set on the owning module.
     saved = _grsk._RADIX_THREADS_OVERRIDE
     try:
-        _grsk._RADIX_THREADS_OVERRIDE = int(threads)  # nosemgrep: module-global-write-via-reexport-alias -- _grsk IS the owning module
+        _grsk._RADIX_THREADS_OVERRIDE = int(threads)  # nosemgrep: module-global-write-via-reexport-alias - _grsk IS the owning module
         edges = _sel._radix_select_interior_edges(cand, int(nbins))
     finally:
-        _grsk._RADIX_THREADS_OVERRIDE = saved  # nosemgrep: module-global-write-via-reexport-alias -- same, restoring the owning module's global
+        _grsk._RADIX_THREADS_OVERRIDE = saved  # nosemgrep: module-global-write-via-reexport-alias - same, restoring the owning module's global
     if edges is None:
         return np.empty(0, dtype=np.float64)
     return cp.asnumpy(edges)

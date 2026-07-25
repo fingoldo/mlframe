@@ -1,4 +1,4 @@
-"""Native univariate hypothesis-test prescreen for RFECV (Wave 5, 2026-05-28).
+"""Native univariate hypothesis-test prescreen for RFECV.
 
 Implements per-feature univariate significance tests against the target plus
 Benjamini-Yekutieli FDR correction. Numpy / pandas only at the API surface;
@@ -57,7 +57,7 @@ def is_numba_active() -> bool:
 # Helpers
 
 
-# L7 (Wave 5) fix: a true classification target almost never has more than a few
+# L7 fix: a true classification target almost never has more than a few
 # dozen labels, so cap the multiclass branch absolutely (independent of n). The
 # old max(10, sqrt(n)) threshold grew with n (1000 at n=1e6), mis-classifying a
 # high-cardinality integer regression target (counts/ages/integer-coded ordinals
@@ -143,7 +143,7 @@ def _benjamini_yekutieli(p_values: np.ndarray, alpha: float) -> np.ndarray:
 # Kruskal-Wallis (multiclass).
 #
 # _rank_with_ties / _mann_whitney_u_z / _kruskal_wallis_h are not called anywhere in production or
-# benchmarks -- every real call site uses the combined-single-sort _v2 variants below instead. Kept
+# benchmarks - every real call site uses the combined-single-sort _v2 variants below instead. Kept
 # deliberately as the bit-identity reference these _v2 kernels are regression-tested against
 # (tests/feature_selection/wrappers/test_wrappers_statistical_fixes.py::TestSingleSortKernelsBitIdentical),
 # not leftover dead code.
@@ -497,7 +497,7 @@ def _kendall_tau_z(x: np.ndarray, y: np.ndarray) -> Tuple[float, float]:
         return tau, 0.0
     # z under H0 of independence using the TIE-CORRECTED variance of S = C - D (Kendall 1945; same form scipy.stats.kendalltau
     # uses for its normal approximation). The previous (4n+10)/(9 n (n-1)) form is the NO-TIES variance of tau and gives the
-    # wrong z/p on tied integer / low-cardinality features -- exactly the columns that feed the BY-FDR family here. We need the
+    # wrong z/p on tied integer / low-cardinality features - exactly the columns that feed the BY-FDR family here. We need the
     # per-value tie-group sizes of x and y to assemble v0/vt/vu/v1/v2. np.unique(return_counts=) is not numba-typed, so the tie
     # sums are accumulated from a sorted pass. _tie_sums returns (sum t(t-1), sum t(t-1)(t-2), sum t(t-1)(2t+5)).
     sx0, sx1, sx2 = _tie_sums(x)
@@ -521,7 +521,7 @@ def _kendall_p_numeric_continuous(x: np.ndarray, y: np.ndarray, random_state: in
     xm = x[mask].astype(np.float64, copy=False)
     ym = y[mask].astype(np.float64, copy=False)
     # Test at FULL n. Subsampling large features to 2000 rows before testing mixed heterogeneous effective-n p-values into a
-    # single BY family -- a 2000-row p-value and a full-n p-value are NOT exchangeable, which loses power and breaks the
+    # single BY family - a 2000-row p-value and a full-n p-value are NOT exchangeable, which loses power and breaks the
     # BY-FDR validity (the procedure assumes a homogeneous family). scipy.stats.kendalltau runs the tie-corrected tau-b in
     # O(n log n), so full-n is affordable; fall back to the O(n^2) reference (tie-corrected variance) only when scipy is
     # unavailable. random_state is retained for signature compatibility but no longer drives a subsample draw.

@@ -233,7 +233,7 @@ def _within_group_descending_index(group_ids: np.ndarray, n: int) -> np.ndarray:
         try:
             return np.asarray(_numba_within_group_descending_rank(gi))
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _dummy_compute_helpers.py:235: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
     out = np.zeros(n, dtype=np.float64)
     counts: dict[Any, int] = {}

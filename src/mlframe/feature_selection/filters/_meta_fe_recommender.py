@@ -9,10 +9,10 @@ This module closes that gap with TWO complementary layers, both built ON the
 Layer-98 Param-Oracle (:mod:`mlframe.utils._param_oracle`):
 
 A. **Rule-based cold-start recommender** (:func:`recommend_fe_flags_by_rules`)
-   Cheaply fingerprints ``(X, y)`` -- reusing Param-Oracle's
+   Cheaply fingerprints ``(X, y)`` - reusing Param-Oracle's
    :func:`default_fingerprint` plus a handful of FE-relevant structural
    detectors (int-as-cat group columns, object/category cats, a time+entity
-   pair, NaN rate, continuous structure) -- and maps each matched precondition
+   pair, NaN rate, continuous structure) - and maps each matched precondition
    to the master flag(s) of the generator(s) that pay off on that shape. Needs
    NO history; it is the cold-start prior.
 
@@ -25,7 +25,7 @@ B. **Param-Oracle-backed learned recommender** (:class:`MetaFERecommender`)
    learned layer therefore IMPROVES on the static rules over time as more
    datasets are seen, without ever doing worse than the cold-start prior.
 
-KEY CONSTRAINT (inherited from Param-Oracle): the learned store is STAT-ONLY --
+KEY CONSTRAINT (inherited from Param-Oracle): the learned store is STAT-ONLY -
 only scalar fingerprint stats, the flag-set, and the CV score touch disk; raw
 arrays never do.
 """
@@ -202,8 +202,8 @@ def _iter_columns(X):
         for c in X.columns:
             try:
                 out.append((str(c), np.asarray(X[c].to_numpy())))
-            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                logger.debug("suppressed in _meta_fe_recommender.py:204: %s", e)
+            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+                logger.debug("suppressed: %s", e)
                 continue
         return out
     # polars
@@ -212,8 +212,8 @@ def _iter_columns(X):
         for c in X.columns:
             try:
                 out.append((str(c), np.asarray(X.get_column(c).to_numpy())))
-            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                logger.debug("suppressed in _meta_fe_recommender.py:213: %s", e)
+            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+                logger.debug("suppressed: %s", e)
                 continue
         return out
     # numpy / array-like
@@ -275,7 +275,7 @@ def recommend_fe_flags_by_rules(X, y=None) -> dict:
     Returns a dict over :data:`ALL_FE_MASTER_FLAGS`; every key is present, value
     ``True`` iff the generator's data-shape precondition is met. A clean
     continuous frame with no cats / groups / time / NaNs returns all-False (no
-    spurious enables -- the key no-false-positive property the L99 tests pin).
+    spurious enables - the key no-false-positive property the L99 tests pin).
 
     Rule table
     ----------
@@ -404,7 +404,7 @@ class MetaFERecommender:
             return recommend_fe_flags_by_rules(X, y)
         learned = self.oracle.recommend(fp, fn_name=self.fn_name)
         # ``rules`` is only a per-flag FALLBACK default for whatever ``learned`` is missing (it can
-        # return the bare caller-default first-combo when history is thin) -- the full column scan
+        # return the bare caller-default first-combo when history is thin) - the full column scan
         # (incl. skew/kurtosis) is wasted whenever ``learned`` already covers every flag, so only
         # compute it lazily when a flag is actually absent.
         if all(f in learned for f in ALL_FE_MASTER_FLAGS):

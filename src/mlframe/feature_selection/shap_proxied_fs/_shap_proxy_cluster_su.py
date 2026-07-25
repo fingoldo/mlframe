@@ -42,7 +42,7 @@ def _resolve_parallel_min_features(default: int = 50) -> int:
     the saved CPU time. Above it, the O(f^2) pair count scales the wall and parallel pays off.
 
     A cache-tuned override was attempted here via the non-existent ``kernel_tuning_cache.get(key,
-    default=...)`` API described in ``_shap_proxy_cluster_su_bitmap._resolve_bitmap_min_features`` --
+    default=...)`` API described in ``_shap_proxy_cluster_su_bitmap._resolve_bitmap_min_features`` -
     removed as dead, always-``default``-returning code."""
     return default
 
@@ -54,7 +54,7 @@ def _resolve_gpu_min_features(default: int = 500) -> int:
     parallel CPU kernel's wall (~0.14s at f=500 / n_bins=10 / n=1500 on iter69's bench).
 
     A cache-tuned override was attempted here via the same non-existent ``kernel_tuning_cache.get``
-    API -- removed as dead, always-``default``-returning code."""
+    API - removed as dead, always-``default``-returning code."""
     return default
 
 
@@ -127,7 +127,7 @@ def _should_route_su_gpu(
         return False
     onehot_bytes = int(n_features) * int(max_n_bins) * int(n_samples) * 4
     # 2026-06-03 (audit shap-proxy-clustering-3): the gate previously sized ONLY
-    # the float32 one-hot and ignored the DOMINANT inner working set -- the
+    # the float32 one-hot and ignored the DOMINANT inner working set - the
     # einsum joint tensor (chunk, f, mb, mb) plus its float64 siblings (joint_p,
     # px_outer, safe_outer, ratio, log_ratio). With the old hardcoded chunk=4096
     # (>= f) that tensor was the FULL f*f*mb^2*8 bytes (~19 GB at f=2000/mb=10)

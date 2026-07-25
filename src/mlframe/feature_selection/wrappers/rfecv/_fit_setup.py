@@ -2,9 +2,9 @@
 
 Three pure blocks lifted verbatim so the main ``fit`` body in ``_rfecv_fit.py`` shrinks without touching the deeply-coupled while-loop / fold-closure logic:
 
-1. ``filter_cat_features_by_dtype`` -- strip cat_features whose columns have already been numerically encoded by an upstream pipeline step (target-encoders etc.). Pure on (X, cat_features); returns the consumable subset.
-2. ``resolve_effective_n_jobs`` -- decide effective n_jobs by detecting multi-threaded estimators that already use all cores natively.
-3. ``resolve_default_scoring`` -- pick probabilistic_multiclass_error for classifiers / mean_squared_error for regressors when caller passed ``scoring=None``.
+1. ``filter_cat_features_by_dtype`` - strip cat_features whose columns have already been numerically encoded by an upstream pipeline step (target-encoders etc.). Pure on (X, cat_features); returns the consumable subset.
+2. ``resolve_effective_n_jobs`` - decide effective n_jobs by detecting multi-threaded estimators that already use all cores natively.
+3. ``resolve_default_scoring`` - pick probabilistic_multiclass_error for classifiers / mean_squared_error for regressors when caller passed ``scoring=None``.
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def filter_cat_features_by_dtype(
 ) -> Optional[List[str]]:
     """Strip cat_features whose columns are no longer categorical/object dtype.
 
-    Numerical-cast cats (CatBoostEncoder turning ``cat_0`` into a float column) trip the inner CatBoost.fit with ``Invalid type for cat_feature``. LOCAL only -- callers must NOT mutate the caller-supplied list (back-to-back fits across encoded/un-encoded frames must each pick the right subset for their X).
+    Numerical-cast cats (CatBoostEncoder turning ``cat_0`` into a float column) trip the inner CatBoost.fit with ``Invalid type for cat_feature``. LOCAL only - callers must NOT mutate the caller-supplied list (back-to-back fits across encoded/un-encoded frames must each pick the right subset for their X).
     """
     if not (cat_features and isinstance(X, pd.DataFrame)):
         return cat_features
@@ -54,7 +54,7 @@ def filter_cat_features_by_dtype(
                 )
             return _consumable
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _fit_setup.py:56: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
     return cat_features
 

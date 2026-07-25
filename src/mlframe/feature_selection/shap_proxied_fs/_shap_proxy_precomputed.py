@@ -88,7 +88,7 @@ def restrict_artifacts(artifacts: dict, kept_indices) -> dict:
         if isinstance(nbins_pf, dict):
             out["nbins_per_feature"] = {n: nbins_pf[n] for n in kept_names if n in nbins_pf}
 
-    # Drop ``mrmr_kept_indices`` from the restricted view -- it referred to
+    # Drop ``mrmr_kept_indices`` from the restricted view - it referred to
     # the original axis; consumers operating on the restricted dict don't
     # need it (the survivor set IS the restricted axis).
     return out
@@ -108,7 +108,7 @@ def align_precomputed_to_X(
     Failure modes (warn + return None):
     * precomputed is not a dict or missing required keys
     * feature_names doesn't match X.columns (after permitting subset / superset
-      with explicit re-indexing -- see logic below)
+      with explicit re-indexing - see logic below)
     * SU / MI arrays have wrong shape
 
     Success modes:
@@ -152,7 +152,7 @@ def align_precomputed_to_X(
     if hasattr(X, "columns"):
         X_cols = list(X.columns)
     else:
-        # numpy ndarray input -- ShapProxiedFS internally wraps to DataFrame
+        # numpy ndarray input - ShapProxiedFS internally wraps to DataFrame
         # but we can still align if the precomputed dict's feature_names are
         # synthesizable positional names; otherwise reject.
         X_cols = [f"f{i}" for i in range(X.shape[1])]

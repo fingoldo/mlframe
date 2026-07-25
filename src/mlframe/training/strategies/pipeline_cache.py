@@ -87,7 +87,7 @@ def _estimate_slot_nbytes(slot: Any) -> int:
         if isinstance(nbytes_attr, int):
             return nbytes_attr
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in pipeline_cache.py:88: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
     try:
         import pandas as _pd
@@ -96,7 +96,7 @@ def _estimate_slot_nbytes(slot: Any) -> int:
         if isinstance(slot, _pd.Series):
             return int(slot.memory_usage(deep=False))
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in pipeline_cache.py:96: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
     try:
         import polars as _pl
@@ -190,7 +190,7 @@ class PipelineCache:
         try:
             self._bytes_limit = min(self._bytes_limit, _resolve_pipeline_cache_budget())
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in pipeline_cache.py:187: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
         if self._total_bytes <= self._bytes_limit:
             return

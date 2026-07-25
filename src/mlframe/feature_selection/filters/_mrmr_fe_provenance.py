@@ -16,14 +16,14 @@ DESIGN
 ``fe_provenance_`` is a pandas DataFrame populated at the very end of
 ``fit()``. It is an AUDIT TRAIL: one row per raw column that survived into
 support_ PLUS one row per engineered column the FE pipeline PRODUCED this
-fit -- including columns the greedy CMI screen / accuracy gate / cross-stage
+fit - including columns the greedy CMI screen / accuracy gate / cross-stage
 dedup dropped before support finalisation. Survivors carry their real greedy
 gain + support_rank; screened-out engineered columns carry NaN gain /
 support_rank -1 but DO carry their mechanism origin, so a downstream audit /
 pickle-replay can recover which mechanism produced every engineered column
 even when it lost the greedy competition. (The user-facing survivor rosters
-``hybrid_orth_features_`` etc. stay intersected with support_ -- pinned by
-layer28 -- so this produced-set completeness lives in fe_provenance_ alone.)
+``hybrid_orth_features_`` etc. stay intersected with support_ - pinned by
+layer28 - so this produced-set completeness lives in fe_provenance_ alone.)
 Columns:
 
 - ``feature_name`` : the column name in ``support_`` / engineered output.
@@ -156,7 +156,7 @@ _RECIPE_KIND_TO_ORIGIN: dict[str, str] = {
     "conditional_gate": "conditional_gate",  # gate_mask__ / gate_select__ regime-switch
     "row_argmax": "row_argmax",
     "pairwise_integer_lattice": "integer_lattice",  # il_gcd / il_lcm / il_and
-    "pairwise_modular": "periodic",  # pmod_ residue -- same family as the single-col "modular"
+    "pairwise_modular": "periodic",  # pmod_ residue - same family as the single-col "modular"
     "binned_numeric_agg": "grouped_agg",  # binagg_ qbin-strata aggregate of a numeric col
     # ``factorize`` stays engineered_unknown by design: the cat k-way
     # materializer emits it as a generic ordinal lookup with no single
@@ -278,9 +278,9 @@ def _origin_from_recipe(recipe: Any) -> tuple[str, dict]:
 
 
 def _build_roster_membership_sets(mrmr_self: Any) -> list[tuple[set, str]]:
-    """Build each roster attribute's membership set ONCE (USABILITY_B-6 fix:
+    """Build each roster attribute's membership set ONCE (
     ``_origin_from_rosters`` used to re-convert every one of the 13 roster attrs to a fresh ``list(...)``
-    and do an O(len(roster)) membership test from scratch, PER NAME -- O(n*m) instead of O(n+m) on a
+    and do an O(len(roster)) membership test from scratch, PER NAME - O(n*m) instead of O(n+m) on a
     kitchen-sink wide FE fit with hundreds of produced-but-unmatched engineered names). Call once before
     the per-name loop and pass the result to ``_origin_from_rosters``."""
     sets: list[tuple[set, str]] = []
@@ -303,7 +303,7 @@ def _build_roster_membership_sets(mrmr_self: Any) -> list[tuple[set, str]]:
 def _origin_from_rosters(name: str, mrmr_self: Any, roster_sets: Optional[list[tuple[set, str]]] = None) -> str:
     """Fallback origin lookup against the mechanism roster attributes.
 
-    ``roster_sets`` (USABILITY_B-6 fix): pass the pre-built result of ``_build_roster_membership_sets``
+    ``roster_sets``: pass the pre-built result of ``_build_roster_membership_sets``
     when calling this in a loop over many names, so each roster is converted to a set ONCE rather than
     once per name. Falls back to building it fresh (the old, slower behaviour) when omitted, so any other
     caller of this function keeps working unchanged."""
@@ -327,7 +327,7 @@ def _greedy_rank_for_name(name: str, predictors: Iterable[Any]) -> int:
 
     DEPENDENCY: the match is correct only while ``simplify_fe_name`` maps the provenance-side ``name`` and the predictor
     log's RAW op-name to the SAME canonical string. If that simplifier's normalisation ever diverges between the two sides
-    (e.g. a new op alias simplified on one path but not the other), the rank silently resolves to -1 here -- the column then
+    (e.g. a new op alias simplified on one path but not the other), the rank silently resolves to -1 here - the column then
     shows as "no greedy rank" in the report rather than erroring. ``simplify_fe_name`` is idempotent, which is what keeps the
     already-simplified provenance name and the raw log name agreeing today.
     """
@@ -344,8 +344,8 @@ def _greedy_rank_for_name(name: str, predictors: Iterable[Any]) -> int:
             _en = entry.get("name")
             if _en is not None and simplify_fe_name(str(_en)) == _target:
                 return idx
-        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-            logging.getLogger(__name__).debug("suppressed in _mrmr_fe_provenance.py:326: %s", e)
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+            logging.getLogger(__name__).debug("suppressed: %s", e)
             continue
     return -1
 
@@ -354,7 +354,7 @@ def _final_feature_order(mrmr_self: Any) -> list[str]:
     """Return ``support_`` raw names followed by every engineered name the FE pipeline PRODUCED this fit (in production order). Survivor names come first (mirroring ``transform()`` column order so the
     provenance DataFrame zips positionally against transform output), then any engineered column the greedy CMI screen / accuracy gate / cross-stage dedup dropped before support finalisation.
 
-    The dropped-but-produced names are drained from ``_produced_recipes_`` -- the read-only audit ledger snapshotted in ``_mrmr_fit_impl`` before the screen ran. They are REQUIRED for the audit / pickle-
+    The dropped-but-produced names are drained from ``_produced_recipes_`` - the read-only audit ledger snapshotted in ``_mrmr_fit_impl`` before the screen ran. They are REQUIRED for the audit / pickle-
     replay paths to recover which mechanism produced each engineered column even when it lost the greedy competition; without them a healthy fit on a kitchen-sink frame where the screen keeps only the
     strongest ~5 of ~18 produced columns would mislabel the ledger as "only 3-5 mechanisms fired" when in fact ~12 did. The survivor-only rosters (``hybrid_orth_features_`` etc.) stay intersected with
     support_ (pinned by layer28), so this completeness is carried by fe_provenance_ alone, not by the user-facing rosters."""
@@ -381,13 +381,13 @@ def _final_feature_order(mrmr_self: Any) -> list[str]:
                 if 0 <= int(idx) < len(feature_names_in):
                     _append(feature_names_in[int(idx)])
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logging.getLogger(__name__).debug("suppressed in _mrmr_fe_provenance.py:358: %s", e)
+            logging.getLogger(__name__).debug("suppressed: %s", e)
             pass
-    # NAME-SYNC with get_feature_names_out (2026-06-20). ``get_feature_names_out`` advertises
+    # NAME-SYNC with get_feature_names_out. ``get_feature_names_out`` advertises
     # engineered columns through ``simplified_recipe_names`` (value-preserving DISPLAY canonicalisation,
     # e.g. ``abs(div(sqr(a),neg(b)))`` -> ``abs(div(sqr(a),b))``), so the support_/output label of an
     # engineered feature is its SIMPLIFIED name. The provenance table documents ``feature_name`` as
-    # "the column name in support_/engineered output", so it MUST use the same simplified form -- else a
+    # "the column name in support_/engineered output", so it MUST use the same simplified form - else a
     # lookup ``prov[prov.feature_name == out_name]`` misses (observed for the clean additive composite
     # whose ``neg(b)`` inside an ``abs`` canonicalises away in the output but not here). Apply the SAME
     # per-name simplifier; it is idempotent + safe on raw column names (returns them unchanged).
@@ -406,7 +406,7 @@ def _final_feature_order(mrmr_self: Any) -> list[str]:
             for nm in list(roster):
                 _append(nm)
         except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-            logging.getLogger(__name__).debug("suppressed in _mrmr_fe_provenance.py:382: %s", e)
+            logging.getLogger(__name__).debug("suppressed: %s", e)
             continue
     # Audit-trail completion: append every engineered column the FE stages PRODUCED but the screen / gate / dedup dropped. These carry no greedy rank (rank -1, NaN gain) but DO carry their origin so the
     # ledger reflects the full set of mechanisms that fired, not just the survivors.
@@ -433,12 +433,12 @@ def compute_fe_provenance(mrmr_self: Any) -> pd.DataFrame:
 
     feature_names_in = list(mrmr_self.feature_names_in_)
     engineered_recipes = list(getattr(mrmr_self, "_engineered_recipes_", []) or [])
-    # Index BOTH the survivor recipes and the full produced-recipes ledger by name so every engineered column -- survivor or screened-out -- resolves to its true origin via its recipe.kind rather than
+    # Index BOTH the survivor recipes and the full produced-recipes ledger by name so every engineered column - survivor or screened-out - resolves to its true origin via its recipe.kind rather than
     # falling through to "engineered_unknown". Survivor recipes take precedence (same object when both contain a name); the produced ledger only ADDS the dropped names.
     produced_recipes = list(getattr(mrmr_self, "_produced_recipes_", []) or [])
     # Key by the SIMPLIFIED recipe name (the same value-preserving DISPLAY canonicalisation
     # ``get_feature_names_out`` and ``_collect_*_names`` advertise) so the origin/details lookup
-    # below resolves on the simplified ``final_names`` -- keying by the RAW recipe name would miss
+    # below resolves on the simplified ``final_names`` - keying by the RAW recipe name would miss
     # every simplified column (e.g. ``abs(div(sqr(a),neg(b)))`` -> ``abs(div(sqr(a),b))``) and
     # mis-tag it ``engineered_unknown``. ``simplify_fe_name`` is idempotent + safe on raw names.
     from .engineered_recipes._recipe_name_simplify import simplify_fe_name
@@ -521,7 +521,7 @@ def populate_fe_provenance(mrmr_self: Any) -> None:
 
 def get_unlabeled_recipe_kinds(mrmr_self: Any) -> dict[str, int]:
     """PROVENANCE SELF-AUDIT (W2). List every SURVIVING engineered recipe.kind
-    whose provenance origin resolved to ``"engineered_unknown"`` -- i.e. a kind
+    whose provenance origin resolved to ``"engineered_unknown"`` - i.e. a kind
     the FE pipeline emits but ``_RECIPE_KIND_TO_ORIGIN`` does not map to a
     dedicated origin bucket.
 
@@ -530,11 +530,11 @@ def get_unlabeled_recipe_kinds(mrmr_self: Any) -> dict[str, int]:
     its surviving columns show up here, so provenance can't silently regress.
 
     Returns a dict ``{kind: count}`` over the SURVIVING engineered columns (those
-    in ``support_`` -- ``support_rank >= 0``) whose origin is
+    in ``support_`` - ``support_rank >= 0``) whose origin is
     ``"engineered_unknown"``. On a normal fit after commit 205baa86 this is the
     deliberate ``{"factorize": N}`` set (the generic ordinal lookup is kept
     unlabeled by design) and nothing else; any OTHER kind appearing here is an
-    unregistered family -- the guardrail firing.
+    unregistered family - the guardrail firing.
 
     Pure-read; never raises. Returns ``{}`` when the estimator is unfitted, has
     no engineered survivors, or every surviving kind is labeled. The ``factorize``

@@ -1,9 +1,9 @@
-"""Layer 78 (2026-06-01): ADAPTIVE-ARITY cross-basis FE.
+"""Layer 78: ADAPTIVE-ARITY cross-basis FE.
 
 Layers 22 (pair) / 56 (triplet) / 77 (quadruplet) each fix the cross-basis
 arity at construction time. The user has to know in advance whether the
 signal is 2-way, 3-way, or 4-way to pick the right module. For real-world
-data the arity of the dominant interaction is unknown -- some signals are
+data the arity of the dominant interaction is unknown - some signals are
 genuinely bilinear, others 3-way XOR, others 4-way.
 
 Layer 78 (adaptive arity) tries arity 2..max_arity for each seed tuple
@@ -27,12 +27,12 @@ Why this matters
   per source set.
 * For a 2-way XOR target ``y = sign(x1*x2)`` the adaptive path emits
   the He_1(x1)*He_1(x2) pair and prunes the (x1,x2,x3)/(x1,x2,x3,x4)
-  cells whose MI does NOT beat the pair's MI -- the pair already
+  cells whose MI does NOT beat the pair's MI - the pair already
   carries the signal.
 * For a 3-way XOR target ``y = sign(x1*x2*x3)`` no pair beats the
   triplet (each pair has zero marginal MI). The triplet is emitted
   and the quadruplet x1*x2*x3*x4 is pruned because its MI does not
-  exceed the (x1,x2,x3) triplet's MI -- the 4th leg is noise.
+  exceed the (x1,x2,x3) triplet's MI - the 4th leg is noise.
 * For a 4-way XOR target ``y = sign(x1*x2*x3*x4)`` no triplet beats
   the quadruplet (each triplet has zero marginal MI). The quadruplet
   is the winner.
@@ -42,7 +42,7 @@ Cost guard
 
 Arity enumeration is O(sum_{k=2..max_arity} C(seed_k, k) * deg^k).
 With defaults max_arity=3, seed_k=4, max_degree=1 we evaluate
-C(4,2)+C(4,3)=6+4=10 candidates -- bounded.
+C(4,2)+C(4,3)=6+4=10 candidates - bounded.
 
 Recipe parity
 -------------
@@ -112,7 +112,7 @@ def _coerce_y_classif(y) -> np.ndarray:
     """Match _mi_classif_batch contract: dense int64 labels.
 
     Non-integer y is densified via ``np.unique(return_inverse=...)`` rather than
-    truncated with ``.astype(int64)`` -- plain truncation merges distinct labels
+    truncated with ``.astype(int64)`` - plain truncation merges distinct labels
     and destroys continuous-y signal (everything in [0, 1) collapses to 0)."""
     y_arr = np.asarray(y).ravel()
     if np.issubdtype(y_arr.dtype, np.integer):
@@ -158,7 +158,7 @@ def generate_adaptive_arity_cross_basis(
         Maximum arity. Default 3 keeps C(seed_k,2)+C(seed_k,3) bounded.
         max_arity in {2, 3, 4} is supported.
     max_degree : int
-        Max per-leg degree. Default 1 -- He_1^k IS the dominant
+        Max per-leg degree. Default 1 - He_1^k IS the dominant
         multiplicative k-way signal for every XOR-family target.
     basis : {'hermite', 'legendre', 'chebyshev', 'laguerre', 'auto'}
         Polynomial basis. 'auto' routes per-column via
@@ -249,7 +249,7 @@ def generate_adaptive_arity_cross_basis(
             continue
         # DEVICE-BORN (STRICT-resident): rebuild this arity's product matrix on the GPU from the small operand
         # columns and score via the resident plug-in MI, collapsing the host cols_block upload at :311. The prune
-        # logic below compares MI VALUES across tuples/arities -- all from the SAME estimator (device or host),
+        # logic below compares MI VALUES across tuples/arities - all from the SAME estimator (device or host),
         # so the comparison is internally consistent either way. None (-> host batch) on no-cupy / non-strict /
         # cupy failure / unsupported basis. Selection-equivalent (device Clenshaw vs host forward ~1e-12).
         mi_block = _adaptive_arity_mi_resident_block(X, y_arr, eval_results[k], basis=basis, nbins=nbins)
@@ -294,9 +294,9 @@ def generate_adaptive_arity_cross_basis(
 
     # Now collapse to ONE winner per maximal signal set. Two-way pruning:
     # (a) a HIGHER-arity winner with strictly larger MI eclipses every
-    #     proper SUBSET winner -- "the triplet already explains the pair";
+    #     proper SUBSET winner - "the triplet already explains the pair";
     # (b) a LOWER-arity winner with strictly larger MI eclipses every
-    #     proper SUPERSET winner -- "the pair already explains the
+    #     proper SUPERSET winner - "the pair already explains the
     #     quadruplet, the extra legs are noise".
     # We process winners by MI descending so each high-MI cell eclipses
     # both directions before we evaluate lower-MI candidates.
@@ -352,7 +352,7 @@ def generate_adaptive_arity_cross_basis(
     else:
         score_df = pd.DataFrame(columns=_ADAPTIVE_SCORE_EMPTY_COLS)
     # Carry the per-column basis-routing decision already made above (line ~200) via .attrs (not a return-tuple
-    # change -- keeps the public 2-tuple contract) so downstream callers (score_adaptive_arity_cross_basis ->
+    # change - keeps the public 2-tuple contract) so downstream callers (score_adaptive_arity_cross_basis ->
     # hybrid_orth_mi_adaptive_arity_fe_with_recipes._route_basis) can reuse it instead of re-deriving
     # basis_route_by_moments per LEG of every winning recipe.
     eng_X.attrs["basis_per_col"] = basis_per_col
@@ -436,7 +436,7 @@ def score_adaptive_arity_cross_basis(
         return pd.DataFrame(columns=_ADAPTIVE_SCORE_EMPTY_COLS)
     raw_cols = list(raw_X.columns)
     # DEVICE-BORN (STRICT-resident): rebuild the variable-arity product matrix on the GPU + score both it and the
-    # raw baseline through the SAME resident plug-in MI -- collapsing the host product-matrix upload at :311.
+    # raw baseline through the SAME resident plug-in MI - collapsing the host product-matrix upload at :311.
     raw_mi_map = eng_mi = None
     _specs = _adaptive_device_col_specs(engineered_X.columns, raw_cols)
     if _specs is not None:
@@ -547,7 +547,7 @@ def hybrid_orth_mi_adaptive_arity_fe(
             # internally (score_features_by_mi_uplift's raw_mi_map) and surfaced it per-source in
             # uni_scores["baseline_mi"] (one row per emitted engineered col, grouped by source_col).
             # Reuse it instead of a second full _mi_classif_batch pass; only recompute for any raw
-            # column uni_scores doesn't cover (e.g. skipped -- all-NaN / int-as-cat / dedup'd source),
+            # column uni_scores doesn't cover (e.g. skipped - all-NaN / int-as-cat / dedup'd source),
             # which keeps this exactly selection-equivalent to the old always-recompute path.
             _baseline_map: dict = {}
             if not uni_scores.empty:
@@ -665,13 +665,34 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
             x = X[col].to_numpy(dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
             return basis_route_by_moments(x)
         except Exception as exc:
-            # ORTH_SCORING_A-4 fix: this fallback used to be unlogged -- a genuine
+            # This fallback used to be unlogged - a genuine
             # failure to read X[col] or route the basis silently mislabels the frozen basis_i/j/k/l in the
             # recipe as "hermite" instead of surfacing, unlike the already-documented :412 GPU-resident
             # fallback (which is correctness-preserving via an exact host fallback; this one can change
             # WHICH basis gets frozen into the recipe with no trace).
             logger.debug("_route_basis: failed to route column %r (falling back to 'hermite'): %r", col, exc)
             return "hermite"
+
+    # Freeze the fit-time basis-preprocess params for one leg so ``transform()`` REPLAYS the frozen z-score/
+    # min-max axis instead of REFITTING it on the (possibly row-sliced / shifted) test frame - a leak. Dedup
+    # by (leg, basis, deg) across the whole recipe set (a leg recurs across arities). Mirrors the arity==1
+    # freeze; returns None (refit-at-replay fallback) on any read/eval failure, logged once.
+    _pp_cache: dict = {}
+
+    def _freeze_leg_pp(leg_name, basis, deg):
+        """Recompute (reproduce, not refit) the leg's fit-time basis preprocess_params from the full fit-time source column."""
+        _key = (leg_name, str(basis), int(deg))
+        if _key in _pp_cache:
+            return _pp_cache[_key]
+        _pp = None
+        try:
+            _col_full = np.asarray(X[leg_name].to_numpy(), dtype=np.float64)
+            _, _pp = _evaluate_basis_column(_col_full, str(basis), int(deg), return_params=True)
+        except Exception as exc:
+            logger.debug("adaptive-arity: failed to freeze preprocess_params for leg %r (refit-at-replay fallback): %r", leg_name, exc)
+            _pp = None
+        _pp_cache[_key] = _pp
+        return _pp
 
     recipes = []
     for name in appended:
@@ -690,13 +711,13 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
                 continue
             # freeze the fit-time basis-preprocess params (mirrors the
             # canonical Layer-21 hybrid_orth_mi_fe_with_recipes fix); recomputing on the FULL fit-time
-            # source column is safe/exact -- it reproduces, not refits, the fit-time params.
+            # source column is safe/exact - it reproduces, not refits, the fit-time params.
             _pp = None
             try:
                 _col_full = np.asarray(X[legs[0]].to_numpy(), dtype=np.float64)
                 _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
             except Exception as exc:
-                # ORTH_SCORING_A-3 fix: was a bare except with zero logging.
+                # Was a bare except with zero logging.
                 logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
                 _pp = None
             recipes.append(build_orth_univariate_recipe(
@@ -717,15 +738,15 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
                 continue
             basis_a = _route_basis(legs[0])
             basis_b = _route_basis(legs[1])
-            from .engineered_recipes import EngineeredRecipe
-            recipes.append(EngineeredRecipe(
-                name=name,
-                kind="orth_pair_cross",
-                src_names=(legs[0], legs[1]),
-                extra={
-                    "basis_i": basis_a, "basis_j": basis_b,
-                    "deg_a": int(deg_a), "deg_b": int(deg_b),
-                },
+            # Route through the builder (which freezes preprocess params via _freeze_preprocess_params) with
+            # each leg's frozen fit-time basis-preprocess params, so transform() replays - not refits - the
+            # per-leg axis. The prior inline EngineeredRecipe(...) omitted them -> refit-at-replay leak.
+            from .engineered_recipes import build_orth_pair_cross_recipe
+            recipes.append(build_orth_pair_cross_recipe(
+                name=name, src_a_name=legs[0], src_b_name=legs[1],
+                basis_i=basis_a, basis_j=basis_b, deg_a=int(deg_a), deg_b=int(deg_b),
+                preprocess_params_i=_freeze_leg_pp(legs[0], basis_a, deg_a),
+                preprocess_params_j=_freeze_leg_pp(legs[1], basis_b, deg_b),
             ))
         elif arity == 3:
             if len(parts) != 3:
@@ -738,15 +759,14 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
             basis_a = _route_basis(legs[0])
             basis_b = _route_basis(legs[1])
             basis_c = _route_basis(legs[2])
-            from .engineered_recipes import EngineeredRecipe
-            recipes.append(EngineeredRecipe(
-                name=name,
-                kind="orth_triplet_cross",
-                src_names=(legs[0], legs[1], legs[2]),
-                extra={
-                    "basis_i": basis_a, "basis_j": basis_b, "basis_k": basis_c,
-                    "deg_a": int(deg_a), "deg_b": int(deg_b), "deg_c": int(deg_c),
-                },
+            from ._orthogonal_triplet_fe_recipes import build_orth_triplet_cross_recipe
+            recipes.append(build_orth_triplet_cross_recipe(
+                name=name, src_a_name=legs[0], src_b_name=legs[1], src_c_name=legs[2],
+                basis_i=basis_a, basis_j=basis_b, basis_k=basis_c,
+                deg_a=int(deg_a), deg_b=int(deg_b), deg_c=int(deg_c),
+                preprocess_params_i=_freeze_leg_pp(legs[0], basis_a, deg_a),
+                preprocess_params_j=_freeze_leg_pp(legs[1], basis_b, deg_b),
+                preprocess_params_k=_freeze_leg_pp(legs[2], basis_c, deg_c),
             ))
         elif arity == 4:
             if len(parts) != 4:
@@ -768,6 +788,10 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
                 basis_i=basis_a, basis_j=basis_b,
                 basis_k=basis_c, basis_l=basis_d,
                 deg_a=deg_a, deg_b=deg_b, deg_c=deg_c, deg_d=deg_d,
+                preprocess_params_i=_freeze_leg_pp(legs[0], basis_a, deg_a),
+                preprocess_params_j=_freeze_leg_pp(legs[1], basis_b, deg_b),
+                preprocess_params_k=_freeze_leg_pp(legs[2], basis_c, deg_c),
+                preprocess_params_l=_freeze_leg_pp(legs[3], basis_d, deg_d),
             ))
         else:
             logger.warning(

@@ -12,10 +12,10 @@ as ``m`` new columns; the inner product ``phi(x_i).phi(x_j)`` approximates an RB
 
 Why this catches a shape the catalog misses: every existing basis (Hermite/Legendre/Chebyshev/
 Laguerre/wavelet/hinge/Fourier/spline) is a PER-COLUMN expansion, and every cross-basis family
-(pair/triplet/quadruplet/adaptive-arity) is a PRODUCT of per-leg bases -- none of them build a
+(pair/triplet/quadruplet/adaptive-arity) is a PRODUCT of per-leg bases - none of them build a
 feature that is jointly a smooth function of MANY (5+) raw columns simultaneously without
 combinatorial blow-up. Concrete scenario: ``y = exp(-||x||^2 / 2)`` on p=10 jointly-informative
-numeric columns (a radial/Gaussian-bump target in 10-D) -- no pairwise product term or even a
+numeric columns (a radial/Gaussian-bump target in 10-D) - no pairwise product term or even a
 quadruplet arity-4 cell captures a genuinely 10-way radial structure, while a handful of random
 Fourier features linearly recovers it because the RBF kernel IS the radial-Gaussian target class.
 """
@@ -44,7 +44,7 @@ __all__ = [
 
 def _draw_rff_params(p: int, m: int, random_state: int) -> "tuple[np.ndarray, np.ndarray]":
     """Draw the projection matrix ``W`` (p x m) and phase offsets ``b`` (m,) for a fixed
-    ``random_state`` -- split out so a caller (the MRMR hybrid wiring) can freeze these arrays
+    ``random_state`` - split out so a caller (the MRMR hybrid wiring) can freeze these arrays
     into a recipe at fit time and replay with the literal arrays rather than depend on RNG
     behavioral stability across numpy versions for transform()."""
     rng = np.random.default_rng(random_state)
@@ -54,7 +54,7 @@ def _draw_rff_params(p: int, m: int, random_state: int) -> "tuple[np.ndarray, np
 
 
 def _apply_rff_params(X: np.ndarray, W: np.ndarray, b: np.ndarray, bandwidth: float) -> np.ndarray:
-    """Closed-form RFF expansion given already-drawn (frozen) ``W``/``b``/``bandwidth`` -- the
+    """Closed-form RFF expansion given already-drawn (frozen) ``W``/``b``/``bandwidth`` - the
     replay half of the fit/transform contract; no RNG involved."""
     X = np.asarray(X, dtype=np.float64)
     if X.ndim == 1:
@@ -67,7 +67,7 @@ def _apply_rff_params(X: np.ndarray, W: np.ndarray, b: np.ndarray, bandwidth: fl
 
 
 def _median_pairwise_distance(X: np.ndarray, *, max_sample: int = 500, random_state: int = 0) -> float:
-    """Median pairwise Euclidean distance on a (deterministic) subsample of ``X`` -- the standard
+    """Median pairwise Euclidean distance on a (deterministic) subsample of ``X`` - the standard
     RBF bandwidth heuristic (Gretton 2005), shared with the module's own HSIC sibling. Returns 1.0
     on a degenerate (n<2 or all-identical-rows) subsample so the caller never divides by zero."""
     n = X.shape[0]
@@ -100,7 +100,7 @@ def random_fourier_features(
     Parameters
     ----------
     X : (n, p) array
-        The candidate raw/engineered columns to jointly expand (p can be large -- this is exactly
+        The candidate raw/engineered columns to jointly expand (p can be large - this is exactly
         the family's point: a joint smooth function of many columns without combinatorial blow-up).
     m : int
         Number of random features to emit. Larger ``m`` approximates the RBF kernel more tightly
@@ -111,14 +111,14 @@ def random_fourier_features(
         module's HSIC sibling).
     random_state : int
         Seed for the projection matrix ``W``, the phase offsets ``b``, and the bandwidth
-        subsample -- deterministic and replay-safe (the SAME seed reproduces the SAME features,
+        subsample - deterministic and replay-safe (the SAME seed reproduces the SAME features,
         which is load-bearing for a fit/transform contract: ``W``/``b`` must be frozen at fit time
         and reused verbatim at transform time, not re-drawn).
 
     Returns
     -------
     (n, m) float64 array. Degenerate input (n<1, p<1, or m<1) returns an ``(n, 0)`` array rather
-    than raising -- callers treat zero emitted columns as "nothing to add", the same convention
+    than raising - callers treat zero emitted columns as "nothing to add", the same convention
     the audit's own sketch documents for a top_k=0-style empty family output.
     """
     X = np.asarray(X, dtype=np.float64)
@@ -204,7 +204,7 @@ def build_random_fourier_recipe(*, name: str, idx: int, cols: Sequence[str], W: 
 def _apply_random_fourier_recipe(recipe, X) -> np.ndarray:
     """Adapter consumed by ``engineered_recipes.apply_recipe`` for a single RFF component. The
     ``sqrt(2/m)`` normalization constant must use the ORIGINAL full block size ``m_total`` (stored
-    at fit time), not the width of the single-column ``W`` slice used here -- a per-component
+    at fit time), not the width of the single-column ``W`` slice used here - a per-component
     normalization mismatch would silently rescale every replayed value relative to the fitted
     training column."""
     cols = list(recipe.extra["cols"])

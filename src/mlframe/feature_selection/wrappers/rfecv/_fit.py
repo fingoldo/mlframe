@@ -50,7 +50,7 @@ logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
 def _apply_prescreen(self, *, X, y, candidate_features, verbose):
-    """L7 (Wave 5, 2026-05-28): run the configured prescreen and return the filtered candidate-feature list.
+    """L7: run the configured prescreen and return the filtered candidate-feature list.
 
     Supported prescreen values:
       - 'univariate_ht' : in-tree Mann-Whitney / Kruskal-Wallis / Kendall / chi-squared + BY-FDR (numba-compiled).
@@ -73,7 +73,7 @@ def _apply_prescreen(self, *, X, y, candidate_features, verbose):
     # use the existing ``mlframe.feature_selection.filters.mrmr.MRMR`` to
     # pick the top-K features by min-redundancy / max-relevance MI ranking
     # before the RFECV outer loop. Best when p >> n (e.g. p >= 5000).
-    # Cost: O(p^2) MRMR vs O(p * iter) backward elimination -- net win
+    # Cost: O(p^2) MRMR vs O(p * iter) backward elimination - net win
     # when p >= 5000.
     if isinstance(_p, str) and _p.lower() == "mrmr":
         try:
@@ -102,7 +102,7 @@ def _apply_prescreen(self, *, X, y, candidate_features, verbose):
         _kept_set = set(_kept)
         return [c for c in candidate_features if c in _kept_set]
 
-    # L7 native impl (Wave 5, 2026-05-28): in-tree univariate hypothesis-test
+    # L7 native impl: in-tree univariate hypothesis-test
     # relevance scoring with BY-FDR correction. Backend selection per
     # (feature, target) dtype:
     #   binary target  + numeric  -> Mann-Whitney U
@@ -170,7 +170,7 @@ def _precompute_prescreen_fold_universes(self, *, X, y, groups, cv, full_feature
 def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, sample_weight: Union[np.ndarray, pd.Series, None] = None, **fit_params):
     """Fit RFECV: densifies a sparse ``X`` (refusing inputs whose dense form would exceed ~2 GB), applies the optional prescreen, precomputes per-fold train-only prescreen universes, then drives the recursive elimination loop to select the final feature subset."""
     # scipy.sparse X is not first-class across the dense-frame-centric FS pipeline; densify at the boundary so the
-    # existing ndarray path handles it. Gated on dense size per the project RAM rule -- a sparse matrix whose dense
+    # existing ndarray path handles it. Gated on dense size per the project RAM rule - a sparse matrix whose dense
     # form would exceed ~2 GB is refused with a clear error rather than silently doubling host memory.
     try:
         from scipy.sparse import issparse as _issparse
@@ -199,7 +199,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
             _fp = copy.copy(self.fit_params) if self.fit_params else {}
             return fit_multioutput(self, X, y, groups, sample_weight, _fp, _mo_strategy)
 
-    # TODO A (Wave 6 prelim, 2026-05-28): auto-tune. Compute a DataFingerprint
+    # TODO A: auto-tune. Compute a DataFingerprint
     # then push the rule-based suggestion into self.<flat-knob> for every
     # flat kwarg the caller didn't explicitly override. Stored decision lives
     # in self.auto_tune_decision_ for inspection.
@@ -240,7 +240,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     if _init_skip:
         return self
 
-    # perf (2026-06-05): build ONE contiguous numpy mirror of the (now sanitised) DataFrame and feed the
+    # perf: build ONE contiguous numpy mirror of the (now sanitised) DataFrame and feed the
     # inner estimator numpy column-SUBSETS by integer position throughout elimination / CV scoring /
     # permutation-FI re-prediction. This skips LightGBM's per-fit/per-predict ``_data_from_pandas``
     # reconversion + per-column dtype-validation storm (cProfile: ~47% of the scene 700x299 fit). Names
@@ -371,11 +371,11 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     # must_include partition: the optimiser only sees the complement; pinned features are glued back into support_ at the end.
     original_features, must_include_resolved = _resolve_must_include(self, X=X, original_features=original_features, verbose=verbose)
 
-    # L7 (Wave 5, 2026-05-28): optional prescreen pass. Restricts the MBH search universe to a smaller pre-filtered candidate set so the
+    # L7: optional prescreen pass. Restricts the MBH search universe to a smaller pre-filtered candidate set so the
     # outer loop converges faster on high-p data. The prescreen sees the (X[original_features], y) AFTER must_include filtering, so
     # pinned features always remain in the final support_ regardless of prescreen output.
     # SELECTION-OPTIMISM CAVEAT (audit4-C, 2026-07-03): the prescreen pre-filters the feature UNIVERSE using the
-    # WHOLE (X, y) -- including the rows that later serve as CV test folds -- so the ``cv_mean_perf`` that drives
+    # WHOLE (X, y) - including the rows that later serve as CV test folds - so the ``cv_mean_perf`` that drives
     # the nfeatures pick is an IN-UNIVERSE estimate, mildly OPTIMISTIC vs a fully-nested one (the surviving
     # candidates were chosen with full-y knowledge). This is a leakage into the SELECTION METRIC, not the final
     # fitted model. A fully-honest estimate would nest the prescreen inside each CV fold, but the outer optimiser
@@ -387,7 +387,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     self._prescreen_full_features = None
     if _prescreen is not None and len(original_features) > 0:
         # Stash the PRE-prescreen universe so the nested per-fold prescreen (below) can re-derive, on each fold's
-        # train rows, which of these features would survive -- a feature kept globally only via test-fold leakage
+        # train rows, which of these features would survive - a feature kept globally only via test-fold leakage
         # then drops out of the folds where it fails the train-only prescreen.
         if getattr(self, "prescreen_nested", True):
             self._prescreen_full_features = list(original_features)
@@ -446,14 +446,14 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     if importance_getter is None:
         importance_getter = "auto"
 
-    # Wide-data perm-FI cost guard (2026-06-04). Permutation / conditional-permutation importance rescore the model
+    # Wide-data perm-FI cost guard. Permutation / conditional-permutation importance rescore the model
     # O(p * n_repeats) times PER FOLD. On wide frames one RFECV iteration can exceed the whole runtime budget (measured:
     # madelon p=500, n_repeats=5 -> ~208s/iter > a 180s budget), so only 2-3 iters complete, the CV curve has ~3 points,
     # and the N-rule (e.g. one_se_min) lands at the over-selection. When ``wide_data_fi_fallback`` (default True) and the
     # search universe exceeds ``wide_data_fi_threshold``, fall back to the estimator's native (gain/impurity) importance
     # for the elimination ranking so the outer loop can build a REAL multi-point curve in budget; below the threshold cap
     # n_repeats at ``wide_data_fi_n_repeats`` to soften the cliff. The fallback only changes the ELIMINATION RANKING that
-    # picks the next candidate subset -- the CV SCORE that drives the optimum is unaffected -- so on wide noisy frames it
+    # picks the next candidate subset - the CV SCORE that drives the optimum is unaffected - so on wide noisy frames it
     # trades perm-FI's debiasing (a small-p win) for a usable curve. Opt out with wide_data_fi_fallback=False (and a
     # generous max_runtime_mins) to keep exact permutation FI regardless of p.
     _perm_getters = ("permutation", "conditional_permutation")
@@ -634,6 +634,6 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
             "cv_folds": int(_cv_n_done) if _cv_n_done is not None else None,
         }
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _fit.py:635: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
     return self

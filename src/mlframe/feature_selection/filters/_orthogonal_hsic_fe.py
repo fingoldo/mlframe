@@ -1,4 +1,4 @@
-"""Layer 71 (2026-06-01): Hilbert-Schmidt Independence Criterion (HSIC)
+"""Layer 71: Hilbert-Schmidt Independence Criterion (HSIC)
 kernel-based dependence ranking for hybrid orth-poly FE.
 
 Why this layer
@@ -6,7 +6,7 @@ Why this layer
 
 Layers 21 / 65 / 66 are MI estimators; Layer 67 is the Szekely-Rizzo
 distance correlation (also distance-based). Layer 71 adds a fourth
-dependence family -- the Gretton-Bousquet-Smola-Schoelkopf (2005)
+dependence family - the Gretton-Bousquet-Smola-Schoelkopf (2005)
 Hilbert-Schmidt Independence Criterion. HSIC measures dependence by the
 Hilbert-Schmidt norm of the cross-covariance OPERATOR between RKHS
 embeddings of ``X`` and ``Y``. With a CHARACTERISTIC kernel (the
@@ -21,20 +21,20 @@ distance matrices, HSIC operates on centred RBF Gram matrices.
 HSIC vs dCor
 ------------
 
-* Both are zero iff X is independent of Y -- in finite samples they
+* Both are zero iff X is independent of Y - in finite samples they
   rank dependencies differently. dCor's distance matrices have an O(1)
   scale (every pairwise distance contributes); RBF Gram matrices
   concentrate on near-neighbours through ``exp(-||xi - xj||^2 / 2 sigma^2)``
   and the bandwidth sigma picks the effective scale.
 * HSIC is bandwidth-tunable: the MEDIAN HEURISTIC sets sigma to the
-  median pairwise distance -- the standard choice (Gretton 2005) -- and
+  median pairwise distance - the standard choice (Gretton 2005) - and
   is the kernel-method analogue of dCor's parameter-free construction.
 * HSIC tends to be tighter than dCor when the signal lives at a SCALE
   smaller than the typical pairwise distance (sharp local thresholds,
   oscillatory dependence with high frequency); dCor tends to dominate
   on smooth large-scale dependence.
 
-The two estimators are COMPLEMENTARY -- the L68 / L69 auto/ensemble
+The two estimators are COMPLEMENTARY - the L68 / L69 auto/ensemble
 pools take advantage of this by letting the per-column auto-selector
 pick whichever scorer wins on a given column.
 
@@ -46,13 +46,13 @@ We expose two estimators:
 * HSIC_b ("biased"): ``trace(K_x H K_y H) / (n - 1)^2`` where ``H = I -
   ones / n`` is the centring projector. Always non-negative, O(n) bias
   but converges to the true HSIC at rate ``1 / sqrt(n)``.
-* HSIC_u ("unbiased"): the Song / Smola 2012 U-statistic correction --
+* HSIC_u ("unbiased"): the Song / Smola 2012 U-statistic correction -
   guaranteed unbiased but can be slightly negative on independent
   pairs (Monte-Carlo cancellation). The cross-column ranking uses
   ``max(HSIC_u, 0)`` so the downstream uplift gate stays well-defined.
 
 We default to the BIASED estimator because its variance is lower and
-the cross-column ranking does not need unbiasedness -- only monotone
+the cross-column ranking does not need unbiasedness - only monotone
 sensitivity to dependence strength.
 
 Cost / sample-size constraint
@@ -62,7 +62,7 @@ HSIC is constructed from the FULL ``n x n`` Gram matrices. Naive cost
 is ``O(n^2)`` time and memory; ``n = 500`` fits in 2 MB per matrix and
 runs in under 50 ms on a modern laptop. Beyond ``n = 500`` the per-
 feature cost dominates; this module caps the working sample at
-``n_sample = 500`` via deterministic random subsampling -- the HSIC
+``n_sample = 500`` via deterministic random subsampling - the HSIC
 estimator is asymptotically consistent and 500 samples are enough for
 the dependence test to discriminate signal from noise at the typical
 SNR seen by Layer 21's downstream gates. The same cost constant as
@@ -79,18 +79,18 @@ Layer 71 vs Layers 65 / 66 / 67
 * Layer 71 (this, HSIC): NON-MI dependence, KERNEL-based, zero iff
   independent on ANY relationship with a CHARACTERISTIC kernel.
 
-The four are COMPLEMENTARY -- a user can opt into all four and take
+The four are COMPLEMENTARY - a user can opt into all four and take
 the union of winners as a robust shortlist, or use the Layer 68 / 69
 auto-selector / ensemble to pick per column.
 
 Recipe replay
 -------------
 
-Each emitted column is backed by an ``orth_univariate`` recipe -- the
-SAME kind Layer 21 uses -- because the engineered VALUES are bit-equal
+Each emitted column is backed by an ``orth_univariate`` recipe - the
+SAME kind Layer 21 uses - because the engineered VALUES are bit-equal
 to Layer 21; only the SCORING (and therefore the selection) changes.
 
-NOT wired into ``MRMR.fit`` by default -- opt-in via
+NOT wired into ``MRMR.fit`` by default - opt-in via
 ``fe_hybrid_orth_hsic_enable=True``.
 """
 from __future__ import annotations
@@ -107,7 +107,7 @@ logger = logging.getLogger(__name__)
 
 # Below this baseline a source is treated as no-signal: the uplift ratio is
 # suppressed (it would otherwise explode) and an absolute MI floor is required
-# instead -- the same guard JMIM applies (Layer 21/65+).
+# instead - the same guard JMIM applies (Layer 21/65+).
 _BASELINE_EPS = 1e-6
 _ABS_MI_FLOOR = 1e-3
 
@@ -155,7 +155,7 @@ def median_heuristic_sigma(z: np.ndarray) -> float:
         return 1.0
     # Use the upper triangle of the absolute-difference matrix; this is
     # the standard median-heuristic definition (every UNORDERED pair
-    # contributes once -- the diagonal is dropped because |z_i - z_i| = 0
+    # contributes once - the diagonal is dropped because |z_i - z_i| = 0
     # is uninformative and would pull the median down).
     diff = np.abs(arr[:, None] - arr[None, :])
     iu = np.triu_indices(n, k=1)
@@ -228,10 +228,10 @@ def hsic(
         ``n <= n_sample``.
     estimator : {"biased", "unbiased"}
         Choice of HSIC estimator. ``"biased"`` (default) is the
-        ``trace(K_x H K_y H) / (n - 1)^2`` plug-in -- non-negative,
+        ``trace(K_x H K_y H) / (n - 1)^2`` plug-in - non-negative,
         lower variance, the standard ranking estimator. ``"unbiased"``
         is the Song / Smola 2012 U-statistic with the diagonal-dropped
-        / row-sum correction -- guaranteed unbiased but can be slightly
+        / row-sum correction - guaranteed unbiased but can be slightly
         negative on independent pairs due to Monte-Carlo cancellation.
     """
     if kernel != "rbf":
@@ -351,14 +351,14 @@ def _hsic_batch(
     (independent subsamples would inject variance from the sampling
     itself into the cross-column ranking). The y-side bandwidth and
     centred Gram matrix are computed ONCE and reused across all
-    columns -- a (n_features - 1)x speedup over the naive per-column
+    columns - a (n_features - 1)x speedup over the naive per-column
     implementation.
 
-    ``y_side`` (2026-07-12): an optional precomputed tuple from :func:`_hsic_y_side_prep` -- when the
+    ``y_side``: an optional precomputed tuple from :func:`_hsic_y_side_prep` - when the
     caller already built it (e.g. ``score_features_by_hsic_uplift`` scoring both a raw-baseline batch and
     an engineered-matrix batch against the identical ``y``/``n_sample``/``random_state``), pass it here to
     skip rebuilding the y-side Gram matrix a second time. ``None`` (default) preserves the exact
-    self-contained behavior -- byte-identical to before this parameter existed.
+    self-contained behavior - byte-identical to before this parameter existed.
     """
     X_arr = np.asarray(X, dtype=np.float64)
     if X_arr.ndim == 1:
@@ -387,7 +387,7 @@ def _hsic_batch(
                 val = 0.0
             out[j] = val
         return out
-    # Unbiased path -- match the single-pair helper for parity.
+    # Unbiased path - match the single-pair helper for parity.
     L_t, sum_L, row_sum_L = unbiased_terms
     nn = float(n)
     denom = nn * (nn - 3.0)
@@ -428,12 +428,12 @@ def score_features_by_hsic_uplift(
         names must carry the ``"{source}__{basis_code}{degree}"`` suffix
         so the baseline can be looked up by source.
     y : array-like (n,)
-        Target. HSIC handles continuous and discrete y uniformly -- the
+        Target. HSIC handles continuous and discrete y uniformly - the
         RBF Gram matrix on a discrete y resolves to a class-indicator
         block (``exp(0) = 1`` within class) which is the correct
         kernel-method construction.
     kernel : str
-        Only ``"rbf"`` (characteristic) is supported -- non-characteristic
+        Only ``"rbf"`` (characteristic) is supported - non-characteristic
         kernels would lose the HSIC = 0 iff independent guarantee.
     n_sample : int
         Cap on the working sample. See :func:`hsic`.
@@ -467,9 +467,9 @@ def score_features_by_hsic_uplift(
             "engineered_col", "source_col", "baseline_mi",
             "engineered_mi", "uplift",
         ])
-    # f64 kept: distance/kernel-Gram stability (f32 sums lose precision here) -- NOT routed through _crit_np_dtype.
+    # f64 kept: distance/kernel-Gram stability (f32 sums lose precision here) - NOT routed through _crit_np_dtype.
     # y-side dependence primitive (median-heuristic sigma + centred/diagonal-dropped Gram matrix) depends
-    # only on (y, n_sample, random_state, estimator) -- IDENTICAL for the raw-baseline batch below and the
+    # only on (y, n_sample, random_state, estimator) - IDENTICAL for the raw-baseline batch below and the
     # engineered-matrix batch right after it. Build it ONCE and thread it into both _hsic_batch calls
     # instead of each independently recomputing it.
     _y_side = _hsic_y_side_prep(
@@ -494,8 +494,8 @@ def score_features_by_hsic_uplift(
         # Near-zero baseline makes the uplift ratio explode past the gate even
         # on a no-signal source; suppress the ratio there and let the absolute
         # MI floor decide (mirrors the JMIM guard).
-        # ORTH_SCORING_A-5 fix: see _orthogonal_ksg_mi_fe.py's matching fix for the
-        # full rationale -- the fixed _ABS_MI_FLOOR=1e-3 pre-filter could hard-reject a candidate the real
+        # See _orthogonal_ksg_mi_fe.py's matching fix for the
+        # full rationale - the fixed _ABS_MI_FLOOR=1e-3 pre-filter could hard-reject a candidate the real
         # dynamic MAD-based abs_floor (gate 2) would have accepted. Always defer to gate 2 here.
         if baseline < _BASELINE_EPS:
             uplift = float("inf")
@@ -609,12 +609,12 @@ def hybrid_orth_mi_hsic_fe_with_recipes(
     estimator: str = "biased",
 ):
     """Same as :func:`hybrid_orth_mi_hsic_fe` plus a list of
-    ``orth_univariate`` recipes -- one per appended column -- so that
+    ``orth_univariate`` recipes - one per appended column - so that
     ``MRMR.transform`` can recompute each engineered column on test data
     without re-running the HSIC ranking.
 
     Recipes are byte-identical to Layer 21 because the engineered VALUES
-    are byte-identical -- only the SCORING (and therefore the selection)
+    are byte-identical - only the SCORING (and therefore the selection)
     differs.
     """
     from .engineered_recipes import build_orth_univariate_recipe
@@ -654,13 +654,13 @@ def hybrid_orth_mi_hsic_fe_with_recipes(
             continue
         # freeze the fit-time basis-preprocess params (mirrors the
         # canonical Layer-21 hybrid_orth_mi_fe_with_recipes fix); recomputing on the FULL fit-time
-        # source column is safe/exact -- it reproduces, not refits, the fit-time params.
+        # source column is safe/exact - it reproduces, not refits, the fit-time params.
         _pp = None
         try:
             _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
-            # ORTH_SCORING_A-3 fix: was a bare except with zero logging,
+            # Was a bare except with zero logging,
             # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
             # exception (including a genuine programming bug), with no diagnostic trace.
             logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)

@@ -3,14 +3,14 @@
 MRMR ranks features by GLOBAL ``MI(X;Y)``. On group-aware panel data (e.g. wellbore logs split whole by well) a
 feature that is predictive only through BETWEEN-group level differences gets a high global MI yet ~zero WITHIN-group
 association, so it does not generalise to unseen groups (leakage). This module computes MI WITHIN each group and
-aggregates, so a between-group-level feature is correctly demoted while a genuine within-group signal is retained --
+aggregates, so a between-group-level feature is correctly demoted while a genuine within-group signal is retained -
 including the case a global-then-demean approach cannot handle (a within-group relationship whose sign FLIPS across
 groups still has high per-group MI in every group, so it survives here).
 
 It tabulates the joint counts per group from the SAME global bin codes MRMR already produced (no per-group rebinning,
-so bin edges stay comparable across groups), applies the per-group Miller-Madow debias ``(k_x-1)(k_y-1)/(2 n_g)`` --
+so bin edges stay comparable across groups), applies the per-group Miller-Madow debias ``(k_x-1)(k_y-1)/(2 n_g)`` -
 essential because per-group ``n_g`` is small and the plug-in MI bias ``∝ 1/n_g`` would otherwise inflate high-
-cardinality columns -- and skips groups below ``min_rows``. Negative codes (the ``-1`` NaN/missing sentinel MRMR uses)
+cardinality columns - and skips groups below ``min_rows``. Negative codes (the ``-1`` NaN/missing sentinel MRMR uses)
 are dropped per group, mirroring the finite-masking of the base kernels.
 """
 from __future__ import annotations
@@ -108,7 +108,10 @@ def _group_blocked_mi(
         total_mi += w * mi
         total_w += w
     if total_w <= 0.0:
-        return 0.0
+        # No group cleared min_rows: "cannot decide", NOT a genuine zero within-group signal. Return nan
+        # (the same "cannot decide" sentinel as row-misalignment) so leak-exempt callers do not confuse a
+        # small-groups panel with a real between-group-only leak and wrongly exempt/demote a good feature.
+        return math.nan
     return total_mi / total_w
 
 
@@ -128,9 +131,10 @@ def group_blocked_mi(
 
     ``size_weighted=True`` → ``Σ n_g·MI_g / Σ n_g`` (the plug-in ``I(X;Y|G)``); ``False`` → equal-weight mean over
     groups that clear ``min_rows`` (so one huge group does not dominate). ``use_mm`` applies the per-group Miller-Madow
-    debias. Returns 0.0 when no group clears ``min_rows``, and ``nan`` when the segments do not row-align to the codes
-    (``group_offsets[-1] != len(codes_x)`` -- e.g. the greedy screen subsampled rows but groups did not) so the caller
-    can safely fall back to the global-MI path instead of misreading a misaligned index.
+    debias. Returns ``nan`` ("cannot decide") both when no group clears ``min_rows`` AND when the segments do not
+    row-align to the codes (``group_offsets[-1] != len(codes_x)`` - e.g. the greedy screen subsampled rows but groups
+    did not), so a caller cannot confuse either case with a genuine 0.0 within-group signal (a real between-group-only
+    leak); it falls back to the global-MI path / skips the leak-exempt demotion instead.
     """
     cx = np.ascontiguousarray(codes_x)
     cy = np.ascontiguousarray(codes_y)

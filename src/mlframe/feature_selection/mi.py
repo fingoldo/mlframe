@@ -17,7 +17,7 @@ from numba import njit, prange
 #
 # INPUT CONTRACT (load-bearing, fastmath relies on it): every kernel here assumes the data is ALREADY binned to finite, non-negative integer codes in [0, n_bins-1]
 # and uses them directly as histogram offsets. fastmath=True additionally tells LLVM the inputs are finite, so a NaN/inf or out-of-range code is undefined behaviour
-# (out-of-bounds write), not a handled case. The chatgpt path validates the [0,127] int8 range before its cast; the grok/deepseek paths do NOT -- callers feeding those
+# (out-of-bounds write), not a handled case. The chatgpt path validates the [0,127] int8 range before its cast; the grok/deepseek paths do NOT - callers feeding those
 # kernels MUST pre-bin to int8 themselves. A constant column collapses to a single histogram bin and correctly yields MI=0; empty data (n_samples==0) is guarded per-kernel.
 
 USE_FASTMATH: bool = True
@@ -36,7 +36,7 @@ def grok_compute_joint_hist(a: np.ndarray, b: np.ndarray, n_bins: int, dtype: ty
     return hist
 
 
-# Wave 63 (2026-05-20): superseded by grok_mutual_information; retained on the
+# Superseded by grok_mutual_information; retained on the
 # tests/test_meta/test_dead_helpers.py allowlist as a historical reference
 # point for the kernel-evolution audit trail. Not called from production paths.
 @njit(fastmath=USE_FASTMATH, cache=True)
@@ -105,7 +105,7 @@ def _grok_compute_mutual_information_kernel(
     K = len(target_indices)
     mi_results = np.zeros((K, n_columns), dtype=out_dtype)
 
-    # Wave 47 (2026-05-20): n_samples==0 (empty data) divides by zero in the njit
+    # n_samples==0 (empty data) divides by zero in the njit
     # kernel below; early-return zero-MI matching the no-information answer.
     if n_samples == 0:
         return mi_results

@@ -30,8 +30,8 @@ from sklearn.metrics import make_scorer
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Guards every read-then-mutate sequence on the process-wide ``MRMR._FIT_CACHE`` (lookup + ``move_to_end`` on
-# a hit; ``__setitem__`` + ``move_to_end`` + LRU/byte-cap ``popitem`` on store). Concurrent fits -- multi-target
-# discovery, joblib-threading callers, web-service workers -- otherwise race ``popitem``/``__setitem__``/
+# a hit; ``__setitem__`` + ``move_to_end`` + LRU/byte-cap ``popitem`` on store). Concurrent fits - multi-target
+# discovery, joblib-threading callers, web-service workers - otherwise race ``popitem``/``__setitem__``/
 # ``move_to_end`` on the same OrderedDict and can raise KeyError or evict the wrong entry. RLock so a wrapped
 # region may safely re-enter. The companion ``_MRMR_IDENTITY_FP_CACHE`` already had its own lock; this closes the
 # same gap for the fit cache. Exposed on the ``MRMR`` class (idempotently, inside the fit body) as
@@ -49,6 +49,25 @@ def _pgn_raw_budget(ceiling: int, n_engineered: int) -> int:
 # Above this many bytes of nullable-column data, densify masked columns one-per-``assign`` instead of all at once
 # so peak extra RAM stays ~one float64 column rather than ~2x the whole nullable subset (100GB-frame safe).
 _NULLABLE_DENSIFY_EAGER_MAX_BYTES = 2 * 1024**3
+
+
+def _align_mrmr_gains(self) -> None:
+    """Trim/pad ``self.mrmr_gains_`` to exactly ``self.n_features_`` (the ``len(mrmr_gains_) == n_features_``
+    public contract). ``mrmr_gains_`` is the greedy log; the final feature count diverges (shorter on a
+    degenerate/redundancy/cap/UAED trim, longer when FE/retention appended features the greedy never scored).
+    Must be called as the VERY LAST fit step, after every ``n_features_`` mutation - including the group-aware
+    final demotion, which drops zero-within-group engineered recipes and lowers ``n_features_`` but does not
+    touch ``mrmr_gains_``. Idempotent (byte-identical when already aligned). Best-effort."""
+    try:
+        _g = getattr(self, "mrmr_gains_", None)
+        _nf_final = int(getattr(self, "n_features_", 0) or 0)
+        if _g is not None and _nf_final >= 0 and _g.shape[0] != _nf_final:
+            if _g.shape[0] > _nf_final:
+                self.mrmr_gains_ = _g[:_nf_final]
+            else:
+                self.mrmr_gains_ = np.concatenate([_g, np.zeros(_nf_final - _g.shape[0], dtype=np.float64)])
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("mrmr: mrmr_gains_ finalisation failed: %r", e, exc_info=True)
 
 """MRMR._fit_impl main fit body.
 
@@ -93,7 +112,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         MRMR._FIT_CACHE_LOCK = _MRMR_FIT_CACHE_LOCK
     # include_numeric NaN guard: snapshot raw NaN/inf-bearing NUMERIC columns at the VERY START of fit, before
     # _validate_inputs / categorize / any GPU-discretisation path can impute X. include_numeric must skip a column
-    # the user supplied with NaN -- its quantile-edge transform replay has no NaN bin, so a NaN test value would
+    # the user supplied with NaN - its quantile-edge transform replay has no NaN bin, so a NaN test value would
     # silently clip to the top bin (train/serve skew). Captured here so a downstream in-place impute (e.g. the GPU
     # categorize path that is active when the harness sets CUDA_PATH) cannot erase the NaN before the candidate
     # scan and defeat the guard.
@@ -168,7 +187,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         except Exception as exc:
             logger.debug("mrmr: columns-signature hash failed; treating as unknown (forces a cache miss): %r", exc, exc_info=True)
             _x_cols_sig = None
-    # 2026-05-30 Wave 9.1 fix (loop iter 36): fold X content hash into
+    # Fold X content hash into
     # the shortcut signature. Pre-fix the signature was
     # ``(X.shape, y.shape, y_hash, x_cols)`` - X CONTENT was absent.
     # Refitting the same MRMR instance on a different-content X with
@@ -181,7 +200,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # cache layers. Fold X content hash here so both layers agree.
     _x_hash_for_sig = _full_x_content_hash(X)
     # 2026-06-10 fix: fold the selector's OWN parameter signature into the in-object skip signature.
-    # Pre-fix the signature was ``(X.shape, y.shape, y_hash, x_hash, x_cols)`` -- SELECTOR PARAMS were
+    # Pre-fix the signature was ``(X.shape, y.shape, y_hash, x_hash, x_cols)`` - SELECTOR PARAMS were
     # absent: refitting the same MRMR instance with changed settings (via ``set_params`` or direct
     # attribute assignment, e.g. ``selector.n_features_to_select = 3``) on identical data silently
     # replayed the prior fit, returning a selection computed under the OLD params. Same asymmetric-
@@ -200,7 +219,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # restores them in its ``finally``. Reading ``self.get_params()`` fresh AT THIS POINT would capture
     # those TRANSIENT values instead of the stable, user-visible ctor state, permanently breaking the
     # same-content-skip signature match on every SUBSEQUENT identical fit() for any config where an
-    # override actually fires (e.g. the DEFAULT ``cluster_aggregate_enable=True``) -- the stored
+    # override actually fires (e.g. the DEFAULT ``cluster_aggregate_enable=True``) - the stored
     # signature would never again match a freshly (post-restore) computed one. ``_pre_fit_ctor_params_
     # snapshot_`` is captured once, pre-override, at the very top of ``_fit_body``; fall back to a live
     # read only if it's absent (a caller invoking ``_fit_impl`` directly, bypassing the wrapper).
@@ -223,7 +242,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
     # Process-wide ``_FIT_CACHE`` hit. After sklearn.base.clone() the cloned MRMR has no fitted state so
     # the signature==signature shortcut above never fires. Content-based key (id-based missed every hit
-    # because the suite copies X between iterations -- different id() but identical content);
+    # because the suite copies X between iterations - different id() but identical content);
     # _content_array_signature returns shape+dtype+10 sampled values, cheap O(1) and statistically unique
     # enough to avoid false positives on real data. Falls through to full fit on any error or miss.
     _cache_key = None
@@ -256,7 +275,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     if _cache_key is not None:
         # concurrency audit: the replay READ of ``_cached``'s attributes must stay inside the
         # SAME locked critical section as the lookup, not run after the ``with`` block exits. If the
-        # cached instance is itself concurrently being re-fit() (same object, same cache key -- a shared/
+        # cached instance is itself concurrently being re-fit() (same object, same cache key - a shared/
         # reused estimator in a service), an unlocked replay could read a torn mix of attributes: some
         # already reset for the new in-flight fit, some still holding the old fitted values. Locking the
         # whole lookup+replay span makes the replay see a consistent snapshot either fully before or
@@ -329,7 +348,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     fe_max_polynom_coeff = self.fe_max_polynom_coeff
 
     # Convert numpy array to DataFrame if needed
-    # 2026-05-30 Wave 9.1 fix (loop iter 27): record a sentinel
+    # Record a sentinel
     # ``self._feature_names_in_synthesized_`` so ``get_feature_names_out``
     # can distinguish ndarray-fit synthesized placeholders from
     # legitimate DataFrame columns the user happened to name
@@ -346,7 +365,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
     # EMBEDDING / FREE-TEXT PASSTHROUGH. MI discretisation needs scalar (hashable, orderable) cells; embedding-vector columns (object cells = list/ndarray) and
     # long free-text columns violate that and would crash the discretiser or mis-bin into a useless ~N-level categorical. Detect them here and EXCLUDE them from
-    # the working frame so the screen / FE / MI never see them, but PASS THEM THROUGH to the transform output unchanged -- the learnable-embedding MLP / recurrent
+    # the working frame so the screen / FE / MI never see them, but PASS THEM THROUGH to the transform output unchanged - the learnable-embedding MLP / recurrent
     # network (and the ``_encode_emb_text_fit`` boundary encoder) are the correct consumers. ``feature_names_in_`` (set below from the full pre-narrow column list)
     # still counts them so the sklearn ``n_features_in_`` contract matches the user's input width; the passthrough indices are re-appended to ``support_`` at
     # fit-end. Default ON (a corrective mechanism; the legacy crash/drop was silently wrong); set ``embedding_passthrough=False`` for the legacy behaviour.
@@ -361,7 +380,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _passthrough = list(_emb_cols) + [c for c in _text_cols if c not in _emb_cols]
         if _passthrough:
             self._passthrough_features_ = _passthrough
-            # Column-subset selection shares the underlying column buffers (no row copy) -- RAM-safe on 100+ GB frames. The original full column order is recovered
+            # Column-subset selection shares the underlying column buffers (no row copy) - RAM-safe on 100+ GB frames. The original full column order is recovered
             # at fit-end from ``feature_names_in_`` (built from the pre-narrow list below) so the re-appended passthrough indices land at their true positions.
             _keep_cols = [c for c in (X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)) if c not in set(_passthrough)]
             self._passthrough_full_columns_ = X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)
@@ -386,7 +405,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # A single ``assign`` of every nullable column materialises all the float64 arrays before building the
             # frame (peak ~2x the nullable-column bytes); above the threshold densify one column per ``assign`` so
             # each intermediate frame is freed and peak extra RAM stays ~one column. ``assign`` returns a new frame
-            # either way, so the caller's frame is never mutated -- the densification stays RAM-safe on 100+ GB frames.
+            # either way, so the caller's frame is never mutated - the densification stays RAM-safe on 100+ GB frames.
             if len(X) * len(_nullable_num) * 8 <= _NULLABLE_DENSIFY_EAGER_MAX_BYTES:
                 X = X.assign(**{c: X[c].astype("float64") for c in _nullable_num})
             else:
@@ -412,18 +431,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # would populate) and the end-of-fit remap routes them through
     # ``self._engineered_recipes_`` automatically.
     self.hybrid_orth_features_ = []
-    # ADAPTIVE-FREQUENCY Fourier (2026-06-03): names of the held-out-validated
+    # ADAPTIVE-FREQUENCY Fourier: names of the held-out-validated
     # adaptive sin/cos columns the extra-basis stage emitted. Used by the
     # support-finalisation ADAPTIVE-PROTECTION block to re-add any the MRMR
     # screen dropped. Always present (empty when no adaptive freq detected) so
     # transform / pickle / clone never trip on a missing attribute.
     self._adaptive_fourier_features_ = []
-    # HINGE / change-point (2026-06-09): names of the held-out-tau-validated
+    # HINGE / change-point: names of the held-out-tau-validated
     # hinge legs the change-point stage emitted. Used by the support-
     # finalisation HINGE-PROTECTION block to re-add any the MRMR screen dropped
     # (a single relu leg is MONOTONE -> MI-INVARIANT by the DPI, so the greedy
     # MI screen drops it as redundant with raw x exactly as it drops the adaptive
-    # Fourier legs -- its value is downstream linear usability, not MI). Always
+    # Fourier legs - its value is downstream linear usability, not MI). Always
     # present (empty when hinge off / no kink) so transform / pickle / clone
     # never trip on a missing attribute.
     self._hinge_features_ = []
@@ -468,7 +487,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # domain raw ``a`` is uninformative about ``a**2`` (corr ~0), so a univariate
     # quadratic signal was silently MISSED (measured: a**2 corr 0.016, zero
     # engineered features). The orthogonal-basis univariate stage (``a__T2`` ~
-    # a**2 etc.) closes that -- ``fe_univariate_basis_enable`` (default True)
+    # a**2 etc.) closes that - ``fe_univariate_basis_enable`` (default True)
     # runs JUST the univariate basis FE, uplift-gated via ``min_uplift`` in
     # ``hybrid_orth_mi_fe_with_recipes`` so it is near-no-op when there is no
     # univariate nonlinearity, independent of the heavier pair-CROSS-basis stage
@@ -476,14 +495,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ``test_biz_value_mrmr_univariate_basis_fe.py``.
     # fe_max_steps==0 is the documented "no FE at all" contract (see e.g. test_group_aware_mi_mrmr.py's
     # fe_max_steps=0 fixtures): both default-ON families must not fire just because the user never
-    # explicitly touched their own enable flag -- gate on fe_max_steps>0 too, matching the analogous
+    # explicitly touched their own enable flag - gate on fe_max_steps>0 too, matching the analogous
     # discrete-structural-operators precedent above (which DOES allow fe_max_steps=0 firing, but only
-    # for an operator the caller explicitly opted into via its own flag -- neither family here has that
+    # for an operator the caller explicitly opted into via its own flag - neither family here has that
     # explicit-opt-in carve-out, so fe_max_steps=0 disables both unconditionally).
     _hybrid_on = bool(getattr(self, "fe_hybrid_orth_enable", False)) and fe_max_steps > 0
     _univ_basis_on = bool(getattr(self, "fe_univariate_basis_enable", True)) and fe_max_steps > 0
     if (_hybrid_on or _univ_basis_on) and _fe_budget_ok():
-        # Polars frames: skip with a warning -- hybrid FE pipeline operates on
+        # Polars frames: skip with a warning - hybrid FE pipeline operates on
         # pandas. Native polars support would require a separate code path;
         # not in Layer 23 MVP scope.
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
@@ -495,8 +514,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
             _y_for_hybrid = _y_np
             # Hybrid MI scoring expects discrete y. Two cases:
-            #   (a) Float-encoded discrete labels (0.0/1.0) -- safe to cast to int64.
-            #   (b) Continuous regression target -- truncating to int destroys the
+            #   (a) Float-encoded discrete labels (0.0/1.0) - safe to cast to int64.
+            #   (b) Continuous regression target - truncating to int destroys the
             #       signal (e.g. y in [-2.5, 3.1] all collapses to {-2,-1,0,1,2,3},
             #       6 quasi-balanced bins, MI to any continuous predictor ~0).
             #       Quantile-bin instead so MI scoring sees a meaningful discrete y.
@@ -635,7 +654,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _top_k_for_extra = int(getattr(self, "fe_hybrid_orth_top_k", 5))
         # Effective extra-basis set. Two independent contributors:
         #   * the EXPLICIT ``fe_hybrid_orth_extra_bases`` config, but only under
-        #     the heavy ``fe_hybrid_orth_enable`` master switch (legacy gate -- a
+        #     the heavy ``fe_hybrid_orth_enable`` master switch (legacy gate - a
         #     user who set the config but not the master expected a no-op);
         #   * the DEFAULT-ON Fourier univariate basis (``fe_univariate_fourier_enable``),
         #     which runs in the univariate path WITHOUT the master switch so a
@@ -663,7 +682,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _spline_knots = int(getattr(self, "fe_hybrid_orth_spline_knots", 5))
                 _fourier_powers = tuple(int(p) for p in getattr(self, "fe_hybrid_orth_fourier_powers", (1, 2)))
                 _X_before_extra_cols = list(X.columns)
-                # Build the extra basis (Fourier/spline) on RAW columns only --
+                # Build the extra basis (Fourier/spline) on RAW columns only -
                 # EXCLUDE the already-appended poly-basis columns (``a__T2`` ...).
                 # Running Fourier on an engineered column would produce a NESTED
                 # recipe (``a__T2__sin1``) whose transform-replay needs ``a__T2``
@@ -676,7 +695,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _e_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _already_eng_for_extra]
                 else:
                     _e_cols = [c for c in X.columns if c not in _already_eng_for_extra]
-                # ADAPTIVE-FREQUENCY Fourier (2026-06-03): default ON. The
+                # ADAPTIVE-FREQUENCY Fourier: default ON. The
                 # fixed grid {1, 2} misses arbitrary-period oscillations
                 # (sin(3.7*x), sin(5.3*x)); the adaptive detector sweeps a
                 # coarse z-space grid + local-refines + held-out-validates
@@ -684,7 +703,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # (smaller n false-positives a chance frequency). The
                 # emitted adaptive sin/cos recipes are tagged adaptive=True
                 # and PROTECTED past screening below (a single leg has low
-                # marginal MI -- phase -- so the screen would drop the
+                # marginal MI - phase - so the screen would drop the
                 # held-out-validated pair otherwise).
                 _fourier_adaptive = bool(getattr(self, "fe_univariate_fourier_adaptive", True))
                 _fourier_adaptive_mvc = float(
@@ -694,7 +713,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         0.15,
                     )
                 )
-                # ADAPTIVE-CHIRP (2026-06-03): second argument-warp path. Runs
+                # ADAPTIVE-CHIRP: second argument-warp path. Runs
                 # the same held-out detector on u = sign(z)*z**2 so a growing-
                 # frequency chirp (sin(2*pi*f*z**2)) the linear-argument
                 # Fourier cannot express is recovered. Emits __qsin/__qcos
@@ -708,7 +727,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         0.15,
                     )
                 )
-                # Detect frequencies + rank MI on the shared subsample (native gather, no whole-frame copy -- the
+                # Detect frequencies + rank MI on the shared subsample (native gather, no whole-frame copy - the
                 # periodogram detector is the dominant orth-FE CPU cost); winners replay at full n via apply_recipe.
                 X_e, _e_scores, _e_recipes = fe_decide_on_subsample(
                     hybrid_orth_extra_basis_fe_with_recipes,
@@ -765,7 +784,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Independent opt-in via ``fe_hinge_enable`` (does NOT require
     # ``fe_hybrid_orth_enable``): captures a SLOPE CHANGE at a data-dependent
     # threshold ``y = a*x + b*max(x-tau,0)`` (pricing tiers / dose-response /
-    # saturation) that the catalog cannot -- ``numeric_rounding`` is piecewise-
+    # saturation) that the catalog cannot - ``numeric_rounding`` is piecewise-
     # CONSTANT, the cubic B-spline rounds off a sharp kink at its fixed quantile
     # knots, and orth-poly needs a high degree + rings (Gibbs) around the kink.
     # The breakpoint ``tau`` is detected by scanning inner-quantile cuts for the
@@ -774,7 +793,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # admits no hinge. Emitted ``relu(x-tau)`` / ``relu(tau-x)`` legs carry a
     # genuinely different LINEAR shape from raw x, so they clear the standard
     # MI-uplift gate (unlike the MI-invariant isotonic / RankGauss). Recipes
-    # (``hinge_basis``) store only ``{tau, side}`` -- no y -- so replay is the
+    # (``hinge_basis``) store only ``{tau, side}`` - no y - so replay is the
     # pure function ``np.maximum(x-tau,0)``, leak-free. On a monotone target a
     # hinge can be near-collinear with raw x -> the downstream cross-stage
     # Spearman dedup drops it (no duplicate columns survive).
@@ -784,7 +803,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             from .._hinge_basis_fe import hybrid_hinge_fe_with_recipes
             # The hinge detector + admission are REGRESSION-style (2-segment
             # SSE breakpoint search + held-out incremental linear-R^2 gate),
-            # so they want the RAW continuous y -- NOT the qcut-to-10-bins
+            # so they want the RAW continuous y - NOT the qcut-to-10-bins
             # coercion the MI-based FE stages use. Quantile-binning a
             # monotone slope-change target (y = a*x + b*relu(x-tau)) collapses
             # the saturating top tier into one bin and DESTROYS the very slope
@@ -819,8 +838,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             )
             _h_appended = [c for c in X_h.columns if c not in _X_before_hinge_cols]
             if _h_appended:
-                # DEFERRED MATERIALISATION (2026-06-09): the hinge legs are a
-                # TERMINAL univariate linear-usability stage -- they must NOT
+                # DEFERRED MATERIALISATION: the hinge legs are a
+                # TERMINAL univariate linear-usability stage - they must NOT
                 # enter the pair-FE / screening candidate matrix, or (a) the
                 # pair search consumes a leg as an operand (replacing a clean
                 # raw operand with a hinge-transformed one) and (b) a leg's
@@ -858,7 +877,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # univariate-seeded triplet path (``fe_hybrid_orth_triplet_enable``) is OFF.
     _gbm_seeded_triplet_names = list(getattr(self, "_seeded_triplets_names_", []) or [])
     if bool(getattr(self, "fe_hybrid_orth_triplet_enable", False)) or _gbm_seeded_triplet_names:
-        # Format-agnostic since the matrix-native FE seam: the isinstance(X, pd.DataFrame) skip-guard is gone -- the family
+        # Format-agnostic since the matrix-native FE seam: the isinstance(X, pd.DataFrame) skip-guard is gone - the family
         # runs on polars/pandas alike (subsample decision + native replay via fe_decide_on_subsample / _fe_frame_ops).
         try:
             from .._orthogonal_triplet_fe import (
@@ -879,7 +898,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     except Exception as exc:
                         logger.debug("mrmr: y densification failed for the triplet FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_triplet = _y_for_triplet.astype(np.int64)
-            # Triplet seed pool is restricted to RAW columns -- never
+            # Triplet seed pool is restricted to RAW columns - never
             # the previously-appended hybrid/extra-basis columns,
             # because those are themselves products of source cols and
             # would invalidate the 3-way-interaction interpretation
@@ -913,7 +932,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # When the triplet stage runs SOLELY because the GBM seeder forwarded explicit
             # triples (the legacy univariate-seeded triplet path is OFF), SUPPRESS the
             # stage-1 univariate hybrid (``top_k=0``): we want ONLY the seeded 3-way cross
-            # features, not univariate transforms of the seeded operands -- on a pure-noise
+            # features, not univariate transforms of the seeded operands - on a pure-noise
             # frame the seeded noise triples' univariate stage would otherwise engineer a
             # spurious univariate Fourier/poly on a noise operand (a noise admission). When
             # the user ALSO enabled the legacy triplet path, keep their univariate budget.
@@ -998,7 +1017,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     except Exception as exc:
                         logger.debug("mrmr: y densification failed for the quadruplet FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_quad = _y_for_quad.astype(np.int64)
-            # Restrict the seed pool to RAW source columns -- engineered
+            # Restrict the seed pool to RAW source columns - engineered
             # columns from prior stages would create recipes whose
             # src_names reference an engineered column absent at
             # transform time (KeyError on replay).
@@ -1117,7 +1136,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 top_count=_aa_top_count,
             )
             _aa_appended = [c for c in X_aa.columns if c not in _X_before_aa_cols]
-            # Only keep TRUE cross columns (arity >= 2 -- one or more '*').
+            # Only keep TRUE cross columns (arity >= 2 - one or more '*').
             _aa_cross_only = [c for c in _aa_appended if c.split("__", 1)[0].count("*") >= 1]
             if _aa_cross_only:
                 X = fe_append_columns(X, fe_extract_columns(X_aa, _aa_cross_only))
@@ -1143,7 +1162,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # active, for each source column we evaluate every degree in
     # ``fe_hybrid_orth_adaptive_degree_range`` and emit ONLY the argmax-MI
     # degree (if it clears the per-col uplift gate). Recipe kind reuses
-    # ``orth_univariate`` -- replay reads X only, no y.
+    # ``orth_univariate`` - replay reads X only, no y.
     if bool(getattr(self, "fe_hybrid_orth_adaptive_degree_enable", False)):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
@@ -1164,7 +1183,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     except Exception as exc:
                         logger.debug("mrmr: y densification failed for the adaptive-degree FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_adapt = _y_for_adapt.astype(np.int64)
-            # Restrict the seed pool to RAW source columns -- engineered
+            # Restrict the seed pool to RAW source columns - engineered
             # columns from prior stages would create recipes whose
             # src_names reference an engineered column absent at
             # transform time (KeyError on replay).
@@ -1244,7 +1263,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     except Exception as exc:
                         logger.debug("mrmr: y densification failed for the conditional-routing FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_route = _y_for_route.astype(np.int64)
-            # Restrict the seed pool to RAW source columns -- engineered
+            # Restrict the seed pool to RAW source columns - engineered
             # columns from prior stages would create recipes whose
             # src_names reference an engineered column absent at
             # transform time.
@@ -1333,7 +1352,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     except Exception as exc:
                         logger.debug("mrmr: y densification failed for the diff-basis FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_diff = _y_for_diff.astype(np.int64)
-            # Restrict the seed pool to RAW source columns -- engineered
+            # Restrict the seed pool to RAW source columns - engineered
             # columns from prior stages would create recipes whose
             # src_names reference an engineered column absent at transform.
             _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
@@ -1432,7 +1451,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     except Exception as exc:
                         logger.debug("mrmr: y densification failed for the cluster-basis FE seed pool; falling back to truncating int64 cast: %r", exc, exc_info=True)
                         _y_for_cb = _y_for_cb.astype(np.int64)
-            # Restrict to RAW source columns -- engineered columns from
+            # Restrict to RAW source columns - engineered columns from
             # prior stages would create recipes whose src_names reference
             # an engineered column absent at transform.
             _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
@@ -1512,8 +1531,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # fe_hybrid_orth_enable). Replaces the Layer 21 point-estimate MI gate
     # with a lower-confidence-bound (mean - 1.96 * std) across n_boot
     # bootstrap subsamples drawn jointly at sample_fraction. The
-    # engineered columns are bit-equal to Layer 21 -- only the SELECTION
-    # changes -- so recipes reuse the ``orth_univariate`` kind and replay
+    # engineered columns are bit-equal to Layer 21 - only the SELECTION
+    # changes - so recipes reuse the ``orth_univariate`` kind and replay
     # is shared. Restrict to RAW columns to avoid recipes referencing
     # already-engineered columns absent at transform.
     if bool(getattr(self, "fe_hybrid_orth_bootstrap_enable", False)):
@@ -1600,7 +1619,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # bin edges applied to held-out fold) and adds a Gate 3:
     # ``CMI(candidate; y | current_support) >= cmi_min`` which kills
     # duplicate-signal candidates (``x__T2`` after ``x__He2`` is already
-    # selected). When ``current_support`` is empty Gate 3 is skipped --
+    # selected). When ``current_support`` is empty Gate 3 is skipped -
     # marginal MI from Gate 1 already covers that case. Engineered VALUES
     # are bit-equal to Layer 21 so recipes reuse the ``orth_univariate``
     # kind and replay is shared infrastructure.
@@ -1696,8 +1715,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Replaces the Layer 21 plug-in quantile-binned MI estimator with the
     # Kraskov-Stoegbauer-Grassberger k-NN MI estimator via sklearn's
     # ``mutual_info_classif`` (Ross 2014 mixed-KSG for discrete y). The
-    # engineered columns are bit-equal to Layer 21 -- only the SCORING
-    # (and therefore the selection) changes -- so recipes reuse the
+    # engineered columns are bit-equal to Layer 21 - only the SCORING
+    # (and therefore the selection) changes - so recipes reuse the
     # ``orth_univariate`` kind and replay is shared infrastructure.
     if bool(getattr(self, "fe_hybrid_orth_ksg_enable", False)):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
@@ -1823,7 +1842,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # plug-in on raw values (the rank transform flattens the
             # marginal so the bias-correcting Miller-Madow term works on
             # a uniform target); the gates calibrated for Layer 21 plug-in
-            # (1.05 / 0.1) are too tight here -- copula MI lift on a
+            # (1.05 / 0.1) are too tight here - copula MI lift on a
             # cubic-in-x signal is typically 1.00-1.05x because rank(x)
             # already captures the monotone structure, leaving only the
             # non-monotone residual to lift. 0.95 / 0.05 matches the
@@ -1867,7 +1886,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # 2026-06-01 Layer 67 — DISTANCE-CORRELATION ranking for the hybrid
     # orth-poly FE (independent opt-in; does NOT require
     # fe_hybrid_orth_enable). Szekely-Rizzo dCor is the only non-MI
-    # dependence measure in the layer family -- ``dCor == 0`` iff X and Y
+    # dependence measure in the layer family - ``dCor == 0`` iff X and Y
     # are independent on ANY relationship (Pearson lacks this iff
     # guarantee). Naive dCor is O(n^2); the working sample is capped at
     # n=500 via deterministic random subsample. Engineered VALUES bit-equal
@@ -2535,7 +2554,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ``_is_polars_input`` branch immediately below (line ~1326) ALREADY
     # handles polars via ``X.with_columns(target_series)``. The Wave 29
     # coercion was a false-positive fix that killed the zero-copy
-    # polars promise (test_mrmr_fe_zero_copy_polars regressed --
+    # polars promise (test_mrmr_fe_zero_copy_polars regressed -
     # ``pl.DataFrame.to_pandas()`` was called 1x per fit on 100+ GB
     # production frames). Leaving polars frames untouched so the
     # native branch fires.
@@ -2579,7 +2598,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # (i.e. exclude hybrid-orth-appended columns from the prior
             # stage). Compound transforms like ``log(He2(x))`` would
             # create recipes whose ``src_names`` reference an engineered
-            # column that does not exist at transform time -- replay
+            # column that does not exist at transform time - replay
             # would KeyError. Each constructor explores its OWN design
             # space; the union of winners is screened by MRMR.
             _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
@@ -2667,7 +2686,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 include_unary=bool(getattr(self, "fe_mi_greedy_include_unary", True)),
                 include_binary=bool(getattr(self, "fe_mi_greedy_include_binary", True)),
                 min_cmi_gain=float(self.fe_mi_greedy_cmi_min_gain),
-                # MI_GREEDY_RECIPES-1 fix: was hardcoded to 0xC011 inside
+                # Was hardcoded to 0xC011 inside
                 # greedy_cmi_fe_construct regardless of random_state, correlating the CMI noise-floor
                 # permutation across nominally-independent bootstrap/multi-seed replicates.
                 seed=int(getattr(self, "random_seed", 0) or 0),
@@ -2706,7 +2725,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # columns. Runs after hybrid + MI-greedy because TE is the standard
     # prod pattern for cardinality > 5 categoricals that the other two
     # stages do not touch. Recipes (kind ``kfold_target_encoded``) carry
-    # only the full-data per-category lookup -- no y at replay time.
+    # only the full-data per-category lookup - no y at replay time.
     # Engineered columns route through ``hybrid_orth_features_`` so the
     # end-of-fit remap treats them as engineered features (same routing
     # as Layer 23 / 26 / 32).
@@ -2798,7 +2817,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _te_exc,
                 )
 
-    # GROUPED AGGREGATION OVER QUANTILE-BINNED NUMERIC CELLS (2026-06-13). Appends leak-safe per-cell
+    # GROUPED AGGREGATION OVER QUANTILE-BINNED NUMERIC CELLS. Appends leak-safe per-cell
     # mean/std/skew/kurt of numeric columns grouped by quantile-binned cells of other numerics. Runs in the
     # pre-FE region (before categorize_dataset) so the appended columns enter screening like any numeric, and
     # routes recipes through hybrid_orth_features_ so a selected binagg column lands in _engineered_recipes_.
@@ -3048,7 +3067,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
             # Restore the fit-entry NaN positions on the snapshot columns before deriving missingness encodings. An earlier include_numeric /
             # binned_numeric_agg cat-FE stage GPU-categorizes and imputes X in place (when CUDA_PATH is set), which erases the very NaNs the
-            # missingness-FE family encodes -- is_missing__ would be all-zeros and missingness_pattern would collapse to a single pattern. The raw
+            # missingness-FE family encodes - is_missing__ would be all-zeros and missingness_pattern would collapse to a single pattern. The raw
             # NaNs are the user's input; MRMR's nan_strategy='separate_bin' scorer handles them downstream, so reinstating them here is correct, not a hack.
             if _fit_entry_nan_mask and isinstance(X, pd.DataFrame):
                 for _mc, _mask in _fit_entry_nan_mask.items():
@@ -3249,7 +3268,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         or bool(getattr(self, "fe_lagged_diff_enable", False))
     ):
         # grouped_delta / lagged_diff are cross-row (group / time ordered) and ratio / log-ratio rank their mi_gate on the
-        # full frame, none wired for closed-form subsample-replay -- so this block needs the full frame: gate the materialisation
+        # full frame, none wired for closed-form subsample-replay - so this block needs the full frame: gate the materialisation
         # on size and skip a > ~2 GiB polars frame (CLAUDE.md eager rule).
         if fe_polars_exceeds(X):
             warnings.warn(
@@ -3413,7 +3432,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _ld_exc,
                     )
 
-    # Layer 87 (2026-06-01): grouped multi-stat aggregator with CMI gate.
+    # Layer 87: grouped multi-stat aggregator with CMI gate.
     # NVIDIA cuDF Kaggle-Grandmaster technique #1. Per-group statistics of a
     # continuous column broadcast to rows + z-within / ratio residuals, each
     # CMI-gated against the raw support and uplift-gated against the source
@@ -3481,7 +3500,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _ga_exc,
                 )
 
-    # Layer 93 (2026-06-01): COMPOSITE (multi-column) group-key aggregates.
+    # Layer 93: COMPOSITE (multi-column) group-key aggregates.
     # Multi-col extension of Layer 87: each composite key is factorized into
     # one integer-coded group and run through the same per-group stat / z /
     # ratio machinery; survivors are CMI-gated against the raw support and
@@ -3555,7 +3574,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _cga_exc,
                 )
 
-    # Layer 88 (2026-06-01): per-group histogram + quantile FE with
+    # Layer 88: per-group histogram + quantile FE with
     # target-aware edges. NVIDIA cuDF Kaggle-Grandmaster technique #2.
     # Percentile-rank-within-group + per-group IQR / p90-p10 spread, optionally
     # the OOF-fit target-aware supervised bin index; each survivor MI-gated
@@ -3630,7 +3649,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _gq_exc,
                 )
 
-    # Layer 89 (2026-06-01): cat x cat synergy cross with II pre-filter.
+    # Layer 89: cat x cat synergy cross with II pre-filter.
     if bool(getattr(self, "fe_cat_pair_enable", False)):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
@@ -3689,7 +3708,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _cp_exc,
                 )
 
-    # Layer 94 (2026-06-01): cat x cat x cat TRIPLE synergy cross via beam
+    # Layer 94: cat x cat x cat TRIPLE synergy cross via beam
     # search over three-way interaction information (co-information).
     if bool(getattr(self, "fe_cat_triple_enable", False)):
         if not isinstance(X, pd.DataFrame):
@@ -3746,7 +3765,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _ct_exc,
                 )
 
-    # Layer 90 (2026-06-01): numeric decomposition (multi-precision rounding +
+    # Layer 90: numeric decomposition (multi-precision rounding +
     # decimal-digit extraction) with a bootstrap-stable MI gate.
     if bool(getattr(self, "fe_numeric_decompose_enable", False)):
         if not isinstance(X, pd.DataFrame):
@@ -3799,7 +3818,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _nd_exc,
                 )
 
-    # Layer 95 PART A (2026-06-01): periodic / modular decomposition. For each
+    # Layer 95 PART A: periodic / modular decomposition. For each
     # (col, period) emit x mod period plus its sin/cos phase encoding; each
     # candidate gated by Layer 62 bootstrap-stable MI (the gate doubles as
     # auto-period detection). Routing piggybacks on hybrid_orth_features_.
@@ -3849,15 +3868,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 )
 
     # Pairwise / n-way modular FE: detect a target that is an integer modulus of a
-    # combination of integer columns -- (a+b) mod m, (a*b) mod m, n-way parity, or a
-    # single column's hidden non-calendar period -- which smooth bases cannot fit.
+    # combination of integer columns - (a+b) mod m, (a*b) mod m, n-way parity, or a
+    # single column's hidden non-calendar period - which smooth bases cannot fit.
     # Cheap-first / escalate + permutation-null gate; budget-guarded on wide frames.
     # The four discrete-structural families (pairwise-modular / row-argmax / conditional-gate /
     # binned-agg) are gated by their own enable flags and fire INDEPENDENTLY of fe_max_steps>0 (they are a
-    # distinct operator group, deliberately usable with fe_max_steps=0 -- the operator-lift biz_value tests
+    # distinct operator group, deliberately usable with fe_max_steps=0 - the operator-lift biz_value tests
     # rely on exactly that: fe_max_steps=0 + an explicit fe_<op>_enable=True must still build the composite).
     # SMALL-N RELIABILITY FLOOR: their composites are high-cardinality joints (integer lattice/gcd, gated
-    # thresholds, row-argmax) whose MI is unreliable at tiny n -- on small-n pure noise a spurious composite
+    # thresholds, row-argmax) whose MI is unreliable at tiny n - on small-n pure noise a spurious composite
     # clears the relevance gate and is admitted (RC2 pure-noise n=300), and it crowds the clean raw signal.
     # So when FE is otherwise OFF (fe_max_steps==0) require at least ``_DISCRETE_FE_MIN_N_AT_FE0`` rows
     # before building them; with FE enabled (fe_max_steps>=1) the normal FE pipeline competes them down so
@@ -3868,7 +3887,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     ) and _fe_budget_ok()
     # OPERATOR SKIP-GATE (2026-06-18, perf). The four discrete-structural operators (pairwise-modular /
     # row-argmax / conditional-gate / binned-agg) hunt for NONLINEAR/regime structure via MI-kernel scans
-    # over many candidate combos -- ~58% of an additive-regression fit (cProfile: cheap_conditional_gate_scan
+    # over many candidate combos - ~58% of an additive-regression fit (cProfile: cheap_conditional_gate_scan
     # 7.2s + binned_numeric_agg 4s of a 19s fit). On an additive-LINEAR regression target there is no such
     # structure to find, so a single cheap linear fit on the raws is a necessary-condition gate: if the raws
     # already explain y (R^2>=0.92), skip the scans. Classification keeps them (R^2 N/A there -> the gate
@@ -3878,7 +3897,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # SCOPE: AUTOMATIC PATH ONLY (fe_max_steps>0). The skip-gate is a perf optimisation for the default FE
     # pipeline, where the operators run automatically alongside the basis/escalation passes and the gate just
     # spares their scans when the raws already explain y. With fe_max_steps==0 the operators are the ONLY FE
-    # the user asked for (the deliberate operator-only path documented above) -- skipping them there silently
+    # the user asked for (the deliberate operator-only path documented above) - skipping them there silently
     # suppresses an explicitly-requested, genuinely-detectable composite. A linearly-explainable target can
     # still hold real MI/operator structure (e.g. y=1[argmax(a,b,c)==0]: raw-only in-sample logistic AUC ~0.98
     # yet argmax__a__b__c is a clean, selectable composite); the in-sample linear/logistic score is NOT a
@@ -3928,7 +3947,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 )
 
                 # The detector's relevance floor is class-MI. 1D classification y feeds directly; a CONTINUOUS 1D y is quantile-binned once
-                # (bin_y_for_class_mi, nbins=quantization_nbins) so the kernel sees a discrete target -- the prior int64 cast collapsed continuous y
+                # (bin_y_for_class_mi, nbins=quantization_nbins) so the kernel sees a discrete target - the prior int64 cast collapsed continuous y
                 # to ~n bogus classes. Only a 2D (multilabel/multi-target) y stays skipped (binning a label matrix is out of scope). Reuses the
                 # shared _y_class_mi_* computed once above (identical y + nbins across all four discrete-structural operators).
                 _pm_appended, _pm_recipes = ([], [])
@@ -3975,7 +3994,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 )
 
     # Pairwise integer-lattice FE (sibling of pairwise-modular): detect a target that is a function of a hidden common
-    # divisor (gcd), its dual lcm, or a bit-level co-occurrence (a & b) of integer columns -- structure smooth/arithmetic/
+    # divisor (gcd), its dual lcm, or a bit-level co-occurrence (a & b) of integer columns - structure smooth/arithmetic/
     # modular ops cannot express. Cheap-first pairs-only scan + dual margin/permutation-null gate; budget-guarded.
     if _discrete_fe_master and bool(getattr(self, "fe_integer_lattice_enable", False)):
         if not isinstance(X, pd.DataFrame):
@@ -4034,7 +4053,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _il_exc,
                 )
 
-    # Row-argmax FE (frontier pass 2): for a column triple (a, b, c) emit the integer index 0/1/2 of the row-maximum -- an
+    # Row-argmax FE (frontier pass 2): for a column triple (a, b, c) emit the integer index 0/1/2 of the row-maximum - an
     # ordinal/comparison pattern the MI/linear path cannot read off marginals or pairwise diffs. ZERO free params, detector-clean;
     # leak-free deterministic replay (np.argmax over the stacked source columns). Budget-guarded on wide frames.
     if _discrete_fe_master and bool(getattr(self, "fe_row_argmax_enable", False)):
@@ -4112,7 +4131,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 )
 
                 # The gate detector's MI floor is class-MI (_mi_classif_batch). A CONTINUOUS regression target is quantile-binned once
-                # (bin_y_for_class_mi) before the tau-grid + conditional-divergence sweep -- the prior int64 cast turned continuous y into ~n
+                # (bin_y_for_class_mi) before the tau-grid + conditional-divergence sweep - the prior int64 cast turned continuous y into ~n
                 # distinct classes (the tau-sweep MI exploded / never completed). A 2D y stays skipped (the kernel reads a dead signal).
                 # Reuses the shared _y_class_mi_* binned above.
                 _cg_appended, _cg_recipes = ([], [])
@@ -4128,9 +4147,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         max_cols=int(getattr(self, "fe_conditional_gate_max_cols", 200)),
                         k_gate=int(getattr(self, "fe_conditional_gate_k_gate", 8)),
                         k_operand=int(getattr(self, "fe_conditional_gate_k_operand", 10)),
-                        # SCREEN SUBSAMPLE (2026-06-20): subsample the gate-DETECTION scan (tau + MI
+                        # SCREEN SUBSAMPLE: subsample the gate-DETECTION scan (tau + MI
                         # ranking are rank-stable; the recipe replays the gate at FULL n). Reuse the
-                        # resolved screen-n (fe_check_pairs_subsample_n) UNCONDITIONALLY -- the default-
+                        # resolved screen-n (fe_check_pairs_subsample_n) UNCONDITIONALLY - the default-
                         # screen profile shrinks it for large n on every fit, so the gate-detection
                         # (n, K) float64 buffer is built on the small sample and no longer OOMs + gets
                         # silently skipped. >=n / 0 keeps the legacy full-n scan (small-n unchanged).
@@ -4169,7 +4188,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _cg_exc,
                 )
 
-    # Layer 95 PART B (2026-06-01): per-group distribution-distance. For each
+    # Layer 95 PART B: per-group distribution-distance. For each
     # (group, num) emit the group-level z / KL / Wasserstein-1 distance from the
     # global distribution, broadcast to rows; each survivor MI-gated against the
     # source num_col marginal MI. Routing piggybacks on hybrid_orth_features_.
@@ -4220,7 +4239,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _gd_exc,
                 )
 
-    # Layer 104 (2026-06-01): THREE new recipe-based FE families.
+    # Layer 104: THREE new recipe-based FE families.
     # Family D: conditional dispersion / 2nd-moment.
     self.rare_category_features_ = []
     self.conditional_residual_features_ = []
@@ -4234,7 +4253,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.wavelet_features_ = []
     self.rankgauss_features_ = []
 
-    # FAMILY A -- rare-category indicator + frequency-band encoding. A category
+    # FAMILY A - rare-category indicator + frequency-band encoding. A category
     # being RARE is itself predictive; emit is_rare_{col} + freq_band_{col}.
     # MI-gated against the raw-baseline floor. Routing piggybacks on
     # hybrid_orth_features_.
@@ -4295,7 +4314,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _rc_exc,
                 )
 
-    # FAMILY B -- NUM x NUM conditional residual x_i - E[x_i | bin(x_j)].
+    # FAMILY B - NUM x NUM conditional residual x_i - E[x_i | bin(x_j)].
     # Cardinality-bounded by top raw-MI columns; MI-gated. Routing piggybacks on
     # hybrid_orth_features_.
     if bool(getattr(self, "fe_conditional_residual_enable", False)):
@@ -4364,7 +4383,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _cr_exc,
                 )
 
-    # FAMILY D -- NUM x NUM conditional DISPERSION / 2nd-moment.
+    # FAMILY D - NUM x NUM conditional DISPERSION / 2nd-moment.
     # Bin x_j; per bin store conditional STD of x_i; emit |z| / z^2 (conditional
     # dispersion anomaly). DEFAULT-ON: MI-gateable (|z| is a non-monotone fold ->
     # genuine MI on heteroscedastic targets) + SELF-LIMITING (a dual-uplift gate
@@ -4405,7 +4424,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # ``feature_names_in_`` is not yet assigned here; scope to the raw
                 # pre-FE column snapshot (the cat_pair / cat_triple guard's ledger),
                 # which is strictly safer than the ``hybrid_orth_features_`` exclusion
-                # -- that ledger only tracks orth / hinge / wavelet columns and misses
+                # - that ledger only tracks orth / hinge / wavelet columns and misses
                 # ratio / grouped-agg / numeric-decompose engineered intermediates a
                 # dispersion recipe would otherwise build on and fail to replay.
                 if _cd_cols is None:
@@ -4444,7 +4463,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 )
 
     # CONDITIONAL QUANTILE-RANK: 4th member of the
-    # conditional-dispersion family. Bin x_j; emit q(row) = empirical_rank(x_i within bin(x_j)) --
+    # conditional-dispersion family. Bin x_j; emit q(row) = empirical_rank(x_i within bin(x_j)) -
     # the row's TRUE within-bin percentile, not a z-score. MI-gated + self-limiting (a near-
     # monotone reparametrization on homoscedastic/non-skewed data clears no uplift over raw x_i, so
     # it does not perturb genuine-feature recovery on canonical fixtures). Routing piggybacks on
@@ -4513,7 +4532,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
     # ORDINAL PATTERN (Bandt-Pompe) K-fold TARGET ENCODING.
     # For each K-tuple of raw numeric columns, compute the row's rank-permutation id (0..K!-1) and
-    # K-fold-TE encode it -- a fused single-hop recipe: the intermediate perm_id categorical is
+    # K-fold-TE encode it - a fused single-hop recipe: the intermediate perm_id categorical is
     # never exposed as its own column, avoiding a 2-deep nested-recipe replay the 1-deep convention
     # here cannot order. Routing piggybacks on hybrid_orth_features_; recipe carries a frozen
     # (fit-time) TE lookup, not y -> leak-safe replay.
@@ -4652,7 +4671,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
     # SLICED INVERSE REGRESSION (SIR) oblique-direction projection (
     # fe_expansion.md). Recovers a genuinely OBLIQUE (rotated) linear combination spread thinly
-    # across several correlated columns -- where every individual weight is too small for that
+    # across several correlated columns - where every individual weight is too small for that
     # column's own marginal MI to clear the screening floor, and no pairwise/triplet/quadruplet
     # product reconstructs the rotated hyperplane. Routing piggybacks on hybrid_orth_features_;
     # recipe carries the frozen centering/direction, not y -> leak-safe replay.
@@ -4790,7 +4809,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # MULTIVARIATE MAHALANOBIS / GAUSSIAN-COPULA JOINT DENSITY anomaly score (
     # fe_expansion.md). Catches y depending on whether a row sits inside/outside an ELLIPSOIDAL
     # level-set of a p=15-30-way joint distribution where no single column, pair, triplet, or even
-    # quadruplet cross-basis is individually extreme -- the p-way generalization of the existing
+    # quadruplet cross-basis is individually extreme - the p-way generalization of the existing
     # group_distance / conditional-dispersion families' one-column-conditioned-on-one-other-column
     # scope. Routing piggybacks on hybrid_orth_features_; recipe carries the frozen Ledoit-Wolf
     # mu/Sigma_inv, never y -> leak-safe replay.
@@ -4864,12 +4883,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # interval). DEFAULT-ON + SELF-LIMITING: the noise-aware held-out MAD floor +
     # max-legs cap bound the candidate explosion, and each leg is admitted on its
     # held-out INCREMENTAL MI over raw x AND a complementarity guard (must beat a
-    # SMOOTH location-refinement of x) -- so a localized step/bump admits legs, a
+    # SMOOTH location-refinement of x) - so a localized step/bump admits legs, a
     # SMOOTH (sin / monotone) column admits 0 (Fourier owns it, complementary),
     # pure noise admits 0. The leg is NON-monotone -> MI-VISIBLE, so it routes
     # through the MI-based gate (no deferred-materialise / re-add dance the
     # MI-invariant hinge needs). Recipes (``orth_wavelet``) store (lo, span) +
-    # dyadic (j, k); replay is the closed-form indicator -- no y, leak-safe.
+    # dyadic (j, k); replay is the closed-form indicator - no y, leak-safe.
     # Routing piggybacks on hybrid_orth_features_ (like Family D dispersion).
     if bool(getattr(self, "fe_wavelet_enable", False)) and _fe_budget_ok():
         if not isinstance(X, pd.DataFrame):
@@ -4890,7 +4909,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # guard at the hybrid_orth call above): by this point X is ALREADY
                 # augmented with poly/fourier/spline/hinge engineered columns, so the
                 # all-numeric default scope emitted NESTED recipes (e.g.
-                # ``x0__p2sin1__haar_j3k5`` -- a Haar leg of an engineered Fourier
+                # ``x0__p2sin1__haar_j3k5`` - a Haar leg of an engineered Fourier
                 # column) whose 1-deep replay cannot order the parent materialisation
                 # and raised KeyError('x0__p2sin1') at transform() time whenever the
                 # parent was not itself selected. Scoping to ``feature_names_in_``
@@ -4932,7 +4951,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _wv_exc,
                 )
 
-    # FAMILY C -- RankGauss (rank-Gaussianisation). NOT MI-gated: monotone ->
+    # FAMILY C - RankGauss (rank-Gaussianisation). NOT MI-gated: monotone ->
     # MI-invariant by the data-processing inequality; the pool is bounded by raw
     # marginal MI and the value is downstream (linear / NN). Routing piggybacks
     # on hybrid_orth_features_.
@@ -4953,7 +4972,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _rg_cols = [c for c in _rg_cols if c in X.columns] or None  # type: ignore[assignment]
                 # RAW columns only (2026-06-10 fix, same class as the wavelet /
                 # conditional-dispersion stages): keep rankgauss recipes 1-deep and
-                # replayable -- never rank-Gaussianise an engineered column whose
+                # replayable - never rank-Gaussianise an engineered column whose
                 # parent the transform()-time replay cannot materialise first.
                 # ``feature_names_in_`` is not yet assigned here; exclude via the
                 # ``hybrid_orth_features_`` ledger (hinge-stage pattern).
@@ -4987,7 +5006,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _rg_exc,
                 )
 
-    # Layer 92 (2026-06-01): temporal leak-safe grouped aggregations. Carved
+    # Layer 92: temporal leak-safe grouped aggregations. Carved
     # verbatim into the sibling ``_fe_stage_temporal_agg`` (Tier E partial
     # split); the helper threads self + ``_y_np`` / ``verbose`` /
     # ``_temporal_agg_pre_recipes`` explicitly, mutates self + the recipes dict
@@ -4995,7 +5014,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     from ._fe_stage_temporal_agg import _fe_stage_temporal_agg
     X = _fe_stage_temporal_agg(self, X, _y_np, verbose, _temporal_agg_pre_recipes)
 
-    # ACCURACY GATE (2026-06-04, default ON via ``fe_accuracy_gate``). The MI-uplift gates inside the FE generators are fooled by plug-in MI's bias inflation: a Fourier / chirp / Hermite transform of a strong RAW signal earns an inflated MI estimate and out-ranks (then evicts) the raw column even when it adds NO real predictive value. The adaptive-Fourier PROTECTION block at support-finalisation then force-readds those hijackers past the MRMR screen, so they survive into support_ AND leak into ``hybrid_orth_features_`` / ``_adaptive_fourier_features_`` even when a genuine raw signal (or its is_missing__ MNAR indicator) carries the information. This gate runs a held-out multivariate linear-probe uplift check per engineered column against its raw source: a column that adds no held-out uplift over its source -- or whose source is >2%-missing (MNAR fail-closed, the signal lives in the NaN pattern the probe cannot see) -- is dropped here so it can neither evict the raw signal nor leak into the roster. Only orth_* engineered columns with a single resolvable raw source are gated; the is_missing__ / missingness_* indicators are exempt by construction (their recipes live in ``_miss_*_pre_recipes``, never ``_hybrid_orth_pre_recipes``, so they are never routed here). y is read only at fit; transform replays the survivors without y. Best-effort: any failure falls back to keeping the column.
+    # ACCURACY GATE (2026-06-04, default ON via ``fe_accuracy_gate``). The MI-uplift gates inside the FE generators are fooled by plug-in MI's bias inflation: a Fourier / chirp / Hermite transform of a strong RAW signal earns an inflated MI estimate and out-ranks (then evicts) the raw column even when it adds NO real predictive value. The adaptive-Fourier PROTECTION block at support-finalisation then force-readds those hijackers past the MRMR screen, so they survive into support_ AND leak into ``hybrid_orth_features_`` / ``_adaptive_fourier_features_`` even when a genuine raw signal (or its is_missing__ MNAR indicator) carries the information. This gate runs a held-out multivariate linear-probe uplift check per engineered column against its raw source: a column that adds no held-out uplift over its source - or whose source is >2%-missing (MNAR fail-closed, the signal lives in the NaN pattern the probe cannot see) - is dropped here so it can neither evict the raw signal nor leak into the roster. Only orth_* engineered columns with a single resolvable raw source are gated; the is_missing__ / missingness_* indicators are exempt by construction (their recipes live in ``_miss_*_pre_recipes``, never ``_hybrid_orth_pre_recipes``, so they are never routed here). y is read only at fit; transform replays the survivors without y. Best-effort: any failure falls back to keeping the column.
     if bool(getattr(self, "fe_accuracy_gate", True)) and isinstance(X, pd.DataFrame) and (self.hybrid_orth_features_ or []) and _hybrid_orth_pre_recipes:
         try:
             from .._fe_accuracy_gate import (
@@ -5037,7 +5056,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
             _gate_drop: list[str] = []
             _gate_drop_set: set[str] = set()
-            # Pass 1: base (non-Fourier) columns -- uplift over the raw source alone (also the MNAR fail-closed for >2%-missing sources).
+            # Pass 1: base (non-Fourier) columns - uplift over the raw source alone (also the MNAR fail-closed for >2%-missing sources).
             _surviving_base_by_src: dict[str, list[str]] = {}
             for _gc, _src, _is_fourier in _gate_cols:
                 if _is_fourier:
@@ -5049,7 +5068,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 else:
                     _gate_drop.append(_gc)
                     _gate_drop_set.add(_gc)
-            # Pass 2: adaptive-Fourier / chirp columns -- uplift over [raw source + surviving base siblings of that source]. A Fourier redundant with a He2 sibling (both encode x**2)
+            # Pass 2: adaptive-Fourier / chirp columns - uplift over [raw source + surviving base siblings of that source]. A Fourier redundant with a He2 sibling (both encode x**2)
             # adds ~0 here and is dropped; a genuine oscillation no polynomial sibling captures clears the floor and is kept. MNAR fail-closed first (the probe drops NaN rows).
             for _gc, _src, _is_fourier in _gate_cols:
                 if not _is_fourier:
@@ -5103,17 +5122,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _gate_exc,
             )
 
-    # Layer 27 (2026-05-31): cross-stage engineered-column dedup. Hybrid and
+    # Layer 27: cross-stage engineered-column dedup. Hybrid and
     # MI-greedy stages run independently; on signals like ``y = sign(x^2 - 1)``
     # hybrid emits ``x__He2`` and MI-greedy emits ``square(x)`` / ``abs(x)`` /
-    # ``sqrt_abs(x)`` / ``log_abs(x)`` -- all are monotone-in-|x| encodings
+    # ``sqrt_abs(x)`` / ``log_abs(x)`` - all are monotone-in-|x| encodings
     # of the SAME signal (Pearson |corr| ~ 0.99+ on rank-correlated MI binning).
     # MRMR's CMI gate can't tell them apart well enough to prune; the
     # combined support inflates with 4-5 near-identical columns. The cheap
     # cure is a pre-MRMR dedup pass against the engineered cousins: keep the
     # first appended occurrence, drop everything correlating >= 0.999 with an
     # already-kept engineered column. Raw input columns are never deduped
-    # here -- that's MRMR's job and removing raw cols would change the
+    # here - that's MRMR's job and removing raw cols would change the
     # ``feature_names_in_`` contract.
     # Order-preserving dedup BEFORE we walk the list: when the same
     # engineered name is emitted by both the hybrid_orth and the
@@ -5136,7 +5155,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # The default-on univariate-basis stage writes into ``hybrid_orth_features_`` and is appended BEFORE ``mi_greedy_features_``, so a first-appended policy silently sacrifices a genuine
     # mi_greedy ``|x|``-family signal (``log_abs(x)`` / ``sqrt_abs(x)`` / ``square(x)`` / ``abs(x)``) to a monotone-equivalent basis twin (``x__L2`` / ``x__cos1`` / ...). We score every appended
     # engineered column once with the SAME plug-in MI scorer + quantile binning the FE stages used, then break dedup ties by higher MI, with the mi_greedy / constructor-requested column winning
-    # exact MI ties (a monotone twin bins identically, so MI is numerically equal -- prefer the explicitly-requested constructor output). MI scoring is best-effort: any failure falls back to the
+    # exact MI ties (a monotone twin bins identically, so MI is numerically equal - prefer the explicitly-requested constructor output). MI scoring is best-effort: any failure falls back to the
     # order-preserving first-appended policy so the dedup never crashes a fit.
     _mig_set = set(self.mi_greedy_features_ or [])
     _eng_mi: dict[str, float] = {}
@@ -5171,7 +5190,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         Only CROSS-STAGE collisions (exactly one of the pair is an mi_greedy / constructor-requested column) ever flip the survivor: within a single stage we preserve the original
         first-appended policy byte-for-byte, so the dedup stays deterministic on the monotone-twin families a single basis stage emits (a quantile-binned MI tie between ``x__He2`` /
         ``x__cos1`` / ``x__L2`` would otherwise reshuffle non-deterministically). Across stages we keep the column carrying more MI about y, and the explicitly-requested mi_greedy column
-        wins an exact MI tie (a monotone twin bins identically, so its MI is numerically equal -- without this the default-on basis twin would silently evict the genuine ``|x|``-family signal).
+        wins an exact MI tie (a monotone twin bins identically, so its MI is numerically equal - without this the default-on basis twin would silently evict the genuine ``|x|``-family signal).
         """
         _cand_mig = cand in _mig_set
         _kept_mig = kept in _mig_set
@@ -5193,18 +5212,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _eng_arrs: dict[str, np.ndarray] = {}
         # Cache each column's FULL-column average ranks. When a (candidate, kept) pair is jointly finite
         # over ALL rows (the common no-NaN engineered case) the masked-subset ranks equal these full ranks,
-        # so we reuse them instead of re-sorting both columns per pair -- removing the O(K^2) rank-sorts the
+        # so we reuse them instead of re-sorting both columns per pair - removing the O(K^2) rank-sorts the
         # dedup did (only the O(K^2) corrcoef remains). Bit-identical: same arrays -> same average ranks.
         _eng_ranks: dict[str, np.ndarray] = {}
         # Per-column full-finiteness (zero NaN), cached alongside the ranks: the fast-path condition below
         # (``_mask.all()``) can only ever be True when BOTH sides are fully finite, so a fully-finite
         # candidate's O(K) kept-column comparisons can be BATCHED in one parallel call (see
         # ``_eng_dedup_batch_corr.one_vs_many_abs_corr_masked``) instead of K separate ``np.corrcoef``
-        # calls -- only for the subset of kept columns that are themselves fully finite (and hence carry a
+        # calls - only for the subset of kept columns that are themselves fully finite (and hence carry a
         # buffer row); a NaN-containing kept/candidate pair keeps the original per-pair masked path.
         # APPEND-ONLY rank buffer (2026-07-13, bench-attempt-rejected note in _eng_dedup_batch_corr.py):
         # a naive per-candidate ``np.vstack`` of the CURRENT kept ranks re-copies O(K) rows on EVERY
-        # candidate (O(K^2 * n) total memcpy, the SAME order as the corrcoef calls it replaces -- measured
+        # candidate (O(K^2 * n) total memcpy, the SAME order as the corrcoef calls it replaces - measured
         # a NET LOSS). This buffer is written ONCE per fully-finite column (when first admitted) and never
         # copied again; the kernel takes a zero-copy VIEW of it plus a boolean "still live" mask.
         _eng_rank_buf = np.empty((len(_eng_cols_appended), len(X)), dtype=np.float64)
@@ -5251,8 +5270,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _ranks_c = pd.Series(_arr_c).rank(method="average").to_numpy()
             _eng_ranks[_c] = _ranks_c
             _colliding_kept: list[str] = []
-            # BATCHED FAST PATH (2026-07-13): the ``_mask.all()`` fast-path condition below can only ever
-            # be True when BOTH the candidate and the kept column are fully finite -- so when the candidate
+            # BATCHED FAST PATH: the ``_mask.all()`` fast-path condition below can only ever
+            # be True when BOTH the candidate and the kept column are fully finite - so when the candidate
             # itself is fully finite, every currently-kept column that is ALSO fully finite (and hence
             # already has a row in the append-only rank buffer) can be compared in ONE batched+parallel
             # call instead of one ``np.corrcoef`` call per kept column. Kept columns with any NaN (rare
@@ -5513,10 +5532,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     sorted(_eng_drop),
                 )
 
-    # Layer 91 (2026-06-01): Tier-2 UNIFIED SECOND-PASS CMI GATE. The Layer 27
+    # Layer 91: Tier-2 UNIFIED SECOND-PASS CMI GATE. The Layer 27
     # dedup above is UNSUPERVISED (Spearman rank-corr between engineered cousins)
     # and so cannot see cross-mechanism redundancy that only manifests
-    # conditional on y -- e.g. ``count(cat_a)`` and ``freq(cat_a)`` ARE caught by
+    # conditional on y - e.g. ``count(cat_a)`` and ``freq(cat_a)`` ARE caught by
     # Spearman (identical rank order), but ``count(cat_a)`` vs a target-encoding
     # of cat_a that carries the same y-signal through a different bin pattern is
     # NOT. This gate runs a single greedy CMI selection over ALL engineered
@@ -5627,7 +5646,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # the raw-feature ``original_indices`` path. transform() then replays
     # hybrid columns from recipes and the sklearn ``n_features_in_``
     # contract still matches the user-facing input width.
-    # Layer 26: also exclude MI-greedy-appended columns -- same routing
+    # Layer 26: also exclude MI-greedy-appended columns - same routing
     # contract: they're engineered, not raw input.
     _hybrid_names_set = set(self.hybrid_orth_features_ or [])
     _mi_greedy_names_set = set(self.mi_greedy_features_ or [])
@@ -5646,9 +5665,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # name that was effectively shadowed so the recipe ledger stays
     # consistent with the column actually surviving in X.
     if isinstance(X, pd.DataFrame) and X.columns.has_duplicates:
-        # Layer 64 (2026-05-31) defense: keep only the FIRST occurrence
+        # Layer 64 defense: keep only the FIRST occurrence
         # of each duplicate-label column position in X. The engineered
-        # rosters and the recipe ledger are NOT pruned here -- the
+        # rosters and the recipe ledger are NOT pruned here - the
         # recipe is what the transform path uses to re-emit the column,
         # so dropping the name from the roster would break
         # ``transform`` (it tries to look up the support_ name in the
@@ -5694,10 +5713,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.feature_names_in_ = np.asarray(_fni, dtype=object)
     self.n_features_in_ = len(self.feature_names_in_)
 
-    # FE AUTO-ESCALATION fitting target (2026-06-10): a RANK transform of the raw
+    # FE AUTO-ESCALATION fitting target: a RANK transform of the raw
     # numeric y, stashed for the escalation proposers' corr-based warp fits. The FE
     # step's ``classes_y`` are LABEL codes from the internal target quantisation
-    # (NOT guaranteed ordinal/monotone in y -- measured 37 unordered codes on a
+    # (NOT guaranteed ordinal/monotone in y - measured 37 unordered codes on a
     # heavy-tailed regression y), which destroys a Pearson-corr-validated ALS /
     # periodogram fit; the rank of y is monotone-equivalent to y, heavy-tail-robust,
     # and exactly as leak-safe (a fit-time supervised target; every emitted recipe
@@ -5715,7 +5734,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         logger.debug("mrmr: FE-escalation y-rank computation failed; rank unavailable this fit: %r", exc, exc_info=True)
         self._fe_escalation_y_rank_ = None
 
-    # PREWARP ALS RECONSTRUCTION TARGET (2026-06-11): stash the RAW CONTINUOUS y so
+    # PREWARP ALS RECONSTRUCTION TARGET: stash the RAW CONTINUOUS y so
     # the pair-search rank-1 ALS warp reconstructs against the faithful continuous
     # target rather than the coarse equal-frequency screening codes the target-rebin
     # guard (above) produces. The guard correctly coarsens ``classes_y`` for the MI
@@ -5751,7 +5770,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     vals = _target_to_numpy_values(y)
     vals = self._coerce_target_dtype(vals)
 
-    # Native Polars support -- no `.to_pandas()` copy. Production frames are 100+ GB; full materialization
+    # Native Polars support - no `.to_pandas()` copy. Production frames are 100+ GB; full materialization
     # would OOM. Use Polars-native ops when the input is pl.DataFrame.
     try:
         import polars as pl  # local alias; safe even if pl is already imported module-scope
@@ -5765,7 +5784,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # baked them into ``feature_names_in_`` and crashed on ``transform``.
     _caller_pandas_frame = None
     if _is_polars_input:
-        # Polars is immutable; with_columns returns a new frame sharing buffers with X -- no data copy.
+        # Polars is immutable; with_columns returns a new frame sharing buffers with X - no data copy.
         target_series = [pl.Series(name, vals[:, i] if vals.ndim == 2 else vals) for i, name in enumerate(target_names)]
         X = X.with_columns(target_series)
     else:
@@ -5784,12 +5803,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ---------------------------------------------------------------------------------------------------------------
     # MEM: free per-family FE intermediate frames before discretizing (PEAK-RSS bound).
     # Each of the ~50 FE families above produces a full-width intermediate DataFrame
-    # (``X_t``/``X_q``/``X_te``/... -- internally ``pd.concat([X, new_cols])``) and the
+    # (``X_t``/``X_q``/``X_te``/... - internally ``pd.concat([X, new_cols])``) and the
     # accepted subset is folded into ``X`` while the intermediate stays bound to its own
     # distinct local name. None is reused or deleted, so at this point (the peak: every
     # float frame coexists, ``categorize_dataset`` is about to allocate the int-code
     # ``data`` on top) the process holds ~one full-frame copy PER family that ran.
-    # These locals are provably dead here -- the only column data that must survive is in
+    # These locals are provably dead here - the only column data that must survive is in
     # ``X`` (consulted by categorize_dataset, the DCD ``X_raw=X`` path, and transform-time
     # recipe replay). Dropping them is SELECTION-NEUTRAL: ``data``/``cols``/``nbins`` and
     # every downstream MI estimate are computed from ``X`` alone, untouched by these names.
@@ -5797,7 +5816,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # raised families never bind the name), so each drop is an explicit ``del`` guarded by
     # a membership check. For the ``X = X_<fam>`` rebind families the name is an ALIAS of
     # the live ``X`` and ``del`` only removes the alias (X survives); for the concat
-    # families it frees a genuine separate full-width frame -- the actual memory win.
+    # families it frees a genuine separate full-width frame - the actual memory win.
     # NOTE: ``del locals()[name]`` does NOT free a real local in CPython; a literal ``del``
     # statement is required, hence the explicit per-name lines below.
     _fe_live = set(locals())
@@ -5872,7 +5891,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     else:
         _x_for_cat = X
         _strategy_for_categorize = self.nan_strategy
-    # 2026-05-29 Wave 7: propagate the new ``nbins_strategy`` knob through to
+    # Propagate the new ``nbins_strategy`` knob through to
     # categorize_dataset so per-column adaptive bin counts (FD, QS, MDLP, Knuth,
     # OptimalJoint, ...) actually take effect inside fit(). When None,
     # categorize_dataset uses the legacy fixed ``quantization_nbins``.
@@ -5882,14 +5901,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # (fayyad_irani) recursion can emit up to 2**max_depth intervals (default max_depth=8 -> ~256), which would exceed
     # int8 just like a high-card categorical. Cap max_depth to floor(log2(cap)) so numeric bins <= cap too (unless the
     # user pinned max_depth explicitly). This makes max_categorical_cardinality a single knob for a universally-narrow
-    # codes matrix -- categorical tail folded AND numeric intervals bounded.
+    # codes matrix - categorical tail folded AND numeric intervals bounded.
     _cap = getattr(self, "max_categorical_cardinality", None)
     if _cap and str(_nbins_strategy).lower() in ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated"):
         _md = max(2, int(np.floor(np.log2(int(_cap)))))
         _nbins_strategy_kwargs = dict(_nbins_strategy_kwargs or {})
         _nbins_strategy_kwargs.setdefault("max_depth", _md)
     # Constructor-level shared adaptive-bin-count ceiling (knuth / bayesian_blocks / freedman_diaconis
-    # -- see MRMR.__init__'s max_adaptive_nbins docstring and _adaptive_nbins.MAX_ADAPTIVE_NBINS).
+    # - see MRMR.__init__'s max_adaptive_nbins docstring and _adaptive_nbins.MAX_ADAPTIVE_NBINS).
     # setdefault so an explicit per-method override in nbins_strategy_kwargs (e.g. "knuth_m_max_cap")
     # still wins.
     _max_adaptive_nbins = getattr(self, "max_adaptive_nbins", None)
@@ -5897,7 +5916,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _nbins_strategy_kwargs = dict(_nbins_strategy_kwargs or {})
         _nbins_strategy_kwargs.setdefault("max_adaptive_nbins", int(_max_adaptive_nbins))
     # The supervised strategies (mdlp / optimal_joint) need y. Pull the raw
-    # target column from the input frame -- categorize_dataset is called with
+    # target column from the input frame - categorize_dataset is called with
     # _x_for_cat which is a DataFrame; the target column is one of its members
     # (target injection happens upstream in _mrmr_fit_impl).
     _y_for_strategy = None
@@ -5935,7 +5954,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # full cold-start (16 fresh worker processes each re-importing mlframe/numba/cupy, measured 28.1s cold vs
     # 0.7s warm) synchronously inside the polynom-pair-FE phase. Placed HERE, not at fit-entry: an earlier
     # placement (right after ``fe_smart_polynom_iters``/``n_jobs`` are read, well before categorization) was
-    # measured to REGRESS a full 100k-row production run by ~223s wall-clock -- categorization is itself
+    # measured to REGRESS a full 100k-row production run by ~223s wall-clock - categorization is itself
     # CPU-active (not idle), so the pre-warm's 16 concurrent worker-process spawns contended with it (round-12
     # A/B: the categorization gap grew 85.3s -> 153.1s, with exactly 16 new
     # "NumbaPerformanceWarning: Grid size 1" lines appearing in that window, matching n_jobs=16 workers
@@ -5954,14 +5973,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
     target_indices = np.array([_name_to_idx[col] for col in target_names], dtype=np.int64)
 
-    # TARGET REBIN GUARD (2026-06-10). The adaptive per-column ``nbins_strategy``
+    # TARGET REBIN GUARD. The adaptive per-column ``nbins_strategy``
     # (default ``"mdlp"`` since Wave 7) is meant for FEATURE columns; applied to the
     # injected TARGET column it is SELF-REFERENTIAL (MDLP bins y supervised on y) and
-    # on a heavy-tailed continuous y it produces a DEGENERATE encoding -- measured on
+    # on a heavy-tailed continuous y it produces a DEGENERATE encoding - measured on
     # the F2 fixture (y = 0.2*a**2/b + f/5 + log(2c)*sin(d/3), n=20000): 37 bins with
     # 83.7% of all rows collapsed into ONE bin (vs the clean 10 x 2000 equal-frequency
-    # legacy quantile bins). Every downstream MI/CMI -- screening, pair gates, FE
-    # acceptance -- is computed AGAINST these target codes, so the bulk of the signal
+    # legacy quantile bins). Every downstream MI/CMI - screening, pair gates, FE
+    # acceptance - is computed AGAINST these target codes, so the bulk of the signal
     # becomes invisible (the genuine (c,d) term's measured CMI drops ~6x). Re-bin the
     # CONTINUOUS target columns (raw unique count > quantization_nbins; classification
     # labels are left untouched) with the legacy ``quantization_method`` /
@@ -6003,7 +6022,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 nbins[int(_ti)] = _t_nb
 
     # COMPACT CODES STORAGE. ``data`` holds per-column BIN INDICES (0..nbins-1 + a NaN bin / -1 sentinel), never JOINT
-    # ids, so it fits the smallest int that spans its actual code range -- int8 for the common nbins<=~127 case, int16
+    # ids, so it fits the smallest int that spans its actual code range - int8 for the common nbins<=~127 case, int16
     # for a high-cardinality categorical. The base (n, p) matrix at scale (e.g. 795k x 496) drops 4x / 2x vs the legacy
     # int32. Selection-EQUIVALENT: the code VALUES are unchanged, and every consumer (merge_vars, the GPU path) reads
     # this storage and casts UP to int32 for JOINT math, so deep joints (nbins^order) never overflow. Engineered-code
@@ -6045,7 +6064,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # pair candidates. Their value at a row depends on OTHER rows (``np.gradient``: grad1/grad2) or
         # on a whole-column statistic recomputed at apply time (``logn`` uses ``x - np.min(x)``), so a
         # recipe built on them silently produces DIFFERENT values on a row-slice / test frame
-        # (slice-replay corruption -- the same class as the smart_log BUG2 fix). They appear only in the
+        # (slice-replay corruption - the same class as the smart_log BUG2 fix). They appear only in the
         # non-default "maximal" preset; dropping them here means they are never selected as engineered
         # features, while the create_*_transformations registry stays intact (other callers + the
         # registry-coverage test are unaffected). On the default "minimal" preset this is a no-op.
@@ -6055,7 +6074,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         if fe_max_polynoms:
             # Generated polynomial coefficients are appended directly to unary_transformations under "poly_<coef>" keys;
             # no separate registry is needed. Use a seeded local Generator so the polynomial recipes are reproducible
-            # across reruns with the same ``random_seed`` -- prior code used the global ``np.random`` stream, breaking
+            # across reruns with the same ``random_seed`` - prior code used the global ``np.random`` stream, breaking
             # determinism whenever any earlier suite stage advanced it.
             _poly_rng = np.random.default_rng(self.random_seed)
             for _ in range(fe_max_polynoms):
@@ -6077,7 +6096,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     engineered_recipes: dict = {}
     # PER-GATE FE REJECTION LEDGER (additive, 2026-06-11): the per-fit raw-record list is reset
     # near fit-start (above, before any FE stage records) so it accumulates the gate drops of
-    # EVERY FE stage this fit -- the recipe-FE families + cluster-basis (which record before this
+    # EVERY FE stage this fit - the recipe-FE families + cluster-basis (which record before this
     # point) AND the pair-search ``_run_fe_step`` loop below. fe_rejection_ledger_ is built from
     # it at fit-end. Stays empty when FE produced no rejected candidates.
     # Layer 23: seed engineered_recipes with hybrid orthogonal-poly recipes
@@ -6187,8 +6206,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         from ..cat_fe_state import CatFEConfig as _CatFEConfig
         cat_fe_cfg = _CatFEConfig()
     # include_numeric: collect raw numeric feature values (keyed by data-column index) so the cat-FE step can
-    # quantile-bin them into the candidate pool. Extracted from the ORIGINAL ``X`` (NaN visible) -- NOT the
-    # ffill'd ``_x_for_cat`` -- so a NaN-bearing column is correctly skipped at fit (v1 has no NaN bin in the
+    # quantile-bin them into the candidate pool. Extracted from the ORIGINAL ``X`` (NaN visible) - NOT the
+    # ffill'd ``_x_for_cat`` - so a NaN-bearing column is correctly skipped at fit (v1 has no NaN bin in the
     # quantile-edge replay) and fit/transform stay consistent (both read the user's raw frame).
     _num_raw_values = None
     if cat_fe_cfg.enable and getattr(cat_fe_cfg, "include_numeric", False):
@@ -6196,7 +6215,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _cat_idx_set = set(int(c) for c in categorical_vars)
         _tgt_idx_set = set(int(t) for t in target_indices)
         # RAW input columns only: pre-FE recipes (haar / ratio / grouped-agg ...) appended engineered numeric
-        # columns to data / cols / X before this step. Crossing those is unreplayable -- the engineered source
+        # columns to data / cols / X before this step. Crossing those is unreplayable - the engineered source
         # is absent from the user's raw frame at transform time -> NaN column / silent feature drop. Restrict to
         # ``feature_names_in_`` (the raw user columns, set above, excludes engineered names).
         # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
@@ -6257,7 +6276,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # Stamp the fit-time categorical -> integer-code mapping onto every cat-FE recipe whose source columns are
         # categorical / string. Without this, ``transform`` on a raw frame routes string source values through
         # ``astype(int64)`` -> ValueError -> all-zero codes, so the carefully-discovered cat-interaction (factorize /
-        # target_encoding) feature collapses to a CONSTANT column at serving time -- a silent train/serve skew (the
+        # target_encoding) feature collapses to a CONSTANT column at serving time - a silent train/serve skew (the
         # FS-side analog of the 4b299e25 neural ``_apply_cat_codes`` bug). ``categorize_dataset`` codes Categorical via
         # ``.cat.codes`` (category order) and object/string via ``pd.factorize`` (first-appearance order, training-data
         # dependent); only a stored map can reproduce those codes at transform. The map is built ONCE per distinct source
@@ -6268,7 +6287,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # shift to the WHOLE block when ANY column in it has a NaN. So even a NaN-FREE categorical source
             # gets its codes shifted +1 at fit time. Compute the block-level NaN flag ONCE (mirroring
             # ``categorize_dataset``'s ``select_dtypes`` block selection exactly) and thread it into every map
-            # build; a per-column flag would off-by-one the NaN-free partner of a NaN-bearing column -- the
+            # build; a per-column flag would off-by-one the NaN-free partner of a NaN-bearing column - the
             # same silent train/serve skew, for the mixed-block case the per-column path never handled.
             _block_has_nan: bool | None = None
             try:
@@ -6336,7 +6355,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _effective_min_relevance_gain = float(self.min_relevance_gain)
 
     num_fs_steps = 0
-    # 2026-06-02: tracks whether the post-FE confirming re-screen has run, so it
+    # Tracks whether the post-FE confirming re-screen has run, so it
     # fires at most once (see the fe_reselect_after_engineering block below). The
     # re-screen re-selects from the augmented pool (raw + engineered) using the
     # estimator's own use_simple_mode (now defaulting to False = full Fleuret
@@ -6348,22 +6367,22 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # swap_log) accumulates instead of being rebuilt empty each iteration.
     _persisted_dcd_state = None
     # Carries the prior round's relevance/redundancy caches into the next screen_predictors() call
-    # (2026-07-09 fix) -- see screen_predictors' ``seed_caches`` docstring. Mirrors the DCD-state
+    # - see screen_predictors' ``seed_caches`` docstring. Mirrors the DCD-state
     # threading immediately above; before this fix each round rebuilt all 4 caches from scratch, fully
     # rescoring every raw column's relevance/entropy/conditional-MI even though those values cannot
     # change round-to-round (the data they're computed from is stable; only new columns get appended).
     _persisted_screen_caches = None
     # Cross-round cache for the maxT permutation-null gain floor (2026-07-09 fix; see
-    # compute_fdr_gain_floor's ``maxt_floor_cache`` docstring) -- a plain dict, mutated in place by
+    # compute_fdr_gain_floor's ``maxt_floor_cache`` docstring) - a plain dict, mutated in place by
     # every screen_predictors() call this fit, so a raw-pool floor computed in round 1 is not
     # recomputed identically in round 2/3.
     _persisted_maxt_floor_cache: dict = {}
     # Carries the warmed joblib worker pool (n_workers>1 only) into the next screen_predictors() call
-    # (2026-07-09 fix) -- see screen_predictors' ``seed_workers_pool`` docstring. ``None`` at n_workers<=1
+    # - see screen_predictors' ``seed_workers_pool`` docstring. ``None`` at n_workers<=1
     # (no pool built) or before round 1.
     _persisted_workers_pool = None
-    # Declared BEFORE the loop (2026-07-09 fix) so per-binary-func timing accumulates across ALL
-    # screen/FE rounds of this fit, not just the last one -- previously reset to empty at the top of
+    # Declared BEFORE the loop so per-binary-func timing accumulates across ALL
+    # screen/FE rounds of this fit, not just the last one - previously reset to empty at the top of
     # every iteration, so the end-of-fit log only ever reflected the FINAL round's timing even though
     # this loop typically runs 2-3 rounds per fit (raw screen, FE step(s), confirm-rescreen).
     times_spent: defaultdict = defaultdict(float)
@@ -6475,7 +6494,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     warp_tiebreak_prefer_linear=getattr(self, "warp_tiebreak_prefer_linear", True),
                     warp_twin_rank_corr=getattr(self, "warp_twin_rank_corr", 0.99),
                     warp_linear_margin=getattr(self, "warp_linear_margin", 0.05),
-                    # Layer 47 (2026-05-31): forward the auto-tau
+                    # Layer 47: forward the auto-tau
                     # calibration knobs (number of sampled feature pairs
                     # and RNG seed) so make_dcd_state can fingerprint
                     # the calibration sweep deterministically.
@@ -6533,19 +6552,19 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         except Exception as exc:
             logger.debug("mrmr: DCD result attachment failed; dcd_ unavailable: %r", exc, exc_info=True)
             self.dcd_ = None
-        # Layer 41 (2026-05-31): self-describing cluster membership accessor.
+        # Layer 41: self-describing cluster membership accessor.
         # Mirror ``dcd_["cluster_anchors_names"]`` onto the estimator as a
         # first-class fitted attribute so downstream code can read the
         # discovered clusters without indexing through ``self.dcd_`` (the
         # raw summary dict). ``cluster_members_`` is None when DCD was
-        # disabled, matching ``dcd_`` semantics. Pure additive metadata --
+        # disabled, matching ``dcd_`` semantics. Pure additive metadata -
         # no effect on ``support_`` or ``transform`` output.
         if isinstance(self.dcd_, dict):
             self.cluster_members_ = dict(self.dcd_.get("cluster_anchors_names", {}))
         else:
             self.cluster_members_ = None
-        # Layer 48 (2026-05-31): hierarchical post-hoc cluster map. Pure
-        # additive analyser over ``dcd_["cluster_anchors_names"]`` --
+        # Layer 48: hierarchical post-hoc cluster map. Pure
+        # additive analyser over ``dcd_["cluster_anchors_names"]`` -
         # surfaces super-cluster ties DCD's greedy single-anchor rule
         # cannot. Empty dict when DCD found <2 anchors / no super-tau
         # crossings. None mirrors ``cluster_members_`` semantics for the
@@ -6567,7 +6586,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # 2026-05-30 Wave 9.1 fix (loop iter 1, agent-found bug):
         # When DCD's ``commit_swap`` extended ``factors_data`` inside screen
         # with PC1 aggregate columns, the swap targets land in ``selected_vars``
-        # at indices >= len(nbins) here -- the outer-scope ``data/cols/nbins``
+        # at indices >= len(nbins) here - the outer-scope ``data/cols/nbins``
         # still point at the pre-swap matrix, so downstream ``_run_fe_step``
         # crashes in ``merge_vars`` with "negative dimensions" once an
         # aggregate index is looked up. Adopt the extended matrices back
@@ -6581,11 +6600,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     cols = list(_dcd_state.cols)
                     nbins = np.asarray(_dcd_state.factors_nbins, dtype=np.int64)
             except Exception as e:  # nosec B110 - non-trivial body
-                # Best-effort -- if DCDState is malformed, fall through.
+                # Best-effort - if DCDState is malformed, fall through.
                 logger.debug("DCDState looked malformed (%s: %s) -- falling through without it", type(e).__name__, e)
 
         # MEMORY: prune fit-time ``_engineered_continuous_`` scratch for engineered columns that did not
-        # survive THIS round's screen -- see ``_prune_engineered_continuous_store`` docstring for why this
+        # survive THIS round's screen - see ``_prune_engineered_continuous_store`` docstring for why this
         # is safe (the FE operand pool only widens beyond ``selected_vars`` on the very first FE step,
         # before any engineered column exists). No-op when the store is empty/absent.
         if getattr(self, "_engineered_continuous_", None):
@@ -6606,13 +6625,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # SUFFICIENT-SUMMARY EARLY-STOP. The user's
         # "compare-to-theoretical-max" idea via a DPI residual test. Once the
         # current selection already captures all the information the observables
-        # carry about y -- i.e. the residual r = y - E_hat[y|selected] is pure
+        # carry about y - i.e. the residual r = y - E_hat[y|selected] is pure
         # noise w.r.t. EVERY raw feature (all raws at the maxT permutation null)
-        # AND small relative to y (Var(r)/Var(y) guard) -- any future engineered
+        # AND small relative to y (Var(r)/Var(y) guard) - any future engineered
         # candidate is, by the Data-Processing Inequality, a function of the raws
         # and CANNOT have more MI with r than the raws do, so the remaining FE
         # search is provably pointless. Skip it. This NEVER changes the final
-        # selection (it only skips work that could find nothing -- with it OFF the
+        # selection (it only skips work that could find nothing - with it OFF the
         # loop would run the remaining steps and engineer nothing new); verified
         # byte-identical on genuine multi-signal fixtures. CONSERVATIVE: stops only
         # when BOTH guards pass, so a genuine unfound second signal (incl. a
@@ -6685,7 +6704,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # Pack #5 2026-05-18: adaptive threshold relaxation. When the
         # first-pass FE produces 0 engineered features, the most likely
         # culprit on heavily-correlated feature sets is the strict
-        # ``fe_min_engineered_mi_prevalence`` gate -- pair-level MI is
+        # ``fe_min_engineered_mi_prevalence`` gate - pair-level MI is
         # near the individual-MI sum and the engineered candidate
         # cannot beat 98% of pair MI. Retry ONCE with relaxed
         # thresholds (and fe_smart_polynom_iters=0 to skip the
@@ -6693,7 +6712,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _adaptive = bool(getattr(self, "fe_adaptive_threshold_relax", True))
         _relax_factor = float(getattr(self, "fe_adaptive_relax_factor", 0.9))
         if n_recommended_features == 0 and _adaptive and fe_max_steps > 0 and num_fs_steps == 0:  # only on the very first FE step
-            # fe_min_pair_mi_prevalence may be the sentinel string "auto" (debiased-ratio mode --
+            # fe_min_pair_mi_prevalence may be the sentinel string "auto" (debiased-ratio mode -
             # see _step_core.py's own isinstance check) rather than a float; resolve it to that
             # same established numeric convention (1.05) just for this relaxation arithmetic, same
             # as _step_core.py/_step_pairs_rank.py already do at their own use sites. Passing "auto"
@@ -6765,7 +6784,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
         num_fs_steps += 1
         if num_fs_steps >= fe_max_steps:
-            # CONFIRM-RESCREEN (2026-06-02): the FE step appended engineered
+            # CONFIRM-RESCREEN: the FE step appended engineered
             # columns and (legacy) promoted them into ``selected_vars`` BY FIAT,
             # bypassing redundancy filtering + gain accounting. Instead of
             # breaking here, loop ONCE more so the top-of-loop ``screen_predictors``
@@ -6774,23 +6793,23 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # so MRMR treats them as ordinary candidates: a redundant engineered
             # feature (e.g. ``1/b - d**2`` whose conditional MI given an
             # already-selected ``a**2/b`` is ~0.03) is dropped by the Fleuret
-            # redundancy term, and every surviving column -- raw OR engineered --
+            # redundancy term, and every surviving column - raw OR engineered -
             # earns a real ``mrmr_gain`` / ``support_rank``. The next iteration
             # hits the ``num_fs_steps >= fe_max_steps`` break at the TOP of the
-            # loop (line ~5085) BEFORE the FE step, so FE never runs again -- no
+            # loop (line ~5085) BEFORE the FE step, so FE never runs again - no
             # unbounded recursion, no new engineered columns.
             if getattr(self, "fe_reselect_after_engineering", True) and n_recommended_features > 0 and not _did_confirm_rescreen:
                 _did_confirm_rescreen = True
                 continue
             break  # uncomment to avoid recheck of single-rounded FE
 
-    # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): the continuous engineered-value
+    # ENGINEERED-OPERAND FEED-FORWARD: the continuous engineered-value
     # store is FIT-TIME SCRATCH (full-length float64 arrays of training data) used
     # only to feed engineered operands into the next FE step's pair search. Drop it
     # once the FE loop is done so it never bloats the fitted estimator or breaks
     # pickle (the replayable composite carries only its parent recipes, never these
     # arrays). No-op when the attr was never created (no engineered columns).
-    # SNAPSHOT FIRST (2026-06-08): the raw-vs-engineered conditional-redundancy drop
+    # SNAPSHOT FIRST: the raw-vs-engineered conditional-redundancy drop
     # below needs the CONTINUOUS engineered values to bin the engineered survivor
     # finely (the ``data`` matrix holds only the lossy ~10-code screening bins, which
     # leave a fully-subsumed denominator operand a spurious residual CMI). Snapshot
@@ -6818,14 +6837,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # local; for pandas input (where X.loc[:, target_names] = ... mutated the caller's frame), the caller's
     # X was left with the injected ``targ_<id>`` columns, which leaked into downstream sklearn pipeline
     # (imputer/scaler recorded them in feature_names_in_ and raised on transform). Fix: drop in place (pandas)
-    # or rebind (polars -- immutable, caller's X was never mutated).
+    # or rebind (polars - immutable, caller's X was never mutated).
     if _is_polars_input:
         X = X.drop(target_names)  # no-copy lazy op; caller's X untouched
     else:
         # option_context silences the conservative SettingWithCopy heuristic (fires when the caller passed a sliced
         # view); the in-place drop reverses this function's own targ_<id> injection on the same object, no copy.
         with pd.option_context("mode.chained_assignment", None):
-            X.drop(columns=target_names, inplace=True)  # noqa: PD002 -- must mutate the caller's frame OBJECT in place (restores its original schema by identity), not rebind a local; `X = X.drop(...)` would silently stop touching the caller's actual frame
+            X.drop(columns=target_names, inplace=True)  # noqa: PD002 - must mutate the caller's frame OBJECT in place (restores its original schema by identity), not rebind a local; `X = X.drop(...)` would silently stop touching the caller's actual frame
 
     # DCD orphaned-cluster raw re-attach. A DCD AGGREGATE swap replaces the raw
     # anchor with the (engineered, non-support_) aggregate column; when that
@@ -6863,7 +6882,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Friend-graph post-analysis (diagnostic; optional pruning). Built here, while ``selected_vars``,
     # ``data``, ``nbins`` and ``target_indices`` are all still in cols-space, BEFORE the remap below
     # rebinds ``selected_vars`` to original-frame indices. When pruning is enabled the pruned cols-space
-    # list flows through that same remap into ``support_``. Never allowed to break fit -- guarded.
+    # list flows through that same remap into ``support_``. Never allowed to break fit - guarded.
     # ---------------------------------------------------------------------------------------------------------------
     self.friend_graph_ = None
     # ``len(...)`` not truthiness: by this point ``selected_vars`` may be a numpy array (the empty-screen
@@ -6923,7 +6942,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # the FE-step cross-group prune cannot reach it (it filters prospective_additions, not selected_vars).
     # Drop a selected standalone gate column iff its gate pair is CROSS-GROUP (no single clean ENGINEERED
     # survivor jointly covers its raw sources) AND those sources are already covered by the clean survivors'
-    # union -- the spurious gate_mask__c__b / gate_mask__b__d on y=a**2/b+log(c)*sin(d) (b,d from the two
+    # union - the spurious gate_mask__c__b / gate_mask__b__d on y=a**2/b+log(c)*sin(d) (b,d from the two
     # different groups, both already in div(sqr(a),neg(b))+mul(log(c),sin(d))). A genuine warped (c,d) carrier
     # is WITHIN-pair (or embedded in a composite, not a standalone gate name) so it is KEPT. Originally scoped
     # to fe_fast_search on the assumption the exhaustive path's extra passes would remove these; they do NOT
@@ -6940,7 +6959,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _clean_union_sg = set().union(*_clean_tok_sets_sg) if _clean_tok_sets_sg else set()
             # "Genuine single-pair carrier" anchors for the within-one test are PURE-PAIR survivors only
             # (<= 2 distinct raw vars). A FULL-TARGET fused compound spans every var ({a,b,c,d}) and would
-            # otherwise make EVERY gate look within-one, defeating the cross-group test -- so the canonical
+            # otherwise make EVERY gate look within-one, defeating the cross-group test - so the canonical
             # ``add(sqrt(div(sqr(a),neg(b))),sin(mul(log(c),sin(d))))`` is excluded as an anchor; the clean
             # pure pairs ``div(sqr(a),neg(b))`` / ``mul(log(c),sin(d))`` are the real carriers and a
             # cross-group gate over {b,d} (whose pair no single pure survivor covers) is correctly dropped.
@@ -6965,11 +6984,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         except Exception as _sg_exc:
             logger.warning("MRMR fast-search standalone-gate prune skipped (%s); continuing.", type(_sg_exc).__name__)
 
-    # N-WAY SYNERGY SEEDING (2026-06-17). The greedy screen assembles features one-at-a-time by
+    # N-WAY SYNERGY SEEDING. The greedy screen assembles features one-at-a-time by
     # CONDITIONAL gain, which cannot climb a PURE-synergy gradient: on a 3-way XOR every operand has
     # ~0 marginal AND ~0 conditional gain until ALL members are present, so the genuine {x0,x1,x2}
     # interaction is never assembled (test_3way_screening, documented tracked-red whose specced fix is
-    # exactly this -- evaluate the n-way JOINT directly and surface it). When the user opted into n-way
+    # exactly this - evaluate the n-way JOINT directly and surface it). When the user opted into n-way
     # interactions (interactions_max_order>=2), evaluate candidate raw COMBOS by their MM-corrected
     # JOINT MI vs the SUM of member marginals and SEED the members of combos showing strong synergy +
     # clearing an absolute joint-MI floor. The Miller-Madow correction keeps a noise combo's joint MI
@@ -6979,7 +6998,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # NOTE (2026-07-21, test_3way_screening tracked-red follow-up): candidate columns MUST be
     # re-quantile-binned here, NOT sourced from ``data`` (the fit's MDLP-binned matrix).
     # MDLP is supervised on each column's OWN marginal relevance to y, and a pure-synergy operand
-    # has ~0 marginal MI BY CONSTRUCTION -- MDLP collapses it to 1-2 bins (measured: x0 of a 3-way
+    # has ~0 marginal MI BY CONSTRUCTION - MDLP collapses it to 1-2 bins (measured: x0 of a 3-way
     # XOR gets nbins=2), which then guts the JOINT-MI resolution this exact detector needs to see
     # the interaction. Fixed-width equi-frequency quantile bins depend only on rank order, not on
     # marginal relevance, so a zero-marginal operand keeps its full joint-MI resolution.
@@ -6995,13 +7014,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _yc_syn = np.asarray(classes_y).astype(np.int64).ravel()
                 _X_pd_syn = fe_to_pandas(X)
                 _order_syn = int(_iac_max_order if _iac_max_order is not None else 3)
-                # ADAPTIVE NBINS (2026-07-21): detect_synergy_combos rejects any combo whose joint
-                # cell count leaves fewer than min_rows_per_cell(=5.0 default) rows/cell -- with the
+                # ADAPTIVE NBINS: detect_synergy_combos rejects any combo whose joint
+                # cell count leaves fewer than min_rows_per_cell(=5.0 default) rows/cell - with the
                 # fit's own quantization_nbins (10) an order-3 combo needs 10**3=1000 cells, i.e.
                 # n>=5000, so at n=2000 EVERY order-3 combo was silently skipped regardless of binning
                 # source (measured: quantile-rebin alone did not change the outcome). Size nbins so a
                 # max-order combo clears the floor: nbins = floor((n / (5*min_rows_per_cell))^(1/order)),
-                # clamped to [2, quantization_nbins] -- never coarser than 2 bins, never finer than the
+                # clamped to [2, quantization_nbins] - never coarser than 2 bins, never finer than the
                 # fit's own resolution.
                 _mrpc_syn = 5.0
                 _nbins_syn = int((float(_yc_syn.shape[0]) / (_mrpc_syn * 5.0)) ** (1.0 / max(1, _order_syn)))
@@ -7032,7 +7051,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         except Exception as _syn_exc:
             logger.warning("MRMR n-way synergy seeding failed: %s; keeping support.", _syn_exc)
 
-    # RAW-RETENTION (2026-06-03): re-add SCREENING-confirmed genuine raw features
+    # RAW-RETENTION: re-add SCREENING-confirmed genuine raw features
     # that the post-FE re-selection dropped, UNLESS a SINGLE-PARENT engineered child
     # substitutes them (the prefer-engineered raw->transform swap, which is a
     # legitimate, intended replacement). Screening permutation-validated these raw
@@ -7065,10 +7084,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _substituted.add(_anchor)
                 if isinstance(_members, (list, tuple, set)):
                     _substituted.update(_members)
-        # MULTI-PARENT OPERAND SCOPE (2026-06-08 regression fix): a raw feature that
+        # MULTI-PARENT OPERAND SCOPE (guards a past regression): a raw feature that
         # is an OPERAND of a SURVIVING multi-parent engineered feature is NOT covered
         # by the sole-parent ``_substituted`` exclusion above, so the original blanket
-        # re-add resurrected EVERY such operand -- including ones whose entire signal
+        # re-add resurrected EVERY such operand - including ones whose entire signal
         # flowed into the engineered child (e.g. ``y = a**2/b + log(c)*sin(d)``: raw
         # ``a, c, d`` carry NO information about ``y`` beyond ``div(sqr(a),abs(b))`` and
         # ``mul(log(c),sin(d))``, yet were re-added with ``support_rank -1`` and no gain,
@@ -7092,10 +7111,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _base = _tok if _tok in _raw_names_set else (_tok.split("__", 1)[0] if "__" in _tok else None)
                 if _base in _raw_names_set:
                     _eng_operands_of.setdefault(_base, []).append(_v)
-        # Sample-size scope (2026-06-08): the small-n regime the protection was BUILT and
+        # Sample-size scope: the small-n regime the protection was BUILT and
         # validated for (n=500 / 2000 / 3000 fixtures). At large n the post-FE re-selection's
-        # conditional-MI redundancy term is statistically reliable -- its drop of a redundant
-        # operand IS the OLD CORRECT behaviour -- so we do NOT override it there. ``_RR_PROTECT_MAX_N``
+        # conditional-MI redundancy term is statistically reliable - its drop of a redundant
+        # operand IS the OLD CORRECT behaviour - so we do NOT override it there. ``_RR_PROTECT_MAX_N``
         # sits well above the largest validated fixture (3000) and far below the regression case (1e5).
         _RR_PROTECT_MAX_N = int(getattr(self, "fe_raw_retention_max_n", 20000) or 0)
         _n_rows_rr = int(data.shape[0])
@@ -7107,16 +7126,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
             * small n (``n <= _RR_PROTECT_MAX_N``): the conditional-MI redundancy estimate the
               re-selection used is unreliable at small n (the protection's whole reason to exist),
-              so keep the protective re-add unconditionally -- preserves the n<=3000 contracts.
+              so keep the protective re-add unconditionally - preserves the n<=3000 contracts.
             * large n: the re-selection's conditional-MI redundancy verdict is trustworthy, so we
-              DEFER to it -- an operand it dropped is genuinely redundant given the engineered
+              DEFER to it - an operand it dropped is genuinely redundant given the engineered
               child (``a`` in ``div(sqr(a),abs(b))`` for ``y=a**2/b`` carries no signal about ``y``
               beyond the ratio). We do NOT re-add it, restoring the pre-2026-06-03 selection. Note a
               bare ``CMI >= relevance_floor`` check does NOT work here: a coarsely-binned (~10-bin)
               engineered child leaves a small but above-floor residual conditional MI on its operand
               purely from the binning gap (measured: redundant ``a/c/d`` sit at CMI 0.002-0.023, the
               floor is ~0.0013), so the absolute floor cannot separate residual-binning-noise from a
-              real independent term -- only the re-selection's RELATIVE redundancy criterion can, and
+              real independent term - only the re-selection's RELATIVE redundancy criterion can, and
               it already ran.
 
             CMI-estimator import/edge failures fall back to the protective re-add (never drop a
@@ -7128,8 +7147,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # large n: defer to the re-selection's redundancy drop for engineered operands.
             return False
 
-        # PERMUTATION-SIGNIFICANCE GATE on the re-add (2026-06-08): a raw column the
-        # screen flagged as ``_prefe_screened_raw_`` can be a small-n FALSE POSITIVE --
+        # PERMUTATION-SIGNIFICANCE GATE on the re-add: a raw column the
+        # screen flagged as ``_prefe_screened_raw_`` can be a small-n FALSE POSITIVE -
         # the coarse-binning plug-in MI is upward-biased, so a PURE-NOISE column (one
         # NOT in the target equation, e.g. CC4's ``e`` in ``y=log(a)*c+0.4*f``) can leave
         # a tiny residual debiased MI that the screen confirms and retention then
@@ -7165,10 +7184,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 return True  # significance unavailable -> permissive re-add
 
         _sv_set = set(selected_vars)
-        # C2 ADDITIVE-FUSION EXCLUSION (2026-06-24): a raw operand the FE step's
+        # C2 ADDITIVE-FUSION EXCLUSION: a raw operand the FE step's
         # additive-fusion proposer judged FULLY subsumed by the fused ``add(...)`` compound
         # (recorded in ``_raw_redundancy_dropped_`` via the production keep-probe) must NOT
-        # be resurrected here -- the fused compound carries its additive term, so re-adding
+        # be resurrected here - the fused compound carries its additive term, so re-adding
         # it would re-inject a redundant single-group fragment beside the clean compound
         # (the FUSION-blocked goal's leftover raw). The fusion ran the same n-invariant
         # conditional-excess verdict ``drop_redundant_raw_operands`` uses, so this is the
@@ -7178,7 +7197,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _dropped_redundant = []
         _dropped_insignificant = []
         # name -> index map built once (O(F)) instead of a ``.index()`` rescan of ``cols`` per
-        # ``_rn`` (O(F) each) -- turns the O(K*F) loop below into O(K+F).
+        # ``_rn`` (O(F) each) - turns the O(K*F) loop below into O(K+F).
         _prefe_cols_idx = {nm: i for i, nm in enumerate(cols)}
         for _rn in _prefe_raw:
             if _rn in _cur_names or _rn in _substituted:
@@ -7227,7 +7246,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 len(_dropped_redundant), _dropped_redundant,
             )
 
-    # ADAPTIVE-FOURIER PROTECTION (2026-06-03): re-add held-out-validated
+    # ADAPTIVE-FOURIER PROTECTION: re-add held-out-validated
     # ADAPTIVE Fourier columns the MRMR screen dropped. The adaptive detector
     # already confirmed the column's dominant frequency on a held-out slice;
     # the screen drops it anyway because a SINGLE sin OR cos has low marginal MI
@@ -7260,9 +7279,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     [cols[i] for i in _readd_adaptive],
                 )
 
-    # MISSINGNESS-INDICATOR PROTECTION (2026-06-04): re-add the clean ``is_missing__{col}`` indicator the MRMR screen dropped IN FAVOUR OF its raw source. Under ``nan_strategy='separate_bin'``
+    # MISSINGNESS-INDICATOR PROTECTION: re-add the clean ``is_missing__{col}`` indicator the MRMR screen dropped IN FAVOUR OF its raw source. Under ``nan_strategy='separate_bin'``
     # the raw column's NaN bin already encodes the MNAR pattern, so the binned MI of the indicator and the raw source are near-identical (a true tie); the greedy screen keeps the raw column
-    # and discards the indicator as redundant. But the raw column is mostly NaN -- the downstream model cannot consume the missingness signal from it, only from the standalone numeric
+    # and discards the indicator as redundant. But the raw column is mostly NaN - the downstream model cannot consume the missingness signal from it, only from the standalone numeric
     # indicator (the whole point of Layer 37). When the raw source IS selected, the indicator carries the SAME signal in a clean, model-ready form, so we re-add it. Gating on "the raw source
     # survived the screen" keeps a pure-noise indicator (MAR column the screen never selects) out of support. The count / pattern encoders have no single raw source and are screened normally.
     _miss_indicators = list(getattr(self, "missingness_indicator_features_", None) or [])
@@ -7291,7 +7310,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     len(_readd_miss), [cols[i] for i in _readd_miss],
                 )
 
-    # HINGE / CHANGE-POINT DEFERRED MATERIALISATION (2026-06-09): the hinge stage
+    # HINGE / CHANGE-POINT DEFERRED MATERIALISATION: the hinge stage
     # ran BEFORE the pair-FE loop (it needs the raw source columns) but DEFERRED
     # appending its legs so they could not perturb composite recovery. Now that the
     # FE loop has settled (composites recovered untouched), materialise the buffered
@@ -7352,10 +7371,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _h_mat_exc,
             )
 
-    # HINGE / CHANGE-POINT PROTECTION (2026-06-09): re-add the held-out-tau-
+    # HINGE / CHANGE-POINT PROTECTION: re-add the held-out-tau-
     # validated hinge legs the MRMR screen dropped. A single relu leg
     # ``max(x-tau,0)`` is MONOTONE in x, hence MI-INVARIANT by the data-processing
-    # inequality, and near-collinear with raw x -- so the greedy MI screen drops
+    # inequality, and near-collinear with raw x - so the greedy MI screen drops
     # it as redundant with its raw source, EXACTLY as it drops a single adaptive
     # Fourier leg (low marginal MI) and the clean missingness indicator (tied MI
     # with its raw NaN-bin twin). But the hinge's value is NOT marginal MI: it is
@@ -7363,7 +7382,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # (``[1, x, relu(x-tau)]`` fits a two-slope kink ``[1, x]`` cannot). The
     # generating stage already (a) detected the breakpoint, (b) HELD-OUT-validated
     # it (2-segment beats 1-segment OOS R^2 on the %3 slice), and (c) admitted the
-    # leg only on its held-out INCREMENTAL linear usability over raw x -- so a
+    # leg only on its held-out INCREMENTAL linear usability over raw x - so a
     # candidate ``_hinge_features_`` name is a confirmed univariate win. Without
     # this re-add, default-on hinge would GENERATE-then-DROP every leg (wasted
     # compute + the project's MI-vs-linear-usability rule violated, the same fix
@@ -7372,7 +7391,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # cols): (1) the raw SOURCE must have survived the screen (a hinge on a never-
     # selected noise column is left out); (2) the leg must lift a HELD-OUT linear
     # fit over the ALREADY-SELECTED feature set PLUS the source + its degree-2 poly
-    # ``[src, src^2]`` -- so a leg subsumed by a surviving pair composite (b/d on
+    # ``[src, src^2]`` - so a leg subsumed by a surviving pair composite (b/d on
     # ``y=a**2/b+log(c)*sin(d)``) or a smooth curve a quadratic already fits
     # (``y=x^2``) adds ~0 and is rejected, while a genuine slope change with no
     # competing composite clears the floor. Runs BEFORE the ``selected_vars_names``
@@ -7390,7 +7409,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # (e.g. on y=a**2/b+log(c)*sin(d) the hinge fires on b / d, but
         # div(sqr(a),abs(b)) / mul(log(c),sin(d)) subsume them). So the protection
         # re-adds a leg ONLY when it lifts a held-out linear fit over the ALREADY-
-        # SELECTED feature set -- a leg whose value is subsumed by a surviving
+        # SELECTED feature set - a leg whose value is subsumed by a surviving
         # composite adds ~0 and is dropped (no spurious cols on multi-signal data),
         # while a genuine slope-change leg with no competing composite clears the
         # floor (the hidden-champion win is kept). y is read only here at fit.
@@ -7416,7 +7435,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 try:
                     _cv = np.asarray(_cv, dtype=np.float64).reshape(-1)
                 except (TypeError, ValueError):
-                    continue  # a raw categorical/string selected column (e.g. under skip_categorical_encoding) is not a numeric R^2-baseline regressor -- exclude it from the linear design
+                    continue  # a raw categorical/string selected column (e.g. under skip_categorical_encoding) is not a numeric R^2-baseline regressor - exclude it from the linear design
                 if _cv.shape[0] == _y_for_hinge_gate.shape[0] and np.all(np.isfinite(_cv)):
                     _sel_value_cols.append(_cv)
 
@@ -7426,7 +7445,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
             Including ``[src, src^2]`` in the baseline is the SMOOTH-CURVE guard:
             a parabola (y=x^2) is captured by ``src^2`` so a kink adds ~0 over it
-            and is rejected (no spurious hinge on a smooth target -- matches the
+            and is rejected (no spurious hinge on a smooth target - matches the
             biz_value complementarity contract); a GENUINE slope change still beats
             ``[src, src^2]`` OOS (a quadratic cannot fit a sharp two-slope kink) so
             the hidden-champion leg is kept."""
@@ -7436,8 +7455,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             n = leg.shape[0]
             if n != _y_for_hinge_gate.shape[0] or not np.all(np.isfinite(leg)):
                 return 0.0
-            # FIT_IMPL_B-3 fix: seeded shuffle-then-stride, not a raw
-            # positional (idx % 3) == 0 split -- the latter is not an honest i.i.d. holdout on
+            # Seeded shuffle-then-stride, not a raw
+            # positional (idx % 3) == 0 split - the latter is not an honest i.i.d. holdout on
             # time/group/label-sorted input (this module explicitly supports sorted input elsewhere
             # via ``groups`` / the ``temporal_agg`` FE family), which can bias the held-out R^2
             # this gate decides on.
@@ -7508,17 +7527,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     len(_readd_hinge), [cols[i] for i in _readd_hinge],
                 )
 
-    # ORTH-BASIS UNIVARIATE PROTECTION (2026-06-15): re-add a single-source orthogonal-basis univariate column
+    # ORTH-BASIS UNIVARIATE PROTECTION: re-add a single-source orthogonal-basis univariate column
     # (``a__T2`` ~ a**2, ``a__He4`` ~ a Hermite degree-4, ...) the MRMR screen dropped. Like a hinge leg, an
     # orth basis column is a DETERMINISTIC function of ONE raw source, so the greedy MI screen drops it as
-    # redundant with that raw source under the data-processing inequality -- EVEN WHEN raw ``a`` carries ~0
+    # redundant with that raw source under the data-processing inequality - EVEN WHEN raw ``a`` carries ~0
     # linear/monotone signal about an even target (``exp(-a**2)`` / ``a**2``) and the basis column carries the
     # whole recoverable nonlinearity (|corr| ~0.85). The basis value is downstream LINEAR usability, not
     # marginal MI (the same MI-vs-linear-usability rule the hinge / adaptive-Fourier protections enforce). The
     # generating univariate-basis stage already uplift-gated each column, so a candidate is a confirmed
     # univariate win. SELF-LIMITING GATE mirrors the hinge block: (1) the raw source survived the screen (a
     # basis on a never-selected noise column is left out); (2) the basis lifts a HELD-OUT linear fit over the
-    # ALREADY-SELECTED feature set (which already contains the raw source as a linear term) -- so a basis
+    # ALREADY-SELECTED feature set (which already contains the raw source as a linear term) - so a basis
     # subsumed by a surviving composite/raw adds ~0 and is rejected, while a genuine single-var nonlinearity
     # the screen DPI-dropped clears the floor. NO ``[src, src^2]`` smooth-curve term in the baseline (unlike
     # the hinge gate): for the basis the curve IS the win, so adding ``src^2`` would self-reject the very
@@ -7539,8 +7558,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # DEDICATED protection block above that gates them against a ``[src, src^2]`` baseline (the smooth-
             # curve guard: a parabola is fit by src^2 so a kink adds ~0 and is rejected). This orth-basis block
             # deliberately OMITS that guard (for a curved basis the curve IS the win), so re-handling a hinge leg
-            # here would bypass the smooth-curve guard and re-add spurious legs on y=x^2 data. Skip them -- the
-            # hinge block already made the correct keep/drop decision (2026-06-16 regression fix).
+            # here would bypass the smooth-curve guard and re-add spurious legs on y=x^2 data. Skip them - the
+            # Hinge block already made the correct keep/drop decision (guards a past regression).
             if getattr(_rec_o, "kind", None) == "hinge_basis":
                 continue
             _src_o = tuple(getattr(_rec_o, "src_names", ()) or ())
@@ -7553,7 +7572,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if _basis_vals is None:
                 continue
             # Self-limit #2: lifts a held-out linear fit over the already-selected design (raw source already
-            # present there as a linear term) -- not subsumed by a surviving composite/raw.
+            # present there as a linear term) - not subsumed by a surviving composite/raw.
             if _heldout_incr_over_selected(_basis_vals, None) < _ORTH_PROTECT_MIN_INCR_R2:
                 continue
             _readd_orth.append(_oidx)
@@ -7570,12 +7589,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # RAW-FEATURE FLOOR-DROP PROTECTION (Fix-B, 2026-06-16). The Westfall-Young maxT relevance floor is computed
     # over the FULL candidate pool; when the all-FE-on config widens that pool to hundreds of (already FE-stage-
     # gated) engineered columns, the per-shuffle MAX corrected MI inflates and the acceptance bar rises ABOVE a
-    # genuine raw feature's true marginal MI -- so a real linear signal (e.g. x1 ~ y at binned-MI 0.057, ~30x
+    # genuine raw feature's true marginal MI - so a real linear signal (e.g. x1 ~ y at binned-MI 0.057, ~30x
     # noise) is dropped from the screen entirely (confirmed root-cause of test_biz_value_mrmr_underselection).
     # LOWERING the floor would surface x1 but ALSO admit high-cardinality raw NOISE (a 50-level pure-noise
-    # categorical whose finite-sample MI is inflated) -- a regression. Instead, KEEP the floor (noise stays
+    # categorical whose finite-sample MI is inflated) - a regression. Instead, KEEP the floor (noise stays
     # rejected) and re-add a raw feature the screen dropped IFF it lifts a HELD-OUT linear fit over the already-
-    # selected design -- the SAME MI-vs-linear-usability protection the hinge / orth-basis blocks use. A genuine
+    # selected design - the SAME MI-vs-linear-usability protection the hinge / orth-basis blocks use. A genuine
     # linear/monotone raw signal clears the lift; a high-card noise categorical (no held-out linear usability)
     # does not, so it stays out. Conditioned on _y_for_hinge_gate (the held-out scorer); no-op when it is None.
     # Self-contained held-out scorer (the hinge block's _y_for_hinge_gate / _heldout_incr_over_selected only
@@ -7594,7 +7613,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         if _rp_y is not None:
             _RAW_PROTECT_MIN_INCR_R2 = 0.005  # genuine linear raw signal lifts held-out R^2 >> 0.005; noise ~0
             _rp_n = _rp_y.shape[0]
-            # FIT_IMPL_B-3 fix: seeded shuffle-then-stride (see the hinge-gate sibling comment above).
+            # Seeded shuffle-then-stride (see the hinge-gate sibling comment above).
             _rp_perm = np.random.default_rng(int(getattr(self, "random_seed", 0) or 0)).permutation(_rp_n)
             _rp_va = np.zeros(_rp_n, dtype=bool)
             _rp_va[_rp_perm[: _rp_n // 3]] = True
@@ -7610,7 +7629,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 try:
                     _cv = np.asarray(_cv, dtype=np.float64).reshape(-1)
                 except (TypeError, ValueError):
-                    continue  # raw categorical/string selected column -- not a numeric R^2 regressor
+                    continue  # raw categorical/string selected column - not a numeric R^2 regressor
                 if _cv.shape[0] == _rp_n and np.all(np.isfinite(_cv)):
                     _rp_base.append(_cv)
 
@@ -7628,11 +7647,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
             # QR of the FIXED base design, computed ONCE and reused for every candidate below (2026-07-10
             # perf fix). Each candidate previously re-solved lstsq on ``[base | one extra column]`` from
-            # scratch -- O(n*p^2) per call with only a single column differing between calls. Extending an
+            # scratch - O(n*p^2) per call with only a single column differing between calls. Extending an
             # EXISTING QR by one column via ``scipy.linalg.qr_insert`` is an O(n*p) update, mathematically
             # equivalent to a fresh least-squares solve of the augmented design (verified: max coefficient
             # difference ~6e-17, i.e. machine-epsilon-level agreement with the original SVD-based
-            # ``np.linalg.lstsq``, not just "close enough" -- this is the standard Frisch-Waugh-Lovell-style
+            # ``np.linalg.lstsq``, not just "close enough" - this is the standard Frisch-Waugh-Lovell-style
             # QR-update result, not an approximation). Measured 20x faster at production shape (p~120,
             # n_tr~53k, 109 candidates: 91s -> 4.5s on synthetic data of that shape).
             import scipy.linalg as _rp_sla
@@ -7648,7 +7667,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             def _rp_r2(_extra=None):
                 """Held-out R^2 of ``[base | extra]``; ``_extra`` is a single full-length column or None.
                 Numerically identical (to ~1e-16) to the prior ``_rp_r2(_design)`` (same columns in the
-                same order, same train/val rows, same lstsq) -- see the QR-reuse comment above."""
+                same order, same train/val rows, same lstsq) - see the QR-reuse comment above."""
                 if _rp_ss < 1e-24:
                     return 0.0
                 if _extra is None:
@@ -7676,7 +7695,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # feature the relevance screen correctly rejected as within-null (e.g. decoy = x_real**2 on y = sign(x_real): MI ~ 0.00014,
                 # below the effective floor, corr -0.04, yet R^2 incr ~0.011). Require the candidate to ALSO clear the SAME marginal-MI
                 # relevance floor the screen used (absolute effective floor AND the relative-to-strongest floor) so a below-null raw cannot
-                # be resurrected by linear-usability alone -- this re-opened exactly the hole the screen floor closes.
+                # be resurrected by linear-usability alone - this re-opened exactly the hole the screen floor closes.
                 _rp_rel_floor = float(_effective_min_relevance_gain) if "_effective_min_relevance_gain" in dir() else float(getattr(self, "min_relevance_gain", 0.0) or 0.0)
                 _rp_rel_frac = float(getattr(self, "min_relevance_gain_relative_to_first", 0.0) or 0.0)
                 _rp_max_mi = max((float(_v) for _v in cached_MIs.values()), default=0.0) if isinstance(cached_MIs, dict) else 0.0
@@ -7712,12 +7731,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
     # CAT-FE FLOOR-DROP PROTECTION (Fix-C, 2026-06-16). The Westfall-Young maxT relevance floor (computed over
     # the FULL widened candidate pool when many FE families are on) routinely rises above the marginal binned-MI
-    # of a genuine categorical-FE encoding -- a K-fold target encoding (``cat__te``), a count/frequency encoding,
-    # or a cat-num residual (``price__resid_by__cat_region``) -- so the greedy screen drops it after 2 features
+    # of a genuine categorical-FE encoding - a K-fold target encoding (``cat__te``), a count/frequency encoding,
+    # or a cat-num residual (``price__resid_by__cat_region``) - so the greedy screen drops it after 2 features
     # EVEN THOUGH it carries strong LINEAR usability to y (the MI-vs-linear-usability gap, a recurring mlframe
     # theme). The cat-num residual on the kitchen-sink frame has univariate corr ~0.27 / held-out R^2-incr ~0.06
     # over the selected design yet is screened out, so downstream LogReg loses ~0.6% AUC. This is the SAME class
-    # of false-drop the raw-feature / orth-basis / hinge protections already correct -- but those iterate only
+    # of false-drop the raw-feature / orth-basis / hinge protections already correct - but those iterate only
     # over raw ``feature_names_in_`` / single-source orth bases / hinge legs, so an engineered cat-FE column falls
     # through every one of them. Mirror the raw protection here: KEEP the floor (sub-null noise stays rejected)
     # and re-add a dropped cat-FE column IFF it lifts a HELD-OUT linear fit over the already-selected design by
@@ -7741,7 +7760,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if _cf_y is not None:
                 _CF_PROTECT_MIN_INCR_R2 = 0.005  # genuine encoding lifts held-out R^2 >> 0.005; noise ~0 (same bar as raw protection)
                 _cf_n = _cf_y.shape[0]
-                # FIT_IMPL_B-3 fix: seeded shuffle-then-stride (see the hinge-gate sibling comment above).
+                # Seeded shuffle-then-stride (see the hinge-gate sibling comment above).
                 _cf_perm = np.random.default_rng(int(getattr(self, "random_seed", 0) or 0)).permutation(_cf_n)
                 _cf_va = np.zeros(_cf_n, dtype=bool)
                 _cf_va[_cf_perm[: _cf_n // 3]] = True
@@ -7799,7 +7818,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         # bin-edge digitization is not exactly tie-invariant across a monotone rescale of a
                         # duplicate-heavy column (e.g. a count encoding vs its count/n frequency twin can land
                         # in a different number of effective bins from floating-point edge-coincidence ties),
-                        # which made this R^2 probe -- and hence the rescue -- diverge between two info-
+                        # which made this R^2 probe - and hence the rescue - diverge between two info-
                         # equivalent encodings. The raw column is still available in X at this point.
                         _cvv_raw = _eng_continuous_snapshot.get(_cn)
                         if _cvv_raw is None and _cn in X.columns:
@@ -7838,14 +7857,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # fixture the greedy screen selects ONE representative (a strong column or an engineered composite) and gates the redundant duplicates out as mutually-redundant, so no duplicate is ever an
     # anchor: DCD discovers 0 clusters and ``dcd_["n_pruned"]`` stays 0 even though the duplicates re-enter ``selected_vars`` via the floor-drop / retention rescues above. The cluster the screen never
     # saw is exactly the one DCD exists to own. Run a discovery pass over the FINAL selected RAW columns (anchoring on each in selection order, growing from the other selected raws by SU >= tau): the
-    # duplicate cluster is found and its redundant members pruned by DCD BEFORE the raw-redundancy / monotone-twin drops below -- DCD owns exact-duplicate clusters, the redundancy drops own engineered-
+    # duplicate cluster is found and its redundant members pruned by DCD BEFORE the raw-redundancy / monotone-twin drops below - DCD owns exact-duplicate clusters, the redundancy drops own engineered-
     # child subsumption. When the grown cluster reaches ``dcd_cluster_size_threshold`` the same anchor->aggregate swap the screen would have evaluated is evaluated + committed here (registering the
     # ``_dcd_pc1_`` cluster_aggregate recipe into ``engineered_recipes`` so it lands in the ``_produced_recipes_`` ledger snapshotted below). Pruned duplicate members are removed from ``selected_vars``
     # (mirroring the in-screen prune); ``dcd_`` is re-published so ``n_pruned`` / ``n_swaps`` / ``cluster_anchors`` reflect the discovered cluster.
-    # GATE: fire ONLY when the in-screen DCD discovered NOTHING -- no pool member pruned AND no swap committed. That is exactly the duplicate-cluster-missed case (screen selected one representative +
+    # GATE: fire ONLY when the in-screen DCD discovered NOTHING - no pool member pruned AND no swap committed. That is exactly the duplicate-cluster-missed case (screen selected one representative +
     # engineered children, never anchored on a duplicate). When the in-screen DCD already clustered (FE-rich sensor-mesh / financial / embedding fixtures) it owns the support-shrinkage contract; re-
     # discovering here would double-act and could GROW support (an extra aggregate the screen-time bake-off deliberately did not add), violating the "DCD must not grow support" invariant. ``cluster_anchors``
-    # is NOT a usable signal: ``discover_cluster_members`` does ``setdefault(anchor, set())`` for every selected predictor, so it carries EMPTY anchor entries even when no member joined -- the real
+    # is NOT a usable signal: ``discover_cluster_members`` does ``setdefault(anchor, set())`` for every selected predictor, so it carries EMPTY anchor entries even when no member joined - the real
     # "discovered a cluster" signal is a non-zero pruned-mask / a non-empty swap_log.
     if (_persisted_dcd_state is not None and len(selected_vars) >= 2
             and _persisted_dcd_state.pool_pruned_mask is not None
@@ -7862,8 +7881,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _mask_w0 = int(_dcd_st.pool_pruned_mask.shape[0]) if _dcd_st.pool_pruned_mask is not None else 0
             _raw_name_set_dcd = set(self.feature_names_in_)
             # Selected RAW columns: stable low indices within the DCD mask width, NUMERIC only (a
-            # string/categorical raw can never enter the PC1/Pearson aggregate -- it would raise
-            # "could not convert string to float" in the swap's combiner -- and is not a numeric
+            # string/categorical raw can never enter the PC1/Pearson aggregate - it would raise
+            # "could not convert string to float" in the swap's combiner - and is not a numeric
             # duplicate cluster anyway), in selection order.
             _num_cols_dcd = set(getattr(self, "numeric_features_in_", None) or [])
             _sel_raw_dcd = [
@@ -7894,8 +7913,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _members = _dcd_st.cluster_anchors.get(int(_anchor), set())
                 if len(_members) >= int(_dcd_st.cluster_size_threshold):
                     # Sync the state's matrix to the LIVE (post-FE) matrix so the swap's S\{anchor}
-                    # conditioning set -- which may reference engineered columns appended AFTER the
-                    # screen built the state's matrix -- indexes valid columns (else conditional_mi
+                    # conditioning set - which may reference engineered columns appended AFTER the
+                    # screen built the state's matrix - indexes valid columns (else conditional_mi
                     # raises "negative dimensions" on an out-of-range column).
                     if int(data.shape[1]) >= int(_dcd_st.factors_data.shape[1]):
                         _dcd_st.factors_data = data
@@ -7957,22 +7976,22 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             logger.warning("MRMR post-selection DCD discovery failed: %s; keeping support as-is.", _exc_post_dcd)
 
     # PRODUCED-RECIPES AUDIT LEDGER: ``engineered_recipes`` at this point holds EVERY recipe the FE stages produced this fit, before the greedy CMI screen / accuracy gate / cross-stage dedup drop the
-    # weaker candidates. ``self._engineered_recipes_`` (built just below) carries only the survivors -- it is intersected with support_ so the user-facing rosters stay a subset of get_feature_names_out()
+    # weaker candidates. ``self._engineered_recipes_`` (built just below) carries only the survivors - it is intersected with support_ so the user-facing rosters stay a subset of get_feature_names_out()
     # (pinned by layer28). The audit / pickle-replay paths, however, need to recover WHICH mechanism produced each engineered column even when the screen dropped it, so snapshot the full produced set here
     # as a separate read-only ledger. fe_provenance_ reads this to emit one row per produced engineered column (survivors get their real greedy gain/rank, screened-out ones get NaN gain / rank -1).
     self._produced_recipes_ = list(engineered_recipes.values())
 
-    # PSEUDO-CHILD MASKED-RAW RESCUE (2026-06-13). The default-ON conditional-gate / binned-
+    # PSEUDO-CHILD MASKED-RAW RESCUE. The default-ON conditional-gate / binned-
     # numeric-agg / row-argmax FE families append THRESHOLD/BINNING re-mixes of a raw operand
     # (``gate_mask__a__b`` / ``binagg_skew(c|qbin(a))`` / ``argmax__a__b``) into the screening pool
     # BEFORE the greedy screen. A re-mix of ``a`` can marginally OUT-SCORE raw ``a`` and is selected
     # first; raw ``a``'s conditional relevance given that re-mix then collapses (the re-mix is a lossy
-    # function of ``a`` -- the data-processing-inequality trap), so the greedy screen drops ``a``
+    # function of ``a`` - the data-processing-inequality trap), so the greedy screen drops ``a``
     # EVEN WHEN ``a`` carries a dominant private LINEAR term (``y += 10*a``) the re-mix only partially
-    # tracks. Re-add such a masked raw -- one consumed by a selected pseudo-remix child but itself
-    # dropped -- IFF it retains >= RAW_SELF_RETAIN_FRAC of its marginal debiased excess under the
+    # tracks. Re-add such a masked raw - one consumed by a selected pseudo-remix child but itself
+    # dropped - IFF it retains >= RAW_SELF_RETAIN_FRAC of its marginal debiased excess under the
     # keep-rule conditioned ONLY on its GENUINE (non-pseudo) selected children (an ``a**2/b`` ratio /
-    # composite -- the real potential subsumers, with the masking pseudo re-mixes EXCLUDED from the
+    # composite - the real potential subsumers, with the masking pseudo re-mixes EXCLUDED from the
     # conditioning). A private LINEAR term keeps ~50% -> RESCUE; a fully-subsumed operand keeps ~0.6%
     # -> NOT rescued (so a raw genuinely subsumed by an elementary child is never resurrected). The
     # downstream raw-redundancy DROP sweep still runs after with the SAME pseudo-exclusion, so the two
@@ -8020,7 +8039,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # ONLY consumer is a pseudo binagg/gate/argmax re-mix the conditioning set is empty
                 # and the keep-rule returns True by construction (it cannot prove subsumption). A
                 # PURE-NOISE raw (``e``, not in y, consumed only by ``binagg_std(e|qbin(a))``) thus
-                # sails through and is re-added -- the I4 noise true-negative violation. Gate the
+                # sails through and is re-added - the I4 noise true-negative violation. Gate the
                 # rescue on the SAME within-data marginal permutation-significance test the
                 # raw-retention re-add uses: a raw must sit ABOVE its own permutation null against y
                 # to be a genuine masked signal. ``e`` sits WITHIN its null (p>=alpha) -> NOT rescued;
@@ -8050,7 +8069,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         return True
                 _pcr_readd = []
                 # name -> index map built once (O(F)) instead of a ``.index()`` rescan of ``cols`` per
-                # ``_rn`` (O(F) each) -- turns the O(K*F) loop below into O(K+F).
+                # ``_rn`` (O(F) each) - turns the O(K*F) loop below into O(K+F).
                 _pcr_cols_idx = {nm: i for i, nm in enumerate(cols)}
                 for _rn in _pcr_consumed.keys():
                     if _rn in _pcr_sel_names:
@@ -8060,7 +8079,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         continue
                     if _ridx in _pcr_sel_set:
                         continue
-                    # KEEP-RULE conditioned ONLY on the raw's GENUINE (non-pseudo) selected children --
+                    # KEEP-RULE conditioned ONLY on the raw's GENUINE (non-pseudo) selected children -
                     # the real potential subsumers (an ``a**2/b`` ratio/composite). The masking pseudo
                     # re-mixes are EXCLUDED from the conditioning so they cannot DPI-collapse the residual.
                     # A raw carrying a private term the genuine children do not span keeps a large residual
@@ -8098,7 +8117,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         except Exception as _exc_pcr:
             logger.warning("MRMR pseudo-child masked-raw rescue failed: %s; keeping support as-is.", _exc_pcr)
 
-    # RAW-VS-ENGINEERED CONDITIONAL-REDUNDANCY DROP (2026-06-08): the greedy MRMR order
+    # RAW-VS-ENGINEERED CONDITIONAL-REDUNDANCY DROP: the greedy MRMR order
     # selects a raw operand on its high MARGINAL relevance BEFORE the engineered child built
     # from it is in support, so the redundancy penalty never fires against it, and the
     # retention / augmentation passes above then re-add it. The result is a subsumed operand
@@ -8138,7 +8157,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # ``engineered_recipes``) survive into transform output; a nested-
                 # engineered child is dropped there. A raw must not be judged
                 # redundant against a child that will not exist at predict time
-                # (that empties the support -- see the guard in
+                # (that empties the support - see the guard in
                 # drop_redundant_raw_operands), so anchor the verdict only on the
                 # replayable survivors.
                 _replayable_eng_names = set(engineered_recipes.keys())
@@ -8148,7 +8167,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # tree, isolate the cleanest raw-containing sub-expression (e.g.
                 # ``div(sqr(a),abs(b))`` = a**2/b inside a fused full-target composite),
                 # and condition the raw on THAT clean sub-expression rather than the
-                # fused whole -- so a fully-subsumed operand drops even when it is
+                # fused whole - so a fully-subsumed operand drops even when it is
                 # selected alongside the composite (not only when the composite
                 # collapsed the whole selection into the never-empty path).
                 _rrf_redund = getattr(self, "fe_raw_redundancy_retain_frac", None)
@@ -8186,7 +8205,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # column ranked next by marginal MI).
                     _remaining_raw_after_drop = [v for v in selected_vars if cols[v] in set(self.feature_names_in_)]
                     if not _remaining_raw_after_drop:
-                        # NEVER-EMPTY RAW FLOOR (2026-06-27 subsumption-aware fix). The drop is allowed to
+                        # NEVER-EMPTY RAW FLOOR. The drop is allowed to
                         # remove a raw subsumed by a surviving engineered child WHILE other raws remain (the
                         # I4b contract). When dropping the redundant raws would leave ZERO raw survivors, the
                         # PRIOR floor unconditionally re-added the single STRONGEST dropped raw by MARGINAL MI
@@ -8199,7 +8218,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         # the sweep dropped a/b/d, and this floor re-added raw ``a`` beside the compound that
                         # subsumes it). When the main sweep empties the raw support EVERY dropped raw was judged
                         # fully subsumed by a surviving multi-source child, so the engineered survivor(s) ARE the
-                        # complete feature set -- the SAME engineered-only outcome the ``uniform`` profile and the
+                        # complete feature set - the SAME engineered-only outcome the ``uniform`` profile and the
                         # never-empty re-attach block's all-operands-subsumed ``elif`` reach. Defer to that:
                         # re-add a dropped raw ONLY if it still carries a SIGNIFICANT PRIVATE LINEAR residual the
                         # engineered survivors do not linearly reproduce (a genuine partial-signal raw a downstream
@@ -8208,7 +8227,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         # SIMPLE-mode concept ONLY: in full FE mode a subsumed MONOTONE operand (``a`` in ``a**2/b``
                         # on a positive domain, whose rank tracks ``y`` so a partial-rank-correlation reads a
                         # SPURIOUS private residual) is statistically indistinguishable from a genuine linear term
-                        # and MUST still drop (I4b) -- this mirrors ``drop_redundant_raw_operands``'s own
+                        # and MUST still drop (I4b) - this mirrors ``drop_redundant_raw_operands``'s own
                         # ``allow_linear_usability=False`` policy in full FE mode (see its docstring / keep-leg).
                         # So the floor re-adds a dropped raw ONLY in simple mode and ONLY when it clears the same
                         # permutation-floored partial-rank-correlation probe; in full FE mode the empty raw support
@@ -8236,7 +8255,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             logger.debug("mrmr: classes_y coercion failed for the floor-drop rescue; falling back to a raw classes_y reshape: %r", exc, exc_info=True)
                             _yv_floor = np.asarray(classes_y, dtype=np.float64).reshape(-1)
                         # name -> index map built once (O(F)) instead of a ``.index()`` rescan of
-                        # ``cols`` per ``_dn`` (O(F) each) -- turns the O(K*F) loop below into O(K+F).
+                        # ``cols`` per ``_dn`` (O(F) each) - turns the O(K*F) loop below into O(K+F).
                         _floor_cols_idx = {nm: i for i, nm in enumerate(cols)}
                         for _dn in _dropped_redund_names:
                             _floor_ci = _floor_cols_idx.get(_dn)
@@ -8244,7 +8263,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                 continue
                             # Only a dropped raw with genuine PRIVATE linear signal beyond the engineered
                             # survivors is eligible to be the raw representative; a fully-subsumed operand is not.
-                            # Full FE mode: no operand is eligible (defer to engineered-only -- the I4b contract).
+                            # Full FE mode: no operand is eligible (defer to engineered-only - the I4b contract).
                             _eligible_floor = _floor_simple
                             if _floor_simple and _floor_child_vals:
                                 try:
@@ -8284,7 +8303,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                     _kept_name_floor, _best_floor_rel,
                                 )
                         else:
-                            # Every dropped raw is fully subsumed by a surviving engineered child -- the
+                            # Every dropped raw is fully subsumed by a surviving engineered child - the
                             # engineered recipe(s) ARE the complete feature set (the uniform-profile outcome).
                             self._redundancy_emptied_raw_ = True
                     if verbose:
@@ -8394,10 +8413,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
     selected_vars_names = np.array(cols)[np.array(selected_vars, dtype=np.intp)]
 
-    # BUG2 (2026-06-12): the cross-fold stability vote in ``_run_fe_step`` pops a
+    # BUG2: the cross-fold stability vote in ``_run_fe_step`` pops a
     # fold-unstable engineered recipe AND de-selects its column for that step, but the
     # materialised bin-code column stays in ``cols``/``data``, so the downstream greedy
-    # screen (step>1 re-screen / final selection) re-admits it on marginal MI -- it then
+    # screen (step>1 re-screen / final selection) re-admits it on marginal MI - it then
     # arrives here with NO recipe and was silently DROPPED from transform output (a
     # select-then-drop contract violation: a feature in support_/discovered MUST survive
     # transform). The vote is authoritative, so strip every vote-rejected engineered name
@@ -8427,7 +8446,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     original_indices = []
     engineered_without_recipe = []
     # feature_names_in_ is an ndarray (sklearn convention); name -> index map built once (O(F))
-    # instead of an ``in`` test + ``.index()`` rescan per ``col`` (O(F) each) -- turns the O(K*F)
+    # instead of an ``in`` test + ``.index()`` rescan per ``col`` (O(F) each) - turns the O(K*F)
     # loop below into O(K+F).
     _fni_idx = {nm: i for i, nm in enumerate(self.feature_names_in_)}
     for col in selected_vars_names:
@@ -8453,7 +8472,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # columns come from the recipes list. n_features_ counts BOTH (see assignment below).
     selected_vars = original_indices
 
-    # PSEUDO-REMIX OPERAND RE-ADD (2026-06-17). A surviving conditional-gate / binned-numeric-agg /
+    # PSEUDO-REMIX OPERAND RE-ADD. A surviving conditional-gate / binned-numeric-agg /
     # row-argmax composite (``gate_mask__a__b`` / ``binagg_*(c|qbin(a))`` / ``argmax__a__b``) is a LOSSY
     # threshold/binning re-mix of its raw operands: it survived because it captures the INTERACTION, but
     # it destroys each operand's continuous value that a LINEAR downstream needs (measured: a 5-class
@@ -8535,7 +8554,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         "target_type='classification' explicitly to override.",
                         _n_unique, _ratio,
                     )
-            # 2026-05-30 Wave 9.1 fix (loop iter 17): order-preserving set
+            # order-preserving set
             # difference. The prior ``list(set(X.columns) - set(...))``
             # produced a HASH-SEED-DEPENDENT column order because Python's
             # randomized string hashing reorders ``set`` iteration across
@@ -8553,7 +8572,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # Cluster members already folded into a denoised aggregate (post-hoc cluster_aggregate 'replace' mode,
             # _cluster_aggregate_removals_) or into a DCD PC1/mean_z swap (cluster_members_) are REPRESENTED by that
             # aggregate. Excluding them from the rescue pool stops RFECV re-admitting the raw members and re-injecting
-            # the very redundancy the aggregation removed -- only features dropped for low marginal/joint relevance get reconsidered.
+            # the very redundancy the aggregation removed - only features dropped for low marginal/joint relevance get reconsidered.
             _excluded_from_rescue = set(getattr(self, "_cluster_aggregate_removals_", None) or [])
             _cm = getattr(self, "cluster_members_", None)
             if isinstance(_cm, dict):
@@ -8573,8 +8592,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # via the RFECV rescue pool. The n-invariant CMI verdict is authoritative: a
             # raw whose entire y-information is captured by an admitted engineered feature
             # (e.g. ``a`` / ``b`` in ``a**2/b`` once ``div(neg(a),sqrt(b))`` is selected)
-            # carries no independent signal, but CatBoost RFECV -- which scores raw
-            # MARGINAL usefulness, blind to the engineered child's coverage -- would re-admit
+            # carries no independent signal, but CatBoost RFECV - which scores raw
+            # MARGINAL usefulness, blind to the engineered child's coverage - would re-admit
             # it, resurrecting the exact redundancy the sweep removed (observed at n=2000/5000
             # on ``y=0.30 a**2/b``: the sweep dropped a+b, RFECV re-added a). Excluding the
             # dropped set keeps the redundancy decision consistent across both the FE-step
@@ -8627,12 +8646,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # type`` because a float array can't index. Integer dtype makes the empty
     # slice a valid no-op on both the DataFrame and the ndarray paths.
     #
-    # NEVER-EMPTY RAW REPRESENTATIVE (2026-06-12): when the ONLY confirmed feature(s) are engineered
+    # NEVER-EMPTY RAW REPRESENTATIVE: when the ONLY confirmed feature(s) are engineered
     # recipes (their raw operands all judged redundant, so ``selected_vars`` is empty while
     # ``_engineered_recipes_`` is non-empty), the raw integer ``support_`` would be empty even though a
     # genuine signal-bearing feature WAS selected. That breaks any linear downstream that consumes the raw
     # ``support_`` (it sees zero columns) and the never-empty selection contract. Re-attach the single
-    # highest-marginal-MI raw OPERAND of a surviving engineered feature as the cluster's raw stand-in --
+    # highest-marginal-MI raw OPERAND of a surviving engineered feature as the cluster's raw stand-in -
     # mirrors ``reattach_raw_representative_after_aggregate_swap`` for the DCD aggregate case. One raw
     # column is added (the operand most relevant to y), never an unvalidated one, and the engineered
     # recipe still rides along via ``get_feature_names_out`` / ``transform``. Best-effort: any failure
@@ -8644,7 +8663,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # operand the n-invariant CMI verdict just dropped (observed at n=2000/5000: the sweep
     # dropped a+b, this block re-added a as the highest-marginal stand-in). When the empty
     # raw support is the redundancy sweep's deliberate outcome, the engineered recipes ARE
-    # the complete feature set -- skip the never-empty re-attach and let ``support_`` stay
+    # the complete feature set - skip the never-empty re-attach and let ``support_`` stay
     # empty (transform still emits the engineered columns). The re-attach remains active for
     # the genuine degenerate case (engineered-only with no redundancy verdict).
     if (not selected_vars) and getattr(self, "_engineered_recipes_", None) and not getattr(self, "_redundancy_emptied_raw_", False):
@@ -8654,7 +8673,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _raw_names_ne = set(self.feature_names_in_)
             # Recipe -> column NAME. ``self._engineered_recipes_`` holds EngineeredRecipe
             # OBJECTS whose ``str()``/``repr()`` is the full dataclass repr, NOT the column
-            # name -- so ``str(r)`` neither matches ``cols`` nor is a clean token source.
+            # name - so ``str(r)`` neither matches ``cols`` nor is a clean token source.
             # Resolve the name from ``.name`` (the column the recipe materialises), falling
             # back to ``str(r)`` only for a legacy bare-string entry.
             def _ne_recipe_name(_r):
@@ -8688,7 +8707,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # survivor(s), using the SAME n-invariant conditional-redundancy verdict as
             # the main drop. Only operands NOT judged subsumed are eligible; if every
             # operand is subsumed (the composite fully reconstructs y), leave the support
-            # engineered-only -- the recipe IS the complete feature set.
+            # engineered-only - the recipe IS the complete feature set.
             _subsumed_operand_names: set = set()
             try:
                 # emit_both keeps engineered operands; skip the subsumption restriction so the never-empty re-attach is not narrowed.
@@ -8717,7 +8736,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             except Exception as exc:
                 logger.debug("mrmr: subsumed-operand computation failed; falling back to MI-only pick (best-effort): %r", exc, exc_info=True)
                 _subsumed_operand_names = set()  # best-effort: fall back to MI-only pick
-            # C2 ADDITIVE-FUSION EXCLUSION (2026-06-24): never re-attach a raw operand the
+            # C2 ADDITIVE-FUSION EXCLUSION: never re-attach a raw operand the
             # FE additive-fusion proposer already judged subsumed by the fused ``add(...)``
             # compound (``_raw_redundancy_dropped_``). The fused compound carries its additive
             # term, so resurrecting it as the never-empty stand-in re-injects the redundant
@@ -8738,7 +8757,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _best_rel_ne, _best_idx_ne = _rel_ne, int(_oi)
                 if _best_idx_ne >= 0:
                     # ``_best_idx_ne`` is a COLS-space index (the augmented, categorize_dataset-reordered matrix that carries the injected target +
-                    # engineered columns). ``support_`` must index ``feature_names_in_`` (raw user columns only), so remap the chosen operand by NAME --
+                    # engineered columns). ``support_`` must index ``feature_names_in_`` (raw user columns only), so remap the chosen operand by NAME -
                     # the same translation the main selection does at the ``selected_vars_names`` split. Assigning the raw cols-space index directly let an
                     # out-of-range index (>= n_features_in_) reach ``support_`` and crashed ``transform`` with IndexError when feature_names_in_ was narrower.
                     _operand_name_ne = cols[_best_idx_ne]
@@ -8752,13 +8771,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         )
             elif _operand_idxs and _subsumed_operand_names:
                 # EVERY engineered operand is conditionally subsumed by a surviving
-                # engineered child -- the engineered recipe(s) ARE the complete feature
+                # engineered child - the engineered recipe(s) ARE the complete feature
                 # set. Record the verdict so the DOWNSTREAM empty-raw rescue (the
                 # ``else`` branch that tops up the support to ``min_features_fallback``
                 # by marginal MI) does NOT resurrect a dropped operand. Without this the
                 # rescue re-adds the highest-marginal operand (``a`` in the user's
                 # ``a**2/b + log(c)sin(d)`` fixture, whose ``a**2/b`` is captured by the
-                # composite), the BUG1 spurious-raw-kept regression -- because the raw
+                # composite), the BUG1 spurious-raw-kept regression - because the raw
                 # operands were dropped by the EARLIER raw-retention pass, not the main
                 # ``drop_redundant_raw_operands`` sweep, so neither
                 # ``_raw_redundancy_dropped_`` nor ``_redundancy_emptied_raw_`` was set.
@@ -8778,7 +8797,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         except Exception as _ne_exc:
             logger.warning("MRMR never-empty raw representative re-attach failed (%r); leaving support_ empty.", _ne_exc)
 
-    # CLUSTER-AGGREGATE 'replace' FINAL EXCLUSION (2026-06-16). Members folded into a denoised
+    # CLUSTER-AGGREGATE 'replace' FINAL EXCLUSION. Members folded into a denoised
     # MULTI-parent aggregate (``cluster_aggregate_mode='replace'`` -> ``_cluster_aggregate_removals_``,
     # or a DCD PC1/mean_z swap -> ``cluster_members_``) were dropped from ``selected_vars`` at the
     # replace step, but the many intervening raw-retention / masked-raw rescue / hinge / orth / pcr /
@@ -8786,8 +8805,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # OPERAND of a SURVIVING engineered child (e.g. ``add(refl0,sin(indep))`` keeps a private residual
     # given the aggregate). Several of those passes pre-date the cluster-aggregate feature and do not
     # consult ``_cluster_aggregate_removals_``, so rather than patch each call site we re-apply the
-    # exclusion ONCE here -- the single chokepoint right before ``support_`` is frozen, in
-    # feature_names_in_ index space -- guaranteeing a replaced member can never reach support_ /
+    # exclusion ONCE here - the single chokepoint right before ``support_`` is frozen, in
+    # feature_names_in_ index space - guaranteeing a replaced member can never reach support_ /
     # get_feature_names_out regardless of which re-add path touched it. The denoised aggregate itself
     # (an engineered name in ``_engineered_recipes_``) is untouched.
     _ca_final_excl = set(getattr(self, "_cluster_aggregate_removals_", None) or [])
@@ -8795,7 +8814,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _raw_names_cmfinal = set(self.feature_names_in_)
     # Raw cluster representatives a DCD-aggregate-anchor swap would otherwise strip: force-kept / force-ADDED
     # below so every collapsed cluster retains >=1 raw column. Initialised at function-body level (NOT inside
-    # the ``isinstance(_cm_final, dict)`` block) because it is referenced unconditionally further down -- a
+    # the ``isinstance(_cm_final, dict)`` block) because it is referenced unconditionally further down - a
     # fit whose ``cluster_members_`` is not a dict (e.g. dcd_enable=False) must not hit an UnboundLocalError.
     _ca_keep_raw: set = set()
     if isinstance(_cm_final, dict):
@@ -8813,7 +8832,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # member strip below.
         _nm2col_cm = {c: i for i, c in enumerate(cols)}
         # Use the in-scope LOCAL cached_MIs (populated by the screen, same dict used at the other read
-        # sites) -- self.cached_MIs is only assigned near the end of _fit_impl, so on a FRESH fit
+        # sites) - self.cached_MIs is only assigned near the end of _fit_impl, so on a FRESH fit
         # hasattr(self,...) is False and this degraded to {} -> every rep tiebreak collapsed to 0.0.
         _cached_cm = cached_MIs if ("cached_MIs" in dir() and isinstance(cached_MIs, dict)) else {}
         _name2inidx_cm = {c: i for i, c in enumerate(self.feature_names_in_)}
@@ -8832,8 +8851,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _mlist = [str(_m) for _m in (_members or [])] if isinstance(_members, (list, tuple, set)) else []
             _group = [_a, *_mlist]
             if all(_nm in _raw_names_cmfinal for _nm in _group):
-                # pure raw cluster -- keep the single strongest representative, strip the rest.
-                # KEEP-ONE-SELECTED-RAW (2026-06-18): the cached-MI lookup the rep tiebreak relies
+                # pure raw cluster - keep the single strongest representative, strip the rest.
+                # KEEP-ONE-SELECTED-RAW: the cached-MI lookup the rep tiebreak relies
                 # on is often a miss for these members (``cached_MIs`` is keyed on the screening
                 # cols-space and a cluster member may never have been scored there), collapsing every
                 # member's relevance to 0.0 -> the rep degenerates to the LOWEST feature-index member.
@@ -8842,7 +8861,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # stripped and the whole latent block vanishes from support_ (embedding cross-terms
                 # layer20: 12-member e1 cluster, only the high-MI anchor ``e1_17`` was selected, yet
                 # the rep collapsed to ``e1_1`` and e1 dropped entirely). PRINCIPLE: a member already
-                # chosen by the screen is the de-facto representative -- prefer it. Restrict the rep
+                # chosen by the screen is the de-facto representative - prefer it. Restrict the rep
                 # candidate pool to the cluster members present in ``selected_vars`` when any are;
                 # only fall back to the MI/index tiebreak over the whole group when none was selected.
                 if len(_group) >= 2:
@@ -8853,7 +8872,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # within-pack SU cluster is merely pool-pruned (size below the swap threshold, so
                     # no aggregate column is ever built) AND its screen-selected representative was
                     # later dropped (e.g. a second screen pass re-prunes the pack and the anchor falls
-                    # out of selected_vars), NONE of the group survives -- the latent vanishes from
+                    # out of selected_vars), NONE of the group survives - the latent vanishes from
                     # support_ entirely and the RFECV rescue pool excludes every cluster member, so it
                     # is unrecoverable (scenario-A sensor mesh: L1 pack pruned, AUC -0.08). Force-keep
                     # the chosen representative exactly like the engineered-anchor branch below, so every
@@ -8862,17 +8881,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     if _rep not in _sel_names_cm:
                         _ca_keep_raw.add(_rep)
             elif _a not in _raw_names_cmfinal:
-                # engineered/aggregate anchor (DCD PC1/mean_z swap) -- strip its (raw) members; the
+                # engineered/aggregate anchor (DCD PC1/mean_z swap) - strip its (raw) members; the
                 # aggregate itself survives.
                 #
-                # KEEP-ONE-RAW-REPRESENTATIVE (2026-06-18): a DCD denoised-aggregate swap collapses an
+                # KEEP-ONE-RAW-REPRESENTATIVE: a DCD denoised-aggregate swap collapses an
                 # entire raw cluster into a single engineered column and prunes every raw member. When
                 # the aggregate is the cluster's ONLY survivor, the latent block has no RAW column in
-                # ``support_`` at all -- any downstream consumer that reads the raw support names (a
+                # ``support_`` at all - any downstream consumer that reads the raw support names (a
                 # linear model fed the raw matrix, a feature-importance report, the layer20 embedding
                 # cross-terms contract) sees the whole block as dropped even though it was merely
                 # denoised. PRINCIPLE: the engineered aggregate is a SUPPLEMENT, not a replacement for
-                # the cluster's presence -- always leave at least one genuine raw representative of the
+                # the cluster's presence - always leave at least one genuine raw representative of the
                 # cluster alive. Keep the strongest raw member (highest cached MI, lowest-index
                 # tiebreak) and strip the rest; the kept member is force-added to ``selected_vars``
                 # below so it survives even if no raw member reached the support chokepoint.
@@ -8884,10 +8903,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 else:
                     _ca_final_excl.update(_mlist)
             else:
-                # raw anchor + engineered/pseudo member(s) -- strip only the non-raw members (pseudo-remix
+                # raw anchor + engineered/pseudo member(s) - strip only the non-raw members (pseudo-remix
                 # protection below keeps a raw operand the cluster pairs with a pseudo-remix built from it).
                 _ca_final_excl.update(_m for _m in _mlist if _m not in _raw_names_cmfinal)
-    # PSEUDO-REMIX SELF-SOURCE PROTECTION (2026-06-17). A conditional-gate / binned-numeric-agg /
+    # PSEUDO-REMIX SELF-SOURCE PROTECTION. A conditional-gate / binned-numeric-agg /
     # row-argmax anchor (``gate_mask__a__b`` / ``binagg_mean(d|qbin(a))`` / ``argmax__a__b``) is a
     # LOSSY threshold/binning RE-MIX of its raw source(s): it cannot carry a raw operand's private
     # LINEAR term (a binary gate of ``a`` does not span ``10*a``). When the clustering folds a RAW
@@ -8895,7 +8914,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # a "member", a genuine private term is lost (test_private_raw_a_kept: raw ``a`` with a dominant
     # ``10*a`` term clustered under ``gate_mask__a__b`` and dropped). Mirror the redundancy gate's
     # ``_is_pseudo_remix_child`` exclusion here: never strip a RAW column that the cluster pairs with
-    # a pseudo-remix BUILT FROM that raw, in EITHER direction --
+    # a pseudo-remix BUILT FROM that raw, in EITHER direction -
     #   (A) pseudo-remix ANCHOR + raw-source MEMBER  (``gate_mask__a__b`` anchors raw ``a``); or
     #   (B) raw ANCHOR + pseudo-remix MEMBER of it    (``x2`` anchors ``gate_mask__x2__x1``).
     # The lossy gate/binagg/argmax cannot carry the raw's continuous value a LINEAR downstream needs
@@ -8950,15 +8969,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 selected_vars.append(_ki)
                 _sel_set.add(_ki)
 
-    # SEARCH-SPACE RESTRICTION FINAL ENFORCEMENT (2026-06-16). When the caller pins the candidate
+    # SEARCH-SPACE RESTRICTION FINAL ENFORCEMENT. When the caller pins the candidate
     # pool via ``factors_names_to_use`` / ``factors_to_use``, the SCREEN honours it, but the many
     # post-screen raw-retention / masked-raw rescue / hinge / orth / pcr / never-empty / count-floor
     # re-add passes do NOT all consult the restriction, so a forbidden raw column (e.g. ``good2`` when
-    # the pool is pinned to ``["good1"]``) leaks into ``support_`` -- and because the in-object fit-skip
+    # the pool is pinned to ``["good1"]``) leaks into ``support_`` - and because the in-object fit-skip
     # / _FIT_CACHE replay a stale selection unless every param change invalidates it, the bug also shows
     # as a stale-replay regression. Enforce the restriction ONCE at the support chokepoint (raw indices
     # into feature_names_in_): a raw column the user excluded can never reach support_ regardless of which
-    # re-add path admitted it. Engineered survivors (in ``_engineered_recipes_``) are untouched -- they are
+    # re-add path admitted it. Engineered survivors (in ``_engineered_recipes_``) are untouched - they are
     # built only from allowed raws by the screen, which already respects the restriction.
     _allowed_raw_idx = None
     _fn_restrict = getattr(self, "factors_names_to_use", None)
@@ -8979,10 +8998,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             )
 
     # P>=N FP-CONTROL TOTAL CAP. In the p>>n regime some pure-noise column WILL correlate with y by chance, and the post-screen
-    # retention / rescue passes can admit a few of them (measured: 51 raws at p=150, 103 at p=300 -- 1-3 over the multiple-comparison
+    # retention / rescue passes can admit a few of them (measured: 51 raws at p=150, 103 at p=300 - 1-3 over the multiple-comparison
     # ceiling). When p >= n, cap the total selected raw set at ``max(20, p//3)`` features chosen by descending relevance MI(X_j, y),
     # mirroring the RFECV ``p_ge_n_fp_control_cap``. Confined to p >= n so the well-powered p<n path is byte-unchanged. Engineered
-    # survivors are counted toward the cap (they reach the output too) but never the dropped tail -- only raw ``selected_vars`` is trimmed.
+    # survivors are counted toward the cap (they reach the output too) but never the dropped tail - only raw ``selected_vars`` is trimmed.
     _pgn_n = int(data.shape[0]) if "data" in dir() else 0
     _pgn_p = int(getattr(self, "n_features_in_", 0) or 0)
     if _pgn_p > 0 and _pgn_n > 0 and _pgn_p >= _pgn_n and selected_vars:
@@ -9070,12 +9089,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if verbose:
                 logger.info("MRMR emit_both operand re-attach skipped (%s: %s).", type(_eb_exc).__name__, _eb_exc)
 
-    # C2 ADDITIVE-FUSION FINAL RAW STRIP (2026-06-24). Raw operands the FE additive-fusion
+    # C2 ADDITIVE-FUSION FINAL RAW STRIP. Raw operands the FE additive-fusion
     # proposer verified the fused ``add(...)`` compound fully captures (``_fused_subsumed_raws_``,
     # set via the production keep-probe against the WHOLE compound) must not survive in the raw
     # support, no matter which downstream retention / rescue / re-attach pass re-added them: those
     # passes condition a raw on the CLEAN nested sub-expression, which on a corrupted a/b half does
-    # NOT capture the raw and so KEEPS it, whereas the fused compound DOES -- this strip applies the
+    # NOT capture the raw and so KEEPS it, whereas the fused compound DOES - this strip applies the
     # stronger whole-compound verdict. Only strips when the fused compound itself survives as a
     # recipe (so the additive term it carries is actually present); byte-identical (empty set) when
     # no fusion fired.
@@ -9083,7 +9102,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     if _fused_subsumed and getattr(self, "_engineered_recipes_", None):
         _surv_eng = {getattr(_r, "name", None) for _r in (self._engineered_recipes_ or [])}
         # Only strip a raw when a SURVIVING engineered compound actually references it (carries its
-        # additive term) -- otherwise leave it (the fusion that subsumed it did not survive).
+        # additive term) - otherwise leave it (the fusion that subsumed it did not survive).
         import re as _re_fsr
         _fsr_tok = _re_fsr.compile(r"[^A-Za-z0-9_]+")
         _covered: set = set()
@@ -9106,10 +9125,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
     self.support_ = np.array(selected_vars, dtype=np.int64)
 
-    # USABILITY-AWARE MULTI-LIST POST-PASS (2026-06-13). ``support_`` above is the pure-MI selection
+    # USABILITY-AWARE MULTI-LIST POST-PASS. ``support_`` above is the pure-MI selection
     # (the nonlinear / tree list, byte-identical to today). When ``usability_aware_lists`` is on AND
     # a continuous target is available, ALSO produce a linear-downstream list (``support_linear_``)
-    # and a blended universal list (``support_universal_``) -- each a replayable candidate list --
+    # and a blended universal list (``support_universal_``) - each a replayable candidate list -
     # WITHOUT touching ``support_``. Fully guarded: a degenerate pool / non-numeric target / row
     # mismatch leaves the extra lists ``None`` and never breaks the fit. ``support_nonlinear_`` is
     # always set as the alias of ``support_`` so downstream routing has a stable name to read.
@@ -9131,7 +9150,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # SELECTION-STABILITY REPLAY STATE (backlog W3, 2026-06-11). Store a compact slice of the
     # already-discretised screening matrix ``data`` + the target codes + the per-column selection
     # outcome so ``MRMR.selection_stability_report(n_boot=K)`` can recompute per-feature selection-
-    # frequency by REPLAY (K cheap marginal-MI sweeps over the frozen bins) without refitting MRMR --
+    # frequency by REPLAY (K cheap marginal-MI sweeps over the frozen bins) without refitting MRMR -
     # the #15 "replay not refit" trick applied to a user-facing confidence readout. Subsample rows to
     # cap the stored footprint (8GB-shared box); the bins are frozen so resampling rows is leak-free.
     try:
@@ -9145,7 +9164,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         if verbose:
             logger.info("Stability replay-state capture skipped (%s: %s).", type(_stab_exc).__name__, _stab_exc)
 
-    # ROSTER RECONCILIATION (2026-06-04): the per-stage engineered rosters (``hybrid_orth_features_``, ``_adaptive_fourier_features_``, the Layer-33/34/37/38/87+ family lists) are
+    # ROSTER RECONCILIATION: the per-stage engineered rosters (``hybrid_orth_features_``, ``_adaptive_fourier_features_``, the Layer-33/34/37/38/87+ family lists) are
     # populated as each FE stage APPENDS its columns, but the MRMR screen / accuracy gate / dedup then drop a subset before support is finalised. ``self._engineered_features_`` is the
     # authoritative set of engineered columns that actually survived into the output (reachable via ``get_feature_names_out``). Intersect every roster with it so a column the screen
     # dropped (and the adaptive-protection block did NOT re-add) no longer leaks into the user-facing roster. Runs AFTER the additional_rfecv rescue (which reads the FULL rosters to
@@ -9169,7 +9188,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         if _roster:
             setattr(self, _roster_attr, [c for c in _roster if c in _surviving_eng])
 
-    # Always store ``cached_MIs`` -- the empty-support fallback at the bottom
+    # Always store ``cached_MIs`` - the empty-support fallback at the bottom
     # of this function reads ``self.cached_MIs`` to rank by raw MI(X_j, y), so
     # the attribute should exist regardless of ``retain_artifacts``. Cheap (a
     # dict of tuple->float; bounded by the screen's candidate pool).
@@ -9201,7 +9220,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _exc,
             )
             self._artifacts_ = None
-    # 2026-05-30 Wave 9.1 fix (loop iter 30): populate ``mrmr_gains_``
+    # Populate ``mrmr_gains_``
     # so the documented ``uaed_auto_size=True`` post-fit elbow trim at
     # line 1020+ actually fires. Pre-fix the comment claimed
     # "Wave-7 audit landed this trace" but no code ever assigned the
@@ -9241,9 +9260,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.fallback_used_ = False
     self.fallback_metadata_ = None
 
-    # USABILITY-AWARE PURE-FORM RETENTION (2026-06-17). On an ADDITIVE target whose terms share
+    # USABILITY-AWARE PURE-FORM RETENTION. On an ADDITIVE target whose terms share
     # operands, the MI greedy keeps a high-MI CROSS-MIX feature and drops the pure single-pair forms
-    # (``a**2/b`` / ``log(c)*sin(d)``) as conditionally redundant -- the right call for a TREE model but
+    # (``a**2/b`` / ``log(c)*sin(d)``) as conditionally redundant - the right call for a TREE model but
     # not for the LINEAR/additive downstream, which needs the clean pure form the lossy cross-mix cannot
     # replace. Re-attach a pure single-pair engineered form whenever a CROSS-VALIDATED linear wrapper
     # confirms it lowers the linear CV-MAE on top of the current selection AND the pair is not already
@@ -9251,14 +9270,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # removed; support_ untouched) and no-op when the pure form adds no linear value -> byte-identical
     # there. Only when FE is enabled (fe_max_steps>0); skipped on the fe-disabled raw-only path.
     # Names of engineered survivors RE-ATTACHED by the retention passes below (AFTER the main raw-vs-
-    # engineered redundancy sweep). The post-retention drop only re-litigates raws against THESE -- the
+    # engineered redundancy sweep). The post-retention drop only re-litigates raws against THESE - the
     # main sweep already vetted raws against survivors it could see (so a genuine pair-interaction operand
     # the main sweep kept is not re-dropped by the stricter post-retention margin).
     _retention_added_eng_names: set = set()
     if fe_max_steps > 0:
         # SHARED RETENTION PREP: both retain_usable_pure_forms and retain_usable_raw_columns below
         # independently rebuild the same numeric-dtype base_names filter, std-trim-to-max_base_features,
-        # and (same seed) row subsample from this SAME (X, y_cont) -- computed once here and passed to
+        # and (same seed) row subsample from this SAME (X, y_cont) - computed once here and passed to
         # both so the identical-seed X.iloc[_idx] draw is materialized once, not twice, per fit.
         _retention_prep_cache = None
         try:
@@ -9281,17 +9300,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 seed=int(getattr(self, "random_seed", 0) or 0), verbose=verbose,
                 _prep=_retention_prep_cache,
             )
-            # ENGINEERED-SUBSUMPTION GUARD (2026-06-20). The pure-form retention runs AFTER the post-FE
+            # ENGINEERED-SUBSUMPTION GUARD. The pure-form retention runs AFTER the post-FE
             # engineered-vs-engineered CMI redundancy gate, so a re-attached pure form is never tested
             # against the engineered survivors admitted BEFORE retention. When an incumbent survivor is a
             # FUSED compound that already carries BOTH additive halves of the target (the canonical
             # ``add(neg(mul(sqr(a),reciproc(b))),neg(mul(log(c),sin(d))))`` for y=a**2/b+log(c)*sin(d)),
             # a re-attached pure half (``mul(log(c),sin(d))`` / ``div(sqr(a),sin(b))``) is FULLY redundant
-            # given it -- the fragmentation regression (one compound PLUS several sub-fragments). Re-run
+            # given it - the fragmentation regression (one compound PLUS several sub-fragments). Re-run
             # the SAME n-invariant debiased-excess CMI subsumption check the S5 gate validated, conditioning
             # each retention candidate on the INCUMBENT (pre-retention) engineered survivors, and skip any
             # whose information collapses given them. A genuinely COMPLEMENTARY pure form (one the incumbents
-            # do not span -- the case this retention pass exists to rescue) keeps a large conditional excess
+            # do not span - the case this retention pass exists to rescue) keeps a large conditional excess
             # and is admitted; only sub-fragments of an incumbent compound are dropped. No-op (byte-identical)
             # when there is no incumbent engineered survivor to condition on.
             if _retain_extra:
@@ -9356,17 +9375,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if verbose:
                 logger.info("MRMR usability-aware pure-form retention skipped (%s: %s).", type(_retain_exc).__name__, _retain_exc)
 
-        # USABILITY-AWARE RAW RETENTION (2026-06-18). The companion to the pure-form retention above for the
+        # USABILITY-AWARE RAW RETENTION. The companion to the pure-form retention above for the
         # case where the genuinely useful structure is a RAW the MI greedy under-ranked, not a pair form.
         # MRMR ranks raws by binned MI, which under-values a linearly-usable raw whose marginal-MI estimate is
-        # small -- e.g. operands g/k of a WEAK additive ratio term ``+ g/k`` in y = w*a**2/b + g/k +
+        # small - e.g. operands g/k of a WEAK additive ratio term ``+ g/k`` in y = w*a**2/b + g/k +
         # log(c)*sin(d): binned MI ~0.01-0.02 (below the relevance floor) yet linear corr ~0.15-0.24 and a tree
         # recovers the ratio. Both are dropped from support_, the pure-form retention cannot rescue the pair
         # (the clean g/k engineered form is a pool-generation lottery), and the marginal-MI re-attach skips
         # them (MI below floor, not a recipe operand) -> the FE space loses the g/k signal and a downstream
         # model scores BELOW raw-only (BUG3 "FE harmful"; the I5 ratio_plus_trig case). The CV-MAE linear
         # wrapper (the same one the pure-form retention trusts) run over the RAW passthroughs surfaces these
-        # under-ranked raws and -- crucially -- rejects pure-noise raws (they do not lower the average CV-MAE).
+        # under-ranked raws and - crucially - rejects pure-noise raws (they do not lower the average CV-MAE).
         # Re-attaches only raws NOT already in support_; purely additive (no engineered recipe touched).
         try:
             from .._fe_pure_form_retention import retain_usable_raw_columns
@@ -9376,11 +9395,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 seed=int(getattr(self, "random_seed", 0) or 0), verbose=verbose,
                 _prep=_retention_prep_cache,
             )
-            # CLUSTER-COLLAPSE EXCLUSION (2026-06-18). ``retain_usable_raw_columns`` ranks raws by
+            # CLUSTER-COLLAPSE EXCLUSION. ``retain_usable_raw_columns`` ranks raws by
             # linear usability and is OBLIVIOUS to the cluster-aggregate / DCD redundancy collapse that
             # the support chokepoint above already applied. A perfectly-collinear duplicate (``z=2a+3``)
             # is maximally linearly-usable, so this pass happily re-attaches the very cluster member the
-            # chokepoint stripped -- re-injecting the redundancy and selecting BOTH members of a
+            # chokepoint stripped - re-injecting the redundancy and selecting BOTH members of a
             # collinear pair (test_duplicate_collinear_handled_and_recorded). Mirror the same exclusion
             # the raw-signal augmentation below applies: never re-attach a raw the cluster collapse
             # already folded into another representative / a denoised aggregate.
@@ -9388,7 +9407,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # Exclude the NON-REPRESENTATIVE members of every redundancy cluster: per cluster
                 # exactly ONE representative (the strongest member) stays eligible for re-attachment,
                 # mirroring the chokepoint's keep-one-strip-rest. ``_cluster_aggregate_removals_`` (the
-                # explicit 'replace'-mode removals) are excluded outright -- they are folded into a
+                # explicit 'replace'-mode removals) are excluded outright - they are folded into a
                 # denoised aggregate that already represents the cluster.
                 # Exclude at most all-but-one member of every cluster, so the pass can never select
                 # BOTH members of a redundant pair, while still re-attaching ONE representative when the
@@ -9425,7 +9444,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                 _rr_excl_names.update(_grp)
                 # SUBSUMED-OPERAND EXCLUSION (signal-aware, variant-3). A raw that is an operand of a
                 # SURVIVING engineered feature MAY be fully represented by that feature (re-attaching it then
-                # re-injects the raw-redundancy I4b forbids) -- but it may instead carry a large PRIVATE signal
+                # re-injects the raw-redundancy I4b forbids) - but it may instead carry a large PRIVATE signal
                 # the engineered child only partially tracks (e.g. a dominant linear term ``y += 2*a`` that a
                 # nonlinear nesting ``sub(log(a),...)`` cannot capture). A blanket name-token exclusion drops
                 # BOTH cases and silently destroys genuine raw signal (fs_robustness: a linear ``y`` whose raws
@@ -9499,8 +9518,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
                 _name_to_in_idx = {nm: i for i, nm in enumerate(getattr(self, "feature_names_in_", []))}
                 # Append to the local ``selected_vars`` (the canonical raw-support list every downstream
-                # step -- n_features_, the marginal-MI augmentation, the elbow trim, and the final
-                # ``self.support_ = np.array(selected_vars)`` -- reads), NOT directly to ``self.support_``:
+                # step - n_features_, the marginal-MI augmentation, the elbow trim, and the final
+                # ``self.support_ = np.array(selected_vars)`` - reads), NOT directly to ``self.support_``:
                 # a later block re-derives ``support_`` from ``selected_vars`` and would clobber a direct
                 # ``support_`` edit. Keeps every consumer consistent.
                 _cur_set = set(int(v) for v in selected_vars)
@@ -9532,7 +9551,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # the usability-aware pure-form retention re-attaches an engineered survivor. When that
     # retention adds a MULTI-OPERAND composite (e.g. ``div(qubed(a),sin(b))``) AFTER the
     # sweep, the raw operands it subsumes (``a``, ``b``) are still in ``selected_vars`` and no
-    # later pass conditions them on the freshly-attached child -- so a fully-subsumed raw rides
+    # later pass conditions them on the freshly-attached child - so a fully-subsumed raw rides
     # into ``support_`` beside the composite that captures it (the I4b end-to-end violation).
     # Re-run the SAME n-invariant conditional-redundancy verdict on the FINAL selection, with
     # the now-complete engineered survivor set (incl. the retained pure forms) as the anchor.
@@ -9553,7 +9572,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # columns that actually reach transform() output.
             # Anchor ONLY on engineered survivors RE-ATTACHED by the retention passes (after the main
             # sweep). The main raw-vs-engineered sweep already vetted every raw against the survivors it
-            # could see, so re-litigating those raws here -- with the stricter post-retention margin --
+            # could see, so re-litigating those raws here - with the stricter post-retention margin -
             # wrongly drops a genuine pair-interaction operand the main sweep KEPT (TestPairInteraction:
             # x_a/x_b in y=x_a+x_b+2*x_a*x_b, main-sweep cmi 1.21x floor -> KEEP, post 1.5x -> DROP). The
             # post-retention sweep exists ONLY for composites retention attached after the sweep ran.
@@ -9635,7 +9654,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             # ``_post_name_to_idx`` (built above) is ``_post_cols`` = ``list(cols)`` plus
                             # any appended engineered columns, so it agrees with ``cols.index`` for every
                             # raw name here (``_post_drop_set`` only ever holds raw ``feature_names_in_``
-                            # names, always present in the original ``cols`` prefix) -- reuse it instead
+                            # names, always present in the original ``cols`` prefix) - reuse it instead
                             # of a fresh ``.index()`` rescan of ``cols`` per ``_dn``.
                             for _dn in _post_drop_set:
                                 _bf_ci = _post_name_to_idx.get(_dn)
@@ -9674,7 +9693,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # ``x1__resid_by__cat_a`` whose cat-residual MI exceeds raw ``x1``), which then conditionally redundifies the raw column so raw ``x1`` is dropped from
         # ``support_`` even though it is genuine, generalising signal. The empirical-null debiasing makes the per-feature ``cached_MIs`` an honest relevance ranking
         # (cardinality / heavy-tail / monotone in-sample inflation removed), so a raw feature that clears the relevance floor AND is the SOURCE of a confirmed
-        # engineered child is genuine signal that the greedy step merely shadowed behind its derivative -- we re-attach it. The augmentation is deliberately narrow:
+        # engineered child is genuine signal that the greedy step merely shadowed behind its derivative - we re-attach it. The augmentation is deliberately narrow:
         # it rescues ONLY columns whose name appears as a source token in some engineered recipe name, so it can never re-inflate a redundant block of near-duplicate
         # raw columns (those have no engineered child) and never overrides DCD / cluster-aggregate redundancy collapse. ``min_features_fallback==0`` opts out.
         _min_fb_aug = int(getattr(self, "min_features_fallback", 0) or 0)
@@ -9692,7 +9711,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     for _tok in _re_aug.split(r"[^0-9A-Za-z_]+", _nm.replace("__", " ")):
                         if _tok:
                             _eng_tokens.add(_tok)
-                # Members folded into a denoised aggregate -- cluster_aggregate 'replace' mode (``_cluster_aggregate_removals_``) or a DCD PC1/mean_z swap (``cluster_members_``) -- are
+                # Members folded into a denoised aggregate - cluster_aggregate 'replace' mode (``_cluster_aggregate_removals_``) or a DCD PC1/mean_z swap (``cluster_members_``) - are
                 # ALREADY represented by that aggregate and were deliberately removed from the support. The token scan above matches them anyway because the member NAME survives as a
                 # token inside OTHER engineered recipe names (e.g. ``add(refl0,sin(indep))``), so without this exclusion the augmentation resurrects the very members 'replace' mode and
                 # DCD just collapsed, re-injecting the redundancy. Mirror the same exclusion the raw-retention block and the additional-RFECV rescue pool apply.
@@ -9715,10 +9734,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _max_mi_aug = max((m for _, _, m in _raw_mi_aug), default=0.0)
                 _floor_aug = max(_abs_floor_aug, _max_mi_aug * _rel_frac_aug)
                 _selected_set = set(int(v) for v in selected_vars)
-                # LARGE-N SCOPE (2026-06-08 regression fix): this augmentation re-attaches a raw
+                # LARGE-N SCOPE: this augmentation re-attaches a raw
                 # column whose NAME is a source token of a confirmed engineered recipe and whose
                 # MARGINAL MI clears the relevance floor. Marginal MI cannot tell a FULLY-ABSORBED
-                # operand (``a`` in ``div(sqr(a),abs(b))`` for ``y=a**2/b`` -- high marginal MI, ZERO
+                # operand (``a`` in ``div(sqr(a),abs(b))`` for ``y=a**2/b`` - high marginal MI, ZERO
                 # conditional signal beyond the ratio) from a genuine independent term, so on the
                 # canonical composite fixtures it resurrected exactly the redundant raw operands the
                 # post-FE re-selection had correctly dropped (support_rank -1, no gain). At large n the
@@ -9738,7 +9757,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _raw_names_for_aug = set(self.feature_names_in_)
                 _surviving_eng_operands = {t for t in _eng_tokens if t in _raw_names_for_aug} if _aug_large_n else set()
                 # Operands the n-invariant conditional-redundancy sweep dropped are authoritative
-                # at EVERY n -- never re-attach them here (the marginal-MI token match cannot tell
+                # at EVERY n - never re-attach them here (the marginal-MI token match cannot tell
                 # a fully-subsumed operand from a genuine independent term; the excess-CMI sweep can).
                 _redund_dropped_names = set(getattr(self, "_raw_redundancy_dropped_", None) or ())
                 _to_add = [i for i, _name, m in sorted(_raw_mi_aug, key=lambda kv: (-kv[2], kv[0]))
@@ -9755,7 +9774,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     elif getattr(self, "_redundancy_emptied_raw_", False):
         # The raw support is empty because the n-invariant conditional-redundancy sweep
         # deliberately dropped every raw operand (each fully subsumed by a surviving
-        # engineered child) -- an INTENDED, complete engineered-only support, NOT a
+        # engineered child) - an INTENDED, complete engineered-only support, NOT a
         # "screen returned 0 raw" emergency. SKIP the empty-raw rescue entirely; firing
         # it would resurrect the dropped operands or pull in the next pure-noise column
         # ranked by marginal MI (measured ws1: ``e`` rescued at n=1000, ``a`` re-added at
@@ -9769,13 +9788,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         from ._finalise import _finalise_empty_support_fallback
         _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, target_indices)
 
-    # FIT_IMPL_B-2 fix: the p>=n FP-control cap above is enforced exactly once,
+    # The p>=n FP-control cap above is enforced exactly once,
     # but the post-selection reconciliation passes below it (emit-both operand re-attach, usability-aware
     # raw retention, raw-signal-retention augmentation) can each append more raw columns afterward with no
-    # re-check against the cap -- letting the final raw (and n_features_) count silently exceed the
+    # re-check against the cap - letting the final raw (and n_features_) count silently exceed the
     # documented max(20, p//3) ceiling on a p>>n fit with real leftover linear-usable raw signal. Re-apply
     # the same cap here, at the true end of raw-selection mutation for this fit (nothing below this point
-    # adds more raw columns -- only the UAED elbow trim further down, which only shrinks).
+    # adds more raw columns - only the UAED elbow trim further down, which only shrinks).
     _pgn_n_final = int(data.shape[0]) if "data" in dir() else 0
     _pgn_p_final = int(getattr(self, "n_features_in_", 0) or 0)
     if _pgn_p_final > 0 and _pgn_n_final > 0 and _pgn_p_final >= _pgn_n_final and selected_vars:
@@ -9825,7 +9844,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.signature = signature
     # ran_out_of_time was set only by the outer FE-loop deadline (line ~6714). screen_predictors honours
     # self.max_runtime_mins on its OWN and can return a truncated selection without the FE loop ever tripping, so a
-    # screen-level timeout was reported as ran_out_of_time_=False -- misleading a caller inspecting why selection was
+    # screen-level timeout was reported as ran_out_of_time_=False - misleading a caller inspecting why selection was
     # thin. OR-in a total-elapsed-vs-budget check so any stage that pushed the fit past its budget is reflected.
     if self.max_runtime_mins is not None and (timer() - start_time) / 60.0 >= self.max_runtime_mins:
         ran_out_of_time = True
@@ -9837,7 +9856,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ``_skip_fit_cache`` (private, non-BaseEstimator attr set by the stability-selection outer loop on
     # its throwaway bootstrap-replicate sub-fits): each replicate
     # fits a DIFFERENT row-subsample every call, so its cache key never repeats and is a guaranteed
-    # future miss -- storing it only serves to evict a legitimately-reusable entry from an unrelated
+    # future miss - storing it only serves to evict a legitimately-reusable entry from an unrelated
     # concurrent caller sharing the same process-wide 4-entry LRU. Unlike ``fit_cache_max=0`` (which
     # clears the WHOLE shared cache as an operator-level opt-out), this skips only THIS instance's own
     # store, leaving every other entry untouched.
@@ -9851,7 +9870,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # already stored its result here. Both instances are independently correct (same X/y/params), but
             # picking a FIRST-WRITER-WINS policy (``setdefault`` instead of unconditional overwrite) makes the
             # canonical cached entry deterministic by arrival order at this lock rather than by whichever
-            # thread happened to reach this exact line last -- and avoids uselessly replacing an already-valid
+            # thread happened to reach this exact line last - and avoids uselessly replacing an already-valid
             # entry with an equivalent one. ``self`` remains fully usable to ITS OWN caller either way; only
             # which instance becomes the shared replay source for FUTURE cache hits is affected.
             MRMR._FIT_CACHE.setdefault(_cache_key, self)
@@ -9898,7 +9917,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             from .._cmi_perm_stop import uaed_elbow
             gains = np.asarray(getattr(self, "mrmr_gains_", []), dtype=np.float64)
             # UAED runs BEFORE the mrmr_gains_ length-alignment below, so at this point ``gains`` is the
-            # raw GREEDY log (one entry per confirmed greedy round) -- often SHORTER than n_features_ when
+            # raw GREEDY log (one entry per confirmed greedy round) - often SHORTER than n_features_ when
             # FE/retention appended features the greedy never scored. The public ``mrmr_gains_`` the caller
             # sees is the n_features_-aligned (zero-padded) trace, so the elbow must be computed on that SAME
             # trace; otherwise a frame whose greedy log has <3 rounds but >=3 final features silently skips
@@ -9913,7 +9932,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # transform-time feature order [support_ ..., engineered recipes ...]. The elbow index therefore
                     # lives in COMBINED space, but ``support_`` holds RAW indices only. Slicing raw support by a
                     # combined elbow (and setting n_features_ = support_.size) dropped the engineered count while the
-                    # recipes still fired in transform -- transform emitted MORE columns than n_features_/mrmr_gains_
+                    # recipes still fired in transform - transform emitted MORE columns than n_features_/mrmr_gains_
                     # claimed (a hard support/output desync). Trim raw support AND engineered recipes in LOCKSTEP so
                     # the retained feature count is exactly elbow+1 in both the state and the transform output.
                     _sup = np.asarray(self.support_)
@@ -9935,23 +9954,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self._fe_prewarp_y_continuous_ = None
 
     # MRMR_GAINS LENGTH ALIGNMENT (2026-06-17, FINAL). ``mrmr_gains_`` is the GREEDY selection log;
-    # the FINAL feature count diverges from it -- SHORTER on a degenerate-frame collapse / redundancy /
+    # the FINAL feature count diverges from it - SHORTER on a degenerate-frame collapse / redundancy /
     # cluster-aggregate exclusion / p>=n cap / UAED elbow trim, LONGER when FE / retention / pseudo-
     # remix re-add appended features the greedy log never scored. The public contract + downstream
     # expect ``len(mrmr_gains_) == n_features_`` (TestSupportGainsAlignment). Reconcile HERE, after every
-    # support/n_features_ mutation above is final: keep the top screening gains (descending -- what the
+    # support/n_features_ mutation above is final: keep the top screening gains (descending - what the
     # UAED elbow already consumed) and pad any FE tail with 0.0. Byte-identical when already aligned.
-    try:
-        _g = getattr(self, "mrmr_gains_", None)
-        _nf_final = int(getattr(self, "n_features_", 0) or 0)
-        if _g is not None and _nf_final >= 0 and _g.shape[0] != _nf_final:
-            if _g.shape[0] > _nf_final:
-                self.mrmr_gains_ = _g[:_nf_final]
-            else:
-                self.mrmr_gains_ = np.concatenate([_g, np.zeros(_nf_final - _g.shape[0], dtype=np.float64)])
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("mrmr: mrmr_gains_ finalisation failed: %r", e, exc_info=True)
-        pass
+    # NB: re-run once more after the group-aware demotion below (the last n_features_ mutation).
+    _align_mrmr_gains(self)
 
     # SUPPORT_NONLINEAR_ ALIAS RE-SYNC. ``support_nonlinear_`` is set right after the FIRST support_
     # assignment as an alias of the pure-MI support_, but several later passes (usability-aware RAW
@@ -9965,23 +9975,23 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # GROUP-AWARE FE DEMOTION (final choke point, AFTER every reintroduction pass). Under
     # ``group_aware_mi=True`` the raw-feature relevance screen (``evaluate_candidate``) already demotes
     # a between-group-level "leak" raw feature via group-blocked I(X;Y|G) instead of the naive global MI
-    # -- but EVERY engineered-feature producer (the unary/binary pair search, the hybrid-orth Hermite
+    # - but EVERY engineered-feature producer (the unary/binary pair search, the hybrid-orth Hermite
     # basis, polynom/orthogonal families, ...) scores its candidates with the PLAIN global plug-in MI;
     # none of them consult ``get_group_mi()``. A pair/basis interaction BUILT FROM a demoted leak raw
     # feature (e.g. ``mul(leak_raw, unrelated)`` or a Hermite product ``leak_raw__He2 * other__He1``)
     # still carries the leak's between-group signal and clears every naive-MI acceptance gate. An
     # EARLIER attempt at this check (right after the initial ``selected_vars``/engineered-recipe build)
-    # was found to be undone by later passes -- usability-aware retention (``_retain_extra`` above)
+    # was found to be undone by later passes - usability-aware retention (``_retain_extra`` above)
     # re-attaches recipes it judges linearly-useful by its OWN criterion, independent of any earlier
-    # group-aware verdict -- so this MUST run last, after UAED / retention / every other
+    # group-aware verdict - so this MUST run last, after UAED / retention / every other
     # ``self._engineered_recipes_``/``self._engineered_features_`` mutation, right before returning.
     # Recipes still materialised in ``data``/``cols`` (the common case) are re-scored directly; a
     # retention-only recipe (usability-aware retention re-attaches recipes from its own recompute,
     # independent of ``cols``/``data``) is replayed via ``apply_recipe`` + discretised the SAME way the
     # retention pass itself does, so it gets the SAME group-aware check either way. Demotes any whose
-    # within-group MI comes back EXACTLY zero (no genuine within-group signal at all -- a column with any real, however small, within-group
+    # within-group MI comes back EXACTLY zero (no genuine within-group signal at all - a column with any real, however small, within-group
     # signal survives). A nan group-MI (misaligned segments) is inconclusive and left alone, mirroring the
-    # raw-feature gate's own fallback. No-op -- and therefore byte-identical -- when group_aware_mi is off
+    # raw-feature gate's own fallback. No-op - and therefore byte-identical - when group_aware_mi is off
     # / no groups were supplied this fit (``get_group_mi()`` returns ``None``).
     try:
         from ..info_theory._state_and_dispatch import get_group_mi as _get_group_mi_final
@@ -10010,7 +10020,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     )
                 else:
                     # Retention-only recipe (usability-aware retention re-attaches it from its OWN
-                    # recompute, bypassing ``cols``/``data`` entirely -- see the comment above). Replay
+                    # recompute, bypassing ``cols``/``data`` entirely - see the comment above). Replay
                     # the SAME recompute + discretise the retention pass itself uses, then group-block
                     # directly (a single already-discretised column needs no ``merge_vars`` combination).
                     try:
@@ -10020,7 +10030,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _cv_f = np.asarray(_apply_recipe_final(_recipe, X), dtype=np.float64).ravel()
                         _cv_f = np.nan_to_num(_cv_f, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
                         if _cv_f.shape[0] != _classes_y_arr_f.shape[0]:
-                            continue  # can't align -- leave this recipe alone
+                            continue  # can't align - leave this recipe alone
                         _codes_f = _discretize_array_final(_cv_f, n_bins=int(self.quantization_nbins), method=self.quantization_method, dtype=self.quantization_dtype)
                         _grp_mi_f = _group_blocked_mi_final(
                             _codes_f, _classes_y_arr_f, _gsi_f, _goff_f,
@@ -10028,7 +10038,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             min_rows=_gmr_f, size_weighted=_gsw_f, use_mm=True,
                         )
                     except Exception:
-                        continue  # can't replay/discretise -- leave this recipe alone (conservative)
+                        continue  # can't replay/discretise - leave this recipe alone (conservative)
                 if _grp_mi_f == _grp_mi_f and _grp_mi_f <= 0.0:  # not nan and exactly zero within-group signal
                     _group_dropped_final.add(_rname)
             if _group_dropped_final:
@@ -10052,5 +10062,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "MRMR group-aware FE demotion (final choke point) failed (%s: %s); keeping the naive-MI selection.",
                     type(_group_final_exc).__name__, _group_final_exc,
                 )
+
+    # Final re-alignment: the group-aware demotion just above is the LAST n_features_ mutation, and it does
+    # not touch mrmr_gains_. Re-run the trim/pad here so the len(mrmr_gains_) == n_features_ contract holds
+    # even when the demotion dropped >=1 engineered feature (idempotent no-op otherwise).
+    _align_mrmr_gains(self)
 
     return self

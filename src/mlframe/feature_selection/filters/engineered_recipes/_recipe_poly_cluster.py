@@ -73,7 +73,7 @@ def _apply_hermite_pair(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
     coef_a = np.ascontiguousarray(recipe.extra["coef_a"], dtype=np.float64)
     coef_b = np.ascontiguousarray(recipe.extra["coef_b"], dtype=np.float64)
     # Unbounded polynomial-basis tails (Hermite/Chebyshev/Laguerre) can overflow on a replay row the
-    # fit-time optimizer never saw (it only screens candidates for np.isfinite on the FIT sample -- see
+    # fit-time optimizer never saw (it only screens candidates for np.isfinite on the FIT sample - see
     # hermite_fe's optimiser); ``bin_func`` (mul/add/sub) can then combine an overflowed leg into a
     # silent NaN with zero downstream scrub, unlike the sibling ``_apply_unary_binary`` replay.
     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
@@ -132,11 +132,11 @@ def build_cluster_aggregate_recipe(
     }
     if weights is not None:
         extra["weights"] = np.asarray(weights, dtype=np.float64).copy()
-    extra.update({k: v for k, v in (diagnostics or {}).items()})  # e.g. pca_var_ratio, representative -- scalars/str only
+    extra.update({k: v for k, v in (diagnostics or {}).items()})  # e.g. pca_var_ratio, representative - scalars/str only
     # Build-time guard: _extra_equal compares values shallowly (np.array_equal / !=), so nested
     # lists/dicts of arrays would break __eq__/pickle round-trip. Keep extra flat.
-    # MI_GREEDY_RECIPES-8 fix: was a bare `assert`, which is STRIPPED under
-    # `-O`/PYTHONOPTIMIZE -- if that ever applied to a production deployment, a future caller passing a
+    # Was a bare `assert`, which is STRIPPED under
+    # `-O`/PYTHONOPTIMIZE - if that ever applied to a production deployment, a future caller passing a
     # nested dict/list into `diagnostics=` would silently build a recipe that only fails later (and
     # confusingly) at _extra_equal/pickle-compare time instead of at construction. Use an explicit raise
     # so the guard survives regardless of optimization flags.
@@ -165,12 +165,12 @@ def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any, col_cache: "dict[
     if not (len(recipe.src_names) == len(member_mean) == len(member_std) == len(signs)):
         raise ValueError(f"cluster_aggregate recipe '{recipe.name}': src_names / stats length mismatch.")
 
-    # 2026-05-30 Wave 9.1 fix (loop iter 8): match the train-time
+    # Match the train-time
     # ``_continuous_cols`` preprocessing in ``_cluster_aggregate.py:119``
     # which ``nan_to_num``s the member columns BEFORE computing mean / std.
     # Without the same wrap here, replay rows with NaN in any member become
     # ``(NaN - mean) / std = NaN``, the ``Z @ weights`` row becomes NaN, and
-    # the final ``nan_to_num(out)`` at line 352 zeroes the row -- but the
+    # the final ``nan_to_num(out)`` at line 352 zeroes the row - but the
     # train-time aggregate for the same row was ``((0 - mean) / std * sign)
     # @ weights``, a specific value. So fit recorded one number and
     # transform produced a different one, breaking train/test parity in
@@ -207,7 +207,7 @@ def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any, col_cache: "dict[
         out = Z @ np.asarray(recipe.extra["weights"], dtype=np.float64)
 
     out = np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-    # CONTINUOUS TRANSFORM OUTPUT (2026-06-12): like its ``unary_binary`` sibling,
+    # CONTINUOUS TRANSFORM OUTPUT: like its ``unary_binary`` sibling,
     # ``transform()`` delivers the cluster-aggregate column CONTINUOUS rather than as
     # the internal MI quantile code. Binning the continuous aggregate to integer codes
     # keeps only RANK and discards the MAGNITUDE that non-tree downstream models need:
@@ -219,7 +219,7 @@ def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any, col_cache: "dict[
     # Continuous replay also SUBSUMES the Wave-9.1 iter-29 quantile-edge leak fix: the
     # output is a closed-form function of the operand row given the FROZEN
     # standardization (member_mean/member_std/signs/weights), so an identical physical
-    # row maps to an identical value regardless of test-distribution drift -- there is
+    # row maps to an identical value regardless of test-distribution drift - there is
     # no quantile recomputation left to drift. ``recipe.quantization`` is kept for
     # provenance only; the downstream MRMR fit discretises the fit-time column for its
     # own MI matrix via ``_mrmr_fe_step`` (a separate path, unaffected).
@@ -257,7 +257,7 @@ def _apply_target_encoding(recipe: EngineeredRecipe, X: Any, col_cache: "dict[st
     vals_b = np.clip(vals_b, 0, nbins_b - 1)
     pre_prune = vals_a + vals_b * nbins_a
     cell_idx = factorize_lookup[pre_prune]
-    # 2026-05-30 Wave 9.1 fix (loop iter 22): honour ``unknown_strategy='raise'``.
+    # Honour ``unknown_strategy='raise'``.
     # Pre-fix this branch silently substituted ``global_mean`` for unseen
     # cells even when the recipe was explicitly built with raise strategy,
     # diverging from ``_apply_factorize`` (line 512) and

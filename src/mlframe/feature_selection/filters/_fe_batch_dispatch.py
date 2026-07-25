@@ -1,14 +1,14 @@
-"""Backend dispatcher for the FE batcher -- picks the CPU or GPU scoring path by flags + live hardware.
+"""Backend dispatcher for the FE batcher - picks the CPU or GPU scoring path by flags + live hardware.
 
 The two paths (``_fe_cpu_batch.cpu_fe_batch_mi`` and ``_fe_gpu_batch.gpu_fe_batch_mi``) are
 selection-IDENTICAL (same edge binning + plug-in MI; ``test_fe_batch_parity``), so this only chooses the
-FASTEST path for the host -- it can never change which features are selected. Selection order:
+FASTEST path for the host - it can never change which features are selected. Selection order:
 
-  1. ``MLFRAME_FE_VRAM_BACKEND = cpu | gpu`` -- explicit force (tests / diagnostics / a known-good host).
-  2. ``MLFRAME_FE_GPU_STRICT`` -- the diagnostic full-residency flag forces GPU.
-  3. AUTO -- KTC per-host crossover (``fe_batch_backend`` cache key) when a tuned entry exists; else the
+  1. ``MLFRAME_FE_VRAM_BACKEND = cpu | gpu`` - explicit force (tests / diagnostics / a known-good host).
+  2. ``MLFRAME_FE_GPU_STRICT`` - the diagnostic full-residency flag forces GPU.
+  3. AUTO - KTC per-host crossover (``fe_batch_backend`` cache key) when a tuned entry exists; else the
      conservative default CPU. The dev GTX 1050 Ti measured 0.5x for the resident pack-and-batch pattern,
-     so AUTO must NOT route to GPU on an unprofiled weak card -- GPU is opt-in (force / STRICT) or a tuned
+     so AUTO must NOT route to GPU on an unprofiled weak card - GPU is opt-in (force / STRICT) or a tuned
      crossover until the Phase-3 sweep populates the cache. A GPU choice degrades to CPU when CUDA is absent.
 
 This mirrors the established ``batch_pair_mi_gpu.dispatch_batch_pair_mi`` / ``plugin_mi_classif_batch_dispatch``
@@ -92,8 +92,8 @@ def fe_batch_mi(
             _dt = _np.float32 if fe_gpu_f32_enabled() else _np.float64  # f32 opt-in: 2.2x, selection-equiv
             return multi_gpu_fe_batch_mi(X, y_codes, nbins, dtype=_dt)  # spreads across GPUs; single-GPU = 1 device
         except Exception as exc:
-            # X_EDGE_CASES_BEST_PRACTICES-1 fix: was a bare `except Exception: pass`
-            # with zero logging -- on a genuine multi-GPU host, a cross-device resident-cache error (or any
+            # Was a bare `except Exception: pass`
+            # with zero logging - on a genuine multi-GPU host, a cross-device resident-cache error (or any
             # other GPU failure) silently defeated the whole multi-GPU speedup with no diagnostic trace,
             # on the exact feature this subpackage exists to provide. The fallback itself stays
             # selection-identical (CPU path below); only the visibility changes.

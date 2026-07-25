@@ -2,8 +2,8 @@
 
 Both utilities sit on top of ``optimise_hermite_pair``:
 
-* **FE composition round 2** -- a single round of pair-FE only captures pair-wise (rank-1 separable) structure. Feeding round-1 engineered features back as new inputs and running a second round captures cross-pair interactions of effective arity 4 (every round-2 feature is a pair of pairs-of-features). Useful when the true target depends on combinations of two pair signals, e.g. ``y = sign((x_a*x_b) + (x_c*x_d))``.
-* **Nested-CV honest validator** -- ``optimise_hermite_pair`` fits coefficients on the same data used to score the result; that bias-up uplift estimate is suspect. A K-fold wrapper that fits coefs on K-1 folds and scores on the heldout fold gives an honest out-of-sample uplift; comparing to the in-sample number quantifies optimism (and reveals leakage).
+* **FE composition round 2** - a single round of pair-FE only captures pair-wise (rank-1 separable) structure. Feeding round-1 engineered features back as new inputs and running a second round captures cross-pair interactions of effective arity 4 (every round-2 feature is a pair of pairs-of-features). Useful when the true target depends on combinations of two pair signals, e.g. ``y = sign((x_a*x_b) + (x_c*x_d))``.
+* **Nested-CV honest validator** - ``optimise_hermite_pair`` fits coefficients on the same data used to score the result; that bias-up uplift estimate is suspect. A K-fold wrapper that fits coefs on K-1 folds and scores on the heldout fold gives an honest out-of-sample uplift; comparing to the in-sample number quantifies optimism (and reveals leakage).
 """
 from __future__ import annotations
 
@@ -43,9 +43,9 @@ def compose_pair_fe(
     Returns
     -------
     dict with keys:
-        ``X_aug`` -- final augmented feature matrix (n, p_orig + n_eng)
-        ``names`` -- list of column names (orig + ``round{r}_pair{i,j}``)
-        ``rounds`` -- list of per-round dicts with ``selected_pairs`` and ``engineered_features`` provenance.
+        ``X_aug`` - final augmented feature matrix (n, p_orig + n_eng)
+        ``names`` - list of column names (orig + ``round{r}_pair{i,j}``)
+        ``rounds`` - list of per-round dicts with ``selected_pairs`` and ``engineered_features`` provenance.
 
     Caution
     -------
@@ -61,7 +61,7 @@ def compose_pair_fe(
         feature_names = [f"x{i}" for i in range(p_orig)]
     else:
         feature_names = list(feature_names)
-        # USABILITY_A-4 fix: single_mi_cache below is keyed only by column NAME; a
+        # single_mi_cache below is keyed only by column NAME; a
         # duplicate name (a realistic pandas artefact after certain joins/concats) would silently alias the
         # second column's MI to the first one's cached value with no error or warning.
         if len(set(feature_names)) != len(feature_names):
@@ -71,7 +71,7 @@ def compose_pair_fe(
     cur_names = feature_names[:]
     # Columns carried over unchanged from a prior round (every original column, plus any
     # engineered column added before round r) have a fixed name + fixed data, so their
-    # single-feature MI never changes across rounds -- cache by name instead of recomputing.
+    # single-feature MI never changes across rounds - cache by name instead of recomputing.
     single_mi_cache: dict[str, float] = {}
 
     for r in range(n_rounds):
@@ -89,7 +89,7 @@ def compose_pair_fe(
                 mi = _mi_1d(xj, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
                 single_mi_cache[name_j] = mi
             single_mi.append((j, mi))
-        # Wave 58 (2026-05-20): plugin MI quantises -> ties realistic; secondary
+        # Plugin MI quantises -> ties realistic; secondary
         # key on feature index for deterministic top-K across runs.
         single_mi.sort(key=lambda kv: (-kv[1], kv[0]))
         top_idx = [j for j, _ in single_mi[: 2 * top_k_per_round]]
@@ -108,7 +108,7 @@ def compose_pair_fe(
                 _mi_1d(xi + xj, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins),
             )
             pair_scores.append((i, j, mi_pair))
-        # Wave 58 (2026-05-20): secondary key on (i, j) for deterministic
+        # Secondary key on (i, j) for deterministic
         # pair selection across runs when MIs tie.
         pair_scores.sort(key=lambda kv: (-kv[2], kv[0], kv[1]))
         top_pairs = pair_scores[:top_k_per_round]
@@ -130,7 +130,7 @@ def compose_pair_fe(
                     optimizer=optimizer,
                 )
             except Exception as e:
-                # USABILITY_A-11 fix: was `if verbose: logger.debug(...)`, so a
+                # Was `if verbose: logger.debug(...)`, so a
                 # genuinely-broken pair silently vanished with zero trace under the default (non-verbose)
                 # config. Always log at warning level (not opt-in), with the traceback only under verbose.
                 logger.warning("compose_pair_fe: pair (%d,%d) FE failed: %s", i, j, e, exc_info=verbose)
@@ -192,7 +192,7 @@ def validate_pair_fe_cv(
       3. Score MI of (transformed_heldout, y_heldout) using the same estimator the optimizer used.
 
     Compare to:
-    * **In-sample MI** (``HermiteResult.mi``) -- the value the optimizer reports.
+    * **In-sample MI** (``HermiteResult.mi``) - the value the optimizer reports.
     * **Train-only baseline** (best trivial pair MI on full data).
     * **Out-of-sample MI** (mean across folds, with std).
 
@@ -230,9 +230,9 @@ def validate_pair_fe_cv(
                 seed=seed + fold_idx,
             )
         except Exception as _fold_exc:
-            # USABILITY_A-10 fix: was a bare `except Exception: res = None` with
+            # Was a bare `except Exception: res = None` with
             # zero logging, silently corrupting the honest OOS-uplift statistic whenever a fold genuinely
-            # broke (vs. the expected non-convergence `res is None` return) -- indistinguishable from a
+            # broke (vs. the expected non-convergence `res is None` return) - indistinguishable from a
             # clean "no signal in this fold" result. Always log so a systematically-failing fold is visible.
             logger.warning(
                 "validate_pair_fe_cv: fold %d optimise_hermite_pair raised %s: %s", fold_idx, type(_fold_exc).__name__, _fold_exc,

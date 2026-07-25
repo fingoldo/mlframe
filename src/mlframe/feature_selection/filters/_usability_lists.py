@@ -1,20 +1,20 @@
 """MRMR usability-aware multi-list POST-PASS (wiring layer, 2026-06-13).
 
-``MRMR.fit`` produces ``support_`` -- a pure-MI selection that is the right
+``MRMR.fit`` produces ``support_`` - a pure-MI selection that is the right
 objective for nonlinear / tree downstreams (they build interactions internally;
 MI relevance + redundancy is model-agnostic). It is NOT the right list for a
 LINEAR / additive downstream: MI is rank-based and blind to linear usability, so
 it ranks a high-MI monotone warp above the lower-MI but linearly-aligned
 interaction a linear model needs (measured on F2: linear test MAE 0.096 with the
-pure-MI list ``[d, c, a**2/b]`` -- which has raw c and d but no c*d interaction --
+pure-MI list ``[d, c, a**2/b]`` - which has raw c and d but no c*d interaction -
 vs ~0.05 once a ``mul(log(c),sin(d))``-shaped form is selected).
 
 This module runs the standalone ``select_usability_aware_features`` (see
 ``_usability_aware_selection.py``) as a SECOND pass over a freshly-built
 candidate pool and stores TWO additional selections on the fitted estimator:
 
-* ``support_linear_``  -- ``w -> 1`` usability-only relevance (for linear / additive models).
-* ``support_universal_`` -- a blended ``MI + lambda*usability`` list (a universal / linear-leaning list).
+* ``support_linear_``  - ``w -> 1`` usability-only relevance (for linear / additive models).
+* ``support_universal_`` - a blended ``MI + lambda*usability`` list (a universal / linear-leaning list).
 
 plus ``support_nonlinear_`` (an alias for the existing ``support_``). Each entry
 is a ``UsableCandidate`` carrying a replayable ``EngineeredRecipe`` (or ``None``
@@ -24,7 +24,7 @@ exact feature space on test data.
 The pass is OFF by default (``usability_aware_lists=False``): the CV-MAE forward
 selection it runs costs seconds-to-minutes, which must not be charged to every
 fit. The suite turns it on and routes linear/additive models to the linear list.
-``support_`` is never touched -- the existing tree pipelines stay byte-identical.
+``support_`` is never touched - the existing tree pipelines stay byte-identical.
 """
 from __future__ import annotations
 
@@ -93,9 +93,9 @@ def build_usability_lists(mrmr: Any, X: Any, y_cont: "np.ndarray | None") -> Non
     """Compute ``support_linear_`` / ``support_universal_`` (and the ``support_nonlinear_`` alias)
     on the fitted ``mrmr`` from a fresh usability-aware candidate pool. No-op (lists set to ``None``)
     when ``y_cont`` is unavailable (non-numeric target) or no usable raw columns exist. Never raises
-    into the fit -- the caller guards it, but degenerate inputs short-circuit cleanly here too."""
+    into the fit - the caller guards it, but degenerate inputs short-circuit cleanly here too."""
     # support_nonlinear_ is always the existing pure-MI selection (alias, not a copy of the array's
-    # identity-sensitive semantics -- callers read it as "the tree list").
+    # identity-sensitive semantics - callers read it as "the tree list").
     mrmr.support_nonlinear_ = getattr(mrmr, "support_", None)
     mrmr.support_linear_ = None
     mrmr.support_universal_ = None
@@ -128,7 +128,7 @@ def build_usability_lists(mrmr: Any, X: Any, y_cont: "np.ndarray | None") -> Non
     w_uni = float(getattr(mrmr, "usability_w_universal", 0.5))
 
     # ``w`` only affects usability_greedy's pre-rank, never build_usability_candidate_pool (no RNG in
-    # there either), so the linear/universal passes can share ONE pool build instead of two -- the
+    # there either), so the linear/universal passes can share ONE pool build instead of two - the
     # dominant cost of this whole pass. _drop_stored_values must run on BOTH result lists only AFTER
     # both greedy calls finish: it mutates candidates' .values in place, and a candidate object can be
     # shared between the two result lists since both greedy calls read the same pool.
@@ -143,7 +143,7 @@ def _drop_stored_values(candidates: list):
     """Clear each selected candidate's full-n ``values`` array before it is attached to the fitted
     estimator. The greedy needed those arrays DURING selection (CV folds), but ``transform_usability``
     replays each feature from its ``recipe`` (or passes a raw column through by NAME) and never reads
-    ``values`` -- so keeping them would EMBED THE TRAINING DATA in the pickled model (a privacy leak +
+    ``values`` - so keeping them would EMBED THE TRAINING DATA in the pickled model (a privacy leak +
     bloat: ~n*8 bytes per selected candidate, tens of MB at large n). Replace with a 0-length array of
     the same dtype so the field stays a type-stable ndarray. The recipe / name / mi / src / ops survive."""
     if not candidates:

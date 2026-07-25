@@ -54,7 +54,7 @@ PREFILTER_METHODS = ("model", "univariate", "fast_model", "gpu_model", "two_stag
 # Tuned 4000 -> 1000 based on the sub-4k prefilter micro-bench (rows=4000, regime dataset,
 # 8 informatives + 12 redundant; same harness iter21 used at widths 2k-6k): "model" prefilter took
 # 7.65s / 9.89s / 13.24s / 19.61s at widths 1000 / 1500 / 2000 / 3000 while "two_stage" took 1.46s /
-# 2.16s / 2.96s / 4.05s with IDENTICAL 8/8 informative recall at every width -- a 4.47-5.25x speedup on
+# 2.16s / 2.96s / 4.05s with IDENTICAL 8/8 informative recall at every width - a 4.47-5.25x speedup on
 # the dominant prefilter stage with no measured recovery loss. Two_stage dominates "model" at every
 # sub-4k width tested (no crossover found down to the lowest), so the auto switchover is lowered to the
 # smallest tested width. End-to-end at 2k (the threshold-just-above formerly routed to "model"): 89.7s
@@ -77,13 +77,13 @@ _GPU_MODEL_MIN_ROWS = 20000
 # ``shap_proxy_prefilter.two_stage_min_width``.
 _TWO_STAGE_MIN_WIDTH = 1000
 # Stage-B (the within-two_stage booster fit on stage-A survivors) GPU dispatch gate. Stage B fits on
-# (n_rows, stage1_keep) and its cost is dominated by n_rows * n_trees * depth -- iter46's C4 profile
+# (n_rows, stage1_keep) and its cost is dominated by n_rows * n_trees * depth - iter46's C4 profile
 # showed 14.9 s out of 16.9 s xgboost cumulative going to stage-B's CPU update at n_rows=10000 /
 # stage1_keep~704. Above the row threshold the GPU upload + tree-method overhead amortizes; below it
 # the CPU stays. Overridable per HW via kernel_tuning_cache key
 # ``shap_proxy_prefilter.stage_b_gpu_min_rows``.
 _STAGE_B_GPU_MIN_ROWS = 5000
-# Minimum stage-A survivor count below which stage-B stays CPU regardless of row count -- with too few
+# Minimum stage-A survivor count below which stage-B stays CPU regardless of row count - with too few
 # columns the per-tree work is dominated by overhead and the GPU upload doesn't amortize. Override via
 # ``shap_proxy_prefilter.stage_b_gpu_min_features``.
 _STAGE_B_GPU_MIN_FEATURES = 200
@@ -101,7 +101,7 @@ def _prefilter_tuning() -> dict:
             if isinstance(entry, dict):
                 return entry
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in _shap_proxy_prefilter.py:103: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
     return {}
 
@@ -150,12 +150,12 @@ def resolve_prefilter_method(method: str, *, n_features: int, n_rows: int) -> st
     """Map the user-facing ``prefilter_method`` to a concrete method.
 
     ``"auto"`` (the recommended default) keeps the quality-safe full-booster ``"model"`` ranking for
-    narrow widths (``n_features < _auto_fast_width()`` -- the default crossover is 1000), and for wider
-    data routes to the cheap-funnel ``"two_stage"`` path -- the sub-4k micro-bench measured a 4.47-5.25x
+    narrow widths (``n_features < _auto_fast_width()`` - the default crossover is 1000), and for wider
+    data routes to the cheap-funnel ``"two_stage"`` path - the sub-4k micro-bench measured a 4.47-5.25x
     prefilter-stage speedup with identical 8/8 informative recall vs ``"model"`` at every width from 1k
     to 6k (iter21 covered 2k-6k; the sub-4k sweep extended the crossover floor down to 1k). If a CUDA
     device is present AND the row count is large enough for the GPU to win, ``"auto"`` routes the
-    wide-data case to ``"gpu_model"`` instead -- same faithful ranking, just on the GPU. ``"fast_model"``
+    wide-data case to ``"gpu_model"`` instead - same faithful ranking, just on the GPU. ``"fast_model"``
     is reachable only via an explicit method= argument; auto no longer routes through it because
     two_stage strictly dominates it on the wide-data regime. Explicit methods pass through unchanged.
     """
@@ -182,7 +182,7 @@ _GPU_MODEL_AVAILABLE_CACHE: Optional[bool] = None
 
 
 def gpu_model_available() -> bool:
-    """True when XGBoost can ACTUALLY fit on ``device="cuda"`` -- requires BOTH (a) an enumerable CUDA
+    """True when XGBoost can ACTUALLY fit on ``device="cuda"`` - requires BOTH (a) an enumerable CUDA
     device (via cupy) AND (b) an xgboost binary built with USE_CUDA. The build check matters because
     pip's default xgboost wheel on some platforms is CPU-only, in which case passing ``device="cuda"``
     silently downgrades to CPU with only a stderr warning; without the build check, routers would send
@@ -227,7 +227,7 @@ def reset_gpu_model_available_cache() -> None:
 def _as_nameless_array(X):
     """Return ``X`` as a nameless numpy array for a ranking booster fit.
 
-    Speed lever (2026-06-08): the prefilter ranking boosters consume only ``feature_importances_``,
+    Speed lever: the prefilter ranking boosters consume only ``feature_importances_``,
     a POSITIONAL vector, so feeding xgboost a *named* pandas DataFrame only pays the per-fit
     ``from_cstr_to_pystr`` + ``_validate_features`` feature-name marshalling for nothing. Tree splits
     depend on column values + positions, never names, so the importance vector is bit-identical to
@@ -323,7 +323,7 @@ def _rank_fast_model(model_template, X, y, *, n_features: int, n_estimators_cap=
             pf.set_params(**fast)
         except (ValueError, TypeError):
             pass
-    # Nameless numpy fit (positional importances; bit-identical) -- see ``_rank_model``.
+    # Nameless numpy fit (positional importances; bit-identical) - see ``_rank_model``.
     pf.fit(_as_nameless_array(X), y)
     return _importances_from_fitted(_unwrap_estimator(pf), n_features)
 
@@ -333,7 +333,7 @@ def _rank_gpu_model(model_template, X, y, *, n_features: int, n_estimators_cap=N
     as ``model`` (interaction-aware, faithful) but on the GPU. Falls back to the CPU ``model`` path on
     any device/build error so a wrong route never loses the result.
 
-    Honours ``n_estimators_cap`` the same way as ``_rank_model`` -- ranking only consumes the importance
+    Honours ``n_estimators_cap`` the same way as ``_rank_model`` - ranking only consumes the importance
     order, so a capped booster preserves the prefilter's product at lower GPU + transfer cost."""
     from sklearn.base import clone
 
@@ -352,7 +352,7 @@ def _rank_gpu_model(model_template, X, y, *, n_features: int, n_estimators_cap=N
         logger.warning(
             "ShapProxiedFS: prefilter_method='gpu_model' requested but the model template does not "
             "expose an xgboost-style device= param; running the prefilter fit on CPU.")
-    # Nameless numpy fit (positional importances; bit-identical) -- see ``_rank_model``.
+    # Nameless numpy fit (positional importances; bit-identical) - see ``_rank_model``.
     X_arr = _as_nameless_array(X)
     try:
         pf.fit(X_arr, y)
@@ -401,7 +401,7 @@ def _rank_two_stage(
     importances -> keep top ``prefilter_top`` survivor indices, mapped back to ORIGINAL positional indices.
 
     Returns ``(working_cols, info)`` (NOT a length-n_features importance vector) because the two-stage
-    path doesn't need to expose per-original-column importances to the caller -- it already produces the
+    path doesn't need to expose per-original-column importances to the caller - it already produces the
     final working_cols. ``info`` carries both stages' kept/of counts and timings so the report records
     the funnel ratio that earned the speedup.
 
@@ -409,7 +409,7 @@ def _rank_two_stage(
     marginal). Stage B's booster is interaction-aware ON its restricted cohort, so once a partner
     survives stage A its companion is recovered there. For the wide-data regime where two_stage routes
     (n_features >= 8000) ANY mainstream target carries enough marginal signal on its informatives that
-    they clear stage A with massive headroom -- the only failure mode is constructed pure-XOR, where
+    they clear stage A with massive headroom - the only failure mode is constructed pure-XOR, where
     even the legacy ``"fast_model"`` ranking is unreliable.
 
     Falls back to the legacy ``"model"`` path on any stage-B no-importance return (preserves the original
@@ -435,14 +435,14 @@ def _rank_two_stage(
     # ranking consumes only ``feature_importances_``, a POSITIONAL vector, and tree splits depend on
     # column values + positions, never names. Fitting on the numpy slice avoids xgboost's per-fit
     # ``from_cstr_to_pystr`` + ``_validate_features`` feature-name marshalling (bit-identical to the
-    # named path -- importances are derived from identical trees; see the honest-loss numpy-slice
+    # named path - importances are derived from identical trees; see the honest-loss numpy-slice
     # lever for the proven values-only/positional equivalence).
     Xv = X.values if isinstance(X, pd.DataFrame) else np.asarray(X)
     X_stage1 = np.ascontiguousarray(Xv[:, stage1_cols])
     t1 = time.perf_counter()
     # Route stage-B to the GPU when the problem is big enough that upload + kernel-launch overhead
     # amortizes; on small problems / no GPU build the CPU model path stays faster (and is the only
-    # correct path when the xgboost binary lacks USE_CUDA -- gpu_model_available() guards both).
+    # correct path when the xgboost binary lacks USE_CUDA - gpu_model_available() guards both).
     n_features_b = len(stage1_cols)
     stage_b_routed_gpu = _stage_b_should_route_gpu(n_rows=int(Xv.shape[0]), n_features_b=n_features_b)
     if stage_b_routed_gpu:
@@ -450,7 +450,7 @@ def _rank_two_stage(
     else:
         stage_b_imp = _rank_model(model_template, X_stage1, y, n_features=n_features_b, n_estimators_cap=n_estimators_cap)
     stage_b_dt = time.perf_counter() - t1
-    # Stage-A survivors in canonical (sorted) original-positional space -- downstream consumers (trust
+    # Stage-A survivors in canonical (sorted) original-positional space - downstream consumers (trust
     # guard / clustering / future SHAP-on-stage-A routing) need the SUPERSET cohort + the same
     # F-score vector so they can re-rank or expand WITHOUT recomputing f_classif / f_regression. The
     # vector is dense length-n_features (cheap: O(f) floats) so callers can index by original column
@@ -532,7 +532,7 @@ def prefilter_columns(
     ``n_estimators_cap`` (default 100) reduces the cloned ranking booster's tree count for the
     ``"model"``, ``"fast_model"``, ``"gpu_model"`` AND the stage-B booster inside ``"two_stage"``. The
     prefilter consumes ONLY the ranking of native importances (never an absolute loss number reported
-    to a user), and importance attribution stabilises well below the default 300 trees -- so this is
+    to a user), and importance attribution stabilises well below the default 300 trees - so this is
     the same "cap-the-ranker" pattern that iter9 applied to within-cluster refine and the trust guard.
     ``"fast_model"`` already sets a reduced budget (template / 4) and clamps to ``min(current, cap)``
     so the cap can never accidentally INCREASE its tree count. ``"univariate"`` is a no-op (no booster).
@@ -571,7 +571,7 @@ def prefilter_columns(
     working_cols = _topk(importance, prefilter_top)
     info = dict(method=resolved, kept=len(working_cols), of=int(n_features), n_estimators_cap=applied_cap)
     if resolved == "univariate":
-        # ``univariate`` already has the dense F-score vector in hand -- expose it for the same
+        # ``univariate`` already has the dense F-score vector in hand - expose it for the same
         # downstream consumers that read ``stage1_f_scores`` from the ``two_stage`` path so the two
         # marginal-strength methods agree on the cached-scores contract.
         info["stage1_f_scores"] = np.asarray(_univariate_f_scores, dtype=np.float64)

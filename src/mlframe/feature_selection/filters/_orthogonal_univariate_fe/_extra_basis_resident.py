@@ -2,17 +2,17 @@
 
 ``score_features_by_mi_uplift`` scores each engineered column by MI uplift vs its raw source. For the
 EXTRA-BASIS families (spline / Fourier / chirp / wavelet) the host-materialised ``engineered_X`` matrix was
-uploaded whole at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (ORTH_BASIS_B-5 fix: dropped the exact line number, which had already gone stale)`` (the poly-leg twin ``_uplift_univariate_resident`` handled only
+Uploaded whole at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (dropped the exact line number, which had already gone stale)`` (the poly-leg twin ``_uplift_univariate_resident`` handled only
 He/T/L/LL). This module rebuilds the WHOLE extra-basis engineered matrix ON the device from the small resident
 raw operand columns + the per-column fit ``meta`` (the exact frequencies / knots / lo/span the host baked in),
-and scores it through the SAME percentile-edge resident plug-in MI -- so nothing crosses H2D and the uplift
+and scores it through the SAME percentile-edge resident plug-in MI - so nothing crosses H2D and the uplift
 RATIO stays internally consistent (engineered + raw baseline on the same estimator).
 
-ALL-DEVICE (no per-column host routing): every extra-basis family the generator can emit is ported here --
+ALL-DEVICE (no per-column host routing): every extra-basis family the generator can emit is ported here -
 Fourier (linear ``power`` argument), chirp (``arg="quadratic"`` axis ``u = sign(z)*z^2``), Haar wavelet (the
 shipped device leg ``_wavelet_basis_fe_batched._dyadic_haar_leg_gpu``), and the cubic B-spline (Cox-de Boor).
 If ANY column carries a basis this module does not recognise, or on any cupy fault, it returns ``None`` and the
-caller keeps the WHOLE matrix on the exact host scorer (byte-identical default path untouched -- the safety
+caller keeps the WHOLE matrix on the exact host scorer (byte-identical default path untouched - the safety
 fallback, not a routine per-column split).
 
 BIT-EQUIVALENCE: each device column reproduces the host formula verbatim (same lo/span/mean/std/freq/power/knots
@@ -68,9 +68,9 @@ def _bspline_col_gpu(cp, z_g, knots: np.ndarray, idx: int, degree: int = 3):
     Vectorised single-basis Cox-de Boor recursion over all points: ``B_{i,0}(z) = 1[knots[i] <= z < knots[i+1]]``
     then ``B_{i,p} = (z-k_i)/(k_{i+p}-k_i) B_{i,p-1} + (k_{i+p+1}-z)/(k_{i+p+1}-k_{i+1}) B_{i+1,p-1}`` with the
     host's zero-denominator guard (``denom <= 1e-12 -> term 0``). The host clips the eval point into
-    ``[knots[degree]+1e-12, knots[nk-degree-1]-1e-12]`` before the de-Boor span algorithm -- replicated by the
+    ``[knots[degree]+1e-12, knots[nk-degree-1]-1e-12]`` before the de-Boor span algorithm - replicated by the
     same clip here (cp.clip lower/upper match the host's ``zi <= knots[degree]`` / ``zi >= knots[nk-degree-1]``
-    branches). B_{idx,degree} is 0 outside its support ``[knots[idx], knots[idx+degree+1])`` -- exactly the host's
+    branches). B_{idx,degree} is 0 outside its support ``[knots[idx], knots[idx+degree+1])`` - exactly the host's
     ``rel not in [0, degree] -> 0``."""
     knots = np.asarray(knots, dtype=np.float64)
     nk = int(knots.shape[0])
@@ -78,7 +78,7 @@ def _bspline_col_gpu(cp, z_g, knots: np.ndarray, idx: int, degree: int = 3):
     hi_c = float(knots[nk - degree - 1]) - 1e-12
     # Unconditional float64 (matches the host's `z = np.asarray(z, dtype=np.float64)`, NOT gated on
     # MLFRAME_CRIT_DTYPE_RELAXED): the 1e-12 boundary-safety clip below is only representable in
-    # float64 -- float32's epsilon near 1.0 is ~1.19e-7, so clipping a float32 z to hi_c=1.0-1e-12
+    # float64 - float32's epsilon near 1.0 is ~1.19e-7, so clipping a float32 z to hi_c=1.0-1e-12
     # silently no-ops (rounds back to exactly 1.0), leaving z sitting ON a repeated boundary knot and
     # collapsing the LAST basis function's degenerate recursion to 0 instead of its correct ~1.0 value
     # (found via test_extra_basis_device_born_parity.py: maxerr=1.0 on the *__sp8 column, pre-existing,

@@ -1,6 +1,6 @@
 """DEVICE-RESIDENT hinge breakpoint detector (kernel-residency port, 2026-07-02).
 
-Device twin of ``_hinge_basis_fe._detect_hinge_breakpoints`` -- the STRICT FE scan's largest remaining
+Device twin of ``_hinge_basis_fe._detect_hinge_breakpoints`` - the STRICT FE scan's largest remaining
 PURE-HOST compute stage (measured 5.9s host-CPU at 1M rows: per-column QR + 24 per-cut FWL projections +
 held-out lstsq, all numpy). Everything runs on the GPU here:
 
@@ -13,7 +13,7 @@ held-out lstsq, all numpy). Everything runs on the GPU here:
 * only SCALARS cross the bus: the per-round argmin/best-SSE, the held-out uplift, and the found taus.
 
 The math is IDENTICAL to the host detector (same FWL identity, same guards: per-side segment-row minimum,
-``denom < 1e-24`` rank-deficiency skip, tau-neighbourhood dedup, the same held-out stride split) -- device FP
+``denom < 1e-24`` rank-deficiency skip, tau-neighbourhood dedup, the same held-out stride split) - device FP
 reduction order differs at ~1e-12, far below the tau-selection scale, so the found breakpoints are
 selection-equivalent (validated: F2 + the hinge unit suite select identically). Any cupy fault returns
 ``None`` and the caller runs the exact host detector (byte-identical default path).
@@ -48,7 +48,7 @@ def _gram_projector(cp, B):
     """Projection onto span(B) via the NORMAL EQUATIONS: ``proj(V) = B @ solve(B.T B, B.T V)``.
 
     Returns a closure. For the detector's tall-skinny blocks (n ~ 1e6, k <= 2 + max_breakpoints) this is two
-    GEMMs + a k x k solve -- the tall QR (cusolver geqrf) the first port used dominated the stage wall on a
+    GEMMs + a k x k solve - the tall QR (cusolver geqrf) the first port used dominated the stage wall on a
     small card. Numerics: the blocks here are [1, x, relu legs] with x standardised by construction upstream
     (raw operand scale), Gram condition ~ (cond QR)^2 but k <= 4 and the SSE argmin operates on well-separated
     cut SSEs, so the tau selection is unchanged (validated vs the QR form: same taus on the F2 fit; the hinge
@@ -64,7 +64,7 @@ def _gram_projector(cp, B):
 def _fwl_relu_legs(cp, xg, cuts, n: int, min_seg_rows: int):
     """Cut-set-invariant pieces of the batched FWL SSE: the ``(n, C)`` relu-leg block ``R`` and the
     per-side segment-row validity mask ``ok``. Both depend ONLY on ``xg``, the cut set and the row
-    guards -- NOT on the round's design block -- so for a fixed candidate cut set they are computed
+    guards - NOT on the round's design block - so for a fixed candidate cut set they are computed
     ONCE and reused across the growing-design breakpoint rounds (only ``proj(R)`` / ``r_y`` change per
     round). Materialising the (n, C) relu block is the stage's largest device allocation; hoisting it
     out of the round loop removes one full (n, C) build + the segment-row count per breakpoint round."""
@@ -82,7 +82,7 @@ def _batched_fwl_sse(cp, R, ok, r_y, proj, sse_B: float, cuts, found):
     ``r_y`` is y residualised against the round's fixed block B (``proj`` projects onto span(B));
     ``sse_B = r_y @ r_y``. Returns a host float64 (C,) SSE vector with ``inf`` at cuts failing the
     per-side segment-row guard / the found-tau dedup, and ``sse_B`` where relu lies in span(B)
-    (``denom < 1e-24`` -- the host detector's rank-deficiency skip)."""
+    (``denom < 1e-24`` - the host detector's rank-deficiency skip)."""
     Rres = R - proj(R)  # FWL residuals vs B, one GEMM pair
     denom = cp.einsum("ij,ij->j", Rres, Rres)
     num = Rres.T @ r_y
@@ -103,7 +103,7 @@ def _heldout_uplift_gpu(cp, xg, yg, tau: float, min_rows: int) -> float:
     if n < min_rows:
         return 0.0
     # The %3-stride split is DETERMINISTIC (data-independent), so build the train/val row indices on the host
-    # (np.arange) and upload them -- no int(mask.sum()) degeneracy syncs and no boolean-mask gathers (integer
+    # (np.arange) and upload them - no int(mask.sum()) degeneracy syncs and no boolean-mask gathers (integer
     # gathers have a known size). Counts are host-known too.
     _ar = np.arange(n)
     _va_idx = cp.asarray(np.where((_ar % 3) == 0)[0])
@@ -187,13 +187,13 @@ def detect_hinge_breakpoints_gpu(
             return []
 
         # SUBSAMPLE CAP: the breakpoint SELECTION (which tau clears ``min_heldout_r2_uplift``) is a threshold
-        # decision on a held-out R^2 -- a large strided subsample estimates that uplift well within the decision
+        # decision on a held-out R^2 - a large strided subsample estimates that uplift well within the decision
         # margin, while the full-n FWL/projection SSEs are the per-call cost. Selection-equivalent (the detector
         # only proposes tau candidates; the FE gate re-scores the built feature). Env MLFRAME_HINGE_MAX_ROWS
         # (default 250k, 0=full-n). The finite/std guards above already ran on the full column.
         _hmax = _hinge_max_rows()
         if _hmax > 0 and n > _hmax:
-            # GPU_INFRA_D-11 fix: floor division (`n // _hmax`) gave stride==1 (no
+            # Floor division (`n // _hmax`) gave stride==1 (no
             # thinning at all) for any n strictly between _hmax and 2*_hmax, so the documented "caps at
             # <=_hmax rows" claim was only true once n reached ~2*_hmax. Ceiling division actually caps at n.
             _st = -(-n // _hmax)
@@ -202,19 +202,19 @@ def detect_hinge_breakpoints_gpu(
                 y = y[::_st]
                 n = int(x.size)
 
-        xg = cp.asarray(x)  # candidate column -- a fresh column every call, never cacheable
+        xg = cp.asarray(x)  # candidate column - a fresh column every call, never cacheable
         # y is fit-constant across every no-NaN candidate column of this fit (same target, same
-        # deterministic subsample stride at a given n) -- route through the content-keyed resident cache
+        # deterministic subsample stride at a given n) - route through the content-keyed resident cache
         # so repeated calls share ONE upload instead of re-uploading the same (n,) float64 target per
         # column. A column WITH NaNs takes the finite-mask filter above, which can legitimately produce a
-        # DIFFERENT filtered y per column (the mask depends on that column's own NaN pattern) -- content
+        # DIFFERENT filtered y per column (the mask depends on that column's own NaN pattern) - content
         # hashing handles this correctly: a genuinely different y just misses the cache (a fresh upload,
         # never a wrong reuse), it never merges non-identical content.
         yg = resident_operand(y, "hinge_y", dtype=np.float64)
 
         # PLAUSIBILITY PRE-CHECK (device): plain-linear SSE via the same FWL machinery with B=[1, x]; the
         # 3 coarse cuts' 2-segment SSE from one batched evaluation. Same decision as the host pre-check
-        # (fit y ~ [1, x, relu] fully == FWL vs B=[1, x] -- the identical partitioned-regression identity).
+        # (fit y ~ [1, x, relu] fully == FWL vs B=[1, x] - the identical partitioned-regression identity).
         ones = cp.ones_like(xg)
         B = cp.stack([ones, xg], axis=1)
         proj = _gram_projector(cp, B)
@@ -246,7 +246,7 @@ def detect_hinge_breakpoints_gpu(
         R_cand, ok_cand = _fwl_relu_legs(cp, xg, cand, n, min_seg_rows)
         for _round_idx in range(max(1, int(max_breakpoints))):
             if _round_idx == 0:
-                # Round 0's fixed design IS B=[1, xg] (extra_legs still empty) -- the SAME block + Gram
+                # Round 0's fixed design IS B=[1, xg] (extra_legs still empty) - the SAME block + Gram
                 # projector already built for the pre-check above (identical GEMM sequence); reuse instead of
                 # re-running it.
                 projk = proj

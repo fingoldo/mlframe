@@ -46,12 +46,12 @@ def _sffs_swap_pass(
             try:
                 if val is not None and not (isinstance(val, float) and np.isnan(val)):
                     fi_acc[feat].append(float(val))
-            except (TypeError, ValueError):  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+            except (TypeError, ValueError):  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
                 continue
     fi_mean = {f: float(np.mean(v)) for f, v in fi_acc.items() if v}
 
     # Worst K kept (features with no FI history get 0).
-    # Wave 57 (2026-05-20): add feature name as deterministic tiebreaker --
+    # Add feature name as deterministic tiebreaker -
     # many features tie at fi_mean=0 (no FI history); without the tiebreak,
     # which feature wins the swap depends on Python set/list iteration
     # order, silently flipping selection across runs.
@@ -65,7 +65,7 @@ def _sffs_swap_pass(
     swap_in = not_sorted[:K]
 
     # W6: thread the caller's sample_weight into the swap pass's own cross_val_score calls, matching
-    # the main CV-elimination path's weighting -- was previously always unweighted with no disclosure
+    # the main CV-elimination path's weighting - was previously always unweighted with no disclosure
     # (the existing docstring/call-site comment only names fit_params/val_cv/early-stopping as skipped,
     # sample_weight is a distinct code path). sklearn 1.8's cross_val_score only accepts the
     # metadata-routing `params=` kwarg (the old `fit_params=` was removed), and with

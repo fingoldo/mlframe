@@ -1,12 +1,12 @@
 """BATCHED, born-on-device GPU path for the wavelet leg-rank MI (replatform step 1, 2026-06-25).
 
-WIRED (ORTH_BASIS_A-5 fix, -- this docstring was stale): ``_wavelet_basis_fe.py``
+WIRED (this docstring was stale): ``_wavelet_basis_fe.py``
 already imports and calls ``select_wavelet_legs_batched`` from this module whenever
 ``_binnedmi_gpu_enabled()`` is true, and the underlying ``MLFRAME_FE_GPU_DEVICE_BORN_WAVELET`` flag this
 routes through is DEFAULT ON in production. Originally built as a self-contained parallel implementation
 so the batched device design could be validated against the per-leg CPU path
 (``_wavelet_basis_fe._binned_mi`` / ``_select_wavelet_legs``) without touching/breaking the primary path
-before wiring -- see ``tests/feature_selection/fe/basis/test_wavelet_batched_mi_parity.py`` for the
+before wiring - see ``tests/feature_selection/fe/basis/test_wavelet_batched_mi_parity.py`` for the
 selection-equivalence pin that gated that wiring.
 
 WHY batched: the per-leg path calls ``_binned_mi`` ~5x per leg x dozens of legs x ``n_perm`` shuffles =
@@ -30,10 +30,10 @@ def batched_binned_mi_gpu(code_cols: np.ndarray, y_codes: np.ndarray, kx_per_col
 
     Parameters
     ----------
-    code_cols : (n, K) int array  -- each column is a non-negative integer bin code (the leg/joint codes).
-    y_codes   : (n,) int array  -- non-negative class codes for the target.
-    kx_per_col: optional (K,) ints -- per-column cardinality; default = per-column max+1.
-    ky        : optional int  -- target cardinality; default = y_codes.max()+1.
+    code_cols : (n, K) int array  - each column is a non-negative integer bin code (the leg/joint codes).
+    y_codes   : (n,) int array  - non-negative class codes for the target.
+    kx_per_col: optional (K,) ints - per-column cardinality; default = per-column max+1.
+    ky        : optional int  - target cardinality; default = y_codes.max()+1.
 
     Returns a host (K,) float64 array of MI values. Uses ONE ``cp.bincount`` over the padded flat joint
     index (k, cx, cy) so there is no per-column kernel launch. Raises on cupy error (caller falls back).
@@ -70,7 +70,7 @@ def batched_binned_mi_gpu(code_cols: np.ndarray, y_codes: np.ndarray, kx_per_col
 
 def _dense_leg_codes(leg_sub: np.ndarray) -> "tuple[np.ndarray, int]":
     """Densify a Haar-leg subset ({-1,0,+1}-valued) to bin codes. Since MI is partition-based, the exact
-    code labels are irrelevant -- only the partition matters -- so map ``leg -> leg + 1`` ({0,1,2}) with a
+    code labels are irrelevant - only the partition matters - so map ``leg -> leg + 1`` ({0,1,2}) with a
     fixed cardinality 3 instead of ``searchsorted(unique(leg), leg)``. This drops the per-leg host
     ``np.unique`` sort + ``searchsorted`` (dozens of legs/fit); an absent value just leaves an empty bin
     that contributes 0 to MI, so the result is selection-equivalent to the value-rank coding _binned_mi
@@ -81,7 +81,7 @@ def _dense_leg_codes(leg_sub: np.ndarray) -> "tuple[np.ndarray, int]":
 
 def _dyadic_haar_leg_gpu(cp, z_g, j: int, k: int):
     """Device twin of ``_wavelet_basis_fe._dyadic_haar_leg``: closed-form Haar indicator ``psi_{j,k}(z)`` for
-    ``z`` in [0, 1] -- ``+1`` on the LEFT half ``[k/2^j, (k+0.5)/2^j)``, ``-1`` on the RIGHT half
+    ``z`` in [0, 1] - ``+1`` on the LEFT half ``[k/2^j, (k+0.5)/2^j)``, ``-1`` on the RIGHT half
     ``[(k+0.5)/2^j, (k+1)/2^j)``, ``0`` outside. Same dyadic-cell boolean masks on the SAME f64 ``z`` axis, so
     the leg ({-1, 0, +1}) is bit-identical to the host (the host computes the masks in f64 then casts the
     {-1,0,+1} values, which are exact in any float dtype -> same partition)."""
@@ -105,7 +105,7 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
 
     Returns the SAME admitted ``(j, k)`` legs as the host path (selection-equivalent: the dyadic-Haar leg is a
     deterministic interval indicator, ``_dense_leg_codes`` is ``leg+1`` with cardinality 3, and MI is
-    partition-based -- the device leg / dense-code partition is bit-identical to the host). Returns ``None`` on
+    partition-based - the device leg / dense-code partition is bit-identical to the host). Returns ``None`` on
     any cupy failure / no-cupy so the caller falls back to the exact host (numpy + ``cp.asarray``) body."""
     try:
         import cupy as cp
@@ -139,7 +139,7 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
         # z = clip((x-lo)/span, 0, 1) built on device from the resident x column (uploaded once per fit). The
         # train/val split is a deterministic row mask (idx % 3); slice the device legs by boolean masks built
         # once on the device. The y-codes are the SAME host _bin_y_codes the host path uses (small int labels).
-        # Key on the ROLE only (NOT id(x) -- the host x is re-derived per call as a fresh object, so an id-based
+        # Key on the ROLE only (NOT id(x) - the host x is re-derived per call as a fresh object, so an id-based
         # key would miss every time); the operand cache folds shape + content fingerprint into the key, so a
         # different column with the same role re-uploads while the SAME column hits.
         z_g = resident_operand(np.ascontiguousarray(x), "wavelet_x", dtype=cp.float64)
@@ -151,7 +151,7 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
         va_g = cp.asarray(np.where(va_mask)[0])
 
         # Build every candidate leg resident, and its +/- support counts as DEVICE 0-dim scalars. Batching the
-        # eligibility check (2026-07-02): the per-leg ``int(cp.count_nonzero(...))`` pair was two blocking D2H
+        # eligibility check: the per-leg ``int(cp.count_nonzero(...))`` pair was two blocking D2H
         # scalar drains per (j, k); instead stack the counts and read the whole eligibility mask back in ONE
         # D2H. Same deterministic threshold -> the SAME legs are admitted (selection-identical).
         legs_all: list = []
@@ -220,7 +220,7 @@ def select_wavelet_legs_batched(x: np.ndarray, y: np.ndarray, lo: float, span: f
     ``(j, k)`` legs, but scores every candidate leg's train + held-out MI in TWO batched device workloads
     (one per split) instead of ~2 per-leg ``_binned_mi`` calls. Selection-equivalent (plug-in MI is
     partition-based). Reuses the primary module's leg builder + gate constants read-only (no mutation)."""
-    # DEVICE-BORN route (2026-06-30): under STRICT-residency the host-stacked tr_mat / va_mat code matrices are
+    # DEVICE-BORN route: under STRICT-residency the host-stacked tr_mat / va_mat code matrices are
     # the ~180 MB host->device upload at _fe_batched_mi.py:394 (cp.asarray of the host code stack). Build the
     # dyadic-Haar leg code matrices ON the device from the single resident z column and pass the RESIDENT cupy
     # code matrices to binned_mi_from_codes_gpu (isinstance cp.ndarray -> no upload). Selection-equivalent (the

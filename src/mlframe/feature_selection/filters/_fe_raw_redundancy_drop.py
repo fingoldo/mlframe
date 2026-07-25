@@ -2,9 +2,9 @@
 
 The companion of the engineered-vs-engineered S5 gate (``_fe_cmi_redundancy_gate``),
 applied to the FINAL MRMR selection. When a raw operand is FULLY subsumed by a
-surviving engineered feature built from it -- e.g. ``y = (a**2)/b + noise`` whose
+surviving engineered feature built from it - e.g. ``y = (a**2)/b + noise`` whose
 ratio is captured byte-for-byte by ``div(neg(a),sqrt(b))`` (since
-``(a/sqrt(b))**2 = a**2/b``) -- the raw operands ``a`` and ``b`` carry NO
+``(a/sqrt(b))**2 = a**2/b``) - the raw operands ``a`` and ``b`` carry NO
 information about ``y`` beyond the engineered child and MUST drop. The greedy MRMR
 order selects such an operand on its high MARGINAL relevance BEFORE the engineered
 ratio is in support, so the redundancy penalty never fires against it; the various
@@ -15,20 +15,20 @@ and n=50000) and never drops a raw that carries genuine independent signal.
 
 Decision (per raw operand of >=1 surviving engineered survivor):
 
-  STEP 0 -- DPI-TRAP CONSUMER FILTER (2026-06-10). Restrict the conditioning /
+  STEP 0 - DPI-TRAP CONSUMER FILTER. Restrict the conditioning /
   anchor set to engineered children that are TRUE COMBINATIONS: they draw genuine
   signal from a SECOND signal-bearing raw source besides the raw under test. A
   child whose ONLY signal-bearing parent is the raw itself (``relu_lt(x_a)`` /
-  ``exp(x0)`` / ``He2(a)`` and friends -- a monotone/basis self-transform) is the
+  ``exp(x0)`` / ``He2(a)`` and friends - a monotone/basis self-transform) is the
   data-processing-inequality trap the S5 gate warns about: conditioning a raw on a
-  basis of ITSELF drives CMI to ~0 for EVERY raw -- genuine or redundant -- so it
+  basis of ITSELF drives CMI to ~0 for EVERY raw - genuine or redundant - so it
   proves nothing. A "signal-bearing" parent is one whose own marginal debiased
   excess clears its marginal permutation null (a noise operand, e.g. ``x3`` in
-  ``add(exp(x0),sign(x3))``, does NOT count -- so that child is a self-transform of
+  ``add(exp(x0),sign(x3))``, does NOT count - so that child is a self-transform of
   x0, not a combination). When NO legitimate multi-source consumer survives this
   filter the raw is NOT redundancy-dropped (the protective retention stands).
 
-  STEP 1 -- KEEP iff the raw carries a SIGNIFICANT INDEPENDENT RESIDUAL given the
+  STEP 1 - KEEP iff the raw carries a SIGNIFICANT INDEPENDENT RESIDUAL given the
   combination child(ren): CMI(raw; y | combination children) clears the within-
   stratum conditional-permutation floor AND the debiased conditional excess retains
   >= ``RAW_SELF_RETAIN_FRAC`` of the raw's OWN marginal debiased excess. A genuine
@@ -36,15 +36,15 @@ Decision (per raw operand of >=1 surviving engineered survivor):
   fully-subsumed ``a**2/b`` ratio operand keeps ~0.3-2% and does not clear the bar
   -> DROP.
 
-  (HISTORY 2026-06-12) A second keep leg -- "the strongest consuming child is NOT a
-  SUPERSET" (``max_anchor <= RAW_SUPERSET_MULT x raw_marg_excess``) -- was present
+  (HISTORY 2026-06-12) A second keep leg - "the strongest consuming child is NOT a
+  SUPERSET" (``max_anchor <= RAW_SUPERSET_MULT x raw_marg_excess``) - was present
   2026-06-10..06-12 and has been REMOVED. It aimed to retain a raw whose child only
   RE-EXPRESSES it through a monotone unary paired with a NOISE operand, but that
   case is already handled by STEP 0's DPI-trap consumer filter (the noise-paired
   child has a single signal-bearing parent and is excluded from ``consumers``), so
   the raw never reaches the keep rule. Leg B's only live effect was a FALSE KEEP of
   a DOMINANT raw operand whose large marginal excess made ``3 x marg_excess`` exceed
-  any realistic child anchor -- e.g. ``a`` in ``a**2/b``, kept despite being fully
+  any realistic child anchor - e.g. ``a`` in ``a**2/b``, kept despite being fully
   subsumed by the ``a**2/b`` child (the BUG1 spurious-raw regression).
 
 A redundant operand's conditional excess collapses to ~0 (its CMI given the
@@ -58,8 +58,8 @@ across n=500..100000 cells, 2026-06-10/06-12).
 
 All MI/CMI uses the production primitives (``_cmi_from_binned`` / ``_quantile_bin``
 / ``_renumber_joint``) and the production conditional-permutation null
-(``_conditional_perm_null`` from the S5 gate). The function is pure -- no live
-framework state captured -- so a fitted MRMR stays picklable.
+(``_conditional_perm_null`` from the S5 gate). The function is pure - no live
+framework state captured - so a fitted MRMR stays picklable.
 """
 from __future__ import annotations
 
@@ -98,7 +98,7 @@ DEFAULT_RAW_RETAIN_FRAC = 0.15
 # (``max_anchor <= RAW_SUPERSET_MULT x raw_marg_excess`` -> KEEP) was removed: the
 # DPI-trap consumer filter (step 0) already and correctly protects the case it
 # targeted (a raw whose child is a monotone re-expression paired with a NOISE
-# operand -- that child is excluded from ``consumers`` because the raw is its only
+# operand - that child is excluded from ``consumers`` because the raw is its only
 # signal-bearing parent), so by the time the keep rule runs every consumer is a
 # genuine multi-source combination and leg B's premise is false by construction.
 # Its only live effect was a FALSE KEEP of a DOMINANT raw operand (large marginal
@@ -121,7 +121,7 @@ _RAW_DROP_NO_HARM_EPS = 0.01
 _MIN_TARGET_DISTINCT_FOR_GUARD = 20
 
 # Equi-frequency bins for raw / engineered / target columns. 10 matches the S5
-# gate; deliberately NOT finer -- a very fine engineered binning fragments the
+# gate; deliberately NOT finer - a very fine engineered binning fragments the
 # conditioning strata at large n and re-inflates the residual (measured: 32 bins
 # made ws1 ``a`` clear the shrunken floor at n=25000). The RELATIVE-excess bar,
 # not the bin count, does the separation.
@@ -178,20 +178,20 @@ def drop_redundant_raw_operands(
     data : (n, n_cols) float matrix holding RAW *and* engineered columns (the FE
         step appends engineered columns to ``data`` / ``cols``). NOTE the columns
         here are the LOSSY ~10-code screening bins, not the continuous values.
-    cols : list[str] -- column names indexing ``data`` columns.
-    selected_cols_idx : iterable[int] -- the FINAL selected column indices into
+    cols : list[str] - column names indexing ``data`` columns.
+    selected_cols_idx : iterable[int] - the FINAL selected column indices into
         ``cols`` (raw + engineered), AFTER all retention / augmentation passes.
-    raw_name_set : set[str] -- the raw input feature names.
-    y_binned : (n,) int -- the discretised target codes (``classes_y``).
+    raw_name_set : set[str] - the raw input feature names.
+    y_binned : (n,) int - the discretised target codes (``classes_y``).
     engineered_continuous : dict ``{name -> continuous float array}`` (optional)
         The CONTINUOUS engineered values (fit-time scratch). When present, the
         engineered survivor is binned FINELY from its continuous values (at the
-        target cardinality) so it resolves y as finely as the target codes -- this
+        target cardinality) so it resolves y as finely as the target codes - this
         is load-bearing: binning the engineered ratio at the lossy 10-code
         ``data`` column leaves a fully-subsumed DENOMINATOR operand (``b`` in
         ``a**2/b``) a spurious residual CMI and wrongly keeps it. Falls back to the
         ``data`` codes for any survivor missing from the snapshot.
-    replayable_eng_names : set[str] | None -- names of the engineered survivors
+    replayable_eng_names : set[str] | None - names of the engineered survivors
         that have a REPLAYABLE recipe and will therefore survive into the fitted
         ``transform()`` output. A raw operand may only be judged redundant against
         a child that will actually EXIST at predict time; a nested-engineered
@@ -199,14 +199,14 @@ def drop_redundant_raw_operands(
         transform output, so crediting a raw as "subsumed" by it deletes BOTH the
         raw AND the child -> an EMPTY selection (no features reach the downstream
         model). When provided, engineered survivors NOT in this set are excluded
-        from the subsumer / anchor set. ``None`` (legacy) trusts every survivor --
+        from the subsumer / anchor set. ``None`` (legacy) trusts every survivor -
         only safe when the caller guarantees all engineered survivors are
         replayable. The fit pipeline always passes the concrete replayable set.
     retain_frac : ACCEPTED FOR BACK-COMPAT but no longer drives the verdict. The
         2026-06-10 redesign replaced the single ``retain_frac * weakest-anchor``
         relative bar (which over-dropped genuine raws whose linear/additive private
         term sits beside a high-MI interaction child) with the two scale-free legs
-        described in the module docstring -- ``RAW_SELF_RETAIN_FRAC`` (the raw's own
+        described in the module docstring - ``RAW_SELF_RETAIN_FRAC`` (the raw's own
         marginal-excess self-retention) and ``RAW_SUPERSET_MULT`` (the child-is-a-
         superset test). The kwarg is kept so existing callers
         (``fe_raw_redundancy_retain_frac``) do not break.
@@ -216,9 +216,9 @@ def drop_redundant_raw_operands(
     Returns
     -------
     (kept_idx, dropped_names)
-        ``kept_idx`` -- the selected indices with redundant raw operands removed
+        ``kept_idx`` - the selected indices with redundant raw operands removed
         (engineered columns and genuine raws preserved, original order kept).
-        ``dropped_names`` -- the raw names removed (for logging / provenance).
+        ``dropped_names`` - the raw names removed (for logging / provenance).
 
     Degenerate (too few rows, no engineered survivors, no raw operands): returns
     ``selected_cols_idx`` unchanged.
@@ -288,18 +288,18 @@ def drop_redundant_raw_operands(
         if not all_consumers:
             continue  # raw not consumed by any survivor -> genuine, keep
         # DPI-TRAP GUARD: restrict the conditioning / anchor set to engineered children
-        # that are TRUE COMBINATIONS -- they draw genuine signal from a SECOND raw source
+        # that are TRUE COMBINATIONS - they draw genuine signal from a SECOND raw source
         # besides ``rname`` (>= 2 signal-bearing raw parents). A child whose only
         # signal-bearing parent is ``rname`` itself is a monotone/basis self-transform;
         # conditioning the raw on it is the data-processing-inequality trap (CMI ~0 for
         # EVERY raw) and cannot prove redundancy, so it is excluded. When NO legitimate
         # multi-source consumer remains, the raw is NOT redundancy-dropped here (the
-        # protective retention stands) -- this is what restores the genuine ``x_a``/``x_b``
+        # protective retention stands) - this is what restores the genuine ``x_a``/``x_b``
         # (interaction-product operands carrying a private LINEAR term) and ``x0``
         # (paired with a noise column in ``add(exp(x0),sign(x3))``) the 2026-06-08
-        # blanket sweep wrongly dropped, while the true ``a**2/b`` ratio operands -- whose
-        # subsumer ``div(neg(a),sqrt(b))`` is a genuine two-source combination -- still drop.
-        # GATE / BINAGG / ARGMAX pseudo-remix EXCLUSION (2026-06-13). A conditional-gate /
+        # blanket sweep wrongly dropped, while the true ``a**2/b`` ratio operands - whose
+        # subsumer ``div(neg(a),sqrt(b))`` is a genuine two-source combination - still drop.
+        # GATE / BINAGG / ARGMAX pseudo-remix EXCLUSION. A conditional-gate /
         # binned-numeric-agg / row-argmax child is a lossy THRESHOLD/BINNING re-mix of the raw, not a
         # combination that can SUBSUME it: conditioning the raw on such a re-mix of ITSELF is the
         # data-processing-inequality trap (CMI collapses for every raw, genuine or redundant), so it
@@ -320,7 +320,7 @@ def drop_redundant_raw_operands(
                 )
             continue
         # The raw column is binned via ``_raw_codes`` (see its definition): the selector's lossy fit codes
-        # in the tuned regime (fit levels >= _eng_card, BYTE-IDENTICAL to the prior fit-code path -- judge
+        # in the tuned regime (fit levels >= _eng_card, BYTE-IDENTICAL to the prior fit-code path - judge
         # the raw at the resolution the selector saw, no residual inflation), up-resolved from continuous to
         # _eng_card ONLY when the fit binning is COARSER than the survivors' resolution (the coarse-nbins
         # washout fix), never finer than _eng_card (the prior finer-binning inflation concern is honoured).
@@ -347,7 +347,7 @@ def drop_redundant_raw_operands(
                                                kx=(int(rb.max()) + 1 if getattr(rb, "size", 0) else 1), kz=int(_zcard))
         # SIBLING-OPERAND CONDITIONING (BUG1 non-invertible-fusion subsumer, 2026-06-16). A
         # consuming composite can FUSE ``rname`` with a SECOND signal-bearing operand in a
-        # form that is not invertible from the composite alone -- e.g. ``add(a, sin(c))``
+        # form that is not invertible from the composite alone - e.g. ``add(a, sin(c))``
         # carries ``a`` LINEARLY plus a ``sin(c)`` nuisance term. Conditioning ``a`` on the
         # fused sum ALONE leaves the ``sin(c)`` variation un-held across the strata, so ``a``
         # retains a spurious finite-sample residual (measured s909: cond-excess frac 6.7% >
@@ -356,22 +356,22 @@ def drop_redundant_raw_operands(
         # subexpr anchor cannot help: ``add(a,sin(c))`` has no tighter sub-expression that
         # still pairs ``a`` with a second signal source. So ALSO measure the residual with
         # each consumer's OTHER signal-bearing raw operands (the siblings) added to the
-        # conditioning -- which HOLDS the nuisance term fixed -- and take the SMALLEST
+        # conditioning - which HOLDS the nuisance term fixed - and take the SMALLEST
         # debiased excess across {base, +siblings} as the verdict: "is the raw subsumed
         # under the BEST available conditioning?". A linearly-fused operand collapses with
         # its sibling held (s909 ``a``: 6.7% -> 0.57%, cmi below floor -> DROP). Taking the
         # MIN never over-drops a GENUINE PRIVATE term: its residual is high under EVERY
-        # conditioning (siblings -- other raws -- cannot manufacture independence from a
+        # conditioning (siblings - other raws - cannot manufacture independence from a
         # term the composite+siblings do not span). It also defuses the converse hazard the
         # naive "always add siblings" form created: for an ALREADY-collapsed operand whose
         # composite is invertible without the sibling (``b`` in ``div(sqr(a),exp(b))``:
         # ``e**b = a**2/div``, base frac 2%), adding the sibling ``a`` only FRAGMENTS the
-        # strata and INFLATES ``b``'s plug-in residual to 11% -- a false KEEP. The MIN keeps
+        # strata and INFLATES ``b``'s plug-in residual to 11% - a false KEEP. The MIN keeps
         # the un-fragmented base verdict there (2% -> DROP). Siblings are added one at a time
         # only while the realised joint cell count stays within the fragmentation budget
         # (avg rows/cell >= _SUPPORT_FRAG_DIVISOR), strongest-marginal first. Byte-identical
         # when a raw has no signal-bearing sibling operand (the candidate set is empty).
-        # FULL-COMPOSITE FALLBACK CONDITIONING (2026-06-20). The clean nested sub-expression anchor
+        # FULL-COMPOSITE FALLBACK CONDITIONING. The clean nested sub-expression anchor
         # (BUG1) REPLACES the whole-composite bin in ``_cond_bins`` to isolate the raw's capture from a
         # fused composite's second additive term. But that replacement can be the WRONG direction: when
         # the WHOLE composite already cleanly subsumes the raw (its high-resolution fused codes leave the
@@ -386,10 +386,10 @@ def drop_redundant_raw_operands(
         # full composite already captures. Byte-identical when no clean sub-expr was substituted (the
         # full-composite bin IS ``_cond_bins`` then).
         for ei in consumers:
-            # SELECTION-EXACT short-circuit (2026-07-03). The debiased ``excess`` is the MIN across conditionings
+            # SELECTION-EXACT short-circuit. The debiased ``excess`` is the MIN across conditionings
             # and ``_excess_and_floor`` clamps it >= 0. The blocks below refine it ONLY on a strict ``_excess_f <
             # excess``, so once a CHEAPER conditioning (the base clean-subexpr / low-card support) has already
-            # driven ``excess`` to 0 no further conditioning can lower it and no update can fire -- the remaining
+            # driven ``excess`` to 0 no further conditioning can lower it and no update can fire - the remaining
             # full-composite / sibling perm-nulls (which land on a near-unique HIGH-cardinality support, kz~n,
             # the degenerate df<=0 case) are pure wasted compute. Skipping them is bit-for-bit identical to the
             # verdict (MIN(0, x>=0) == 0, same accompanying cmi/floor), not just selection-equivalent.
@@ -429,12 +429,12 @@ def drop_redundant_raw_operands(
                 _z_sib, _k_sib = _renumber_joint(*_sib_cond)
                 _z_sib_dev = _join_dev(*_sib_cond_dev)
                 _cmi_s, _floor_s, _excess_s = _excess_and_floor(rb_cand, y_arr, _z_sib, seed=seed, z_support_dev=_z_sib_dev, kz=int(_k_sib))
-                # Take the conditioning that gives the SMALLEST debiased excess -- the
-                # strongest evidence of subsumption -- carrying its own (cmi, floor) so the
+                # Take the conditioning that gives the SMALLEST debiased excess - the
+                # strongest evidence of subsumption - carrying its own (cmi, floor) so the
                 # floor check below stays consistent with the chosen conditioning.
                 if _excess_s < excess:
                     cmi, floor, excess = _cmi_s, _floor_s, _excess_s
-        # Raw's OWN marginal debiased excess -- the reference scale for both keep legs.
+        # Raw's OWN marginal debiased excess - the reference scale for both keep legs.
         _r_mcmi, _r_mfloor, raw_marg_excess = _raw_marginal(rname)
         # Strongest consuming engineered survivor's own debiased marginal excess.
         max_anchor = max(eng_anchor_excess[ei] for ei in consumers)
@@ -449,13 +449,13 @@ def drop_redundant_raw_operands(
         #
         # The former leg B (``max_anchor <= RAW_SUPERSET_MULT x raw_marg_excess`` ->
         # KEEP "the child is only a re-expression, not a superset") is REMOVED. It was
-        # introduced (2026-06-10) to protect a raw whose engineered child merely
+        # Introduced to protect a raw whose engineered child merely
         # RE-EXPRESSES it through a monotone unary paired with a NOISE operand
         # (``add(exp(x0),sign(x3))``, x3 noise). But that protection is ALREADY supplied,
         # and supplied CORRECTLY, by the DPI-TRAP CONSUMER FILTER (step 0): a child whose
         # only signal-bearing parent is the raw itself is dropped from ``consumers``, so
         # such a raw never even reaches the keep legs (``test_redundancy_drop_keeps_signal_
-        # raw_paired_with_noise_operand`` is satisfied by the DPI guard, not leg B --
+        # raw_paired_with_noise_operand`` is satisfied by the DPI guard, not leg B -
         # verified). By the time the keep rule runs, EVERY consumer is a genuine
         # multi-source combination, so leg B's premise ("the child is not a superset") is
         # false by construction. Its only live effect was a FALSE KEEP of a DOMINANT raw
@@ -471,14 +471,14 @@ def drop_redundant_raw_operands(
         # default 1.0 is the historical bare ``cmi > floor`` (byte-identical for every existing
         # caller). A caller running the sweep on the FINAL selection (post-retention) passes a
         # margin > 1.0 to separate a genuine private residual (clears the floor robustly, ratio
-        # >> 1) from a WEAK operand whose tiny conditional excess merely grazes the floor -- the
+        # >> 1) from a WEAK operand whose tiny conditional excess merely grazes the floor - the
         # latter is a finite-sample / non-invertible-unary-binning artifact, not private signal,
         # and is the operand a multi-operand survivor structurally subsumes (I4b: ``b`` inside
         # ``sin(b)`` of ``div(qubed(a),sin(b))``, cmi 0.0023 vs floor 0.0018 -> ratio 1.28).
         passes_floor = cmi > floor * float(floor_margin_mult)
         keep = passes_floor and (excess >= RAW_SELF_RETAIN_FRAC * max(0.0, raw_marg_excess))
         # LINEAR-USABILITY KEEP-LEG (variant-3, 2026-06-20). The CMI legs above DROP a raw whose
-        # conditional excess collapses given the engineered children -- correct in FULL FE mode
+        # conditional excess collapses given the engineered children - correct in FULL FE mode
         # (the caller opted into replacing subsumed raws with engineered survivors: I4b drops
         # ``a`` in ``a**2/b``), but WRONG in SIMPLE mode where the user wants a robust raw set and
         # the engineered children are spurious nonlinear nestings of a fundamentally linear signal
@@ -515,23 +515,23 @@ def drop_redundant_raw_operands(
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                 logger.debug("raw-redundancy: linear-usability-leg probe failed: %s", e)
                 pass
-        # TAIL-CONCENTRATION CONTINUOUS-SUBSUMPTION DROP (2026-07-03). The binned-CMI keep legs above KEEP a
-        # raw whose conditional excess given its engineered children does NOT collapse -- but under heavy
+        # TAIL-CONCENTRATION CONTINUOUS-SUBSUMPTION DROP. The binned-CMI keep legs above KEEP a
+        # raw whose conditional excess given its engineered children does NOT collapse - but under heavy
         # outliers a ratio operand (``a`` inside ``div(sqr(a),abs(b))`` of the selected compound) is
         # TAIL-CONCENTRATED: its rank association with y collapses in the bulk, so binned CMI(a; y | compound)
         # sees PHANTOM private signal and keeps it, even though the compound CONTINUOUSLY subsumes it (the
         # compound ~= y, |corr(continuous y)| ~0.99). Same rank-vs-linear blindness as the upstream gates, now
         # at the raw-drop stage. DROP such a raw when: it is a source token of a REPLAYABLE selected survivor
-        # (guaranteed -- ``consumers`` are already filtered to ``replayable_eng_names``) whose |corr(continuous
+        # (guaranteed - ``consumers`` are already filtered to ``replayable_eng_names``) whose |corr(continuous
         # y)| is HIGH (>= ``tail_subsume_min_corr``), the raw is linearly WEAKER than that survivor (adds no
         # linear signal it lacks), AND the raw's OWN rank association with y has COLLAPSED relative to its linear
-        # |corr| (rank <= ``tail_subsume_rank_frac`` x linear -- the tail-concentration signature). Gated on the
+        # |corr| (rank <= ``tail_subsume_rank_frac`` x linear - the tail-concentration signature). Gated on the
         # rank-collapse leg -> FALSE for BALANCED canonical / the 4 passing F2 profiles (there the raw's rank and
         # linear AGREE, so this never fires and the existing binned-CMI verdict stands byte-identically; those
         # profiles already drop ``a`` via CMI anyway). Best-effort: any error keeps the binned-CMI verdict.
         if keep and tail_subsume_enable and y_continuous is not None:
             try:
-                _uc_dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default) -- |corr| is wide-margin
+                _uc_dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default) - |corr| is wide-margin
                 _yc = np.asarray(y_continuous, dtype=_uc_dt).ravel()
                 _rc = None
                 if raw_X is not None and hasattr(raw_X, "columns") and rname in getattr(raw_X, "columns", []):
@@ -541,7 +541,7 @@ def drop_redundant_raw_operands(
                 if _rc.shape[0] == _yc.shape[0] and _yc.shape[0] >= 3:
                     # raw's best single-operand LINEAR usability (raw and its square) ...
                     _r_lin = max(_abs_pearson(_yc, _rc), _abs_pearson(_yc, _rc * _rc))
-                    # ... and its RANK association (max over the same two forms -- conservative: a strong rank
+                    # ... and its RANK association (max over the same two forms - conservative: a strong rank
                     # association on EITHER form blocks the drop, so only a genuine tail collapse fires it).
                     _ry = _rank_transform(_yc)
                     _r_rank = max(
@@ -603,12 +603,12 @@ def drop_redundant_raw_operands(
 
     # DOWNSTREAM NO-HARM GUARD (2026-07-01). The per-raw CMI/rank-MI verdict can DROP a raw whose engineered
     # child is LINEARLY LOSSY on skewed terrain: a prewarp/product ENTANGLES its operands so a linear (or tree)
-    # model cannot recover the raw's private contribution -- e.g. dropping ``b`` beside ``mul(sqr(a),prewarp(b))``
+    # model cannot recover the raw's private contribution - e.g. dropping ``b`` beside ``mul(sqr(a),prewarp(b))``
     # on lognormal costs ~0.23 held-out R^2 (the I4b/I5 no-harm violation). A per-raw linear-usability probe
     # cannot separate this from a genuinely-subsumed operand (the product masks b's per-raw residual), so verify
     # the drop at the OUTCOME level against the SAME reference the contract measures: does the KEPT set's HELD-OUT
     # linear fit (StandardScaler+Ridge) fall materially below the RAW-ONLY baseline (all raw features)? If so,
-    # revert the whole drop. The baseline is ALL RAWS, NOT kept+dropped -- the latter is over-sensitive (adding
+    # revert the whole drop. The baseline is ALL RAWS, NOT kept+dropped - the latter is over-sensitive (adding
     # any column rarely lowers held-out Ridge, so it reverts even a delta-neutral cosmetic drop and re-breaks the
     # strict-drop check on uniform terrain, measured). On well-behaved terrain the child captures the raw linearly
     # so the kept set matches raw-only and the drop stands; only a genuinely lossy child drops the kept set below
@@ -618,10 +618,10 @@ def drop_redundant_raw_operands(
     # between-group-level "leak" (high global MI, ~0 within-group signal) that this linear no-harm
     # guard would otherwise happily REVERT-restore: a leak correlates strongly with y GLOBALLY (that is
     # exactly what makes it a leak), so it inflates both the raw-only Ridge baseline and the revert
-    # trigger below -- defeating the entire point of group-aware relevance (a feature judged
+    # trigger below - defeating the entire point of group-aware relevance (a feature judged
     # non-generalising per-group must not be let back in because it looks good on a naive linear fit).
     # Identify leak names among this batch's drop candidates via the SAME group-blocked MI check the FE
-    # producers use, and NEVER revert-restore them regardless of the Ridge outcome -- they stay dropped;
+    # producers use, and NEVER revert-restore them regardless of the Ridge outcome - they stay dropped;
     # only genuinely-lossy NON-leak raws remain eligible for the no-harm revert below. No-op (empty set)
     # when group_aware_mi is off / no groups were supplied this fit (``get_group_mi()`` returns ``None``).
     _group_leak_names: set = set()

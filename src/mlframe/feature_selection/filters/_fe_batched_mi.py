@@ -1,6 +1,6 @@
 """Batched born-on-device MI / CMI for the FE candidate pool (replatform step 3, 2026-06-25).
 
-WIRED (MI_GREEDY_RECIPES-6 fix, -- this docstring was stale): ``batched_cmi_gpu`` /
+WIRED (this docstring was stale): ``batched_cmi_gpu`` /
 ``batched_quantile_bin_gpu`` / ``cmi_device_argmax`` ARE imported and called from
 ``_mi_greedy_cmi_fe.py``'s ``greedy_cmi_fe_construct``, production-reachable via
 ``MRMR.fit(fe_mi_greedy_cmi_enable=True)`` whenever ``_cmi_gpu_enabled()`` is true
@@ -37,7 +37,7 @@ def _assert_codes_in_range(arr, K: int, name: str, codes_trusted: bool = False) 
     error). The njit reference (_hermite_fe_mi) guards this exact class explicitly; mirror it here.
 
     ``codes_trusted`` (FIX1, 2026-06-28): when the caller KNOWS the codes are binner-produced
-    (``_gpu_quantile_bin_codes`` / radix / rank always emit dense 0..K-1) the guard is a pure cost --
+    (``_gpu_quantile_bin_codes`` / radix / rank always emit dense 0..K-1) the guard is a pure cost -
     it cannot fire, but on a device array it forces TWO blocking ``.item()`` syncs (cp.min + cp.max,
     ~5ms each on a GTX 1050 Ti) at every batched-MI entry. Trusted callers pass True to skip it,
     dropping the guard to ~0 on the resident hot path; untrusted/external code arrays keep the check
@@ -134,7 +134,7 @@ void mi_from_codes(const long long* __restrict__ codes,   // (n, K) row-major in
 """
 # FUSED VALUES->BIN->HIST->MI RawKernel (mega-fusion, 2026-06-25). For an (n,K) FLOAT matrix + per-column
 # interior quantile edges, ONE launch bins each value in-kernel (binary-search upper_bound == cp.searchsorted
-# side='right') AND builds the joint histogram AND computes plug-in MI -- replacing the separate
+# side='right') AND builds the joint histogram AND computes plug-in MI - replacing the separate
 # _searchsorted_codes kernel + the (n,K) int code array + binned_mi_from_codes_gpu. One block per column,
 # shared (nbins*Ky) int hist. Bin codes equal _searchsorted_codes bit-for-bit (same f64 edges, same
 # side='right') -> selection-equivalent. edges: (nbins-1, K) row-major (interior); X: (n,K) row-major.
@@ -235,7 +235,7 @@ _MI_SPLIT_KERNELS = None
 # f32-X twin of the values->bin->hist->MI module (dtype-churn kill, 2026-07-03, nsys-driven). The opt-in
 # f32 binning path (keep_dtype / relax_binning) holds the (n,K) candidate matrix in float32 to feed the
 # f32 radix-select edges, but ``binned_mi_from_values_gpu`` re-UPCAST that whole matrix to f64
-# (X.astype(f64)) before this kernel AND transposed it in f64 (transpose_f64) -- pure churn: the f32->f64
+# (X.astype(f64)) before this kernel AND transposed it in f64 (transpose_f64) - pure churn: the f32->f64
 # downcast+upcast round-trip (nsys F2 1M STRICT: 562 cupy_copy__float32_float64 + 199 transpose_f64). The
 # ONLY use of X inside the kernel is ``double v = Xc[i]`` (a widening float->double promotion) fed to the
 # edge comparison; the f64 path stored exactly ``(double)f32`` there, so reading the value as f32 and
@@ -255,7 +255,7 @@ _MI_FROM_VALUES_F32_SRC = (
 _MI_FROM_VALUES_F32_KERNEL = None
 _MI_SPLIT_F32_KERNELS = None
 
-# FUSED VALUES->BIN->HIST->MILLER-MADOW-MI (2026-06-26). Same one-block-per-column fused bin+joint-hist as
+# FUSED VALUES->BIN->HIST->MILLER-MADOW-MI. Same one-block-per-column fused bin+joint-hist as
 # mi_from_values, but emits the Miller-Madow-corrected MARGINAL MI matching _usability_njit_pool's
 # _marginal_mi_njit / _gpu_marginal_mi: mi = H(x)+H(y)-H(x,y) - (kx_occ + k_y - kxy - 1)/(2n), clamped >=0.
 # h_y / k_y are the shared (fit-constant) target entropy + class count, passed in (computed once). This is the
@@ -300,7 +300,7 @@ void mi_mm_from_values(const double* __restrict__ X, const double* __restrict__ 
 """
 _MI_MM_FROM_VALUES_KERNEL = None
 
-# NJIT-PARITY EDGE DEDUP for low-cardinality columns (2026-06-27). The fused mi_mm_from_values binary-searches
+# NJIT-PARITY EDGE DEDUP for low-cardinality columns. The fused mi_mm_from_values binary-searches
 # over the FULL (nbins-1) interior radix edges; on a LOW-CARDINALITY / discrete column those edges contain
 # DUPLICATES and BOUNDARY values (== the column min/max), which the njit reference _qbin_into does NOT: it
 # dedups the FULL (nbins+1)-level quantile set (np.unique, INCLUDING the level-0 min and level-nbins max
@@ -346,7 +346,7 @@ def _get_dedup_edges_kernel():
 
 
 # Length-aware twin of mi_mm_from_values: each column binary-searches only its VALID prefix ne_k[c] of the
-# (dedup'd) interior edges -- everything else is byte-for-byte the mi_mm_from_values kernel. When ne_k[c] ==
+# (dedup'd) interior edges - everything else is byte-for-byte the mi_mm_from_values kernel. When ne_k[c] ==
 # nbins-1 (continuous columns, no dup/boundary edges) it is bit-identical to mi_mm_from_values.
 _MI_MM_FROM_VALUES_NEK_SRC = (
     _MI_MM_FROM_VALUES_SRC.replace("void mi_mm_from_values(", "void mi_mm_from_values_nek(")
@@ -404,7 +404,7 @@ def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any,
     _gpu_marginal_mi / _marginal_mi_njit. Returns None if the (nbins*ky) shared tile won't fit."""
     import cupy as cp
 
-    # DTYPE-CHURN KILL (2026-07-03): keep an f32 candidate matrix at f32 (feed the f32-X MM kernel twin,
+    # DTYPE-CHURN KILL: keep an f32 candidate matrix at f32 (feed the f32-X MM kernel twin,
     # edges f64) instead of upcasting the whole (n,K) matrix to f64. BIT-IDENTICAL: the kernel reads X only
     # via ``double v = X[i*K+c]`` (widening float->double promotion == the exact f64 the f64 path stored),
     # and cmin/cmax are order statistics of the same f32 values (max/min then exact f64 upcast, unchanged).
@@ -502,7 +502,7 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
     cp.searchsorted side='right' bit-for-bit). Falls back to None if the (nbins*ky) shared tile won't fit."""
     import cupy as cp
 
-    # DTYPE-CHURN KILL (2026-07-03): keep an f32 candidate matrix at f32 through the transpose + kernel
+    # DTYPE-CHURN KILL: keep an f32 candidate matrix at f32 through the transpose + kernel
     # (feed the f32-X kernel twin, edges stay f64) instead of upcasting the whole (n,K) matrix back to f64.
     # The f32 X is fed to the SELECTION callers' f32 radix-edge path; re-upcasting it here undid that (nsys
     # F2 1M STRICT: 562 cupy_copy__float32_float64 + 199 transpose_f64). BIT-IDENTICAL: the kernel's only use
@@ -522,10 +522,10 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
     _assert_codes_in_range(yv, Ky, "binned_mi_from_values_gpu y codes", codes_trusted)
     mi_out = cp.empty(K, dtype=cp.float64)
     # COLUMN-MAJOR X for a COALESCED load (nvprof 2026-07-02: the row-major X[i*K+c] scan was gld_efficiency
-    # 28.9% -- strided by K). One coalesced tiled transpose to (K,n) feeds both the single + split kernels,
+    # 28.9% - strided by K). One coalesced tiled transpose to (K,n) feeds both the single + split kernels,
     # which now index X[c*n+i] (consecutive threads -> consecutive addresses). The kernels' bin codes/MI are
     # unchanged (same values, just a different read layout). Falls back to the row-major contiguous copy if the
-    # transpose can't apply (the kernels then need row-major -- but _transpose_to_cm only returns (K,n) here).
+    # transpose can't apply (the kernels then need row-major - but _transpose_to_cm only returns (K,n) here).
     from ._gpu_resident_select import _transpose_to_cm
     Xc = _transpose_to_cm(cp.ascontiguousarray(Xd))   # (K, n) C-order == column-major over the (n,K) matrix
     _inv = np.float64(1.0 / float(max(1, n)))
@@ -562,11 +562,11 @@ _MI_FROM_CODES_MAX_SHARED = 44000  # bytes; stay under the 48KB default shared c
 
 
 # bench-attempt-rejected x2 (ncu-led, 2026-07-15, cc 8.9): ncu flagged mi_from_codes' stride-K reads as 80%
-# excessive sectors (est. speedup 72%) -- both coalescing rewrites LOST at (99401,100)/Kx=Ky=21:
-#   (a) flat grid-stride + GLOBAL per-column int32 hist atomics: 9.14ms vs 4.07ms (0.44x) -- each warp's 32
+# excessive sectors (est. speedup 72%) - both coalescing rewrites LOST at (99401,100)/Kx=Ky=21:
+#   (a) flat grid-stride + GLOBAL per-column int32 hist atomics: 9.14ms vs 4.07ms (0.44x) - each warp's 32
 #       consecutive t hit 32 DIFFERENT columns' histograms = one cache line per thread, serialized L2 atomics;
 #   (b) this int16-cast + tiled-transpose + contiguous-column variant (kept, opt-in MLFRAME_MI_FROM_CODES_V2=1):
-#       7.49ms (0.52x) -- the cast+transpose passes cost more than the strided reads they remove.
+#       7.49ms (0.52x) - the cast+transpose passes cost more than the strided reads they remove.
 # Root cause of the ncu false lead: the per-column blocks stream the same rows nearly in lockstep, so the
 # "excessive" L1 wavefronts are served from L2 (no DRAM amplification); the real limiter is the shared-memory
 # histogram atomics, which every variant pays identically. The row-major one-kernel form is the measured
@@ -651,7 +651,7 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
     (e.g. one per candidate binary-function in ``_cupy_polynom_optimizer``'s search loop) and only
     needing the host values ONCE at the end (to pick a winner), forcing a device->host sync on every
     individual call was measured (nsys, wellbore 100k GPU-strict trace) to multiply
-    cudaStreamSynchronize/cudaMemcpyAsync call counts well beyond what the algorithm needs -- letting
+    cudaStreamSynchronize/cudaMemcpyAsync call counts well beyond what the algorithm needs - letting
     the caller batch its own single sync at the point it actually needs host values removes that.
 
     ``codes_trusted`` (default False): the kernel uses each code directly as a shared-tile offset
@@ -707,13 +707,13 @@ def _get_qbin_coder_kernel():
     """Fused one-pass coder for batched_quantile_bin_gpu: per element, count the distinct interior edge
     values <= x (plus the 2-distinct special case) in a single (n, K) read/write, instead of the
     ~3*(nbins+1) full-matrix elementwise passes the broadcast loop costs (nsys on the cupy polynom
-    search: that loop was ~76%% of kernel GPU time -- add 41.3%% + greater 15.8%% + bool-copy 14.1%%).
+    search: that loop was ~76%% of kernel GPU time - add 41.3%% + greater 15.8%% + bool-copy 14.1%%).
     Bit-identical: same interior/first-occurrence/ndistinct==2 terms, just fused."""
     global _QBIN_CODER_RAW
     if _QBIN_CODER_RAW is None:
         import cupy as cp
         # FP64-compare avoidance (ncu 2026-07-15, cc 8.9: the double-compare loop pinned the FP64 pipeline
-        # at 84.4% while memory sat at 24.5% -- consumer Ada runs FP64 at 1:64). Finite IEEE doubles order
+        # at 84.4% while memory sat at 24.5% - consumer Ada runs FP64 at 1:64). Finite IEEE doubles order
         # identically (signed compare) to key = b >= 0 ? b : b ^ 0x7FFF..F (flip magnitude bits of negatives), so convert x
         # ONCE per element and the edges once per call, then all ne comparisons run on the integer pipeline.
         # Signed zeros normalized via +0.0 (else key(-0) < key(+0) diverges from IEEE -0 == +0); non-finite
@@ -728,7 +728,7 @@ extern "C" __global__ void qbin_code(const double* __restrict__ x, const long lo
                                      const long long n, const long long K, const int ne1,
                                      long long* __restrict__ codes) {
     // edge_keys is (ne1, K) with non-interior slots pre-set to INT64_MAX host-side (compare always false)
-    // and the binary-column top-edge duplicated into the extra last row -- so the whole coder is one
+    // and the binary-column top-edge duplicated into the extra last row - so the whole coder is one
     // branch-free strided int-compare loop.
     long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     long long total = n * K;
@@ -750,8 +750,8 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
     """Born-on-device equi-frequency binning of an (n,K) float matrix -> (n,K) int codes, RESIDENT on GPU.
 
     Device twin of ``_mi_greedy_cmi_fe._quantile_bin`` applied per column. ONE batched ``cp.percentile``
-    (axis=0) computes all K columns' edges in a single device sort -- replacing K host ``np.quantile``
-    (introselect partition) calls -- then per-column ``cp.searchsorted`` on the (deduped) inner edges. The
+    (axis=0) computes all K columns' edges in a single device sort - replacing K host ``np.quantile``
+    (introselect partition) calls - then per-column ``cp.searchsorted`` on the (deduped) inner edges. The
     per-column ``cp.unique`` is over only (nbins+1) edge values (negligible), so the n-sized sort stays
     batched. Returns a cupy int64 (n,K) array (kept on device to feed ``batched_cmi_gpu`` without a code
     H2D). Selection-equivalent to the host binning: same equi-frequency partition (value-edge, rank-based).
@@ -766,7 +766,7 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
     Xd = Xd.astype(cp.float64, copy=False)
     n, K = int(Xd.shape[0]), int(Xd.shape[1])
     # Sort-free radix-select edges first (default ON): cp.percentile(axis=0) implements the batched edge
-    # computation as ONE FULL MERGE SORT of the whole (n, K) matrix -- nsys on the wellbore-100k strict fit
+    # computation as ONE FULL MERGE SORT of the whole (n, K) matrix - nsys on the wellbore-100k strict fit
     # showed exactly this cub DeviceMergeSort at 74% of ALL GPU time (143.5s, 180 launches, ~2.4s each at
     # 61M elements). _radix_select_interior_edges produces bit-identical interior edges (documented maxdiff
     # 0 in the resulting codes) via rank-select without sorting; q=0/q=100 are exact column min/max (plain
@@ -778,15 +778,15 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
         if fe_gpu_radix_edges_enabled():
             # with_extremes=True: min/max ride along as 2 extra exact order statistics in the SAME select
             # pass (ncu/nsys-driven, 2026-07-15) instead of two standalone Xd.min(axis=0)/Xd.max(axis=0)
-            # reduction kernels -- returns the full (nbins+1, K) edge matrix directly, no concatenate.
+            # reduction kernels - returns the full (nbins+1, K) edge matrix directly, no concatenate.
             edges_all = _radix_select_interior_edges(cp.ascontiguousarray(Xd), int(nbins), with_extremes=True)
     except Exception:
         edges_all = None
     if edges_all is None:
         qs = cp.linspace(0.0, 100.0, nbins + 1)
-        edges_all = cp.percentile(Xd, qs, axis=0)  # (nbins+1, K) -- one batched device sort
+        edges_all = cp.percentile(Xd, qs, axis=0)  # (nbins+1, K) - one batched device sort
     # Vectorized per-column coding (replaces a K-iteration Python loop of cp.unique + cp.searchsorted +
-    # per-column copy -- ~3 kernel launches PER COLUMN, 617 columns = ~1850 launches per call on the
+    # per-column copy - ~3 kernel launches PER COLUMN, 617 columns = ~1850 launches per call on the
     # wellbore-100k trace). The searchsorted-on-deduped-interior-edges semantics reduce to counting, per
     # row value x, the DISTINCT interior edge values <= x: with the ascending (nbins+1, K) edge matrix,
     # a first-occurrence mask kills duplicate edges, and excluding each column's min/max edge leaves the
@@ -800,7 +800,7 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
     interior = first_occ & (edges_all > e_first[None, :]) & (edges_all < e_last[None, :])
     ndistinct = first_occ.sum(axis=0).astype(cp.int64)  # (K,)
     try:
-        # Fused one-pass coder (see _get_qbin_coder_kernel) -- bit-identical to the broadcast loop below.
+        # Fused one-pass coder (see _get_qbin_coder_kernel) - bit-identical to the broadcast loop below.
         kern = _get_qbin_coder_kernel()
         codes = cp.empty((n, K), dtype=cp.int64)
         total = n * K
@@ -829,12 +829,12 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
 
 def cmi_device_argmax(mi_d: Any) -> tuple[int, float]:
     """First-max argmax of a RESIDENT (K,) cupy CMI vector, returning ONLY ``(int best_idx, float best_val)``
-    via one tiny scalar D2H -- NOT the (K,) vector.
+    via one tiny scalar D2H - NOT the (K,) vector.
 
     Tiebreak matches ``np.argmax`` (LOWEST index among ties): ``cp.argmax`` already returns the first
     occurrence of the maximum on a contiguous 1-D array, and that value is byte-identical to the host vector
     the kernel would have produced (same buffer), so ``np.argmax(mi_d.get())`` and this agree exactly. We pull
-    the scalar index (int64, 8 B) and gather its value (float64, 8 B) -- two sub-``BULK_BYTES`` D2Hs -- instead
+    the scalar index (int64, 8 B) and gather its value (float64, 8 B) - two sub-``BULK_BYTES`` D2Hs - instead
     of D2H-ing the whole (K,) vector and arg-maxing on the host."""
     import cupy as cp
 
@@ -850,10 +850,10 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
                     return_device: bool = False, precomp_yz: Any = None, kx: int = 0, ky: int = 0) -> Any:
     """Miller-Madow plug-in CMI(x_k; y | z) in nats for EVERY column of ``x_cols``, in ONE device workload.
 
-    ``x_cols`` (n,K) int codes -- a host ndarray OR an already-resident cupy array (born-on-device codes
-    from ``batched_quantile_bin_gpu``, no code H2D); ``y`` (n,) int codes (host OR resident cupy -- the
+    ``x_cols`` (n,K) int codes - a host ndarray OR an already-resident cupy array (born-on-device codes
+    from ``batched_quantile_bin_gpu``, no code H2D); ``y`` (n,) int codes (host OR resident cupy - the
     FIT-CONSTANT label, uploaded ONCE via the resident-operand cache when host); ``z`` (n,) int codes or None
-    (marginal MI; host OR resident cupy -- the ROUND-CONSTANT conditioning support, also resident-cached).
+    (marginal MI; host OR resident cupy - the ROUND-CONSTANT conditioning support, also resident-cached).
     Returns a host (K,) float64 array. Matches ``_mi_greedy_cmi_fe._cmi_from_binned`` per column
     (selection-equivalent).
 
@@ -863,7 +863,7 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
     rather than the (K,) vector. With ``return_cards`` the card arrays are likewise returned resident.
 
     ``return_cards`` (conditional path only): also return the occupied-cell cardinalities the analytic
-    CMI-null df needs -- ``(cmi[K], k_z, k_xz[K], k_yz, k_xyz[K])`` -- computed in the SAME workload (they
+    CMI-null df needs - ``(cmi[K], k_z, k_xz[K], k_yz, k_xyz[K])`` - computed in the SAME workload (they
     are already produced internally by ``_rows_entropy_and_k`` + the shared y/z terms). Lets the gate score
     the analytic floor/df of ALL round candidates from ONE call instead of a per-candidate
     ``joint_cardinalities_cupy``. The cell counts equal the per-candidate path's (same occupied-cell
@@ -892,7 +892,7 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
     inv_n = 1.0 / nf
     # ``kx`` / ``ky`` (2026-07-02, scalar-sync kill): the histogram WIDTH upper bound. The codes are 0-based
     # equi-frequency bins in [0, nbins-1] and the labels in [0, n_classes-1], so the caller knows the width
-    # (nbins / n_classes) -- pass it to SKIP the ``int(X.max())`` / ``int(dy.max())`` blocking device syncs (each
+    # (nbins / n_classes) - pass it to SKIP the ``int(X.max())`` / ``int(dy.max())`` blocking device syncs (each
     # drains the GPU queue ~ms; the kernel-timeline gap analysis put ~4,900 such scalar D2H as the dominant
     # remaining GPU-idle source). A width >= the true occupied max is SELECTION-IDENTICAL: the extra trailing
     # bins are always empty -> 0 count -> 0 entropy contribution, and the occupied-cell df (k_x) is counted
@@ -921,7 +921,7 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
     # ``precomp_yz`` (2026-07-02, perm-null chunk hoist): the column-invariant y/z terms
     # ``(dz, Kz, h_z, k_z, yz, Kyz, h_yz, k_yz)`` computed by a PRIOR call over the SAME (y, z). The perm-null's
     # VRAM-chunked driver calls this per perm-chunk (down to 1 perm/chunk at the gate's huge joints), and each
-    # chunk re-derived the identical z entropies + yz key + the .max() syncs -- up to ~25 recomputes per null.
+    # chunk re-derived the identical z entropies + yz key + the .max() syncs - up to ~25 recomputes per null.
     # The SAME values are reused verbatim -> bit-identical CMI; None (all other callers) is unchanged.
     if precomp_yz is not None:
         dz, Kz, h_z, k_z, yz, Kyz, h_yz, k_yz = precomp_yz
@@ -936,7 +936,7 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
         _assert_codes_in_range(dy, Ky_cond, "batched_cmi_gpu y codes", codes_trusted)
         _assert_codes_in_range(dz, Kz, "batched_cmi_gpu z codes", codes_trusted)
         # shared y/z terms (column-invariant): fused hist+entropy in ONE launch each (same 2-launch fallback when
-        # the 1D joint won't fit shared) -- bit-identical to _ent_nnz_1d(joint_counts_gpu(...)).
+        # the 1D joint won't fit shared) - bit-identical to _ent_nnz_1d(joint_counts_gpu(...)).
         h_z, k_z = joint_entropy_gpu([dz], [Kz], inv_n)
         yz = dy * Kz + dz  # dense (y,z) code (also feeds cnt_xyz below)
         Kyz = int(yz.max()) + 1

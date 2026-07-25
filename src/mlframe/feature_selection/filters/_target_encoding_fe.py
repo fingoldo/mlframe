@@ -2,7 +2,7 @@
 
 Modal production tabular ML pipelines target-encode medium / high-cardinality
 categorical columns (mean of y per category). The naive single-pass encoding
-leaks y into X (the Layer 17 leakage pattern) -- the per-row encoded value
+leaks y into X (the Layer 17 leakage pattern) - the per-row encoded value
 is computed from a histogram that INCLUDES the row's own y. K-fold OOF
 target encoding is the standard leakage-safe pattern:
 
@@ -22,7 +22,7 @@ single-column categoricals, and its output is folded into the merged-class
 factorize lookup rather than a recipe per source column.
 
 The recipe (kind ``"kfold_target_encoded"``) carries only the per-category
-``te_value`` lookup + ``global_mean`` + ``smoothing`` -- no y reference at
+``te_value`` lookup + ``global_mean`` + ``smoothing`` - no y reference at
 replay time. ``MRMR.transform`` recomputes each column deterministically.
 """
 from __future__ import annotations
@@ -53,7 +53,7 @@ __all__ = [
 # Robust / order-statistic stats (median, trimmed_mean, q10, q90, iqr, min, max) live in _target_encoding_order_stats:
 # they need y sorted within each category (not expressible from raw moments), and carry their own per-stat stability
 # floors so rare cells fall back to the global value. Promoting the order-stat winners to the ctor default is a tracked
-# follow-up -- it needs a multi-seed sweep confirming the biz_value win generalises before the default flips.
+# follow-up - it needs a multi-seed sweep confirming the biz_value win generalises before the default flips.
 from ._target_encoding_order_stats import ORDER_STATS as _TE_ORDER_STATS, global_order_stats, per_category_order_stats
 
 _TE_MOMENT_STATS = ("mean", "std", "skew", "kurt")
@@ -87,7 +87,7 @@ def _raw_moment_sums(
 ) -> dict:
     """Additive per-category raw-moment sums (``cnt``, ``s1=sum(y)``, ``s2=sum(y**2)``, ``s3=sum(y**3)``,
     ``s4=sum(y**4)``) needed to derive ``moment_stats``, via ``np.bincount``. Each sum is a pure per-row
-    partition sum, so ``sums(A) + sums(B) == sums(A union B)`` elementwise for any disjoint row sets A/B --
+    partition sum, so ``sums(A) + sums(B) == sums(A union B)`` elementwise for any disjoint row sets A/B -
     ``kfold_target_encode_fit`` exploits this to get a fold's TRAIN-only sums as ``full - test`` instead of
     rescanning the ``(n_folds-1)/n_folds`` of rows in that fold's training split."""
     out: dict = {}
@@ -108,7 +108,7 @@ def _smooth_moments_from_sums(
     raw: dict, moment_stats: Sequence[str], global_stats: dict, smoothing: float,
 ) -> dict:
     """Derive smoothed (Micci-Barreca) per-category moment stats from the additive raw sums in ``raw``
-    (see :func:`_raw_moment_sums`). Pure function of the sums -- callable on either a direct bincount or a
+    (see :func:`_raw_moment_sums`). Pure function of the sums - callable on either a direct bincount or a
     fold's ``full - test`` subtraction result."""
     out: dict = {}
     if not moment_stats:
@@ -146,7 +146,7 @@ def _smooth_moments_from_sums(
 
 
 def _global_target_stats(y_arr: np.ndarray, stats: Sequence[str]) -> dict:
-    """Global (all-rows) value of each requested statistic -- the shrink target / unseen-category / rare-cell fallback."""
+    """Global (all-rows) value of each requested statistic - the shrink target / unseen-category / rare-cell fallback."""
     from scipy.stats import kurtosis as _kurt, skew as _skew
     g = {}
     sd = float(np.std(y_arr))
@@ -192,14 +192,14 @@ def auto_detect_te_cols(
     candidates: list[str] = []
     for col in X.columns:
         dt = X[col].dtype
-        if not (dt == object or isinstance(dt, pd.CategoricalDtype)  # noqa: E721 -- pandas dtype `== object` comparison is intended
+        if not (dt == object or isinstance(dt, pd.CategoricalDtype)  # noqa: E721 - pandas dtype `== object` comparison is intended
                 or pd.api.types.is_string_dtype(X[col])):
             continue
         # nunique() with dropna=True is fast (Cython on pandas).
         try:
             card = int(X[col].nunique(dropna=True))
         except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _target_encoding_fe.py:190: %s", e)
+            logger.debug("suppressed: %s", e)
             continue
         if min_card <= card <= max_card:
             candidates.append(col)
@@ -237,7 +237,7 @@ def _column_to_str(col: pd.Series) -> np.ndarray:
         toks = np.array([canonical_group_token(u) for u in uniq], dtype=object)
         return toks[inv]
     # object / mixed dtype: canonicalise per-UNIQUE then gather (was a per-ROW
-    # Python loop -- 200k calls of ``canonical_group_token`` per 200k-row object
+    # Python loop - 200k calls of ``canonical_group_token`` per 200k-row object
     # column collapse to one call per distinct value). ``pd.factorize`` tolerates
     # the unorderable mixed-type object arrays that ``np.unique`` rejects, and
     # collapses None + NaN into a single sentinel category (use_na_sentinel=False
@@ -246,21 +246,21 @@ def _column_to_str(col: pd.Series) -> np.ndarray:
     # sentinel), every other unique -> canonical_group_token.
     #
     # GATE: factorize keys on Python equality, so ``True`` collapses with ``1``
-    # / ``1.0`` (all == 1) into ONE category -- but the old per-row map emits
+    # / ``1.0`` (all == 1) into ONE category - but the old per-row map emits
     # DISTINCT tokens "True" vs "1" for them. That divergence only arises when
     # the column actually mixes bool with equal-valued numerics; in that case
     # fall back to the exact per-row loop. (Pure-string / pure-numeric / NaN
-    # object columns -- the overwhelming common case -- take the fast path.)
+    # object columns - the overwhelming common case - take the fast path.)
     codes, uniq = pd.factorize(arr, use_na_sentinel=False)
     # factorize keys on Python equality, so a bool collapses with an equal-valued
-    # numeric / string (``True == 1 == 1.0``) into ONE code -- but the per-row map
+    # numeric / string (``True == 1 == 1.0``) into ONE code - but the per-row map
     # emits DISTINCT tokens ("True" vs "1"). A lone bool survives as its own unique
     # (caught by the isinstance scan); a COLLIDED bool hides behind a surviving
     # unique that compares == 0 or == 1. So when no unique is bool AND none equals
     # 0/1, no collision is possible and the per-unique fast path is bit-identical;
     # otherwise fall back to the exact per-row loop (rare: bool-in-object column).
     # The factorize/per-row token divergence (True/1/1.0 collapse to one code, but the per-row map emits distinct
-    # "True" vs "1") requires a bool AND an ==-equal numeric (0/1) to COEXIST -- a 0/1 WITHOUT a bool factorizes to
+    # "True" vs "1") requires a bool AND an ==-equal numeric (0/1) to COEXIST - a 0/1 WITHOUT a bool factorizes to
     # its own canonical token, bit-identical to the per-row map. So gate on AND, not OR, and vectorise the 0/1 test
     # (object elementwise; NaN/str -> False), so a high-card numeric-object column that merely CONTAINS a 0/1 value
     # takes the fast path (~8x @100k) instead of the per-row fallback; the bool scan is short-circuited away entirely
@@ -271,7 +271,7 @@ def _column_to_str(col: pd.Series) -> np.ndarray:
         _has_01 = any((not (isinstance(v, float) and v != v)) and (v == 0 or v == 1) for v in uniq)
     # The bool-instance scan must run over the RAW array, not ``uniq``: factorize keeps only ONE representative
     # per equivalence class, and when a collided bool loses that slot to an equal-valued int (e.g. array order
-    # puts ``1`` before ``True``), ``uniq`` never contains the bool at all -- scanning ``uniq`` here silently
+    # puts ``1`` before ``True``), ``uniq`` never contains the bool at all - scanning ``uniq`` here silently
     # missed exactly the collision case this gate exists to catch. Restrict the scan to the 0/1-valued rows of
     # ``arr`` (not the full array) to keep the common high-cardinality case cheap.
     if _has_01:
@@ -343,7 +343,7 @@ def kfold_target_encode_fit(
     recipes : dict
         ``{col: {"lookup": {category: te_value}, "global_mean": float,
                   "smoothing": float}}``. ``lookup`` is built from the
-        FULL training data (no fold split) -- this is the deterministic
+        FULL training data (no fold split) - this is the deterministic
         replay table used by ``apply_target_encoding`` at transform time.
         Categories not present in ``lookup`` map to ``global_mean``.
 
@@ -374,7 +374,7 @@ def kfold_target_encode_fit(
     # Deterministic fold assignment via numpy generator. Round-robin over
     # SHUFFLED indices so categories that happen to cluster in the input
     # ordering don't all land in the same fold (which would make their OOF
-    # estimate identical to the in-fold estimate -- defeats leakage guard).
+    # estimate identical to the in-fold estimate - defeats leakage guard).
     rng = np.random.default_rng(int(random_state))
     perm = rng.permutation(n)
     fold_ids = np.empty(n, dtype=np.int64)
@@ -399,7 +399,7 @@ def kfold_target_encode_fit(
         # replay lookup below. moment_stats are additive/linear (unlike order stats, which need y actually
         # sorted within category and are NOT decomposable this way): a fold's TRAIN-only sums equal
         # full - test, so each fold below does an O(n/n_folds) TEST-only bincount pass instead of an
-        # O(n*(n_folds-1)/n_folds) TRAIN rescan -- cuts total row-visits roughly (n_folds-1)/2 x.
+        # O(n*(n_folds-1)/n_folds) TRAIN rescan - cuts total row-visits roughly (n_folds-1)/2 x.
         full_counts = np.bincount(inverse, minlength=n_cats) if (moment_stats or order_stats_wanted) else None
         full_moment_raw = _raw_moment_sums(inverse, y_arr, n_cats, moment_stats, counts=full_counts)
 
@@ -419,7 +419,7 @@ def kfold_target_encode_fit(
                 per_cat.update(_smooth_moments_from_sums(train_raw, moment_stats, global_stats, smoothing))
             if order_stats_wanted:
                 # Order stats need y actually sorted within each TRAIN category (not expressible from additive
-                # sums), so this branch still rescans the train rows -- unchanged from the pre-existing behaviour.
+                # sums), so this branch still rescans the train rows - unchanged from the pre-existing behaviour.
                 per_cat.update(per_category_order_stats(inverse[train_mask], y_arr[train_mask], n_cats, order_stats_wanted, global_stats))
             inv_test = inverse[test_idx]
             for s in stats:
@@ -501,10 +501,10 @@ def apply_target_encoding(
     # categorical case: user_id / merchant_id / device fingerprint) never hold
     # None/NaN, so ``_column_to_str`` would materialise a length-n OBJECT array of
     # canonical string tokens purely so the str-keyed ``lookup`` can be ``.map``-ed
-    # per row -- two passes over n rows (build-tokens + per-row hash). Fuse them:
+    # per row - two passes over n rows (build-tokens + per-row hash). Fuse them:
     # canonicalise + resolve the lookup once PER DISTINCT integer value (a few
     # hundred), then gather via the ``np.unique`` inverse codes. The int ``np.unique``
-    # is cheap (object ``np.unique`` is NOT -- hence this fast path is gated to the
+    # is cheap (object ``np.unique`` is NOT - hence this fast path is gated to the
     # integral kinds only; object/mixed columns keep the ``_column_to_str`` + ``.map``
     # path). Bit-identical to the ``.map`` path BY CONSTRUCTION: the per-unique
     # ``canonical_group_token`` is the exact token ``_column_to_str`` emits for the
@@ -555,7 +555,7 @@ def kfold_target_encode_with_recipes(
     -------
     X_augmented : pd.DataFrame
         ``X`` with the ``{col}__te`` columns appended. Source columns are
-        kept (caller can drop them later if desired -- MRMR's screening
+        kept (caller can drop them later if desired - MRMR's screening
         will treat the encoded col as numeric and the source col as
         categorical, and may keep / drop either).
     encoded_columns : list of str
@@ -599,7 +599,7 @@ def kfold_target_encode_with_recipes(
     _kept = set(appended)
 
     # One recipe per appended (col, stat) output column. A std / skew / kurt recipe is structurally identical to
-    # the mean recipe -- same replay path -- just a different per-category lookup table and global fallback.
+    # the mean recipe - same replay path - just a different per-category lookup table and global fallback.
     recipes = []
     for col in cat_cols:
         rec_info = raw_recipes[col]

@@ -1,7 +1,7 @@
 """Bootstrap stability-selection wrapper around :func:`cascade_select`.
 
 A single ``cascade_select`` run's ``final_selected`` set is sensitive to which rows happened to land in the
-CV folds -- a borderline feature (weak true signal, or a noise column that got lucky) can flip in/out of the
+CV folds - a borderline feature (weak true signal, or a noise column that got lucky) can flip in/out of the
 final set purely because of the row sample, not because of its real usefulness. Stability selection (Meinshausen
 & Buhlmann, 2010) addresses this generically: rerun the whole selection procedure over many bootstrap
 row-resamples and only keep features that were selected in at least a chosen fraction of the runs. This module
@@ -29,7 +29,7 @@ def cascade_select_stable(
 
     Default ``n_bootstrap=20``: calling this function always runs 20 independent bootstrap-resampled
     `cascade_select` passes and keeps only features stable across a ``stability_threshold`` fraction of
-    them. This module only orchestrates repeated calls to `cascade_select` -- it does not alter
+    them. This module only orchestrates repeated calls to `cascade_select` - it does not alter
     `cascade_select`'s own logic or defaults in any way; a caller who wants the single-run, unwrapped
     behavior simply calls `cascade_select` directly instead of this function.
 

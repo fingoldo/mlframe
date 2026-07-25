@@ -16,29 +16,29 @@ import os
 import numpy as np
 
 # Parent-of-the-FE-block name consumed at module scope (defined in _gpu_resident_fe before it imports the
-# select parent, so this top import resolves during the partial-init import chain -- same pattern as the parent).
+# select parent, so this top import resolves during the partial-init import chain - same pattern as the parent).
 from ._gpu_resident_fe import _quantile_levels_dev
 
 # FUSED PER-COLUMN BINNING (2026-06-20, nvprof-driven). The per-column ``for j in range(K): out[:,j] =
 # cp.searchsorted(edges[:,j], col, 'right')`` loop fired K separate searchsorted launches PLUS K int64->
 # int32 cast-copies (searchsorted returns int64, ``out`` is int32). nvprof on the n=100k/300k binning path:
 # cupy_copy__int64_int32 = 19.2% of GPU time (2304 calls) + cupy_searchsorted_kernel = 11.7% (2304 calls)
-# -- ~31% of GPU time in launch overhead + a needless dtype cast. This ONE kernel bins the whole (n,K)
+# - ~31% of GPU time in launch overhead + a needless dtype cast. This ONE kernel bins the whole (n,K)
 # matrix: each thread takes one element, binary-searches its column's nbins-1 interior edges (upper_bound
 # = count of edges <= value = EXACTLY cp.searchsorted(.., side='right')), and writes the int32 code
-# directly -- coalesced cand/out (row-major) + coalesced strided edge reads (consecutive threads = adjacent
+# directly - coalesced cand/out (row-major) + coalesced strided edge reads (consecutive threads = adjacent
 # columns). BIT-IDENTICAL to the per-column searchsorted; one launch, no int64 intermediate.
 #
-# coalescing-audit (2026-06-23): ALREADY COALESCED -- at floor. CUDA-event A/B at the production shape
+# coalescing-audit: ALREADY COALESCED - at floor. CUDA-event A/B at the production shape
 # (n=100k, K=583, nbins=10, GTX 1050 Ti): 11.96ms (thread ``idx`` reads cand[idx] coalesced, col=idx%K, and
 # writes out[idx] coalesced). A (K,n) column-major-input variant was tried (to mirror the materialise/radix
-# wins): 70.3ms = 5.9x SLOWER -- the (n,K) row-major OUTPUT write out[row*K+col] becomes stride-K
+# wins): 70.3ms = 5.9x SLOWER - the (n,K) row-major OUTPUT write out[row*K+col] becomes stride-K
 # uncoalesced when threads are laid out column-major. The row-major layout is the coalesced one for BOTH the
 # value read and the code write here; do not re-audit.
 # Edges are ALWAYS float64 (cp.percentile and the radix-select both produce f64 edges). The value is
-# promoted to double for the compare -- EXACTLY what cp.searchsorted(f64_edges, f32_value) does (it
+# promoted to double for the compare - EXACTLY what cp.searchsorted(f64_edges, f32_value) does (it
 # upcasts the value to the edges' dtype). Comparing in the value's f32 instead would 1-off at boundaries
-# (a downcast of the f64 edge loses precision) -- the bug that broke bit-identity on the first cut.
+# (a downcast of the f64 edge loses precision) - the bug that broke bit-identity on the first cut.
 #
 # bench-attempt-rejected (2026-06-27): nsys re-profile (iter 2) made bin_codes_f32 the #3 GPU kernel (171ms/
 # 12 inst); nvprof showed gld_efficiency=51.7% (the divergent f64 edge reads drag the f32 cand read down)
@@ -72,9 +72,9 @@ void bin_codes_TYPENAME(const TYPE* __restrict__ cand, const double* __restrict_
 # binning kernel instead of int32-then-astype. The resident chunk path discretized to int32 (this kernel)
 # then immediately cast int32->int8 per VRAM chunk (a separate launch + a full (n,K) int32 intermediate,
 # ~12-24x/fit). Instantiating the kernel's OUTPUT type directly (OUTTYPE) drops that cast launch + the int32
-# buffer. nbins<=128 -> int8 cannot overflow (GPU_INFRA_B-4 fix: codes are in
+# buffer. nbins<=128 -> int8 cannot overflow (codes are in
 # [0, nbins-1] and _BIN_CODES_OUTTYPE's "int8" is C signed char, range -128..127, not 0..255); the on-device
-# write is the same upper_bound value, only narrower -- BIT-IDENTICAL to int32-then-astype. The default out_dtype stays int32
+# write is the same upper_bound value, only narrower - BIT-IDENTICAL to int32-then-astype. The default out_dtype stays int32
 # so every other caller (basis/hermite) is byte-for-byte unchanged.
 _BIN_CODES_OUTTYPE = {"int8": "signed char", "int16": "short", "int32": "int", "int64": "long long"}
 
@@ -108,7 +108,7 @@ def _searchsorted_codes(cand_gpu, interior_edges, out_dtype=None):
     """Bin (n,K) ``cand_gpu`` against per-column ascending ``interior_edges`` (ne,K) -> int32 (n,K) codes,
     code = #(interior edges <= value) (== per-column cp.searchsorted side='right'). One fused kernel
     launch (no K searchsorted launches, no int64->int32 cast). Falls back to the per-column loop on any
-    kernel failure -- bit-identical either way."""
+    kernel failure - bit-identical either way."""
     import cupy as cp
 
     n, K = cand_gpu.shape
@@ -146,12 +146,12 @@ def _searchsorted_codes(cand_gpu, interior_edges, out_dtype=None):
 
 def _gpu_resident_discretize_codes(cand_gpu, nbins: int, out_dtype=None, cm_hint=None):
     """Quantile-bin a RESIDENT (n, K) cupy candidate matrix to ordinal codes ON the GPU. Mirrors
-    ``discretize_2d_array_cuda`` -- ``cp.percentile(.., linspace(0,100,nbins+1), axis=0)`` for per-column
-    edges + per-column ``cp.searchsorted(edges[1:-1], col, side='right')`` -- but keeps the input + output
+    ``discretize_2d_array_cuda`` - ``cp.percentile(.., linspace(0,100,nbins+1), axis=0)`` for per-column
+    edges + per-column ``cp.searchsorted(edges[1:-1], col, side='right')`` - but keeps the input + output
     on-device (no H2D of the big candidate matrix, no D2H of codes here), so it chains gen -> discretize ->
     noise-gate without round-trips. Returns a cupy int32 (n, K) codes array (resident).
 
-    DTYPE: the percentile + searchsorted run in the INPUT's native dtype by default -- so the float32 FE
+    DTYPE: the percentile + searchsorted run in the INPUT's native dtype by default - so the float32 FE
     candidate buffer stays float32 (no up-cast; float32 halves the bandwidth of the dominant full sort
     cp.percentile does and preserves the FE selection, the acceptance bar) while the float64 grand-fused
     MI path stays float64 (bit-identical). ``MLFRAME_FE_GPU_BINNING_DTYPE=float64`` forces the exact f64
@@ -159,8 +159,8 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int, out_dtype=None, cm_hint
     upcasts float32 to float64); ``=float32`` forces f32."""
     import cupy as cp
 
-    # Bin in the input's NATIVE dtype by default (the float32 FE candidate buffer stays float32 -- no
-    # up-cast, half the sort bandwidth; the float64 grand-fused MI path stays float64 -- bit-identical).
+    # Bin in the input's NATIVE dtype by default (the float32 FE candidate buffer stays float32 - no
+    # up-cast, half the sort bandwidth; the float64 grand-fused MI path stays float64 - bit-identical).
     # MLFRAME_FE_GPU_BINNING_DTYPE forces a specific working dtype (float64 = the exact CPU-parity fallback).
     # cross-sibling (parent) radix-select edge primitives: lazy-imported to avoid an import cycle.
     from ._gpu_resident_select import _radix_select_interior_edges, fe_gpu_radix_edges_enabled

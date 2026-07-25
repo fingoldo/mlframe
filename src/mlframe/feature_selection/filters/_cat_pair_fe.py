@@ -3,7 +3,7 @@
 NVIDIA cuDF Kaggle-Grandmaster blog technique #3: combine two categorical
 columns into a new high-cardinality categorical ``hash(cat_i || cat_j)`` then
 target-encode it. The raw cross captures conditional structure that neither
-parent column carries alone -- the textbook example is the categorical XOR
+parent column carries alone - the textbook example is the categorical XOR
 ``y = cat_a XOR cat_b`` where each parent is marginally uninformative but the
 pair is fully predictive.
 
@@ -15,11 +15,11 @@ crosses carry no synergy. We pre-filter pairs by INTERACTION INFORMATION:
 
     II(cat_i, cat_j; y) = I(cat_i, cat_j; y) - I(cat_i; y) - I(cat_j; y)
 
-* ``II > 0`` -- synergy: the joint tells more than the sum of the marginals
+* ``II > 0`` - synergy: the joint tells more than the sum of the marginals
   (XOR-like). These are the crosses worth materialising.
-* ``II < 0`` -- redundancy: the parents overlap (e.g. one is a copy of the
+* ``II < 0`` - redundancy: the parents overlap (e.g. one is a copy of the
   other), so the cross adds nothing over either parent.
-* ``II ~ 0`` -- the parents are conditionally independent given y; the cross
+* ``II ~ 0`` - the parents are conditionally independent given y; the cross
   is no better than concatenating two independent encodings.
 
 Only pairs with ``II > threshold`` are materialised. The discrete MI / joint
@@ -93,7 +93,7 @@ def _cross_too_high_card(n_distinct_cells: int, n_samples: int) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Cross materialisation -- pure X-only kernel (no y reference)
+# Cross materialisation - pure X-only kernel (no y reference)
 # ---------------------------------------------------------------------------
 
 
@@ -112,8 +112,8 @@ def _encode_pair(
     already mapped to the ``"__nan__"`` sentinel by ``_column_to_str`` upstream,
     so they form their own implicit category at fit AND replay.
 
-    ``precomputed_i``/``precomputed_j`` let a caller that already holds a column's ``(uniq_strings, dense_codes)`` -- e.g.
-    ``score_cat_pairs_by_interaction_information``'s per-column cache -- skip re-deriving them via ``_column_to_str`` + ``np.unique`` here
+    ``precomputed_i``/``precomputed_j`` let a caller that already holds a column's ``(uniq_strings, dense_codes)`` - e.g.
+    ``score_cat_pairs_by_interaction_information``'s per-column cache - skip re-deriving them via ``_column_to_str`` + ``np.unique`` here
     (bit-identical: same ``np.unique`` call the caller already made on the identical column). ``cats_i``/``cats_j`` are then only needed as
     the fallback for columns the caller hasn't already factorised.
     """
@@ -135,7 +135,7 @@ def _encode_pair(
     # Vectorised factorisation: encode each parent's string stream to ints,
     # fold the pair into a single combined key, then np.unique(return_inverse)
     # assigns dense codes in one C pass (the per-row Python loop was the
-    # materialisation hotspot at scale -- cProfile 2026-06-01). Codes are
+    # materialisation hotspot at scale - cProfile 2026-06-01). Codes are
     # assigned in SORTED-pair order (np.unique sorts) rather than first-seen;
     # the absolute code values are arbitrary anyway (consumed as a categorical
     # / target-encoded), and replay maps via the stored value-pair lookup, so
@@ -252,7 +252,7 @@ def score_cat_pairs_by_interaction_information(
     (``_adaptive_nbins._plug_in_mi``) is reused so the estimator family matches
     the rest of the FE stack (Layer 19 / Layer 88).
 
-    ``code_cache_out``, when given, is populated with ``{col: (uniq_strings, dense_codes)}`` for every column this call factorises -- the SAME
+    ``code_cache_out``, when given, is populated with ``{col: (uniq_strings, dense_codes)}`` for every column this call factorises - the SAME
     ``np.unique(_column_to_str(X[col]), return_inverse=True)`` result a downstream materialisation step (e.g. ``hybrid_cat_pair_fe``) would otherwise
     re-derive from scratch via ``_encode_pair``'s ``precomputed_i``/``precomputed_j`` params.
 
@@ -279,7 +279,7 @@ def score_cat_pairs_by_interaction_information(
     # Only ``I(cat_i, cat_j; y)`` (the joint) is inherently per-pair. Since
     # ``II = I(a,b;y) - I(a;y) - I(b;y)`` this caching removes 2/3 of the MI
     # estimator calls plus all redundant factorisation. CRITICAL: this is a
-    # pure caching win -- NO pair is pruned by marginal MI (pure XOR has both
+    # pure caching win - NO pair is pruned by marginal MI (pure XOR has both
     # marginals ~0 yet large II; a marginal-floor filter would silently drop
     # the one synergy we exist to find). bench (p=30, n=5000, 2026-06-01):
     # naive per-pair recompute ~3036 ms -> cached ~240 ms = 12.6x.
@@ -363,7 +363,7 @@ def auto_detect_cat_pair_cols(
         try:
             card = int(s.nunique(dropna=True))
         except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _cat_pair_fe.py:337: %s", e)
+            logger.debug("suppressed: %s", e)
             continue
         if min_card <= card <= max_card:
             out.append(str(col))
@@ -387,7 +387,7 @@ def _kfold_target_encode_codes(
     applied to the cross cell codes). Returns ``(oof_values, lookup, global_mean)``
     where ``lookup`` maps each cell code to its full-data smoothed mean-of-y.
     """
-    # CAT_INTERACTION_A-8 fix: mirrors the near-sibling kfold_target_encode_fit's
+    # Mirrors the near-sibling kfold_target_encode_fit's
     # (_target_encoding_fe.py) explicit n_folds>=2 guard. Pre-fix: n_folds=0 raised a raw, unhelpful
     # ZeroDivisionError from `np.arange(n) % int(n_folds)`; n_folds=1 didn't crash but silently emitted an
     # entirely-uninformative TE column (every row = global_mean, since train_mask=(fold_ids != 0) is
@@ -475,7 +475,7 @@ def hybrid_cat_pair_fe(
     if len(cat_cols) < 2 and pairs is None:
         return X, [], [], pd.DataFrame()
 
-    # ``code_cache`` collects the scorer's per-column ``(uniq_strings, dense_codes)`` -- every survivor's
+    # ``code_cache`` collects the scorer's per-column ``(uniq_strings, dense_codes)`` - every survivor's
     # cat_i/cat_j was necessarily scored (hence already factorised), so the materialisation loop below reuses
     # them via ``_encode_pair``'s ``precomputed_i``/``precomputed_j`` instead of re-running
     # ``_column_to_str`` + ``np.unique`` from scratch per survivor.
@@ -560,7 +560,7 @@ def apply_cat_pair_cross(
     * ``encoding='target'``: emit the per-cell mean-of-y from ``te_lookup``;
       unseen tuples (and seen-tuple codes absent from the lookup) -> ``global_mean``.
 
-    No y reference at replay -- pure function of X.
+    No y reference at replay - pure function of X.
     """
     if not isinstance(X_test, pd.DataFrame):
         raise TypeError(f"apply_cat_pair_cross: X_test must be a DataFrame; got " f"{type(X_test).__name__}")
@@ -584,12 +584,12 @@ def apply_cat_pair_cross(
     # bench-attempt-rejected (2026-06-02, n=200k, ki=kj=15): a pd.factorize-fold
     # vectorization (factorize cat_i + cat_j, fold the two dense codes into one
     # int key, factorize that, resolve mapping.get per distinct pair, gather)
-    # measured 0.9x -- slightly SLOWER. The two 200k string-column factorizes cost
+    # measured 0.9x - slightly SLOWER. The two 200k string-column factorizes cost
     # as much as the per-row tuple dict.get they replace, and the fold + combined
     # factorize add a third hashing pass that cancels the dedup benefit. Unlike
     # the single-column count/frequency encoders (one factorize replaces the
     # per-row get for a clean ~6x), the two-column tuple key has no cheap dense
-    # factorize. Keep the per-row dict.get -- but iterate via ``.tolist()`` + zip:
+    # factorize. Keep the per-row dict.get - but iterate via ``.tolist()`` + zip:
     # ``.tolist()`` boxes each object array to Python objects in ONE C pass, so the
     # loop yields pre-boxed objects instead of paying a per-row numpy __getitem__
     # boxing on ``cats_i[r]`` / ``cats_j[r]``. Bit-identical (same values, order,

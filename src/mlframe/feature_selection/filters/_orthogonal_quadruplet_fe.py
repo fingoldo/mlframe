@@ -1,4 +1,4 @@
-"""Layer 77 (2026-06-01): QUADRUPLET cross-basis FE.
+"""Layer 77: QUADRUPLET cross-basis FE.
 
 Extends the Layer 22 pair-cross-basis path and the Layer 56 triplet path
 to FOUR legs: ``basis_a(x_i) * basis_b(x_j) * basis_c(x_k) * basis_d(x_l)``.
@@ -10,7 +10,7 @@ The pair path (Layer 22) captures bilinear interactions. The triplet
 path (Layer 56) captures ``y = sign(x_i * x_j * x_k)`` (3-way XOR /
 volume targets). Layer 77 reaches the next tier:
 
-* 4-way XOR ``y = sign(x_1 * x_2 * x_3 * x_4)`` -- every triplet
+* 4-way XOR ``y = sign(x_1 * x_2 * x_3 * x_4)`` - every triplet
   marginal MI is zero by symmetry (the 4th leg randomises balanced),
   so the Layer 56 triplet stage cannot find it. Only the cell
   ``He_1*He_1*He_1*He_1`` carries signal.
@@ -72,7 +72,7 @@ __all__ = [
 def _coerce_y_int64(y) -> np.ndarray:
     """Dense int64 class labels. Non-integer y is densified via
     ``np.unique(return_inverse=...)`` rather than truncated with
-    ``.astype(int64)`` -- plain truncation merges distinct labels and destroys
+    ``.astype(int64)`` - plain truncation merges distinct labels and destroys
     continuous-y signal (everything in [0, 1) collapses to class 0)."""
     arr = np.asarray(y).ravel()
     if np.issubdtype(arr.dtype, np.integer):
@@ -124,7 +124,7 @@ def generate_quadruplet_cross_basis_features(
     basis : {'auto', 'hermite', 'legendre', 'chebyshev', 'laguerre'}
         Routed per-column via ``basis_route_by_moments`` when ``'auto'``.
     min_degree : int
-        Minimum degree per leg. Default 1 -- degree 0 produces a leg
+        Minimum degree per leg. Default 1 - degree 0 produces a leg
         equal to the constant, collapsing the quadruplet to a triplet
         which is already covered by Layer 56.
 
@@ -163,10 +163,10 @@ def generate_quadruplet_cross_basis_features(
         from ._fe_usability_signal import _crit_np_dtype
         _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); matches the GPU device
         # builder's operand dtype (_gpu_resident_cross_basis.py) so host and device run the polynomial
-        # recurrence at the SAME precision -- see build_leg_product_matrix_gpu's docstring.
-        # np.array (copy=True): X[col].to_numpy() can alias the DataFrame's backing block -- e.g. a
+        # recurrence at the SAME precision - see build_leg_product_matrix_gpu's docstring.
+        # np.array (copy=True): X[col].to_numpy() can alias the DataFrame's backing block - e.g. a
         # zero-copy Arrow-backed view or a frozen MRMR-fit-cache array reused via fe_append_columns from
-        # an earlier stage -- and the np.copyto NaN-fill below would then either mutate the CALLER's X or
+        # an earlier stage - and the np.copyto NaN-fill below would then either mutate the CALLER's X or
         # raise "assignment destination is read-only" on a genuinely read-only block. A fresh copy (matching
         # the sibling pair-cross / GPU-resident generators' established pattern) keeps the fill local and safe.
         x_i = np.array(X[col_i].to_numpy(), dtype=_dt)
@@ -283,7 +283,7 @@ def score_quadruplet_cross_basis_by_mi_uplift(
     of the four raw source columns.
 
     Mirrors ``score_triplet_cross_basis_by_mi_uplift`` with a fourth leg.
-    Baseline is ``max(MI(x_i;y), MI(x_j;y), MI(x_k;y), MI(x_l;y))`` -- a
+    Baseline is ``max(MI(x_i;y), MI(x_j;y), MI(x_k;y), MI(x_l;y))`` - a
     real 4-way interaction must beat the BEST individual leg, not just
     the worst, to count as genuine 4-way signal.
 
@@ -298,7 +298,7 @@ def score_quadruplet_cross_basis_by_mi_uplift(
     if engineered_X.empty:
         return pd.DataFrame(columns=_QUADRUPLET_SCORE_EMPTY_COLS)
     # DEVICE-BORN (STRICT-resident): rebuild the quadruplet product matrix on the GPU + score both it and the raw
-    # baseline through the SAME resident plug-in MI -- collapsing the host product-matrix upload at :311.
+    # baseline through the SAME resident plug-in MI - collapsing the host product-matrix upload at :311.
     raw_mi_map = eng_mi = None
     _specs = _quadruplet_device_col_specs(engineered_X.columns, raw_cols)
     if _specs is not None:
@@ -321,7 +321,7 @@ def score_quadruplet_cross_basis_by_mi_uplift(
         head = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
         legs = head.split("*")
         if len(legs) != 4:
-            # Not a quadruplet column -- skip (triplet/pair/univariate output
+            # Not a quadruplet column - skip (triplet/pair/univariate output
             # mistakenly routed through this scorer would land here).
             continue
         col_i, col_j, col_k, col_l = legs
@@ -390,7 +390,7 @@ def hybrid_orth_mi_quadruplet_fe(
     Cost: enumerating quadruplets over full input would be O(p^4); the
     seed_k cap turns it into O(seed_k^4) regardless of input width.
     Default ``top_quadruplet_seed_k=4`` -> 1 quadruplet * 1 cell (deg 1)
-    = 1 candidate -- bounded.
+    = 1 candidate - bounded.
 
     Parameters
     ----------
@@ -436,7 +436,7 @@ def hybrid_orth_mi_quadruplet_fe(
         else:
             # Stage 1 (hybrid_orth_mi_fe, just above) already ran a full raw-column MI batch
             # internally and surfaced it per-source in uni_scores["baseline_mi"] (same y coercion,
-            # same raw-column universe when cols=None) -- reuse it instead of a second full
+            # same raw-column universe when cols=None) - reuse it instead of a second full
             # _mi_classif_batch pass; only recompute for a raw column uni_scores doesn't cover
             # (skipped source: all-NaN / int-as-cat / dedup'd), so the ranking stays exactly
             # selection-equivalent to the old always-recompute path.
@@ -604,9 +604,9 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
                     basis_c = basis_route_by_moments(x_k)
                     basis_d = basis_route_by_moments(x_l)
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed in _orthogonal_quadruplet_fe.py:573: %s", e)
+                    logger.debug("suppressed: %s", e)
                     pass
-            # REPLAY-FIDELITY FIX (2026-06-13): freeze each leg's fit-time basis-preprocess params so
+            # REPLAY-FIDELITY FIX: freeze each leg's fit-time basis-preprocess params so
             # transform() replays the basis axis byte-exactly (no slice-vs-full refit drift). Guarded.
             _pp_a = _pp_b = _pp_c = _pp_d = None
             try:
@@ -615,7 +615,7 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
                 _, _pp_c = _evaluate_basis_column(x_k, basis_c, deg_c, return_params=True)
                 _, _pp_d = _evaluate_basis_column(x_l, basis_d, deg_d, return_params=True)
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _orthogonal_quadruplet_fe.py:583: %s", e)
+                logger.debug("suppressed: %s", e)
                 pass
             recipes.append(build_orth_quadruplet_cross_recipe(
                 name=name,
@@ -638,7 +638,7 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
                     name,
                 )
                 continue
-            # REPLAY-FIDELITY FIX (2026-06-13): freeze the fit-time basis-preprocess params.
+            # REPLAY-FIDELITY FIX: freeze the fit-time basis-preprocess params.
             _pp_u = None
             try:
                 _x_u = X[src].to_numpy(dtype=np.float64)  # value-construction: always float64, see above

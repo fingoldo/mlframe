@@ -3,7 +3,7 @@
 Sklearn ``f_classif`` / ``f_regression`` densifies the full ``(n_samples, n_features)`` design as
 float64 (always: their ``_safe_X`` call materialises a contiguous float64 view), then carves K
 per-class halves, then squares-and-sums. At width=20000 / n_rows=10000 that is ~1.6 GB per copy
-and 5-6 GB peak RSS just to rank columns marginally -- the C4 regime OOMs at the univariate stage
+and 5-6 GB peak RSS just to rank columns marginally - the C4 regime OOMs at the univariate stage
 before any tree booster fits.
 
 This module recomputes the same F-statistic in column chunks of size ``batch_size`` so peak
@@ -130,7 +130,7 @@ def f_classif_chunked(
     """Column-batched ANOVA F-statistic, sklearn ``f_classif`` parity.
 
     Returns a length-``n_features`` float64 vector. -inf flags constant within-class (zero
-    within-group SS) and degenerate (N <= K) columns -- same sentinel ``_rank_univariate`` writes
+    within-group SS) and degenerate (N <= K) columns - same sentinel ``_rank_univariate`` writes
     after the sklearn call. Allocation per batch is ``8 * n_samples * batch_size`` bytes plus K
     boolean masks of length n_samples; the original (n_samples, n_features) is never materialised
     as float64.
@@ -213,7 +213,7 @@ def f_classif_chunked(
         sswn = sst - ssbn
         # Constant-column detection: sst is the CENTERED total sum of squares (total_sumsq -
         # correction). For a literally-constant column sst is 0 modulo float cancellation, whose
-        # magnitude is bounded by eps * max(total_sumsq, correction) -- the noise floor of forming
+        # magnitude is bounded by eps * max(total_sumsq, correction) - the noise floor of forming
         # the centered quantity. Gate against that centered FP floor, NOT against the raw uncentered
         # total_sumsq scaled by N: a large-mean low-variance column has a huge total_sumsq, so the
         # old eps*|total_sumsq|*N threshold ballooned far above the column's genuine centered

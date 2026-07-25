@@ -1,8 +1,8 @@
 """Per-gate FE REJECTION LEDGER (the rejection side of the Layer-54 provenance surface).
 
 User-facing question this layer answers: "WHY was this engineered candidate dropped?".
-``_mrmr_fe_provenance.py`` records the SURVIVING FE recipes (and -- via
-``_produced_recipes_`` -- the produced-but-screened survivors with their origin). The
+``_mrmr_fe_provenance.py`` records the SURVIVING FE recipes (and - via
+``_produced_recipes_`` - the produced-but-screened survivors with their origin). The
 FE pair / candidate search, however, runs every candidate through ~6 GATES and SILENTLY
 discards the ones that miss; the session has repeatedly had to hand-instrument the search
 to recover which gate killed a given candidate and by how much. This layer makes that
@@ -33,13 +33,13 @@ PURE ADDITIVE
 This layer touches NO gate decision logic. Every record is built from values the gate
 ALREADY computed at its drop site (the ratio it compared, the floor it compared against,
 the per-name diagnostics the CMI gate already returns, the per-recipe fold pass-counts the
-stability vote already counts). The ledger only RECORDS -- it never recomputes an MI, a
+stability vote already counts). The ledger only RECORDS - it never recomputes an MI, a
 permutation null, or a CMI. Cost is one ``list.append`` of a small dict per rejected
 candidate.
 
 DEFAULT-ON, MEMORY-CAPPED
 -------------------------
-Every fitted MRMR carries ``fe_rejection_ledger_`` -- there is no opt-in flag (mirrors
+Every fitted MRMR carries ``fe_rejection_ledger_`` - there is no opt-in flag (mirrors
 ``fe_provenance_``). To bound memory on pathological wide frames (hundreds of thousands of
 rejected pair candidates on very-wide-p fits) the raw record list is capped at
 ``FE_REJECTION_LEDGER_CAP`` records (or ``MRMR(fe_rejection_ledger_cap=...)`` when set on the
@@ -133,7 +133,7 @@ def record_fe_rejection(
     when both are finite and ``margin`` is not supplied. Memory-capped: once the list reaches
     the effective cap (``mrmr_self.fe_rejection_ledger_cap`` if set, else module-default
     ``FE_REJECTION_LEDGER_CAP``) a single ``ledger_capped`` marker is appended (so the cap is
-    never silent) and subsequent records are dropped. Swallows its OWN errors -- an
+    never silent) and subsequent records are dropped. Swallows its OWN errors - an
     instrumentation failure must never break the FE search.
     """
     try:

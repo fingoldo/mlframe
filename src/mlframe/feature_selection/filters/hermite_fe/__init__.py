@@ -1,12 +1,12 @@
 """Improved orthogonal-polynomial pair Feature Engineering.
 
 Supports four orthogonal polynomial families via the basis kwarg: Hermite, Legendre, Chebyshev, Laguerre.
-Default basis is Chebyshev, picked empirically across 12 synthetic + UCI regimes -- it never finishes last,
+Default basis is Chebyshev, picked empirically across 12 synthetic + UCI regimes - it never finishes last,
 has the highest minimum MI, and dominates real-world tabular data + threshold targets.
 See _benchmarks/bench_polynomial_bases.py for the supporting table.
 
 Idea: orthogonal polynomials form a complete basis on their natural domain, so any sufficiently smooth bivariate
-function f(x_a, x_b) can be represented as Sum c_{a,i} c_{b,j} P_i(x_a) P_j(x_b) -- find coefficients via Optuna,
+function f(x_a, x_b) can be represented as Sum c_{a,i} c_{b,j} P_i(x_a) P_j(x_b) - find coefficients via Optuna,
 MI-against-target as the objective. Replaces hand-coded unary x binary transformations with a single learned
 parametric family.
 
@@ -15,7 +15,7 @@ Key implementation choices vs naive Hermite-only:
 1. Standardisation. hermval(raw_x, c) blows up numerically when |x| >> 1 (high-degree Hermite goes superlinear).
    Z-score inputs before evaluation so [-3, 3] covers ~99.7% of the support.
 2. Right Hermite family. Numpy's polynomial.hermite is the physicist's H_n(x) (weight e^{-x^2}); for z-scored
-   inputs (standard Normal) we want the probabilist's He_n(x) (weight e^{-x^2/2}) -- polynomial.hermite_e.hermeval.
+   inputs (standard Normal) we want the probabilist's He_n(x) (weight e^{-x^2/2}) - polynomial.hermite_e.hermeval.
 3. Tight coefficient range [-2, 2] instead of [-10, 10]: higher-degree terms dominate quickly, large ranges
    make TPE wander.
 4. Fixed degree per study: random length per trial breaks TPE's posterior. Degrees swept as an outer loop.
@@ -25,7 +25,7 @@ Key implementation choices vs naive Hermite-only:
 Usage::
 
     from mlframe.feature_selection.filters.hermite_fe import optimise_hermite_pair, HermiteResult
-    res = optimise_hermite_pair(x_a=col_a, x_b=col_b, y=target, n_trials=200, max_degree=4, n_jobs=1)
+    res = optimise_hermite_pair(x_a=col_a, x_b=col_b, y=target, n_trials=200, max_degree=4)
     if res.uplift > 1.05:
         engineered = res.transform(x_a, x_b)
 """
@@ -65,10 +65,10 @@ except ImportError:
 # faster on n<=10000 because it skips joblib, sklearn validation, and the Cython kNN search.
 #
 # Why plug-in is OK as Optuna objective (not as final reported MI):
-# * Optuna only needs a monotone proxy of "is this coefficient set better?" -- absolute MI value is irrelevant.
+# * Optuna only needs a monotone proxy of "is this coefficient set better?" - absolute MI value is irrelevant.
 # * Plug-in over-estimates MI vs KSG (entropy bias), but the bias is nearly constant across coefficient sets
 #   (same n, same n_bins), so the optimum coefficient set is the same.
-# * Quantile binning is rank-stable -- same as KSG's underlying permutation invariance.
+# * Quantile binning is rank-stable - same as KSG's underlying permutation invariance.
 # A separate "mi_estimator='ksg'" path keeps sklearn KSG as the reference; both paths reach equivalent best
 # coefficients on the 12-regime sweep.
 
@@ -78,23 +78,23 @@ def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
     """Quantile-bin a 1-D continuous array into n_bins equi-frequency bins. Returns int32 bin indices in [0, n_bins).
 
     bench-attempt-rejected: kth-order-statistic edges via numba np.partition + searchsorted (the CPU analogue
-    of the GPU radix-edge binner) measured 2.6x SLOWER than this argsort form (99401: 17.8ms vs 46.5ms) --
+    of the GPU radix-edge binner) measured 2.6x SLOWER than this argsort form (99401: 17.8ms vs 46.5ms) -
     numba's np.partition re-copies the array per edge, and no multi-kth variant exists. argsort stays optimal
     (third measured rejection at this site; see also the two in _plugin_mi_classif_batch_njit).
 
     ``kind="mergesort"`` (2026-07-16, cProfile/cross-backend-parity investigation): numba's default argsort
     (quicksort family) is NOT stable, so on tie-heavy columns (e.g. an integer combiner with many exact
-    duplicate values) its tie order is an unspecified implementation detail -- and it does NOT match cupy's
+    duplicate values) its tie order is an unspecified implementation detail - and it does NOT match cupy's
     ``cp.argsort`` (verified stable, matches ``np.argsort(..., kind="stable")`` bit-for-bit). Every GPU rank-
     binning path in this codebase (``_gpu_resident_rank_bin.rank_bin_codes_batch_gpu_resident`` et al.) is
-    documented as "byte-identical to this CPU njit rank binner" -- a contract that silently broke on tied
+    documented as "byte-identical to this CPU njit rank binner" - a contract that silently broke on tied
     data (found via test_sf2_combiner_baseline_and_residue_mi_byte_identical: ~6%% MI divergence on a
     -999..999 integer combiner, n=50000, traced to exactly this tie-order mismatch). Mergesort is numba's
     stable-sort kind (verified bit-identical to ``np.argsort(kind="stable")``, which cupy's argsort already
-    matches), so this is the ROOT fix, not a narrower patch on one caller -- every GPU-vs-CPU rank-binning
+    matches), so this is the ROOT fix, not a narrower patch on one caller - every GPU-vs-CPU rank-binning
     byte-identity claim in the codebase now actually holds instead of only holding on tie-free data.
     Measured cost: 0.93x-1.22x vs the old (arbitrary-tie-order) quicksort default across n in
-    {5k,20k,99k,500k} on continuous AND tie-heavy synthetic columns -- within noise to a modest ~20%% on this
+    {5k,20k,99k,500k} on continuous AND tie-heavy synthetic columns - within noise to a modest ~20%% on this
     one sort step, accepted for a correctness fix (this function was never a documented-arbitrary-tie-order
     contract; nothing should have depended on quicksort's specific, unspecified tie behaviour)."""
     n = x.shape[0]
@@ -118,7 +118,7 @@ def _plugin_mi_classif_batch_njit(X_cols: np.ndarray, y: np.ndarray, n_bins: int
     # The per-column ``.copy()`` materialises a CONTIGUOUS column before numba's argsort (inside
     # ``_plugin_mi_classif_njit`` -> ``_quantile_bin_njit``). It looks like a hoistable per-thread alloc, but it is the
     # fast layout: numba's ``np.argsort`` on a contiguous buffer beats argsort on a strided ``X_cols[:, j]`` view.
-    # bench-attempt-rejected (2026-06-20): two bit-identical reshapes both LOSE at the canonical 30k screen scale --
+    # bench-attempt-rejected (2026-06-20): two bit-identical reshapes both LOSE at the canonical 30k screen scale -
     #   (a) one-shot ``np.ascontiguousarray(X_cols.T)`` + contiguous-row argsort: 0.84-0.89x (the serial full-matrix
     #       transpose costs more than the k strided copies it removes);
     #   (b) drop the copy, pass ``X_cols[:, j]`` strided into argsort: 0.71-0.89x (strided argsort slower).
@@ -148,7 +148,7 @@ def _plugin_mi_classif_batch_rows_njit(X_rows: np.ndarray, y: np.ndarray, n_bins
     entirely. Bit-identical MI (same values, same contiguous argsort). Built for _eval_coef_pair_batch, which
     now fills its bf-combination batch row-major from the start (contiguous writes, no strided column stores).
     NOT a replacement for the (n, k) form: callers holding naturally column-major data keep the original
-    (the measured-rejected transpose of an EXISTING (n, k) matrix is a different, losing lever -- see above)."""
+    (the measured-rejected transpose of an EXISTING (n, k) matrix is a different, losing lever - see above)."""
     k = X_rows.shape[0]
     out = np.zeros(k, dtype=np.float64)
     for j in prange(k):
@@ -222,7 +222,7 @@ def _plugin_mi_classif_cuda(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> f
 #   2. On cache miss: auto-tune sweep (~10-30s once per host) measures
 #      the (n_samples, k) grid and persists.
 #   3. Fallback (no pyutilz / no cuda): hand-coded measurements per HW
-#      fingerprint -- on GTX 1050 Ti cc 6.1 (2026-05-20 sweep):
+#      fingerprint - on GTX 1050 Ti cc 6.1 (2026-05-20 sweep):
 #      single-col cuda from n>=75k, batch (k>=5) cuda from n>=10k.
 # Env-var ``MLFRAME_MI_BACKEND`` (``njit`` / ``cuda``) still force-
 # overrides regardless of cache.
@@ -274,7 +274,7 @@ def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray, device: int | None 
         _ensure_cuda_kernels()
         # x (the column being evaluated) is invariant across CMA-ES/Optuna trials for the SAME column;
         # resident-cache it so repeated trials on one column upload ONCE. c (the coefficients) genuinely
-        # vary per trial -- that is the thing being optimized -- so it stays a raw per-call upload.
+        # vary per trial - that is the thing being optimized - so it stays a raw per-call upload.
         from .._fe_resident_operands import resident_operand
         x_gpu = resident_operand(x, "hermite_polyeval_x", dtype=np.float64)
         c_gpu = cp.asarray(c, dtype=cp.float64)
@@ -301,10 +301,10 @@ def _polyeval_cuda_pick_devices(n: int) -> list:
     except Exception:
         return []
     needed = int(n) * 8 * 4 + (64 << 20)
-    # ABSOLUTE cushion guard (2026-07-05): the ``free >= needed`` test below is RELATIVE to this column's size
-    # and passes even when the card is nearly full (the pool already ate it) -- letting the next launch fault on
+    # ABSOLUTE cushion guard: the ``free >= needed`` test below is RELATIVE to this column's size
+    # and passes even when the card is nearly full (the pool already ate it) - letting the next launch fault on
     # a shared card. ADD an absolute free-VRAM floor (default >=1 GB free) per device so a near-full device is
-    # dropped from the cascade -> empty list -> CPU. Pure ADD -- tightens, never loosens; permissive without it.
+    # dropped from the cascade -> empty list -> CPU. Pure ADD - tightens, never loosens; permissive without it.
     _cushion: Any = None
     try:
         from .._fe_gpu_vram import fe_gpu_has_vram_cushion as _cushion
@@ -318,8 +318,8 @@ def _polyeval_cuda_pick_devices(n: int) -> list:
                 _cush_ok = _cushion(needed) if _cushion is not None else True
             if free >= needed and _cush_ok:
                 fits.append((free, d))
-        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-            logger.debug("suppressed in __init__.py:277: %s", e)
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+            logger.debug("suppressed: %s", e)
             continue
     fits.sort(reverse=True)  # most-free first
     return [d for _free, d in fits]
@@ -328,8 +328,8 @@ def _polyeval_cuda_pick_devices(n: int) -> list:
 # Size + hardware-aware dispatcher. Crossover points measured on this repo's reference hardware
 # (Intel CPU, GTX 1050 Ti) via bench_poly_eval_backends.py (cpu numpy in/out; includes H2D for CUDA):
 #   n < 50k:      njit (single-thread Horner)
-#   50k <= n:     njit_par (prange) -- 1.5-2x over single-thread
-#   500k <= n:    cuda_kernel if cupy available -- ~5x over njit_par
+#   50k <= n:     njit_par (prange) - 1.5-2x over single-thread
+#   500k <= n:    cuda_kernel if cupy available - ~5x over njit_par
 # Thresholds are conservative; on faster GPUs the CUDA crossover may be lower. Override via
 # MLFRAME_POLYEVAL_BACKEND env var.
 
@@ -383,7 +383,7 @@ def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
     CPU-backend migration (opt-in): when ``MLFRAME_POLYEVAL_ORACLE`` is truthy,
     the njit-vs-njit_par CPU choice is delegated to a ParamOracle that learns the
     crossover from recorded wall-times. The cuda path is unaffected and stays on
-    kernel_tuning_cache (cupy unbenchable on the dev box -- migration DEFERRED).
+    kernel_tuning_cache (cupy unbenchable on the dev box - migration DEFERRED).
     Default (flag unset) is byte-identical to the legacy threshold path."""
     forced = _os.environ.get("MLFRAME_POLYEVAL_BACKEND", "")
     n = x.shape[0]
@@ -394,25 +394,25 @@ def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
     # itself out of RAM (paging) cupy cannot allocate the pinned H2D staging buffer and raises cudaErrorMemoryAllocation;
     # without this guard the caller drops the ENTIRE engineered column ("...skipping") rather than computing it slower on
     # the CPU. Degrade, don't lose the feature. Warned once (the failure recurs per column and would flood the log).
-    # HOST-IN / HOST-OUT: this dispatcher takes a host (numpy) column and returns a host column -- the winner-replay
+    # HOST-IN / HOST-OUT: this dispatcher takes a host (numpy) column and returns a host column - the winner-replay
     # (apply_recipe) and the host basis builder both APPEND the result to a pandas frame. Computing that on the GPU means
     # H2D + D2H over PCIe around a memory-bound Horner pass: two transfers of the column for a trivial arithmetic sweep,
-    # so the CPU (njit, in place, no transfer) is competitive-or-faster -- and, per the resident-vs-host lesson that made
+    # so the CPU (njit, in place, no transfer) is competitive-or-faster - and, per the resident-vs-host lesson that made
     # the plug-in MI dispatcher default to CPU, a solo GPU microbench (the source of the old n>=500k threshold) overstates
     # the win once the FE pipeline fires these from many joblib workers contending on one GPU. So the DEFAULT never uploads
     # the feature column to the GPU; the GPU polyeval is used ONLY when explicitly forced (MLFRAME_POLYEVAL_BACKEND=cuda),
     # e.g. for A/B or a genuinely device-resident caller. The STRICT resident builder keeps its device operands and does
     # NOT route through here (it uses _gpu_evaluate_basis_matrix), so that legitimately-resident path is unaffected.
     if forced == "cuda" and _CUDA_AVAILABLE:
-        # Per-column device CASCADE: try the roomiest GPU, then the next, then CPU -- so on a multi-GPU box a busy/full
+        # Per-column device CASCADE: try the roomiest GPU, then the next, then CPU - so on a multi-GPU box a busy/full
         # device 0 does not block the eval, and an OOM (incl. host pinned-mem exhaustion) degrades instead of dropping
         # the column. Empty candidate list (no device has room) -> straight to CPU.
         for _dev in _polyeval_cuda_pick_devices(n) or [None]:
             try:
                 return _polyeval_cuda(basis, x, c, device=_dev)
-            except Exception as _cuda_exc:  # OOM / driver error on this device -> try the next, then CPU  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+            except Exception as _cuda_exc:  # OOM / driver error on this device -> try the next, then CPU  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
                 _warn_polyeval_cuda_fallback_once(_cuda_exc)
-        # every device failed -- fall through to the CPU njit / njit_par path.
+        # every device failed - fall through to the CPU njit / njit_par path.
     if forced == "njit_par":
         return np.asarray(_NJIT_PAR_FUNCS[basis](x, c))
     # CPU njit/njit_par crossover: oracle-driven when enabled, else the legacy
@@ -440,7 +440,7 @@ def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
 # The basis preprocessors below fit their normalisation scale (std for z-score, min/max span for min-max, min for shift)
 # from RAW per-column statistics. On a heavy-tailed / outlier-contaminated column (e.g. 1-5% of values at +/-1000) the
 # raw std / span blows up ~1000x, collapsing 99% of the data into a sliver near the axis centre. The engineered He_n / P_n
-# transform then (a) carries an OUTLIER-INFLATED plug-in MI that can hijack selection, and (b) is SHIFT-FRAGILE -- a new
+# transform then (a) carries an OUTLIER-INFLATED plug-in MI that can hijack selection, and (b) is SHIFT-FRAGILE - a new
 # extreme value in production moves the axis and changes every row's engineered value.
 #
 # Fix: estimate the scale from an INNER-QUANTILE / MAD range that excludes the contaminating tail, then CLAMP the mapped
@@ -671,9 +671,9 @@ def _safe_div(a, b):
     different runtimes (numpy host fn / xp-generic / CUDA-C source string); any change to the eps/branch here MUST be
     applied to both GPU sites or the CPU<->GPU op-parity test (equiv_rtol=1e-9) breaks."""
     eps = 1e-9
-    # HEAVY-TAIL FIX (2026-06-13): substitute ``eps`` ONLY for an exactly-zero denominator; every nonzero ``b`` divides
+    # HEAVY-TAIL FIX: substitute ``eps`` ONLY for an exactly-zero denominator; every nonzero ``b`` divides
     # exactly. The prior ``np.where(b >= 0, b + eps, b - eps)`` guaranteed ``|denom| >= eps`` but perturbed EVERY
-    # denominator by ``eps`` -- negligible for ordinary ``b`` yet ~``eps/b`` relative error as ``b -> 0`` (a 0.1% error
+    # denominator by ``eps`` - negligible for ordinary ``b`` yet ~``eps/b`` relative error as ``b -> 0`` (a 0.1% error
     # at ``b=1e-6``), which on a heavy-tailed ratio target inflates a linear downstream's MAE on the small-``b`` tail.
     b = np.asarray(b, dtype=np.float64)
     denom = np.where(b == 0.0, eps, b)
@@ -717,7 +717,7 @@ def _moment_fingerprint_njit(x: np.ndarray):
     """Fused two-pass moment fingerprint (mean, std, skew, excess-kurtosis, min, max) for ``basis_route_by_moments``.
 
     Replaces ~10 separate numpy reductions + four 1M-element temporaries (z, z2, z2*z, z2*z2) with two cache-friendly
-    loops and NO intermediate arrays -- the routing is called once per operand column per fit and was the dominant pure-
+    loops and NO intermediate arrays - the routing is called once per operand column per fit and was the dominant pure-
     host (numpy) hotspot of the STRICT F2 fit (~0.65s tottime). Numerics mirror the numpy body: ``mean = sum/n`` (same as
     ``np.mean``), ``std = sqrt(var) + 1e-12`` (same as ``np.std(x) + 1e-12``), ``skew = mean((x-mean)^3)/std^3`` and
     ``kurt_excess = mean((x-mean)^4)/std^4 - 3`` (identical to the ``z=(x-mean)/std``; ``mean(z^3)`` / ``mean(z^4)-3``
@@ -808,5 +808,9 @@ from .._hermite_fe_optimise import (
     _baseline_mi_pair, _eval_coef_pair, _run_cma_search, _select_diverse_topm, detect_pair_symmetry, optimise_hermite_pair, optimise_pair_multimode, precompute_hermite_pair_basis,
 )
 from .._hermite_fe_mi import (
-    _ensure_cuda_kernels, _plugin_mi_classif_batch_cuda, _plugin_mi_classif_batch_cuda_resident, _plugin_mi_classif_njit, _plugin_mi_from_binned_njit, _plugin_mi_regression_njit, plugin_mi_classif_batch_dispatch, plugin_mi_classif_dispatch, plugin_mi_classif_fast,
+    _bind_parent_kernels, _ensure_cuda_kernels, _plugin_mi_classif_batch_cuda, _plugin_mi_classif_batch_cuda_resident, _plugin_mi_classif_njit, _plugin_mi_from_binned_njit, _plugin_mi_regression_njit, plugin_mi_classif_batch_dispatch, plugin_mi_classif_dispatch, plugin_mi_classif_fast,
 )
+
+# Parent is now fully initialised (``_quantile_bin_njit`` bound at line 77); bind it into the sibling so a
+# subsequent sibling-first import in another process still finds the njit global (see _hermite_fe_mi header).
+_bind_parent_kernels()

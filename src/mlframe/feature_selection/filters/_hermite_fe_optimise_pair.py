@@ -30,7 +30,7 @@ def precompute_hermite_pair_basis(
 ) -> tuple:
     """Precompute the basis fit + identity baseline that ``optimise_hermite_pair`` would otherwise redo
     byte-for-byte on every ``fe_smart_polynom_iters`` restart of the SAME ``(x_a, x_b, y)`` (only ``seed``
-    differs across restarts -- mirrors the existing ``precomputed_trivial_baseline`` plumbing, which already
+    differs across restarts - mirrors the existing ``precomputed_trivial_baseline`` plumbing, which already
     hoists the trivial-baseline recompute out of that same restart loop).
 
     Call ONCE per pair before the restart loop and thread the five return values into every
@@ -100,7 +100,7 @@ def optimise_hermite_pair(
     use_trivial_baseline: bool = True,
     precomputed_trivial_baseline: float | None = None,
     precomputed_trivial_name: str | None = None,
-    # PRECOMPUTED BASIS FIT + IDENTITY BASELINE: mirrors precomputed_trivial_baseline above -- a caller running
+    # PRECOMPUTED BASIS FIT + IDENTITY BASELINE: mirrors precomputed_trivial_baseline above - a caller running
     # multiple fe_smart_polynom_iters restarts on the SAME (x_a, x_b, y) (only ``seed`` differs) can precompute
     # the basis fit (z_a/preprocess_a/z_b/preprocess_b via basis_info["fit"]) and the identity baseline
     # (_baseline_mi_pair) ONCE and pass them here to short-circuit the byte-identical per-restart recompute.
@@ -121,7 +121,7 @@ def optimise_hermite_pair(
     Knob tuning notes
     -----------------
     * basis="chebyshev" (default) wins empirically across 12 regimes (synthetic + UCI California Housing + UCI Diabetes +
-      bounded / heavy-tailed) -- never finishes last, highest minimum MI. Pass basis="hermite" for synthetic Gaussian inputs
+      bounded / heavy-tailed) - never finishes last, highest minimum MI. Pass basis="hermite" for synthetic Gaussian inputs
       or basis="laguerre" for skewed-positive. See _benchmarks/bench_polynomial_bases.py.
     * l2_penalty=0.05 weights a SCALE-SATURATING coefficient penalty (see ``hermite_fe._l2_penalty_value``): it rises toward a constant
       ``l2_penalty`` ceiling as ``||c||^2`` grows instead of growing without bound, so high-MI / high-coefficient solutions (e.g. a separable
@@ -129,23 +129,23 @@ def optimise_hermite_pair(
       ~full ``l2_penalty``. ``l2_penalty_saturation`` (default ``hermite_fe._L2_PENALTY_SATURATION_DEFAULT`` = 1.0) sets the ||c||^2 scale at
       which the penalty reaches half its ceiling; pass ``l2_penalty_saturation<=0`` for the legacy raw ``l2_penalty * ||c||^2`` behaviour.
     * warm_start_als=True (default) seeds the optimiser with a per-operand rank-1 ALS fit of ``y ~ f(x_a)*g(x_b)`` in the basis (see
-      ``hermite_fe.warm_start_als_seed``). This lands the search directly in the true (possibly large-coefficient) basin -- without it cma_batch
+      ``hermite_fe.warm_start_als_seed``). This lands the search directly in the true (possibly large-coefficient) basin - without it cma_batch
       can be trapped on a deceptive atan2/div plateau for non-monotone inner distortions. Polynomial bases only; factory/KSG paths skip it.
     * n_neighbors (KSG): None auto-picks 3 for n>=5000, 5 for n in [1000,5000), 7 for n<1000.
     * max_degree=4 covers most smooth targets. For high-frequency targets raise to 6-8 (n_trials proportionally).
     * early_stop_no_improve: stop a study early if no improvement in the last N trials.
-    * mi_estimator="plugin" (default) uses an njit plug-in estimator on quantile-binned values -- ~50-100x faster than
+    * mi_estimator="plugin" (default) uses an njit plug-in estimator on quantile-binned values - ~50-100x faster than
       sklearn's KSG, rank-equivalent for optimization (constant entropy bias). Pass "ksg" for sklearn's KSG.
     * plugin_n_bins=20 (default): ~sqrt(n) rule-of-thumb; larger bins reduce bias, raise variance.
     * noise_floor_perm_ratio=1.50 (default): a permutation-null guard against the high-capacity optimiser fabricating an
       engineered feature on a target INDEPENDENT of the inputs. The plug-in MI estimator has a binning-bias floor that the
-      optimiser can overfit on pure noise -- on a noise target the best engineered MI barely clears both the trivial baseline
+      optimiser can overfit on pure noise - on a noise target the best engineered MI barely clears both the trivial baseline
       and ``baseline_uplift_threshold``, so the uplift gate alone passes it through. The permutation null measures that floor
       directly: re-evaluate the winning engineered column's MI against ``noise_floor_n_perms`` shuffles of y (destroys any real
       dependence, keeps the binning bias) and reject (return None) when ``mi_real < perm_null_p95 * noise_floor_perm_ratio``.
       A genuine feature beats its own permutation-null p95 by 40x+; a noise feature by only ~1.2x. Set ``noise_floor_perm_ratio<=0``
       (or ``noise_floor_n_perms<=0``) to disable. Measured separation in the MRMR discrete path (n=4000, 20 restarts x 3 noise
-      pairs): pure-noise max ratio 1.235 (reject), F-POLY 40.8x / F-OSC 61.7x (pass) -- 1.50 has comfortable margin both ways.
+      pairs): pure-noise max ratio 1.235 (reject), F-POLY 40.8x / F-OSC 61.7x (pass) - 1.50 has comfortable margin both ways.
 
     Returns HermiteResult or None if the search failed to beat the baseline.
     """
@@ -209,7 +209,7 @@ def optimise_hermite_pair(
     basis_info = _POLY_BASES[basis]
 
     # Preprocess inputs to the basis's natural domain. A caller running multiple fe_smart_polynom_iters
-    # restarts on the SAME (x_a, x_b) can precompute this fit ONCE (see precomputed_z_a et al. above) --
+    # restarts on the SAME (x_a, x_b) can precompute this fit ONCE (see precomputed_z_a et al. above) -
     # basis_info["fit"] is a pure deterministic function of (x_a/x_b, basis), so reusing it across restarts
     # is byte-identical to refitting every time.
     if precomputed_z_a is not None and precomputed_preprocess_a is not None and precomputed_z_b is not None and precomputed_preprocess_b is not None:
@@ -229,7 +229,7 @@ def optimise_hermite_pair(
         # Non-polynomial basis with data-dependent eval (RBF/Sigmoid). Factory is invoked below per-feature.
         eval_func = None
     elif basis in _NJIT_FUNCS:
-        # Polynomial basis -- size-aware ladder applies.
+        # Polynomial basis - size-aware ladder applies.
         if n_eval < _PAR_THRESHOLD:
             eval_func = basis_info["eval_njit"]
         elif n_eval >= _CUDA_THRESHOLD and _CUDA_AVAILABLE:
@@ -278,7 +278,7 @@ def optimise_hermite_pair(
         except Exception as e:
             logger.debug("trivial baseline check failed: %s", e)
     elif precomputed_trivial_baseline is not None:
-        # Caller supplied the precomputed value -- use it directly.
+        # Caller supplied the precomputed value - use it directly.
         if precomputed_trivial_baseline > baseline:
             logger.debug(
                 "trivial baseline %r raises baseline from %.4f to %.4f (precomputed)",
@@ -320,8 +320,8 @@ def optimise_hermite_pair(
     canonical_seeds_func = basis_info.get("canonical_seeds_func")
 
     # Factory-based bases (RBF, Sigmoid) eval depends on train-fold-fitted centres / thresholds. Build per-basis
-    # eval once preprocess params are known. Wave 69 (2026-05-20): separate eval for x_a and x_b already implemented
-    # below -- factory is called twice with preprocess_a vs preprocess_b, producing distinct eval kernels per side.
+    # eval once preprocess params are known. Wave 69: separate eval for x_a and x_b already implemented
+    # below - factory is called twice with preprocess_a vs preprocess_b, producing distinct eval kernels per side.
     factory = basis_info.get("eval_njit_factory")
     if factory is not None:
         eval_func = factory(preprocess_a)
@@ -359,7 +359,7 @@ def optimise_hermite_pair(
         cb_size = coef_size_func(degree)
         # Truncate the basis matrices to THIS degree's coefficient length ONCE here instead of per-trial
         # inside _eval_coef_pair / _eval_coef_pair_batch (CMA-ES / random-batch trials only vary coefficient
-        # VALUES, never ca_size/cb_size, within one degree) -- tens of thousands of redundant slice+copies/pair
+        # VALUES, never ca_size/cb_size, within one degree) - tens of thousands of redundant slice+copies/pair
         # collapse to one per degree.
         B_a_deg = np.ascontiguousarray(B_a_search[:, :ca_size]) if B_a_search is not None else None
         B_b_deg = np.ascontiguousarray(B_b_search[:, :cb_size]) if B_b_search is not None else None
@@ -386,7 +386,7 @@ def optimise_hermite_pair(
                     try:
                         combined = bf(h_a, h_b)
                     except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                        logger.debug("suppressed in _hermite_fe_optimise_pair.py:311: %s", e)
+                        logger.debug("suppressed: %s", e)
                         continue
                     if npall(isfinite(combined)):
                         cols.append(combined)
@@ -431,7 +431,7 @@ def optimise_hermite_pair(
             l2_penalty_saturation=l2_penalty_saturation,
             # Precomputed basis matrices for BLAS GEMV fastpath, PRE-TRUNCATED to (ca_size, cb_size) above
             # (None when factory-based basis or polynomial basis not in registry). _eval_coef_pair(_batch) no
-            # longer re-slices these per trial -- they must already match coef_a.shape[0] / coef_b.shape[0].
+            # longer re-slices these per trial - they must already match coef_a.shape[0] / coef_b.shape[0].
             B_a=B_a_deg, B_b=B_b_deg,
         )
 
@@ -442,7 +442,7 @@ def optimise_hermite_pair(
         # separable model y ~ f(x_a) * g(x_b) in the basis via 3 alternating
         # lstsq solves and seed the joint optimiser with the resulting
         # coefficients. This lands the optimiser directly in the true
-        # (potentially large-coefficient) basin -- the canonical unit-magnitude
+        # (potentially large-coefficient) basin - the canonical unit-magnitude
         # seeds below never reach it, which is why the deceptive atan2/div
         # plateau trapped cma_batch on the F-POLY pre-distortion case. Gated by
         # ``warm_start_als``; requires a polynomial basis with a precomputed
@@ -457,7 +457,7 @@ def optimise_hermite_pair(
                     # DEVICE-BORN design (2026-06-30, H2D collapse): the standardised
                     # columns + basis B_a_search/B_b_search were built from are in
                     # scope, so route the resident GPU branch through
-                    # warm_start_als_seed_gpu_from_z -- it rebuilds the (degree+1)
+                    # warm_start_als_seed_gpu_from_z - it rebuilds the (degree+1)
                     # design ON DEVICE (max_degree = ca_size-1 / cb_size-1, the SAME
                     # leading columns the [:ca_size]/[:cb_size] slice selects from an
                     # orthogonal-poly basis) instead of uploading the prebuilt slices.
@@ -507,7 +507,7 @@ def optimise_hermite_pair(
         #
         # bench-attempt-rejected (2026-06-10, profiling/bench_warmstart_probe.py):
         # NO measurable win on 5/12 bootstrap folds (85% overlap, n=4000, non-
-        # monotone-inner product target -- the regime where CMA must actually
+        # monotone-inner product target - the regime where CMA must actually
         # search). Median iters COLD=78 / WARM=79 (the prior seed adds ONE eval
         # and saves ZERO generations); wall -0.3%..-3.7% (slightly SLOWER).
         # ROOT CAUSE: the per-pair ALS warm-start (``warm_start_als``, the block
@@ -515,7 +515,7 @@ def optimise_hermite_pair(
         # call and lands x0 there, so a cross-fold coefficient prior is strictly
         # subsumed. WORSE, the extra seed perturbs the CMA population enough to
         # land on a DIFFERENT optimum on 8/12 folds (selection NOT byte-identical
-        # -- 6 higher-MI, 2 lower), which fails idea #20's identical-or-stabler
+        # - 6 higher-MI, 2 lower), which fails idea #20's identical-or-stabler
         # ship gate. Kept OFF by default (``None`` => this block is a no-op and
         # the warm-start population is byte-identical to legacy) per keep-all-
         # versions; do NOT flip default-on without a regime that ALS cannot seed.
@@ -559,7 +559,7 @@ def optimise_hermite_pair(
                         early_stop_no_improve_gens=_early_stop_gens,
                     )
                 elif optimizer == "cma_batch":
-                    # 2026-05-22: CMA-ES with batch eval -- collects popsize
+                    # CMA-ES with batch eval - collects popsize
                     # candidates per generation and runs ONE batched MI call
                     # over all (cand, bf) columns. Removes the per-solution
                     # Python GIL dance the plain CMA path paid. Does NOT
@@ -576,7 +576,7 @@ def optimise_hermite_pair(
                         early_stop_no_improve_gens=_early_stop_gens,
                     )
                 elif optimizer == "random_batch":
-                    # 2026-05-22: pure batch random search + elitism. No
+                    # Pure batch random search + elitism. No
                     # Optuna, no CMA dependency. One MI batch call per iter.
                     from ._hermite_fe_optimise import _run_random_batch_search
                     cma_result = _run_random_batch_search(
@@ -591,8 +591,8 @@ def optimise_hermite_pair(
                     # candidates' basis evaluation + batched device binning/MI. Same plugin-MI/polynomial-
                     # basis limitations as numba_kernel. cupy_kernel is the DEFAULT since 2026-07-15
                     # (production wellbore-100k validation: fit wall 854s -> 480s -> 538s under load,
-                    # selection identical). On a cupy-less host, fall back to random_batch -- NOT cma_batch
-                    # -- per the time-to-first-best comparison below (random_batch matches cma_batch's
+                    # selection identical). On a cupy-less host, fall back to random_batch - NOT cma_batch
+                    # - per the time-to-first-best comparison below (random_batch matches cma_batch's
                     # bit-identical winners at equal-or-lower wall on every measured case; instead of
                     # letting the generic except route to the much slower/worse-converging optuna path).
                     #
@@ -611,23 +611,23 @@ def optimise_hermite_pair(
                     # optuna is 3-4x slower than cma_batch/random_batch at IDENTICAL quality on easy cases,
                     # and on the hard case (quintic_mix) additionally needs its FULL budget (restart 2) on
                     # every seed while landing WORSE MI (0.135-0.152) than cma_batch/random_batch (0.15-0.17)
-                    # -- TPE's model-based sampling buys nothing here, only orchestration overhead.
+                    # - TPE's model-based sampling buys nothing here, only orchestration overhead.
                     # numba_kernel is architecturally mismatched for single-pair search: its
                     # @njit(parallel=True) outer kernel prange's over PAIRS, so a single-pair caller (every
                     # caller today) pays full thread-pool dispatch/barrier overhead for a 1-iteration loop,
                     # AND its per-candidate basis eval is a scalar Horner recompute (_polyeval_dispatch_njit
                     # called per candidate) instead of the batched BLAS GEMM (B @ C.T) cma_batch/random_batch
-                    # use via _eval_coef_pair_batch -- fixing this would duplicate random_batch's already-
+                    # use via _eval_coef_pair_batch - fixing this would duplicate random_batch's already-
                     # faster BLAS path inside njit for no measured benefit, so numba_kernel is NOT
                     # recommended for single-pair search and stays available only as an explicit opt-in.
-                    # GPU_INFRA_D-1 fix: this dispatch used to route to cupy any
-                    # time a bare `import cupy` succeeded, never checking gpu_globally_disabled() -- a plain
+                    # This dispatch used to route to cupy any
+                    # time a bare `import cupy` succeeded, never checking gpu_globally_disabled() - a plain
                     # MRMR() on a cupy-capable host launched real CUDA kernels for every hermite/orth
                     # pair-FE search even under MLFRAME_DISABLE_GPU=1/CUDA_VISIBLE_DEVICES="", contradicting
                     # the documented opt-out convention already honored by _fe_pure_form_retention_gpu_
                     # resident.py and the STRICT-resident dispatch chain in the same cluster. (The estimator's
                     # own use_gpu=False constructor default is not yet threaded through eval_kwargs to this
-                    # call site -- that requires plumbing run_polynom_pair_fe's signature too and is tracked
+                    # call site - that requires plumbing run_polynom_pair_fe's signature too and is tracked
                     # as a separate follow-up; the env-var opt-out below is the safety-critical, universally-
                     # applicable half of this fix and closes the actual reported bug.)
                     from ._gpu_policy import gpu_globally_disabled
@@ -650,8 +650,8 @@ def optimise_hermite_pair(
                         eval_kwargs=eval_kwargs,
                     )
                 else:  # numba_kernel
-                    # 2026-05-22: all-numba single-pair entry point. Zero
-                    # joblib / Optuna / cma deps -- one @njit(parallel=True)
+                    # all-numba single-pair entry point. Zero
+                    # joblib / Optuna / cma deps - one @njit(parallel=True)
                     # kernel inlines polyeval / bf dispatch / plugin MI.
                     # Limitations vs other optimizers: requires plugin MI
                     # (no KSG), polynomial basis only (no RBF/Sigmoid factory
@@ -695,7 +695,7 @@ def optimise_hermite_pair(
                     try:
                         study.enqueue_trial(params)
                     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                        logger.debug("suppressed in _hermite_fe_optimise_pair.py:554: %s", e)
+                        logger.debug("suppressed: %s", e)
                         pass
             if early_stop_no_improve and early_stop_no_improve < n_trials:
                 stop_state = {"best": -np.inf, "since_improve": 0}
@@ -767,7 +767,7 @@ def optimise_hermite_pair(
         )
 
     if best is None or best.mi <= baseline * baseline_uplift_threshold:
-        # Failed to beat baseline by enough -- don't recommend an engineered feature.
+        # Failed to beat baseline by enough - don't recommend an engineered feature.
         return None
 
     # Permutation-null noise floor. The high-capacity optimiser can overfit the plug-in MI estimator's binning-bias floor on a
@@ -779,7 +779,7 @@ def optimise_hermite_pair(
             from .hermite_fe import _plugin_mi_classif_njit, _plugin_mi_regression_njit
             # Run the noise-floor null on a STRIDED subsample of the operands (cap 30k). The permutation p95 is a COARSE
             # floor (compared against a 1.5x ratio), well-estimated on ~30k, while mi_real + the 50 shuffles on the FULL
-            # n were the dominant per-pair cost at large n (measured: per-pair 12.5s@100k -> 68s@1M, ~all of it here) --
+            # n were the dominant per-pair cost at large n (measured: per-pair 12.5s@100k -> 68s@1M, ~all of it here) -
             # and the SEARCH itself already runs on a 1500-row multi-fidelity draw, so the full-n null was inconsistent
             # with the fit anyway. mi_real + the null share the SAME subsample so the reject comparison stays consistent;
             # strided preserves the outlier proportion the plug-in null floor depends on. Env-tunable.
@@ -804,7 +804,7 @@ def optimise_hermite_pair(
                 nlen = comb.shape[0]
                 null_mis = np.empty(int(noise_floor_n_perms), dtype=np.float64)
                 if discrete_target:
-                    # ``comb`` is FIXED across the shuffles, so its quantile binning (the argsort -- ~3/4 of a plugin-MI
+                    # ``comb`` is FIXED across the shuffles, so its quantile binning (the argsort - ~3/4 of a plugin-MI
                     # call per the from-binned kernel's own bench) is identical every permutation: bin ONCE and reuse.
                     # Bit-identical to ``mi_fn(comb, yp)`` because ``_plugin_mi_from_binned_njit(_quantile_bin_njit(comb), y)``
                     # is byte-for-byte ``_plugin_mi_classif_njit(comb, y)`` (same histogram + plug-in MI, only the binning is hoisted).

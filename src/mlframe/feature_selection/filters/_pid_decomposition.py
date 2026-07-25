@@ -8,12 +8,12 @@ Decomposes ``I({X_1, X_2}; Y)`` into FOUR additive components:
                      + Synergistic(X_1, X_2; Y)
 
 These can identify features whose value comes from SYNERGY (jointly carry
-info that neither alone does -- classic XOR) so the MRMR redundancy step
+info that neither alone does - classic XOR) so the MRMR redundancy step
 doesn't discard them. Equally, redundant pairs get correctly flagged.
 
 This module implements the I_ccs (common change in surprisal) approximation
 from Ince 2017 ("Measuring Multivariate Redundant Information with
-Pointwise Common Change in Surprisal", *Entropy* 19(7):318) -- simpler than
+Pointwise Common Change in Surprisal", *Entropy* 19(7):318) - simpler than
 BROJA-PID's LP solve, with closely-matching results on the standard PID
 gates (AND, OR, XOR, COPY) per Ince 2017 Table 1.
 
@@ -204,7 +204,7 @@ def pid_decomposition(x1: np.ndarray, x2: np.ndarray, y: np.ndarray, K_x1: int, 
         K_x1, K_x2, K_y: cardinalities.
 
     Returns: dict with keys ``redundant``, ``unique_x1``, ``unique_x2``,
-        ``synergistic``, ``total`` -- all in nats.
+        ``synergistic``, ``total`` - all in nats.
     """
     x1 = np.asarray(x1, dtype=np.int64).ravel()
     x2 = np.asarray(x2, dtype=np.int64).ravel()
@@ -212,7 +212,10 @@ def pid_decomposition(x1: np.ndarray, x2: np.ndarray, y: np.ndarray, K_x1: int, 
     n = x1.size
     if n == 0:
         return {"redundant": 0.0, "unique_x1": 0.0, "unique_x2": 0.0, "synergistic": 0.0, "total": 0.0}
-    # 2026-05-30 Wave 9.1 fix (loop iter 24): validate index ranges
+    from .info_theory._batch_kernels import check_joint_cardinality
+
+    check_joint_cardinality(K_x1, K_x2, K_y, what="pid_decomposition")
+    # Validate index ranges
     # explicitly. Pre-fix the joint-tabulation loop accepted negative
     # values silently because numpy negative-indexing wraps to the last
     # bin: x1[i]=-1 -> joint[K_x1-1, ...] += 1. Upper-bound overflow
@@ -251,16 +254,16 @@ def pid_decomposition(x1: np.ndarray, x2: np.ndarray, y: np.ndarray, K_x1: int, 
 
     # Miller-Madow bias-correct each plug-in MI on its OCCUPIED bin counts before the synergy subtraction.
     # Synergy = total - U1 - U2 - R is a difference of plug-in MIs, and the ``total`` term is I over the COMPOSITE
-    # (X1,X2) source -- a joint whose occupied cardinality is ~K_x1*K_x2, far over-binned vs the 2-D marginal MIs.
+    # (X1,X2) source - a joint whose occupied cardinality is ~K_x1*K_x2, far over-binned vs the 2-D marginal MIs.
     # The 3-D over-binning inflates ``total``'s positive plug-in bias more than U1/U2/R's, so on an INDEPENDENT
     # high-cardinality pair at small n the raw difference reports spurious positive synergy. Correcting each MI on
     # its own occupied k removes the asymmetry (-> 0 as n -> inf, so large-n PID is untouched).
     p_xx = joint.sum(axis=2) / float(n)
     k_x1, k_y1 = _occupied_counts_2d(p_x1y)
     k_x2, k_y2 = _occupied_counts_2d(p_x2y)
-    k_xx = int((p_xx > 0.0).sum())  # occupied composite (X1,X2)-source CELLS (not marginal rows) -- the true source cardinality
+    k_xx = int((p_xx > 0.0).sum())  # occupied composite (X1,X2)-source CELLS (not marginal rows) - the true source cardinality
     # y-cardinality for the ``total = I({X1,X2};Y)`` MM-correction. ``p_x1y = joint.sum(axis=1)`` has ALREADY summed over X2, so its
-    # y-marginal occupancy equals the FULL composite y-marginal occupancy ``(joint.sum(axis=(0,1)) > 0).sum()`` -- a y-bin is occupied
+    # y-marginal occupancy equals the FULL composite y-marginal occupancy ``(joint.sum(axis=(0,1)) > 0).sum()`` - a y-bin is occupied
     # in ``p_x1y`` iff some (x1, x2) row carries it. Reusing the X1-marginal here is therefore NOT an X1-only undercount: it is the exact
     # composite occupied-y count (verified equal for all joints), so a y-bin X2 occupies but X1 does not is still counted.
     _, k_yj = _occupied_counts_2d(p_x1y)

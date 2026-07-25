@@ -44,7 +44,7 @@ def _sanitize_X_inputs(self, X, y):
     to each step.
     """
     # p >> n with no max_nfeatures cap - MBH search space is O(p) and each iter is a CV fit, so runtime is unbounded.
-    # W9: unconditional (was gated on verbose, default 0, so this never fired under default settings) --
+    # W9: unconditional (was gated on verbose, default 0, so this never fired under default settings) -
     # a one-time O(1) per-fit diagnostic, not per-iteration noise, matching the unconditional leakage-scan
     # warning a few paragraphs below in this same file.
     if X.shape[1] >= 5000 and self.max_nfeatures is None:
@@ -82,7 +82,7 @@ def _sanitize_X_inputs(self, X, y):
     # Drop zero-variance / all-null columns BEFORE recording ``feature_names_in_``. Otherwise a constant column can land in support_ and
     # downstream pipeline steps that silently drop it (e.g. SimpleImputer with keep_empty_features=False) cause transform-time column-set
     # drift. Vectorised across ALL dtypes via DataFrame.nunique() so constant categorical / string / bool columns are also caught.
-    # E6 (Wave 4, 2026-05-28): also treat numeric columns with variance < 1e-12 as zero-variance (e.g. constant floats with numerical
+    # E6: also treat numeric columns with variance < 1e-12 as zero-variance (e.g. constant floats with numerical
     # noise around the same value, or near-constant categorical encodings). Pre-fix used strict nunique<=1 only and missed these.
     if isinstance(X, pd.DataFrame) and X.shape[1] > 0:
         try:
@@ -130,7 +130,7 @@ def _sanitize_X_inputs(self, X, y):
     # Columns the user declared in ``feature_groups`` are EXEMPT from every dedup pass: the group exists precisely to keep a set of
     # (often collinear / near-identical) columns together for the all-or-nothing decision, so silently dropping its members would
     # both break that contract and make the finalize-time group expansion see only the surviving member. The docstrings below promise
-    # "pass them via feature_groups" -- this is where that promise is honoured.
+    # "pass them via feature_groups" - this is where that promise is honoured.
     _group_protected: set = set()
     _fg = getattr(self, "feature_groups", None)
     if _fg:
@@ -150,7 +150,7 @@ def _sanitize_X_inputs(self, X, y):
                 _dtype = _ser.dtype
                 if pd.api.types.is_numeric_dtype(_dtype) or pd.api.types.is_bool_dtype(_dtype):
                     _arr = _ser.to_numpy()
-                elif isinstance(_dtype, pd.CategoricalDtype) or _dtype == object or pd.api.types.is_string_dtype(_dtype):  # noqa: E721 -- pandas dtype `== object` comparison is intended
+                elif isinstance(_dtype, pd.CategoricalDtype) or _dtype == object or pd.api.types.is_string_dtype(_dtype):  # noqa: E721 - pandas dtype `== object` comparison is intended
                     # ``factorize`` is the canonical pandas pathway for collapsing label semantics into a code sequence dedup can compare; ``use_na_sentinel=True`` keeps NaN distinct from any real label without forcing a fillna copy.
                     _codes, _ = pd.factorize(_ser, use_na_sentinel=True)
                     _arr = _codes
@@ -175,11 +175,11 @@ def _sanitize_X_inputs(self, X, y):
             # Non-hashable dtype - skip dedup.
             pass
 
-    # Drop near-exact correlation duplicates: a column that is a (near-)monotone copy of one already kept -- a scaled / shifted / tiny-noise-perturbed replica
+    # Drop near-exact correlation duplicates: a column that is a (near-)monotone copy of one already kept - a scaled / shifted / tiny-noise-perturbed replica
     # (``100*x``, ``x + 1e-3*eps``). The exact-dup hash above misses these because the values differ bit-for-bit; yet RFECV's voting still splits the replica's
     # importance across the copies, biasing selection toward isolated noise and admitting the redundant copy into ``support_``. We use SPEARMAN (rank) correlation
     # so any monotone rescale is caught regardless of slope/offset, keep the FIRST column of each near-duplicate pair (column order), and drop the rest. The guard
-    # is NARROW BY CONSTRUCTION: the 0.999 default fires only on a NEAR-PERFECT monotone replica -- a legitimately-distinct correlated pair (corr ~0.7, even ~0.95
+    # is NARROW BY CONSTRUCTION: the 0.999 default fires only on a NEAR-PERFECT monotone replica - a legitimately-distinct correlated pair (corr ~0.7, even ~0.95
     # collinear-cluster mates) sits far below it and BOTH members survive, so it cannot drop a weak recoverable signal. Reducing a genuine high-VIF cluster to a
     # representative remains the redundancy-aware GroupAwareMRMR wrapper's job (cluster_reduce=True); this is only the exact/near-exact replica case. Default on;
     # opt out via drop_near_dup_corr=False.
@@ -195,7 +195,7 @@ def _sanitize_X_inputs(self, X, y):
                 _rc = None
             if _rc is not None and _rc.shape[0] == len(_num_cols):
                 # NaN masks per column: a column whose missingness pattern differs from an earlier-kept column is NOT a pure monotone
-                # replica -- it carries a real value where the other is missing (or vice versa), a genuine semantic distinction.
+                # replica - it carries a real value where the other is missing (or vice versa), a genuine semantic distinction.
                 # Spearman pairwise-drops the differing rows and can round to >= the threshold over the shared tail, so without this
                 # guard a column differing only by a single NaN-vs-real entry gets falsely deduplicated against the other.
                 _nan_masks = [X[_c].isna().to_numpy() for _c in _num_cols]
@@ -223,10 +223,10 @@ def _sanitize_X_inputs(self, X, y):
                     X = X.drop(columns=_dup_drop)
 
     # Drop ID-like sequence columns: a near-unique column whose sorted distinct values are (near-)perfectly affine-spaced is an enumerated row-id / index /
-    # counter (or affine of one). It carries ZERO generalisable signal -- the values ARE the sample order -- yet a tree estimator memorises it via split-frequency
+    # counter (or affine of one). It carries ZERO generalisable signal - the values ARE the sample order - yet a tree estimator memorises it via split-frequency
     # bias and admits it into support_, where it cannot generalise. Dropping it is as safe as dropping a constant. The guard is NARROW BY CONSTRUCTION: it requires
     # both near-uniqueness AND a near-zero spacing coefficient-of-variation, so a continuous real signal (a Normal column has sorted-gap CV ~O(1)) and a hash-style
-    # random id (irregular gaps) are NEVER caught -- it cannot drop a weak recoverable signal (which is either low-cardinality-binnable or continuous, both with
+    # random id (irregular gaps) are NEVER caught - it cannot drop a weak recoverable signal (which is either low-cardinality-binnable or continuous, both with
     # high spacing CV). Default on; opt out via drop_id_like_sequences=False.
     if getattr(self, "drop_id_like_sequences", True) and isinstance(X, pd.DataFrame) and X.shape[1] > 0:
         _n = X.shape[0]
@@ -281,7 +281,7 @@ def _sanitize_X_inputs(self, X, y):
                     len(_drop), _drop,
                 )
             X = X.drop(columns=_drop)
-        # E15 (Wave 4, 2026-05-28): must_exclude names that don't appear in X
+        # E15: must_exclude names that don't appear in X
         # are usually typos. Raise OR warn loudly so the user can fix; default
         # is to raise when ``must_exclude_strict=True`` (NEW, default True).
         _missing = [c for c in self.must_exclude if c not in (list(X.columns) + _drop)]
@@ -296,7 +296,7 @@ def _sanitize_X_inputs(self, X, y):
                     len(_missing), _missing[:20],
                 )
 
-    # E5 (Wave 4, 2026-05-28): warn on high-cardinality integer / int-encoded
+    # E5: warn on high-cardinality integer / int-encoded
     # columns that look like hashes / IDs. They pass Pearson leak (low corr),
     # but tree FI inflates them via split-frequency bias. Knockoffs assume
     # Gaussian and become meaningless. Threshold: numeric dtype AND
@@ -363,7 +363,7 @@ def _sanitize_X_inputs(self, X, y):
                 f"list these in must_exclude."
             )
             _action = getattr(self, "leakage_action", "warn")
-            # E1 (Wave 1, 2026-05-28): must_include OVERRIDES leakage exclusion / raise. The pre-fix path dropped a pinned feature
+            # E1: must_include OVERRIDES leakage exclusion / raise. The pre-fix path dropped a pinned feature
             # without warning, then _resolve_must_include raised a misleading "must_include contains entries not in X". The user
             # explicitly asked for these columns; if they leak, surface via warning but keep the column in.
             _must_include_set = set(self.must_include or [])

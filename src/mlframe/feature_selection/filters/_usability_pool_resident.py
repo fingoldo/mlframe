@@ -1,55 +1,55 @@
 """GPU-RESIDENT batched pair-combo MI TABLE for the usability candidate pool (iter17, 2026-06-23).
 
 THE TRAP (iter13/iter16, documented in _usability_njit_pool.py:737-749): forcing the per-PAIR
-``score_pair_combos`` onto its cupy twin (``_pair_combo_mi_cupy``) is a 3x LOSS end-to-end -- F2 100k
+``score_pair_combos`` onto its cupy twin (``_pair_combo_mi_cupy``) is a 3x LOSS end-to-end - F2 100k
 wall 34.8s -> 102.5s. Each pair enumerates a SMALL ``nu x nu x nb`` combo grid, so per-pair invocation
 pays a fresh operand H2D + many tiny launches that swamp the ~1.0s ``_pair_combo_mi_njit_table_parallel``
 CPU kernel.
 
 THE RESIDENT FIX (this module): the pair-combo MI TABLE computation (a pure function of each pair's two
 operand columns + the shared y) is cleanly SEPARABLE from the per-pair retention/diversity BOOKKEEPING in
-``build_usability_candidate_pool`` -- the bookkeeping loop only reads ``mis[j]`` per pair. So we compute the
+``build_usability_candidate_pool`` - the bookkeeping loop only reads ``mis[j]`` per pair. So we compute the
 FULL ``(npairs, nc)`` table in ONE resident pass: upload the shared y ONCE, upload each pair's two operands,
 build the combo columns on device, accumulate them into a VRAM-BOUNDED chunk buffer, and bin + MI-score each
-full chunk in one batched call -- D2H ONLY the table. The retention loop then consumes its per-pair slice
+full chunk in one batched call - D2H ONLY the table. The retention loop then consumes its per-pair slice
 UNCHANGED -> byte-identical retain/drop/diversity decisions and order. (The full ``(npairs*nc, n)`` stack
-would overflow a small card -- npairs=8 x nc=1734 x n=50k x 8B = 5.5GB > a 4GB GTX 1050 Ti -- so the chunk
+would overflow a small card - npairs=8 x nc=1734 x n=50k x 8B = 5.5GB > a 4GB GTX 1050 Ti - so the chunk
 buffer is sized to a fraction of FREE VRAM; the launch-amortisation win over the per-PAIR twin is preserved
 because operand H2D + per-pair unary transforms are still done ONCE per pair, scoring over large batches.)
 
 BIT-FAITHFUL: this reuses the SAME bit-faithful GPU primitives the per-pair ``_pair_combo_mi_cupy`` twin
 uses (``_gpu_apply_unary`` / ``_gpu_apply_binary`` / ``_gpu_quantile_bin_codes`` / ``_gpu_marginal_mi``),
 which the section docstring records as bit-faithful to the njit table kernel (~6e-15). It is NOT the
-percentile-edge resident plug-in MI (that path is only selection-equivalent at ties) -- selection here is
+percentile-edge resident plug-in MI (that path is only selection-equivalent at ties) - selection here is
 ULP-sensitive (the MI table drives the diversity-filtered retain/drop set), so we keep the rank-based
 binning that matches njit.
 
 GATE: engages ONLY where a per-host KTC crossover (sibling ``_usability_pool_resident_ktc``, keyed on
 (n_rows, total_combos)) has MEASURED the resident batched table faster than the per-pair njit table kernel.
-On a no-cupy / CPU host the gate returns ``None`` and the caller takes the exact njit per-pair path --
+On a no-cupy / CPU host the gate returns ``None`` and the caller takes the exact njit per-pair path -
 byte-for-byte unchanged.
 
-WIRED (2026-06-27, GPU_INFRA_C-5 fix -- this docstring was stale since 2026-06-23):
+WIRED:
 ``score_pair_combos_table_resident`` IS fed into ``_usability_aware_selection.py``'s retention loop under
 the resident GPU-strict flag (``_seleq``) only. It was originally NOT wired for two reasons measured
 2026-06-23 on the dev GTX 1050 Ti:
 
   (1) NOT SELECTION-EQUIVALENT at the time: the table was bit-FAITHFUL to ~6e-15, but the downstream STABLE
-      MI-sort + greedy ``_abscorr`` diversity filter in the pool builder is ULP-SENSITIVE at MI ties -- a
+      MI-sort + greedy ``_abscorr`` diversity filter in the pool builder is ULP-SENSITIVE at MI ties - a
       6e-15 reassociation in ``_gpu_marginal_mi`` vs the njit reduction flips the tie ORDER, changing which of
       two near-equal-MI combos is retained. This blocker was fixed in 71e31818 (the resident binner now
       matches the njit distinct-edge dedup on low-cardinality columns) plus the ``_mi_key`` grid-snap that
-      absorbs the remaining ULP-tie sensitivity under ``_seleq`` -- the resident table is now
+      absorbs the remaining ULP-tie sensitivity under ``_seleq`` - the resident table is now
       SELECTION-EQUIVALENT to the njit per-pair ``score_pair_combos``, pinned by
       ``tests/feature_selection/gpu/test_usability_pool_resident_parity.py``.
 
   (2) IT LOSES ON THIS CARD wall-clock-wise: n=100k npairs=4 nc=1734/pair CUDA-event interleaved-min A/B =
       29.6s resident vs 14.7s CPU njit -> 0.50x (the bit-faithful ``_gpu_quantile_bin_codes``/``_gpu_marginal_mi``
       run a per-row device->host scalar sync the 6-SM card cannot hide). This is why it engages only under the
-      explicit ``_seleq`` flag rather than by default KTC-measured crossover -- it is a residency win (the MI
+      explicit ``_seleq`` flag rather than by default KTC-measured crossover - it is a residency win (the MI
       runs on-device under the flag), not necessarily a wall win at the FE-subsample n on every card.
 
-The DEFAULT (flag-off) path remains BYTE-IDENTICAL -- it never computes the resident table and uses the
+The DEFAULT (flag-off) path remains BYTE-IDENTICAL - it never computes the resident table and uses the
 per-pair njit ``score_pair_combos`` exactly as before. If the resident table errors (no cupy / device fault)
 it returns ``None`` and the caller falls back per-pair.
 """
@@ -65,7 +65,7 @@ logger = logging.getLogger(__name__)
 
 def _build_combo_index_arrays(nu: int, nb: int):
     """The flat ``for ia: for ib: for ibn`` op-index enumeration shared by every pair (the combo grid is
-    pair-INVARIANT -- only the operand columns change). Returns (ua_idx, ub_idx, bn_idx) int64 arrays of
+    pair-INVARIANT - only the operand columns change). Returns (ua_idx, ub_idx, bn_idx) int64 arrays of
     length ``nu*nu*nb`` in the SAME order as ``score_pair_combos`` / the Python retention loop."""
     nc = nu * nu * nb
     ua_idx = np.empty(nc, dtype=np.int64)
@@ -103,7 +103,7 @@ def score_pair_combos_table_resident(
 
     Resident strategy: y is uploaded ONCE (fit-constant). For each pair we build its ``nc`` combo columns
     on the device (reusing the per-operand distinct unary transforms), accumulate them into one big
-    ``(npairs*nc, n)`` candidate matrix, then bin + MI-score the WHOLE stack in one batched call -- so the
+    ``(npairs*nc, n)`` candidate matrix, then bin + MI-score the WHOLE stack in one batched call - so the
     only per-pair host->device traffic is the two operand columns (unavoidable), NOT a fresh kernel launch
     grid per pair. Only the ``(npairs, nc)`` table comes back to the host."""
     try:
@@ -133,7 +133,7 @@ def score_pair_combos_table_resident(
         d_qs = cp.asarray(qs, dtype=cp.float64)
         d_y = cp.asarray(np.ascontiguousarray(y_codes, dtype=np.int64))
         ky_w = int(d_y.max()) + 1 if n else 1  # y-cardinality (histogram width) for the fused MM kernel
-        # SYNC-FREE fused bin+hist+MM-MI (2026-06-26): the resident table's per-flush scoring used
+        # SYNC-FREE fused bin+hist+MM-MI: the resident table's per-flush scoring used
         # _gpu_quantile_bin_codes + _gpu_marginal_mi, whose per-ROW cp.bincount + .max() device->host sync
         # (~one per combo column) made the whole resident table a 0.5x LOSS on a 6-SM card. The fused
         # radix-edges + mi_mm_from_values kernels score the whole flush chunk in ONE launch each (no per-row
@@ -147,7 +147,7 @@ def score_pair_combos_table_resident(
         ua_idx, ub_idx, bn_idx = _build_combo_index_arrays(nu, nb)
         from ._gpu_resident_fe import _get_fused_gen_kernel
 
-        # FULLY-FUSED MATRIX-NATIVE (2026-06-26): generate AND score every combo on the device with NO
+        # FULLY-FUSED MATRIX-NATIVE: generate AND score every combo on the device with NO
         # per-combo work. Per pair the nu distinct unaries of each operand are applied ONCE into a (nu, n)
         # column-major stack; then for each VRAM-bounded combo chunk ONE fused_gen launch builds the (n, kk)
         # candidate block (binary(unary_a, unary_b) by op-code, NaN/inf scrubbed) and ONE radix-edges +
@@ -155,13 +155,13 @@ def score_pair_combos_table_resident(
         # + edges + MI)) launches, NOT the nc per-combo elementwise + per-row-sync of the old path. MM-MI is
         # partition-identical to the njit table (~1e-15). Combo enumeration order (ua_idx/ub_idx/bn_idx) is the
         # SAME for ub/x2 -> the flat output index maps 1:1 to the caller's for ua: for ub: for bn loop.
-        # RESIDENT MI ACCUMULATOR (2026-06-29): the dominant cost of this routine is NOT the gen/radix/MI
+        # RESIDENT MI ACCUMULATOR: the dominant cost of this routine is NOT the gen/radix/MI
         # kernels (each ~0.0001s/chunk) but the per-chunk ``cp.asnumpy(...)`` D2H, which SYNCS the device once
-        # per combo-chunk (~96/call at 200k, 17340/fit) -- each .get() drains the whole queued gen+radix+MI
+        # per combo-chunk (~96/call at 200k, 17340/fit) - each .get() drains the whole queued gen+radix+MI
         # pipeline before returning, so the GPU never overlaps chunk i+1 with the readback of chunk i. Profiled
         # at 200k/6/1734: .get() = 14.3s of a 14.6s call (98%), every other op <0.1s combined. FIX: keep each
         # chunk's masked MI RESIDENT in one (npairs*nc,) device buffer and do ONE D2H for the WHOLE table at the
-        # end -- the 17340 syncing .get()s collapse to ONE per fit. Selection-IDENTICAL: same masked values, same
+        # end - the 17340 syncing .get()s collapse to ONE per fit. Selection-IDENTICAL: same masked values, same
         # layout; only the readback is deferred. (bench-attempt-rejected per-pair .get of an earlier draft: still
         # npairs syncs/call; whole-table single .get measured strictly faster, see report.)
         mi_table_d = cp.empty(npairs * nc, dtype=cp.float64)
@@ -183,7 +183,7 @@ def score_pair_combos_table_resident(
         for p in range(npairs):
             x1, x2 = operands[p]
             # Content-hash-keyed resident cache (2026-07-16, cProfile-driven): a raw operand column
-            # commonly recurs across MANY pairs (var A paired with B, C, D, ... all share A) -- was
+            # commonly recurs across MANY pairs (var A paired with B, C, D, ... all share A) - was
             # re-uploaded from host on every occurrence despite unchanged content. resident_operand
             # (already used pervasively elsewhere in the FE-resident stack) uploads each DISTINCT
             # content ONCE per fit and returns the cached device buffer on every repeat. Read-only

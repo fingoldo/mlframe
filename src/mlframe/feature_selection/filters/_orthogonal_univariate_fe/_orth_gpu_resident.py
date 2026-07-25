@@ -48,7 +48,7 @@ def _raise_if_vram_insufficient(n_rows: int, k_cols: int) -> None:
 def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     """MATRIX-NATIVE (Piece 3, gated): build the univariate orth-basis candidate matrix ON the device
     (_gpu_evaluate_basis_column) and score its plug-in MI RESIDENT (_plugin_mi_classif_batch_cuda_resident,
-    no H2D) -- mirroring generate_univariate_basis_features + score_features_by_mi_uplift. Routing/dedup/
+    no H2D) - mirroring generate_univariate_basis_features + score_features_by_mi_uplift. Routing/dedup/
     skip rules match the host builder exactly (only the per-(col,basis,degree) eval + the MI move to the
     GPU). Returns ``(eng_matrix_cupy, names, scores_df)`` or ``(None, [], empty_scores)`` when no candidate.
     Raises on GPU failure so the caller falls back to the host path (never a correctness regression)."""
@@ -85,7 +85,7 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     _ymm = cp.asnumpy(cp.stack((cp.min(y_gpu), cp.max(y_gpu))))
     _ymin = int(_ymm[0]); _ncls = int(_ymm[1]) - _ymin + 1
     # Baseline RAW-column MI (resident), for the uplift denominator. Built here but SCORED BELOW in ONE
-    # resident MI call stacked with eng_mat -- per-column MI is independent, so the values are identical to
+    # resident MI call stacked with eng_mat - per-column MI is independent, so the values are identical to
     # two separate calls while issuing one launch set instead of two (raw_mi feeds raw_mi_map at the rows
     # loop, which runs after eng_mat exists, so deferring the score is safe).
     raw_cols = [c for c in cols if pd.api.types.is_numeric_dtype(X[c])]
@@ -104,7 +104,7 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
         )
     code = _BASIS_CODE
     # Routing + skips run on the HOST (cheap njit / moment fingerprint), mirroring the host builder;
-    # only the heavy per-(col,basis,degree) eval + the MI move to the GPU -- and the eval is BATCHED.
+    # only the heavy per-(col,basis,degree) eval + the MI move to the GPU - and the eval is BATCHED.
     # First pass: apply the cheap host skip rules to pick candidate columns + their operand arrays.
     cand_cols: list = []
     cand_x: list = []
@@ -134,7 +134,7 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
         _yc = np.asarray(_ya, dtype=np.float64).ravel()
         if _yc.size == cand_x[0].size and cand_x[0].size >= 30 and np.isfinite(_yc).all() and float(np.std(_yc)) >= 1e-12:
             try:
-                # _Mr is the candidate-column matrix -- each column is a RAW X base column (cand_x[j] =
+                # _Mr is the candidate-column matrix - each column is a RAW X base column (cand_x[j] =
                 # X[cand_cols[j]] verbatim). DEVICE-ASSEMBLE it from the per-column resident operands so it
                 # never crosses H2D as a whole (n, n_cand) blob: each raw column is already resident under the
                 # shared ("xbasis_op", col) role, so stacking the resident columns content-hits the cache.
@@ -176,24 +176,24 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
         return None, [], _empty
     # ONE H2D of the (n, n_used) operand matrix, then ONE vectorised preprocess+Clenshaw per (basis, robust)
     # group/degree. When GPU routing already uploaded the candidate matrix, REUSE it (device slice, no second
-    # H2D) -- in residency mode the operands are already on the GPU; re-uploading would be a redundant copy.
+    # H2D) - in residency mode the operands are already on the GPU; re-uploading would be a redundant copy.
     if _Mr is not None:
         M = _Mr if used_idx == list(range(_Mr.shape[1])) else _Mr[:, used_idx]
     else:
         # NOTE (wave-10 audit): ``used_idx`` indexes into ``cand_x``/``cand_cols`` (the host-skip-filtered
-        # candidate set), NOT into ``raw_mat``'s ``raw_cols`` ordering -- ``cand_cols`` drops non-finite /
+        # candidate set), NOT into ``raw_mat``'s ``raw_cols`` ordering - ``cand_cols`` drops non-finite /
         # int-as-cat columns that ``raw_cols`` does not, so the two lists can diverge and a literal
         # ``raw_mat[:, used_idx]`` reuse would silently pick the WRONG columns whenever any column was
         # dropped. What IS always true is that every ``used_src[j]`` name is the SAME raw column
-        # ``X[used_src[j]]`` verbatim that ``raw_mat`` (when built) sources from -- so instead of an
+        # ``X[used_src[j]]`` verbatim that ``raw_mat`` (when built) sources from - so instead of an
         # index-based reuse, assemble THIS matrix from its own per-column resident operands keyed by NAME
         # (``used_src``), at the SAME dtype (float64) ``_Mr`` uses for its own per-column uploads (matching
         # the ``_Mr is not None`` branch above so both take the same downstream dtype). ``raw_mat``'s OWN
         # per-column uploads are at ``_rm_dt`` (``_crit_np_dtype()``, float32 by DEFAULT under
-        # ``MLFRAME_CRIT_DTYPE_RELAXED``, float64 only when that is disabled) -- so this content-hits
+        # ``MLFRAME_CRIT_DTYPE_RELAXED``, float64 only when that is disabled) - so this content-hits
         # ``raw_mat``'s cached columns whenever ``_rm_dt`` happens to be float64 (the non-default strict
         # mode), and ALWAYS content-hits ``_Mr``'s cached columns (same float64 dtype) or ANY other
-        # same-fit caller later requesting the same column at float64 -- without ever re-uploading the
+        # same-fit caller later requesting the same column at float64 - without ever re-uploading the
         # whole (n, n_used) matrix as one un-deduped blob (the prior behaviour here).
         M = assemble_resident_matrix(
             np.column_stack(used_x), used_src, ("orth_used_M", tuple(used_src)), dtype=np.float64,
@@ -202,11 +202,11 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     if eng_mat is None:
         return None, [], _empty
     names = [f"{used_src[_ci]}__{code.get(_b, _b)}{_d}" for (_ci, _b, _d) in meta]
-    # D1 (2026-06-22): the TRUE source per emitted name is ``used_src[_ci]`` -- carry it
+    # D1: the TRUE source per emitted name is ``used_src[_ci]`` - carry it
     # directly rather than re-parsing the name via ``split("__", 1)[0]`` (which mis-stems a
     # one-hot source ``"city__NY"`` and collapses the uplift denominator to the 1e-12 floor).
     name_src = [used_src[_ci] for (_ci, _b, _d) in meta]
-    # ONE resident MI over [raw_mat | eng_mat] stacked -- per-column independent, so raw_mi/eng_mi are
+    # ONE resident MI over [raw_mat | eng_mat] stacked - per-column independent, so raw_mi/eng_mi are
     # bit-identical to two separate calls, with one launch set instead of two. Both are already device-
     # resident, so this stays H2D-free (do NOT route through the host-input batcher, which would round-trip).
     if raw_mat is not None:

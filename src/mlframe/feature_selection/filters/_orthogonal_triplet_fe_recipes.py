@@ -1,4 +1,4 @@
-"""Layer 56 (2026-05-31): recipe builder + apply for ``orth_triplet_cross``.
+"""Layer 56: recipe builder + apply for ``orth_triplet_cross``.
 
 Sibling to ``engineered_recipes`` that hosts the closed-form replay logic
 for triplet-cross-basis columns produced by
@@ -6,7 +6,7 @@ for triplet-cross-basis columns produced by
 emitting wrapper).
 
 Mirror of the Layer 22 ``orth_pair_cross`` recipe (``engineered_recipes._apply_orth_pair_cross``)
-with a third leg. Replay reads only X -- no y at transform time, so
+with a third leg. Replay reads only X - no y at transform time, so
 ``MRMR.transform`` is leakage-free by construction.
 
 extra layout:
@@ -44,7 +44,7 @@ def _apply_orth_triplet_cross(recipe: "EngineeredRecipe", X: Any) -> np.ndarray:
     deg_a = int(recipe.extra["deg_a"])
     deg_b = int(recipe.extra["deg_b"])
     deg_c = int(recipe.extra["deg_c"])
-    # REPLAY-FIDELITY FIX (2026-06-13): per-leg FROZEN fit-time basis-preprocess params, mirroring the
+    # REPLAY-FIDELITY FIX: per-leg FROZEN fit-time basis-preprocess params, mirroring the
     # pair "BUG2 FIX". Without them ``_eval_orth_basis_column`` REFITS the z-score mean/std (or min-max
     # lo/hi) from the APPLY-time rows, so a row-slice / drifted test frame shifts the basis axis and
     # silently emits wrong values. ``None`` (legacy pickles) falls back to the refit path, byte-identical.
@@ -89,7 +89,7 @@ def build_orth_triplet_cross_recipe(
         "deg_b": int(deg_b),
         "deg_c": int(deg_c),
     }
-    # REPLAY-FIDELITY FIX (2026-06-13): freeze each leg's fit-time basis-preprocess params so replay
+    # REPLAY-FIDELITY FIX: freeze each leg's fit-time basis-preprocess params so replay
     # reproduces the axis byte-exactly (no slice-vs-full mean/std refit drift). Omitted when None so
     # legacy recipes stay byte-equal.
     for _key, _pp in (("preprocess_params_i", preprocess_params_i), ("preprocess_params_j", preprocess_params_j), ("preprocess_params_k", preprocess_params_k)):

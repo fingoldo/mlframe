@@ -6,7 +6,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Wave 87 (2026-05-21): module-level warnings.filterwarnings was removed --
+# module-level warnings.filterwarnings was removed -
 # silently mutated the process-global filter for every importer of this BC
 # shim. Callers needing the suppression should use the scoped
 # `_internals.suppress_numba_warnings()` context manager instead.

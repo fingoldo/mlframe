@@ -1,4 +1,4 @@
-"""Dynamic Cluster Discovery (DCD) — Wave 9 (2026-05-30).
+"""Dynamic Cluster Discovery (DCD) — Wave 9.
 
 Organic in-greedy-loop cluster discovery for MRMR. After each feature
 acceptance, the Pool is pruned by ``SU(x, just_selected) > tau_cluster``
@@ -69,6 +69,7 @@ def use_dcd() -> bool:
 
 
 def set_dcd_active(active: bool) -> None:
+    """Turn the process-wide DCD state on or off (thread-local flag read by the greedy screen)."""
     _DCD_STATE.active = bool(active)
 
 
@@ -82,7 +83,7 @@ class SwapDecision:
     """Outcome of ``evaluate_swap_candidate`` — atomic information needed to
     perform a commit_swap if accepted.
 
-    Layer 45 (2026-05-31) adds the ``branch`` discriminator and the
+    Layer 45 adds the ``branch`` discriminator and the
     ``member_col_idx`` / ``member_relevance`` payload so commit_swap can
     take the cheap member-swap path (no new column) when a cluster
     member out-CMIs both the anchor and the candidate aggregate. Three
@@ -117,13 +118,13 @@ class DCDState:
     discover / swap functions. Subscribers (``should_skip_candidate``,
     ``dcd_summary``, downstream FE step) consult it read-only.
     """
-    # -- core cluster bookkeeping --
+    # - core cluster bookkeeping -
     cluster_anchors: dict = field(default_factory=dict)  # anchor_idx -> set[member_col]
     member_to_anchor: dict = field(default_factory=dict)  # member_col -> anchor_idx
     pairwise_su_cache: "OrderedDict" = field(default_factory=OrderedDict)  # (min,max) -> SU
     # iter587: per-column marginal-entropy cache for the SU / VI branches of
     # pair_su. Pre-fix, every pair_su(a, b) call recomputed H(X_a) and
-    # H(X_b) via merge_vars + entropy -- 3 merge_vars per call when only
+    # H(X_b) via merge_vars + entropy - 3 merge_vars per call when only
     # the joint H(X_a, X_b) is genuinely unique per (a, b). For 30 features
     # pairwise = 435 pairs and each feature appears in 29 pairs, so each
     # marginal entropy gets recomputed 29x. The c0066 @100k profile
@@ -139,7 +140,7 @@ class DCDState:
     # Both are no-ops when ``fn`` is already int64 (typical) but pay the
     # numpy dispatch cost (~1-3 us each) every call. Reusing a single
     # 2-element ``int64`` buffer and a cached ``fn_arr`` saves a few us
-    # per call -- 1.02x on the all-pairs bench; small but bit-equivalent
+    # per call - 1.02x on the all-pairs bench; small but bit-equivalent
     # and aligns with the W6 audit's drift-discipline that says cheap
     # cleanups landing alongside a measurable hotspot stay.
     _fn_arr_cached: Optional[np.ndarray] = None
@@ -149,8 +150,8 @@ class DCDState:
     n_su_calls: int = 0
     n_cache_hits: int = 0
     n_cache_misses: int = 0
-    # -- gates and runtime flags --
-    # -- tunables (forwarded from MRMR ctor) --
+    # - gates and runtime flags -
+    # - tunables (forwarded from MRMR ctor) -
     tau_cluster: float = 0.7
     distance: str = "su"
     # 2026-05-31 Layer 42: default held at 4 (members beyond anchor) pending
@@ -174,7 +175,7 @@ class DCDState:
     # ``full_npermutations`` (MRMR default 3). At B=3 the smallest attainable
     # p-value is (0+1)/(3+1)=0.25, so ``perm_p_value < swap_alpha`` (0.05) was
     # arithmetically impossible and EVERY swap (aggregate + member) was silently
-    # rejected -- the whole supervised swap subsystem was dead on the default
+    # rejected - the whole supervised swap subsystem was dead on the default
     # path. 199 gives a min-p of 1/200=0.005, comfortably resolving alpha=0.05;
     # ``evaluate_swap_candidate`` also auto-raises it to ceil(1/swap_alpha) as a
     # backstop so the null can never be structurally un-rejectable.
@@ -185,10 +186,10 @@ class DCDState:
     # strictly more linearly-usable (|corr(col, rank(col))| on the RAW column), the candidate DISPLACES the anchor (the anchor is pruned instead). One leg is kept either way, so this can never empty
     # support_ nor swap in an unvalidated column; non-twin / non-tie pairs are byte-identical to the order-decided default.
     warp_tiebreak_prefer_linear: bool = True
-    warp_twin_rank_corr: float = 0.99                                # raw rank-corr floor to treat (c, anchor) as a strictly-monotone twin (NOT coarse-binned codes -- those create false twins at small nbins)
+    warp_twin_rank_corr: float = 0.99                                # raw rank-corr floor to treat (c, anchor) as a strictly-monotone twin (NOT coarse-binned codes - those create false twins at small nbins)
     warp_tiebreak_su_band: float = 0.02                              # SU tie band: |SU(c, anchor) - SU(anchor, c)| is ~0, so the band gates how close anchor's own redundancy must be (kept for symmetry / future asymmetric metrics)
     warp_linear_margin: float = 0.05                                 # minimum linear-usability advantage (|corr(c, rank c)| - |corr(anchor, rank anchor)|) for the candidate to displace the anchor
-    # -- references to host MRMR matrix (mutated on swap) --
+    # - references to host MRMR matrix (mutated on swap) -
     X_raw_ref: Any = None  # pd.DataFrame or np.ndarray
     quantization_method: str = "quantile"
     quantization_nbins: int = 10
@@ -201,9 +202,9 @@ class DCDState:
     # Rolling seed for member-null permutation draws (run_member_null); carried forward across
     # re-screen passes so a later pass does not replay the prior pass's exact permutation sequence.
     _perm_seed: int = 0
-    # -- coexistence policy --
+    # - coexistence policy -
     suppress_legacy_postoc: bool = True
-    # Layer 47 (2026-05-31): tau-auto calibration diagnostics. None when the
+    # Layer 47: tau-auto calibration diagnostics. None when the
     # caller passed a numeric ``tau_cluster``; populated by ``make_dcd_state``
     # when ``tau_cluster='auto'`` to expose the bimodality detection result
     # (mode, valley_su, sampled scores, mean/std) so users can audit the
@@ -212,6 +213,7 @@ class DCDState:
     tau_calibration: Optional[dict] = None
 
     def cache_evict_lru(self) -> None:
+        """Evict least-recently-used pairwise-SU entries until the cache is back within ``pairwise_cache_max``."""
         while len(self.pairwise_su_cache) > int(self.pairwise_cache_max):
             self.pairwise_su_cache.popitem(last=False)
 
@@ -248,13 +250,13 @@ def _kernel_tuning_cache_lookup_tau(factors_data, factors_nbins, fallback: float
         if entry is not None and "tau_cluster" in entry:
             return float(entry["tau_cluster"])
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed in __init__.py:238: %s", e)
+        logger.debug("suppressed: %s", e)
         pass
     return float(fallback)
 
 
 # =============================================================================
-# Layer 47 (2026-05-31): auto-tau calibration via small SU sweep on the data
+# Layer 47: auto-tau calibration via small SU sweep on the data
 # =============================================================================
 # Implementation lives in the sibling module ``_dcd_tau_auto`` (LOC budget).
 # Re-exported here so the parent's ``__all__`` and downstream import paths
@@ -270,7 +272,7 @@ from .._dcd_tau_auto import (
     _DCD_AUTO_TAU_MAX,
 )
 
-# Layer 51 (2026-05-31): batched pairwise-SU dispatcher. Sibling module
+# Layer 51: batched pairwise-SU dispatcher. Sibling module
 # keeps the parent under the LOC budget; re-exported here so the
 # downstream import path
 # ``from ._dynamic_cluster_discovery import pair_su_batch`` continues
@@ -391,10 +393,10 @@ def make_dcd_state(
     ):
         if key in dcd_config:
             setattr(state, key, dcd_config[key])
-    # Scale pairwise_cache_max with the column count (2026-07-09 fix). The fixed 50_000 default is
+    # Scale pairwise_cache_max with the column count. The fixed 50_000 default is
     # smaller than C(p,2) once p exceeds ~317, so a wide-but-not-huge column pool (e.g. p=423,
     # C(423,2)=89_253) can thrash the LRU cache (evict-then-recompute the same pairwise SU repeatedly).
-    # This only RAISES the cap -- an explicit user override above the formula's value is never lowered.
+    # This only RAISES the cap - an explicit user override above the formula's value is never lowered.
     # A hard ceiling still applies at extreme p (the SIS front-gate bounds p to a few thousand survivors
     # before DCD ever runs on very-wide-p fits, so C(p,2) here is realistically in the low millions, not
     # the billions an unbounded p would imply): at ~100-200 bytes/entry in a Python dict, 2M entries is
@@ -403,12 +405,12 @@ def make_dcd_state(
         _pairwise_cap_formula = min((p_initial * (p_initial - 1)) // 2, _DCD_PAIRWISE_CACHE_HARD_CAP)
         if int(state.pairwise_cache_max) < _pairwise_cap_formula:
             state.pairwise_cache_max = _pairwise_cap_formula
-    # Layer 47 (2026-05-31): ``tau_cluster='auto'`` calibration. When the
+    # Layer 47: ``tau_cluster='auto'`` calibration. When the
     # caller passes the sentinel string ``'auto'``, run a small SU sweep
     # over random feature pairs on the actual factors_data, detect a valley
     # between the two modes of the SU distribution, and set tau to that
     # valley. Falls back to ``_DCD_AUTO_TAU_FALLBACK`` (0.7) when the
-    # distribution is unimodal -- no clear clusters to pick a valley from.
+    # distribution is unimodal - no clear clusters to pick a valley from.
     # The diagnostics are recorded on ``state.tau_calibration`` and surfaced
     # via ``dcd_summary``.
     n_pairs = int(dcd_config.get("tau_calibration_n_pairs", _DCD_AUTO_TAU_DEFAULT_N_PAIRS))
@@ -495,7 +497,7 @@ def _raw_column(state: DCDState, idx: int) -> Optional[np.ndarray]:
 
 
 def _linear_usability(arr: np.ndarray) -> Optional[float]:
-    """|corr(arr, rank(arr))| on the finite RAW values -- ~1.0 for a linear-usable column, ~0.14 for
+    """|corr(arr, rank(arr))| on the finite RAW values - ~1.0 for a linear-usable column, ~0.14 for
     exp(4 f). Returns None when the column is degenerate (constant / <8 finite rows)."""
     fin = np.isfinite(arr)
     if fin.sum() < 8:
@@ -512,7 +514,7 @@ def _linear_usability(arr: np.ndarray) -> Optional[float]:
 
 
 def _raw_rank_corr(a: np.ndarray, b: np.ndarray) -> Optional[float]:
-    """|Spearman(a, b)| on the rows finite in BOTH -- the strictly-monotone-twin detector. Uses RAW
+    """|Spearman(a, b)| on the rows finite in BOTH - the strictly-monotone-twin detector. Uses RAW
     values (NOT coarse-binned codes, which manufacture false twins at small nbins)."""
     mask = np.isfinite(a) & np.isfinite(b)
     if mask.sum() < 8:
@@ -561,7 +563,7 @@ def discover_cluster_members(
             anchor = int(next(iter(just_selected)))
         except (TypeError, StopIteration):
             return set()
-    # 2026-05-30 Wave 9.1 fix (loop iter 44): refuse to anchor on a
+    # Refuse to anchor on a
     # column that was already swap-pruned. Pre-fix
     # ``state.cluster_anchors.setdefault(anchor, set())`` resurrected a
     # dead anchor as an empty entry, then the discover loop added
@@ -574,7 +576,7 @@ def discover_cluster_members(
     n_cols = state.pool_pruned_mask.shape[0]
     if 0 <= anchor < n_cols and bool(state.pool_pruned_mask[anchor]):
         return set()
-    # Exclude the temporarily-injected target column(s) from cluster membership: a leak/decoy column (``decoy ~ y``) gives the target SU ~ 1.0, so the target would be clustered and folded into a PC1-aggregate recipe whose ``src_names`` reference ``targ_<id>`` -- which is dropped after fit, so transform() KeyErrors on replay (layer6 / layer49).
+    # Exclude the temporarily-injected target column(s) from cluster membership: a leak/decoy column (``decoy ~ y``) gives the target SU ~ 1.0, so the target would be clustered and folded into a PC1-aggregate recipe whose ``src_names`` reference ``targ_<id>`` - which is dropped after fit, so transform() KeyErrors on replay (layer6 / layer49).
     _tgt_set = set(int(t) for t in state.target_indices) if state.target_indices is not None else set()
     if anchor in _tgt_set:
         return set()
@@ -583,7 +585,7 @@ def discover_cluster_members(
     # Anchor-only cache for the warp tie-break below: ``_a_raw`` (the anchor's raw column) and
     # ``_lin_a`` (its linear-usability score) depend only on ``anchor``, which is fixed across every
     # candidate in this loop unless a displacement re-anchors the cluster (see ``anchor = c_int`` below)
-    # -- so both are computed once per anchor instead of once per SU-redundant candidate that reaches
+    # - so both are computed once per anchor instead of once per SU-redundant candidate that reaches
     # the tie-break. ``_lin_a_ready`` (not "is None") marks "computed" so a real ``_linear_usability``
     # result of None (a degenerate anchor column) is still cached rather than retried every candidate.
     _anchor_cache_id: Optional[int] = None
@@ -812,6 +814,7 @@ def dcd_summary(state: Optional[DCDState]) -> Optional[dict]:
     # the captured cols list (defensive: should not happen on normal fits
     # but guards against malformed states from partial swaps).
     def _name(idx: int) -> str:
+        """Column name for ``idx``, or a synthetic placeholder when the index is outside the captured cols list."""
         i = int(idx)
         if 0 <= i < n_cols:
             return str(cols[i])
@@ -833,7 +836,7 @@ def dcd_summary(state: Optional[DCDState]) -> Optional[dict]:
         # Pairwise SU among ALL members of the cluster (anchor + members).
         # Pull from cache; missing entries are skipped (cluster discovery
         # only computes SU(member, anchor), so anchor-pair entries are
-        # always present, but member-member pairs may be absent -- that's
+        # always present, but member-member pairs may be absent - that's
         # fine, the min/mean/max are over what's available, which always
         # includes at least the anchor-member SU values).
         pair_sus: list = []
@@ -877,7 +880,7 @@ def dcd_summary(state: Optional[DCDState]) -> Optional[dict]:
         "cluster_anchors_names": name_anchors,
         "cluster_diagnostics": cluster_diagnostics,
         "tau_cluster": float(state.tau_cluster),
-        # Layer 47 (2026-05-31): auto-tau calibration diagnostics. None when
+        # Layer 47: auto-tau calibration diagnostics. None when
         # the user passed a numeric tau (calibration didn't run).
         "tau_calibration": getattr(state, "tau_calibration", None),
     }
@@ -899,7 +902,7 @@ __all__ = [
     "reattach_raw_representative_after_aggregate_swap",
     "dcd_summary",
     "use_dcd", "set_dcd_active",
-    # Layer 47 (2026-05-31): tau-auto calibration helpers (exported for
+    # Layer 47: tau-auto calibration helpers (exported for
     # white-box testing + downstream tooling).
     "_calibrate_tau_auto", "_detect_valley_between_modes",
     "_DCD_DEFAULT_TAU", "_DCD_AUTO_TAU_DEFAULT_N_PAIRS", "_DCD_AUTO_TAU_FALLBACK",

@@ -28,7 +28,7 @@ def _ucb_stop_remaining_cannot_win(
     (``ucb_slack`` is negative when honest tends to under-shoot proxy in the calibration window).
     If even the most optimistic remaining lower bound exceeds ``best_stable_score`` by more than
     ``parsimony_tol * |best_stable_score|`` it cannot enter the parsimony band, so further fits add
-    cost without changing the winner -- safe to stop dispatching new batches.
+    cost without changing the winner - safe to stop dispatching new batches.
 
     Stable across reruns: deterministic comparison of floats only.
     """
@@ -66,7 +66,7 @@ def _winner_from_per_candidate(per_candidate, candidates, member_cols, lambda_st
 def _random_baseline_is_meaningful(k: int, f: int) -> bool:
     """RF1: the winner's-curse random baseline is meaningful only when the winner is STRICTLY smaller than
     the full feature set. At ``k >= f`` a same-size random sample would BE the whole feature set, so the
-    baseline equals the all-features model and carries no winner's-curse signal -- skip it."""
+    baseline equals the all-features model and carries no winner's-curse signal - skip it."""
     return 0 < k < f
 
 
@@ -78,7 +78,7 @@ def _ucb_auto_slack(evaluated_proxy, evaluated_honest_mean, stdev_multiplier=1.5
     where ``delta_i = honest_i - proxy_i``: most of the calibration mass on the high side keeps it
     pessimistic (smaller honest predictions => larger remaining lower bounds rarely => never wrong
     stops). With <2 evaluated points the std is undefined; we fall back to ``mean(delta)`` only,
-    which still preserves the proxy ordering but with zero safety margin -- the calling stop check
+    which still preserves the proxy ordering but with zero safety margin - the calling stop check
     additionally requires the margin to clear ``parsimony_tol``.
 
     Returns 0.0 when no evaluated pairs supplied (caller has not yet started; cannot stop).
@@ -114,11 +114,11 @@ def revalidate_top_n(
     Final selection uses a parsimony / one-standard-error rule (matching RFECV's philosophy): among
     candidates whose stable score is within ``parsimony_tol`` (relative) of the best, pick the one
     with the FEWEST features (tie-break: lower stable score). This counters the proxy's bias toward
-    larger subsets -- a noise feature that buys <2% honest improvement should not be kept.
+    larger subsets - a noise feature that buys <2% honest improvement should not be kept.
 
     ``revalidation_n_estimators`` (iter28) caps the per-candidate booster's tree count for the
     PARSIMONY-RULE RANKING trials only. The selection criterion is "stable_score within parsimony_tol
-    of the best" -- a RELATIVE ranking decision that stabilises long before the default 300 trees
+    of the best" - a RELATIVE ranking decision that stabilises long before the default 300 trees
     (mirror of iter9 refine_n_estimators / iter19 oof_shap_n_estimators / iter10 trust_guard_n_estimators).
     Microbench at the live regime (width=1000, n_rows=5000, snr=8, 11-feature subsets): n=100 vs n=300
     Spearman 0.9414, identical argmin, 2.6x faster per fit. After the winner is chosen, ONE full-template
@@ -135,7 +135,7 @@ def revalidate_top_n(
     same-process seed=1 baseline reval=2.61s vs gated reval=2.55s (+2.3%), e2e 8.29s -> 8.27s
     (+0.2%); seed=0 reval 2.95s -> 2.88s (+2.4%); seed=0 e2e 12.58s -> 9.93s (+21%) is dominated
     by within-run prefilter variance (3.71s vs 1.56s in same comparison, NOT gate-attributable).
-    cProfile ``xgboost.update`` ncalls=1600 in BOTH baseline and gated -- the actual training-round
+    cProfile ``xgboost.update`` ncalls=1600 in BOTH baseline and gated - the actual training-round
     count is the same: the joblib-threading pool at -1 already absorbed the 60-fit batch (per
     iter29 ``time.sleep`` ~5.0s = parallel productive wait), so dropping 30 of those 60 fits leaves
     the same wall because the pool was never the bottleneck. iter28's
@@ -145,7 +145,7 @@ def revalidate_top_n(
     retrain loop.
 
     ``ucb_enabled`` (iter34): batched-dispatch early-stop on the candidate scoring loop. Different
-    mechanism from the rejected iter32 cull -- there we proposed dropping tail candidates before the
+    mechanism from the rejected iter32 cull - there we proposed dropping tail candidates before the
     pool started (which didn't help because the wall was already a single batched run). Here we
     start the BEST candidates first and stop dispatching new batches once the running winner is
     provably better than any remaining candidate's UCB lower bound. At width >= 10000 each honest
@@ -162,7 +162,7 @@ def revalidate_top_n(
     *pessimistic* side (subtracting std lowers the slack -> tightens the un-evaluated lower bound ->
     requires a larger gap to stop -> fewer wrong stops). With UCB disabled OR n_candidates <=
     min_eval_size OR ``n_jobs in (1, 0, None)``, falls through to the legacy single-batch path with
-    zero behaviour change -- single-job runs (test fixtures) have no batching to save on, so the gate
+    zero behaviour change - single-job runs (test fixtures) have no batching to save on, so the gate
     would only risk dropping the winner without any wall benefit.
 
     ``adaptive_n_models`` (iter77): when True, dispatch the ``n_models`` stability seeds as SEPARATE
@@ -196,7 +196,7 @@ def revalidate_top_n(
     # running winner provably beats every remaining candidate's UCB lower bound. Determinism:
     # within-batch joblib results are zipped back to the (cols, seed) tuples we dispatched, ties in
     # proxy ordering are broken by the original candidate index (kind="stable" argsort), and ALL
-    # seeds are sampled BEFORE the gate decides any batch -- so n_candidates_evaluated is the only
+    # seeds are sampled BEFORE the gate decides any batch - so n_candidates_evaluated is the only
     # variable between UCB and the legacy path; ranked entries for evaluated candidates are
     # bit-identical given identical seed + cache state.
     proxy_losses_arr = np.asarray([float(c[0]) for c in candidates], dtype=np.float64)
@@ -206,12 +206,12 @@ def revalidate_top_n(
     # the honest scale instead of the cheap-but-tightly-clustered proxy_loss. With ``candidate_score``
     # supplied, the gate compares un-evaluated score + slack against the running best stable score;
     # the slack auto-calibrates the residual gap. When ``None`` (standalone tests, legacy callers),
-    # falls back to raw proxy_loss -- the gate still works but may rarely fire on regimes whose
+    # falls back to raw proxy_loss - the gate still works but may rarely fire on regimes whose
     # proxy_loss spread is too tight to discriminate (corrector-aware score widens the spread).
     score_arr = np.asarray(candidate_score, dtype=np.float64) if candidate_score is not None else proxy_losses_arr
     # Use the CALLER'S order (the facade already sorts top_n by bias-corrector + uncertainty score,
     # which is a strictly stronger ordering than raw proxy_loss alone). Re-sorting on proxy_loss
-    # here would unwind that work and surrender the corrector's per-candidate trust signal -- the
+    # here would unwind that work and surrender the corrector's per-candidate trust signal - the
     # very signal the trust-guard pays its 60+ anchor retrains to produce. Stays compatible with
     # the standalone test fixtures that pass already-proxy-sorted candidates.
     proxy_order = np.arange(n_total, dtype=np.int64)
@@ -224,7 +224,7 @@ def revalidate_top_n(
         ucb_min_eval_size_eff = max(1, int(ucb_min_eval_size))
     # UCB only pays when joblib actually BATCHES dispatch across workers (the iter34 premise).
     # With n_jobs=1 the legacy single-batch path is already sequential, so skipping candidates
-    # produces no wall savings -- only opens a window for the gate to stop on a too-small evaluated
+    # produces no wall savings - only opens a window for the gate to stop on a too-small evaluated
     # batch (3 candidates) and miss the winner. The user-visible failure mode on the biz_val test
     # (noise2 kept where the legacy path picked an informative) is exactly this: 1-job runs are
     # typically test fixtures where determinism + recall matter more than wall savings.
@@ -247,7 +247,7 @@ def revalidate_top_n(
     # deployed member subset after cluster aggregation. The user-visible "chosen subset" is the
     # member set, so equivalence on members captures convergence one round earlier whenever two
     # different unit tuples collapse to the same deployment. Build a per-candidate member-key
-    # lookup (sorted tuple) once -- _expand was already paid for in ``member_cols`` above.
+    # lookup (sorted tuple) once - _expand was already paid for in ``member_cols`` above.
     members_by_unit_tuple = {tuple(idx): tuple(sorted(int(c) for c in member_cols[ci])) for ci, (_, idx) in enumerate(candidates)}
     prev_winner_members: tuple | None = None
     # When the early-stop fires on member-equivalence WHILE unit tuples still differ, that's the
@@ -340,7 +340,7 @@ def revalidate_top_n(
         n_models_run = round_k + 1
         # Parsimony-rule winner across accumulated per-candidate losses; early-stop when stable
         # across two consecutive rounds. Floor at 2 rounds so we always have at least one stability
-        # check (round_k >= 1). When n_models == 1 the loop runs exactly once -- no check possible
+        # check (round_k >= 1). When n_models == 1 the loop runs exactly once - no check possible
         # and adapt_active is False anyway, so this branch is skipped.
         if adapt_active:
             cur_winner = _winner_from_per_candidate(
@@ -381,7 +381,7 @@ def revalidate_top_n(
 
     # Full-template re-evaluation of the WINNER so the user-visible honest_loss in the report stays
     # apples-to-apples with the trust-guard / ablation outputs (those use the full template). Only
-    # the chosen subset is re-fit -- a single extra fit, not n_models more. The cache lookup uses
+    # the chosen subset is re-fit - a single extra fit, not n_models more. The cache lookup uses
     # the full-template namespace (template_id=None) so it hits any prior pipeline retrain of the
     # same subset (e.g. when ablation later refits the winner, that fit is the cache hit). Same
     # design as within_cluster_refine's final full-template re-evaluation. When cap is None the
@@ -396,7 +396,7 @@ def revalidate_top_n(
             if d["features"] == best_idx:
                 d["honest_loss"] = float(winner_full_loss)
                 # std measured at capped template (n_models samples); winner's full-template eval is a
-                # single fit so its std is not refreshed -- the capped-template std remains as a
+                # single fit so its std is not refreshed - the capped-template std remains as a
                 # cross-seed-stability proxy. Update stable_score to reflect the new mean.
                 d["stable_score"] = float(winner_full_loss) + lambda_stab * d["honest_std"]
                 d["honest_loss_capped"] = float(np.asarray(per_candidate[next(i for i, (_, ix) in enumerate(candidates) if tuple(ix) == best_idx)]).mean())
@@ -405,7 +405,7 @@ def revalidate_top_n(
     # Same-size (in member columns) random-subset baseline for the winner (winner's-curse context).
     # RF1: only meaningful when the winner is strictly smaller than the full feature set; when k >= f the
     # "random" sample would BE the whole feature set, so the baseline equals the all-features model and
-    # carries no winner's-curse signal -- skip it (baseline stays None) rather than report a tautology.
+    # carries no winner's-curse signal - skip it (baseline stays None) rather than report a tautology.
     baseline = None
     if best_idx:
         k = len(_expand(best_idx, unit_to_members))
@@ -454,7 +454,7 @@ def active_learning_revalidate(
     fixed retrain budget where it most reduces winner's-curse risk. The proxy's top-1 is always among
     the first evaluated, so the result is never worse than naive top-1.
 
-    ``revalidation_n_estimators`` (iter28): same cap semantics as ``revalidate_top_n`` -- per-candidate
+    ``revalidation_n_estimators`` (iter28): same cap semantics as ``revalidate_top_n`` - per-candidate
     ranking trials use the capped booster (cheaper but ranking-equivalent), winner gets ONE
     full-template re-evaluation to keep the reported ``honest_loss`` apples-to-apples. The corrector
     is fit on the CAPPED honest losses (the corrector is itself a ranking-quality tool, so working
@@ -556,7 +556,7 @@ def within_cluster_refine(
        near-duplicates by construction (within-cluster correlation >= the clustering threshold), so
        dropping all-but-one is the cheapest deduplication. Crucially, each cluster's probe is
        INDEPENDENT (other clusters retain full membership during their probes), so a failure to
-       collapse one redundant cluster doesn't poison the others -- unlike a "drop everything safe at
+       collapse one redundant cluster doesn't poison the others - unlike a "drop everything safe at
        once" multi-drop that conflates redundancy with noise singletons.
     2. CROSS-CLUSTER GREEDY-BACKWARD on the now-much-smaller working set: legacy "drop the column
        whose loss is best, while within tol" until no single drop helps. This handles the noise
@@ -568,13 +568,13 @@ def within_cluster_refine(
 
     Low-redundancy fast-path: when fewer than ``min_multi_clusters`` of the supplied ``member_groups``
     have more than one member, the stage-1 probes (1 per multi-cluster + 1 cumulative verification fit)
-    don't pay back -- on essentially-singleton data stage-1 just adds k+1 fits and routes the same
+    don't pay back - on essentially-singleton data stage-1 just adds k+1 fits and routes the same
     columns into stage 2 unchanged. Skip stage 1 and run legacy single-drop greedy directly. Measured
     fix for an iter7 regression on low-redundancy (2k-feature clean) datasets where 0..1 multi-cluster
     groups paid the stage-1 toll for no collapse opportunity.
 
     When ``member_groups`` is ``None`` (legacy call sites or non-clustering mode), runs the original
-    pure greedy-backward over ``member_cols`` -- behavior strictly preserved for backward compatibility.
+    pure greedy-backward over ``member_cols`` - behavior strictly preserved for backward compatibility.
 
     ``ucb_enabled`` (iter35): batched-dispatch early-stop on stage 2b's per-round single-drop greedy.
     Each round sorts drop trials by ascending stage-2a permutation importance (lowest = safest drop =
@@ -583,7 +583,7 @@ def within_cluster_refine(
     trial is ``importance + slack`` where ``slack`` auto-calibrates from the round's evaluated
     (importance, honest_loss) pairs via ``mean(delta) - stdev_multiplier * std(delta)``. Mirrors
     iter34's revalidate_top_n UCB knob design. Falls through to legacy single-batch-per-round when
-    UCB is off OR ``n_jobs in (1, 0, None)`` OR stage-2a's importance prior is missing -- single-job
+    UCB is off OR ``n_jobs in (1, 0, None)`` OR stage-2a's importance prior is missing - single-job
     runs (test fixtures) have no batching to save on, so the gate would only risk wrong stops without
     a wall benefit. The lever pays at width >= 10000 where each honest fit is ~500 ms and ~5
     stage-2b rounds dispatch ~10 trials each (Phase-0 C3 cProfile: within_cluster_refine 6.14s of
@@ -601,7 +601,7 @@ def within_cluster_refine(
 
     ``protected_cols`` (gt_09, iter-2026-07-19, default ``None``): a set of member-column ids that
     are excluded from every drop trial (stage 1 cluster-collapse, stage 2a batch-drop, stage 2b
-    single-drop greedy) -- never proposed for removal. Used to keep residual-pass-rescued weak
+    single-drop greedy) - never proposed for removal. Used to keep residual-pass-rescued weak
     features alive through this stage's greedy ``parsimony_tol`` pruning, which the empirical trace
     showed re-drops them even after they survive the prescreen. ``None`` (default) is a strict no-op:
     every trial set is unchanged, byte-identical to the pre-extension behaviour. Protection applies
@@ -622,7 +622,7 @@ def within_cluster_refine(
     tid = ("refine_cap", int(cap)) if cap is not None else None
     # iter81: cross-process disk cache extends iter80's wiring through the refine stage. Stage-1
     # parallel cluster probes and stage-2b per-round single-drop trials repeat the SAME (cols, seed,
-    # template, cap) tuple on hyperparam sweeps -- a warm-cache lookup skips the booster fit entirely.
+    # template, cap) tuple on hyperparam sweeps - a warm-cache lookup skips the booster fit entirely.
     # ``None`` (default) keeps the legacy in-memory-only contract bit-identical.
     disk_cache = _open_disk_cache(disk_cache_dir)
     # Defer the initial-base fit when Stage 1 won't fire: in that case Stage 2a's
@@ -632,7 +632,7 @@ def within_cluster_refine(
     # would have produced. Folding the two into one fit saves ~0.5 s per refine call at C3-scale
     # (10k rows x 26-col working set) and pays out anytime member_groups is None or all groups are
     # singletons (the cluster-collapse low-redundancy fast path). When Stage 1 WILL fire we keep
-    # the eager base fit because its threshold gates the Stage 1 probes -- the perm-importance pass
+    # the eager base fit because its threshold gates the Stage 1 probes - the perm-importance pass
     # runs AFTER Stage 1 may have shrunk ``current``, so its rank_base would be on the wrong set.
     n_multi_eligible = 0
     if member_groups is not None:
@@ -698,7 +698,7 @@ def within_cluster_refine(
                         base = min(base, cum_loss)
                         threshold = base + parsimony_tol * abs(base)
                     elif len(multi) == 1:
-                        # Only one cluster was collapsed; the cumulative IS the single probe -- if
+                        # Only one cluster was collapsed; the cumulative IS the single probe - if
                         # one passed and the other failed, that's just float noise (cache should make
                         # them byte-identical, but defend in depth). Accept the probe result anyway.
                         current = collapsed
@@ -724,11 +724,11 @@ def within_cluster_refine(
     # ---- Stage 2a: ONE permutation-importance + batch-drop pass on the (possibly stage-1-collapsed)
     # working set. This is the iter11 perf win: a single ranking pass (1 fit + k cheap predicts)
     # ranks every member by drop-safety, then we accept the largest batched drop that respects
-    # parsimony_tol -- collapsing what would have been many legacy single-drop greedy rounds into
+    # parsimony_tol - collapsing what would have been many legacy single-drop greedy rounds into
     # ONE verify retrain (with halving fallbacks on rejection). The pass is run AT MOST ONCE per
     # refine call: after the initial bulk-compaction, the working set is small (typically a handful
     # of columns) and the subsequent single-drop greedy stage-2b can polish it in legacy O(k)
-    # retrains -- the runtime cost of which is now negligible because k is small. Running multiple
+    # retrains - the runtime cost of which is now negligible because k is small. Running multiple
     # batch-drop rounds before stage-2b empirically over-prunes on the regime synthetic (the
     # batched verify can mask the loss of informatives whose signal is carried by surviving
     # redundancy-cluster reflections; legacy's gradual tightening protects against that).
@@ -752,7 +752,7 @@ def within_cluster_refine(
         importance_by_col = {int(current[i]): float(importances[i]) for i in range(len(current))}
         # Sort members ascending by importance (lowest = safest to drop first). Protected members are
         # pinned to +inf for THIS batch-drop selection only (never sorted into the "safe to drop"
-        # prefix) -- ``importance_by_col`` above keeps the real value for reporting/stage-2b priors.
+        # prefix) - ``importance_by_col`` above keeps the real value for reporting/stage-2b priors.
         drop_importances = importances.copy()
         if protected:
             for i, c in enumerate(current):
@@ -770,10 +770,10 @@ def within_cluster_refine(
         # (cluster-reflection duplicates score near-zero or negative importance, since shuffling
         # one duplicate barely moves the model that has the OTHER duplicates intact) while
         # leaving the legacy single-drop greedy stage-2b to polish the marginal-importance
-        # members one-by-one with a tightening rolling base -- the proven informative-preserving
+        # members one-by-one with a tightening rolling base - the proven informative-preserving
         # path. Measured: this restores 8/8 informative recovery at width=5000 on the regime
         # synthetic while keeping the refine wall-time under iter10's by ~6x.
-        # Threshold importance against ``parsimony_tol * |base| / sqrt(n)`` -- a per-member-share
+        # Threshold importance against ``parsimony_tol * |base| / sqrt(n)`` - a per-member-share
         # of the parsimony budget. Multi-drop interactions can make k columns of importance<=tol
         # collectively exceed tol; dividing by sqrt(n) under-allocates the budget so the batched
         # verify retains headroom. Empirically calibrated to restore 7-8/8 informative recovery
@@ -806,7 +806,7 @@ def within_cluster_refine(
                     break
                 batch_size = new_batch
         # When no member scored importance<=0, the batch-drop pass is a no-op and we proceed
-        # directly to stage-2b's single-drop greedy -- equivalent to legacy behaviour on a
+        # directly to stage-2b's single-drop greedy - equivalent to legacy behaviour on a
         # genuinely-essential working set.
 
     # ---- Stage 2b: legacy single-drop greedy backward on the now-compacted working set. After the
@@ -844,7 +844,7 @@ def within_cluster_refine(
             break
         cur_threshold = base + parsimony_tol * abs(base)
 
-        # Build (col, importance_prior) pairs, EXCLUDING protected members -- they are never proposed
+        # Build (col, importance_prior) pairs, EXCLUDING protected members - they are never proposed
         # for removal, so no trial drops them. Members not in ``importance_by_col`` (e.g. stage-2a was
         # skipped on a degenerate path) fall back to importance = +inf so they sort last; the legacy
         # path also runs them but the UCB path keeps them as last-resort dispatch.
@@ -945,7 +945,7 @@ def importance_topk_ablation(
 
     ``disk_cache_dir`` (iter81): when set, the two honest retrains (proxy subset + SHAP-importance-
     top-k subset) check the cross-process :class:`DiskCache` first. The proxy subset is typically a
-    cache hit -- it's the chosen winner that revalidation just retrained -- so the warm-cache cost
+    cache hit - it's the chosen winner that revalidation just retrained - so the warm-cache cost
     of this stage drops to one fit for the imp_cols comparison (and to zero when both subsets
     overlap a prior fit). ``None`` (default) keeps the legacy in-memory-only contract bit-identical.
     """
