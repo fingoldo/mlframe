@@ -63,8 +63,8 @@ floor at all. Fixed with `np.fromiter(..., count=len(...))`, which also preserve
 (pair-order equivalence, and a real fit asserting the fallback warning is absent); both fail pre-fix.
 The bench missed this because it fed a `list` while production feeds a `set` - the bench now uses a set.
 
-**Pre-existing, NOT caused by this wave.** `biz_val/test_biz_value_mrmr_fe_hybrid_orth/
-test_autowired_hybrid_fe.py` fails 11 / 38. Verified identical on a clean `origin/master` worktree:
+**Pre-existing, NOW FIXED (see the follow-up section at the bottom).** `biz_val/
+test_biz_value_mrmr_fe_hybrid_orth/test_autowired_hybrid_fe.py` failed 11 / 38. Verified identical on a clean `origin/master` worktree:
 **11 failed, 27 passed on both**. All 11 share a single root cause - the hybrid-orth stage emits nothing
 (`hybrid_orth_features_=[]`), so the XOR `He_1*He_1` term, the `x1__He2` quadratic detector and the downstream
 LogReg AUC lift all fail together; in one seed a pure-noise column (`binagg_skew(noise_b|qbin(noise_a))`) is
@@ -86,3 +86,43 @@ behavioural bugs); an implicit-`Optional` gate (mypy already reports it — wide
 adding a weaker duplicate); a truncate-before-filter gate (a semantic question about intent, not a pattern);
 a dead-parameter gate (fires on every signature-parity stub and `**kwargs` shim); an overloaded-sentinel gate
 (`return 0.0` is statically indistinguishable from `return 0.0`).
+
+## Follow-up: the hybrid-orth biz-value suite, 49 failures -> 0
+
+The whole `test_biz_value_mrmr_fe_hybrid_orth/` directory was failing **49 / 385** on `origin/master`. Every
+failure traced to three causes, none of which was a defect in the hybrid-orth algorithm itself (verified
+standalone: it produces exactly the expected `x2*x1__He1_He1` and `x1__He2` terms).
+
+**1. The test presets disabled the very stage under test.** The orth-basis families are FE stages, and the
+`fe_max_steps=0` "no FE at all" contract - correctly - suppresses them. Both `make_fast_mrmr` and this
+directory's own `_mrmr_kw` pinned `fe_max_steps=0` for speed, so every hybrid fit came back raw-only and each
+assertion reduced to "the roster is empty". Fixed by giving the FE budget to callers that ask for the family
+(`make_fast_mrmr` now sets `fe_max_steps=1` when `fe_hybrid_orth_enable` is passed; `_mrmr_kw` defaults to 1).
+Scenario A's control has to stay genuinely raw - it asserts the target is linear-UNSOLVABLE - so `_fit_mrmr`
+grew an explicit `fe_steps` knob and A's baseline passes `fe_steps=0`; with a budget the control engineered
+its own cross term and scored AUC 0.91 instead of ~0.5.
+
+**2. A real product bug: an MI floor above the information-theoretic ceiling.** `hybrid_orth_mi_fe` gates
+candidates on `engineered_mi >= max(legacy_floor, median+k*MAD(raw), median+k*MAD(engineered))`. The MAD terms
+assume the candidate sample IS a noise band. On a small candidate set (`cols=["x1"], degrees=(2,3)` -> two
+candidates: one signal, one dud) the MAD measures the signal-to-noise SEPARATION instead, and the ~5*1.4826
+multiplier pushed the floor to **2.21 nats against H(y) = 0.62** - unsatisfiable by construction, silently
+disabling the family with no error and no log. Since `MI(X; y) <= H(y)` is a hard bound, a MAD floor at or
+above `H(y)` can only mean "reject everything"; it is now dropped as degenerate (with a debug log). Verified
+both directions: the quadratic detector is recovered on every seed, and the all-noise control still engineers
+nothing, so the Layer-27 false-positive protection is intact.
+
+**3. Structural assertions outlived the representation they were written for.** With FE enabled the step
+often delivers a signal FUSED into a composite rather than as a standalone basis column - on the mixed-bag
+scenario it emitted `add(add(sqr(a),b__He2),mul(cbrt(c1),cbrt(c2)))`, literally the target's generating
+function. Name-shaped assertions (`startswith("a__")`, `"*" in name`) missed it even though the model was
+strictly better: holdout AUC **0.86 raw-only -> 0.98 with FE**. Those assertions were re-framed to match the
+real contract (an engineered column built from the signal's sources, standalone or fused), and the AUC bar
+was raised 0.80 -> 0.90 accordingly - above the raw-only ceiling, so it now pins a genuine FE lift.
+
+**Observability added.** `hybrid_orth_features_` is intersected with `support_`, so when a sibling FE family
+emits an equivalent column and wins the greedy the roster goes empty - indistinguishable from the stage never
+having run. That ambiguity is what made this take a manual bisect to diagnose. `MRMR.hybrid_orth_candidates_`
+now records everything the family produced, whether or not it survived selection.
+
+Result: **395 passed, 0 failed** in that directory (was 49 failed / 336 passed).

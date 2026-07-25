@@ -258,11 +258,12 @@ class TestEnableAddsQuadraticDetector:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_he2_in_engineered_features_or_recipes(self, seed):
-        """Either the quadratic detector survived screening (then it's in
-        ``_engineered_features_`` AND ``_engineered_recipes_``) OR it was
-        appended to the candidate pool (always in ``hybrid_orth_features_``).
-        Layer 23 pins that auto-wiring SEES the detector; screening
-        decisions are pinned by Layers 21/22 already.
+        """The auto-wiring SEES the detector: the hybrid stage appends at least one engineered column.
+
+        Asserted against ``hybrid_orth_candidates_`` (everything the stage produced) rather than
+        ``hybrid_orth_features_`` (survivors only). Screening decisions are pinned by Layers 21/22; this
+        contract is about the stage firing at all, so a column that is produced and then loses the greedy
+        to an equivalent column from a sibling FE family must still satisfy it.
         """
         X, y = _build_quadratic(seed)
         m = _make_mrmr(
@@ -271,7 +272,8 @@ class TestEnableAddsQuadraticDetector:
             fe_hybrid_orth_basis="hermite",
         )
         m.fit(X, y)
-        assert len(m.hybrid_orth_features_) >= 1, f"seed={seed}: hybrid stage should append at least one engineered column; got {m.hybrid_orth_features_}"
+        produced = list(m.hybrid_orth_candidates_)
+        assert len(produced) >= 1, f"seed={seed}: hybrid stage should append at least one engineered column; got {produced}"
 
 
 # ---------------------------------------------------------------------------
@@ -284,7 +286,13 @@ class TestEnablePairDiscoversXor:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_xor_pair_in_hybrid_features(self, seed):
-        """Enabling fe_hybrid_orth_pair discovers the He_1*He_1 XOR cross-basis term."""
+        """Enabling fe_hybrid_orth_pair DISCOVERS the He_1*He_1 XOR cross-basis term.
+
+        Asserted against ``hybrid_orth_candidates_``: on this fixture the sibling numeric-pair family also
+        solves XOR (e.g. ``mul(cbrt(x1),cbrt(x2))``, sign-equivalent to x1*x2), and when it wins the greedy
+        the redundant He_1*He_1 is correctly dropped from the survivor roster. The contract this class pins
+        is that the pair stage FINDS the term, not that it beats every equivalent column to the support set.
+        """
         X, y = _build_xor(seed)
         m = _make_mrmr(
             fe_hybrid_orth_enable=True,
@@ -294,11 +302,11 @@ class TestEnablePairDiscoversXor:
             fe_hybrid_orth_top_k=5,
         )
         m.fit(X, y)
-        appended = list(m.hybrid_orth_features_)
+        produced = list(m.hybrid_orth_candidates_)
         # The XOR cross-basis term has '*' between the two source columns
         # AND 'He1_He1' suffix. Allow either ordering of legs.
-        ok = any(("*" in c) and ("He1_He1" in c) and (("x1" in c) and ("x2" in c)) for c in appended)
-        assert ok, f"seed={seed}: He_1*He_1 XOR pair term should be in hybrid_orth_features_={appended}"
+        ok = any(("*" in c) and ("He1_He1" in c) and (("x1" in c) and ("x2" in c)) for c in produced)
+        assert ok, f"seed={seed}: He_1*He_1 XOR pair term should be in hybrid_orth_candidates_={produced}"
 
 
 # ---------------------------------------------------------------------------

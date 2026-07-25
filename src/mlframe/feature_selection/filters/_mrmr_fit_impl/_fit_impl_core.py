@@ -431,6 +431,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # would populate) and the end-of-fit remap routes them through
     # ``self._engineered_recipes_`` automatically.
     self.hybrid_orth_features_ = []
+    # Every column the hybrid-orth family APPENDED to the candidate pool, whether or not it later survived
+    # selection. ``hybrid_orth_features_`` is intersected with ``support_`` (survivor-only), so when a sibling
+    # FE family emits an equivalent column and wins the greedy, the survivor roster goes empty and there is no
+    # way left to tell "the stage never fired" from "it fired and lost". This roster answers that directly.
+    self.hybrid_orth_candidates_ = []
     # ADAPTIVE-FREQUENCY Fourier: names of the held-out-validated
     # adaptive sin/cos columns the extra-basis stage emitted. Used by the
     # support-finalisation ADAPTIVE-PROTECTION block to re-add any the MRMR
@@ -5567,6 +5572,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 )
                 _eng_drop_u = set(_eng_now) - _keep_u
                 if _eng_drop_u:
+                    # Record what the FE stages produced BEFORE this pass prunes it (see the roster-
+                    # reconciliation snapshot near the end of fit for why the pre-prune view is kept).
+                    self.hybrid_orth_candidates_ = list(
+                        dict.fromkeys(list(getattr(self, "hybrid_orth_candidates_", None) or []) + list(getattr(self, "hybrid_orth_features_", None) or []))
+                    )
                     X = X.drop(columns=list(_eng_drop_u))
                     for _attr in (
                         "hybrid_orth_features_", "mi_greedy_features_",
@@ -9169,6 +9179,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # authoritative set of engineered columns that actually survived into the output (reachable via ``get_feature_names_out``). Intersect every roster with it so a column the screen
     # dropped (and the adaptive-protection block did NOT re-add) no longer leaks into the user-facing roster. Runs AFTER the additional_rfecv rescue (which reads the FULL rosters to
     # exclude engineered columns from its raw-only rescue pool); the rescue never adds engineered columns, so ``_engineered_features_`` is final here. Order-preserving per roster.
+    # Snapshot the PRE-intersection roster first: once the loop below keeps only survivors there is no way left
+    # to distinguish "this FE stage never fired" from "it fired and its column lost the greedy to an equivalent
+    # column from a sibling family" -- a distinction that otherwise costs a manual bisect to recover.
+    self.hybrid_orth_candidates_ = list(
+        dict.fromkeys(list(getattr(self, "hybrid_orth_candidates_", None) or []) + list(getattr(self, "hybrid_orth_features_", None) or []))
+    )
     _surviving_eng = set(self._engineered_features_ or [])
     for _roster_attr in (
         "hybrid_orth_features_", "_adaptive_fourier_features_", "mi_greedy_features_",

@@ -543,6 +543,29 @@ def score_features_by_mi_uplift(
     return df
 
 
+def _target_entropy_nats(y: np.ndarray) -> float:
+    """Plug-in Shannon entropy of the target, in nats -- the hard ceiling on any ``MI(X; y)``.
+
+    Used to detect an MAD-derived MI floor that has drifted above what any column could possibly score
+    (which makes the gate unsatisfiable rather than selective). Continuous ``y`` is quantile-binned to the
+    same 10 bins the MI scorer uses, so the ceiling is the one that actually applies. Returns 0.0 when the
+    entropy cannot be established, which disables the bound rather than guessing.
+    """
+    try:
+        arr = np.asarray(y).ravel()
+        if arr.size == 0:
+            return 0.0
+        if arr.dtype.kind in "fc" and int(np.unique(arr).size) > 32:
+            arr = np.asarray(pd.qcut(arr, q=10, labels=False, duplicates="drop"))
+        _, counts = np.unique(arr, return_counts=True)
+        p = counts.astype(np.float64) / float(counts.sum())
+        p = p[p > 0.0]
+        return float(-np.sum(p * np.log(p)))
+    except Exception:
+        logger.debug("_target_entropy_nats: could not establish H(y); MI-ceiling bound disabled", exc_info=True)
+        return 0.0
+
+
 def hybrid_orth_mi_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -687,7 +710,25 @@ def hybrid_orth_mi_fe(
     med_e = float(np.median(eng_mis)) if eng_mis.size else 0.0
     mad_e = float(np.median(np.abs(eng_mis - med_e))) if eng_mis.size else 0.0
     eng_noise_floor = med_e + sigma_thresh * 1.4826 * mad_e
-    abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
+    # SANITY BOUND on the two MAD-derived floors: ``MI(X; y) <= H(y)`` is a hard information-theoretic
+    # ceiling, so a floor at or above H(y) is unsatisfiable BY CONSTRUCTION -- it does not "reject noise", it
+    # rejects everything, silently disabling the whole family with no error and no log.
+    # That is exactly what happens on a SMALL candidate set: MAD estimates the spread of a NOISE band, but
+    # with only a couple of candidates (e.g. cols=["x1"], degrees=(2,3) -> 2 candidates, one signal + one
+    # dud) the MAD measures the signal-to-noise SEPARATION instead, and multiplying it by ~5*1.4826 pushes
+    # the floor far past H(y) (measured: floor 2.21 nats vs H(y)=0.62 on the He_2 quadratic fixture).
+    # A floor that is genuinely discriminating always sits below H(y); one that does not is degenerate, so
+    # drop it rather than let it veto every column. All-noise protection is untouched: noise MIs sit far
+    # below H(y), so a meaningful floor still rejects them.
+    _h_y = _target_entropy_nats(y)
+    _mad_floors = [f for f in (noise_floor, eng_noise_floor) if not (_h_y > 0.0 and f >= _h_y)]
+    if len(_mad_floors) < 2:
+        logger.debug(
+            "hybrid_orth_mi_fe: dropped a MAD noise floor at/above H(y)=%.4f (raw=%.4f, eng=%.4f, n_cands=%d) "
+            "-- unsatisfiable by construction, would have vetoed every candidate.",
+            _h_y, noise_floor, eng_noise_floor, n_cands,
+        )
+    abs_floor = max([legacy_floor, *_mad_floors])
     qualified = scores[(scores["uplift"] >= float(min_uplift)) & (scores["engineered_mi"] >= abs_floor)]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])

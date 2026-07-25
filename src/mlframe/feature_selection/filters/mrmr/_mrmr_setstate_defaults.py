@@ -193,6 +193,9 @@ _SETSTATE_LEGACY_DEFAULTS = {
     # Fitted attribute (list of engineered names from hybrid stage);
     # legacy pickles default to empty list.
     "hybrid_orth_features_": [],
+    # Fitted attribute: every column the hybrid-orth family appended, INCLUDING the ones selection later
+    # dropped (``hybrid_orth_features_`` keeps only survivors). Legacy pickles default to empty list.
+    "hybrid_orth_candidates_": [],
     # MI-greedy FE constructor. Defaults
     # preserve legacy behaviour: master switch OFF.
     "fe_mi_greedy_enable": False,

@@ -151,6 +151,12 @@ def make_fast_mrmr(*, fe: bool = False, dcd: bool = False, **overrides):
     if dcd:
         kwargs["dcd_enable"] = True
     kwargs.update(overrides)
+    # The hybrid-orth family is default-ON, so it is suppressed by this preset's ``fe_max_steps=0``
+    # ("no FE at all") along with every other FE stage. A caller that explicitly asks for hybrid-orth wants
+    # that stage to RUN, so give it the minimum budget it needs -- otherwise the fit is silently raw-only and
+    # every hybrid assertion reduces to "the roster is empty". An explicit fe_max_steps override still wins.
+    if kwargs.get("fe_hybrid_orth_enable") and "fe_max_steps" not in overrides:
+        kwargs["fe_max_steps"] = 1
     return MRMR(**kwargs)
 
 

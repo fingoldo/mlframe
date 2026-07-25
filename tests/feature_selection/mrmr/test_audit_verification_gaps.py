@@ -131,6 +131,77 @@ def test_fe_step_maxt_floor_runs_on_a_real_fit(caplog):
     assert not bad, f"the order-2 maxT floor threw during a real fit: {bad[:2]}"
 
 
+def test_hybrid_orth_mi_floor_cannot_exceed_the_target_entropy_ceiling():
+    """A MAD-derived MI floor above ``H(y)`` is unsatisfiable and must not veto every candidate.
+
+    ``MI(X; y) <= H(y)`` is a hard bound, so a floor at or above it rejects everything rather than rejecting
+    noise. On a small candidate set (cols=["x1"], degrees=(2,3) -> 2 candidates: one signal, one dud) the MAD
+    measures the signal-to-noise SEPARATION instead of a noise band, and x5*1.4826 pushed the floor to ~2.21
+    nats against a ceiling of H(y)~0.62 -- silently disabling the whole family. The all-noise control pins
+    that dropping the degenerate floor did NOT weaken the real noise rejection.
+    """
+    import pandas as pd
+
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe import hybrid_orth_mi_fe
+
+    for seed in (1, 13, 42):
+        rng = np.random.default_rng(seed)
+        n = 2000
+        x1 = rng.standard_normal(n)
+        X = pd.DataFrame({"x1": x1, **{f"noise_{i}": rng.standard_normal(n) for i in range(3)}})
+        y = ((x1 * x1 - 1.0) + 0.05 * rng.standard_normal(n) > 0).astype(int)
+        X_aug, scores = hybrid_orth_mi_fe(X, y, cols=["x1"], degrees=(2, 3), basis="hermite", top_k=2, min_uplift=1.05)
+        appended = [c for c in X_aug.columns if c not in X.columns]
+        assert "x1__He2" in appended, (
+            f"seed={seed}: the quadratic detector clears the uplift gate but was vetoed by an " f"unsatisfiable MI floor; appended={appended}\n{scores}"
+        )
+
+    # All-noise control: with no real signal the floor must still reject every candidate.
+    for seed in (1, 13):
+        rng = np.random.default_rng(seed)
+        n = 2000
+        Xn = pd.DataFrame({f"n{i}": rng.standard_normal(n) for i in range(4)})
+        yn = rng.integers(0, 2, size=n)
+        X_aug, _ = hybrid_orth_mi_fe(Xn, yn, cols=["n0"], degrees=(2, 3), basis="hermite", top_k=2, min_uplift=1.05)
+        appended = [c for c in X_aug.columns if c not in Xn.columns]
+        assert not appended, f"seed={seed}: all-noise frame must engineer nothing; got {appended}"
+
+
+def test_hybrid_orth_candidates_roster_separates_never_fired_from_lost_the_greedy():
+    """``hybrid_orth_candidates_`` must record every column the hybrid-orth family produced, even when
+    selection later drops it.
+
+    ``hybrid_orth_features_`` is intersected with ``support_``, so when a sibling FE family emits an
+    equivalent column and wins the greedy the survivor roster goes empty -- indistinguishable from the stage
+    never having run. On this XOR fixture the numeric-pair family emits a sign-equivalent product and does
+    win, so the candidates roster is the only thing that shows the pair stage found ``He1_He1`` at all.
+    """
+    import pandas as pd
+
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    rng = np.random.default_rng(1)
+    n = 1500
+    x1 = rng.standard_normal(n)
+    x2 = rng.standard_normal(n)
+    X = pd.DataFrame({"x1": x1, "x2": x2, "noise_a": rng.standard_normal(n), "noise_b": rng.standard_normal(n)})
+    y = pd.Series((((x1 * x2) + 0.02 * rng.standard_normal(n)) > 0).astype(int), name="y")
+    common = dict(
+        verbose=0, interactions_max_order=1, dcd_enable=False, cluster_aggregate_enable=False,
+        build_friend_graph=False, quantization_nbins=10, random_seed=0, n_workers=1,
+        fe_hybrid_orth_enable=True, fe_hybrid_orth_pair_enable=True, fe_hybrid_orth_pair_max_degree=2,
+        fe_hybrid_orth_basis="hermite", fe_hybrid_orth_top_k=5,
+    )
+    fired = MRMR(fe_max_steps=1, **common).fit(X, y)
+    produced = list(getattr(fired, "hybrid_orth_candidates_", []) or [])
+    assert any("He1_He1" in c for c in produced), f"the pair stage's He1_He1 term must be recorded; got {produced}"
+
+    # fe_max_steps=0 is the documented "no FE at all" contract: the stage must not fire, and the roster
+    # must say so rather than looking identical to the fired-but-lost case above.
+    off = MRMR(fe_max_steps=0, **common).fit(X, y)
+    assert not (getattr(off, "hybrid_orth_candidates_", []) or []), "no FE stage may fire at fe_max_steps=0"
+
+
 def test_step_score_safe_code_dtype_reserves_uniform_nan_slot():
     """The FE-step score path must pass reserve_nan_slot for the uniform method, like the discretization module's
     own call sites -- otherwise a uniform nbins==dtype.max+1 write wraps the NaN sentinel negative."""

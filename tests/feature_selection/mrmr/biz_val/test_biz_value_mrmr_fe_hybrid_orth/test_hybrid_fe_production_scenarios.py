@@ -85,7 +85,10 @@ def _mrmr_kw(**overrides):
     base = dict(
         verbose=0,
         interactions_max_order=1,
-        fe_max_steps=0,
+        # The orth-basis families (univariate default-ON, hybrid pair opt-in) are FE stages, so the former
+        # ``fe_max_steps=0`` ("no FE at all") suppressed the very thing these scenarios measure -- every fit
+        # came back raw-only. Budget 1 step: enough for the basis stages, still far cheaper than the default 2.
+        fe_max_steps=1,
         dcd_enable=False,
         cluster_aggregate_enable=False,
         build_friend_graph=False,
@@ -97,12 +100,19 @@ def _mrmr_kw(**overrides):
     return base
 
 
-def _fit_mrmr(X, y, *, hybrid: bool, pair: bool = True, degrees=(2, 3), top_k: int = 5):
-    """Fit MRMR with hybrid orthogonal-basis FE enabled or explicitly disabled."""
+def _fit_mrmr(X, y, *, hybrid: bool, pair: bool = True, degrees=(2, 3), top_k: int = 5, fe_steps: int = 1):
+    """Fit MRMR with hybrid orthogonal-basis FE enabled or explicitly disabled.
+
+    ``fe_steps`` is the FE budget. It defaults to 1 so ``hybrid=False`` still means "the DEFAULT pipeline,
+    with its default-ON univariate-basis family" (what most scenarios here contrast against). Pass
+    ``fe_steps=0`` for a scenario whose control has to be genuinely RAW-only -- with any FE budget the
+    control can engineer its way out of the problem and stops being a baseline.
+    """
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     if hybrid:
         kw = _mrmr_kw(
+            fe_max_steps=int(fe_steps),
             fe_hybrid_orth_enable=True,
             fe_hybrid_orth_pair_enable=pair,
             fe_hybrid_orth_pair_max_degree=2,
@@ -113,7 +123,7 @@ def _fit_mrmr(X, y, *, hybrid: bool, pair: bool = True, degrees=(2, 3), top_k: i
     else:
         # EXPLICIT off baseline: fe_hybrid_orth_enable defaults to True since 2026-06-21,
         # so the no-hybrid control must disable it explicitly (was relying on the default).
-        kw = _mrmr_kw(fe_hybrid_orth_enable=False)
+        kw = _mrmr_kw(fe_max_steps=int(fe_steps), fe_hybrid_orth_enable=False)
     return MRMR(**kw).fit(X, y)
 
 
@@ -179,7 +189,10 @@ class TestScenarioAFinancialCross:
         """Hybrid MRMR clears 0.75 AUC, lifts >= +0.20 over baseline, and picks a price*volume cross-basis column."""
         X, y = _build_financial(seed)
         Xtr, ytr, Xte, yte = _split(X, y.to_numpy(), n_tr=2000)
-        mb = _fit_mrmr(Xtr, pd.Series(ytr), hybrid=False)
+        # Contract A.1 below asserts the control is linear-UNSOLVABLE, so it must be genuinely raw-only:
+        # with any FE budget the control engineers its own cross term, solves the XOR, and stops being a
+        # baseline (measured AUC 0.91 instead of ~0.5).
+        mb = _fit_mrmr(Xtr, pd.Series(ytr), hybrid=False, fe_steps=0)
         mh = _fit_mrmr(Xtr, pd.Series(ytr), hybrid=True, pair=True)
         auc_b = _classifier_holdout_auc(mb, Xtr, ytr, Xte, yte)
         auc_h = _classifier_holdout_auc(mh, Xtr, ytr, Xte, yte)
@@ -233,6 +246,26 @@ def _has_univariate_basis_of(support, var):
     ``var`` (named ``{var}__<basiscode><degree>`` e.g. ``temperature__He2`` /
     ``temperature__T2``); robust to which basis the ``auto`` selector picks."""
     return any(str(s).startswith(f"{var}__") for s in support)
+
+
+def _engineered_uses(support, *vars_) -> bool:
+    """True iff some ENGINEERED support column is built from every variable in ``vars_``.
+
+    Matches the variable as a whole token, so it sees ``a`` inside ``sqr(a)`` or ``a__He2`` but not inside
+    ``add``. Needed because the FE step may deliver a signal either as a standalone basis column
+    (``a__He2``) or fused into a composite (``add(add(sqr(a),b__He2),mul(cbrt(c1),cbrt(c2)))``) -- both
+    recover the structure, and pinning only the standalone spelling would fail on the strictly better fused
+    form.
+    """
+    import re
+
+    for col in support:
+        s = str(col)
+        if not any(tok in s for tok in ("(", "__", "*")):
+            continue  # a bare raw column is not an engineered recovery
+        if all(re.search(rf"(?<![0-9A-Za-z_]){re.escape(v)}(?![0-9A-Za-z_])", s) for v in vars_):
+            return True
+    return False
 
 
 class TestScenarioBSensorUShape:
@@ -397,18 +430,21 @@ class TestScenarioEMixedBag:
         auc_b = _classifier_holdout_auc(mb, Xtr, ytr, Xte, yte)
         sup_b = list(mb.get_feature_names_out())
 
-        # The three winners: univariate He_2 detector for a, for b, and ANY
-        # c1*c2 cross term (the pair interaction).
-        has_a = _has_univariate_basis_of(sup_b, "a")
-        has_b = _has_univariate_basis_of(sup_b, "b")
-        has_cross = any(("*" in c) and ("c1" in c) and ("c2" in c) for c in sup_b)
+        # The three winners: an engineered transform of a, one of b, and ANY c1-with-c2 cross term.
+        # Accepts the standalone basis spelling (``a__He2``) OR the fused composite the FE step now often
+        # prefers (``add(add(sqr(a),b__He2),mul(cbrt(c1),cbrt(c2)))`` -- literally the generating function).
+        has_a = _has_univariate_basis_of(sup_b, "a") or _engineered_uses(sup_b, "a")
+        has_b = _has_univariate_basis_of(sup_b, "b") or _engineered_uses(sup_b, "b")
+        has_cross = _engineered_uses(sup_b, "c1", "c2")
         recovered = int(has_a) + int(has_b) + int(has_cross)
         assert recovered >= 2, (
             f"E seed={seed}: DEFAULT should recover >= 2 of (a-univariate, "
             f"b-univariate, c1*c2 cross); got recovered={recovered} (a={has_a}, "
             f"b={has_b}, cross={has_cross}); support={sup_b}"
         )
-        assert auc_b >= 0.80, f"E seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.80; support={sup_b}"
+        # Raised from 0.80: with the FE budget the default now measures 0.97-0.99 across these seeds, versus
+        # 0.86 for the raw-only support. 0.90 sits above the raw-only ceiling, so it pins a real FE lift.
+        assert auc_b >= 0.90, f"E seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.90; support={sup_b}"
 
 
 # ---------------------------------------------------------------------------

@@ -650,14 +650,20 @@ class TestCombineWithHybridOrth:
         # noise-aware floor fixes that. Contract: at least ONE of the two
         # constructors populates engineered_features_, and the union is
         # non-empty.
-        total_eng = len(m.hybrid_orth_features_) + len(m.mi_greedy_features_)
-        assert total_eng >= 1, (
+        # Asserted on the SUPPORT, not on the standalone rosters: a later FE stage may fuse an MI-greedy term
+        # into a composite (e.g. ``div(prewarp(x_q),sign((x_rev__sub__x_cost)))``), in which case the term is
+        # recovered but never appears as its own support entry, so its roster is legitimately empty. What
+        # matters is that the ratio signal over x_rev / x_cost reaches the selected design at all.
+        support = list(m.get_feature_names_out())
+        engineered = [c for c in support if any(tok in str(c) for tok in ("(", "__", "*"))]
+        assert engineered, (
             f"seed={seed}: BOTH FE constructors produced 0 columns on a "
             f"combined quadratic+ratio target; expected at least one to "
-            f"capture the ratio signal. hybrid={m.hybrid_orth_features_}, "
+            f"capture the ratio signal. support={support}, hybrid={m.hybrid_orth_features_}, "
             f"mig={m.mi_greedy_features_}"
         )
-        assert len(m.mi_greedy_features_) >= 1, f"seed={seed}: mi_greedy_features_ unexpectedly empty when both signals present; got {m.mi_greedy_features_}"
+        has_ratio = any(("x_rev" in str(c)) and ("x_cost" in str(c)) for c in engineered)
+        assert has_ratio, f"seed={seed}: no engineered column combines x_rev with x_cost, so the ratio signal was not " f"recovered; engineered={engineered}"
         # No name overlap.
         overlap = set(m.hybrid_orth_features_) & set(m.mi_greedy_features_)
         assert not overlap, f"seed={seed}: hybrid and MI-greedy feature names overlapped: {overlap}"
