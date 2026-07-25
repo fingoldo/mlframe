@@ -115,7 +115,7 @@ class _PredictAccelMixin(_PredictAccelBase):
         try:
             self.network = cast(torch.nn.Module, torch.compile(self.network, mode=self.hparams.compile_network))
             logger.info("Applied torch.compile with mode='%s'", self.hparams.compile_network)
-        except Exception:
+        except Exception:  # best-effort: falls back to the uncompiled network
             logger.warning("Failed to apply torch.compile. Using uncompiled network.", exc_info=True)
 
     def _invalidate_predict_caches(self) -> None:

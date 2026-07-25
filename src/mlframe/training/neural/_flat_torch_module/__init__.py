@@ -23,10 +23,12 @@ logger = logging.getLogger("mlframe.training.neural.flat")
 
 
 def _rebuild_contextvar(name: str) -> "_contextvars.ContextVar":
+    """Reconstruct a fresh ContextVar with the given name (the unpickling side of ``_reduce_contextvar``)."""
     return _contextvars.ContextVar(name)
 
 
 def _reduce_contextvar(cv: "_contextvars.ContextVar"):
+    """Pickle reducer for ContextVar: reduces to a fresh same-named ContextVar, never the captured value."""
     # A ContextVar is pure runtime context (its per-thread/-task value is never part of a model's fitted state).
     # Python 3.14 made the ``warnings`` filter state ContextVar-backed, so a captured warnings context can leak into a
     # LightningModule's pickled state and crash dill ("cannot pickle '_contextvars.ContextVar' object"). Reduce a
@@ -40,6 +42,8 @@ _copyreg.pickle(_contextvars.ContextVar, _reduce_contextvar)
 
 
 class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
+    """LightningModule wrapping an arbitrary torch network with mlframe's loss/metric/predict-accel mixins."""
+
     def __init__(
         self,
         loss_fn: Callable,
@@ -196,7 +200,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
                     _obj = getattr(_obj, _part)
                 state = dict(state)
                 state["optimizer"] = _obj
-            except Exception:
+            except Exception:  # best-effort: leaves the optimizer as a reference string instead of a resolved class
                 logger.warning("Failed to restore optimizer class %r; leaving as reference.", _opt_ref, exc_info=True)
         self.__dict__.update(state)
         self._cuda_graph_predict_cache = {}
@@ -586,5 +590,5 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
                 self.best_epoch = checkpoint["epoch"]
                 logger.info("Loaded weights from epoch %s", self.best_epoch)
 
-        except Exception as e:
+        except Exception as e:  # best-effort: falls back to the current (pre-load) weights, same as the guards above
             logger.exception("Failed to load checkpoint: %s", e)

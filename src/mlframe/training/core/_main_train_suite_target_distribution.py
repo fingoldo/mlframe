@@ -419,7 +419,7 @@ def _run_target_distribution_analyzer(
                                     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                                         logger.debug("suppressed in _main_train_suite_target_distribution.py:398: %s", e)
                                         pass
-                    except Exception as _drop_err:
+                    except Exception as _drop_err:  # best-effort: falls back to the full column set
                         logger.warning(
                             "[mini-HPT] auto-drop after feature_distribution_analyzer failed (%s); " "training continues with full column set.",
                             _drop_err,

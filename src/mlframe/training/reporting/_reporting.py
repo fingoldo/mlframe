@@ -597,7 +597,7 @@ def report_model_perf(
             if _score is not None:
                 _yt = np.asarray(targets).ravel()
                 metrics["binary_decile_table"] = binary_decile_table(_yt, _score)
-        except Exception:
+        except Exception:  # best-effort: metrics["binary_decile_table"] simply stays absent
             logger.exception("binary_decile_table computation failed; continuing.")
 
     if show_fi:

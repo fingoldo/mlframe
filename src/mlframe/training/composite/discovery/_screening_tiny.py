@@ -382,7 +382,7 @@ def _tiny_cv_rmse_raw_y(
             if n_jobs > 1 and hasattr(model, "set_params"):
                 try:
                     model.set_params(n_jobs=1)
-                except Exception as _njobs_err:
+                except Exception as _njobs_err:  # best-effort: n_jobs cap is a perf optimization, not correctness
                     # When the set_params raises (custom model, version skew rejecting the
                     # kwarg), every fold's inner model oversubscribes its own threads
                     # against the outer parallel-fold dispatch -- discovery wallclock
@@ -416,7 +416,7 @@ def _tiny_cv_rmse_raw_y(
             # the derived per-bin is bit-identical, not the float64-cast copy.
             fold_pred = (y_clean[val_fold].copy(), y_hat, np.asarray(val_fold)) if return_fold_preds else None
             return rmse, per_bin, fold_pred
-        except Exception as _e:
+        except Exception as _e:  # best-effort: failed fold reported as NaN, nanmean over survivors
             # Failed fold reported as NaN -> np.nanmean over surviving folds
             # silently shifts the screening RMSE toward well-behaved folds
             # (K_eff < K with no signal). At least WARN-log per failure so

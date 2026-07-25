@@ -338,7 +338,7 @@ def discover_and_wrap(
             try:
                 estimator.calibrate_conformal(X_cal, y_cal, alpha=conformal_alpha)
                 cal_alpha = float(conformal_alpha)
-            except Exception as exc:  # pragma: no cover - defensive
+            except Exception as exc:  # pragma: no cover - best-effort: estimator returned without an interval
                 logger.warning(
                     "[discover_and_wrap] conformal calibration failed: %s; " "estimator returned without an interval.",
                     exc,

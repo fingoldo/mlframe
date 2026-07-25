@@ -260,7 +260,7 @@ def predict_from_models(
                 # ``pl.from_pandas(df[cols])`` pays a full pandas block consolidation copy through Arrow on the predict hot path. Building polars columns directly from per-column ``.to_numpy()`` views skips the pandas block manager round-trip; bench (100k x 30 mixed dtypes, 2026-05-24): 16.0ms -> 1.05ms (15x). ``rechunk=False`` on the from_pandas path showed no measurable gain in the same bench because the underlying copy is the consolidation, not the chunk merge.
                 _ext_only_pl = pl.DataFrame({c: df[c].to_numpy() for c in _ext_new_cols})
                 df_pre_pipeline = df_pre_pipeline.hstack(_ext_only_pl)
-            except Exception as _bm_err:
+            except Exception as _bm_err:  # best-effort: falls back to raw-only, logged so the cause is visible
                 logger.warning(
                     "[predict back-merge] polars hstack of extension cols "
                     "%s failed: %s. Models trained on the polars-pre + "
@@ -596,7 +596,7 @@ def predict_from_models(
                     try:
                         from ..quantile_postproc import fix_quantile_crossing
                         _combined = fix_quantile_crossing(_combined, _q_alphas, mode="sort")
-                    except Exception as _qe:
+                    except Exception as _qe:  # best-effort: keeps the unfixed (possibly crossing) quantile probs
                         logger.warning("predict_from_models: fix_quantile_crossing failed: %s", _qe)
             results["per_target_probabilities"][_key] = _combined
             _ens_thr = get_decision_threshold(metadata, f"{_tt}|{_tname}", DEFAULT_PROBABILITY_THRESHOLD)

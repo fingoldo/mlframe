@@ -243,5 +243,5 @@ class _LossMixin(_LossBase):
                     on_epoch=True,
                     sync_dist=True,
                 )
-            except Exception:
+            except Exception:  # best-effort: this metric is simply not logged for this step
                 logger.exception("Failed to compute metric %s_%s", prefix, metric.name)

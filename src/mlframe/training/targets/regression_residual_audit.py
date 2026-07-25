@@ -678,7 +678,7 @@ def plot_residual_diagnostics(
             # composer without it (hist Normal overlay + hypothesis text omitted) rather than dropping the chart.
             try:
                 audit = audit_residuals(_yt[_mask], _yp[_mask], seed=seed)
-            except Exception as _audit_err:
+            except Exception as _audit_err:  # best-effort: renders the chart without the noise-distribution hypothesis
                 logger.warning(
                     "residual audit unavailable for the regression chart (%s); " "rendering scatter + residual hist without the noise-distribution hypothesis.",
                     _audit_err,

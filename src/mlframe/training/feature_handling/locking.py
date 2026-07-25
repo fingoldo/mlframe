@@ -177,7 +177,7 @@ class PIDAwareFileLock:
             # doesn't propagate a release-side error past the user.
             try:
                 self._lock.release()
-            except Exception as _rel_err:
+            except Exception as _rel_err:  # best-effort: the OS reclaims the lock on process exit regardless
                 import logging as _lg
                 _lg.getLogger(__name__).warning(
                     "PIDAwareFileLock.release() failed for %s: %s", self.path, _rel_err,

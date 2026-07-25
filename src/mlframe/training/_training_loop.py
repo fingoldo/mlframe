@@ -161,7 +161,7 @@ def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
                 # Bit-identical for uniform-width rows; ragged rows still raise here and
                 # hit the except below exactly as the prior np.stack did.
                 label_arr = np.array(label_arr.tolist())
-            except Exception as _e_stack:
+            except Exception as _e_stack:  # best-effort: falls back to the single-label default loss
                 # Stack failure -> label_arr stays None -> the function
                 # returns without configuring MultiLogloss / HammingLoss,
                 # so a multilabel CatBoost ends up training with the
@@ -828,7 +828,7 @@ def _train_model_with_fallback(
     # models.
     try:
         model = _maybe_apply_posthoc_calibration(model, fit_params, model_type_name, verbose=verbose)
-    except Exception as _calib_err:
+    except Exception as _calib_err:  # best-effort: model stays uncalibrated, training continues
         logger.warning("Post-hoc calibration hook raised: %s", _calib_err)
 
     best_iter = None

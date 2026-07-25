@@ -424,7 +424,7 @@ def post_calibrate_model(
                 plot_path=_plot_path,
             )
             metrics["calibration_policy"] = {k: v for k, v in _policy.items() if k != "calibrated_probs"}
-        except Exception as _policy_err:
+        except Exception as _policy_err:  # best-effort: metrics["calibration_policy"] simply stays absent
             logger.warning("post_calibrate_model: calibration policy auto-pick failed: %s", _policy_err)
 
     # Always materialise calibrated val probs so the return tuple is consistent regardless of show_val. Without this

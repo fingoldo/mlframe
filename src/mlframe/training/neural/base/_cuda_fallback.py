@@ -121,7 +121,7 @@ def _best_effort_move_to_cpu(model: Any) -> None:
         model.to("cpu")
         if hasattr(model, "_orig_mod"):
             model._orig_mod.to("cpu")
-    except Exception as _e_move:
+    except Exception as _e_move:  # best-effort: logged, the caller's CPU retry surfaces the real failure
         logger.error(
             "Failed to move model parameters off the invalidated GPU context (%s); the CPU retry below will likely re-raise the CUDA error.",
             _e_move,

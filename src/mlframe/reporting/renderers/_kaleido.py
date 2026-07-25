@@ -285,7 +285,7 @@ def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:
                 "process; restart Python to retry persistent kaleido).",
                 fmt, root + ".html",
             )
-        except Exception as e:
+        except Exception as e:  # best-effort: diagnostic chart save, suite continues without it
             logger.error(
                 "All save paths failed for %s (%s); diagnostic chart "
                 "lost but suite continues. Last error: %s",
@@ -312,7 +312,7 @@ def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:
             root, _ = splitext(path)
             try:
                 fig.write_html(root + ".html", include_plotlyjs="cdn", auto_open=False)
-            except Exception as e2:
+            except Exception as e2:  # best-effort: diagnostic chart save, suite continues without it
                 logger.error(
                     "All save paths failed for %s (%s); diagnostic chart "
                     "lost but suite continues. Last error: %s",

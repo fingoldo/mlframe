@@ -490,7 +490,7 @@ def plot_best_dummy_baseline_overlay(
                 "[dummy-baselines] target='%s' baseline-overlay plot "
                 "saved: %s", report.target_name, save_path,
             )
-        except Exception as _save_err:
+        except Exception as _save_err:  # best-effort: diagnostic plot save, baseline computation continues
             logger.warning(
                 "[dummy-baselines] target='%s' baseline-overlay save "
                 "failed: %s", report.target_name, _save_err,

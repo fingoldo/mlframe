@@ -351,7 +351,7 @@ class DiscoveryCache:
                 value = _safe_pickle_load(path, allow_unverified=True)
         except FileNotFoundError:
             return default
-        except Exception as _e:
+        except Exception as _e:  # best-effort: logged once, then treated as a cache miss (return default)
             # A persistent corrupt / unverifiable entry would otherwise return a silent miss every run, triggering unbounded multi-minute recomputes with no operator signal. Surface it once per read, then treat as a miss.
             logger.warning(
                 "DiscoveryCache: unreadable/unverifiable entry %s (%s: %s); treating as miss",
@@ -419,7 +419,7 @@ class DiscoveryCache:
             _exc = _sys.exc_info()
             try:
                 _lock_ctx.__exit__(*_exc)
-            except Exception as _exit_err:
+            except Exception as _exit_err:  # best-effort: lock release failure, the OS reclaims it on process exit
                 logger.warning("DiscoveryCache eviction filelock __exit__ failed: %s", _exit_err)
 
     # Age (seconds) below which an orphan ``*.tmp`` is left alone -- a write in a sibling process
