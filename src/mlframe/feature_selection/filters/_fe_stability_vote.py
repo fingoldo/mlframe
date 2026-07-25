@@ -278,7 +278,8 @@ def confirm_recipes_cross_fold(
         if vals is None:
             try:
                 vals = np.asarray(_extract_column(X, name), dtype=np.float64).ravel()
-            except Exception:
+            except Exception as e:
+                logger.debug("_raw_codes: could not extract raw source column %r, scoring it as a None leg: %s", name, e)
                 return None
             _raw_col_cache[name] = vals
         if vals.shape[0] != n:

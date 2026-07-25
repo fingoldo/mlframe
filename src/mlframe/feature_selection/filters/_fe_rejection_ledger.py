@@ -110,7 +110,8 @@ def _operands_str(operands: Any) -> str:
         if isinstance(operands, (list, tuple)):
             return "(" + ", ".join(str(o) for o in operands) + ")"
         return str(operands)
-    except Exception:
+    except Exception as e:
+        logger.debug("_operands_str: could not stringify operand collection %r: %s", type(operands), e)
         return "<unstringifiable>"
 
 

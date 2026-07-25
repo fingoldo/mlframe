@@ -183,7 +183,8 @@ def _derive_seed(rng) -> int:
     """
     try:
         return int(rng.integers(0, 2**31 - 1))
-    except Exception:
+    except Exception as e:
+        _logger.debug("_derive_seed: rng.integers() failed, using fixed seed 0: %s", e)
         return 0
 
 
@@ -313,7 +314,8 @@ def stratified_subsample_idx(rng, y, size: int, *, is_clf: bool) -> np.ndarray:
                 else:
                     picked.append(rng.choice(m, size=int(k), replace=False))
             idx = np.concatenate(picked)
-    except Exception:
+    except Exception as e:
+        _logger.debug("stratified_subsample_idx: stratified draw failed, falling back to a plain uniform draw: %s", e)
         return _uniform()
 
     if idx.shape[0] == 0:
@@ -405,5 +407,6 @@ def _resolve_fe_subsample_stratify(stratify_knob, y, *, is_clf: bool) -> bool:
             return False
         tail = max(float(finite.max() - med), float(med - finite.min()))
         return bool(tail / iqr >= _FE_STRATIFY_REG_TAIL_IQR_RATIO)
-    except Exception:
+    except Exception as e:
+        _logger.debug("_resolve_fe_subsample_stratify: auto-stratify heuristic failed, defaulting to OFF (legacy uniform draw): %s", e)
         return False

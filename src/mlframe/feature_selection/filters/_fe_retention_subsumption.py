@@ -163,7 +163,8 @@ def retention_form_is_subsumed(
         cmi = float(_cmi_from_binned(_cb, y_arr, _zc, kx=_cbkx, kz=int(_zcard)))
         floor, null_mean = _conditional_perm_null(_cb, y_arr, z_support, seed=seed, z_support_dev=z_support_dev)
         excess = max(0.0, cmi - null_mean)
-    except Exception:
+    except Exception as e:
+        logger.debug("retention_form_is_subsumed: CMI/perm-null scoring failed, treating the candidate as NOT subsumed (conservative keep): %s", e)
         return False
 
     passes_floor = cmi > floor
