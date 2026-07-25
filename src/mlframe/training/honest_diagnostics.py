@@ -93,6 +93,11 @@ def _bootstrap_block(
 
     if p_pos is not None and _is_binary_classif(y_true):
         metric_fns: dict = {}
+        # Normally-initialized (not read back via locals().get(...) below) so a rename/reorder/
+        # extraction-into-a-helper fails loudly (NameError) instead of silently falling back to None.
+        _per_row_fns = None
+        _jackknife_fns = None
+        _make_auc_resampler = None
         try:
             # iter295 (2026-05-26): use mlframe's numba-compiled fast metric
             # kernels instead of sklearn for bootstrap. c0028 profile attrib-
@@ -210,16 +215,15 @@ def _bootstrap_block(
             # Build the index-aware AUC resampler on the same f64 base arrays the
             # loop resamples, so resampler(idx) matches y_true_f64[idx]/p_pos_f64[idx].
             _metric_fns_idx = None
-            _resampler_factory = locals().get("_make_auc_resampler")
-            if _resampler_factory is not None:
-                _metric_fns_idx = {"roc_auc": _resampler_factory(y_true_f64, p_pos_f64)}
+            if _make_auc_resampler is not None:
+                _metric_fns_idx = {"roc_auc": _make_auc_resampler(y_true_f64, p_pos_f64)}
             try:
                 cis = bootstrap_metrics(
                     y_true_f64, p_pos_f64, metric_fns,
                     n_bootstrap=1000, alpha=0.05, stratify=y_true, random_state=rng_seed,
                     metric_fns_idx=_metric_fns_idx,
-                    per_row_fns=locals().get("_per_row_fns"),
-                    jackknife_fns=locals().get("_jackknife_fns"),
+                    per_row_fns=_per_row_fns,
+                    jackknife_fns=_jackknife_fns,
                 )
             except Exception as exc:
                 cis = {name: {"error": f"{type(exc).__name__}: {exc}"} for name in metric_fns}

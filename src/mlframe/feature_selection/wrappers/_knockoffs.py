@@ -117,7 +117,7 @@ def make_gaussian_knockoffs(X, random_state=None, sdp_solve: bool = False) -> np
             "Reduce collinearity (drop duplicates / use feature_groups) "
             "or use stability_selection instead."
         )
-        if globals().get("_KNOCKOFFS_STRICT_LAM_MIN", False):
+        if _KNOCKOFFS_STRICT_LAM_MIN:
             raise ValueError(_msg + " (strict_lam_min=True)")
         logger.warning(_msg)
     s_val = min(2.0 * lam_min, 1.0) * 0.99  # 0.99 buffer for numerical PSD

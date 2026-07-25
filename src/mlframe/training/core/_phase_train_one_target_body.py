@@ -91,6 +91,14 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         _unwrap_selector,
     )
 
+    # Normally-initialized (not read back via locals().get(...) later) so a rename/reorder/
+    # extraction-into-a-helper fails loudly (NameError) instead of silently degrading to None.
+    # Both are set inside the inner weight-schema loop below and read after it finishes; if every
+    # model in the suite errored out the loop body never runs, and these stay None -- the
+    # post-loop ensembling helper already handles that degraded case.
+    train_df_transformed = None
+    current_common_params = None
+
     _maybe_run_unsupervised_pre_screen(ctx, targets)
     split_config = ctx.split_config
     behavior_config = ctx.behavior_config
@@ -133,7 +141,6 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         metadata=metadata,
         slug_to_original_target_name=slug_to_original_target_name,
     )
-    plot_file = _setup_out["plot_file"]
     model_file = _setup_out["model_file"]
     _train_idx = _setup_out["_train_idx"]
     current_train_target = _setup_out["current_train_target"]
@@ -142,9 +149,6 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     metadata = _setup_out["metadata"]
     common_params = _setup_out["common_params"]
     models_params = _setup_out["models_params"]
-    rfecv_models_params = _setup_out["rfecv_models_params"]
-    cpu_configs = _setup_out["cpu_configs"]
-    gpu_configs = _setup_out["gpu_configs"]
     pre_pipelines = _setup_out["pre_pipelines"]
     pre_pipeline_names = _setup_out["pre_pipeline_names"]
 
@@ -901,18 +905,16 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
 
         _finalize_per_target_ensembling(
             ens_models=ens_models,
-            # ``train_df_transformed`` is set inside the inner weight-schema
-            # loop after a successful ``process_model`` call; if every model
-            # in the suite errored out (unknown model name, infinity-row
-            # ShapeError, etc.) the loop never executes the assignment.
-            # Use locals().get(...) so the post-loop ensembling block degrades
-            # gracefully to ``None`` instead of UnboundLocalError; the
-            # ensembling helper already skips when its inputs are unusable.
-            train_df_transformed=locals().get("train_df_transformed"),
+            # ``train_df_transformed`` is set inside the inner weight-schema loop after a
+            # successful ``process_model`` call; if every model in the suite errored out (unknown
+            # model name, infinity-row ShapeError, etc.) the loop never executes the assignment
+            # and this stays at its function-top None -- the ensembling helper already skips when
+            # its inputs are unusable.
+            train_df_transformed=train_df_transformed,
             behavior_config=behavior_config,
             ctx=ctx,
             cur_target_name=cur_target_name,
-            current_common_params=locals().get("current_common_params"),
+            current_common_params=current_common_params,
             common_params=common_params,
             current_val_target=current_val_target,
             pre_pipeline_name=pre_pipeline_name,
