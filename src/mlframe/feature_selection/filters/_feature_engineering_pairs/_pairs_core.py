@@ -101,7 +101,8 @@ def _short_fe_name(name, maxlen: int = 30) -> str:
     (``mul(log(c),sin(d))`` -> ``mul(log(c..sin(d))``). Robust to non-str input."""
     try:
         s = str(name)
-    except Exception:
+    except Exception as e:
+        logger.debug("_short_fe_name: str(name) failed for progress-display truncation, showing '?': %s", e)
         return "?"
     if len(s) <= maxlen:
         return s
@@ -186,7 +187,8 @@ def _fe_gpu_discretize_enabled_uncached(n_rows: int, n_cands: int) -> bool:
         from pyutilz.core.pythonlib import is_cuda_available
         if not is_cuda_available():
             return False
-    except Exception:
+    except Exception as e:
+        logger.debug("_fe_gpu_discretize_enabled_uncached: is_cuda_available() check failed, defaulting to CPU: %s", e)
         return False
     if _env in ("1", "true", "yes", "on"):
         return True
@@ -201,7 +203,8 @@ def _fe_gpu_discretize_enabled_uncached(n_rows: int, n_cands: int) -> bool:
     try:  # auto: per-host crossover from kernel_tuning_cache (measurement-backed fallback)
         from .._gpu_resident_fe import fe_gpu_pairs_mi_backend_choice  # type: ignore[attr-defined]  # dynamically re-exported via globals()
         return bool(fe_gpu_pairs_mi_backend_choice(int(n_rows), int(n_cands)) == "gpu")
-    except Exception:
+    except Exception as e:
+        logger.debug("_fe_gpu_discretize_enabled_uncached: KTC backend-choice lookup failed, defaulting to CPU: %s", e)
         return False
 
 
@@ -234,7 +237,8 @@ def _fe_gpu_binning_enabled_uncached(n_rows: int, n_cands: int) -> bool:
         from pyutilz.core.pythonlib import is_cuda_available
         if not is_cuda_available():
             return False
-    except Exception:
+    except Exception as e:
+        logger.debug("_fe_gpu_binning_enabled_uncached: is_cuda_available() check failed, defaulting to CPU: %s", e)
         return False
     if _env in ("1", "true", "yes", "on"):
         return True
@@ -249,7 +253,8 @@ def _fe_gpu_binning_enabled_uncached(n_rows: int, n_cands: int) -> bool:
     try:  # auto: per-host binning crossover from kernel_tuning_cache (measurement-backed fallback)
         from .._gpu_resident_fe import fe_gpu_binning_backend_choice  # type: ignore[attr-defined]  # dynamically re-exported via globals()
         return bool(fe_gpu_binning_backend_choice(int(n_rows), int(n_cands)) == "gpu")
-    except Exception:
+    except Exception as e:
+        logger.debug("_fe_gpu_binning_enabled_uncached: KTC binning backend-choice lookup failed, defaulting to CPU: %s", e)
         return False
 
 
@@ -900,7 +905,8 @@ def check_prospective_fe_pairs(
             # One-pass njit |corr| over jointly-finite rows - replaces isfinite-mask + boolean-index copies + two
             # np.std + a 2x2 np.corrcoef (~23-35x on the 8k+ noise-wrap-gate calls); FP-equivalent to ~1e-15.
             return float(_abs_corr_finite_njit(_a, _corr_y_cont, _corr_y_cont_finite))
-        except Exception:
+        except Exception as e:
+            logger.debug("_safe_abs_corr: |corr| computation failed, treating as uncorrelated (0.0): %s", e)
             return 0.0
 
     # Unlike ``_config_corr``'s per-pair-specific candidate columns (never revisited across pairs, so
