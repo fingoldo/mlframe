@@ -58,7 +58,8 @@ def apply_nearest_past_join_composite_fe(
 
     value_cols = getattr(config, "nearest_past_join_value_cols", None)
     fallback_by_chain = getattr(config, "nearest_past_join_fallback_by_chain", None)
-    min_group_size = int(getattr(config, "nearest_past_join_min_group_size", 1) or 1)
+    _min_group_size_cfg = getattr(config, "nearest_past_join_min_group_size", None)
+    min_group_size = 1 if _min_group_size_cfg is None else int(_min_group_size_cfg)
 
     if metadata is not None:
         metadata["nearest_past_join_on"] = on

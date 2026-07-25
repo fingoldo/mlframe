@@ -159,7 +159,8 @@ def _fit_with_subsample_stability(self, X, y):
     n = len(X)
     n_sub = int(self.stability_subsamples)
     frac = float(getattr(self, "stability_subsample_fraction", 0.75) or 0.75)
-    thr = float(getattr(self, "stability_threshold", 0.6) or 0.6)
+    _thr_cfg = getattr(self, "stability_threshold", None)
+    thr = 0.6 if _thr_cfg is None else float(_thr_cfg)
     # Cap the >=10-row floor by n: with replace=False, np.random.Generator.choice raises when size>n,
     # so on a tiny frame (n<10) the bare max(10, ...) floor would request more rows than exist and crash.
     # min(n, max(10, ...)) keeps the intended floor when the data allows it, never exceeding the population.

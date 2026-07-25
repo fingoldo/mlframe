@@ -81,7 +81,8 @@ def apply_categorical_composite_fe(
     if len(cat_cols) < 2:
         return train_df, val_df, test_df
 
-    _max_source_cols = int(getattr(config, "categorical_composite_max_source_columns", 12) or 12)
+    _max_source_cols_cfg = getattr(config, "categorical_composite_max_source_columns", None)
+    _max_source_cols = 12 if _max_source_cols_cfg is None else int(_max_source_cols_cfg)
     if len(cat_cols) > _max_source_cols:
         logger.warning(
             "apply_categorical_composite_fe: %d categorical column(s) exceeds "
