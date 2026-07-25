@@ -166,7 +166,8 @@ def _mrmr_compute_y_fingerprint_sample(y, max_sample: int = 1000) -> str:
         # Bit-exact ``tobytes()`` instead of the prior 6-decimal round. Two truly-equal floats already produce identical bytes, so the rounding only papered over EQUIVALENT-but-not-identical inputs - which is the collision case we DON'T want to merge (regression targets with legitimate precision below 1e-6, e.g. log-returns, normalised labels).
         payload = sample.astype(np.float64).tobytes()
         return hashlib.blake2b(payload, digest_size=10).hexdigest()
-    except Exception:
+    except Exception as e:
+        logger.debug("_mrmr_compute_y_fingerprint: content fingerprint failed, falling back to id()-based key: %s", e)
         return f"yfp_id{id(y):x}"
 
 
@@ -249,7 +250,8 @@ def _mrmr_compute_x_fingerprint(X) -> str:
             cell_sample = ()
         payload = repr((cols, n_rows, dtypes_repr, cell_sample)).encode()
         return hashlib.blake2b(payload, digest_size=12).hexdigest()
-    except Exception:
+    except Exception as e:
+        logger.debug("_mrmr_compute_x_fingerprint: content fingerprint failed, falling back to id()-based key: %s", e)
         return f"fp_id{id(X):x}"
 
 
@@ -311,7 +313,8 @@ def _content_array_signature(arr) -> tuple:
         if hasattr(arr, "to_numpy"):
             try:
                 np_arr = arr.to_numpy()
-            except Exception:
+            except Exception as e:
+                logger.debug("_content_array_signature: to_numpy() failed, falling back to id()-based key: %s", e)
                 return ("uncached", id(arr))
         elif hasattr(arr, "values"):
             np_arr = arr.values
@@ -330,10 +333,12 @@ def _content_array_signature(arr) -> tuple:
         idx = [int(i * (n - 1) / (_n_samples - 1)) for i in range(_n_samples)] if n >= _n_samples else list(range(n))
         try:
             sampled = bytes(flat[idx].tobytes())
-        except Exception:
+        except Exception as e:
+            logger.debug("_content_array_signature: strided sample failed, falling back to id()-based key: %s", e)
             return ("uncached", id(arr))
         return (shape, dtype_str, sampled, col_names)
-    except Exception:
+    except Exception as e:
+        logger.debug("_content_array_signature: content signature failed, falling back to id()-based key: %s", e)
         return ("uncached", id(arr))
 
 
@@ -456,7 +461,8 @@ def _full_x_content_hash(X) -> str:
         if hasattr(X, "to_numpy"):
             try:
                 arr = X.to_numpy()
-            except Exception:
+            except Exception as e:
+                logger.debug("_full_x_content_hash: to_numpy() failed, skipping the full-content cache disambiguator: %s", e)
                 return ""
         elif hasattr(X, "values"):
             arr = X.values
@@ -494,7 +500,8 @@ def _full_x_content_hash(X) -> str:
             _MRMR_LAST_X_HASH_CACHE["hash"] = result
             _MRMR_LAST_X_HASH_CACHE["id_shape"] = id_shape
         return result
-    except Exception:
+    except Exception as e:
+        logger.debug("_full_x_content_hash: full-content hash failed, skipping the full-content cache disambiguator: %s", e)
         return ""
 
 
@@ -517,7 +524,8 @@ def _full_y_content_hash(y) -> str:
         h.update(str(arr.shape).encode())
         h.update(str(arr.dtype).encode())
         return h.hexdigest()
-    except Exception:
+    except Exception as e:
+        logger.debug("_full_y_content_hash: full-content hash failed, skipping the full-content cache disambiguator: %s", e)
         return ""
 
 
