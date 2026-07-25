@@ -298,7 +298,8 @@ def _polyeval_cuda_pick_devices(n: int) -> list:
         import cupy as cp
 
         ndev = int(cp.cuda.runtime.getDeviceCount())
-    except Exception:
+    except Exception as e:
+        logger.debug("_polyeval_cuda_pick_devices: cupy import/device-count query failed, caller takes the CPU path: %s", e)
         return []
     needed = int(n) * 8 * 4 + (64 << 20)
     # ABSOLUTE cushion guard: the ``free >= needed`` test below is RELATIVE to this column's size

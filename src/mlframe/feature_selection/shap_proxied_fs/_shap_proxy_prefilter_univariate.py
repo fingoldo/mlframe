@@ -51,7 +51,8 @@ def _available_ram_bytes() -> Optional[int]:
         import psutil
 
         return int(psutil.virtual_memory().available)
-    except Exception:  # ImportError or psutil runtime failure -> caller falls through.
+    except Exception as e:  # ImportError or psutil runtime failure -> caller falls through.
+        logger.debug("_available_ram_bytes: psutil unavailable/failed, auto-size drops the RAM term: %s", e)
         return None
 
 

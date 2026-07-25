@@ -491,7 +491,8 @@ def _raw_column(state: DCDState, idx: int) -> Optional[np.ndarray]:
             if arr.ndim != 2 or idx >= arr.shape[1]:
                 return None
             arr = arr[:, idx].astype(np.float64, copy=False)
-    except Exception:
+    except Exception as e:
+        logger.debug("_raw_column: raw-column extraction failed for idx=%d, treating the column as unavailable: %s", idx, e)
         return None
     return arr if arr.ndim == 1 else None
 

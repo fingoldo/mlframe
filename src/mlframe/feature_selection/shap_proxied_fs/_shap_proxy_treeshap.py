@@ -32,12 +32,15 @@ SHAP *interaction* values have their own shared-tensor kernel in ``_shap_proxy_t
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
 from numba import njit, prange
+
+logger = logging.getLogger(__name__)
 
 # Sentinel for "no child" (leaf) in the flat children arrays.
 _NO_CHILD = -1
@@ -545,7 +548,8 @@ def is_supported_xgboost(estimator) -> bool:
         return False
     try:
         booster = estimator.get_booster()
-    except Exception:
+    except Exception as e:
+        logger.debug("is_supported_xgboost: get_booster() failed, estimator is not eligible for the fast TreeSHAP path: %s", e)
         return False
     if booster is None:
         return False
@@ -570,7 +574,8 @@ def is_supported_lightgbm(estimator) -> bool:
         return False
     try:
         booster = estimator if name == "Booster" else estimator.booster_
-    except Exception:
+    except Exception as e:
+        logger.debug("is_supported_lightgbm: booster_ attribute lookup failed, estimator is not eligible for the fast TreeSHAP path: %s", e)
         return False
     if booster is None:
         return False
@@ -578,7 +583,8 @@ def is_supported_lightgbm(estimator) -> bool:
         md = booster.dump_model()
         if int(md.get("num_tree_per_iteration", 1)) > 1 or int(md.get("num_class", 1)) > 1:
             return False
-    except Exception:
+    except Exception as e:
+        logger.debug("is_supported_lightgbm: dump_model() failed, estimator is not eligible for the fast TreeSHAP path: %s", e)
         return False
     return True
 

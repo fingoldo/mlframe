@@ -212,7 +212,8 @@ def _binnedmi_gpu_enabled(*, n: int | None = None, p: int | None = None) -> bool
     try:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
         return bool(fe_gpu_strict_enabled(n=n, p=p))
-    except Exception:
+    except Exception as e:
+        logger.debug("_binnedmi_gpu_enabled: fe_gpu_strict_enabled() check failed, staying on the host binned-MI path: %s", e)
         return False
 
 

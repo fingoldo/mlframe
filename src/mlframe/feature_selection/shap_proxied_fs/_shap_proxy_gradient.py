@@ -15,9 +15,13 @@ backend, not the default. Lazy torch import; a private ``torch.Generator`` keeps
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import coalition_margin_T, proxy_loss, resolve_metric
+
+logger = logging.getLogger(__name__)
 
 
 def torch_available() -> bool:
@@ -26,7 +30,8 @@ def torch_available() -> bool:
         import torch  # noqa: F401
 
         return True
-    except Exception:
+    except Exception as e:
+        logger.debug("torch_available: PyTorch import failed, gradient-relaxation backend stays unavailable: %s", e)
         return False
 
 

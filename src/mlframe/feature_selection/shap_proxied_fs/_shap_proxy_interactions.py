@@ -21,12 +21,15 @@ interacting pairs the main-effect search would miss.
 from __future__ import annotations
 
 import itertools
+import logging
 from typing import Any, cast
 
 import numpy as np
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _unwrap_estimator, _fit_one
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import proxy_loss, resolve_metric
+
+logger = logging.getLogger(__name__)
 
 # Min proxy width at which the custom numba interaction kernel is selected over the ``shap`` library.
 # Measured (xgboost regr, 1000 rows, 200 trees): numba beats shap's ``shap_interaction_values`` at
@@ -307,7 +310,8 @@ def _su_bin(col: np.ndarray, n_bins: int) -> np.ndarray:
         return np.zeros(0, dtype=np.int64)
     try:
         edges = np.unique(np.quantile(col, np.linspace(0.0, 1.0, n_bins + 1)))
-    except Exception:
+    except Exception as e:
+        logger.debug("_su_bin: quantile binning failed, collapsing the column to a single bin (SU=0): %s", e)
         return np.zeros(n, dtype=np.int64)
     if edges.size <= 2:
         # too few distinct values to bin meaningfully -> rank-dense fallback (handles low-card ints)

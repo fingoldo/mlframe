@@ -22,7 +22,11 @@ MI is partition-based, so value-order codes are fine -> selection-equivalent to 
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def batched_binned_mi_gpu(code_cols: np.ndarray, y_codes: np.ndarray, kx_per_col: np.ndarray | None = None, ky: int = 0) -> np.ndarray:
@@ -196,7 +200,8 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
         # guard always passes; keeping it on matches the host path's illegal-address protection exactly.
         mi_tr = binned_mi_from_codes_gpu(tr_mat, np.asarray(yb_tr), kx_per_col=tr_kx, ky=ky_tr)
         mi_va = binned_mi_from_codes_gpu(va_mat, np.asarray(yb_va), kx_per_col=va_kx, ky=ky_va)
-    except Exception:
+    except Exception as e:
+        logger.debug("_select_wavelet_legs_batched_device: device batched-MI path failed, caller falls back to the host leg selection: %s", e)
         return None
 
     heldout = np.asarray(mi_va, dtype=np.float64)

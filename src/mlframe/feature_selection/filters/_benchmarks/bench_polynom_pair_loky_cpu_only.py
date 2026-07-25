@@ -12,6 +12,7 @@ Run:  CUDA_VISIBLE_DEVICES not set (parent keeps GPU), from repo root:
   PYTHONPATH=src python src/mlframe/feature_selection/filters/_benchmarks/bench_polynom_pair_loky_cpu_only.py
 """
 
+import logging
 import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import threading
 import time
@@ -21,6 +22,8 @@ import pandas as pd
 
 from mlframe.feature_selection.filters import polynom_pair_fe as ppf
 
+logger = logging.getLogger(__name__)
+
 
 def _vram_used_mib():
     try:
@@ -29,7 +32,8 @@ def _vram_used_mib():
             text=True,
         )
         return int(out.strip().splitlines()[0])
-    except Exception:
+    except Exception as e:
+        logger.debug("_vram_used_mib: nvidia-smi query failed, VRAM sampling reports -1: %s", e)
         return -1
 
 

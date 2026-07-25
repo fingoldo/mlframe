@@ -85,6 +85,7 @@ def _eval(X, y, task, relevant, kw, seed):
         Xte_s = sel.transform(Xte)
         chosen = list(Xtr_s.columns)
     except Exception as exc:  # harness must not die on one config
+        logger.debug("_eval: MRMR fit/transform failed for this scenario/config, recording NaN metrics with the error in 'err': %s", exc)
         return {"prec": float("nan"), "rec": float("nan"), "metric": float("nan"), "err": repr(exc)}
     # Precision/recall on the RAW features only (engineered names carry no ground-truth index); raw true drivers are f<relevant>.
     chosen_raw = {int(c[1:]) for c in chosen if c.startswith("f") and c[1:].isdigit()}

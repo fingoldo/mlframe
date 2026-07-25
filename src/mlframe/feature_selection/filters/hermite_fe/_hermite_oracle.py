@@ -9,9 +9,12 @@ dicts from the parent so the kernel registry is never split from the kernels.
 """
 from __future__ import annotations
 
+import logging
 import os as _os
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # Thresholds in array length n. Tunable via env var.
 _PAR_THRESHOLD = int(_os.environ.get("MLFRAME_POLYEVAL_PAR_THRESHOLD", "50000"))
@@ -29,7 +32,8 @@ def _lookup_polyeval_thresholds(basis: str, n: int) -> tuple[int, int]:
         _par = int(_entry["par_threshold"]) if _entry and "par_threshold" in _entry else _PAR_THRESHOLD
         _cuda = int(_entry["cuda_threshold"]) if _entry and "cuda_threshold" in _entry else _CUDA_THRESHOLD
         return _par, _cuda
-    except Exception:
+    except Exception as e:
+        logger.debug("_lookup_polyeval_thresholds: kernel_tuning_cache lookup failed, using the source-code default thresholds: %s", e)
         return _PAR_THRESHOLD, _CUDA_THRESHOLD
 
 

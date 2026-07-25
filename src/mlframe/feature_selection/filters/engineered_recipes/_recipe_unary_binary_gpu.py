@@ -25,12 +25,15 @@ try/except logs debug + falls back. NEVER calls
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 import numpy as np
 
 from ._recipe_core import EngineeredRecipe
 from ._recipe_extract import _extract_column
+
+logger = logging.getLogger(__name__)
 
 # Closed-form unary names whose cupy form is byte-faithful to the numpy registry
 # (``create_unary_transformations``). EXCLUDES the pseudo-unaries (prewarp /
@@ -64,7 +67,8 @@ def _vram_f32() -> bool:
     try:
         from .._fe_gpu_batch._devices import fe_gpu_f32_enabled
         return bool(fe_gpu_f32_enabled())
-    except Exception:
+    except Exception as e:
+        logger.debug("_vram_f32: fe_gpu_f32_enabled() check failed, staying on the f64 dtype discipline: %s", e)
         return False
 
 
@@ -219,7 +223,8 @@ def _materialise_recipe_gpu(recipe: EngineeredRecipe, X: Any, cp, dt, col_cache:
         vals = _extract_column(X, side_name, col_cache=col_cache)
         try:
             return resident_operand(vals, ("recipe_src", side_name), dtype=dt)
-        except Exception:
+        except Exception as e:
+            logger.debug("_operand_gpu: resident-operand cache lookup failed for %r, uploading the column directly: %s", side_name, e)
             return cp.asarray(np.ascontiguousarray(vals), dtype=dt)
 
     name_a, name_b = recipe.src_names

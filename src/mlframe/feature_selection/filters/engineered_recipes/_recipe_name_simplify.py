@@ -43,7 +43,10 @@ REJECTED candidates (numerically *would* hold in ideal math but were NOT adopted
 """
 from __future__ import annotations
 
+import logging
 from typing import Sequence
+
+logger = logging.getLogger(__name__)
 
 # Operators whose OUTPUT sign does not depend on the sign of their argument(s):
 # applying them makes the argument's sign irrelevant (a neg below can be dropped).
@@ -172,5 +175,6 @@ def simplify_fe_name(name: str) -> str:
         if end != len(name):
             return name  # trailing garbage -> not a clean op-name, leave as-is
         return _render(_simplify(tree, False))
-    except Exception:
+    except Exception as e:
+        logger.debug("simplify_fe_name: parse/simplify/render failed for %r, returning the name unchanged: %s", name, e)
         return name

@@ -31,7 +31,8 @@ def _cv_score(estimator, X, y, classification):
     scoring = "roc_auc" if classification else "r2"
     try:
         return float(np.mean(cross_val_score(estimator, X, y, cv=3, scoring=scoring)))
-    except Exception:
+    except Exception as e:
+        logger.debug("_cv_score: CV fit/scoring failed, returning NaN so a degenerate fold can't crash the preflight gate: %s", e)
         return float("nan")
 
 
