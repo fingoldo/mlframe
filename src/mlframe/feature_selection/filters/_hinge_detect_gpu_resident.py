@@ -40,7 +40,8 @@ def hinge_gpu_enabled() -> bool:
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         return bool(fe_gpu_strict_resident_enabled())
-    except Exception:
+    except Exception as e:
+        logger.debug("hinge_gpu_enabled: fe_gpu_strict_resident_enabled() check failed, defaulting to the host detector: %s", e)
         return False
 
 
@@ -128,7 +129,8 @@ def _heldout_uplift_gpu(cp, xg, yg, tau: float, min_rows: int) -> float:
         try:
             # normal-equations solve (k <= 3): two GEMVs + k x k solve, vs cusolver lstsq on the tall block.
             coef = cp.linalg.solve(A_tr.T @ A_tr, A_tr.T @ y_tr)
-        except Exception:
+        except Exception as e:
+            logger.debug("_val_r2 (GPU-resident hinge): normal-equations solve failed, returning -inf so this design loses the comparison: %s", e)
             return -np.inf
         pred = A_va @ coef
         sse = float(cp.sum((y_va - pred) ** 2))

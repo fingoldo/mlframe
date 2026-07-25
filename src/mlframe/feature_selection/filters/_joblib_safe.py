@@ -269,5 +269,6 @@ def fit_constant_memmap(arr: "Any") -> "Any":
         ro = _np.memmap(path, dtype=a.dtype, mode="r", shape=a.shape)
         _FIT_MEMMAP_CACHE[key] = ro
         return ro
-    except Exception:
+    except Exception as e:
+        logger.debug("fit_constant_memmap: memmap dump/cache failed, returning the original array (dump-dedup lost, correctness unaffected): %s", e)
         return arr
