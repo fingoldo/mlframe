@@ -328,11 +328,15 @@ def per_group_apply(
             # downstream behavior" pattern, so we escalate below instead.
             n_groups_failed += 1
             last_err = err
-            logger.warning(
-                "per_group_apply: fn raised on group of size %d: %s; "
-                "filling with %s.",
-                int(e - s), err, fill_value,
-            )
+            if n_groups_failed <= 5:
+                # A wide panel can have thousands of groups; an fn bug that fails on many of them
+                # would otherwise flood the log one line per group. Cap the per-group detail and
+                # let the systematic-failure check below (or a future summary) carry the rest.
+                logger.warning(
+                    "per_group_apply: fn raised on group of size %d: %s; filling with %s.%s",
+                    int(e - s), err, fill_value,
+                    " (further per-group warnings suppressed)" if n_groups_failed == 5 else "",
+                )
             continue
         if res is None:
             continue
@@ -347,6 +351,8 @@ def per_group_apply(
             f"looks like a systematic bug in fn (not a per-group edge case), so returning an "
             f"all-{fill_value} array would silently hide it. Last error: {last_err!r}"
         ) from last_err
+    if n_groups_failed > 5:
+        logger.warning("per_group_apply: %d of %d group(s) raised in total (last: %r).", n_groups_failed, n_groups_attempted, last_err)
     return out
 
 

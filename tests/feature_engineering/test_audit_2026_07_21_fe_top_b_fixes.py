@@ -78,6 +78,32 @@ def test_f3_per_group_apply_still_tolerates_isolated_group_failure():
     assert list(out) == [2.0, 4.0, -1.0, -1.0, 6.0, 8.0]
 
 
+def test_per_group_apply_throttles_per_group_failure_logs(caplog):
+    """A many-group partial failure must not log one warning per failed group -- only the first
+    5 detailed warnings plus one summary line, closing an unthrottled-hot-loop-log finding."""
+    import logging
+
+    from mlframe.feature_engineering.grouped import per_group_apply
+
+    def _fails_on_odd_groups(seg):
+        """Fails on every odd-valued group, succeeds on even ones."""
+        if int(seg[0]) % 2 == 1:
+            raise ValueError("degenerate odd group")
+        return seg * 2.0
+
+    n_groups = 30
+    group_ids = np.repeat(np.arange(n_groups), 3)
+    values = group_ids.astype(np.float64)
+
+    with caplog.at_level(logging.WARNING, logger="mlframe.feature_engineering.grouped"):
+        per_group_apply(values, group_ids, _fails_on_odd_groups, fill_value=-1.0)
+
+    per_group_warnings = [r for r in caplog.records if "fn raised on group of size" in r.getMessage()]
+    summary_warnings = [r for r in caplog.records if "group(s) raised in total" in r.getMessage()]
+    assert len(per_group_warnings) == 5, f"expected exactly 5 detailed per-group warnings, got {len(per_group_warnings)}"
+    assert len(summary_warnings) == 1
+
+
 def test_f4_anchor_features_bit_identical_to_baseline_with_cached_slope():
     """F4: the slope-caching optimization (recompute only when a new anchor arrives, not
     every row) must produce bit-identical output to the original per-row-refit version."""
