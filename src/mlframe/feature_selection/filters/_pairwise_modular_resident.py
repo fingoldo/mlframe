@@ -62,7 +62,8 @@ def combiner_mi_resident(
 
         if not fe_gpu_device_born_modular_enabled():
             return None
-    except Exception:
+    except Exception as e:
+        logger.debug("fe_gpu_device_born_modular_enabled() check failed, host fallback: %s", e)
         return None
     if not rank_binning:
         return None  # only the rank path (the STRICT ``_mi`` binner) is reproduced bit-identically here.
@@ -113,7 +114,8 @@ def residue_grid_mis_resident(
 
         if not fe_gpu_device_born_modular_enabled():
             return None
-    except Exception:
+    except Exception as e:
+        logger.debug("fe_gpu_device_born_modular_enabled() check failed, host fallback: %s", e)
         return None
     mods = [int(k) for k in mods]
     if not mods:
@@ -170,7 +172,8 @@ def perm_null_residue_mis_resident(
 
         if not fe_gpu_device_born_modular_enabled():
             return None
-    except Exception:
+    except Exception as e:
+        logger.debug("fe_gpu_device_born_modular_enabled() check failed, host fallback: %s", e)
         return None
     if not rank_binning:
         # Only the RANK code path is reproduced bit-identically here (the STRICT ``_mi`` binner). The EDGE

@@ -78,7 +78,8 @@ def _is_cupy_ndarray(x) -> bool:
     try:
         import cupy as cp
         return isinstance(x, cp.ndarray)
-    except Exception:
+    except Exception as e:
+        logger.debug("_is_cupy_ndarray: cupy import/isinstance check failed, treating as a host array: %s", e)
         return False
 
 
