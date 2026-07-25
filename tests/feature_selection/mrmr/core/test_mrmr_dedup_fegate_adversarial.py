@@ -58,12 +58,13 @@ def _gcd_frame(seed=1, n=2000):
     return X, y
 
 
-def test_fe_max_steps_zero_with_explicit_enable_runs_operator_only_path():
-    """At fe_max_steps=0 the AUTOMATIC FE pipeline (iterative pair search) is off, but the discrete-structural
-    operators are a DISTINCT group that, when explicitly enabled, still run via the operator-only path provided
-    the small-n reliability floor is met (n>=500; here n=2000) -- see the design note at
-    _mrmr_fit_impl/_fit_impl_core.py (``the operator-lift biz_value tests rely on exactly that``). So with every
-    discrete flag explicitly True on a gcd target, the family is NOT hard-blocked: the operators are reachable."""
+def test_fe_max_steps_zero_blocks_even_explicitly_enabled_operators():
+    """At fe_max_steps=0 NO feature-engineering family runs, however its own flag is set.
+
+    The discrete-structural operators used to be carved out of that rule (an "operator-only path" with a
+    small-n reliability floor), which made "no FE" mean "no FE except this group". The budget is now
+    unconditional: a family flag can enable a family WITHIN a budget, never past a zero one. The positive
+    control lives in test_fe_max_steps_one_lets_discrete_fire."""
     X, y = _gcd_frame()
     sel = _mk(
         fe_max_steps=0,
@@ -74,17 +75,19 @@ def test_fe_max_steps_zero_with_explicit_enable_runs_operator_only_path():
         fe_integer_lattice_enable=True,
     )
     sel.fit(X, y)
-    assert _names_out(sel), "operator-only path emptied support at fe_max_steps=0"
-    assert _discrete_cols(sel, X), (
-        "explicitly-enabled discrete operators did not fire on the gcd target at fe_max_steps=0 "
-        "(operator-only path); the family must be reachable when explicitly requested"
+    assert _names_out(sel), "support emptied at fe_max_steps=0; the raw columns must still be selectable"
+    assert not _discrete_cols(sel, X), (
+        "explicitly-enabled discrete operators fired at fe_max_steps=0; the no-FE budget is unconditional "
+        "and no family flag may override it: {_discrete_cols(sel, X)}"
     )
 
 
 def test_fe_max_steps_zero_keeps_genuine_raw_signal():
-    """The genuine gcd-driving signal must survive at fe_max_steps=0 -- either as the raw columns a,b OR
-    captured by the default-on integer-lattice composite over them (il_gcd subsumes its raw operands by the
-    redundancy-dedup design). Either way the (a,b) structure must not be lost to pure noise."""
+    """The genuine gcd-driving signal must survive at fe_max_steps=0 as the raw columns a, b.
+
+    No FE family runs under a zero budget any more, so the integer-lattice composite that used to be an
+    acceptable alternative capture is no longer built -- the raw operands are the only way the structure can
+    reach the support, which makes this a stricter check than before."""
     X, y = _gcd_frame()
     sel = _mk(fe_max_steps=0, quantization_nbins=8)
     sel.fit(X, y)

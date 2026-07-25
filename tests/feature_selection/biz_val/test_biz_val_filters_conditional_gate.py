@@ -455,7 +455,9 @@ class TestBizValue:
                 # non-gate FE family OFF): OFF then measures raw a,b,c + linear (~0.83, cannot do the
                 # discontinuity), ON adds only the gate (gate_select__a__b__c__t<thr>, ~0.998) -> lift ~0.17.
                 _bare = dict(
-                    fe_max_steps=0,
+                    # fe_max_steps=0 is the unconditional 'no FE at all' contract: no family fires under it,
+                    # whatever its own flag says. This suite measures the operator LIFTING, so it needs a budget.
+                    fe_max_steps=1,
                     fe_fast_search=False,
                     fe_row_argmax_enable=False,
                     fe_pairwise_modular_enable=False,
@@ -474,7 +476,13 @@ class TestBizValue:
                 clf = LogisticRegression(max_iter=2000).fit(m.transform(Xtr), ytr)
                 store.append(roc_auc_score(yte, clf.predict_proba(m.transform(Xte))[:, 1]))
         lift = float(np.mean(on) - np.mean(off))
-        assert lift >= 0.10, f"conditional-gate AUC lift {lift:.3f} below +0.10 (ON {np.mean(on):.3f} vs OFF {np.mean(off):.3f})."
+        # The gate needs fe_max_steps>0 to run at all (no family fires at 0), which necessarily also lets the
+        # core FE step run for the OFF arm -- its pair/escalation ops partially reconstruct the regime and lift
+        # the baseline to ~0.95. The marginal lift is therefore no longer the sharp signal it was against a
+        # truly bare baseline; the gate's own capability is. Pin BOTH: the gate essentially solves the
+        # discontinuity, and it still beats the FE-augmented baseline.
+        assert float(np.mean(on)) >= 0.99, f"conditional-gate ON AUC {np.mean(on):.3f} should essentially solve c>0?a:b (>=0.99)."
+        assert lift > 0.0, f"conditional-gate must still beat the FE-augmented baseline (ON {np.mean(on):.3f} vs OFF {np.mean(off):.3f})."
 
 
 class TestArgmaxAndGateTargetTypeRobustness:
@@ -508,7 +516,9 @@ class TestArgmaxAndGateTargetTypeRobustness:
         return MRMR(
             verbose=0,
             interactions_max_order=1,
-            fe_max_steps=0,
+            # fe_max_steps=0 is the unconditional 'no FE at all' contract: no family fires under it,
+            # whatever its own flag says. This suite measures the operator LIFTING, so it needs a budget.
+            fe_max_steps=1,
             dcd_enable=False,
             cluster_aggregate_enable=False,
             build_friend_graph=False,

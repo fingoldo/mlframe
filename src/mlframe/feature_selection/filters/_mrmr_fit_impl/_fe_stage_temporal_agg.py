@@ -43,7 +43,9 @@ def _fe_stage_temporal_agg(self, X, _y_np, verbose, _temporal_agg_pre_recipes):
     # lag). Each survivor MI-gated against y; recipes store the fit-time
     # per-entity sorted history so transform() replays test rows against TRAIN
     # history only. Routing piggybacks on hybrid_orth_features_.
-    if bool(getattr(self, "fe_temporal_agg_enable", False)):
+    # ``fe_max_steps=0`` is the unconditional "no feature engineering at all" contract: a family flag can only
+    # enable a family within that budget, never buy its way past it (mirrors ``_fit_impl._fe_family_on``).
+    if bool(getattr(self, "fe_temporal_agg_enable", False)) and int(getattr(self, "fe_max_steps", 0) or 0) > 0:
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: Layer 92 temporal_agg FE enabled but X is not a pandas "
