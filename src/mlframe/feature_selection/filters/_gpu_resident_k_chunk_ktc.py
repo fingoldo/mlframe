@@ -18,7 +18,11 @@ GPU-only: on a CPU-only / no-cupy host the sweep never runs and ``.choose()`` re
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 from ._gpu_resident_fe import (
     _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT,
@@ -38,7 +42,8 @@ def gpu_k_chunk_vram_fraction(n: int) -> float:
         return _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT
     try:
         choice = _GPU_K_CHUNK_SPEC.choose(n_samples=int(n))
-    except Exception:
+    except Exception as e:
+        logger.debug("gpu_k_chunk_vram_fraction: KTC choose() failed, using the conservative default %.2f: %s", _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT, e)
         return _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT
     if isinstance(choice, str) and choice.startswith("frac_"):
         try:

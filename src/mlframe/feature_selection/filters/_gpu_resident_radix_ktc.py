@@ -18,7 +18,11 @@ fallback (pre-sweep / no-cupy / lookup failure), so the CPU / no-CUDA path is by
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # Candidate threads/block to sweep. HW-AWARE: instead of fixed magic constants the candidate
 # SET is now derived from the device occupancy (warp-multiple block sizes that achieve >=2 active blocks/SM
@@ -64,7 +68,8 @@ def _radix_threads_variants() -> list:
         if top not in cands:
             cands.append(top)
         return sorted(set(cands)) or seed
-    except Exception:
+    except Exception as e:
+        logger.debug("_radix_threads_variants: HW-occupancy probe failed, using the plain seed list: %s", e)
         return seed
 
 
@@ -82,7 +87,8 @@ def radix_select_threads(n: int) -> int:
         return _RADIX_THREADS_DEFAULT
     try:
         choice = _RADIX_THREADS_SPEC.choose(n_samples=int(n))
-    except Exception:
+    except Exception as e:
+        logger.debug("radix_select_threads: KTC choose() failed, using the historical default %d: %s", _RADIX_THREADS_DEFAULT, e)
         return _RADIX_THREADS_DEFAULT
     if isinstance(choice, str) and choice.startswith("th_"):
         try:
@@ -116,7 +122,8 @@ def radix_select_f32_variant(n: int) -> str:
         return _RADIX_F32_VARIANT_DEFAULT
     try:
         choice = _RADIX_F32_VARIANT_SPEC.choose(n_samples=int(n))
-    except Exception:
+    except Exception as e:
+        logger.debug("radix_select_f32_variant: KTC choose() failed, using the measured-fastest default %r: %s", _RADIX_F32_VARIANT_DEFAULT, e)
         return _RADIX_F32_VARIANT_DEFAULT
     if isinstance(choice, str) and choice in _RADIX_F32_VARIANTS:
         return choice

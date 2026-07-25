@@ -19,7 +19,11 @@ fallback (pre-sweep / no-cuda / lookup failure) so the CPU / no-CUDA path is byt
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 _HISTGATE_THREADS_DEFAULT = 128  # historical hardcoded default + pre-sweep / no-cuda / lookup-failure fallback
 _HISTGATE_THREADS_SEED = [128, 256, 512, 768, 1024]
@@ -52,7 +56,8 @@ def _histgate_threads_variants() -> list:
         if top not in cands:
             cands.append(top)
         return sorted(set(cands)) or seed
-    except Exception:
+    except Exception as e:
+        logger.debug("_histgate_threads_variants: HW-occupancy probe failed, using the plain seed list: %s", e)
         return seed
 
 
@@ -67,7 +72,8 @@ def histgate_threads(n_rows: int) -> int:
         return _HISTGATE_THREADS_DEFAULT
     try:
         choice = _HISTGATE_THREADS_SPEC.choose(n_rows=int(n_rows))
-    except Exception:
+    except Exception as e:
+        logger.debug("histgate_threads: KTC choose() failed, using the historical default %d: %s", _HISTGATE_THREADS_DEFAULT, e)
         return _HISTGATE_THREADS_DEFAULT
     if isinstance(choice, str) and choice.startswith("th_"):
         try:
