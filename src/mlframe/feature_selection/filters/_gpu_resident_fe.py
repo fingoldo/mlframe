@@ -57,10 +57,13 @@ exact cp.percentile sort is at the bandwidth floor; beating it needs a rank-EXAC
 """
 from __future__ import annotations
 
+import logging
 import os
 from collections import OrderedDict
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # REVIEW ROADMAP (2026-06-19 multi-agent critique; items dispositioned FUTURE - captured so they are
 # not re-derived). PERF (ranked payoff/effort, all must stay bit-exact -> validate maxdiff 0 + argmax on
@@ -140,11 +143,13 @@ def _cuda_present() -> bool:
     try:
         from pyutilz.core.pythonlib import is_cuda_available
         return bool(is_cuda_available())
-    except Exception:
+    except Exception as e:
+        logger.debug("_cuda_present: pyutilz.is_cuda_available() failed, trying numba.cuda.is_available(): %s", e)
         try:
             from numba import cuda as _c
             return bool(getattr(_c, "is_available", lambda: False)())
-        except Exception:
+        except Exception as e2:
+            logger.debug("_cuda_present: numba.cuda.is_available() also failed, defaulting to no CUDA: %s", e2)
             return False
 
 
@@ -171,7 +176,8 @@ def _gpu_has_free_vram() -> bool:
 
         free_b, _total = cp.cuda.runtime.memGetInfo()
         return bool(free_b >= _min_mb * 1024 * 1024)
-    except Exception:
+    except Exception as e:
+        logger.debug("_gpu_has_free_vram: VRAM query failed, deferring to the existing per-path OOM fallbacks: %s", e)
         return True
 
 
@@ -955,7 +961,8 @@ def _gpu_k_chunk_vram_fraction(n: int) -> float:
     try:
         from ._gpu_resident_k_chunk_ktc import gpu_k_chunk_vram_fraction as _resolve
         return _resolve(n)
-    except Exception:
+    except Exception as e:
+        logger.debug("_gpu_k_chunk_vram_fraction: KTC lookup failed, using the safe default fraction %.2f: %s", _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT, e)
         return _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT
 
 

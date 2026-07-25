@@ -17,7 +17,10 @@ host njit + upload path (correctness first; the device path is a residency optim
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional, Sequence
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 
@@ -91,7 +94,8 @@ def gpu_materialise_extval_codes_host(
         codes_dev = _gpu_resident_discretize_codes(out_dev, int(nbins))  # NaN/inf -> rightmost bin (searchsorted)
         codes_dev = codes_dev.astype(cp.dtype(_cd), copy=False) if codes_dev.dtype != _cd else codes_dev
         return np.asarray(cp.asnumpy(codes_dev))
-    except Exception:
+    except Exception as e:
+        logger.debug("device-resident extval materialise+discretize failed, caller falls back to the host njit + upload path: %s", e)
         return None
 
 
