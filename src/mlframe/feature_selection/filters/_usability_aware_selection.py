@@ -23,10 +23,13 @@ models.
 from __future__ import annotations
 
 import itertools
+import logging
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _scrub(v: np.ndarray, dtype: Any = np.float64) -> np.ndarray:
@@ -74,7 +77,8 @@ def _GPU_USABILITY() -> bool:
     try:
         from ._usability_gpu import fe_gpu_usability_enabled
         return fe_gpu_usability_enabled()
-    except Exception:
+    except Exception as e:
+        logger.debug("_GPU_USABILITY: fe_gpu_usability_enabled() check failed, staying on the CPU path: %s", e)
         return False
 
 

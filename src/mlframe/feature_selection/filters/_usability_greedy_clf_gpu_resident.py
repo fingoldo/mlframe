@@ -41,10 +41,13 @@ never breaking a fit.
 """
 from __future__ import annotations
 
+import logging
 import math
 from typing import Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class _ResidentClfFallbackError(Exception):
@@ -427,10 +430,12 @@ def usability_greedy_clf_gpu_resident(
             selected.append(best_i)
             folds_cur, cur = best_folds, best_mean
         return [pool[i] for i in selected]
-    except _ResidentClfFallbackError:
-        return None  # non-convergent / singular / degenerate device fit -> exact CPU greedy
-    except Exception:
-        return None  # any cupy/device error -> exact CPU greedy
+    except _ResidentClfFallbackError as e:
+        logger.debug("usability_greedy_clf_gpu_resident: non-convergent/singular/degenerate device fit, falling back to the exact CPU greedy: %s", e)
+        return None
+    except Exception as e:
+        logger.debug("usability_greedy_clf_gpu_resident: cupy/device error, falling back to the exact CPU greedy: %s", e)
+        return None
 
 
 __all__ = ["usability_greedy_clf_gpu_resident"]

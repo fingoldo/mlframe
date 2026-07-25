@@ -22,7 +22,11 @@ tight (not the looser percentile-edge trade). CPU/no-cupy host: the sweep never 
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # (n_rows, npairs, n_combos) grid. npairs spans the narrow joint-MI-pruned F2 pool (few pairs) up to a wide
 # sweep (max_pairs~60); n_combos ~ |unary|^2*|binary| (the medium preset -> ~1734) down to a minimal preset.
@@ -51,7 +55,8 @@ def pool_table_use_resident(n_rows: int, npairs: int, n_combos: int) -> bool:
     cb = min(_POOLRES_SWEEP_NCOMBOS, key=lambda b: abs(b - int(n_combos)))
     try:
         choice = _POOLRES_SPEC.choose(n_rows=int(n_rows), npairs=int(pb), n_combos=int(cb))
-    except Exception:
+    except Exception as e:
+        logger.debug("pool_table_use_resident: KTC choose() failed, caller stays on the exact host per-pair njit kernel: %s", e)
         return False
     return bool(choice == "resident")
 

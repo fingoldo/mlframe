@@ -50,7 +50,8 @@ def _short_name(name, maxlen: int = 28) -> str:
     """
     try:
         s = str(name)
-    except Exception:
+    except Exception as e:
+        logger.debug("_short_name: str(name) failed for progress-display truncation, showing '?': %s", e)
         return "?"
     if len(s) <= maxlen:
         return s

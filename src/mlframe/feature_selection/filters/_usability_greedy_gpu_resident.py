@@ -58,10 +58,13 @@ fault never breaking a fit.
 """
 from __future__ import annotations
 
+import logging
 import math
 from typing import Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def usability_greedy_gpu_resident(
@@ -246,7 +249,8 @@ def usability_greedy_gpu_resident(
             b = Sc.T @ yc
             try:
                 beta = cp.linalg.solve(G, b)
-            except Exception:
+            except Exception as e:
+                logger.debug("usability_greedy_gpu_resident._fit_selected: centered Gram is singular, caller falls back to the CPU refit: %s", e)
                 return None, None, None
             return beta, ybar, mu
 
@@ -374,10 +378,12 @@ def usability_greedy_gpu_resident(
             selected.append(best_i)
             folds_cur, mae_cur = best_folds, best_mean
         return [pool[i] for i in selected]
-    except _ResidentFallbackError:
-        return None  # a singular border / degenerate fit -> take the exact CPU greedy
-    except Exception:
-        return None  # any cupy/device error -> exact CPU greedy
+    except _ResidentFallbackError as e:
+        logger.debug("usability_greedy_gpu_resident: singular border / degenerate device fit, falling back to the exact CPU greedy: %s", e)
+        return None
+    except Exception as e:
+        logger.debug("usability_greedy_gpu_resident: cupy/device error, falling back to the exact CPU greedy: %s", e)
+        return None
 
 
 class _ResidentFallbackError(Exception):
