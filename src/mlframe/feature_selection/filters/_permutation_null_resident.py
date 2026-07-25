@@ -174,5 +174,6 @@ def gen_target_shuffles_cupy(y_codes: np.ndarray, nperm: int, dtype: type, rando
         out = d_y[order]  # (nperm, n) gathered shuffles, on device
         del order
         return out
-    except Exception:
+    except Exception as e:
+        logger.debug("device-resident shuffle-gen failed (cupy error / OOM), caller falls back to the host gen: %s", e)
         return None

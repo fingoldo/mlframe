@@ -17,7 +17,11 @@ CPU/no-cupy host: the sweep never runs, ``.choose()`` returns "njit", and the ca
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # (n, ncand, nperm) grid. ncand spans the narrow tabular floor (ncand~8) up to wide embedding/TF-IDF pools
 # (ncand>=128) where the resident histogram amortises its launch; nperm spans the legacy 25 and the default
@@ -47,7 +51,8 @@ def permnull_use_resident(n: int, ncand: int, nperm: int) -> bool:
     pb = min(_PERMNULL_SWEEP_NPERM, key=lambda b: abs(b - int(nperm)))
     try:
         choice = _PERMNULL_SPEC.choose(n_samples=int(n), ncand=int(nb), nperm=int(pb))
-    except Exception:
+    except Exception as e:
+        logger.debug("permnull_use_resident: KTC choose() failed, caller stays on the exact host njit kernel: %s", e)
         return False
     return bool(choice == "resident")
 

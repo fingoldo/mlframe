@@ -25,7 +25,11 @@ CPU/no-numba host or sweep failure: ``.choose()`` returns "numpy" and the caller
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # (n, nperm) grid. n spans the small canonical sizes (where numpy wins / the suite must stay byte-stable) up
 # to the large-n regime where the parallel Fisher-Yates amortises its JIT + thread fan-out. nperm spans the
@@ -52,7 +56,8 @@ def shufflegen_use_numba(n: int, nperm: int) -> bool:
     pb = min(_SHUFFLEGEN_SWEEP_NPERM, key=lambda b: abs(b - int(nperm)))
     try:
         choice = _SHUFFLEGEN_SPEC.choose(n_samples=int(n), nperm=int(pb))
-    except Exception:
+    except Exception as e:
+        logger.debug("shufflegen_use_numba: KTC choose() failed, caller stays on the exact sequential numpy stream: %s", e)
         return False
     return bool(choice == "numba")
 
@@ -129,7 +134,8 @@ def shufflegen_use_gpu(n: int, nperm: int) -> bool:
     pb = min(_SHUFFLEGEN_SWEEP_NPERM, key=lambda b: abs(b - int(nperm)))
     try:
         choice = _SHUFFLEGEN_SPEC.choose(n_samples=int(n), nperm=int(pb))
-    except Exception:
+    except Exception as e:
+        logger.debug("shufflegen_use_gpu: KTC choose() failed, caller uses the host gen: %s", e)
         return False
     return bool(choice == "gpu")
 

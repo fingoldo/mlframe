@@ -259,7 +259,9 @@ def pair_maxt_perm_null_gpu_enabled(n: int, n_pairs: int) -> bool:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
 
         return bool(fe_gpu_strict_enabled(n=int(n), p=int(n_pairs)))
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("pair_maxt_perm_null_gpu_enabled: fe_gpu_strict_enabled() check failed, caller keeps the exact CPU njit floor: %s", e)
         return False
 
 
