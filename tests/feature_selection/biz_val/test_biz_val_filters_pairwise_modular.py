@@ -395,7 +395,9 @@ class TestPairwiseModularTargetTypeRobustness:
         m = MRMR(
             verbose=0,
             interactions_max_order=1,
-            fe_max_steps=0,
+            # fe_max_steps=0 is the unconditional 'no FE at all' contract: no family fires under it,
+            # whatever its own flag says. This suite measures the operator LIFTING, so it needs a budget.
+            fe_max_steps=1,
             dcd_enable=False,
             cluster_aggregate_enable=False,
             build_friend_graph=False,
@@ -410,7 +412,10 @@ class TestPairwiseModularTargetTypeRobustness:
         assert bool(m.fe_pairwise_modular_enable) is True
         t0 = time.time()
         m.fit(df, y)
-        assert time.time() - t0 < 30.0, "modular fit exceeded 30s wall (hang-class bug)"
+        # Budget raised 30s -> 90s alongside the fe_max_steps=1 change above: the modular family can only
+        # run inside an FE budget now, so this fit legitimately also pays for the core FE step. The assertion
+        # guards the HANG class (an unbounded scan), not a perf regression, so the wider bound still holds it.
+        assert time.time() - t0 < 90.0, "modular fit exceeded 90s wall (hang-class bug)"
         return m
 
     @pytest.mark.parametrize("kind", ["regression", "quantile", "count"])

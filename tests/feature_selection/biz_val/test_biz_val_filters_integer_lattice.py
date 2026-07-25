@@ -266,7 +266,9 @@ class TestIntegerLatticeTargetTypeRobustness:
         m = MRMR(
             verbose=0,
             interactions_max_order=1,
-            fe_max_steps=0,
+            # fe_max_steps=0 is the unconditional 'no FE at all' contract: no family fires under it,
+            # whatever its own flag says. This suite measures the operator LIFTING, so it needs a budget.
+            fe_max_steps=1,
             dcd_enable=False,
             cluster_aggregate_enable=False,
             build_friend_graph=False,

@@ -173,10 +173,12 @@ def test_redundancy_gate_drops_binagg_redundant_with_engineered_source_on_linear
     )
     y = pd.Series(((x1 + 0.7 * x2) > 0).astype(int), name="y")
 
-    on_appended = list(getattr(make_fast_mrmr().fit(X, y), "hybrid_orth_features_", []) or [])
+    # Both arms need fe_max_steps>0: no FE family runs under a zero budget, so with the factory's no-FE
+    # preset neither arm would append anything and the gate's effect would be unobservable.
+    on_appended = list(getattr(make_fast_mrmr(fe_max_steps=1).fit(X, y), "hybrid_orth_features_", []) or [])
     assert not any(
         str(c).startswith("binagg_") for c in on_appended
     ), f"redundancy gate (default ON) should drop binagg columns redundant with their source; got {on_appended}"
 
-    off_appended = list(getattr(make_fast_mrmr(fe_binned_numeric_agg_redundancy_gate=False).fit(X, y), "hybrid_orth_features_", []) or [])
+    off_appended = list(getattr(make_fast_mrmr(fe_max_steps=1, fe_binned_numeric_agg_redundancy_gate=False).fit(X, y), "hybrid_orth_features_", []) or [])
     assert any(str(c).startswith("binagg_") for c in off_appended), "with the redundancy gate OFF the Tier-1 MI floor admits the redundant binagg column(s)"

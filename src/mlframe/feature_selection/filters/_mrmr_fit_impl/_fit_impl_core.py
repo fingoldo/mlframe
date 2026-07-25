@@ -318,6 +318,19 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             return True
         return bool((timer() - start_time) / 60.0 < self.max_runtime_mins)
 
+    def _fe_family_on(flag: str, default: bool = False) -> bool:
+        """True iff the family's own ``fe_*_enable`` flag is set AND this fit has an FE budget.
+
+        ``fe_max_steps=0`` is the "no feature engineering at all" contract, and it is unconditional: a family
+        flag can only ENABLE a family within that budget, never buy its way past it. Reading the budget from
+        ``self`` (not the local) so the helper is safe to call from anywhere in the fit.
+
+        Previously only the hybrid-orth / univariate-basis pair honoured this; every other family fired at
+        ``fe_max_steps=0``, which made "no FE" mean "no FE except the ~30 default-ON families" and silently
+        engineered columns into fits that had explicitly asked for none.
+        """
+        return bool(getattr(self, flag, default)) and int(getattr(self, "fe_max_steps", 0) or 0) > 0
+
     dtype = self.dtype
 
     parallel_kwargs = self._effective_parallel_kwargs()
@@ -504,8 +517,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # discrete-structural-operators precedent above (which DOES allow fe_max_steps=0 firing, but only
     # for an operator the caller explicitly opted into via its own flag - neither family here has that
     # explicit-opt-in carve-out, so fe_max_steps=0 disables both unconditionally).
-    _hybrid_on = bool(getattr(self, "fe_hybrid_orth_enable", False)) and fe_max_steps > 0
-    _univ_basis_on = bool(getattr(self, "fe_univariate_basis_enable", True)) and fe_max_steps > 0
+    _hybrid_on = _fe_family_on("fe_hybrid_orth_enable", False) and fe_max_steps > 0
+    _univ_basis_on = _fe_family_on("fe_univariate_basis_enable", True) and fe_max_steps > 0
     if (_hybrid_on or _univ_basis_on) and _fe_budget_ok():
         # Polars frames: skip with a warning - hybrid FE pipeline operates on
         # pandas. Native polars support would require a separate code path;
@@ -666,7 +679,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         #     pure oscillatory signal (sin/cos) is recovered by default. The
         #     extra-basis stage is uplift + multiple-comparison gated downstream,
         #     so adding Fourier is near-no-op when there is no oscillation.
-        _univ_fourier_on = bool(getattr(self, "fe_univariate_fourier_enable", True))
+        _univ_fourier_on = _fe_family_on("fe_univariate_fourier_enable", True)
         _eff_extra_bases = tuple(_extra_bases_cfg) if (_extra_bases_cfg and _hybrid_on) else ()
         # The default-on Fourier univariate basis is part of the plug-in univariate dispatch. Under an alternate ``fe_hybrid_orth_default_scorer`` (cmim / jmim / ksg / ...) the routing
         # runs ONLY the univariate basis-selection for that scorer (the pair stage is likewise skipped above); the Fourier extra basis is a plug-in-path addition, so adding it under
@@ -802,7 +815,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # pure function ``np.maximum(x-tau,0)``, leak-free. On a monotone target a
     # hinge can be near-collinear with raw x -> the downstream cross-stage
     # Spearman dedup drops it (no duplicate columns survive).
-    if bool(getattr(self, "fe_hinge_enable", False)) and _fe_budget_ok():
+    if _fe_family_on("fe_hinge_enable", False) and _fe_budget_ok():
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._hinge_basis_fe import hybrid_hinge_fe_with_recipes
@@ -881,7 +894,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # (``_seeded_triplets_names_``); run the triplet stage for those even when the legacy
     # univariate-seeded triplet path (``fe_hybrid_orth_triplet_enable``) is OFF.
     _gbm_seeded_triplet_names = list(getattr(self, "_seeded_triplets_names_", []) or [])
-    if bool(getattr(self, "fe_hybrid_orth_triplet_enable", False)) or _gbm_seeded_triplet_names:
+    if _fe_family_on("fe_hybrid_orth_triplet_enable", False) or _gbm_seeded_triplet_names:
         # Format-agnostic since the matrix-native FE seam: the isinstance(X, pd.DataFrame) skip-guard is gone - the family
         # runs on polars/pandas alike (subsample decision + native replay via fe_decide_on_subsample / _fe_frame_ops).
         try:
@@ -942,7 +955,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # spurious univariate Fourier/poly on a noise operand (a noise admission). When
             # the user ALSO enabled the legacy triplet path, keep their univariate budget.
             _t_top_k_eff = _t_top_k
-            if _explicit_triplets is not None and not bool(getattr(self, "fe_hybrid_orth_triplet_enable", False)):
+            if _explicit_triplets is not None and not _fe_family_on("fe_hybrid_orth_triplet_enable", False):
                 _t_top_k_eff = 0
             X_t, _t_uni_sc, _t_triplet_sc, _t_recipes = fe_decide_on_subsample(
                 hybrid_orth_mi_triplet_fe_with_recipes,
@@ -1001,7 +1014,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # revenue = price*qty*count*discount. O(seed_k^4 * deg^4) candidate
     # count is bounded by seed_k=4 default. Recipes
     # (``orth_quadruplet_cross``) replay from X only, no y.
-    if bool(getattr(self, "fe_hybrid_orth_quadruplet_enable", False)):
+    if _fe_family_on("fe_hybrid_orth_quadruplet_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._orthogonal_quadruplet_fe import (
@@ -1087,7 +1100,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # keeps ONLY the winning arity per maximal signal set (a higher arity
     # is emitted iff its MI strictly beats every lower-arity prefix).
     # Recipes route to the per-arity Layer 22 / 56 / 77 builders.
-    if bool(getattr(self, "fe_hybrid_orth_adaptive_arity_enable", False)):
+    if _fe_family_on("fe_hybrid_orth_adaptive_arity_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._orthogonal_adaptive_arity_fe import (
@@ -1168,7 +1181,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ``fe_hybrid_orth_adaptive_degree_range`` and emit ONLY the argmax-MI
     # degree (if it clears the per-col uplift gate). Recipe kind reuses
     # ``orth_univariate`` - replay reads X only, no y.
-    if bool(getattr(self, "fe_hybrid_orth_adaptive_degree_enable", False)):
+    if _fe_family_on("fe_hybrid_orth_adaptive_degree_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._orthogonal_adaptive_degree_fe import (
@@ -1248,7 +1261,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # column and keep the MI-uplift winner; global top-K appended. Recipe
     # kind reuses ``orth_univariate`` (extra carries ``pre_transform``);
     # replay reads X only, no y.
-    if bool(getattr(self, "fe_hybrid_orth_conditional_routing_enable", False)):
+    if _fe_family_on("fe_hybrid_orth_conditional_routing_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._orthogonal_routing_fe import (
@@ -1337,7 +1350,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # threshold, computes the residual diff, and evaluates a basis expansion
     # per requested degree; top-K winners appended. Recipe kind
     # ``orth_diff_basis``; replay reads X only, no y.
-    if bool(getattr(self, "fe_hybrid_orth_diff_basis_enable", False)):
+    if _fe_family_on("fe_hybrid_orth_diff_basis_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._orthogonal_diff_basis_fe import (
@@ -1428,7 +1441,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # basis) and Layer 7 cluster_aggregate (swaps cluster to PC1/mean_z as a
     # new raw feature WITHOUT a basis expansion). Recipe kind
     # ``orth_cluster_basis``; replay reads X only, no y.
-    if bool(getattr(self, "fe_hybrid_orth_cluster_basis_enable", False)):
+    if _fe_family_on("fe_hybrid_orth_cluster_basis_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._orthogonal_cluster_basis_fe import (
@@ -1540,7 +1553,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # changes - so recipes reuse the ``orth_univariate`` kind and replay
     # is shared. Restrict to RAW columns to avoid recipes referencing
     # already-engineered columns absent at transform.
-    if bool(getattr(self, "fe_hybrid_orth_bootstrap_enable", False)):
+    if _fe_family_on("fe_hybrid_orth_bootstrap_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._orthogonal_bootstrap_mi_fe import (
@@ -1628,7 +1641,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # marginal MI from Gate 1 already covers that case. Engineered VALUES
     # are bit-equal to Layer 21 so recipes reuse the ``orth_univariate``
     # kind and replay is shared infrastructure.
-    if bool(getattr(self, "fe_hybrid_orth_three_gate_enable", False)):
+    if _fe_family_on("fe_hybrid_orth_three_gate_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._orthogonal_three_gate_mi_fe import (
@@ -1723,7 +1736,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # engineered columns are bit-equal to Layer 21 - only the SCORING
     # (and therefore the selection) changes - so recipes reuse the
     # ``orth_univariate`` kind and replay is shared infrastructure.
-    if bool(getattr(self, "fe_hybrid_orth_ksg_enable", False)):
+    if _fe_family_on("fe_hybrid_orth_ksg_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._orthogonal_ksg_mi_fe import (
@@ -1811,7 +1824,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # where the plug-in's qcut on raw values piles tail observations into
     # one bin and hides genuine dependence. Engineered VALUES bit-equal to
     # Layer 21 -> recipes reuse the ``orth_univariate`` kind.
-    if bool(getattr(self, "fe_hybrid_orth_copula_enable", False)):
+    if _fe_family_on("fe_hybrid_orth_copula_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._orthogonal_copula_mi_fe import (
@@ -1896,7 +1909,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # guarantee). Naive dCor is O(n^2); the working sample is capped at
     # n=500 via deterministic random subsample. Engineered VALUES bit-equal
     # to Layer 21 -> recipes reuse the ``orth_univariate`` kind.
-    if bool(getattr(self, "fe_hybrid_orth_dcor_enable", False)):
+    if _fe_family_on("fe_hybrid_orth_dcor_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._orthogonal_dcor_fe import (
@@ -1981,7 +1994,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # O(n^2); the working sample is capped at n=500 via deterministic
     # random subsample. Engineered VALUES bit-equal to Layer 21 ->
     # recipes reuse the ``orth_univariate`` kind.
-    if bool(getattr(self, "fe_hybrid_orth_hsic_enable", False)):
+    if _fe_family_on("fe_hybrid_orth_hsic_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._orthogonal_hsic_fe import (
@@ -2067,7 +2080,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # source column pool. Selection: same two-gate rule as Layers 65 /
     # 66 / 67 / 71. Engineered VALUES bit-equal to Layer 21 -> recipes
     # reuse the ``orth_univariate`` kind.
-    if bool(getattr(self, "fe_hybrid_orth_jmim_enable", False)):
+    if _fe_family_on("fe_hybrid_orth_jmim_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._orthogonal_jmim_fe import (
@@ -2144,7 +2157,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # current support union with y. Selection: same absolute floor as
     # Layers 65 / 66 / 67 / 71 / 72. Engineered VALUES bit-equal to Layer
     # 21 -> recipes reuse the ``orth_univariate`` kind.
-    if bool(getattr(self, "fe_hybrid_orth_tc_enable", False)):
+    if _fe_family_on("fe_hybrid_orth_tc_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._orthogonal_total_correlation_fe import (
@@ -2225,7 +2238,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Selection: same absolute floor as Layers 65 / 66 / 67 / 71 / 72 /
     # 73. Engineered VALUES bit-equal to Layer 21 -> recipes reuse the
     # ``orth_univariate`` kind.
-    if bool(getattr(self, "fe_hybrid_orth_cmim_enable", False)):
+    if _fe_family_on("fe_hybrid_orth_cmim_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._orthogonal_cmim_fe import (
@@ -2302,7 +2315,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # {plug-in, KSG, copula, dCor} and uses ITS LCB for the cross-column
     # ranking + selection. Engineered VALUES bit-equal to Layer 21 ->
     # recipes reuse the ``orth_univariate`` kind.
-    if bool(getattr(self, "fe_hybrid_orth_auto_scorer_enable", False)):
+    if _fe_family_on("fe_hybrid_orth_auto_scorer_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._orthogonal_scorer_auto_fe import (
@@ -2385,7 +2398,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # to Layer 68: ensemble wins on AMBIGUOUS frames where the bootstrap-
     # LCB per-column winner is unstable across seeds. Engineered VALUES
     # bit-equal to Layer 21 -> recipes reuse the ``orth_univariate`` kind.
-    if bool(getattr(self, "fe_hybrid_orth_ensemble_enable", False)):
+    if _fe_family_on("fe_hybrid_orth_ensemble_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._orthogonal_scorer_auto_fe import (
@@ -2477,7 +2490,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # predicted-best scorer. Wall-clock saving roughly n_scorers - 1 vs
     # L68/L69. Engineered VALUES bit-equal to Layer 21 -> recipes reuse
     # the ``orth_univariate`` kind.
-    if bool(getattr(self, "fe_hybrid_orth_meta_enable", False)):
+    if _fe_family_on("fe_hybrid_orth_meta_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._orthogonal_meta_scorer_fe import (
@@ -2573,7 +2586,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # the union of winners is screened by MRMR.
     self.mi_greedy_features_ = []
     _mi_greedy_pre_recipes: dict = {}
-    if bool(getattr(self, "fe_mi_greedy_enable", False)):
+    if _fe_family_on("fe_mi_greedy_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._mi_greedy_fe import greedy_mi_fe_construct_with_recipes
@@ -2655,7 +2668,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # transform-time replay are shared infrastructure. Seed pool excludes
     # both prior hybrid-orth and prior marginal-MI-greedy engineered cols
     # (same rationale: replay must not reference engineered sources).
-    if bool(getattr(self, "fe_mi_greedy_cmi_enable", False)):
+    if _fe_family_on("fe_mi_greedy_cmi_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
             from .._mi_greedy_cmi_fe import greedy_cmi_fe_construct_with_recipes
@@ -2737,7 +2750,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.kfold_te_features_ = []
     _kfold_te_pre_recipes: dict = {}
     _binned_agg_pre_recipes: dict = {}
-    if bool(getattr(self, "fe_kfold_te_enable", False)):
+    if _fe_family_on("fe_kfold_te_enable", False):
         # K-fold target encoding is an OOF stat (no closed-form subsample-replay), so it needs the full frame: gate the
         # polars->pandas materialisation on size and skip a > ~2 GiB frame rather than whole-copy it (CLAUDE.md eager rule).
         if fe_polars_exceeds(X):
@@ -2826,13 +2839,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # mean/std/skew/kurt of numeric columns grouped by quantile-binned cells of other numerics. Runs in the
     # pre-FE region (before categorize_dataset) so the appended columns enter screening like any numeric, and
     # routes recipes through hybrid_orth_features_ so a selected binagg column lands in _engineered_recipes_.
-    if bool(getattr(self, "fe_binned_numeric_agg_enable", False)) and fe_polars_exceeds(X):
+    if _fe_family_on("fe_binned_numeric_agg_enable", False) and fe_polars_exceeds(X):
         warnings.warn(
             "MRMR: fe_binned_numeric_agg_enable=True but X is a large polars frame (> ~2 GiB); binned-agg is an OOF stat "
             "needing a full-frame decision and is skipped to avoid a whole-frame to_pandas copy.",
             UserWarning, stacklevel=3,
         )
-    elif bool(getattr(self, "fe_binned_numeric_agg_enable", False)):
+    elif _fe_family_on("fe_binned_numeric_agg_enable", False):
         try:
             from .._binned_numeric_agg_fe import binned_numeric_agg_with_recipes
             _ba_y = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=np.float64).ravel()
@@ -2878,9 +2891,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _freq_enc_pre_recipes: dict = {}
     _cat_num_pre_recipes: dict = {}
     if (
-        bool(getattr(self, "fe_count_encoding_enable", False))
-        or bool(getattr(self, "fe_frequency_encoding_enable", False))
-        or bool(getattr(self, "fe_cat_num_interaction_enable", False))
+        _fe_family_on("fe_count_encoding_enable", False)
+        or _fe_family_on("fe_frequency_encoding_enable", False)
+        or _fe_family_on("fe_cat_num_interaction_enable", False)
     ):
         # Count / frequency / cat-num-residual encodings are OOF / full-cardinality stats (no closed-form subsample-replay),
         # so they need the full frame: gate the materialisation on size and skip a > ~2 GiB polars frame (CLAUDE.md eager rule).
@@ -2914,7 +2927,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _engineered_seen_l34 = _hybrid_appended_l34 | _mig_appended_l34 | _te_appended_l34
 
             # ----- Count encoding ----------------------------------------
-            if bool(getattr(self, "fe_count_encoding_enable", False)):
+            if _fe_family_on("fe_count_encoding_enable", False):
                 try:
                     _cnt_cfg = tuple(getattr(self, "fe_count_encoding_cols", ()) or ())
                     if _cnt_cfg:
@@ -2954,7 +2967,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     )
 
             # ----- Frequency encoding ------------------------------------
-            if bool(getattr(self, "fe_frequency_encoding_enable", False)):
+            if _fe_family_on("fe_frequency_encoding_enable", False):
                 try:
                     _freq_cfg = tuple(getattr(self, "fe_frequency_encoding_cols", ()) or ())
                     if _freq_cfg:
@@ -2994,7 +3007,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     )
 
             # ----- Cat x Num interaction (OOF residual) ------------------
-            if bool(getattr(self, "fe_cat_num_interaction_enable", False)):
+            if _fe_family_on("fe_cat_num_interaction_enable", False):
                 try:
                     _cn_cats = tuple(getattr(self, "fe_cat_num_interaction_cat_cols", ()) or ())
                     _cn_nums = tuple(getattr(self, "fe_cat_num_interaction_num_cols", ()) or ())
@@ -3049,9 +3062,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _miss_cnt_pre_recipes: dict = {}
     _miss_pat_pre_recipes: dict = {}
     if (
-        bool(getattr(self, "fe_missingness_indicator_enable", False))
-        or bool(getattr(self, "fe_missingness_count_enable", False))
-        or bool(getattr(self, "fe_missingness_pattern_enable", False))
+        _fe_family_on("fe_missingness_indicator_enable", False)
+        or _fe_family_on("fe_missingness_count_enable", False)
+        or _fe_family_on("fe_missingness_pattern_enable", False)
     ):
         # Missingness indicator/count/pattern read whole-column NaN structure (no closed-form subsample-replay), so they
         # need the full frame: gate the materialisation on size and skip a > ~2 GiB polars frame (CLAUDE.md eager rule).
@@ -3109,7 +3122,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 return [c for c in auto_detect_missing_cols(fe_to_pandas(X)) if c not in _engineered_seen_l37]
 
             # ----- Per-column indicator ------------------------------------
-            if bool(getattr(self, "fe_missingness_indicator_enable", False)):
+            if _fe_family_on("fe_missingness_indicator_enable", False):
                 try:
                     _ind_cols = _resolve_missing_cols(getattr(self, "fe_missingness_indicator_cols", ()))
                     _X_before_ind_cols = list(X.columns)
@@ -3146,7 +3159,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     )
 
             # ----- Per-row missingness count -------------------------------
-            if bool(getattr(self, "fe_missingness_count_enable", False)):
+            if _fe_family_on("fe_missingness_count_enable", False):
                 try:
                     _cnt_cols = _resolve_missing_cols(getattr(self, "fe_missingness_indicator_cols", ()))
                     _X_before_mc_cols = list(X.columns)
@@ -3175,7 +3188,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     )
 
             # ----- Per-row top-K pattern -----------------------------------
-            if bool(getattr(self, "fe_missingness_pattern_enable", False)):
+            if _fe_family_on("fe_missingness_pattern_enable", False):
                 try:
                     _pat_cols = _resolve_missing_cols(getattr(self, "fe_missingness_indicator_cols", ()))
                     _top_k = int(getattr(self, "fe_missingness_pattern_top_k", 5))
@@ -3267,10 +3280,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _composite_group_agg_pre_recipes: dict = {}
     _grouped_quantile_pre_recipes: dict = {}
     if (
-        bool(getattr(self, "fe_pairwise_ratio_enable", False))
-        or bool(getattr(self, "fe_pairwise_log_ratio_enable", False))
-        or bool(getattr(self, "fe_grouped_delta_enable", False))
-        or bool(getattr(self, "fe_lagged_diff_enable", False))
+        _fe_family_on("fe_pairwise_ratio_enable", False)
+        or _fe_family_on("fe_pairwise_log_ratio_enable", False)
+        or _fe_family_on("fe_grouped_delta_enable", False)
+        or _fe_family_on("fe_lagged_diff_enable", False)
     ):
         # grouped_delta / lagged_diff are cross-row (group / time ordered) and ratio / log-ratio rank their mi_gate on the
         # full frame, none wired for closed-form subsample-replay - so this block needs the full frame: gate the materialisation
@@ -3304,7 +3317,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _record_fe_rejection(self, step=_l38_step, **_kw)
 
             # ----- Pairwise ratio --------------------------------------------
-            if bool(getattr(self, "fe_pairwise_ratio_enable", False)):
+            if _fe_family_on("fe_pairwise_ratio_enable", False):
                 try:
                     _ratio_cols = tuple(getattr(self, "fe_pairwise_ratio_cols", ()) or ())
                     _ratio_cols = tuple(c for c in _ratio_cols if c in X.columns)
@@ -3337,7 +3350,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     )
 
             # ----- Pairwise log-ratio ----------------------------------------
-            if bool(getattr(self, "fe_pairwise_log_ratio_enable", False)):
+            if _fe_family_on("fe_pairwise_log_ratio_enable", False):
                 try:
                     _lr_cols = tuple(getattr(self, "fe_pairwise_log_ratio_cols", ()) or ())
                     _lr_cols = tuple(c for c in _lr_cols if c in X.columns)
@@ -3370,7 +3383,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     )
 
             # ----- Grouped delta ---------------------------------------------
-            if bool(getattr(self, "fe_grouped_delta_enable", False)):
+            if _fe_family_on("fe_grouped_delta_enable", False):
                 try:
                     _gd_group = getattr(self, "fe_grouped_delta_group_col", None)
                     _gd_nums = tuple(getattr(self, "fe_grouped_delta_num_cols", ()) or ())
@@ -3403,7 +3416,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     )
 
             # ----- Lagged diff -----------------------------------------------
-            if bool(getattr(self, "fe_lagged_diff_enable", False)):
+            if _fe_family_on("fe_lagged_diff_enable", False):
                 try:
                     _ld_time = getattr(self, "fe_lagged_diff_time_col", None)
                     _ld_vals = tuple(getattr(self, "fe_lagged_diff_value_cols", ()) or ())
@@ -3443,7 +3456,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # CMI-gated against the raw support and uplift-gated against the source
     # num_col marginal MI. Routing piggybacks on hybrid_orth_features_ (same
     # Layer 23 remap as Layers 33/34/37/38).
-    if bool(getattr(self, "fe_grouped_agg_enable", False)):
+    if _fe_family_on("fe_grouped_agg_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: Layer 87 grouped_agg FE enabled but X is not a pandas "
@@ -3512,7 +3525,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # uplift-gated against the source num_col marginal MI. Composite keys whose
     # distinct-cell count exceeds 0.5*n are refused (Layer 29 guard). Routing
     # piggybacks on hybrid_orth_features_ (same Layer 23 remap as 33/.../87).
-    if bool(getattr(self, "fe_composite_group_agg_enable", False)):
+    if _fe_family_on("fe_composite_group_agg_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: Layer 93 composite_group_agg FE enabled but X is not a "
@@ -3585,7 +3598,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # the OOF-fit target-aware supervised bin index; each survivor MI-gated
     # against the source num_col marginal MI. Routing piggybacks on
     # hybrid_orth_features_ (same Layer 23 remap as Layers 33/34/37/38/87).
-    if bool(getattr(self, "fe_grouped_quantile_enable", False)):
+    if _fe_family_on("fe_grouped_quantile_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: Layer 88 grouped_quantile FE enabled but X is not a "
@@ -3655,7 +3668,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 )
 
     # Layer 89: cat x cat synergy cross with II pre-filter.
-    if bool(getattr(self, "fe_cat_pair_enable", False)):
+    if _fe_family_on("fe_cat_pair_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: Layer 89 cat_pair FE enabled but X is not a pandas "
@@ -3715,7 +3728,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
     # Layer 94: cat x cat x cat TRIPLE synergy cross via beam
     # search over three-way interaction information (co-information).
-    if bool(getattr(self, "fe_cat_triple_enable", False)):
+    if _fe_family_on("fe_cat_triple_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: Layer 94 cat_triple FE enabled but X is not a pandas "
@@ -3772,7 +3785,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
     # Layer 90: numeric decomposition (multi-precision rounding +
     # decimal-digit extraction) with a bootstrap-stable MI gate.
-    if bool(getattr(self, "fe_numeric_decompose_enable", False)):
+    if _fe_family_on("fe_numeric_decompose_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: Layer 90 numeric_decompose FE enabled but X is not a "
@@ -3827,7 +3840,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # (col, period) emit x mod period plus its sin/cos phase encoding; each
     # candidate gated by Layer 62 bootstrap-stable MI (the gate doubles as
     # auto-period detection). Routing piggybacks on hybrid_orth_features_.
-    if bool(getattr(self, "fe_modular_enable", False)):
+    if _fe_family_on("fe_modular_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: Layer 95 modular FE enabled but X is not a pandas "
@@ -3876,20 +3889,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # combination of integer columns - (a+b) mod m, (a*b) mod m, n-way parity, or a
     # single column's hidden non-calendar period - which smooth bases cannot fit.
     # Cheap-first / escalate + permutation-null gate; budget-guarded on wide frames.
-    # The four discrete-structural families (pairwise-modular / row-argmax / conditional-gate /
-    # binned-agg) are gated by their own enable flags and fire INDEPENDENTLY of fe_max_steps>0 (they are a
-    # distinct operator group, deliberately usable with fe_max_steps=0 - the operator-lift biz_value tests
-    # rely on exactly that: fe_max_steps=0 + an explicit fe_<op>_enable=True must still build the composite).
-    # SMALL-N RELIABILITY FLOOR: their composites are high-cardinality joints (integer lattice/gcd, gated
-    # thresholds, row-argmax) whose MI is unreliable at tiny n - on small-n pure noise a spurious composite
-    # clears the relevance gate and is admitted (RC2 pure-noise n=300), and it crowds the clean raw signal.
-    # So when FE is otherwise OFF (fe_max_steps==0) require at least ``_DISCRETE_FE_MIN_N_AT_FE0`` rows
-    # before building them; with FE enabled (fe_max_steps>=1) the normal FE pipeline competes them down so
-    # no floor is needed. Calibrated so RC2 (n=300) stays clean while the operator-lift cases (n=2000) fire.
-    _DISCRETE_FE_MIN_N_AT_FE0 = 500
-    _discrete_fe_master = bool(getattr(self, "fe_discrete_structural_operators_enable", True)) and (
-        fe_max_steps > 0 or (isinstance(X, pd.DataFrame) and len(X) >= _DISCRETE_FE_MIN_N_AT_FE0)
-    ) and _fe_budget_ok()
+    # The four discrete-structural families (pairwise-modular / row-argmax / conditional-gate / binned-agg)
+    # used to fire INDEPENDENTLY of fe_max_steps, carrying a small-n reliability floor to keep their
+    # high-cardinality composites from admitting noise at fe_max_steps=0. They now honour the same
+    # unconditional budget rule as every other family (see _fe_family_on), which subsumes that floor: with
+    # FE enabled the normal pipeline competes the composites down, and with FE off they simply never build.
+    _discrete_fe_master = _fe_family_on("fe_discrete_structural_operators_enable", True) and _fe_budget_ok()
     # OPERATOR SKIP-GATE (2026-06-18, perf). The four discrete-structural operators (pairwise-modular /
     # row-argmax / conditional-gate / binned-agg) hunt for NONLINEAR/regime structure via MI-kernel scans
     # over many candidate combos - ~58% of an additive-regression fit (cProfile: cheap_conditional_gate_scan
@@ -3925,10 +3930,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _discrete_fe_master
         and isinstance(X, pd.DataFrame)
         and (
-            bool(getattr(self, "fe_pairwise_modular_enable", False))
-            or bool(getattr(self, "fe_integer_lattice_enable", False))
-            or bool(getattr(self, "fe_row_argmax_enable", False))
-            or bool(getattr(self, "fe_conditional_gate_enable", False))
+            _fe_family_on("fe_pairwise_modular_enable", False)
+            or _fe_family_on("fe_integer_lattice_enable", False)
+            or _fe_family_on("fe_row_argmax_enable", False)
+            or _fe_family_on("fe_conditional_gate_enable", False)
         )
     ):
         from .._fe_accuracy_gate import bin_y_for_class_mi as _bin_y_class_mi, class_mi_fe_applicable as _class_mi_applicable
@@ -3937,7 +3942,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         if _y_class_mi_applicable:
             _y_class_mi_binned = _bin_y_class_mi(_y_np, nbins=int(getattr(self, "quantization_nbins", 10)))
 
-    if _discrete_fe_master and bool(getattr(self, "fe_pairwise_modular_enable", False)):
+    if _discrete_fe_master and _fe_family_on("fe_pairwise_modular_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: pairwise-modular FE enabled but X is not a pandas DataFrame; " "the features are skipped. Convert via X.to_pandas() before fit().",
@@ -4001,7 +4006,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Pairwise integer-lattice FE (sibling of pairwise-modular): detect a target that is a function of a hidden common
     # divisor (gcd), its dual lcm, or a bit-level co-occurrence (a & b) of integer columns - structure smooth/arithmetic/
     # modular ops cannot express. Cheap-first pairs-only scan + dual margin/permutation-null gate; budget-guarded.
-    if _discrete_fe_master and bool(getattr(self, "fe_integer_lattice_enable", False)):
+    if _discrete_fe_master and _fe_family_on("fe_integer_lattice_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: integer-lattice FE enabled but X is not a pandas DataFrame; " "the features are skipped. Convert via X.to_pandas() before fit().",
@@ -4061,7 +4066,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Row-argmax FE (frontier pass 2): for a column triple (a, b, c) emit the integer index 0/1/2 of the row-maximum - an
     # ordinal/comparison pattern the MI/linear path cannot read off marginals or pairwise diffs. ZERO free params, detector-clean;
     # leak-free deterministic replay (np.argmax over the stacked source columns). Budget-guarded on wide frames.
-    if _discrete_fe_master and bool(getattr(self, "fe_row_argmax_enable", False)):
+    if _discrete_fe_master and _fe_family_on("fe_row_argmax_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: row-argmax FE enabled but X is not a pandas DataFrame; " "the features are skipped. Convert via X.to_pandas() before fit().",
@@ -4121,7 +4126,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Conditional-gate FE (frontier pass 2): detect a regime switch c>tau ? a : b (select) or a masked interaction 1[c>tau]*a
     # (mask) routed by a third column's data-dependent threshold tau (frozen in the recipe). HARDENED detector gates vs the
     # best-existing-op MI (not the raw single-operand floor) so smooth/ordinary_mul controls stay silent. Budget-guarded.
-    if _discrete_fe_master and bool(getattr(self, "fe_conditional_gate_enable", False)):
+    if _discrete_fe_master and _fe_family_on("fe_conditional_gate_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: conditional-gate FE enabled but X is not a pandas DataFrame; " "the features are skipped. Convert via X.to_pandas() before fit().",
@@ -4197,7 +4202,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # (group, num) emit the group-level z / KL / Wasserstein-1 distance from the
     # global distribution, broadcast to rows; each survivor MI-gated against the
     # source num_col marginal MI. Routing piggybacks on hybrid_orth_features_.
-    if bool(getattr(self, "fe_group_distance_enable", False)):
+    if _fe_family_on("fe_group_distance_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: Layer 95 group_distance FE enabled but X is not a pandas "
@@ -4262,7 +4267,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # being RARE is itself predictive; emit is_rare_{col} + freq_band_{col}.
     # MI-gated against the raw-baseline floor. Routing piggybacks on
     # hybrid_orth_features_.
-    if bool(getattr(self, "fe_rare_category_enable", False)):
+    if _fe_family_on("fe_rare_category_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: Layer 104 rare_category FE enabled but X is not a pandas "
@@ -4322,7 +4327,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # FAMILY B - NUM x NUM conditional residual x_i - E[x_i | bin(x_j)].
     # Cardinality-bounded by top raw-MI columns; MI-gated. Routing piggybacks on
     # hybrid_orth_features_.
-    if bool(getattr(self, "fe_conditional_residual_enable", False)):
+    if _fe_family_on("fe_conditional_residual_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: Layer 104 conditional_residual FE enabled but X is not a "
@@ -4396,7 +4401,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Family-B sibling, so homoscedastic / canonical fixtures admit 0 and the
     # operator does not perturb pair-FE recovery). Routing piggybacks on
     # hybrid_orth_features_; recipes carry no y -> leak-safe replay.
-    if bool(getattr(self, "fe_conditional_dispersion_enable", False)):
+    if _fe_family_on("fe_conditional_dispersion_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: Family D conditional_dispersion FE enabled but X is not a "
@@ -4473,7 +4478,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # monotone reparametrization on homoscedastic/non-skewed data clears no uplift over raw x_i, so
     # it does not perturb genuine-feature recovery on canonical fixtures). Routing piggybacks on
     # hybrid_orth_features_; recipes carry no y -> leak-safe replay.
-    if bool(getattr(self, "fe_conditional_quantile_rank_enable", False)):
+    if _fe_family_on("fe_conditional_quantile_rank_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: conditional_quantile_rank FE enabled but X is not a "
@@ -4541,7 +4546,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # never exposed as its own column, avoiding a 2-deep nested-recipe replay the 1-deep convention
     # here cannot order. Routing piggybacks on hybrid_orth_features_; recipe carries a frozen
     # (fit-time) TE lookup, not y -> leak-safe replay.
-    if bool(getattr(self, "fe_ordinal_pattern_enable", False)):
+    if _fe_family_on("fe_ordinal_pattern_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: ordinal_pattern FE enabled but X is not a "
@@ -4611,7 +4616,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # columns simultaneously without combinatorial blow-up, approximating an RBF kernel over the
     # bounded column pool. Routing piggybacks on hybrid_orth_features_; recipe carries the frozen
     # W-column/phase/bandwidth, never y -> leak-safe replay.
-    if bool(getattr(self, "fe_random_fourier_enable", False)):
+    if _fe_family_on("fe_random_fourier_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: random_fourier FE enabled but X is not a "
@@ -4680,7 +4685,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # column's own marginal MI to clear the screening floor, and no pairwise/triplet/quadruplet
     # product reconstructs the rotated hyperplane. Routing piggybacks on hybrid_orth_features_;
     # recipe carries the frozen centering/direction, not y -> leak-safe replay.
-    if bool(getattr(self, "fe_sir_direction_enable", False)):
+    if _fe_family_on("fe_sir_direction_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: sir_direction FE enabled but X is not a "
@@ -4749,7 +4754,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # distance to the overall mean is unremarkable. Routing piggybacks on hybrid_orth_features_;
     # recipe carries a bounded frozen reference sample (RAM discipline), never y or the whole fit
     # frame -> leak-safe replay.
-    if bool(getattr(self, "fe_lof_enable", False)):
+    if _fe_family_on("fe_lof_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: lof FE enabled but X is not a " "pandas DataFrame; the features are skipped. Convert via " "X.to_pandas() before fit() to apply them.",
@@ -4818,7 +4823,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # group_distance / conditional-dispersion families' one-column-conditioned-on-one-other-column
     # scope. Routing piggybacks on hybrid_orth_features_; recipe carries the frozen Ledoit-Wolf
     # mu/Sigma_inv, never y -> leak-safe replay.
-    if bool(getattr(self, "fe_mahalanobis_density_enable", False)):
+    if _fe_family_on("fe_mahalanobis_density_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: mahalanobis_density FE enabled but X is not a "
@@ -4895,7 +4900,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # MI-invariant hinge needs). Recipes (``orth_wavelet``) store (lo, span) +
     # dyadic (j, k); replay is the closed-form indicator - no y, leak-safe.
     # Routing piggybacks on hybrid_orth_features_ (like Family D dispersion).
-    if bool(getattr(self, "fe_wavelet_enable", False)) and _fe_budget_ok():
+    if _fe_family_on("fe_wavelet_enable", False) and _fe_budget_ok():
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: Haar wavelet FE enabled but X is not a pandas DataFrame; "
@@ -4960,7 +4965,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # MI-invariant by the data-processing inequality; the pool is bounded by raw
     # marginal MI and the value is downstream (linear / NN). Routing piggybacks
     # on hybrid_orth_features_.
-    if bool(getattr(self, "fe_rankgauss_enable", False)):
+    if _fe_family_on("fe_rankgauss_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: Layer 104 rankgauss FE enabled but X is not a pandas "
@@ -8194,7 +8199,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     raw_X=X,
                     retain_frac=float(_rrf_redund) if _rrf_redund is not None else 0.15,
                     linear_usability_keep=bool(getattr(self, "use_simple_mode", False)),
-                    tail_subsume_enable=bool(getattr(self, "fe_pair_usability_admission_enable", True)),
+                    tail_subsume_enable=_fe_family_on("fe_pair_usability_admission_enable", True),
                     tail_subsume_min_corr=float(getattr(self, "fe_raw_tail_subsume_min_corr", 0.85)),
                     tail_subsume_rank_frac=float(getattr(self, "fe_pair_usability_admission_rank_frac", 0.7)),
                     seed=int(getattr(self, "random_seed", 0) or 0),
