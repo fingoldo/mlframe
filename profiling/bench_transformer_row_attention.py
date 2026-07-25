@@ -91,10 +91,15 @@ def main() -> int:
         # Reuse a single bank across query timings.
         bank = build_key_bank(X_train=X, y_train=y, seed=args.seed, n_heads=args.n_heads, head_dim=args.head_dim)
         query_n = 1000
-        X_query = rng.standard_normal((query_n, args.d)).astype(np.float32)
+        query_batches = [rng.standard_normal((query_n, args.d)).astype(np.float32) for _ in range(args.n_query_batches)]
         def mode_b_query():
-            attend(bank=bank, X_query=X_query, k=args.k)
+            # Multiple query batches per timed call amortises one-shot H2D transfer overhead
+            # across args.n_query_batches, matching real Mode-B usage (many query calls against
+            # one built bank) rather than a single cold-transfer call.
+            for X_query in query_batches:
+                attend(bank=bank, X_query=X_query, k=args.k)
         q_med, _ = _time_one(mode_b_query, warmup=args.warmup, measured=args.measured)
+        q_med /= args.n_query_batches
 
         # GPU stage 4 speedup (single query batch).
         try:

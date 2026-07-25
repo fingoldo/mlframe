@@ -723,6 +723,8 @@ def cmi_joint_entropies_gpu(dx: Any, dy: Any, dz: Any, Kx: int, ky: int, kz: int
         hk = cp.asnumpy(out)
         return ((float(hk[0]), round(hk[1])), (float(hk[2]), round(hk[3])), (float(hk[4]), round(hk[5])), (float(hk[6]), round(hk[7])))
     except Exception:
+        import logging
+        logging.getLogger(__name__).debug("cmi_joint_entropies_gpu fused kernel failed; caller falls back to four joint_entropy_gpu launches", exc_info=True)
         return None
 
 
@@ -791,6 +793,8 @@ def marginal_mi_entropies_gpu(dx: Any, dy: Any, Kx: int, ky: int, inv_n: float) 
         hk = cp.asnumpy(out)
         return ((float(hk[0]), round(hk[1])), (float(hk[2]), round(hk[3])), (float(hk[4]), round(hk[5])))
     except Exception:
+        import logging
+        logging.getLogger(__name__).debug("marginal_mi_entropies_gpu fused kernel failed; caller falls back to three joint_entropy_gpu launches", exc_info=True)
         return None
 
 
@@ -834,6 +838,8 @@ def _cmi_assemble(he1, he2, hc, kc1, kc2, kc, inv2n):
                               float(inv2n), np.int32(K), out))
         return out
     except Exception:
+        import logging
+        logging.getLogger(__name__).debug("_cmi_assemble RawKernel failed; falling back to the cupy chain", exc_info=True)
         return cp.maximum((he1 - he2 + hc) - ((kc1 - kc2) + kc) * inv2n, 0.0)
 
 

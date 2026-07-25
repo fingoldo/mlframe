@@ -73,7 +73,8 @@ def _multiple_r(cols_2d: np.ndarray, y: np.ndarray) -> float:
     design = np.column_stack([X2, np.ones(X2.shape[0], dtype=np.float64)])
     try:
         beta, *_ = np.linalg.lstsq(design, yv, rcond=None)
-    except Exception:
+    except Exception as e:
+        logger.debug("_multiple_r: lstsq failed on a degenerate/singular design, returning 0.0: %s", e)
         return 0.0
     fitted = design @ beta
     sf = float(np.std(fitted))

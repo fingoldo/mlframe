@@ -92,7 +92,8 @@ def perm_null_gpu_resident_enabled() -> bool:
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         return bool(fe_gpu_strict_resident_enabled())
-    except Exception:
+    except Exception as e:
+        logger.debug("perm-null GPU gate: fe_gpu_strict_resident_enabled() check failed, defaulting to CPU path: %s", e)
         return False
 
 

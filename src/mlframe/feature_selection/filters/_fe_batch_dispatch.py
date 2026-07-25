@@ -29,7 +29,8 @@ def _cuda_available() -> bool:
     try:
         from ._fe_gpu_strict import _cuda_usable
         return bool(_cuda_usable())
-    except Exception:
+    except Exception as e:
+        logger.debug("_cuda_available: usability check failed, treating as no CUDA: %s", e)
         return False
 
 
@@ -48,7 +49,8 @@ def _ktc_backend_choice(n_rows: int, n_cands: int) -> str | None:
         if crossover > 0 and int(n_rows) * int(n_cands) >= crossover:
             return "gpu"
         return "cpu"
-    except Exception:
+    except Exception as e:
+        logger.debug("_ktc_backend_choice: kernel-tuning cache lookup failed, falling back to conservative CPU default: %s", e)
         return None
 
 

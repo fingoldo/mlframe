@@ -700,6 +700,7 @@ def _friend_graph_code_version():
             fns.append(friend_graph_stats_cupy)
         return compute_code_version(*fns, salt=_FG_SALT)
     except Exception:
+        logger.debug("_friend_graph_code_version: compute_code_version failed, kernel-tuning cache will treat this as unversioned", exc_info=True)
         return None
 
 

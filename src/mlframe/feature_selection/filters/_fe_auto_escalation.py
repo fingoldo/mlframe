@@ -318,7 +318,8 @@ def _fit_fourier_amplitude_spec(axis01: np.ndarray, t: np.ndarray, freqs, prepro
         D[:, 2 * i + 1] = np.cos(ang)
     try:
         coef, *_ = np.linalg.lstsq(D, t - float(np.mean(t)), rcond=None)
-    except Exception:
+    except Exception as e:
+        logger.debug("_fit_fourier_amplitude_spec: lstsq failed for freqs=%s, no prewarp spec produced: %s", freqs, e)
         return None
     if coef is None or not np.all(np.isfinite(coef)) or float(np.max(np.abs(coef))) < 1e-12:
         return None

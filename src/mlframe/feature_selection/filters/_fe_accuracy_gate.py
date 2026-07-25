@@ -57,7 +57,8 @@ def _baseline_cv_key(X_base: np.ndarray, y: np.ndarray, *, classification: bool,
             y.shape, hash(y.tobytes()),
             bool(classification), int(n_splits), int(seed),
         )
-    except Exception:
+    except Exception as e:
+        logger.debug("_baseline_cv_key: could not hash X_base/y cheaply, falling back to always recomputing: %s", e)
         return None
 
 

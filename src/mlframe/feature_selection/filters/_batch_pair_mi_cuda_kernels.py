@@ -117,7 +117,8 @@ def _derive_max_joint_bins(max_y_bins: int) -> int:
         while joint * 2 <= raw and joint < 1024:
             joint *= 2
         return joint
-    except Exception:
+    except Exception as e:
+        logger.debug("_derive_max_joint_bins: shared-mem budget derivation failed, falling back to 128: %s", e)
         return 128
 
 

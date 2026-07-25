@@ -14,9 +14,13 @@ column returns 0.0.
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 
 from ._fe_edge_mi import _plugin_mi_classif_edge_njit, plugin_mi_classif_batch_edge_njit
+
+logger = logging.getLogger(__name__)
 
 
 def _available_ram_bytes() -> int:
@@ -24,7 +28,8 @@ def _available_ram_bytes() -> int:
     try:
         import psutil
         return int(psutil.virtual_memory().available)
-    except Exception:
+    except Exception as e:
+        logger.debug("_available_ram_bytes: psutil unavailable or failed, treating as no cap (-1): %s", e)
         return -1
 
 

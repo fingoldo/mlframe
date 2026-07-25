@@ -150,7 +150,8 @@ def _batch_mi_noise_gate_code_version():
             fns.append(batch_mi_with_noise_gate_cupy)
             fns.append(_build_shuffle_matrix)
         return compute_code_version(*fns, salt=_BMING_SALT)
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).debug("_batch_mi_noise_gate_code_version failed: %s", e)
         return None
 
 

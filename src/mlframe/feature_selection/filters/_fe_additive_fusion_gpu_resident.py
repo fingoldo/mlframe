@@ -81,7 +81,8 @@ def _multiple_r_gpu(cp, X2_dev, yv_dev, y_std: float) -> float:
             beta = cp.linalg.solve(AtA, Aty)
         except Exception:
             beta = cp.linalg.lstsq(design, yv_dev, rcond=None)[0]
-    except Exception:
+    except Exception as e:
+        logger.debug("_multiple_r_gpu_resident: normal-equation solve and lstsq fallback both failed on a degenerate/singular design, returning 0.0: %s", e)
         return 0.0
     fitted = design @ beta
     sf = float(cp.std(fitted))

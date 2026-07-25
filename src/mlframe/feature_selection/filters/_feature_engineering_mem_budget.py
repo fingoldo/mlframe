@@ -329,7 +329,8 @@ def _available_ram_bytes_cached() -> int:
     try:
         import psutil
         available = int(psutil.virtual_memory().available)
-    except Exception:
+    except Exception as e:
+        logger.debug("_available_ram_bytes_cached: psutil unavailable or failed, treating as permissive (-1): %s", e)
         return -1
     with _FE_VMEM_LOCK:
         _set_live("_FE_VMEM_CACHE", (now, available))
