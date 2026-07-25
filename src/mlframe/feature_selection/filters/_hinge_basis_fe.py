@@ -173,7 +173,8 @@ def _hinge_slope_change_plausible(
         qr_out["sse_B"] = sse_lin
     try:
         cuts = np.unique(np.quantile(x, np.asarray(qs, dtype=np.float64)))
-    except Exception:
+    except Exception as e:
+        logger.debug("hinge candidate cut-quantile computation failed, no hinge candidate produced: %s", e)
         return False
     best_drop = 0.0
     for c in cuts:
@@ -198,7 +199,8 @@ def _segmented_sse(x: np.ndarray, y: np.ndarray, tau: float) -> float:
     A = np.column_stack([np.ones_like(x), x, relu])
     try:
         coef, *_ = np.linalg.lstsq(A, y, rcond=None)
-    except Exception:
+    except Exception as e:
+        logger.debug("_segmented_sse: lstsq failed for tau=%.6g, returning inf (caller's argmin skips it): %s", tau, e)
         return float("inf")
     resid = y - A @ coef
     return float(resid @ resid)
@@ -238,7 +240,8 @@ def _heldout_hinge_r2_uplift(
         A_va = design_fn(x_va)
         try:
             coef, *_ = np.linalg.lstsq(A_tr, y_tr, rcond=None)
-        except Exception:
+        except Exception as e:
+            logger.debug("_val_r2: train-split lstsq failed, returning -inf so this design loses the comparison: %s", e)
             return -np.inf
         pred = A_va @ coef
         sse = float(np.sum((y_va - pred) ** 2))
@@ -626,7 +629,8 @@ def _heldout_incremental_r2_prep(x: np.ndarray, y: np.ndarray) -> Optional[dict]
         A_va = np.column_stack(cols_va)
         try:
             coef, *_ = np.linalg.lstsq(A_tr, y[tr], rcond=None)
-        except Exception:
+        except Exception as e:
+            logger.debug("_val_r2: train-split lstsq failed, returning -inf so this design loses the comparison: %s", e)
             return -np.inf
         pred = A_va @ coef
         sse = float(np.sum((yv - pred) ** 2))
