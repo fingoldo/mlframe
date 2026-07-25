@@ -12,7 +12,10 @@ stays in the source framework (polars ``hstack`` / pandas ``concat``), so a 100+
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Iterable
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 
@@ -108,7 +111,8 @@ def fe_polars_exceeds(X: Any, max_bytes: int = FE_EAGER_MATERIALIZE_MAX_BYTES) -
     if is_polars(X):
         try:
             return int(X.estimated_size()) > int(max_bytes)
-        except Exception:
+        except Exception as e:
+            logger.debug("fe_polars_exceeds: estimated_size() failed, treating frame as within budget: %s", e)
             return False
     return False
 

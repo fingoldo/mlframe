@@ -24,10 +24,13 @@ does not pick it and the pass is a no-op - so the default selection stays byte-i
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # Splits an engineered-feature name into raw-operand tokens (any run of non-word chars).
 _OPERAND_TOKEN_RE = re.compile(r"[^0-9A-Za-z_]+")
@@ -40,7 +43,8 @@ def _gpu_usability_on() -> bool:
     try:
         from ._usability_gpu import fe_gpu_usability_enabled
         return fe_gpu_usability_enabled()
-    except Exception:
+    except Exception as e:
+        logger.debug("_gpu_usability_on: usability_gpu check failed, staying on the CPU sklearn path: %s", e)
         return False
 
 
@@ -186,7 +190,8 @@ def retain_usable_pure_forms(
                 if du <= 1e-12 or dv <= 1e-12:
                     return False
                 return abs(float((u * v).sum()) / (du * dv)) >= _CLF_COVER_CORR
-            except Exception:
+            except Exception as e:
+                logger.debug("_clf_form_relevant: recipe replay/corr failed for %r, treating as not class-relevant (pair stays recoverable): %s", recipe, e)
                 return False
 
         covered_pairs = set()
@@ -454,7 +459,8 @@ def retain_usable_pure_forms(
                     return _abscorr(fv, _rel_y) >= min_resid_corr
                 # (b) that joint structure must be RELEVANT to y (rejects a non-separable but useless form).
                 return _abscorr(resid, _rel_y) >= min_resid_corr
-            except Exception:
+            except Exception as e:
+                logger.debug("_adds_nonlinear_value: non-separability gate failed for (%r, %r), rejecting the candidate form: %s", nm_a, nm_b, e)
                 return False
 
         # Build the candidate pool, then FILTER pair forms by the non-separability gate BEFORE the greedy.
@@ -558,7 +564,8 @@ def retain_usable_pure_forms(
             if len(out) >= max_added:
                 break
         return out
-    except Exception:
+    except Exception as e:
+        logger.debug("retain_usable_pure_forms: pure-form recovery pass failed, retaining nothing (default selection unaffected): %s", e)
         return []
 
 
@@ -678,7 +685,8 @@ def retain_usable_raw_columns(
             if len(out) >= max_added:
                 break
         return out
-    except Exception:
+    except Exception as e:
+        logger.debug("retain_usable_raw_columns: raw-column linear-usability probe failed, retaining nothing (default selection unaffected): %s", e)
         return []
 
 

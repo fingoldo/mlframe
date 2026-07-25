@@ -16,7 +16,10 @@ passes - correctness over the optimisation).
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 
@@ -101,7 +104,8 @@ def raws_linearly_explain_y(
             cv_r2 = cross_val_score(pipe, Xn, yy, cv=kf, scoring="r2")
             r2 = float(np.mean(cv_r2))
             return r2 >= thresh
-    except Exception:
+    except Exception as e:
+        logger.debug("raws_linearly_explain_y: CV linear-fit probe failed, running the nonlinear FE passes (correctness over speed): %s", e)
         return False
 
 
