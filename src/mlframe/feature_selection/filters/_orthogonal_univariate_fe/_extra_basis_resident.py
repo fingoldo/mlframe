@@ -185,7 +185,8 @@ def extra_basis_eng_mi_resident(
 
         if not fe_gpu_device_born_extra_basis_enabled():
             return None
-    except Exception:
+    except Exception as e:
+        logger.debug("extra_basis_eng_mi_resident: fe_gpu_device_born_extra_basis_enabled() check failed, caller keeps the whole matrix on the exact host scorer: %s", e)
         return None
     if engineered_X is None or engineered_X.shape[1] == 0 or not meta:
         return None

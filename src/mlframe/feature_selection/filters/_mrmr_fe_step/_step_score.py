@@ -724,7 +724,8 @@ def materialise_and_finalise_fe_candidates(
                                     _ov = np.asarray(X[_src_name].values if hasattr(X[_src_name], "values") else X[_src_name], dtype=np.float64)
                                 _mn = float(np.nanmin(_ov))
                                 return (1e-5 - _mn) if _mn <= 0 else 0.0
-                            except Exception:
+                            except Exception as e:
+                                logger.debug("_ls_anchor: fit-time operand reconstruction failed, recipe replay falls back to the legacy refit path: %s", e)
                                 return None
                         _ls_a = _ls_anchor(src_a_name_raw, _nested_a) if unary_a_name == "log" else None
                         _ls_b = _ls_anchor(src_b_name_raw, _nested_b) if unary_b_name == "log" else None

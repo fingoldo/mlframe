@@ -23,8 +23,11 @@ callers" was imprecise for the function itself. Do not wire this stub up further
 investing further here."""
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def fe_gpu_strict_resident_enabled() -> bool:
@@ -42,7 +45,8 @@ def fe_gpu_strict_resident_enabled() -> bool:
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
         return bool(fe_gpu_strict_enabled())
-    except Exception:
+    except Exception as e:
+        logger.debug("fe_gpu_strict_resident_enabled: fe_gpu_strict_enabled() check failed, resident FE stages stay off: %s", e)
         return False
 
 

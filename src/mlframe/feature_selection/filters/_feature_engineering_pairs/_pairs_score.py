@@ -779,7 +779,8 @@ def _score_one_pair(
                     else:
                         return -1.0
                     return _safe_abs_corr(_v)
-                except Exception:
+                except Exception as e:
+                    logger.debug("_config_corr: column re-materialisation/correlation failed for config %r, treating it as unrecoverable: %s", _cfg, e)
                     return -1.0
 
             _pw_corr = _config_corr(best_config)

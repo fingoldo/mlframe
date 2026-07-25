@@ -402,9 +402,11 @@ def _deflate_sincos(z: np.ndarray, y: np.ndarray, freq: float) -> np.ndarray:
         try:
             coef, *_ = np.linalg.lstsq(A, y, rcond=None)
             return np.asarray(y - A @ coef)
-        except Exception:
+        except Exception as e:
+            logger.debug("_deflate_sincos: SVD lstsq fallback also failed for freq=%s, returning y undeflated: %s", freq, e)
             return y
-    except Exception:
+    except Exception as e:
+        logger.debug("_deflate_sincos: normal-equations projection failed for freq=%s, returning y undeflated: %s", freq, e)
         return y
 
 
@@ -765,7 +767,8 @@ def _heldout_smooth_r2(x: np.ndarray, y: np.ndarray) -> float:
             coef = np.linalg.solve(_Vtr.T @ _Vtr, _Vtr.T @ y[tr])  # normal-eq (lstsq fallback below)
         except np.linalg.LinAlgError:
             coef, *_ = np.linalg.lstsq(_Vtr, y[tr], rcond=None)
-    except Exception:
+    except Exception as e:
+        logger.debug("_heldout_smooth_r2: cubic Vandermonde fit failed, returning R2=0.0: %s", e)
         return 0.0
     pred = np.vander(zx[va], 4) @ coef
     yv = y[va]
@@ -825,7 +828,8 @@ def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
             coef = np.linalg.solve(_Vtr.T @ _Vtr, _Vtr.T @ y_tr)
         except np.linalg.LinAlgError:
             coef, *_ = np.linalg.lstsq(_Vtr, y_tr, rcond=None)
-    except Exception:
+    except Exception as e:
+        logger.debug("_heldout_smooth_r2_fast: cubic Vandermonde fit failed, returning R2=0.0: %s", e)
         return 0.0
     pred = np.vander(zx[va], 4) @ coef
     sse = float(np.sum((yv - pred) ** 2))

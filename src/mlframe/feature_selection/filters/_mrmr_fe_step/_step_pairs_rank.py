@@ -34,7 +34,8 @@ def _pair_gate_resident_enabled(*, n: int | None = None, p: int | None = None) -
         from .._gpu_strict_fe import fe_gpu_strict_resident_enabled
         from .._mi_greedy_cmi_fe import _cmi_gpu_enabled
         return bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=n, p=p))
-    except Exception:
+    except Exception as e:
+        logger.debug("_pair_gate_resident_enabled: residency check failed, the prospective-pair CMI gate stays on the host path: %s", e)
         return False
 
 
@@ -46,7 +47,8 @@ def _resident_cand(codes):
     try:
         from .._fe_resident_operands import resident_code_operand
         return resident_code_operand(np.asarray(codes).ravel(), "cmi_cand_x")
-    except Exception:
+    except Exception as e:
+        logger.debug("_resident_cand: resident-operand cache upload failed, returning the host codes unchanged: %s", e)
         return codes
 
 

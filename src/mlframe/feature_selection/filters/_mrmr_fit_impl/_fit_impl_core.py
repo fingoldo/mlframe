@@ -10058,7 +10058,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             n_bins_x=int(self.quantization_nbins), n_bins_y=_g_n_bins_y_f,
                             min_rows=_gmr_f, size_weighted=_gsw_f, use_mm=True,
                         )
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("_fit: within-group MI replay/discretise failed for recipe %r, leaving it alone: %s", _rname, e)
                         continue  # can't replay/discretise - leave this recipe alone (conservative)
                 if _grp_mi_f == _grp_mi_f and _grp_mi_f <= 0.0:  # not nan and exactly zero within-group signal
                     _group_dropped_final.add(_rname)

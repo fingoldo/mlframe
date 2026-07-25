@@ -8,12 +8,16 @@ and ``_raise_if_vram_insufficient`` keep their original import path for existing
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 
 from ..hermite_fe import _POLY_BASES
 from ._orth_dedup import _dedup_collinear_source_cols
 from ._orth_extra_basis_fe import _is_int_as_cat_axis
+
+logger = logging.getLogger(__name__)
 
 
 def _raise_if_vram_insufficient(n_rows: int, k_cols: int) -> None:
@@ -27,13 +31,15 @@ def _raise_if_vram_insufficient(n_rows: int, k_cols: int) -> None:
         import cupy as cp
 
         free, _total = cp.cuda.runtime.memGetInfo()
-    except Exception:
+    except Exception as e:
+        logger.debug("_raise_if_vram_insufficient: VRAM query failed, assuming OK (the OOM try/except remains the backstop): %s", e)
         return
     try:
         from .._gpu_resident_fe import _gpu_k_chunk_vram_fraction
 
         frac = _gpu_k_chunk_vram_fraction(int(n_rows))
-    except Exception:
+    except Exception as e:
+        logger.debug("_raise_if_vram_insufficient: VRAM-fraction lookup failed, using the 0.5 fallback fraction: %s", e)
         frac = 0.5
     # raw (n x k) + engineered (n x k*degrees, ~2 degrees) + MI scratch; ~4x the raw matrix is a safe floor estimate.
     needed = int(n_rows) * max(1, int(k_cols)) * 8 * 4

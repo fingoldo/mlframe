@@ -60,7 +60,8 @@ def _orth_mi_gpu_enabled(*, n: int | None = None, p: int | None = None) -> bool:
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
         return bool(fe_gpu_strict_enabled(n=n, p=p))
-    except Exception:
+    except Exception as e:
+        logger.debug("_orth_mi_gpu_enabled: fe_gpu_strict_enabled() check failed, staying on the njit dispatcher: %s", e)
         return False
 
 
@@ -211,7 +212,8 @@ def _select_mi_backend() -> str:
     try:
         from ..hermite_fe import plugin_mi_classif_batch_dispatch  # noqa: F401
         return "numba"
-    except Exception:
+    except Exception as e:
+        logger.debug("_select_mi_backend: numba dispatcher import failed, falling back to the sklearn backend: %s", e)
         return "sklearn"
 
 

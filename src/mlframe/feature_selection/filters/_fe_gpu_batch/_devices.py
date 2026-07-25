@@ -9,8 +9,11 @@ single profile on a 1-GPU host, so the multi-GPU path runs unchanged with one de
 """
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 # CUDA cores per SM by compute capability - a coarse but monotone FLOP proxy for the speed weight.
 _CORES_PER_SM = {
@@ -104,7 +107,8 @@ def _visible_device_ids() -> list[int]:
     try:
         import cupy as cp
         count = int(cp.cuda.runtime.getDeviceCount())
-    except Exception:
+    except Exception as e:
+        logger.debug("_visible_device_ids: cupy import/device-count query failed, no CUDA devices are visible: %s", e)
         return []
     ids = list(range(count))
     subset = os.environ.get("MLFRAME_FE_VRAM_DEVICES", "").strip()
@@ -128,7 +132,8 @@ def _profile_device(device: int) -> "DeviceProfile":
         """Best-effort lookup of a device-properties key, falling back to ``default`` when the key is missing or the underlying value is None (older cupy/driver combos don't expose every field)."""
         try:
             v = props[key]
-        except Exception:
+        except Exception as e:
+            logger.debug("_profile_device._p: device-properties key %r missing/unsupported, using the default %r: %s", key, default, e)
             return default
         return v if v is not None else default
 
