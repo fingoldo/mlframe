@@ -115,7 +115,12 @@ def diagnose_error_accumulation(
 
     recursive_predictions = recursive_multi_step_forecast(model, initial_features, n_steps, lag_feature_name, update_features_fn)
     recursive_mse = np.mean((recursive_predictions - true_targets) ** 2, axis=1)
-    growth_ratio = recursive_mse / recursive_mse[0]
+    if recursive_mse[0] == 0.0:
+        # a perfect step-1 baseline makes the ratio's denominator zero; report honestly (1.0 if every
+        # later step is also exact, +inf if any later step drifts) instead of numpy's silent nan/inf mix.
+        growth_ratio = np.where(recursive_mse == 0.0, 1.0, np.inf)
+    else:
+        growth_ratio = recursive_mse / recursive_mse[0]
 
     oracle_mse: Optional[np.ndarray] = None
     reference_mse = np.full(n_steps, recursive_mse[0])

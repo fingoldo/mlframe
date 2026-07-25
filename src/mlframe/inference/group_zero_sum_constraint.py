@@ -107,6 +107,12 @@ def apply_group_zero_sum_constraint(
     weights = np.ones_like(preds) if weights is None else np.asarray(weights, dtype=np.float64)
     if not (preds.shape == group_ids.shape == weights.shape):
         raise ValueError("apply_group_zero_sum_constraint: preds, group_ids, weights must share the same shape")
+    if np.any(weights < 0):
+        raise ValueError("apply_group_zero_sum_constraint: weights must be non-negative (a signed weight breaks the weighted-least-squares projection)")
+    if extra_constraint_coefs is not None:
+        for c in extra_constraint_coefs:
+            if np.any(np.asarray(c, dtype=np.float64) < 0):
+                raise ValueError("apply_group_zero_sum_constraint: extra_constraint_coefs must be non-negative (a signed coefficient breaks the weighted-least-squares projection)")
 
     _uniq, group_codes = np.unique(group_ids, return_inverse=True)
     n_groups = _uniq.shape[0]

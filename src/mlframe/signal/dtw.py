@@ -90,7 +90,10 @@ if _HAS_NB_CUDA:
 
     @_nb_cuda.jit
     def _numba_cuda_diagonal_step(x, y, cost, n, m, w, k):
-        """Fill one diagonal k of the DTW cost matrix in parallel."""
+        """Fill one diagonal k of the DTW cost matrix in parallel.
+
+        Backs the numba.cuda ``dtw_cuda`` path, retained as an A/B reference against
+        the faster cupy RawKernel path (REJECTED!=DELETED, not dead code)."""
         tid = _nb_cuda.grid(1)
         i_min = max(1, k - m)
         i_max = min(n, k - 1)
@@ -572,9 +575,15 @@ def dtw_dispatch(
     # by live availability (the tuning host had the backend; a reader may not).
     choice = _DTW_SPEC.choose(n_cells=n_cells)
     if choice == "cupy" and _HAS_CUPY:
-        return dtw_cupy(x, y, window=window)
+        try:
+            return dtw_cupy(x, y, window=window)
+        except Exception:  # GPU path failed at runtime (OOM, driver hiccup) -> CPU fallback, never raise
+            return dtw_cpu(x, y, window=window, psi=psi)
     if choice == "cuda" and _HAS_NB_CUDA:
-        return dtw_cuda(x, y, window=window)
+        try:
+            return dtw_cuda(x, y, window=window)
+        except Exception:  # GPU path failed at runtime (OOM, driver hiccup) -> CPU fallback, never raise
+            return dtw_cpu(x, y, window=window, psi=psi)
     return dtw_cpu(x, y, window=window, psi=psi)
 
 

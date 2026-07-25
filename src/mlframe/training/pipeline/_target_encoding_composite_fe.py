@@ -114,7 +114,7 @@ def apply_target_encoding_composite_fe(
 
     if metadata is not None:
         metadata["two_step_target_encode_columns"] = columns
-        metadata["two_step_target_encode_entity_lookup"] = {str(k): float(v) for k, v in entity_lookup.items()}
+        metadata["two_step_target_encode_entity_lookup"] = {_normalize_entity_key(k): float(v) for k, v in entity_lookup.items()}
         metadata["two_step_target_encode_global_prior"] = global_prior
         metadata["two_step_target_encode_out_col"] = out_col
 
@@ -145,6 +145,19 @@ def _row_count(df: Any) -> int:
     return df.shape[0] if df is not None else 0
 
 
+def _normalize_entity_key(gid: Any) -> str:
+    """Canonical string key for an entity id, immune to int64/float64 dtype drift between fit and
+    predict (e.g. a polars/pandas upcast turning ``3`` into ``3.0``) -- whole-valued floats collapse
+    to their integer string form so both dtypes hit the same lookup key."""
+    try:
+        f = float(gid)
+        if f.is_integer():
+            return str(int(f))
+    except (TypeError, ValueError):
+        pass
+    return str(gid)
+
+
 def replay_target_encoding_composite_fe(df: Any, metadata: dict, group_ids: Optional[np.ndarray], verbose: int = 0) -> Any:
     """Predict-time replay: entity lookup only (no y needed) -- unseen entities fall back to the
     persisted global prior."""
@@ -158,7 +171,7 @@ def replay_target_encoding_composite_fe(df: Any, metadata: dict, group_ids: Opti
     g = np.asarray(group_ids)
     if len(g) != _row_count(df):
         return df
-    vals = np.array([entity_lookup.get(str(gid), global_prior) for gid in g], dtype=np.float64)
+    vals = np.array([entity_lookup.get(_normalize_entity_key(gid), global_prior) for gid in g], dtype=np.float64)
     if verbose:
         logger.info("replay_target_encoding_composite_fe: replayed %r via entity lookup", out_col)
     return _attach_new_columns(df, pd.DataFrame({out_col: vals}, index=range(len(vals))))

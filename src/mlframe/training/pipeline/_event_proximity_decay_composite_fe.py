@@ -77,7 +77,12 @@ def apply_event_proximity_decay_composite_fe(
         if idx is None:
             return None
         idx_arr = np.asarray(idx)
-        if len(idx_arr) != n_rows or len(ts_arr) <= int(idx_arr.max()):
+        if len(idx_arr) != n_rows or (len(idx_arr) > 0 and len(ts_arr) <= int(idx_arr.max())):
+            logger.warning(
+                "apply_event_proximity_decay_composite_fe: idx (len=%d) misaligned with the split's own "
+                "row count (%d) or timestamps (len=%d); skipping event-proximity features for this split.",
+                len(idx_arr), n_rows, len(ts_arr),
+            )
             return None
         return np.asarray(ts_arr[idx_arr])
 

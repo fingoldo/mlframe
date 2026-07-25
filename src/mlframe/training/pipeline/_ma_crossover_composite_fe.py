@@ -39,7 +39,10 @@ def _attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
 
 def _rolling_means(values: np.ndarray, group_ids: Optional[np.ndarray], order: np.ndarray, windows: List[int]) -> dict:
     """Per-entity (or global, if ``group_ids`` is None) rolling means at each window, computed in
-    time order and returned aligned to the ORIGINAL row order of ``values``."""
+    time order and returned aligned to the ORIGINAL row order of ``values``.
+
+    Each entity's rolling window restarts at its own first row -- no warm-up carries over from a
+    different entity or from val/test's own leading rows into the next entity's window."""
     n = len(values)
     sort_idx = np.lexsort((order, group_ids)) if group_ids is not None else np.argsort(order, kind="stable")
     inv_idx = np.argsort(sort_idx, kind="stable")

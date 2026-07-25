@@ -83,6 +83,8 @@ def sample_random_variable(
         source = cats
     elif kind == "mixed":
         source = cats + conts
+    else:
+        raise ValueError(f"sample_random_variable: unknown kind {kind!r}; expected 'cont', 'cat', or 'mixed'")
 
     dist_name, params = source[generator.randint(0, len(source))]
 

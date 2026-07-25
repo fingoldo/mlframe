@@ -361,7 +361,7 @@ def discover_structure(
             relations += _argmax_relations(X, yb, names, nbins, seed, n_perm)
         if "gate" in include:
             relations += _gate_relations(X, yb, names, nbins, seed, n_perm)
-    except Exception as exc:  # pragma: no cover - a detector failure must not break the EDA call
+    except Exception as exc:  # pragma: no cover - best-effort: a detector failure must not break the EDA call
         logger.warning("discover_structure: detector raised (%s); returning partial report", exc)
 
     relations.sort(key=lambda r: (r.mi, r.lift if np.isfinite(r.lift) else 1e18), reverse=True)

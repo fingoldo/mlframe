@@ -287,7 +287,7 @@ def train_postcalibrators(
         try:
             from ..training.io import _write_save_meta_sidecar as _wsms
             _wsms(calib_fpath, durable=False)
-        except Exception as _meta_e:
+        except Exception as _meta_e:  # best-effort: the calibrator itself is already saved; the sidecar is optional metadata
             logger.warning(
                 "calibration: failed to write .meta.json sidecar for %s: %s. "
                 "Calibrator saved; load-time version validation will fall "

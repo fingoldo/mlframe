@@ -76,7 +76,7 @@ def enable_crash_reporting(file=None, all_threads: bool = True) -> bool:
             # The traceback still lands in the notebook cell output
             # because Jupyter captures fd 2.
             faulthandler.enable(file=2, all_threads=all_threads)
-    except Exception as e:
+    except Exception as e:  # documented: escalated via the returned ok=False sentinel below
         logger.warning("faulthandler.enable() failed: %s", e)
         ok = False
 
@@ -94,7 +94,7 @@ def enable_crash_reporting(file=None, all_threads: bool = True) -> bool:
             SEM_NOGPFAULTERRORBOX = 0x0002
             prev = ctypes.windll.kernel32.SetErrorMode(0)  # read current
             ctypes.windll.kernel32.SetErrorMode(prev | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX)
-        except Exception as e:
+        except Exception as e:  # best-effort: escalated via the returned ok=False sentinel below
             logger.warning("SetErrorMode() failed: %s", e)
             ok = False
 

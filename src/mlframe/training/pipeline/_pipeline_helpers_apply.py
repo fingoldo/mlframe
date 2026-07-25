@@ -33,30 +33,29 @@ from ..utils import log_ram_usage
 logger = logging.getLogger(__name__)
 
 
-# Wave 93 (2026-05-21): Pipeline structural-identity + content cache moved
-# to sibling file _pipeline_cache.py to drop _pipeline_helpers.py below
-# the 1k-line monolith threshold. Re-exported here so existing callers
-# (`from ._pipeline_helpers import _content_fingerprint_for_cache`, etc.)
-# keep working.
-from ._pipeline_cache import (  # noqa: F401
+# Parent helpers used by the moved bodies (defined before the parent's bottom re-export, so this top-level import is cycle-safe).
+# _PRE_PIPELINE_CACHE* / _approx_entry_bytes etc. come through _pipeline_helpers's own canonical
+# re-export of _pipeline_cache.py -- imported once there, not duplicated here.
+from ._pipeline_helpers import (  # noqa: F401
     _PRE_PIPELINE_CACHE,
     _PRE_PIPELINE_CACHE_LOCK,
     _PRE_PIPELINE_CACHE_MAX,
+    _PRE_PIPELINE_CACHE_MAX_BYTES,
+    _approx_entry_bytes,
     _content_fingerprint_for_cache,
+    _extract_feature_selector,
     _fresh_uncachable,
+    _is_fitted,
+    _is_stale_fit_state_value_error,
+    _multilabel_target_to_1d_for_supervised_encoders,
+    _passthrough_cols_fit_transform,
     _pipeline_signature_for_cache,
     _pre_pipeline_cache_clear,
     _pre_pipeline_cache_get,
     _pre_pipeline_cache_key,
     _pre_pipeline_cache_set,
-    _UncachableSentinel,
-)
-
-# Parent helpers used by the moved bodies (defined before the parent's bottom re-export, so this top-level import is cycle-safe).
-from ._pipeline_helpers import (
-    _extract_feature_selector, _is_fitted, _is_stale_fit_state_value_error,
-    _multilabel_target_to_1d_for_supervised_encoders, _passthrough_cols_fit_transform,
     _raise_pre_pipeline_rowcount_change,
+    _UncachableSentinel,
 )
 
 def _apply_pre_pipeline_transforms(
@@ -406,6 +405,11 @@ def _apply_pre_pipeline_transforms(
                         _PRE_PIPELINE_CACHE.move_to_end(_cache_key_entry)
                         while len(_PRE_PIPELINE_CACHE) > _cap:
                             _PRE_PIPELINE_CACHE.popitem(last=False)
+                        if _PRE_PIPELINE_CACHE_MAX_BYTES > 0 and len(_PRE_PIPELINE_CACHE) > 1:
+                            _total = sum(_approx_entry_bytes(v) for v in _PRE_PIPELINE_CACHE.values())
+                            while _total > _PRE_PIPELINE_CACHE_MAX_BYTES and len(_PRE_PIPELINE_CACHE) > 1:
+                                _, _evicted = _PRE_PIPELINE_CACHE.popitem(last=False)
+                                _total -= _approx_entry_bytes(_evicted)
                 except Exception as _cache_err:
                     logger.debug(
                         "pre_pipeline cache populate skipped: %s",

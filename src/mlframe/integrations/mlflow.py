@@ -46,6 +46,7 @@ def flatten_classification_report(cr: dict, separate_metrics=("accuracy","balanc
     + "_" + metric``, matching MLflow's flat metric-name requirement (no nested structures).
     """
     res = {}
+    cr = dict(cr)
     for metric in separate_metrics:
         if metric in cr:
             res[source + metric] = cr.pop(metric)
@@ -58,6 +59,7 @@ def flatten_classification_report(cr: dict, separate_metrics=("accuracy","balanc
 def log_classification_report_to_mlflow(cr: dict, step: int,separate_metrics=("accuracy",),source:str=""):
     """Logging all metrics from a dict-like classification_report as flat MLFlow entries."""
 
+    cr = dict(cr)
     for metric in separate_metrics:
         if metric in cr:
             mlflow.log_metric(source + metric, cr.pop(metric), step=step)
@@ -67,7 +69,12 @@ def log_classification_report_to_mlflow(cr: dict, step: int,separate_metrics=("a
             mlflow.log_metric(source + prefix + "_" + metric, value, step=step)
 
 def embed_website_to_mlflow(url:str,fname:str="url",extension:str='.html',width:int=700,height:int=450)->None:
-    """Creates a html file with desired url embedded to be shown nicely in MLFlow UI."""
+    """Creates a html file with desired url embedded to be shown nicely in MLFlow UI.
+
+    ``url`` is embedded verbatim into an ``<iframe>`` with no sanitization -- callers must pass only
+    internally-controlled URLs (e.g. a dashboard link the training pipeline itself generated), never
+    an untrusted/user-supplied string, since the MLflow UI artifact viewer will render it as-is.
+    """
 
     safe_url = html.escape(url, quote=True)
     safe_width = int(width)

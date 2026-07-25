@@ -60,10 +60,18 @@ def apply_cross_sectional_composite_fe(
     k = int(getattr(config, "cross_sectional_neighbors_k", 10) or 10)
     agg_stats = tuple(getattr(config, "cross_sectional_neighbors_agg_stats", None) or ("mean", "std"))
 
+    # effective_k is derived from TRAIN alone and shared across all splits (a per-split k would silently
+    # give val/test a different neighbor radius than what the model was fit on) -- a split with too few
+    # of its own snapshots to support it degrades further, with an explicit WARN, rather than silently.
+    pd_train = _to_pandas(train_df)
+    train_n_snapshots = pd_train[snapshot_col].nunique() if pd_train is not None and snapshot_col in pd_train.columns else 0
+    effective_k = min(k, max(train_n_snapshots - 1, 0))
+
     if metadata is not None:
         metadata["cross_sectional_neighbors_snapshot_col"] = snapshot_col
         metadata["cross_sectional_neighbors_feature_cols"] = feature_cols
         metadata["cross_sectional_neighbors_k"] = k
+        metadata["cross_sectional_neighbors_effective_k"] = effective_k
         metadata["cross_sectional_neighbors_agg_stats"] = list(agg_stats)
 
     out: dict = {}
@@ -79,9 +87,16 @@ def apply_cross_sectional_composite_fe(
         if n_snapshots < 2:
             out[split_name] = df
             continue
+        split_k = min(effective_k, n_snapshots - 1)
+        if split_k < effective_k:
+            logger.warning(
+                "apply_cross_sectional_composite_fe[%s]: only %d distinct snapshot(s) (< effective_k=%d + 1 "
+                "derived from train); forcing k=%d for this split.",
+                split_name, n_snapshots, effective_k, split_k,
+            )
         try:
             result = compute_cross_sectional_neighbor_features(
-                pd_df, snapshot_col=snapshot_col, feature_cols=feature_cols, k=min(k, n_snapshots - 1), agg_stats=agg_stats,
+                pd_df, snapshot_col=snapshot_col, feature_cols=feature_cols, k=split_k, agg_stats=agg_stats,
             )
             new_cols = result.to_pandas() if isinstance(result, pl.DataFrame) else result
             new_cols = new_cols.reset_index(drop=True)

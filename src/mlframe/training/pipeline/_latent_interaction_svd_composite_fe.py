@@ -16,6 +16,11 @@ so predict-time replay calls ``FittedLatentInteractionSvd.transform_new_entities
 frozen basis without refitting. Predict-time callers must supply a FRESH ``auxiliary_events_df``
 (the entities being predicted' own recent interaction history) via the ``auxiliary_events_df`` kwarg
 threaded through ``predict_from_models``/``predict_from_suite``.
+
+TEMPORAL-SCOPE: the SVD basis is fit ONCE, at train time, on whatever ``auxiliary_events_df`` the
+caller passes -- callers must scope that table to train-period interactions only (never leak
+val/test-period rows into the fit), matching the same causal-split discipline as every other
+composite-FE step; this module does no time-filtering of its own.
 """
 from __future__ import annotations
 

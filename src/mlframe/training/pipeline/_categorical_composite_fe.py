@@ -106,6 +106,10 @@ def apply_categorical_composite_fe(
             _multi_col_groups = [g for g in groups if len(g) >= 2]
             metadata["categorical_group_concat_auto_groups"] = _multi_col_groups
             if _multi_col_groups:
+                # Compute every split's new columns FIRST, only attach once all splits succeed -- a val/test
+                # column-selection failure partway through must not leave train_df mutated while val_df/test_df
+                # aren't (schema-drifted splits), so the whole group is atomic: all splits or none.
+                _pending_new_cols = {}
                 for _split_name, _df in (("train", train_df), ("val", val_df), ("test", test_df)):
                     if _df is None:
                         continue
@@ -119,12 +123,13 @@ def apply_categorical_composite_fe(
                         _fname = f"concat_group__{COMPOSITE_SEPARATOR.join(_group)}"
                         _composed = concat_categorical_group(_pd_view, columns=_group, separator=COMPOSITE_SEPARATOR, feature_name=_fname)
                         _new_cols[_fname] = _composed[_fname].to_numpy()
-                    if _split_name == "train":
-                        train_df = _attach_new_columns(train_df, _new_cols)
-                    elif _split_name == "val":
-                        val_df = _attach_new_columns(val_df, _new_cols)
-                    else:
-                        test_df = _attach_new_columns(test_df, _new_cols)
+                    _pending_new_cols[_split_name] = _new_cols
+                if "train" in _pending_new_cols:
+                    train_df = _attach_new_columns(train_df, _pending_new_cols["train"])
+                if "val" in _pending_new_cols:
+                    val_df = _attach_new_columns(val_df, _pending_new_cols["val"])
+                if "test" in _pending_new_cols:
+                    test_df = _attach_new_columns(test_df, _pending_new_cols["test"])
                 if verbose:
                     logger.info("apply_categorical_composite_fe: auto-discovered %d composite group(s): %s", len(_multi_col_groups), _multi_col_groups)
         except Exception:

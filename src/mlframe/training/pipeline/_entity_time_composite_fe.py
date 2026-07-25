@@ -6,6 +6,9 @@ Unlike the categorical composite steps, these are pure functions of (values, gro
 NO fit-time state to persist: predict-time replay just re-runs the same computation against the
 predict frame's own group_ids/timestamps (also resolved via the FTE). No metadata bookkeeping needed
 beyond the config itself.
+
+Per-entity state (duration counters, recency windows) restarts at each entity's own first row --
+nothing carries over from a different entity or across the train/val/test split boundary.
 """
 from __future__ import annotations
 

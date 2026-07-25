@@ -87,6 +87,11 @@ def knn_shapley(
             "knn_shapley: v1 supports classification labels only (the closed form is a KNN "
             "classification-agreement utility) -- continuous y_train detected; use tmc_shapley for regression."
         )
+    if np.issubdtype(y_val.dtype, np.floating) and not np.array_equal(y_val, y_val.astype(np.int64)):
+        raise NotImplementedError(
+            "knn_shapley: v1 supports classification labels only (the closed form is a KNN "
+            "classification-agreement utility) -- continuous y_val detected; use tmc_shapley for regression."
+        )
 
     if standardize:
         mu = X_train.mean(axis=0)
