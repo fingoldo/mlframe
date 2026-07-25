@@ -13,6 +13,7 @@ Run:
 from __future__ import annotations
 
 import time
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -30,7 +31,7 @@ def _make_frame(n: int, cols: int, seed: int = 0):
     return X, y_true, y_pred, fi
 
 
-def _bench(n: int, cols: int, repeat: int = 7) -> float:
+def _bench(n: int, cols: int, repeat: int = 7) -> tuple[float, Any]:
     X, y_true, y_pred, fi = _make_frame(n, cols)
     best = float("inf")
     out = None

@@ -22,6 +22,7 @@ import json
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -41,7 +42,7 @@ def _noise_frame(p: int, n: int, seed: int = 0) -> tuple[pd.DataFrame, np.ndarra
     return X, y
 
 
-def _full_fit_seconds(X, y, *, enable: bool) -> float:
+def _full_fit_seconds(X, y, *, enable: bool) -> tuple[float, Any]:
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     t0 = time.perf_counter()

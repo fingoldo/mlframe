@@ -13,6 +13,7 @@ Run:
 from __future__ import annotations
 
 import time
+from typing import Any
 
 import numpy as np
 
@@ -45,7 +46,7 @@ def _data(n_train: int, n_query: int, d: int, seed: int = 0):
     return Xt, Xq, yt_cont, w
 
 
-def _best_of(fn, n: int = 3) -> float:
+def _best_of(fn, n: int = 3) -> tuple[float, Any]:
     best = float("inf")
     out = None
     for _ in range(n):

@@ -508,6 +508,7 @@ def audit_residuals(
                 _moments_err,
                 n,
             )
+            warnings.append(f"numba fused-moments kernel failed ({_moments_err}); fell back to the numpy moments path.")
             mean = float(residuals.mean())
             std = float(residuals.std(ddof=1)) if n > 1 else 0.0
             if std > 0:

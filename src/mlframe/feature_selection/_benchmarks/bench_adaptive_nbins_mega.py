@@ -46,7 +46,7 @@ from mlframe.feature_selection._benchmarks.bench_adaptive_nbins import (
 # =============================================================================
 
 
-def _score_binning(x_tr, y_tr, x_va, y_va, method: str, miller_madow: bool, **method_kwargs) -> float:
+def _score_binning(x_tr, y_tr, x_va, y_va, method: str, miller_madow: bool, **method_kwargs) -> tuple[float, int]:
     """Binning-style scorer: fit edges on train, bin val, plug-in MI."""
     X_tr = x_tr.reshape(-1, 1)
     if method == "quantile10":
@@ -58,44 +58,44 @@ def _score_binning(x_tr, y_tr, x_va, y_va, method: str, miller_madow: bool, **me
     return _plug_in_mi(val_b, y_va.astype(np.int64), miller_madow=miller_madow), int(edges.size + 1)
 
 
-def _score_mixed_ksg(x_tr, y_tr, x_va, y_va, k: int = 5) -> float:
+def _score_mixed_ksg(x_tr, y_tr, x_va, y_va, k: int = 5) -> tuple[float, int]:
     """Mixed-KSG: train fold ignored; scoring on val (x, y) directly."""
     return mixed_ksg_mi(x_va, y_va.astype(np.float64), k=k), 0
 
 
-def _score_ksg_lnc(x_tr, y_tr, x_va, y_va, k: int = 5, alpha: float = 0.65) -> float:
+def _score_ksg_lnc(x_tr, y_tr, x_va, y_va, k: int = 5, alpha: float = 0.65) -> tuple[float, int]:
     return ksg_lnc_mi(x_va, y_va.astype(np.float64), k=k, alpha=alpha), 0
 
 
-def _score_mine(x_tr, y_tr, x_va, y_va, n_epochs: int = 200, seed: int = 0) -> float:
+def _score_mine(x_tr, y_tr, x_va, y_va, n_epochs: int = 200, seed: int = 0) -> tuple[float, int]:
     from mlframe.feature_selection.filters._neural_mi import mine_mi
 
     return mine_mi(x_va, y_va.astype(np.float64), n_epochs=n_epochs, seed=seed, device="auto"), 0
 
 
-def _score_infonet(x_tr, y_tr, x_va, y_va, seed: int = 0) -> float:
+def _score_infonet(x_tr, y_tr, x_va, y_va, seed: int = 0) -> tuple[float, int]:
     from mlframe.feature_selection.filters._neural_mi import infonet_mi
     return infonet_mi(x_va, y_va.astype(np.float64), seed=seed, device="auto"), 0
 
 
-def _score_mist(x_tr, y_tr, x_va, y_va) -> float:
+def _score_mist(x_tr, y_tr, x_va, y_va) -> tuple[float, int]:
     from mlframe.feature_selection.filters._neural_mi import mist_mi
     return mist_mi(x_va, y_va.astype(np.float64), device="auto"), 0
 
 
-def _score_fastmi_silv(x_tr, y_tr, x_va, y_va, grid_size: int = 128) -> float:
+def _score_fastmi_silv(x_tr, y_tr, x_va, y_va, grid_size: int = 128) -> tuple[float, int]:
     from mlframe.feature_selection.filters._fastmi import fastmi
 
     return fastmi(x_va, y_va.astype(np.float64), grid_size=grid_size, bandwidth="silverman"), 0
 
 
-def _score_fastmi_mise(x_tr, y_tr, x_va, y_va, grid_size: int = 128) -> float:
+def _score_fastmi_mise(x_tr, y_tr, x_va, y_va, grid_size: int = 128) -> tuple[float, int]:
     from mlframe.feature_selection.filters._fastmi import fastmi
 
     return fastmi(x_va, y_va.astype(np.float64), grid_size=grid_size, bandwidth="mise"), 0
 
 
-def _score_median_panel(x_tr, y_tr, x_va, y_va) -> float:
+def _score_median_panel(x_tr, y_tr, x_va, y_va) -> tuple[float, int]:
     def _fd(a, b):
         e = edges_freedman_diaconis(a)
         bb = np.searchsorted(e, a.astype(np.float64), side="right")
@@ -109,7 +109,7 @@ def _score_median_panel(x_tr, y_tr, x_va, y_va) -> float:
     return median_mi_panel(x_va, y_va, {"fd": _fd, "qs": _qs, "ksg": _ksg}), 0
 
 
-def _score_genie_panel(x_tr, y_tr, x_va, y_va) -> float:
+def _score_genie_panel(x_tr, y_tr, x_va, y_va) -> tuple[float, int]:
     def _fd(a, b):
         e = edges_freedman_diaconis(a)
         bb = np.searchsorted(e, a.astype(np.float64), side="right")
