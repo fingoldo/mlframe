@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import copy
 import functools
-import hashlib
 import logging
-import textwrap
 from contextlib import nullcontext
 from os.path import exists
-from timeit import default_timer as timer
 from typing import Callable, Sequence, Union
 
 import numpy as np

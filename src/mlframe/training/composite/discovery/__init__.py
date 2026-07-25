@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
-import math
 import re
 import warnings
 from datetime import datetime
-from timeit import default_timer as timer
 from typing import (
     Any, Callable, Dict, FrozenSet, Iterator, List, Optional, Sequence, Tuple, Union,
 )

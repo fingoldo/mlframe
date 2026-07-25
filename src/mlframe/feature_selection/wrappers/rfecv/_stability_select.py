@@ -374,8 +374,14 @@ def select_optimal_nfeatures_(
     max_nf = getattr(self, "max_nfeatures", None)
     if max_nf is not None:
         nonzero_mask = nonzero_mask & (nfeatures_arr <= max_nf)
-    if not nonzero_mask.any():
-        logger.warning("select_optimal_nfeatures_: only nfeatures==0 was evaluated; " "no features can be selected. Returning empty support_.")
+    # A nonzero N can be "explored" (present in checked_nfeatures) while EVERY fold at that N was skipped
+    # (e.g. min_train_size above every fold's train slice) -- no real CV score and no FI was ever collected
+    # for it, so nonzero_mask.any() alone isn't a safe signal to proceed. Guard on cv_mean_perf itself too:
+    # if nothing usable was ever recorded, fall through to the same empty-support_ abstention as the
+    # nfeatures==0-only case, rather than continuing into get_actual_features_ranking with zero FI runs
+    # (which crashes building a zero-weight Leaderboard).
+    if not nonzero_mask.any() or not np.isfinite(np.array(cv_mean_perf)[nonzero_mask]).any():
+        logger.warning("select_optimal_nfeatures_: no fold produced a usable (non-NaN) CV score for any nonzero N -- " "no features can be selected. Returning empty support_.")
         self.n_features_ = 0
         self.support_ = np.array([])
         return

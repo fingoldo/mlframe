@@ -51,7 +51,6 @@ def _maybe_set_pysr_thread_env() -> None:
 
 import pandas as pd
 import polars as pl
-import polars.selectors as cs
 from typing import Dict, Union, Optional, List, Tuple
 from collections import Counter
 from pyutilz.system import clean_ram

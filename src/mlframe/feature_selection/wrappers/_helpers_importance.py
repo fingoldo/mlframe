@@ -864,6 +864,12 @@ def get_actual_features_ranking(feature_importances: dict, votes_aggregation_met
     fall back to lexicographic ordering by feature name so the output is
     fully deterministic across Python set/dict iteration orders.
     """
+    if not feature_importances:
+        # No run ever produced FI (e.g. every CV fold was skipped upstream, such as a
+        # min_train_size above every fold's train slice) -- there is nothing to vote on.
+        # Leaderboard requires a nonempty weight sum, so return no ranking rather than crash;
+        # the caller's `ranks[:next_nfeatures_to_check]` already tolerates an empty list.
+        return []
     table = pd.DataFrame(feature_importances)
     table = _impute_ragged_fi_table(table, policy=fi_missing_policy)
     # F8: forward run_weights into Leaderboard. Leaderboard normalises by sum

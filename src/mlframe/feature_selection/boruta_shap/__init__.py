@@ -11,7 +11,6 @@ from mlframe.utils.misc import get_pipeline_last_element
 from pyutilz.system import tqdmu
 
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, IsolationForest
-from statsmodels.stats.multitest import multipletests
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.cluster import KMeans
@@ -46,9 +45,7 @@ import random
 import pandas as pd
 import numpy as np
 from numpy.random import choice
-import shap
 import os
-import re
 
 try:
     import polars as pl

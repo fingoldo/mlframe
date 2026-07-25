@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import math
 import warnings
 from dataclasses import dataclass, field
 from types import MappingProxyType as _MappingProxyType
