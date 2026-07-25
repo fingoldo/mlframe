@@ -16,7 +16,11 @@ CPU/no-cupy host: the sweep never runs, ``.choose()`` returns "njit", and the ca
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # (n, k) grid. k spans the F2 gate distribution (small-k k~16) up to the wide orth-univariate / large-screen
 # regimes (k>=128) where the resident gen+MI amortises its launch. The default fallback keeps the un-tuned
@@ -44,7 +48,8 @@ def rescand_use_resident(n: int, k: int) -> bool:
     k_bucket = min(_RESCAND_SWEEP_K, key=lambda b: abs(b - int(k)))
     try:
         choice = _RESCAND_SPEC.choose(n_samples=int(n), k=int(k_bucket))
-    except Exception:
+    except Exception as e:
+        logger.debug("rescand_use_resident: KTC choose() failed, caller stays on the exact host njit batch-MI: %s", e)
         return False
     return bool(choice == "resident")
 

@@ -65,7 +65,8 @@ def resident_raw_baseline_mi(
 
         if not fe_gpu_resident_raw_baseline_enabled():
             return None
-    except Exception:
+    except Exception as e:
+        logger.debug("resident_raw_baseline_mi: fe_gpu_resident_raw_baseline_enabled() check failed, caller falls back to the exact host _mi_classif_batch: %s", e)
         return None
     try:
         import cupy as cp

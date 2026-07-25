@@ -468,7 +468,8 @@ def prewarm_fs_cupy_kernels(verbose: bool = False) -> None:
         if verbose:
             _log.info("prewarm_fs_cupy_kernels: cupy/pyutilz not importable; skipping")
         return
-    except Exception:
+    except Exception as e:
+        _log.debug("prewarm_fs_cupy_kernels: cupy/CUDA availability probe failed, skipping prewarm: %s", e)
         return
 
     try:
@@ -488,7 +489,8 @@ def prewarm_fs_cupy_kernels(verbose: bool = False) -> None:
     # Step 1: ensure the three project-owned RawKernels are built.
     try:
         init_kernels()
-    except Exception:
+    except Exception as e:
+        _log.debug("prewarm_fs_cupy_kernels: init_kernels() failed, skipping the remaining prewarm steps: %s", e)
         return
 
     # Step 2: tiny end-to-end mi_direct_gpu_batched call - triggers the cupy
