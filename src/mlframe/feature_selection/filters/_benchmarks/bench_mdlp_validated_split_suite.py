@@ -374,7 +374,17 @@ def scen_wellbore100k(n_relevant: int, n_redundant: int, seed: int = 0, n: int =
         n_rows = len(real)
         irrelevant_names = list(real.columns)
         categorical_cols = [c for c in irrelevant_names if real[c].dtype.kind in ("i", "u") or str(real[c].dtype) in ("category", "object")]
-        cols: dict = {c: real[c].to_numpy() for c in irrelevant_names}
+        cols = {}
+        for c in irrelevant_names:
+            _v = real[c].to_numpy()
+            # Real logs carry a few +/-inf from upstream FE; convert to NaN so the imputer/nbins path
+            # treats them as ordinary missing values instead of MRMR.fit rejecting the whole frame.
+            if _v.dtype.kind == "f":
+                _bad = np.isinf(_v)
+                if _bad.any():
+                    _v = _v.copy()
+                    _v[_bad] = np.nan
+            cols[c] = _v
     except Exception:
         logger.warning("scen_wellbore100k: wellbore parquet unavailable at %s -- falling back to a smaller synthetic-noise-only frame", _WELLBORE_DATA_PATH, exc_info=True)
         n_rows = min(n, 20_000)
@@ -625,7 +635,44 @@ def _downstream_quality(X: pd.DataFrame, y: np.ndarray, selected: set, gt: Multi
     return result
 
 
-def run_mrmr_gt_config(n: int, n_relevant: int, n_irrelevant: int, n_redundant: int, methods, seeds, config_label: str, compute_downstream: bool = True) -> list:
+def _append_jsonl_result(path: str, result) -> None:
+    """Append one sweep result to ``path`` as a single JSON line, flushed to disk immediately.
+
+    One line per completed step (not one rewritten document) so a sweep killed mid-run leaves every
+    finished step readable, and a partially-written final line never corrupts the earlier ones.
+    """
+    import dataclasses
+    import orjson
+
+    with open(path, "ab") as f:
+        f.write(orjson.dumps(dataclasses.asdict(result), option=orjson.OPT_SERIALIZE_NUMPY))
+        f.write(b"\n")
+        f.flush()
+
+
+def load_jsonl_results(path: str) -> list:
+    """Read back a checkpoint written by ``_append_jsonl_result`` as ``MrmrGTResult`` objects.
+
+    A trailing partial line (the sweep was killed mid-write) is skipped rather than raising, so a
+    checkpoint is always readable up to the last COMPLETE step.
+    """
+    import orjson
+
+    out: list = []
+    with open(path, "rb") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = orjson.loads(line)
+            except orjson.JSONDecodeError:
+                continue  # truncated final line from an interrupted sweep
+            dq = payload.pop("downstream", None)
+            out.append(MrmrGTResult(**payload, downstream=DownstreamQuality(**dq) if dq else DownstreamQuality()))
+    return out
+
+def run_mrmr_gt_config(n: int, n_relevant: int, n_irrelevant: int, n_redundant: int, methods, seeds, config_label: str, compute_downstream: bool = True, checkpoint_path: str | None = None) -> list:
     results = []
     for seed in seeds:
         X, y, gt = scen_multicolumn(n, n_relevant, n_irrelevant, n_redundant, seed=seed)
@@ -635,13 +682,15 @@ def run_mrmr_gt_config(n: int, n_relevant: int, n_irrelevant: int, n_redundant: 
             fit_time_s = time.perf_counter() - t0
             recall, precision, fpr, f1 = _prf(selected, gt)
             dq = _downstream_quality(X, y, selected, gt, seed) if compute_downstream else DownstreamQuality()
-            results.append(
-                MrmrGTResult(
-                    config_label, method, seed, recall, precision, fpr, f1, len(selected),
-                    n_relevant=len(gt.relevant), n_relevant_hit=round(recall * len(gt.relevant)) if gt.relevant else 0,
-                    n_total_cols=X.shape[1], fit_time_s=fit_time_s, downstream=dq,
-                )
+            _res = MrmrGTResult(
+                config_label, method, seed, recall, precision, fpr, f1, len(selected),
+                n_relevant=len(gt.relevant), n_relevant_hit=round(recall * len(gt.relevant)) if gt.relevant else 0,
+                n_total_cols=X.shape[1], fit_time_s=fit_time_s, downstream=dq,
             )
+            results.append(_res)
+            if checkpoint_path:
+                # Persist BEFORE the next (potentially long) step, so an interrupted sweep keeps its work.
+                _append_jsonl_result(checkpoint_path, _res)
     return results
 
 
