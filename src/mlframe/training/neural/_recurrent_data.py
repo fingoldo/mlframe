@@ -206,6 +206,12 @@ class RecurrentDataModule(LightningDataModule):
             num_workers: number of workers for DataLoaders
             is_regression: whether this is a regression task
             use_stratified_sampler: use weighted sampling for imbalanced data
+            accelerator: Trainer accelerator ("auto"/"cpu"/"gpu"/...); drives the ``pin_memory``
+                auto-detection below when ``pin_memory`` is left unset.
+            prefetch_factor: DataLoader prefetch factor; only takes effect when ``num_workers > 0``.
+            pin_memory: Whether DataLoaders page-lock host memory for faster H2D transfer. ``None``
+                (default) auto-tracks ``accelerator`` (on for GPU, off for CPU); an explicit
+                ``True``/``False`` always wins over the auto-detection.
         """
         super().__init__()
         self.train_sequences = train_sequences

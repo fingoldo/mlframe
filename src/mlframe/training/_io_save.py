@@ -73,6 +73,14 @@ def save_mlframe_model(
             serving) can flip it to skip the dill descent through the
             heaviest numpy attrs (observed 30x save speedup on cb+xgb
             multi-model bundles).
+        auto_lean_retry: When True (default) and ``lean=False``, a first save attempt that fails
+            AND whose payload is a SimpleNamespace is retried once with ``lean=True`` (the retry
+            call passes ``auto_lean_retry=False`` to avoid recursing). Pass ``False`` to fail hard
+            on the first attempt instead.
+        auto_lean_pre_check_mb: When ``lean=False`` and ``auto_lean_retry=True``, a SimpleNamespace
+            payload whose estimated size exceeds this threshold (MB) is proactively flipped to
+            ``lean=True`` before the first save attempt, rather than waiting for a failure to
+            trigger the retry above. ``0`` disables this pre-flip.
     Snapshot semantics:
         ``pickle.dumps(model)`` deep-walks the model graph and writes a
         FROZEN snapshot to disk. Subsequent in-memory mutation of the

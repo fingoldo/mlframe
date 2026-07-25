@@ -69,6 +69,13 @@ def predict_mlframe_models_suite(
         model_names: Optional list of specific model names to use (None = all models)
         return_probabilities: If True, return probabilities; if False, return class predictions
         verbose: Verbosity level
+        trusted_root: Directory the loaded metadata file must resolve within (path-traversal
+            guard), forwarded to ``load_mlframe_suite``. Defaults to ``models_path``'s own
+            absolute path when omitted.
+        predict_batch_rows: When set and ``df`` exceeds this many rows, predicts in row-chunks of
+            this size instead of one pass (bounds peak memory on very large predict frames).
+        auxiliary_events_df: Fresh auxiliary events table for ``latent_interaction_svd`` replay --
+            see :func:`predict_from_models`.
 
     Returns:
         Dict with:

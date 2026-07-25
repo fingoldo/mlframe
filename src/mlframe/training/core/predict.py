@@ -643,6 +643,8 @@ def load_mlframe_suite(models_path: str, trusted_root: str | None = None) -> tup
 
     Args:
         models_path: Path to the models directory (e.g., "data/models/target_name/model_name")
+        trusted_root: Directory the loaded metadata file must resolve within (path-traversal
+            guard). Defaults to ``models_path``'s own absolute path when omitted.
 
     Returns:
         Tuple of (models dict, metadata dict) in the same format as train_mlframe_models_suite:

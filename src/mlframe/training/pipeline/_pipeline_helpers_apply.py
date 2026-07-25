@@ -88,10 +88,18 @@ def _apply_pre_pipeline_transforms(
         use_cache: Whether to use cached pipeline
         model_file_name: Model file path for cache checking
         verbose: Verbosity level
+        selector_passthrough_cols: Columns hidden from the feature selector's own fit/transform
+            (kept passthrough), forwarded to the selector-fitting calls below.
+        target_name: Target name, folded into the pipeline cache key so structurally-identical
+            pipelines fit on different targets don't collide.
+        cache_max: Override for the pipeline cache's entry-count cap; ``None`` uses the module
+            default.
         groups: optional grouping array for grouped-CV-aware selectors (RFECV with
             GroupKFold(), grouped MRMR). Threaded into ``fit_transform`` /
             ``fit_transform_resample`` when the underlying transformer accepts it
             (fix audit row FS-P1-1).
+        sample_weight: Optional per-row sample weights, forwarded to selector fit calls and folded
+            into the pipeline cache key.
     """
     if model is not None and pre_pipeline:
         t0_pre = timer()

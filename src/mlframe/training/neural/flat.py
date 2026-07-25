@@ -302,6 +302,11 @@ def generate_mlp(
             ``sklearn.preprocessing.StandardScaler`` upstream of fit().
         use_batchnorm: Apply BatchNorm after each layer
         use_layernorm_per_layer: Apply LayerNorm after each layer (in addition to input LayerNorm)
+        use_residual: Use the ResNet-tabular block (Linear -> norm -> activation -> dropout, plus
+            an identity/projected skip connection) instead of the plain feedforward block.
+        numerical_embedding: Optional embedding applied to numeric inputs before the MLP body.
+            ``None`` (default) = no embedding. ``"plr"`` = Periodic-Linear-ReLU embedding.
+        numerical_embedding_kwargs: Kwargs forwarded to the ``numerical_embedding`` constructor.
         categorical_cardinalities: Per-categorical category counts (excluding the reserved unknown row). When set, a learnable
             ``CategoricalEmbedding`` is prepended; the first ``len(categorical_cardinalities)`` input columns are treated as integer cat
             codes (leading columns, set by the estimator's fit-boundary factorizer) and the rest as numeric passthrough. ``None`` (default)
@@ -311,6 +316,18 @@ def generate_mlp(
         layer_norm_kwargs: Kwargs for LayerNorm
         batch_norm_kwargs: Kwargs for BatchNorm
         group_norm_kwargs: Kwargs for GroupNorm
+        output_activation: Final-layer activation for regression (``num_classes == 1``). ``"linear"``
+            (default) is a no-op. ``"tanh_train_range"`` squashes output into a train-range-derived
+            band and requires both ``output_activation_scale``/``output_activation_center``.
+        output_activation_scale: Scale term for ``output_activation="tanh_train_range"`` (typically
+            derived by the estimator from ``y_train``); required when that mode is selected.
+        output_activation_center: Center term for ``output_activation="tanh_train_range"``
+            (typically derived by the estimator from ``y_train``); required when that mode is selected.
+        spectral_norm: Wrap each layer's Linear with ``nn.utils.spectral_norm`` (Lipschitz-bounds
+            the weight matrix); combined with ``use_residual=True`` this also spectral-norms the
+            residual block's inner Linear.
+        spectral_norm_n_power_iterations: Power-iteration count for ``spectral_norm``'s singular
+            value estimate; only used when ``spectral_norm=True``.
         verbose: If 1, logs the network architecture (e.g., 100->50->25->1 [R, n=176, w=7.6k])
     """
 

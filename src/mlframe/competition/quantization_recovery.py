@@ -220,7 +220,8 @@ def rank_features_by_quantization_confidence(
 
     Args:
         features: mapping of feature name -> 1-D numeric array.
-        min_gap, max_candidates: forwarded to ``detect_quantization_step``.
+        min_gap: forwarded to ``detect_quantization_step``.
+        max_candidates: forwarded to ``detect_quantization_step``.
 
     Returns:
         ``QuantizationRankResult`` with features sorted by descending confidence.

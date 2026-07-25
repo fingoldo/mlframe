@@ -486,6 +486,8 @@ class TorchDataModule(LightningDataModule):
             sample_weight: Sample weights (optional)
             shuffle: Whether to shuffle data
             drop_last: Whether to drop last incomplete batch
+            split_name: Label used only in log messages (e.g. auto batch-size resolution) to
+                identify which split ("train"/"val"/"test"/"predict") this loader is for.
 
         Returns:
             Configured DataLoader

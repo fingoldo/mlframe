@@ -133,6 +133,7 @@ def generate_similar_probs_logit_space(
         predicted_probs (np.ndarray): Original predicted probabilities (0-1).
         true_outcomes (np.ndarray): True binary outcomes (0 or 1).
         noise_scale (float): Scale of Gaussian noise applied in logit space.
+        random_state: Seed or Generator for reproducible noise draws.
 
     Returns:
         np.ndarray: A new set of perturbed probabilities.
@@ -161,6 +162,7 @@ def generate_similar_probs_random_walk(
         true_outcomes (np.ndarray): True binary outcomes (0 or 1).
         step_size (float): Size of each random walk step.
         n_steps (int): Number of random walk steps.
+        random_state: Seed or Generator for reproducible step draws.
 
     Returns:
         np.ndarray: A new set of perturbed probabilities.
@@ -191,6 +193,7 @@ def generate_similar_probs(
         true_outcomes (np.ndarray): True binary outcomes (0 or 1).
         noise_scale (float): Standard deviation of the noise to add.
         n_iterations (int): Number of iterations for fine-tuning the noise scale.
+        random_state: Seed or Generator for reproducible noise draws.
 
     Returns:
         np.ndarray: A similar_probs array with approximately the same Brier Score and ROC AUC, or
@@ -258,6 +261,7 @@ def generate_similar_probs_by_ranking(
         n_iterations (int): Number of candidate draws to try, keeping the one closest to the original
             Brier Score/ROC AUC (early-stops once a draw is within 1% of both). ``1`` (default) reproduces
             the original single-draw behavior bit-for-bit, with no metric verification.
+        random_state: Seed or Generator for reproducible shuffle/noise draws.
 
     Returns:
         np.ndarray: A new set of similar probabilities.

@@ -35,6 +35,7 @@ def showcase_features_and_targets(
         df: DataFrame with features.
         target_by_type: Dictionary of targets by type (e.g., {TargetTypes.REGRESSION: {"target1": array}}).
         max_hist_samples: Maximum samples to use for histogram (performance threshold).
+        random_seed: Seed for the histogram subsample draw when ``len(df) > max_hist_samples``.
     """
     print(get_dataframe_info(df))
 

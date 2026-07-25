@@ -101,6 +101,24 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
             lr_scheduler_interval: 'epoch' or 'step'
             lr_scheduler_monitor: Metric to monitor for scheduler (e.g., 'val_loss')
             load_best_weights_on_train_end: Load best checkpoint weights after training
+            log_lr: Log the current learning rate as a metric each step.
+            task_type: Optional task-type hint (e.g. classification vs. regression) stored for
+                downstream mixins that branch on it.
+            use_lookahead: Wrap the optimizer with Lookahead (Zhang et al. 2019) -- periodically
+                syncs a slow set of weights toward the fast optimizer's trajectory.
+            lookahead_k: Lookahead's fast-step count between slow-weight syncs; only used when
+                ``use_lookahead=True``.
+            lookahead_alpha: Lookahead's slow-weight interpolation factor; only used when
+                ``use_lookahead=True``.
+            use_mixup: Apply mixup augmentation (convex-combine random training-batch pairs) during
+                training; a no-op in eval mode or on a batch of size < 2.
+            mixup_alpha: Beta-distribution concentration parameter for the mixup interpolation
+                weight; only used when ``use_mixup=True``.
+            use_sam: Wrap the optimizer with Sharpness-Aware Minimization (SAM), which perturbs
+                weights toward the local worst case before the real gradient step.
+            sam_rho: SAM's perturbation-neighborhood radius; only used when ``use_sam=True``.
+            sam_adaptive: Scale SAM's perturbation by parameter magnitude (ASAM variant) instead of
+                a flat radius; only used when ``use_sam=True``.
         """
         super().__init__()
 

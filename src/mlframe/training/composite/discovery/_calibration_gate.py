@@ -110,7 +110,8 @@ def calibration_penalty(
             used as the bias normaliser fallback.
         scale: optional explicit normaliser for the bias term (e.g. ``std(y)``);
             defaults to the OOF residual IQR (robust) then std, then 1.0.
-        bias_weight / var_weight: per-component mixing weights.
+        bias_weight: mixing weight for the bias component.
+        var_weight: mixing weight for the variance-miscalibration component.
 
     Returns:
         ``(penalty, bias, var_miscal)`` -- penalty >= 0; ``var_miscal`` is NaN

@@ -442,6 +442,12 @@ def get_pandas_view_of_polars_df(
 
     Args:
         df: Polars DataFrame
+        self_destruct: Opt-in faster path (per the ``+self_destruct`` benchmark note above) that
+            consumes/invalidates ``df`` during conversion instead of the safe default; bypasses the
+            single-entry memo since the source frame won't survive to be re-hit.
+        log_threshold_seconds: Conversions slower than this are logged (with elapsed time and RSS)
+            so a multi-GB frame's stall is visible instead of a silent black box; small/fast bridge
+            calls stay quiet.
 
     Returns:
         Zero-copy pandas DataFrame view

@@ -51,6 +51,12 @@ def predict_from_models(
         features_and_targets_extractor: Optional extractor to preprocess input (same as training)
         return_probabilities: If True, return probabilities; if False, return class predictions
         verbose: Verbosity level
+        predict_batch_rows: When set and ``df`` exceeds this many rows, predicts in row-chunks of
+            this size instead of one pass (bounds peak memory on very large predict frames).
+        auxiliary_events_df: Fresh auxiliary events table for ``latent_interaction_svd`` replay --
+            the predict-time entities' own recent interaction history (unrelated to the
+            ``auxiliary_events_df`` used at FIT time, which only shaped the frozen SVD basis).
+            None skips the ``latent_interaction_svd`` embeddings.
 
     Returns:
         Dict with:

@@ -489,7 +489,11 @@ def plot_pit_diagram(
     Args:
         predicted_probs (array-like): Predicted probabilities for the positive class.
         true_labels (array-like): Binary true labels (0 or 1).
+        pit_values (array-like): Precomputed PIT values, used directly instead of deriving them
+            from ``predicted_probs``/``true_labels`` when supplied.
+        caption (str): Optional prefix prepended to the figure title.
         bins (int): Number of bins for the histogram.
+        figsize (tuple): Figure size passed through to the underlying FigureSpec.
         plot_file (str): when set, save the figure here (``.png`` appended if no extension).
         plot_outputs (str): optional plot-output DSL (e.g. ``"matplotlib[png] + plotly[html]"``);
             overrides ``plot_file``'s single-format inference when supplied.

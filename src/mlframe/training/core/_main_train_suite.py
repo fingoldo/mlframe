@@ -194,6 +194,10 @@ def train_mlframe_models_suite(
             LEARNING_TO_RANK routes to the ranker suite. See ``TargetTypes``.
         ranking_config: LTR-only dispatch knobs (objectives, eval cutoffs, rank fusion). See ``LearningToRankConfig``.
         preprocessing_extensions: Optional FE-extension transforms (PySR, polynomial, etc.). See ``PreprocessingExtensionsConfig``.
+        auxiliary_events_df: Optional separate reference table (e.g. an entity x item interaction
+            log distinct from the row-per-sample training frame) consumed by
+            ``preprocessing_extensions`` steps that need it -- ``latent_interaction_svd`` and
+            ``nearest_past_join``. None (default) is a genuine no-op for both.
         feature_types_config: Numeric/categorical/text type-detection overrides. See ``FeatureTypesConfig``.
         linear_model_config: Linear-model family hyperparameters. See ``LinearModelConfig``.
         multilabel_dispatch_config: Multilabel-only strategy (wrapper/chain/native). See ``MultilabelDispatchConfig``.
@@ -201,6 +205,10 @@ def train_mlframe_models_suite(
         baseline_diagnostics_config: Baseline ablation / quick-model diagnostics. See ``BaselineDiagnosticsConfig``.
         dummy_baselines_config: Per-target dummy-baseline computation. See ``DummyBaselinesConfig``.
         quantile_regression_config: Quantile-regression alphas / crossing-fix / coverage. See ``QuantileRegressionConfig``.
+        conformal_config: Conformal prediction intervals (regression) / sets (classification) plus
+            achieved coverage into ``metadata["conformal"]``; default ON. See ``ConformalConfig``.
+        regression_calibration_config: Opt-in monotone point recalibration g(yhat)~=E[y|yhat] for
+            regression models (default OFF). See ``RegressionCalibrationConfig``.
         composite_target_discovery_config: Composite-target (diff/ratio/linres) discovery. ``MLFRAME_DISABLE_COMPOSITE=1`` forces off. See ``CompositeTargetDiscoveryConfig``.
         feature_handling_config: Feature-handling / caching config bundle (advanced). See the feature_handling package.
         enable_target_distribution_analyzer: When True (default), run the mini-HPT target-distribution analyzer

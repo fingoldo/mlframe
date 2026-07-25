@@ -79,6 +79,10 @@ def make_train_test_split(
               argument is ignored (caller gets a plain sklearn shuffle
               split). Also a no-op when ``val_size`` is 0.
 
+        stratify_y: Optional class labels to stratify the split on (forwarded to sklearn's
+            ``train_test_split`` on the no-timestamps path; ignored on the timestamp-based paths).
+        groups: Optional group labels so a group never straddles the train/val/test boundary
+            (whole groups move together, same as ``calib_size``'s group-aware carve).
         calib_size: Fraction of the WHOLE dataset to carve as a disjoint calibration slice
             from the TRAIN portion only (never val/test). The base model is fit on the
             returned (shrunk) train_idx, so it never sees calib rows -- the calibrator can
