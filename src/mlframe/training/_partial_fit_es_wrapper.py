@@ -299,7 +299,12 @@ class PartialFitESWrapper:
         # probe find the WRAPPED estimator's __sklearn_clone__ -- clone(wrapper) silently returned a
         # clone of the inner estimator, discarding the wrapper entirely (not just external_X_val/
         # external_y_val, but the whole PartialFitESWrapper identity).
-        if name.startswith("__") and name.endswith("__"):
+        # __sklearn_tags__ is the one dunder exempted from this block: sklearn >=1.6 estimator-tag
+        # introspection (cross_validate, check_is_fitted, scorer dispatch) calls it on the wrapper
+        # expecting the wrapped estimator's real tags, and unlike __sklearn_clone__ it carries no
+        # clone-identity risk -- it's pure metadata, never consulted by clone() to pick which object
+        # to instantiate.
+        if name != "__sklearn_tags__" and name.startswith("__") and name.endswith("__"):
             raise AttributeError(name)
         est = self.__dict__.get("estimator")
         if est is None:

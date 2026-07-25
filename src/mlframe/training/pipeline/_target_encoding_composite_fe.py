@@ -89,7 +89,8 @@ def apply_target_encoding_composite_fe(
         return train_df, val_df, test_df
 
     decay_half_life = float(getattr(config, "two_step_target_encode_decay_half_life", 30.0) or 30.0)
-    smoothing = float(getattr(config, "two_step_target_encode_smoothing", 1.0) or 1.0)
+    _smoothing = getattr(config, "two_step_target_encode_smoothing", None)
+    smoothing = 1.0 if _smoothing is None else float(_smoothing)
 
     work = train_pd[columns].copy()
     work[_ENTITY_COL] = g_train

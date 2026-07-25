@@ -57,7 +57,8 @@ def apply_cross_sectional_composite_fe(
     if not snapshot_col or not feature_cols or train_df is None:
         return train_df, val_df, test_df
 
-    k = int(getattr(config, "cross_sectional_neighbors_k", 10) or 10)
+    _k = getattr(config, "cross_sectional_neighbors_k", None)
+    k = 10 if _k is None else int(_k)
     agg_stats = tuple(getattr(config, "cross_sectional_neighbors_agg_stats", None) or ("mean", "std"))
 
     # effective_k is derived from TRAIN alone and shared across all splits (a per-split k would silently

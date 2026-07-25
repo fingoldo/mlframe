@@ -227,7 +227,8 @@ def _phase_train_val_test_split(
     #       pass its ndarray through; otherwise fall back to first-label stratification
     #       as a best-effort over the all-classes-fully-balanced corner case.
     # composite_cardinality_cap configurable via TrainingSplitConfig (default 200). sklearn StratifiedShuffleSplit allocates O(n_classes) buckets and requires >=2 samples per class; >200 classes typically means most have <2 rows and the splitter rejects.
-    _MAX_COMPOSITE_CARDINALITY = int(getattr(split_config, "composite_cardinality_cap", 200) or 200)
+    _cap = getattr(split_config, "composite_cardinality_cap", None)
+    _MAX_COMPOSITE_CARDINALITY = 200 if _cap is None else int(_cap)
     _bucket_stratify_enabled = bool(getattr(split_config, "bucket_stratify", True))
     _stratify_y = None
     if timestamps is None and isinstance(target_by_type, dict):

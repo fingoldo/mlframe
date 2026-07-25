@@ -81,7 +81,8 @@ def apply_entity_time_composite_fe(
         metadata["state_duration_include_activation_count"] = bool(getattr(config, "state_duration_include_activation_count", False))
         metadata["recency_aggregation_columns"] = recency_cols
         metadata["recency_aggregation_scheme"] = str(getattr(config, "recency_aggregation_scheme", "poly") or "poly")
-        metadata["recency_aggregation_param"] = float(getattr(config, "recency_aggregation_param", 1.0) or 1.0)
+        _recency_param = getattr(config, "recency_aggregation_param", None)
+        metadata["recency_aggregation_param"] = 1.0 if _recency_param is None else float(_recency_param)
         metadata["recency_aggregation_agg"] = str(getattr(config, "recency_aggregation_agg", "mean") or "mean")
 
     group_ids = np.asarray(group_ids)
@@ -131,7 +132,8 @@ def apply_entity_time_composite_fe(
                 continue
             try:
                 scheme = str(getattr(config, "recency_aggregation_scheme", "poly") or "poly")
-                param = float(getattr(config, "recency_aggregation_param", 1.0) or 1.0)
+                _recency_param = getattr(config, "recency_aggregation_param", None)
+                param = 1.0 if _recency_param is None else float(_recency_param)
                 agg = str(getattr(config, "recency_aggregation_agg", "mean") or "mean")
                 recency_vals = per_group_recency_weighted_agg(
                     np.asarray(vals, dtype=np.float64), g, agg=agg, order=t, scheme=scheme, param=param,

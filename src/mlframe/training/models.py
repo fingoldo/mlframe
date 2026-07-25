@@ -211,8 +211,9 @@ def _build_ransac_regressor(config: LinearModelConfig) -> BaseEstimator:
     this can produce wildly off predictions identical to the
     Identity-MLP failure mode (observed in prod).
     """
+    _alpha = getattr(config, "alpha", None)
     return RANSACRegressor(
-        estimator=Ridge(alpha=getattr(config, "alpha", 1.0) or 1.0),
+        estimator=Ridge(alpha=1.0 if _alpha is None else _alpha),
         # sklearn 1.x raises ValueError("`min_samples` needs to be explicitly
         # set when estimator is not a LinearRegression.") whenever the inner
         # estimator differs from the default. 0.5 = "use half of n_samples

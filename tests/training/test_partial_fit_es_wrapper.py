@@ -32,6 +32,30 @@ def _make_classification(seed: int = 0, n: int = 800, d: int = 5):
     return X, y
 
 
+# -- __getattr__ dunder forwarding ----------------------------------------------
+
+
+def test_sklearn_tags_forwards_to_wrapped_estimator() -> None:
+    """__sklearn_tags__ must delegate to the wrapped estimator (sklearn >=1.6 tag introspection,
+    used by cross_validate/check_is_fitted/scorer dispatch) instead of raising AttributeError."""
+    from sklearn.linear_model import Ridge
+
+    est = Ridge()
+    wrapper = PartialFitESWrapper(estimator=est, max_iter=10)
+    assert wrapper.__sklearn_tags__() == est.__sklearn_tags__()
+
+
+def test_sklearn_clone_dunder_still_blocked() -> None:
+    """__sklearn_clone__ (and other clone-identity-affecting dunders) must still raise
+    AttributeError, not forward to the wrapped estimator -- this is the original bug the blanket
+    dunder block was added to fix, and __sklearn_tags__'s exemption must not regress it."""
+    from sklearn.linear_model import Ridge
+
+    wrapper = PartialFitESWrapper(estimator=Ridge(), max_iter=10)
+    with pytest.raises(AttributeError):
+        getattr(wrapper, "__sklearn_clone__")
+
+
 # -- partial_fit path -----------------------------------------------------------
 
 
