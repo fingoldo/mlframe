@@ -229,7 +229,8 @@ def _safe_str(value: Any) -> str:
             # the report column.
             return f"ndarray(shape={value.shape}, dtype={value.dtype})"
         return repr(value)
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).debug("_safe_str: could not stringify value of type %r: %s", type(value), e)
         return "<unstringifiable>"
 
 
@@ -556,7 +557,8 @@ def get_unlabeled_recipe_kinds(mrmr_self: Any) -> dict[str, int]:
                 recipe_by_name[str(nm)] = r
     try:
         unlabeled = prov[(prov["origin"] == "engineered_unknown") & (prov["support_rank"] >= 0)]
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).debug("unlabeled-engineered-kind lookup: provenance frame filter failed, returning empty counts: %s", e)
         return out
     for name in unlabeled["feature_name"].tolist():
         recipe = recipe_by_name.get(str(name))

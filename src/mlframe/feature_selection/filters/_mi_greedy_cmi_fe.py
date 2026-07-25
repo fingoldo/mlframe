@@ -94,7 +94,8 @@ def _qbin_float_dtype():
     try:
         from ._fe_gpu_batch._devices import fe_gpu_f32_enabled
         return cp.float32 if fe_gpu_f32_enabled() else cp.float64
-    except Exception:
+    except Exception as e:
+        logger.debug("_qbin_float_dtype: fe_gpu_f32_enabled() probe failed, falling back to float64: %s", e)
         return cp.float64
 
 

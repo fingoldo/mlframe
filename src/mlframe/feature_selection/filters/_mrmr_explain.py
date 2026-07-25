@@ -78,7 +78,8 @@ def _fmt_margin_band(series: pd.Series) -> str:
         if _n_dropped > 0:
             logger.warning("mrmr-explain: margin-band render dropped %d unparseable margin value(s).", _n_dropped)
         vals = _coerced.dropna()
-    except Exception:
+    except Exception as e:
+        logger.debug("_fmt_margin_band: margin-band coercion failed, rendering no band: %s", e)
         return ""
     if vals.empty:
         return ""

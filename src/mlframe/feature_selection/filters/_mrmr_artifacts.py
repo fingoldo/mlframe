@@ -221,7 +221,8 @@ def validate_artifact_dict(artifacts: dict | None) -> bool:
         return False
     try:
         su_arr = np.asarray(su)
-    except Exception:  # pragma: no cover - defensive
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning("Precomputed artifact su_to_target could not be converted to an array (%s); ignoring and recomputing from scratch.", e)
         return False
     if su_arr.ndim != 1 or su_arr.shape[0] != len(names):
         logger.warning(
