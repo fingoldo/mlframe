@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import importlib.util
 import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
-import sys
 import tempfile
 import time
 from pathlib import Path

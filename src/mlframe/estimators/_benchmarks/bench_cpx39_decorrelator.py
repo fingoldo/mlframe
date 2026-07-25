@@ -6,7 +6,7 @@ OLD side is loaded via ``git show HEAD:...`` so we A/B two real artifacts, not a
 Warm + best-of-N; identity gate on the dropped-columns set across several seeds / correlation structures.
 """
 
-import os, sys, time, subprocess, types  # nosec B404 - subprocess used below with fixed list args, no shell=True
+import os, time, subprocess, types  # nosec B404 - subprocess used below with fixed list args, no shell=True
 
 import numpy as np, pandas as pd
 

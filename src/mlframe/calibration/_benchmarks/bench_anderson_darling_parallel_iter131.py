@@ -1,9 +1,10 @@
-import sys; sys.modules['cupy']=None
-import time, numpy as np, numba
+import sys; sys.modules['cupy'] = None  # type: ignore[assignment]
+import time, numpy as np
+from typing import Callable
 from numba import njit, prange
 
 @njit(cache=True, nogil=True, fastmath=True)
-def ad_serial(sorted_pit, n):
+def ad_serial(sorted_pit: np.ndarray, n: int) -> float:
     eps=1e-12; acc=0.0
     for k in range(n):
         a=sorted_pit[k]
@@ -16,7 +17,7 @@ def ad_serial(sorted_pit, n):
     return -n - (1.0/n)*acc
 
 @njit(cache=True, nogil=True, fastmath=True, parallel=True)
-def ad_par(sorted_pit, n):
+def ad_par(sorted_pit: np.ndarray, n: int) -> float:
     eps=1e-12; acc=0.0
     for k in prange(n):
         a=sorted_pit[k]
@@ -34,7 +35,7 @@ if __name__ == "__main__":
     pit=np.sort(rng.random(n))
     ad_serial(pit,n); ad_par(pit,n)
     import math
-    def best(f,r=7):
+    def best(f: "Callable[[np.ndarray, int], float]", r: int = 7) -> "tuple[float, float]":
         ts=[]
         for _ in range(r):
             t=time.perf_counter(); v=f(pit,n); ts.append(time.perf_counter()-t)

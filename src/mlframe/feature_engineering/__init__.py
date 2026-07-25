@@ -41,7 +41,7 @@ from .basic import create_date_features, run_pysr_fe
 from .bayesian import (
     bocpd_features,
     kalman_filter_posterior_1d,
-    kalman_smoother_posterior_1d,
+    kalman_smoother_posterior_1d,  # public facade re-export (F401 already blanket-ignored for __init__.py)
     online_bayesian_linear_regression,
     particle_filter_posterior,
 )
@@ -50,16 +50,16 @@ from .categorical import compute_countaggs, get_countaggs_names
 from .ensemble_features import (
     predictor_consensus_entropy,
     predictor_consensus_mean,
-    predictor_consensus_trimmed_stats,
+    predictor_consensus_trimmed_stats,  # public facade re-export (F401 already blanket-ignored for __init__.py)
     predictor_disagreement_features,
     predictor_disagreement_iqr,
     predictor_disagreement_var,
-    predictor_max_pairwise_distance,
-    predictor_outlier_signature,
+    predictor_max_pairwise_distance,  # public facade re-export (F401 already blanket-ignored for __init__.py)
+    predictor_outlier_signature,  # public facade re-export (F401 already blanket-ignored for __init__.py)
     predictor_pairwise_abs_diffs,
-    predictor_quantile_spread,
+    predictor_quantile_spread,  # public facade re-export (F401 already blanket-ignored for __init__.py)
     predictor_top2_mode_gap,
-    predictor_weighted_consensus,
+    predictor_weighted_consensus,  # public facade re-export (F401 already blanket-ignored for __init__.py)
 )
 from .financial import (
     add_fast_rolling_stats,
