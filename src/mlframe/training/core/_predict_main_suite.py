@@ -28,6 +28,7 @@ from .utils import (
     _validate_input_columns_against_metadata,
     _validate_trusted_path,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core.predict")
 
@@ -314,14 +315,16 @@ def predict_mlframe_models_suite(
             _tt = _slug_to_tt.get(_tt_slug)
             _tn = _slug_to_tn.get(_tn_slug)
             if _tt is None:
-                logger.warning(
+                log_throttle(
+                    logger, "predict_suite_missing_tt_slug", logging.WARNING,
                     "predict_mlframe_models_suite: slug_to_original_target_type missing entry for %r; "
                     "result keys for this model will use the slug verbatim, diverging from predict_from_models. "
                     "Re-save the suite with the current mlframe version to refresh the slug map.", _tt_slug,
                 )
                 _tt = _tt_slug
             if _tn is None:
-                logger.warning(
+                log_throttle(
+                    logger, "predict_suite_missing_tn_slug", logging.WARNING,
                     "predict_mlframe_models_suite: slug_to_original_target_name missing entry for %r; "
                     "result keys for this model will use the slug verbatim, diverging from predict_from_models.", _tn_slug,
                 )
@@ -337,7 +340,7 @@ def predict_mlframe_models_suite(
             if model_obj is None:
                 model_obj = load_mlframe_model(model_file)
             if model_obj is None:
-                logger.warning("Failed to load model: %s", model_file)
+                log_throttle(logger, "predict_suite_model_load_failed", logging.WARNING, "Failed to load model: %s", model_file)
                 continue
 
             model = model_obj.model if hasattr(model_obj, "model") else model_obj
@@ -366,7 +369,8 @@ def predict_mlframe_models_suite(
                         try:
                             input_for_model = model_obj.pre_pipeline.transform(input_for_model)
                         except Exception as _pp_exc:
-                            logger.warning(
+                            log_throttle(
+                                logger, "predict_suite_pre_pipeline_transform_failed", logging.WARNING,
                                 "predict_mlframe_models_suite: %s pre_pipeline.transform " "raised %s: %s. Skipping pre_pipeline.",
                                 model_name,
                                 type(_pp_exc).__name__,
@@ -387,7 +391,10 @@ def predict_mlframe_models_suite(
                     probs = np.asarray(_predict_with_fallback(model, input_for_model, method="predict_proba", verbose=bool(verbose)))
                 except (TypeError, ValueError, AttributeError) as _polars_exc:
                     if isinstance(input_for_model, pl.DataFrame):
-                        logger.warning("predict_proba on polars frame failed with %s: %s; retrying via pandas view.", type(_polars_exc).__name__, str(_polars_exc).splitlines()[0][:160])
+                        log_throttle(
+                            logger, "predict_suite_predict_proba_polars_failed", logging.WARNING,
+                            "predict_proba on polars frame failed with %s: %s; retrying via pandas view.", type(_polars_exc).__name__, str(_polars_exc).splitlines()[0][:160],
+                        )
                         input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
                         probs = np.asarray(_predict_with_fallback(model, input_for_model, method="predict_proba", verbose=bool(verbose)))
                     else:
@@ -427,7 +434,10 @@ def predict_mlframe_models_suite(
                     preds = np.asarray(_predict_with_fallback(model, input_for_model, method="predict", verbose=bool(verbose)))
                 except (TypeError, ValueError, AttributeError) as _polars_exc:
                     if isinstance(input_for_model, pl.DataFrame):
-                        logger.warning("predict on polars frame failed with %s: %s; retrying via pandas view.", type(_polars_exc).__name__, str(_polars_exc).splitlines()[0][:160])
+                        log_throttle(
+                            logger, "predict_suite_predict_polars_failed", logging.WARNING,
+                            "predict on polars frame failed with %s: %s; retrying via pandas view.", type(_polars_exc).__name__, str(_polars_exc).splitlines()[0][:160],
+                        )
                         input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
                         preds = np.asarray(_predict_with_fallback(model, input_for_model, method="predict", verbose=bool(verbose)))
                     else:
@@ -443,8 +453,10 @@ def predict_mlframe_models_suite(
             # trace and operators couldn't tell whether the failure was load-time (corrupt .dump on disk) or
             # predict-time (input schema mismatch / dispatch miss). exc_info=True keeps the warn-and-continue
             # semantics but adds the diagnostic.
-            logger.exception(
+            log_throttle(
+                logger, "predict_suite_load_predict_error", logging.ERROR,
                 "Error loading/predicting with model %s: %s", model_file, e,
+                exc_info=True,
             )
             continue
 
@@ -481,7 +493,7 @@ def predict_mlframe_models_suite(
                         from ..quantile_postproc import fix_quantile_crossing
                         _combined = fix_quantile_crossing(_combined, _q_alphas, mode="sort")
                     except Exception as _qe:
-                        logger.warning("predict_mlframe_models_suite: fix_quantile_crossing failed: %s", _qe)
+                        log_throttle(logger, "predict_suite_fix_quantile_crossing_failed", logging.WARNING, "predict_mlframe_models_suite: fix_quantile_crossing failed: %s", _qe)
             results["per_target_probabilities"][_key] = _combined
             _ens_thr = get_decision_threshold(metadata, f"{_tt_k}|{_tn_k}", DEFAULT_PROBABILITY_THRESHOLD)
             if _combined.ndim == 2:
