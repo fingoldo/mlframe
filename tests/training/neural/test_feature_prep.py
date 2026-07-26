@@ -154,3 +154,27 @@ def test_transform_reconstructs_dataframe_from_ndarray_using_fit_columns():
     # (numpy arrays are homogeneous); the regression is about column IDENTITY/VALUES surviving the
     # ndarray round-trip, not dtype fidelity (a real eager-conversion ndarray is already fully numeric).
     pd.testing.assert_frame_equal(out_arr.reset_index(drop=True), out_df.reset_index(drop=True), check_dtype=False)
+
+
+def test_fit_sets_n_features_in_matching_sklearn_convention():
+    """Regression: unlike sklearn's own transformers (which set n_features_in_ automatically via
+    _validate_data), NeuralEmbeddingTextEncoder.fit() never set it. Any caller that falls back to
+    checking n_features_in_ across pipeline steps to distinguish "raw input" from "already-transformed
+    output" (mlframe.training.pipeline._pipeline_helpers._test_df_is_raw_pipeline_input, when no feature
+    selector is present to supply its own output-width discriminator) found it None on every step and
+    defaulted to "assume raw, re-transform" UNCONDITIONALLY -- so an already-transformed test_df (this
+    step's own WIDER post-expansion output, reused via the weight-schema-invariant pipeline cache) got
+    fed back through the whole pipeline a second time, and this step's OWN feature_names_in_-based
+    ndarray reconstruction then rejected it with a pandas shape mismatch (caught live via a fuzz combo:
+    mrmr=False, an embedding column present, MLP's second weight-schema round)."""
+    n, d = 20, 3
+    rng = np.random.default_rng(3)
+    X = pd.DataFrame(
+        {
+            "num_0": rng.normal(size=n).astype(np.float32),
+            "emb_0": [rng.normal(size=d).astype(np.float32) for _ in range(n)],
+        }
+    )
+    enc = NeuralEmbeddingTextEncoder(embedding_features=["emb_0"])
+    enc.fit(X)
+    assert enc.n_features_in_ == len(enc.feature_names_in_) == 2
