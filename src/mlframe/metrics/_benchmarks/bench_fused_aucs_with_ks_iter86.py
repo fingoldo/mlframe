@@ -1,6 +1,6 @@
 import sys, time
 sys.modules['cupy'] = None
-import numba, numpy as np
+import numpy as np
 from numba import njit
 
 @njit(cache=True, fastmath=True)

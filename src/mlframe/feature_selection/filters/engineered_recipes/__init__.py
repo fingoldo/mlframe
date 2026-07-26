@@ -95,10 +95,10 @@ from .._temporal_agg_fe import (
 )
 
 # Periodic / modular decomposition recipe builder (sibling FE module); apply is dispatched inline.
-from .._periodic_fe import build_modular_recipe
+from .._periodic_fe import build_modular_recipe  # public facade re-export (F401 already blanket-ignored for __init__.py)
 
 # Per-group distribution-distance recipe builder (sibling FE module); apply is dispatched inline.
-from .._group_distance_fe import build_group_distance_recipe
+from .._group_distance_fe import build_group_distance_recipe  # public facade re-export (F401 already blanket-ignored for __init__.py)
 
 # Hinge / piecewise-linear change-point basis recipe builder + replay (sibling
 # FE module). Apply path dispatched lazily in the dispatcher;

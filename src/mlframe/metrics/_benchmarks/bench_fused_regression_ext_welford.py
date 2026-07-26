@@ -3,7 +3,7 @@
 Run: python src/mlframe/metrics/_benchmarks/bench_fused_regression_ext_welford.py (PYTHONPATH=src, CUDA off).
 Result @N=10M: 1.06x@mean=0 / 0.99x@mean=11500 (identity ~1e-13). REJECTED: pass1 is ALU-bound on MAPE/SMAPE divisions, so eliminating pass2 memory read nets nothing while per-element Welford divisions add cost. Kept for re-test on other HW."""
 import sys; sys.modules['cupy']=None
-import scipy.stats, numba, numpy as np, time
+import numba, numpy as np, time
 from numba import njit, prange
 if __name__ == "__main__":
     NP=dict(cache=True, fastmath=True, nogil=True)

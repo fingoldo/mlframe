@@ -11,7 +11,7 @@ settled) yields the support + an FI ranking; the post-process variants are appli
 Reports downstream honest-holdout AUC vs the baseline RFECV.
 """
 from __future__ import annotations
-import os, sys, time, itertools
+import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
 import numpy as np, pandas as pd

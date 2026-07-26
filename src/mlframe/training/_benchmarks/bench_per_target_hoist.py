@@ -37,7 +37,6 @@ from __future__ import annotations
 import gc
 import json
 import os
-import sys
 import time
 import warnings
 from pathlib import Path

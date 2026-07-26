@@ -10,7 +10,6 @@ the cache JSON is on disk, every future process loads it in ~1 ms via
 """
 from __future__ import annotations
 
-import itertools
 import logging
 import time
 from typing import Optional

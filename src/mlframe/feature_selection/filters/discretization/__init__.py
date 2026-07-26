@@ -14,7 +14,6 @@ strategy is documented and applied identically to both engines (legacy pandas si
 from __future__ import annotations
 
 import logging
-import math
 import os
 import sys
 import threading

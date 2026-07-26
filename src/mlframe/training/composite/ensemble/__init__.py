@@ -911,7 +911,7 @@ def compute_oof_holdout_predictions(
 from ._cross_target import CompositeCrossTargetEnsemble
 from ._calibration import OutputCalibrator, fit_output_calibrator
 from ._stackers import (
-    META_STACKER_KINDS,
+    META_STACKER_KINDS,  # public facade re-export (F401 already blanket-ignored for __init__.py)
     build_meta_stack_ensemble,
     fit_gbm_meta_stacker,
     fit_lasso_meta_stacker,

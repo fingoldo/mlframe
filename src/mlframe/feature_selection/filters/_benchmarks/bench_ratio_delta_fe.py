@@ -13,7 +13,6 @@ module. Warm + median-of-N. Run:
     python src/mlframe/feature_selection/filters/_benchmarks/bench_ratio_delta_fe.py
 """
 
-import importlib.util
 import os
 import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import sys

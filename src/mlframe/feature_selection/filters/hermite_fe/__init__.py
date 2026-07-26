@@ -354,7 +354,7 @@ from ._hermite_oracle import (
     _polyeval_oracle_pick_cpu_backend,
     _polyeval_size_fingerprint,
     benchmark_polyeval_cpu_backends,
-    get_polyeval_oracle,
+    get_polyeval_oracle,  # public facade re-export (F401 already blanket-ignored for __init__.py)
 )
 
 _POLYEVAL_CUDA_FALLBACK_WARNED = False

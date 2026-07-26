@@ -32,7 +32,6 @@ trade-off can be re-measured on different hardware / numpy / torch versions.
 """
 from __future__ import annotations
 
-import sys
 import time
 import warnings
 

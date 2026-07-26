@@ -24,7 +24,6 @@ Run::
 from __future__ import annotations
 
 import json
-import math
 import time
 from dataclasses import dataclass, asdict
 from pathlib import Path

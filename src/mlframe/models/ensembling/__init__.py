@@ -37,13 +37,13 @@ logger = logging.getLogger(__name__)
 from .base import (
     SIMPLE_ENSEMBLING_METHODS,
     RANK_FUSION_METHODS,
-    StreamingAccumulator,
+    StreamingAccumulator,  # public facade re-export (F401 already blanket-ignored for __init__.py)
     _WelfordAccumulator,
     _stacked_corrcoef,
     _per_member_mae_std,
     _per_member_mae_std_njit,
     _HAS_NUMBA_PER_MEMBER,
-    batch_numaggs,
+    batch_numaggs,  # public facade re-export (F401 already blanket-ignored for __init__.py)
     enrich_ensemble_preds_with_numaggs,
     _rrf_aggregate_probs,
     rrf_ensemble,

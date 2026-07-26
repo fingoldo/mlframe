@@ -71,10 +71,8 @@ plot_outputs has plotly+png). Everything else is library-bounded.
 from __future__ import annotations
 
 import argparse
-import cProfile
 import io
 import logging
-import pstats
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple

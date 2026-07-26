@@ -21,7 +21,7 @@ Memory-frugal (heavy concurrent load): n_jobs=4, n_estimators<=200, synth/hard_s
 stress only (artifact cached). stdout -> file. ASCII-only prints (cp1251).
 """
 from __future__ import annotations
-import os, sys, time, json
+import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
 import numpy as np, pandas as pd

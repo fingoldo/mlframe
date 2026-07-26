@@ -1,7 +1,7 @@
 """End-to-end A/B for is_variable_truly_continuous @200k: OLD (git HEAD) vs NEW (working tree).
 Run via: python bench_e2e74.py old|new  -> prints median wall over many reps + per-col verdicts for identity.
 """
-import sys, time
+import time
 import scipy.stats  # noqa: F401
 import numba  # noqa: F401
 import numpy as np

@@ -9,7 +9,6 @@ Run: python -m mlframe.preprocessing._benchmarks.bench_fused_precision_scan
 """
 import time
 
-import numba
 import numpy as np
 from numba import njit
 

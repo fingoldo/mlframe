@@ -7,7 +7,7 @@ yp**(2-p) == yp**(1-p) * yp algebraically, so we drop one transcendental pow/row
 Identity: bit-equiv up to a single-ULP FP reorder (mul vs independent pow); validated vs sklearn.mean_tweedie_deviance.
 """
 import sys; sys.modules['cupy'] = None
-import numpy as np, numba, time
+import numpy as np, time
 from numba import njit
 from math import log
 

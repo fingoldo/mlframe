@@ -8,7 +8,6 @@ Run with the worktree on PYTHONPATH:
 """
 from __future__ import annotations
 
-import sys
 import time
 import numpy as np
 import pandas as pd

@@ -21,7 +21,6 @@ import scipy.stats  # noqa: F401
 import numba  # noqa: F401
 import numpy as np
 
-from mlframe.training.composite.discovery import screening as S
 from mlframe.training.composite.discovery.screening import (
     _mi_per_feature_prebinned,
     _prebin_feature_columns,

@@ -60,11 +60,11 @@ from ._gains_lift import (
 from ._weighted_kappa import (
     quadratic_weighted_kappa,
     weighted_kappa,
-    KAPPA_WEIGHTS,
+    KAPPA_WEIGHTS,  # public facade re-export (F401 already blanket-ignored for __init__.py)
 )
 
 from ._ordinal_cutpoints import (
     optimal_ordinal_cutpoints,
     apply_cutpoints,
-    CUTPOINT_METRICS,
+    CUTPOINT_METRICS,  # public facade re-export (F401 already blanket-ignored for __init__.py)
 )

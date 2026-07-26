@@ -27,7 +27,6 @@ import gc
 import logging
 import os
 import time
-import tracemalloc
 
 import numpy as np
 import pandas as pd
