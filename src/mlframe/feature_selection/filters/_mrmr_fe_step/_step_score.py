@@ -21,6 +21,8 @@ import os
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
@@ -240,7 +242,8 @@ def materialise_and_finalise_fe_candidates(
             # mismatch this filtering exists to prevent. Log so a genuine producer-shape bug is never
             # indistinguishable from the expected None case.
             if _nnb is not None and (not hasattr(_nnb, "__len__") or len(_nnb) != len(_ncols)):
-                logger.warning(
+                log_throttle(
+                    logger, "step_score_nnb_length_mismatch_additions", logging.WARNING,
                     "mrmr: _nnb length mismatch (expected %d columns) while filtering to kept columns; "
                     "passing it through UNFILTERED -- a downstream nbins/cols length assertion may now fire.",
                     len(_ncols),
@@ -369,7 +372,8 @@ def materialise_and_finalise_fe_candidates(
                 # mismatch this filtering exists to prevent. Log so a genuine producer-shape bug is never
                 # indistinguishable from the expected None case.
                 if _nnb is not None and (not hasattr(_nnb, "__len__") or len(_nnb) != len(_ncols)):
-                    logger.warning(
+                    log_throttle(
+                        logger, "step_score_nnb_length_mismatch_filtered", logging.WARNING,
                         "mrmr: _nnb length mismatch (expected %d columns) while filtering to kept columns; "
                         "passing it through UNFILTERED -- a downstream nbins/cols length assertion may now fire.",
                         len(_ncols),
@@ -490,7 +494,8 @@ def materialise_and_finalise_fe_candidates(
                 # mismatch this filtering exists to prevent. Log so a genuine producer-shape bug is never
                 # indistinguishable from the expected None case.
                 if _nnb is not None and (not hasattr(_nnb, "__len__") or len(_nnb) != len(_ncols)):
-                    logger.warning(
+                    log_throttle(
+                        logger, "step_score_nnb_length_mismatch_fsc", logging.WARNING,
                         "mrmr: _nnb length mismatch (expected %d columns) while filtering to kept columns; "
                         "passing it through UNFILTERED -- a downstream nbins/cols length assertion may now fire.",
                         len(_ncols),

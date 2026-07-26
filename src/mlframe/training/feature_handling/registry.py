@@ -43,6 +43,8 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Iterator
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
@@ -170,7 +172,7 @@ def _bump_lru(signature: str, entry: _ProviderEntry, keep_n: int) -> None:
                     evicted.provider.release()
                     evicted.is_loaded = False
                 except Exception as e:  # pragma: no cover -- best-effort cleanup, provider state is marked unloaded regardless
-                    logger.warning("evicting provider release() raised: %s", e)
+                    log_throttle(logger, "registry_evict_provider_release_failed", logging.WARNING, "evicting provider release() raised: %s", e)
 
 
 # =====================================================================
@@ -365,7 +367,7 @@ def shutdown_all() -> None:
                     try:
                         entry.provider.release()
                     except Exception as e:  # pragma: no cover -- best-effort cleanup, provider state is marked unloaded regardless
-                        logger.warning("shutdown: release(%s) raised: %s", signature, e)
+                        log_throttle(logger, "registry_shutdown_lru_release_failed", logging.WARNING, "shutdown: release(%s) raised: %s", signature, e)
                     entry.is_loaded = False
         _LRU_HARD.clear()
 
@@ -381,7 +383,7 @@ def shutdown_all() -> None:
                     try:
                         weak_entry.provider.release()
                     except Exception as e:  # pragma: no cover -- best-effort cleanup, provider state is marked unloaded regardless
-                        logger.warning("shutdown: release(%s) raised: %s", signature, e)
+                        log_throttle(logger, "registry_shutdown_weak_release_failed", logging.WARNING, "shutdown: release(%s) raised: %s", signature, e)
                     weak_entry.is_loaded = False
 
     _PREWARM_FUTURES.clear()

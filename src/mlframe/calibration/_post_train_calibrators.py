@@ -14,6 +14,7 @@ import joblib
 from pyutilz.strings import slugify
 
 from mlframe.training import TargetTypes
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.calibration.post")  # matches the pre-carve logger name (post.py); preserves log-filter/caplog compatibility for existing callers/tests
 
@@ -152,7 +153,8 @@ def train_postcalibrators(
                                 "calibrators on rows that substantially overlap the honest holdout split."
                             )
                         if _idx_overlap >= OVERLAP_WARN_THRESHOLD:
-                            logger.warning(
+                            log_throttle(
+                                logger, "post_train_calib_idx_overlap_warn", logging.WARNING,
                                 "train_postcalibrators: calib_target's row index overlaps %.0f%% with model %r's "
                                 "test_target row index. This may be partial calib/test leakage -- verify the splits "
                                 "are disjoint.",
@@ -184,7 +186,8 @@ def train_postcalibrators(
                         "split disjoint from test."
                     )
                 if _prob_overlap >= OVERLAP_WARN_THRESHOLD:
-                    logger.warning(
+                    log_throttle(
+                        logger, "post_train_calib_probs_overlap_warn", logging.WARNING,
                         "train_postcalibrators: a calib_probs_per_model array overlaps %.0f%% (by row value) with "
                         "model %r.test_probs. This may be partial calib/test leakage -- verify the splits are disjoint.",
                         _prob_overlap * 100, _name,
@@ -288,7 +291,8 @@ def train_postcalibrators(
             from ..training.io import _write_save_meta_sidecar as _wsms
             _wsms(calib_fpath, durable=False)
         except Exception as _meta_e:  # best-effort: the calibrator itself is already saved; the sidecar is optional metadata
-            logger.warning(
+            log_throttle(
+                logger, "post_train_calib_meta_sidecar_write_failed", logging.WARNING,
                 "calibration: failed to write .meta.json sidecar for %s: %s. "
                 "Calibrator saved; load-time version validation will fall "
                 "through to back-compat.", calib_fpath, _meta_e,

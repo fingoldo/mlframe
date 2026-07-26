@@ -27,6 +27,8 @@ from typing import Callable, Dict, Optional, Sequence
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # genie_mi_panel's default bias-rate fallback used to be the
@@ -71,7 +73,7 @@ def median_mi_panel(x: np.ndarray, y: np.ndarray, estimators: Dict[str, Callable
         try:
             scores.append(float(est(x, y)))
         except Exception as exc:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-            logger.warning("median_mi_panel: estimator %r failed: %r", name, exc)
+            log_throttle(logger, "mi_agg_median_panel_estimator_failed", logging.WARNING, "median_mi_panel: estimator %r failed: %r", name, exc)
     return median_mi(scores)
 
 
@@ -159,7 +161,7 @@ def genie_mi_panel(x: np.ndarray, y: np.ndarray,
         try:
             mi = float(est(x, y))
         except Exception as exc:
-            logger.warning("genie_mi_panel: %r failed: %r", name, exc)
+            log_throttle(logger, "mi_agg_genie_panel_failed", logging.WARNING, "genie_mi_panel: %r failed: %r", name, exc)
             continue
         estimates.append(mi)
         bias.append((bias_rates or {}).get(name, _genie_default_bias_rate(name, n)))
@@ -201,7 +203,7 @@ def best_on_calibration_mi(
         try:
             cal_mi = float(est(calibration_data, calibration_target))
         except Exception as exc:
-            logger.warning("best_on_calibration: %r failed cal: %r", name, exc)
+            log_throttle(logger, "mi_agg_best_on_calibration_failed", logging.WARNING, "best_on_calibration: %r failed cal: %r", name, exc)
             continue
         if cal_mi < best_floor:
             best_floor = cal_mi

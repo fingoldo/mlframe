@@ -81,6 +81,7 @@ from ._orthogonal_univariate_fe import (
     cached_raw_mi_baseline,
     cached_dense_finite_corr_matrix,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -470,7 +471,8 @@ def generate_cluster_basis_features(
                 X, members, aggregator=aggregator, return_stats=True,
             )
         except Exception as exc:
-            logger.warning(
+            log_throttle(
+                logger, "cluster_basis_aggregator_raised", logging.WARNING,
                 "generate_cluster_basis_features: aggregator=%r on cluster "
                 "%r raised %r; skipping cluster.",
                 aggregator, anchor, exc,
@@ -485,7 +487,8 @@ def generate_cluster_basis_features(
                     agg, basis, int(d), return_params=True,
                 )
             except Exception as exc:
-                logger.warning(
+                log_throttle(
+                    logger, "cluster_basis_eval_raised", logging.WARNING,
                     "generate_cluster_basis_features: basis=%r degree=%d on "
                     "cluster %r raised %r; skipping cell.",
                     basis, d, anchor, exc,
@@ -738,7 +741,8 @@ def hybrid_orth_mi_cluster_basis_fe_with_recipes(
     for name in appended:
         row = name_to_row.get(name)
         if row is None:
-            logger.warning(
+            log_throttle(
+                logger, "cluster_basis_recipe_appended_col_missing", logging.WARNING,
                 "hybrid_orth_mi_cluster_basis_fe_with_recipes: appended " "column %r missing from scores; skipping recipe.",
                 name,
             )

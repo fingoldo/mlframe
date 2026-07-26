@@ -38,6 +38,7 @@ from ._eval import build_unary_base_context, eval_one_transform
 from ._fit_helpers import maybe_boost_mi_strata_for_heavy_tail, no_base_candidates_report_entry
 from ._fit_multibase import apply_multi_base_forward_stepwise
 from ._eval_stats import near_collinear_keep_mask
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -439,7 +440,8 @@ def fit(
                         _surviving_orig_idx = _surviving_orig_idx[_keep]
         else:
             # Invariant: every base in usable_features is in _col_index, so this arm is unreachable; keeping the base in its own x_remaining would leak it into the MI baseline, so skip rather than mis-score.
-            logger.error(
+            log_throttle(
+                logger, "composite_discovery_fit_base_not_in_usable_features", logging.ERROR,
                 "[CompositeTargetDiscovery] invariant violated: base %r not in usable_features index; skipping (would leak base into its own x_remaining).",
                 base,
             )
@@ -550,7 +552,8 @@ def fit(
             try:
                 transform = get_transform(transform_name)
             except UnknownTransformError as exc:
-                logger.warning(
+                log_throttle(
+                    logger, "composite_discovery_fit_unknown_transform", logging.WARNING,
                     "[CompositeTargetDiscovery] %s; skipping.",
                     exc,
                 )
@@ -755,7 +758,8 @@ def fit(
         ]
         if _surviving_drift:
             for _spec_name, _info in _surviving_drift:
-                logger.warning(
+                log_throttle(
+                    logger, "composite_discovery_fit_alpha_drift_detected", logging.WARNING,
                     "[CompositeTargetDiscovery] alpha drift "
                     "detected for KEPT spec=%s (alpha first-half="
                     "%.4f, second-half=%.4f, z=%.2f > %.2f). "

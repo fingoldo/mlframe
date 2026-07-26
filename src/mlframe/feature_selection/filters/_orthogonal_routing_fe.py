@@ -77,6 +77,7 @@ from ._orthogonal_univariate_fe import (
     _dedup_collinear_source_cols,
     cached_raw_mi_baseline,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -275,7 +276,8 @@ def generate_conditional_basis_routing_features(
             try:
                 xt = apply_pre_transform(x_raw, pt)
             except Exception as exc:
-                logger.warning(
+                log_throttle(
+                    logger, "routing_fe_pre_transform_raised", logging.WARNING,
                     "generate_conditional_basis_routing_features: pre_transform=%r "
                     "on col=%r raised %r; skipping.", pt, col, exc,
                 )
@@ -297,7 +299,8 @@ def generate_conditional_basis_routing_features(
                     try:
                         vals = _evaluate_basis_column(xt, basis_name, int(d))
                     except Exception as exc:
-                        logger.warning(
+                        log_throttle(
+                            logger, "routing_fe_basis_eval_raised", logging.WARNING,
                             "generate_conditional_basis_routing_features: "
                             "basis=%r pre=%r degree=%d on col=%r raised %r; "
                             "skipping.",
@@ -557,7 +560,8 @@ def hybrid_orth_mi_conditional_routing_fe_with_recipes(
     for name in appended:
         row = name_to_row.get(name)
         if row is None:
-            logger.warning(
+            log_throttle(
+                logger, "routing_fe_recipe_appended_col_missing", logging.WARNING,
                 "hybrid_orth_mi_conditional_routing_fe_with_recipes: appended " "column %r missing from scores; skipping recipe.",
                 name,
             )

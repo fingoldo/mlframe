@@ -22,6 +22,7 @@ from typing import Any, Dict, Optional, Tuple
 from mlframe.reporting.output import PlotOutputSpec
 from mlframe.reporting.renderers.base import get_renderer
 from mlframe.reporting.spec import FigureSpec
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -241,13 +242,15 @@ def render_and_save(
                     _results.append(f.result(timeout=60))
                 except _FutureTimeout:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                     _record_render_failure(timed_out=True)
-                    logger.warning(
+                    log_throttle(
+                        logger, "render_save_backend_future_timeout", logging.WARNING,
                         "render_and_save: backend future exceeded 60s; the worker thread is abandoned and one "
                         "chart is dropped. See get_render_failure_stats(). ", exc_info=True,
                     )
                 except Exception:
                     _record_render_failure(timed_out=False)
-                    logger.warning(
+                    log_throttle(
+                        logger, "render_save_backend_future_failed", logging.WARNING,
                         "render_and_save: backend future failed; one render output dropped. " "See get_render_failure_stats().",
                         exc_info=True,
                     )
@@ -265,7 +268,8 @@ def render_and_save(
                 _results.append(_do_backend(backend, fmts))
             except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate (see the multi-backend branch above)
                 _record_render_failure(timed_out=False)
-                logger.warning(
+                log_throttle(
+                    logger, "render_save_single_backend_failed", logging.WARNING,
                     "render_and_save: single-backend render failed; one render output dropped. " "See get_render_failure_stats().",
                     exc_info=True,
                 )

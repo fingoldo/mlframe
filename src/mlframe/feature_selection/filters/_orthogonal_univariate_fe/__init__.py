@@ -70,6 +70,7 @@ from ._orth_scoring_memo import (
     cached_raw_mi_baseline,
     cached_dense_finite_corr_matrix,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -414,7 +415,10 @@ def generate_univariate_basis_features(
             else:
                 chosen_basis = basis
             if chosen_basis not in _POLY_BASES:
-                logger.warning("generate_univariate_basis_features: unknown basis %r for col %r; skipping", chosen_basis, col)
+                log_throttle(
+                    logger, "univariate_basis_unknown_basis", logging.WARNING,
+                    "generate_univariate_basis_features: unknown basis %r for col %r; skipping", chosen_basis, col,
+                )
                 continue
             # FIT-ONCE-PER-COLUMN: the basis preprocess ``z`` + params depend ONLY on
             # (x, basis), NOT on degree - the degree only swaps the one-hot coefficient. Re-fitting it
@@ -442,7 +446,10 @@ def generate_univariate_basis_features(
                     )
                 out_cols[f"{col}__{code.get(chosen_basis, chosen_basis)}{d}"] = vals
             except Exception as exc:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-                logger.warning("generate_univariate_basis_features: basis=%r degree=%d on col=%r raised %r; skipping", chosen_basis, d, col, exc)
+                log_throttle(
+                    logger, "univariate_basis_eval_raised", logging.WARNING,
+                    "generate_univariate_basis_features: basis=%r degree=%d on col=%r raised %r; skipping", chosen_basis, d, col, exc,
+                )
                 continue
     return pd.DataFrame(out_cols, index=X.index)
 
@@ -841,7 +848,8 @@ def hybrid_orth_mi_fe_with_recipes(
                     chosen_degree = int(rest)
                     break
         if chosen_basis is None or chosen_degree is None:
-            logger.warning(
+            log_throttle(
+                logger, "univariate_basis_recipe_cannot_parse_basis_degree", logging.WARNING,
                 "hybrid_orth_mi_fe_with_recipes: cannot parse basis/degree " "from column name %r; skipping recipe build.",
                 name,
             )

@@ -22,6 +22,7 @@ from ..composite import (
 )
 from ..composite.post_shim import PrePipelinePredictShim
 from ._phase_composite_post_lag_predict import _LagPredictDeployableModel
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core._phase_composite_post")
 
@@ -191,7 +192,8 @@ def run_composite_moe_and_value_report(
                             pass
                     _lag_sel = np.asarray(_lag_model.predict(filtered_val_df), dtype=np.float64).reshape(-1)
             except Exception as _pred_err:
-                logger.warning(
+                log_throttle(
+                    logger, "composite_moe_expert_predict_failed", logging.WARNING,
                     "[CompositeMoE] target='%s': expert prediction on selection split failed (%s); "
                     "skipping value report + gate for this target.", _orig_tname, _pred_err,
                 )
@@ -224,7 +226,8 @@ def run_composite_moe_and_value_report(
                         _orig_tname, render_composite_value_report(_report),
                     )
                 except Exception as _rep_err:
-                    logger.warning(
+                    log_throttle(
+                        logger, "composite_value_report_build_failed", logging.WARNING,
                         "[CompositeValueReport] target='%s': report build failed (%s); continuing.",
                         _orig_tname, _rep_err,
                     )
@@ -267,7 +270,8 @@ def run_composite_moe_and_value_report(
                     _gate.guarantee_.get("pooled_rmse_per_expert", {}).get("lag"),
                 )
             except Exception as _gate_err:
-                logger.warning(
+                log_throttle(
+                    logger, "composite_moe_gate_fit_wrap_failed", logging.WARNING,
                     "[CompositeMoE] target='%s': gate fit/wrap failed (%s); deploy left unchanged.",
                     _orig_tname, _gate_err,
                 )

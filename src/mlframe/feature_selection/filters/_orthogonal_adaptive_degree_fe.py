@@ -50,6 +50,7 @@ from ._orthogonal_univariate_fe import (
     basis_route_by_signal,
     cached_raw_mi_baseline,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +182,8 @@ def generate_adaptive_degree_basis_features(
         # 0.77). Falls back to moment routing without a usable y.
         chosen_basis = basis_route_by_signal(x, y_arr, degrees=degree_range) if basis == "auto" else basis
         if chosen_basis not in _POLY_BASES:
-            logger.warning(
+            log_throttle(
+                logger, "adaptive_degree_unknown_basis", logging.WARNING,
                 "generate_adaptive_degree_basis_features: unknown basis %r "
                 "for col %r; skipping", chosen_basis, col,
             )
@@ -191,7 +193,8 @@ def generate_adaptive_degree_basis_features(
             try:
                 vals = _evaluate_basis_column(x, chosen_basis, int(d))
             except Exception as exc:
-                logger.warning(
+                log_throttle(
+                    logger, "adaptive_degree_eval_raised", logging.WARNING,
                     "generate_adaptive_degree_basis_features: basis=%r "
                     "degree=%d on col=%r raised %r; skipping",
                     chosen_basis, d, col, exc,
@@ -356,7 +359,8 @@ def hybrid_orth_mi_adaptive_degree_fe_with_recipes(
     for name in appended:
         row = name_to_row.get(name)
         if row is None:
-            logger.warning(
+            log_throttle(
+                logger, "adaptive_degree_recipe_appended_col_missing", logging.WARNING,
                 "hybrid_orth_mi_adaptive_degree_fe_with_recipes: appended " "column %r missing from scores; skipping recipe.",
                 name,
             )
