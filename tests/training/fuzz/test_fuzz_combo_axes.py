@@ -129,3 +129,66 @@ def test_F7_baselines_off_x_diagnostics_on_combo_reachable():
         baseline_diagnostics_enabled_cfg=True,
     )
     assert combo.canonical_key() != combo_both.canonical_key(), "F7: dummy_baselines_enabled_cfg should NOT canonicalise to True when False"
+
+
+# ---------------------------------------------------------------------------
+# 2026-07-25 audit: 6 unfuzzed MRMR fe_*_enable toggles + fe_budget_learning +
+# shap_proxied prescreen_ranking + composite gate_kind, all newly wired axes.
+# ---------------------------------------------------------------------------
+
+_NEW_MRMR_TOGGLE_AXES = (
+    "mrmr_fe_random_fourier_enable_cfg",
+    "mrmr_fe_sir_direction_enable_cfg",
+    "mrmr_fe_lof_enable_cfg",
+    "mrmr_fe_mahalanobis_density_enable_cfg",
+    "mrmr_fe_ordinal_pattern_enable_cfg",
+    "mrmr_fe_conditional_quantile_rank_enable_cfg",
+)
+
+
+@pytest.mark.parametrize("axis_name", _NEW_MRMR_TOGGLE_AXES)
+def test_new_mrmr_fe_toggle_axis_present_and_wired(axis_name):
+    """Each new MRMR fe_*_enable toggle must be in AXES and reach FuzzCombo, gated on use_mrmr_fs."""
+    assert axis_name in AXES, f"missing axis entry: {axis_name}"
+    values = AXES[axis_name]
+    assert False in values and True in values, f"axis must cover both False/True, got {values!r}"
+    combo_on = _make_combo(use_mrmr_fs=True, **{axis_name: True})
+    combo_off = _make_combo(use_mrmr_fs=True, **{axis_name: False})
+    assert getattr(combo_on, axis_name) is True
+    assert combo_on.canonical_key() != combo_off.canonical_key(), f"{axis_name} True/False must be distinct when use_mrmr_fs=True"
+    combo_gated = _make_combo(use_mrmr_fs=False, **{axis_name: True})
+    combo_gated_off = _make_combo(use_mrmr_fs=False, **{axis_name: False})
+    assert combo_gated.canonical_key() == combo_gated_off.canonical_key(), f"{axis_name} must canonicalise away when use_mrmr_fs=False"
+
+
+def test_new_mrmr_fe_budget_learning_axis_present_and_wired():
+    """``mrmr_fe_budget_learning_cfg`` must be in AXES and reach FuzzCombo, gated on use_mrmr_fs."""
+    assert "mrmr_fe_budget_learning_cfg" in AXES
+    values = AXES["mrmr_fe_budget_learning_cfg"]
+    assert False in values and True in values and "auto" in values
+    combo = _make_combo(use_mrmr_fs=True, mrmr_fe_budget_learning_cfg=True)
+    assert combo.mrmr_fe_budget_learning_cfg is True
+    combo_gated = _make_combo(use_mrmr_fs=False, mrmr_fe_budget_learning_cfg=True)
+    assert combo_gated.canonical_key() == _make_combo(use_mrmr_fs=False, mrmr_fe_budget_learning_cfg="auto").canonical_key()
+
+
+def test_new_shap_proxied_prescreen_ranking_axis_present_and_wired():
+    """``shap_proxied_prescreen_ranking_cfg`` must be in AXES and reach FuzzCombo, gated on use_shap_proxied_fs."""
+    assert "shap_proxied_prescreen_ranking_cfg" in AXES
+    values = AXES["shap_proxied_prescreen_ranking_cfg"]
+    assert "mean_abs_phi" in values and "banzhaf" in values
+    combo = _make_combo(use_shap_proxied_fs=True, shap_proxied_prescreen_ranking_cfg="banzhaf")
+    assert combo.shap_proxied_prescreen_ranking_cfg == "banzhaf"
+    combo_gated = _make_combo(use_shap_proxied_fs=False, shap_proxied_prescreen_ranking_cfg="banzhaf")
+    assert combo_gated.canonical_key() == _make_combo(use_shap_proxied_fs=False, shap_proxied_prescreen_ranking_cfg="mean_abs_phi").canonical_key()
+
+
+def test_new_composite_gate_kind_axis_present_and_wired():
+    """``composite_gate_kind_cfg`` must be in AXES and reach FuzzCombo, gated on composite_discovery_enabled_cfg x regression."""
+    assert "composite_gate_kind_cfg" in AXES
+    values = AXES["composite_gate_kind_cfg"]
+    assert "nnls" in values and "shapley" in values
+    combo = _make_combo(composite_discovery_enabled_cfg=True, target_type="regression", composite_gate_kind_cfg="shapley")
+    assert combo.composite_gate_kind_cfg == "shapley"
+    combo_gated = _make_combo(composite_discovery_enabled_cfg=False, target_type="regression", composite_gate_kind_cfg="shapley")
+    assert combo_gated.canonical_key() == _make_combo(composite_discovery_enabled_cfg=False, target_type="regression", composite_gate_kind_cfg="nnls").canonical_key()

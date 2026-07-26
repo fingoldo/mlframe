@@ -32,6 +32,7 @@ from .utils import (
     _defensive_copy_and_expand_multilabel_regression,
     _init_composite_discovery_metadata,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +216,8 @@ def run_composite_target_discovery(
                 is_picked_target=_is_picked_eff,
                 threshold=_extreme_ar_threshold,
             ):
-                logger.warning(
+                log_throttle(
+                    logger, "composite_discovery_extreme_ar_skip_fired", logging.WARNING,
                     "[CompositeTargetDiscovery] extreme-AR + group-aware "
                     "skip fired for target='%s' (lag1_autocorr_per_group=%.4f%s >= %.2f, group-aware split active, "
                     "zoo is bounded-only). Residual targets have near-zero signal on unseen groups and "
@@ -244,7 +246,8 @@ def run_composite_target_discovery(
                 # blocking precondition is visible in one shot -- in particular whether the target_distribution_report
                 # (which carries lag1_autocorr_per_group / picked_target_name / prefer_group_aware) actually reached
                 # discovery: an empty ``_td_report`` makes lag1=None + recommended=False, silently disabling the skip.
-                logger.warning(
+                log_throttle(
+                    logger, "composite_discovery_extreme_ar_skip_not_fired", logging.WARNING,
                     "[CompositeTargetDiscovery] extreme-AR skip did NOT fire for target=%r: skip_enabled=%s "
                     "lag1_report=%r lag1_eff=%r recomputed=%s (threshold=%.2f) group_aware_active=%s (recommended=%s "
                     "splitter=%s use_groups=%s gid=%s) bounded_only_zoo=%s zoo=%s picked_target_name=%r is_picked_eff=%s "
@@ -303,7 +306,8 @@ def run_composite_target_discovery(
 
             if filtered_train_idx is None:
                 # _y_arr[None] yields shape (1, n), so the row-align guard below would print a misleading "y[1] vs df[N]"; surface the real cause instead.
-                logger.warning(
+                log_throttle(
+                    logger, "composite_discovery_missing_filtered_train_idx", logging.WARNING,
                     "[CompositeTargetDiscovery] filtered_train_idx missing; " "skipping discovery for target='%s'.",
                     _tname_disc,
                 )
@@ -316,7 +320,8 @@ def run_composite_target_discovery(
 
             _y_train_aligned = _y_arr[filtered_train_idx]
             if len(_y_train_aligned) != len(filtered_train_df):
-                logger.warning(
+                log_throttle(
+                    logger, "composite_discovery_row_align_mismatch", logging.WARNING,
                     "[CompositeTargetDiscovery] target='%s' row-align mismatch "
                     "(y[%d] vs filtered_train_df[%d]); skipping discovery.",
                     _tname_disc, len(_y_train_aligned), len(filtered_train_df),
@@ -496,13 +501,15 @@ def run_composite_target_discovery(
                                 len(_rereg), sorted(_rereg),
                             )
                     except Exception as _rereg_err:  # best-effort: a cache-replay re-registration miss just means the transform re-registers itself lazily on next use
-                        logger.warning(
+                        log_throttle(
+                            logger, "composite_discovery_cache_replay_rereg_failed", logging.WARNING,
                             "[CompositeTargetDiscovery] cache replay auto-chain re-registration failed: %s", _rereg_err,
                         )
                 except Exception as _replay_err:
                     # Spec rebuild failed: without it the forward-applier adds no T columns, yet specs were already claimed in metadata above.
                     # Clear the claimed specs so metadata matches the (no-column) reality; full re-discovery fallback is a larger fix.
-                    logger.warning(
+                    log_throttle(
+                        logger, "composite_discovery_cache_replay_spec_rebuild_failed", logging.WARNING,
                         "[CompositeTargetDiscovery] cache replay spec rebuild "
                         "failed for target='%s' (key=%s): %s; clearing claimed "
                         "specs to avoid a no-column divergence.",
@@ -559,13 +566,14 @@ def run_composite_target_discovery(
                         _disc_cfg, "use_stacked_discovery_residual", False,
                     ))
                     if _use_stacked and _use_stacked_residual:
-                        logger.warning(
+                        log_throttle(
+                            logger, "composite_discovery_both_stacked_flags_set", logging.WARNING,
                             "[CompositeTargetDiscovery] both "
                             "use_stacked_discovery=True and "
                             "use_stacked_discovery_residual=True set; "
                             "residual mode wins (more direct route to "
                             "residual-of-residual structure). Disable one "
-                            "flag to silence this warning."
+                            "flag to silence this warning.",
                         )
                     # When a time_column is configured the data is
                     # temporally ordered, so the stacked OOF-prediction step
@@ -621,7 +629,8 @@ def run_composite_target_discovery(
                                     else:  # pandas
                                         _time_ordering = _disc_df[_tcol].to_numpy()
                             except Exception as _tc_err:  # best-effort: falls back to base-monotonicity time detection below
-                                logger.warning(
+                                log_throttle(
+                                    logger, "composite_discovery_time_column_extract_failed", logging.WARNING,
                                     "[CompositeTargetDiscovery] time_column='%s' "
                                     "could not be extracted (%s); discovery falls "
                                     "back to base-monotonicity time detection.",
@@ -653,7 +662,8 @@ def run_composite_target_discovery(
                             val_y=_disc_val_y,
                         )
                 except Exception as _disc_err:  # best-effort: training continues without composite expansion for this target
-                    logger.warning(
+                    log_throttle(
+                        logger, "composite_discovery_fit_failed", logging.WARNING,
                         "[CompositeTargetDiscovery] fit failed for target='%s': %s. " "Per-target training continues without composite expansion.",
                         _tname_disc,
                         _disc_err,
