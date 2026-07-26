@@ -20,13 +20,20 @@ _REFRESH_FLAGS = [
     "--refresh-annotation-baseline",
     "--refresh-audit-metadata-baseline",
     "--refresh-bare-except-baseline",
+    "--refresh-cache-mutation-lock-baseline",
     "--refresh-console-unicode-baseline",
     "--refresh-debt-baseline",
     "--refresh-docstring-baseline",
+    "--refresh-fe-noop-copy-baseline",
     "--refresh-logger-baseline",
     "--refresh-mojibake-baseline",
     "--refresh-mutable-defaults-baseline",
+    "--refresh-orth-fe-recipes-no-freeze-baseline",
     "--refresh-resource-handle-baseline",
+    "--refresh-source-proxy-baseline",
+    "--refresh-stale-not-wired-docstring-baseline",
+    "--refresh-unlocked-module-cache-baseline",
+    "--refresh-verbose-gated-except-baseline",
 ]
 
 

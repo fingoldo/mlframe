@@ -151,11 +151,14 @@ def make_fast_mrmr(*, fe: bool = False, dcd: bool = False, **overrides):
     if dcd:
         kwargs["dcd_enable"] = True
     kwargs.update(overrides)
-    # The hybrid-orth family is default-ON, so it is suppressed by this preset's ``fe_max_steps=0``
-    # ("no FE at all") along with every other FE stage. A caller that explicitly asks for hybrid-orth wants
-    # that stage to RUN, so give it the minimum budget it needs -- otherwise the fit is silently raw-only and
-    # every hybrid assertion reduces to "the roster is empty". An explicit fe_max_steps override still wins.
-    if kwargs.get("fe_hybrid_orth_enable") and "fe_max_steps" not in overrides:
+    # Every FE family is suppressed by this preset's ``fe_max_steps=0`` ("no FE at all"), which is
+    # unconditional by design. A caller that explicitly switches a family ON wants that stage to RUN, so give
+    # it the minimum budget -- otherwise the fit is silently raw-only and every assertion about engineered
+    # columns degenerates to "the roster is empty", which passes for the wrong reason or fails confusingly.
+    # Matches any ``fe_*_enable`` (including sub-features like ``fe_hybrid_orth_ksg_enable``, which turn on a
+    # leg of a family without naming the family itself). Only a TRUTHY explicit opt-in counts: passing a flag
+    # as False is how callers pin a family off, and must not hand out a budget. An explicit fe_max_steps wins.
+    if "fe_max_steps" not in overrides and any(k.startswith("fe_") and k.endswith("_enable") and v for k, v in overrides.items()):
         kwargs["fe_max_steps"] = 1
     return MRMR(**kwargs)
 
