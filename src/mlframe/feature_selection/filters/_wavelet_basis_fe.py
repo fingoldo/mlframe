@@ -406,17 +406,24 @@ def _heldout_incremental_mi_prep(x: np.ndarray, y: np.ndarray, *, nbins: int = 1
         # joint-side term, computed per leg in _heldout_incremental_mi_from_prep). BATCHED (launch-reduction):
         # stack the n_perm permuted-y columns and score them all in ONE binned_mi_from_codes_gpu workload -
         # the SAME plain plug-in-MI kernel _binned_mi(discrete) uses, so selection-equivalent.
-        try:
-            import cupy as cp
+        # cupy's own presence check ignores the global GPU opt-out, so without this the batched null would
+        # route to the device on a run that declared no GPU. bm=None falls through to the exact host kernel.
+        from ._gpu_policy import gpu_globally_disabled
 
-            from ._fe_batched_mi import binned_mi_from_codes_gpu
-
-            n_cls = int(y_va.max()) + 1 if y_va.size else 1
-            Yp_d = cp.asarray(Yp)
-            xc_d = cp.asarray(np.ascontiguousarray(xc.astype(np.int64)))
-            bm = np.asarray(binned_mi_from_codes_gpu(Yp_d, xc_d, kx_per_col=[n_cls] * n_perm, ky=int(base_nb)), dtype=np.float64)
-        except Exception:
+        if gpu_globally_disabled():
             bm = None
+        else:
+            try:
+                import cupy as cp
+
+                from ._fe_batched_mi import binned_mi_from_codes_gpu
+
+                n_cls = int(y_va.max()) + 1 if y_va.size else 1
+                Yp_d = cp.asarray(Yp)
+                xc_d = cp.asarray(np.ascontiguousarray(xc.astype(np.int64)))
+                bm = np.asarray(binned_mi_from_codes_gpu(Yp_d, xc_d, kx_per_col=[n_cls] * n_perm, ky=int(base_nb)), dtype=np.float64)
+            except Exception:
+                bm = None
         if bm is None:
             bm = np.empty(n_perm, dtype=np.float64)
             for _p in range(n_perm):
@@ -464,18 +471,22 @@ def _heldout_incremental_mi_from_prep(prep: Optional[dict], leg: np.ndarray) -> 
         joint_f = joint.astype(np.float64)
         joint_nb = int(joint.max()) + 1
         null = None
-        try:
-            import cupy as cp
+        # Same opt-out gate as the bm side above: the host fallback below is exact, so declining costs only speed.
+        from ._gpu_policy import gpu_globally_disabled
 
-            from ._fe_batched_mi import binned_mi_from_codes_gpu
+        if not gpu_globally_disabled():
+            try:
+                import cupy as cp
 
-            n_cls = int(y_va.max()) + 1 if y_va.size else 1
-            Yp_d = cp.asarray(Yp)
-            joint_d = cp.asarray(np.ascontiguousarray(joint.astype(np.int64)))
-            jm = np.asarray(binned_mi_from_codes_gpu(Yp_d, joint_d, kx_per_col=[n_cls] * n_perm, ky=int(joint_nb)), dtype=np.float64)
-            null = jm - bm
-        except Exception:
-            null = None
+                from ._fe_batched_mi import binned_mi_from_codes_gpu
+
+                n_cls = int(y_va.max()) + 1 if y_va.size else 1
+                Yp_d = cp.asarray(Yp)
+                joint_d = cp.asarray(np.ascontiguousarray(joint.astype(np.int64)))
+                jm = np.asarray(binned_mi_from_codes_gpu(Yp_d, joint_d, kx_per_col=[n_cls] * n_perm, ky=int(joint_nb)), dtype=np.float64)
+                null = jm - bm
+            except Exception:
+                null = None
         if null is None:
             null = np.empty(n_perm, dtype=np.float64)
             for _p in range(n_perm):

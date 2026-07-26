@@ -45,6 +45,13 @@ def cmi_use_cuda(n: int, p: int) -> bool | None:
     The ``p`` axis is snapped to the nearest swept bucket so an arbitrary candidate count maps to a measured
     region. STRICT GPU mode (``MLFRAME_FE_GPU_STRICT=1``, diagnostic, default OFF) forces CUDA: the CPU/CUDA
     backends are numerically equivalent (~1e-9), so this is selection-equivalent."""
+    # The global GPU opt-out outranks both the tuning cache and STRICT mode: a measured "CUDA is faster"
+    # verdict says nothing about a run that asked for no GPU at all. False (not None) so the caller takes the
+    # CPU backend outright instead of falling through to its hardcoded bootstrap, which could re-approve CUDA.
+    from mlframe.feature_selection.filters._gpu_policy import gpu_globally_disabled
+
+    if gpu_globally_disabled():
+        return False
     try:
         from mlframe.feature_selection.filters._fe_gpu_strict import fe_gpu_strict_enabled
         # Pass THIS call's own (n, p) - 2026-07-11 fix. Calling with no args made the per-call work floor a

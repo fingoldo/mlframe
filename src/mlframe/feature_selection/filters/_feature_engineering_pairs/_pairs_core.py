@@ -125,7 +125,7 @@ logger = logging.getLogger(__name__)
 # _fe_gpu_discretize_enabled/_fe_gpu_binning_enabled are
 # called up to 3x per pair, once per chunk, and once per ext-val tied-leader-set (unlike their sibling
 # resolve_fe_dispatch_env_gate(), which IS hoisted once per check_prospective_fe_pairs call via
-# _fe_env_gate) - each call re-reads env vars, imports+calls is_cuda_available(), and (on the default
+# _fe_env_gate) - each call re-reads env vars, imports+calls cuda_available_for_run(), and (on the default
 # "auto" setting) a kernel_tuning_cache-backed backend-choice lookup, violating the repo's own "hoist the
 # dispatch decision out of hot loops" rule. Threading a hoisted bool through the 4-file call graph
 # (_pairs_core/_pairs_score/_pairs_chunks/_pairs_emit) would be the "proper" fix but touches a lot of the
@@ -184,11 +184,11 @@ def _fe_gpu_discretize_enabled_uncached(n_rows: int, n_cands: int) -> bool:
     if _env in ("0", "false", "no", "off"):
         return False
     try:
-        from pyutilz.core.pythonlib import is_cuda_available
-        if not is_cuda_available():
+        from .._gpu_policy import cuda_available_for_run
+        if not cuda_available_for_run():
             return False
     except Exception as e:
-        logger.debug("_fe_gpu_discretize_enabled_uncached: is_cuda_available() check failed, defaulting to CPU: %s", e)
+        logger.debug("_fe_gpu_discretize_enabled_uncached: cuda_available_for_run() check failed, defaulting to CPU: %s", e)
         return False
     if _env in ("1", "true", "yes", "on"):
         return True
@@ -234,11 +234,11 @@ def _fe_gpu_binning_enabled_uncached(n_rows: int, n_cands: int) -> bool:
     if _env in ("0", "false", "no", "off"):
         return False
     try:
-        from pyutilz.core.pythonlib import is_cuda_available
-        if not is_cuda_available():
+        from .._gpu_policy import cuda_available_for_run
+        if not cuda_available_for_run():
             return False
     except Exception as e:
-        logger.debug("_fe_gpu_binning_enabled_uncached: is_cuda_available() check failed, defaulting to CPU: %s", e)
+        logger.debug("_fe_gpu_binning_enabled_uncached: cuda_available_for_run() check failed, defaulting to CPU: %s", e)
         return False
     if _env in ("1", "true", "yes", "on"):
         return True

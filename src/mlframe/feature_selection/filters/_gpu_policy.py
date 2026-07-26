@@ -32,4 +32,28 @@ def gpu_globally_disabled() -> bool:
     return False
 
 
-__all__ = ["gpu_globally_disabled"]
+def cuda_available_for_run() -> bool:
+    """True when a CUDA device is present AND this run is allowed to use it.
+
+    The predicate every CPU-vs-GPU dispatch should branch on. A bare ``is_cuda_available()`` answers only
+    "does the machine have a GPU", which is not the question: it misses ``MLFRAME_DISABLE_GPU=1`` entirely
+    (numba honours ``CUDA_VISIBLE_DEVICES=""``, nothing underneath knows about the mlframe flag), so a run
+    that explicitly declared no GPU still routes to the device. Every such site is a silent divergence -
+    no exception, just different backends and, where the paths are not bit-identical, a different selection.
+    """
+    if gpu_globally_disabled():
+        return False
+    try:
+        from pyutilz.core.pythonlib import is_cuda_available
+
+        return bool(is_cuda_available())
+    except Exception:
+        try:
+            from numba import cuda as _c
+
+            return bool(getattr(_c, "is_available", lambda: False)())
+        except Exception:
+            return False
+
+
+__all__ = ["gpu_globally_disabled", "cuda_available_for_run"]

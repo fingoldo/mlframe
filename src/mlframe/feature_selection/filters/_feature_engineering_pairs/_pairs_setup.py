@@ -335,8 +335,8 @@ def _build_operand_table(
                             _want_gpu = unary_elementwise_backend_choice(int(vals.size), array_location(vals)) == "cupy"
                             if _want_gpu and tr_name in gpu_compatible_unary_names():
                                 try:
-                                    from pyutilz.core.pythonlib import is_cuda_available
-                                    if is_cuda_available():
+                                    from .._gpu_policy import cuda_available_for_run
+                                    if cuda_available_for_run():
                                         import cupy as cp
                                         _cp_fn = getattr(cp, tr_name, None)
                                         if _cp_fn is not None:
