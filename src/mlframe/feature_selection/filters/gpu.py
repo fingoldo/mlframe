@@ -443,6 +443,11 @@ from ._gpu_batched import (  # noqa: F401
     mi_direct_gpu_batched_streamed,
 )
 
+# Permutation MIs are staged on the device and read back in chunks of this many, so D2H traffic scales as
+# npermutations/chunk instead of once per permutation. 32 mirrors the crossover mi_direct_gpu_batched
+# already documents for its own batch granularity.
+_PERM_READBACK_CHUNK = 32
+
 
 def mi_direct_gpu(
     factors_data,
@@ -619,28 +624,47 @@ def mi_direct_gpu(
         # floats is a bijection) - preserving the pooled buffer identity downstream consumers rely on.
         _shuf_rng = cp.random.default_rng(base_seed)
         _shuf_n = classes_y_safe.shape[0]
-        for _i in range(npermutations):
-            classes_y_safe[:] = classes_y_safe[cp.argsort(_shuf_rng.random(_shuf_n))]
-            joint_counts.fill(0)
-            compute_joint_hist_cuda(
-                (grid_size,),
-                (block_size,),
-                (classes_x, classes_y_safe, joint_counts, len(classes_x), len(freqs_y)),
-            )
-            compute_mi_from_classes_cuda(
-                (1,),
-                (1,),
-                (classes_x, freqs_x, classes_y_safe, freqs_y_safe, joint_counts, totals, len(classes_x), len(freqs_x), len(freqs_y)),
-            )
-
-            mi = totals.get()[0]
-            _null_sum += float(mi)  # accumulate for the empirical null mean (return_null_mean path)
-
-            if mi >= original_mi:
-                nfailed += 1
-                if nfailed >= max_failed:
-                    original_mi = 0.0
-                    break
+        # Per-permutation ``totals.get()`` cost one FULL device sync per permutation, so D2H traffic scaled
+        # linearly with the permutation budget and each read stalled the pipeline behind the next launch.
+        # The MIs are instead staged into a small device buffer (device-to-device, no sync) and read back one
+        # chunk at a time. The host-side pass over each chunk is byte-for-byte the original loop body, so
+        # nfailed, _nchecked and the break point are identical - the only difference is that up to
+        # ``_PERM_READBACK_CHUNK - 1`` extra permutations may be COMPUTED before a short-circuit is noticed,
+        # matching the batch-granularity contract ``mi_direct_gpu_batched`` already documents. On the
+        # return_null_mean path there is nothing to lose at all: max_failed is lifted to the full budget just
+        # above, precisely so the early stop cannot truncate the null.
+        _chunk = min(_PERM_READBACK_CHUNK, npermutations)
+        _mi_buf = cp.empty(_chunk, dtype=totals.dtype)
+        _done = 0
+        _stop = False
+        while _done < npermutations and not _stop:
+            _m = min(_chunk, npermutations - _done)
+            for _j in range(_m):
+                classes_y_safe[:] = classes_y_safe[cp.argsort(_shuf_rng.random(_shuf_n))]
+                joint_counts.fill(0)
+                compute_joint_hist_cuda(
+                    (grid_size,),
+                    (block_size,),
+                    (classes_x, classes_y_safe, joint_counts, len(classes_x), len(freqs_y)),
+                )
+                compute_mi_from_classes_cuda(
+                    (1,),
+                    (1,),
+                    (classes_x, freqs_x, classes_y_safe, freqs_y_safe, joint_counts, totals, len(classes_x), len(freqs_x), len(freqs_y)),
+                )
+                _mi_buf[_j] = totals[0]  # stays on the device; the readback below is the only D2H
+            _host_mi = cp.asnumpy(_mi_buf[:_m])
+            for _j in range(_m):
+                mi = float(_host_mi[_j])
+                _i = _done + _j
+                _null_sum += mi  # accumulate for the empirical null mean (return_null_mean path)
+                if mi >= original_mi:
+                    nfailed += 1
+                    if nfailed >= max_failed:
+                        original_mi = 0.0
+                        _stop = True
+                        break
+            _done += _m
         confidence = 1 - nfailed / (_i + 1)
         _nchecked = _i + 1
 
