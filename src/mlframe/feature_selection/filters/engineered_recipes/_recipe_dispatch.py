@@ -295,4 +295,22 @@ def apply_recipe(
         # column through the stored quantile edges and gathers the per-cell statistic; reads only X.
         from .._binned_numeric_agg_fe import apply_binned_numeric_agg
         return apply_binned_numeric_agg(X, dict(recipe.extra))
+    if recipe.kind == "conditional_quantile_rank":
+        from .._conditional_quantile_rank_fe import _apply_conditional_quantile_rank_recipe
+        return _apply_conditional_quantile_rank_recipe(recipe, X)
+    if recipe.kind == "ordinal_pattern_te":
+        from .._ordinal_pattern_fe import _apply_ordinal_pattern_te_recipe
+        return _apply_ordinal_pattern_te_recipe(recipe, X)
+    if recipe.kind == "random_fourier":
+        from .._random_fourier_features_fe import _apply_random_fourier_recipe
+        return _apply_random_fourier_recipe(recipe, X)
+    if recipe.kind == "sir_direction":
+        from .._sliced_inverse_regression_fe import _apply_sir_direction_recipe
+        return _apply_sir_direction_recipe(recipe, X)
+    if recipe.kind == "lof_score":
+        from .._lof_fe import _apply_lof_recipe
+        return _apply_lof_recipe(recipe, X)
+    if recipe.kind == "mahalanobis_density":
+        from .._mahalanobis_density_fe import _apply_mahalanobis_density_recipe
+        return _apply_mahalanobis_density_recipe(recipe, X)
     raise ValueError(f"Unknown recipe kind: {recipe.kind!r}")
