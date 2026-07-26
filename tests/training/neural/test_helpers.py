@@ -162,6 +162,36 @@ class TestToTensorAny:
 
         assert tensor.device.type == "cuda"
 
+    # --- safe=True object-dtype coercion (a column numeric at fit time can carry a categorical
+    # null-fill sentinel, e.g. "__MISSING__", at predict time if a caller strips the DataFrame
+    # before to_tensor_any; a raw object ndarray previously crashed torch.from_numpy outright) ---
+
+    def test_object_dtype_2d_array_with_sentinel_string_is_coerced_not_raised(self):
+        """A 2D object ndarray with a stray sentinel string among otherwise-numeric values must be
+        coerced (sentinel -> NaN), not raise torch.from_numpy's raw TypeError."""
+        arr = np.array([[1.0, 2.0], ["__MISSING__", 4.0], [5.0, 6.0]], dtype=object)
+        tensor = to_tensor_any(arr, dtype=torch.float32)
+
+        assert isinstance(tensor, torch.Tensor)
+        assert tensor.shape == (3, 2)
+        assert torch.isnan(tensor[1, 0])
+        assert torch.allclose(tensor[[0, 2]], torch.tensor([[1.0, 2.0], [5.0, 6.0]]))
+
+    def test_object_dtype_1d_array_with_sentinel_string_is_coerced_not_raised(self):
+        """A 1D object ndarray (Series-derived) with a sentinel string is coerced (sentinel -> NaN)."""
+        arr = np.array([1.0, "__MISSING__", 3.0], dtype=object)
+        tensor = to_tensor_any(arr, dtype=torch.float32)
+
+        assert isinstance(tensor, torch.Tensor)
+        assert torch.isnan(tensor[1])
+        assert torch.allclose(tensor[[0, 2]], torch.tensor([1.0, 3.0]))
+
+    def test_object_dtype_array_unsafe_raises(self):
+        """safe=False must preserve the original torch.from_numpy TypeError (no silent coercion)."""
+        arr = np.array([1.0, "__MISSING__", 3.0], dtype=object)
+        with pytest.raises(TypeError):
+            to_tensor_any(arr, dtype=torch.float32, safe=False)
+
     # --- Edge Cases ---
 
     def test_empty_dataframe(self):

@@ -26,12 +26,27 @@ def custom_collate_fn(batch):
     return batch
 
 
+def _coerce_object_ndarray_numeric(data: np.ndarray) -> np.ndarray:
+    """Best-effort per-column coercion of an object-dtype ndarray to float64 via ``pandas.to_numeric``.
+
+    An upstream caller that strips DataFrame-ness before reaching here (e.g. sklearn's
+    ``permutation_importance`` or a ``TransformedTargetRegressor`` wrapper passing a bare ndarray) can
+    still carry a stray sentinel string (the ``"__MISSING__"`` categorical null-fill convention landing on
+    a column that was numeric at fit time) even though every genuine value is numeric. ``errors="coerce"``
+    turns unparsable entries into NaN instead of leaving the whole array un-convertible.
+    """
+    if data.ndim == 1:
+        return np.asarray(pd.to_numeric(pd.Series(data), errors="coerce").to_numpy(dtype=np.float64))
+    return np.asarray(pd.DataFrame(data).apply(pd.to_numeric, errors="coerce").to_numpy(dtype=np.float64))
+
+
 def to_tensor_any(data, dtype=torch.float32, device=None, safe=True):
     """
     Converts pandas / polars / numpy / torch input to a torch.Tensor
     with minimal copies and correct dtype.
 
-    If safe=True, ignores categorical/object columns gracefully.
+    If safe=True, non-numeric (object-dtype) values are coerced numeric (unparsable -> NaN) rather than
+    raising a raw ``torch.from_numpy`` ``TypeError``.
     """
 
     # --- Pandas
@@ -41,6 +56,8 @@ def to_tensor_any(data, dtype=torch.float32, device=None, safe=True):
     elif isinstance(data, pl.DataFrame):
         data = data.to_torch()
     if isinstance(data, np.ndarray):
+        if safe and data.dtype == object:
+            data = _coerce_object_ndarray_numeric(data)
         # Pandas 2.x / PyArrow-backed Series can return read-only ndarrays via to_numpy(); torch emits
         # "The given NumPy array is not writeable" UserWarning in that case. Bench (bench_torch_from_numpy.py
         # 2026-05-21, shape=(1M, 50)): direct from_numpy on read-only is 0.009 ms/iter while .copy() to
