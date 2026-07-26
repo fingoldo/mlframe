@@ -77,6 +77,45 @@ def _conflicts_in_dict(node: ast.Dict) -> list[str]:
     return enabled if budget_zero else []
 
 
+def _pins_zero_budget(node: ast.AST) -> bool:
+    """True if this call or dict literal sets ``fe_max_steps`` to 0."""
+    if isinstance(node, ast.Call):
+        return any(kw.arg == "fe_max_steps" and _is_zero(kw.value) for kw in node.keywords)
+    if isinstance(node, ast.Dict):
+        return any(isinstance(k, ast.Constant) and k.value == "fe_max_steps" and _is_zero(v) for k, v in zip(node.keys, node.values))
+    return False
+
+
+def _zero_budget_preset_merged_with_a_call(tree: ast.Module) -> list[tuple[int, str]]:
+    """``[(lineno, "merged-preset"), ...]`` for a zero-budget preset merged with flags from a CALL.
+
+    The literal check above cannot see through ``kwargs.update(_all_on_kwargs())``: the flags live in
+    another function, so a preset pinning ``fe_max_steps=0`` and then merging in an externally-built FE
+    config reads as harmless and is not. That is exactly how the mega-fixture factory came to fit raw-only
+    while its name and its assertions both said "all on".
+
+    Reported per enclosing function, and only when the merge argument is a call - merging a literal dict is
+    already covered by the direct checks.
+    """
+    out: list[tuple[int, str]] = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if not any(_pins_zero_budget(n) for n in ast.walk(fn)):
+            continue
+        for n in ast.walk(fn):
+            if (
+                isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "update"
+                and len(n.args) == 1
+                and isinstance(n.args[0], ast.Call)
+            ):
+                out.append((fn.lineno, "merged-preset"))
+                break
+    return out
+
+
 def _build_offending_set() -> set[str]:
     """``{"relpath:lineno:flag", ...}`` for every construction that enables a family under a zero budget."""
     out: set[str] = set()
@@ -96,6 +135,8 @@ def _build_offending_set() -> set[str]:
                 flags = _conflicts_in_dict(node)
             for flag in flags:
                 out.add(f"{rel}:{node.lineno}:{flag}")
+        for lineno, what in _zero_budget_preset_merged_with_a_call(tree):
+            out.add(f"{rel}:{lineno}:{what}")
     return out
 
 

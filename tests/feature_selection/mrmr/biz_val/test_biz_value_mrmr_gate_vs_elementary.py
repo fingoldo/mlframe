@@ -76,7 +76,7 @@ def test_case1_clean_elementary_cd_form_recovered_with_gate_on():
     y = a**2 / b + f / 5.0 + np.log(c) * np.sin(d)
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
 
-    fs = MRMR(verbose=0)  # fe_conditional_gate_enable defaults to True
+    fs = MRMR(verbose=0, fe_max_steps=2)  # fe_conditional_gate_enable defaults to True
     fs.fit(df, pd.Series(y, name="y"))
 
     yb = _binned(y)
@@ -109,7 +109,7 @@ def test_case2_warped_cd_interaction_still_captured_with_gate_on():
     y = 0.2 * a**2 / b + f / 5.0 + np.log(c * 2) * np.sin(d / 3)
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
 
-    fs = MRMR(verbose=0)  # gate ON
+    fs = MRMR(verbose=0, fe_max_steps=2)  # gate ON
     fs.fit(df, pd.Series(y, name="y"))
 
     yb = _binned(y)

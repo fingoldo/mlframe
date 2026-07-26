@@ -289,7 +289,10 @@ class TestLayer52_CompositeAllFEOnBenchmark:
         kwargs = dict(
             verbose=0,
             interactions_max_order=1,
-            fe_max_steps=0,
+            # An all-FE-on composite needs an FE budget: fe_max_steps=0 is the unconditional "no feature
+            # engineering at all" contract and outranks every family flag merged in below, so this fit was
+            # raw-only and the assertions about engineered columns / provenance had nothing to measure.
+            fe_max_steps=1,
             random_seed=0,
             fe_ntop_features=100,
             quantization_nbins=10,
