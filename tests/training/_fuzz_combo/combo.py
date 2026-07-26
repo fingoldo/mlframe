@@ -813,6 +813,24 @@ class FuzzCombo:
     shap_proxied_residual_passes_cfg: int = 0
     shap_proxied_residual_merge_cfg: str = "rescue"
     shap_proxied_refine_mode_cfg: str = "greedy"
+    # 2026-07-25 audit -- 6 unfuzzed MRMR fe_*_enable toggles (same family as the 34-toggle sweep).
+    # Defaults source-verified against MRMR.__init__ (_mrmr_class.py: fe_conditional_quantile_rank_enable=2817,
+    # fe_ordinal_pattern_enable=2827, fe_random_fourier_enable=2838, fe_sir_direction_enable=2849,
+    # fe_lof_enable=2860, fe_mahalanobis_density_enable=2870).
+    mrmr_fe_random_fourier_enable_cfg: bool = False
+    mrmr_fe_sir_direction_enable_cfg: bool = False
+    mrmr_fe_lof_enable_cfg: bool = False
+    mrmr_fe_mahalanobis_density_enable_cfg: bool = False
+    mrmr_fe_ordinal_pattern_enable_cfg: bool = False
+    mrmr_fe_conditional_quantile_rank_enable_cfg: bool = False
+    # gt_07 fe_budget_learning (MRMR.__init__, _mrmr_class.py:1997): opt-in-once-then-remembered
+    # per-dataset-fingerprint FE budget cache. "auto" (default) probes the cache and no-ops if
+    # nothing cached; True forces learning; False disables.
+    mrmr_fe_budget_learning_cfg: "bool | str" = "auto"
+    # gt_03 phase-1 Banzhaf prescreen ranking (ShapProxiedFS, shap_proxied_fs/__init__.py:210).
+    shap_proxied_prescreen_ranking_cfg: str = "mean_abs_phi"
+    # gt_05 Shapley model-weighting/pruning gate kind (_composite_target_discovery_config.py:500).
+    composite_gate_kind_cfg: str = "nnls"
 
     # DEFAULT allowlist mirrors DEFAULTS_CHANGELOG.md's documented
     # ``mlframe_models`` default (["cb","lgb","xgb","mlp","linear"]).
@@ -2199,6 +2217,21 @@ class FuzzCombo:
             (self.shap_proxied_residual_merge_cfg if (self.use_shap_proxied_fs and self.shap_proxied_residual_passes_cfg > 0) else "rescue"),
             # refine_mode only fires inside the within_cluster_refine branch (_shap_proxied_fit.py:840).
             (self.shap_proxied_refine_mode_cfg if (self.use_shap_proxied_fs and self.shap_proxied_within_cluster_refine_cfg) else "greedy"),
+            # 2026-07-25 audit -- 6 unfuzzed MRMR fe_*_enable toggles (same family as the 34-toggle
+            # sweep); each collapses to its MRMR.__init__ default (False) outside use_mrmr_fs.
+            self.mrmr_fe_random_fourier_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_sir_direction_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_lof_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_mahalanobis_density_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_ordinal_pattern_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_conditional_quantile_rank_enable_cfg if self.use_mrmr_fs else False,
+            # gt_07 fe_budget_learning: collapses to MRMR.__init__'s "auto" default outside use_mrmr_fs.
+            (self.mrmr_fe_budget_learning_cfg if self.use_mrmr_fs else "auto"),
+            # gt_03 Banzhaf prescreen ranking: only matters once ShapProxiedFS is active.
+            (self.shap_proxied_prescreen_ranking_cfg if self.use_shap_proxied_fs else "mean_abs_phi"),
+            # gt_05 composite gate_kind: only matters once composite target discovery is active on a
+            # regression target (same gate as the other composite_*_cfg axes above).
+            (self.composite_gate_kind_cfg if (self.composite_discovery_enabled_cfg and self.target_type == "regression") else "nnls"),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":

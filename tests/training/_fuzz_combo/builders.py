@@ -262,6 +262,15 @@ def build_mrmr_kwargs_from_flat(
     fe_mi_greedy_cmi_enable: bool = False,
     fe_cat_triple_enable: bool = False,
     fe_rankgauss_enable: bool = False,
+    # 2026-07-25 audit -- 6 unfuzzed MRMR fe_*_enable toggles (same family as the 34-toggle sweep)
+    # + gt_07 fe_budget_learning. Param names match MRMR.__init__ verbatim.
+    fe_random_fourier_enable: bool = False,
+    fe_sir_direction_enable: bool = False,
+    fe_lof_enable: bool = False,
+    fe_mahalanobis_density_enable: bool = False,
+    fe_ordinal_pattern_enable: bool = False,
+    fe_conditional_quantile_rank_enable: bool = False,
+    fe_budget_learning: "bool | str" = "auto",
 ) -> Optional[Dict[str, Any]]:
     """Build the mrmr_kwargs dict passed to FeatureSelectionConfig.
     Returns None when use_mrmr_fs=False so the FS step is a no-op.
@@ -451,6 +460,13 @@ def build_mrmr_kwargs_from_flat(
         "fe_mi_greedy_cmi_enable": fe_mi_greedy_cmi_enable,
         "fe_cat_triple_enable": fe_cat_triple_enable,
         "fe_rankgauss_enable": fe_rankgauss_enable,
+        "fe_random_fourier_enable": fe_random_fourier_enable,
+        "fe_sir_direction_enable": fe_sir_direction_enable,
+        "fe_lof_enable": fe_lof_enable,
+        "fe_mahalanobis_density_enable": fe_mahalanobis_density_enable,
+        "fe_ordinal_pattern_enable": fe_ordinal_pattern_enable,
+        "fe_conditional_quantile_rank_enable": fe_conditional_quantile_rank_enable,
+        "fe_budget_learning": fe_budget_learning,
     }
     # 2026-05-30 audit-pass-7 #3/#4: per_feature_edges.kwargs threaded via
     # MRMR.nbins_strategy_kwargs. Build the dict only when one of these
@@ -673,6 +689,13 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         fe_mi_greedy_cmi_enable=combo.mrmr_fe_mi_greedy_cmi_enable_cfg,
         fe_cat_triple_enable=combo.mrmr_fe_cat_triple_enable_cfg,
         fe_rankgauss_enable=combo.mrmr_fe_rankgauss_enable_cfg,
+        fe_random_fourier_enable=combo.mrmr_fe_random_fourier_enable_cfg,
+        fe_sir_direction_enable=combo.mrmr_fe_sir_direction_enable_cfg,
+        fe_lof_enable=combo.mrmr_fe_lof_enable_cfg,
+        fe_mahalanobis_density_enable=combo.mrmr_fe_mahalanobis_density_enable_cfg,
+        fe_ordinal_pattern_enable=combo.mrmr_fe_ordinal_pattern_enable_cfg,
+        fe_conditional_quantile_rank_enable=combo.mrmr_fe_conditional_quantile_rank_enable_cfg,
+        fe_budget_learning=combo.mrmr_fe_budget_learning_cfg,
     )
 
 
@@ -1002,6 +1025,8 @@ def build_shap_proxied_fs_kwargs_from_flat(
     # 2026-07-20: ShapProxiedFS gt_02/gt_09 new-surface axes (added 2026-07-19).
     # Param names match ShapProxiedFS.__init__ verbatim (shap_proxied_fs/__init__.py:132,158-161,210).
     proxy_mode: str = "auto",
+    # gt_03 phase-1 Banzhaf prescreen ranking (shap_proxied_fs/__init__.py:210).
+    prescreen_ranking: str = "mean_abs_phi",
     residual_passes: int = 0,
     residual_merge: str = "rescue",
     refine_mode: str = "greedy",
@@ -1095,6 +1120,7 @@ def build_shap_proxied_fs_kwargs_from_flat(
         # 2026-07-20: ShapProxiedFS gt_02/gt_09 new-surface axes forwarded
         # verbatim (param names match ShapProxiedFS.__init__ exactly).
         "proxy_mode": proxy_mode,
+        "prescreen_ranking": prescreen_ranking,
         "residual_passes": residual_passes,
         "residual_merge": residual_merge,
         "refine_mode": refine_mode,
@@ -1230,6 +1256,7 @@ def build_shap_proxied_fs_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]
         cluster_backend=combo.shap_proxied_cluster_backend_cfg,
         # 2026-07-20: ShapProxiedFS gt_02/gt_09 new-surface axes.
         proxy_mode=combo.shap_proxied_proxy_mode_cfg,
+        prescreen_ranking=combo.shap_proxied_prescreen_ranking_cfg,
         residual_passes=combo.shap_proxied_residual_passes_cfg,
         residual_merge=combo.shap_proxied_residual_merge_cfg,
         refine_mode=combo.shap_proxied_refine_mode_cfg,
@@ -1289,6 +1316,7 @@ def build_composite_discovery_config_from_flat(
     stacking_aware_gate_enabled: bool = False,
     top_m_after_tiny: int = 10,
     use_baseline_diagnostics_hint: bool = True,
+    gate_kind: str = "nnls",
 ):
     """Build a CompositeTargetDiscoveryConfig honoring the discovery
     enable + transforms_mode axes + (iter162) nested MI / stacked /
@@ -1385,6 +1413,7 @@ def build_composite_discovery_config_from_flat(
         "stacking_aware_gate_enabled": stacking_aware_gate_enabled,
         "top_m_after_tiny": top_m_after_tiny,
         "use_baseline_diagnostics_hint": use_baseline_diagnostics_hint,
+        "gate_kind": gate_kind,
     }
     if composite_tiny_screening_mode == "per_family":
         kw["tiny_screening_families"] = ("lightgbm", "linear")
@@ -1446,6 +1475,7 @@ def build_composite_discovery_config(combo: "FuzzCombo"):
         stacking_aware_gate_enabled=combo.composite_stacking_aware_gate_enabled_cfg,
         top_m_after_tiny=combo.composite_top_m_after_tiny_cfg,
         use_baseline_diagnostics_hint=combo.composite_use_baseline_diagnostics_hint_cfg,
+        gate_kind=combo.composite_gate_kind_cfg,
     )
 
 
